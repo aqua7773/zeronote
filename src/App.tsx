@@ -209,20 +209,39 @@ export default function App() {
    */
   const [titlebarVisible, setTitlebarVisible] = useState(true)
   useEffect(() => {
+    // 鼠标离开顶部后**先停留 3 秒**再收（用户要求）——
+    // 期间只要回到顶部就取消，免得"手一抖就收走"。
+    let hideTimer: number | null = null
+    const cancelHide = () => {
+      if (hideTimer !== null) {
+        window.clearTimeout(hideTimer)
+        hideTimer = null
+      }
+    }
     const onMove = (e: MouseEvent) => {
-      // 菜单开着时必须留着标题栏 —— 菜单挂在 ☰ 上（用它的左下角定位），
-      // ☰ 跟着收起的话菜单就"悬空"了。
+      // 菜单开着时必须留着标题栏 —— 菜单挂在 ☰ 上，☰ 跟着收起的话菜单就"悬空"了。
       if (menuAt) {
+        cancelHide()
         setTitlebarVisible(true)
         return
       }
       // 顶部 20px 都算"要标题栏"：自绘窗口最上面几像素收不到 WebView 的 mousemove
-      //（属系统边界），阈值太窄就永远唤不出来。下沿给到 64px 避免贴边抖动。
-      if (e.clientY <= 20) setTitlebarVisible(true)
-      else if (e.clientY > 64) setTitlebarVisible(false)
+      //（属系统边界），阈值太窄就永远唤不出来。64px 之下才算真正离开，中间是缓冲带。
+      if (e.clientY <= 20) {
+        cancelHide()
+        setTitlebarVisible(true)
+      } else if (e.clientY > 64 && hideTimer === null) {
+        hideTimer = window.setTimeout(() => {
+          hideTimer = null
+          setTitlebarVisible(false)
+        }, 3000)
+      }
     }
     window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
+    return () => {
+      cancelHide()
+      window.removeEventListener('mousemove', onMove)
+    }
   }, [menuAt])
 
   /**
