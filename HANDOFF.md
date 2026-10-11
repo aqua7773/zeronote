@@ -1,6 +1,6 @@
 # 项目交接
 
-revision: 7
+revision: 8
 更新时间: 2026-10-11
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
@@ -75,6 +75,20 @@ revision: 7
   ☰ 悬挂菜单贴窗口左边 + 标题栏下沿（`(0, 32)`），`ContextMenu` 的 z-index 提到 70 才不被标题栏盖住
 - **笔记库栏可拖拽调宽**：侧栏与主区之间加分隔线（160–560px，localStorage 持久化），
   侧栏空白区右键可「关闭笔记库栏」；栏头那个 ✕ 已按用户要求移除
+- **多选 + 批量删除**（用户明确要求，属破例 —— 多选原在「内核不做」清单里）：
+  Ctrl/⌘ 点选、Shift 范围选（按显示顺序切片，树是嵌套的），右键已选中的多项可
+  「删除选中的 N 篇」；`deleteNote` 扩成 `deleteNotes(paths[])`，撤销条支持多篇
+- **自制右键菜单**（禁用 WebView 原生菜单）：主区与侧栏空白区共用，8 项四组
+  （新建笔记 / 复制·粘贴 / 查找·复制路径·关闭笔记 / 设置·笔记库栏开关）。
+  要点：全程用 `onContextMenuCapture`（CodeMirror 会吃掉冒泡阶段的 contextmenu）、
+  树项自带菜单靠 `closest('.zn-tree-item')` 让路、ContextMenu 的 z-index 提到 70
+  才不被标题栏（60）盖住
+- **布局分工**：侧栏头 = 应用名（ZeroNote）、侧栏底 = 库名、状态栏左 = 篇数、
+  状态栏右 = 当前文档字数（**剥掉 Markdown 标记后**再数，见 App 的 charCount）
+- **触屏适配**（同步 Android 时补的）：分隔线改用 Pointer Events（Android 无 mousedown）、
+  `.zn-resizer` 加 `touch-action: none`；标题栏在 `pointer: coarse` 设备上常驻显示
+  （触屏收不到 mousemove）。**仍待真机确认**：多选缺修饰键、长按能否触发
+  contextmenu、返回键接管
 
 ## 未完成项
 
