@@ -255,114 +255,167 @@ function scoreEntry(entry: Entry, tokens: string[]): number {
 
 /* ───────────────── 实现 ───────────────── */
 
+/** 一个分区的内部状态 —— 每个分区一份，彼此看不见 */
+type Partition = {
+  docs: Map<string, Entry>
+  /** 重建进行中：期间的 upsert/remove 记在这里，重建收尾时重放，避免被覆盖 */
+  building: boolean
+  pendingUpserts: Map<string, string>
+  pendingRemoves: Set<string>
+  /** 并发 rebuild 复用同一个 promise（返回同一份 { count, ms }） */
+  inflight: Promise<{ count: number; ms: number }> | null
+}
+
+/** 默认分区名 —— 内核与没显式分区的插件都用它 */
+export const DEFAULT_PARTITION = 'default'
+
 /**
  * 建一个内存索引。`deps.fs` 是唯一的 IO 依赖（rebuild 靠 `listNotes` + `readText`）。
  *
  * 生命周期由调用方掌握：UI 在打开搜索面板时调一次 `rebuild()`，
  * 之后靠 `upsert` / `remove` 增量维护（可挂在 `fs.watch` 上，见报告第 4 节）。
+ *
+ * ## 分区（2026-10-12 加）
+ *
+ * 以前全局**只有一份**索引，隐患很实在：机密笔记的正文会被公开搜索命中，
+ * 一个插件的索引数据另一个插件也能查到。现在 `scoped(名字)` 给出**独立命名空间** ——
+ * 各自的 `docs`、各自的 pending、各自的 rebuild，互相看不见。
+ *
+ * **分区只隔离"可见性"，不改变数据源**：`rebuild()` 照样扫全库（`fs.listNotes`），
+ * 只是写进自己那份。要按密级/标签筛，**由插件决定 upsert 什么** ——
+ * "哪些笔记算机密"是业务策略，不该由内核替它判断。
  */
 export function createIndexApi(deps: IndexDeps): IndexApi {
-  let docs = new Map<string, Entry>()
-  /** 重建进行中：期间的 upsert/remove 记在这里，重建收尾时重放，避免被覆盖 */
-  let building = false
-  const pendingUpserts = new Map<string, string>()
-  const pendingRemoves = new Set<string>()
-  /** 并发 rebuild 复用同一个 promise（返回同一份 { count, ms }） */
-  let inflight: Promise<{ count: number; ms: number }> | null = null
+  const partitions = new Map<string, Partition>()
 
-  function applyUpsert(path: string, text: string): void {
-    const prev = docs.get(path)
-    docs.set(path, makeEntry(path, prev?.title, text))
+  function partOf(name: string): Partition {
+    let p = partitions.get(name)
+    if (!p) {
+      p = {
+        docs: new Map<string, Entry>(),
+        building: false,
+        pendingUpserts: new Map<string, string>(),
+        pendingRemoves: new Set<string>(),
+        inflight: null,
+      }
+      partitions.set(name, p)
+    }
+    return p
   }
 
-  async function rebuildImpl(): Promise<{ count: number; ms: number }> {
-    const t0 = Date.now()
-    building = true
-    pendingUpserts.clear()
-    pendingRemoves.clear()
-    try {
-      const list = await deps.fs.listNotes()
-      const next = new Map<string, Entry>()
-      for (let i = 0; i < list.length; i += READ_BATCH) {
-        const chunk = list.slice(i, i + READ_BATCH)
-        // 单篇读失败（文件被外部删/权限问题）⇒ 跳过这一篇，不整体失败
-        const texts = await Promise.all(
-          chunk.map((m) => deps.fs.readText(m.path).then((t) => t, () => null)),
-        )
-        for (let j = 0; j < chunk.length; j++) {
-          const text = texts[j]
-          if (text === null || text === undefined) continue
-          next.set(chunk[j].path, makeEntry(chunk[j].path, chunk[j].title, text))
+  /** 给某个分区造一个视图 */
+  function viewOf(name: string): IndexApi {
+    const part = partOf(name)
+
+    function applyUpsert(path: string, text: string): void {
+      const prev = part.docs.get(path)
+      part.docs.set(path, makeEntry(path, prev?.title, text))
+    }
+
+    async function rebuildImpl(): Promise<{ count: number; ms: number }> {
+      const t0 = Date.now()
+      part.building = true
+      part.pendingUpserts.clear()
+      part.pendingRemoves.clear()
+      try {
+        const list = await deps.fs.listNotes()
+        const next = new Map<string, Entry>()
+        for (let i = 0; i < list.length; i += READ_BATCH) {
+          const chunk = list.slice(i, i + READ_BATCH)
+          // 单篇读失败（文件被外部删/权限问题）⇒ 跳过这一篇，不整体失败
+          const texts = await Promise.all(
+            chunk.map((m) => deps.fs.readText(m.path).then((t) => t, () => null)),
+          )
+          for (let j = 0; j < chunk.length; j++) {
+            const text = texts[j]
+            if (text === null || text === undefined) continue
+            next.set(chunk[j].path, makeEntry(chunk[j].path, chunk[j].title, text))
+          }
         }
+        part.docs = next
+        return { count: part.docs.size, ms: Date.now() - t0 }
+      } finally {
+        for (const [p, t] of part.pendingUpserts) applyUpsert(p, t)
+        for (const p of part.pendingRemoves) part.docs.delete(p)
+        part.pendingUpserts.clear()
+        part.pendingRemoves.clear()
+        part.building = false
       }
-      docs = next
-      return { count: docs.size, ms: Date.now() - t0 }
-    } finally {
-      for (const [p, t] of pendingUpserts) applyUpsert(p, t)
-      for (const p of pendingRemoves) docs.delete(p)
-      pendingUpserts.clear()
-      pendingRemoves.clear()
-      building = false
+    }
+
+    return {
+      /** 多关键词 **AND** + 中文子串。任何输入都不抛错；只有 fs 故障才会 reject。 */
+      async query(q: string, opts?: { limit?: number; dir?: string }): Promise<SearchHit[]> {
+        const tokens = tokenizeQuery(q)
+        if (tokens.length === 0 || part.docs.size === 0) return []
+
+        const dirPrefix = normalizeDir(opts?.dir)
+        const limit = resolveLimit(opts?.limit)
+        const scored: { entry: Entry; score: number }[] = []
+
+        for (const entry of part.docs.values()) {
+          if (dirPrefix && !inDir(entry.path, dirPrefix)) continue
+          let ok = true
+          for (const tk of tokens) {
+            // AND：任一关键词在标题和正文里都不出现 ⇒ 整篇淘汰
+            if (entry.titleLower.indexOf(tk) === -1 && entry.lower.indexOf(tk) === -1) {
+              ok = false
+              break
+            }
+          }
+          if (ok) scored.push({ entry, score: scoreEntry(entry, tokens) })
+        }
+
+        scored.sort(
+          (a, b) =>
+            b.score - a.score ||
+            (a.entry.path < b.entry.path ? -1 : a.entry.path > b.entry.path ? 1 : 0),
+        )
+
+        // 摘要在切片之后才算 —— 只给真正返回的那 ≤ limit 篇做窗口拼接
+        return scored.slice(0, limit).map(({ entry, score }) => ({
+          path: entry.path,
+          title: entry.title,
+          excerpt: buildExcerpt(entry, tokens),
+          score,
+        }))
+      },
+
+      async upsert(path: string, text: string): Promise<void> {
+        applyUpsert(path, text)
+        if (part.building) part.pendingUpserts.set(path, text)
+      },
+
+      async remove(path: string): Promise<void> {
+        part.docs.delete(path)
+        if (part.building) part.pendingRemoves.add(path)
+      },
+
+      async rebuild(): Promise<{ count: number; ms: number }> {
+        if (part.inflight) return part.inflight
+        const p = rebuildImpl()
+        part.inflight = p
+        try {
+          return await p
+        } finally {
+          part.inflight = null
+        }
+      },
+
+      /**
+       * 取一个**独立分区**。名字是**绝对的**（不做层级嵌套）——
+       * `scoped('a').scoped('b')` 拿到的还是分区 `b`，不是 `a/b`，避免歧义。
+       * 同名分区共享同一份索引（前置插件与消费者可以对同一个分区操作）。
+       */
+      scoped(child: string): IndexApi {
+        if (!child || typeof child !== 'string') {
+          throw new Error('index.scoped 需要一个非空的分区名')
+        }
+        return viewOf(child)
+      },
     }
   }
 
-  return {
-    /** 多关键词 **AND** + 中文子串。任何输入都不抛错；只有 fs 故障才会 reject。 */
-    async query(q: string, opts?: { limit?: number; dir?: string }): Promise<SearchHit[]> {
-      const tokens = tokenizeQuery(q)
-      if (tokens.length === 0 || docs.size === 0) return []
-
-      const dirPrefix = normalizeDir(opts?.dir)
-      const limit = resolveLimit(opts?.limit)
-      const scored: { entry: Entry; score: number }[] = []
-
-      for (const entry of docs.values()) {
-        if (dirPrefix && !inDir(entry.path, dirPrefix)) continue
-        let ok = true
-        for (const tk of tokens) {
-          // AND：任一关键词在标题和正文里都不出现 ⇒ 整篇淘汰
-          if (entry.titleLower.indexOf(tk) === -1 && entry.lower.indexOf(tk) === -1) {
-            ok = false
-            break
-          }
-        }
-        if (ok) scored.push({ entry, score: scoreEntry(entry, tokens) })
-      }
-
-      scored.sort(
-        (a, b) =>
-          b.score - a.score ||
-          (a.entry.path < b.entry.path ? -1 : a.entry.path > b.entry.path ? 1 : 0),
-      )
-
-      // 摘要在切片之后才算 —— 只给真正返回的那 ≤ limit 篇做窗口拼接
-      return scored.slice(0, limit).map(({ entry, score }) => ({
-        path: entry.path,
-        title: entry.title,
-        excerpt: buildExcerpt(entry, tokens),
-        score,
-      }))
-    },
-
-    async upsert(path: string, text: string): Promise<void> {
-      applyUpsert(path, text)
-      if (building) pendingUpserts.set(path, text)
-    },
-
-    async remove(path: string): Promise<void> {
-      docs.delete(path)
-      if (building) pendingRemoves.add(path)
-    },
-
-    async rebuild(): Promise<{ count: number; ms: number }> {
-      if (inflight) return inflight
-      const p = rebuildImpl()
-      inflight = p
-      try {
-        return await p
-      } finally {
-        inflight = null
-      }
-    },
-  }
+  return viewOf(DEFAULT_PARTITION)
 }
+

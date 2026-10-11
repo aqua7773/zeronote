@@ -77,6 +77,18 @@ export interface IndexApi {
   upsert(path: string, text: string): Promise<void>
   remove(path: string): Promise<void>
   rebuild(): Promise<{ count: number; ms: number }>
+  /**
+   * 取一个**独立分区**的索引视图（契约 §2.6 的"按密级分索引"靠它）。
+   *
+   * 分区之间**互不可见**：各自的文档表、各自的 rebuild。名字是**绝对的**，
+   * 不做层级嵌套（`scoped('a').scoped('b')` 得到的是 `b` 而不是 `a/b`）；
+   * 同名分区共享同一份索引，所以前置插件与消费者可以约好往同一个分区写。
+   *
+   * ⚠️ 分区**只隔离可见性，不改变数据源**：`rebuild()` 照样扫全库，
+   * 只是写进自己那份。**要按密级/标签筛，由插件决定 upsert 什么** ——
+   * "哪些笔记算机密"是业务策略，内核不替它判断。
+   */
+  scoped(partition: string): IndexApi
 }
 
 /** 内核固定事件（不改名） */
