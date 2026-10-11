@@ -749,16 +749,53 @@ export default function App() {
             </button>
           </div>
         ) : (
+          /* 空态：按 NN/g「空态三原则」组织 ——
+             ① 说清当前状态（是"还没打开"，不是"加载中"）
+             ② 给学习线索（快捷键就地教学）
+             ③ 给一个真正能点的开始动作
+             分三种情况，不用同一句话糊弄「有库但没打开」的场景。 */
           <div className="zn-empty">
-            <h1>ZeroNote</h1>
-            <p>
-              内核只做四件事：<b>.md 读写</b>、<b>编辑</b>、<b>本地存储</b>、<b>插件宿主</b>。
-              <br />
-              选一个文件夹当笔记库 —— 里面的 <code>.md</code> 就是你的笔记。
-            </p>
-            <Button variant="primary" size="lg" onClick={() => void pickVault()}>
-              选择笔记库
-            </Button>
+            {!vault ? (
+              <>
+                <h1>ZeroNote</h1>
+                <p>
+                  还没有打开笔记库。选一个文件夹 —— 里面的 <code>.md</code> 就是你的笔记；
+                  内核只负责 <b>读写</b>、<b>编辑</b>、<b>本地存储</b> 与 <b>插件宿主</b>。
+                </p>
+                <Button variant="primary" size="lg" onClick={() => void pickVault()}>
+                  选择笔记库
+                </Button>
+              </>
+            ) : notes.length === 0 ? (
+              <>
+                <h1>这个库还没有笔记</h1>
+                <p>
+                  <code>{vault.split(/[\\/]/).pop()}</code> 里还没有 <code>.md</code> 文件。
+                </p>
+                <Button variant="primary" size="lg" onClick={() => void newNote()}>
+                  新建第一条
+                </Button>
+              </>
+            ) : (
+              <>
+                <h1>选一篇开始</h1>
+                <p>从左侧列表打开，或新建一篇。</p>
+                <Button variant="primary" size="lg" onClick={() => void newNote()}>
+                  新建笔记
+                </Button>
+              </>
+            )}
+            <div className="zn-empty-keys">
+              <span>
+                <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建
+              </span>
+              <span>
+                <kbd>Ctrl</kbd>+<kbd>K</kbd> 命令面板
+              </span>
+              <span>
+                <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> 搜索
+              </span>
+            </div>
           </div>
         )}
 

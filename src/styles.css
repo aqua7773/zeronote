@@ -374,6 +374,32 @@ button {
 
 .zn-empty p { margin: 0; max-width: 460px; text-align: center; line-height: 1.6; }
 
+/* 空态里的快捷键线索 —— NN/g：空态是「就地教学」的最佳位置 */
+.zn-empty-keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--zn-fg-subtle);
+}
+.zn-empty-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zn-empty-keys kbd {
+  font-family: var(--zn-font-mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg-subtle);
+  color: var(--zn-fg-muted);
+}
+
 /* location: 'main' 的面板容器 —— 占据主编辑区，顶部一条返回编辑器的横条 */
 /* 关闭当前笔记：紧挨路径，紧凑不抢戏 */
 .zn-close-note {
