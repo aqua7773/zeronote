@@ -247,6 +247,13 @@ button {
 .zn-empty p { margin: 0; max-width: 460px; text-align: center; line-height: 1.6; }
 
 /* location: 'main' 的面板容器 —— 占据主编辑区，顶部一条返回编辑器的横条 */
+/* 关闭当前笔记：紧挨路径，紧凑不抢戏 */
+.zn-close-note {
+  padding: 2px 7px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .zn-main-panel {
   display: flex;
   flex: 1;

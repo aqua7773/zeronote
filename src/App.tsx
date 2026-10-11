@@ -258,6 +258,20 @@ export default function App() {
     openNoteRef.current = openNote
   }, [openNote])
 
+  /**
+   * 关闭当前笔记，回到「未打开」的空态。
+   * 有未保存内容先落盘（与切笔记、切库同一套语义）。
+   * 此前**完全没有这个动作** —— 库里只有一篇笔记时，文件树点它还是它，等于出不去。
+   */
+  const closeNote = useCallback(async () => {
+    if (dirtyRef.current) await saveNowRef.current()
+    setActivePath(null)
+    setContent('')
+    setDirty(false)
+    setSaveState('idle')
+    setError(null)
+  }, [])
+
   const pickVault = useCallback(async () => {
     try {
       const dir = await open({ directory: true, multiple: false, title: '选择笔记库文件夹' })
@@ -381,9 +395,15 @@ export default function App() {
         keybinding: 'Mod+Shift+F',
         run: () => setSearchOpen(true),
       }),
+      kernel.commands.api.register({
+        id: 'core.closeNote',
+        title: '关闭当前笔记',
+        keybinding: 'Mod+W',
+        run: () => void closeNote(),
+      }),
     ]
     return () => subs.forEach((s) => s.dispose())
-  }, [kernel, newNote, pickVault])
+  }, [kernel, newNote, pickVault, closeNote])
 
   /* ── 插件扫描 + 加载 ── */
   useEffect(() => {
@@ -547,6 +567,16 @@ export default function App() {
           <span className="zn-path" title={activePath ?? ''}>
             {activePath ?? '没有打开笔记'}
           </span>
+          {activePath && (
+            <button
+              className="zn-btn zn-close-note"
+              onClick={() => void closeNote()}
+              title="关闭这篇笔记（Ctrl+W）"
+              aria-label="关闭当前笔记"
+            >
+              ✕
+            </button>
+          )}
           <span
             className={`zn-save-state${saveState === 'error' ? ' is-error' : dirty ? ' is-dirty' : ''}`}
           >
