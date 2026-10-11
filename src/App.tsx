@@ -225,9 +225,10 @@ export default function App() {
         setTitlebarVisible(true)
         return
       }
-      // 顶部 20px 都算"要标题栏"：自绘窗口最上面几像素收不到 WebView 的 mousemove
-      //（属系统边界），阈值太窄就永远唤不出来。64px 之下才算真正离开，中间是缓冲带。
-      if (e.clientY <= 20) {
+      // 顶部 **10px** 内算"要标题栏"（用户要求减小触发距离）。
+      // 注意别低于这个量级：早先设过 6px —— 唤不出来，因为自绘窗口最上面几像素
+      // 收不到 WebView 的 mousemove（属系统边界）。64px 之下才算真正离开，中间是缓冲带。
+      if (e.clientY <= 10) {
         cancelHide()
         setTitlebarVisible(true)
       } else if (e.clientY > 64 && hideTimer === null) {
