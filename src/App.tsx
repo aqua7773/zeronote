@@ -87,8 +87,12 @@ export default function App() {
 
   /* ── UI ── */
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [rightOpen, setRightOpen] = useState(false)
-  const [rightTab, setRightTab] = useState<string>('plugins')
+  /**
+   * 主区当前显示的页面：`'editor'`（编辑器）| `'plugins'`（插件管理）| `<插件面板 id>`。
+   * 插件管理原先挂在右侧栏，用户要求「不做侧栏，单开一个页面」——
+   * 于是右侧栏取消，主区变成页面容器（编辑器 / 插件管理 / 插件面板 / 弹窗仍走 Dialog）。
+   */
+  const [mainView, setMainView] = useState<string>('editor')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /** 左上角菜单栏的弹出位置；null = 关闭 */
@@ -389,10 +393,7 @@ export default function App() {
       kernel.commands.api.register({
         id: 'core.plugins',
         title: '打开插件管理',
-        run: () => {
-          setRightOpen(true)
-          setRightTab('plugins')
-        },
+        run: () => setMainView('plugins'),
       }),
       kernel.commands.api.register({
         id: 'core.settings',
@@ -509,8 +510,8 @@ export default function App() {
         setPaletteOpen(false)
         return true
       }
-      if (rightOpen) {
-        setRightOpen(false)
+      if (mainView !== 'editor') {
+        setMainView('editor')
         return true
       }
       if (sidebarOpen) {
@@ -523,7 +524,7 @@ export default function App() {
       }
       return false
     }
-  }, [settingsOpen, searchOpen, paletteOpen, rightOpen, sidebarOpen, closeNote])
+  }, [settingsOpen, searchOpen, paletteOpen, sidebarOpen, mainView, closeNote])
 
   /**
    * Android 系统返回键接管。
@@ -594,13 +595,14 @@ export default function App() {
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
     { label: '命令面板', hint: 'Ctrl+K', onClick: () => setPaletteOpen(true) },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
-    {
-      label: '插件',
-      onClick: () => {
-        setRightOpen(true)
-        setRightTab('plugins')
-      },
-    },
+    // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
+    { label: '插件管理', onClick: () => setMainView('plugins') },
+    ...panels
+      .filter((p) => p.location !== 'statusbar' && p.location !== 'modal')
+      .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
+    ...(mainView === 'editor'
+      ? []
+      : [{ label: '返回编辑器', divider: true, onClick: () => setMainView('editor') }]),
     ...(activePath
       ? [
           {
@@ -613,14 +615,14 @@ export default function App() {
       : []),
   ]
 
-  const activePanel = panels.find((p) => p.id === rightTab) ?? null
-  /* view 原语的 location 分流。
-     此前 location 被完全忽略 —— 四种位置的面板全塞进右栏 tab，插件声明
-     statusbar / main / modal 都拿不到对应位置（契约 §6 要求宿主尊重它）。 */
-  const tabPanels = panels.filter((p) => p.location !== 'statusbar')
+  const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
-  const sidebarPanel = activePanel?.location === 'sidebar' ? activePanel : null
-  const mainPanel = activePanel?.location === 'main' ? activePanel : null
+  /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
+     （右侧栏已取消，sidebar 不再有独立载体；契约里 location 仍然有效，只是宿主换了承载方式） */
+  const pagePanel =
+    activePanel && activePanel.location !== 'statusbar' && activePanel.location !== 'modal'
+      ? activePanel
+      : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
 
   const saveLabel =
@@ -681,24 +683,34 @@ export default function App() {
       </aside>
 
       <main className="zn-main">
-        {mainPanel ? (
-          /* location: 'main' 的面板占据主编辑区，顶部留一条返回编辑器的横条 */
+        {pagePanel || mainView === 'plugins' ? (
+          /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
             <div className="zn-main-panel-bar">
-              <span>{mainPanel.title}</span>
-              <button className="zn-btn" onClick={() => setRightTab('plugins')}>
+              <span>{pagePanel ? pagePanel.title : '插件管理'}</span>
+              <button className="zn-btn" onClick={() => setMainView('editor')}>
                 返回编辑器
               </button>
             </div>
             <div className="zn-main-panel-body">
-              <PanelBoundary key={mainPanel.id}>
-                <UIRenderer
-                  node={renderPanelSafe(mainPanel, panelState)}
-                  state={panelState}
-                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+              {pagePanel ? (
+                <PanelBoundary key={pagePanel.id}>
+                  <UIRenderer
+                    node={renderPanelSafe(pagePanel, panelState)}
+                    state={panelState}
+                    onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                    onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                  />
+                </PanelBoundary>
+              ) : (
+                <PluginPanel
+                  plugins={rows}
+                  error={pluginError}
+                  log={panelLog}
+                  onToggle={togglePlugin}
+                  onReload={() => setReloadToken((t) => t + 1)}
                 />
-              </PanelBoundary>
+              )}
             </div>
           </div>
         ) : activePath ? (
@@ -745,59 +757,10 @@ export default function App() {
           {error && <span style={{ color: 'var(--zn-danger)' }}>⚠ {error}</span>}
         </div>
       </main>
-
-      {rightOpen && (
-        <aside className="zn-rightbar">
-          <div className="zn-rightbar-tabs">
-            <button
-              className={`zn-rightbar-tab${rightTab === 'plugins' ? ' is-active' : ''}`}
-              onClick={() => setRightTab('plugins')}
-            >
-              插件
-            </button>
-            {tabPanels.map((p) => (
-              <button
-                key={p.id}
-                className={`zn-rightbar-tab${rightTab === p.id ? ' is-active' : ''}`}
-                onClick={() => setRightTab(p.id)}
-                title={p.pluginId ? `来自插件 ${p.pluginId}` : p.id}
-              >
-                {p.title}
-              </button>
-            ))}
-          </div>
-          <div className="zn-rightbar-body">
-            {sidebarPanel ? (
-              <PanelBoundary key={sidebarPanel.id}>
-                <UIRenderer
-                  node={renderPanelSafe(sidebarPanel, panelState)}
-                  state={panelState}
-                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-                />
-              </PanelBoundary>
-            ) : (
-              <PluginPanel
-                plugins={rows}
-                error={pluginError}
-                log={panelLog}
-                onToggle={togglePlugin}
-                onReload={() => setReloadToken((t) => t + 1)}
-              />
-            )}
-          </div>
-        </aside>
-      )}
       </div>
 
-      {(sidebarOpen || rightOpen) && (
-        <div
-          className="zn-scrim"
-          onClick={() => {
-            setSidebarOpen(false)
-            setRightOpen(false)
-          }}
-        />
+      {sidebarOpen && (
+        <div className="zn-scrim" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* 左上角菜单栏（记事本式 ☰，点击位置就地弹出） */}
@@ -814,7 +777,7 @@ export default function App() {
       <Dialog
         open={!!modalPanel}
         onOpenChange={(next) => {
-          if (!next) setRightTab('plugins')
+          if (!next) setMainView('editor')
         }}
         width={520}
       >
