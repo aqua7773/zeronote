@@ -1,6 +1,6 @@
 # 项目交接
 
-revision: 5
+revision: 6
 更新时间: 2026-10-11
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
@@ -39,6 +39,30 @@ revision: 5
 | **即时渲染** | `_shots\ed-03-tree.png`：打开笔记后 `# 新笔记` 渲染为加粗大字、源码 `#` 隐藏 | `c6bc326` | 2026-10-11 |
 | **关闭当前笔记**（用户反馈补） | `_shots\cn-01-opened.png`（✕ 出现）→ `cn-04-closed.png`（点击后路径变「没有打开笔记」、主区回欢迎页）。用户原话：「编辑页面没有返回的办法」 | 见下 | 2026-10-11 |
 
+## UI / 交互改进（2026-10-11 晚）
+
+依据两份调研（`_research\成熟产品布局规范.md` 与 `成熟产品交互规范.md`，均逐条附来源）
+分三批推进，规划见 `docs\UI规划-v0.1.md`。**P0 七项已全部完成**：
+
+| # | 事项 | 提交 | 验收证据 |
+|---|---|---|---|
+| 1 | 命令面板 `Ctrl+K` → **`Ctrl+P`**（`Ctrl+K` 留给插入链接） | `63a9dd6` | `_shots\kp-01-ctrlp.png` |
+| 2 | 删除改「一步完成 + 撤销条」（去掉两步确认） | `046b8e9` | `_shots\del-03-undo-bar.png` → `del-04-restored.png` |
+| 3 | 每笔记独立撤销栈（CM6 EditorState 缓存，LRU 20） | `7c3fbfb` | `_shots\uz-11-content.png` → `uz-12-restored.png` |
+| 4 | 光标 + 滚动位置记忆 | `f016273` | `_shots\sc-06-scrolled.png` → `sc-07-back.png` |
+| 5 | 自动保存兜底 flush（失焦 / 隐藏 / 关窗前） | `29bbac4` | 输入后 ~400ms 最小化，文件已含新内容 |
+| 6 | 统一焦点圈（WCAG 2.4.13）+ Esc 一次只吃一层 | `ef3bf13` | `_shots\fr-01-focusring.png` |
+| 7 | 错误提示改说人话（NN/g 文案规范） | `c9da1e8` | **未实测截图**（造真实错误的尝试均失败，理由见该提交信息） |
+
+期间顺带修掉的真实 bug 与调整：
+
+- **按钮文字看不见**（用户反馈）：`tailwind-merge` 不认识本项目自定义色名，把 `text-primary-foreground`
+  误判进「字号」组、与 `text-sm` 冲突后**静默丢掉颜色**。修法：`extendTailwindMerge({ extend: { theme: { color: [...] } } })`
+  —— v3 的键是 **`color` 单数**（写 `colors` 会 TS2561）。影响面：所有 `cn()` + 自定义色名的组件（Button/Dialog/ContextMenu）。
+- **正文宽度**：按用户要求改为「占满 + 四周留白」，取消固定列宽（token `--zn-editor-pad-*`）。
+- **空态**：改成三态引导（没选库 / 库是空 / 有笔记没打开）+ 一行快捷键线索（依 NN/g 空态三原则）。
+- **状态栏**：降到 22px / 12px，把配置类计数「插件 N/M」移出（属设置页信息）。
+
 ## 未完成项
 
 - [x] **M3 Android 真机跑通**（2026-10-11 16:36）：`tauri android init` + `rustup target add`（4 ABI）+ gradle 走腾讯镜像 → APK **152.2 MB** → 装到真机 **User 0** 并启动 ✅
@@ -62,6 +86,10 @@ revision: 5
 - [ ] 更多真插件（画布 / 同步 / AI 等，用户说清单「先保留」）
 
 ## 唯一下一步
+
+**0. 继续 UI 第三批（P1）**：标题栏尺寸对齐 Windows 规范（32px 高 / 46px 按钮 / 图标距左 16px）
+→ 侧栏折叠入口去重（`☰` 与目录栏 `✕` 留一个）→ `Ctrl+O` 快速切换 → `Ctrl+F`/`Ctrl+H` 查找替换
+→ 命令面板与搜索面板增强。规划与依据见 `docs\UI规划-v0.1.md` §3。
 
 **1. 等人工确认 M3 最后一步**：手机上点 `☰` → `＋` → 输入 → 停 1 秒 → 库里应出现 `untitled-*.md`
 （`adb shell run-as com.aqua.zeronote.debug ls -la /data/user/0/com.aqua.zeronote.debug/vault`）
