@@ -26,11 +26,16 @@ revision: 4
 | **命令注册** | `_shots\m2-11-palette.png`：`Ctrl+K` 命令面板列出 8 条（5 `core.*` + `hello.say` + 2 `inspiration-flow.*`） | — | 2026-10-11 |
 | **命令执行 + 拒发** | `_shots\m2-13-click-cmd.png`：空 payload 执行 `inspiration-flow.capture` → toast「内容为空，没有落盘」 | — | 2026-10-11 |
 | **🎯 端到端落盘** | `_shots\m2-14-btn-empty.png`：面板显示「已捕捉 1 条」+ 列表项 + status「已捕捉 → 灵感/2026-10-11/16-22-44.md」+ toast；**磁盘实测** `_test-vault\灵感\2026-10-11\16-22-44.md`（12 B，**UTF-8 无 BOM、LF**，目录自动创建） | — | 2026-10-11 |
+| **🎯 M3 真机跑通** | `docs\evidence\m3-android-real-device.png`：APK 152.2 MB 装到真机 **User 0**、进程运行、UI 完整渲染、库路径 `/data/user/0/com.aqua.zeronote.debug/files/vault` | APK debug | 2026-10-11 16:36 |
 | 子 agent 调研 | `_research\插件API对比.md`（535 行）、`_research\android-env-check.md`（185 行 / 25 项） | — | 2026-10-11 |
 
 ## 未完成项
 
-- [ ] **M3 Android** —— 环境检查已完成，**2 项阻塞待用户批准**：① `rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` ② `pnpm tauri android init`
+- [x] **M3 Android 真机跑通**（2026-10-11 16:36）：`tauri android init` + `rustup target add`（4 ABI）+ gradle 走腾讯镜像 → APK **152.2 MB** → 装到真机 **User 0** 并启动 ✅
+      证据：`docs\evidence\m3-android-real-device.png`（包名 `com.aqua.zeronote.debug`，进程 `u0_a317 16231`，库路径 `/data/user/0/com.aqua.zeronote.debug/files/vault`）
+- [ ] **M3 收尾①：响应式布局**（真机实测暴露）—— 当前桌面三栏硬排（侧栏固定 260px），**竖屏手机横向溢出**：侧栏只露一半、「命令/插件」按钮跑出屏幕。手机需要「单栏 + 抽屉式侧栏」
+- [ ] **M3 收尾②：Android 首次自动建库** —— 实测确认 `<appDataDir>/vault` 不存在时界面显示「库里还没有 .md 文件」（不是报错，但也没有可写入口）；宜加 `ensure_vault` 命令或首次放一篇欢迎笔记
+- [ ] **M3 收尾③：真机「编辑 → 保存」未验证**（库为空，先修 ①② 再验）
 - [ ] **`devUrl` 改回**：现在是 `http://localhost:1420/?vault=C:/…/\_test-vault`（本轮验证用），应改回 `http://localhost:1420`
       —— 已改回 ✅（2026-10-11，`6c56865`）
 - [ ] **Android 首次启动要自动建库**：Android 默认库是 `<appDataDir>/vault`，首次不存在时 Rust `list_notes` 会返回「库目录不存在」⇒ 需要加 `ensure_vault` 命令（或在首次启动放一篇欢迎笔记）。当前临时可行：点「＋」新建一篇即会自动建目录
@@ -42,9 +47,13 @@ revision: 4
 
 ## 唯一下一步
 
-二选一：
-- **A（推荐）**：批 M3 的两条命令 → 打通 Android 双端（系统件已全齐）
-- **B**：继续写插件（下一批候选：Git 同步 / 画布 / 标签搜索）
+**M3 收尾三件（按顺序做）**：
+
+1. **响应式布局**：手机竖屏改「单栏 + 抽屉式侧栏」。落点：`src\styles.css` 加媒体查询（`@media (max-width: 820px)`）——侧栏改为可滑出覆盖层、右栏改为覆盖层，「命令/插件」按钮收进顶栏。
+2. **Android 首次自动建库**：Rust 加 `ensure_vault(vault)`（`create_dir_all`），前端在设 Android 默认库后调用；或用 `createNote` 放一篇欢迎笔记。
+3. **真机验证「编辑 → 保存」**：手机点「＋」→ 输入 → 保存 → `adb shell run-as com.aqua.zeronote.debug ls files/vault` 应看到 `.md`，重开内容还在。
+
+**验收条件**：手机上竖屏不溢出、能新建/编辑/保存，且重开应用内容还在。
 
 ## 授权边界
 
