@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 
@@ -44,6 +45,33 @@ export function TitleBar({
   onHoverChange,
 }: TitleBarProps) {
   const win = getCurrentWindow()
+
+  /**
+   * 窗口是否最大化 —— 决定右上角那个按钮画「一个框」（最大化）还是
+   * 「两个叠起来的框」（还原），跟系统窗口的行为一致。
+   * 用 Tauri 的 onResized 而不是 window 的 resize：前者由窗口管理器直接驱动，
+   * 双击标题栏 / Win+↑ / 拖到屏幕边缘触发最大化时同样会派发。
+   */
+  const [maximized, setMaximized] = useState(false)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let disposed = false
+    void (async () => {
+      try {
+        const now = await win.isMaximized()
+        if (!disposed) setMaximized(now)
+        unlisten = await win.onResized(async () => {
+          setMaximized(await win.isMaximized())
+        })
+      } catch {
+        /* 移动端没有窗口装饰，取不到窗口状态也不影响其它功能 */
+      }
+    })()
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [win])
 
   // 显隐用**内联样式**：`.zn-titlebar.is-visible` 这条规则在这台 WebView 上不生效
   //（实测 state 已是 true、class 也切了，标题栏却仍不可见），内联优先级最高、一定有效。
@@ -116,20 +144,41 @@ export function TitleBar({
             type="button"
             className="zn-win-btn"
             onClick={() => void win.toggleMaximize()}
-            title="最大化 / 还原"
-            aria-label="最大化或还原"
+            title={maximized ? '向下还原' : '最大化'}
+            aria-label={maximized ? '向下还原' : '最大化'}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <rect
-                x="0.5"
-                y="0.5"
-                width="9"
-                height="9"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-            </svg>
+            {maximized ? (
+              /* 还原：两个叠起来的方框（后面的框只画露出来的两条边） */
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <rect
+                  x="0.5"
+                  y="2.5"
+                  width="7"
+                  height="7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+                <path
+                  d="M2.5 2.5V0.5h7v7h-2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <rect
+                  x="0.5"
+                  y="0.5"
+                  width="9"
+                  height="9"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              </svg>
+            )}
           </button>
           <button
             type="button"
