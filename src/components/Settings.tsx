@@ -21,7 +21,17 @@ const TABS: { id: TabId; label: string; icon: typeof Settings2 }[] = [
   { id: 'about', label: '关于', icon: Info },
 ]
 
-/** 一行「标签 + 说明 + 右侧控件」 */
+/**
+ * 一行「标签 + 说明 + 右侧控件」。
+ *
+ * **窄屏（手机 CSS 视口约 444px）改成上下排列**：横排时右侧控件是 `shrink-0`（绝不收缩），
+ * 而左列只有 `min-w-0`（允许被压到 0）⇒ 真机实测「外观」那行的左列只剩一个字宽，
+ * 标签变成竖排、说明逐字一行（用户反馈：「外观那里字体显示有问题」）。
+ * `min-[520px]` 以上保持原来的左右布局（桌面观感不变）。
+ *
+ * hint 同时由 `break-all` 改为 `break-words` —— 前者允许**任意断行**，
+ * 在极窄列里就等于"一行一个字"；后者只在单个词真放不下时才断（长路径仍能换行）。
+ */
 function Row({
   label,
   hint,
@@ -32,11 +42,11 @@ function Row({
   children?: React.ReactNode
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
-      <div className="min-w-0">
+    <div className="flex flex-col gap-1.5 border-b border-border py-2.5 last:border-b-0 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between min-[520px]:gap-4">
+      <div className="min-w-0 min-[520px]:flex-1">
         <div className="text-xs text-foreground">{label}</div>
         {hint ? (
-          <div className="mt-0.5 break-all text-[11px] leading-relaxed text-muted-foreground">
+          <div className="mt-0.5 break-words text-[11px] leading-relaxed text-muted-foreground">
             {hint}
           </div>
         ) : null}
