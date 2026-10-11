@@ -651,7 +651,7 @@ export default function App() {
         saveLabel={saveLabel}
         saveError={saveState === 'error'}
         saveDirty={dirty}
-        canCloseNote={!!activePath}
+        canCloseNote={!!activePath && mainView === 'editor'}
         onCloseNote={() => void closeNote()}
         onMenu={setMenuAt}
         showWindowControls={isDesktop}
@@ -664,14 +664,6 @@ export default function App() {
           <span className="zn-vault-name" title={vault ?? ''}>
             {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
           </span>
-          <button
-            className="zn-btn"
-            onClick={() => void newNote()}
-            disabled={!vault}
-            title="新建笔记"
-          >
-            ＋
-          </button>
           <button
             type="button"
             className="zn-icon-btn"
