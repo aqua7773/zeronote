@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 14
-更新时间: 2026-10-12（凌晨 · 插件/store 共用库根 + 笔记库面板去黑框改短横线）
+revision: 15
+更新时间: 2026-10-12（凌晨 · 设置页窄屏布局修复 + 插件跨库共用收尾）
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
 
@@ -42,6 +42,7 @@ revision: 14
 | **🔄 真机 HMR 修复** | `_shots\android-hmr-test.png`：改 `App.tsx` 文案后真机界面**自动**出现 `HMR-OK`，无需重新构建安装；设备日志 `[vite] connected.` + `hot updated: /src/App.tsx` | `7cace9e` | 2026-10-12 |
 | **📚 手机端多库** | `_shots\android-vault-listed3.png`（面板列出「默认库·当前」+ `.vaults/Work`）· `android-vault-switched.png`（切到 Work：顶栏变 Work、底栏 **5 篇 → 0 篇**）· `android-vault-new-ok.png`（新建「1231」目录建出并自动切过去）· `android-vault-final.png`（切回默认库恢复 5 篇） | `3e2886d` | 2026-10-12 |
 | **🔗 插件跨库共用 + 面板视觉** | `_shots\android-vault-T-plugins.png`：切到**空库 T**（底栏 0 篇、且 T 里没有 `.zn`）而 `☰` 菜单里 **Hello 插件 / 灵感流照旧在** ⇒ 插件确是从**库根**加载 · `android-vault-divider2.png`：去掉深色块后白底深字可读，库之间是 `rgb(228,228,231)` 的横线（像素扫描 y=1301 / 1458 / 1664 各 3px 高） | `24f7b46` | 2026-10-12 |
+| **📐 设置页窄屏布局修复** | `_shots\android-appearance-issue.png`（修前：「外 观」竖排 + 说明**逐字一行**）→ `android-appearance-fixed.png`（修后：上下排列，「外观」正常、说明正常折行、主题三段控件独占一行） | `8273c57` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -119,7 +120,7 @@ revision: 14
      清干净再重跑（Gradle daemon 会自动重建）。**别用字符串匹配杀 android-dev 相关进程** ——
      匹配串会命中**执行该命令的 pwsh 自身**（实测把自己杀了，命令异常退出 4294967295）；
      要杀就按 PID 精确杀。
-  ⑤ **Tailwind 的两个渲染坑**（2026-10-12 实测，都在笔记库面板上踩到）：
+  ⑤ **前端的三个渲染坑**（2026-10-12 实测）：
      · **`divide-y divide-border` 在真机上一条线都不渲染**。像素级扫描整个面板中部
        （x 420–800 逐行找非白像素）→ **无任何非白行**；换成显式 `border-t border-border`
        后立刻出现 3px 高、色 `rgb(228,228,231)` 的整行横线。**要分隔线就写 border，别信 divide。**
@@ -127,6 +128,13 @@ revision: 14
        与同元素的 `text-xs` 冲突后**静默丢掉颜色** ⇒ 深色底上的字变成"深灰压深灰"看不见
        （用户反馈的原话：「挡住默认库的那个黑框影响阅读」正是这个）。
        写组件时**别把自定义色名与字号类写在同一个元素上**，深色底能不用就不用。
+     · **横排 flex 里「左列 `min-w-0` + 右列 `shrink-0`」= 左列被压成竖排**：
+       设置页 `Row` 原来就是 `flex` + 左列 `min-w-0` + 右列 `shrink-0`，
+       窄屏（手机 CSS 视口 ≈444px）遇到「浅色/深色/跟随系统」三段控件时，左列被压到约 16px
+       ⇒「外观」竖排、说明**逐字一行**（用户：「外观那里字体显示有问题」）；
+       hint 的 `break-all`（允许任意断行）又放大了这个效果。
+       修法：窄屏 `flex-col` 上下排列、`min-[520px]` 以上才横排；左列补 `flex-1`；
+       hint 用 `break-words` 而非 `break-all`。**移动端先按竖排设计，别指望横排能挤下。**
 - **Android 系统栏（三阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
