@@ -1113,7 +1113,19 @@ export default function App() {
         onHoverChange={setTitlebarVisible}
       />
 
-      <div className="zn-body">
+      <div
+        className="zn-body"
+        onContextMenuCapture={(e) => {
+          // 侧栏与主区统一走自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
+          // 用 **Capture** 版是必需的：CodeMirror 会处理 contentDOM 上的 contextmenu，
+          // 挂在冒泡阶段的话在编辑器正文里右键根本收不到。
+          e.preventDefault()
+          // 树项自带「重命名 / 删除」菜单，别抢它
+          const el = e.target
+          if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
+          openMainMenu(e.clientX, e.clientY)
+        }}
+      >
       {showSidebar && (
       <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`} style={{ width: sidebarWidth }}>
         <div className="zn-sidebar-head">
@@ -1169,16 +1181,7 @@ export default function App() {
         />
       )}
 
-      <main
-        className="zn-main"
-        onContextMenuCapture={(e) => {
-          // 自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
-          // 用 **Capture** 版是必需的：CodeMirror 内部会处理 contentDOM 上的 contextmenu，
-          // 挂在冒泡阶段的话，在编辑器正文里右键根本收不到。
-          e.preventDefault()
-          openMainMenu(e.clientX, e.clientY)
-        }}
-      >
+      <main className="zn-main">
         {pagePanel || mainView === 'plugins' ? (
           /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
