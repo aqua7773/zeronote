@@ -3,8 +3,8 @@ rem ZeroNote Android dev launcher -- CRLF required, do not convert to LF
 set "PATH=%USERPROFILE%\.cargo\bin;%APPDATA%\npm;%PATH%"
 set "CARGO_TARGET_DIR=%USERPROFILE%\cargo-targets\zeronote"
 set "NDK_HOME=%LOCALAPPDATA%\Android\Sdk\ndk\28.2.13676358"
-rem 桌面 dev 通常已占用 1420，这里让安卓的 dev server 另起一个端口，两边可以同时跑
-set "ZN_PORT=1421"
 cd /d "%~dp0"
-call pnpm tauri android dev > ".self-logs\android-dev.log" 2>&1
+rem 用 tauri.android-dev.json 覆盖 beforeDevCommand —— 安卓这边不再自起 vite，
+rem 直接连桌面 dev 已在提供的 devUrl（两端共用同一个服务，开发时要对照）
+call pnpm tauri android dev --config tauri.android-dev.json > ".self-logs\android-dev.log" 2>&1
 echo EXIT=%ERRORLEVEL% >> ".self-logs\android-dev.log"
