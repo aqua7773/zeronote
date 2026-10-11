@@ -373,7 +373,7 @@ function TitleText({ text, terms }: { text: string; terms: string[] }) {
   return (
     <>
       {text.slice(0, at)}
-      <mark className="rounded-ui-sm bg-primary/20 px-0.5 text-foreground">
+      <mark className="zn-mark">
         {text.slice(at, at + len)}
       </mark>
       {text.slice(at + len)}
@@ -390,7 +390,7 @@ function Excerpt({ text }: { text: string }) {
   for (const seg of segs) {
     nodes.push(
       seg.hit ? (
-        <mark key={offset} className="rounded-ui-sm bg-primary/20 px-0.5 text-foreground">
+        <mark key={offset} className="zn-mark">
           {seg.text}
         </mark>
       ) : (

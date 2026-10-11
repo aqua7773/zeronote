@@ -105,7 +105,7 @@ export function Settings({
                 className={cn(
                   'flex w-full items-center gap-2 rounded-ui-sm px-2.5 py-1.5 text-xs transition-colors',
                   tab === id
-                    ? 'bg-primary/10 font-medium text-primary'
+                    ? 'bg-primary font-medium text-primary-foreground'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >

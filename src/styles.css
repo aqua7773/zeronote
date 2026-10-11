@@ -50,7 +50,8 @@
    鼠标点击不给圈、只有键盘导航才给。编辑器本体不画圈（大型编辑区不算 UI component）。 */
 @layer base {
   :focus-visible {
-    outline: 2px solid var(--zn-accent);
+    /* 用前景色而不是主色：主色在亮/暗模式下是"对比的另一端"，前景色永远够看 */
+    outline: 2px solid var(--zn-fg);
     outline-offset: 1px;
   }
 }
@@ -65,8 +66,13 @@
   --zn-fg: #18181b;
   --zn-fg-muted: #71717a;
   --zn-fg-subtle: #a1a1aa;
-  --zn-accent: #4f46e5;
+  /* 主色：**中性深灰**。原先的紫 #4f46e5 已弃用 —— 用户反馈「紫底灰字，看不清」：
+     紫做选中态底色时，文字若也用紫（同色系）对比度天然不足，观感就是一片糊。 */
+  --zn-accent: #3f3f46;
   --zn-accent-fg: #ffffff;
+  /* 高亮（搜索结果 / 命中的词）：单独用醒目黄，不跟主色混 —— 否则主色一变高亮就没了 */
+  --zn-highlight: #fde68a;
+  --zn-highlight-fg: #422006;
   --zn-danger: #dc2626;
 
   --zn-radius-sm: 4px;
@@ -108,7 +114,11 @@
   --zn-fg: #f4f4f5;
   --zn-fg-muted: #a1a1aa;
   --zn-fg-subtle: #71717a;
-  --zn-accent: #6366f1;
+  /* 暗色下把主色反相（浅底 + 深字），对比度同样拉满 */
+  --zn-accent: #e4e4e7;
+  --zn-accent-fg: #18181b;
+  --zn-highlight: #a16207;
+  --zn-highlight-fg: #fef9c3;
 }
 
 * { box-sizing: border-box; }
@@ -319,6 +329,14 @@ button {
 }
 .zn-save-state.is-dirty { color: var(--zn-fg-muted); }
 .zn-save-state.is-error { color: var(--zn-danger); }
+
+/* 搜索结果 / 命中词的高亮 —— 用 --zn-highlight 而不是主色：主色换掉后高亮依旧醒目 */
+.zn-mark {
+  background: var(--zn-highlight);
+  color: var(--zn-highlight-fg);
+  border-radius: var(--zn-radius-sm);
+  padding: 0 2px;
+}
 
 .zn-editor { flex: 1; min-height: 0; overflow: hidden; }
 .zn-editor .cm-editor { height: 100%; }

@@ -46,6 +46,9 @@ const EDITOR_CSS = `
   --atomic-editor-border: var(--zn-border) !important;
   --atomic-editor-accent: var(--zn-accent) !important;
   --atomic-editor-link: var(--zn-accent) !important;
+  /* 编辑器内搜索命中的高亮：atomic 默认是紫，跟着换成独立的高亮色 */
+  --atomic-editor-search-bg: var(--zn-highlight) !important;
+  --atomic-editor-search-bg-active: #f59e0b !important;
 }
 .zn-editor .cm-editor.cm-focused { outline: none !important; }
 /* 正文占满可用宽度，四周留出边距 —— **不设固定列宽**。

@@ -1,6 +1,6 @@
 # 项目交接
 
-revision: 6
+revision: 7
 更新时间: 2026-10-11
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
@@ -83,23 +83,19 @@ revision: 6
 - [ ] `doc.on` 文档事件订阅（v0.2）
 - [x] **编辑器缺「关闭当前笔记」** ✅（用户 2026-10-11 反馈「编辑页面没有返回的办法」）—— 顶栏路径右侧加 ✕（有打开笔记时才出现）+ 命令 `core.closeNote`（`Mod+W`）；`closeNote()` 有未保存内容先落盘，语义与切笔记/切库一致
 - [ ] **移动端「回列表」入口是否够明显**（待用户确认）：窄屏抽屉由顶栏 `☰` 开关，打开笔记后抽屉会自动收起；若用户期望的是"返回列表"而非"关闭笔记"，需把 ✕ 改成返回语义或补一个显式返回键
-- [ ] **编辑器内「替换」缺失**（P1 第 4 项只完成一半）：`Ctrl+F` 查找可用（atomic 内置面板：
-      查找框 / 上下一个 / 关闭 / 匹配高亮 / 命中计数），但**替换不可用**。已查明原因：
-      · 面板**不是** CM6 原生 `defaultSearchPanel`（placeholder 是 "Search" 而非 "Find"，
-        `EditorState.phrases` 覆盖对它无效）→ atomic 实际渲染的是自己那套面板
-      · atomic handle 只暴露 `openSearch / closeSearch / revealText / isSearchOpen /
-        getMarkdown / getContentDOM / setReadOnly / focus / undo / redo` —— **没有 replace**
-      · `Ctrl+H` 无绑定；用 CSS 强制显示替换行也无效 → 该行在 DOM 里根本没渲染
-      两条实现路径（择一）：① 自带替换 UI（用 handle 的 getMarkdown + doc 原语做替换）
-      ② 不用 atomic 的 search，自己在 extensions 里挂 CM6 的 search 扩展
-      （会与它内置的重复，需先确认能否关掉它的）
+- [x] **编辑器内查找 / 替换** ✅（2026-10-11，`71a3714`）—— 查找用 `Ctrl+F`（atomic 内置面板），
+      替换由**自带替换栏**补齐（`Ctrl+H` = `core.replace`）：纯字符串 `indexOf`/`split` 实现
+      「替换」与「全部替换」，零新依赖、不碰 atomic 内部。实测查 `1` 替 `9` → 「已替换 215 处」。
+      **背景**（省得以后重查）：atomic 的查找面板没有替换行 —— 它渲染的是自己那套面板
+      （不是 CM6 原生 `defaultSearchPanel`，`EditorState.phrases` 覆盖无效），handle 没暴露
+      replace API，`Ctrl+H` 无绑定，CSS 强制显示替换行也无效（该行在 DOM 里根本没渲染）。
 - [ ] 更多真插件（画布 / 同步 / AI 等，用户说清单「先保留」）
 
 ## 唯一下一步
 
-**0. 继续 UI 第三批（P1）**：标题栏尺寸对齐 Windows 规范（32px 高 / 46px 按钮 / 图标距左 16px）
-→ 侧栏折叠入口去重（`☰` 与目录栏 `✕` 留一个）→ `Ctrl+O` 快速切换 → `Ctrl+F`/`Ctrl+H` 查找替换
-→ 命令面板与搜索面板增强。规划与依据见 `docs\UI规划-v0.1.md` §3。
+**0. UI 规划已全部完成** —— P0 七项 + P1 六项，逐条证据见 `docs\UI规划-v0.1.md` §6 / §8。
+   下一步待用户指定方向，候选：插件入口兼容性（CJS/IIFE/TS/多文件）、第二个真插件、
+   `doc.on`（v0.2）、Android 真机复验。
 
 **1. 等人工确认 M3 最后一步**：手机上点 `☰` → `＋` → 输入 → 停 1 秒 → 库里应出现 `untitled-*.md`
 （`adb shell run-as com.aqua.zeronote.debug ls -la /data/user/0/com.aqua.zeronote.debug/vault`）
