@@ -42,13 +42,12 @@ const EDITOR_CSS = `
   --atomic-editor-link: var(--zn-accent) !important;
 }
 .zn-editor .cm-editor.cm-focused { outline: none !important; }
-/* 正文「居中限宽」。
-   不用 atomic 默认的 .cm-content { max-width: 70ch; margin-inline: auto } ——
-   实测两侧留白不对称（左 238 / 右 83），折叠侧栏后右边也不跟。
-   改成在滚动容器上给对称的 padding：左右始终相等、且随容器宽度实时重算。
-   行宽上限用 px/rem（ch 依赖字体，放在 scroller 上会算错）。 */
+/* 正文占满可用宽度，四周留出边距 —— **不设固定列宽**。
+   窗口大小、侧栏开合怎么变，正文跟着变，永远只留四周这点边距。
+   （固定列宽/居中窄栏是 Obsidian·Typora 那类"阅读模式"的做法，
+     用户明确要"动态变化、四周留边界"，所以这里不做限宽。） */
 .zn-editor .atomic-cm-editor .cm-scroller {
-  padding-inline: max(0px, calc((100% - var(--zn-read-width, 48rem)) / 2)) !important;
+  padding: var(--zn-editor-pad-y, 28px) var(--zn-editor-pad-x, 48px) 60px !important;
 }
 .zn-editor .atomic-cm-editor .cm-content {
   max-width: none !important;
