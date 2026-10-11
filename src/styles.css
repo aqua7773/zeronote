@@ -585,11 +585,11 @@ body.is-resizing * {
 }
 
 /* 侧栏底部的库信息条：显示库目录名（完整路径在 tooltip 上）。
-   侧栏头归应用名、状态栏归文档信息，各司其职。 */
+   侧栏头归应用名、状态栏归文档信息，各司其职。
+   不画上边框（用户要求）——它就是这一栏的一句说明，加线反而显得是另一个区块。 */
 .zn-sidebar-foot {
   flex: none;
   padding: var(--zn-space-2) var(--zn-space-3);
-  border-top: 1px solid var(--zn-border);
   font-size: var(--zn-text-sm);
   color: var(--zn-fg-subtle);
   overflow: hidden;
