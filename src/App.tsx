@@ -220,6 +220,9 @@ export default function App() {
       }
     }
     const onMove = (e: MouseEvent) => {
+      // 触屏设备（Android）没有鼠标指针：这套"指针接近顶部才显示标题栏"的逻辑不适用 ——
+      // 收不到 mousemove 时标题栏会永远停在初始状态，所以触屏上一律常驻显示。
+      if (window.matchMedia('(pointer: coarse)').matches) return
       // 菜单开着时必须留着标题栏 —— 菜单挂在 ☰ 上，☰ 跟着收起的话菜单就"悬空"了。
       if (menuAt) {
         cancelHide()
@@ -1179,20 +1182,22 @@ export default function App() {
           role="separator"
           aria-orientation="vertical"
           aria-label="拖动调整笔记库栏宽度"
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
+            // 用 Pointer Events 而不是 mouse 系列：鼠标、触摸、触控笔一套搞定，
+            // Android 上没有 mousedown，用 mouse 事件这条分隔线在手机上根本拖不动。
             e.preventDefault()
             const startX = e.clientX
             const startW = sidebarWidth
-            const onMove = (ev: MouseEvent) => {
+            const onMove = (ev: PointerEvent) => {
               setSidebarWidth(Math.min(560, Math.max(160, startW + (ev.clientX - startX))))
             }
             const onUp = () => {
-              document.removeEventListener('mousemove', onMove)
-              document.removeEventListener('mouseup', onUp)
+              document.removeEventListener('pointermove', onMove)
+              document.removeEventListener('pointerup', onUp)
               document.body.classList.remove('is-resizing')
             }
-            document.addEventListener('mousemove', onMove)
-            document.addEventListener('mouseup', onUp)
+            document.addEventListener('pointermove', onMove)
+            document.addEventListener('pointerup', onUp)
             // 用 class 而不是 inline style：拖快时指针会甩到编辑器上，
             // 而 CodeMirror 内部有自己的 user-select，光设 body 的 inline 压不住它。
             document.body.classList.add('is-resizing')

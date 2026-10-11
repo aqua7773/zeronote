@@ -182,6 +182,8 @@ button {
   cursor: col-resize;
   background: transparent;
   transition: background 120ms ease;
+  /* 触摸设备上别让浏览器把拖动解释成滚动/缩放，否则 pointermove 会被打断 */
+  touch-action: none;
 }
 .zn-resizer:hover,
 .zn-resizer:active {
