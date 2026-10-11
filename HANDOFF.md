@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 18
-更新时间: 2026-10-12（凌晨 · 插件能力第 1 批：fs 文件夹 / 编辑器工具栏 / 导出落盘）
+revision: 19
+更新时间: 2026-10-12（凌晨 · service 原语 + 前置插件）
 项目: ZeroNote
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
@@ -45,6 +45,7 @@ revision: 18
 | **🗑 插件可删除** | `_shots\verify-plugins-page.png`（每行右侧出现垃圾桶）→ `verify-delete-confirm.png`（二次确认框，写明删哪个目录 + 不可撤销）→ `verify-delete-done.png`（列表只剩灵感流 + toast「插件已删除」）；**磁盘实测** `.zn/plugins/hello` 消失 · `cargo test` **11 passed / 0 failed**（新增 2 个：删除路径 + 越界/不存在 id 必须报错） | `9ed1469` | 2026-10-12 |
 | **🧩 UINode 9 → 21 种** | `_shots\uikit-rendered.png`（第一屏：tone 三色 / badge 5 档 / progress / image(data URL) / code / html / field+input / field+textarea / select）· `uikit-rendered-2.png`（第二屏：button 三档+禁用 / `send` / link / 可点列表 / **table 且单元格内嵌 badge** / tabs）· `uikit-interact.png`（点按钮后底部 payload 变 `{"variant":"default"}` ⇒ **命令 → state → 重渲染**链路通）· 演示插件 `examples/ui-kit/` | `da377a7` | 2026-10-12 |
 | **🧰 插件能力第 1 批**（fs 文件夹 · 编辑器工具栏 · 导出落盘） | `_shots\toolbar-with-plugin.png`（编辑器底部出现工具栏：H1/待办/代码块/引用/表格 + 徽标）↔ `toolbar-without-plugin.png`（**把插件移出插件目录后，工具栏整条消失**，界面回到纯净态 ⇒ **按需激活的直接证据**）· `cargo test` **12 passed / 0 failed**（新增 `dir_ops_create_and_move_safely`：多级建目录幂等 / 整树搬迁 / `mv` 语义 / 拒绝移进自己子孙 / 越界被挡） | `f4aaa23` | 2026-10-12 |
+| **🔌 service 原语 + 前置插件** | `_shots\dep-katex-final.png`：`dep-consumer` 用 `service.consume('katex')` 拿到 `dep-katex` 提供的渲染器 —— 两条公式（求根公式 / 求和公式）正确排版 + 绿标「katex 0.16.11（由前置插件提供）」⇒ **依赖环境插件化 + 懒加载 + 软依赖**全链路通 · 示例 `examples/dep-katex` `examples/dep-consumer` | `0766529` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
