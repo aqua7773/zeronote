@@ -1156,7 +1156,22 @@ export default function App() {
         }}
       >
       {showSidebar && (
-      <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`} style={{ width: sidebarWidth }}>
+      <aside
+        className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}
+        style={{
+          width: sidebarWidth,
+          // 侧栏贯穿整高（用户要求「侧栏直接做成全屏」）：
+          // 用等量负 margin 抵消标题栏那 32px 占位，让侧栏背景从**窗口最顶**开始；
+          // 再补回等量上内边距，内容仍从标题栏下方开始。
+          // 标题栏的 z-index（60）高于侧栏，于是它浮在侧栏之上 ——
+          // 观感就是"侧栏从顶到底铺满，标题栏只是横在主区那一层"。
+          // 标题栏收起时不占位，偏移与内边距一起归零。
+          marginTop: isDesktop && titlebarVisible ? -32 : 0,
+          paddingTop: isDesktop && titlebarVisible ? 32 : 0,
+          transition:
+            'margin-top 450ms cubic-bezier(0.4,0,0.2,1), padding-top 450ms cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
         <div className="zn-sidebar-head">
           {/* 固定显示应用名；具体是哪个库看状态栏右侧的完整路径（那儿更准确）。
               悬停在这行上仍能看到库路径，信息没丢。 */}
