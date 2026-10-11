@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 24
-更新时间: 2026-10-12（凌晨 · 标签能力：抽取 / 聚合 / 按标签筛选）
+revision: 25
+更新时间: 2026-10-12（凌晨 · 内核命令可被插件接管：新建笔记走 core.newNote）
 项目: ZeroNote
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
@@ -51,6 +51,7 @@ revision: 24
 | **🗂 index 分区（按密级隔离）** | 同一关键词 `zzyzx-plugh` 在两个分区查 —— `_shots\scope-default.png`：**默认分区 0 条** `[]` · `_shots\scope-secret.png`：**机密分区 1 条** `["机密/绝密草稿.md"]` ⇒ **隔离生效**（规格 §2.6 的"机密/绝密只用本地索引"靠它）· 示例 `examples/index-scope/` | `213bd81` | 2026-10-12 |
 | **🔐 安全存储（加密前置插件）** | `_shots\crypto-selftest.png`：命令面板跑「加密自检」⇒ toast「**✅ 加密自检通过：往返一致 + 错 key/错密码都解不开**」—— 一次验收证明三件事：**WebCrypto 在真机 WebView 可用**（`crypto.subtle`）· PBKDF2+AES-GCM 往返正确 · **负向验证成立**（换 salt 或换密码都解不开）· 插件 `examples/dep-crypto/` —— **内核零改动** | `321a434` | 2026-10-12 |
 | **🏷 标签能力（抽取 / 聚合 / 筛选）** | `_shots\tag-stats-fixed.png`：toast「索引 6 篇 / 38ms；共 4 种标签：工作(1)、会议(1)、项目A(1)、正文标签(1)」—— **修复前**是「工作(1)、**工作。(1)**、项目A(1)、正文标签(1)」，对照可见"句号被吸进标签名"与"中文键 `标签:` 被吞"两个 bug · `tag-query-ok.png`：toast「标签「工作」下 **1 篇：tag-test**」· 示例 `examples/tag-demo/` | `8eb647d` | 2026-10-12 |
+| **🎯 内核命令可被插件接管** | `_shots\daily-note-takeover.png`：装上 `examples/daily-note`（它 `bind` 了 `core.newNote`）后点菜单「新建笔记」⇒ toast「**已建在当天目录：笔记/2026/10/12/02-23-46.md**」+ 编辑器自动打开 + 磁盘上确实出现 `笔记/2026` 目录 ⇒ **规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」达成** | `7a70829` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
