@@ -108,6 +108,8 @@ export default function App() {
   }, [themePref])
   /** 窄屏抽屉：宽屏侧栏常驻，窄屏由顶栏 ☰ 滑出 */
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  /** 桌面侧栏是否显示：进插件管理/插件页面时自动让位，也可手动关掉 */
+  const [sidebarVisible, setSidebarVisible] = useState(true)
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
@@ -592,6 +594,10 @@ export default function App() {
     // 移动端没有窗口装饰也没有菜单栏空间，单独给一条开抽屉的入口
     ...(isDesktop ? [] : [{ label: '笔记库', onClick: () => setSidebarOpen(true) }]),
     { label: '打开笔记库…', onClick: () => void pickVault() },
+    {
+      label: sidebarVisible ? '隐藏笔记库栏' : '显示笔记库栏',
+      onClick: () => setSidebarVisible((v) => !v),
+    },
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
     { label: '命令面板', hint: 'Ctrl+K', onClick: () => setPaletteOpen(true) },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
@@ -624,6 +630,8 @@ export default function App() {
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
+  /* 侧栏只在编辑器视图里出现 —— 插件管理 / 插件页面跟笔记无关，让主区占满更清爽 */
+  const showSidebar = sidebarVisible && mainView === 'editor'
 
   const saveLabel =
     saveState === 'saving'
@@ -650,6 +658,7 @@ export default function App() {
       />
 
       <div className="zn-body">
+      {showSidebar && (
       <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}>
         <div className="zn-sidebar-head">
           <span className="zn-vault-name" title={vault ?? ''}>
@@ -662,6 +671,18 @@ export default function App() {
             title="新建笔记"
           >
             ＋
+          </button>
+          <button
+            type="button"
+            className="zn-icon-btn"
+            onClick={() => {
+              setSidebarVisible(false)
+              setSidebarOpen(false)
+            }}
+            title="关闭笔记库栏"
+            aria-label="关闭笔记库栏"
+          >
+            ✕
           </button>
         </div>
         {vault ? (
@@ -681,6 +702,7 @@ export default function App() {
           </div>
         )}
       </aside>
+      )}
 
       <main className="zn-main">
         {pagePanel || mainView === 'plugins' ? (
