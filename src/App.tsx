@@ -256,6 +256,63 @@ export default function App() {
     saveNowRef.current = saveNow
   }, [saveNow])
 
+  /**
+   * 兜底 flush 之一：**失焦 / 页面隐藏**立即落盘。
+   *
+   * 除了「停止输入 800ms」自动保存之外再补这两道 —— 对应 VS Code 的
+   * onFocusChange / onWindowChange 语义：自动保存产品最怕「已经切走了还没写盘」。
+   */
+  useEffect(() => {
+    const flush = () => {
+      if (dirtyRef.current) void saveNowRef.current()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('blur', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('blur', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  /**
+   * 兜底 flush 之二：**关窗前**先落盘再放行。
+   *
+   * 有个未保存内容就拦一次关闭：写盘完成后调 `close()`，第二次进来直接放行
+   * （`closingRef` 做闸门），避免死循环；也不用申请 `window:allow-destroy` 权限。
+   */
+  const closingRef = useRef(false)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    let disposed = false
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        const win = getCurrentWindow()
+        const fn = await win.onCloseRequested(async (e) => {
+          if (closingRef.current || !dirtyRef.current) return // 放行
+          e.preventDefault()
+          try {
+            await saveNowRef.current()
+          } finally {
+            closingRef.current = true
+            await win.close()
+          }
+        })
+        if (disposed) fn()
+        else unlisten = fn
+      } catch {
+        /* 非 Tauri 环境（浏览器预览）没有这个 API —— 忽略即可 */
+      }
+    })()
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
   const openNote = useCallback(
     async (path: string) => {
       const k = kernel
