@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "dep-crypto",
+  "name": "加密存储（前置插件）",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "前置插件：用 WebCrypto 提供 AES-GCM 加解密。内核一行不改 —— 密钥不明文这件事由插件负责",
+  "capabilities": ["command", "store", "fs:read", "fs:write"]
+}
