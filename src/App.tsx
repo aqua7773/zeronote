@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
+import { exit, onBackButtonPress } from '@tauri-apps/api/app'
 /**
  * Android 的库路径（方案 D）—— 公共存储。
  * 好处：文件管理器能进、插件能直接拷进 `.zn/plugins/`、卸载不丢数据。
@@ -477,6 +478,73 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  /**
+   * Android 返回键该做什么：从最上面那层开始关；全都没得关，才允许退出。
+   * 用 ref 传当前逻辑，免得每次状态变化都重新注册返回键监听。
+   */
+  const backRef = useRef<() => boolean>(() => false)
+  useEffect(() => {
+    backRef.current = () => {
+      if (settingsOpen) {
+        setSettingsOpen(false)
+        return true
+      }
+      if (searchOpen) {
+        setSearchOpen(false)
+        return true
+      }
+      if (paletteOpen) {
+        setPaletteOpen(false)
+        return true
+      }
+      if (rightOpen) {
+        setRightOpen(false)
+        return true
+      }
+      if (sidebarOpen) {
+        setSidebarOpen(false)
+        return true
+      }
+      if (activeRef.current) {
+        void closeNote()
+        return true
+      }
+      return false
+    }
+  }, [settingsOpen, searchOpen, paletteOpen, rightOpen, sidebarOpen, closeNote])
+
+  /**
+   * Android 系统返回键接管。
+   *
+   * 不接管的后果（用户实测「手机也无法返回，只会直接退出」）：
+   *   Tauri 的 AppPlugin 在没有监听者时执行
+   *   `webView.canGoBack() ? goBack() : activity.onBackPressed()`，
+   *   而我们的页面没有浏览器历史 ⇒ 直接 finish 掉整个应用。
+   *
+   * 官方 API（@tauri-apps/api/app，since 2.9.0）文档原话：**注册 handler 即完全接管默认行为**。
+   * 于是这里自己决定：先关最上面那层 UI，实在没得关才 exit(0)。
+   * 桌面端 handler 永不触发，因此不需要平台判断。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    let cancelled = false
+    void (async () => {
+      try {
+        const listener = await onBackButtonPress(() => {
+          if (!backRef.current()) void exit(0)
+        })
+        if (cancelled) void listener.unregister()
+        else unlisten = () => void listener.unregister()
+      } catch {
+        /* 非 Android 或 API 不可用：保持系统默认行为 */
+      }
+    })()
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
   }, [])
 
   const togglePlugin = (id: string, enabled: boolean) => {
