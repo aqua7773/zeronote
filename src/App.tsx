@@ -968,15 +968,17 @@ export default function App() {
     return text
   }
 
-  /** 打开主区右键菜单（在事件处理里现算菜单项） */
+  /** 打开主区右键菜单（在事件处理里现算菜单项，按上下文决定给哪些） */
   const openMainMenu = (clientX: number, clientY: number) => {
     const view = editorRef.current
     const items: MenuItem[] = []
+
+    // ── 编辑（编辑器就绪时）──
     if (view) {
       const noSel = view.state.selection.main.empty
       items.push(
         { label: '撤销', hint: 'Ctrl+Z', onClick: () => synthKey('z') },
-        { label: '重做', hint: 'Ctrl+Y', divider: true, onClick: () => synthKey('y') },
+        { label: '重做', hint: 'Ctrl+Y', onClick: () => synthKey('y') },
         {
           label: noSel ? '剪切（未选中）' : '剪切',
           hint: 'Ctrl+X',
@@ -992,7 +994,6 @@ export default function App() {
         {
           label: '粘贴',
           hint: 'Ctrl+V',
-          divider: true,
           onClick: () => {
             void navigator.clipboard
               .readText()
@@ -1012,12 +1013,47 @@ export default function App() {
         {
           label: '全选',
           hint: 'Ctrl+A',
-          divider: true,
           onClick: () =>
             view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
         },
+        { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => synthKey('f') },
+        { label: '替换…', hint: 'Ctrl+H', onClick: () => setReplaceOpen(true) },
       )
     }
+
+    // ── 笔记（打开了笔记时）──
+    if (activePath) {
+      items.push(
+        {
+          label: '复制笔记路径',
+          divider: true,
+          onClick: () => void navigator.clipboard.writeText(activePath).catch(() => {}),
+        },
+        {
+          label: '复制笔记全文',
+          onClick: () => void navigator.clipboard.writeText(content).catch(() => {}),
+        },
+        { label: '关闭当前笔记', hint: 'Ctrl+W', onClick: () => void closeNote() },
+      )
+    }
+
+    // ── 库 / 常用 ──
+    items.push(
+      { label: '新建笔记', hint: 'Ctrl+N', divider: true, onClick: () => void newNote() },
+      { label: '快速打开', hint: 'Ctrl+O', onClick: () => openOverlay('switcher') },
+      { label: '搜索笔记', hint: 'Ctrl+Shift+F', onClick: () => openOverlay('search') },
+      { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
+      { label: '打开笔记库…', onClick: () => void pickVault() },
+      {
+        label: '重新扫描笔记库',
+        divider: true,
+        onClick: () => void refresh(),
+      },
+      { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
+      { label: '打印…', onClick: () => window.print() },
+    )
+
+    // ── 侧栏 ──
     if (sidebarVisible && mainView === 'editor') {
       items.push({
         label: '关闭笔记库栏',
@@ -1028,6 +1064,7 @@ export default function App() {
         },
       })
     }
+
     setMainMenu({ x: clientX, y: clientY, items })
   }
 
@@ -1128,8 +1165,10 @@ export default function App() {
 
       <main
         className="zn-main"
-        onContextMenu={(e) => {
-          // 自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）
+        onContextMenuCapture={(e) => {
+          // 自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
+          // 用 **Capture** 版是必需的：CodeMirror 内部会处理 contentDOM 上的 contextmenu，
+          // 挂在冒泡阶段的话，在编辑器正文里右键根本收不到。
           e.preventDefault()
           openMainMenu(e.clientX, e.clientY)
         }}
