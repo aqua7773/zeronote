@@ -1112,8 +1112,10 @@ export default function App() {
       {showSidebar && (
       <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`} style={{ width: sidebarWidth }}>
         <div className="zn-sidebar-head">
+          {/* 固定显示应用名；具体是哪个库看状态栏右侧的完整路径（那儿更准确）。
+              悬停在这行上仍能看到库路径，信息没丢。 */}
           <span className="zn-vault-name" title={vault ?? ''}>
-            {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
+            ZeroNote
           </span>
         </div>
         {vault ? (
