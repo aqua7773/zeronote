@@ -1,6 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.zeronote" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- 状态栏/导航栏透明，让 WebView 的内容真正铺到屏幕边缘。
+             MainActivity 已经调了 enableEdgeToEdge()，但系统栏颜色还得在这里补齐 ——
+             否则系统栏那一条露出的是 Activity 的窗口底色，看起来就是"没覆盖的灰"
+             （用户反馈的上下两端没覆盖）。
+             图标用深色：我们的界面是浅色的。 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>
