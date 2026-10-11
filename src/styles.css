@@ -289,8 +289,8 @@ button {
   flex: none;
   user-select: none;
   opacity: 0;
-  /* 450ms + Material 标准曲线（起步快、收尾稳）。
-     160ms → 320ms → 450ms：用户连说两次「快」，就按明显的步长往上加 */
+  /* 动画时长由 TitleBar 按方向给内联值（展开 450ms / 收回 900ms）——
+     这里只作为没有内联时的兜底。 */
   transition:
     margin-top 450ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 450ms cubic-bezier(0.4, 0, 0.2, 1);

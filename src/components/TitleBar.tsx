@@ -50,9 +50,16 @@ export function TitleBar({
   //
   // 用 `margin-top` 而不是 `transform`：标题栏要的是 **push（把下面挤下去）**，
   // 不是 overlay（浮在内容上面）。margin 参与布局，收起来时下面的内容会跟着顶上来。
+  // 时长**不对称**：展开 450ms、收回 900ms。
+  // 用户反馈「顶部收回再慢点」—— 收起是从视野里淡出，慢一点才不突兀；
+  // 展开要跟手。transition 由**目标状态**决定，所以这里按 visible 分支写。
+  const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)'
   const barStyle = {
     marginTop: visible ? 0 : -32,
     opacity: visible ? 1 : 0,
+    transition: visible
+      ? `margin-top 450ms ${EASE}, opacity 450ms ${EASE}`
+      : `margin-top 900ms ${EASE}, opacity 900ms ${EASE}`,
   }
 
   return (
