@@ -90,15 +90,23 @@ revision: 11
   `.zn-resizer` 加 `touch-action: none`；标题栏在 `pointer: coarse` 设备上常驻显示
   （触屏收不到 mousemove）。**仍待真机确认**：多选缺修饰键、长按能否触发
   contextmenu、返回键接管
-- **Android 相关必须知道的三件事**（踩过）：
+- **Android 相关必须知道的四件事**（踩过）：
   ① **手动敲 tauri android dev/build 时必须设 `CARGO_TARGET_DIR=~/cargo-targets/zeronote`**。
      不设会落到默认的 `src-tauri/target`，cargo 在那里为 android 目标重新解依赖，
      连 **Windows 专用**的 `vswhom-sys` 都拉进来编译 → `cl.exe` D8050 → 构建退出 101
      （`android-dev.cmd` 里本来就设了，手动敲命令容易漏）。
+     **并且命令要用绝对路径**（`$tauri = Join-Path $root 'node_modules\.bin\tauri.cmd'`）——
+     设 `$root = '...'` 变量**不会改变当前目录**，`& '.\node_modules\...'` 会按会话 CWD 解析而找不到。
   ② **热重载不会自动建长连接**：改完 `src/` 后设备上仍是旧资源，需冷启动应用
      （`adb shell am force-stop com.aqua.zeronote.debug` + `am start -n
      com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`）才会重新拉 devUrl。
   ③ **原生资源（themes.xml / MainActivity.kt）改动热重载不覆盖**，必须重新构建安装。
+  ④ **Android 构建会卡在 Gradle 文件锁**（2026-10-11 深夜实测）：日志停在
+     `Blocking waiting for file lock on Android` 然后 `EXIT=-1`（Windows 上 =-1 通常是被强制终止）。
+     成因是**之前被 kill 的构建留下了 Gradle/Java 进程**占着锁（实测残留两个 java，起于最早那次
+     构建被 kill 的时刻）。修法：
+     `Get-Process | Where-Object { $_.ProcessName -match 'java|gradle' } | Stop-Process -Force`
+     清干净再重跑（Gradle daemon 会自动重建）。
 - **Android 系统栏（两阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
