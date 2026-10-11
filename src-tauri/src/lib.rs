@@ -221,6 +221,83 @@ fn note_exists(vault: String, path: String) -> Result<bool, String> {
   Ok(resolve(&vault, &path)?.exists())
 }
 
+/* ───────────── 插件相关命令（M2）───────────── */
+//
+// 插件住在 `<库>/.zn/plugins/<pluginId>/`：manifest.json + 入口脚本 + store.json。
+// 与 fs 原语一样：只接受安全相对路径，写入原子。
+
+fn plugin_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
+  let ok = !plugin_id.is_empty()
+    && plugin_id
+      .chars()
+      .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+  if !ok {
+    return Err(format!("非法插件 id（只允许字母数字与 - _ .）：{plugin_id}"));
+  }
+  Ok(Path::new(vault).join(PRIVATE_DIR).join("plugins").join(plugin_id))
+}
+
+fn plugin_file(vault: &str, plugin_id: &str, rel: &str) -> Result<PathBuf, String> {
+  let dir = plugin_dir(vault, plugin_id)?;
+  let rel = rel.trim().replace('\\', "/");
+  if rel.is_empty() {
+    return Err("插件内路径为空".to_string());
+  }
+  for c in Path::new(&rel).components() {
+    if !matches!(c, Component::Normal(_)) {
+      return Err(format!("非法插件内路径：{rel}"));
+    }
+  }
+  Ok(dir.join(rel))
+}
+
+#[tauri::command]
+fn list_plugins(vault: String) -> Result<Vec<String>, String> {
+  let dir = Path::new(&vault).join(PRIVATE_DIR).join("plugins");
+  if !dir.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut out = Vec::new();
+  for entry in fs::read_dir(&dir).map_err(|e| format!("读取插件目录失败：{e}"))? {
+    let entry = entry.map_err(|e| e.to_string())?;
+    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+      out.push(entry.file_name().to_string_lossy().to_string());
+    }
+  }
+  out.sort();
+  Ok(out)
+}
+
+#[tauri::command]
+fn read_plugin_file(vault: String, plugin_id: String, rel: String) -> Result<String, String> {
+  let path = plugin_file(&vault, &plugin_id, &rel)?;
+  fs::read_to_string(&path).map_err(|e| format!("读取插件文件失败 {}：{e}", path.display()))
+}
+
+#[tauri::command]
+fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {
+  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
+  if !path.exists() {
+    return Ok(serde_json::json!({}));
+  }
+  let text = fs::read_to_string(&path).map_err(|e| format!("读取插件存储失败：{e}"))?;
+  if text.trim().is_empty() {
+    return Ok(serde_json::json!({}));
+  }
+  serde_json::from_str(&text).map_err(|e| format!("插件存储不是合法 JSON：{e}"))
+}
+
+#[tauri::command]
+fn plugin_store_write(
+  vault: String,
+  plugin_id: String,
+  data: serde_json::Value,
+) -> Result<(), String> {
+  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
+  let text = serde_json::to_string_pretty(&data).map_err(|e| format!("序列化失败：{e}"))?;
+  atomic_write(&path, &text)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -242,7 +319,11 @@ pub fn run() {
       create_note,
       rename_note,
       delete_note,
-      note_exists
+      note_exists,
+      list_plugins,
+      read_plugin_file,
+      plugin_store_read,
+      plugin_store_write
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -331,5 +412,44 @@ mod tests {
       .as_object()
       .unwrap()
       .is_empty());
+  }
+
+  /* ── 插件相关（M2）── */
+
+  #[test]
+  fn plugin_paths_are_sandboxed() {
+    let d = tmpdir("plug");
+    let v = d.to_string_lossy().to_string();
+    assert!(plugin_dir(&v, "hello").is_ok());
+    assert!(plugin_dir(&v, "hello-plugin_1.0").is_ok());
+    assert!(plugin_dir(&v, "../evil").is_err(), "插件 id 不许带路径分隔");
+    assert!(plugin_dir(&v, "a/b").is_err());
+    assert!(plugin_dir(&v, "").is_err());
+    assert!(plugin_file(&v, "hello", "../x.js").is_err());
+    assert!(plugin_file(&v, "hello", "index.js").is_ok());
+  }
+
+  #[test]
+  fn plugin_store_roundtrip() {
+    let d = tmpdir("pstore");
+    let v = d.to_string_lossy().to_string();
+    let data = serde_json::json!({ "count": 1, "name": "灵感流" });
+    plugin_store_write(v.clone(), "hello".into(), data.clone()).unwrap();
+    assert_eq!(plugin_store_read(v, "hello".into()).unwrap(), data);
+  }
+
+  #[test]
+  fn list_plugins_returns_sorted_dir_names() {
+    let d = tmpdir("lplug");
+    let v = d.to_string_lossy().to_string();
+    for name in ["beta", "alpha"] {
+      let p = d.join(".zn").join("plugins").join(name);
+      fs::create_dir_all(&p).unwrap();
+      fs::write(p.join("manifest.json"), "{}").unwrap();
+    }
+    assert_eq!(
+      list_plugins(v).unwrap(),
+      vec!["alpha".to_string(), "beta".to_string()]
+    );
   }
 }

@@ -1,0 +1,14 @@
+{
+  "manifestVersion": 1,
+  "id": "hello",
+  "name": "Hello 示例插件",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "description": "M2 验收用的最小插件：注册 1 个命令 + 挂 1 个侧栏面板（声明式 UI）",
+  "capabilities": ["command", "view:sidebar"],
+  "contributes": {
+    "commands": [{ "id": "hello.say", "title": "Hello：打个招呼", "keybinding": "Mod+Shift+H" }],
+    "panels": [{ "id": "hello.panel", "title": "Hello 插件", "location": "sidebar" }]
+  }
+}

@@ -112,7 +112,7 @@ export type UINode =
   | { type: 'markdown'; value: string }
   | { type: 'button'; label: string; onClick: string; variant?: 'default' | 'ghost' | 'danger' }
   | { type: 'input'; bind: string; placeholder?: string; onSubmit?: string }
-  | { type: 'select'; bind: string; options: { value: string; label: string }[] }
+  | { type: 'select'; bind: string; options: { value: string; label: string }[]; onSubmit?: string }
   | { type: 'list'; items: UINode[]; empty?: string }
   | { type: 'divider' }
 
@@ -169,6 +169,48 @@ export interface PluginContext {
   pluginId: string
   /** 所有资源必须登记，卸载即净 */
   subscriptions: Disposable[]
+}
+
+/** capability 白名单（契约 §4）—— 插件只能声明这些；`net` / `proc` 默认拒 */
+export type Capability =
+  | 'fs:read'
+  | 'fs:write'
+  | 'doc:read'
+  | 'doc:write'
+  | 'index:query'
+  | 'index:write'
+  | 'command'
+  | 'view:sidebar'
+  | 'view:main'
+  | 'view:statusbar'
+  | 'view:modal'
+  | 'store'
+  | 'net'
+  | 'proc'
+
+/** 插件清单：`.zn/plugins/<id>/manifest.json` */
+export type PluginManifest = {
+  /** manifest 结构版本（防将来改字段分不清新旧） */
+  manifestVersion: 1
+  id: string
+  name: string
+  version: string
+  /** 契约版本范围，如 `^0.1.0` */
+  apiVersion: string
+  /** 入口脚本，插件目录内相对路径（v0.1 只支持单文件） */
+  entry: string
+  description?: string
+  /** 支持的平台；缺省 = 全平台。M3 的 Android 必需项（桌面子进程语义在真机会失败） */
+  platforms?: ('desktop' | 'android' | 'web')[]
+  capabilities: Capability[]
+  contributes?: {
+    commands?: { id: string; title: string; keybinding?: string }[]
+    panels?: {
+      id: string
+      title: string
+      location: 'sidebar' | 'main' | 'statusbar' | 'modal'
+    }[]
+  }
 }
 
 export interface Plugin {

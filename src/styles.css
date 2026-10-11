@@ -211,3 +211,97 @@ button {
   font-size: var(--zn-text-sm);
   color: var(--zn-fg-muted);
 }
+
+/* ───────── 声明式 UI（components/UIRenderer.tsx 专用）─────────
+ * 只用上面的 --zn-* token；插件视图靠这些 class 获得统一风格。 */
+
+.zn-ui-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zn-space-3);
+  min-width: 0;
+}
+
+.zn-ui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zn-space-2);
+  min-width: 0;
+}
+
+.zn-ui-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--zn-space-2);
+  min-width: 0;
+}
+
+.zn-ui-text { line-height: 1.5; }
+.zn-ui-text-body { font-size: var(--zn-text); }
+.zn-ui-text-caption { font-size: var(--zn-text-sm); color: var(--zn-fg-muted); }
+.zn-ui-text-title { font-size: var(--zn-text-lg); font-weight: 600; }
+
+.zn-ui-markdown {
+  margin: 0;
+  padding: var(--zn-space-3);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg-subtle);
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+
+.zn-ui-btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--zn-fg-muted);
+}
+.zn-ui-btn-ghost:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
+
+.zn-ui-btn-danger {
+  border-color: var(--zn-danger);
+  color: var(--zn-danger);
+}
+.zn-ui-btn-danger:hover { background: var(--zn-danger); border-color: var(--zn-danger); color: var(--zn-accent-fg); }
+
+.zn-ui-input,
+.zn-ui-select {
+  min-width: 0;
+  width: 100%;
+  padding: 5px var(--zn-space-2);
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+  font: inherit;
+  font-size: var(--zn-text-sm);
+}
+.zn-ui-input::placeholder { color: var(--zn-fg-subtle); }
+.zn-ui-input:focus,
+.zn-ui-select:focus { outline: none; border-color: var(--zn-accent); }
+
+.zn-ui-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zn-space-2);
+  min-width: 0;
+}
+
+.zn-ui-list-empty {
+  padding: var(--zn-space-3) 0;
+  color: var(--zn-fg-subtle);
+  font-size: var(--zn-text-sm);
+  text-align: center;
+}
+
+.zn-ui-divider {
+  height: 1px;
+  border: 0;
+  background: var(--zn-border);
+}
