@@ -1,0 +1,14 @@
+# ZeroNote —— 项目级 cargo 配置（只影响本项目，不动 ~/.cargo/config.toml）
+#
+# 背景：本机直连 crates.io 实测约 34 KB/s（Tauri 全套依赖 ~400 crate，直连要等半小时）。
+# 切 rsproxy.cn（字节跳动维护的 crates.io 镜像）。
+# 回退：删掉本文件即可恢复直连。
+
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true
