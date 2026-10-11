@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "daily-note",
+  "name": "当天目录新建",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "接管「新建笔记」：一律落在 笔记/年/月/日/ 下（规格 2.1 2.2 的固定目录结构）",
+  "capabilities": ["fs:read", "fs:write", "doc:read", "doc:write", "command"]
+}

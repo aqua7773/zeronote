@@ -593,6 +593,21 @@ export default function App() {
     }
   }, [kernel, refresh])
 
+  /**
+   * 跑一个**内核命令**。
+   *
+   * 界面上所有"新建笔记 / 保存 / 切换库"这类入口一律走命令、而不是直接调函数 ——
+   * 因为**命令表是插件唯一能接管内核行为的地方**（`command.bind(id, run)` 会覆盖
+   * 已存在条目的实现）。直接调函数的话插件永远接不上：规格 §2.2 那条
+   * 「'笔记'目录下只能在当天时间目录新建」就是卡在这里。
+   */
+  const runCore = useCallback(
+    (id: string, payload?: Record<string, unknown>) => {
+      void kernel?.commands.api.execute(id, payload).catch((e) => setError(String(e)))
+    },
+    [kernel],
+  )
+
   /** 重命名笔记 —— 当前打开的正是它时同步 activePath，否则编辑器还指着旧路径 */
   const renameNote = useCallback(
     async (from: string, to: string) => {
@@ -694,7 +709,19 @@ export default function App() {
         id: 'core.newNote',
         title: '新建笔记',
         keybinding: 'Mod+N',
-        run: () => newNote(),
+        /**
+         * 接受可选参数 `{ name }`（快速切换里输入的名字）。
+         *
+         * **这条命令是可以被插件接管的** —— 插件在 `apply()` 里
+         * `command.bind('core.newNote', …)` 就会覆盖掉上面这个 `run`
+         * （`bind` 对已存在的 id 只换实现、不动元数据）。
+         * 规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」正是靠这个接管点实现，
+         * 见 `examples/daily-note/`。
+         */
+        run: (payload) => {
+          const p = (payload ?? {}) as { name?: string }
+          return newNote(p.name)
+        },
       }),
       kernel.commands.api.register({
         id: 'core.pickVault',
@@ -1016,7 +1043,7 @@ export default function App() {
 
   /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
   const menuItems: MenuItem[] = [
-    { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() },
+    { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void runCore('core.newNote') },
     { label: '打开笔记库…', onClick: () => void pickVault() },
     // 笔记库栏的开关：
     //  · 桌面 —— 侧栏常驻，收起后菜单这条是唯一的**重开**入口
@@ -1107,7 +1134,7 @@ export default function App() {
     const items: MenuItem[] = []
 
     // ── 新建（永远第一项，最顺手）──
-    items.push({ label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() })
+    items.push({ label: '新建笔记', hint: 'Ctrl+N', onClick: () => void runCore('core.newNote') })
 
     // ── 编辑（编辑器就绪时）──
     if (view) {
@@ -1458,7 +1485,7 @@ export default function App() {
                 <p>
                   <code>{vault.split(/[\\/]/).pop()}</code> 里还没有 <code>.md</code> 文件。
                 </p>
-                <Button variant="primary" size="lg" onClick={() => void newNote()}>
+                <Button variant="primary" size="lg" onClick={() => runCore('core.newNote')}>
                   新建第一条
                 </Button>
               </>
@@ -1466,7 +1493,7 @@ export default function App() {
               <>
                 <h1>选一篇开始</h1>
                 <p>从左侧列表打开，或新建一篇。</p>
-                <Button variant="primary" size="lg" onClick={() => void newNote()}>
+                <Button variant="primary" size="lg" onClick={() => runCore('core.newNote')}>
                   新建笔记
                 </Button>
               </>
@@ -1572,7 +1599,7 @@ export default function App() {
           notes={notes}
           onClose={() => setSwitcherOpen(false)}
           onOpenNote={(p) => void openNote(p)}
-          onCreateNote={(n) => void newNote(n)}
+          onCreateNote={(n) => runCore('core.newNote', { name: n })}
         />
       )}
 
