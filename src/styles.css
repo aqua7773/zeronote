@@ -264,7 +264,21 @@ button {
  * 标题距图标 **16px**、窗口按钮 **46×32px**（三按钮合计约 138px）。
  * （规范依据见 _research\成熟产品布局规范.md §2）
  */
+/*
+ * 标题栏：**自动隐藏**的浮层。
+ *
+ * 平时滑出屏幕（translateY(-100%)），鼠标靠近窗口顶部、或键盘焦点进入时滑回。
+ * 关键是用 `position: absolute` 而**不占文档流** —— 隐藏后 .zn-body 直接顶到 y=0，
+ * 内容是真的上移，而不是留一条空白带。
+ * 鼠标移到顶部 6px 有一个热区（.zn-titlebar-hotzone），它同时兼任拖动区：
+ * 标题栏藏起来时，窗口仍然拖得动。
+ */
 .zn-titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -274,6 +288,31 @@ button {
   height: 32px;
   flex: none;
   user-select: none;
+  transform: translateY(-100%);
+  opacity: 0;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+/* 注意：显隐实际由 TitleBar 的**内联样式**控制 —— 这条规则在这台 WebView 上
+   实测不生效（class 切了、state 也对了，标题栏就是不出现），保留仅作语义说明。 */
+.zn-titlebar.is-visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* 窗口最上面一段：唤出标题栏 + 兜底拖动区。
+   20px 是有意的 —— 更窄的话，鼠标停不进那个范围（窗口顶边本身收不到事件）。 */
+.zn-titlebar-hotzone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  z-index: 59;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zn-titlebar { transition: none; }
 }
 
 /* 标题文字本身也是拖动区（drag-region 不继承，要单独标） */

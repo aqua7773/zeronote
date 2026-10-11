@@ -200,6 +200,39 @@ export default function App() {
     [],
   )
 
+  /**
+   * 标题栏自动隐藏。
+   *
+   * 鼠标靠近窗口顶部（≤6px）滑出显示，离开标题栏区域（>44px）再收起；
+   * 标题栏自己的 onMouseEnter / onFocus 也会把它按住不放（见 TitleBar 的 props）。
+   * 32px 的栏 + 12px 缓冲 = 44px，避免贴着边缘抖动。
+   */
+  const [titlebarVisible, setTitlebarVisible] = useState(true)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      // 顶部 20px 都算"要标题栏"：自绘窗口最上面几像素收不到 WebView 的 mousemove
+      //（属系统边界），阈值太窄就永远唤不出来。下沿给到 64px 避免贴边抖动。
+      if (e.clientY <= 20) setTitlebarVisible(true)
+      else if (e.clientY > 64) setTitlebarVisible(false)
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
+
+  /**
+   * 键盘焦点进入标题栏时也保持显示。
+   * 用 document 级 `focusin` 而不是在 `<header>` 上挂 React 的 `onFocus` ——
+   * 实测后者在这个自绘标题栏上不触发（Tab 到 ☰ 后状态仍是 false）。
+   */
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('.zn-titlebar')) setTitlebarVisible(true)
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [])
+
   /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
   useEffect(() => {
     applyTheme(themePref)
@@ -875,6 +908,9 @@ export default function App() {
 
   return (
     <div className="zn-app">
+      {/* 顶部热区：标题栏隐藏时，鼠标碰到窗口最上面几像素即可唤出；
+          它同时兼任拖动区 —— 标题栏藏起来时窗口也要拖得动。 */}
+      <div className="zn-titlebar-hotzone" data-tauri-drag-region />
       <TitleBar
         title={titleText}
         saveLabel={saveLabel}
@@ -882,6 +918,8 @@ export default function App() {
         saveDirty={dirty}
         onMenu={setMenuAt}
         showWindowControls={isDesktop}
+        visible={titlebarVisible}
+        onHoverChange={setTitlebarVisible}
       />
 
       <div className="zn-body">

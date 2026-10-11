@@ -27,6 +27,10 @@ export interface TitleBarProps {
   onMenu: (at: { x: number; y: number }) => void
   /** 桌面端才渲染窗口控制按钮 */
   showWindowControls?: boolean
+  /** 是否滑出显示（自动隐藏：鼠标靠近顶部、或键盘焦点进来时显示） */
+  visible?: boolean
+  /** 鼠标/焦点进出标题栏 —— 宿主据此保持或取消显示 */
+  onHoverChange?: (inside: boolean) => void
 }
 
 export function TitleBar({
@@ -36,11 +40,33 @@ export function TitleBar({
   saveDirty,
   onMenu,
   showWindowControls = true,
+  visible = true,
+  onHoverChange,
 }: TitleBarProps) {
   const win = getCurrentWindow()
 
+  // 显隐用**内联样式**：`.zn-titlebar.is-visible` 这条规则在这台 WebView 上不生效
+  //（实测 state 已是 true、class 也切了，标题栏却仍不可见），内联优先级最高、一定有效。
+  const barStyle = {
+    transform: visible ? 'translateY(0)' : 'translateY(-100%)',
+    opacity: visible ? 1 : 0,
+  }
+
   return (
-    <header className="zn-titlebar" data-tauri-drag-region>
+    <header
+      className="zn-titlebar"
+      data-tauri-drag-region
+      style={barStyle}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
+      onFocus={() => onHoverChange?.(true)}
+      onBlur={(e) => {
+        // 焦点移到标题栏之外才收起（用 Tab 在栏内移动不算离开）
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          onHoverChange?.(false)
+        }
+      }}
+    >
       <button
         type="button"
         className="zn-icon-btn"
