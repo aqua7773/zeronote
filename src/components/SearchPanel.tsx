@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { IndexApi, SearchHit } from '@/kernel/contract'
 import { splitExcerpt, tokenizeQuery } from '@/kernel/index-api'
 import { Button } from '@/components/ui'
@@ -23,15 +23,40 @@ export type SearchPanelProps = {
   onOpenNote: (path: string) => void
   /** 内核 index 原语；不传则显示「未接入」空态 */
   index?: IndexApi | null
+  /** 库里全部笔记（含 mtime）—— 只用于「按修改时间排序」，不参与检索 */
+  notes?: { path: string; mtime: number }[]
 }
 
 /** 面板一次最多显示多少条（内核那边的硬上限是 200） */
 const RESULT_LIMIT = 50
 /** 输入防抖 —— 千篇量级查询 ~10-30ms，180ms 足够避免每键一查 */
 const DEBOUNCE_MS = 180
+/** 最近搜索词（持久化，上限 8 条）—— 空查询时列出来，点一下即可复用 */
+const LS_RECENT_SEARCH = 'zeronote.search.recent'
+const RECENT_SEARCH_MAX = 8
 
-export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchPanelProps) {
+function loadRecentSearch(): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_SEARCH) ?? '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_SEARCH_MAX)
+  } catch {
+    return []
+  }
+}
+
+type SortBy = 'relevance' | 'name' | 'mtime'
+
+export function SearchPanel({
+  open,
+  onClose,
+  onOpenNote,
+  index = null,
+  notes = [],
+}: SearchPanelProps) {
   const [q, setQ] = useState('')
+  const [sortBy, setSortBy] = useState<SortBy>('relevance')
+  const [recent, setRecent] = useState<string[]>(loadRecentSearch)
   const [hits, setHits] = useState<SearchHit[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -104,13 +129,42 @@ export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchP
     return () => window.clearTimeout(timer)
   }, [open, index, q, rebuildTick])
 
+  /** 记一条最近搜索词（去重 + 封顶）；存不下也不影响搜索本身 */
+  const rememberQuery = useCallback((text: string) => {
+    const t = text.trim()
+    if (!t) return
+    setRecent((prev) => {
+      const next = [t, ...prev.filter((x) => x !== t)].slice(0, RECENT_SEARCH_MAX)
+      try {
+        localStorage.setItem(LS_RECENT_SEARCH, JSON.stringify(next))
+      } catch {
+        /* 配额或隐私模式失败忽略 */
+      }
+      return next
+    })
+  }, [])
+
   const pick = useCallback(
     (hit: SearchHit) => {
+      rememberQuery(q)
       onOpenNote(hit.path)
       onClose()
     },
-    [onOpenNote, onClose],
+    [onOpenNote, onClose, rememberQuery, q],
   )
+
+  /**
+   * 结果排序：默认保持内核给出的**相关度**顺序。
+   * 「按修改时间」需要 mtime，而它不在 SearchHit 里 —— 所以由宿主把笔记清单传进来。
+   */
+  const sorted = useMemo(() => {
+    if (sortBy === 'relevance') return hits
+    if (sortBy === 'name') {
+      return [...hits].sort((a, b) => a.path.localeCompare(b.path, 'zh'))
+    }
+    const mtimeOf = new Map(notes.map((n) => [n.path, n.mtime]))
+    return [...hits].sort((a, b) => (mtimeOf.get(b.path) ?? 0) - (mtimeOf.get(a.path) ?? 0))
+  }, [hits, sortBy, notes])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -119,12 +173,12 @@ export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchP
       onClose()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setCursor((c) => Math.min(c + 1, Math.max(hits.length - 1, 0)))
+      setCursor((c) => Math.min(c + 1, Math.max(sorted.length - 1, 0)))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setCursor((c) => Math.max(c - 1, 0))
     } else if (e.key === 'Enter') {
-      const hit = hits[cursor]
+      const hit = sorted[cursor]
       if (hit) {
         e.preventDefault()
         pick(hit)
@@ -142,17 +196,33 @@ export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchP
   } else if (error) {
     body = <Empty className="text-destructive">索引出错：{error}</Empty>
   } else if (!hasQuery) {
-    body = (
-      <Empty>
-        输入关键词开始搜索。
-        <br />
-        空格分隔多个关键词 —— 全部命中才算结果（AND），中文按子串匹配。
-      </Empty>
-    )
-  } else if (hits.length === 0) {
+    // 有历史就先给历史（点一下即复用），没有才讲用法
+    body =
+      recent.length === 0 ? (
+        <Empty>
+          输入关键词开始搜索。
+          <br />
+          空格分隔多个关键词 —— 全部命中才算结果（AND），中文按子串匹配。
+        </Empty>
+      ) : (
+        <div className="px-1 py-1">
+          <div className="px-2 py-1 text-xs text-muted-foreground">最近搜索</div>
+          {recent.map((r) => (
+            <button
+              key={r}
+              type="button"
+              className="block w-full truncate rounded-ui-sm px-2 py-1.5 text-left text-xs text-foreground transition-colors duration-100 hover:bg-accent"
+              onClick={() => setQ(r)}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      )
+  } else if (sorted.length === 0) {
     body = <Empty>{busy ? '搜索中…' : `没有匹配「${q.trim()}」的笔记`}</Empty>
   } else {
-    body = hits.map((hit, i) => (
+    body = sorted.map((hit, i) => (
       <button
         key={hit.path}
         type="button"
@@ -188,7 +258,7 @@ export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchP
       : busy
         ? '搜索中…'
         : hasQuery
-          ? `${hits.length} 条结果${stat ? ` · 索引 ${stat.count} 篇` : ''}`
+          ? `${sorted.length} 条结果${stat ? ` · 索引 ${stat.count} 篇` : ''}`
           : stat
             ? `已索引 ${stat.count} 篇 · ${stat.ms} ms`
             : '索引未建立'
@@ -222,6 +292,39 @@ export function SearchPanel({ open, onClose, onOpenNote, index = null }: SearchP
             aria-label="搜索笔记"
             className="h-7 min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
+          {/* 排序切换：只在有结果时出现；「相关」= 内核给的评分顺序 */}
+          {hasQuery && sorted.length > 1 && (
+            <div className="flex shrink-0 items-center gap-0.5 rounded-ui-sm border border-border p-0.5">
+              {(
+                [
+                  ['relevance', '相关'],
+                  ['name', '名称'],
+                  ['mtime', '时间'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={cn(
+                    'rounded-ui-sm px-1.5 py-0.5 text-xs transition-colors duration-100',
+                    sortBy === key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                  onClick={() => setSortBy(key)}
+                  title={
+                    key === 'relevance'
+                      ? '按相关度（内核评分）'
+                      : key === 'name'
+                        ? '按文件名'
+                        : '按修改时间（新 → 旧）'
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <Button
             size="sm"
             variant="ghost"

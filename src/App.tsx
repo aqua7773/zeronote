@@ -1114,6 +1114,7 @@ export default function App() {
         onClose={() => setSearchOpen(false)}
         onOpenNote={(p) => void openNote(p)}
         index={kernel?.index ?? null}
+        notes={notes}
       />
 
       {undoDelete ? (
