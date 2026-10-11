@@ -164,13 +164,21 @@ export function Settings({
             ) : null}
 
             {tab === 'plugins' ? (
-              <PluginPanel
-                plugins={plugins}
-                error={pluginError}
-                log={pluginLog}
-                onToggle={onTogglePlugin}
-                onReload={onReloadPlugins}
-              />
+              <div className="space-y-2">
+                {/* 扫描按钮原本在 PluginPanel 的标题栏里，那边已按用户要求去掉标题与横线，
+                    这里补一个同款文字按钮，免得设置页里没法重新扫描 */}
+                <div className="flex justify-end">
+                  <button type="button" className="zn-plain-btn" onClick={onReloadPlugins}>
+                    重新扫描
+                  </button>
+                </div>
+                <PluginPanel
+                  plugins={plugins}
+                  error={pluginError}
+                  log={pluginLog}
+                  onToggle={onTogglePlugin}
+                />
+              </div>
             ) : null}
 
             {tab === 'about' ? (

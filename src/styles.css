@@ -553,6 +553,37 @@ body.is-resizing * {
   font-size: var(--zn-text-sm);
   color: var(--zn-fg-muted);
 }
+/* 顶栏右侧的动作区（重新扫描 / 返回编辑器） */
+.zn-main-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 纯文字按钮：与编辑页那个「关闭」同款 —— 无边框无底色，平时淡、hover 才显眼。
+   插件管理页的顶栏用它，跟编辑页保持一致的语汇。 */
+.zn-plain-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-subtle);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.zn-plain-btn:hover {
+  opacity: 1;
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
 .zn-main-panel-body {
   flex: 1;
   min-height: 0;
@@ -705,8 +736,9 @@ body.is-resizing * {
 
 /* ───────── 插件面板（M2）───────── */
 .zn-plugins { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.zn-plugins-head { display: flex; align-items: center; justify-content: space-between; padding: var(--zn-space-3) var(--zn-space-3); border-bottom: 1px solid var(--zn-border); }
-.zn-plugins-title { font-weight: 600; }
+/* 原先这里有 .zn-plugins-head（「插件」标题 + 重新扫描 + 下横线），
+   用户要求去掉标题与横线、扫描按钮挪到主区顶栏，故整块移除。
+   .zn-plugins-title 也随之不再使用。 */
 .zn-plugins-error { padding: var(--zn-space-2) var(--zn-space-3); color: var(--zn-danger); font-size: var(--zn-text-sm); border-bottom: 1px solid var(--zn-border); }
 .zn-plugins-empty { padding: var(--zn-space-4); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); line-height: 1.7; }
 .zn-plugin-list { flex: 1; overflow: auto; }

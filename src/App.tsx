@@ -1226,9 +1226,28 @@ export default function App() {
           <div className="zn-main-panel">
             <div className="zn-main-panel-bar">
               <span>{pagePanel ? pagePanel.title : '插件管理'}</span>
-              <button className="zn-btn" onClick={() => setMainView('editor')}>
-                返回编辑器
-              </button>
+              <div className="zn-main-panel-actions">
+                {/* 「重新扫描」原本在插件面板的标题栏里，用户要求挪到这条顶栏上 */}
+                {!pagePanel && (
+                  <button
+                    type="button"
+                    className="zn-plain-btn"
+                    onClick={() => setReloadToken((t) => t + 1)}
+                    title="重新扫描插件目录"
+                  >
+                    重新扫描
+                  </button>
+                )}
+                {/* 与编辑页那个「关闭」同款：纯净文字按钮 */}
+                <button
+                  type="button"
+                  className="zn-plain-btn"
+                  onClick={() => setMainView('editor')}
+                  title="返回编辑器"
+                >
+                  返回编辑器
+                </button>
+              </div>
             </div>
             <div className="zn-main-panel-body">
               {pagePanel ? (
@@ -1246,7 +1265,6 @@ export default function App() {
                   error={pluginError}
                   log={panelLog}
                   onToggle={togglePlugin}
-                  onReload={() => setReloadToken((t) => t + 1)}
                 />
               )}
             </div>

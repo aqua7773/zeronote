@@ -18,23 +18,16 @@ export function PluginPanel({
   error,
   log,
   onToggle,
-  onReload,
 }: {
   plugins: PluginRow[]
   error?: string | null
   log?: string[]
   onToggle: (id: string, enabled: boolean) => void
-  onReload: () => void
 }) {
   return (
     <div className="zn-plugins">
-      <div className="zn-plugins-head">
-        <span className="zn-plugins-title">插件</span>
-        <button className="zn-btn" onClick={onReload} title="重新扫描插件目录">
-          重新扫描
-        </button>
-      </div>
-
+      {/* 这里原本有一条「插件」标题栏 + 重新扫描按钮 + 下横线。
+          用户要求去掉标题和横线，扫描按钮挪到主区顶栏（见 App 的 .zn-main-panel-bar）。 */}
       {error && <div className="zn-plugins-error">⚠ {error}</div>}
 
       {plugins.length === 0 ? (
