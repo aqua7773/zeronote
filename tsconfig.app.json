@@ -20,7 +20,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* 路径别名 —— 照抄 Lumina/shadcn 组件时 import 一个都不用改。
+       注意：TS 6+ 已废弃 baseUrl，paths 直接相对 tsconfig 解析，不要再加 baseUrl。 */
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src"]
 }

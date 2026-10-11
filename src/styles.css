@@ -1,7 +1,47 @@
+@import "tailwindcss";
+
 /*
  * ZeroNote 设计 token —— 所有 UI（含插件视图）只用这些变量。
  * 声明式 UI 之所以能"风格统一"，靠的就是这一层。
  */
+
+/*
+ * Tailwind 4 主题映射。
+ *
+ * `@theme inline` = 直接引用下面的 --zn-*（不复制值），所以暗色切换时自动跟随。
+ * 命名对齐 shadcn / Lumina 的惯例，这样抄它们的组件时 class 名一个都不用改：
+ *   bg-background · text-foreground · bg-primary · border-border · text-muted-foreground
+ *
+ * ⚠️ 语义坑：`accent` 在 shadcn 惯例里是「hover 表面色」，而 ZeroNote 的 --zn-accent
+ * 是**主色**（紫）。所以主色映射到 `primary`，`accent` 留给 hover 表面。
+ */
+@theme inline {
+  --color-background: var(--zn-bg);
+  --color-foreground: var(--zn-fg);
+  --color-surface: var(--zn-bg-subtle);
+  --color-surface-hover: var(--zn-bg-hover);
+  --color-surface-active: var(--zn-bg-active);
+  --color-border: var(--zn-border);
+  --color-border-strong: var(--zn-border-strong);
+  --color-muted-foreground: var(--zn-fg-muted);
+  --color-subtle-foreground: var(--zn-fg-subtle);
+  --color-primary: var(--zn-accent);
+  --color-primary-foreground: var(--zn-accent-fg);
+  --color-destructive: var(--zn-danger);
+  /* 浮层（右键菜单 / 弹窗 / 下拉）—— 与页面底色一致，靠边框和阴影分层 */
+  --color-popover: var(--zn-bg);
+  --color-popover-foreground: var(--zn-fg);
+  /* shadcn 语义的 accent = hover 表面，对齐 Lumina 的用法 */
+  --color-accent: var(--zn-bg-hover);
+  --color-accent-foreground: var(--zn-fg);
+
+  --radius-ui-sm: var(--zn-radius-sm);
+  --radius-ui-md: var(--zn-radius);
+  --radius-ui-lg: var(--zn-radius-lg);
+
+  --font-sans: var(--zn-font);
+  --font-mono: var(--zn-font-mono);
+}
 
 :root {
   --zn-bg: #ffffff;
@@ -339,6 +379,24 @@ button {
 .zn-rightbar-tab { padding: 4px 10px; border: 0; border-radius: var(--zn-radius-sm); background: transparent; color: var(--zn-fg-muted); font-size: var(--zn-text-sm); white-space: nowrap; }
 .zn-rightbar-tab.is-active { background: var(--zn-bg-active); color: var(--zn-fg); font-weight: 600; }
 .zn-rightbar-body { flex: 1; overflow: auto; }
+
+/* ───────── 面板容错：插件崩了不许拖垮内核 ───────── */
+.zn-ui-error { display: flex; flex-direction: column; gap: var(--zn-space-2); padding: var(--zn-space-4); }
+.zn-ui-error-title { font-weight: 600; color: var(--zn-danger); }
+.zn-ui-error-msg {
+  margin: 0; padding: var(--zn-space-2);
+  background: var(--zn-bg-subtle); border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  color: var(--zn-fg-muted); font-family: var(--zn-font-mono); font-size: var(--zn-text-sm);
+  white-space: pre-wrap; word-break: break-word;
+}
+.zn-ui-error-hint { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); line-height: 1.7; }
+.zn-ui-error-inline {
+  padding: var(--zn-space-2);
+  border: 1px dashed var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  color: var(--zn-danger); font-size: var(--zn-text-sm);
+}
 .zn-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
 
 /* ───────── 窄屏（手机竖屏）：单栏 + 抽屉式侧栏 ───────── */

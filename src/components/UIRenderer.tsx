@@ -48,7 +48,27 @@ function submitIdOf(node: UINode): string | undefined {
   return (node as { onSubmit?: string }).onSubmit
 }
 
+/**
+ * ③ 单节点容错：一个坏节点只显示自己的错误，**兄弟节点照常渲染**。
+ *
+ * 为什么必须有这一层：插件的 render() 返回的是**数据**，字段可以缺失或类型不对
+ * （`{type:'stack'}` 没有 children、未知 type、value 不是字符串…）。
+ * 这类错误发生在递归渲染途中，只有就地 try 才不会冒到整棵树。
+ */
 function renderNode(node: UINode, key: React.Key, ctx: RenderCtx): React.JSX.Element {
+  try {
+    return renderNodeUnsafe(node, key, ctx)
+  } catch (e) {
+    return (
+      <div key={key} className="zn-ui-error-inline" role="alert">
+        ⚠ 这个组件渲染失败：{String(e)}
+      </div>
+    )
+  }
+}
+
+/** 真正的渲染 —— 只由 `renderNode` 包着调用 */
+function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.JSX.Element {
   const renderChildren = (nodes: UINode[]) =>
     nodes.map((child, i) => renderNode(child, i, ctx))
 

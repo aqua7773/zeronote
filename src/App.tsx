@@ -23,6 +23,9 @@ import { MarkdownEditor } from './components/MarkdownEditor'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
+import { PanelBoundary } from './components/PanelBoundary'
+import { renderPanelSafe } from './kernel/panel-safe'
+import { Button } from '@/components/ui'
 
 const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
@@ -265,6 +268,48 @@ export default function App() {
     }
   }, [kernel, refresh])
 
+  /** 重命名笔记 —— 当前打开的正是它时同步 activePath，否则编辑器还指着旧路径 */
+  const renameNote = useCallback(
+    async (from: string, to: string) => {
+      const k = kernel
+      if (!k) return
+      try {
+        await k.fs.rename(from, to)
+        if (activeRef.current === from) setActivePath(to)
+        await refresh()
+        setError(null)
+        setToast(`已重命名：${to}`)
+      } catch (e) {
+        setError(String(e))
+      }
+    },
+    [kernel, refresh],
+  )
+
+  /** 删除笔记 —— 删前先把未保存改动落盘，删掉的才是磁盘上的最新版本（Rust 侧是移入 .zn/trash/，不是物理删） */
+  const deleteNote = useCallback(
+    async (path: string) => {
+      const k = kernel
+      if (!k) return
+      try {
+        if (activeRef.current === path && dirtyRef.current) await saveNowRef.current()
+        await k.fs.delete(path)
+        if (activeRef.current === path) {
+          setActivePath(null)
+          setContent('')
+          setDirty(false)
+          setSaveState('idle')
+        }
+        await refresh()
+        setError(null)
+        setToast('已移入回收站（.zn/trash/）')
+      } catch (e) {
+        setError(String(e))
+      }
+    },
+    [kernel, refresh],
+  )
+
   const onEditorChange = useCallback((next: string) => {
     setContent(next)
     setDirty(true)
@@ -425,7 +470,13 @@ export default function App() {
           </button>
         </div>
         {vault ? (
-          <FileTree notes={notes} activePath={activePath} onOpen={(p) => void openNote(p)} />
+          <FileTree
+            notes={notes}
+            activePath={activePath}
+            onOpen={(p) => void openNote(p)}
+            onRename={(from, to) => void renameNote(from, to)}
+            onDelete={(p) => void deleteNote(p)}
+          />
         ) : (
           <div
             className="zn-tree"
@@ -488,9 +539,9 @@ export default function App() {
               <br />
               选一个文件夹当笔记库 —— 里面的 <code>.md</code> 就是你的笔记。
             </p>
-            <button className="zn-btn is-primary" onClick={() => void pickVault()}>
+            <Button variant="primary" size="lg" onClick={() => void pickVault()}>
               选择笔记库
-            </button>
+            </Button>
           </div>
         )}
 
@@ -526,15 +577,14 @@ export default function App() {
           </div>
           <div className="zn-rightbar-body">
             {activePanel ? (
-              <UIRenderer
-                node={activePanel.render({
-                  pluginId: activePanel.pluginId ?? '',
-                  state: panelState,
-                })}
-                state={panelState}
-                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-              />
+              <PanelBoundary key={activePanel.id}>
+                <UIRenderer
+                  node={renderPanelSafe(activePanel, panelState)}
+                  state={panelState}
+                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                />
+              </PanelBoundary>
             ) : (
               <PluginPanel
                 plugins={rows}
