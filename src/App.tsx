@@ -209,7 +209,7 @@ export default function App() {
    */
   const [titlebarVisible, setTitlebarVisible] = useState(true)
   useEffect(() => {
-    // 鼠标离开顶部后**先停留 3 秒**再收（用户要求）——
+    // 鼠标离开顶部后**先停留 1 秒**再收（用户要求）——
     // 期间只要回到顶部就取消，免得"手一抖就收走"。
     let hideTimer: number | null = null
     const cancelHide = () => {
@@ -234,7 +234,7 @@ export default function App() {
         hideTimer = window.setTimeout(() => {
           hideTimer = null
           setTitlebarVisible(false)
-        }, 3000)
+        }, 1000)
       }
     }
     window.addEventListener('mousemove', onMove)
