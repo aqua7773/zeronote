@@ -110,7 +110,7 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
   // Ctrl/Cmd+S → onSave。
   // 不用 CM6 的 keymap：一是不必把持 ref 的回调塞进 render 期构造的扩展里，
   // 二是挂在 window 上比 CM6 keymap 覆盖面更广 —— 焦点在搜索面板 / 侧边栏时
-  // 也能保存（App 的全局快捷键只管 Ctrl+K 与 Escape，不会与之重叠）。
+  // 也能保存（App 的全局快捷键只管 Ctrl+P 与 Escape，不会与之重叠）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return

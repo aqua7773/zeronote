@@ -389,7 +389,7 @@ export default function App() {
       kernel.commands.api.register({
         id: 'core.palette',
         title: '打开命令面板',
-        keybinding: 'Mod+K',
+        keybinding: 'Mod+P',
         run: () => setPaletteOpen(true),
       }),
       kernel.commands.api.register({
@@ -599,7 +599,7 @@ export default function App() {
       onClick: () => setSidebarVisible((v) => !v),
     },
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
-    { label: '命令面板', hint: 'Ctrl+K', onClick: () => setPaletteOpen(true) },
+    { label: '命令面板', hint: 'Ctrl+P', onClick: () => setPaletteOpen(true) },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
     // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
     { label: '插件管理', onClick: () => setMainView('plugins') },
@@ -790,7 +790,7 @@ export default function App() {
                 <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建
               </span>
               <span>
-                <kbd>Ctrl</kbd>+<kbd>K</kbd> 命令面板
+                <kbd>Ctrl</kbd>+<kbd>P</kbd> 命令面板
               </span>
               <span>
                 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> 搜索
