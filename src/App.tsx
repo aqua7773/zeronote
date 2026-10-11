@@ -50,6 +50,41 @@ const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
 const AUTOSAVE_MS = 800
 
+/**
+ * 把底层异常翻译成用户能懂的话。
+ *
+ * 依据 NN/g Error-Message Guidelines：说清**具体出了什么问题**、给出**可执行的补救**，
+ * 不罗列错误码、不指责用户、不过早报错。原始异常仍附在末尾括号里 ——
+ * 排查时有用，但不占主位。
+ */
+type FailKind = 'read' | 'write' | 'create' | 'rename' | 'delete' | 'list' | 'vault'
+
+const FAIL_BASE: Record<FailKind, string> = {
+  read: '无法打开这篇笔记',
+  write: '保存失败',
+  create: '新建笔记失败',
+  rename: '重命名失败',
+  delete: '删除失败',
+  list: '读取笔记库失败',
+  vault: '这个文件夹无法作为笔记库',
+}
+
+const FAIL_HINT: Record<FailKind, string> = {
+  read: '文件可能已被移动或删除，可点「重新扫描」。',
+  write: '磁盘可能已满或文件被占用；内容仍在编辑器里，稍后重试即可。',
+  create: '请确认笔记库可写。',
+  rename: '请检查是否与现有文件重名。',
+  delete: '文件可能正被其他程序占用。',
+  list: '笔记库可能已被移动或删除，可重新选择一个文件夹。',
+  vault: '请确认该文件夹有读写权限。',
+}
+
+function failMsg(kind: FailKind, e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  if (kind === 'rename' && /exists|已?存在/i.test(raw)) return '已存在同名笔记。'
+  return `${FAIL_BASE[kind]}：${FAIL_HINT[kind]}（${raw}）`
+}
+
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 function loadDisabled(): Set<string> {
@@ -225,7 +260,7 @@ export default function App() {
       setNotes(await kernel.fs.listNotes())
       setError(null)
     } catch (e) {
-      setError(String(e))
+      setError(failMsg('list', e))
     }
   }, [kernel])
 
@@ -249,7 +284,7 @@ export default function App() {
       setError(null)
     } catch (e) {
       setSaveState('error')
-      setError(String(e))
+      setError(failMsg('write', e))
     }
   }, [kernel])
   useEffect(() => {
@@ -326,7 +361,7 @@ export default function App() {
         setError(null)
         setSidebarOpen(false) // 窄屏：选完笔记自动收抽屉
       } catch (e) {
-        setError(String(e))
+        setError(failMsg('read', e))
       }
     },
     [kernel],
@@ -361,7 +396,7 @@ export default function App() {
       setSaveState('idle')
       setVault(dir)
     } catch (e) {
-      setError(String(e))
+      setError(failMsg('vault', e))
     }
   }, [])
 
@@ -376,7 +411,7 @@ export default function App() {
       await refresh()
       await openNoteRef.current(name)
     } catch (e) {
-      setError(String(e))
+      setError(failMsg('create', e))
     }
   }, [kernel, refresh])
 
@@ -392,7 +427,7 @@ export default function App() {
         setError(null)
         setToast(`已重命名：${to}`)
       } catch (e) {
-        setError(String(e))
+        setError(failMsg('rename', e))
       }
     },
     [kernel, refresh],
@@ -419,7 +454,7 @@ export default function App() {
         setUndoDelete({ path, trash: trashPath })
         setToast(null)
       } catch (e) {
-        setError(String(e))
+        setError(failMsg('delete', e))
       }
     },
     [kernel, refresh],
@@ -435,7 +470,7 @@ export default function App() {
       setError(null)
       setToast('已恢复')
     } catch (e) {
-      setError(String(e))
+      setError(failMsg('rename', e))
     } finally {
       setUndoDelete(null)
     }
