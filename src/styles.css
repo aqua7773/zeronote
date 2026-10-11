@@ -290,7 +290,11 @@ button {
   user-select: none;
   transform: translateY(-100%);
   opacity: 0;
-  transition: transform 160ms ease, opacity 160ms ease;
+  /* 320ms + Material 标准曲线（起步快、收尾稳）：160ms/ease 用户反馈「太快」，
+     这种整条滑出 32px 的位移需要更长一点才顺眼 */
+  transition:
+    transform 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 320ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 注意：显隐实际由 TitleBar 的**内联样式**控制 —— 这条规则在这台 WebView 上
