@@ -246,14 +246,22 @@ button {
  * 自绘窗口标题栏（tauri decorations:false 之后，系统那条没了，这是唯一的一条）。
  * 拖动靠 data-tauri-drag-region；按钮不标该属性，否则点不动。
  */
+/*
+ * 自绘窗口标题栏（tauri decorations:false 之后，系统那条没了，这是唯一的一条）。
+ * 拖动靠 data-tauri-drag-region；按钮不标该属性，否则点不动。
+ *
+ * 尺寸对齐 Windows 设计规范：高 **32px**、图标距左边框 **16px**、
+ * 标题距图标 **16px**、窗口按钮 **46×32px**（三按钮合计约 138px）。
+ * （规范依据见 _research\成熟产品布局规范.md §2）
+ */
 .zn-titlebar {
   display: flex;
   align-items: center;
-  gap: var(--zn-space-2);
-  padding-left: var(--zn-space-3);
+  gap: 16px;
+  padding-left: 16px;
   border-bottom: 1px solid var(--zn-border);
   background: var(--zn-bg-subtle);
-  height: 36px;
+  height: 32px;
   flex: none;
   user-select: none;
 }
@@ -286,7 +294,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 46px; /* Windows 11 规范：46×32（高度由 align-self: stretch 撑满标题栏） */
   border: 0;
   background: transparent;
   color: var(--zn-fg-muted);

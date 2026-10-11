@@ -728,10 +728,11 @@ export default function App() {
     // 移动端没有窗口装饰也没有菜单栏空间，单独给一条开抽屉的入口
     ...(isDesktop ? [] : [{ label: '笔记库', onClick: () => setSidebarOpen(true) }]),
     { label: '打开笔记库…', onClick: () => void pickVault() },
-    {
-      label: sidebarVisible ? '隐藏笔记库栏' : '显示笔记库栏',
-      onClick: () => setSidebarVisible((v) => !v),
-    },
+    // 侧栏折叠入口只留一个：展开时用目录栏里就近的 ✕ 关；
+    // 收起后，菜单这条是唯一的**重开**入口 —— 避免同一动作两处可点、让用户猜该用哪个
+    ...(sidebarVisible
+      ? []
+      : [{ label: '显示笔记库栏', onClick: () => setSidebarVisible(true) }]),
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
     { label: '命令面板', hint: 'Ctrl+P', onClick: () => setPaletteOpen(true) },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
