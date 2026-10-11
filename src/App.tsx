@@ -37,6 +37,7 @@ import {
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings } from './kernel/keybindings'
 import { SearchPanel } from './components/SearchPanel'
+import { QuickSwitcher } from './components/QuickSwitcher'
 import {
   Button,
   ContextMenu,
@@ -81,7 +82,10 @@ const FAIL_HINT: Record<FailKind, string> = {
 
 function failMsg(kind: FailKind, e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e)
-  if (kind === 'rename' && /exists|已?存在/i.test(raw)) return '已存在同名笔记。'
+  // 重名走同一句人话（重命名与新建都可能撞名）
+  if ((kind === 'rename' || kind === 'create') && /exists|已?存在/i.test(raw)) {
+    return '已存在同名笔记。'
+  }
   return `${FAIL_BASE[kind]}：${FAIL_HINT[kind]}（${raw}）`
 }
 
@@ -125,6 +129,8 @@ export default function App() {
 
   /* ── UI ── */
   const [paletteOpen, setPaletteOpen] = useState(false)
+  /** 快速打开笔记（Ctrl+O）—— 与命令面板分开：一个管"去哪篇"，一个管"做什么" */
+  const [switcherOpen, setSwitcherOpen] = useState(false)
   /**
    * 主区当前显示的页面：`'editor'`（编辑器）| `'plugins'`（插件管理）| `<插件面板 id>`。
    * 插件管理原先挂在右侧栏，用户要求「不做侧栏，单开一个页面」——
@@ -400,12 +406,18 @@ export default function App() {
     }
   }, [])
 
-  const newNote = useCallback(async () => {
+  const newNote = useCallback(async (nameArg?: string) => {
     const k = kernel
     if (!k) return
     const d = new Date()
     const pad = (n: number) => String(n).padStart(2, '0')
-    const name = `untitled-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.md`
+    // 快速切换里输入了名字就直接用它（缺 .md 自动补）；否则给一个时间戳默认名
+    const given = nameArg?.trim()
+    const name = given
+      ? /\.md$/i.test(given)
+        ? given
+        : `${given}.md`
+      : `untitled-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.md`
     try {
       await k.fs.createNote(name, '# 新笔记\n\n')
       await refresh()
@@ -514,6 +526,12 @@ export default function App() {
         run: () => setPaletteOpen(true),
       }),
       kernel.commands.api.register({
+        id: 'core.quickOpen',
+        title: '快速打开笔记…',
+        keybinding: 'Mod+O',
+        run: () => setSwitcherOpen(true),
+      }),
+      kernel.commands.api.register({
         id: 'core.plugins',
         title: '打开插件管理',
         run: () => setMainView('plugins'),
@@ -614,6 +632,10 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (switcherOpen) {
+        setSwitcherOpen(false)
+        return
+      }
       if (paletteOpen) {
         setPaletteOpen(false)
         return
@@ -625,7 +647,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, searchOpen])
+  }, [paletteOpen, searchOpen, switcherOpen])
 
   /**
    * Android 返回键该做什么：从最上面那层开始关；全都没得关，才允许退出。
@@ -640,6 +662,10 @@ export default function App() {
       }
       if (searchOpen) {
         setSearchOpen(false)
+        return true
+      }
+      if (switcherOpen) {
+        setSwitcherOpen(false)
         return true
       }
       if (paletteOpen) {
@@ -660,7 +686,7 @@ export default function App() {
       }
       return false
     }
-  }, [settingsOpen, searchOpen, paletteOpen, sidebarOpen, mainView, closeNote])
+  }, [settingsOpen, searchOpen, switcherOpen, paletteOpen, sidebarOpen, mainView, closeNote])
 
   /**
    * Android 系统返回键接管。
@@ -996,6 +1022,16 @@ export default function App() {
         items={kernel ? kernel.commands.api.list() : []}
         onRun={(id) => void kernel?.commands.api.execute(id)}
       />
+
+      {/* 条件渲染：关掉即卸载，query/cursor 天然清零（见 QuickSwitcher 的注释） */}
+      {switcherOpen && (
+        <QuickSwitcher
+          notes={notes}
+          onClose={() => setSwitcherOpen(false)}
+          onOpenNote={(p) => void openNote(p)}
+          onCreateNote={(n) => void newNote(n)}
+        />
+      )}
 
       <Settings
         open={settingsOpen}
