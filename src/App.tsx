@@ -762,6 +762,7 @@ export default function App() {
       view: k.view,
       store: k.store,
       host: k.host,
+      service: k.service,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
     }
     setPluginError(null)
@@ -795,7 +796,11 @@ export default function App() {
     })()
     return () => {
       cancelled = true
-      for (const l of loaded) void unloadPlugin(l, deps)
+      for (const l of loaded) {
+        void unloadPlugin(l, deps)
+        // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
+        k.releaseServices(l.manifest.id)
+      }
       setLoadedIds([])
     }
   }, [kernel, vault, reloadToken])

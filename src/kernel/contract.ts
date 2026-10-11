@@ -308,6 +308,39 @@ export interface HostApi {
 
 export const API_VERSION = '0.1.0'
 
+/**
+ * 9. service —— 插件之间的**带返回值**互调，也是「前置插件」的载体。
+ *
+ * 为什么不能只靠 `event`：事件总线是 fire-and-forget，没有返回值也没有"对方在不在"。
+ * 「AI 插件调用 Git 插件的提交能力」这类需求，用事件只能靠全局变量 hack。
+ *
+ * **内核在这里是彻底干净的**：它只维护一张 `名字 → 懒工厂` 的表，
+ * 完全不认识 katex / mermaid / pdf 这些具体依赖 —— 依赖环境由**插件**提供，
+ * 于是"换一个公式渲染器"只是换一个插件，不用动内核。
+ *
+ * 依赖关系刻意做成**软依赖**（VS Code `extensionDependencies` / SilverBullet `redirect`
+ * 的同类做法）：`consume` 拿不到就返回 `null`，**不抛错、不阻塞加载、不做拓扑排序**。
+ * 插件自己决定降级成什么样（显示"请先安装 XX 前置插件"是最常见的做法）。
+ */
+export interface ServiceApi {
+  /**
+   * 提供一项服务（**「前置插件」就是靠它**）。名字建议带命名空间：`katex` / `git.commit`。
+   *
+   * `factory` **是懒的** —— 只有第一次有人 `consume` 时才执行，结果缓存起来复用。
+   * 这一点是"按需激活"的关键：前置插件自己可以极轻（只登记一个闭包），
+   * 真正重的东西（拉 CDN 上的 katex / pdf.js）推迟到被需要那一刻。
+   * **没人用 ⇒ 一次网络请求、一次 import 都不会发生。**
+   *
+   * factory 抛错 ⇒ `consume` 返回 `null`（**不把异常抛给消费者** ——
+   * 一个前置插件坏了不该拖垮依赖它的插件），错误会写进插件日志。
+   */
+  provide<T>(name: string, factory: () => T | Promise<T>, opts?: { version?: string }): Disposable
+  /** 取服务（异步：要等 factory 跑完）。**没有就返回 `null`**。 */
+  consume<T = unknown>(name: string): Promise<T | null>
+  /** 当前已登记的服务（含提供者、是否已实例化）—— 给诊断面板/调试用 */
+  list(): { name: string; pluginId: string; version?: string; loaded: boolean }[]
+}
+
 export interface PluginContext {
   fs: FsApi
   doc: DocApi
@@ -317,6 +350,7 @@ export interface PluginContext {
   view: ViewApi
   store: StoreApi
   host: HostApi
+  service: ServiceApi
   pluginId: string
   /** 所有资源必须登记，卸载即净 */
   subscriptions: Disposable[]
@@ -368,6 +402,14 @@ export type PluginManifest = {
   /** 支持的平台；缺省 = 全平台。M3 的 Android 必需项（桌面子进程语义在真机会失败） */
   platforms?: ('desktop' | 'android' | 'web')[]
   capabilities: Capability[]
+  /**
+   * 依赖的**前置插件**（只声明，**不做拓扑排序、不做版本求解**）。
+   *
+   * 作用有两个：① 插件管理页可以提示"缺前置：xxx"；② 加载顺序不保证时，
+   * 消费方靠 `service.consume` 拿 `null` + 等 `service:available` 事件来补挂。
+   * 缺了前置**不拦加载** —— 硬依赖会让"一个插件装错版本就整个起不来"。
+   */
+  dependencies?: string[]
   contributes?: {
     commands?: { id: string; title: string; keybinding?: string }[]
     panels?: {

@@ -21,6 +21,7 @@ import type {
   IndexApi,
   Plugin,
   PluginContext,
+  ServiceApi,
   PluginManifest,
   StoreApi,
   ViewApi,
@@ -66,6 +67,8 @@ export type PluginHostDeps = {
   view: ViewApi
   store: (pluginId: string) => StoreApi
   host: HostApi
+  /** 服务注册表（按插件 id 视图化）—— 「前置插件」靠它互调 */
+  service: (pluginId: string) => ServiceApi
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
 }
 
@@ -421,6 +424,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     view: scopedView(deps.view, manifest.id),
     store: deps.store(manifest.id),
     host: deps.host,
+    service: deps.service(manifest.id),
     pluginId: manifest.id,
     subscriptions: subs,
   }

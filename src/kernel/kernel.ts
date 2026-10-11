@@ -14,6 +14,7 @@ import type {
   HostApi,
   IndexApi,
   PanelLocation,
+  ServiceApi,
   StoreApi,
   UINode,
   ViewApi,
@@ -23,6 +24,7 @@ import { createCommandApi, type CommandRegistry } from './command'
 import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { createIndexApi } from './index-api'
+import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
 
 export type PanelRegistration = {
@@ -41,6 +43,8 @@ export type KernelHooks = {
   onLog: (msg: string, level?: 'debug' | 'info' | 'warn' | 'error') => void
   /** 插件通过 `view.setState` 写面板状态时回调 */
   onPanelStateChange: (bind: string, value: unknown) => void
+  /** 服务登记表变了（宿主一般不需要处理 —— kernel 已经把它转成 event 广播） */
+  onServicesChange?: (list: { name: string; pluginId: string; version?: string; loaded: boolean }[]) => void
 }
 
 export type Kernel = {
@@ -53,6 +57,14 @@ export type Kernel = {
   view: ViewApi
   store: (pluginId: string) => StoreApi
   host: HostApi
+  /** 「前置插件」用的服务注册表（按插件 id 视图化，卸载即回收） */
+  service: (pluginId: string) => ServiceApi
+  /**
+   * 插件卸载时**强制**回收它提供的服务。
+   * 不指望插件自己把 `provide` 的 Disposable 推进 subscriptions ——
+   * 漏推一次的后果是服务表里留下"幽灵提供者"，别的插件还在 consume 一个死对象。
+   */
+  releaseServices: (pluginId: string) => void
 }
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
@@ -96,6 +108,23 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
   /** index 原语：内存全文索引（多关键词 AND + 中文子串），实现见 index-api.ts */
   const index: IndexApi = createIndexApi({ fs })
 
+  /**
+   * 服务注册表（**「前置插件」的载体**）。登记表一变就转成
+   * `service:available` / `service:gone` 事件广播 —— 于是加载顺序不保证时，
+   * 晚到的消费者能靠事件补挂，不用自己轮询。
+   */
+  const services = createServiceRegistry({
+    onAvailable: (name, pluginId) => {
+      event.emit('service:available', { name, pluginId })
+      hooks.onServicesChange?.(services.snapshot())
+    },
+    onGone: (name, pluginId) => {
+      event.emit('service:gone', { name, pluginId })
+      hooks.onServicesChange?.(services.snapshot())
+    },
+    onLog: (msg, level) => hooks.onLog(msg, level),
+  })
+
   const host: HostApi = {
     apiVersion: API_VERSION,
     appVersion: '0.1.0',
@@ -138,5 +167,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     view,
     host,
     store: (pluginId: string) => createStoreApi(vault, pluginId),
+    service: (pluginId: string) => services.scoped(pluginId),
+    releaseServices: (pluginId: string) => services.release(pluginId),
   }
 }
