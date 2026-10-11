@@ -221,6 +221,16 @@ fn note_exists(vault: String, path: String) -> Result<bool, String> {
   Ok(resolve(&vault, &path)?.exists())
 }
 
+/// 确保库目录（含私有目录）存在。
+/// Android 首次启动时应用私有目录里还没有 `vault`，不建的话 `list_notes` 会直接报「库目录不存在」。
+#[tauri::command]
+fn ensure_vault(vault: String) -> Result<(), String> {
+  let root = Path::new(&vault);
+  fs::create_dir_all(root).map_err(|e| format!("创建库目录失败：{e}"))?;
+  fs::create_dir_all(root.join(PRIVATE_DIR)).map_err(|e| format!("创建私有目录失败：{e}"))?;
+  Ok(())
+}
+
 /* ───────────── 插件相关命令（M2）───────────── */
 //
 // 插件住在 `<库>/.zn/plugins/<pluginId>/`：manifest.json + 入口脚本 + store.json。
@@ -323,7 +333,8 @@ pub fn run() {
       list_plugins,
       read_plugin_file,
       plugin_store_read,
-      plugin_store_write
+      plugin_store_write,
+      ensure_vault
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");

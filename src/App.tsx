@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { appDataDir } from '@tauri-apps/api/path'
+import { invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type PanelRegistration } from './kernel/kernel'
 import {
@@ -100,7 +101,10 @@ export default function App() {
     void (async () => {
       try {
         const dir = await appDataDir()
-        if (!cancelled) setVault(`${dir.replace(/[\\/]+$/, '')}/vault`)
+        const v = `${dir.replace(/[\\/]+$/, '')}/vault`
+        // 先把库目录建出来：Android 私有目录首次没有 vault，否则 list_notes 会报「库目录不存在」
+        await invoke('ensure_vault', { vault: v })
+        if (!cancelled) setVault(v)
       } catch (e) {
         setError(`无法确定应用数据目录：${String(e)}`)
       }

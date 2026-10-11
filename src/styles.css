@@ -350,7 +350,7 @@ button {
 
   /* 侧栏 → 左侧抽屉 */
   .zn-sidebar {
-    position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
+    position: fixed; top: env(safe-area-inset-top, 0px); bottom: env(safe-area-inset-bottom, 0px); left: 0; z-index: 60;
     width: min(80vw, 300px);
     transform: translateX(-100%);
     transition: transform .18s ease;
@@ -360,7 +360,7 @@ button {
 
   /* 右栏 → 右侧抽屉（它是条件渲染的，出现即打开） */
   .zn-rightbar {
-    position: fixed; top: 0; bottom: 0; right: 0; z-index: 60;
+    position: fixed; top: env(safe-area-inset-top, 0px); bottom: env(safe-area-inset-bottom, 0px); right: 0; z-index: 60;
     width: min(88vw, 360px);
     box-shadow: 0 0 24px rgba(0,0,0,.18);
   }
@@ -374,4 +374,10 @@ button {
   .zn-titlebar { gap: var(--zn-space-2); padding: var(--zn-space-2) var(--zn-space-3); }
   .zn-path { font-size: var(--zn-text-sm); }
   .zn-main { width: 100%; }
+}
+
+/* ───────── 移动端安全区：避免顶栏被 Android 状态栏遮住（需 viewport-fit=cover）───────── */
+.zn-app {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
