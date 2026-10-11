@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { type Extension } from '@codemirror/state'
+import { type Extension, type EditorState } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
+
+/** 编辑器 state 缓存上限（篇）；超过按 LRU 淘汰，避免开过很多笔记后内存无限涨 */
+const MAX_CACHED_STATES = 20
 
 type Props = {
   /** 当前笔记的库内相对路径；null = 未打开 */
@@ -78,6 +81,16 @@ const EDITOR_CSS = `
 export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props) {
   const viewRef = useRef<EditorView | null>(null)
   const handleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null)
+  /** 当前笔记路径的镜像 —— ViewPlugin 的 destroy 回调里读不到 props */
+  const pathRef = useRef<string | null>(path)
+  /**
+   * 每篇笔记的 EditorState 缓存。
+   *
+   * CM6 里**撤销历史与选区都属于 EditorState**，而 `documentId={path}` 会让
+   * atomic 在切换笔记时重建 view —— 不缓存就等于「切走再回来，Ctrl+Z 全没了」。
+   * 上限 20 篇（LRU），避免开过很多笔记后内存无限上涨。
+   */
+  const stateCacheRef = useRef(new Map<string, EditorState>())
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   const onReadyRef = useRef(onReady)
@@ -98,6 +111,18 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
   }, [])
 
   const releaseView = useCallback((view: EditorView) => {
+    // destroy 时 state 仍可读：先把这篇笔记的历史留在缓存里，再放掉 view
+    const p = pathRef.current
+    if (p) {
+      const cache = stateCacheRef.current
+      cache.delete(p) // 先删再插，维持 LRU 顺序
+      cache.set(p, view.state)
+      while (cache.size > MAX_CACHED_STATES) {
+        const oldest = cache.keys().next().value
+        if (oldest === undefined) break
+        cache.delete(oldest)
+      }
+    }
     if (viewRef.current === view) viewRef.current = null
     onReadyRef.current?.(null)
   }, [])
@@ -155,6 +180,21 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
     if (!view) return
     adoptView(view)
   }, [path, adoptView])
+
+  // 切换笔记：atomic 已经重建了 view（新 state、空历史），这里把这篇笔记上次的
+  // state 装回去 —— 撤销栈、选区都在里面。
+  // 必须排在下面那个「外部内容同步」之前：装回来的可能是旧内容，由后者按 value
+  // 纠正（value 才是真相），但**历史得以保留**。
+  useEffect(() => {
+    pathRef.current = path
+    const view = viewRef.current
+    if (!view || !path) return
+    const cached = stateCacheRef.current.get(path)
+    // 无条件装回 —— 即便内容碰巧相同，**历史**也是这份 state 独有的资产。
+    // （曾用 `cached.doc !== view.state.doc` 当守卫，结果「清空后切走再切回，
+    //   Ctrl+Z 恢复不了」：两边 doc 都是空串，历史被一起丢掉了。）
+    if (cached) view.setState(cached)
+  }, [path])
 
   // 切换笔记 / 外部内容变化：整篇替换（doc 身份变了则由 atomic 自己重建）
   useEffect(() => {
