@@ -91,6 +91,13 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
    * 上限 20 篇（LRU），避免开过很多笔记后内存无限上涨。
    */
   const stateCacheRef = useRef(new Map<string, EditorState>())
+  /**
+   * 每篇笔记的**滚动位置**。
+   *
+   * CM6 的 EditorState 含选区与历史，但**不含滚动**（滚动属于 DOM/view）。
+   * 用户切走再切回时，光标位置恢复了、视野却跳回顶部，观感同样很糟。
+   */
+  const scrollCacheRef = useRef(new Map<string, number>())
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   const onReadyRef = useRef(onReady)
@@ -107,6 +114,19 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
   // render 期一律不出现 `*.current`，ref 只在事件/生命周期回调里读写。
   const adoptView = useCallback((view: EditorView) => {
     viewRef.current = view
+    // 滚动位置必须**实时**记，不能在销毁时读 —— ViewPlugin 的 destroy 回调里
+    // view.scrollDOM 往往已被重置为 0，那样存下来的永远是"顶部"
+    // （实测：切走再切回，视野跳回第一行）。
+    // 用 addEventListener 而不是 onsroll 属性：CM6 内部也会碰这个容器，
+    // 属性赋值可能被它覆盖掉。view 销毁时 DOM 一并消失，无需手动清理。
+    view.scrollDOM.addEventListener(
+      'scroll',
+      () => {
+        const p = pathRef.current
+        if (p) scrollCacheRef.current.set(p, view.scrollDOM.scrollTop)
+      },
+      { passive: true },
+    )
     onReadyRef.current?.(view)
   }, [])
 
@@ -121,6 +141,7 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
         const oldest = cache.keys().next().value
         if (oldest === undefined) break
         cache.delete(oldest)
+        scrollCacheRef.current.delete(oldest) // 滚动位置与 state 同寿命
       }
     }
     if (viewRef.current === view) viewRef.current = null
@@ -194,6 +215,14 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
     // （曾用 `cached.doc !== view.state.doc` 当守卫，结果「清空后切走再切回，
     //   Ctrl+Z 恢复不了」：两边 doc 都是空串，历史被一起丢掉了。）
     if (cached) view.setState(cached)
+    // 滚动位置：setState 之后 CM6 还会异步重排，直接赋值容易被随后的测量覆盖，
+    // 因此放到下一帧再设。次数不多（仅切回时一次），开销可忽略。
+    const top = scrollCacheRef.current.get(path)
+    if (top !== undefined && top > 0) {
+      window.requestAnimationFrame(() => {
+        view.scrollDOM.scrollTop = top
+      })
+    }
   }, [path])
 
   // 切换笔记 / 外部内容变化：整篇替换（doc 身份变了则由 atomic 自己重建）
