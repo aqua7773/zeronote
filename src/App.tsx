@@ -913,14 +913,21 @@ export default function App() {
   /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
   const menuItems: MenuItem[] = [
     { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() },
-    // 移动端没有窗口装饰也没有菜单栏空间，单独给一条开抽屉的入口
-    ...(isDesktop ? [] : [{ label: '笔记库', onClick: () => setSidebarOpen(true) }]),
     { label: '打开笔记库…', onClick: () => void pickVault() },
-    // 侧栏折叠入口只留一个：展开时用目录栏里就近的 ✕ 关；
-    // 收起后，菜单这条是唯一的**重开**入口 —— 避免同一动作两处可点、让用户猜该用哪个
-    ...(sidebarVisible
-      ? []
-      : [{ label: '显示笔记库栏', onClick: () => setSidebarVisible(true) }]),
+    // 笔记库栏的开关：
+    //  · 桌面 —— 侧栏常驻，收起后菜单这条是唯一的**重开**入口
+    //    （避免同一动作两处可点、让用户猜该用哪个）
+    //  · 移动端 —— 侧栏是抽屉，☰ 菜单就是它的主要入口（用户要求「侧栏集成到菜单」）
+    ...(isDesktop
+      ? sidebarVisible
+        ? []
+        : [{ label: '显示笔记库栏', onClick: () => setSidebarVisible(true) }]
+      : [
+          {
+            label: sidebarOpen ? '关闭笔记库栏' : '笔记库',
+            onClick: () => setSidebarOpen((v) => !v),
+          },
+        ]),
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => openOverlay('search') },
     { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
@@ -1042,10 +1049,12 @@ export default function App() {
 
     // ── 侧栏：开关项 ──
     if (mainView === 'editor') {
+      // 移动端侧栏是抽屉，"显示了没"由 sidebarOpen 决定（那边 sidebarVisible 恒为 true）
+      const shown = isDesktop ? sidebarVisible : sidebarOpen
       items.push({
-        label: sidebarVisible ? '关闭笔记库栏' : '打开笔记库栏',
+        label: shown ? '关闭笔记库栏' : '打开笔记库栏',
         onClick: () => {
-          if (sidebarVisible) {
+          if (shown) {
             setSidebarVisible(false)
             setSidebarOpen(false)
           } else {
@@ -1099,7 +1108,12 @@ export default function App() {
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
   /* 侧栏只在编辑器视图里出现 —— 插件管理 / 插件页面跟笔记无关，让主区占满更清爽 */
-  const showSidebar = sidebarVisible && mainView === 'editor'
+  /* 侧栏什么时候渲染：
+      · 桌面 —— sidebarVisible（常驻，可手动收起）
+      · 移动端 —— 只看抽屉开没开。
+     用「是不是桌面」而不是媒体查询的宽度来判断：手机横屏、平板都会超过窄屏断点，
+     那时 media query 就不准了（Android 上侧栏会突然变成常驻并占掉半个屏幕）。 */
+  const showSidebar = mainView === 'editor' && (isDesktop ? sidebarVisible : sidebarOpen)
 
   const saveLabel =
     saveState === 'saving'
@@ -1174,9 +1188,10 @@ export default function App() {
       </aside>
       )}
 
-      {showSidebar && (
-        /* 分隔线：拖它调左右占比。事件挂在 document 上 —— 鼠标拖快时会跑出这条
-           5px 的窄线，只绑在自己身上会丢事件。拖拽期间临时锁掉文字选择与光标。 */
+      {showSidebar && isDesktop && (
+        /* 分隔线：拖它调左右占比。事件挂在 document 上 —— 指针拖快时会跑出这条
+           5px 的窄线，只绑在自己身上会丢事件。拖拽期间临时锁掉文字选择与光标。
+           只在桌面渲染：移动端侧栏是抽屉，宽度由抽屉自己定，没有"调占比"这回事。 */
         <div
           className="zn-resizer"
           role="separator"
