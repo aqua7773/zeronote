@@ -32,6 +32,25 @@ pnpm tauri dev
 pnpm dev          # http://localhost:1420
 ```
 
+### Android（真机）
+
+```powershell
+# 一次性前置（换机才需要）
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+pnpm tauri android init --ci
+
+# 日常启动（WMI 起进程 + 日志落 .self-logs\android-dev.log）
+android-dev.cmd
+```
+
+三条已经固化在配置里的硬前置（踩过的坑）：
+
+1. **`vite.config.ts` 的 `server.host: true`** —— 真机经局域网 IP 访问 dev server，否则卡在 "Waiting for your frontend dev server"
+2. **`gradle-wrapper.properties` 指向腾讯镜像** —— 官方 `services.gradle.org` 在本机实测 5 分钟 0 字节
+3. **Android 的默认库 = 应用数据目录**（`<appDataDir>/vault`）—— 手机访问不了 PC 路径，也拿不到任意文件夹（SAF 限制）
+
+> 真机截图验证：`adb shell screencap -p /sdcard/zn.png` + `adb pull /sdcard/zn.png`
+
 检查与测试：
 
 ```powershell
