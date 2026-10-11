@@ -89,6 +89,19 @@ revision: 8
   `.zn-resizer` 加 `touch-action: none`；标题栏在 `pointer: coarse` 设备上常驻显示
   （触屏收不到 mousemove）。**仍待真机确认**：多选缺修饰键、长按能否触发
   contextmenu、返回键接管
+- **Android 相关必须知道的三件事**（踩过）：
+  ① **手动敲 tauri android dev/build 时必须设 `CARGO_TARGET_DIR=~/cargo-targets/zeronote`**。
+     不设会落到默认的 `src-tauri/target`，cargo 在那里为 android 目标重新解依赖，
+     连 **Windows 专用**的 `vswhom-sys` 都拉进来编译 → `cl.exe` D8050 → 构建退出 101
+     （`android-dev.cmd` 里本来就设了，手动敲命令容易漏）。
+  ② **热重载不会自动建长连接**：改完 `src/` 后设备上仍是旧资源，需冷启动应用
+     （`adb shell am force-stop com.aqua.zeronote.debug` + `am start -n
+     com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`）才会重新拉 devUrl。
+  ③ **原生资源（themes.xml / MainActivity.kt）改动热重载不覆盖**，必须重新构建安装。
+- **Android 系统栏**：`enableEdgeToEdge()` 由 Tauri 模板自带，但系统栏颜色要自己补
+  （`values/themes.xml` + `values-night/themes.xml` 里 statusBarColor/navigationBarColor
+  透明 + windowLightStatusBar；`MainActivity.kt` 里 `WindowCompat.setDecorFitsSystemWindows(false)`）。
+  不补的话系统栏那一条露出 Activity 窗口底色，看着像"没覆盖的灰"
 
 ## 未完成项
 
