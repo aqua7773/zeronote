@@ -142,6 +142,40 @@ button {
   border-bottom: 1px solid var(--zn-border);
 }
 
+/* 左上角菜单按钮（记事本式 ☰） */
+.zn-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-icon-btn:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+
+/* 菜单栏上的文档名：等宽（跟记事本一致），长了压成一行省略 */
+.zn-doc-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg);
+}
+
 .zn-vault-name {
   flex: 1;
   min-width: 0;

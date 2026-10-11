@@ -36,7 +36,14 @@ import {
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings } from './kernel/keybindings'
 import { SearchPanel } from './components/SearchPanel'
-import { Button, Dialog, DialogBody, DialogHeader } from '@/components/ui'
+import {
+  Button,
+  ContextMenu,
+  Dialog,
+  DialogBody,
+  DialogHeader,
+  type MenuItem,
+} from '@/components/ui'
 
 const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
@@ -83,6 +90,8 @@ export default function App() {
   const [rightTab, setRightTab] = useState<string>('plugins')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  /** 左上角菜单栏的弹出位置；null = 关闭 */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [themePref, setThemePref] = useState<ThemePref>(loadThemePref)
 
   /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
@@ -566,6 +575,32 @@ export default function App() {
     capabilities: m.capabilities ?? [],
   }))
 
+  /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
+  const menuItems: MenuItem[] = [
+    { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() },
+    { label: '打开笔记库…', onClick: () => void pickVault() },
+    { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
+    { label: '命令面板', hint: 'Ctrl+K', onClick: () => setPaletteOpen(true) },
+    { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
+    {
+      label: '插件',
+      onClick: () => {
+        setRightOpen(true)
+        setRightTab('plugins')
+      },
+    },
+    ...(activePath
+      ? [
+          {
+            label: '关闭当前笔记',
+            hint: 'Ctrl+W',
+            divider: true,
+            onClick: () => void closeNote(),
+          },
+        ]
+      : []),
+  ]
+
   const activePanel = panels.find((p) => p.id === rightTab) ?? null
   /* view 原语的 location 分流。
      此前 location 被完全忽略 —— 四种位置的面板全塞进右栏 tab，插件声明
@@ -591,8 +626,25 @@ export default function App() {
     <div className="zn-app">
       <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}>
         <div className="zn-sidebar-head">
-          <span className="zn-vault-name" title={vault ?? ''}>
-            {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
+          <button
+            type="button"
+            className="zn-icon-btn"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setMenuAt({ x: r.left, y: r.bottom + 4 })
+            }}
+            title="菜单"
+            aria-label="菜单"
+            aria-haspopup="menu"
+          >
+            ☰
+          </button>
+          <span className="zn-doc-title" title={activePath ?? vault ?? 'ZeroNote'}>
+            {activePath
+              ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
+              : vault
+                ? vault.split(/[\\/]/).pop()
+                : 'ZeroNote'}
           </span>
           <button
             className="zn-btn"
@@ -783,6 +835,16 @@ export default function App() {
             setSidebarOpen(false)
             setRightOpen(false)
           }}
+        />
+      )}
+
+      {/* 左上角菜单栏（记事本式 ☰，点击位置就地弹出） */}
+      {menuAt && (
+        <ContextMenu
+          x={menuAt.x}
+          y={menuAt.y}
+          onClose={() => setMenuAt(null)}
+          items={menuItems}
         />
       )}
 

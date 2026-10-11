@@ -27,6 +27,8 @@ export interface MenuItem {
    * 第一项点了把菜单内容换成「确认删除 / 取消」，而不是关掉再开一个新菜单。
    */
   keepOpen?: boolean
+  /** 右侧的快捷键提示，如 "Ctrl+K"（菜单栏用） */
+  hint?: string
 }
 
 export function ContextMenu({
@@ -69,7 +71,7 @@ export function ContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[160px] rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      className="fixed z-50 min-w-[190px] rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
       style={{ left: x, top: y }}
       role="menu"
     >
@@ -91,7 +93,12 @@ export function ContextMenu({
             )}
           >
             {item.icon ? <span className="flex h-4 w-4 items-center">{item.icon}</span> : null}
-            <span>{item.label}</span>
+            <span className="flex-1">{item.label}</span>
+            {item.hint ? (
+              <span className="ml-4 shrink-0 text-[10px] tracking-wide text-muted-foreground">
+                {item.hint}
+              </span>
+            ) : null}
           </button>
         </div>
       ))}
