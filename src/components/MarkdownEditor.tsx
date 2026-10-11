@@ -25,9 +25,10 @@ type Props = {
  * 在 head，本 style 在 body）胜出虽可行，但一旦打包顺序变化就会静默失效 ——
  * 显式压过更可解释。
  *
- * 刻意**不覆盖**的：`--atomic-editor-body-size`（阅读型正文 1.0625rem）与
- * `--atomic-editor-measure`（70ch 居中阅读宽度）。它们是 atomic 的排版设计，
- * 覆盖它会改变既有观感；如需贴齐 --zn-text 或铺满宽度，各自加一行即可。
+ * 刻意**保留**的：`--atomic-editor-body-size`（阅读型正文 1.0625rem）与
+ * `--atomic-editor-measure`（70ch 行宽上限）。
+ * **唯一改动的排版**：正文由「居中窄栏」改为**左对齐**（见下）—— 否则侧栏一开一关、
+ * 容器宽度变了，正文边界却看着不动（实测左 238 / 右 83，明显不对称）。
  */
 const EDITOR_CSS = `
 .zn-editor .atomic-cm-editor {
@@ -41,6 +42,9 @@ const EDITOR_CSS = `
   --atomic-editor-link: var(--zn-accent) !important;
 }
 .zn-editor .cm-editor.cm-focused { outline: none !important; }
+/* 正文左对齐跟随容器。atomic 默认 margin-inline:auto 把正文做成居中窄栏，
+   侧栏开关后容器变宽、正文却看着没动。行宽上限（70ch）保留。 */
+.zn-editor .atomic-cm-editor .cm-content { margin-inline: 0 !important; }
 `
 
 /**
