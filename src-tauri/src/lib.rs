@@ -51,6 +51,28 @@ fn resolve(vault: &str, rel: &str) -> Result<PathBuf, String> {
   Ok(Path::new(vault).join(rel))
 }
 
+/// 私有目录（`.zn`）的**落点**。
+///
+/// 默认就是库自己（`<库>/.zn`），与历史行为一致。
+/// **特例**：库位于 `<根>/.vaults/<名字>/` 时，私有目录落在**库根**（`<根>/.zn`）——
+/// 多库是应用内的概念，插件与 store 应当跨库共用，否则每切一个库插件就"全没了"。
+/// 桌面端用户自选的库路径不含 `.vaults`，走默认分支、行为不变。
+///
+/// ⚠️ **回收站不在此列**：`delete_note` 仍写库内的 `.zn/trash/`。理由有二 ——
+/// ① 删的是库内的笔记，回收站跟着库更合理；② `resolve()` 只接受库内相对路径，
+/// 库根方向的 `../.zn/...` 会被它直接拒掉，撤销删除会失效。
+fn private_root(vault: &str) -> PathBuf {
+  let p = Path::new(vault);
+  if let Some(parent) = p.parent() {
+    if parent.file_name().map(|n| n.to_string_lossy() == VAULTS_DIR).unwrap_or(false) {
+      if let Some(root) = parent.parent() {
+        return root.to_path_buf();
+      }
+    }
+  }
+  p.to_path_buf()
+}
+
 /// 极简 frontmatter 解析：只认文件开头 `---` 块里的顶层 `key: value` 标量。
 /// v0.2 换成真正的 YAML 解析（本函数不引入额外依赖，够 M1 用）。
 fn parse_frontmatter(text: &str) -> serde_json::Value {
@@ -233,9 +255,11 @@ fn note_exists(vault: String, path: String) -> Result<bool, String> {
 /// Android 首次启动时应用私有目录里还没有 `vault`，不建的话 `list_notes` 会直接报「库目录不存在」。
 #[tauri::command]
 fn ensure_vault(vault: String) -> Result<(), String> {
-  let root = Path::new(&vault);
-  fs::create_dir_all(root).map_err(|e| format!("创建库目录失败：{e}"))?;
-  fs::create_dir_all(root.join(PRIVATE_DIR)).map_err(|e| format!("创建私有目录失败：{e}"))?;
+  fs::create_dir_all(Path::new(&vault)).map_err(|e| format!("创建库目录失败：{e}"))?;
+  // 私有目录建在 private_root 上：多库共用库根的 `.zn`，
+  // 所以新建的库目录里**不该**再冒出一个空的 `.zn`（否则插件会在两个地方各看一套）。
+  let private = private_root(&vault).join(PRIVATE_DIR);
+  fs::create_dir_all(&private).map_err(|e| format!("创建私有目录失败：{e}"))?;
   Ok(())
 }
 
@@ -268,7 +292,8 @@ fn list_vaults(root: String) -> Result<Vec<String>, String> {
 
 /* ───────────── 插件相关命令（M2）───────────── */
 //
-// 插件住在 `<库>/.zn/plugins/<pluginId>/`：manifest.json + 入口脚本 + store.json。
+// 插件住在 `<私有根>/.zn/plugins/<pluginId>/`：manifest.json + 入口脚本 + store.json。
+// 私有根见 `private_root()` —— 默认就是库自己；库在 `.vaults/` 里时是**库根**（跨库共用）。
 // 与 fs 原语一样：只接受安全相对路径，写入原子。
 
 fn plugin_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
@@ -279,7 +304,7 @@ fn plugin_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
   if !ok {
     return Err(format!("非法插件 id（只允许字母数字与 - _ .）：{plugin_id}"));
   }
-  Ok(Path::new(vault).join(PRIVATE_DIR).join("plugins").join(plugin_id))
+  Ok(private_root(vault).join(PRIVATE_DIR).join("plugins").join(plugin_id))
 }
 
 fn plugin_file(vault: &str, plugin_id: &str, rel: &str) -> Result<PathBuf, String> {
@@ -298,7 +323,7 @@ fn plugin_file(vault: &str, plugin_id: &str, rel: &str) -> Result<PathBuf, Strin
 
 #[tauri::command]
 fn list_plugins(vault: String) -> Result<Vec<String>, String> {
-  let dir = Path::new(&vault).join(PRIVATE_DIR).join("plugins");
+  let dir = private_root(&vault).join(PRIVATE_DIR).join("plugins");
   if !dir.is_dir() {
     return Ok(Vec::new());
   }

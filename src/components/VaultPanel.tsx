@@ -25,6 +25,15 @@ export interface VaultPanelProps {
   onPick: (path: string) => void
 }
 
+/**
+ * 库行。
+ *
+ * 刻意**不用深色高亮块**标当前 —— 原来用 `bg-primary text-primary-foreground`，
+ * 深底把两行字都压暗（用户反馈：「挡住默认库的那个黑框影响阅读」）。这里还有第二层原因：
+ * `tailwind-merge` 不认识自定义色名 `text-primary-foreground`，会把它归进**字号**组、
+ * 与 `text-xs` 冲突后静默丢掉颜色（HANDOFF 记过同一个坑）。
+ * 现在当前项只用**字重 + 「·当前」**标注，底色一律不铺。
+ */
 function VaultRow({
   label,
   hint,
@@ -41,23 +50,15 @@ function VaultRow({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full flex-col items-start gap-0.5 rounded-ui-md px-2.5 py-2 text-left',
-        'transition-colors duration-150 ease-out',
-        active ? 'bg-primary text-primary-foreground' : 'hover:bg-accent',
+        'flex w-full flex-col items-start gap-0.5 px-2.5 py-2 text-left',
+        'transition-colors duration-150 ease-out hover:bg-accent',
       )}
     >
-      <span className="text-xs font-medium">
+      <span className={cn('text-xs text-foreground', active ? 'font-semibold' : 'font-normal')}>
         {label}
-        {active ? <span className="ml-1.5 opacity-70">·当前</span> : null}
+        {active ? <span className="ml-1.5 font-normal text-muted-foreground">·当前</span> : null}
       </span>
-      <span
-        className={cn(
-          'w-full truncate text-[10px]',
-          active ? 'opacity-70' : 'text-muted-foreground',
-        )}
-      >
-        {hint}
-      </span>
+      <span className="w-full truncate text-[10px] text-muted-foreground">{hint}</span>
     </button>
   )
 }
@@ -132,7 +133,10 @@ export function VaultPanel({ open, onOpenChange, root, current, onPick }: VaultP
         title="笔记库"
         description="手机版不能选任意文件夹，所有库都建在这个目录下："
       />
-      <DialogBody className="space-y-1">
+      {/* 库与库之间用**短横线**分隔。
+          刻意不用 Tailwind 的 `divide-y` —— 真机实测它一条线都没渲染出来
+          （面板中部整段做了像素级扫描：无任何非白行）。改用显式 `border-t`，所见即所得。 */}
+      <DialogBody>
         <VaultRow
           label="默认库"
           hint={root}
@@ -142,7 +146,9 @@ export function VaultPanel({ open, onOpenChange, root, current, onPick }: VaultP
         {others.map((n) => {
           const p = vaultPathOf(root, n)
           return (
-            <VaultRow key={n} label={n} hint={p} active={current === p} onClick={() => pick(p)} />
+            <div key={n} className="border-t border-border">
+              <VaultRow label={n} hint={p} active={current === p} onClick={() => pick(p)} />
+            </div>
           )
         })}
         {others.length === 0 ? (
