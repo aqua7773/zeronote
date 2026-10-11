@@ -749,6 +749,9 @@ body.is-resizing * {
 .zn-plugin-ver { color: var(--zn-fg-subtle); font-weight: 400; font-size: var(--zn-text-sm); }
 .zn-plugin-desc { color: var(--zn-fg-muted); font-size: var(--zn-text-sm); margin-top: 2px; }
 .zn-plugin-caps { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); margin-top: 4px; }
+/* 插件行的「删除」：平时只是个淡图标，hover 才显 danger —— 免得一排红叉吓人 */
+.zn-plugin-del { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }
+.zn-plugin-del:hover { color: var(--zn-danger); background: var(--zn-bg-hover); border-color: var(--zn-border); }
 .zn-plugins-log { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); font-size: var(--zn-text-sm); }
 .zn-plugins-log pre { max-height: 160px; overflow: auto; margin: var(--zn-space-2) 0 0; color: var(--zn-fg-muted); white-space: pre-wrap; }
 

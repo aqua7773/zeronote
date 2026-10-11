@@ -302,6 +302,17 @@ export async function listPluginDirs(vault: string): Promise<string[]> {
   return invoke<string[]>('list_plugins', { vault })
 }
 
+/**
+ * 删除插件目录（连同 manifest / 入口 / store.json）。
+ *
+ * **不可撤销**，而且刻意不进回收站 —— 插件属于"把目录拷回来就能重装"的东西；
+ * 回收站的命名规则是为 `.md` 设计的，塞目录进去反而没人看得懂。删完调
+ * `setReloadToken` 就会走一遍正常的重扫 / 卸载流程。
+ */
+export async function deletePluginDir(vault: string, pluginId: string): Promise<void> {
+  return invoke<void>('delete_plugin', { vault, pluginId })
+}
+
 export async function readManifest(vault: string, dir: string): Promise<PluginManifest> {
   const raw = await invoke<string>('read_plugin_file', {
     vault,

@@ -11,6 +11,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type PanelRegistration } from './kernel/kernel'
 import {
+  deletePluginDir,
   listPluginDirs,
   loadPlugin,
   readManifest,
@@ -917,6 +918,29 @@ export default function App() {
     setReloadToken((t) => t + 1)
   }
 
+  /**
+   * 删除插件：删掉插件目录 → 把它从 disabled 集合里摘掉 → 改 reloadToken
+   * 触发一次完整重扫（先卸载已加载的实例，再按新目录列表重新加载）。
+   *
+   * 失败时只报错、**不动界面状态** —— 磁盘上没删掉，界面就不该假装删了。
+   */
+  const deletePlugin = async (id: string) => {
+    const v = vault
+    if (!v) return
+    try {
+      await deletePluginDir(v, id)
+      setDisabled((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      setReloadToken((t) => t + 1)
+      setToast('插件已删除')
+    } catch (e) {
+      setError(`删除插件失败：${String(e)}`)
+    }
+  }
+
   const rows: PluginRow[] = manifests.map((m) => ({
     id: m.id,
     name: m.name,
@@ -1290,6 +1314,7 @@ export default function App() {
                   error={pluginError}
                   log={panelLog}
                   onToggle={togglePlugin}
+                  onDelete={(id) => void deletePlugin(id)}
                 />
               )}
             </div>
@@ -1475,6 +1500,7 @@ export default function App() {
         pluginError={pluginError}
         pluginLog={panelLog}
         onTogglePlugin={togglePlugin}
+        onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
       />
 

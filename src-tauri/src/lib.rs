@@ -338,6 +338,29 @@ fn list_plugins(vault: String) -> Result<Vec<String>, String> {
   Ok(out)
 }
 
+/// 删除一个插件（连同它的目录：manifest / 入口 / store.json）。
+///
+/// 与笔记删除**不同**：这里直接删、不进回收站 —— 插件是"把目录拷回来就能重装"的东西，
+/// 而回收站那套 `<时间戳>--<文件名>` 命名是为 `.md` 设计的，塞目录进去反而没人看得懂。
+///
+/// 安全边界两道：
+/// ① `plugin_dir()` 的白名单（只允许字母数字与 `-` `_` `.`），越不出插件目录；
+/// ② 删之前再确认目标**确实在** `<私有根>/.zn/plugins/` 之下，且不等于该目录本身
+///    （`starts_with` 是路径组件级比较，不是字符串前缀，`..` 之类绕不过去）。
+#[tauri::command]
+fn delete_plugin(vault: String, plugin_id: String) -> Result<(), String> {
+  let dir = plugin_dir(&vault, &plugin_id)?;
+  let root = private_root(&vault).join(PRIVATE_DIR).join("plugins");
+  if dir == root || !dir.starts_with(&root) {
+    return Err("拒绝删除：目标不在插件目录内".to_string());
+  }
+  if !dir.is_dir() {
+    return Err(format!("插件不存在：{plugin_id}"));
+  }
+  fs::remove_dir_all(&dir).map_err(|e| format!("删除插件失败（{plugin_id}）：{e}"))?;
+  Ok(())
+}
+
 #[tauri::command]
 fn read_plugin_file(vault: String, plugin_id: String, rel: String) -> Result<String, String> {
   let path = plugin_file(&vault, &plugin_id, &rel)?;
@@ -396,7 +419,8 @@ pub fn run() {
       plugin_store_read,
       plugin_store_write,
       ensure_vault,
-      list_vaults
+      list_vaults,
+      delete_plugin
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -413,6 +437,36 @@ mod tests {
     let _ = fs::remove_dir_all(&d);
     fs::create_dir_all(&d).unwrap();
     d
+  }
+
+  /// 删除插件：正常路径删掉整个目录；越界 id 与不存在的 id 都必须报错（不能静默成功）
+  #[test]
+  fn delete_plugin_removes_dir_and_rejects_bad_ids() {
+    let d = tmpdir("delplug");
+    let p = d.join(".zn").join("plugins").join("hello");
+    fs::create_dir_all(&p).unwrap();
+    fs::write(p.join("manifest.json"), "{}").unwrap();
+    assert!(p.is_dir());
+
+    let vault = d.to_string_lossy().into_owned();
+    delete_plugin(vault.clone(), "hello".to_string()).unwrap();
+    assert!(!p.exists(), "插件目录应当被删掉");
+
+    // 白名单：带路径分隔符 / 试图越界的一律拒绝
+    assert!(delete_plugin(vault.clone(), "../evil".to_string()).is_err());
+    assert!(delete_plugin(vault.clone(), "a/b".to_string()).is_err());
+    // 不存在 ⇒ 明确报错，而不是假装成功（界面不该弹出"已删除"）
+    assert!(delete_plugin(vault, "nope".to_string()).is_err());
+  }
+
+  /// private_root：库位于 `.vaults/<名字>/` 时，私有目录落到**库根**
+  /// —— 插件与 store 因此跨库共用（切库不会"插件全没了"）
+  #[test]
+  fn private_root_hoists_sub_vaults_to_vault_root() {
+    assert_eq!(private_root("C:/root"), PathBuf::from("C:/root"));
+    assert_eq!(private_root("C:/root/.vaults/Work"), PathBuf::from("C:/root"));
+    // 只认一层容器：更深的普通子目录不特殊对待
+    assert_eq!(private_root("C:/root/a/b"), PathBuf::from("C:/root/a/b"));
   }
 
   #[test]

@@ -1,8 +1,17 @@
+import { useState } from 'react'
+import { Trash2 } from 'lucide-react'
+import { Button } from './ui/button'
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
+
 /**
  * 插件管理面板（M2）—— 「装上出现 / 卸下消失」的可视化开关。
  *
  * 注意：**进程内插件没有沙箱**（契约 §4）——所以这里把 capability 明明白白列出来，
  * 让用户知道这个插件能看到/改动什么。
+ *
+ * **删除**（2026-10-12 加）：二次确认后**直接删目录**，不进回收站。
+ * 理由是插件属于"把目录拷回来就能重装"的东西；回收站那套 `<时间戳>--<文件名>`
+ * 命名是为 `.md` 设计的，硬塞目录进去反而没人看得懂、也没人会去手工恢复。
  */
 export type PluginRow = {
   id: string
@@ -18,12 +27,17 @@ export function PluginPanel({
   error,
   log,
   onToggle,
+  onDelete,
 }: {
   plugins: PluginRow[]
   error?: string | null
   log?: string[]
   onToggle: (id: string, enabled: boolean) => void
+  onDelete: (id: string) => void
 }) {
+  /** 待确认删除的插件（null = 没有确认框） */
+  const [pending, setPending] = useState<PluginRow | null>(null)
+
   return (
     <div className="zn-plugins">
       {/* 这里原本有一条「插件」标题栏 + 重新扫描按钮 + 下横线。
@@ -56,6 +70,15 @@ export function PluginPanel({
                   {p.capabilities.length ? p.capabilities.join(' · ') : '未声明任何能力'}
                 </div>
               </div>
+              <button
+                type="button"
+                className="zn-plugin-del"
+                onClick={() => setPending(p)}
+                title="删除插件"
+                aria-label={`删除插件 ${p.name}`}
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           ))}
         </div>
@@ -67,6 +90,45 @@ export function PluginPanel({
           <pre>{log.slice(-50).join('\n')}</pre>
         </details>
       )}
+
+      <Dialog
+        open={pending !== null}
+        onOpenChange={(next) => {
+          if (!next) setPending(null)
+        }}
+        width={380}
+      >
+        <DialogHeader
+          title="删除这个插件？"
+          description={pending ? `${pending.name} v${pending.version}` : undefined}
+        />
+        <DialogBody>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            会把插件目录 <code>.zn/plugins/{pending?.id ?? ''}</code> 整个删掉 ——
+            入口脚本、manifest、以及它自己的 store.json 一起。
+            <br />
+            <br />
+            这步
+            <strong className="font-semibold text-foreground">不可撤销</strong>
+            ；要装回来就把插件目录重新拷进 <code>.zn/plugins/</code>。
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="md" onClick={() => setPending(null)}>
+            取消
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => {
+              if (pending) onDelete(pending.id)
+              setPending(null)
+            }}
+          >
+            删除
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   )
 }

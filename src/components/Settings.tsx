@@ -80,6 +80,7 @@ export interface SettingsProps {
   pluginError?: string | null
   pluginLog?: string[]
   onTogglePlugin: (id: string, enabled: boolean) => void
+  onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
 }
 
@@ -97,6 +98,7 @@ export function Settings({
   pluginError,
   pluginLog,
   onTogglePlugin,
+  onDeletePlugin,
   onReloadPlugins,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
@@ -187,6 +189,7 @@ export function Settings({
                   error={pluginError}
                   log={pluginLog}
                   onToggle={onTogglePlugin}
+                  onDelete={onDeletePlugin}
                 />
               </div>
             ) : null}
