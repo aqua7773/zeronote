@@ -568,16 +568,29 @@ export default function App() {
     return bindCommandKeybindings(kernel.commands)
   }, [kernel, loadedIds])
 
-  /** Escape 统一关浮层（这条不交给命令表：它要一次关掉多个，且无需用户配置） */
+  /**
+   * Escape 兜底：**一次只吃一层**（调研结论：Esc 应从内到外逐层退出）。
+   *
+   * 各浮层（命令面板 / 搜索 / 设置 / 右键菜单 / 文件夹重命名）自己也会处理 Esc，
+   * 这里只给「它们没拦住」的情况兜底 —— 所以按层级判断、命中即 return，
+   * 不再像以前那样一次把 palette 和 search 都关掉。
+   * 不交给命令表：它要读实时状态，且不该让用户自定义。
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      setPaletteOpen(false)
-      setSearchOpen(false)
+      if (paletteOpen) {
+        setPaletteOpen(false)
+        return
+      }
+      if (searchOpen) {
+        setSearchOpen(false)
+        return
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [paletteOpen, searchOpen])
 
   /**
    * Android 返回键该做什么：从最上面那层开始关；全都没得关，才允许退出。

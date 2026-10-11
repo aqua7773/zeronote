@@ -43,6 +43,18 @@
   --font-mono: var(--zn-font-mono);
 }
 
+/* 键盘可达性：统一的焦点圈。
+   放进 @layer base —— Tailwind 的 utilities（如 Button 的 focus-visible:outline-none
+   + ring）在更高层，会正常胜出，所以不会和已有焦点样式打架。
+   依据 WCAG 2.4.13：≥2px、与相邻背景对比 ≥3:1；用 :focus-visible 保证
+   鼠标点击不给圈、只有键盘导航才给。编辑器本体不画圈（大型编辑区不算 UI component）。 */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--zn-accent);
+    outline-offset: 1px;
+  }
+}
+
 :root {
   --zn-bg: #ffffff;
   --zn-bg-subtle: #f7f7f8;
