@@ -120,7 +120,16 @@ button {
 
 .zn-app {
   display: flex;
+  flex-direction: column;
   height: 100%;
+  overflow: hidden;
+}
+
+/* 标题栏之下、状态栏之上的横向区域（侧栏 + 主区 + 右栏） */
+.zn-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -217,14 +226,59 @@ button {
   flex-direction: column;
 }
 
+/*
+ * 自绘窗口标题栏（tauri decorations:false 之后，系统那条没了，这是唯一的一条）。
+ * 拖动靠 data-tauri-drag-region；按钮不标该属性，否则点不动。
+ */
 .zn-titlebar {
   display: flex;
   align-items: center;
-  gap: var(--zn-space-3);
-  padding: var(--zn-space-2) var(--zn-space-4);
+  gap: var(--zn-space-2);
+  padding-left: var(--zn-space-3);
   border-bottom: 1px solid var(--zn-border);
-  min-height: 42px;
+  background: var(--zn-bg-subtle);
+  height: 36px;
+  flex: none;
+  user-select: none;
 }
+
+/* 标题文字本身也是拖动区（drag-region 不继承，要单独标） */
+.zn-titlebar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg);
+}
+
+.zn-titlebar .zn-save-state {
+  flex: none;
+  padding-right: var(--zn-space-2);
+}
+
+.zn-window-controls {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+  margin-left: var(--zn-space-2);
+}
+
+.zn-win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+.zn-win-btn:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
+.zn-win-btn.is-close:hover { background: #e81123; color: #fff; }
 
 .zn-path {
   color: var(--zn-fg-muted);

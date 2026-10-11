@@ -26,6 +26,7 @@ import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
 import { PanelBoundary } from './components/PanelBoundary'
 import { Settings } from './components/Settings'
+import { TitleBar } from './components/TitleBar'
 import {
   applyTheme,
   loadThemePref,
@@ -575,9 +576,20 @@ export default function App() {
     capabilities: m.capabilities ?? [],
   }))
 
+  /** 标题栏上显示的名字：优先当前笔记，其次库名 */
+  const titleText = activePath
+    ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
+    : vault
+      ? (vault.split(/[\\/]/).pop() ?? 'ZeroNote')
+      : 'ZeroNote'
+  /** 桌面端才画窗口控制按钮（移动端没有窗口装饰这回事） */
+  const isDesktop = kernel?.host.platform !== 'android'
+
   /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
   const menuItems: MenuItem[] = [
     { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() },
+    // 移动端没有窗口装饰也没有菜单栏空间，单独给一条开抽屉的入口
+    ...(isDesktop ? [] : [{ label: '笔记库', onClick: () => setSidebarOpen(true) }]),
     { label: '打开笔记库…', onClick: () => void pickVault() },
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
     { label: '命令面板', hint: 'Ctrl+K', onClick: () => setPaletteOpen(true) },
@@ -624,27 +636,22 @@ export default function App() {
 
   return (
     <div className="zn-app">
+      <TitleBar
+        title={titleText}
+        saveLabel={saveLabel}
+        saveError={saveState === 'error'}
+        saveDirty={dirty}
+        canCloseNote={!!activePath}
+        onCloseNote={() => void closeNote()}
+        onMenu={setMenuAt}
+        showWindowControls={isDesktop}
+      />
+
+      <div className="zn-body">
       <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}>
         <div className="zn-sidebar-head">
-          <button
-            type="button"
-            className="zn-icon-btn"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              setMenuAt({ x: r.left, y: r.bottom + 4 })
-            }}
-            title="菜单"
-            aria-label="菜单"
-            aria-haspopup="menu"
-          >
-            ☰
-          </button>
-          <span className="zn-doc-title" title={activePath ?? vault ?? 'ZeroNote'}>
-            {activePath
-              ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
-              : vault
-                ? vault.split(/[\\/]/).pop()
-                : 'ZeroNote'}
+          <span className="zn-vault-name" title={vault ?? ''}>
+            {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
           </span>
           <button
             className="zn-btn"
@@ -674,52 +681,6 @@ export default function App() {
       </aside>
 
       <main className="zn-main">
-        <div className="zn-titlebar">
-          <button
-            type="button"
-            className="zn-btn zn-mobile-only"
-            onClick={() => setSidebarOpen((v) => !v)}
-            title="笔记库"
-            aria-label="笔记库"
-          >
-            ☰
-          </button>
-          <span className="zn-path" title={activePath ?? ''}>
-            {activePath ?? '没有打开笔记'}
-          </span>
-          {activePath && (
-            <button
-              className="zn-btn zn-close-note"
-              onClick={() => void closeNote()}
-              title="关闭这篇笔记（Ctrl+W）"
-              aria-label="关闭当前笔记"
-            >
-              ✕
-            </button>
-          )}
-          <span
-            className={`zn-save-state${saveState === 'error' ? ' is-error' : dirty ? ' is-dirty' : ''}`}
-          >
-            {saveLabel}
-          </span>
-          <button className="zn-btn" onClick={() => setPaletteOpen(true)} title="命令面板 (Ctrl+K)">
-            命令
-          </button>
-          <button className="zn-btn" onClick={() => setSettingsOpen(true)} title="设置">
-            设置
-          </button>
-          <button
-            className="zn-btn"
-            onClick={() => setRightOpen((v) => !v)}
-            title="插件与插件面板"
-          >
-            插件{panels.length ? ` · ${panels.length}` : ''}
-          </button>
-          <button className="zn-btn" onClick={() => void saveNow()} disabled={!dirty}>
-            保存
-          </button>
-        </div>
-
         {mainPanel ? (
           /* location: 'main' 的面板占据主编辑区，顶部留一条返回编辑器的横条 */
           <div className="zn-main-panel">
@@ -827,6 +788,7 @@ export default function App() {
           </div>
         </aside>
       )}
+      </div>
 
       {(sidebarOpen || rightOpen) && (
         <div
