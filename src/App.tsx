@@ -570,7 +570,12 @@ export default function App() {
         keybinding: 'Mod+S',
         run: () => saveNowRef.current(),
       }),
-      kernel.commands.api.register({ id: 'core.newNote', title: '新建笔记', run: () => newNote() }),
+      kernel.commands.api.register({
+        id: 'core.newNote',
+        title: '新建笔记',
+        keybinding: 'Mod+N',
+        run: () => newNote(),
+      }),
       kernel.commands.api.register({
         id: 'core.pickVault',
         title: '切换笔记库…',
