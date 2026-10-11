@@ -3,20 +3,57 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 export type CommandItem = { id: string; title: string }
 
 /**
+ * 模糊匹配打分：needle 的字符**按序**出现在 text 中即算命中。
+ * 返回 null = 不匹配；分数越高越靠前。
+ * 加分项：连续命中（streak）、命中在词首（串首或前一个字符是分隔符）。
+ *
+ * 用「顺序匹配」而不是 `includes`：命令一多，输入 `nn` 找 `core.newNote`、
+ * 输入 `sn` 找 `core.save` 这类简写就很关键（Obsidian / VS Code 都是这个模型）。
+ */
+function fuzzyScore(text: string, needle: string): number | null {
+  if (!needle) return 0
+  const t = text.toLowerCase()
+  const n = needle.toLowerCase()
+  let ti = 0
+  let score = 0
+  let streak = 0
+  for (const ch of n) {
+    const found = t.indexOf(ch, ti)
+    if (found < 0) return null
+    if (found === ti) {
+      streak += 1
+      score += 3 + streak // 连续命中越来越值钱
+    } else {
+      streak = 0
+      score += 1
+    }
+    const prev = found === 0 ? undefined : t[found - 1]
+    if (prev === undefined || /[\s._\-/:]/.test(prev)) score += 2 // 词首命中
+    ti = found + 1
+  }
+  return score - ti * 0.1 // 命中位置越靠前越好
+}
+
+/**
  * 命令面板（M2）—— 内核自带的唯一「UI 原语出口」：
  * 插件注册的命令都进这里，不需要插件自己画界面。
  *
- * 交互：输入过滤 / ↑↓ 选择 / Enter 执行 / Esc 关闭 / 点击执行
+ * 交互：模糊过滤 / ↑↓ 选择 / Enter 执行 / Esc 关闭 / 点击执行
+ * 排序：空查询时**最近用过的置顶**（其余保持注册顺序）；
+ *       有查询时先按匹配分数，同分再看谁最近用过。
  */
 export function CommandPalette({
   open,
   onClose,
   items,
+  recent = [],
   onRun,
 }: {
   open: boolean
   onClose: () => void
   items: CommandItem[]
+  /** 最近执行过的命令 id（最新在前），用于置顶 */
+  recent?: string[]
   onRun: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -24,12 +61,27 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return items
-    return items.filter(
-      (c) => c.title.toLowerCase().includes(q) || c.id.toLowerCase().includes(q),
-    )
-  }, [items, query])
+    const q = query.trim()
+    if (!q) {
+      const rank = new Map(recent.map((id, i) => [id, i]))
+      return [...items].sort(
+        (a, b) =>
+          (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+          (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+      )
+    }
+    const scored: { item: CommandItem; score: number; rec: number }[] = []
+    for (const c of items) {
+      const cand = [fuzzyScore(c.title, q), fuzzyScore(c.id, q)].filter(
+        (x): x is number => x !== null,
+      )
+      if (cand.length === 0) continue
+      const rec = recent.indexOf(c.id)
+      scored.push({ item: c, score: Math.max(...cand), rec: rec < 0 ? 999 : rec })
+    }
+    scored.sort((a, b) => b.score - a.score || a.rec - b.rec)
+    return scored.map((s) => s.item)
+  }, [items, query, recent])
 
   // 每次打开重置
   useEffect(() => {
@@ -94,7 +146,10 @@ export function CommandPalette({
                 onClick={() => run(c.id)}
               >
                 <span>{c.title}</span>
-                <span className="zn-palette-id">{c.id}</span>
+                <span className="zn-palette-id">
+                  {recent.includes(c.id) ? '↺ ' : ''}
+                  {c.id}
+                </span>
               </button>
             ))
           )}

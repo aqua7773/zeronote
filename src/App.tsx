@@ -50,6 +50,19 @@ import {
 const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
 const AUTOSAVE_MS = 800
+/** 命令面板的「最近使用」——持久化，重启后依然置顶（上限 8 条） */
+const LS_RECENT_CMDS = 'zeronote.commands.recent'
+const RECENT_CMDS_MAX = 8
+
+function loadRecentCommands(): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_CMDS) ?? '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_CMDS_MAX)
+  } catch {
+    return []
+  }
+}
 
 /**
  * 把底层异常翻译成用户能懂的话。
@@ -131,6 +144,28 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   /** 快速打开笔记（Ctrl+O）—— 与命令面板分开：一个管"去哪篇"，一个管"做什么" */
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  /** 最近执行过的命令 id（命令面板置顶用；持久化在 localStorage） */
+  const [recentCmds, setRecentCmds] = useState<string[]>(loadRecentCommands)
+
+  const rememberCommand = useCallback((id: string) => {
+    setRecentCmds((prev) => {
+      const next = [id, ...prev.filter((x) => x !== id)].slice(0, RECENT_CMDS_MAX)
+      try {
+        localStorage.setItem(LS_RECENT_CMDS, JSON.stringify(next))
+      } catch {
+        /* 配额不足或隐私模式失败都不该影响命令本身 */
+      }
+      return next
+    })
+  }, [])
+
+  /**
+   * 打开某个浮层时**关掉其余的** —— 它们都是模态，同时开着会叠层。
+   *
+   * 实测踩到过：命令面板里执行「快速打开笔记」后（命令面板已关、快速切换打开），
+   * 再按一次 Ctrl+P，就变成「命令面板压在快速切换上」。
+   * 用一次 setState 同时决定四个开关，天然互斥，也不用在 effect 里 setState。
+   */
   /**
    * 主区当前显示的页面：`'editor'`（编辑器）| `'plugins'`（插件管理）| `<插件面板 id>`。
    * 插件管理原先挂在右侧栏，用户要求「不做侧栏，单开一个页面」——
@@ -142,6 +177,26 @@ export default function App() {
   /** 左上角菜单栏的弹出位置；null = 关闭 */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [themePref, setThemePref] = useState<ThemePref>(loadThemePref)
+
+  /**
+   * 打开某个浮层时**关掉其余的** —— 它们都是模态，同时开着会叠层。
+   *
+   * 实测踩到过：命令面板里执行「快速打开笔记」后（命令面板已关、快速切换打开），
+   * 再按一次 Ctrl+P，就变成「命令面板压在快速切换上」。
+   * 用一次 setState 同时决定四个开关，天然互斥，也不用在 effect 里 setState。
+   *
+   * ⚠️ 必须放在四个开关的 `useState` **之后**：否则 lint 会报
+   * `react(immutability): Cannot access variable while it is being initialized`。
+   */
+  const openOverlay = useCallback(
+    (which: 'palette' | 'switcher' | 'search' | 'settings') => {
+      setPaletteOpen(which === 'palette')
+      setSwitcherOpen(which === 'switcher')
+      setSearchOpen(which === 'search')
+      setSettingsOpen(which === 'settings')
+    },
+    [],
+  )
 
   /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
   useEffect(() => {
@@ -523,13 +578,13 @@ export default function App() {
         id: 'core.palette',
         title: '打开命令面板',
         keybinding: 'Mod+P',
-        run: () => setPaletteOpen(true),
+        run: () => openOverlay('palette'),
       }),
       kernel.commands.api.register({
         id: 'core.quickOpen',
         title: '快速打开笔记…',
         keybinding: 'Mod+O',
-        run: () => setSwitcherOpen(true),
+        run: () => openOverlay('switcher'),
       }),
       kernel.commands.api.register({
         id: 'core.plugins',
@@ -540,13 +595,13 @@ export default function App() {
         id: 'core.settings',
         title: '打开设置',
         keybinding: 'Mod+,',
-        run: () => setSettingsOpen(true),
+        run: () => openOverlay('settings'),
       }),
       kernel.commands.api.register({
         id: 'core.search',
         title: '搜索笔记',
         keybinding: 'Mod+Shift+F',
-        run: () => setSearchOpen(true),
+        run: () => openOverlay('search'),
       }),
       kernel.commands.api.register({
         id: 'core.closeNote',
@@ -556,7 +611,7 @@ export default function App() {
       }),
     ]
     return () => subs.forEach((s) => s.dispose())
-  }, [kernel, newNote, pickVault, closeNote])
+  }, [kernel, newNote, pickVault, closeNote, openOverlay])
 
   /* ── 插件扫描 + 加载 ── */
   useEffect(() => {
@@ -759,9 +814,9 @@ export default function App() {
     ...(sidebarVisible
       ? []
       : [{ label: '显示笔记库栏', onClick: () => setSidebarVisible(true) }]),
-    { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => setSearchOpen(true) },
-    { label: '命令面板', hint: 'Ctrl+P', onClick: () => setPaletteOpen(true) },
-    { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => setSettingsOpen(true) },
+    { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => openOverlay('search') },
+    { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
+    { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
     // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
     { label: '插件管理', onClick: () => setMainView('plugins') },
     ...panels
@@ -1020,7 +1075,11 @@ export default function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={kernel ? kernel.commands.api.list() : []}
-        onRun={(id) => void kernel?.commands.api.execute(id)}
+        recent={recentCmds}
+        onRun={(id) => {
+          rememberCommand(id)
+          void kernel?.commands.api.execute(id)
+        }}
       />
 
       {/* 条件渲染：关掉即卸载，query/cursor 天然清零（见 QuickSwitcher 的注释） */}
