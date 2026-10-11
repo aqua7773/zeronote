@@ -988,22 +988,8 @@ export default function App() {
 
     // ── 编辑（编辑器就绪时）──
     if (view) {
-      const noSel = view.state.selection.main.empty
       items.push(
-        { label: '撤销', hint: 'Ctrl+Z', onClick: () => synthKey('z') },
-        { label: '重做', hint: 'Ctrl+Y', onClick: () => synthKey('y') },
-        {
-          label: noSel ? '剪切（未选中）' : '剪切',
-          hint: 'Ctrl+X',
-          onClick: () => {
-            void copySelection().then((text) => {
-              if (!text) return
-              const sel = view.state.selection.main
-              view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
-            })
-          },
-        },
-        { label: noSel ? '复制（未选中）' : '复制', hint: 'Ctrl+C', onClick: () => void copySelection() },
+        { label: '复制', hint: 'Ctrl+C', onClick: () => void copySelection() },
         {
           label: '粘贴',
           hint: 'Ctrl+V',
@@ -1023,14 +1009,7 @@ export default function App() {
               })
           },
         },
-        {
-          label: '全选',
-          hint: 'Ctrl+A',
-          onClick: () =>
-            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
-        },
         { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => synthKey('f') },
-        { label: '替换…', hint: 'Ctrl+H', onClick: () => setReplaceOpen(true) },
       )
     }
 
@@ -1039,38 +1018,26 @@ export default function App() {
       items.push(
         {
           label: '复制笔记路径',
-          divider: true,
+          // 编辑器项不存在时它就是第一项，不该再画分隔线（首项不画由 ContextMenu 兜着）
+          divider: Boolean(view),
           onClick: () => void navigator.clipboard.writeText(activePath).catch(() => {}),
-        },
-        {
-          label: '复制笔记全文',
-          onClick: () => void navigator.clipboard.writeText(content).catch(() => {}),
         },
         { label: '关闭当前笔记', hint: 'Ctrl+W', onClick: () => void closeNote() },
       )
     }
 
-    // ── 库 / 常用 ──
-    items.push(
-      { label: '新建笔记', hint: 'Ctrl+N', divider: true, onClick: () => void newNote() },
-      { label: '快速打开', hint: 'Ctrl+O', onClick: () => openOverlay('switcher') },
-      { label: '搜索笔记', hint: 'Ctrl+Shift+F', onClick: () => openOverlay('search') },
-      { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
-      { label: '打开笔记库…', onClick: () => void pickVault() },
-      {
-        label: '重新扫描笔记库',
-        divider: true,
-        onClick: () => void refresh(),
-      },
-      { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
-      { label: '打印…', onClick: () => window.print() },
-    )
+    // ── 设置 ──
+    items.push({
+      label: '设置',
+      hint: 'Ctrl+,',
+      divider: true,
+      onClick: () => openOverlay('settings'),
+    })
 
-    // ── 侧栏：一个开关项，按当前状态在「关闭 / 打开」之间切换 ──
+    // ── 侧栏：开关项 ──
     if (mainView === 'editor') {
       items.push({
         label: sidebarVisible ? '关闭笔记库栏' : '打开笔记库栏',
-        divider: true,
         onClick: () => {
           if (sidebarVisible) {
             setSidebarVisible(false)
