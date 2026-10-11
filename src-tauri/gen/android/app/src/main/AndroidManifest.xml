@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 方案 D：把笔记库放公共存储（/storage/emulated/0/Documents/ZeroNote）。
+         让文件管理器能看到库、插件能直接拷进 .zn/plugins/、数据卸载不丢。
+         ⚠️ 敏感权限：Google Play 只批给文件管理器/备份类应用（自用无碍）。
+         用户授权入口：设置 → 应用 → ZeroNote → 特殊权限 → 所有文件访问
+         开发期等价命令：adb shell appops set com.aqua.zeronote.debug MANAGE_EXTERNAL_STORAGE allow -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 

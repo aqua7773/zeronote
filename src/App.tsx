@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { appDataDir } from '@tauri-apps/api/path'
+/**
+ * Android 的库路径（方案 D）—— 公共存储。
+ * 好处：文件管理器能进、插件能直接拷进 `.zn/plugins/`、卸载不丢数据。
+ * 前提：拿到「所有文件访问」（MANAGE_EXTERNAL_STORAGE）权限。
+ */
+const ANDROID_VAULT = '/storage/emulated/0/Documents/ZeroNote'
 import { invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type PanelRegistration } from './kernel/kernel'
@@ -100,13 +105,11 @@ export default function App() {
     let cancelled = false
     void (async () => {
       try {
-        const dir = await appDataDir()
-        const v = `${dir.replace(/[\\/]+$/, '')}/vault`
-        // 先把库目录建出来：Android 私有目录首次没有 vault，否则 list_notes 会报「库目录不存在」
-        await invoke('ensure_vault', { vault: v })
-        if (!cancelled) setVault(v)
+        // 方案 D：先把公共库目录建出来（缺「所有文件访问」权限时这一步会失败）
+        await invoke('ensure_vault', { vault: ANDROID_VAULT })
+        if (!cancelled) setVault(ANDROID_VAULT)
       } catch (e) {
-        setError(`无法确定应用数据目录：${String(e)}`)
+        setError(`创建公共库失败（多半是缺「所有文件访问」权限）：${String(e)}`)
       }
     })()
     return () => {

@@ -58,7 +58,7 @@ revision: 4
 
 | # | 议题 | 为什么现在做 |
 |---|---|---|
-| **A** | **Android 插件分发**（真机暴露的架构问题） | M2 的插件从**库内** `.zn/plugins/` 加载，而 Android 的库在应用私有目录 ⇒ **用户没法往手机放插件**。三条路：① 应用内「安装插件」（选 zip / 从 URL 拉）② 内置插件打包进 APK ③ 仅开发期 `adb push`。契约 §7 第 4 条（签名与分发）应在此落地 |
+| **A** | ~~Android 库位置 + 插件分发~~ → **✅ 已采纳方案 D 并真机实测通过（2026-10-11 17:03）** | **调研结论**（两份报告：`_research\移动端插件分发调研.md` 337 行 + `_research\tauri-android-file-access.md`）：① 移动端可以有插件（Joplin 官方支持，Android 能 `Install from file`；限制只有 iOS 商店政策 + 沙箱只跑 HTML/JS —— 我们正好是 JS+声明式 UI）② 库放共享存储是主流（Obsidian 官方推荐 device storage；**SiYuan 用私有目录被社区 fork 修掉**）③ **Tauri 在 Android 上没有 SAF 支持**（issue #11733 open），`dialog.open({directory:true})` 移动端**源码级返回 `FolderPickerNotImplemented`** ④ 唯一活的 SAF 插件 `tauri-plugin-android-fs`。<br>**采纳 D 的实施**：`AndroidManifest.xml` 加 `MANAGE_EXTERNAL_STORAGE`；`src\App.tsx` 的 Android 库路径改为公共存储常量 `ANDROID_VAULT = /storage/emulated/0/Documents/ZeroNote`；开发期授权 `adb shell appops set com.aqua.zeronote.debug MANAGE_EXTERNAL_STORAGE allow`。<br>**真机证据**：库建在公共 `Documents/`（与 HYKB/qqmusic 等并列）；PC `adb push test-from-pc.md` 后应用状态栏 **`0 篇` → `1 篇`** ⇒ 数据通路打通（`_shots\android-14.png`）。<br>**待补**：① 正式版需在应用内引导用户去设置授权（Kotlin 启动 `Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`；**Tauri 2 的 Android 插件怎么写要先去查**，别再自创）② `.zn/plugins/` 现在可用文件管理器直接拷插件 —— 待验证，即为 M2 插件体系的**真机首验** |
 | B | **`index` 原语（v0.2）** | 契约 §6 已排期；搜索是笔记刚需，现在调用会抛「未实现」 |
 | C | 第二个真插件（画布 / Git 同步） | 用户 04:15 点名的四件（笔记/记录/画布/同步）里还剩画布与同步 |
 | D | UI 打磨（Tailwind + shadcn） | 自建 `--zn-*` token 已保证风格统一，属锦上添花 |
