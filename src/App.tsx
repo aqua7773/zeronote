@@ -274,8 +274,17 @@ export default function App() {
     const v = Number(window.localStorage.getItem('zeronote.sidebar.w'))
     return Number.isFinite(v) && v >= 160 && v <= 560 ? v : 260
   })
-  /** 笔记库栏**空白区**的右键菜单（树项的右键在 FileTree 内，且已 stopPropagation） */
-  const [sidebarMenuAt, setSidebarMenuAt] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * 主区右键菜单 —— 原生菜单已被禁用，编辑操作得自己提供。
+   * `items` 一并存在 state 里：菜单项要按"有没有选区 / 有没有打开笔记"现算，而这些信息
+   * 来自 `editorRef`。在**事件处理时**构建（而不是渲染期读 ref）既过得了 lint，
+   * 也省掉每次无关重渲染的重算。
+   */
+  const [mainMenu, setMainMenu] = useState<{
+    x: number
+    y: number
+    items: MenuItem[]
+  } | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
@@ -919,6 +928,109 @@ export default function App() {
       : []),
   ]
 
+  /**
+   * 禁用 WebView 的原生右键菜单（那个「返回 / 刷新 / 打印 / 检查」）。
+   * 用**捕获阶段**：树项的 onContextMenu 里有 stopPropagation，挂在冒泡阶段会漏掉它。
+   */
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => e.preventDefault()
+    document.addEventListener('contextmenu', onCtx, true)
+    return () => document.removeEventListener('contextmenu', onCtx, true)
+  }, [])
+
+  /**
+   * 给编辑器发一个合成按键。
+   * 撤销/重做只能走这条路 —— `@codemirror/commands`（undo/redo 命令所在）不在顶层依赖里，
+   * 拿不到；而 CM6 的 keymap 本来就监听 keydown，合成事件同样有效。
+   */
+  const synthKey = (key: string) => {
+    const dom = editorRef.current?.contentDOM
+    if (!dom) return
+    for (const type of ['keydown', 'keyup'] as const) {
+      dom.dispatchEvent(
+        new KeyboardEvent(type, { key, ctrlKey: true, bubbles: true, cancelable: true }),
+      )
+    }
+  }
+
+  /** 复制选区并返回文本（剪切复用它，只有真复制成功才删选区，免得剪贴板失败把内容吃掉） */
+  const copySelection = async (): Promise<string> => {
+    const view = editorRef.current
+    if (!view) return ''
+    const sel = view.state.selection.main
+    if (sel.empty) return ''
+    const text = view.state.sliceDoc(sel.from, sel.to)
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      /* 剪贴板不可写时忽略；系统快捷键仍然可用 */
+    }
+    return text
+  }
+
+  /** 打开主区右键菜单（在事件处理里现算菜单项） */
+  const openMainMenu = (clientX: number, clientY: number) => {
+    const view = editorRef.current
+    const items: MenuItem[] = []
+    if (view) {
+      const noSel = view.state.selection.main.empty
+      items.push(
+        { label: '撤销', hint: 'Ctrl+Z', onClick: () => synthKey('z') },
+        { label: '重做', hint: 'Ctrl+Y', divider: true, onClick: () => synthKey('y') },
+        {
+          label: noSel ? '剪切（未选中）' : '剪切',
+          hint: 'Ctrl+X',
+          onClick: () => {
+            void copySelection().then((text) => {
+              if (!text) return
+              const sel = view.state.selection.main
+              view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
+            })
+          },
+        },
+        { label: noSel ? '复制（未选中）' : '复制', hint: 'Ctrl+C', onClick: () => void copySelection() },
+        {
+          label: '粘贴',
+          hint: 'Ctrl+V',
+          divider: true,
+          onClick: () => {
+            void navigator.clipboard
+              .readText()
+              .then((text) => {
+                if (!text) return
+                const sel = view.state.selection.main
+                view.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: text },
+                  selection: { anchor: sel.from + text.length },
+                })
+              })
+              .catch(() => {
+                /* 读剪贴板被拒（权限/焦点）时静默；用户仍可用 Ctrl+V */
+              })
+          },
+        },
+        {
+          label: '全选',
+          hint: 'Ctrl+A',
+          divider: true,
+          onClick: () =>
+            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
+        },
+      )
+    }
+    if (sidebarVisible && mainView === 'editor') {
+      items.push({
+        label: '关闭笔记库栏',
+        divider: true,
+        onClick: () => {
+          setSidebarVisible(false)
+          setSidebarOpen(false)
+        },
+      })
+    }
+    setMainMenu({ x: clientX, y: clientY, items })
+  }
+
   const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
   /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
@@ -960,15 +1072,7 @@ export default function App() {
 
       <div className="zn-body">
       {showSidebar && (
-      <aside
-        className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}
-        style={{ width: sidebarWidth }}
-        onContextMenu={(e) => {
-          // 树项的右键已 stopPropagation，所以走到这儿的都是空白区
-          e.preventDefault()
-          setSidebarMenuAt({ x: e.clientX, y: e.clientY })
-        }}
-      >
+      <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`} style={{ width: sidebarWidth }}>
         <div className="zn-sidebar-head">
           <span className="zn-vault-name" title={vault ?? ''}>
             {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
@@ -1022,7 +1126,14 @@ export default function App() {
         />
       )}
 
-      <main className="zn-main">
+      <main
+        className="zn-main"
+        onContextMenu={(e) => {
+          // 自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）
+          e.preventDefault()
+          openMainMenu(e.clientX, e.clientY)
+        }}
+      >
         {pagePanel || mainView === 'plugins' ? (
           /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
@@ -1155,20 +1266,12 @@ export default function App() {
       )}
 
       {/* 左上角菜单栏（记事本式 ☰，点击位置就地弹出） */}
-      {sidebarMenuAt && (
+      {mainMenu && (
         <ContextMenu
-          x={sidebarMenuAt.x}
-          y={sidebarMenuAt.y}
-          items={[
-            {
-              label: '关闭笔记库栏',
-              onClick: () => {
-                setSidebarVisible(false)
-                setSidebarOpen(false)
-              },
-            },
-          ]}
-          onClose={() => setSidebarMenuAt(null)}
+          x={mainMenu.x}
+          y={mainMenu.y}
+          items={mainMenu.items}
+          onClose={() => setMainMenu(null)}
         />
       )}
 
