@@ -274,10 +274,10 @@ button {
  * 标题栏藏起来时，窗口仍然拖得动。
  */
 .zn-titlebar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  /* **留在文档流里**（push 模式）：显示时占满 32px、把下面的侧栏与编辑区往下挤；
+     收起时靠内联的 `margin-top: -32px` 抵消，内容随即顶上来。
+     （早先用 absolute + translateY 是 overlay —— 浮在内容上，用户要求改成"挤"。） */
+  position: relative; /* 只为让 z-index 生效，不脱离文档流 */
   z-index: 60;
   display: flex;
   align-items: center;
@@ -288,12 +288,11 @@ button {
   height: 32px;
   flex: none;
   user-select: none;
-  transform: translateY(-100%);
   opacity: 0;
   /* 450ms + Material 标准曲线（起步快、收尾稳）。
      160ms → 320ms → 450ms：用户连说两次「快」，就按明显的步长往上加 */
   transition:
-    transform 450ms cubic-bezier(0.4, 0, 0.2, 1),
+    margin-top 450ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 450ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 

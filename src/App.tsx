@@ -210,6 +210,12 @@ export default function App() {
   const [titlebarVisible, setTitlebarVisible] = useState(true)
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
+      // 菜单开着时必须留着标题栏 —— 菜单挂在 ☰ 上（用它的左下角定位），
+      // ☰ 跟着收起的话菜单就"悬空"了。
+      if (menuAt) {
+        setTitlebarVisible(true)
+        return
+      }
       // 顶部 20px 都算"要标题栏"：自绘窗口最上面几像素收不到 WebView 的 mousemove
       //（属系统边界），阈值太窄就永远唤不出来。下沿给到 64px 避免贴边抖动。
       if (e.clientY <= 20) setTitlebarVisible(true)
@@ -217,7 +223,7 @@ export default function App() {
     }
     window.addEventListener('mousemove', onMove)
     return () => window.removeEventListener('mousemove', onMove)
-  }, [])
+  }, [menuAt])
 
   /**
    * 键盘焦点进入标题栏时也保持显示。

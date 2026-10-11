@@ -47,8 +47,11 @@ export function TitleBar({
 
   // 显隐用**内联样式**：`.zn-titlebar.is-visible` 这条规则在这台 WebView 上不生效
   //（实测 state 已是 true、class 也切了，标题栏却仍不可见），内联优先级最高、一定有效。
+  //
+  // 用 `margin-top` 而不是 `transform`：标题栏要的是 **push（把下面挤下去）**，
+  // 不是 overlay（浮在内容上面）。margin 参与布局，收起来时下面的内容会跟着顶上来。
   const barStyle = {
-    transform: visible ? 'translateY(0)' : 'translateY(-100%)',
+    marginTop: visible ? 0 : -32,
     opacity: visible ? 1 : 0,
   }
 
@@ -70,9 +73,11 @@ export function TitleBar({
       <button
         type="button"
         className="zn-icon-btn"
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          onMenu({ x: r.left, y: r.bottom + 4 })
+        onClick={() => {
+          // 悬挂菜单：**左对齐窗口左边**（x=0）、**顶边贴在标题栏下沿**（y=32）、不留空隙。
+          //（用户要求：「左对齐，不留空隙，顶部是贴标题栏底部，不是两个顶部重合」）
+          // 32 就是标题栏高度（.zn-titlebar 的 height）—— 改高度时这两处要一起改。
+          onMenu({ x: 0, y: 32 })
         }}
         title="菜单"
         aria-label="菜单"

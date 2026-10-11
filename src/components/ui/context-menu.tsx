@@ -71,7 +71,7 @@ export function ContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[190px] rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+      className="fixed z-[70] min-w-[190px] rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
       style={{ left: x, top: y }}
       role="menu"
     >
