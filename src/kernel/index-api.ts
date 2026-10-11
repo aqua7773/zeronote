@@ -55,6 +55,8 @@ type Entry = {
   text: string
   lower: string
   titleLower: string
+  /** 从 frontmatter 与正文抽出的标签（去重） */
+  tags: string[]
 }
 
 type Span = { start: number; end: number }
@@ -81,6 +83,61 @@ function titleFromPath(path: string): string {
   return base.replace(/\.md$/i, '') || path
 }
 
+/**
+ * 抽标签：兼容 frontmatter 的三种写法（`tags: [a, b]` / 多行 `- a` / `tags: a, b`）
+ * 以及正文里的 `#标签`（与 `examples/editor-marks` 同一约定）。
+ *
+ * 为什么在前端自己解析、不复用 Rust 的 `parse_frontmatter`：那边只认**单行** `key: value`
+ * （`src-tauri/src/lib.rs`），多行标签数组会被整段跳过。而这里拿到的是**全文**，
+ * 多解析一遍的成本，远低于把 Rust 侧的解析器复杂化（那也是内核变胖）。
+ */
+function tagsOf(raw: string): string[] {
+  const out = new Set<string>()
+  const push = (s: string) => {
+    const t = s
+      .trim()
+      .replace(/^["'[\]]+|["'[\]]+$/g, '')
+      .replace(/^#/, '')
+      .trim()
+    if (t) out.add(t)
+  }
+
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)
+  if (fm) {
+    const body = fm[1]
+    /**
+     * 三种写法**各自独立扫**，不是 if/else —— 同一份 frontmatter 里完全可以
+     * 既有 `tags: [工作, 项目A]` 又有 `标签: 会议`，互斥会让后面那个凭空消失
+     * （真实踩到：统计里「会议」不见了）。
+     */
+    // ① 行内数组 tags: [a, b, c]
+    for (const m of body.matchAll(/^(?:tags|标签)\s*:\s*\[([^\]]*)\]\s*$/gim)) {
+      m[1].split(',').forEach(push)
+    }
+    // ② 多行列表 tags: 换行后跟若干 "  - a"
+    for (const m of body.matchAll(/^(?:tags|标签)\s*:\s*\r?\n((?:[ \t]*-[ \t]*.+\r?\n?)+)/gim)) {
+      m[1].split(/\r?\n/).forEach((line) => {
+        const mm = /^[ \t]*-[ \t]*(.+)$/.exec(line)
+        if (mm) push(mm[1])
+      })
+    }
+    // ③ 单行逗号分隔 tags: a, b（排除以 [ 开头的，那是 ① 的地盘）
+    for (const m of body.matchAll(/^(?:tags|标签)\s*:\s*([^[\r\n].*)$/gim)) {
+      m[1].split(',').forEach(push)
+    }
+  }
+
+  /**
+   * 正文里的 `#标签`：要求行首或空白之后。
+   * **必须排除中英标点** —— 否则 "……一个 #工作。" 会把句号也当成标签名的一部分
+   * （实测统计里出现了「工作。」这种鬼东西）。
+   */
+  const bodyTag = /(?<=^|\s)#([^\s#[\]{}()（）【】「」，。！？、；：""''.,!?;:]{1,30})/gm
+  for (const m of raw.matchAll(bodyTag)) push(m[1])
+
+  return [...out]
+}
+
 /** 建一条索引项。`path` 用 POSIX 分隔符（契约 §1.1）。 */
 function makeEntry(path: string, title: string | undefined, raw: string): Entry {
   const text = stripSentinels(raw)
@@ -95,7 +152,14 @@ function makeEntry(path: string, title: string | undefined, raw: string): Entry 
   // 真实踩到过：笔记内容是「# 新笔记」、文件名是 untitled-20261011-172344.md，搜 "unt" 得 0 结果。
   // 注意 title（显示用）不变，只有 titleLower（匹配用）扩展，避免影响列表观感。
   const searchable = fromPath && fromPath !== t ? `${t} ${fromPath}` : t
-  return { path, title: t, text: shown, lower: lowered, titleLower: lowerNoAlloc(searchable) }
+  return {
+    path,
+    title: t,
+    text: shown,
+    lower: lowered,
+    titleLower: lowerNoAlloc(searchable),
+    tags: tagsOf(text),
+  }
 }
 
 /** 一次扫描拿到「命中次数」与「首次命中位置」—— 别扫两遍 */
@@ -345,16 +409,37 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
 
     return {
       /** 多关键词 **AND** + 中文子串。任何输入都不抛错；只有 fs 故障才会 reject。 */
-      async query(q: string, opts?: { limit?: number; dir?: string }): Promise<SearchHit[]> {
+      async query(
+        q: string,
+        opts?: { limit?: number; dir?: string; tag?: string },
+      ): Promise<SearchHit[]> {
         const tokens = tokenizeQuery(q)
-        if (tokens.length === 0 || part.docs.size === 0) return []
+        if (part.docs.size === 0) return []
 
         const dirPrefix = normalizeDir(opts?.dir)
         const limit = resolveLimit(opts?.limit)
+        // 字段过滤：按标签精确命中（大小写不敏感，与正文搜索的语义保持一致）
+        const wantTag = opts?.tag?.trim().toLowerCase()
+
+        /**
+         * 空关键词**只在有 tag 过滤时才算合法** —— "列出这个标签下的全部笔记"
+         * 正是 `query('', { tag })` 的用法（真实踩到：之前这里直接 return []
+         * 导致按标签筛选永远 0 篇）。两个都空才是真的没给条件。
+         */
+        if (tokens.length === 0 && !wantTag) return []
+
         const scored: { entry: Entry; score: number }[] = []
 
         for (const entry of part.docs.values()) {
           if (dirPrefix && !inDir(entry.path, dirPrefix)) continue
+          if (wantTag && !entry.tags.some((t) => t.toLowerCase() === wantTag)) continue
+
+          // 纯标签筛选：没有关键词可匹配，不打分也不做命中摘要
+          if (tokens.length === 0) {
+            scored.push({ entry, score: 0 })
+            continue
+          }
+
           let ok = true
           for (const tk of tokens) {
             // AND：任一关键词在标题和正文里都不出现 ⇒ 整篇淘汰
@@ -376,7 +461,11 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         return scored.slice(0, limit).map(({ entry, score }) => ({
           path: entry.path,
           title: entry.title,
-          excerpt: buildExcerpt(entry, tokens),
+          // 无关键词时没有"命中窗口"可给 ⇒ 退回正文开头
+          excerpt:
+            tokens.length > 0
+              ? buildExcerpt(entry, tokens)
+              : entry.text.slice(0, 120).replace(/\s+/g, ' ').trim(),
           score,
         }))
       },
@@ -400,6 +489,20 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         } finally {
           part.inflight = null
         }
+      },
+
+      /**
+       * 标签统计：**每个标签下有多少篇笔记**（不是正文里出现几次 —— `tagsOf` 已按篇去重），
+       * 按笔记数降序。规格 §2.3 的「标签聚合查看」用它。
+       */
+      async tags(): Promise<{ tag: string; count: number }[]> {
+        const counter = new Map<string, number>()
+        for (const entry of part.docs.values()) {
+          for (const t of entry.tags) counter.set(t, (counter.get(t) ?? 0) + 1)
+        }
+        return [...counter.entries()]
+          .map(([tag, count]) => ({ tag, count }))
+          .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
       },
 
       /**

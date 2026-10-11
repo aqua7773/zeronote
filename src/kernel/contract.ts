@@ -73,10 +73,20 @@ export type SearchHit = { path: string; title: string; excerpt: string; score: n
 
 /** 3. index —— 可删可重建的索引（v0.2 实现） */
 export interface IndexApi {
-  query(q: string, opts?: { limit?: number; dir?: string }): Promise<SearchHit[]>
+  /**
+   * 多关键词 **AND** 检索。`opts.tag` 是**字段过滤**：只返回带该标签的笔记
+   * （标签来自 frontmatter 的 `tags`/`标签`，以及正文里的 `#标签`）。
+   */
+  query(q: string, opts?: { limit?: number; dir?: string; tag?: string }): Promise<SearchHit[]>
   upsert(path: string, text: string): Promise<void>
   remove(path: string): Promise<void>
   rebuild(): Promise<{ count: number; ms: number }>
+  /**
+   * 当前索引里的**标签统计**（按笔记数降序）—— 规格 §2.3 的「标签聚合查看」用它。
+   * `count` 是**带该标签的笔记篇数**（同一篇里出现多次只算一次）。
+   * 只统计**已经 upsert/rebuild 进本分区**的笔记（分区隔离照旧生效）。
+   */
+  tags(): Promise<{ tag: string; count: number }[]>
   /**
    * 取一个**独立分区**的索引视图（契约 §2.6 的"按密级分索引"靠它）。
    *
