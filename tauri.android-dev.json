@@ -1,8 +1,5 @@
 {
-  "//": "android dev 的配置覆盖：不再自己起一个 vite。",
-  "//why": "tauri.conf.json 的 beforeDevCommand 是全局的，安卓这边跟着桌面一起跑时，它启的 vite 抢不到 1420（会退到 1421）且没人连它 —— 白占一个 node 进程。这里把它换成一条空操作，让安卓直接连桌面 dev 已在提供的 http://192.168.1.20:1420。",
-  "//require": "前提：桌面 dev（dev.cmd）得开着。开发时要双端对照，它本来就开着。",
   "build": {
-    "beforeDevCommand": "cmd /c echo (android dev: 复用桌面 dev 的 vite)"
+    "beforeDevCommand": "cmd /c exit 0"
   }
 }
