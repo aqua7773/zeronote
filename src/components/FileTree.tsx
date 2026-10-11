@@ -45,7 +45,8 @@ function Node({
   node,
   depth,
   activePath,
-  onOpen,
+  selected,
+  onPick,
   onContextMenu,
   renamingPath,
   draft,
@@ -56,7 +57,10 @@ function Node({
   node: TreeNode
   depth: number
   activePath: string | null
-  onOpen: (path: string) => void
+  /** 当前多选集合（用 Set 判断，避免每行 O(n) 扫数组） */
+  selected: Set<string>
+  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
+  onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, x: number, y: number) => void
   renamingPath: string | null
   draft: string
@@ -87,7 +91,8 @@ function Node({
               node={c}
               depth={depth + 1}
               activePath={activePath}
-              onOpen={onOpen}
+              selected={selected}
+              onPick={onPick}
               onContextMenu={onContextMenu}
               renamingPath={renamingPath}
               draft={draft}
@@ -102,6 +107,7 @@ function Node({
 
   const label = node.name.replace(/\.(md|markdown)$/i, '')
   const active = node.path === activePath
+  const picked = selected.has(node.path) && !active
 
   if (renamingPath === node.path) {
     return (
@@ -128,15 +134,15 @@ function Node({
 
   return (
     <button
-      className={`zn-tree-item${active ? ' is-active' : ''}`}
+      className={`zn-tree-item${active ? ' is-active' : ''}${picked ? ' is-picked' : ''}`}
       style={pad}
-      onClick={() => onOpen(node.path)}
+      onClick={(e) => onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
         onContextMenu(node.path, e.clientX, e.clientY)
       }}
-      title={`${node.path}（右键：重命名 / 删除）`}
+      title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
     >
       <span>{label}</span>
     </button>
@@ -147,19 +153,71 @@ export function FileTree({
   notes,
   activePath,
   onOpen,
+  onDeleteMany,
   onRename,
-  onDelete,
 }: {
   notes: NoteMeta[]
   activePath: string | null
   onOpen: (path: string) => void
+  /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
+  onDeleteMany: (paths: string[]) => void
   onRename: (from: string, to: string) => void
-  onDelete: (path: string) => void
 }) {
   const tree = useMemo(() => buildTree(notes), [notes])
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  /** 多选：当前高亮的路径；空数组时退化为「只有打开的那篇被选中」 */
+  const [selected, setSelected] = useState<string[]>([])
+  /** Shift 范围选择的锚点 */
+  const [anchor, setAnchor] = useState<string | null>(null)
+
+  /* 用「派生」而不是 effect 同步：外部（搜索面板、快速打开）打开别的笔记时，
+     activePath 会变，这里直接把它当作唯一选中项，不必写 setState-in-effect。
+     注意依赖必须是 selected / activePath 本身 —— 若在外面先算出 "effectiveSelected"
+     数组再依赖它，那个数组每次渲染都是新的，memo 就白做了（lint 也会报）。 */
+  const selectedSet = useMemo(() => {
+    const eff = selected.length ? selected : activePath ? [activePath] : []
+    return new Set(eff)
+  }, [selected, activePath])
+
+  /** 按**显示顺序**摊平的路径表 —— 树是嵌套的，Shift 范围选择得按屏幕上的顺序来 */
+  const flatPaths = useMemo(() => {
+    const out: string[] = []
+    const walk = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        if (n.isDir) walk(n.children)
+        else out.push(n.path)
+      }
+    }
+    walk(tree)
+    return out
+  }, [tree])
+
+  const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
+    if (mods.range && anchor) {
+      const a = flatPaths.indexOf(anchor)
+      const b = flatPaths.indexOf(path)
+      if (a >= 0 && b >= 0) {
+        const lo = Math.min(a, b)
+        const hi = Math.max(a, b)
+        setSelected(flatPaths.slice(lo, hi + 1))
+        return
+      }
+    }
+    if (mods.toggle) {
+      setSelected((prev) => {
+        const base = prev.length ? prev : activePath ? [activePath] : []
+        return base.includes(path) ? base.filter((p) => p !== path) : [...base, path]
+      })
+      setAnchor(path)
+      return
+    }
+    // 普通点击：单选 + 打开
+    setSelected([path])
+    setAnchor(path)
+    onOpen(path)
+  }
 
   const startRename = (path: string) => {
     setDraft(baseName(path))
@@ -198,18 +256,35 @@ export function FileTree({
 
   // 删除是「一步完成 + 可撤销」—— 依据 Apple HIG：常见且可撤销的破坏操作不该弹确认，
   // 只有不可逆的才必须确认。可撤销性由 App 的撤销条提供（几秒内能把文件搬回来）。
+  const deletePaths = (paths: string[]) => {
+    onDeleteMany(paths)
+    setSelected([])
+    setMenu(null)
+  }
+
   const items: MenuItem[] = menu
-    ? [
-        { label: '重命名', onClick: () => startRename(menu.path) },
-        {
-          label: '删除',
+    ? (() => {
+        const multi = selectedSet.size > 1 && selectedSet.has(menu.path)
+        const list: MenuItem[] = []
+        if (!multi) {
+          list.push({ label: '重命名', onClick: () => startRename(menu.path) })
+        }
+        list.push({
+          label: multi ? `删除选中的 ${selectedSet.size} 篇` : '删除',
           danger: true,
-          onClick: () => {
-            onDelete(menu.path)
-            setMenu(null)
-          },
-        },
-      ]
+          onClick: () => deletePaths(multi ? [...selectedSet] : [menu.path]),
+        })
+        // 右键的是选中项之外的一条时，额外给一个「删除选中的 N 篇」入口
+        if (!multi && selectedSet.size > 1) {
+          list.push({
+            label: `删除选中的 ${selectedSet.size} 篇`,
+            danger: true,
+            divider: true,
+            onClick: () => deletePaths([...selectedSet]),
+          })
+        }
+        return list
+      })()
     : []
 
   return (
@@ -220,7 +295,8 @@ export function FileTree({
           node={n}
           depth={0}
           activePath={activePath}
-          onOpen={onOpen}
+          selected={selectedSet}
+          onPick={pick}
           onContextMenu={(path, x, y) => setMenu({ path, x, y })}
           renamingPath={renamingPath}
           draft={draft}

@@ -252,6 +252,16 @@ body.is-resizing * {
   flex: 1;
   overflow: auto;
   padding: var(--zn-space-2);
+  /* 树是"列表"不是"文本"：拖动时不该选中文件名 ——
+     否则看着像多选，其实是浏览器的选字行为 */
+  user-select: none;
+}
+
+/* 多选时被选中的行。当前打开的那条另有 .is-active，两者不叠加 ——
+   active 是"正在编辑这篇"，picked 是"打算批量操作这几篇"，轻重不同。 */
+.zn-tree-item.is-picked {
+  background: var(--zn-bg-active);
+  color: var(--zn-fg);
 }
 
 .zn-tree-item {

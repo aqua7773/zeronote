@@ -128,7 +128,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
       删除本身是一步完成的（不弹确认框打断用户），可撤销性由这条提示提供。 */
-  const [undoDelete, setUndoDelete] = useState<{ path: string; trash: string } | null>(null)
+  /** 最近一次删除（可能一次多篇），供撤销条在几秒内恢复 */
+  const [undoDelete, setUndoDelete] = useState<{ path: string; trash: string }[] | null>(null)
 
   /* ── 插件 ── */
   const [manifests, setManifests] = useState<PluginManifest[]>([])
@@ -581,15 +582,25 @@ export default function App() {
     [kernel, refresh],
   )
 
-  /** 删除笔记 —— 删前先把未保存改动落盘，删掉的才是磁盘上的最新版本（Rust 侧是移入 .zn/trash/，不是物理删） */
-  const deleteNote = useCallback(
-    async (path: string) => {
+  /**
+   * 删除笔记，**支持一次多篇**（笔记库栏的多选走这条）。
+   * 删前先把未保存改动落盘，删掉的才是磁盘上的最新版本（Rust 侧是移入 .zn/trash/，不是物理删）。
+   * 一步删掉 + 一次撤销机会、不弹确认框 —— 依据 Apple HIG：
+   * 「常见且可撤销的破坏操作不该弹窗，只有不可逆的才必须确认」。
+   */
+  const deleteNotes = useCallback(
+    async (paths: string[]) => {
       const k = kernel
-      if (!k) return
+      if (!k || !paths.length) return
+      const done: { path: string; trash: string }[] = []
       try {
-        if (activeRef.current === path && dirtyRef.current) await saveNowRef.current()
-        const trashPath = await k.fs.delete(path)
-        if (activeRef.current === path) {
+        if (paths.includes(activeRef.current ?? '') && dirtyRef.current) {
+          await saveNowRef.current()
+        }
+        for (const path of paths) {
+          done.push({ path, trash: await k.fs.delete(path) })
+        }
+        if (paths.includes(activeRef.current ?? '')) {
           setActivePath(null)
           setContent('')
           setDirty(false)
@@ -597,26 +608,27 @@ export default function App() {
         }
         await refresh()
         setError(null)
-        // 一步删掉，给一次撤销机会（不弹确认框）—— 依据 Apple HIG：
-        // 「常见且可撤销的破坏操作不该弹窗，只有不可逆的才必须确认」
-        setUndoDelete({ path, trash: trashPath })
+        setUndoDelete(done)
         setToast(null)
       } catch (e) {
+        // 中途失败：前面几篇已经进回收站了，仍然把撤销条挂上，别让它们找不回来
+        await refresh()
+        if (done.length) setUndoDelete(done)
         setError(failMsg('delete', e))
       }
     },
     [kernel, refresh],
   )
 
-  /** 撤销删除：把回收站里的文件 rename 回原位 */
+  /** 撤销删除：把回收站里的文件逐个 rename 回原位 */
   const undoDeleteNote = useCallback(async () => {
     const k = kernel
     if (!k || !undoDelete) return
     try {
-      await k.fs.rename(undoDelete.trash, undoDelete.path)
+      for (const it of undoDelete) await k.fs.rename(it.trash, it.path)
       await refresh()
       setError(null)
-      setToast('已恢复')
+      setToast(undoDelete.length > 1 ? `已恢复 ${undoDelete.length} 篇` : '已恢复')
     } catch (e) {
       setError(failMsg('rename', e))
     } finally {
@@ -1140,7 +1152,7 @@ export default function App() {
             activePath={activePath}
             onOpen={(p) => void openNote(p)}
             onRename={(from, to) => void renameNote(from, to)}
-            onDelete={(p) => void deleteNote(p)}
+            onDeleteMany={(paths) => void deleteNotes(paths)}
           />
         ) : (
           <div
@@ -1402,7 +1414,7 @@ export default function App() {
 
       {undoDelete ? (
         <div className="zn-undo" role="status">
-          <span>已移入回收站</span>
+          <span>{undoDelete.length > 1 ? `${undoDelete.length} 篇已移入回收站` : '已移入回收站'}</span>
           <button type="button" className="zn-undo-btn" onClick={() => void undoDeleteNote()}>
             撤销
           </button>
