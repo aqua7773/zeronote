@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "webview-demo",
+  "name": "WebView 逃生口示例",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "description": "演示 view.registerWebView：sandbox iframe 承载插件自己的页面（asset 版），主题令牌经 postMessage 送达并跟随主题切换",
+  "platforms": ["desktop", "android"],
+  "capabilities": ["view:main", "view:modal", "command"]
+}

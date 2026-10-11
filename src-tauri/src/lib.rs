@@ -420,12 +420,17 @@ fn list_vaults(root: String) -> Result<Vec<String>, String> {
 // 私有根见 `private_root()` —— 默认就是库自己；库在 `.vaults/` 里时是**库根**（跨库共用）。
 // 与 fs 原语一样：只接受安全相对路径，写入原子。
 
-fn plugin_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
-  let ok = !plugin_id.is_empty()
+/// 插件 id 白名单（只允许字母数字与 `-` `_` `.`）—— 越不出 `.zn/plugins/`。
+/// 授权记录（`permissions.json`）的键走**同一个判据**，免得两处口径不一致。
+fn valid_plugin_id(plugin_id: &str) -> bool {
+  !plugin_id.is_empty()
     && plugin_id
       .chars()
-      .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-  if !ok {
+      .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+fn plugin_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
+  if !valid_plugin_id(plugin_id) {
     return Err(format!("非法插件 id（只允许字母数字与 - _ .）：{plugin_id}"));
   }
   Ok(private_root(vault).join(PRIVATE_DIR).join("plugins").join(plugin_id))
@@ -515,6 +520,90 @@ fn plugin_store_write(
   atomic_write(&path, &text)
 }
 
+/* ───────────── 授权记录（capability 授权通道）───────────── */
+//
+// 授权记录落在 `<私有根>/.zn/permissions.json`，结构 `{ "<pluginId>": ["net"] }`。
+//
+// 为什么不写进插件自己的 `store.json`：store 是**插件自己读写**的（插件完全可以给自己
+// 写一份），而这张表只由宿主经设置页写 ⇒ 至少"谁写的"分开。**但它仍然不是隔离** ——
+// 插件与宿主同一个 JS 上下文，`globalThis.fetch` / ESM import / `invoke` 三条路都不查这张表。
+// 它兑现的是**知情与承诺**，措辞与边界见 `docs/内核契约-v0.1.md` §4。
+
+/// 只允许这两项走授权通道 —— 它们是契约 §4 里标了「默认拒」的项。
+const GRANTABLE: [&str; 2] = ["net", "proc"];
+
+fn permissions_path(vault: &str) -> PathBuf {
+  private_root(vault)
+    .join(PRIVATE_DIR)
+    .join("permissions.json")
+}
+
+/// 读授权全表。**失败一律往"没授权"倒**（fail closed）：
+/// 文件坏了 / 不是对象 ⇒ 空表，而不是"全部放行"。
+fn read_permissions_file(vault: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+  let path = permissions_path(vault);
+  if !path.exists() {
+    return Ok(serde_json::Map::new());
+  }
+  let text = fs::read_to_string(&path).map_err(|e| format!("读取授权记录失败：{e}"))?;
+  if text.trim().is_empty() {
+    return Ok(serde_json::Map::new());
+  }
+  match serde_json::from_str::<serde_json::Value>(&text) {
+    Ok(serde_json::Value::Object(m)) => Ok(m),
+    _ => Ok(serde_json::Map::new()),
+  }
+}
+
+#[tauri::command]
+fn read_permissions(vault: String) -> Result<serde_json::Value, String> {
+  Ok(serde_json::Value::Object(read_permissions_file(&vault)?))
+}
+
+/// 授权 / 撤销一项，返回**最新全表**（幂等）。
+///
+/// 合并在这里一次做完：前端只发"给谁开/关哪一项"，不会因为两次并发读改写而互相覆盖。
+/// 拒绝两种输入：非法插件 id（防路径注入）、不在 `GRANTABLE` 里的项（防把普通
+/// capability 也塞进这张表造成两套口径）。
+#[tauri::command]
+fn set_permission(
+  vault: String,
+  plugin_id: String,
+  capability: String,
+  granted: bool,
+) -> Result<serde_json::Value, String> {
+  if !valid_plugin_id(&plugin_id) {
+    return Err(format!("非法插件 id：{plugin_id}"));
+  }
+  if !GRANTABLE.contains(&capability.as_str()) {
+    return Err(format!("该项不能通过授权通道开启：{capability}"));
+  }
+  let mut table = read_permissions_file(&vault)?;
+  let mut caps: Vec<String> = table
+    .get(&plugin_id)
+    .and_then(|v| v.as_array())
+    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+    .unwrap_or_default();
+  let has = caps.iter().any(|c| c == &capability);
+  if granted && !has {
+    caps.push(capability.clone());
+  }
+  if !granted && has {
+    caps.retain(|c| c != &capability);
+  }
+  if caps.is_empty() {
+    // 一项都不剩就把这个键删掉 —— 文件保持在"最小可读"的样子
+    table.remove(&plugin_id);
+  } else {
+    caps.sort();
+    table.insert(plugin_id, serde_json::json!(caps));
+  }
+  let out = serde_json::Value::Object(table);
+  let text = serde_json::to_string_pretty(&out).map_err(|e| format!("序列化失败：{e}"))?;
+  atomic_write(&permissions_path(&vault), &text)?;
+  Ok(out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -548,7 +637,9 @@ pub fn run() {
       plugin_store_write,
       ensure_vault,
       list_vaults,
-      delete_plugin
+      delete_plugin,
+      read_permissions,
+      set_permission
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -585,6 +676,63 @@ mod tests {
     assert!(delete_plugin(vault.clone(), "a/b".to_string()).is_err());
     // 不存在 ⇒ 明确报错，而不是假装成功（界面不该弹出"已删除"）
     assert!(delete_plugin(vault, "nope".to_string()).is_err());
+  }
+
+  /// 授权记录：授权 → 读回 → 撤销；非法输入必须被拒且**不留痕**
+  #[test]
+  fn permission_grant_and_revoke_roundtrip() {
+    let d = tmpdir("perm");
+    let vault = d.to_string_lossy().into_owned();
+
+    // 没授权过 ⇒ 空表（而不是报错）
+    assert_eq!(read_permissions(vault.clone()).unwrap(), serde_json::json!({}));
+
+    let t = set_permission(vault.clone(), "dep-katex".into(), "net".into(), true).unwrap();
+    assert_eq!(t, serde_json::json!({ "dep-katex": ["net"] }));
+
+    // 幂等：重复授权不该出现两条
+    let t = set_permission(vault.clone(), "dep-katex".into(), "net".into(), true).unwrap();
+    assert_eq!(t["dep-katex"].as_array().unwrap().len(), 1);
+
+    // 落点必须是 `<库>/.zn/permissions.json`（库在 .vaults 里时跟着 private_root 抬到库根）
+    assert!(
+      permissions_path(&vault).ends_with(".zn/permissions.json"),
+      "授权记录位置不对：{:?}",
+      permissions_path(&vault)
+    );
+    // 真的落盘了，且读得回来
+    assert!(permissions_path(&vault).exists(), "授权记录应当写盘");
+    assert_eq!(read_permissions(vault.clone()).unwrap(), t);
+
+    // 撤销 ⇒ 该项消失、空条目被清掉（文件回到 `{}`）
+    let t = set_permission(vault.clone(), "dep-katex".into(), "net".into(), false).unwrap();
+    assert_eq!(t, serde_json::json!({}));
+
+    // 非法插件 id / 不可授权的 capability：一律报错，且不能偷偷写进文件
+    assert!(set_permission(vault.clone(), "../evil".into(), "net".into(), true).is_err());
+    assert!(set_permission(vault.clone(), "ok".into(), "fs:write".into(), true).is_err());
+    assert_eq!(read_permissions(vault).unwrap(), serde_json::json!({}));
+  }
+
+  /// 授权记录损坏时必须 **fail closed** —— 坏文件 ≠ 全部放行
+  #[test]
+  fn broken_permission_file_fails_closed() {
+    let d = tmpdir("permbad");
+    let vault = d.to_string_lossy().into_owned();
+    let p = permissions_path(&vault);
+    fs::create_dir_all(p.parent().unwrap()).unwrap();
+    fs::write(&p, "{ 这不是 JSON").unwrap();
+
+    assert_eq!(
+      read_permissions(vault.clone()).unwrap(),
+      serde_json::json!({}),
+      "损坏的授权记录必须当成「全部未授权」"
+    );
+
+    // 损坏之后仍然写得进去（覆盖成合法 JSON），不需要用户手工删文件
+    let t = set_permission(vault.clone(), "a".into(), "net".into(), true).unwrap();
+    assert_eq!(t, serde_json::json!({ "a": ["net"] }));
+    assert_eq!(read_permissions(vault).unwrap(), serde_json::json!({ "a": ["net"] }));
   }
 
   /// 导出目标校验：相对路径拒绝；Android 的 SAF URI 要给**专门**的说明

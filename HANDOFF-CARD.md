@@ -1,10 +1,9 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12** · 写卡时 HEAD `03d0e7b` · 工作区干净
-> 这是**一屏版**；全部细节（证据截图、9 条踩坑、逐条验收）在 **`HANDOFF.md`（rev29）**。
+> 生成 **2026-10-12（下午）** · 基线 HEAD `fbd3a4a` + 本批改动（**提交后以 `git log --oneline -3` 为准**）
+> 这是**一屏版**；全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev30）**。
 >
-> ⚠️ **本卡里的 commit / 行数 / 计数会随提交过时** —— 以 `git log --oneline -5`
-> 和实际命令输出为准，别把卡里的数字当现状。
+> ⚠️ **本卡里的 commit / 行数 / 计数会随提交过时** —— 以 `git log --oneline -5` 和实际命令输出为准。
 
 ---
 
@@ -19,7 +18,7 @@
 
 ## 现在的状态（一句话）
 
-**插件能力已覆盖需求规格 §2.1–2.8 的大部分；剩下两项都卡在「需要用户授权的安全模型变更」上。**
+**①–⑩ 十项全部完成**（⑧⑩ 于 2026-10-12 下午经用户授权后落地）；验收基线有一处**有意变更**：`oxlint` 5 → 4。
 
 ---
 
@@ -29,22 +28,30 @@
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 
 pnpm exec tsc -b            # 必须 0 错误
-pnpm exec oxlint            # 必须**恰好 5 warnings**（基线，别加也别减）
-cd src-tauri; cargo test    # 必须 14 passed
+pnpm exec oxlint            # 必须**恰好 4 warnings**（基线，2026-10-12 从 5 变为 4，原因见下）
+cd src-tauri; cargo test --lib   # 必须 16 passed（看 `running N tests` 的数字，别只看 ok）
 ```
+
+> 📌 `oxlint` 为什么从 5 变 4：`setPluginError(null)` 从 effect 体里挪进了异步回调，
+> `react(set-state-in-effect)` 不再命中。**警告减少不是新问题**，新基线就是 **4**。
 
 真机（Android · 设备 `33b676f6`，`adb devices` 确认在线）：
 
 ```powershell
-# 改前端后的完整回路（约 3 分钟）
+# 改前端/Rust 后的完整回路（约 3 分钟）
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:PATH"
 $env:CARGO_TARGET_DIR = "$env:USERPROFILE\cargo-targets\zeronote"
 pnpm tauri android build --apk --target aarch64 --debug
 adb install -r src-tauri\gen\android\app\build\outputs\apk\universal\debug\app-universal-debug.apk
 adb shell am force-stop com.aqua.zeronote.debug
 adb shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity
 
-# 只改插件（不用重新打包，直接推 + 重启）
-adb push examples\<插件> /storage/emulated/0/Documents/ZeroNote/.zn/plugins/<插件>
+# 只改插件（不用重新打包）：**推单个文件到明确路径**，别推整个目录
+#   ⚠️ `adb push <目录> <已存在的目标>` 会多套一层子目录，插件就找不到文件了
+adb push examples\net-demo\index.js /storage/emulated/0/Documents/ZeroNote/.zn/plugins/net-demo/index.js
+
+# 真机点击：**tap 不生效，swipe 生效**（同坐标同刻实测）
+adb shell input swipe 93 185 93 185 120     # 点 ☰
 ```
 
 ---
@@ -53,37 +60,53 @@ adb push examples\<插件> /storage/emulated/0/Documents/ZeroNote/.zn/plugins/<�
 
 1. **capability / 安全模型的改动**（信任根、授权路径、工具白名单、提权入口）
    → **必须先拿到用户对「具体方案」的同意**才可动手。方向同意 ≠ 方案同意。
-2. 每批交付纪律：`tsc -b` 0 错误 + `oxlint` 5 warnings 基线 + **真机截图/命令证据** + 自主提交 + HANDOFF 更新。
+2. 每批交付纪律：`tsc -b` 0 错误 + `oxlint` 基线（现 **4**）+ **真机截图/命令证据** + 自主提交 + HANDOFF 更新。
 3. **手机截图直接 `adb shell screencap`** —— 用户自己开着窗口，**不要**用 `gentle_*`。
 4. **内核保持薄**：能当插件做的事不要塞进内核；新能力优先做成**前置插件**（`service` 原语）。
-5. **静默失效比报错危险** —— 测试/订阅"看起来成功但永不触发"最坑。动过测试后看
-   `cargo test --lib` 的 `running N tests` **数字**，别只看 `test result: ok`（HANDOFF 坑 ⑧）。
+5. **静默失效比报错危险** —— 看 `cargo test --lib` 的 `running N tests` **数字**；
+   `oxlint` 的 warnings **计数**；插件的"注册了但没登记"这类记账错误在首次安装时看不出来。
 
 ---
 
-## 唯一待裁决（**阻塞项，别自行开工**）
+## 已完成（十项，**别重做**）
 
-| 项 | 我提的具体方案 | 解锁 |
-|---|---|---|
-| **⑧ `net` 授权通道** | 设置页逐插件开关 + 权限存 `.zn/permissions.json`；契约 **§4 诚实改写**：明确写"这是**可绕过的边界**（插件跑同一上下文），作用是**知情与承诺**，**不是隔离**" | 规格 2.4 同步 · 2.5 WebDAV · 2.6 局域网传输 · 2.7 AI 标签 |
-| **⑩ WebView 逃生口** | `<iframe sandbox="allow-scripts">` + 主题 token 注入；**先测 CSP** 会不会打断 `dep-katex` 的 CDN 加载，断了就只做主题注入 | 规格 2.4 视频首帧 · 画布类插件 |
+```
+① fs 文件夹(mkdir/move) ✅   ② 编辑器工具栏挂载点 ✅   ③ index 标签 ✅
+④ index 分区 ✅             ⑤ host.saveFile(含二进制) ✅ ⑥ 编辑器标记 ✅
+⑦ 懒激活机制 ✅             ⑧ net 授权通道 ✅         ⑨ 安全存储(前置插件) ✅
+⑩ WebView 逃生口 ✅
+```
 
-> 这两项已连续问 5 轮、未获回复 ⇒ **按纪律不推进**。
-> （现状是"声明即拒、不声明却能跑"—— 比 Obsidian 的坦诚声明更糟，所以 ⑧ 值得做。）
+**额外成果**：`service` 前置插件原语 · `editor` 原语 · **命令接管**（插件可覆盖 `core.newNote` 等）·
+**⑧ 的授权通道**（设置页逐插件开关 + `.zn/permissions.json` + 契约 §4 诚实改写）·
+**⑩ 的 `registerWebView`**（sandbox iframe + postMessage 主题令牌）· **CSP 落地**（从 `null` 变白名单）·
+**插件资源自动登记** + **插件生命期串行链**（修掉"重载必报命令 id 重复"的两个根因）·
+能力对照文档 · 修复插件重载竞态幽灵。
 
 ---
 
-## 已完成（9 轮，**别重做**）
+## 本次学到的四条硬事实（细则见 HANDOFF「rev30 新踩的五个坑」）
 
-```
-① fs 文件夹(mkdir/move) ✅  ② 编辑器工具栏挂载点 ✅  ③ index 标签(抽取/聚合/筛选) ✅
-④ index 分区 ✅            ⑤ host.saveFile(含二进制) ✅  ⑥ 编辑器标记 ✅
-⑦ 懒激活机制 ✅            ⑧ net 授权通道 ⬜ 待授权   ⑨ 安全存储(前置插件) ✅
-⑩ WebView 逃生口 ⬜ 待授权
-```
+1. **CSP 一开，`data:`/`blob:`/`srcdoc` 的 iframe 里内联脚本必被拦** —— Tauri 注入的 `sha256`
+   会让 `'unsafe-inline'` 失效。**要给插件页面跑脚本，页面必须来自独立 origin（`http(s):`）。**
+2. **Tauri asset 协议在 Android 上不服务 `.html`**（`ERR_INVALID_RESPONSE`），图片可以。
+3. **加 CSP 之后「裸 fetch」真的被 `connect-src` 拦住了**：白名单内 `fetch esm.sh` → HTTP 200；
+   白名单外 `fetch example.com` → `TypeError: Failed to fetch`。**这条边界比 `permissions.json` 硬得多。**
+4. **真机点击用 `input swipe x y x y 120`**（`input tap` 在 WebView 里不生效）。
 
-**额外成果**：`service` 前置插件原语 · `editor` 原语 · **命令接管**（插件可覆盖 `core.newNote` 等内核命令）
-· 能力对照文档 · 修复"插件重载竞态幽灵"（一次打断会污染之后所有重载）。
+---
+
+## 下一批候选（**阻塞已解除，等用户指定**）
+
+| # | 议题 | 为什么值得做 | 状态 |
+|---|---|---|---|
+| A | **`platforms` 声明强制** | manifest 有字段、`loadPlugin` 不读 ⇒ Android 会拉桌面专属插件（缺口 9） | 未动 |
+| B | **沙箱（Worker + 内存/时长上限）** | 唯一能防 `while(true)`、也是唯一能把 capability 变成真隔离的 | v0.2 |
+| C | **iframe ↔ 宿主能力通道** | 现在 WebView 只能收令牌，不能调 `ctx.*`；需先定 postMessage 协议 + 宿主鉴权 | v0.2 |
+| D | **`host.saveFile` 接 Android SAF** | 现在手机「另存为」会在磁盘留 **0 字节文件**（SAF 返回 `content://`，`std::fs` 处理不了）；不涉安全，但要重打 APK | 未动 |
+| E | **`[[x]]` 接管协商** | atomic 的 wikilink 装饰优先级高于 `editor.addMark`，想接管得跟它协商（HANDOFF 坑⑦） | 未动 |
+
+> 另：**授权记录不绑定插件指纹** —— 插件升一版后旧授权仍有效（契约 §7.6 的未决项），要做指纹得先问用户。
 
 ---
 
@@ -91,16 +114,7 @@ adb push examples\<插件> /storage/emulated/0/Documents/ZeroNote/.zn/plugins/<�
 
 | 想知道 | 读 |
 |---|---|
-| **全部细节 / 证据截图 / 9 条踩坑** | `HANDOFF.md`（rev29，432 行） |
-| **内核 10 个原语的准确签名 + 契约边界** | `docs/内核契约-v0.1.md` |
+| **全部细节 / 证据截图 / 踩坑** | `HANDOFF.md`（rev30） |
+| **内核 10 个原语的准确签名 + 契约边界** | `docs/内核契约-v0.1.md`（§4 是 capability 与「诚实边界」） |
 | **规格 §2.1–2.8 逐条「能做 / 不能做 / 缺什么」** | `docs/能力对照-规格2.1-2.8.md` |
-| **16 个示例插件怎么用** | `examples/`（每个文件头都有注释表格；真机装了其中 11 个） |
-
----
-
-## 下一步的三种选择
-
-1. **用户授权 ⑧**（收益最大）→ 解锁四个规格模块
-2. **用户授权 ⑩** → 解锁视频首帧 / 画布类
-3. **都不授权** → 不涉安全的收尾已基本做完；可考虑：给 `host.saveFile` 接
-   `@tauri-apps/plugin-fs` 以支持 Android 的 SAF、或与 atomic 协商 `[[x]]` 的接管点。
+| **18 个示例插件怎么用** | `examples/`（每个文件头都有注释表格；真机装了 14 个） |

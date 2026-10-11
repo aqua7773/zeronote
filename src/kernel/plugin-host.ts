@@ -50,8 +50,20 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'proc',
 ]
 
-/** v0.1 默认拒绝的两项 —— 需要用户在设置里显式开启（M2 第二版） */
-const DENIED_BY_DEFAULT: readonly Capability[] = ['net', 'proc']
+/**
+ * 「默认拒」的两项 —— 不是永远拒，而是**没被用户逐个授权就拒**。
+ *
+ * 授权记录 `<私有根>/.zn/permissions.json`（`kernel/permissions.ts`），
+ * 由设置页「插件 → 网络访问」区块写入。
+ * ⚠️ 这是**可绕过的边界**（插件与宿主同上下文），兑现的是知情与承诺，不是隔离 —— 契约 §4。
+ */
+const NEEDS_GRANT: readonly Capability[] = ['net', 'proc']
+
+/** 查授权记录：这个插件的这项能力被用户开过吗 */
+export type IsGranted = (pluginId: string, capability: string) => boolean
+
+/** 缺省（没接线时）一律视为未授权 —— 宁可拒载，不可静默放行 */
+const neverGranted: IsGranted = () => false
 
 export type LoadedPlugin = {
   /** `.zn/plugins/` 下的目录名 */
@@ -77,6 +89,14 @@ export type PluginHostDeps = {
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
+  /**
+   * 查授权记录（`.zn/permissions.json`）。**不接线 = 一律未授权**。
+   *
+   * 之所以是函数而不是一份表：`assertCapabilities` 在加载路径里是**同步**判定的，
+   * 而权限表是异步从磁盘读的 —— 调用方用 ref 提供"当前值"，就不会读到旧闭包，
+   * 也不会因为读表失败而放行。
+   */
+  isGranted?: IsGranted
 }
 
 /* ───────── 校验 ───────── */
@@ -115,15 +135,18 @@ function assertApiVersion(range: string, pluginId: string): void {
   }
 }
 
-function assertCapabilities(caps: string[], pluginId: string): void {
+function assertCapabilities(caps: string[], pluginId: string, isGranted: IsGranted): void {
   const unknown = caps.filter((c) => !ALLOWED_CAPABILITIES.includes(c as Capability))
   if (unknown.length) {
     throw new Error(`插件 ${pluginId} 声明了未知 capability：${unknown.join(', ')}`)
   }
-  const denied = caps.filter((c) => DENIED_BY_DEFAULT.includes(c as Capability))
+  // 「默认拒」两项：**查授权记录**，不再是"声明即拒"。
+  // 记录里没有 = 没授权（fail closed）；`proc` 目前没有 UI 入口 ⇒ 行为仍是拒。
+  const denied = caps.filter((c) => NEEDS_GRANT.includes(c as Capability) && !isGranted(pluginId, c))
   if (denied.length) {
     throw new Error(
-      `插件 ${pluginId} 要求默认拒绝的 capability：${denied.join(', ')}（需用户在设置里开启）`,
+      `插件 ${pluginId} 要求默认拒绝的 capability：${denied.join(', ')}` +
+        `（到「设置 → 插件 → 网络访问」里为它开启；授权记录 .zn/permissions.json）`,
     )
   }
 }
@@ -156,11 +179,44 @@ function scopedDoc(doc: DocApi, caps: Capability[], pluginId: string): DocApi {
   }
 }
 
-/** 给面板打上「来自哪个插件」的标记（卸载时靠 subs 清理，标记只用于 UI 展示） */
-function scopedView(view: ViewApi, pluginId: string): ViewApi {
+/** 登记一个 Disposable，并把它原样返回（方便 `return collect(...)` 链式写法） */
+function collect<T extends Disposable>(subs: Disposable[], d: T): T {
+  subs.push(d)
+  return d
+}
+
+/**
+ * command 视图：**自动登记**插件注册的每一条命令。
+ *
+ * 背景（真机实测）：`examples/ui-kit` / `tag-demo` 等**8 个**示例都只写了
+ * `command.register({…})` 而没接返回值 ⇒ 删除时 `subscriptions` 里没有它 ⇒
+ * 卸载不撤销命令 ⇒ **第二次加载同一个插件必撞「命令 id 重复：ui-kit.hit」**。
+ * 重扫 / 授权 / 切库都会触发重载，所以这条路径一击即中。
+ *
+ * 契约里虽然写着「所有资源必须登记」，但宿主**有能力**兜住的事就不该留给插件作者去记。
+ * （`service` / `editor` 早就是宿主强制回收，命令与面板现在跟上。）
+ */
+function scopedCommand(cmd: CommandApi, subs: Disposable[]): CommandApi {
+  return {
+    ...cmd,
+    register: (spec) => collect(subs, cmd.register(spec)),
+    bind: (id, run) => collect(subs, cmd.bind(id, run)),
+  }
+}
+
+/**
+ * view 视图：打上「来自哪个插件」的标记（UI 上标注来源），并**自动登记**注册出的资源。
+ *
+ * 面板/WebView 的注册是幂等的（同 id 替换），不登记也不会报错 —— 但那样"卸载即净"
+ * 就名不副实了：面板会在插件删掉之后继续挂在菜单里。所以一起收进 subs。
+ */
+function scopedView(view: ViewApi, pluginId: string, subs: Disposable[]): ViewApi {
   return {
     ...view,
-    registerPanel: (spec) => view.registerPanel({ ...spec, pluginId } as typeof spec),
+    registerPanel: (spec) =>
+      collect(subs, view.registerPanel({ ...spec, pluginId } as typeof spec)),
+    registerWebView: (spec) =>
+      collect(subs, view.registerWebView({ ...spec, pluginId } as typeof spec)),
   }
 }
 
@@ -339,7 +395,7 @@ export async function readManifest(vault: string, dir: string): Promise<PluginMa
 export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<LoadedPlugin> {
   const manifest = await readManifest(deps.vault, dir)
   assertApiVersion(manifest.apiVersion, manifest.id)
-  assertCapabilities(manifest.capabilities, manifest.id)
+  assertCapabilities(manifest.capabilities, manifest.id, deps.isGranted ?? neverGranted)
 
   const subs: Disposable[] = []
   const readFile = (rel: string) =>
@@ -427,8 +483,8 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     doc: scopedDoc(deps.doc, manifest.capabilities, manifest.id),
     index: deps.index,
     event: deps.event,
-    command: deps.command,
-    view: scopedView(deps.view, manifest.id),
+    command: scopedCommand(deps.command, subs),
+    view: scopedView(deps.view, manifest.id, subs),
     store: deps.store(manifest.id),
     host: deps.host,
     service: deps.service(manifest.id),

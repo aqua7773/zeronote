@@ -20,6 +20,12 @@ import {
   type PluginHostDeps,
 } from './kernel/plugin-host'
 import type { DocApi, NoteMeta, PluginManifest } from './kernel/contract'
+import {
+  isGranted as isCapabilityGranted,
+  readPermissions,
+  setPermission,
+  type PermissionTable,
+} from './kernel/permissions'
 import { FileTree } from './components/FileTree'
 import { MarkdownEditor } from './components/MarkdownEditor'
 import { CommandPalette } from './components/CommandPalette'
@@ -40,6 +46,7 @@ import { setStatusBarVisible } from './lib/systemBar'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings } from './kernel/keybindings'
 import { SearchPanel } from './components/SearchPanel'
+import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
 import {
   Button,
@@ -145,6 +152,14 @@ export default function App() {
   const [panelLog, setPanelLog] = useState<string[]>([])
   const [pluginError, setPluginError] = useState<string | null>(null)
   const [panelState, setPanelState] = useState<Record<string, unknown>>({})
+  /**
+   * capability 授权记录（`<库>/.zn/permissions.json`）—— 「默认拒」的 `net` / `proc` 走这张表。
+   *
+   * 与 disabled 不同，它**存在库里**而不是 localStorage：这是"这个库里的这个插件被授权过"
+   * 的承诺，跟着库走才对（多库共用同一个 `.zn`，见 private_root）。
+   * ⚠️ 它是**可绕过的边界**，不是隔离 —— 契约 §4。
+   */
+  const [permissions, setPermissions] = useState<PermissionTable>({})
 
   /* ── UI ── */
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -313,6 +328,7 @@ export default function App() {
   const activeRef = useRef(activePath)
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
+  const permissionsRef = useRef(permissions)
   const editorRef = useRef<EditorView | null>(null)
   const timerRef = useRef<number | null>(null)
   const openNoteRef = useRef<(p: string) => Promise<void>>(async () => {})
@@ -331,6 +347,33 @@ export default function App() {
     disabledRef.current = disabled
     localStorage.setItem(LS_DISABLED, JSON.stringify([...disabled]))
   }, [disabled])
+
+  useEffect(() => {
+    permissionsRef.current = permissions
+  }, [permissions])
+
+  /**
+   * 授权记录：换库时从磁盘读一次。
+   *
+   * 读失败**不能**当成"全都授权了" —— 保持原表（首次为空 = 全部未授权），
+   * 并把原因写进插件错误区（Rust 侧对损坏文件同样是 fail closed）。
+   * setState 全在 await 之后，别在 effect 体里同步调（lint + 级联渲染）。
+   */
+  useEffect(() => {
+    if (!vault) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const table = await readPermissions(vault)
+        if (!cancelled) setPermissions(table)
+      } catch (e) {
+        if (!cancelled) setPluginError(`读取授权记录失败：${String(e)}`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [vault])
 
   /** 运行平台 —— Android 上应用能访问的文件范围与桌面不同 */
   const platform: 'android' | 'windows' = /Android/i.test(navigator.userAgent)
@@ -788,6 +831,18 @@ export default function App() {
    * `cancelled` 检查兜住"加载完成时 effect 已经取消"的那一半。
    */
   const loadedPluginsRef = useRef<LoadedPlugin[]>([])
+  /**
+   * 插件生命周期的**串行链**：同一时刻只有一代在「卸载上一代 / 加载本代」。
+   *
+   * 为什么必须是串行的（真机实测两轮才收敛）：
+   *  · 卸载是**异步**的（插件 `dispose` 可能是 async）—— cleanup 里 `void unloadPlugin`
+   *    火忘不管，新一代就开始注册命令 ⇒ 撞「命令 id 重复：ui-kit.hit」；
+   *  · 反过来，旧一代可能正卡在 `await loadPlugin()` **内部**（命令已注册、但还没 push
+   *    进清单）；这时新一代也开始加载同名插件 ⇒ 一样撞。
+   * 所以整段（① 卸旧代 ② 装新代）挂到同一条 promise 链上，被取代的一代在每个检查点
+   * `return` 退出，链才前进。
+   */
+  const pluginChainRef = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     const k = kernel
     if (!k || !vault) return
@@ -811,6 +866,9 @@ export default function App() {
       service: k.service,
       editor: k.editor,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
+      // 授权判定读 ref 里的"当前值"：加载是异步的，闭包里的 permissions 可能已经过期
+      isGranted: (pluginId, capability) =>
+        isCapabilityGranted(permissionsRef.current, pluginId, capability),
     }
 
     /**
@@ -818,15 +876,17 @@ export default function App() {
      * 幂等 —— 重复点同一条命令不该加载两次。
      */
     const activate = async (pluginId: string) => {
+      // 本代已被取代：一颗插件都别再加载（会跟新代撞命令 id）
+      if (cancelled) throw new Error(`插件 ${pluginId} 正在重载，请重试`)
       if (loaded.some((l) => l.manifest.id === pluginId)) return
       const dir = pending.get(pluginId)
       if (!dir) throw new Error(`找不到待激活的插件：${pluginId}`)
       const l = await loadPlugin(dir, deps)
-      loaded.push(l)
       pending.delete(pluginId)
-      // 同加载路径：激活期间 effect 可能已被取消，别留下幽灵
+      // 同加载路径：激活期间 effect 可能已被取消，别留下幽灵。
+      // **先判取消再 push** —— cleanup 已经 splice 过清单，push 进去就再没人管它了
       if (cancelled) {
-        void unloadPlugin(l, deps)
+        await unloadPlugin(l, deps)
         k.releaseServices(pluginId)
         k.releaseEditorMarks(pluginId)
         return
@@ -835,12 +895,32 @@ export default function App() {
     }
     k.commands.setActivator(activate)
 
-    setPluginError(null)
-    void (async () => {
+    /**
+     * 本代的「① 卸上一代 + ② 装本代」**整段**排到同一条链上 —— 两代互斥，不会同时注册命令。
+     * 被取代时（cleanup 把 `cancelled` 置真）在每个检查点 `return` 退出，让链尽快前进。
+     */
+    const run = pluginChainRef.current.then(async () => {
+      // ① 先把上一代卸干净（命令表空出来），才允许注册新命令
+      for (const l of loaded.splice(0)) {
+        try {
+          await unloadPlugin(l, deps)
+        } catch {
+          /* 单个插件卸载失败不阻断其余的 */
+        }
+        // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
+        k.releaseServices(l.manifest.id)
+        k.releaseEditorMarks(l.manifest.id)
+      }
+      if (cancelled) return
+
+      // ② 再加载本代
+      k.commands.setActivator(activate)
+      setPluginError(null)
       try {
         const dirs = await listPluginDirs(vault)
         const list: PluginManifest[] = []
         for (const d of dirs) {
+          if (cancelled) return
           try {
             list.push(await readManifest(vault, d))
           } catch (e) {
@@ -851,6 +931,8 @@ export default function App() {
         setManifests(list)
         const ids: string[] = []
         for (const m of list) {
+          // 每轮都先看取消：**被取代就整轮退出**，绝不继续注册（继续只会跟新代撞 id）
+          if (cancelled) return
           if (disabledRef.current.has(m.id)) continue
           /**
            * 懒激活判定：写了 `activationEvents` 且**不含** onStartup / onVaultOpen
@@ -877,40 +959,37 @@ export default function App() {
           }
           try {
             const l = await loadPlugin(m.id, deps)
-            loaded.push(l)
-            // 加载期间 effect 可能已被取消（用户切库 / 点重新扫描）——
-            // 这时 cleanup 早就跑完了，得自己把它卸掉，否则命令会留在表里
+            // 加载**完成那一刻**才被取代：当场卸掉再整轮退出（否则它就是幽灵命令）
             if (cancelled) {
-              void unloadPlugin(l, deps)
+              await unloadPlugin(l, deps)
               k.releaseServices(m.id)
               k.releaseEditorMarks(m.id)
-              continue
+              return
             }
+            loaded.push(l)
             ids.push(m.id)
           } catch (e) {
-            setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
+            // 被取代时不再报错：那些失败多半是取消造成的假象
+            if (!cancelled) setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
           }
         }
         if (!cancelled) setLoadedIds(ids)
       } catch (e) {
         if (!cancelled) setPluginError(String(e))
       }
-    })()
+    })
+    pluginChainRef.current = run.catch(() => {})
 
     return () => {
       cancelled = true
       // 解绑激活器：它闭包着本次 effect 的 loaded/pending，留着会指向已失效的状态
       k.commands.setActivator(async () => {})
-      // splice(0) 消费掉这份清单 —— 即使这次 cleanup 漏了什么，下次也不会重复处理
-      for (const l of loaded.splice(0)) {
-        void unloadPlugin(l, deps)
-        // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
-        k.releaseServices(l.manifest.id)
-        k.releaseEditorMarks(l.manifest.id)
-      }
-      // 静态声明的命令元数据也要清（那些插件可能从没被激活过）
+      // 静态声明的命令元数据是同步资源，当场清（那些插件可能从没被激活过）
       for (const id of declaredIds) k.commands.release(id)
       setLoadedIds([])
+      // 实例的卸载**不在这里做**：交给链上的下一代开头统一处理（run 的 ① 步）。
+      // 这样"卸完"与"开始加载新代"之间不会插进别的任务，也不再有
+      // "cleanup 里 fire-and-forget 卸载 → 新代已经在注册命令"的窗口。
     }
   }, [kernel, vault, reloadToken])
 
@@ -1033,6 +1112,26 @@ export default function App() {
   }
 
   /**
+   * 「网络访问」开关（逐插件）。
+   *
+   * 写盘后**立刻重扫**：`net` 的授权判定发生在 `loadPlugin` 里 —— 不重载的话
+   * 这次开关只改了记录，界面上那个插件依旧是"未授权"（用户会以为是开关坏了）。
+   */
+  const toggleNetwork = async (id: string, granted: boolean) => {
+    const v = vault
+    if (!v) return
+    try {
+      const table = await setPermission(v, id, 'net', granted)
+      permissionsRef.current = table
+      setPermissions(table)
+      setReloadToken((t) => t + 1)
+      setToast(granted ? `已允许「${id}」访问网络` : `已收回「${id}」的网络访问`)
+    } catch (e) {
+      setError(`更新授权记录失败：${String(e)}`)
+    }
+  }
+
+  /**
    * 删除插件：删掉插件目录 → 把它从 disabled 集合里摘掉 → 改 reloadToken
    * 触发一次完整重扫（先卸载已加载的实例，再按新目录列表重新加载）。
    *
@@ -1063,6 +1162,11 @@ export default function App() {
     enabled: loadedIds.includes(m.id),
     capabilities: m.capabilities ?? [],
   }))
+
+  /** 已授权访问网络的插件 id（设置页「网络访问」区块用；声明了 `net` 的插件才列得出来） */
+  const grantedNet = Object.entries(permissions)
+    .filter(([, caps]) => caps.includes('net'))
+    .map(([id]) => id)
 
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */
   const titleText = activePath
@@ -1426,12 +1530,17 @@ export default function App() {
             <div className="zn-main-panel-body">
               {pagePanel ? (
                 <PanelBoundary key={pagePanel.id}>
-                  <UIRenderer
-                    node={renderPanelSafe(pagePanel, panelState)}
-                    state={panelState}
-                    onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                    onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-                  />
+                  {pagePanel.webview ? (
+                    /* WebView 逃生口（契约 §2.2）：sandbox iframe + postMessage 送主题令牌 */
+                    <WebViewFrame url={pagePanel.webview.url} title={pagePanel.title} />
+                  ) : (
+                    <UIRenderer
+                      node={renderPanelSafe(pagePanel, panelState)}
+                      state={panelState}
+                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                      onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                    />
+                  )}
                 </PanelBoundary>
               ) : (
                 <PluginPanel
@@ -1604,12 +1713,16 @@ export default function App() {
         <DialogHeader title={modalPanel?.title ?? ''} />
         <DialogBody>
           {modalPanel && (
-            <UIRenderer
-              node={renderPanelSafe(modalPanel, panelState)}
-              state={panelState}
-              onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-              onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-            />
+            modalPanel.webview ? (
+              <WebViewFrame url={modalPanel.webview.url} title={modalPanel.title} />
+            ) : (
+              <UIRenderer
+                node={renderPanelSafe(modalPanel, panelState)}
+                state={panelState}
+                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+              />
+            )
           )}
         </DialogBody>
       </Dialog>
@@ -1651,6 +1764,8 @@ export default function App() {
         onTogglePlugin={togglePlugin}
         onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
+        grantedNet={grantedNet}
+        onToggleNet={(id, granted) => void toggleNetwork(id, granted)}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

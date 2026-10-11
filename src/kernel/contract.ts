@@ -305,6 +305,30 @@ export interface ViewApi {
     location: PanelLocation
     render: (ctx: ViewCtx) => UINode
   }): Disposable
+  /**
+   * 挂一个**插件自己的页面**（WebView 逃生口）—— 画布、视频、地图这类
+   * 「声明式 UINode 表达不了」的东西走这里（契约 §2.2 / §7.9）。
+   *
+   * 宿主用 `<iframe sandbox="allow-scripts">` 承载，**刻意不给 `allow-same-origin`**：
+   * 页面里的脚本照跑，但它与宿主互为 opaque origin —— 碰不到宿主的 DOM / localStorage / IPC。
+   *
+   * ⚠️ 主题令牌**没法"灌"进去**（CSS 自定义属性不跨文档边界），宿主改用 `postMessage` 送达，
+   * 页面自己应用：
+   * ```js
+   * window.addEventListener('message', (e) => {
+   *   const d = e.data
+   *   if (!d || d.type !== 'zn:theme') return
+   *   for (const [name, value] of Object.entries(d.tokens)) {
+   *     document.documentElement.style.setProperty(name, value)
+   *   }
+   *   document.body.dataset.theme = d.mode   // 'light' | 'dark'
+   * })
+   * ```
+   * `d.tokens` 是宿主当前生效的**全部 `--zn-*` 设计令牌**；**主题一变化就自动重发**，
+   * 所以画布能跟着深浅色与主题切换走。
+   *
+   * `url` 接受 `http(s):` / `data:` / `blob:` / `asset:`（库内文件先过 `host.assetUrl`）。
+   */
   registerWebView(spec: {
     id: string
     title: string
@@ -453,7 +477,13 @@ export interface PluginContext {
   subscriptions: Disposable[]
 }
 
-/** capability 白名单（契约 §4）—— 插件只能声明这些；`net` / `proc` 默认拒 */
+/**
+ * capability 白名单（契约 §4）—— 插件只能声明这些。
+ *
+ * `net` / `proc` 标的是「**默认拒**」：不是永远拒，而是**没被用户逐个授权就拒**。
+ * 授权记录在 `<私有根>/.zn/permissions.json`（`src/kernel/permissions.ts`）。
+ * ⚠️ 这是一条**可绕过的边界**（插件与宿主同上下文），兑现的是知情与承诺，不是隔离。
+ */
 export type Capability =
   | 'fs:read'
   | 'fs:write'

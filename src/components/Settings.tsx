@@ -82,6 +82,9 @@ export interface SettingsProps {
   onTogglePlugin: (id: string, enabled: boolean) => void
   onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
+  /** 已授权访问网络的插件 id（授权记录存在库里的 `.zn/permissions.json`） */
+  grantedNet: string[]
+  onToggleNet: (id: string, granted: boolean) => void
 }
 
 export function Settings({
@@ -100,8 +103,13 @@ export function Settings({
   onTogglePlugin,
   onDeletePlugin,
   onReloadPlugins,
+  grantedNet,
+  onToggleNet,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
+
+  /** 声明了 `net` 的插件 —— 只有它们需要授权开关（没声明的插件不受影响） */
+  const netPlugins = plugins.filter((p) => p.capabilities.includes('net'))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} width={640}>
@@ -191,6 +199,55 @@ export function Settings({
                   onToggle={onTogglePlugin}
                   onDelete={onDeletePlugin}
                 />
+
+                {/*
+                  「网络访问」—— capability 授权通道（契约 §4）。
+                  措辞是**故意**这么写的：不能让人以为开了这个就是沙箱。
+                */}
+                <SectionTitle>网络访问</SectionTitle>
+                <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+                  声明了 <code>net</code> 的插件
+                  <b className="text-foreground">默认加载即被拒</b>，要在这里逐个开；
+                  记录写在库内的 <code>.zn/permissions.json</code>，跟库走。
+                  <br />
+                  <b className="text-foreground">这不是隔离，是一条可绕过的边界。</b>{' '}
+                  插件与宿主跑在同一个 JS 上下文里 —— 裸 <code>fetch</code>、ESM 静态{' '}
+                  <code>import</code>、直接 <code>invoke()</code> 三条路都不经过这张表。
+                  它保证的是<b className="text-foreground">知情与承诺</b>：
+                  开过的插件才加载，谁被开过一眼看得见。
+                </p>
+                {netPlugins.length === 0 ? (
+                  <div className="text-[11px] text-muted-foreground">
+                    当前没有插件声明 <code>net</code>。
+                  </div>
+                ) : (
+                  <div>
+                    {netPlugins.map((p) => (
+                      <Row
+                        key={p.id}
+                        label={`${p.name} v${p.version}`}
+                        hint={
+                          <>
+                            <code>{p.id}</code>
+                            {' · '}
+                            {grantedNet.includes(p.id) ? '已授权联网' : '未授权（插件将被拒载）'}
+                            {p.enabled ? '' : ' · 插件当前未启用'}
+                          </>
+                        }
+                      >
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={grantedNet.includes(p.id)}
+                            onChange={(e) => onToggleNet(p.id, e.target.checked)}
+                            aria-label={`允许 ${p.name} 访问网络`}
+                          />
+                          允许联网
+                        </label>
+                      </Row>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : null}
 

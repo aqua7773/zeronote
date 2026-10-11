@@ -37,6 +37,12 @@ export type PanelRegistration = {
   render: (ctx: ViewCtx) => UINode
   /** 由插件宿主注入（面板归属哪个插件，UI 上用于标注来源） */
   pluginId?: string
+  /**
+   * 非空 = 这个面板是「WebView 逃生口」（契约 §2.2 / §7.9）：
+   * 宿主用 `<iframe sandbox="allow-scripts">` 承载它，**不调用** `render`。
+   * 主题令牌靠 postMessage 送达 —— CSS 自定义属性不跨文档边界（见 WebViewFrame）。
+   */
+  webview?: { url: string }
 }
 
 export type KernelHooks = {
@@ -99,8 +105,32 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         },
       }
     },
-    registerWebView(): Disposable {
-      throw new Error('v0.1 还不支持 WebView 视图（契约 §7 第 9 条，排在 v0.2）')
+    registerWebView(spec): Disposable {
+      /**
+       * 最小版逃生口（契约 §2.2 / §7.9）：登记成一个带 `webview` 的面板，
+       * 由宿主的 `WebViewFrame` 用 `<iframe sandbox="allow-scripts">` 承载 ——
+       * **不给 allow-same-origin**，两个文档互为 opaque origin。
+       *
+       * `render` 只是占位（宿主看到 `webview` 就不走 UINode 渲染），
+       * 主题令牌由宿主 postMessage 送进去。
+       */
+      const self: PanelRegistration = {
+        id: spec.id,
+        title: spec.title,
+        location: spec.location,
+        render: () => ({ type: 'text', value: '' }),
+        webview: { url: spec.url },
+      }
+      panelMap.set(spec.id, self)
+      hooks.onPanelsChange([...panelMap.values()])
+      return {
+        dispose: () => {
+          if (panelMap.get(spec.id) === self) {
+            panelMap.delete(spec.id)
+            hooks.onPanelsChange([...panelMap.values()])
+          }
+        },
+      }
     },
     refresh() {
       // 面板 render 是纯函数：插件改完自己的数据后调这里，宿主重渲染即拿到新内容

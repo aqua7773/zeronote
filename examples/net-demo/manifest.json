@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "net-demo",
+  "name": "网络访问示例",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "description": "演示 net 授权通道：声明 net 的插件默认被拒载，到「设置 → 插件 → 网络访问」开一次才会加载",
+  "platforms": ["desktop", "android"],
+  "capabilities": ["net", "command", "view:main"]
+}

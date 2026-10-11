@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>webview-demo · 插件自己的页面</title>
+<style>
+  html, body { margin: 0; height: 100% }
+  body {
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 10px; font: 13px/1.7 system-ui, -apple-system, "Noto Sans CJK SC", sans-serif;
+    transition: background .25s, color .25s;
+  }
+  .box { border: 1px solid currentColor; border-radius: 8px; padding: 10px 14px; opacity: .85 }
+  code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px }
+</style>
+</head>
+<body>
+  <div style="font-size:15px;font-weight:600">我是插件自己的页面（asset 版）</div>
+  <div class="box" id="status">等待宿主主题令牌…</div>
+  <div><code id="sample"></code></div>
+  <div><code id="origin"></code></div>
+
+  <script>
+    // 这里能跑脚本，是因为本页来自 asset 协议（独立 origin）——
+    // data: / srcdoc 那种会继承宿主 CSP 的 iframe 里，内联脚本会被拦掉（真机实测）。
+    let received = 0
+
+    document.getElementById('origin').textContent =
+      '我的 origin：' + location.origin + '（与宿主不同源）'
+
+    window.addEventListener('message', (e) => {
+      const d = e.data
+      if (!d || d.type !== 'zn:theme') return
+      received++
+
+      const tokens = d.tokens || {}
+      const names = Object.keys(tokens)
+
+      // 把宿主令牌写成本文档的 CSS 变量 —— 之后就能在本页里用 var(--zn-bg) 了
+      for (const name of names) {
+        document.documentElement.style.setProperty(name, tokens[name])
+      }
+      document.body.dataset.theme = d.mode
+
+      const bg = tokens['--zn-bg'] || ''
+      const fg = tokens['--zn-fg'] || ''
+      if (bg) document.body.style.background = bg
+      if (fg) document.body.style.color = fg
+
+      document.getElementById('status').innerHTML =
+        '令牌 <b>' + names.length + '</b> 个 · 模式 <b>' + d.mode + '</b> · 第 ' + received + ' 次收到'
+      document.getElementById('sample').textContent = '--zn-bg = ' + (bg || '（无）')
+    })
+  </script>
+</body>
+</html>

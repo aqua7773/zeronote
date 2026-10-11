@@ -1,8 +1,36 @@
 # 项目交接
 
-revision: 29
-更新时间: 2026-10-12（凌晨 · 灵感流按规格重写；发现并修复插件重载的竞态幽灵 bug）
+revision: 30
+更新时间: 2026-10-12（下午 · ⑧ net 授权通道 + ⑩ WebView 逃生口落地；CSP 从 null 变成白名单；
+                     并修掉"重载后命令 id 重复"的双重根因）
 项目: ZeroNote
+
+> ## 📌 rev30 一次看懂（2026-10-12 下午）
+>
+> **用户当场授权「⑧ 和 ⑩ 都做」**（原话：选「⑧ 和 ⑩ 都授权」），两项都落地并真机验收：
+>
+> 1. **⑧ `net` 授权通道** —— 设置页「插件 → 网络访问」逐插件开关；授权记录
+>    `库/.zn/permissions.json`；`assertCapabilities` 对 `net` 从"声明即拒"改成**查授权记录**
+>    （未授权仍拒；文件损坏也 fail closed）；契约 §4 **诚实改写**：这是**可绕过的边界**，不是隔离。
+> 2. **⑩ WebView 逃生口** —— `registerWebView` 最小版：`<iframe sandbox="allow-scripts">`
+>    （**无** allow-same-origin）+ 主题令牌 `postMessage` 送达并随主题切换自动重发。
+>    **`tauri.conf.json` 的 `csp` 从 `null` 落地成一份白名单**（`default/connect/img/style/font/script/frame-src`）。
+> 3. **顺带修掉两个真 bug**（做 ⑧ 时被"重扫/授权触发重载"这条路径暴露）：
+>    · **插件注册的资源没有自动登记** —— `examples/` 里 **8 个**示例（ui-kit / tag-demo / cdn-* /
+>      yank-style / dep-crypto / index-scope / editor-marks 的一部分）只写了 `command.register({...})`
+>      **没接返回值** ⇒ 卸载不撤命令 ⇒ **第二次加载同一个插件必撞「命令 id 重复」**。
+>      修法：宿主在 `ctx.command` / `ctx.view` 外层**自动登记**（不再指望插件作者记得 push）。
+>    · **新旧两代插件会同时注册命令** —— 卸载是异步的、加载也是异步的，两代重叠就撞 id。
+>      修法：把「卸上一代 + 装本代」**整段挂到同一条 promise 链上**，被取代的一代在每个检查点退出。
+>      **真机压力测试**：连点 6 次「重新扫描」零错误（`_shots/perm-22-rescan-ok.png`、`perm-23-rescan-bottom.png`）。
+>
+> ⚠️ **验收基线有一处变化（有意，已记录）**：`oxlint` 从 **5 warnings → 4 warnings**。
+> 原因是 `setPluginError(null)` 从 effect 体里挪进了异步回调，`react(set-state-in-effect)` 不再命中。
+> 是"警告减少"，不是新问题；**新基线 = 4**（`tsc -b` 仍 0 错误、`cargo test --lib` 仍 16 passed）。
+>
+> 📷 **本次证据**：`_shots/perm-05…23*.png`（⑧ 全链路 + 重扫压力测试）、
+> `_shots/csp-0*.png`（CSP 对 katex 无影响 + 白名单内外对照）、
+> `_shots/webview-0*.png`（iframe 令牌 + 深色跟随）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
@@ -54,6 +82,10 @@ revision: 29
 | **🎯 内核命令可被插件接管** | `_shots\daily-note-takeover.png`：装上 `examples/daily-note`（它 `bind` 了 `core.newNote`）后点菜单「新建笔记」⇒ toast「**已建在当天目录：笔记/2026/10/12/02-23-46.md**」+ 编辑器自动打开 + 磁盘上确实出现 `笔记/2026` 目录 ⇒ **规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」达成** | `7a70829` | 2026-10-12 |
 | **📤 导出二进制 + Android SAF 差异** | `_shots\bin-dialog.png`：系统「另存为」正确带出文件名 `ui-kit-1px.png`（`defaultName` 生效）· **真机暴露一个桌面测不出的平台差异**：保存后磁盘上是 **0 字节** —— Android 的 `save()` 返回 `content://` **SAF URI** 而非文件路径，`std::fs` 处理不了 ⇒ 已加特判 + 专门报错，契约标注「桌面可用 / Android 受限」 · `cargo test` **14 passed**（含 `b64_decode` 与 `export_target` 两条新测试） | `3e722db` | 2026-10-12 |
 | **⚡ 灵感流按规格重写 + 竞态幽灵 bug** | `_shots\flow-panel.png`：面板「落在 笔记/年/月/日/ 下 · 共 2 条」+ 时间流倒序列表 · `flow-saved.png`：输入 `hello` 点捕捉 ⇒ toast「已捕捉 ✎」+ 状态行「已捕捉 → 笔记/2026/10/12/02-39-08.md」+ **输入框自动清空** + 列表 2→3 条 · **磁盘实测** `笔记/2026/10/12/02-39-08.md`（18 B，内容 `# 02-39-08` + `hello`）· 同时修掉插件重载的竞态幽灵 | `848ba61` | 2026-10-12 |
+| **🔐 ⑧ net 授权通道（真机全链路）** | `_shots/perm-05-plugins.png`：装上 `examples/net-demo` 后**拒载**，错误信息直接指路「（到「设置 → 插件 → 网络访问」里为它开启；授权记录 .zn/permissions.json）」→ `perm-08-net-section.png`：设置页出现「网络访问」区块 + 诚实措辞 → `perm-13-granted.png`：打开开关 ⇒ toast「已允许「net-demo」访问网络」+ 状态行变「**已授权联网**」+ 插件日志 13→33 → `perm-14-menu-after.png`：`☰` 菜单里出现「网络访问示例」⇒ **插件真的被加载了**；**磁盘实测** `.zn/permissions.json` = `{"net-demo":["net"]}`（撤销开关即恢复拒载）· `cargo test` **16 passed**（新增 2 条：授权往返 + 坏文件 fail closed） | 本次 |
+| **🖼 ⑩ WebView 逃生口** | `_shots/webview-06-http.png`：`WebView 示例` 面板里是**插件自己的页面**，页面自证三行 —— 「令牌 <b>32</b> 个 · 模式 <b>light</b> · 第 1 次收到」/「--zn-bg = #fff」/「我的 origin: http://192.168.1.20:8791（**与宿主不同源**）」；`webview-08-dark.png`：切深色后变「模式 **dark** · 第 **2** 次收到」+ `--zn-bg = #18181b` + **整页背景跟着变** ⇒ postMessage 令牌 + 跟随主题切换全通 · 示例 `examples/webview-demo/` | 本次 |
+| **📊 CSP 落地 + 白名单内外对照实验** | `tauri.conf.json` 的 `csp` 从 `null` → 白名单；`_shots/csp-02-katex.png`：**katex 的 CDN 加载完全不受影响**（两条公式正常排版 + 绿标「katex 0.16.11（由前置插件提供）」）；对照实验 `csp-05-whitelist.png`（`fetch('https://esm.sh/…')` → **HTTP 200 —— 通**）vs `csp-06-blocked.png`（`fetch('https://example.com/')` → **`TypeError: Failed to fetch` —— 被拦**）⇒ **CSP 真的拦网络**（结论写进契约 §4.2） | 本次 |
+| **🧬 插件资源自动登记 + 生命期串行链** | `_shots/perm-23-rescan-bottom.png`：连点 6 次「重新扫描」后 **ui-kit / tag-demo 全部已启用**（修前稳定报「命令 id 重复：ui-kit.hit」并变未启用）；`perm-22-rescan-ok.png` 为同一状态下的顶部（**无错误横幅**） | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -321,6 +353,15 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 
 ## 未完成项
 
+- [x] **⑧ `net` 授权通道** ✅（2026-10-12 下午）—— 设置页逐插件开关 + `.zn/permissions.json` +
+      契约 §4 诚实改写。⚠️ **授权记录不绑定插件指纹**：插件升一版后旧授权仍有效（那属 §7.6 的未决项）。
+- [x] **⑩ WebView 逃生口** ✅（2026-10-12 下午）—— `registerWebView` 最小版 + CSP 落地。
+      ⚠️ 页面必须来自**独立 origin**（`http(s):`）：`data:`/`blob:`/`srcdoc` 继承宿主 CSP
+      会被 hash 压掉 inline；Tauri asset 协议在 Android 上不服务 `.html`。见契约 §2.2 ④。
+- [x] **插件的命令/面板资源自动登记** ✅（2026-10-12）—— 宿主兜底 + 生命期串行链，见 rev30 摘要。
+- [ ] **iframe ↔ 宿主的能力通道**（v0.2）—— 现在 WebView 只能"收"令牌，不能调 `ctx.*`；
+      要做需先定 `postMessage` 请求/应答协议 + 宿主侧鉴权（别把 IPC 暴露给 opaque origin）。
+- [ ] **`platforms` 声明强制**（缺口 9）—— manifest 有 `platforms` 字段，`loadPlugin` 仍不读它。
 - [x] **M3 Android 真机跑通**（2026-10-11 16:36）：`tauri android init` + `rustup target add`（4 ABI）+ gradle 走腾讯镜像 → APK **152.2 MB** → 装到真机 **User 0** 并启动 ✅
       证据：`docs\evidence\m3-android-real-device.png`（包名 `com.aqua.zeronote.debug`，进程 `u0_a317 16231`，库路径 `/data/user/0/com.aqua.zeronote.debug/files/vault`）
 - [x] **M3 收尾①：响应式布局** ✅（2026-10-11）—— 窄屏单栏 + ☰ 抽屉侧栏 + 遮罩 + 选完自动收抽屉；真机截图确认（`_shots\android-07.png`）
@@ -350,14 +391,15 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 ## 唯一下一步
 
 **0. UI 规划已全部完成** —— P0 七项 + P1 六项，逐条证据见 `docs\UI规划-v0.1.md` §6 / §8。
-   **插件入口兼容层也已完成**（2026-10-11 深夜，见上方「插件系统进展」节）。
+   **插件入口兼容层也已完成**（2026-10-11 深夜）；**⑧⑩ 两项阻塞已解除并落地**（2026-10-12 下午，见 rev30 摘要）。
 
-   **下一步（插件面，按严重程度排序，用户 2026-10-11 认可此顺序）**：
+   **下一步（插件面，按严重程度排序）**：
 
-   > 🛑 **2026-10-11 二次接管裁决：①②③ 全部「先不动」** —— 用户两次回答均为「先不动」，
-   > 视作「本轮不派工、不改代码」。本次只做了**只读核实**，产出见上方
-   > 「插件面剩余短板」（3 条模糊描述 → **9 条带行号** + 关键认知 + 四个备选强度）。
-   > **下一次从哪接手由用户指定**；在此之前不动 ①②③ 中的任何一项。
+   > 🔄 **2026-10-12 更新**：原先"①②③ 先不动"三项里的 **①（capability 真裁剪）已经做了**（⑧），
+   > 而且拿到一个此前没有的结论：**加了 CSP 之后"裸 fetch"被 `connect-src` 真拦住了**
+   > （白名单内 200 / 白名单外 `Failed to fetch`，见契约 §4.2 的实测表）。
+   > **② `platforms` 强制**与**③ 沙箱（Worker + 内存/时长上限）**仍未动。
+   > **下一次从哪接手由用户指定**。
 
    | # | 议题 | 说明 |
    |---|---|---|
@@ -430,3 +472,22 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 - 已移除 StrictMode（`src\main.tsx`）：插件加载是异步 + 副作用密集，双调用会与异步清理竞争
 - git 分支 `main`；本地身份 `git config --local`
 - 交接不保存密钥、不保存完整会话正文
+
+### 🔩 rev30 新踩的五个坑（都花了轮次，别再踩）
+
+1. **CSP 一开，local scheme 的 iframe 里 inline script 必被拦**。Tauri 编译时会给 `script-src`
+   注入打包资源的 `sha256`；而 CSP 规范规定「源列表里有 hash/nonce 时 `'unsafe-inline'` 被忽略」
+   ⇒ `data:` / `blob:` / `srcdoc` 的 iframe（会继承宿主 CSP）里，内联脚本一律 `blocked`
+   （logcat 原话：`'unsafe-inline' is ignored if either a hash or nonce value is present`）。
+   **要给插件页面跑自带脚本，页面必须来自独立 origin（`http(s):`）。**
+2. **Tauri asset 协议在 Android 上不服务 `.html`**：`http://asset.localhost/…/page.html` →
+   `net::ERR_INVALID_RESPONSE`（把 `assetProtocol.scope` 放宽到 `/storage/**` 也一样）。图片可以，HTML 不行。
+3. **真机点击：`adb shell input tap` 在 WebView 里不生效，`input swipe x y x y 120` 有效**
+   （同一坐标、同一时刻，tap 无反应而 swipe 立刻命中）。这条**补充/推翻了** M3 收尾④
+   「合成点击命中不稳定」的旧结论 —— 换手势即可，不用放弃自动化验收。
+4. **`adb push <目录> <已存在的目标目录>` 会多套一层**：文件被推成 `<目标>/<源目录名>/…`，
+   而插件只认一层。推单个文件到明确路径，或先删目标目录再整目录推。
+5. **插件注册进宿主表的资源必须由宿主兜底回收**。`command.register` / `view.registerPanel` /
+   `registerWebView` 现在都由 `ctx` 外层**自动登记**进 `subscriptions`。
+   指望插件作者记得 `subscriptions.push(...)` 是不现实的 —— `examples/` 里 **8 个**示例都忘了，
+   代价是**重载必崩**（「命令 id 重复」），而这类"静默记账"错误在首次安装时完全看不出来。
