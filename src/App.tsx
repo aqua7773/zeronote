@@ -61,6 +61,8 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [rightOpen, setRightOpen] = useState(false)
   const [rightTab, setRightTab] = useState<string>('plugins')
+  /** 窄屏抽屉：宽屏侧栏常驻，窄屏由顶栏 ☰ 滑出 */
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
@@ -214,6 +216,7 @@ export default function App() {
         setDirty(false)
         setSaveState('idle')
         setError(null)
+        setSidebarOpen(false) // 窄屏：选完笔记自动收抽屉
       } catch (e) {
         setError(String(e))
       }
@@ -400,7 +403,7 @@ export default function App() {
 
   return (
     <div className="zn-app">
-      <aside className="zn-sidebar">
+      <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}>
         <div className="zn-sidebar-head">
           <span className="zn-vault-name" title={vault ?? ''}>
             {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
@@ -428,6 +431,15 @@ export default function App() {
 
       <main className="zn-main">
         <div className="zn-titlebar">
+          <button
+            type="button"
+            className="zn-btn zn-mobile-only"
+            onClick={() => setSidebarOpen((v) => !v)}
+            title="笔记库"
+            aria-label="笔记库"
+          >
+            ☰
+          </button>
           <span className="zn-path" title={activePath ?? ''}>
             {activePath ?? '没有打开笔记'}
           </span>
@@ -527,6 +539,16 @@ export default function App() {
             )}
           </div>
         </aside>
+      )}
+
+      {(sidebarOpen || rightOpen) && (
+        <div
+          className="zn-scrim"
+          onClick={() => {
+            setSidebarOpen(false)
+            setRightOpen(false)
+          }}
+        />
       )}
 
       <CommandPalette
