@@ -104,24 +104,121 @@ export interface CommandApi {
   list(): { id: string; title: string }[]
 }
 
-/** 声明式 UI：插件只「声明」界面，宿主用统一组件渲染 ⇒ 风格 100% 统一 */
+/** 间距档位（避免插件写死 px，保持版式一致） */
+export type UIGap = 'sm' | 'md' | 'lg'
+
+/** 语义色（映射到 --zn-* token；插件不要自己指定颜色） */
+export type UITone = 'default' | 'muted' | 'success' | 'warn' | 'danger'
+
+/**
+ * 列表项：**强烈建议给 `key`**。
+ * 过去 `items: UINode[]` 只能用下标做 React key ⇒ 增删一项会让后面所有行错位
+ * （受控输入尤其明显：删除第 1 行后，第 2 行的输入框会"继承"它的值）。
+ * 为兼容旧插件，裸 `UINode` 仍然接受（内部退化为下标）。
+ */
+export type UIListItem = UINode | { key: string; node: UINode }
+
+export type UITableColumn = {
+  key: string
+  label: string
+  /** CSS 宽度，如 `40%` / `80px`；缺省按内容自适应 */
+  width?: string
+  align?: 'left' | 'right'
+}
+
+/** 单元格可以是纯文本/数字（宿主按文本渲染），也可以是任意 UINode（内嵌按钮、徽标等） */
+export type UITableRow = Record<string, UINode | string | number>
+
+/**
+ * 声明式 UI：插件只「声明」界面，宿主用统一组件渲染 ⇒ 风格 100% 统一、框架无关。
+ *
+ * 三条铁律（改这个类型之前先读）：
+ * ① **纯数据**：没有函数、没有 DOM、没有样式对象 —— 全部可 JSON 序列化，
+ *    将来插件进 Worker / iframe 沙箱时这套声明不用改。
+ * ② **不给颜色**：视觉一律走 `variant` / `tone` / `gap` 这些语义档位，
+ *    由宿主映射到 `--zn-*` token ⇒ 主题切换 / 暗色模式自动跟随。
+ * ③ **加 type 必须同步改 `UIRenderer.tsx`** —— 那边有穷尽性检查（`never`），
+ *    漏了会编译报错，这是有意的。
+ */
 export type UINode =
-  | { type: 'stack'; children: UINode[] }
-  | { type: 'row'; children: UINode[] }
-  | { type: 'text'; value: string; variant?: 'body' | 'caption' | 'title' }
+  /* ── 布局 ── */
+  | { type: 'stack'; children: UINode[]; gap?: UIGap }
+  | {
+      type: 'row'
+      children: UINode[]
+      gap?: UIGap
+      align?: 'start' | 'center' | 'end'
+      /** 窄容器（手机）里是否允许换行 */
+      wrap?: boolean
+    }
+  | { type: 'divider' }
+  | { type: 'spacer'; size?: UIGap }
+  /* ── 文本 ── */
+  | { type: 'text'; value: string; variant?: 'body' | 'caption' | 'title'; tone?: UITone }
   | { type: 'markdown'; value: string }
+  | { type: 'code'; value: string; lang?: string }
+  /**
+   * 富内容：插件把**已经生成好的 HTML** 交给宿主内联渲染。
+   *
+   * 用途：公式（katex）· 图表（mermaid → svg）· markdown 渲染结果 · 代码高亮。
+   * ⚠️ **这是用安全性换表达力**：宿主用 `dangerouslySetInnerHTML` 注入，
+   * 插件（或它拉的 CDN 库）返回什么就渲染什么。v0.1 的插件全是本机可信代码，
+   * 可以接受；**装第三方插件前请先读它的源码**（契约 §4 已声明无沙箱）。
+   * 只想要代码块/纯文本时请用 `code` / `text`，别用这个。
+   */
+  | { type: 'html'; value: string }
+  /** 命令驱动的"链接"外观：不做真实导航（WebView 里跳转会顶掉应用），点它执行命令 */
+  | { type: 'link'; label?: string; onClick: string; payload?: Record<string, unknown> }
+  /* ── 媒体 ── */
+  /**
+   * 图片。`src` 接受：
+   *   · `http(s)://` 或 `data:` / `blob:` URL —— 原样用
+   *   · 库内相对路径（`attachments/a.png`）—— **请先用 `host.assetUrl(rel)` 转换**
+   */
+  | {
+      type: 'image'
+      src: string
+      alt?: string
+      /** 高度上限（px）；缺省不限，宽度始终 100% 不溢出 */
+      height?: number
+      fit?: 'contain' | 'cover'
+    }
+  /* ── 交互 ── */
   | {
       type: 'button'
       label: string
       onClick: string
-      /** 把 state[send] 的当前值作为 payload 传给命令 —— 插件按钮读输入框的标准做法 */
+      /**
+       * 把 `state[send]` 的当前值作为 `{ value }` 传给命令 —— 插件按钮读输入框的标准做法。
+       * 需要传更多字段时用 `payload`（它会与 `{ value }` 合并，`send` 优先）。
+       */
       send?: string
+      /** 静态参数，原样合并进命令 payload —— 例如"点第 3 行的删除"传 `{ index: 3 }` */
+      payload?: Record<string, unknown>
       variant?: 'default' | 'ghost' | 'danger'
+      disabled?: boolean
     }
   | { type: 'input'; bind: string; placeholder?: string; onSubmit?: string }
+  | { type: 'textarea'; bind: string; placeholder?: string; rows?: number; onSubmit?: string }
   | { type: 'select'; bind: string; options: { value: string; label: string }[]; onSubmit?: string }
-  | { type: 'list'; items: UINode[]; empty?: string }
-  | { type: 'divider' }
+  | { type: 'checkbox'; bind: string; label?: string; onSubmit?: string }
+  /* ── 数据展示 ── */
+  | {
+      type: 'list'
+      items: UIListItem[]
+      empty?: string
+      /** 有它时**整行可点**，命令 payload 带 `{ index, key }` */
+      onClick?: string
+    }
+  | { type: 'table'; columns: UITableColumn[]; rows: UITableRow[]; empty?: string }
+  /** 进度：`value / max`；`max` 缺省 100 */
+  | { type: 'progress'; value: number; max?: number; label?: string }
+  | { type: 'badge'; text: string; tone?: UITone }
+  /* ── 表单 ── */
+  /** 标签 + 提示 + 控件的组合行（插件做设置项的标准写法） */
+  | { type: 'field'; label: string; hint?: string; children: UINode }
+  /** 分组切换：`bind` 存当前选中 tab 的 key（插件自己读 state 决定渲染哪个） */
+  | { type: 'tabs'; bind: string; tabs: { key: string; label: string; node: UINode }[] }
 
 export type ViewCtx = {
   pluginId: string
@@ -164,6 +261,14 @@ export interface HostApi {
   platform: 'windows' | 'android' | 'other'
   log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void
   notify(msg: string, level?: 'info' | 'warn' | 'error'): void
+  /**
+   * 把**库内相对路径**转成 WebView 能直接用的 URL（Tauri asset 协议）。
+   *
+   * `ui.image` 想显示库里的图片（`attachments/a.png`）时**必须先过这道** ——
+   * 相对路径直接塞进 `<img src>` 会被浏览器当成"相对当前页面"去解析，必然 404。
+   * `http(s):` / `data:` / `blob:` 这类现成 URL 不用转，直接传给 `image.src` 即可。
+   */
+  assetUrl(relPath: string): string
 }
 
 export const API_VERSION = '0.1.0'

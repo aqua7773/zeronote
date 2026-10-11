@@ -74,6 +74,9 @@
   --zn-highlight: #fde68a;
   --zn-highlight-fg: #422006;
   --zn-danger: #dc2626;
+  /* 状态色：徽标/进度/提示用。与 danger 一样是"语义色"，不参与主色切换 */
+  --zn-success: #16a34a;
+  --zn-warn: #d97706;
 
   --zn-radius-sm: 4px;
   --zn-radius: 6px;
@@ -119,6 +122,9 @@
   --zn-accent-fg: #18181b;
   --zn-highlight: #a16207;
   --zn-highlight-fg: #fef9c3;
+  /* 暗底上用更亮的绿/黄，别照搬浅色值（对比度会掉） */
+  --zn-success: #4ade80;
+  --zn-warn: #fbbf24;
 }
 
 * { box-sizing: border-box; }
@@ -723,6 +729,206 @@ body.is-resizing * {
   border: 0;
   background: var(--zn-border);
 }
+
+/* ───────── 声明式 UI：补齐的节点（image/html/table/progress/badge/field/tabs…）─────────
+ * 目标：插件能表达任意界面，而**颜色尺寸一律由这里决定** ——
+ * 插件只传语义档位（gap / tone / align），换主题、换暗色时自动跟随。 */
+
+/* 间距档位：此前 gap 写死在容器里，插件无法表达"这里松一点" */
+.zn-ui-gap-sm { gap: var(--zn-space-1); }
+.zn-ui-gap-md { gap: var(--zn-space-2); }
+.zn-ui-gap-lg { gap: var(--zn-space-4); }
+
+.zn-ui-spacer { flex: none; height: var(--zn-space-2); }
+.zn-ui-spacer.zn-ui-gap-sm { height: var(--zn-space-1); }
+.zn-ui-spacer.zn-ui-gap-md { height: var(--zn-space-2); }
+.zn-ui-spacer.zn-ui-gap-lg { height: var(--zn-space-4); }
+
+.zn-ui-row-start { align-items: flex-start; }
+.zn-ui-row-center { align-items: center; }
+.zn-ui-row-end { align-items: flex-end; }
+.zn-ui-row-wrap { flex-wrap: wrap; }
+
+/* 语义色（text / badge / 任何带 tone 的节点共用） */
+.zn-ui-tone-default { color: inherit; }
+.zn-ui-tone-muted { color: var(--zn-fg-muted); }
+.zn-ui-tone-success { color: var(--zn-success); }
+.zn-ui-tone-warn { color: var(--zn-warn); }
+.zn-ui-tone-danger { color: var(--zn-danger); }
+
+/* 代码块：等宽 + 横向滚动 + 可复制。语法高亮请插件自己生成 html */
+.zn-ui-code {
+  margin: 0;
+  padding: var(--zn-space-3);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg-subtle);
+  font-family: var(--zn-font-mono);
+  font-size: var(--zn-text-sm);
+  line-height: 1.6;
+  overflow: auto;
+}
+.zn-ui-code code { font: inherit; }
+
+/* 富内容直投（公式 / 图表 / 第三方渲染结果）。
+   刻意不加 max-height —— 图表被截断比溢出更糟。 */
+.zn-ui-html { min-width: 0; line-height: 1.6; overflow-x: auto; }
+.zn-ui-html > :first-child { margin-top: 0; }
+.zn-ui-html > :last-child { margin-bottom: 0; }
+.zn-ui-html img, .zn-ui-html svg { max-width: 100%; height: auto; }
+.zn-ui-html table { border-collapse: collapse; }
+.zn-ui-html th, .zn-ui-html td { border: 1px solid var(--zn-border); padding: 4px 8px; }
+
+/* 命令驱动的"链接"外观 */
+.zn-ui-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--zn-accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.zn-ui-link:hover { opacity: 0.75; }
+/* 主色在暗色下是浅灰，链接要能被认出是"可点的" —— 加一点下划线偏移就够了 */
+
+/* 图片：宽度始终不溢出，高度可选上限 */
+.zn-ui-image {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg-subtle);
+}
+
+/* 多行输入 */
+.zn-ui-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 5px var(--zn-space-2);
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+  font: inherit;
+  font-size: var(--zn-text-sm);
+  line-height: 1.6;
+  resize: vertical;
+}
+.zn-ui-textarea:focus { outline: none; border-color: var(--zn-accent); }
+
+/* 勾选 */
+.zn-ui-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  font-size: var(--zn-text-sm);
+  cursor: pointer;
+}
+.zn-ui-checkbox input { margin: 0; accent-color: var(--zn-accent); }
+
+/* 可点列表：整行可点，hover 有反馈（键盘也能选中） */
+.zn-ui-list.is-clickable { gap: 2px; }
+.zn-ui-list-item {
+  padding: var(--zn-space-2);
+  border-radius: var(--zn-radius);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.zn-ui-list-item:hover { background: var(--zn-bg-hover); }
+.zn-ui-list-item:focus-visible { outline: 2px solid var(--zn-accent); outline-offset: -2px; }
+
+/* 表格：横向可滚（窄屏不挤压），表头用 subtle 底 */
+.zn-ui-table-wrap { min-width: 0; overflow-x: auto; }
+.zn-ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--zn-text-sm);
+}
+.zn-ui-table th,
+.zn-ui-table td {
+  padding: 6px var(--zn-space-2);
+  border-bottom: 1px solid var(--zn-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.zn-ui-table th {
+  color: var(--zn-fg-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.zn-ui-table th.is-right { text-align: right; }
+.zn-ui-table tr:last-child td { border-bottom: 0; }
+
+/* 进度条 */
+.zn-ui-progress { min-width: 0; }
+.zn-ui-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--zn-bg-active);
+  overflow: hidden;
+}
+.zn-ui-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--zn-accent);
+  transition: width 160ms ease;
+}
+.zn-ui-progress-label {
+  margin-top: 4px;
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-sm);
+}
+
+/* 徽标 */
+.zn-ui-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--zn-bg-active);
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-sm);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.zn-ui-badge.zn-ui-tone-success { background: color-mix(in srgb, var(--zn-success) 18%, transparent); color: var(--zn-success); }
+.zn-ui-badge.zn-ui-tone-warn { background: color-mix(in srgb, var(--zn-warn) 18%, transparent); color: var(--zn-warn); }
+.zn-ui-badge.zn-ui-tone-danger { background: color-mix(in srgb, var(--zn-danger) 16%, transparent); color: var(--zn-danger); }
+
+/* 表单行：标签 + 提示 + 控件。控件独占一行 —— 窄屏（手机）里左右排会挤爆 */
+.zn-ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.zn-ui-field-label { font-size: var(--zn-text-sm); font-weight: 600; color: var(--zn-fg); }
+.zn-ui-field-hint { font-size: var(--zn-text-sm); color: var(--zn-fg-muted); line-height: 1.6; }
+.zn-ui-field-body { min-width: 0; }
+
+/* 分组切换 */
+.zn-ui-tabs { display: flex; flex-direction: column; gap: var(--zn-space-3); min-width: 0; }
+.zn-ui-tabs-bar {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg-subtle);
+  overflow-x: auto;
+}
+.zn-ui-tab {
+  flex: 1 0 auto;
+  padding: 4px var(--zn-space-3);
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font: inherit;
+  font-size: var(--zn-text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.zn-ui-tab:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
+.zn-ui-tab.is-active { background: var(--zn-bg); color: var(--zn-fg); font-weight: 600; }
+.zn-ui-tabs-body { min-width: 0; }
 
 /* ───────── 命令面板（M2）───────── */
 .zn-palette-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }

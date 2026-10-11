@@ -4,6 +4,7 @@
  * 这里是**唯一的组装点**：UI 只跟 `Kernel` 打交道，插件只跟 `PluginContext` 打交道，
  * 两者都不知道对方存在。
  */
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { API_VERSION } from './contract'
 import type {
   Disposable,
@@ -102,6 +103,18 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
     notify(msg, level) {
       hooks.onNotify(msg, level)
+    },
+    assetUrl(relPath) {
+      // 库内相对路径 → asset://（需 tauri.conf.json 的 assetProtocol.enable + scope）
+      const base = vault.replace(/[\\/]+$/, '')
+      const rel = relPath.replace(/^[\\/]+/, '')
+      const abs = `${base}/${rel}`
+      try {
+        return convertFileSrc(abs)
+      } catch {
+        // 非 Tauri 环境（浏览器预览）没有 asset 协议，退回原路径，别让渲染整个炸掉
+        return abs
+      }
     },
   }
 
