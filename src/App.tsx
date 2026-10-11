@@ -1057,8 +1057,34 @@ export default function App() {
     setMainMenu({ x: clientX, y: clientY, items })
   }
 
-  /** 当前文档字数（不含空白）—— 状态栏右下角显示 */
-  const charCount = useMemo(() => content.replace(/\s/g, '').length, [content])
+  /**
+   * 当前文档字数（不含空白）。
+   * 数的是**纯文本**：先把 Markdown 标记剥掉再统计，否则「#」「**」「[](url)」这些
+   * 也算进去，字数会虚高（用户要求：不统计 markdown 标记）。
+   * 用正则而不是解析器 —— 状态栏只要"大致准"，不值得为此给内核加一个 Markdown 依赖。
+   */
+  const charCount = useMemo(() => {
+    const plain = content
+      // 围栏行（``` 与语言名）：只去掉围栏本身，代码内容仍算字
+      .replace(/^[ \t]*```.*$/gm, '')
+      // 行首标记：标题 #、引用 >、无序列表 - * +、有序列表 1.
+      .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
+      .replace(/^[ \t]{0,3}>[ \t]?/gm, '')
+      .replace(/^[ \t]{0,3}[-*+][ \t]+/gm, '')
+      .replace(/^[ \t]{0,3}\d+\.[ \t]+/gm, '')
+      // 分隔线整行（--- / *** / ___）
+      .replace(/^[ \t]{0,3}([-*_])[ \t]*(\1[ \t]*){2,}$/gm, '')
+      // 图片 ![alt](url) → alt；链接 [text](url) → text
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      // 行内代码的反引号
+      .replace(/`+/g, '')
+      // 强调与删除线的标记符
+      .replace(/(\*\*|__|~~|\*|_)/g, '')
+      // 残留的 HTML 标签
+      .replace(/<[^>]*>/g, '')
+    return plain.replace(/\s/g, '').length
+  }, [content])
 
   const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
