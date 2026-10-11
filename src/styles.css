@@ -575,6 +575,28 @@ body.is-resizing * {
   white-space: nowrap;
 }
 
+/* 状态栏左半（库信息 + 常驻小部件）；`margin-right: auto` 把右侧的收尾元素顶到最右 */
+.zn-statusbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-right: auto;
+}
+
+/* 侧栏底部的库信息条：显示库目录名（完整路径在 tooltip 上）。
+   侧栏头归应用名、状态栏归文档信息，各司其职。 */
+.zn-sidebar-foot {
+  flex: none;
+  padding: var(--zn-space-2) var(--zn-space-3);
+  border-top: 1px solid var(--zn-border);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ───────── 声明式 UI（components/UIRenderer.tsx 专用）─────────
  * 只用上面的 --zn-* token；插件视图靠这些 class 获得统一风格。 */
 

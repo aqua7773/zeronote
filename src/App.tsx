@@ -1057,6 +1057,9 @@ export default function App() {
     setMainMenu({ x: clientX, y: clientY, items })
   }
 
+  /** 当前文档字数（不含空白）—— 状态栏右下角显示 */
+  const charCount = useMemo(() => content.replace(/\s/g, '').length, [content])
+
   const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
   /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
@@ -1134,6 +1137,11 @@ export default function App() {
             还没选择笔记库
           </div>
         )}
+        {/* 库信息归侧栏底部（用户要求）；状态栏留给文档级信息。
+            这里显示库目录名，完整路径挂在 tooltip 上。 */}
+        <div className="zn-sidebar-foot" title={vault ?? ''}>
+          {vault ? vault.split(/[\\/]/).pop() : '未选择笔记库'}
+        </div>
       </aside>
       )}
 
@@ -1274,22 +1282,27 @@ export default function App() {
         )}
 
         <div className="zn-statusbar">
-          <span>{notes.length} 篇</span>
-          {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
-          {statusPanels.map((p) => (
-            <PanelBoundary key={p.id}>
-              <UIRenderer
-                node={renderPanelSafe(p, panelState)}
-                state={panelState}
-                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-              />
-            </PanelBoundary>
-          ))}
-          <span style={{ marginLeft: 'auto' }} title={vault ?? ''}>
-            {vault ?? ''}
+          {/* 左半：库信息与常驻面板。整块包一层，保证从最左开始 ——
+              之前只靠末尾一个 margin-left:auto 的空元素压尾，内容为空时排版会漂。 */}
+          <div className="zn-statusbar-left">
+            <span>{notes.length} 篇</span>
+            {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
+            {statusPanels.map((p) => (
+              <PanelBoundary key={p.id}>
+                <UIRenderer
+                  node={renderPanelSafe(p, panelState)}
+                  state={panelState}
+                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                />
+              </PanelBoundary>
+            ))}
+            {error && <span style={{ color: 'var(--zn-danger)' }}>⚠ {error}</span>}
+          </div>
+          {/* 右下角：当前文档字数（不含空白） */}
+          <span title="当前文档字数（不含空白）">
+            {activePath ? `${charCount.toLocaleString()} 字` : ''}
           </span>
-          {error && <span style={{ color: 'var(--zn-danger)' }}>⚠ {error}</span>}
         </div>
       </main>
       </div>
