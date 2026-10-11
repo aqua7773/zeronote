@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 19
-更新时间: 2026-10-12（凌晨 · service 原语 + 前置插件）
+revision: 20
+更新时间: 2026-10-12（凌晨 · editor 原语：编辑器行内标记 + 点击命令）
 项目: ZeroNote
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
@@ -46,6 +46,7 @@ revision: 19
 | **🧩 UINode 9 → 21 种** | `_shots\uikit-rendered.png`（第一屏：tone 三色 / badge 5 档 / progress / image(data URL) / code / html / field+input / field+textarea / select）· `uikit-rendered-2.png`（第二屏：button 三档+禁用 / `send` / link / 可点列表 / **table 且单元格内嵌 badge** / tabs）· `uikit-interact.png`（点按钮后底部 payload 变 `{"variant":"default"}` ⇒ **命令 → state → 重渲染**链路通）· 演示插件 `examples/ui-kit/` | `da377a7` | 2026-10-12 |
 | **🧰 插件能力第 1 批**（fs 文件夹 · 编辑器工具栏 · 导出落盘） | `_shots\toolbar-with-plugin.png`（编辑器底部出现工具栏：H1/待办/代码块/引用/表格 + 徽标）↔ `toolbar-without-plugin.png`（**把插件移出插件目录后，工具栏整条消失**，界面回到纯净态 ⇒ **按需激活的直接证据**）· `cargo test` **12 passed / 0 failed**（新增 `dir_ops_create_and_move_safely`：多级建目录幂等 / 整树搬迁 / `mv` 语义 / 拒绝移进自己子孙 / 越界被挡） | `f4aaa23` | 2026-10-12 |
 | **🔌 service 原语 + 前置插件** | `_shots\dep-katex-final.png`：`dep-consumer` 用 `service.consume('katex')` 拿到 `dep-katex` 提供的渲染器 —— 两条公式（求根公式 / 求和公式）正确排版 + 绿标「katex 0.16.11（由前置插件提供）」⇒ **依赖环境插件化 + 懒加载 + 软依赖**全链路通 · 示例 `examples/dep-katex` `examples/dep-consumer` | `0766529` | 2026-10-12 |
+| **✍️ editor 原语（编辑器行内标记）** | `_shots\editor-marks-rendered.png`（`#测试标签` / `#编辑器标记` 呈灰底标签样式 ⇒ 插件正则装饰生效）· `editor-marks-click2.png`（点击标签后 toast 出现，抓到动画中态 ⇒ **点击 → 命令 → notify** 链路通）· 示例 `examples/editor-marks/` | `80d4c57` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -146,6 +147,12 @@ revision: 19
      ＋ `adb install -r`（约 2 分钟，可靠）；或起 `android-dev.cmd` 走 HMR（但有多实例抢锁的坑，见上方 ①）。
      **一眼判断**：改一句明显可见的文案，界面没变 ⇒ 就是这个。
      （`src-tauri/` 的 Rust 改动同理，除了 `tauri android dev` 会自动重编 `.so`。）
+  ⑦ **`[[x]]` 这类语法在 atomic 编辑器里"已经是它自己的"** —— 实测写 `[[test-from-pc]]`
+     会渲染成**黄底 + 外链图标**，说明 atomic 自己识别 wikilink，且用的是
+     **`replace`/widget 类装饰**；CM6 里那类装饰**优先级高于 `Decoration.mark`**
+     ⇒ 插件用 `editor.addMark` 叠加的样式与点击**都轮不到**（点击被它的 widget 吃掉）。
+     **`#标签` 这类它不认识的语法才是 `addMark` 的主场**（实测着色 + 点击命令都正常）。
+     想真正接管 `[[ ]]` 得跟 atomic 的扩展点协商（未做，不等于做不到）。
 - **Android 系统栏（三阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
