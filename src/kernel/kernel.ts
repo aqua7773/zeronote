@@ -35,6 +35,8 @@ export type KernelHooks = {
   onPanelsChange: (panels: PanelRegistration[]) => void
   onNotify: (msg: string, level?: 'info' | 'warn' | 'error') => void
   onLog: (msg: string, level?: 'debug' | 'info' | 'warn' | 'error') => void
+  /** 插件通过 `view.setState` 写面板状态时回调 */
+  onPanelStateChange: (bind: string, value: unknown) => void
 }
 
 export type Kernel = {
@@ -62,22 +64,28 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
   const view: ViewApi = {
     registerPanel(spec): Disposable {
       // 幂等：同 id 重新注册 = 替换（dev 热重载 / 插件重复加载都靠它兜底）
-      const previous = panelMap.get(spec.id)
-      panelMap.set(spec.id, spec as PanelRegistration)
+      const self = spec as PanelRegistration
+      panelMap.set(spec.id, self)
       hooks.onPanelsChange([...panelMap.values()])
       return {
         dispose: () => {
           // 只有当前登记的就是自己时才删，避免"旧 dispose 干掉新面板"
-          if (panelMap.get(spec.id) === (spec as PanelRegistration)) {
+          if (panelMap.get(spec.id) === self) {
             panelMap.delete(spec.id)
             hooks.onPanelsChange([...panelMap.values()])
           }
-          void previous
         },
       }
     },
     registerWebView(): Disposable {
       throw new Error('v0.1 还不支持 WebView 视图（契约 §7 第 9 条，排在 v0.2）')
+    },
+    refresh() {
+      // 面板 render 是纯函数：插件改完自己的数据后调这里，宿主重渲染即拿到新内容
+      hooks.onPanelsChange([...panelMap.values()])
+    },
+    setState(bind: string, value: unknown) {
+      hooks.onPanelStateChange(bind, value)
     },
   }
 

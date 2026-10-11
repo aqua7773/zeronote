@@ -110,7 +110,14 @@ export type UINode =
   | { type: 'row'; children: UINode[] }
   | { type: 'text'; value: string; variant?: 'body' | 'caption' | 'title' }
   | { type: 'markdown'; value: string }
-  | { type: 'button'; label: string; onClick: string; variant?: 'default' | 'ghost' | 'danger' }
+  | {
+      type: 'button'
+      label: string
+      onClick: string
+      /** 把 state[send] 的当前值作为 payload 传给命令 —— 插件按钮读输入框的标准做法 */
+      send?: string
+      variant?: 'default' | 'ghost' | 'danger'
+    }
   | { type: 'input'; bind: string; placeholder?: string; onSubmit?: string }
   | { type: 'select'; bind: string; options: { value: string; label: string }[]; onSubmit?: string }
   | { type: 'list'; items: UINode[]; empty?: string }
@@ -136,6 +143,10 @@ export interface ViewApi {
     location: 'sidebar' | 'main' | 'modal'
     url: string
   }): Disposable
+  /** 面板数据变了，请宿主重渲染 —— `render` 是纯函数，插件靠这个把新数据推上去 */
+  refresh(panelId?: string): void
+  /** 写面板状态（输入框等 bind 值）→ 宿主重渲染。插件清空/预填输入框的标准做法 */
+  setState(bind: string, value: unknown): void
 }
 
 /** 7. store —— 插件自己的持久化（落 .zn/plugins/<id>/store.json） */

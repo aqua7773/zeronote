@@ -89,12 +89,13 @@ function renderNode(node: UINode, key: React.Key, ctx: RenderCtx): React.JSX.Ele
 
     case 'button': {
       const variant = node.variant ?? 'default'
+      const send = node.send
       return (
         <button
           key={key}
           type="button"
           className={`zn-btn zn-ui-btn-${variant}`}
-          onClick={() => ctx.onAction(node.onClick)}
+          onClick={() => ctx.onAction(node.onClick, send ? { value: ctx.state[send] } : undefined)}
         >
           {node.label}
         </button>

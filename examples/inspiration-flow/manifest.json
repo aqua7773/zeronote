@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "id": "inspiration-flow",
+  "name": "灵感流",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "快速捕捉：一次发送 = 一篇独立 .md，落在「灵感/当日日期/」下",
+  "capabilities": ["fs:read", "fs:write", "command", "view:main", "store"],
+  "contributes": {
+    "commands": [
+      { "id": "inspiration-flow.capture", "title": "灵感：捕捉当前输入" },
+      { "id": "inspiration-flow.refresh", "title": "灵感：刷新今天的列表" }
+    ],
+    "panels": [{ "id": "inspiration-flow.stream", "title": "灵感流", "location": "main" }]
+  }
+}

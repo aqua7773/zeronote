@@ -137,6 +137,7 @@ export default function App() {
       onPanelsChange: setPanels,
       onNotify: (msg) => setToast(msg),
       onLog: (msg) => setPanelLog((l) => [...l.slice(-199), msg]),
+      onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
     })
   }, [vault, docApi])
 
