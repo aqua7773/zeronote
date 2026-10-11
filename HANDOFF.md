@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 28
-更新时间: 2026-10-12（凌晨 · 导出支持二进制；真机暴露 Android SAF 平台差异）
+revision: 29
+更新时间: 2026-10-12（凌晨 · 灵感流按规格重写；发现并修复插件重载的竞态幽灵 bug）
 项目: ZeroNote
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
@@ -53,6 +53,7 @@ revision: 28
 | **🏷 标签能力（抽取 / 聚合 / 筛选）** | `_shots\tag-stats-fixed.png`：toast「索引 6 篇 / 38ms；共 4 种标签：工作(1)、会议(1)、项目A(1)、正文标签(1)」—— **修复前**是「工作(1)、**工作。(1)**、项目A(1)、正文标签(1)」，对照可见"句号被吸进标签名"与"中文键 `标签:` 被吞"两个 bug · `tag-query-ok.png`：toast「标签「工作」下 **1 篇：tag-test**」· 示例 `examples/tag-demo/` | `8eb647d` | 2026-10-12 |
 | **🎯 内核命令可被插件接管** | `_shots\daily-note-takeover.png`：装上 `examples/daily-note`（它 `bind` 了 `core.newNote`）后点菜单「新建笔记」⇒ toast「**已建在当天目录：笔记/2026/10/12/02-23-46.md**」+ 编辑器自动打开 + 磁盘上确实出现 `笔记/2026` 目录 ⇒ **规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」达成** | `7a70829` | 2026-10-12 |
 | **📤 导出二进制 + Android SAF 差异** | `_shots\bin-dialog.png`：系统「另存为」正确带出文件名 `ui-kit-1px.png`（`defaultName` 生效）· **真机暴露一个桌面测不出的平台差异**：保存后磁盘上是 **0 字节** —— Android 的 `save()` 返回 `content://` **SAF URI** 而非文件路径，`std::fs` 处理不了 ⇒ 已加特判 + 专门报错，契约标注「桌面可用 / Android 受限」 · `cargo test` **14 passed**（含 `b64_decode` 与 `export_target` 两条新测试） | `3e722db` | 2026-10-12 |
+| **⚡ 灵感流按规格重写 + 竞态幽灵 bug** | `_shots\flow-panel.png`：面板「落在 笔记/年/月/日/ 下 · 共 2 条」+ 时间流倒序列表 · `flow-saved.png`：输入 `hello` 点捕捉 ⇒ toast「已捕捉 ✎」+ 状态行「已捕捉 → 笔记/2026/10/12/02-39-08.md」+ **输入框自动清空** + 列表 2→3 条 · **磁盘实测** `笔记/2026/10/12/02-39-08.md`（18 B，内容 `# 02-39-08` + `hello`）· 同时修掉插件重载的竞态幽灵 | `848ba61` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -165,6 +166,19 @@ revision: 28
      与 `doc.on` 的"订阅成功但永不触发"是同一类陷阱：**静默失效比报错危险**。
      **自查办法**：动过测试相关代码后，看 `cargo test --lib` 的 `running N tests`
      数字有没有按预期变化 —— **别只看 `test result: ok`**。
+  ⑨ **插件加载"中途被打断" ⇒ 幽灵命令污染之后所有重载**（2026-10-12 真机踩到）。
+     症状极具误导性：给某个插件换新版后它显示**未启用**（旧版本的 `disabled` 状态被
+     同 id 的新版本继承了），手动勾选启用后，**别的插件**报
+     「命令 id 重复：ui-kit.hit」并接连变成未启用。
+     根因是**竞态**：插件加载是 `await` 的，而"已加载清单"原本是 effect 内的
+     **局部数组**；用户在加载途中操作（点启用 / 切库 / 重新扫描）⇒ cleanup 跑，
+     但那时正在加载的那个插件**还没被 push 进数组** ⇒ cleanup 漏掉它 ⇒
+     它已注册的命令/面板留在宿主里成了幽灵 ⇒ 下次同 id 注册必撞，
+     **一次污染之后每次重载都失败**。
+     **修法**：清单改成跨 effect 的 `useRef`，cleanup 用 `splice(0)` 消费；
+     两条加载路径（启动扫描 + 懒激活）在 `await` 之后都检查 `cancelled`，
+     已取消就当场卸掉并回收 service/editor 资源。
+     **教训**：**异步初始化的 cleanup 必须能覆盖"进行中"的那一项。**
 - **Android 系统栏（三阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
