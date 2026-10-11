@@ -1219,7 +1219,7 @@ export default function App() {
               title="关闭这篇笔记（Ctrl+W）"
               aria-label="关闭当前笔记"
             >
-              ✕
+              关闭
             </button>
           </div>
         ) : (

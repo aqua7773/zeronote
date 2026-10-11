@@ -445,8 +445,10 @@ body.is-resizing * {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  /* 不再是给单个 ✕ 用的 24×24 方块：改成文字「关闭」，宽度按内容走 */
+  min-width: 24px;
   height: 24px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--zn-radius-sm);
   background: transparent;
