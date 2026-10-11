@@ -77,7 +77,8 @@ export function ContextMenu({
     >
       {items.map((item, i) => (
         <div key={`${item.label}-${i}`}>
-          {item.divider && <div className="my-1 border-t border-border" />}
+          {/* divider 画在「该项上方」；第一项上面就是菜单边框，再画一条就多余了 */}
+          {item.divider && i > 0 && <div className="my-1 border-t border-border" />}
           <button
             type="button"
             role="menuitem"
