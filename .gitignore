@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-ssr/
+target/
+src-tauri/target/
+
+# 环境
+.env
+.env.local
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# ZeroNote 私有目录（库内，不入库）
+.zn/
