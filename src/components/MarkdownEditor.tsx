@@ -11,25 +11,29 @@ type Props = {
   value: string
   onChange: (next: string) => void
   onSave: () => void
+  /** 把底层 EditorView 交给宿主，供 doc 原语使用（读选区 / 替换 / 插入）；销毁时回调 null */
+  onReady?: (view: EditorView | null) => void
 }
 
 /**
- * CM6 封装（M1 版）：直接编辑 Markdown 纯文本 ⇒ 天然保真。
- * - 切换笔记时只 dispatch 替换文档，不重建 EditorView（保住 undo 之外的性能）
+ * CM6 封装：直接编辑 Markdown 纯文本 ⇒ 天然保真。
+ * - 切换笔记时只 dispatch 替换文档，不重建 EditorView
  * - Ctrl/Cmd+S 走 onSave
- * - 外部内容变化（如重新载入）也同步进编辑器，但避免与用户输入打架
+ * - 实例只建一次（StrictMode 已移除；重建会丢 undo 历史与选区）
  */
-export function MarkdownEditor({ path, value, onChange, onSave }: Props) {
+export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
+  const onReadyRef = useRef(onReady)
 
-  // 最新回调同步进 ref（编辑器实例只建一次，不能每次渲染重建）
+  // 最新回调同步进 ref（编辑器实例不能每次渲染重建）
   useEffect(() => {
     onChangeRef.current = onChange
     onSaveRef.current = onSave
-  }, [onChange, onSave])
+    onReadyRef.current = onReady
+  }, [onChange, onSave, onReady])
 
   // 建 view（只一次）
   useEffect(() => {
@@ -59,13 +63,15 @@ export function MarkdownEditor({ path, value, onChange, onSave }: Props) {
       }),
     })
     viewRef.current = view
+    onReadyRef.current?.(view)
     return () => {
+      onReadyRef.current?.(null)
       view.destroy()
       viewRef.current = null
     }
   }, [])
 
-  // 切换笔记：整篇替换
+  // 切换笔记 / 外部内容变化：整篇替换
   useEffect(() => {
     const view = viewRef.current
     if (!view) return

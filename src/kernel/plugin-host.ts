@@ -139,6 +139,14 @@ function scopedDoc(doc: DocApi, caps: Capability[], pluginId: string): DocApi {
   }
 }
 
+/** 给面板打上「来自哪个插件」的标记（卸载时靠 subs 清理，标记只用于 UI 展示） */
+function scopedView(view: ViewApi, pluginId: string): ViewApi {
+  return {
+    registerPanel: (spec) => view.registerPanel({ ...spec, pluginId } as typeof spec),
+    registerWebView: (spec) => view.registerWebView(spec),
+  }
+}
+
 /* ───────── 加载 / 卸载 ───────── */
 
 export async function listPluginDirs(vault: string): Promise<string[]> {
@@ -187,7 +195,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     index: deps.index,
     event: deps.event,
     command: deps.command,
-    view: deps.view,
+    view: scopedView(deps.view, manifest.id),
     store: deps.store(manifest.id),
     host: deps.host,
     pluginId: manifest.id,

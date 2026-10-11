@@ -332,3 +332,11 @@ button {
 .zn-plugin-caps { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); margin-top: 4px; }
 .zn-plugins-log { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); font-size: var(--zn-text-sm); }
 .zn-plugins-log pre { max-height: 160px; overflow: auto; margin: var(--zn-space-2) 0 0; color: var(--zn-fg-muted); white-space: pre-wrap; }
+
+/* ───────── 右栏（M2）───────── */
+.zn-rightbar { width: 320px; flex: 0 0 auto; display: flex; flex-direction: column; background: var(--zn-bg-subtle); border-left: 1px solid var(--zn-border); overflow: hidden; }
+.zn-rightbar-tabs { display: flex; gap: 2px; padding: var(--zn-space-2); border-bottom: 1px solid var(--zn-border); overflow-x: auto; }
+.zn-rightbar-tab { padding: 4px 10px; border: 0; border-radius: var(--zn-radius-sm); background: transparent; color: var(--zn-fg-muted); font-size: var(--zn-text-sm); white-space: nowrap; }
+.zn-rightbar-tab.is-active { background: var(--zn-bg-active); color: var(--zn-fg); font-weight: 600; }
+.zn-rightbar-body { flex: 1; overflow: auto; }
+.zn-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
