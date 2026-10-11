@@ -18,6 +18,11 @@ use serde::Serialize;
 /// 库内私有目录：不进文件树、不进 git
 const PRIVATE_DIR: &str = ".zn";
 
+/// 多库容器：库根下放**其它笔记库**的地方（`<库根>/.vaults/<库名>/`）。
+/// 用 `.` 开头是有意的 —— `collect()` 会跳过所有 `.` 开头的名字，
+/// 于是容器里的库不会串进默认库的文件树，也不需要额外维护黑名单。
+const VAULTS_DIR: &str = ".vaults";
+
 /// 遍历时跳过的目录名
 const SKIP_DIRS: [&str; 4] = [".zn", ".git", "node_modules", ".obsidian"];
 
@@ -234,6 +239,33 @@ fn ensure_vault(vault: String) -> Result<(), String> {
   Ok(())
 }
 
+/// 列出库根下「其它笔记库」的名字（即 `<库根>/.vaults/` 的子目录，已排序）。
+///
+/// 为什么需要它：移动端**没有目录选择器**（Tauri 在 Android 上直接返回
+/// `FolderPickerNotImplemented`），所以多库改为应用内管理 ——
+/// 默认库 = 库根本身，其它库住在 `.vaults/<名字>/`。
+/// 容器还不存在时返回空表（不是错误 —— 只是还没建过第二个库）。
+#[tauri::command]
+fn list_vaults(root: String) -> Result<Vec<String>, String> {
+  let dir = Path::new(&root).join(VAULTS_DIR);
+  if !dir.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut names = Vec::new();
+  for entry in fs::read_dir(&dir).map_err(|e| format!("读取库容器失败：{e}"))? {
+    let entry = entry.map_err(|e| e.to_string())?;
+    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+      let name = entry.file_name().to_string_lossy().to_string();
+      // 与 collect() 同一套规矩：`.` 开头的跳过，别把私有目录当成库列出来
+      if !name.starts_with('.') {
+        names.push(name);
+      }
+    }
+  }
+  names.sort();
+  Ok(names)
+}
+
 /* ───────────── 插件相关命令（M2）───────────── */
 //
 // 插件住在 `<库>/.zn/plugins/<pluginId>/`：manifest.json + 入口脚本 + store.json。
@@ -338,7 +370,8 @@ pub fn run() {
       read_plugin_file,
       plugin_store_read,
       plugin_store_write,
-      ensure_vault
+      ensure_vault,
+      list_vaults
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");

@@ -26,6 +26,7 @@ import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
 import { PanelBoundary } from './components/PanelBoundary'
 import { Settings } from './components/Settings'
+import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
 import {
   applyTheme,
@@ -127,6 +128,8 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  /** 移动端的「笔记库」面板（桌面走系统目录选择器，不用它） */
+  const [vaultPanelOpen, setVaultPanelOpen] = useState(false)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
       删除本身是一步完成的（不弹确认框打断用户），可撤销性由这条提示提供。 */
   /** 最近一次删除（可能一次多篇），供撤销条在几秒内恢复 */
@@ -540,21 +543,33 @@ export default function App() {
     setError(null)
   }, [])
 
+  /** 真正切库：未保存内容先落盘 → 记住 → 重置视图 → 换库。桌面与移动端共用 */
+  const applyVault = useCallback(async (dir: string) => {
+    if (dirtyRef.current) await saveNowRef.current()
+    localStorage.setItem(LS_VAULT, dir)
+    setActivePath(null)
+    setContent('')
+    setDirty(false)
+    setSaveState('idle')
+    setVault(dir)
+  }, [])
+
   const pickVault = useCallback(async () => {
+    // 安卓**没有目录选择器**：Tauri 的 dialog.open({directory:true}) 在移动端
+    // 源码级返回 FolderPickerNotImplemented（以前这里会报"请确认读写权限"，是误报）。
+    // 所以手机端改走应用内面板：默认库 + 库根下 .vaults/ 里的其它库。
+    if (platform === 'android') {
+      setVaultPanelOpen(true)
+      return
+    }
     try {
       const dir = await open({ directory: true, multiple: false, title: '选择笔记库文件夹' })
       if (typeof dir !== 'string') return
-      if (dirtyRef.current) await saveNowRef.current()
-      localStorage.setItem(LS_VAULT, dir)
-      setActivePath(null)
-      setContent('')
-      setDirty(false)
-      setSaveState('idle')
-      setVault(dir)
+      await applyVault(dir)
     } catch (e) {
       setError(failMsg('vault', e))
     }
-  }, [])
+  }, [platform, applyVault])
 
   const newNote = useCallback(async (nameArg?: string) => {
     const k = kernel
@@ -1462,6 +1477,17 @@ export default function App() {
         onTogglePlugin={togglePlugin}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
       />
+
+      {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}
+      {platform === 'android' && (
+        <VaultPanel
+          open={vaultPanelOpen}
+          onOpenChange={setVaultPanelOpen}
+          root={ANDROID_VAULT}
+          current={vault ?? ANDROID_VAULT}
+          onPick={(p) => void applyVault(p)}
+        />
+      )}
 
       <SearchPanel
         open={searchOpen}
