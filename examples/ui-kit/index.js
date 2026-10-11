@@ -70,6 +70,27 @@ export default {
           '</svg>',
       )
 
+    /** 二进制导出：造一个真实的 1×1 PNG（67 字节）验证 `Uint8Array` 通道 */
+    command.register({
+      id: 'ui-kit.export-bin',
+      title: 'UI 组件演示：导出二进制文件',
+      run: async () => {
+        const b64 =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+        try {
+          const p = await api.host.saveFile({ defaultName: 'ui-kit-1px.png', content: bin })
+          view.setState(
+            'lastHit',
+            p ? `已导出二进制 ${bin.length} 字节：${p}` : '二进制导出已取消',
+          )
+        } catch (e) {
+          view.setState('lastHit', `二进制导出失败：${String(e)}`)
+        }
+        view.refresh()
+      },
+    })
+
     view.registerPanel({
       id: 'ui-kit.panel',
       title: 'UI 组件演示',
@@ -272,6 +293,12 @@ export default {
                       payload: { dir: '_ui-kit-demo/子目录' },
                     },
                     { type: 'button', label: '导出到文件…', variant: 'ghost', onClick: 'ui-kit.export' },
+                    {
+                      type: 'button',
+                      label: '导出 PNG（二进制）',
+                      variant: 'ghost',
+                      onClick: 'ui-kit.export-bin',
+                    },
                   ],
                 },
                 {

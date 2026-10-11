@@ -298,20 +298,81 @@ fn move_entry(vault: String, from: String, to: String) -> Result<(), String> {
   fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
 }
 
+/// 校验「导出落盘」的目标路径，并给出**能看懂**的错误。
+///
+/// ⚠️ **Android 平台差异（真机实测）**：Android 的「另存为」走 SAF，`save()` 返回的是
+/// `content://…` **内容 URI**，不是文件路径 —— `std::fs` 处理不了它。
+/// 不特判的话用户只会看到"必须是绝对路径"这种误导信息，而真实原因是平台机制不同。
+/// （桌面端返回的是真实路径，所以这条通道在桌面上是可用的。）
+fn export_target(path: &str) -> Result<PathBuf, String> {
+  if path.starts_with("content://") {
+    return Err(
+      "Android 的「另存为」返回的是 SAF 内容 URI（content://…），当前实现只支持真实文件路径。\
+       这个平台差异记在契约 §2.4 的 host.saveFile 说明里；Android 上请改为写进库内再分享。"
+        .to_string(),
+    );
+  }
+  let p = PathBuf::from(path);
+  if !p.is_absolute() {
+    return Err(format!("导出路径必须是绝对路径：{path}"));
+  }
+  Ok(p)
+}
+
 /// 把内容写到**库外的绝对路径**（导出落盘用）。
 ///
 /// 这是**故意的提权入口**：库内写入一律走 `resolve` 白名单，而"导出"天生要写到用户
 /// 随手选的位置（桌面、U 盘…），没法预先圈定范围。为把它关到尽量小：
-///  · 只接受**绝对路径** —— 相对路径在这里没有库作基准，容易被误当成"库内路径"绕过语义；
+///  · 只接受**绝对路径**（`export_target` 里校验，并特判 Android 的 SAF URI）；
 ///  · 不建父目录（目标目录必须已存在，写错地方就报错而不是悄悄造出一串目录）；
 ///  · 覆盖与否交给系统"另存为"对话框，它自己会问用户。
 #[tauri::command]
 fn write_absolute(path: String, content: String) -> Result<(), String> {
-  let p = PathBuf::from(&path);
-  if !p.is_absolute() {
-    return Err(format!("导出路径必须是绝对路径：{path}"));
-  }
+  let p = export_target(&path)?;
   fs::write(&p, content).map_err(|e| format!("写入失败（{path}）：{e}"))
+}
+
+/// 极简 base64 解码（标准字母表，跳过空白与 `=`）。
+///
+/// 为什么不引 `base64` crate：整个项目只有"导出二进制"这一条路用它，
+/// 为一次调用加一个依赖不划算（内核能薄就薄）。算法本身很短，且这里对
+/// 非法字符会直接报错，不会静默产出错误数据。
+fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+  const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let mut rev = [255u8; 256];
+  for (i, &c) in TABLE.iter().enumerate() {
+    rev[c as usize] = i as u8;
+  }
+  let mut out = Vec::with_capacity(s.len() / 4 * 3);
+  let mut acc: u32 = 0;
+  let mut bits: u32 = 0;
+  for &c in s.as_bytes() {
+    if c == b'=' || c.is_ascii_whitespace() {
+      continue;
+    }
+    let v = rev[c as usize];
+    if v == 255 {
+      return Err(format!("非法的 base64 字符：{}", c as char));
+    }
+    acc = (acc << 6) | v as u32;
+    bits += 6;
+    if bits >= 8 {
+      bits -= 8;
+      out.push((acc >> bits) as u8);
+    }
+  }
+  Ok(out)
+}
+
+/// 把**二进制**内容写到库外绝对路径（导出图片 / zip 用）。
+///
+/// 走 base64 而不是 `Vec<u8>` 参数：Tauri 会把 `Vec<u8>` 序列化成 JSON **数字数组**，
+/// 一个 1 MB 的 zip 就变成上百万元素，序列化开销与消息体积都离谱；base64 只大 33%。
+#[tauri::command]
+fn write_absolute_b64(path: String, base64: String) -> Result<(), String> {
+  let p = export_target(&path)?;
+  let bytes = b64_decode(&base64)?;
+  fs::write(&p, bytes).map_err(|e| format!("写入失败（{path}）：{e}"))
 }
 
 /// 确保库目录（含私有目录）存在。
@@ -480,6 +541,7 @@ pub fn run() {
       create_dir,
       move_entry,
       write_absolute,
+      write_absolute_b64,
       list_plugins,
       read_plugin_file,
       plugin_store_read,
@@ -523,6 +585,35 @@ mod tests {
     assert!(delete_plugin(vault.clone(), "a/b".to_string()).is_err());
     // 不存在 ⇒ 明确报错，而不是假装成功（界面不该弹出"已删除"）
     assert!(delete_plugin(vault, "nope".to_string()).is_err());
+  }
+
+  /// 导出目标校验：相对路径拒绝；Android 的 SAF URI 要给**专门**的说明
+  /// （而不是"必须是绝对路径"那种误导信息）
+  #[test]
+  fn export_target_rejects_relative_and_saf_uri() {
+    assert!(export_target("a.txt").is_err());
+    let e = export_target("content://com.android.providers.downloads/document/1").unwrap_err();
+    assert!(e.contains("SAF"), "应给出 Android SAF 的专门说明，实际：{e}");
+
+    #[cfg(windows)]
+    {
+      assert!(export_target("C:\\tmp\\a.txt").is_ok());
+      // Windows 上 /tmp/... 没有盘符，不算绝对路径
+      assert!(export_target("/tmp/a.txt").is_err());
+    }
+    #[cfg(not(windows))]
+    assert!(export_target("/tmp/a.txt").is_ok());
+  }
+
+  /// base64 解码：常规输入 / 缺填充 / 含换行 / 非法字符必须报错
+  #[test]
+  fn b64_decode_handles_padding_and_rejects_garbage() {
+    assert_eq!(b64_decode("").unwrap(), Vec::<u8>::new());
+    assert_eq!(b64_decode("aGVsbG8=").unwrap(), b"hello".to_vec());
+    assert_eq!(b64_decode("aGVsbG8").unwrap(), b"hello".to_vec()); // 缺填充也能解
+    assert_eq!(b64_decode("5L2g5aW9").unwrap(), "你好".as_bytes().to_vec());
+    assert_eq!(b64_decode("aGVs\nbG8=").unwrap(), b"hello".to_vec()); // 容忍换行
+    assert!(b64_decode("!!!!").is_err()); // 非法字符要报错，别静默产出坏数据
   }
 
   /// 文件夹操作：多级建目录（幂等）· 整树搬迁 · `mv` 语义 · 拒绝把目录移进自己的子孙

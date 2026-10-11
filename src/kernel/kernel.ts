@@ -157,8 +157,15 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       // 系统「另存为」对话框：用户取消返回 null（**不抛错** —— 取消是正常操作，不是异常）
       const picked = await save({ defaultPath: defaultName })
       if (!picked) return null
-      // 库外写入走专用命令（只收绝对路径），见 src-tauri/src/lib.rs 的 write_absolute
-      await invoke('write_absolute', { path: picked, content })
+      // 库外写入走专用命令（只收绝对路径），见 src-tauri/src/lib.rs
+      if (typeof content === 'string') {
+        await invoke('write_absolute', { path: picked, content })
+      } else {
+        // 二进制经 base64 过桥：直接传 Uint8Array 会被序列化成 JSON 数字数组
+        let bin = ''
+        for (let i = 0; i < content.length; i++) bin += String.fromCharCode(content[i])
+        await invoke('write_absolute_b64', { path: picked, base64: btoa(bin) })
+      }
       return picked
     },
   }

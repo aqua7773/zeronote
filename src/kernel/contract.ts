@@ -345,10 +345,19 @@ export interface HostApi {
    *
    * 返回实际保存的**绝对路径**；用户取消 ⇒ 返回 `null`（不是抛错，插件不用 try/catch）。
    * 注意这是**写到库外**的通道 —— 库内写入请走 `fs.writeText`，那条路才有原子写与范围校验。
-   * v0.1 只收字符串；PDF / 图片 / zip 这类二进制导出需要插件先转成 `data:` URL 或
-   * 用 `html` 节点让用户右键另存（二进制直写排在下一版）。
+   *
+   * `content` 收字符串或 `Uint8Array`：后者给**二进制导出**（图片、zip、PDF）用 ——
+   * 文本走原样写入，二进制经 base64 过桥（Tauri 的 `Vec<u8>` 参数会被序列化成
+   * JSON 数字数组，1 MB 就上百万个元素，所以不走那条路）。
+   *
+   * ⚠️ **平台差异（真机实测）**：**桌面可用**；**Android 受限** —— 那边的「另存为」
+   * 走 SAF，返回 `content://…` **内容 URI**而不是文件路径，当前实现只认真实路径，
+   * 会给出明确报错（不会静默写出 0 字节文件）。Android 上导出请改为写进库内再分享。
    */
-  saveFile(params: { defaultName?: string; content: string }): Promise<string | null>
+  saveFile(params: {
+    defaultName?: string
+    content: string | Uint8Array
+  }): Promise<string | null>
 }
 
 /**
