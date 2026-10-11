@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 9
-更新时间: 2026-10-11
+revision: 10
+更新时间: 2026-10-11（深夜）
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
 
@@ -98,10 +98,100 @@ revision: 9
      （`adb shell am force-stop com.aqua.zeronote.debug` + `am start -n
      com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`）才会重新拉 devUrl。
   ③ **原生资源（themes.xml / MainActivity.kt）改动热重载不覆盖**，必须重新构建安装。
-- **Android 系统栏**：`enableEdgeToEdge()` 由 Tauri 模板自带，但系统栏颜色要自己补
-  （`values/themes.xml` + `values-night/themes.xml` 里 statusBarColor/navigationBarColor
-  透明 + windowLightStatusBar；`MainActivity.kt` 里 `WindowCompat.setDecorFitsSystemWindows(false)`）。
-  不补的话系统栏那一条露出 Activity 窗口底色，看着像"没覆盖的灰"
+- **Android 系统栏（两阶段）**：
+  ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
+     statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
+     `MainActivity.kt` 里 `WindowCompat.setDecorFitsSystemWindows(false)`
+     —— 不补的话那一条露出 Activity 窗口底色，看着像"没覆盖的灰"。
+  ② 用户看完 ① 后要求**彻底隐藏**（"红框的信息直接不显示更好"）：`MainActivity.kt` 再加
+     `WindowInsetsControllerCompat.hide(statusBars())`，behavior 用
+     `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`（顶部下拉仍能临时唤出）。
+     连带好处：隐藏后 `env(safe-area-inset-top)` 归 0，侧栏的 padding-top 也随之归零，
+     内容自然顶到屏幕最上沿。
+     ⚠️ **这一步尚未在真机验证**（构建完成于交接时刻，未及安装）。
+
+## 插件系统进展（2026-10-11 深夜，本次会话）
+
+用户指示：「先不做具体插件，把**入口兼容**补足，以及**内核隔离**做好」。
+
+### ✅ 入口兼容层（已完成并真机/桌面验收）
+
+原先只有「读单文件 → Blob → 动态 import」，把成熟生态最常见的写法全挡在门外。
+现按**内容嗅探**自动判断，插件作者不必改代码（依据 `_research\插件API对比.md` §8：
+Lumina 是 `module.exports = function`、Yank Note 是 `window.registerPlugin`、
+NoteGen 的 `entry` 可选支持纯资源型）：
+
+| 形态 | 判定 | 实现 |
+|---|---|---|
+| **ESM** | 有 `import`/`export` | 原样 import |
+| **CommonJS** | 有 `module.exports` / `exports.x` | `buildCjsBundle()`：装进一个约 40 行的虚拟 CommonJS 运行时 |
+| **全局注册** | 有 `registerPlugin(` | `buildIifeBundle()`：把 `registerPlugin(obj)` 收下来再导出 |
+| **纯样式** | 无 `entry`、只有 `styles` | 注入 `<style>`，卸载时移除（主题类插件不必写 JS） |
+
+- **多文件**：`manifest.files` 声明的文件一并读出，相对 `require` 以**当前文件所在目录**为基准
+  （按 `spec` → `spec+.js` → `spec+/index.js` 试探）⇒ v0.1 的「只能单文件」限制解除。
+  ⚠️ 只有 CommonJS 的 `require` 能解析；**ESM 相对导入在 Blob 里没有 base 目录，v0.1 不支持**。
+- **导出形状归一**：`export default {apply}` / `export function apply` /
+  `module.exports = function`（导出函数本身）/ `registerPlugin({register})` 四种都认。
+- **失败回滚**：样式注入或 `apply()` 失败时清掉已登记资源，不留"半个插件"。
+- **契约同步**：`docs\内核契约-v0.1.md` 新增 §3.1 入口形态表 / §3.2 files 解析 / §3.3 纯样式插件；
+  `contract.ts` 的 `PluginManifest.entry` 变可选，新增 `files` / `styles`。
+- **示例**：`examples\` 下新增 cjs-single / cjs-multi（含 lib 二级目录互相 require）/
+  yank-style / theme-sepia / cdn-import 五个，覆盖全部形态。
+- **验收证据**：`_shots\plug-04-status.png`、`plug-05-statusbar.png`（四个插件同时装进库，
+  状态栏一次显示 `Multi15✓ CJS通用 Yank✓`，背景被纯 CSS 插件改成米色）、
+  `_shots\plug-06-cdn.png`（`CDN✓`）。
+
+### ✅ 内核隔离（逐项核实，只剩一个缺口，已补）
+
+插件代码能进来的**每个入口**都查过一遍：
+
+| 入口 | 兜底 |
+|---|---|
+| 面板 `render()` | `kernel\panel-safe.ts` 的 `renderPanelSafe()` ✅ |
+| 提交阶段 / 子孙组件 | `components\PanelBoundary.tsx` ✅ |
+| 单个 UINode | `components\UIRenderer.tsx` ✅ |
+| 命令 `run()` | `command.ts` try/catch + onError ✅ |
+| 事件回调 | `event.ts` 每 handler 单独 try/catch ✅ |
+| **`fs.watch` 回调** | ❌ → **本次补上**（`safeCb` + `onWatchError`） |
+| `loadPlugin`（含 `apply()`） | App 的调用点 try/catch ✅ |
+| `unloadPlugin`（含 `dispose`） | try/catch ✅ |
+
+**未做（明确边界）**：真沙箱（Worker + 内存/时长上限）—— 契约 §4 排在 v0.2。
+进程内插件目前一个 `while(true)` 仍能卡死整个应用；capability 只是**接口可见性**，不是安全边界。
+
+### ⚠️ 插件面剩余短板（按严重程度，下一步候选）
+
+| # | 问题 | 后果 |
+|---|---|---|
+| **1** | **capability 形同虚设** | 实测：测试插件**不声明 `net` 也照样联网成功**；而声明 `net` 反而被 `assertCapabilities` 直接拒。既不是安全边界、也没当开关用 |
+| **2** | **`platforms` 声明了没强制** | Android 上会照样尝试加载桌面专属插件 |
+| **3** | **无沙箱** | 一个死循环卡死整个应用（契约排 v0.2） |
+| 4 | `doc.on()` 未实现 | 契约已声明 |
+| 5 | `index` 四个方法全抛 | v0.2 |
+| 6 | `registerWebView` 未做 | 契约 §7.9 有意不进 v0.1 |
+
+### ✅ 客户端 UI（插件管理页，用户标注三处）
+
+- 「返回编辑器」改成与编辑页「关闭」同款的**纯文字按钮**（新增 `.zn-plain-btn`）
+- 「重新扫描」从面板标题栏挪到主区顶栏，与「返回编辑器」并排
+- 面板里那条「插件」标题 + 下横线整块去掉（`PluginPanel` 的 head 拆除，
+  `Settings.tsx` 的插件 tab 补一个同款按钮，免得设置页失去扫描能力）
+- 提交 `ca0889c`
+
+## 本次会话新增的环境能力
+
+- **`@dsh-external/dsh-gentle-input`**（自写 DSH 插件，位于
+  `C:\Users\AQUA\Documents\deepseek\dsh-gentle-input`）：解决「AI 用 `SetCursorPos` +
+  `mouse_event` 模拟点击会抢走用户鼠标」。三个工具 + 一个发键工具：
+  `gentle_probe`（只读探测光标/空闲时长/前台窗口）· `gentle_capture`（截图，只读）·
+  `gentle_click`（**用户空闲低于 1200ms 时直接拒绝**，点完**把光标还原原位**）· `gentle_keys`。
+  已 `dev_install_package` 持久化（进了 desktop profile 的 dependencies + bundles）。
+  **以后做 UI 验收请用 `gentle_*`，不要再用 pwsh 模拟鼠标。**
+  ⚠️ 它不是真·虚拟光标：用户空闲时点击仍会让真实光标跳一下再回来（约 50ms）。
+  现成的 `dsh-computer-use` 有真虚拟光标，但代价是要装 Rust 驱动 + 最高权限开机任务 + 遥测。
+- **Android 热重载的正确姿势**：见下方"三个坑"②。
+- **dev 端口可配置**：`vite.config.ts` 读 `ZN_PORT`（缺省 1420），桌面与安卓 dev 可同时跑。
 
 ## 未完成项
 
@@ -134,8 +224,20 @@ revision: 9
 ## 唯一下一步
 
 **0. UI 规划已全部完成** —— P0 七项 + P1 六项，逐条证据见 `docs\UI规划-v0.1.md` §6 / §8。
-   下一步待用户指定方向，候选：插件入口兼容性（CJS/IIFE/TS/多文件）、第二个真插件、
-   `doc.on`（v0.2）、Android 真机复验。
+   **插件入口兼容层也已完成**（2026-10-11 深夜，见上方「插件系统进展」节）。
+
+   **下一步（插件面，按严重程度排序，用户已认可这个顺序）**：
+   | # | 议题 | 说明 |
+   |---|---|---|
+   | **1** | **capability 真裁剪** | 现在只真裁 `fs` / `doc`；`command` / `view` 声明了不校验。且实测「不声明 `net` 也能联网，声明了反被拒」—— 现在是**安全假象** |
+   | **2** | **`platforms` 强制** | manifest 声明了平台但不生效，Android 会加载桌面专属插件 |
+   | **3** | **沙箱（Worker + 内存/时长上限）** | 契约 §4 排 v0.2；这是三个里最贵的，但也是唯一能防住 `while(true)` 的 |
+
+   **待真机复验**（本次交接时的悬置项）：
+   - [ ] **Android 状态栏是否已彻底隐藏** —— `MainActivity.kt` 的沉浸模式改动已提交
+         （`cfcc9bf`），APK 构建在交接时刻仍在跑（`pwsh-3528`），**未安装未验证**。
+         构建完成后：`adb install -r <apk>` → 冷启动 → 截图看顶部那一条是否消失。
+   - [ ] **触屏多选**（缺 Ctrl/Shift）、**长按能否触发 contextmenu**、**返回键接管**
 
 **1. 等人工确认 M3 最后一步**：手机上点 `☰` → `＋` → 输入 → 停 1 秒 → 库里应出现 `untitled-*.md`
 （`adb shell run-as com.aqua.zeronote.debug ls -la /data/user/0/com.aqua.zeronote.debug/vault`）
@@ -149,7 +251,7 @@ revision: 9
 | B | ~~`index` 原语~~ → **✅ 已完成（2026-10-11，`c6bc326`）** | 内存全文索引 + 搜索面板；`core.search` = `Mod+Shift+F` |
 | C | **第二个真插件（画布 / Git 同步）** | 用户 04:15 点名的四件（笔记/记录/画布/同步）里还剩画布与同步 |
 | D | ~~UI 打磨（Tailwind + shadcn）~~ → **✅ 已完成（`65386cd` + `c6bc326`）** | Tailwind 4 + 主题三态 + 设置页 + 快捷键派发器 |
-| E | **插件入口形态兼容**（CJS / IIFE / TS / 无 JS 资源型 / 多文件） | 现状只吃 ESM 单文件（Blob + 动态 import），方案见 `_research\插件API对比.md`；这是「插件生态能长多大」的天花板 |
+| E | ~~**插件入口形态兼容**（CJS / IIFE / TS / 无 JS 资源型 / 多文件）~~ → **✅ 已完成（2026-10-11 深夜）** | 四种形态（ESM / CommonJS / 全局注册 / 纯样式）+ 多文件 `require` 全部落地并验收，详见上方「插件系统进展」节。**TS 源码形态未做**（需要宿主内编译 TS，成本高于收益；契约 §3.2 已写明多文件请走 CJS 或自行打成单文件 ESM） |
 
 **验收条件**：M4 任一项完成时都必须能在**真机上**用截图或 adb 命令证明 —— 这是 M3 学到的最贵一课：**桌面截图永远看不出移动端问题**（响应式、状态栏遮挡、私有目录，全是真机才暴露的）。
 
