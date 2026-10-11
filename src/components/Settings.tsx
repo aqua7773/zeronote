@@ -105,7 +105,7 @@ export function Settings({
                 className={cn(
                   'flex w-full items-center gap-2 rounded-ui-sm px-2.5 py-1.5 text-xs transition-colors',
                   tab === id
-                    ? 'bg-primary font-medium text-primary-foreground'
+                    ? 'bg-primary font-medium zn-on-accent'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
@@ -151,7 +151,7 @@ export function Settings({
                         className={cn(
                           'px-2.5 py-1 text-xs transition-colors',
                           themePref === value
-                            ? 'bg-primary text-primary-foreground'
+                            ? 'bg-primary zn-on-accent'
                             : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
                         )}
                       >

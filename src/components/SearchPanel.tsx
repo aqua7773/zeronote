@@ -308,7 +308,7 @@ export function SearchPanel({
                   className={cn(
                     'rounded-ui-sm px-1.5 py-0.5 text-xs transition-colors duration-100',
                     sortBy === key
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary zn-on-accent'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}
                   onClick={() => setSortBy(key)}

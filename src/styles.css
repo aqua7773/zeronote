@@ -338,6 +338,12 @@ button {
   padding: 0 2px;
 }
 
+/* 主色实心底上的文字色。
+   单独写成类，**不依赖 Tailwind 生成 `--color-primary-foreground` 的工具类** ——
+   实测 `text-primary-foreground` 在部分位置不生效（`bg-primary` 生效、文字色没生效），
+   结果就是「深灰底 + 深灰字」，字与底同色看不清。显式声明最可靠。 */
+.zn-on-accent { color: var(--zn-accent-fg); }
+
 .zn-editor { flex: 1; min-height: 0; overflow: hidden; }
 .zn-editor .cm-editor { height: 100%; }
 
