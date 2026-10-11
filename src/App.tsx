@@ -986,10 +986,13 @@ export default function App() {
     const view = editorRef.current
     const items: MenuItem[] = []
 
+    // ── 新建（永远第一项，最顺手）──
+    items.push({ label: '新建笔记', hint: 'Ctrl+N', onClick: () => void newNote() })
+
     // ── 编辑（编辑器就绪时）──
     if (view) {
       items.push(
-        { label: '复制', hint: 'Ctrl+C', onClick: () => void copySelection() },
+        { label: '复制', hint: 'Ctrl+C', divider: true, onClick: () => void copySelection() },
         {
           label: '粘贴',
           hint: 'Ctrl+V',
