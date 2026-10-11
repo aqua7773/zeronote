@@ -69,6 +69,9 @@
 
   --zn-font: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --zn-font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  /* 正文可读宽度上限：编辑器据此左右**对称**留白（≈ 70ch @ 17px）。
+     用 px/rem 而不是 ch —— ch 依赖字体，放在滚动容器上会算错。 */
+  --zn-read-width: 48rem;
   --zn-text-sm: 12px;
   --zn-text: 14px;
   --zn-text-lg: 16px;

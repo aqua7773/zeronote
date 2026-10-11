@@ -42,9 +42,18 @@ const EDITOR_CSS = `
   --atomic-editor-link: var(--zn-accent) !important;
 }
 .zn-editor .cm-editor.cm-focused { outline: none !important; }
-/* 正文左对齐跟随容器。atomic 默认 margin-inline:auto 把正文做成居中窄栏，
-   侧栏开关后容器变宽、正文却看着没动。行宽上限（70ch）保留。 */
-.zn-editor .atomic-cm-editor .cm-content { margin-inline: 0 !important; }
+/* 正文「居中限宽」。
+   不用 atomic 默认的 .cm-content { max-width: 70ch; margin-inline: auto } ——
+   实测两侧留白不对称（左 238 / 右 83），折叠侧栏后右边也不跟。
+   改成在滚动容器上给对称的 padding：左右始终相等、且随容器宽度实时重算。
+   行宽上限用 px/rem（ch 依赖字体，放在 scroller 上会算错）。 */
+.zn-editor .atomic-cm-editor .cm-scroller {
+  padding-inline: max(0px, calc((100% - var(--zn-read-width, 48rem)) / 2)) !important;
+}
+.zn-editor .atomic-cm-editor .cm-content {
+  max-width: none !important;
+  margin-inline: 0 !important;
+}
 `
 
 /**
