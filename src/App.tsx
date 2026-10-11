@@ -144,6 +144,8 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   /** 快速打开笔记（Ctrl+O）—— 与命令面板分开：一个管"去哪篇"，一个管"做什么" */
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  /** 编辑器顶部的替换栏（Ctrl+H）—— 它不是浮层，所以不参与 openOverlay 的互斥 */
+  const [replaceOpen, setReplaceOpen] = useState(false)
   /** 最近执行过的命令 id（命令面板置顶用；持久化在 localStorage） */
   const [recentCmds, setRecentCmds] = useState<string[]>(loadRecentCommands)
 
@@ -604,6 +606,12 @@ export default function App() {
         run: () => openOverlay('search'),
       }),
       kernel.commands.api.register({
+        id: 'core.replace',
+        title: '查找并替换…',
+        keybinding: 'Mod+H',
+        run: () => setReplaceOpen(true),
+      }),
+      kernel.commands.api.register({
         id: 'core.closeNote',
         title: '关闭当前笔记',
         keybinding: 'Mod+W',
@@ -951,6 +959,8 @@ export default function App() {
               onReady={(v) => {
                 editorRef.current = v
               }}
+              replaceOpen={replaceOpen}
+              onCloseReplace={() => setReplaceOpen(false)}
             />
             {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
                 不放标题栏，免得跟窗口那个 × 挨着分不清 */}

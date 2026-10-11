@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Extension, type EditorState } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
@@ -17,6 +17,9 @@ type Props = {
   onSave: () => void
   /** 把底层 EditorView 交给宿主，供 doc 原语使用（读选区 / 替换 / 插入）；销毁时回调 null */
   onReady?: (view: EditorView | null) => void
+  /** 顶部替换栏是否展开（由宿主的 Ctrl+H 命令控制） */
+  replaceOpen?: boolean
+  onCloseReplace?: () => void
 }
 
 /**
@@ -61,6 +64,42 @@ const EDITOR_CSS = `
    （实测只剩 查找框 + ↑ ↓ ✕）。恢复块流即可拿回完整的查找+替换面板。 */
 .zn-editor .atomic-editor-search-panel form { display: block; }
 .zn-editor .atomic-editor-search-panel .cm-textfield { width: min(20rem, 55%); }
+
+/* 自带替换栏 —— atomic 的查找面板没有替换行（见下方 extensions 的说明）。
+   它渲染在 .zn-editor 之外、.zn-editor-wrap（flex column）之内，
+   所以跟编辑器是「栏 + 占满剩余高度」的正常关系。 */
+.zn-replace-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+}
+.zn-replace-input {
+  width: 12rem;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+  font-size: 12px;
+}
+.zn-replace-btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.zn-replace-btn:hover { background: var(--zn-bg-hover); }
+.zn-replace-btn.is-icon { padding: 0 7px; color: var(--zn-fg-muted); }
+.zn-replace-msg { margin-left: auto; font-size: 12px; color: var(--zn-fg-muted); }
 `
 
 /**
@@ -83,7 +122,15 @@ const EDITOR_CSS = `
  * undo 历史与选区），其余时候不重建 —— 若不给 documentId，它会把
  * `markdownSource` 当身份，等于每次输入都重建编辑器。
  */
-export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props) {
+export function MarkdownEditor({
+  path,
+  value,
+  onChange,
+  onSave,
+  onReady,
+  replaceOpen = false,
+  onCloseReplace,
+}: Props) {
   const viewRef = useRef<EditorView | null>(null)
   const handleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null)
   /** 当前笔记路径的镜像 —— ViewPlugin 的 destroy 回调里读不到 props */
@@ -248,16 +295,115 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
     })
   }, [path, value])
 
+  /**
+   * 替换栏（自带）。
+   *
+   * 为什么必须自带：atomic 的查找面板**没有替换行** —— 它渲染的是自己那套面板
+   * （不是 CM6 原生的 `defaultSearchPanel`），handle 也没暴露 replace API。
+   * 这里用最朴素的办法补齐：纯字符串 `indexOf` / `split`，
+   * **不引新依赖、不碰 atomic 内部**。
+   * 语义与主流一致：「替换」只动光标之后的第一个匹配（到尾部回绕），「全部替换」动全篇。
+   */
+  const [findText, setFindText] = useState('')
+  const [replaceText, setReplaceText] = useState('')
+  const [replaceMsg, setReplaceMsg] = useState('')
+
+  const replaceNext = useCallback(() => {
+    const view = viewRef.current
+    if (!view || !findText) return
+    const doc = view.state.doc.toString()
+    let at = doc.indexOf(findText, view.state.selection.main.from)
+    if (at < 0) at = doc.indexOf(findText) // 到尾部后回绕
+    if (at < 0) {
+      setReplaceMsg('没有匹配')
+      return
+    }
+    view.dispatch({
+      changes: { from: at, to: at + findText.length, insert: replaceText },
+      selection: { anchor: at + replaceText.length },
+    })
+    setReplaceMsg('已替换 1 处')
+  }, [findText, replaceText])
+
+  const replaceAll = useCallback(() => {
+    const view = viewRef.current
+    if (!view || !findText) return
+    const doc = view.state.doc.toString()
+    const parts = doc.split(findText)
+    const count = parts.length - 1
+    if (count === 0) {
+      setReplaceMsg('没有匹配')
+      return
+    }
+    view.dispatch({ changes: { from: 0, to: doc.length, insert: parts.join(replaceText) } })
+    setReplaceMsg(`已替换 ${count} 处`)
+  }, [findText, replaceText])
+
   return (
-    <div className="zn-editor">
+    <>
       <style>{EDITOR_CSS}</style>
-      <AtomicCodeMirrorEditor
-        documentId={path ?? ''}
-        markdownSource={value}
-        onMarkdownChange={handleMarkdownChange}
-        editorHandleRef={handleRef}
-        extensions={extensions}
-      />
-    </div>
+
+      {replaceOpen && (
+        <div className="zn-replace-bar">
+          <input
+            className="zn-replace-input"
+            value={findText}
+            placeholder="查找"
+            autoFocus
+            onChange={(e) => {
+              setFindText(e.target.value)
+              setReplaceMsg('')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                onCloseReplace?.()
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                replaceNext()
+              }
+            }}
+          />
+          <input
+            className="zn-replace-input"
+            value={replaceText}
+            placeholder="替换为"
+            onChange={(e) => setReplaceText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                onCloseReplace?.()
+              }
+            }}
+          />
+          <button type="button" className="zn-replace-btn" onClick={replaceNext}>
+            替换
+          </button>
+          <button type="button" className="zn-replace-btn" onClick={replaceAll}>
+            全部替换
+          </button>
+          {replaceMsg && <span className="zn-replace-msg">{replaceMsg}</span>}
+          <button
+            type="button"
+            className="zn-replace-btn is-icon"
+            onClick={() => onCloseReplace?.()}
+            title="关闭替换栏（Esc）"
+            aria-label="关闭替换栏"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div className="zn-editor">
+        <AtomicCodeMirrorEditor
+          documentId={path ?? ''}
+          markdownSource={value}
+          onMarkdownChange={handleMarkdownChange}
+          editorHandleRef={handleRef}
+          extensions={extensions}
+        />
+      </div>
+    </>
   )
 }
