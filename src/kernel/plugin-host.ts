@@ -22,6 +22,7 @@ import type {
   Plugin,
   PluginContext,
   ServiceApi,
+  EditorApi,
   PluginManifest,
   StoreApi,
   ViewApi,
@@ -69,6 +70,8 @@ export type PluginHostDeps = {
   host: HostApi
   /** 服务注册表（按插件 id 视图化）—— 「前置插件」靠它互调 */
   service: (pluginId: string) => ServiceApi
+  /** 编辑器标记规则的注册表（按插件 id 视图化） */
+  editor: (pluginId: string) => EditorApi
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
 }
 
@@ -425,6 +428,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     store: deps.store(manifest.id),
     host: deps.host,
     service: deps.service(manifest.id),
+    editor: deps.editor(manifest.id),
     pluginId: manifest.id,
     subscriptions: subs,
   }

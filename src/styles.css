@@ -497,6 +497,33 @@ body.is-resizing * {
 /* 按钮矮一点，省竖向空间 */
 .zn-editor-toolbar .zn-btn { padding-top: 3px; padding-bottom: 3px; }
 
+/* ───────── 编辑器标记（插件用 editor.addMark 登记的正则高亮）─────────
+   这些 class **只在有插件登记规则时**才会出现在 DOM 上；没有插件时编辑器里
+   一个 .zn-mark 都不存在（按需激活）。样式只引 --zn-* token，跟随主题。 */
+.zn-mark { border-radius: 3px; }
+.zn-mark-link {
+  color: var(--zn-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.zn-mark-tag {
+  color: var(--zn-accent);
+  background: var(--zn-bg-active);
+  padding: 0 3px;
+}
+.zn-mark-code {
+  font-family: var(--zn-font-mono);
+  background: var(--zn-bg-subtle);
+}
+.zn-mark-highlight {
+  background: var(--zn-highlight);
+  color: var(--zn-highlight-fg);
+}
+.zn-mark-muted { color: var(--zn-fg-subtle); }
+/* 可点的标记给一点悬停反馈（点击由 CM6 的 domEventHandlers 转成命令） */
+.zn-mark[data-zn-mark-clickable] { cursor: pointer; }
+.zn-mark[data-zn-mark-clickable]:hover { background: var(--zn-bg-hover); }
+
 /* ───────── 按钮与空态 ───────── */
 
 .zn-btn {

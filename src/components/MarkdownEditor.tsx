@@ -4,6 +4,7 @@ import { EditorView, ViewPlugin } from '@codemirror/view'
 import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
+import { editorMarkExtensions } from '../kernel/editor-marks'
 
 /** 编辑器 state 缓存上限（篇）；超过按 LRU 淘汰，避免开过很多笔记后内存无限涨 */
 const MAX_CACHED_STATES = 20
@@ -20,6 +21,11 @@ type Props = {
   /** 顶部替换栏是否展开（由宿主的 Ctrl+H 命令控制） */
   replaceOpen?: boolean
   onCloseReplace?: () => void
+  /**
+   * 插件登记的编辑器标记被点击时，把命令 id 交回宿主执行。
+   * 编辑器本身**不认识任何插件** —— 它只知道"这段文本要执行这个命令"。
+   */
+  onCommand?: (id: string, payload?: Record<string, unknown>) => void
 }
 
 /**
@@ -133,6 +139,7 @@ export function MarkdownEditor({
   onReady,
   replaceOpen = false,
   onCloseReplace,
+  onCommand,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
   const handleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null)
@@ -250,6 +257,11 @@ export function MarkdownEditor({
         }
       },
     ),
+    // 插件登记的「编辑器标记规则」（`[[引用]]` / `#标签` / `==高亮==`）在这里翻成
+    // CM6 装饰器。**没有任何插件登记时它返回空数组** ⇒ 编辑器与以前完全一样（按需激活）。
+    // 直接闭包捕获 onCommand：数组每次 render 现场构造，而 atomic 只在 mount / 切换
+    // 笔记时读它，那时捕获到的就是当次渲染的回调，不需要 ref 中转。
+    ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
   ]
 
   // 兜底（正常走不到）：万一将来 atomic 的内部实现不再触发我们注入的

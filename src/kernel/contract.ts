@@ -306,6 +306,48 @@ export interface HostApi {
   saveFile(params: { defaultName?: string; content: string }): Promise<string | null>
 }
 
+/**
+ * 10. editor —— **编辑器的声明式标记规则**（`[[引用]]` / `#标签` / `==高亮==` 这类）。
+ *
+ * 为什么不直接暴露 CodeMirror 的 `Extension`：那是**宿主依赖里的类实例**，
+ * 插件塞不进来（插件代码是字符串 / 将来要进 Worker），而且一旦暴露，
+ * 插件就能把宿主编辑器改造成任何样子 —— 主路又会被绕过。
+ *
+ * 所以这里只收**可序列化的规则**：正则源是字符串、样式是语义档位、点击是命令 id。
+ * 宿主负责把它翻译成 CM6 装饰器。插件**完全不接触编辑器实例**。
+ */
+export type EditorMarkRule = {
+  /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
+  id: string
+  /** 正则源（字符串）。宿主自动补 `g` 标志扫全文 */
+  pattern: string
+  flags?: string
+  /** 语义档位 —— 具体颜色/下划线由宿主映射到 `--zn-*` token */
+  className?: 'link' | 'tag' | 'code' | 'highlight' | 'muted'
+  /** 点击时执行的命令 id；payload 带 `{ text, from }`（`from` 是文档内偏移） */
+  onClick?: string
+  /** 悬停提示 */
+  title?: string
+}
+
+/**
+ * 编辑器侧的能力。
+ *
+ * 生效时机：规则在**编辑器挂载 / 切换笔记**时被读取（atomic 那时才捕获扩展数组），
+ * 所以插件应在 `apply()` 里注册 —— 之后再加规则要等下次打开笔记才可见。
+ */
+export interface EditorApi {
+  /**
+   * 登记一条标记规则（返回 Disposable，卸载即撤销）。
+   *
+   * 重叠的匹配**先到先得**（前一条规则吃掉的区间，后面的规则不再着色）——
+   * 这样多条规则叠在一起时行为可预期，也不会把 CM6 的 RangeSet 搞崩。
+   */
+  addMark(rule: EditorMarkRule): Disposable
+  /** 当前生效的规则（诊断用） */
+  list(): { id: string; pluginId: string }[]
+}
+
 export const API_VERSION = '0.1.0'
 
 /**
@@ -351,6 +393,7 @@ export interface PluginContext {
   store: StoreApi
   host: HostApi
   service: ServiceApi
+  editor: EditorApi
   pluginId: string
   /** 所有资源必须登记，卸载即净 */
   subscriptions: Disposable[]

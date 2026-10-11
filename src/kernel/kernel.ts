@@ -10,6 +10,7 @@ import { API_VERSION } from './contract'
 import type {
   Disposable,
   DocApi,
+  EditorApi,
   FsApi,
   HostApi,
   IndexApi,
@@ -21,6 +22,7 @@ import type {
   ViewCtx,
 } from './contract'
 import { createCommandApi, type CommandRegistry } from './command'
+import { createScopedEditorApi, releaseEditorMarks } from './editor-marks'
 import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { createIndexApi } from './index-api'
@@ -65,6 +67,10 @@ export type Kernel = {
    * 漏推一次的后果是服务表里留下"幽灵提供者"，别的插件还在 consume 一个死对象。
    */
   releaseServices: (pluginId: string) => void
+  /** 编辑器标记规则注册表（`[[引用]]` 这类渲染靠它） */
+  editor: (pluginId: string) => EditorApi
+  /** 插件卸载时强制回收它登记的编辑器规则 */
+  releaseEditorMarks: (pluginId: string) => void
 }
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
@@ -169,5 +175,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     store: (pluginId: string) => createStoreApi(vault, pluginId),
     service: (pluginId: string) => services.scoped(pluginId),
     releaseServices: (pluginId: string) => services.release(pluginId),
+    editor: (pluginId: string) => createScopedEditorApi(pluginId),
+    releaseEditorMarks: (pluginId: string) => releaseEditorMarks(pluginId),
   }
 }

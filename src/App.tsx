@@ -763,6 +763,7 @@ export default function App() {
       store: k.store,
       host: k.host,
       service: k.service,
+      editor: k.editor,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
     }
     setPluginError(null)
@@ -800,6 +801,7 @@ export default function App() {
         void unloadPlugin(l, deps)
         // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
         k.releaseServices(l.manifest.id)
+        k.releaseEditorMarks(l.manifest.id)
       }
       setLoadedIds([])
     }
@@ -1347,6 +1349,7 @@ export default function App() {
               }}
               replaceOpen={replaceOpen}
               onCloseReplace={() => setReplaceOpen(false)}
+              onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
             />
             {/*
               编辑器底部工具栏（`location: 'editor-toolbar'`）—— 手机端辅助输入、
