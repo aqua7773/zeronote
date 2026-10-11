@@ -76,19 +76,23 @@
   --zn-sidebar-w: 260px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --zn-bg: #18181b;
-    --zn-bg-subtle: #1f1f23;
-    --zn-bg-hover: #27272a;
-    --zn-bg-active: #303036;
-    --zn-border: #2e2e33;
-    --zn-border-strong: #3f3f46;
-    --zn-fg: #f4f4f5;
-    --zn-fg-muted: #a1a1aa;
-    --zn-fg-subtle: #71717a;
-    --zn-accent: #6366f1;
-  }
+/*
+ * 暗色 token。
+ * 选择器是 `[data-theme='dark']` 而不是 @media —— 主题由 JS 解析后统一写入
+ * （见 src/lib/theme.ts），于是「跟随系统」和「手动指定」走同一条 CSS 路径，
+ * 不会出现暗色变量在两处各写一遍造成的漂移。
+ */
+:root[data-theme='dark'] {
+  --zn-bg: #18181b;
+  --zn-bg-subtle: #1f1f23;
+  --zn-bg-hover: #27272a;
+  --zn-bg-active: #303036;
+  --zn-border: #2e2e33;
+  --zn-border-strong: #3f3f46;
+  --zn-fg: #f4f4f5;
+  --zn-fg-muted: #a1a1aa;
+  --zn-fg-subtle: #71717a;
+  --zn-accent: #6366f1;
 }
 
 * { box-sizing: border-box; }
@@ -241,6 +245,31 @@ button {
 }
 
 .zn-empty p { margin: 0; max-width: 460px; text-align: center; line-height: 1.6; }
+
+/* location: 'main' 的面板容器 —— 占据主编辑区，顶部一条返回编辑器的横条 */
+.zn-main-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.zn-main-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+.zn-main-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
 
 .zn-statusbar {
   display: flex;

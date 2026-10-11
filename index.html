@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>ZeroNote</title>
+    <script>
+      // 首屏防闪烁：在 React 挂载前把「解析后的主题」写到 <html data-theme>。
+      // 规则必须与 src/lib/theme.ts 的 resolveTheme 保持一致（改一处要同步改另一处）。
+      (function () {
+        try {
+          var p = localStorage.getItem('zeronote.theme') || 'system'
+          var dark =
+            p === 'dark' ||
+            (p === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+        } catch (e) {
+          /* localStorage 不可用时留给 React 处理 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@atomic-editor/editor':
+        specifier: ^0.6.2
+        version: 0.6.2(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@codemirror/lang-markdown':
         specifier: ^6.5.2
         version: 6.5.2
@@ -29,6 +32,12 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
+      hotkeys-js:
+        specifier: ^4.0.8
+        version: 4.0.8
+      lucide-react:
+        specifier: ^1.55.0
+        version: 1.55.0(@types/react@19.3.0)(react@19.3.0)
       react:
         specifier: ^19.2.8
         version: 19.3.0
@@ -71,6 +80,66 @@ importers:
         version: 8.3.4(@types/node@24.19.2)(jiti@2.7.0)
 
 packages:
+
+  '@atomic-editor/editor@0.6.2':
+    resolution: {integrity: sha512-b4cZRduNOoZ5sJ7ywaANcnLLKP3EJYfMUm5BgYK3Wb+9jI+KUs04RZHzFMVcdedNjvfqBDbzW6KYAmq5bAayxw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@codemirror/autocomplete': ^6.0.0
+      '@codemirror/commands': ^6.0.0
+      '@codemirror/lang-cpp': ^6.0.0
+      '@codemirror/lang-css': ^6.0.0
+      '@codemirror/lang-go': ^6.0.0
+      '@codemirror/lang-html': ^6.0.0
+      '@codemirror/lang-java': ^6.0.0
+      '@codemirror/lang-javascript': ^6.0.0
+      '@codemirror/lang-json': ^6.0.0
+      '@codemirror/lang-markdown': ^6.0.0
+      '@codemirror/lang-php': ^6.0.0
+      '@codemirror/lang-python': ^6.0.0
+      '@codemirror/lang-rust': ^6.0.0
+      '@codemirror/lang-sql': ^6.0.0
+      '@codemirror/lang-xml': ^6.0.0
+      '@codemirror/lang-yaml': ^6.0.0
+      '@codemirror/language': ^6.0.0
+      '@codemirror/legacy-modes': ^6.0.0
+      '@codemirror/search': ^6.0.0
+      '@codemirror/state': ^6.0.0
+      '@codemirror/view': ^6.0.0
+      '@lezer/common': ^1.0.0
+      '@lezer/highlight': ^1.0.0
+      '@lezer/markdown': ^1.0.0
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@codemirror/lang-cpp':
+        optional: true
+      '@codemirror/lang-css':
+        optional: true
+      '@codemirror/lang-go':
+        optional: true
+      '@codemirror/lang-html':
+        optional: true
+      '@codemirror/lang-java':
+        optional: true
+      '@codemirror/lang-javascript':
+        optional: true
+      '@codemirror/lang-json':
+        optional: true
+      '@codemirror/lang-php':
+        optional: true
+      '@codemirror/lang-python':
+        optional: true
+      '@codemirror/lang-rust':
+        optional: true
+      '@codemirror/lang-sql':
+        optional: true
+      '@codemirror/lang-xml':
+        optional: true
+      '@codemirror/lang-yaml':
+        optional: true
+      '@codemirror/legacy-modes':
+        optional: true
 
   '@codemirror/autocomplete@6.20.3':
     resolution: {integrity: sha512-tlosUqb+3BbxCxZdu4tKeRghPFC+QM7q4X5YhKV2eCmPG+1r2F3f4AaSz5sCrFqUtX4Jh20VFTKecl16MgiV9g==}
@@ -613,6 +682,9 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
+  hotkeys-js@4.0.8:
+    resolution: {integrity: sha512-A0nu5ZU7cN8nEx3uGUHrv1WnJvjPFUw4Cfxj8pLyR5AIg14ACP4D0YZ+5JHAPjlvUbPbgok56+XTZWjscYCV4A==}
+
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
@@ -765,6 +837,15 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
+  lucide-react@1.55.0:
+    resolution: {integrity: sha512-bSozQHiI3/8q7JvgoqVRGOYUi7fYT3siAZwmZsljjsOH2Husp/2ODdFf/leD+ZC/2yKfn7r8oh6yeoR3ITR5vA==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
@@ -890,6 +971,25 @@ packages:
     resolution: {integrity: sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ==}
 
 snapshots:
+
+  '@atomic-editor/editor@0.6.2(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/commands': 6.11.1
+      '@codemirror/lang-markdown': 6.5.2
+      '@codemirror/language': 6.13.1
+      '@codemirror/search': 6.7.2
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.43.14
+      '@lezer/common': 1.5.3
+      '@lezer/highlight': 1.2.5
+      '@lezer/markdown': 1.8.0
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    optionalDependencies:
+      '@codemirror/lang-css': 6.3.1
+      '@codemirror/lang-html': 6.4.12
+      '@codemirror/lang-javascript': 6.2.5
 
   '@codemirror/autocomplete@6.20.3':
     dependencies:
@@ -1310,6 +1410,8 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
+  hotkeys-js@4.0.8: {}
+
   jiti@2.7.0: {}
 
   lightningcss-android-arm64@1.32.0:
@@ -1409,6 +1511,12 @@ snapshots:
       lightningcss-linux-x64-musl: 1.33.0
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
+
+  lucide-react@1.55.0(@types/react@19.3.0)(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+    optionalDependencies:
+      '@types/react': 19.3.0
 
   magic-string@0.30.21:
     dependencies:

@@ -19,6 +19,7 @@ import type {
 import { createCommandApi, type CommandRegistry } from './command'
 import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
+import { createIndexApi } from './index-api'
 import { createStoreApi } from './store'
 
 export type PanelRegistration = {
@@ -89,15 +90,8 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
   }
 
-  const notReady = (what: string): never => {
-    throw new Error(`${what} 在 v0.1 未实现（契约 §6：index 原语排在 v0.2）`)
-  }
-  const index: IndexApi = {
-    query: async () => notReady('index.query'),
-    upsert: async () => notReady('index.upsert'),
-    remove: async () => notReady('index.remove'),
-    rebuild: async () => notReady('index.rebuild'),
-  }
+  /** index 原语：内存全文索引（多关键词 AND + 中文子串），实现见 index-api.ts */
+  const index: IndexApi = createIndexApi({ fs })
 
   const host: HostApi = {
     apiVersion: API_VERSION,

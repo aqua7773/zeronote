@@ -24,8 +24,18 @@ import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
 import { PanelBoundary } from './components/PanelBoundary'
+import { Settings } from './components/Settings'
+import {
+  applyTheme,
+  loadThemePref,
+  saveThemePref,
+  watchSystemTheme,
+  type ThemePref,
+} from './lib/theme'
 import { renderPanelSafe } from './kernel/panel-safe'
-import { Button } from '@/components/ui'
+import { bindCommandKeybindings } from './kernel/keybindings'
+import { SearchPanel } from './components/SearchPanel'
+import { Button, Dialog, DialogBody, DialogHeader } from '@/components/ui'
 
 const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
@@ -70,6 +80,17 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [rightOpen, setRightOpen] = useState(false)
   const [rightTab, setRightTab] = useState<string>('plugins')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [themePref, setThemePref] = useState<ThemePref>(loadThemePref)
+
+  /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
+  useEffect(() => {
+    applyTheme(themePref)
+    saveThemePref(themePref)
+    if (themePref !== 'system') return
+    return watchSystemTheme(() => applyTheme('system'))
+  }, [themePref])
   /** 窄屏抽屉：宽屏侧栏常驻，窄屏由顶栏 ☰ 滑出 */
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -348,6 +369,18 @@ export default function App() {
           setRightTab('plugins')
         },
       }),
+      kernel.commands.api.register({
+        id: 'core.settings',
+        title: '打开设置',
+        keybinding: 'Mod+,',
+        run: () => setSettingsOpen(true),
+      }),
+      kernel.commands.api.register({
+        id: 'core.search',
+        title: '搜索笔记',
+        keybinding: 'Mod+Shift+F',
+        run: () => setSearchOpen(true),
+      }),
     ]
     return () => subs.forEach((s) => s.dispose())
   }, [kernel, newNote, pickVault])
@@ -406,16 +439,21 @@ export default function App() {
     }
   }, [kernel, vault, reloadToken])
 
-  /* ── 全局快捷键 ── */
+  /* ── 全局快捷键 ──
+     命令表里声明的 keybinding 由派发器统一绑定。此前它们被完全忽略 ——
+     只硬编码了 Ctrl+K，插件和内核声明的键位全部静默失效。
+     依赖 loadedIds：插件装卸会增删命令，加载完成后必须重绑。 */
+  useEffect(() => {
+    if (!kernel) return
+    return bindCommandKeybindings(kernel.commands)
+  }, [kernel, loadedIds])
+
+  /** Escape 统一关浮层（这条不交给命令表：它要一次关掉多个，且无需用户配置） */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey
-      if (mod && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        setPaletteOpen((v) => !v)
-      } else if (e.key === 'Escape') {
-        setPaletteOpen(false)
-      }
+      if (e.key !== 'Escape') return
+      setPaletteOpen(false)
+      setSearchOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -441,6 +479,14 @@ export default function App() {
   }))
 
   const activePanel = panels.find((p) => p.id === rightTab) ?? null
+  /* view 原语的 location 分流。
+     此前 location 被完全忽略 —— 四种位置的面板全塞进右栏 tab，插件声明
+     statusbar / main / modal 都拿不到对应位置（契约 §6 要求宿主尊重它）。 */
+  const tabPanels = panels.filter((p) => p.location !== 'statusbar')
+  const statusPanels = panels.filter((p) => p.location === 'statusbar')
+  const sidebarPanel = activePanel?.location === 'sidebar' ? activePanel : null
+  const mainPanel = activePanel?.location === 'main' ? activePanel : null
+  const modalPanel = activePanel?.location === 'modal' ? activePanel : null
 
   const saveLabel =
     saveState === 'saving'
@@ -509,6 +555,9 @@ export default function App() {
           <button className="zn-btn" onClick={() => setPaletteOpen(true)} title="命令面板 (Ctrl+K)">
             命令
           </button>
+          <button className="zn-btn" onClick={() => setSettingsOpen(true)} title="设置">
+            设置
+          </button>
           <button
             className="zn-btn"
             onClick={() => setRightOpen((v) => !v)}
@@ -521,7 +570,27 @@ export default function App() {
           </button>
         </div>
 
-        {activePath ? (
+        {mainPanel ? (
+          /* location: 'main' 的面板占据主编辑区，顶部留一条返回编辑器的横条 */
+          <div className="zn-main-panel">
+            <div className="zn-main-panel-bar">
+              <span>{mainPanel.title}</span>
+              <button className="zn-btn" onClick={() => setRightTab('plugins')}>
+                返回编辑器
+              </button>
+            </div>
+            <div className="zn-main-panel-body">
+              <PanelBoundary key={mainPanel.id}>
+                <UIRenderer
+                  node={renderPanelSafe(mainPanel, panelState)}
+                  state={panelState}
+                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                />
+              </PanelBoundary>
+            </div>
+          </div>
+        ) : activePath ? (
           <MarkdownEditor
             path={activePath}
             value={content}
@@ -548,6 +617,17 @@ export default function App() {
         <div className="zn-statusbar">
           <span>{notes.length} 篇</span>
           {vault && <span title={vault}>{vault}</span>}
+          {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
+          {statusPanels.map((p) => (
+            <PanelBoundary key={p.id}>
+              <UIRenderer
+                node={renderPanelSafe(p, panelState)}
+                state={panelState}
+                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+              />
+            </PanelBoundary>
+          ))}
           <span style={{ marginLeft: 'auto' }}>
             插件 {loadedIds.length}/{manifests.length}
           </span>
@@ -564,7 +644,7 @@ export default function App() {
             >
               插件
             </button>
-            {panels.map((p) => (
+            {tabPanels.map((p) => (
               <button
                 key={p.id}
                 className={`zn-rightbar-tab${rightTab === p.id ? ' is-active' : ''}`}
@@ -576,10 +656,10 @@ export default function App() {
             ))}
           </div>
           <div className="zn-rightbar-body">
-            {activePanel ? (
-              <PanelBoundary key={activePanel.id}>
+            {sidebarPanel ? (
+              <PanelBoundary key={sidebarPanel.id}>
                 <UIRenderer
-                  node={renderPanelSafe(activePanel, panelState)}
+                  node={renderPanelSafe(sidebarPanel, panelState)}
                   state={panelState}
                   onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
                   onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
@@ -608,11 +688,56 @@ export default function App() {
         />
       )}
 
+      {/* location: 'modal' 的面板以弹窗呈现（复用设置页同一个 Dialog 原语） */}
+      <Dialog
+        open={!!modalPanel}
+        onOpenChange={(next) => {
+          if (!next) setRightTab('plugins')
+        }}
+        width={520}
+      >
+        <DialogHeader title={modalPanel?.title ?? ''} />
+        <DialogBody>
+          {modalPanel && (
+            <UIRenderer
+              node={renderPanelSafe(modalPanel, panelState)}
+              state={panelState}
+              onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+              onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+            />
+          )}
+        </DialogBody>
+      </Dialog>
+
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={kernel ? kernel.commands.api.list() : []}
         onRun={(id) => void kernel?.commands.api.execute(id)}
+      />
+
+      <Settings
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        vault={vault}
+        apiVersion={kernel?.host.apiVersion}
+        appVersion={kernel?.host.appVersion}
+        platform={kernel?.host.platform}
+        onPickVault={() => void pickVault()}
+        themePref={themePref}
+        onThemeChange={setThemePref}
+        plugins={rows}
+        pluginError={pluginError}
+        pluginLog={panelLog}
+        onTogglePlugin={togglePlugin}
+        onReloadPlugins={() => setReloadToken((t) => t + 1)}
+      />
+
+      <SearchPanel
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpenNote={(p) => void openNote(p)}
+        index={kernel?.index ?? null}
       />
 
       {toast && (
