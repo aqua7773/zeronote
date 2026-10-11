@@ -1,0 +1,213 @@
+/*
+ * ZeroNote 设计 token —— 所有 UI（含插件视图）只用这些变量。
+ * 声明式 UI 之所以能"风格统一"，靠的就是这一层。
+ */
+
+:root {
+  --zn-bg: #ffffff;
+  --zn-bg-subtle: #f7f7f8;
+  --zn-bg-hover: #f0f0f2;
+  --zn-bg-active: #e8e8ec;
+  --zn-border: #e4e4e7;
+  --zn-border-strong: #d4d4d8;
+  --zn-fg: #18181b;
+  --zn-fg-muted: #71717a;
+  --zn-fg-subtle: #a1a1aa;
+  --zn-accent: #4f46e5;
+  --zn-accent-fg: #ffffff;
+  --zn-danger: #dc2626;
+
+  --zn-radius-sm: 4px;
+  --zn-radius: 6px;
+  --zn-radius-lg: 10px;
+
+  --zn-space-1: 4px;
+  --zn-space-2: 8px;
+  --zn-space-3: 12px;
+  --zn-space-4: 16px;
+  --zn-space-6: 24px;
+
+  --zn-font: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --zn-font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --zn-text-sm: 12px;
+  --zn-text: 14px;
+  --zn-text-lg: 16px;
+
+  --zn-sidebar-w: 260px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --zn-bg: #18181b;
+    --zn-bg-subtle: #1f1f23;
+    --zn-bg-hover: #27272a;
+    --zn-bg-active: #303036;
+    --zn-border: #2e2e33;
+    --zn-border-strong: #3f3f46;
+    --zn-fg: #f4f4f5;
+    --zn-fg-muted: #a1a1aa;
+    --zn-fg-subtle: #71717a;
+    --zn-accent: #6366f1;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--zn-font);
+  font-size: var(--zn-text);
+  color: var(--zn-fg);
+  background: var(--zn-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ───────── 布局 ───────── */
+
+.zn-app {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.zn-sidebar {
+  width: var(--zn-sidebar-w);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--zn-bg-subtle);
+  border-right: 1px solid var(--zn-border);
+  overflow: hidden;
+}
+
+.zn-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  padding: var(--zn-space-3) var(--zn-space-3);
+  border-bottom: 1px solid var(--zn-border);
+}
+
+.zn-vault-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-tree {
+  flex: 1;
+  overflow: auto;
+  padding: var(--zn-space-2);
+}
+
+.zn-tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  width: 100%;
+  padding: 5px var(--zn-space-2);
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zn-tree-item:hover { background: var(--zn-bg-hover); }
+.zn-tree-item.is-active { background: var(--zn-bg-active); font-weight: 600; }
+.zn-tree-item .zn-ext { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+
+.zn-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.zn-titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-3);
+  padding: var(--zn-space-2) var(--zn-space-4);
+  border-bottom: 1px solid var(--zn-border);
+  min-height: 42px;
+}
+
+.zn-path {
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.zn-save-state {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-subtle);
+}
+.zn-save-state.is-dirty { color: var(--zn-fg-muted); }
+.zn-save-state.is-error { color: var(--zn-danger); }
+
+.zn-editor { flex: 1; min-height: 0; overflow: hidden; }
+.zn-editor .cm-editor { height: 100%; }
+
+/* ───────── 按钮与空态 ───────── */
+
+.zn-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg);
+  font-size: var(--zn-text-sm);
+}
+.zn-btn:hover { background: var(--zn-bg-hover); }
+.zn-btn.is-primary {
+  background: var(--zn-accent);
+  border-color: var(--zn-accent);
+  color: var(--zn-accent-fg);
+}
+
+.zn-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--zn-space-3);
+  color: var(--zn-fg-muted);
+}
+
+.zn-empty h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--zn-fg);
+  margin: 0;
+}
+
+.zn-empty p { margin: 0; max-width: 460px; text-align: center; line-height: 1.6; }
+
+.zn-statusbar {
+  display: flex;
+  gap: var(--zn-space-3);
+  align-items: center;
+  padding: 3px var(--zn-space-4);
+  border-top: 1px solid var(--zn-border);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}

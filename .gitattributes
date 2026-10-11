@@ -1,0 +1,11 @@
+# 行尾规范（本机 core.autocrlf=true，必须显式声明否则提交后被归一化）
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary

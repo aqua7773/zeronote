@@ -8,16 +8,26 @@ src-tauri/target/
 # 环境
 .env
 .env.local
+*.local
+
+# 日志
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
 
 # 编辑器 / 系统
 .vscode/*
 !.vscode/extensions.json
-.idea/
+.idea
 .DS_Store
 Thumbs.db
-
-# 日志
-*.log
+*.suo
+*.sw?
 
 # ZeroNote 私有目录（库内，不入库）
 .zn/
+
+# 本地测试库（M1 验收夹具，不入库）
+_test-vault/

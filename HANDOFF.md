@@ -17,13 +17,16 @@ revision: 1
 |---|---|---|---|
 | 需求分析冻结 | `_笔记应用选型\内核需求分析-v0.1.md`（用户确认技术方案「全按推荐」） | — | 2026-10-11 |
 | 内核契约草案 | `docs\内核契约-v0.1.md`（8 原语 + manifest + capability） | 待首次 commit | 2026-10-11 |
-| 目录与仓库 | `git init` 完成（`master`，本地身份 `ZeroNote <self@local>`） | 待首次 commit | 2026-10-11 |
+| 目录与仓库 | `git init` 完成（分支 `main`，本地身份 `ZeroNote <self@local>`） | 首次 commit `24d7c59` | 2026-10-11 |
+| M1 前端类型检查 | `pnpm exec tsc -b` → **0 错误** | 工作区（未提交） | 2026-10-11 |
+| M1 前端 lint | `pnpm exec oxlint` → **0 error / 1 warning**（`set-state-in-effect`，数据加载场景） | 工作区（未提交） | 2026-10-11 |
+| M1 脚手架 | Vite 8 + React 19.3 + Tauri CLI 2.12.2 + CodeMirror 6 + `tauri-plugin-dialog` 装好；`src-tauri` 已 init | 工作区（未提交） | 2026-10-11 |
 
 ## 未完成项
 
 - [ ] 内核契约 v0.1 **待用户过目**（用户尚未逐条看过）
-- [ ] M1 桌面骨架（开文件夹 / 文件树 / CM6 编辑 / 原子保存）—— **未开始**
-- [ ] 技术栈脚手架（Tauri 2 + React 19 + Vite + Tailwind + shadcn）—— **未开始**
+- [ ] M1 桌面骨架 —— **代码已写完，验收未做**：前端 `tsc -b` 0 错误、`oxlint` 0 error / 1 warning；Rust 侧依赖下载编译中，`cargo test` 与 GUI 实跑待做
+- [ ] UI 打磨（Tailwind + shadcn/ui 尚未引入，M1 先用自建 CSS token 保证风格统一）
 - [ ] 第一批插件清单（用户说「先保留」）
 
 ## 唯一下一步
