@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "id": "cjs-multi",
+  "name": "CJS 多文件示例",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "files": ["lib/greet.js", "lib/counter.js"],
+  "description": "形态 2：多文件 + require('./lib/x.js') —— 单文件限制已解除",
+  "platforms": ["desktop", "android"],
+  "capabilities": ["command", "store", "view:statusbar"],
+  "contributes": { "commands": [{ "id": "cjs-multi.count", "title": "多文件示例：计数 +1" }] }
+}

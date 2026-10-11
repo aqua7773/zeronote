@@ -1,0 +1,9 @@
+/* 形态 4：纯样式插件。宿主把这份 CSS 注入 <head>，卸载时整块移除。
+   改的是内核早就有的 --zn-* token，所以不用碰任何组件。 */
+:root {
+  --zn-bg: #fbf7ef;
+  --zn-bg-subtle: #f5efe2;
+  --zn-bg-hover: #ece4d4;
+  --zn-border: #e2d9c6;
+  --zn-border-strong: #d3c7ae;
+}

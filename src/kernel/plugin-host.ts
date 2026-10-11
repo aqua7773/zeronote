@@ -73,7 +73,8 @@ export type PluginHostDeps = {
 
 function assertManifest(m: unknown, dir: string): asserts m is PluginManifest {
   const o = m as Partial<PluginManifest> | null
-  const need = ['id', 'name', 'version', 'apiVersion', 'entry'] as const
+  // entry 不再是必填：纯样式（主题类）插件只声明 styles 即可，不写 JS
+  const need = ['id', 'name', 'version', 'apiVersion'] as const
   if (!o || typeof o !== 'object') throw new Error(`manifest 不是对象（${dir}）`)
   if (o.manifestVersion !== 1) {
     throw new Error(`manifest.manifestVersion 必须是 1（${dir}）`)
@@ -86,6 +87,10 @@ function assertManifest(m: unknown, dir: string): asserts m is PluginManifest {
   if (!Array.isArray(o.capabilities)) throw new Error(`manifest.capabilities 必须是数组（${dir}）`)
   if (o.platforms && !Array.isArray(o.platforms)) {
     throw new Error(`manifest.platforms 必须是数组（${dir}）`)
+  }
+  // 至少得有一点东西可加载：一个 JS 入口，或一份要注入的样式
+  if (!o.entry && !(Array.isArray(o.styles) && o.styles.length)) {
+    throw new Error(`manifest 既没有 entry 也没有 styles，没有可加载的内容（${dir}）`)
   }
 }
 
@@ -147,6 +152,150 @@ function scopedView(view: ViewApi, pluginId: string): ViewApi {
   }
 }
 
+/* ───────── 入口形态兼容层 ─────────
+ *
+ * 背景：v0.1 原先只有「读单文件 → Blob → 动态 import」，等于把成熟生态里
+ * 最常见的几种写法全挡在门外（依据 `_research\插件API对比.md` §8）：
+ *   · CommonJS —— Lumina-Note：`module.exports = function(api, plugin){}`
+ *   · 全局注册 —— Yank Note：`window.registerPlugin({name, register})`
+ *   · 多文件   —— 拆成 lib/*.js 再 require
+ *   · 纯样式   —— NoteGen：`entry` 可选，主题类插件可以不写 JS
+ *
+ * 这一层就在 import 之前补上它们：按**内容嗅探**判断形态，转成 ESM 再交给 import。
+ * Blob 里没有 require/module/exports —— 多文件的依赖解析只能自己带一个极简运行时。
+ */
+
+type EntryKind = 'esm' | 'cjs' | 'iife'
+
+/** 路径 → 源码。键统一为 POSIX 相对路径 */
+type PluginFiles = Record<string, string>
+
+/** 粗暴地去掉注释，避免注释里的 `registerPlugin` 之类单词造成误判 */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/[^\n]*/g, '$1')
+}
+
+/** 内容嗅探：这个入口是什么形态 */
+export function sniffEntryKind(src: string): EntryKind {
+  const code = stripComments(src)
+  // 有静态 import/export 就是 ESM（含 `export default`）
+  if (/(^|\n)\s*(import|export)[\s{*'"]/.test(code)) return 'esm'
+  // CommonJS 的两种赋值写法
+  if (/\bmodule\.exports\b|\bexports\.[A-Za-z_$]/.test(code)) return 'cjs'
+  // 全局注册（Yank Note 风格）
+  if (/\bregisterPlugin\s*\(/.test(code)) return 'iife'
+  // 认不出就按 ESM 交给 import —— 它报的错比我们自己编的准
+  return 'esm'
+}
+
+/**
+ * 把一批文件装进一个极简的 CommonJS 运行时，产出一段 ESM。
+ * 为什么自己写：Blob URL 里没有 require/module/exports，也没有"基础目录"
+ * 让 ESM 的相对导入可以解析。这层胶水只有几十行，够用且可解释。
+ */
+export function buildCjsBundle(entry: string, files: PluginFiles): string {
+  return `const __files = ${JSON.stringify(files)};
+const __cache = {};
+function __dirOf(p) { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
+function __norm(base, rel) {
+  const parts = (base ? base.split('/') : []).concat(rel.split('/'));
+  const out = [];
+  for (const part of parts) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return out.join('/');
+}
+function __resolve(spec, from) {
+  const base = __dirOf(from);
+  const cands = spec.startsWith('.') ? [__norm(base, spec)] : [spec];
+  for (const c of cands) {
+    if (__files[c] !== undefined) return c;
+    if (__files[c + '.js'] !== undefined) return c + '.js';
+    if (__files[c + '/index.js'] !== undefined) return c + '/index.js';
+  }
+  throw new Error('require 找不到模块：' + spec + '（来自 ' + from + '）'
+    + '。多文件插件需要在 manifest.files 里声明它。');
+}
+function __load(id) {
+  if (__cache[id]) return __cache[id].exports;
+  const module = { exports: {} };
+  __cache[id] = module;
+  let fn;
+  try {
+    fn = new Function('module', 'exports', 'require', __files[id]);
+  } catch (e) {
+    throw new Error('模块语法错误（' + id + '）：' + (e && e.message ? e.message : e));
+  }
+  fn(module, module.exports, function (spec) { return __load(__resolve(spec, id)); });
+  return module.exports;
+}
+export default __load(${JSON.stringify(entry)});
+`
+}
+
+/** 全局注册形态：把 `registerPlugin(obj)` 收到手里再导出 */
+export function buildIifeBundle(src: string): string {
+  return `let __p = null;
+globalThis.registerPlugin = function (p) { __p = p; };
+try { globalThis.window.registerPlugin = globalThis.registerPlugin; } catch (e) {}
+;(function () {
+${src}
+})();
+if (!__p) throw new Error('入口调用了 registerPlugin，但没有传入插件对象');
+export default __p;
+`
+}
+
+/**
+ * 把 import 出来的东西归一成契约要求的 `{ apply, dispose? }`。
+ * 四种真实存在的导出形态都要吃：
+ *   1. `export default { apply }`            —— 契约标准写法
+ *   2. `export function apply`               —— 具名导出
+ *   3. `module.exports = function (api) {}`  —— Lumina-Note 风格，导出的是函数本身
+ *   4. `registerPlugin({ register })`        —— Yank Note 风格，字段名是 register
+ */
+export function toPlugin(mod: unknown): Plugin | undefined {
+  const m = mod as Record<string, unknown> | null
+  if (!m) return undefined
+  const cand = (m.default ?? m) as unknown
+  // 形态 3：导出函数本身
+  if (typeof cand === 'function') return { apply: cand as Plugin['apply'] }
+  if (typeof cand === 'object' && cand) {
+    const o = cand as Record<string, unknown>
+    // 形态 1 / 2
+    if (typeof o.apply === 'function') return cand as Plugin
+    // 形态 4：{ name, register }
+    if (typeof o.register === 'function') {
+      return {
+        apply: (o.register as Plugin['apply']).bind(cand),
+        dispose: typeof o.dispose === 'function' ? (o.dispose as () => void).bind(cand) : undefined,
+      }
+    }
+  }
+  // 兜底：模块本身具名导出了 apply（`export function apply` 在 default 为空时会走到这）
+  if (typeof m.apply === 'function') return m as unknown as Plugin
+  return undefined
+}
+
+/** 纯样式插件的注入目标；卸载时按 id 移除 */
+const styleTags = new Map<string, HTMLStyleElement>()
+
+function injectStyles(pluginId: string, css: string): Disposable {
+  const el = document.createElement('style')
+  el.dataset.znPlugin = pluginId
+  el.textContent = css
+  document.head.appendChild(el)
+  styleTags.set(pluginId, el)
+  return {
+    dispose: () => {
+      el.remove()
+      styleTags.delete(pluginId)
+    },
+  }
+}
+
 /* ───────── 加载 / 卸载 ───────── */
 
 export async function listPluginDirs(vault: string): Promise<string[]> {
@@ -169,26 +318,87 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
   assertApiVersion(manifest.apiVersion, manifest.id)
   assertCapabilities(manifest.capabilities, manifest.id)
 
-  const source = await invoke<string>('read_plugin_file', {
-    vault: deps.vault,
-    pluginId: dir,
-    rel: manifest.entry,
-  })
+  const subs: Disposable[] = []
+  const readFile = (rel: string) =>
+    invoke<string>('read_plugin_file', { vault: deps.vault, pluginId: dir, rel })
 
-  const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
-  let mod: { default?: Plugin } & Partial<Plugin>
+  /** 登记的资源要在任何一步失败时清干净，避免留下「半个插件」 */
+  const rollback = () => {
+    for (const s of subs.splice(0)) {
+      try {
+        s.dispose()
+      } catch {
+        /* 单个清理失败不阻断其余 */
+      }
+    }
+  }
+
+  // ── 纯样式插件：没有 JS 入口，注入 CSS 即可（主题类） ──
+  if (!manifest.entry) {
+    try {
+      for (const rel of manifest.styles ?? []) {
+        subs.push(injectStyles(manifest.id, await readFile(rel)))
+      }
+    } catch (e) {
+      rollback()
+      throw e
+    }
+    deps.onLog(`插件已加载（纯样式）：${manifest.name}（${manifest.id}）`, 'info')
+    return { dir, manifest, instance: { apply: () => {} }, subs }
+  }
+
+  // ── 有 JS 入口：先嗅探形态，再组装成 ESM 交给 import ──
+  const entrySrc = await readFile(manifest.entry)
+  const kind = sniffEntryKind(entrySrc)
+
+  let code: string
+  if (kind === 'esm') {
+    // 已经有 ESM 语法，原样加载（相对导入在 Blob 里解析不了 —— 见契约 §3 的限制）
+    code = entrySrc
+  } else if (kind === 'cjs') {
+    // 单文件与多文件走同一条路：把声明过的文件全部读出来交给虚拟 CommonJS 运行时
+    const files: PluginFiles = { [manifest.entry]: entrySrc }
+    try {
+      for (const rel of manifest.files ?? []) {
+        if (rel !== manifest.entry) files[rel] = await readFile(rel)
+      }
+    } catch (e) {
+      throw new Error(`插件 ${manifest.id} 的 manifest.files 读取失败：${String(e)}`)
+    }
+    code = buildCjsBundle(manifest.entry, files)
+  } else {
+    code = buildIifeBundle(entrySrc)
+  }
+
+  const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
+  let mod: unknown
   try {
-    mod = (await import(/* @vite-ignore */ url)) as typeof mod
+    mod = await import(/* @vite-ignore */ url)
+  } catch (e) {
+    throw new Error(`插件 ${manifest.id} 入口加载失败（判定形态：${kind}）：${String(e)}`)
   } finally {
     URL.revokeObjectURL(url)
   }
 
-  const instance: Plugin | undefined = mod.default ?? (mod.apply ? (mod as Plugin) : undefined)
+  const instance = toPlugin(mod)
   if (!instance || typeof instance.apply !== 'function') {
-    throw new Error(`插件 ${manifest.id} 的入口没有导出 apply()（需要 export default 或具名 apply）`)
+    throw new Error(
+      `插件 ${manifest.id} 的入口没有可用的 apply()（判定形态：${kind}）。` +
+        `支持四种写法：export default { apply }、export function apply、` +
+        `module.exports = function (api) {}、registerPlugin({ register })`,
+    )
   }
 
-  const subs: Disposable[] = []
+  // 与 JS 入口并存的样式（可选）：先登记，失败一起回滚
+  try {
+    for (const rel of manifest.styles ?? []) {
+      subs.push(injectStyles(manifest.id, await readFile(rel)))
+    }
+  } catch (e) {
+    rollback()
+    throw new Error(`插件 ${manifest.id} 的 manifest.styles 读取失败：${String(e)}`)
+  }
+
   const ctx: PluginContext = {
     fs: scopedFs(deps.fs, manifest.capabilities, manifest.id),
     doc: scopedDoc(deps.doc, manifest.capabilities, manifest.id),
@@ -202,8 +412,15 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     subscriptions: subs,
   }
 
-  await instance.apply(ctx)
-  deps.onLog(`插件已加载：${manifest.name}（${manifest.id}）`, 'info')
+  try {
+    await instance.apply(ctx)
+  } catch (e) {
+    rollback()
+    throw e
+  }
+
+  const fileNote = manifest.files?.length ? `，${manifest.files.length + 1} 个文件` : ''
+  deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info')
   return { dir, manifest, instance, subs }
 }
 
