@@ -746,12 +746,16 @@ export default function App() {
     return () => subs.forEach((s) => s.dispose())
   }, [kernel, newNote, pickVault, closeNote, openOverlay])
 
-  /* ── 插件扫描 + 加载 ── */
+  /* ── 插件扫描 + 加载（含**懒激活**）── */
   useEffect(() => {
     const k = kernel
     if (!k || !vault) return
     let cancelled = false
     const loaded: LoadedPlugin[] = []
+    /** 静态声明了命令、但**还没加载**的插件：id → 目录（激活时用） */
+    const pending = new Map<string, string>()
+    /** 本次静态声明过命令的插件 id —— 卸载时要把它们的命令元数据也清掉 */
+    const declaredIds = new Set<string>()
     const deps: PluginHostDeps = {
       vault,
       fs: k.fs,
@@ -766,6 +770,22 @@ export default function App() {
       editor: k.editor,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
     }
+
+    /**
+     * 懒激活入口：命令真的被执行时，宿主回调它把插件载进来。
+     * 幂等 —— 重复点同一条命令不该加载两次。
+     */
+    const activate = async (pluginId: string) => {
+      if (loaded.some((l) => l.manifest.id === pluginId)) return
+      const dir = pending.get(pluginId)
+      if (!dir) throw new Error(`找不到待激活的插件：${pluginId}`)
+      const l = await loadPlugin(dir, deps)
+      loaded.push(l)
+      pending.delete(pluginId)
+      if (!cancelled) setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
+    }
+    k.commands.setActivator(activate)
+
     setPluginError(null)
     void (async () => {
       try {
@@ -783,6 +803,29 @@ export default function App() {
         const ids: string[] = []
         for (const m of list) {
           if (disabledRef.current.has(m.id)) continue
+          /**
+           * 懒激活判定：写了 `activationEvents` 且**不含** onStartup / onVaultOpen
+           * ⇒ 只静态登记命令元数据，插件代码一行都不跑（命令面板照样列得出它）。
+           * 没写（或写了 onStartup）⇒ **老行为**：立即 apply —— 现有插件零影响。
+           */
+          const events = m.activationEvents
+          const lazy =
+            Array.isArray(events) &&
+            events.length > 0 &&
+            !events.includes('onStartup') &&
+            !events.includes('onVaultOpen')
+          if (lazy) {
+            for (const c of m.contributes?.commands ?? []) {
+              try {
+                k.commands.declare({ ...c, pluginId: m.id })
+                declaredIds.add(m.id)
+              } catch (e) {
+                setPluginError(`插件 ${m.id} 的命令声明冲突：${String(e)}`)
+              }
+            }
+            pending.set(m.id, m.id)
+            continue
+          }
           try {
             loaded.push(await loadPlugin(m.id, deps))
             ids.push(m.id)
@@ -795,14 +838,19 @@ export default function App() {
         if (!cancelled) setPluginError(String(e))
       }
     })()
+
     return () => {
       cancelled = true
+      // 解绑激活器：它闭包着本次 effect 的 loaded/pending，留着会指向已失效的状态
+      k.commands.setActivator(async () => {})
       for (const l of loaded) {
         void unloadPlugin(l, deps)
         // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
         k.releaseServices(l.manifest.id)
         k.releaseEditorMarks(l.manifest.id)
       }
+      // 静态声明的命令元数据也要清（那些插件可能从没被激活过）
+      for (const id of declaredIds) k.commands.release(id)
       setLoadedIds([])
     }
   }, [kernel, vault, reloadToken])

@@ -110,10 +110,33 @@ export type CommandSpec = {
 
 /** 5. command —— 命令 / 快捷键 / 命令面板 */
 export interface CommandApi {
+  /** 元数据 + 实现一起登记（老写法，仍然支持） */
   register(cmd: CommandSpec): Disposable
+  /**
+   * **只绑定实现** —— 懒激活插件的写法。
+   *
+   * 元数据已经由宿主从 `manifest.contributes.commands` 静态登记过了
+   * （所以命令面板不用加载插件就能列出它），这里只补上"点了之后干什么"。
+   * 没静态声明而直接 bind 也能用（元数据退化为 id）。
+   */
+  bind(id: string, run: (...args: unknown[]) => unknown): Disposable
   execute(id: string, ...args: unknown[]): Promise<unknown>
   list(): { id: string; title: string }[]
 }
+
+/**
+ * 懒激活触发条件（`manifest.activationEvents`）。
+ *
+ * · `onStartup` / `onVaultOpen` —— 库打开就激活（等价于不写，写出来是**显式表态**）
+ * · `onCommand:<命令 id>` —— **那条命令被执行时**才激活。命令面板不用加载插件
+ *   就能列出它（元数据来自 `contributes.commands`），点下去才跑代码。
+ * · `onView:<面板 id>` —— 面板被打开时激活（类型先留，宿主 v0.1 暂按启动处理）
+ */
+export type ActivationEvent =
+  | 'onStartup'
+  | 'onVaultOpen'
+  | `onCommand:${string}`
+  | `onView:${string}`
 
 /** 间距档位（避免插件写死 px，保持版式一致） */
 export type UIGap = 'sm' | 'md' | 'lg'
@@ -412,6 +435,10 @@ export type Capability =
   | 'view:main'
   | 'view:statusbar'
   | 'view:modal'
+  /** 编辑器底部工具栏的挂载点（手机端辅助输入那条） */
+  | 'view:editor-toolbar'
+  /** 编辑器行内标记规则（`editor.addMark`） */
+  | 'editor:mark'
   | 'store'
   | 'net'
   | 'proc'
@@ -453,6 +480,16 @@ export type PluginManifest = {
    * 缺了前置**不拦加载** —— 硬依赖会让"一个插件装错版本就整个起不来"。
    */
   dependencies?: string[]
+  /**
+   * **懒激活触发条件**。
+   *
+   * 不写这个字段 ⇒ 老行为：库一打开就 `apply()`（现有插件一个都不用改）。
+   * 写了 ⇒ 宿主**只静态登记** `contributes` 里的元数据（命令/面板能被列出来），
+   * 直到某个条件命中才真正加载插件代码。
+   *
+   * 这是"装上 N 个插件 ≠ 启动 N 次 `apply()`"的解法 —— 移动端冷启动尤其明显。
+   */
+  activationEvents?: ActivationEvent[]
   contributes?: {
     commands?: { id: string; title: string; keybinding?: string }[]
     panels?: {

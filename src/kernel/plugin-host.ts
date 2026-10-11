@@ -41,6 +41,10 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'view:main',
   'view:statusbar',
   'view:modal',
+  // 上轮加「编辑器底部工具栏」挂载点时漏登记，插件老实声明它会被判"未知 capability"而拒载
+  'view:editor-toolbar',
+  // editor 原语（行内标记）
+  'editor:mark',
   'store',
   'net',
   'proc',
