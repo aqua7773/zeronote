@@ -23,9 +23,6 @@ export interface TitleBarProps {
   saveError?: boolean
   /** 有未保存改动 → 文案标黄 */
   saveDirty?: boolean
-  /** 有打开笔记时才显示「关闭这篇笔记」 */
-  canCloseNote?: boolean
-  onCloseNote?: () => void
   /** ☰ 点开菜单：把按钮的屏幕位置交回宿主去弹 */
   onMenu: (at: { x: number; y: number }) => void
   /** 桌面端才渲染窗口控制按钮 */
@@ -37,8 +34,6 @@ export function TitleBar({
   saveLabel,
   saveError,
   saveDirty,
-  canCloseNote,
-  onCloseNote,
   onMenu,
   showWindowControls = true,
 }: TitleBarProps) {
@@ -63,18 +58,6 @@ export function TitleBar({
       <span className="zn-titlebar-name" data-tauri-drag-region title={title}>
         {title}
       </span>
-
-      {canCloseNote ? (
-        <button
-          type="button"
-          className="zn-icon-btn"
-          onClick={onCloseNote}
-          title="关闭这篇笔记（Ctrl+W）"
-          aria-label="关闭当前笔记"
-        >
-          ✕
-        </button>
-      ) : null}
 
       <span
         className={cn(

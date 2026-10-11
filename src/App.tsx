@@ -651,8 +651,6 @@ export default function App() {
         saveLabel={saveLabel}
         saveError={saveState === 'error'}
         saveDirty={dirty}
-        canCloseNote={!!activePath && mainView === 'editor'}
-        onCloseNote={() => void closeNote()}
         onMenu={setMenuAt}
         showWindowControls={isDesktop}
       />
@@ -728,15 +726,28 @@ export default function App() {
             </div>
           </div>
         ) : activePath ? (
-          <MarkdownEditor
-            path={activePath}
-            value={content}
-            onChange={onEditorChange}
-            onSave={() => void saveNow()}
-            onReady={(v) => {
-              editorRef.current = v
-            }}
-          />
+          <div className="zn-editor-wrap">
+            <MarkdownEditor
+              path={activePath}
+              value={content}
+              onChange={onEditorChange}
+              onSave={() => void saveNow()}
+              onReady={(v) => {
+                editorRef.current = v
+              }}
+            />
+            {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
+                不放标题栏，免得跟窗口那个 × 挨着分不清 */}
+            <button
+              type="button"
+              className="zn-editor-close"
+              onClick={() => void closeNote()}
+              title="关闭这篇笔记（Ctrl+W）"
+              aria-label="关闭当前笔记"
+            >
+              ✕
+            </button>
+          </div>
         ) : (
           <div className="zn-empty">
             <h1>ZeroNote</h1>
