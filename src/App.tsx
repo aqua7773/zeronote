@@ -269,6 +269,17 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   /** 桌面侧栏是否显示：进插件管理/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
+  /** 笔记库栏宽度 —— 拖分隔线可调，持久化 */
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const v = Number(window.localStorage.getItem('zeronote.sidebar.w'))
+    return Number.isFinite(v) && v >= 160 && v <= 560 ? v : 260
+  })
+  /** 笔记库栏**空白区**的右键菜单（树项的右键在 FileTree 内，且已 stopPropagation） */
+  const [sidebarMenuAt, setSidebarMenuAt] = useState<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
+  }, [sidebarWidth])
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
@@ -949,23 +960,19 @@ export default function App() {
 
       <div className="zn-body">
       {showSidebar && (
-      <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}>
+      <aside
+        className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`}
+        style={{ width: sidebarWidth }}
+        onContextMenu={(e) => {
+          // 树项的右键已 stopPropagation，所以走到这儿的都是空白区
+          e.preventDefault()
+          setSidebarMenuAt({ x: e.clientX, y: e.clientY })
+        }}
+      >
         <div className="zn-sidebar-head">
           <span className="zn-vault-name" title={vault ?? ''}>
             {vault ? vault.split(/[\\/]/).pop() : 'ZeroNote'}
           </span>
-          <button
-            type="button"
-            className="zn-icon-btn"
-            onClick={() => {
-              setSidebarVisible(false)
-              setSidebarOpen(false)
-            }}
-            title="关闭笔记库栏"
-            aria-label="关闭笔记库栏"
-          >
-            ✕
-          </button>
         </div>
         {vault ? (
           <FileTree
@@ -984,6 +991,35 @@ export default function App() {
           </div>
         )}
       </aside>
+      )}
+
+      {showSidebar && (
+        /* 分隔线：拖它调左右占比。事件挂在 document 上 —— 鼠标拖快时会跑出这条
+           5px 的窄线，只绑在自己身上会丢事件。拖拽期间临时锁掉文字选择与光标。 */
+        <div
+          className="zn-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整笔记库栏宽度"
+          onMouseDown={(e) => {
+            e.preventDefault()
+            const startX = e.clientX
+            const startW = sidebarWidth
+            const onMove = (ev: MouseEvent) => {
+              setSidebarWidth(Math.min(560, Math.max(160, startW + (ev.clientX - startX))))
+            }
+            const onUp = () => {
+              document.removeEventListener('mousemove', onMove)
+              document.removeEventListener('mouseup', onUp)
+              document.body.classList.remove('is-resizing')
+            }
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+            // 用 class 而不是 inline style：拖快时指针会甩到编辑器上，
+            // 而 CodeMirror 内部有自己的 user-select，光设 body 的 inline 压不住它。
+            document.body.classList.add('is-resizing')
+          }}
+        />
       )}
 
       <main className="zn-main">
@@ -1119,6 +1155,23 @@ export default function App() {
       )}
 
       {/* 左上角菜单栏（记事本式 ☰，点击位置就地弹出） */}
+      {sidebarMenuAt && (
+        <ContextMenu
+          x={sidebarMenuAt.x}
+          y={sidebarMenuAt.y}
+          items={[
+            {
+              label: '关闭笔记库栏',
+              onClick: () => {
+                setSidebarVisible(false)
+                setSidebarOpen(false)
+              },
+            },
+          ]}
+          onClose={() => setSidebarMenuAt(null)}
+        />
+      )}
+
       {menuAt && (
         <ContextMenu
           x={menuAt.x}
