@@ -2,17 +2,29 @@
   "manifestVersion": 1,
   "id": "inspiration-flow",
   "name": "灵感流",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "快速捕捉：一次发送 = 一篇独立 .md，落在「灵感/当日日期/」下",
-  "capabilities": ["fs:read", "fs:write", "command", "view:main", "store"],
+  "description": "规格 2.1：聊天式捕捉，一条 = 笔记/年/月/日/HH-mm-ss.md；时间流查看、点击进编辑器、快捷标签、手机端工具栏",
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "doc:read",
+    "doc:write",
+    "command",
+    "view:main",
+    "view:editor-toolbar",
+    "store"
+  ],
   "contributes": {
     "commands": [
       { "id": "inspiration-flow.capture", "title": "灵感：捕捉当前输入" },
-      { "id": "inspiration-flow.refresh", "title": "灵感：刷新今天的列表" }
+      { "id": "inspiration-flow.refresh", "title": "灵感：刷新时间流" }
     ],
-    "panels": [{ "id": "inspiration-flow.stream", "title": "灵感流", "location": "main" }]
+    "panels": [
+      { "id": "inspiration-flow.stream", "title": "灵感流", "location": "main" },
+      { "id": "inspiration-flow.toolbar", "title": "灵感工具", "location": "editor-toolbar" }
+    ]
   }
 }

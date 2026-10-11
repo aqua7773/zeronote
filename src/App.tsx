@@ -774,11 +774,26 @@ export default function App() {
   }, [kernel, newNote, pickVault, closeNote, openOverlay])
 
   /* ── 插件扫描 + 加载（含**懒激活**）── */
+
+  /**
+   * 已加载的插件**跨 effect 保存**（不是 effect 内的局部数组）。
+   *
+   * 为什么必须是 ref：加载是 `await` 的。如果加载**中途**被打断（用户点启用/禁用、
+   * 切库、重新扫描），effect 的 cleanup 会跑；而那时正在加载的那个插件**还没被
+   * push 进数组** ⇒ cleanup 会漏掉它 ⇒ 它已注册的命令/面板留在宿主里成了幽灵
+   * ⇒ 下一次加载同一个 id 直接撞「命令 id 重复」，而且**一次污染之后每次重载都失败**。
+   * （真机实测踩到：一次打断后 3 个插件接连变成未启用。）
+   *
+   * cleanup 用 `splice(0)` 消费，保证这份清单只被处理一次；加载路径里另有
+   * `cancelled` 检查兜住"加载完成时 effect 已经取消"的那一半。
+   */
+  const loadedPluginsRef = useRef<LoadedPlugin[]>([])
   useEffect(() => {
     const k = kernel
     if (!k || !vault) return
     let cancelled = false
-    const loaded: LoadedPlugin[] = []
+    // 用 ref 里那份（跨 effect 可见）：中途被打断时 cleanup 也能清到正在加载的插件
+    const loaded = loadedPluginsRef.current
     /** 静态声明了命令、但**还没加载**的插件：id → 目录（激活时用） */
     const pending = new Map<string, string>()
     /** 本次静态声明过命令的插件 id —— 卸载时要把它们的命令元数据也清掉 */
@@ -809,7 +824,14 @@ export default function App() {
       const l = await loadPlugin(dir, deps)
       loaded.push(l)
       pending.delete(pluginId)
-      if (!cancelled) setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
+      // 同加载路径：激活期间 effect 可能已被取消，别留下幽灵
+      if (cancelled) {
+        void unloadPlugin(l, deps)
+        k.releaseServices(pluginId)
+        k.releaseEditorMarks(pluginId)
+        return
+      }
+      setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
     }
     k.commands.setActivator(activate)
 
@@ -854,7 +876,16 @@ export default function App() {
             continue
           }
           try {
-            loaded.push(await loadPlugin(m.id, deps))
+            const l = await loadPlugin(m.id, deps)
+            loaded.push(l)
+            // 加载期间 effect 可能已被取消（用户切库 / 点重新扫描）——
+            // 这时 cleanup 早就跑完了，得自己把它卸掉，否则命令会留在表里
+            if (cancelled) {
+              void unloadPlugin(l, deps)
+              k.releaseServices(m.id)
+              k.releaseEditorMarks(m.id)
+              continue
+            }
             ids.push(m.id)
           } catch (e) {
             setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
@@ -870,7 +901,8 @@ export default function App() {
       cancelled = true
       // 解绑激活器：它闭包着本次 effect 的 loaded/pending，留着会指向已失效的状态
       k.commands.setActivator(async () => {})
-      for (const l of loaded) {
+      // splice(0) 消费掉这份清单 —— 即使这次 cleanup 漏了什么，下次也不会重复处理
+      for (const l of loaded.splice(0)) {
         void unloadPlugin(l, deps)
         // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
         k.releaseServices(l.manifest.id)
