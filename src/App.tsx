@@ -983,7 +983,13 @@ export default function App() {
     // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
     { label: '插件管理', onClick: () => setMainView('plugins') },
     ...panels
-      .filter((p) => p.location !== 'statusbar' && p.location !== 'modal')
+      .filter(
+        (p) =>
+          p.location !== 'statusbar' &&
+          p.location !== 'modal' &&
+          // 工具栏是"贴着编辑器"的辅助条，不该在菜单里单开一个页面
+          p.location !== 'editor-toolbar',
+      )
       .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
     ...(mainView === 'editor'
       ? []
@@ -1149,10 +1155,15 @@ export default function App() {
 
   const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
+  /* 编辑器底部工具栏：**空数组时一个 DOM 都不渲染** —— 没有插件用这个位置就没有开销 */
+  const toolbarPanels = panels.filter((p) => p.location === 'editor-toolbar')
   /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
      （右侧栏已取消，sidebar 不再有独立载体；契约里 location 仍然有效，只是宿主换了承载方式） */
   const pagePanel =
-    activePanel && activePanel.location !== 'statusbar' && activePanel.location !== 'modal'
+    activePanel &&
+    activePanel.location !== 'statusbar' &&
+    activePanel.location !== 'modal' &&
+    activePanel.location !== 'editor-toolbar'
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
@@ -1332,6 +1343,29 @@ export default function App() {
               replaceOpen={replaceOpen}
               onCloseReplace={() => setReplaceOpen(false)}
             />
+            {/*
+              编辑器底部工具栏（`location: 'editor-toolbar'`）—— 手机端辅助输入、
+              格式化按钮、快捷标签这类东西挂这里。
+              **没有插件注册这个位置时 toolbarPanels 是空数组，一个 DOM 都不渲染**，
+              所以无插件状态下不占空间、不耗性能。渲染沿用主区面板那一套
+              （renderPanelSafe + PanelBoundary），坏面板只坏自己那一格。
+            */}
+            {toolbarPanels.length > 0 && (
+              <div className="zn-editor-toolbar">
+                {toolbarPanels.map((p) => (
+                  <PanelBoundary key={p.id}>
+                    <UIRenderer
+                      node={renderPanelSafe(p, panelState)}
+                      state={panelState}
+                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                      onStateChange={(bind, value) =>
+                        setPanelState((s) => ({ ...s, [bind]: value }))
+                      }
+                    />
+                  </PanelBoundary>
+                ))}
+              </div>
+            )}
             {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
                 不放标题栏，免得跟窗口那个 × 挨着分不清 */}
             <button

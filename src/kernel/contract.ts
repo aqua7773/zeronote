@@ -33,6 +33,17 @@ export interface FsApi {
   writeText(path: string, content: string): Promise<void>
   createNote(path: string, content?: string): Promise<void>
   rename(from: string, to: string): Promise<void>
+  /**
+   * 新建目录（多级一起建，幂等）。**文件夹功能的基础** —— 在此之前插件没法在库里造目录，
+   * 「按年/月/日归档」这类结构只能靠 `createNote` 顺带建父目录。
+   */
+  mkdir(path: string): Promise<void>
+  /**
+   * 移动 / 重命名**文件或整个目录树**（与 `rename` 的区别就在能搬目录）。
+   * 语义同 `mv`：`to` 是已存在的目录 ⇒ 移入其中；否则当新路径（已存在则报错，不静默覆盖）。
+   * 禁止把目录移进自己的子孙。
+   */
+  move(from: string, to: string): Promise<void>
   /** 移入 .zn/trash/（不是物理删除）；返回回收站里的库内相对路径，供撤销 rename 回来 */
   delete(path: string): Promise<string>
   exists(path: string): Promise<boolean>
@@ -225,13 +236,28 @@ export type ViewCtx = {
   state: Record<string, unknown>
 }
 
+/**
+ * 面板挂载位置。**新增位置只改这里** —— 契约、内核与宿主渲染端都引用它；
+ * 之前这套字面量在 4 处各写一遍，加一个位置得满仓库找。
+ */
+export type PanelLocation =
+  | 'sidebar'
+  | 'main'
+  | 'statusbar'
+  | 'modal'
+  /**
+   * 编辑器底部的辅助工具栏（手机端输入辅助、格式化按钮、快捷标签…）。
+   * **只在有面板注册到它时才渲染** —— 没有插件用它时，界面与现在完全一样。
+   */
+  | 'editor-toolbar'
+
 /** 6. view —— 视图挂载 */
 export interface ViewApi {
   registerPanel(spec: {
     id: string
     title: string
     icon?: string
-    location: 'sidebar' | 'main' | 'statusbar' | 'modal'
+    location: PanelLocation
     render: (ctx: ViewCtx) => UINode
   }): Disposable
   registerWebView(spec: {
@@ -269,6 +295,15 @@ export interface HostApi {
    * `http(s):` / `data:` / `blob:` 这类现成 URL 不用转，直接传给 `image.src` 即可。
    */
   assetUrl(relPath: string): string
+  /**
+   * 弹系统「另存为」对话框，把内容写到用户选的位置（**导出用**）。
+   *
+   * 返回实际保存的**绝对路径**；用户取消 ⇒ 返回 `null`（不是抛错，插件不用 try/catch）。
+   * 注意这是**写到库外**的通道 —— 库内写入请走 `fs.writeText`，那条路才有原子写与范围校验。
+   * v0.1 只收字符串；PDF / 图片 / zip 这类二进制导出需要插件先转成 `data:` URL 或
+   * 用 `html` 节点让用户右键另存（二进制直写排在下一版）。
+   */
+  saveFile(params: { defaultName?: string; content: string }): Promise<string | null>
 }
 
 export const API_VERSION = '0.1.0'
@@ -338,7 +373,7 @@ export type PluginManifest = {
     panels?: {
       id: string
       title: string
-      location: 'sidebar' | 'main' | 'statusbar' | 'modal'
+      location: PanelLocation
     }[]
   }
 }

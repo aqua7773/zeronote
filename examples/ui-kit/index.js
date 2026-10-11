@@ -26,6 +26,40 @@ export default {
       },
     })
 
+    /** 第 1 批新能力：fs.mkdir（多级目录一次到位） */
+    command.register({
+      id: 'ui-kit.mkdir',
+      title: 'UI 组件演示：新建目录',
+      run: async (payload) => {
+        const dir = payload?.dir ?? '_ui-kit-demo'
+        try {
+          await api.fs.mkdir(dir)
+          view.setState('lastHit', `fs.mkdir 成功：${dir}`)
+        } catch (e) {
+          view.setState('lastHit', `fs.mkdir 失败：${String(e)}`)
+        }
+        view.refresh()
+      },
+    })
+
+    /** 第 1 批新能力：host.saveFile（系统另存为；取消返回 null，不抛错） */
+    command.register({
+      id: 'ui-kit.export',
+      title: 'UI 组件演示：导出到文件',
+      run: async () => {
+        try {
+          const p = await api.host.saveFile({
+            defaultName: 'ui-kit-导出.txt',
+            content: '这是 ui-kit 插件通过 host.saveFile 写出的文件。\n',
+          })
+          view.setState('lastHit', p ? `已导出：${p}` : '导出已取消')
+        } catch (e) {
+          view.setState('lastHit', `导出失败：${String(e)}`)
+        }
+        view.refresh()
+      },
+    })
+
     // 一张自包含的小图（data: URL，不联网）—— 用来验证 image 节点
     const dot =
       'data:image/svg+xml;utf8,' +
@@ -220,6 +254,35 @@ export default {
             { type: 'spacer', size: 'md' },
             { type: 'divider' },
 
+            /* ── 第 1 批新能力的现场验证（fs 文件夹操作 + 导出落盘）── */
+            {
+              type: 'stack',
+              gap: 'sm',
+              children: [
+                { type: 'text', value: '新增能力的现场验证', variant: 'caption', tone: 'muted' },
+                {
+                  type: 'row',
+                  gap: 'sm',
+                  wrap: true,
+                  children: [
+                    {
+                      type: 'button',
+                      label: '建目录',
+                      onClick: 'ui-kit.mkdir',
+                      payload: { dir: '_ui-kit-demo/子目录' },
+                    },
+                    { type: 'button', label: '导出到文件…', variant: 'ghost', onClick: 'ui-kit.export' },
+                  ],
+                },
+                {
+                  type: 'text',
+                  value: '「建目录」走 fs.mkdir；「导出」会弹系统另存为（host.saveFile）',
+                  variant: 'caption',
+                  tone: 'muted',
+                },
+              ],
+            },
+
             /* ── 交互反馈 ── */
             {
               type: 'stack',
@@ -233,6 +296,32 @@ export default {
           ],
         }
       },
+    })
+
+    /**
+     * 编辑器底部工具栏（`location: 'editor-toolbar'`）—— 手机端辅助输入的标准位置。
+     *
+     * 这段同时是「按需激活」的验证点：**卸掉本插件，整条工具栏会消失**，
+     * 因为宿主对 `toolbarPanels.length === 0` 的处理是一个 DOM 都不渲染。
+     */
+    view.registerPanel({
+      id: 'ui-kit.toolbar',
+      title: '输入辅助',
+      location: 'editor-toolbar',
+      render: () => ({
+        type: 'row',
+        gap: 'sm',
+        align: 'center',
+        wrap: true,
+        children: [
+          { type: 'button', label: 'H1', onClick: 'ui-kit.hit', payload: { insert: '# ' } },
+          { type: 'button', label: '待办', onClick: 'ui-kit.hit', payload: { insert: '- [ ] ' } },
+          { type: 'button', label: '代码块', onClick: 'ui-kit.hit', payload: { insert: '```' } },
+          { type: 'button', label: '引用', onClick: 'ui-kit.hit', payload: { insert: '> ' } },
+          { type: 'button', label: '表格', onClick: 'ui-kit.hit', payload: { insert: '| a | b |' } },
+          { type: 'badge', text: '工具栏', tone: 'muted' },
+        ],
+      }),
     })
   },
 }

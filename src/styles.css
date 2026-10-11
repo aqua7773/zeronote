@@ -473,6 +473,30 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/* 编辑器底部工具栏（`location: 'editor-toolbar'`）
+   只在插件注册了该位置时才存在 —— 无插件时这个元素**根本不挂载**，
+   所以样式怎么写都不会影响默认界面（这是"按需激活"在 CSS 这一层的体现）。 */
+.zn-editor-toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--zn-space-2);
+  padding: var(--zn-space-2) var(--zn-space-3);
+  border-top: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+  /* 手机底部有手势条：别把按钮压进系统手势区 */
+  padding-bottom: max(var(--zn-space-2), env(safe-area-inset-bottom, 0px));
+}
+/* 工具栏里的面板按内容宽自适应，别撑满整行 */
+.zn-editor-toolbar > * { flex: 0 1 auto; min-width: 0; }
+/* 工具栏空间紧张，把主区那套间距档位收窄 */
+.zn-editor-toolbar .zn-ui-root,
+.zn-editor-toolbar .zn-ui-stack { gap: var(--zn-space-1); }
+.zn-editor-toolbar .zn-ui-row { gap: var(--zn-space-1); }
+/* 按钮矮一点，省竖向空间 */
+.zn-editor-toolbar .zn-btn { padding-top: 3px; padding-bottom: 3px; }
+
 /* ───────── 按钮与空态 ───────── */
 
 .zn-btn {

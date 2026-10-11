@@ -251,6 +251,69 @@ fn note_exists(vault: String, path: String) -> Result<bool, String> {
   Ok(resolve(&vault, &path)?.exists())
 }
 
+/// 新建目录（多级父目录一起建）—— `notes/2026/10` 这种一次到位。
+/// 目录已存在不算错（幂等），但**同名的文件**要拒绝。
+#[tauri::command]
+fn create_dir(vault: String, path: String) -> Result<(), String> {
+  let abs = resolve(&vault, &path)?;
+  if abs.exists() && !abs.is_dir() {
+    return Err(format!("同名文件已存在：{path}"));
+  }
+  fs::create_dir_all(&abs).map_err(|e| format!("创建目录失败（{path}）：{e}"))
+}
+
+/// 移动 / 重命名 **文件或整个目录树**。
+///
+/// 与 `rename_note` 的分工：那个只搬文件、且语义是"改个名"；这个是**文件夹管理的核心操作**，
+/// 所以要能搬目录。规则：
+///  · 目标是**已存在的目录** ⇒ 视为"移入该目录"（与 `mv` 一致，插件写起来最省心）
+///  · 其他情况 ⇒ 直接当新路径；已存在则拒绝（不静默覆盖）
+///  · **禁止把目录移进自己的子孙** —— 那会造出无限递归，而 `fs::rename` 在那种输入下
+///    各平台行为不一致（有的报 EINVAL，有的真移进自己里面）
+#[tauri::command]
+fn move_entry(vault: String, from: String, to: String) -> Result<(), String> {
+  let src = resolve(&vault, &from)?;
+  if !src.exists() {
+    return Err(format!("源不存在：{from}"));
+  }
+  let mut dst = resolve(&vault, &to)?;
+  if src == dst {
+    return Err("源与目标相同".to_string());
+  }
+  if dst.is_dir() {
+    let name = src
+      .file_name()
+      .ok_or_else(|| format!("无法取得名称：{from}"))?;
+    dst = dst.join(name);
+  }
+  if dst.exists() {
+    return Err(format!("目标已存在，不覆盖：{to}"));
+  }
+  if src.is_dir() && dst.starts_with(&src) {
+    return Err("不能把目录移到它自己的子目录里".to_string());
+  }
+  if let Some(parent) = dst.parent() {
+    fs::create_dir_all(parent).map_err(|e| format!("创建目标目录失败：{e}"))?;
+  }
+  fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
+}
+
+/// 把内容写到**库外的绝对路径**（导出落盘用）。
+///
+/// 这是**故意的提权入口**：库内写入一律走 `resolve` 白名单，而"导出"天生要写到用户
+/// 随手选的位置（桌面、U 盘…），没法预先圈定范围。为把它关到尽量小：
+///  · 只接受**绝对路径** —— 相对路径在这里没有库作基准，容易被误当成"库内路径"绕过语义；
+///  · 不建父目录（目标目录必须已存在，写错地方就报错而不是悄悄造出一串目录）；
+///  · 覆盖与否交给系统"另存为"对话框，它自己会问用户。
+#[tauri::command]
+fn write_absolute(path: String, content: String) -> Result<(), String> {
+  let p = PathBuf::from(&path);
+  if !p.is_absolute() {
+    return Err(format!("导出路径必须是绝对路径：{path}"));
+  }
+  fs::write(&p, content).map_err(|e| format!("写入失败（{path}）：{e}"))
+}
+
 /// 确保库目录（含私有目录）存在。
 /// Android 首次启动时应用私有目录里还没有 `vault`，不建的话 `list_notes` 会直接报「库目录不存在」。
 #[tauri::command]
@@ -414,6 +477,9 @@ pub fn run() {
       rename_note,
       delete_note,
       note_exists,
+      create_dir,
+      move_entry,
+      write_absolute,
       list_plugins,
       read_plugin_file,
       plugin_store_read,
@@ -457,6 +523,34 @@ mod tests {
     assert!(delete_plugin(vault.clone(), "a/b".to_string()).is_err());
     // 不存在 ⇒ 明确报错，而不是假装成功（界面不该弹出"已删除"）
     assert!(delete_plugin(vault, "nope".to_string()).is_err());
+  }
+
+  /// 文件夹操作：多级建目录（幂等）· 整树搬迁 · `mv` 语义 · 拒绝把目录移进自己的子孙
+  #[test]
+  fn dir_ops_create_and_move_safely() {
+    let d = tmpdir("dirops");
+    let vault = d.to_string_lossy().into_owned();
+
+    create_dir(vault.clone(), "笔记/2026/10".to_string()).unwrap();
+    assert!(d.join("笔记").join("2026").join("10").is_dir());
+    create_dir(vault.clone(), "笔记/2026/10".to_string()).unwrap(); // 幂等
+
+    // 目录里放个文件，验证搬的是整棵树
+    fs::write(d.join("笔记").join("a.md"), "x").unwrap();
+    move_entry(vault.clone(), "笔记".to_string(), "归档".to_string()).unwrap();
+    assert!(d.join("归档").join("a.md").is_file());
+    assert!(!d.join("笔记").exists());
+
+    // 目标是已存在目录 ⇒ 移入其中（mv 语义）
+    create_dir(vault.clone(), "目标".to_string()).unwrap();
+    move_entry(vault.clone(), "归档/a.md".to_string(), "目标".to_string()).unwrap();
+    assert!(d.join("目标").join("a.md").is_file());
+
+    // 目录不能移进自己的子孙
+    assert!(move_entry(vault.clone(), "目标".to_string(), "目标/子".to_string()).is_err());
+    // 越界路径照样被 resolve 的白名单挡下
+    assert!(create_dir(vault.clone(), "../evil".to_string()).is_err());
+    assert!(move_entry(vault, "目标".to_string(), "../evil".to_string()).is_err());
   }
 
   /// private_root：库位于 `.vaults/<名字>/` 时，私有目录落到**库根**

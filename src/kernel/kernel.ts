@@ -4,7 +4,8 @@
  * 这里是**唯一的组装点**：UI 只跟 `Kernel` 打交道，插件只跟 `PluginContext` 打交道，
  * 两者都不知道对方存在。
  */
-import { convertFileSrc } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
 import { API_VERSION } from './contract'
 import type {
   Disposable,
@@ -12,6 +13,7 @@ import type {
   FsApi,
   HostApi,
   IndexApi,
+  PanelLocation,
   StoreApi,
   UINode,
   ViewApi,
@@ -27,7 +29,7 @@ export type PanelRegistration = {
   id: string
   title: string
   icon?: string
-  location: 'sidebar' | 'main' | 'statusbar' | 'modal'
+  location: PanelLocation
   render: (ctx: ViewCtx) => UINode
   /** 由插件宿主注入（面板归属哪个插件，UI 上用于标注来源） */
   pluginId?: string
@@ -115,6 +117,14 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         // 非 Tauri 环境（浏览器预览）没有 asset 协议，退回原路径，别让渲染整个炸掉
         return abs
       }
+    },
+    async saveFile({ defaultName, content }) {
+      // 系统「另存为」对话框：用户取消返回 null（**不抛错** —— 取消是正常操作，不是异常）
+      const picked = await save({ defaultPath: defaultName })
+      if (!picked) return null
+      // 库外写入走专用命令（只收绝对路径），见 src-tauri/src/lib.rs 的 write_absolute
+      await invoke('write_absolute', { path: picked, content })
+      return picked
     },
   }
 

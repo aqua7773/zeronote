@@ -131,6 +131,8 @@ function scopedFs(fs: FsApi, caps: Capability[], pluginId: string): FsApi {
     writeText: () => deny(pluginId, 'fs:write'),
     createNote: () => deny(pluginId, 'fs:write'),
     rename: () => deny(pluginId, 'fs:write'),
+    mkdir: () => deny(pluginId, 'fs:write'),
+    move: () => deny(pluginId, 'fs:write'),
     delete: () => deny(pluginId, 'fs:write'),
   }
 }

@@ -29,6 +29,12 @@ export function createFsApi(
     rename: (from: string, to: string) =>
       invoke<void>('rename_note', { vault, from, to }),
 
+    /** 多级建目录（幂等）—— 文件夹功能的基础 */
+    mkdir: (path: string) => invoke<void>('create_dir', { vault, path }),
+
+    /** 移动 / 重命名文件或**整个目录树**（mv 语义：`to` 是已存在目录时移入其中） */
+    move: (from: string, to: string) => invoke<void>('move_entry', { vault, from, to }),
+
     /** 移入 `.zn/trash/`，返回**回收站里的库内相对路径**（供撤销 rename 回来） */
     delete: (path: string) =>
       invoke<string>('delete_note', { vault, path }),
