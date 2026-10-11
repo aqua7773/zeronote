@@ -406,14 +406,21 @@ button {
   padding: 12px 16px;
 }
 
+/* 状态栏：22px 高 / 12px 字号（VS Code 与 Obsidian 都是这个量级）。
+   只放「信息型」内容 —— 笔记数、库路径、插件注册的状态栏小部件。
+   配置类计数（插件 N/M）不放这儿，那是设置页的信息。 */
 .zn-statusbar {
   display: flex;
-  gap: var(--zn-space-3);
+  gap: 12px;
   align-items: center;
-  padding: 3px var(--zn-space-4);
+  height: 22px;
+  flex: none;
+  padding: 0 10px;
   border-top: 1px solid var(--zn-border);
-  font-size: var(--zn-text-sm);
+  font-size: 12px;
   color: var(--zn-fg-muted);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 /* ───────── 声明式 UI（components/UIRenderer.tsx 专用）─────────

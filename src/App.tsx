@@ -764,7 +764,6 @@ export default function App() {
 
         <div className="zn-statusbar">
           <span>{notes.length} 篇</span>
-          {vault && <span title={vault}>{vault}</span>}
           {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
           {statusPanels.map((p) => (
             <PanelBoundary key={p.id}>
@@ -776,8 +775,8 @@ export default function App() {
               />
             </PanelBoundary>
           ))}
-          <span style={{ marginLeft: 'auto' }}>
-            插件 {loadedIds.length}/{manifests.length}
+          <span style={{ marginLeft: 'auto' }} title={vault ?? ''}>
+            {vault ?? ''}
           </span>
           {error && <span style={{ color: 'var(--zn-danger)' }}>⚠ {error}</span>}
         </div>
