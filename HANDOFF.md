@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 12
-更新时间: 2026-10-12（凌晨 · 状态栏由「始终隐藏」改为按需显隐）
+revision: 13
+更新时间: 2026-10-12（凌晨 · 真机 HMR 修复 + 手机端多库）
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
 
@@ -39,6 +39,8 @@ revision: 12
 | **面板位置分流** | `_shots\loc-01/03/04/05/06/10.png`：statusbar→状态栏 widget（不进 tab）、sidebar→右栏、main→主编辑区（带返回条）、modal→Dialog 弹窗，四种位置逐个验收 | `c6bc326` | 2026-10-11 |
 | **即时渲染** | `_shots\ed-03-tree.png`：打开笔记后 `# 新笔记` 渲染为加粗大字、源码 `#` 隐藏 | `c6bc326` | 2026-10-11 |
 | **关闭当前笔记**（用户反馈补） | `_shots\cn-01-opened.png`（✕ 出现）→ `cn-04-closed.png`（点击后路径变「没有打开笔记」、主区回欢迎页）。用户原话：「编辑页面没有返回的办法」 | 见下 | 2026-10-11 |
+| **🔄 真机 HMR 修复** | `_shots\android-hmr-test.png`：改 `App.tsx` 文案后真机界面**自动**出现 `HMR-OK`，无需重新构建安装；设备日志 `[vite] connected.` + `hot updated: /src/App.tsx` | `7cace9e` | 2026-10-12 |
+| **📚 手机端多库** | `_shots\android-vault-listed3.png`（面板列出「默认库·当前」+ `.vaults/Work`）· `android-vault-switched.png`（切到 Work：顶栏变 Work、底栏 **5 篇 → 0 篇**）· `android-vault-new-ok.png`（新建「1231」目录建出并自动切过去）· `android-vault-final.png`（切回默认库恢复 5 篇） | `3e2886d` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -97,9 +99,16 @@ revision: 12
      （`android-dev.cmd` 里本来就设了，手动敲命令容易漏）。
      **并且命令要用绝对路径**（`$tauri = Join-Path $root 'node_modules\.bin\tauri.cmd'`）——
      设 `$root = '...'` 变量**不会改变当前目录**，`& '.\node_modules\...'` 会按会话 CWD 解析而找不到。
-  ② **热重载不会自动建长连接**：改完 `src/` 后设备上仍是旧资源，需冷启动应用
-     （`adb shell am force-stop com.aqua.zeronote.debug` + `am start -n
-     com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`）才会重新拉 devUrl。
+  ② ~~**热重载不会自动建长连接**~~ → **2026-10-12 已修复**（`7cace9e`）。根因：vite 客户端的
+     HMR 地址取自页面 `location.hostname`，而安卓 WebView 里那是 `tauri.localhost`（Tauri 的 origin），
+     手机连不到 ⇒ 每次冷启动必报 `[vite] failed to connect to websocket`。
+     修法：`vite.config.ts` 新增 `lanIp()`（**排除 vEthernet / Hyper-V / WSL 等虚拟网卡**，优先
+     `192.168.*` —— 本机同时有 `192.168.1.20`(WLAN) 与 `172.31.32.1`(vEthernet)，取错比不设更糟）
+     并设 `server.hmr.host`，可用 `ZN_HMR_HOST` 覆盖。
+     **现在改 `src/` 真机自动热更新**：设备日志会出现 `[vite] connected.` + `hot updated: /src/xxx`。
+     ⚠️ 改 `vite.config.ts` 时**不要并行 edit** —— vite watcher 会读到半成品配置（首次没生效就是这原因）。
+     ⚠️ **Rust 改动**由 android dev 自动重编（日志 `Compiling zeronote` + symlink `.so`），
+     但**新增 Tauri 命令**后要等它重新装 APK 才在真机可用。
   ③ **原生资源（themes.xml / MainActivity.kt）改动热重载不覆盖**，必须重新构建安装。
   ④ **Android 构建会卡在 Gradle 文件锁**（2026-10-11 深夜实测）：日志停在
      `Blocking waiting for file lock on Android` 然后 `EXIT=-1`（Windows 上 =-1 通常是被强制终止）。
@@ -121,6 +130,20 @@ revision: 12
      侧栏（抽屉）打开 → 隐藏；收起（首页）→ 显示。`MainActivity.kt` 只保留 behavior 设置。
      **导航栏刻意不碰**（只用 `Type.statusBars()`）。实现细节、真机证据与接入方式见
      下方「未完成项 → 待真机复验」里那条。
+- **手机端多库的目录约定**（2026-10-12，`3e2886d`）：
+
+  ```
+  Documents/ZeroNote/          ← 库根（默认库就是它，现有内容原地不动、零迁移）
+  ├── .zn/                     ← 私有：插件 / store / trash
+  ├── .vaults/<库名>/          ← 其它库都在这（每个库各自有 .zn/）
+  └── *.md + 灵感/             ← 默认库的内容
+  ```
+
+  为什么用 `.vaults` 这种 `.` 开头的名字：`lib.rs` 的 `collect()` **跳过所有 `.` 开头的名字**，
+  于是容器里的库不会串进默认库的文件树，**不需要额外维护黑名单**
+  （Rust 的 `VAULTS_DIR` 与前端 `src/lib/vaults.ts` 的常量必须保持一致）。
+  ⚠️ 安卓**没有**目录选择器（Tauri 源码级返回 `FolderPickerNotImplemented`），
+  所以手机端不提供「选任意文件夹」这个能力；桌面端仍走系统选择器，两端互不干扰。
 
 ## 插件系统进展（2026-10-11 深夜，本次会话）
 
