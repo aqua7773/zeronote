@@ -1053,14 +1053,20 @@ export default function App() {
       { label: '打印…', onClick: () => window.print() },
     )
 
-    // ── 侧栏 ──
-    if (sidebarVisible && mainView === 'editor') {
+    // ── 侧栏：一个开关项，按当前状态在「关闭 / 打开」之间切换 ──
+    if (mainView === 'editor') {
       items.push({
-        label: '关闭笔记库栏',
+        label: sidebarVisible ? '关闭笔记库栏' : '打开笔记库栏',
         divider: true,
         onClick: () => {
-          setSidebarVisible(false)
-          setSidebarOpen(false)
+          if (sidebarVisible) {
+            setSidebarVisible(false)
+            setSidebarOpen(false)
+          } else {
+            // 窄屏下侧栏是抽屉，得同时置 open 才看得见；宽屏下 open 无副作用
+            setSidebarVisible(true)
+            setSidebarOpen(true)
+          }
         },
       })
     }
