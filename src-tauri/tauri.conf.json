@@ -5,7 +5,7 @@
   "identifier": "com.aqua.zeronote",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420/?vault=C:/Users/AQUA/Documents/deepseek/ZeroNote/_test-vault",
+    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },

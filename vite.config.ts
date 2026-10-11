@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // Android 真机要通过局域网 IP 访问 dev server（tauri android dev 会选定本机 IP）
+    host: true,
     watch: { ignored: ['**/src-tauri/**'] },
   },
   build: {

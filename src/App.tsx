@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
+import { appDataDir } from '@tauri-apps/api/path'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type PanelRegistration } from './kernel/kernel'
 import {
@@ -83,6 +84,29 @@ export default function App() {
     disabledRef.current = disabled
     localStorage.setItem(LS_DISABLED, JSON.stringify([...disabled]))
   }, [disabled])
+
+  /** 运行平台 —— Android 上应用能访问的文件范围与桌面不同 */
+  const platform: 'android' | 'windows' = /Android/i.test(navigator.userAgent)
+    ? 'android'
+    : 'windows'
+
+  /* ── Android：没指定库时用「应用数据目录/vault」──
+     手机上的应用访问不了任意文件夹（SAF 限制），所以默认库落在私有目录里。 */
+  useEffect(() => {
+    if (vault || platform !== 'android') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const dir = await appDataDir()
+        if (!cancelled) setVault(`${dir.replace(/[\\/]+$/, '')}/vault`)
+      } catch (e) {
+        setError(`无法确定应用数据目录：${String(e)}`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [vault, platform])
 
   /* ── doc 原语：React 状态 + CM6 实例 → 契约形状 ── */
   const docApi: DocApi = useMemo(
