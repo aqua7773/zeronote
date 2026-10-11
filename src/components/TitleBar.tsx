@@ -51,19 +51,15 @@ export function TitleBar({
   // 用 `margin-top` 而不是 `transform`：标题栏要的是 **push（把下面挤下去）**，
   // 不是 overlay（浮在内容上面）。margin 参与布局，收起来时下面的内容会跟着顶上来。
   // 只处理 mouseEnter（进栏即显示），**不处理 mouseLeave** ——
-  // 收起要走宿主 App 的「离开后停留 3 秒」逻辑，在这里直接置 false 会把延迟绕过去
+  // 收起要走宿主 App 的「离开后停留」逻辑，在这里直接置 false 会把延迟绕过去
   //（实测过：1.5 秒就被收走了）。
   //
-  // 时长**不对称**：展开 450ms、收回 1200ms。
-  // 用户反馈「顶部收回再慢点」—— 收起是从视野里淡出，慢一点才不突兀；
-  // 展开要跟手。transition 由**目标状态**决定，所以这里按 visible 分支写。
+  // 展开与收回**同一时长**（用户要求「收回时间跟弹出时间保持一致」）。
   const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)'
   const barStyle = {
     marginTop: visible ? 0 : -32,
     opacity: visible ? 1 : 0,
-    transition: visible
-      ? `margin-top 450ms ${EASE}, opacity 450ms ${EASE}`
-      : `margin-top 1200ms ${EASE}, opacity 1200ms ${EASE}`,
+    transition: `margin-top 450ms ${EASE}, opacity 450ms ${EASE}`,
   }
 
   return (
