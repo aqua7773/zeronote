@@ -33,8 +33,8 @@ export interface FsApi {
   writeText(path: string, content: string): Promise<void>
   createNote(path: string, content?: string): Promise<void>
   rename(from: string, to: string): Promise<void>
-  /** 移入 .zn/trash/，不是物理删除 */
-  delete(path: string): Promise<void>
+  /** 移入 .zn/trash/（不是物理删除）；返回回收站里的库内相对路径，供撤销 rename 回来 */
+  delete(path: string): Promise<string>
   exists(path: string): Promise<boolean>
   watch(cb: (e: FsChange) => void): Disposable
 }

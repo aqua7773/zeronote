@@ -74,6 +74,9 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
+      删除本身是一步完成的（不弹确认框打断用户），可撤销性由这条提示提供。 */
+  const [undoDelete, setUndoDelete] = useState<{ path: string; trash: string } | null>(null)
 
   /* ── 插件 ── */
   const [manifests, setManifests] = useState<PluginManifest[]>([])
@@ -345,7 +348,7 @@ export default function App() {
       if (!k) return
       try {
         if (activeRef.current === path && dirtyRef.current) await saveNowRef.current()
-        await k.fs.delete(path)
+        const trashPath = await k.fs.delete(path)
         if (activeRef.current === path) {
           setActivePath(null)
           setContent('')
@@ -354,13 +357,39 @@ export default function App() {
         }
         await refresh()
         setError(null)
-        setToast('已移入回收站（.zn/trash/）')
+        // 一步删掉，给一次撤销机会（不弹确认框）—— 依据 Apple HIG：
+        // 「常见且可撤销的破坏操作不该弹窗，只有不可逆的才必须确认」
+        setUndoDelete({ path, trash: trashPath })
+        setToast(null)
       } catch (e) {
         setError(String(e))
       }
     },
     [kernel, refresh],
   )
+
+  /** 撤销删除：把回收站里的文件 rename 回原位 */
+  const undoDeleteNote = useCallback(async () => {
+    const k = kernel
+    if (!k || !undoDelete) return
+    try {
+      await k.fs.rename(undoDelete.trash, undoDelete.path)
+      await refresh()
+      setError(null)
+      setToast('已恢复')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setUndoDelete(null)
+    }
+  }, [kernel, refresh, undoDelete])
+
+  // 撤销条 5 秒后自动消失
+  useEffect(() => {
+    if (!undoDelete) return
+    const t = window.setTimeout(() => setUndoDelete(null), 5000)
+    return () => window.clearTimeout(t)
+  }, [undoDelete])
 
   const onEditorChange = useCallback((next: string) => {
     setContent(next)
@@ -886,11 +915,18 @@ export default function App() {
         index={kernel?.index ?? null}
       />
 
-      {toast && (
+      {undoDelete ? (
+        <div className="zn-undo" role="status">
+          <span>已移入回收站</span>
+          <button type="button" className="zn-undo-btn" onClick={() => void undoDeleteNote()}>
+            撤销
+          </button>
+        </div>
+      ) : toast ? (
         <div className="zn-toast" onClick={() => setToast(null)} role="status">
           {toast}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

@@ -198,9 +198,10 @@ fn rename_note(vault: String, from: String, to: String) -> Result<(), String> {
   fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))
 }
 
-/// 删除 = 移入 `.zn/trash/<时间戳>--<原名>`（可恢复）
+/// 删除 = 移入 `.zn/trash/<时间戳>--<原名>`（可恢复）。
+/// 返回回收站里的**库内相对路径**，供调用方做「撤销」（把它 rename 回原位）。
 #[tauri::command]
-fn delete_note(vault: String, path: String) -> Result<(), String> {
+fn delete_note(vault: String, path: String) -> Result<String, String> {
   let abs = resolve(&vault, &path)?;
   let trash = Path::new(&vault).join(PRIVATE_DIR).join("trash");
   fs::create_dir_all(&trash).map_err(|e| format!("创建回收站失败：{e}"))?;
@@ -212,8 +213,10 @@ fn delete_note(vault: String, path: String) -> Result<(), String> {
     .file_name()
     .map(|s| s.to_string_lossy().to_string())
     .unwrap_or_else(|| "note.md".to_string());
-  let dest = trash.join(format!("{stamp}--{name}"));
-  fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))
+  let file = format!("{stamp}--{name}");
+  let dest = trash.join(&file);
+  fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
+  Ok(format!("{PRIVATE_DIR}/trash/{file}"))
 }
 
 #[tauri::command]

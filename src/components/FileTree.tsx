@@ -39,7 +39,7 @@ function buildTree(notes: NoteMeta[]): TreeNode[] {
 const baseName = (p: string) => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p)
 
 /** 右键菜单的状态。`confirmDelete` = 已经在原位置切成「确认删除」 */
-type MenuState = { path: string; x: number; y: number; confirmDelete: boolean }
+type MenuState = { path: string; x: number; y: number }
 
 function Node({
   node,
@@ -196,28 +196,20 @@ export function FileTree({
     )
   }
 
+  // 删除是「一步完成 + 可撤销」—— 依据 Apple HIG：常见且可撤销的破坏操作不该弹确认，
+  // 只有不可逆的才必须确认。可撤销性由 App 的撤销条提供（几秒内能把文件搬回来）。
   const items: MenuItem[] = menu
-    ? menu.confirmDelete
-      ? [
-          {
-            label: `确认删除「${baseName(menu.path)}」`,
-            danger: true,
-            onClick: () => {
-              onDelete(menu.path)
-              setMenu(null)
-            },
+    ? [
+        { label: '重命名', onClick: () => startRename(menu.path) },
+        {
+          label: '删除',
+          danger: true,
+          onClick: () => {
+            onDelete(menu.path)
+            setMenu(null)
           },
-          { label: '取消', onClick: () => setMenu(null) },
-        ]
-      : [
-          { label: '重命名', onClick: () => startRename(menu.path) },
-          {
-            label: '删除…',
-            danger: true,
-            keepOpen: true,
-            onClick: () => setMenu((m) => (m ? { ...m, confirmDelete: true } : m)),
-          },
-        ]
+        },
+      ]
     : []
 
   return (
@@ -229,7 +221,7 @@ export function FileTree({
           depth={0}
           activePath={activePath}
           onOpen={onOpen}
-          onContextMenu={(path, x, y) => setMenu({ path, x, y, confirmDelete: false })}
+          onContextMenu={(path, x, y) => setMenu({ path, x, y })}
           renamingPath={renamingPath}
           draft={draft}
           setDraft={setDraft}

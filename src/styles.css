@@ -595,6 +595,10 @@ button {
   color: var(--zn-danger); font-size: var(--zn-text-sm);
 }
 .zn-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
+/* 撤销条：与 toast 同位，但带一个可点的动作 —— 删除是一步完成的，谁来兜底就靠它 */
+.zn-undo { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #18181b; color: #f4f4f5; padding: 8px 10px 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; }
+.zn-undo-btn { border: 0; border-radius: var(--zn-radius-sm); padding: 4px 10px; background: rgba(255,255,255,.14); color: #fff; font-size: var(--zn-text-sm); font-weight: 500; cursor: pointer; transition: background 120ms ease; }
+.zn-undo-btn:hover { background: rgba(255,255,255,.26); }
 
 /* ───────── 窄屏（手机竖屏）：单栏 + 抽屉式侧栏 ───────── */
 .zn-mobile-only { display: none; }

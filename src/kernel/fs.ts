@@ -26,8 +26,9 @@ export function createFsApi(vault: string): FsApi {
     rename: (from: string, to: string) =>
       invoke<void>('rename_note', { vault, from, to }),
 
+    /** 移入 `.zn/trash/`，返回**回收站里的库内相对路径**（供撤销 rename 回来） */
     delete: (path: string) =>
-      invoke<void>('delete_note', { vault, path }),
+      invoke<string>('delete_note', { vault, path }),
 
     exists: (path: string) =>
       invoke<boolean>('note_exists', { vault, path }),
