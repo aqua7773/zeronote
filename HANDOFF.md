@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 13
-更新时间: 2026-10-12（凌晨 · 真机 HMR 修复 + 手机端多库）
+revision: 14
+更新时间: 2026-10-12（凌晨 · 插件/store 共用库根 + 笔记库面板去黑框改短横线）
 标识: DSH-SUPERVISOR-V1
 项目: ZeroNote
 
@@ -41,6 +41,7 @@ revision: 13
 | **关闭当前笔记**（用户反馈补） | `_shots\cn-01-opened.png`（✕ 出现）→ `cn-04-closed.png`（点击后路径变「没有打开笔记」、主区回欢迎页）。用户原话：「编辑页面没有返回的办法」 | 见下 | 2026-10-11 |
 | **🔄 真机 HMR 修复** | `_shots\android-hmr-test.png`：改 `App.tsx` 文案后真机界面**自动**出现 `HMR-OK`，无需重新构建安装；设备日志 `[vite] connected.` + `hot updated: /src/App.tsx` | `7cace9e` | 2026-10-12 |
 | **📚 手机端多库** | `_shots\android-vault-listed3.png`（面板列出「默认库·当前」+ `.vaults/Work`）· `android-vault-switched.png`（切到 Work：顶栏变 Work、底栏 **5 篇 → 0 篇**）· `android-vault-new-ok.png`（新建「1231」目录建出并自动切过去）· `android-vault-final.png`（切回默认库恢复 5 篇） | `3e2886d` | 2026-10-12 |
+| **🔗 插件跨库共用 + 面板视觉** | `_shots\android-vault-T-plugins.png`：切到**空库 T**（底栏 0 篇、且 T 里没有 `.zn`）而 `☰` 菜单里 **Hello 插件 / 灵感流照旧在** ⇒ 插件确是从**库根**加载 · `android-vault-divider2.png`：去掉深色块后白底深字可读，库之间是 `rgb(228,228,231)` 的横线（像素扫描 y=1301 / 1458 / 1664 各 3px 高） | `24f7b46` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -115,7 +116,17 @@ revision: 13
      成因是**之前被 kill 的构建留下了 Gradle/Java 进程**占着锁（实测残留两个 java，起于最早那次
      构建被 kill 的时刻）。修法：
      `Get-Process | Where-Object { $_.ProcessName -match 'java|gradle' } | Stop-Process -Force`
-     清干净再重跑（Gradle daemon 会自动重建）。
+     清干净再重跑（Gradle daemon 会自动重建）。**别用字符串匹配杀 android-dev 相关进程** ——
+     匹配串会命中**执行该命令的 pwsh 自身**（实测把自己杀了，命令异常退出 4294967295）；
+     要杀就按 PID 精确杀。
+  ⑤ **Tailwind 的两个渲染坑**（2026-10-12 实测，都在笔记库面板上踩到）：
+     · **`divide-y divide-border` 在真机上一条线都不渲染**。像素级扫描整个面板中部
+       （x 420–800 逐行找非白像素）→ **无任何非白行**；换成显式 `border-t border-border`
+       后立刻出现 3px 高、色 `rgb(228,228,231)` 的整行横线。**要分隔线就写 border，别信 divide。**
+     · **`tailwind-merge` 不认识自定义色名**：`text-primary-foreground` 会被归进**字号**组，
+       与同元素的 `text-xs` 冲突后**静默丢掉颜色** ⇒ 深色底上的字变成"深灰压深灰"看不见
+       （用户反馈的原话：「挡住默认库的那个黑框影响阅读」正是这个）。
+       写组件时**别把自定义色名与字号类写在同一个元素上**，深色底能不用就不用。
 - **Android 系统栏（三阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
@@ -134,10 +145,19 @@ revision: 13
 
   ```
   Documents/ZeroNote/          ← 库根（默认库就是它，现有内容原地不动、零迁移）
-  ├── .zn/                     ← 私有：插件 / store / trash
-  ├── .vaults/<库名>/          ← 其它库都在这（每个库各自有 .zn/）
+  ├── .zn/                     ← 插件 + store（**跨库共用**）；trash 也在这层
+  ├── .vaults/<库名>/          ← 其它库都在这（**里面不再有 .zn**）
   └── *.md + 灵感/             ← 默认库的内容
   ```
+
+  **私有目录落在哪由 `private_root()` 决定**（`lib.rs`）：默认就是库自己；
+  库在 `.vaults/<名字>/` 里时落在**库根** ⇒ 插件与 store 跨库共用，切库不会再
+  「插件全没了」（**真机已验**：切到空库 `T`，`☰` 菜单里 Hello 插件 / 灵感流照旧在，
+  而 `T` 里根本没有 `.zn`）。`ensure_vault` 同样建在 `private_root` 上，
+  所以新库目录里不会再冒出空的 `.zn`。
+  ⚠️ **回收站刻意例外**（仍写库内的 `.zn/trash/`）：删的是库内笔记，而且 `resolve()`
+  只接受库内相对路径，库根方向的 `../.zn/...` 会被它拒掉、撤销删除会失效。
+  桌面端用户自选的库路径不含 `.vaults` ⇒ 走默认分支，行为与以前完全一致。
 
   为什么用 `.vaults` 这种 `.` 开头的名字：`lib.rs` 的 `collect()` **跳过所有 `.` 开头的名字**，
   于是容器里的库不会串进默认库的文件树，**不需要额外维护黑名单**
