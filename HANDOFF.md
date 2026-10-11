@@ -83,6 +83,16 @@ revision: 6
 - [ ] `doc.on` 文档事件订阅（v0.2）
 - [x] **编辑器缺「关闭当前笔记」** ✅（用户 2026-10-11 反馈「编辑页面没有返回的办法」）—— 顶栏路径右侧加 ✕（有打开笔记时才出现）+ 命令 `core.closeNote`（`Mod+W`）；`closeNote()` 有未保存内容先落盘，语义与切笔记/切库一致
 - [ ] **移动端「回列表」入口是否够明显**（待用户确认）：窄屏抽屉由顶栏 `☰` 开关，打开笔记后抽屉会自动收起；若用户期望的是"返回列表"而非"关闭笔记"，需把 ✕ 改成返回语义或补一个显式返回键
+- [ ] **编辑器内「替换」缺失**（P1 第 4 项只完成一半）：`Ctrl+F` 查找可用（atomic 内置面板：
+      查找框 / 上下一个 / 关闭 / 匹配高亮 / 命中计数），但**替换不可用**。已查明原因：
+      · 面板**不是** CM6 原生 `defaultSearchPanel`（placeholder 是 "Search" 而非 "Find"，
+        `EditorState.phrases` 覆盖对它无效）→ atomic 实际渲染的是自己那套面板
+      · atomic handle 只暴露 `openSearch / closeSearch / revealText / isSearchOpen /
+        getMarkdown / getContentDOM / setReadOnly / focus / undo / redo` —— **没有 replace**
+      · `Ctrl+H` 无绑定；用 CSS 强制显示替换行也无效 → 该行在 DOM 里根本没渲染
+      两条实现路径（择一）：① 自带替换 UI（用 handle 的 getMarkdown + doc 原语做替换）
+      ② 不用 atomic 的 search，自己在 extensions 里挂 CM6 的 search 扩展
+      （会与它内置的重复，需先确认能否关掉它的）
 - [ ] 更多真插件（画布 / 同步 / AI 等，用户说清单「先保留」）
 
 ## 唯一下一步
