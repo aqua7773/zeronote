@@ -6,7 +6,10 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { Disposable, FsApi, FsChange, NoteMeta } from './contract'
 
-export function createFsApi(vault: string): FsApi {
+export function createFsApi(
+  vault: string,
+  onWatchError?: (err: unknown) => void,
+): FsApi {
   return {
     vaultPath: () => vault,
 
@@ -41,8 +44,23 @@ export function createFsApi(vault: string): FsApi {
       let disposed = false
       let unlisten: (() => void) | null = null
 
+      /**
+       * 插件的 watch 回调抛错，不能掀掉内核的监听通道 ——
+       * 与 event 总线同一条规矩：每个回调单独兜底。
+       * （Tauri 事件分发与轮询定时器都在内核这一侧，一次未捕获异常就可能让后续
+       *   通知全断，而插件作者写错一个字段名是最常见的事。）
+       */
+      const safeCb = (e: FsChange) => {
+        try {
+          cb(e)
+        } catch (err) {
+          if (onWatchError) onWatchError(err)
+          else console.warn('[zn] fs.watch 回调抛错（已忽略，不影响其它监听）', err)
+        }
+      }
+
       listen<FsChange>('zn://fs-change', (ev) => {
-        if (!disposed) cb(ev.payload)
+        if (!disposed) safeCb(ev.payload)
       })
         .then((fn) => {
           if (disposed) fn()
@@ -61,10 +79,10 @@ export function createFsApi(vault: string): FsApi {
           const now = new Map(notes.map((n) => [n.path, n.mtime]))
           for (const [path, mtime] of now) {
             const prev = last.get(path)
-            if (prev === undefined) cb({ kind: 'create', path })
-            else if (prev !== mtime) cb({ kind: 'modify', path })
+            if (prev === undefined) safeCb({ kind: 'create', path })
+            else if (prev !== mtime) safeCb({ kind: 'modify', path })
           }
-          for (const path of last.keys()) if (!now.has(path)) cb({ kind: 'delete', path })
+          for (const path of last.keys()) if (!now.has(path)) safeCb({ kind: 'delete', path })
           last = now
         } catch {
           /* 库不可用（被移动/删除）时静默，下一轮再试 */

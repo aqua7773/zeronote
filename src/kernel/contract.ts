@@ -208,8 +208,22 @@ export type PluginManifest = {
   version: string
   /** 契约版本范围，如 `^0.1.0` */
   apiVersion: string
-  /** 入口脚本，插件目录内相对路径（v0.1 只支持单文件） */
-  entry: string
+  /**
+   * 入口脚本，插件目录内相对路径（POSIX）。
+   * **可选** —— 纯样式（主题类）插件可以只声明 `styles` 而不写 JS。
+   * 入口形态由宿主按内容嗅探：ESM / CommonJS / 全局注册（IIFE）三种都能吃。
+   */
+  entry?: string
+  /**
+   * 除入口外还需要被 `require()` 的文件（POSIX 相对路径）。
+   * 声明后宿主会把它们与入口一起读出来，装进一个极简的虚拟 CommonJS 运行时
+   * ⇒ 单文件限制解除，插件可以正常拆 `lib/util.js` 这类模块。
+   * 注意：只有 CommonJS 风格的 `require('./x.js')` 能被解析；ESM 的相对导入
+   * 需要打包器，v0.1 不支持（见 docs/内核契约-v0.1.md §3）。
+   */
+  files?: string[]
+  /** 要注入的样式表（POSIX 相对路径）。主题类插件只写 CSS 即可，不必有 entry */
+  styles?: string[]
   description?: string
   /** 支持的平台；缺省 = 全平台。M3 的 Android 必需项（桌面子进程语义在真机会失败） */
   platforms?: ('desktop' | 'android' | 'web')[]
