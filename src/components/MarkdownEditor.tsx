@@ -56,6 +56,11 @@ const EDITOR_CSS = `
   max-width: none !important;
   margin-inline: 0 !important;
 }
+/* CM6 的查找/替换面板本来是「两行块流」（中间用 <br> 分隔），
+   而 atomic 给它的 form 设了不换行的 flex —— 结果替换行与后面的按钮被挤出可视区
+   （实测只剩 查找框 + ↑ ↓ ✕）。恢复块流即可拿回完整的查找+替换面板。 */
+.zn-editor .atomic-editor-search-panel form { display: block; }
+.zn-editor .atomic-editor-search-panel .cm-textfield { width: min(20rem, 55%); }
 `
 
 /**
@@ -177,6 +182,12 @@ export function MarkdownEditor({ path, value, onChange, onSave, onReady }: Props
   // （它的 mount effect 只依赖 documentId）。因此不需要 useRef/useState 缓存 ——
   // 也顺带避免了在 render 期读 `*.current`（oxlint 的 react(refs) 会报）。
   const extensions: Extension[] = [
+    // ⚠️ 查找面板**不是** CM6 原生的 `defaultSearchPanel`（踩坑记录，别再试一遍）：
+    // atomic 的源码写的是 `search({ top: true, createPanel: … defaultSearchPanel(…) })`，
+    // 但实测面板只有一个查找框 + 上/下/关闭（placeholder 是 "Search" 而非 CM6 的 "Find"），
+    // 且 `EditorState.phrases` 覆盖对它**完全无效** —— 说明它实际渲染的是自己那套面板。
+    // 由此得出：**Ctrl+F 查找可用；替换不可用**（替换行只在 CM6 原生面板里，且
+    // handle 也没暴露 replace API，Ctrl+H 无绑定）。补替换只能自带 UI 或替换 search 扩展。
     ViewPlugin.fromClass(
       class {
         readonly view: EditorView
