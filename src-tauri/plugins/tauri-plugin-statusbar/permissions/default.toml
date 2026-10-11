@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """ZeroNote 状态栏插件：允许前端按需隐藏 / 显示 Android 状态栏（导航栏不受影响）。
+侧栏（抽屉）打开时隐藏、收起（首页）时显示，由 App 的 sidebarOpen 状态驱动。"""
+permissions = ["allow-set-status-bar-visible"]

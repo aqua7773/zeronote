@@ -34,6 +34,7 @@ import {
   watchSystemTheme,
   type ThemePref,
 } from './lib/theme'
+import { setStatusBarVisible } from './lib/systemBar'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings } from './kernel/keybindings'
 import { SearchPanel } from './components/SearchPanel'
@@ -294,6 +295,15 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
   }, [sidebarWidth])
+
+  /**
+   * 移动端：侧栏（抽屉）打开时隐藏状态栏、收起（首页）时显示。
+   * 桌面端由 systemBar.ts 用 Android UA 自行跳过，这里不必分支。
+   * 原生实现：src-tauri/plugins/tauri-plugin-statusbar/
+   */
+  useEffect(() => {
+    void setStatusBarVisible(!sidebarOpen)
+  }, [sidebarOpen])
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)

@@ -13,13 +13,11 @@ class MainActivity : TauriActivity() {
     // 明确关掉"窗口自行避让系统栏"：让 WebView 真正铺到屏幕边缘，
     // 系统栏那一段的间距交给页面 CSS 的 env(safe-area-inset-*) 处理。
     WindowCompat.setDecorFitsSystemWindows(window, false)
-    // 隐藏顶部系统状态栏 —— 用户要求：「红框的信息直接不显示更好」
-    //（时间/信号/电量那一条）。用 TRANSIENT_BARS_BY_SWIPE，用户从顶部下拉时
-    // 仍能临时唤出，不至于彻底够不着。
-    // 隐藏后 WebView 的 env(safe-area-inset-top) 归 0，侧栏的 padding-top 也随之
-    // 归零，内容自然顶到屏幕最上沿。
+    // 状态栏的显隐自 2026-10-12 起**由 statusbar 插件按需控制**：
+    // 侧栏（抽屉）打开 → 隐藏；收起（首页）→ 显示。
+    // 这里不再无条件隐藏，只保留「从顶部下拉可临时唤出」的交互行为。
+    // 实现见 src-tauri/plugins/tauri-plugin-statusbar/
     WindowInsetsControllerCompat(window, window.decorView).apply {
-      hide(WindowInsetsCompat.Type.statusBars())
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
   }
