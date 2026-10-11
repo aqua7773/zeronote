@@ -1,12 +1,11 @@
 # 项目交接
 
-revision: 16
-更新时间: 2026-10-12（凌晨 · 插件可删除）
-标识: DSH-SUPERVISOR-V1
+revision: 17
+更新时间: 2026-10-12（凌晨 · UINode 补齐 21 种节点，插件可表达任意界面）
 项目: ZeroNote
 
-> **主管模式已启用**（用户 2026-10-11 说「继续 ZeroNote 项目」）。本会话任主管：接授权、派工、跟踪、
-> 更新交接 —— **不亲自实现、不热装、不跑技术验收**。用户已授权**并发调用子 agent**。
+> 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
+> 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
 ## 当前目标
 
@@ -44,6 +43,7 @@ revision: 16
 | **🔗 插件跨库共用 + 面板视觉** | `_shots\android-vault-T-plugins.png`：切到**空库 T**（底栏 0 篇、且 T 里没有 `.zn`）而 `☰` 菜单里 **Hello 插件 / 灵感流照旧在** ⇒ 插件确是从**库根**加载 · `android-vault-divider2.png`：去掉深色块后白底深字可读，库之间是 `rgb(228,228,231)` 的横线（像素扫描 y=1301 / 1458 / 1664 各 3px 高） | `24f7b46` | 2026-10-12 |
 | **📐 设置页窄屏布局修复** | `_shots\android-appearance-issue.png`（修前：「外 观」竖排 + 说明**逐字一行**）→ `android-appearance-fixed.png`（修后：上下排列，「外观」正常、说明正常折行、主题三段控件独占一行） | `8273c57` | 2026-10-12 |
 | **🗑 插件可删除** | `_shots\verify-plugins-page.png`（每行右侧出现垃圾桶）→ `verify-delete-confirm.png`（二次确认框，写明删哪个目录 + 不可撤销）→ `verify-delete-done.png`（列表只剩灵感流 + toast「插件已删除」）；**磁盘实测** `.zn/plugins/hello` 消失 · `cargo test` **11 passed / 0 failed**（新增 2 个：删除路径 + 越界/不存在 id 必须报错） | `9ed1469` | 2026-10-12 |
+| **🧩 UINode 9 → 21 种** | `_shots\uikit-rendered.png`（第一屏：tone 三色 / badge 5 档 / progress / image(data URL) / code / html / field+input / field+textarea / select）· `uikit-rendered-2.png`（第二屏：button 三档+禁用 / `send` / link / 可点列表 / **table 且单元格内嵌 badge** / tabs）· `uikit-interact.png`（点按钮后底部 payload 变 `{"variant":"default"}` ⇒ **命令 → state → 重渲染**链路通）· 演示插件 `examples/ui-kit/` | `da377a7` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -136,6 +136,14 @@ revision: 16
        hint 的 `break-all`（允许任意断行）又放大了这个效果。
        修法：窄屏 `flex-col` 上下排列、`min-[520px]` 以上才横排；左列补 `flex-1`；
        hint 用 `break-words` 而非 `break-all`。**移动端先按竖排设计，别指望横排能挤下。**
+  ⑥ **改完 `src/` 后，真机上看到的还是旧前端** —— 打包版 APK **没有 HMR**，
+     前端资源是**构建那一刻的快照**。补 UINode 新节点时第一次验收就撞了：
+     面板里糊了一片 `{"type":"badge","text":"默认"}` 的**原始 JSON** ——
+     旧渲染器不认识这些 type，全走了 `default` 分支的 `JSON.stringify`。
+     ⇒ 改完前端必须二选一：重新 `pnpm tauri android build --apk --target aarch64 --debug`
+     ＋ `adb install -r`（约 2 分钟，可靠）；或起 `android-dev.cmd` 走 HMR（但有多实例抢锁的坑，见上方 ①）。
+     **一眼判断**：改一句明显可见的文案，界面没变 ⇒ 就是这个。
+     （`src-tauri/` 的 Rust 改动同理，除了 `tauri android dev` 会自动重编 `.so`。）
 - **Android 系统栏（三阶段）**：
   ① 起初只做**透明**：`values/themes.xml` + `values-night/themes.xml` 里
      statusBarColor/navigationBarColor 透明 + windowLightStatusBar，
