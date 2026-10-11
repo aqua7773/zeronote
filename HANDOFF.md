@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 20
-更新时间: 2026-10-12（凌晨 · editor 原语：编辑器行内标记 + 点击命令）
+revision: 21
+更新时间: 2026-10-12（凌晨 · 懒激活：activationEvents + 静态声明 + command.bind）
 项目: ZeroNote
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
@@ -47,6 +47,7 @@ revision: 20
 | **🧰 插件能力第 1 批**（fs 文件夹 · 编辑器工具栏 · 导出落盘） | `_shots\toolbar-with-plugin.png`（编辑器底部出现工具栏：H1/待办/代码块/引用/表格 + 徽标）↔ `toolbar-without-plugin.png`（**把插件移出插件目录后，工具栏整条消失**，界面回到纯净态 ⇒ **按需激活的直接证据**）· `cargo test` **12 passed / 0 failed**（新增 `dir_ops_create_and_move_safely`：多级建目录幂等 / 整树搬迁 / `mv` 语义 / 拒绝移进自己子孙 / 越界被挡） | `f4aaa23` | 2026-10-12 |
 | **🔌 service 原语 + 前置插件** | `_shots\dep-katex-final.png`：`dep-consumer` 用 `service.consume('katex')` 拿到 `dep-katex` 提供的渲染器 —— 两条公式（求根公式 / 求和公式）正确排版 + 绿标「katex 0.16.11（由前置插件提供）」⇒ **依赖环境插件化 + 懒加载 + 软依赖**全链路通 · 示例 `examples/dep-katex` `examples/dep-consumer` | `0766529` | 2026-10-12 |
 | **✍️ editor 原语（编辑器行内标记）** | `_shots\editor-marks-rendered.png`（`#测试标签` / `#编辑器标记` 呈灰底标签样式 ⇒ 插件正则装饰生效）· `editor-marks-click2.png`（点击标签后 toast 出现，抓到动画中态 ⇒ **点击 → 命令 → notify** 链路通）· 示例 `examples/editor-marks/` | `80d4c57` | 2026-10-12 |
+| **⚡ 懒激活（activationEvents）** | 三段证据：① 启动后 `adb logcat` **无** `lazy-demo` 任何输出 ⇒ **确实没加载** ② 命令面板**列得出**「懒加载示例：打个招呼」(`lazy-demo.ping`)，同列表 `hello.say` / `ui-kit.hit` 是启动即加载的老插件**形成对照** ⇒ 静态声明生效 ③ 点它 ⇒ toast「这个插件是被你点的那条命令激活的」⇒ **懒激活 → bind → 执行**全通 · 截图 `_shots\lazy-palette2.png` · `_shots\lazy-activated.png` · 示例 `examples/lazy-demo/` | `47772f0` | 2026-10-12 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
