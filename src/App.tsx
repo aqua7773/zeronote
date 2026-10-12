@@ -1479,6 +1479,31 @@ export default function App() {
     return () => subs.forEach((s) => s.dispose())
   }, [kernel, docApi, newNote, pickVault, closeNote, openOverlay])
 
+  /**
+   * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
+   *
+   * 为什么要有：面板此前**只能从 ☰ 菜单进**，而那个按钮贴在窗口最上面 20px
+   * （`.zn-titlebar-hotzone` 会吃掉那里的点击，且标题栏只在鼠标悬停顶部时显形）
+   * —— 既不好点、也没法脚本化。命令面板是键盘可达的，给面板一条命令，
+   * 它就有了第二个**可搜索、可键盘触发**的入口（本次验收就是靠它打开的）。
+   *
+   * 单独一个 effect，不并进上面那批核心命令：那样 `panels` 一变就要重注册整批命令，
+   * 连带重复绑定键位（`bindCommandKeybindings` 是另一条链）。
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const offs = panels.map((p) =>
+      kernel.commands.api.register({
+        id: `core.panel.${p.id}`,
+        title: `打开面板：${p.title}`,
+        run: () => setMainView(p.id),
+      }),
+    )
+    return () => {
+      for (const off of offs) off.dispose()
+    }
+  }, [kernel, panels])
+
   /* ── 插件扫描 + 加载（含**懒激活**）── */
 
   /**

@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 1,
+  "id": "outline-map",
+  "name": "大纲 · 导图",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "把当前笔记的标题与列表解析成大纲，并画出思维导图（大纲 / 导图 / 并排三视图）；可一键导出成 Mermaid mindmap 插到笔记里",
+  "capabilities": ["doc:read", "doc:write", "command", "view:main"],
+  "contributes": {
+    "commands": [
+      { "id": "outline-map.refresh", "title": "大纲：重新解析当前笔记" },
+      { "id": "outline-map.insert-mermaid", "title": "大纲：把导图插入笔记（Mermaid mindmap）" }
+    ],
+    "panels": [
+      { "id": "outline-map.panel", "title": "大纲 · 导图", "location": "main" }
+    ]
+  }
+}
