@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 33
-更新时间: 2026-10-12（下午 · 平台门落地：`platforms` 声明真的生效了 —— 桌面 / 移动端 / 双端三档）
+revision: 36
+更新时间: 2026-10-12（夜 · Markdown 标记**收进内核**：手机底栏 ＋ 顶部提示条 ＋ 右键「标记」子菜单）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -305,6 +305,54 @@ revision: 33
 > 我改了三次插件，应用一直跑的是最早那版（于是"新键位不生效""✕ 不在左端"全都被误判成 bug）。
 > 现在测试库 `_tmp-vault-tb/.zn/plugins/md-toolbar` 是 **junction → `examples/md-toolbar`**，
 > 改完只切库重载即可。副作用：插件的 `store.json` 会被写进 `examples/`，已加 `.gitignore`。
+
+> ## 📌 rev36（同日 · Markdown 标记**收进内核**：手机底栏 ＋ 顶部提示条 ＋ 右键「标记」子菜单）
+>
+> **用户裁决**（原话）：「**收进内核，同时手机的提示也是内核应有的功能**」。
+> 起因：本轮开场在查 rev35 遗留的未决问题（点顶部提示条的 `Ctrl+B` 疑似关掉笔记），
+> 用户改向要求把标记搬进内核，并追问「**内核不是能够编辑 markdown 吗**」。
+>
+> **先把那个追问回答清楚（本轮核实的事实，写下来防再争）**
+> 内核"看得懂" Markdown —— **渲染**（`@atomic-editor/editor` 的 Live Preview：光标行显源码、
+> 其余行渲染成标题/粗体/表格）与**打字补全**（`extendEmphasisPair` / `startAsteriskList` /
+> `autoCloseCodeFence`，见 `node_modules/@atomic-editor/editor/dist/index.d.ts:12`）都在内核依赖里。
+> 但"**把选中变成标题**"这个**动作**此前一件都没有：`**` / `# ` / `- [ ] ` 全写在
+> `examples/md-toolbar/index.js`，连 `Ctrl+B` 也是插件声明的
+> ⇒ **解析层在内核、动作层在插件**，这就是缺口。
+>
+> **改法：12 条命令 + 三处入口，一份实现**
+> · 新增 `src/kernel/markdown-marks.ts` —— 12 个标记的**唯一真相**
+>   （`core.mark.bold` … `core.mark.hr`；三类行为：成对 / 行首 / 固定片段，逻辑与插件时代一字不改）。
+>   挂的是**已有的内核命令层**（`core.save` / `core.newNote` … 同一张表）
+>   ⇒ **契约零变更、capability 白名单零变更**，键位照旧由 `bindCommandKeybindings` 自动绑定。
+> · 新增 `src/components/MarkToolbar.tsx` —— 两处内核工具栏（`bar` = 底部 / `hint` = 顶部提示条），
+>   用插件面板同一套 class（`zn-ui-row` / `zn-btn` / `zn-ui-btn-ghost`）⇒ 外观与插件时代一致，
+>   插件注册到同位置的面板仍跟在后面（内外核共存）。
+> · **右键菜单原语长出子菜单**（`ui/context-menu.tsx` 的 `MenuItem.children`）：编辑器右键 → 「标记 ›」→
+>   12 项（右侧带快捷键提示）。四条约束都写进注释了：子面板必须 `fixed`（主菜单是 `overflow-y-auto`，
+>   绝对定位会被裁）、**不能 portal**（主菜单靠 `contains(target)` 判"点了外面"）、
+>   鼠标离开留 180ms 宽限、**点击展开要"钉住"**（触摸屏根本没有 hover，否则手机上子菜单永远点不中）。
+> · 顶部提示条的开关从插件 `store` 改到内核 `localStorage`（`zeronote.editor.markHint`）——
+>   它是内核自己的界面，不该借插件的存储。
+> · **`examples/md-toolbar/` 退役删除**：能力已全部收进内核，留着会**双重注册键位**
+>   （按一次 `Ctrl+B` 插两组 `**`）。测试库里的 junction 上个会话已清掉，无需再动。
+>
+> **验收（桌面实测 + 基线）**
+> · `_shots/mk-02-editor.png`：**内核渲染**的底部 12 按钮（`B I <> S H • ☑ ❝ {} 🔗 ▦ ―`）
+>   ＋ 顶部 `✕ Ctrl+B 粗体 …` 提示条**同时在** —— 此时库里**没有** md-toolbar 插件，所以只可能来自内核
+> · `_shots/mk-03-menu.png`：编辑器右键 → 菜单里出现「标记 ›」（内核化之前没有这一栏）
+> · `_shots/mk-04-submenu.png` / `mk-06-after-hmr.png`：展开 12 项（带快捷键提示）；
+>   底部贴视口时**内部滚动**而不是溢出窗口
+> · `_shots/mk-07-after-insert.png`：点子菜单「粗体」⇒ 编辑器出现 `****`（光标落中间）、
+>   `untitled-20261012-195714.md` 磁盘 `14 B → 18 B` 落盘，**笔记没被关**
+> · `_shots/mk-09-bottombar.png`：底部工具栏「B」再点一次 ⇒ `18 B → 22 B`（内容变 `********`）
+> · `_shots/mk-08-topbar-click.png`：顺带点了顶部提示条的 `Ctrl+B` ⇒ **笔记没被关**
+>   （那条"点了就关笔记"的未决现象在**内核化后的**提示条上没有复现；本轮未深查，见下）
+> · 基线：`tsc -b` **0** · `oxlint` **4** · `cargo test --lib` **18 passed**
+>
+> ⚠️ **本轮未处理的那个未决问题**（用户改向，不是遗忘）：点顶部提示条左侧 `Ctrl+B` 疑似关掉笔记。
+> 收进内核后提示条左端仍是 `✕`、其右第一个才是 `Ctrl+B 粗体` —— 下次排查先确认用户说的"最左"
+> 是哪一个，别再从零复现（两侧观测相反的证据仍留在 `_shots/watch-frames.log` 与 `_shots/frames/`）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

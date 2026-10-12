@@ -15,6 +15,16 @@ const IS_MAC = /Mac|iPhone|iPad/i.test(
   typeof navigator === 'undefined' ? '' : navigator.userAgent,
 )
 
+/**
+ * 键位的**显示**写法：`Mod+B` → `Ctrl+B`（macOS 上是 `⌘B`）。
+ *
+ * 菜单里的快捷键提示、顶部提示条上的按钮文字都用它 —— 契约里键位一律写 `Mod+`
+ * （一份声明跨平台），显示时才落到具体平台。
+ */
+export function keyLabel(keybinding: string): string {
+  return keybinding.replace(/Mod/g, IS_MAC ? '⌘' : 'Ctrl')
+}
+
 /** `Mod+Shift+K` → hotkeys-js 的 `ctrl+shift+k` */
 export function toHotkeysSpec(keybinding: string): string {
   return keybinding

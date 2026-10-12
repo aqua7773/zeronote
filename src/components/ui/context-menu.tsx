@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
@@ -14,11 +14,22 @@ import { cn } from '@/lib/utils'
  * 适配点：Lumina 用 `bg-popover` / `shadow-elev-2` / 自定义动画；
  * 这里 popover token 已在 styles.css 的 @theme 里补上，阴影改用 Tailwind 内置 shadow-lg，
  * 动画省略（内核壳的动效统一由后续 motion token 处理）。
+ *
+ * ## 子菜单（2026-10-12 加）
+ *
+ * `MenuItem.children` 非空 = 这一项是**子菜单**（如编辑器右键的「标记」——
+ * 12 个 Markdown 标记塞进主菜单会有 13 行，滚都滚不完）。三条实现约束：
+ *   · 子面板用 `position: fixed` —— 主菜单是 `overflow-y-auto`，普通绝对定位会被裁掉；
+ *     fixed 相对视口，用父项 rect 算坐标即可（打开时若贴边界，量完再翻到左侧/上移）。
+ *   · 子面板**留在主菜单的 DOM 内**（不 portal）—— 主菜单靠 `menuRef.contains(target)`
+ *     判"点了外面"，portal 出去的子菜单会被当成外面 ⇒ 一点就整个关掉。
+ *   · 鼠标从父项移到子面板之间的几像素**不能立刻关**，留 180ms 宽限（进入任一侧就取消）。
  */
 export interface MenuItem {
   label: string
   icon?: React.ReactNode
-  onClick: () => void
+  /** 点了做什么。**有 `children` 的父项可以不写** —— 它只负责展开子菜单，本身不是动作 */
+  onClick?: () => void
   danger?: boolean
   /** 在这一项上方画一条分隔线 */
   divider?: boolean
@@ -29,6 +40,19 @@ export interface MenuItem {
   keepOpen?: boolean
   /** 右侧的快捷键提示，如 "Ctrl+K"（菜单栏用） */
   hint?: string
+  /**
+   * **子菜单项**。非空 ⇒ 这一项是父项：鼠标悬停（或点击）在右侧展开一层，
+   * `onClick` 不再执行（父项本身不是动作）。
+   */
+  children?: MenuItem[]
+}
+
+/** 所有菜单行（主菜单与子菜单）共用的一套外观 */
+function rowClass(danger?: boolean): string {
+  return cn(
+    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+    danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-accent',
+  )
 }
 
 export function ContextMenu({
@@ -75,35 +99,155 @@ export function ContextMenu({
       style={{ left: x, top: y }}
       role="menu"
     >
+      <MenuItems items={items} onClose={onClose} />
+    </div>,
+    document.body,
+  )
+}
+
+/** 一组菜单项 —— 主菜单与子菜单都是它（子菜单就是再来一组） */
+function MenuItems({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
+  return (
+    <>
       {items.map((item, i) => (
         <div key={`${item.label}-${i}`}>
           {/* divider 画在「该项上方」；第一项上面就是菜单边框，再画一条就多余了 */}
           {item.divider && i > 0 && <div className="my-1 border-t border-border" />}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              item.onClick()
-              if (!item.keepOpen) onClose()
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
-              item.danger
-                ? 'text-destructive hover:bg-destructive/10'
-                : 'text-foreground hover:bg-accent',
-            )}
-          >
-            {item.icon ? <span className="flex h-4 w-4 items-center">{item.icon}</span> : null}
-            <span className="flex-1">{item.label}</span>
-            {item.hint ? (
-              <span className="ml-4 shrink-0 text-[10px] tracking-wide text-muted-foreground">
-                {item.hint}
-              </span>
-            ) : null}
-          </button>
+          {item.children?.length ? (
+            <SubMenuRow item={item} onClose={onClose} />
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                item.onClick?.()
+                if (!item.keepOpen) onClose()
+              }}
+              className={rowClass(item.danger)}
+            >
+              {item.icon ? <span className="flex h-4 w-4 items-center">{item.icon}</span> : null}
+              <span className="flex-1">{item.label}</span>
+              {item.hint ? (
+                <span className="ml-4 shrink-0 text-[10px] tracking-wide text-muted-foreground">
+                  {item.hint}
+                </span>
+              ) : null}
+            </button>
+          )}
         </div>
       ))}
-    </div>,
-    document.body,
+    </>
+  )
+}
+
+/** 带子菜单的一行：悬停/点击展开，位置按父项 rect 现算 */
+function SubMenuRow({ item, onClose }: { item: MenuItem; onClose: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const timer = useRef<number | null>(null)
+  /**
+   * 点击展开 = **钉住**（鼠标离开也不收），悬停展开 = 临时（离开就收）。
+   *
+   * 钉住不是锦上添花：**触摸屏根本没有 hover** —— 手机/平板上长按出菜单后
+   * 只能"点一下展开"，若那时还按鼠标规矩离开就收，子菜单在触摸下永远点不中。
+   */
+  const pinned = useRef(false)
+
+  const cancelClose = () => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+  // 卸载时清掉待执行的关闭（否则定时器会在组件没了之后再 setState）
+  useEffect(() => cancelClose, [])
+
+  const show = (pin: boolean) => {
+    cancelClose()
+    pinned.current = pin
+    const r = btnRef.current?.getBoundingClientRect()
+    // 先按父项右侧给个初值（第一帧就在正确位置），量到实际尺寸后再修正
+    if (r) setPos({ left: r.right + 2, top: r.top - 5 })
+    setOpen(true)
+  }
+
+  const scheduleClose = () => {
+    if (pinned.current) return
+    cancelClose()
+    timer.current = window.setTimeout(() => setOpen(false), 180)
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const btn = btnRef.current
+    const panel = panelRef.current
+    if (!btn || !panel) return
+    const r = btn.getBoundingClientRect()
+    const w = panel.getBoundingClientRect().width
+    // 右边界翻转用**宽度**（首帧量宽度是准的）；纵向**不量高度、也不上移** ——
+    // 首帧量到的高度常常还没算上字体度量/换行，据此上移会算错，
+    // 改用渲染时的 `max-height: calc(100vh - top)` 兜底（超出部分内部滚动）。
+    let left = r.right + 2
+    if (left + w > window.innerWidth - 4) left = Math.max(4, r.left - w - 2)
+    setPos((cur) => (cur && cur.left === left ? cur : { left, top: r.top - 5 }))
+  }, [open])
+
+  const children = item.children ?? []
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => {
+        // 已经展开（不管是钉住的还是悬停出来的）就别动它 —— 别把钉住状态冲掉
+        if (!open) show(false)
+      }}
+      onMouseLeave={scheduleClose}
+    >
+      <button
+        ref={btnRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          /**
+           * 三种情形要分开（否则"鼠标划过去顺手一点"会把刚看到的子菜单关掉）：
+           *   · 已**钉住** → 点击 = 收起
+           *   · 只是**悬停展开**（鼠标一路划过来，`onMouseEnter` 已经开过）→ 点击 = 钉住，
+           *     不是收起。触摸设备没有 hover，走的也是这一支。
+           *   · 没展开 → 点击 = 展开并钉住
+           */
+          if (open && pinned.current) {
+            pinned.current = false
+            setOpen(false)
+          } else {
+            show(true)
+          }
+        }}
+        className={rowClass(item.danger)}
+      >
+        {item.icon ? <span className="flex h-4 w-4 items-center">{item.icon}</span> : null}
+        <span className="flex-1">{item.label}</span>
+        <span className="ml-4 shrink-0 text-[10px] text-muted-foreground">›</span>
+      </button>
+      {open && pos ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className="fixed z-[71] max-h-[85vh] min-w-[170px] overflow-y-auto rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+          style={{
+            left: pos.left,
+            top: pos.top,
+            // 贴着视口底部就**别再长出去** —— 多余的部分内部滚动。
+            // 比"量高度再整体上移"稳：首帧高度不可靠（见上面的 useLayoutEffect）。
+            maxHeight: `calc(100vh - ${Math.max(pos.top, 0) + 8}px)`,
+          }}
+        >
+          <MenuItems items={children} onClose={onClose} />
+        </div>
+      ) : null}
+    </div>
   )
 }
