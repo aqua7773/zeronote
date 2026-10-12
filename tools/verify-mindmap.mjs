@@ -193,6 +193,29 @@ async function mouse(cdp, type, x, y, extra = {}) {
   })
 }
 
+/** 右键点某处（画布空白 / 节点）—— 用真实输入事件，不走 `el.click()` */
+async function rightClick(cdp, x, y) {
+  await mouse(cdp, 'mouseMoved', x, y, { button: 'none', buttons: 0 })
+  await mouse(cdp, 'mousePressed', x, y, { button: 'right', buttons: 2 })
+  await mouse(cdp, 'mouseReleased', x, y, { button: 'right', buttons: 0 })
+  await sleep(250)
+}
+
+/** 点我们那条全局右键菜单里的某一项（菜单项文本带了快捷键提示，所以用 startsWith 匹配） */
+async function clickMenuItem(cdp, label) {
+  const hit = await cdp.js(`(() => {
+    const m = document.querySelector('[data-zn-mm-menu]')
+    if (!m) return { ok: false, reason: '菜单不在 DOM 里' }
+    const items = [...m.querySelectorAll('button')].map((x) => x.textContent.trim())
+    const b = [...m.querySelectorAll('button')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(label)}))
+    if (!b) return { ok: false, items }
+    b.click()
+    return { ok: true }
+  })()`)
+  if (!hit?.ok) throw new Error(`右键菜单里点不到「${label}」：${j(hit?.items ?? hit?.reason ?? hit)}`)
+  console.log(`click  右键菜单「${label}」`)
+}
+
 /** 把一个节点拖到另一个节点上（`fromId` / `toId` 是 mind-elixir 的节点 id） */
 async function dragNode(cdp, fromId, toId) {
   const pts = await cdp.js(`(() => {
@@ -317,6 +340,32 @@ async function main() {
     )
     check('④b 右键菜单中文（我们传的 locale 生效 —— 菜单在 DOM 里，没显示也算）', typeof locale === 'number', `中文项 ${locale} 个`)
 
+    /* ⑫ 顶栏已撤、画布铺满；状态信息是悬浮层（用户 2026-10-13 的三条要求） */
+    const chrome = await win.cdp.js(`(() => {
+      const m = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return { top: Math.round(r.top), h: Math.round(r.height), cssH: cs.height, pos: cs.position, style: e.getAttribute('style') } }
+      const s = document.querySelector('[data-zn-mm-status]')
+      return {
+        mount: m('.zn-shell-mount'),
+        body: m('[data-zn-mm-body]'),
+        container: m('.map-container'),
+        canvas: m('.map-canvas'),
+        topBarButtons: document.querySelectorAll('.zn-mm-bar button').length,
+        statusPos: s ? getComputedStyle(s).position : null,
+        statusText: s ? s.textContent.trim() : null,
+        statusTop: s ? Math.round(s.getBoundingClientRect().top - (document.querySelector('.zn-shell-mount')?.getBoundingClientRect().top ?? 0)) : null,
+      }
+    })()`)
+    check(
+      '⑫ 顶栏已撤（无按钮）＋ 画布铺满内容区（.map-container 高 ≈ 内容区高）',
+      chrome.topBarButtons === 0 && chrome.container.h > 0 && chrome.container.h >= chrome.mount.h - 4,
+      j(chrome),
+    )
+    check(
+      '⑬ 状态信息悬浮在画布左上角（position:absolute 且贴着顶部）',
+      chrome.statusPos === 'absolute' && chrome.statusTop !== null && chrome.statusTop <= 16,
+      j({ statusPos: chrome.statusPos, statusTop: chrome.statusTop, statusText: chrome.statusText }),
+    )
+
     /* ⑤ addChild ⇒ 磁盘 */
     const before = disk()
     await win.cdp.js(`(() => {
@@ -330,8 +379,22 @@ async function main() {
     const addedLine = afterAdd.split(/\r?\n/).find((l) => l.includes('新主题')) ?? '(没有)'
     check('⑤ addChild 写回磁盘（多出一行「- 新主题」）', afterAdd.includes('新主题') && !before.includes('新主题'), j(addedLine))
 
-    /* ⑥ 顶栏「撤销」按钮 ⇒ 磁盘（真实路径：按钮里调 undo + flush） */
-    await clickText(win.cdp, '撤销')
+    /* ⑥ 画布**空白处右键** ⇒ 我们的全局菜单 ⇒ 点「撤销」⇒ 磁盘（真实路径：菜单项里调 undo + flush） */
+    await rightClick(win.cdp, 420, 330)
+    const menuState = await win.cdp.js(`(() => {
+      const m = document.querySelector('[data-zn-mm-menu]')
+      if (!m) return null
+      return {
+        display: getComputedStyle(m).display,
+        items: [...m.querySelectorAll('button')].map((b) => b.textContent.trim()),
+      }
+    })()`)
+    check(
+      '⑥ 空白处右键弹出全局菜单（撤销 / 重做 / 写回 / 重画）',
+      menuState?.display === 'block' && menuState.items.length === 4,
+      j(menuState),
+    )
+    await clickMenuItem(win.cdp, '撤销')
     await sleep(2000)
     const afterUndo = disk()
     check(
@@ -339,6 +402,31 @@ async function main() {
       !afterUndo.includes('新主题') && afterUndo.includes('设计') && afterUndo.includes('调研'),
       j(afterUndo.replace(/\n/g, '⏎')),
     )
+
+    /* ⑭ 节点上右键仍是**库自己**的菜单（我这条"空白处菜单"不能把它抢掉） */
+    const nodePt = await win.cdp.js(`(() => {
+      const el = window.__mmMind && window.__mmMind.findEle('n1')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+    })()`)
+    if (nodePt) {
+      await rightClick(win.cdp, nodePt.x, nodePt.y)
+      const nodeMenu = await win.cdp.js(`(() => {
+        const cm = document.querySelector('.context-menu')
+        const mine = document.querySelector('[data-zn-mm-menu]')
+        return {
+          lib: cm ? !cm.hidden : false,
+          mine: mine ? getComputedStyle(mine).display : null,
+        }
+      })()`)
+      check('⑭ 节点右键走库的菜单、我的菜单不出现', nodeMenu.lib && nodeMenu.mine === 'none', j(nodeMenu))
+      await mouse(win.cdp, 'mousePressed', 30, 500, { buttons: 1 })
+      await mouse(win.cdp, 'mouseReleased', 30, 500, { buttons: 0 })
+      await sleep(200)
+    } else {
+      check('⑭ 节点右键走库的菜单、我的菜单不出现', false, '找不到节点 n1')
+    }
 
     /* ⑦ 真拖拽：把「竞品」（n0.0）拖到「设计」（n1）上 */
     const beforeDrag = disk()

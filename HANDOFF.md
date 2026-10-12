@@ -1365,6 +1365,31 @@ revision: 45
 > **五、顺带查清的两条边界**：`core:window:allow-set-focus` **未授权**（插件窗口不能自己抢焦点；
 > 一般不需要，要加属于**权限变更** ⇒ 得先问用户）；主窗口与插件窗口的三键是**同一个组件**
 > （`WindowControls.tsx`），外观一致是刻意的。
+
+> ## 📌 rev60（2026-10-13 · 导图窗口**去顶栏**：四个动作进右键菜单 ＋ 状态悬浮左上角）
+>
+> 用户对着截图给了三条裁决（原话：「撤销写回重做重画，四个操作都放在导图窗口全局右键菜单
+> （现在还没有，只有节点的右键菜单），取消绿框画布限制（你自己做的菜单栏），黄框信息做悬浮画布左上角」）：
+> ① 四个动作进**画布空白处的右键菜单**；② **撤掉我做的那条顶栏**（它压掉画布高度、还"像菜单栏却没菜单"）；
+> ③ 状态信息改**悬浮在画布左上角**。
+>
+> **一、实现**
+> · 顶栏 `.zn-mm-bar` 整条删掉；`el` 只设 `overflow:hidden`，画布铺满内容区。
+> · 新增 `[data-zn-mm-menu]`：在**捕获阶段**听 `contextmenu` —— `target.closest('me-tpc')` 为真就
+>   **让路**给库自己的节点菜单（已中文化），否则 `preventDefault + stopPropagation` 弹我们这条，
+>   含 `撤销(Ctrl+Z) / 重做(Ctrl+Shift+Z) / 写回 / 重画`；在别处 `pointerdown` 即关。
+> · 状态改成 `[data-zn-mm-status]`：`position:absolute; left/top:8px; pointer-events:none`，
+>   颜色走 `--zn-*` 令牌（浮层也跟着明暗主题变）。
+>
+> **二、踩到的坑（重要，别重犯）**：给 mind-elixir 的容器设 `position:absolute; inset:0` **没用** ——
+> 库的构造函数里有 `S.style.position = 'relative'`，会把它收到的 el 直接改掉；而
+> **`relative` + `inset/四边:0` 不是拉伸，只是"偏移 0"** ⇒ 容器塌回内容高度。
+> 实测读数：`.map-container` **403** vs 内容区 **665**。修法：**别抢 position**，只给 `width/height:100%`。
+> （顺带记：mind-elixir 还会清空 `el.innerHTML` —— 它管这个元素的定位与内容，别再往它身上挂东西。）
+>
+> **三、验收 `tools/verify-mindmap.mjs` → 15/15**：新增 ⑫ 顶栏已撤 + 画布铺满 · ⑬ 状态是悬浮层 ·
+> ⑭ 节点右键仍走库菜单、我的菜单不出现；⑥ 从"点顶栏按钮"改成"**空白右键 → 点菜单项**"。
+> 基线 `tsc -b` 0 · `oxlint src` 恰好 4 · 改动文件 0。截图 `_shots/mindmap-v3-window.png`。
 > 基线未被触碰（`tsc -b` / `oxlint` / `cargo test` 本轮未跑，因为没有代码改动）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——

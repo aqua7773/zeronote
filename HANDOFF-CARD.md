@@ -98,6 +98,12 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > 关窗 = 标题条右侧 ✕ · **退出应用 = 关主窗口**（桌面无"退出"菜单项）·
 > **Win11 悬停最大化弹 Snap Layouts 暂不支持**（tao 的 `WM_NCHITTEST` 不返回 `HTMAXBUTTON`）。
 > 回归：`verify-mindmap` 11/11 · `verify-shell` 12/12 · `tsc` 0 · `oxlint src` 4。
+>
+> 🧭 **rev60 去掉导图窗口顶栏**（用户裁决）：四个动作（撤销/重做/写回/重画）挪进**画布空白处右键菜单**
+> （节点上右键仍是库自己那套），状态信息改成**悬浮在画布左上角**的小浮层 ⇒ 画布铺满整个内容区。
+> ⚠️ 坑：给库的容器设 `position:absolute; inset:0` 无效 —— 库构造函数会把它改成 `relative`，
+> 而 `relative`+`inset:0` 不是拉伸 ⇒ 容器塌回内容高度（实测 403 vs 665）。只给 `width/height:100%`。
+> 验收 **`tools/verify-mindmap.mjs` 15/15**（新增 ⑫ 顶栏已撤+画布铺满 / ⑬ 状态悬浮 / ⑭ 节点右键不冲突）。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。

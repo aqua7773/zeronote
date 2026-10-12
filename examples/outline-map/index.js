@@ -719,19 +719,33 @@ export default {
       /** 挂载器：`overrideShell` 的 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
       const mountMindMap = (el) => {
         el.replaceChildren()
-        el.style.cssText = 'height:100%;display:flex;flex-direction:column;min-height:0'
+        // 只补 overflow：`position/inset` 交给 `.zn-shell-mount` 的 CSS（它在窗口模式下铺满内容区）
+        el.style.overflow = 'hidden'
 
-        /* 顶栏：状态 + 四个动作。接管期间内核 UI 不在场 ⇒ 这些按钮就是全部入口。 */
-        const bar = document.createElement('div')
-        bar.style.cssText =
-          'display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--zn-border);flex:0 0 auto'
-        const status = document.createElement('span')
-        status.style.cssText =
-          'flex:1;font-size:12px;color:var(--zn-muted,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-
-        const body = document.createElement('div') // mind-elixir 的容器
-        body.style.cssText = 'flex:1 1 auto;min-height:0;position:relative'
+        /**
+         * **没有顶栏**（用户 2026-10-13 裁决）—— 上一版那条自绘栏压掉画布高度，
+         * 而且"看着像菜单栏却没有菜单"。现在改成：
+         *   · 四个动作（撤销 / 重做 / 写回 / 重画）进**画布空白处的右键菜单**
+         *     （节点上右键仍是库自己那套，已中文化）
+         *   · 状态信息改成**悬浮在画布左上角**的小浮层（`pointer-events:none`，不挡画布操作）
+         */
+        const body = document.createElement('div') // mind-elixir 的容器：铺满整个内容区
+        /**
+         * ⚠️ **别给这个元素设 `position`** —— 库的构造函数里有 `S.style.position = 'relative'`，
+         * 会把它收到的 el 改掉；而 `relative` + `inset/四边:0` **不是拉伸**，只是"偏移 0"
+         * ⇒ 容器高度塌回内容高度（实测 `.map-container` 403，而内容区 665）。
+         * 只给 `width/height: 100%`，让它撑满上面那个已经铺满的挂载区。
+         */
+        body.style.cssText = 'width:100%;height:100%'
         body.dataset.znMmBody = ''
+
+        const status = document.createElement('div')
+        status.dataset.znMmStatus = ''
+        status.style.cssText =
+          'position:absolute;left:8px;top:8px;z-index:5;pointer-events:none;padding:2px 8px;' +
+          'border:1px solid var(--zn-border);border-radius:999px;background:var(--zn-bg-subtle);' +
+          'font-size:11px;line-height:1.7;color:var(--zn-fg-muted);opacity:.9;' +
+          'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%'
 
         let mind = null
         let themeWatch = null
@@ -742,7 +756,10 @@ export default {
 
         const setStatus = (text, tone) => {
           status.textContent = text
-          status.style.color = tone === 'warn' ? '#d9534f' : tone === 'ok' ? '#2e7d32' : 'var(--zn-muted,#888)'
+          // 用宿主令牌，不写死颜色（浮层也要跟着明暗主题走）
+          status.style.color =
+            tone === 'warn' ? 'var(--zn-danger)' : tone === 'ok' ? 'var(--zn-success)' : 'var(--zn-fg-muted)'
+          status.style.borderColor = tone === 'warn' ? 'var(--zn-danger)' : 'var(--zn-border)'
         }
 
         const flush = async () => {
@@ -775,16 +792,74 @@ export default {
           saveTimer = setTimeout(() => void flush(), 400)
         }
 
-        const btn = (text, title, onClick) => {
+        /* ── 画布空白处的右键菜单：四个动作的**唯一常驻入口**（顶栏已撤） ── */
+        const menu = document.createElement('div')
+        menu.dataset.znMmMenu = ''
+        menu.style.cssText =
+          'position:fixed;z-index:60;display:none;min-width:150px;padding:4px;border:1px solid var(--zn-border);' +
+          'border-radius:8px;background:var(--zn-bg);box-shadow:0 10px 28px rgba(0,0,0,.16)'
+
+        const hideMenu = () => {
+          menu.style.display = 'none'
+        }
+
+        const mkItem = (label, hint, run) => {
           const b = document.createElement('button')
           b.type = 'button'
-          b.textContent = text
-          b.title = title
+          b.textContent = label
+          if (hint) {
+            const h = document.createElement('span')
+            h.textContent = hint
+            h.style.cssText = 'float:right;color:var(--zn-fg-subtle);font-size:11px;margin-left:16px'
+            b.appendChild(h)
+          }
           b.style.cssText =
-            'font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--zn-border);border-radius:6px;background:transparent;color:inherit;cursor:pointer'
-          b.onclick = onClick
+            'display:block;width:100%;text-align:left;font:inherit;font-size:13px;padding:6px 10px;' +
+            'border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer'
+          b.onmouseenter = () => {
+            b.style.background = 'var(--zn-bg-hover)'
+          }
+          b.onmouseleave = () => {
+            b.style.background = 'transparent'
+          }
+          b.onclick = () => {
+            hideMenu()
+            run()
+          }
           return b
         }
+
+        menu.append(
+          mkItem('撤销', 'Ctrl+Z', () => {
+            mind?.undo()
+            void flush() // undo/redo **不 fire operation** ⇒ 自己补一次写回
+          }),
+          mkItem('重做', 'Ctrl+Shift+Z', () => {
+            mind?.redo()
+            void flush()
+          }),
+          mkItem('写回', '', () => void flush()),
+          mkItem('重画', '按磁盘重读', () => void rebind()),
+        )
+
+        /**
+         * 在**捕获阶段**听右键：库在容器上装了它自己的节点菜单，
+         * 只有"节点之外"的右键才归我们（捕获 + `stopPropagation` ⇒ 两条路不打架）。
+         */
+        const onContextMenu = (e) => {
+          if (e.target instanceof Element && e.target.closest('me-tpc')) return // 节点上 ⇒ 交给库
+          e.preventDefault()
+          e.stopPropagation()
+          menu.style.display = 'block'
+          const r = menu.getBoundingClientRect()
+          menu.style.left = `${Math.min(e.clientX, Math.max(6, window.innerWidth - r.width - 6))}px`
+          menu.style.top = `${Math.min(e.clientY, Math.max(6, window.innerHeight - r.height - 6))}px`
+        }
+        const onAnyPointerDown = (e) => {
+          if (!menu.contains(e.target)) hideMenu()
+        }
+        el.addEventListener('contextmenu', onContextMenu, true)
+        document.addEventListener('pointerdown', onAnyPointerDown, true)
 
         /** 读盘 → 建/重画导图（同一个实例、同一条笔记） */
         const rebind = async () => {
@@ -851,20 +926,6 @@ export default {
           }
         }
 
-        bar.append(
-          status,
-          btn('撤销', '撤销（Ctrl+Z）', () => {
-            mind?.undo()
-            // undo/redo **不 fire operation** ⇒ 得自己补一次写回，否则"界面回退了、磁盘还留着"
-            void flush()
-          }),
-          btn('重做', '重做（Ctrl+Shift+Z）', () => {
-            mind?.redo()
-            void flush()
-          }),
-          btn('写回', '立刻把这张导图写回笔记', () => void flush()),
-          btn('重画', '丢掉当前视图，按磁盘上的笔记重画', () => void rebind()),
-        )
         /**
          * 库内置的 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 直接调 undo/redo，**不 fire operation**
          * ⇒ 捕获阶段补一次写回（不然"撤销完磁盘还是旧的"，界面与磁盘就分家了）。
@@ -876,7 +937,7 @@ export default {
         }
         el.addEventListener('keydown', onUndoKey, true)
 
-        el.append(bar, body)
+        el.append(body, status, menu)
         void rebind()
 
         return {
@@ -884,6 +945,8 @@ export default {
             ready = false
             themeWatch?.disconnect()
             themeWatch = null
+            el.removeEventListener('contextmenu', onContextMenu, true)
+            document.removeEventListener('pointerdown', onAnyPointerDown, true)
             el.removeEventListener('keydown', onUndoKey, true)
             if (saveTimer) clearTimeout(saveTimer)
             saveTimer = null
