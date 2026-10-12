@@ -384,6 +384,20 @@ revision: 36
 > `@atomic-editor/editor` 的 `dist/inline-preview.js` 里确实有 `SetextHeading1` / `SetextHeading2` 分支
 > —— 它只是照解析结果渲染，没做错。**用户 2026-10-12 裁决：不改**（与 Obsidian / Typora / VS Code 一致）。
 > **规避写法**：分隔线用 `---` 且**前后各留一个空行**；别在段落正下方写只有 `-` / `=` 的行。
+>
+> 🔧 **当晚还打了本仓库唯一的第三方补丁**（`patches/@atomic-editor__editor@0.6.2.patch`，1.4 KB）：
+> **空标题不隐藏 `#`**。
+> · **现象**（用户报）：`#` 后面直接换行 ⇒ 光标离开那一行后**整行变成空白**，像空行一样（用户会以为内容丢了）。
+> · **根因**：库里的 `HIDEABLE_SYNTAX` 含 `HeaderMark`，非活动行把标记 `pushReplace` 掉；空标题没有内容
+>   可显示 ⇒ 什么都不剩。`# 有内容` 不受影响（藏掉 `# ` 还剩字）。
+> · **修法**：给隐藏逻辑加一个例外 —— 标记所属节点是 `ATXHeading*`、且「标记 + 其后空格」就到该节点末尾
+>   （= 空标题）时**不隐藏**。有内容的标题照旧隐藏 ✓
+> · **升级注意**：以后升 `@atomic-editor/editor` **必须重打**这个补丁（`pnpm patch` → 改 → `pnpm patch-commit`）；
+>   npm 上 0.6.2 已是最新（查过），暂时没得升。
+> · **改了 node_modules 之后 vite 必须重启**才会重新预打包（日志会打
+>   `Re-optimizing dependencies because lockfile has changed`）；只删 `.vite/deps` 不重启不够。
+> · 证据：`_shots/eh-02-empty-heading.png` —— **同一屏里两种行为都在**：末行空标题的 `#` 可见，
+>   首行 `# 新笔记` 的 `#` 仍隐藏（说明补丁没误伤有内容的标题）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

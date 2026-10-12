@@ -75,6 +75,9 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可（改完**切库一次**生效）
 - **手机 `33b676f6`**：装的是 `tauri android build --apk` 的**打包版**（内嵌 dist，
   **改前端必须重打包**；想要 HMR 得改用 `android-dev.cmd`）
+- **仓库里有 1 个第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch` ——
+  **空标题不隐藏 `#`**（`#` 后直接换行时，那行原本会变成空白，看着像内容丢了）。
+  **升级这个库必须重打补丁**；另外**改了 node_modules 之后 vite 要重启**才会重新预打包
 - `_shots/`、`_tmp-*/`、`examples/*/store.json` 都在 `.gitignore` 内
 
 ## 硬约束（不许破）

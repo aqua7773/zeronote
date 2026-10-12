@@ -41,6 +41,9 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "@tailwindcss/oxide"
-    ]
+    ],
+    "patchedDependencies": {
+      "@atomic-editor/editor@0.6.2": "patches/@atomic-editor__editor@0.6.2.patch"
+    }
   }
 }

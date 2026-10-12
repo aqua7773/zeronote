@@ -1,0 +1,23 @@
+diff --git a/dist/inline-preview.js b/dist/inline-preview.js
+index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..e672281e31ed7da8cc30bda6749287315bbb9845 100644
+--- a/dist/inline-preview.js
++++ b/dist/inline-preview.js
+@@ -464,7 +464,17 @@ function buildInlineDecorations(view) {
+                             hideTo++;
+                         }
+                     }
+-                    pushReplace(ranges, doc, node.from, hideTo);
++                    // PATCH(ZeroNote): 空标题不隐藏标记。
++                    // 原本 `#` 后面直接换行时，HeaderMark 被整段替换掉、又没有内容可显示
++                    // ⇒ 非活动行上**什么都不剩**，看着像空行（用户会以为内容丢了；其实 `#` 还在文件里）。
++                    // 判据：标记所属的标题节点在「标记 + 其后空格」处就结束了 = 标题为空。
++                    const markParent = node.node.parent;
++                    const emptyAtxHeading = node.name === 'HeaderMark' &&
++                        !!markParent &&
++                        markParent.name.startsWith('ATXHeading') &&
++                        hideTo >= markParent.to;
++                    if (!emptyAtxHeading)
++                        pushReplace(ranges, doc, node.from, hideTo);
+                 }
+             }
+             if (node.name === 'URL' && node.from < node.to) {
