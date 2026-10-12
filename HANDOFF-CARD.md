@@ -1,6 +1,6 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44）· **提交数与 HEAD 一律看 `git log`**
+> 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日补记 rev45）· **提交数与 HEAD 一律看 `git log`**
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
 > 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
@@ -22,7 +22,7 @@
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 pnpm exec tsc -b                  # 必须 0 错误
 pnpm exec oxlint                  # 必须恰好 4 warnings
-cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数字）
+cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧卡片写的 18 是过时数字）
 ```
 
 ## 本会话交付（10 个提交，逐条可回溯）
@@ -48,13 +48,14 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 | `17d59ac` | **第一个功能插件 `examples/outline-map`**（大纲 ⇄ 思维导图）：解析标题+列表 → 自算布局 → 静态 SVG（跟随主题）＋ 三视图 ＋ 导出 Mermaid mindmap；内核补 `core.panel.<id>` 命令（面板从 ☰ 菜单之外多一个键盘入口）；自带离线自测 `selftest.mjs` |
 | `9aec96a` | **验收方式换代**：`dev.cmd` 给 WebView2 开 CDP 端口（只在 dev 脚本里，生产不含）＋ `tools/cdp.mjs`（零依赖）—— 按**选择器/文本**找元素、`Input.dispatchMouseEvent` 点击、`Page.captureScreenshot` 截图，**不再算坐标、不抢鼠标**。见 rev42 |
 | `rev44` | **内核 UI 承载能力盘点 ＋ 交接**（没改代码）：查出三条系统性缺口 **U1** 插件不能自开窗口 / **U2** 无自定义渲染入口 / **U3** `doc` 改不了任意区间且 `doc.on` 是**空桩**；用户裁决放弃"声明式唯一主路"⇒ U2 获批。**路线：先完善内核，再做插件** |
+| `rev45` | **内核增强第 1 步：U3 修完** —— `doc.replaceRange(from,to,text)`（区间替换，导图回写笔记的基础）＋ `doc.on` 从**空桩**接上真事件（`open/change/save/close`，`change` **去抖 200ms**，切笔记时先兑现挂起的 change 再播 open ⇒ 不乱序）。验收夹具 `examples/doc-edit-probe/`，CDP ＋ **磁盘为真源**：区间替换后与旧文共同前缀 37/后缀 22 ⇒ 只改了 3 个字符 |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
-> **2026-10-13 更新 —— 第一件事变了：先完善内核，再做插件。** 见 `docs/插件UI承载能力-2026-10-13.md`：
-> **U3a/U3b**（`doc.replaceRange` ＋ 把空桩 `doc.on` 接上真事件）→ **U1**（Tauri 真窗口 ＋ capability）→
-> **U2**（`view.registerWindowContent` DOM 挂载点）→ 把 `examples/outline-map` 重做成
-> "大纲组**右上角**按钮 → 弹独立导图窗口（可拖 / 全屏 / 多开 / 可编辑并写回笔记）"。
+> **2026-10-13 更新 —— 先完善内核，再做插件。** 见 `docs/插件UI承载能力-2026-10-13.md`：
+> **U3a/U3b ✅ 已完成（rev45，本轮）** ⇒ **下一步 = U1**（Tauri 真窗口 ＋ capability 放行窗口 label，
+> **那是安全边界变更**，落地时写明新增了什么权限）→ **U2**（`view.registerWindowContent` DOM 挂载点）→
+> 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 → 弹独立导图窗口（可拖 / 全屏 / 多开 / 可编辑并写回笔记）"。
 > **用户已裁决**：不需要防"插件把界面改成任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
 
 **① 没有阻塞项 —— 桌面与移动端都已实测通过。**（记下来是因为这块踩过一次：手机默认跑的是打包版）
@@ -87,9 +88,10 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 - **`android-dev` 也在跑**（WMI 起的，不自起 vite、直连桌面 1420），日志 `.self-logs/android-dev.log`
 - **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（这次为验移动端快捷栏装的）⇒ 改前端即时生效。
   **默认装法仍是打包版**（`tauri android build --apk`，内嵌 dist，改前端必须重打包）
-- **测试库 `_tmp-vault-tb/`**（`probe.md` + `untitled-20261012-195714.md`）；`.zn/plugins` 现在是**空的**
-  —— `md-toolbar` 已随「标记收进内核」退役（`examples/md-toolbar/` 也删了，git 历史 `70ef21a` 可查）。
-  要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可（改完**切库一次**生效）
+- **测试库 `_tmp-vault-tb/`**（5 篇笔记，含 `数据库绪论.md`）；`.zn/plugins` 里有 **2 个 junction**：
+  `outline-map` 与 `docprobe`（验收夹具，详见 rev45）。
+  要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可。
+  ⚠️ **改完不一定要切库** —— 2026-10-13 实测：`☰ → 插件管理 → 重新扫描` 就能加载新插件（无需切库、无需重启；vite 不监视库目录，所以只能靠这条或切库）
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **18 passed**。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败

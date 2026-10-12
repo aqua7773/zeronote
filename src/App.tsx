@@ -22,7 +22,14 @@ import {
   type LoadedPlugin,
   type PluginHostDeps,
 } from './kernel/plugin-host'
-import type { DocApi, NoteMeta, PluginManifest, TrashEntry } from './kernel/contract'
+import type {
+  DocApi,
+  DocEvent,
+  NoteDoc,
+  NoteMeta,
+  PluginManifest,
+  TrashEntry,
+} from './kernel/contract'
 import {
   isGranted as isCapabilityGranted,
   readPermissions,
@@ -65,6 +72,19 @@ import {
 const LS_VAULT = 'zeronote.vault'
 const LS_DISABLED = 'zeronote.plugins.disabled'
 const AUTOSAVE_MS = 800
+/**
+ * `doc.on('change')` 的**去抖窗口**（U3b 决策，2026-10-13）。
+ *
+ * 每次击键都回调会把插件打爆（导图插件重排一次就是几十毫秒），所以 `change` 走 **trailing 去抖**：
+ * 停止输入 200ms 后广播**一次**，payload 是最新内容。选 200ms 的理由：
+ *  - 低于 `AUTOSAVE_MS`(800) ⇒ 插件总能**先**看到 change、**后**看到 save（顺序稳定）；
+ *  - 与 60fps 手感的"停一下"重合，用户停手即同步，导图不会看起来卡；
+ *  - 再短（<150ms）在连续打字时几乎等于每键一次，去抖就白做了。
+ *
+ * 注意：**结构性变更不额外区分** —— 内核不解析 Markdown，分不清"打字"与"改结构"，
+ * 硬分会把判据塞进内核（违背"内核保持薄"）。要更细的粒度由插件自己再压一层。
+ */
+const DOC_CHANGE_DEBOUNCE_MS = 200
 /** 命令面板的「最近使用」——持久化，重启后依然置顶（上限 8 条） */
 const LS_RECENT_CMDS = 'zeronote.commands.recent'
 const RECENT_CMDS_MAX = 8
@@ -451,6 +471,19 @@ export default function App() {
   const permissionsRef = useRef(permissions)
   const editorRef = useRef<EditorView | null>(null)
   const timerRef = useRef<number | null>(null)
+  /**
+   * `doc.on` 订阅表（U3b）。
+   *
+   * 为什么放 ref 而不是 state：`docApi` 的 `useMemo` 依赖是 `[]`（它靠 `activeRef` /
+   * `editorRef` 拿实时值），而 fire 点分散在 `openNote` / `saveNow` / `closeNote` /
+   * `onEditorChange` 四处 —— 只有放进 ref，注册（`docApi.on`）与广播（fire 点）才
+   * **指向同一份表**，且都不触发重渲染。
+   */
+  const docSubsRef = useRef<Map<DocEvent, Set<(d: NoteDoc) => void>>>(new Map())
+  /** `change` 去抖计时器（见 `DOC_CHANGE_DEBOUNCE_MS`） */
+  const docChangeTimerRef = useRef<number | null>(null)
+  /** 去抖窗口里待广播的内容 —— 用户在 200ms 内又敲了一下就覆盖它，最后只广播一次 */
+  const docPendingRef = useRef<{ path: string; content: string } | null>(null)
   const openNoteRef = useRef<(p: string) => Promise<void>>(async () => {})
   const saveNowRef = useRef<() => Promise<void>>(async () => {})
   /** 当前库（文件关联要用：判断递进来的文件是否已在库里，而 effect 里不想重挂监听） */
@@ -562,6 +595,49 @@ export default function App() {
     }
   }, [vault, platform])
 
+  /* ── doc 事件广播（U3b）── */
+  /**
+   * 把文档事件广播给所有订阅者。
+   *
+   * **为什么显式传 path/content/dirty 而不是读 ref**：四个 fire 点里有三个（`open`/`save`/`change`）
+   * 都发生在 `setContent` / `setActivePath` **之后**，而 `contentRef` / `activeRef` 是在
+   * `useEffect` 里同步的 —— 那一刻 ref 还停在**旧值**。读 ref 会广播出"上一秒的文档"，
+   * 这种错法不报错、极难查（正是 U3 这次要修的那类静默失效）。所以快照由调用方显式给出。
+   *
+   * 单个订阅者抛错**不影响**其它订阅者，也不会把编辑动作带崩：逐个 try/catch 后 `console.error`。
+   */
+  const fireDoc = useCallback(
+    (ev: DocEvent, path: string | null, content: string, dirty: boolean) => {
+      const subs = docSubsRef.current.get(ev)
+      if (!subs || subs.size === 0 || !path) return
+      const d: NoteDoc = { path, content, frontmatter: {}, dirty }
+      for (const cb of [...subs]) {
+        try {
+          cb(d)
+        } catch (e) {
+          console.error(`[doc.on:${ev}] 插件回调抛错（已隔离）`, e)
+        }
+      }
+    },
+    [],
+  )
+
+  /**
+   * 兑现去抖窗口里挂起的 `change`（切笔记 / 关笔记前调用）。
+   *
+   * 不兑现的话会**乱序**：`change(old)` 落在 `open(new)` 之后才广播，插件会拿旧内容去改新文档。
+   * 所以切走之前先把"这篇笔记的最后状态"播出去，再播 `open` / `close`。
+   */
+  const flushDocChange = useCallback(() => {
+    if (docChangeTimerRef.current !== null) {
+      window.clearTimeout(docChangeTimerRef.current)
+      docChangeTimerRef.current = null
+    }
+    const pending = docPendingRef.current
+    docPendingRef.current = null
+    if (pending) fireDoc('change', pending.path, pending.content, true)
+  }, [fireDoc])
+
   /* ── doc 原语：React 状态 + CM6 实例 → 契约形状 ── */
   const docApi: DocApi = useMemo(
     () => ({
@@ -576,8 +652,14 @@ export default function App() {
           : null,
       open: (p) => openNoteRef.current(p),
       close: () => {
+        // 与 closeNote 同一套语义：快照必须**在清空之前**取，否则订阅者拿到的是空文档
+        const p = activeRef.current
+        const c = contentRef.current
+        flushDocChange()
         setActivePath(null)
         setContent('')
+        setDirty(false)
+        fireDoc('close', p, c, false)
       },
       save: () => saveNowRef.current(),
       selection: () => {
@@ -620,9 +702,52 @@ export default function App() {
         })
         v.focus()
       },
-      on: () => ({ dispose: () => {} }),
+      /**
+       * 按**区间**替换 —— 结构化编辑（导图 ⇄ 大纲双向回写、表格单元格、任务勾选）靠它。
+       * `from` / `to` 顺序颠倒自动交换；两端夹进 `[0, doc.length]`；`text === ''` 即删除该区间。
+       * 与 `insertAt` 同一套"尽力而为、不抛错"策略：插件算出的偏移差一两个字符时，
+       * 该把改动落下去，而不是抛错把整条命令打断。
+       */
+      replaceRange: (from, to, text, cursorOffset) => {
+        const v = editorRef.current
+        if (!v) return
+        const len = v.state.doc.length
+        const a = Math.min(Math.max(Math.min(from, to), 0), len)
+        const b = Math.min(Math.max(Math.max(from, to), 0), len)
+        const caret = a + Math.min(Math.max(cursorOffset ?? text.length, 0), text.length)
+        v.dispatch({
+          changes: { from: a, to: b, insert: text },
+          selection: { anchor: caret },
+        })
+        v.focus()
+      },
+      /**
+       * 订阅文档事件（U3b —— 此前这里返回的是永远不触发的空桩）。
+       * 注册进 `docSubsRef`；`dispose` 幂等，集合空了就把 key 删掉（不给长会话留泄漏）。
+       */
+      on: (ev, cb) => {
+        let set = docSubsRef.current.get(ev)
+        if (!set) {
+          set = new Set()
+          docSubsRef.current.set(ev, set)
+        }
+        set.add(cb)
+        const owner = set
+        return {
+          dispose: () => {
+            owner.delete(cb)
+            if (owner.size === 0) docSubsRef.current.delete(ev)
+          },
+        }
+      },
     }),
-    [],
+    /**
+     * `fireDoc` / `flushDocChange` 都是 `useCallback` 的稳定引用（依赖链只到 ref），
+     * 进依赖数组**不会**导致 docApi 重建、更不会连带重建 kernel。
+     * 但还是必须写全：漏依赖 = "docApi 里读到上一代的 fire"，这类错法不报错、极难查
+     * （正是本轮 U3 要修的那类静默失效）。oxlint 的 exhaustive-deps 也会拦。
+     */
+    [fireDoc, flushDocChange],
   )
 
   /* ── 内核（库变了才重建）── */
@@ -670,11 +795,13 @@ export default function App() {
       setDirty(false)
       setSaveState('saved')
       setError(null)
+      // 落盘成功才广播 —— 失败时插件不该以为内容安全了（与"失败绝不显示已保存"同一原则）
+      fireDoc('save', path, contentRef.current, false)
     } catch (e) {
       setSaveState('error')
       setError(failMsg('write', e))
     }
-  }, [kernel])
+  }, [kernel, fireDoc])
   useEffect(() => {
     saveNowRef.current = saveNow
   }, [saveNow])
@@ -740,19 +867,22 @@ export default function App() {
     async (path: string) => {
       const k = kernel
       if (!k || path === activeRef.current) return
+      flushDocChange() // 上一篇挂起的 change 先兑现，别让它落在 open(new) 之后（会乱序）
       if (dirtyRef.current) await saveNowRef.current()
       try {
-        setContent(await k.fs.readText(path))
+        const text = await k.fs.readText(path)
+        setContent(text)
         setActivePath(path)
         setDirty(false)
         setSaveState('idle')
         setError(null)
         setSidebarOpen(false) // 窄屏：选完笔记自动收抽屉
+        fireDoc('open', path, text, false)
       } catch (e) {
         setError(failMsg('read', e))
       }
     },
-    [kernel],
+    [kernel, fireDoc, flushDocChange],
   )
   useEffect(() => {
     openNoteRef.current = openNote
@@ -765,12 +895,17 @@ export default function App() {
    */
   const closeNote = useCallback(async () => {
     if (dirtyRef.current) await saveNowRef.current()
+    // 顺序：兑现挂起的 change → 取快照（清空之前！）→ 清空 → 广播 close
+    flushDocChange()
+    const p = activeRef.current
+    const c = contentRef.current
     setActivePath(null)
     setContent('')
     setDirty(false)
     setSaveState('idle')
     setError(null)
-  }, [])
+    fireDoc('close', p, c, false)
+  }, [fireDoc, flushDocChange])
 
   /**
    * 把一个库从「最近打开过的库」里剔掉（含持久化）。
@@ -1387,13 +1522,30 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [toast])
 
-  const onEditorChange = useCallback((next: string) => {
-    setContent(next)
-    setDirty(true)
-    setSaveState('idle')
-    if (timerRef.current) window.clearTimeout(timerRef.current)
-    timerRef.current = window.setTimeout(() => void saveNowRef.current(), AUTOSAVE_MS)
-  }, [])
+  const onEditorChange = useCallback(
+    (next: string) => {
+      setContent(next)
+      setDirty(true)
+      setSaveState('idle')
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+      timerRef.current = window.setTimeout(() => void saveNowRef.current(), AUTOSAVE_MS)
+      /**
+       * `doc.on('change')` 广播（U3b）—— trailing 去抖，与上面 800ms 的自动保存**互相独立**：
+       * change 先到（插件看到新内容）、save 后到（内容已落盘），顺序稳定。
+       * `activeRef.current` 为空时（没打开笔记）不广播 —— 没有"哪篇"可言。
+       */
+      const path = activeRef.current
+      if (path) {
+        docPendingRef.current = { path, content: next }
+        if (docChangeTimerRef.current !== null) window.clearTimeout(docChangeTimerRef.current)
+        docChangeTimerRef.current = window.setTimeout(() => {
+          docChangeTimerRef.current = null
+          flushDocChange()
+        }, DOC_CHANGE_DEBOUNCE_MS)
+      }
+    },
+    [flushDocChange],
+  )
 
   /* ── 内置命令：和插件命令走完全同一套 API ── */
   useEffect(() => {

@@ -1,0 +1,19 @@
+{
+  "manifestVersion": 1,
+  "id": "docprobe",
+  "name": "doc 探针（临时）",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "U3a/U3b 验收夹具：doc.replaceRange（区间替换）与 doc.on（真事件）的最小可信路径。验收完可删。",
+  "capabilities": ["doc:read", "doc:write", "command", "view:sidebar"],
+  "contributes": {
+    "commands": [
+      { "id": "docprobe.seed", "title": "探针：写入基准文本（replaceRange 全量替换）" },
+      { "id": "docprobe.replace", "title": "探针：区间替换 OLD-PART → NEW-PART" },
+      { "id": "docprobe.clear", "title": "探针：清空事件日志" }
+    ],
+    "panels": [{ "id": "docprobe.panel", "title": "doc 探针", "location": "sidebar" }]
+  }
+}

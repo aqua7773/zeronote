@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 36
-更新时间: 2026-10-12（夜 · Markdown 标记**收进内核**：手机底栏 ＋ 顶部提示条 ＋ 右键「标记」子菜单）
+revision: 45
+更新时间: 2026-10-13（U3a `doc.replaceRange` ＋ U3b `doc.on` 接真事件 —— 内核增强第 1 步）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -743,6 +743,57 @@ revision: 36
 >
 > **新会话怎么接**：读 `HANDOFF-CARD.md`（一页速览）→ `docs/插件UI承载能力-2026-10-13.md`（本轮分析）→
 > 本文件 rev44 → 从上面「下一步」第 1 条开工。
+
+> ## 📌 rev45（2026-10-13 · 内核增强第 1 步：U3a `doc.replaceRange` ＋ U3b `doc.on` 真事件）
+>
+> **下一步清单里的第 1 条，一次做完**（原估 1 小时）。两处都只动前端内核，**Rust 一行未改**。
+>
+> **① U3a —— `doc.replaceRange(from, to, text, cursorOffset?)`**（`src/kernel/contract.ts` DocApi ＋
+> `src/App.tsx` docApi 实现）
+> · `insertAt` 只能插、`replaceSelection` 只认用户选区 ⇒ 结构化编辑（导图 ⇄ 大纲回写）缺的就是
+>   "**改掉任意一段已知区间**"。`from`/`to` 顺序颠倒自动交换，两端夹进 `[0, len]`，`''` 即删除。
+> · 与 `insertAt` 同一套"尽力而为、不抛错"策略：插件算出的偏移差一两个字符时该把改动落下去。
+>
+> **② U3b —— `doc.on(ev, cb)` 从空桩接上真事件**（此前 `on: () => ({ dispose: () => {} })`，
+> 契约声明了却永远不触发）
+> · 订阅表放 **ref**（`docSubsRef`）而非 state：docApi 的 `useMemo` 依赖是 `[]`，只有 ref 能让
+>   "注册"与"四个 fire 点"指向同一份表且不触发重渲染。
+> · **`change` 去抖窗口定为 200ms**（`DOC_CHANGE_DEBOUNCE_MS`，trailing）——**这是文档要求"先定再写"的那条决策**。
+>   选 200 的理由：① 低于自动保存的 800ms ⇒ 顺序稳定（插件**先**见 change、**后**见 save）；
+>   ② 再短（<150ms）在连续打字时几乎等于每键一次，去抖白做；③ **不分"结构性变更"** ——
+>   内核不解析 Markdown，硬分就得把判据塞进内核（违背"内核保持薄"），要更细的粒度让插件自己再压一层。
+> · **快照显式传参、不读 ref**：`open`/`save`/`change` 三个 fire 点都发生在 `setContent`/`setActivePath`
+>   **之后**，而 `contentRef`/`activeRef` 是在 effect 里同步的 —— 那一刻 ref 还是**旧值**，
+>   读 ref 会广播"上一秒的文档"（正是 U3 这类静默失效）。所以 `fireDoc(ev, path, content, dirty)` 由调用方给快照。
+> · **切笔记/关笔记先去抖兑现**（`flushDocChange`）：不然挂起的 `change(旧)` 会落在 `open(新)` 之后，
+>   插件会拿旧内容去改新文档（实测顺序确为 `change(旧) → save(旧) → open(新)`）。
+> · 单个订阅者抛错逐个 try/catch 隔离，既不连累其它订阅者也不打断编辑。
+> · `docApi.close()`（插件主动关）也补了 close 广播，与 `closeNote` 同一套语义（快照在清空**之前**取）。
+>
+> **验收（CDP 驱动，磁盘笔记为真源；不碰用户鼠标）**
+> · 夹具插件 `examples/doc-edit-probe/`（**临时**，junction 进测试库即可）：三条命令 ＋ 侧栏面板，
+>   事件结构化记到 `window.__docProbeLog` 供自动断言。
+> · 全量替换：`replaceRange(0, len, BASE)` 后磁盘正文**逐字节等于** BASE。
+> · 区间替换：改中段后与旧文 **共同前缀 37 / 共同后缀 22**（长度 62→62）⇒ **只有 3 个字符被改，其余一字未动**。
+> · 事件链：`open → change(dirty,62B) → save(落盘 62B)`；打字后切笔记 `change(旧) → save(旧) → open(新)`；
+>   关笔记 `close(path 正确, 7B)`。截图 `_shots/u3-plugin-mgmt.png`、`_shots/u3-palette.png`。
+> · 复跑方式：`node tools/cdp.mjs click "text:☰" eval "…menuitem('命令面板')…" type "input" "探针：写入基准文本" key Enter`
+>
+> **基线（本轮实测）**：`tsc -b` **0 错误** · `oxlint` **恰好 4 warnings** · `cargo test --lib` **21 passed**。
+> ⚠️ **更正**：`HANDOFF-CARD.md` 的基线写着"cargo test 18 passed"，**实测是 21**（rev44 的 HANDOFF 里已是 21）。
+> 卡片那句已改。加 `docApi` 依赖数组时 oxlint 先报了第 5 条 `exhaustive-deps`（`fireDoc`/`flushDocChange`），
+> 补进依赖数组即回到 4 —— **稳定引用进依赖数组不会重建 docApi/kernel**，但不写就是"读到上一代的 fire"。
+>
+> **两条顺带核实到的事实（记下来，别再当新 bug 查）**
+> · 打开笔记时 CM6 会触发一次 `onChange` ⇒ `open` 之后紧跟一条 `change` ＋（800ms）一条 `save`。
+>   **这是既有行为**（autosave 一直在），本轮只是第一次有了观察窗口；内容不变时它写的是同样字节。
+> · **已知边界**：`replaceRange` / `insertAt` 作用于**挂载中的编辑器实例**。主区被插件面板
+>   （`location: 'main'|'sidebar'` —— 契约里 `sidebar` 现在也渲染在主区）占满时编辑器已卸载，
+>   此时调用**静默 no-op**。要改内容请从编辑器可见的上下文触发命令（本轮验收就是走命令面板）。
+>   已写进契约 §1.2 的注释；U1（真窗口）之后这条边界才会真正消失。
+>
+> **下一步**：清单第 2 条 **U1**（Tauri 真窗口 + `capabilities/default.json` 放行窗口 label）——
+> 注意那是**安全边界变更**，落地时在本文档写明"新增了什么权限"。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

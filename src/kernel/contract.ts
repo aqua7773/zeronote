@@ -93,7 +93,10 @@ export type NoteDoc = {
   dirty: boolean
 }
 
-/** 2. doc —— 当前文档 / 选区。编辑类操作只有 replaceSelection / insertAtCursor 两个入口。 */
+/** `doc.on` 能订阅的四种文档生命周期事件（U3b 起是真事件，此前是空桩）。 */
+export type DocEvent = 'open' | 'change' | 'save' | 'close'
+
+/** 2. doc —— 当前文档 / 选区。编辑类入口：replaceSelection / insertAtCursor / insertAt / replaceRange。 */
 export interface DocApi {
   active(): NoteDoc | null
   open(path: string): Promise<void>
@@ -117,7 +120,29 @@ export interface DocApi {
    * 偏移越界不抛错：夹到 `[0, content.length]`，把编辑动作做成幂等的"尽力而为"。
    */
   insertAt(pos: number, text: string, cursorOffset?: number): void
-  on(ev: 'open' | 'change' | 'save' | 'close', cb: (d: NoteDoc) => void): Disposable
+  /**
+   * 按**区间**替换正文；`text === ''` 即删除该区间。
+   *
+   * 为什么需要它（`insertAt` / `replaceSelection` 都不够用）：
+   *  - `insertAt` **只能插**，删不掉已有内容；
+   *  - `replaceSelection` 只作用于用户当前选区，插件没法指定"就是第 40–52 个字符"。
+   * 结构化编辑（导图 ⇄ 大纲双向同步、表格单元格改写、任务勾选回写）需要的是
+   * "**改掉任意一段已知区间**" —— 插件从 `active().content` 里解析出节点位置后，
+   * 直接把那一段换掉即可，不必依赖用户光标在哪。
+   *
+   * 偏移一律夹进 `[0, doc.length]`，`from`/`to` 顺序颠倒会自动交换（与 `insertAt` 同一套宽容策略）。
+   * `cursorOffset` = 替换后光标距**新内容开头**的字符数（缺省 = 新内容末尾）。
+   */
+  replaceRange(from: number, to: number, text: string, cursorOffset?: number): void
+  /**
+   * 订阅文档生命周期事件。返回 `Disposable` —— 插件按项目约定把它 `push` 进
+   * `ctx.subscriptions` 后，卸载时由宿主统一 dispose（`plugin-host.ts` 的"卸载即净"）；不登记就得自己管。
+   *
+   * - `open` / `save` / `close` 每次动作各触发一次；
+   * - `change` **已去抖 200ms**（每次击键都回调会打爆插件），payload 里是**最新**内容；
+   * - 回调抛错不会影响其它订阅者，也不会中断编辑器（内核逐个 try/catch 并 `console.error`）。
+   */
+  on(ev: DocEvent, cb: (d: NoteDoc) => void): Disposable
 }
 
 export type SearchHit = { path: string; title: string; excerpt: string; score: number }
