@@ -8,11 +8,10 @@
  * 此前是插件用 `doc.insertAt` 自己写的 ⇒ 同一套 Markdown 语法，内核管一半、插件管一半。
  * 收进来之后语法规则**只存在一份**（`**` / `# ` 这些字面量只在本文件出现）。
  *
- * 三处入口共用同一批命令（这就是收进内核的收益 —— 插件时代只有两处，
- * 且桌面右键菜单够不着插件内部的这 12 条行为）：
- *   · 手机键盘正上方那条工具栏（`editor-toolbar`，`MarkToolbar` 渲染）
- *   · 桌面编辑器顶部的快捷键提示条（`editor-topbar`，可开关）
- *   · 桌面编辑器右键菜单的「标记」子菜单
+ * 两处入口共用同一批命令（这就是收进内核的收益 —— 插件时代够不着桌面右键菜单）：
+ *   · **移动端**：手机键盘正上方那条快捷栏（`editor-toolbar`，`MarkToolbar` 渲染）
+ *   · **桌面端**：编辑器右键菜单的「标记」子菜单（**桌面唯一入口**）
+ * 用户 2026-10-12 定：桌面不做顶部提示条、也不做底部工具栏 —— 桌面就一个右键菜单。
  *
  * ## 三类行为（与插件时代**一字不改**，只是换了拥有者）
  *
@@ -77,11 +76,6 @@ export const MARK_COMMANDS: readonly MarkSpec[] = [
   },
   { id: 'core.mark.hr', name: '分隔线', label: '―', kind: 'snippet', text: '\n---\n', caret: 5 },
 ]
-
-/** 带了键位的那几条 —— 桌面顶部提示条只列这些（手机没有 Ctrl 键，那条提示在手机上是伪概念） */
-export const MARK_COMMANDS_WITH_KEYS: readonly MarkSpec[] = MARK_COMMANDS.filter(
-  (m) => Boolean(m.keybinding),
-)
 
 /** 光标所在**行**的行首偏移（0 基）；没有活动文档时返回 null */
 function lineStart(doc: DocApi): number | null {

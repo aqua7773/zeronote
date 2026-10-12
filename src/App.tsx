@@ -49,11 +49,7 @@ import {
 import { setStatusBarVisible } from './lib/systemBar'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
-import {
-  MARK_COMMANDS,
-  MARK_COMMANDS_WITH_KEYS,
-  registerMarkdownMarks,
-} from './kernel/markdown-marks'
+import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
 import { SearchPanel } from './components/SearchPanel'
 import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
@@ -74,12 +70,6 @@ const LS_RECENT_CMDS = 'zeronote.commands.recent'
 const RECENT_CMDS_MAX = 8
 /** 最近打开过的库（侧栏底部的「切换笔记库」菜单用；上限 8 条，最近在前） */
 const LS_RECENT_VAULTS = 'zeronote.vaults.recent'
-/**
- * 编辑器顶部「Markdown 快捷键提示条」是否显示。
- * 它是**内核自带**的界面（不是插件面板），所以开关不走插件 store ——
- * 与侧栏宽度、主题偏好一样存 localStorage（内核自己的界面偏好自己管）。
- */
-const LS_MARK_HINT = 'zeronote.editor.markHint'
 const RECENT_VAULTS_MAX = 8
 
 /**
@@ -519,20 +509,6 @@ export default function App() {
   const platform: 'android' | 'windows' = /Android/i.test(navigator.userAgent)
     ? 'android'
     : 'windows'
-
-  /**
-   * 编辑器顶部 Markdown 快捷键提示条的显示开关（**内核自带**，默认显示）。
-   *
-   * 手机上没有 Ctrl 键，"快捷键提示"在那边是伪概念 —— 所以只有桌面渲染它
-   * （手机上由底部工具栏承担同一件事，那条正好落在软键盘上方）。
-   */
-  const [markHint, setMarkHint] = useState(
-    () => window.localStorage.getItem(LS_MARK_HINT) !== '0',
-  )
-
-  useEffect(() => {
-    window.localStorage.setItem(LS_MARK_HINT, markHint ? '1' : '0')
-  }, [markHint])
 
   /**
    * 软键盘弹起时，把根容器钉到**可见视口**的高度。
@@ -1759,8 +1735,8 @@ export default function App() {
       /**
        * Markdown 标记 —— 12 条直接铺在主菜单里会把它撑成十几行（滚都滚不完），
        * 所以收进一个「标记」子菜单（鼠标悬停展开）。命令是**内核自带**的
-       * （`core.mark.*`，见 `kernel/markdown-marks.ts`），与手机键盘上方那条工具栏、
-       * 桌面顶部提示条用的是**同一批**命令 —— 三处入口，一份实现。
+       * （`core.mark.*`，见 `kernel/markdown-marks.ts`）—— 桌面端**只有这一处入口**
+       * （用户 2026-10-12 定：桌面只留右键菜单，顶部提示条与底部工具栏都不做）。
        */
       items.push({
         label: '标记',
@@ -1851,13 +1827,10 @@ export default function App() {
 
   const activePanel = panels.find((p) => p.id === mainView) ?? null
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
-  /* 编辑器底部工具栏：内核自带的 Markdown 标记排在最前，插件注册的同位置面板跟在后面 */
+  /* 编辑器底部工具栏：内核自带的 Markdown 标记（**移动端才有**）在前，插件注册的同位置面板跟在后面 */
   const toolbarPanels = panels.filter((p) => p.location === 'editor-toolbar')
-  /* 插件注册到顶部提示条的面板 —— 与内核自带的快捷键提示条共用同一条容器 */
+  /* 插件注册到编辑器顶部提示条的面板 —— 内核自己不往那儿放东西（见下方渲染处的说明） */
   const topbarPanels = panels.filter((p) => p.location === 'editor-topbar')
-  /* 内核自带的 Markdown 快捷键提示条：**只有桌面显示**（手机没有 Ctrl 键，那边是伪概念），
-     且用户可以关掉（开关状态进 localStorage，见 LS_MARK_HINT） */
-  const topbarVisible = markHint && platform !== 'android'
   /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
      （右侧栏已取消，sidebar 不再有独立载体；契约里 location 仍然有效，只是宿主换了承载方式） */
   const pagePanel =
@@ -2051,18 +2024,12 @@ export default function App() {
         ) : activePath ? (
           <div className="zn-editor-wrap">
             {/*
-              编辑器**顶部**提示条。**内核自带的 Markdown 快捷键提示**排在最前
-              （2026-10-12 从 examples/md-toolbar 收进内核），插件注册到
-              `location: 'editor-topbar'` 的面板跟在后面 —— 两者共用同一条容器。
-              内核那条可开关（关掉 = 整条只剩插件面板，或干脆不渲染）。
+              编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
+              内核自己**不往这儿放任何内容**（用户 2026-10-12 定：桌面端只有右键菜单的「标记」）。
+              仍然是"没人注册就一个 DOM 都不渲染"。
             */}
-            {topbarVisible || topbarPanels.length > 0 ? (
-              <MarkToolbar
-                mode="hint"
-                marks={topbarVisible ? MARK_COMMANDS_WITH_KEYS : []}
-                onRun={(id) => void kernel?.commands.api.execute(id)}
-                onHide={topbarVisible ? () => setMarkHint(false) : undefined}
-              >
+            {topbarPanels.length > 0 && (
+              <div className="zn-editor-topbar">
                 {topbarPanels.map((p) => (
                   <PanelBoundary key={p.id}>
                     <UIRenderer
@@ -2075,8 +2042,8 @@ export default function App() {
                     />
                   </PanelBoundary>
                 ))}
-              </MarkToolbar>
-            ) : null}
+              </div>
+            )}
             <MarkdownEditor
               path={activePath}
               value={content}
@@ -2090,28 +2057,32 @@ export default function App() {
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
             />
             {/*
-              编辑器底部工具栏 —— 手机上软键盘弹起时视口被压缩，这条正好落在
-              **键盘正上方**（不是浮动定位，是布局的自然结果）。
-              12 个 Markdown 标记是**内核自带**的（2026-10-12 从 examples/md-toolbar 收进内核），
+              编辑器底部工具栏 —— **内核那一条只有移动端有**（用户 2026-10-12 定：
+              桌面端只留右键菜单的「标记」子菜单，移动端只留键盘正上方这条快捷栏）。
+              手机上软键盘弹起时视口被压缩，这条正好落在**键盘正上方**
+              （不是浮动定位，是布局的自然结果）。
               插件注册到 `location: 'editor-toolbar'` 的面板跟在后面一起横滑
               （沿用 renderPanelSafe + PanelBoundary，坏面板只坏自己那一格）。
             */}
-            <MarkToolbar
-              mode="bar"
-              marks={MARK_COMMANDS}
-              onRun={(id) => void kernel?.commands.api.execute(id)}
-            >
-              {toolbarPanels.map((p) => (
-                <PanelBoundary key={p.id}>
-                  <UIRenderer
-                    node={renderPanelSafe(p, panelState)}
-                    state={panelState}
-                    onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                    onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-                  />
-                </PanelBoundary>
-              ))}
-            </MarkToolbar>
+            {platform === 'android' || toolbarPanels.length > 0 ? (
+              <MarkToolbar
+                marks={platform === 'android' ? MARK_COMMANDS : []}
+                onRun={(id) => void kernel?.commands.api.execute(id)}
+              >
+                {toolbarPanels.map((p) => (
+                  <PanelBoundary key={p.id}>
+                    <UIRenderer
+                      node={renderPanelSafe(p, panelState)}
+                      state={panelState}
+                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                      onStateChange={(bind, value) =>
+                        setPanelState((s) => ({ ...s, [bind]: value }))
+                      }
+                    />
+                  </PanelBoundary>
+                ))}
+              </MarkToolbar>
+            ) : null}
             {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
                 不放标题栏，免得跟窗口那个 × 挨着分不清 */}
             <button
