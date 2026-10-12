@@ -2,7 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
-type TreeNode = { name: string; path: string; children: TreeNode[]; isDir: boolean }
+type TreeNode = {
+  name: string
+  /**
+   * 显示名 —— 来自 `NoteMeta.title`（frontmatter 的 `title` → 正文首行 → 文件名）。
+   * 与 `name`（磁盘文件名）分开：新建笔记默认叫 `untitled-<时间戳>.md`，
+   * 而用户眼里的名字是正文那行 `# 新笔记`。目录节点没有这个字段。
+   */
+  title?: string
+  path: string
+  children: TreeNode[]
+  isDir: boolean
+}
 
 function buildTree(notes: NoteMeta[]): TreeNode[] {
   const root: TreeNode[] = []
@@ -14,7 +25,7 @@ function buildTree(notes: NoteMeta[]): TreeNode[] {
       acc = acc ? `${acc}/${part}` : part
       const isFile = i === parts.length - 1
       if (isFile) {
-        level.push({ name: part, path: acc, children: [], isDir: false })
+        level.push({ name: part, path: acc, children: [], isDir: false, title: n.title })
       } else {
         let dir = level.find((x) => x.isDir && x.name === part)
         if (!dir) {
@@ -105,7 +116,10 @@ function Node({
     )
   }
 
-  const label = node.name.replace(/\.(md|markdown)$/i, '')
+  // 显示名优先用「笔记名」（frontmatter.title → 正文首行），没有才退回文件名。
+  // 重命名态的输入框仍是**文件名**（它改的是磁盘上的名字，不是显示名）——
+  // 所以下面 title 提示里始终带着真实路径，免得"名字怎么和文件对不上"。
+  const label = node.title || node.name.replace(/\.(md|markdown)$/i, '')
   const active = node.path === activePath
   const picked = selected.has(node.path) && !active
 

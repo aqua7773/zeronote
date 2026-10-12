@@ -99,6 +99,75 @@ fn parse_frontmatter(text: &str) -> serde_json::Value {
   serde_json::Value::Object(map)
 }
 
+/// **显示名**（侧栏列表 / 搜索命中的标题）—— 三级回退里的前两级：
+///   ① frontmatter 的 `title`
+///   ② 正文**第一条非空行**（剥掉 `#` / `>` / `-` / `1.` / `[ ]` 这些行首标记）
+///   ③ 返回 `None` ⇒ 由调用方回退到**文件名**
+///
+/// 为什么不再直接用文件名：新建笔记默认叫 `untitled-20261011-222936.md`，
+/// 但用户眼里的名字是正文那一行 `# 新笔记` —— 侧栏里列一串 `untitled-<时间戳>` 等于没有名字。
+///
+/// **有意接受的副作用**：多篇内容相同的笔记会在侧栏显示**同一个名字**（用户 2026-10-12 认可）。
+/// 不影响按文件名找：`index-api.ts` 的 `searchable` 会把文件名并进匹配串，两种搜法都能命中。
+fn display_title(fm: &serde_json::Value, text: &str) -> Option<String> {
+  if let Some(t) = fm.get("title").and_then(|v| v.as_str()) {
+    let t = t.trim();
+    if !t.is_empty() {
+      return Some(clip_chars(t, 80));
+    }
+  }
+  for line in body_after_frontmatter(text).lines() {
+    if line.trim().is_empty() {
+      continue;
+    }
+    let t = strip_line_prefix(line);
+    if !t.is_empty() {
+      return Some(clip_chars(t, 80));
+    }
+  }
+  None
+}
+
+/// 跳过文件开头的 frontmatter 块（`---` … `---`），只留正文
+fn body_after_frontmatter(text: &str) -> &str {
+  if !text.starts_with("---") {
+    return text;
+  }
+  // `---` 是 ASCII ⇒ 3 字节是安全的切点
+  match text[3..].find("\n---") {
+    Some(i) => &text[3 + i + 4..],
+    None => text,
+  }
+}
+
+/// 剥掉一行的 Markdown 行首标记（标题 / 引用 / 列表 / 待办）
+fn strip_line_prefix(line: &str) -> &str {
+  let t = line
+    .trim()
+    .trim_start_matches(|c: char| matches!(c, '#' | '>' | '-' | '*' | '+'))
+    .trim_start();
+  for p in ["[ ] ", "[x] ", "[X] "] {
+    if let Some(rest) = t.strip_prefix(p) {
+      return rest.trim();
+    }
+  }
+  // 有序列表 `12. `
+  if let Some((head, rest)) = t.split_once(". ") {
+    if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+      return rest.trim();
+    }
+  }
+  t
+}
+
+/// 按**字符**截断（按字节切会切碎中文并 panic）
+fn clip_chars(s: &str, max: usize) -> String {
+  if s.chars().count() <= max {
+    return s.to_string();
+  }
+  s.chars().take(max).collect::<String>() + "…"
+}
+
 fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), String> {
   let entries = fs::read_dir(dir).map_err(|e| format!("读取目录失败 {}：{e}", dir.display()))?;
   for entry in entries {
@@ -133,19 +202,22 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       .map_err(|e| e.to_string())?
       .to_string_lossy()
       .replace('\\', "/");
-    let title = rel
+    let frontmatter = parse_frontmatter(&text);
+    // 显示名三级回退：frontmatter.title → 正文首行 → 文件名
+    let fallback = rel
       .rsplit('/')
       .next()
       .unwrap_or(&rel)
       .trim_end_matches(".markdown")
       .trim_end_matches(".md")
       .to_string();
+    let title = display_title(&frontmatter, &text).unwrap_or(fallback);
     out.push(NoteMeta {
       path: rel,
       title,
       mtime,
       size: meta.len(),
-      frontmatter: parse_frontmatter(&text),
+      frontmatter,
     });
   }
   Ok(())
@@ -832,6 +904,36 @@ mod tests {
     let file = d.join("note.md");
     fs::write(&file, "x").unwrap();
     assert!(!vault_exists(s(&file)));
+  }
+
+  /// 显示名回退链的前两级：frontmatter.title 优先；否则正文首行（剥掉行首标记）；
+  /// 两级都没有 ⇒ 返回 None，由调用方回退到文件名。
+  #[test]
+  fn display_title_prefers_frontmatter_then_first_line() {
+    let none = serde_json::json!({});
+    assert_eq!(display_title(&none, "# 新笔记\n").as_deref(), Some("新笔记"));
+    // 前面的空行要跳过
+    assert_eq!(display_title(&none, "\n\n## 第二条\n正文\n").as_deref(), Some("第二条"));
+    // 列表 / 待办 / 引用 / 有序列表的行首标记都要剥掉
+    assert_eq!(display_title(&none, "- 条目\n").as_deref(), Some("条目"));
+    assert_eq!(display_title(&none, "- [ ] 待办事项\n").as_deref(), Some("待办事项"));
+    assert_eq!(display_title(&none, "> 引用一句\n").as_deref(), Some("引用一句"));
+    assert_eq!(display_title(&none, "12. 有序条目\n").as_deref(), Some("有序条目"));
+    // frontmatter 块本身不能当标题；块里的 title 优先于正文首行
+    let text = "---\ntitle: 正式标题\n---\n\n# 正文首行\n";
+    let fm = parse_frontmatter(text);
+    assert_eq!(fm.get("title").and_then(|v| v.as_str()), Some("正式标题"));
+    assert_eq!(display_title(&fm, text).as_deref(), Some("正式标题"));
+    // 只有 frontmatter、没有正文 ⇒ None（调用方回退文件名）
+    assert_eq!(display_title(&none, "---\na: 1\n---\n"), None);
+    // 空文件 / 纯空行
+    assert_eq!(display_title(&none, ""), None);
+    assert_eq!(display_title(&none, "\n\n\n"), None);
+    // 超长首行按**字符**截断（既不能 panic，也不能切碎中文）
+    let long = format!("# {}\n", "字".repeat(100));
+    let got = display_title(&none, &long).unwrap();
+    assert_eq!(got.chars().count(), 81); // 80 字 + 省略号
+    assert!(got.ends_with('…'));
   }
 
   /// 删除插件：正常路径删掉整个目录；越界 id 与不存在的 id 都必须报错（不能静默成功）
