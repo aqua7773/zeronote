@@ -486,7 +486,10 @@ body.is-resizing * {
   overflow-y: hidden;
   align-items: center;
   gap: var(--zn-space-2);
-  padding: var(--zn-space-1) var(--zn-space-3);
+  /* 右侧留出 ~72px：编辑区右上角那个「关闭这篇笔记」是绝对定位 + z-index:5，
+     会**压在提示条右端**上。不留白的话，点提示条最右侧的按钮实际点到的是「关闭」
+     —— 真机/桌面实测：用户点一下笔记就被关了（而且看起来像"按钮功能错了"）。 */
+  padding: var(--zn-space-1) 72px var(--zn-space-1) var(--zn-space-3);
   border-bottom: 1px solid var(--zn-border);
   background: var(--zn-bg-subtle);
   scrollbar-width: none;
