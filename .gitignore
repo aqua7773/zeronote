@@ -36,6 +36,9 @@ _tmp-*/
 # 过程产物：窗口截图（不入库）
 _shots/
 
+# 内核快照（自愈用；内容与仓库重复，不入库 —— 要异地恢复走 GitHub，见 docs/架构原则-2026-10-13.md §4.5）
+_kernel-snapshots/
+
 # 插件运行时 store（把插件目录 junction 到 examples/ 做开发时会写进源码目录，不入库）
 examples/*/store.json
 
