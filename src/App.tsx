@@ -63,6 +63,32 @@ const AUTOSAVE_MS = 800
 /** 命令面板的「最近使用」——持久化，重启后依然置顶（上限 8 条） */
 const LS_RECENT_CMDS = 'zeronote.commands.recent'
 const RECENT_CMDS_MAX = 8
+/** 最近打开过的库（侧栏底部的「切换笔记库」菜单用；上限 8 条，最近在前） */
+const LS_RECENT_VAULTS = 'zeronote.vaults.recent'
+const RECENT_VAULTS_MAX = 8
+
+/**
+ * 库路径的去重口径：Windows 下大小写与斜杠方向都不敏感，
+ * 同一个库写成 `C:\a\b` 和 `c:/a/b/` 得算同一条。
+ */
+function vaultKey(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/** 路径最后一段（库目录名）；末位斜杠先吃掉 */
+function baseName(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? p
+}
+
+function loadRecentVaults(): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_VAULTS) ?? '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_VAULTS_MAX)
+  } catch {
+    return []
+  }
+}
 
 function loadRecentCommands(): string[] {
   try {
@@ -220,6 +246,14 @@ export default function App() {
   const [replaceOpen, setReplaceOpen] = useState(false)
   /** 最近执行过的命令 id（命令面板置顶用；持久化在 localStorage） */
   const [recentCmds, setRecentCmds] = useState<string[]>(loadRecentCommands)
+  /** 最近打开过的库（侧栏底部「切换笔记库」菜单的数据源；持久化在 localStorage） */
+  const [recentVaults, setRecentVaults] = useState<string[]>(loadRecentVaults)
+  /** 「切换笔记库」菜单的弹出位置与条目（null = 关着）；条目在事件处理里现算，与 mainMenu 同一套做法 */
+  const [vaultMenu, setVaultMenu] = useState<{
+    x: number
+    y: number
+    items: MenuItem[]
+  } | null>(null)
 
   const rememberCommand = useCallback((id: string) => {
     setRecentCmds((prev) => {
@@ -654,6 +688,20 @@ export default function App() {
   const applyVault = useCallback(async (dir: string) => {
     if (dirtyRef.current) await saveNowRef.current()
     localStorage.setItem(LS_VAULT, dir)
+    // 记入「最近打开过的库」：最近在前、按归一化路径去重、上限 8 条。
+    // 只在此处写 —— 切库成功的唯一定义点（桌面目录选择器 / 侧栏库切换 / 移动端面板都走它）。
+    setRecentVaults((prev) => {
+      const next = [dir, ...prev.filter((p) => vaultKey(p) !== vaultKey(dir))].slice(
+        0,
+        RECENT_VAULTS_MAX,
+      )
+      try {
+        localStorage.setItem(LS_RECENT_VAULTS, JSON.stringify(next))
+      } catch {
+        /* 配额不足或隐私模式失败不影响切库本身 */
+      }
+      return next
+    })
     setActivePath(null)
     setContent('')
     setDirty(false)
@@ -793,6 +841,47 @@ export default function App() {
       setError(failMsg('vault', e))
     }
   }, [platform, applyVault])
+
+  /**
+   * 「切换笔记库」菜单 —— 侧栏底部的库名、以及侧栏空白区的右键菜单共用这一个入口。
+   *
+   * 桌面端此前切库只有系统目录选择器一条路：想切回上个库得在文件对话框里一路点过去。
+   * 这里把**打开过的库**列出来，点一下即切；切换动作仍走 `applyVault`
+   * （ensure_vault、笔记刷新、localStorage 一套逻辑不重写）。
+   */
+  const openVaultMenu = (clientX: number, clientY: number) => {
+    // 当前库可能还没进「最近」（首次选中、或被清过 localStorage）—— 展示时补在最前。
+    // 只补展示，**不写回**持久化：写入点只有 applyVault 一处。
+    const shown =
+      vault && !recentVaults.some((p) => vaultKey(p) === vaultKey(vault))
+        ? [vault, ...recentVaults].slice(0, RECENT_VAULTS_MAX)
+        : recentVaults.slice(0, RECENT_VAULTS_MAX)
+    // 不同目录下的同名库（两个 Desktop）光看名字分不开，补一格父目录名
+    const nameCount = new Map<string, number>()
+    for (const dir of shown) {
+      const n = baseName(dir)
+      nameCount.set(n, (nameCount.get(n) ?? 0) + 1)
+    }
+    const items: MenuItem[] = shown.map((dir) => {
+      const name = baseName(dir)
+      const isCurrent = vault !== null && vaultKey(dir) === vaultKey(vault)
+      const parts = dir.split(/[\\/]/).filter(Boolean)
+      const hint =
+        !isCurrent && (nameCount.get(name) ?? 0) > 1 && parts.length >= 2
+          ? parts[parts.length - 2]
+          : undefined
+      return {
+        label: isCurrent ? `${name} · 当前` : name,
+        hint,
+        onClick: () => {
+          // 点当前库 = 什么都不做（菜单自己会关）
+          if (!isCurrent) void applyVault(dir)
+        },
+      }
+    })
+    items.push({ label: '打开其它文件夹…', divider: true, onClick: () => void pickVault() })
+    setVaultMenu({ x: clientX, y: clientY, items })
+  }
 
   const newNote = useCallback(async (nameArg?: string) => {
     const k = kernel
@@ -1518,6 +1607,11 @@ export default function App() {
           }
         },
       })
+      // 侧栏底部的库名按钮是主入口；这条让右键侧栏空白区也能到同一个菜单
+      items.push({
+        label: '切换笔记库…',
+        onClick: () => openVaultMenu(clientX, clientY),
+      })
     }
 
     setMainMenu({ x: clientX, y: clientY, items })
@@ -1640,10 +1734,21 @@ export default function App() {
           </div>
         )}
         {/* 库信息归侧栏底部（用户要求）；状态栏留给文档级信息。
-            这里显示库目录名，完整路径挂在 tooltip 上。 */}
-        <div className="zn-sidebar-foot" title={vault ?? ''}>
-          {vault ? vault.split(/[\\/]/).pop() : '未选择笔记库'}
-        </div>
+            这里显示库目录名，完整路径挂在 tooltip 上。
+            它是一个**按钮**：点一下弹「切换笔记库」（最近打开过的库 + 打开其它文件夹…），
+            不必再绕系统目录选择器。菜单贴在按钮上方展开（见 openVaultMenu）。 */}
+        <button
+          type="button"
+          className="zn-sidebar-foot"
+          title={vault ?? ''}
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            openVaultMenu(r.left, r.top)
+          }}
+        >
+          {vault ? baseName(vault) : '未选择笔记库'}
+        </button>
       </aside>
       )}
 
@@ -1871,6 +1976,16 @@ export default function App() {
           y={mainMenu.y}
           items={mainMenu.items}
           onClose={() => setMainMenu(null)}
+        />
+      )}
+
+      {/* 侧栏底部库名（或侧栏右键的「切换笔记库…」）→ 最近打开过的库 + 打开其它文件夹… */}
+      {vaultMenu && (
+        <ContextMenu
+          x={vaultMenu.x}
+          y={vaultMenu.y}
+          items={vaultMenu.items}
+          onClose={() => setVaultMenu(null)}
         />
       )}
 

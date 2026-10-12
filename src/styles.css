@@ -688,15 +688,29 @@ body.is-resizing * {
 
 /* 侧栏底部的库信息条：显示库目录名（完整路径在 tooltip 上）。
    侧栏头归应用名、状态栏归文档信息，各司其职。
-   不画上边框（用户要求）——它就是这一栏的一句说明，加线反而显得是另一个区块。 */
+   不画上边框（用户要求）——它就是这一栏的一句说明，加线反而显得是另一个区块。
+   它是**按钮**（点了弹「切换笔记库」菜单，见 App 的 openVaultMenu），
+   所以这几行把浏览器给 button 的默认外观清掉，只留一行文字。 */
 .zn-sidebar-foot {
+  display: block;
+  width: 100%;
   flex: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
   padding: var(--zn-space-2) var(--zn-space-3);
   font-size: var(--zn-text-sm);
   color: var(--zn-fg-subtle);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-sidebar-foot:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
 }
 
 /* ───────── 声明式 UI（components/UIRenderer.tsx 专用）─────────
