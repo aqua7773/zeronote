@@ -44,6 +44,17 @@ export default {
     window.__docProbeLog = log
     let last = '（还没跑过命令）'
 
+    /**
+     * 诊断出口：把中间值写进 `window.__docProbeDiag`，CDP 直接读。
+     *
+     * 起因（2026-10-13 验收撞到）：`doc.active()` 为 null 与 `editorRef.current` 为 null
+     * **都是静默 return** —— 面板不会刷新、不会有 change、也不报错。
+     * 没有出口就只能猜；有了它就一步定位。
+     */
+    const diag = (o) => {
+      window.__docProbeDiag = { ...(window.__docProbeDiag ?? {}), ...o }
+    }
+
     const refresh = () => {
       try {
         view.refresh('docprobe.panel')
@@ -68,12 +79,25 @@ export default {
         title: '探针：写入基准文本（replaceRange 全量替换）',
         run: () => {
           const a = doc.active()
+          const lenBefore = a?.content.length ?? null
+          doc.replaceRange(0, a?.content.length ?? 0, BASE)
+          const lenAfter = doc.active()?.content.length ?? null
+          diag({
+            at: 'seed',
+            activeIsNull: !a,
+            activePath: a?.path ?? null,
+            lenBefore,
+            lenAfter,
+            hasReplaceRange: typeof doc.replaceRange,
+            baseLen: BASE.length,
+          })
           if (!a) {
             host.notify('先打开一篇笔记', 'warn')
+            refresh()
             return
           }
-          doc.replaceRange(0, a.content.length, BASE)
           last = `seed：全量替换为 ${BASE.length} 字符`
+          refresh()
         },
       }),
     )
@@ -116,7 +140,7 @@ export default {
       view.registerPanel({
         id: 'docprobe.panel',
         title: 'doc 探针',
-        location: 'sidebar',
+        location: 'editor-toolbar',
         render: () => {
           const n = (ev) => log.filter((e) => e.ev === ev).length
           const tail = log
