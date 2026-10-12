@@ -1356,3 +1356,41 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/* ───────── 编辑器行首动作按钮（`editor.addLineAction`，rev54）─────────
+   插件在"某一行左侧"放的小按钮：CM6 widget ⇒ **视图元素，不进文档、不占偏移**。
+   默认克制（低对比、悬停才明显），因为笔记正文才是主角。 */
+.zn-line-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  padding: 0;
+  border: 1px solid var(--zn-border);
+  border-radius: 5px;
+  background: var(--zn-bg-subtle);
+  color: var(--zn-fg-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.zn-line-action:hover {
+  opacity: 1;
+  color: var(--zn-accent);
+  border-color: var(--zn-accent);
+}
+
+.zn-line-action.is-accent {
+  color: var(--zn-accent);
+  border-color: var(--zn-accent);
+}
+
+.zn-line-action.is-muted {
+  opacity: 0.4;
+}
+

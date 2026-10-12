@@ -10,9 +10,16 @@
  * 重叠处理：**先到先得** —— 前一条规则占掉的区间，后面的规则不再着色。
  * 这样多条规则叠加时行为可预期，也避免 CM6 的 RangeSetBuilder 因区间交叉而抛错。
  */
-import { RangeSetBuilder, type Extension } from '@codemirror/state'
-import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
-import type { Disposable, EditorApi, EditorMarkRule } from './contract'
+import type { Extension, Range } from '@codemirror/state'
+import {
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+  type DecorationSet,
+  type ViewUpdate,
+} from '@codemirror/view'
+import type { Disposable, EditorApi, EditorLineAction, EditorMarkRule } from './contract'
 
 type Entry = {
   /** 完整 id（插件前缀 + 规则 id），用在 DOM 属性上 */
@@ -22,6 +29,59 @@ type Entry = {
 }
 
 const entries = new Map<string, Entry>()
+
+/** 行首动作按钮的条目（`addLineAction`，rev54） */
+type LineEntry = { fullId: string; pluginId: string; rule: EditorLineAction }
+const lineEntries = new Map<string, LineEntry>()
+
+/**
+ * 行首按钮的视图元素（CM6 Widget）。
+ *
+ * `ignoreEvent()` **必须**返回 false —— 官方 *Decoration Example* 里那句注释就是原因：
+ * 否则编辑器把自己的事件处理吃掉，按钮点不动。
+ * `contentEditable=false` 让编辑器别把它当文本内容（光标/选区不会跳进按钮里）。
+ */
+class LineActionWidget extends WidgetType {
+  readonly fullId: string
+  readonly label: string
+  readonly title: string | undefined
+  readonly className: string | undefined
+
+  // ⚠️ 不能写成 `constructor(readonly label: string)`（TS 的参数属性）——
+  // 本项目 `erasableSyntaxOnly: true`，那种语法会生成代码，直接编译不过（官方示例是参数属性写法）
+  constructor(fullId: string, label: string, title: string | undefined, className: string | undefined) {
+    super()
+    this.fullId = fullId
+    this.label = label
+    this.title = title
+    this.className = className
+  }
+
+  eq(other: LineActionWidget) {
+    return (
+      other.fullId === this.fullId &&
+      other.label === this.label &&
+      other.title === this.title &&
+      other.className === this.className
+    )
+  }
+
+  toDOM() {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = `zn-line-action${this.className ? ` is-${this.className}` : ''}`
+    btn.textContent = this.label
+    if (this.title) btn.title = this.title
+    btn.setAttribute('data-zn-line-action', this.fullId)
+    btn.setAttribute('aria-label', this.title ?? this.label)
+    btn.contentEditable = 'false'
+    return btn
+  }
+
+  ignoreEvent() {
+    return false
+  }
+}
 
 /** 规则变化时才重建扩展数组（MarkdownEditor 每次 render 都会调） */
 let cachedExtensions: Extension[] | null = null
@@ -47,7 +107,23 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
         },
       }
     },
-    list: () => [...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
+    addLineAction(rule: EditorLineAction): Disposable {
+      const fullId = fullIdOf(pluginId, rule.id)
+      lineEntries.set(fullId, { fullId, pluginId, rule })
+      cachedExtensions = null
+      return {
+        dispose: () => {
+          if (lineEntries.get(fullId)?.pluginId === pluginId) {
+            lineEntries.delete(fullId)
+            cachedExtensions = null
+          }
+        },
+      }
+    },
+    list: () => [
+      ...[...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
+      ...[...lineEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
+    ],
   }
 }
 
@@ -57,6 +133,11 @@ export function releaseEditorMarks(pluginId: string): void {
   for (const [k, e] of [...entries]) {
     if (e.pluginId !== pluginId) continue
     entries.delete(k)
+    changed = true
+  }
+  for (const [k, e] of [...lineEntries]) {
+    if (e.pluginId !== pluginId) continue
+    lineEntries.delete(k)
     changed = true
   }
   if (changed) cachedExtensions = null
@@ -74,8 +155,8 @@ export function editorMarkEntries(): { id: string; pluginId: string }[] {
  * `indexOf`/正则都是原生实现，几 KB 文本全扫是微秒级；上倒排/增量反而是过早优化。
  */
 function buildDecorations(view: EditorView): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>()
-  const text = view.state.doc.toString()
+  const doc = view.state.doc
+  const text = doc.toString()
   const found: { from: number; to: number; deco: Decoration }[] = []
 
   for (const { fullId, rule } of entries.values()) {
@@ -113,15 +194,54 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
-  // RangeSetBuilder 要求按起点升序且**不允许区间交叉** ⇒ 排序 + 跳过重叠（先到先得）
+  // 区间装饰要求按起点升序且**不允许区间交叉** ⇒ 排序 + 跳过重叠（先到先得）
   found.sort((a, b) => a.from - b.from || a.to - b.to)
+  const ranges: Range<Decoration>[] = []
   let lastTo = -1
   for (const f of found) {
     if (f.from < lastTo) continue
-    builder.add(f.from, f.to, f.deco)
+    ranges.push(f.deco.range(f.from, f.to))
     lastTo = f.to
   }
-  return builder.finish()
+
+  /**
+   * **行首动作按钮**（rev54）：匹配到的**行首**插一个零宽 widget（视图元素，不进文档、不占偏移）。
+   * 同一行可能被多条规则或同一规则的多次匹配命中 ⇒ 用 Set 按"行首偏移"去重，
+   * 否则同一行会叠出好几个按钮（`side: -1` = 行首**之前**，也就是行的左侧）。
+   */
+  const seenLines = new Set<number>()
+  for (const { fullId, rule } of lineEntries.values()) {
+    let re: RegExp
+    try {
+      const flags = rule.flags?.includes('g') ? rule.flags : `${rule.flags ?? ''}g`
+      re = new RegExp(rule.pattern, flags)
+    } catch (e) {
+      console.warn(`[editor] 行首按钮 ${fullId} 的正则无效：${String(e)}`)
+      continue
+    }
+    let m: RegExpExecArray | null
+    let guard = 0
+    while ((m = re.exec(text)) !== null) {
+      if (m[0].length === 0) {
+        re.lastIndex += 1
+        continue
+      }
+      if (++guard > 5000) break
+      const lineFrom = doc.lineAt(Math.min(m.index, doc.length)).from
+      if (seenLines.has(lineFrom)) continue
+      seenLines.add(lineFrom)
+      ranges.push(
+        Decoration.widget({
+          widget: new LineActionWidget(fullId, rule.label, rule.title, rule.className),
+          side: -1,
+        }).range(lineFrom),
+      )
+    }
+  }
+
+  // 交给 CM6 排序（`Decoration.set(ranges, true)`）：widget 与区间装饰混在一起时，
+  // 手写排序 + 零宽 range 更容易踩"起点必须严格升序"的坑（原先用 RangeSetBuilder 就是这么要求的）
+  return Decoration.set(ranges, true)
 }
 
 const markPlugin = ViewPlugin.fromClass(
@@ -147,19 +267,39 @@ const markPlugin = ViewPlugin.fromClass(
 export function editorMarkExtensions(
   onAction: (commandId: string, payload?: Record<string, unknown>) => void,
 ): Extension[] {
-  if (entries.size === 0) return []
+  if (entries.size === 0 && lineEntries.size === 0) return []
   if (cachedExtensions) return cachedExtensions
 
   const clickHandler = EditorView.domEventHandlers({
     click(evt, view) {
       const target = evt.target as HTMLElement | null
+
+      // ① 行首按钮（rev54）：payload 带行号 —— 插件据此判断"这是哪一组"
+      const actEl = target?.closest?.('[data-zn-line-action]') as HTMLElement | null
+      if (actEl) {
+        const fullId = actEl.getAttribute('data-zn-line-action')
+        const entry = fullId ? lineEntries.get(fullId) : null
+        const cmd = entry?.rule.onClick
+        if (!cmd) return false
+        let from = -1
+        let line = -1
+        try {
+          from = view.posAtDOM(actEl)
+          line = view.state.doc.lineAt(from).number - 1 // CM6 行号从 1 起，插件用 0 起
+        } catch {
+          /* 拿不到定位不影响命令本身，只是少了上下文 */
+        }
+        onAction(cmd, { line, from })
+        return true
+      }
+
+      // ② 行内标记（原有）：payload 带区间文本与偏移
       const el = target?.closest?.('[data-zn-mark]') as HTMLElement | null
       if (!el) return false
       const fullId = el.getAttribute('data-zn-mark')
       const entry = fullId ? entries.get(fullId) : null
       const cmd = entry?.rule.onClick
       if (!cmd) return false
-      // 标记起点：posAtDOM 给的是 DOM 位置 → 文档偏移
       let from = -1
       try {
         from = view.posAtDOM(el)

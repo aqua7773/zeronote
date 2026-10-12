@@ -120,6 +120,19 @@ async function clickGlyph(cdp, glyph, nth = 0) {
   console.log(`click  「${glyph}」#${nth + 1}（共 ${hit.count} 个）`)
 }
 
+/** 点编辑器里第 n 个"标题左侧的「❖」"（内核 `editor.addLineAction` 插的 widget 按钮） */
+async function clickLineAction(cdp, nth = 0) {
+  const hit = await cdp.js(`(() => {
+    const btns = [...document.querySelectorAll('.zn-line-action')]
+    const el = btns[${nth}]
+    if (!el) return { ok: false, count: btns.length }
+    el.click()
+    return { ok: true, count: btns.length }
+  })()`)
+  if (!hit?.ok) throw new Error(`标题左侧找不到第 ${nth + 1} 个「❖」（共 ${hit?.count ?? 0} 个）`)
+  console.log(`click  标题左侧「❖」#${nth + 1}（共 ${hit.count} 个）`)
+}
+
 async function rescan(cdp) {
   await click(cdp, 'text:☰')
   await sleep(250)
@@ -214,18 +227,19 @@ async function main() {
     await openNoteByTitle(cdp, '项目计划')
     await sleep(1500)
 
-    const topbarText = await cdp.js(`document.querySelector('.zn-editor-topbar')?.innerText ?? ''`)
+    const btnInfo = await cdp.js(`(() => {
+      const btns = [...document.querySelectorAll('.zn-line-action')]
+      return { count: btns.length, labels: btns.map((b) => (b.textContent || '').trim()).slice(0, 5) }
+    })()`)
     check(
-      '② 编辑器顶部条出现「每组一个」的按钮（❖ 项目计划 / ❖ 另一组；笔记本身仍是大纲）',
-      topbarText.includes('❖ 项目计划') && topbarText.includes('❖ 另一组'),
-      `顶部条：${j(topbarText)}`,
+      '② 每个大纲组的**标题左侧**有「❖」按钮（编辑器内；笔记本身仍是大纲）',
+      btnInfo.count >= 2 && btnInfo.labels.every((l) => l === '❖'),
+      j(btnInfo),
     )
-    const editorThere = await cdp.js(`!!document.querySelector('.zn-editor-wrap')`)
-    check('②b 编辑器还在（插件没有占掉主区）', editorThere)
-    await shot(cdp, join(REPO, '_shots', 'outline-map-v2-topbar.png'))
+    await shot(cdp, join(REPO, '_shots', 'outline-map-v2-titlebtn.png'))
 
-    /* ③ 开第一组导图窗口 */
-    await clickGlyph(cdp, '❖ 项目计划', 0)
+    /* ③ 点第 1 个按钮（第 1 组的标题左侧）⇒ 开该组导图窗口 */
+    await clickLineAction(cdp, 0)
     const win1 = await waitFor(
       () => findPluginWindow((l) => l.includes('map-0')),
       '第一个导图窗口（label 含 map-0）',
@@ -245,8 +259,8 @@ async function main() {
     )
     await shot(win1.cdp, join(REPO, '_shots', 'outline-map-v2-window.png'))
 
-    /* ④ 多开：另一组也开一个窗口（两个窗口并存） */
-    await clickGlyph(cdp, '❖ 另一组', 0)
+    /* ④ 多开：点第 2 个按钮（另一组的标题左侧） */
+    await clickLineAction(cdp, 1)
     const win2 = await waitFor(
       () => findPluginWindow((l) => l.includes('map-1')),
       '第二个导图窗口（label 含 map-1）',

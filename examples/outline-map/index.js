@@ -35,7 +35,6 @@
  * · 颜色全用 `var(--zn-*)`：SVG 内联进宿主 DOM，换主题自动跟随。
  * · `render` 是同步纯函数 ⇒ 数据放在**闭包缓存**里（读盘是异步的，只在 open/change/编辑后刷新）。
  */
-const PANEL_ID = 'outline-map.panel'
 /** 独立窗口的面板 id 前缀：`outline-map.map-<组序号>` */
 const MAP_PREFIX = 'outline-map.map-'
 /** 窗口与主区面板共用的"当前笔记"键（窗口是独立上下文，只能靠 store 交换这点信息） */
@@ -138,6 +137,8 @@ function parseBlocks(md) {
   const blocks = []
   let cur = null
   let lastHeading = ''
+  /** 最近标题的**行号**（-1 = 文档开头还没有标题）—— 行首按钮要按它定位 */
+  let lastHeadingLine = -1
   let inFence = false
   const stack = []
 
@@ -163,6 +164,7 @@ function parseBlocks(md) {
     if (atx) {
       closeBlock()
       lastHeading = stripInline(atx[2])
+      lastHeadingLine = i
       return
     }
     const li = LIST_RE.exec(line)
@@ -174,7 +176,10 @@ function parseBlocks(md) {
     if (!text) return
 
     const indent = indentOf(li[1])
-    if (!cur) cur = { title: lastHeading || '中心主题', startLine: i, endLine: i, nodes: [] }
+    if (!cur) {
+      // `titleLine` = 组标题所在行（-1 = 这组上面没有标题 ⇒ 没有"标题左侧"，也就没有按钮）
+      cur = { title: lastHeading || '中心主题', titleLine: lastHeadingLine, startLine: i, endLine: i, nodes: [] }
+    }
     const node = { text, indent, line: i, endLine: i, children: [] }
     while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop()
     if (stack.length) stack[stack.length - 1].node.children.push(node)
@@ -353,7 +358,7 @@ const INDENT = '　' // 全角空格：UINode 没有缩进字段，用它做视�
 
 export default {
   async apply(ctx) {
-    const { doc, command, view, host, fs, store, subscriptions } = ctx
+    const { doc, command, view, host, fs, store, subscriptions, editor } = ctx
 
     /**
      * 闭包缓存：`render` 是**同步**纯函数，而读盘是异步的 ⇒ 数据在这儿。
@@ -553,44 +558,74 @@ export default {
     )
 
     /**
-     * **编辑器顶部条**上的入口（`location: 'editor-topbar'`）—— 这是本插件唯一常驻的界面。
+     * **唯一的常驻界面：每个大纲组标题左侧的「❖」按钮**（`editor.addLineAction`，rev54）。
      *
-     * 为什么不给"大纲"单独开一块地方（面板 / 侧栏）：用户 2026-10-13 明确 ——
-     * **笔记本身就是大纲**；导图开**独立窗口**，窗口怎么摆（并排/全屏）交给 **Windows 的分屏**，
-     * 插件与内核都不做分屏、也不该再占主区把笔记顶掉。
-     * 所以这里只留一排**每组一个**的按钮：点哪个组，就把那一组开成导图窗口。
+     * 用户 2026-10-13 定的形态：「**笔记本身就是大纲**」，不给大纲另开一块地方；
+     * 导图开独立窗口、分屏交给 Windows；按钮**不放右上角，放标题左侧**。
+     *
+     * 内核侧实现是 CM6 的 **widget decoration**（`side: -1` = 行首之前）——
+     * 视图元素、不进文档、不占偏移 ⇒ Markdown 源保持原样。
+     * 点击时命令收到 `{ line }`，这里按 `block.titleLine` 找回那一组。
+     *
+     * ⚠️ 两条边界：① 正则只能决定"哪些行有按钮"，所以**每个标题行**都有这个按钮，
+     * "这个标题下到底有没有列表"是**点击时**判断的（没有就提示一句）；
+     * ② 文档开头那段**没有标题**的裸列表，其 `titleLine` 为 -1 ⇒ 没有按钮，
+     * 那种组仍可用命令面板的 `outline-map.open-map` 打开。
      */
-    const renderTopbar = () => {
-      if (!cache.path) {
-        return {
-          type: 'row',
-          children: [{ type: 'text', value: '打开一篇笔记后，这里会出现「❖ 导图」', variant: 'caption' }],
-        }
+    subscriptions.push(
+      editor.addLineAction({
+        id: 'map-btn',
+        pattern: '^#{1,6}\\s',
+        flags: 'm',
+        label: '❖',
+        title: '把这一组开成导图窗口',
+        onClick: 'outline-map.open-map-at-line',
+        className: 'accent',
+      }),
+    )
+
+    /**
+     * 把第 `bi` 组开成独立导图窗口 —— 两个入口共用：
+     * · 命令面板 `outline-map.open-map`（按组号）
+     * · **标题左侧的「❖」按钮** `outline-map.open-map-at-line`（按行号反查组号）
+     */
+    const openMapByIndex = async (bi) => {
+      const block = cache.blocks[bi]
+      if (!cache.path || !block) {
+        host.notify('先打开一篇带列表的笔记', 'warn')
+        return
       }
-      if (!cache.blocks.length) {
-        return {
-          type: 'row',
-          gap: 'sm',
-          align: 'center',
-          children: [{ type: 'text', value: '这篇里没有 `- 列表` ⇒ 没有可开的大纲组', variant: 'caption' }],
-        }
-      }
-      return {
-        type: 'row',
-        gap: 'sm',
-        align: 'center',
-        wrap: true,
-        children: [
-          { type: 'text', value: '导图', variant: 'caption' },
-          ...cache.blocks.map((b, bi) => ({
-            type: 'button',
-            label: `❖ ${b.title}`,
-            variant: 'ghost',
-            payload: { block: bi },
-            onClick: 'outline-map.open-map',
-          })),
-        ],
-      }
+      const panelId = `${MAP_PREFIX}${bi}`
+      // 窗口是独立上下文：把"哪篇笔记的哪一组"写进 store，供那边的 apply 读。
+      // 除索引外还写 `startLine` / `title` —— 那边优先按它们找回同一组（内容被改过也不会错位）。
+      await store.set(`open:${panelId}`, {
+        note: cache.path,
+        block: bi,
+        startLine: block.startLine,
+        title: block.title,
+      })
+      /**
+       * 先把面板注册上再开窗 —— 内核的 `openWindow` 会校验"面板已注册"（明确报错优于开一个白窗）。
+       * 那边（新 webview）会**自己再注册一次**同 id 的面板，内容是它从 store 读盘后算的；
+       * 这里这份只服务"主窗口里也能直接看这一组"。
+       */
+      view.registerPanel({
+        id: panelId,
+        title: `导图 · ${block.title}`,
+        location: 'main',
+        render: () => ({
+          type: 'stack',
+          gap: 'md',
+          children: [
+            { type: 'text', value: block.title, variant: 'title' },
+            { type: 'text', value: cache.path ?? '', variant: 'caption' },
+            { type: 'divider' },
+            { type: 'html', value: toSvg(blockToTree(block)) },
+          ],
+        }),
+      })
+      view.openWindow({ panel: panelId, title: `导图 · ${block.title}`, width: 940, height: 700 })
+      host.notify(`已在新窗口打开「${block.title}」（可多开；窗口里能编辑）`)
     }
 
     registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
@@ -625,59 +660,28 @@ export default {
       }),
       command.register({
         id: 'outline-map.open-map',
-        title: '大纲：把某组导图开成独立窗口',
+        title: '大纲：把某组导图开成独立窗口（按组号）',
         run: async (payload) => {
           const bi = Number((payload ?? {}).block)
-          const block = cache.blocks[Number.isFinite(bi) ? bi : 0]
-          if (!cache.path || !block) {
-            host.notify('先打开一篇带列表的笔记', 'warn')
-            return
-          }
-          const panelId = `${MAP_PREFIX}${cache.blocks.indexOf(block)}`
-          // 窗口是独立上下文：把"哪篇笔记的哪一组"写进 store，供那边的 apply 读。
-          // 除了索引还写 `startLine` / `title` —— 那边优先按它们找回同一组（内容被改过也不会错位）。
-          const blockIndex = cache.blocks.indexOf(block)
-          await store.set(`open:${panelId}`, {
-            note: cache.path,
-            block: blockIndex,
-            startLine: block.startLine,
-            title: block.title,
-          })
-          /**
-           * 先把面板注册上再开窗 —— 内核的 `openWindow` 会校验"面板已注册"（明确报错优于开一个白窗）。
-           * 那边（新 webview）会**自己再注册一次**同 id 的面板，内容是它从 store 读盘后算的；
-           * 这里注册的这份只服务"在主窗口里也能直接看这一组"。
-           */
-          view.registerPanel({
-            id: panelId,
-            title: `导图 · ${block.title}`,
-            location: 'main',
-            render: () => ({
-              type: 'stack',
-              gap: 'md',
-              children: [
-                { type: 'text', value: block.title, variant: 'title' },
-                { type: 'text', value: cache.path ?? '', variant: 'caption' },
-                { type: 'divider' },
-                { type: 'html', value: toSvg(blockToTree(block)) },
-              ],
-            }),
-          })
-          view.openWindow({
-            panel: panelId,
-            title: `导图 · ${block.title}`,
-            width: 940,
-            height: 700,
-          })
-          host.notify(`已在新窗口打开「${block.title}」（可多开；窗口里能编辑）`)
+          await openMapByIndex(Number.isFinite(bi) ? bi : 0)
         },
       }),
-      // 唯一常驻界面：编辑器顶部条（笔记仍然是大纲本身，见上面 renderTopbar 的说明）
-      view.registerPanel({
-        id: PANEL_ID,
-        title: '大纲 · 导图',
-        location: 'editor-topbar',
-        render: renderTopbar,
+      command.register({
+        id: 'outline-map.open-map-at-line',
+        title: '大纲：把该标题下的导图开成独立窗口（标题左侧按钮用）',
+        run: async (payload) => {
+          const line = Number((payload ?? {}).line)
+          if (!Number.isFinite(line) || line < 0) {
+            host.notify('这条命令要带 { line }（由标题左侧的「❖」按钮传）', 'warn')
+            return
+          }
+          const bi = cache.blocks.findIndex((b) => b.titleLine === line)
+          if (bi < 0) {
+            host.notify('这个标题下面还没有列表 ⇒ 没有可开的导图组', 'warn')
+            return
+          }
+          await openMapByIndex(bi)
+        },
       }),
     )
 

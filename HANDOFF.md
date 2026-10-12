@@ -1144,6 +1144,42 @@ revision: 45
 > `tools/verify-outline-map.mjs` 回归 **7/7**。截图 `_shots/plugin-window-child.png`（右上角 — □ ×）。
 > **基线**：`tsc -b` 0 · `oxlint` 恰好 4 warnings · `cargo test --lib` 21 passed。
 
+> ## 📌 rev54（2026-10-13 · **内核新增「行首按钮」能力** ⇒ 按钮改放**标题左侧**）
+>
+> **用户三条指示**：① 出现问题先查、不猜，**不能把未核实的结论当经验传下去**（→ 已落成
+> `~/.dsh/AGENTS.md` **第 5 条硬性前置**，并清掉项目里残留的错误结论，见提交 `089aa33`）
+> ② **允许完善内核**（需要就改，不必反复请示）③ 按钮**不放右上角了，放标题左侧**。
+>
+> **查证（按第 5 条先查一手来源）**：CM6 官方
+> [Decoration Example](https://codemirror.net/examples/decoration/) 给出标准做法 ——
+> **Widget decoration**（`Decoration.widget({ widget, side: -1 })` + `WidgetType` 子类，
+> `ignoreEvent()` 必须返回 false 否则编辑器吃掉点击）；官方示例正是"给某个位置加可点元素"。
+>
+> **内核新增 `editor.addLineAction`**（契约 §2.6）—— 在**匹配行的左外侧**插一个可点小按钮：
+> · `src/kernel/editor-marks.ts`：新增 `LineActionWidget`（WidgetType）、`lineEntries` 登记表、
+>   `buildDecorations` 里按"行首偏移"去重后插 widget；装饰集改用 `Decoration.set(ranges, true)`
+>   让 CM6 自己排序（原来手写排序 + `RangeSetBuilder` 对零宽 widget 更容易踩"必须严格升序"）；
+>   点击路由分两支：`[data-zn-line-action]` → payload `{ line, from }`（行号 0 起），
+>   `[data-zn-mark]` → 原样 `{ text, from }`。
+> · `contract.ts`：新类型 `EditorLineAction` + `EditorApi.addLineAction` + capability
+>   **`editor:line-action`**（`plugin-host.ts` 的允许清单同步）。
+> · `styles.css`：`.zn-line-action`（18px 圆角小按钮，低对比、悬停才明显）。
+> · **踩坑**：本项目 TS `erasableSyntaxOnly: true` —— 官方示例的
+>   `constructor(readonly x: T)`（参数属性）**编译不过**（TS1294），必须写显式字段赋值。
+>
+> **插件改造**（`examples/outline-map/`）：注册 `pattern: '^#{1,6}\\s'`（`m`）⇒ 每个标题行左侧
+> 出现「❖」；新命令 **`outline-map.open-map-at-line`**（payload `{line}` → 按 `block.titleLine`
+> 反查组 → 开窗口）；**删掉 `editor-topbar` 那排按钮**（改由标题左侧承担）；`parseBlocks` 补
+> `titleLine`。manifest 换 capability、去掉 panels 声明。
+> **两条边界（诚实写下来）**：① 正则决定"哪些行有按钮" ⇒ **所有标题行**都有，真正"有没有列表"
+> 在**点击时**判断（没有就提示一句）；② 文档开头**没有标题**的裸列表组 `titleLine = -1` ⇒
+> 没有按钮，那组仍可用命令面板 `outline-map.open-map` 打开。
+>
+> **验收**：`tools/verify-outline-map.mjs` → **6/6**（① 插件生效 ② **每个组标题左侧有「❖」**（实测 2 个）
+> ③ 点它 ⇒ 该组导图开在独立窗口（含组内文字 + 真 SVG）④ 点第二个 ⇒ 多开 ⑤ 窗口里 `＋` 写回磁盘
+> ⑥ 窗口里 `✕` 删节点连同子树）。截图 `_shots/outline-map-v2-titlebtn.png`（标题左侧的 ❖）。
+> **基线**：`tsc -b` 0 · `oxlint` 恰好 4 warnings · `cargo test --lib` 21 passed。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

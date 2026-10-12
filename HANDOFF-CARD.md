@@ -56,6 +56,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `rev51` | **U2 主壳接管点**：`view.overrideShell({mount})` —— 插件自绘界面**接管整窗**（内核 UI 让位），释放或卸载即复原；**单接管者**（第二个抛明确错误）＋ **内核逃生口**（右下角按钮 / `Ctrl+Alt+Z`，因为接管期间连插件管理页都点不到）。验收 **`tools/verify-shell.mjs` 12/12**；示例 `examples/shell-demo/` |
 | `rev52` | **outline-map 重做成"导图独立窗口"**（用户当场纠向：**笔记就是大纲**，不存在大纲窗口，导图开新窗口，分屏交给 Windows）：入口改为**编辑器顶部条**每组一个「❖ 导图」按钮；窗口里可 `＋子主题` / `✕删子树`，**直接读写库文件**（不依赖编辑器挂载）。验收 **`tools/verify-outline-map.mjs` 7/7**。顺带修正文档：**`sidebar` 面板其实渲染在主区**（只有 `editor-topbar`/`editor-toolbar` 与编辑器同屏） |
 | `rev53` | **插件窗口补齐三键 ＋ 查清 `close()` 真相**：三键抽成 `WindowControls`（主窗口/插件窗口共用：最小化 / 最大化⇄还原 / 关闭）。**`close()` 只发 `tauri://close-requested`、真正销毁靠监听器里的 `destroy()`** ⇒ 插件窗口当初关不掉是"**没人负责关**"（窗口模式跳过了内核那个 close 监听器），**不是死锁**（rev50 的误判已更正）；窗口模式补极简监听器 + 标记 `__znCloseListener`。验收 **`verify-plugin-window.mjs` 14/14** |
+| `rev54` | **内核新增 `editor.addLineAction`**（CM6 widget 按钮：在某行**左外侧**插可点小按钮）⇒ 导图入口从顶部条挪到**每个大纲组标题的左侧**（用户定：「不放右上角，放标题左侧」；「**笔记本身就是大纲**」）。新 capability `editor:line-action`；命令 `outline-map.open-map-at-line`（payload `{line}`）。验收 **`verify-outline-map.mjs` 6/6**。另：按用户要求把「先查一手来源、不猜、不把未核实结论当经验」写成 `~/.dsh/AGENTS.md` **第 5 条硬性前置** |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 

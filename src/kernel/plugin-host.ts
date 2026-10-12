@@ -49,6 +49,8 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'view:editor-topbar',
   // editor 原语（行内标记）
   'editor:mark',
+  // 2026-10-13 rev54：编辑器**行首动作按钮**（`editor.addLineAction`）—— 同理，未知值只警告
+  'editor:line-action',
   'store',
   'net',
   'proc',

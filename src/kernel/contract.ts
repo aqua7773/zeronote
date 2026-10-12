@@ -598,6 +598,28 @@ export type EditorMarkRule = {
 }
 
 /**
+ * **行首动作按钮**（`editor.addLineAction`，2026-10-13 rev54）。
+ *
+ * 与 `EditorMarkRule` 的区别：mark 给**区间**加样式（文字里的标签/链接），
+ * lineAction 在**整行左外侧**插一个真按钮（视图元素，不进文档、不占偏移）。
+ */
+export type EditorLineAction = {
+  /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
+  id: string
+  /** 正则源（字符串）。宿主自动补 `g`；**按行匹配请自己带 `m`**（`^`/`$` 才按行生效） */
+  pattern: string
+  flags?: string
+  /** 按钮文字（短：1–3 个字符或 emoji） */
+  label: string
+  /** 悬停提示 */
+  title?: string
+  /** 点击时执行的命令 id；payload = `{ line, from }`（`line` 从 0 起） */
+  onClick: string
+  /** 语义档位 —— 具体颜色由宿主映射到 `--zn-*` token */
+  className?: 'accent' | 'muted'
+}
+
+/**
  * 编辑器侧的能力。
  *
  * 生效时机：规则在**编辑器挂载 / 切换笔记**时被读取（atomic 那时才捕获扩展数组），
@@ -611,6 +633,36 @@ export interface EditorApi {
    * 这样多条规则叠在一起时行为可预期，也不会把 CM6 的 RangeSet 搞崩。
    */
   addMark(rule: EditorMarkRule): Disposable
+  /**
+   * 在**匹配行的左侧**放一个可点的小按钮（2026-10-13 rev54 新增）。
+   *
+   * 用途（用户当场提的需求）：把"每组一个按钮"这种**行级入口**放到它该在的地方 ——
+   * 比如大纲/导图插件在每个 `# 标题` 行左边放一个「❖」，点了把那组开成独立窗口。
+   * 之前做不到：`addMark` 只能给**区间**加样式，塞不进按钮；`PanelLocation` 里也没有
+   * "贴在某一行旁边"的位置。
+   *
+   * 实现走 CM6 的 **Widget decoration**（`Decoration.widget`，`side: -1` = 行首之前）——
+   * 官方 *Decoration Example* 给布尔值加可点 checkbox 用的就是它；`ignoreEvent()` 返回 false
+   * 让点击不被编辑器吞掉。
+   *
+   * ```js
+   * api.editor.addLineAction({
+   *   id: 'map-btn',
+   *   pattern: '^#{1,6}\\s',   // 带 m 才按行匹配（宿主自动补 g）
+   *   flags: 'm',
+   *   label: '❖',
+   *   title: '把这一组开成导图窗口',
+   *   onClick: 'outline-map.open-map-at-line',
+   * })
+   * // 点击时命令收到 payload = { line, from }（line 从 0 起）
+   * ```
+   *
+   * ⚠️ 两条边界：
+   * · **正则是对整篇文本扫的**，所以"哪些行该有按钮"由正则决定，插件拿不到"渲染前回调"。
+   *   要精确到"只有作为组标题的标题行"，只能在**命令里**再判断（点错了给个提示）。
+   * · 按钮是**视图元素**，不进文档、不占偏移 ⇒ 不会污染 Markdown 源。
+   */
+  addLineAction(rule: EditorLineAction): Disposable
   /** 当前生效的规则（诊断用） */
   list(): { id: string; pluginId: string }[]
 }
@@ -705,6 +757,8 @@ export type Capability =
   | 'view:editor-topbar'
   /** 编辑器行内标记规则（`editor.addMark`） */
   | 'editor:mark'
+  /** 编辑器**行首动作按钮**（`editor.addLineAction`，rev54） */
+  | 'editor:line-action'
   | 'store'
   | 'net'
   | 'proc'
