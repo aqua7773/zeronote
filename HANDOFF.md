@@ -376,6 +376,14 @@ revision: 36
 >   —— 只有 vite dev 提供这个路径，打包版不会有；主机 `netstat :1420` 里也应看到手机 IP 的连接。
 >   从"起"到"手机跑起来"约 **2–3 分钟**（Rust 有缓存时）。
 > 若日后又想要桌面顶部提示条：`70ef21a` 里有 `hint` 形态的 `MarkToolbar`（含可开关 + 存 localStorage）可取回。
+>
+> 📎 **当晚追加的一条答疑（不是 bug，记下防重查）**：用户写了一段「段落 + 下面一行只有一个 `-`」，
+> 结果**上面整段变成加粗大标题**，问是不是渲染错了。**这是 Markdown 标准的 Setext 标题**
+> （`=` → H1 / `-` → H2，**整段**一起变，不是只有上一行）。用 ZeroNote 自己那个解析器验过：
+> `Document(ATXHeading1, SetextHeading2, Paragraph)`（临时脚本 `_shots/parse-check.mjs`，可直接复跑）；
+> `@atomic-editor/editor` 的 `dist/inline-preview.js` 里确实有 `SetextHeading1` / `SetextHeading2` 分支
+> —— 它只是照解析结果渲染，没做错。**用户 2026-10-12 裁决：不改**（与 Obsidian / Typora / VS Code 一致）。
+> **规避写法**：分隔线用 `---` 且**前后各留一个空行**；别在段落正下方写只有 `-` / `=` 的行。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
