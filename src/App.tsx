@@ -22,7 +22,7 @@ import {
   type LoadedPlugin,
   type PluginHostDeps,
 } from './kernel/plugin-host'
-import type { DocApi, NoteMeta, PluginManifest } from './kernel/contract'
+import type { DocApi, NoteMeta, PluginManifest, TrashEntry } from './kernel/contract'
 import {
   isGranted as isCapabilityGranted,
   readPermissions,
@@ -1226,6 +1226,88 @@ export default function App() {
     [kernel, refresh, uniqueCopyTarget],
   )
 
+  /* ── 回收站（主区整页视图）──
+     删除一直是进 `.zn/trash/` 的，但此前**只有 5 秒撤销条**这一个入口，一过就够不到。
+     这里给它一个常驻入口：侧栏底部 + 主区页面（列表 / 恢复 / 彻底删除 / 清空）。 */
+  const [trash, setTrash] = useState<TrashEntry[]>([])
+  /** 待二次确认的条目 id —— 「彻底删除」是不可撤销的，点两次才执行 */
+  const [confirmPurge, setConfirmPurge] = useState<string | null>(null)
+  /** 「清空回收站」同理，也是不可撤销的 */
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
+
+  const loadTrash = useCallback(async () => {
+    const k = kernel
+    if (!k) return
+    try {
+      setTrash(await k.fs.listTrash())
+      setError(null)
+    } catch (e) {
+      setError(failMsg('list', e))
+    }
+  }, [kernel])
+
+  /**
+   * 打开回收站。**在入口处取数据，而不是在 effect 里**：
+   * ① lint 的 `set-state-in-effect` 盯着这条（加载即 setState，等于用 effect 做事件的事）；
+   * ② 语义上它本来就是个"打开这一页"的事件 —— 谁打开谁去取。
+   */
+  const openTrash = useCallback(() => {
+    setMainView('trash')
+    if (kernel) void loadTrash()
+  }, [kernel, loadTrash])
+
+  const restoreTrashItem = useCallback(
+    async (id: string) => {
+      const k = kernel
+      if (!k) return
+      try {
+        const back = await k.fs.restoreTrash(id)
+        await loadTrash()
+        await refresh()
+        setError(null)
+        setToast(`已恢复：${back}`)
+      } catch (e) {
+        setError(failMsg('rename', e))
+      }
+    },
+    [kernel, loadTrash, refresh],
+  )
+
+  const purgeTrashItem = useCallback(
+    async (id: string) => {
+      const k = kernel
+      if (!k) return
+      try {
+        await k.fs.purgeTrash(id)
+        setConfirmPurge(null)
+        await loadTrash()
+        setError(null)
+        setToast('已彻底删除')
+      } catch (e) {
+        setError(failMsg('delete', e))
+      }
+    },
+    [kernel, loadTrash],
+  )
+
+  const emptyTrashAll = useCallback(async () => {
+    const k = kernel
+    if (!k) return
+    try {
+      const n = await k.fs.emptyTrash()
+      setConfirmEmpty(false)
+      await loadTrash()
+      setError(null)
+      setToast(`已清空回收站（${n} 项）`)
+    } catch (e) {
+      setError(failMsg('delete', e))
+    }
+  }, [kernel, loadTrash])
+
+  /** 列表里的字节数（只求"大概多大"，不追求精确） */
+  const fmtSize = (n: number) =>
+    n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`
+
   /**
    * 删除笔记，**支持一次多篇**（笔记库栏的多选走这条）。
    * 删前先把未保存改动落盘，删掉的才是磁盘上的最新版本（Rust 侧是移入 .zn/trash/，不是物理删）。
@@ -2096,6 +2178,15 @@ export default function App() {
             这里显示库目录名，完整路径挂在 tooltip 上。
             它是一个**按钮**：点一下弹「切换笔记库」（最近打开过的库 + 打开其它文件夹…），
             不必再绕系统目录选择器。菜单贴在按钮上方展开（见 openVaultMenu）。 */}
+        {/* 回收站入口（常驻）—— 删除一直是进 `.zn/trash/` 的，这是唯一能再拿到它们的地方 */}
+        <button
+          type="button"
+          className="zn-sidebar-foot"
+          onClick={openTrash}
+          title="回收站：删除的笔记都在这里，可恢复"
+        >
+          🗑 回收站
+        </button>
         <button
           type="button"
           className="zn-sidebar-foot"
@@ -2144,7 +2235,82 @@ export default function App() {
       )}
 
       <main className="zn-main">
-        {pagePanel || mainView === 'plugins' ? (
+        {mainView === 'trash' ? (
+          /* 回收站：整页视图（与插件管理共用同一套主区骨架） */
+          <div className="zn-main-panel">
+            <div className="zn-main-panel-bar">
+              <span>回收站</span>
+              <div className="zn-main-panel-actions">
+                {trash.length > 0 && (
+                  <button
+                    type="button"
+                    className={`zn-plain-btn${confirmEmpty ? ' is-danger' : ''}`}
+                    onClick={() => {
+                      // 不可撤销 ⇒ 点两次
+                      if (confirmEmpty) void emptyTrashAll()
+                      else setConfirmEmpty(true)
+                    }}
+                    title="清空回收站（不可撤销）"
+                  >
+                    {confirmEmpty ? `确认清空 ${trash.length} 项？` : '清空回收站'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="zn-plain-btn"
+                  onClick={() => setMainView('editor')}
+                  title="返回编辑器"
+                >
+                  返回编辑器
+                </button>
+              </div>
+            </div>
+            <div className="zn-main-panel-body">
+              {trash.length === 0 ? (
+                <div className="zn-trash-empty">回收站是空的</div>
+              ) : (
+                <ul className="zn-trash-list">
+                  {trash.map((t) => (
+                    <li key={t.id} className="zn-trash-row">
+                      <div className="zn-trash-main">
+                        <span className="zn-trash-name">
+                          {t.isDir ? '📁 ' : ''}
+                          {t.name}
+                        </span>
+                        <span className="zn-trash-meta">
+                          {t.originalPath ?? '原位置未知（旧格式条目）'} ·{' '}
+                          {new Date(t.deletedAt).toLocaleString()} · {fmtSize(t.size)}
+                        </span>
+                      </div>
+                      <div className="zn-trash-actions">
+                        <button
+                          type="button"
+                          className="zn-plain-btn"
+                          onClick={() => void restoreTrashItem(t.id)}
+                          title={t.originalPath ? `恢复到 ${t.originalPath}` : '恢复到库根'}
+                        >
+                          恢复
+                        </button>
+                        <button
+                          type="button"
+                          className={`zn-plain-btn${confirmPurge === t.id ? ' is-danger' : ''}`}
+                          onClick={() => {
+                            // 不可撤销 ⇒ 点两次
+                            if (confirmPurge === t.id) void purgeTrashItem(t.id)
+                            else setConfirmPurge(t.id)
+                          }}
+                          title="彻底删除（不可撤销）"
+                        >
+                          {confirmPurge === t.id ? '确认删除' : '彻底删除'}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ) : pagePanel || mainView === 'plugins' ? (
           /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
             <div className="zn-main-panel-bar">

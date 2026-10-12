@@ -4,7 +4,7 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { Disposable, FsApi, FsChange, NoteMeta } from './contract'
+import type { Disposable, FsApi, FsChange, NoteMeta, TrashEntry } from './contract'
 
 export function createFsApi(
   vault: string,
@@ -47,6 +47,18 @@ export function createFsApi(
 
     exists: (path: string) =>
       invoke<boolean>('note_exists', { vault, path }),
+
+    /** 回收站列表（含旧格式的扁平条目） */
+    listTrash: () => invoke<TrashEntry[]>('list_trash', { vault }),
+
+    /** 恢复一项，返回恢复到的库内相对路径 */
+    restoreTrash: (id: string) => invoke<string>('restore_trash', { vault, id }),
+
+    /** 真删除一项 —— 不可撤销 */
+    purgeTrash: (id: string) => invoke<void>('purge_trash', { vault, id }),
+
+    /** 清空回收站，返回清掉的条目数 */
+    emptyTrash: () => invoke<number>('empty_trash', { vault }),
 
     /**
      * v0.1 用 Rust 侧 fs 监听（notify crate）通过 Tauri event 上报；

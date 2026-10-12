@@ -25,6 +25,23 @@ export type FsChange = {
   path: string
 }
 
+/** 回收站条目（`fs.listTrash`） */
+export type TrashEntry = {
+  /** 稳定标识：新格式 = 时间戳目录名；旧格式 = `<时间戳>--<名>` 整个文件名 */
+  id: string
+  /** 展示名 */
+  name: string
+  /**
+   * 原库内相对路径。**旧格式（扁平的 `<时间戳>--<名>`）为 `null`** ——
+   * 那时只存了文件名没存位置，恢复只能落库根。
+   */
+  originalPath: string | null
+  /** 删除时间（毫秒时间戳） */
+  deletedAt: number
+  isDir: boolean
+  size: number
+}
+
 /** 1. fs —— 文件读写。所有写入必须原子（临时文件 + rename）。 */
 export interface FsApi {
   vaultPath(): string
@@ -58,6 +75,14 @@ export interface FsApi {
   /** 移入 .zn/trash/（不是物理删除）；返回回收站里的库内相对路径，供撤销 rename 回来 */
   delete(path: string): Promise<string>
   exists(path: string): Promise<boolean>
+  /** 回收站列表（**新旧两种格式都认**，最近删的在最前） */
+  listTrash(): Promise<TrashEntry[]>
+  /** 从回收站恢复一项，返回恢复到的**库内相对路径**；原位置已有同名项 ⇒ 拒绝，不覆盖 */
+  restoreTrash(id: string): Promise<string>
+  /** **真删除**一项（不可撤销 —— UI 必须二次确认） */
+  purgeTrash(id: string): Promise<void>
+  /** 清空回收站，返回清掉的条目数 */
+  emptyTrash(): Promise<number>
   watch(cb: (e: FsChange) => void): Disposable
 }
 

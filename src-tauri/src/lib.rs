@@ -340,25 +340,231 @@ fn rename_note(vault: String, from: String, to: String) -> Result<(), String> {
   fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))
 }
 
-/// 删除 = 移入 `.zn/trash/<时间戳>--<原名>`（可恢复）。
+/// 删除 = 移入 `.zn/trash/<时间戳>/<原相对路径>`（可恢复）。
 /// 返回回收站里的**库内相对路径**，供调用方做「撤销」（把它 rename 回原位）。
+///
+/// 为什么按**原相对路径**存，而不是只存文件名：只存名字的话，恢复时只知道
+/// "它叫什么"、不知道"它原来在哪" ⇒ `a/b/笔记.md` 只能恢复成库根的 `笔记.md`。
+/// 按原路径存，`restore_trash` 才能把它放回**原处**。
+/// 旧格式（扁平的 `<时间戳>--<名>`）**仍可列出与恢复**，只是落点只能是库根。
 #[tauri::command]
 fn delete_note(vault: String, path: String) -> Result<String, String> {
   let abs = resolve(&vault, &path)?;
+  if !abs.exists() {
+    return Err(format!("要删除的东西不存在：{path}"));
+  }
   let trash = Path::new(&vault).join(PRIVATE_DIR).join("trash");
-  fs::create_dir_all(&trash).map_err(|e| format!("创建回收站失败：{e}"))?;
   let stamp = std::time::SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .map(|d| d.as_millis())
-    .unwrap_or(0);
+    .unwrap_or(0)
+    .to_string();
   let name = abs
     .file_name()
     .map(|s| s.to_string_lossy().to_string())
     .unwrap_or_else(|| "note.md".to_string());
-  let file = format!("{stamp}--{name}");
-  let dest = trash.join(&file);
+  let dest_dir = trash.join(&stamp);
+  fs::create_dir_all(&dest_dir).map_err(|e| format!("创建回收站失败：{e}"))?;
+  // 原相对路径**单独记一份**，内容是**一层** `<stamp>/<文件名>`：
+  // 若按原路径 mirrored 成多层，`read_dir` 的"第一个条目"就不再等于原路径了（踩过）。
+  fs::write(dest_dir.join(ORIGIN_FILE), &path)
+    .map_err(|e| format!("写入回收站元信息失败：{e}"))?;
+  let dest = dest_dir.join(&name);
   fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
-  Ok(format!("{PRIVATE_DIR}/trash/{file}"))
+  Ok(format!("{PRIVATE_DIR}/trash/{stamp}/{name}"))
+}
+
+/// 回收站条目（给 UI 列表用）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashEntry {
+  /// 稳定标识：新格式 = 时间戳目录名；旧格式 = `<时间戳>--<名>` 整个文件名
+  id: String,
+  /// 展示名（新格式 = 原路径最后一段；旧格式 = `--` 之后那段）
+  name: String,
+  /// 原库内相对路径。**旧格式没这个信息** ⇒ `None`（恢复只能落库根）
+  original_path: Option<String>,
+  /// 删除时间（毫秒时间戳，取自 id 前段）
+  deleted_at: u64,
+  is_dir: bool,
+  /// 字节数（目录递归求和，仅供列表显示）
+  size: u64,
+}
+
+/// 回收站条目里记录**原相对路径**的元文件名（`.` 开头 ⇒ 与内容天然区分开）
+const ORIGIN_FILE: &str = ".origin";
+
+/// 读回某个回收站条目记下的原相对路径
+fn trash_origin(stamp_dir: &Path) -> Option<String> {
+  let s = fs::read_to_string(stamp_dir.join(ORIGIN_FILE)).ok()?;
+  let t = s.trim().to_string();
+  if t.is_empty() { None } else { Some(t) }
+}
+
+/// 回收站条目里**真正的内容**（跳过 `.origin` 这类点开头的元文件）
+fn trash_payload(stamp_dir: &Path) -> Option<PathBuf> {
+  fs::read_dir(stamp_dir)
+    .ok()?
+    .flatten()
+    .map(|e| e.path())
+    .find(|p| {
+      p.file_name()
+        .map(|n| !n.to_string_lossy().starts_with('.'))
+        .unwrap_or(false)
+    })
+}
+
+/// 递归求一个路径的字节数（目录把子树加起来）
+fn path_size(p: &Path) -> u64 {
+  let Ok(meta) = fs::symlink_metadata(p) else {
+    return 0;
+  };
+  if meta.is_file() {
+    return meta.len();
+  }
+  let mut total = 0;
+  if let Ok(entries) = fs::read_dir(p) {
+    for e in entries.flatten() {
+      total += path_size(&e.path());
+    }
+  }
+  total
+}
+
+/// 回收站列表（**新旧两种格式都认**），最近的排最前。
+#[tauri::command]
+fn list_trash(vault: String) -> Result<Vec<TrashEntry>, String> {
+  let trash = Path::new(&vault).join(PRIVATE_DIR).join("trash");
+  if !trash.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut out = Vec::new();
+  let entries = fs::read_dir(&trash).map_err(|e| format!("读取回收站失败：{e}"))?;
+  for entry in entries.flatten() {
+    let id = entry.file_name().to_string_lossy().to_string();
+    let path = entry.path();
+    let legacy = id.split_once("--").map(|(a, b)| (a.to_string(), b.to_string()));
+    let (stamp, legacy_name) = match &legacy {
+      Some((a, b)) => (a.clone(), Some(b.clone())),
+      None => (id.clone(), None),
+    };
+    let deleted_at: u64 = stamp.parse().unwrap_or(0);
+    // 新格式：`trash/<stamp>/` = `.origin`（原路径）＋ **一层**内容
+    let (name, original_path, content) = if legacy_name.is_none() && path.is_dir() {
+      let origin = trash_origin(&path);
+      match trash_payload(&path) {
+        Some(payload) => {
+          let name = payload
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+          (name, origin, payload)
+        }
+        None => {
+          // 只剩 `.origin` 的空壳（撤销删除之后留下的）⇒ 顺手清掉，回收站不留垃圾
+          if origin.is_some() {
+            let _ = fs::remove_dir_all(&path);
+          }
+          continue;
+        }
+      }
+    } else if let Some(n) = legacy_name {
+      (n, None, path.clone())
+    } else {
+      (id.clone(), None, path.clone())
+    };
+    out.push(TrashEntry {
+      id,
+      name,
+      original_path,
+      deleted_at,
+      is_dir: content.is_dir(),
+      size: path_size(&content),
+    });
+  }
+  out.sort_by(|a, b| b.deleted_at.cmp(&a.deleted_at));
+  Ok(out)
+}
+
+/// 从回收站恢复一项，返回恢复到的库内相对路径。
+/// · 新格式 ⇒ 放回**原路径**（父目录自动补上）；原位置已有东西 ⇒ 拒绝，不覆盖
+/// · 旧格式 ⇒ 只能放回**库根**（原路径没记下来）
+#[tauri::command]
+fn restore_trash(vault: String, id: String) -> Result<String, String> {
+  if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
+    return Err(format!("非法的回收站条目 id：{id}"));
+  }
+  let src = Path::new(&vault).join(PRIVATE_DIR).join("trash").join(&id);
+  if !src.exists() {
+    return Err(format!("回收站里没有这一项：{id}"));
+  }
+  let root = PathBuf::from(&vault);
+  let Some((_, name)) = id.split_once("--") else {
+    // 新格式：`.origin` 记着原路径，内容是**一层**
+    let rel = trash_origin(&src).ok_or_else(|| format!("回收站条目缺少原路径记录：{id}"))?;
+    let payload = trash_payload(&src).ok_or_else(|| format!("回收站条目是空的：{id}"))?;
+    let dst = root.join(&rel);
+    if dst.exists() {
+      return Err(format!("原位置已有同名项，先处理它再恢复：{rel}"));
+    }
+    if let Some(parent) = dst.parent() {
+      fs::create_dir_all(parent).map_err(|e| format!("恢复失败（建父目录）：{e}"))?;
+    }
+    fs::rename(&payload, &dst).map_err(|e| format!("恢复失败（{rel}）：{e}"))?;
+    // 整个 stamp 目录（含 `.origin`）一起清掉，回收站里不留碎片
+    let _ = fs::remove_dir_all(&src);
+    return Ok(rel);
+  };
+  // 旧格式：id 本身就带着原名，只能回库根
+  let dst = root.join(name);
+  if dst.exists() {
+    return Err(format!("库里已有同名项，先改名再恢复：{name}"));
+  }
+  fs::rename(&src, &dst).map_err(|e| format!("恢复失败（{name}）：{e}"))?;
+  Ok(name.to_string())
+}
+
+/// 从回收站**真删除**一项 —— 不可撤销（UI 必须二次确认）
+#[tauri::command]
+fn purge_trash(vault: String, id: String) -> Result<(), String> {
+  if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
+    return Err(format!("非法的回收站条目 id：{id}"));
+  }
+  let target = Path::new(&vault).join(PRIVATE_DIR).join("trash").join(&id);
+  if !target.exists() {
+    return Err(format!("回收站里没有这一项：{id}"));
+  }
+  if target.is_dir() {
+    fs::remove_dir_all(&target).map_err(|e| format!("删除失败：{e}"))
+  } else {
+    fs::remove_file(&target).map_err(|e| format!("删除失败：{e}"))
+  }
+}
+
+/// 清空回收站，返回清掉的条目数（不动 `.zn/trash` 目录本身）
+#[tauri::command]
+fn empty_trash(vault: String) -> Result<u64, String> {
+  let trash = Path::new(&vault).join(PRIVATE_DIR).join("trash");
+  if !trash.is_dir() {
+    return Ok(0);
+  }
+  let mut n = 0u64;
+  for entry in fs::read_dir(&trash)
+    .map_err(|e| format!("读取回收站失败：{e}"))?
+    .flatten()
+  {
+    let p = entry.path();
+    let done = if p.is_dir() {
+      fs::remove_dir_all(&p)
+    } else {
+      fs::remove_file(&p)
+    };
+    if done.is_ok() {
+      n += 1;
+    }
+  }
+  Ok(n)
 }
 
 #[tauri::command]
@@ -943,6 +1149,10 @@ pub fn run() {
       create_note,
       rename_note,
       delete_note,
+      list_trash,
+      restore_trash,
+      purge_trash,
+      empty_trash,
       note_exists,
       create_dir,
       move_entry,
@@ -1241,6 +1451,61 @@ mod tests {
     assert!(!d.join("x.md").exists());
     let trash = d.join(".zn").join("trash");
     assert_eq!(fs::read_dir(&trash).unwrap().count(), 1);
+  }
+
+  /// 回收站全链路：删除记下**原路径** → 列表 → 恢复回**原处** → 彻底删除 / 清空。
+  /// 另含两条边界：旧格式（扁平 `<时间戳>--<名>`）兼容、原位置撞名时**拒绝恢复而不是覆盖**。
+  #[test]
+  fn trash_roundtrip_list_restore_purge_and_legacy_format() {
+    let d = tmpdir("trash");
+    let v = d.to_string_lossy().to_string();
+    fs::create_dir_all(d.join("a").join("b")).unwrap();
+    fs::write(d.join("a").join("b").join("n.md"), "# n").unwrap();
+
+    // ① 删除子目录里的文件：回收站记下原路径
+    let trash_path = delete_note(v.clone(), "a/b/n.md".into()).unwrap();
+    assert!(trash_path.starts_with(".zn/trash/"), "要返回回收站内路径：{trash_path}");
+    let list = list_trash(v.clone()).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].original_path.as_deref(), Some("a/b/n.md"), "原路径必须记下来");
+    assert_eq!(list[0].name, "n.md");
+    assert!(!list[0].is_dir);
+
+    // ② 恢复 ⇒ 回原位，回收站随之清空
+    assert_eq!(restore_trash(v.clone(), list[0].id.clone()).unwrap(), "a/b/n.md");
+    assert!(d.join("a").join("b").join("n.md").is_file(), "要恢复回原处");
+    assert!(list_trash(v.clone()).unwrap().is_empty(), "恢复后回收站该空了");
+
+    // ③ 删整个**目录** ⇒ 列表标 is_dir、大小递归求和（`# n` = 3 字节）
+    delete_note(v.clone(), "a/b".into()).unwrap();
+    let list = list_trash(v.clone()).unwrap();
+    assert_eq!(list[0].original_path.as_deref(), Some("a/b"), "原路径是库内相对路径");
+    assert!(list[0].is_dir, "目录要标出来");
+    assert_eq!(list[0].size, 3, "目录大小要递归求和");
+    purge_trash(v.clone(), list[0].id.clone()).unwrap();
+    assert!(list_trash(v.clone()).unwrap().is_empty(), "彻底删除后为空");
+
+    // ④ 旧格式兼容：手搓一个扁平的 `<stamp>--<name>`
+    fs::write(d.join(".zn").join("trash").join("1700000000000--old.md"), "# old").unwrap();
+    let list = list_trash(v.clone()).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].original_path, None, "旧格式没有原路径");
+    assert_eq!(list[0].deleted_at, 1700000000000);
+    assert_eq!(restore_trash(v.clone(), list[0].id.clone()).unwrap(), "old.md");
+    assert!(d.join("old.md").is_file(), "旧格式只能恢复到库根");
+
+    // ⑤ 原位置已有同名项 ⇒ 拒绝恢复（不覆盖），条目留在回收站里
+    fs::write(d.join("keep.md"), "# keep").unwrap();
+    delete_note(v.clone(), "keep.md".into()).unwrap();
+    fs::write(d.join("keep.md"), "# 新的").unwrap();
+    let list = list_trash(v.clone()).unwrap();
+    assert!(restore_trash(v.clone(), list[0].id.clone()).is_err(), "撞名要拒绝");
+    assert_eq!(list_trash(v.clone()).unwrap().len(), 1, "拒绝后条目仍在回收站");
+
+    // ⑥ 清空 + id 合法性强校验
+    assert!(purge_trash(v.clone(), "../escape".into()).is_err(), "路径分隔要拒绝");
+    assert_eq!(empty_trash(v.clone()).unwrap(), 1);
+    assert!(list_trash(v).unwrap().is_empty());
   }
 
   #[test]

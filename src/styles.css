@@ -668,6 +668,12 @@ body.is-resizing * {
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  /* ⚠️ 顶部**让开 20px** —— `.zn-titlebar-hotzone`（absolute / height:20px / z-index:59）
+     压在窗口最上面那一条，**它会吃掉按钮的点击**：顶栏那排
+     「清空回收站 / 返回编辑器」原本正好落在里面，怎么点都没反应
+     （2026-10-12 实测，rev36 在 `.zn-editor-topbar` 上踩过同一个坑）。
+     这里选**让开**而不是抬 z-index —— 抬了就把整条热区盖住，鼠标再也唤不出标题栏。 */
+  padding-top: 20px;
 }
 .zn-main-panel-bar {
   display: flex;
@@ -781,6 +787,68 @@ body.is-resizing * {
 .zn-sidebar-foot:hover {
   background: var(--zn-bg-hover);
   color: var(--zn-fg);
+}
+
+/* ───────── 回收站（主区整页视图，App.tsx 的 mainView === 'trash'）───────── */
+
+.zn-trash-empty {
+  padding: var(--zn-space-6, 2rem) var(--zn-space-4);
+  color: var(--zn-fg-subtle);
+  font-size: var(--zn-text-sm);
+  text-align: center;
+}
+
+.zn-trash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.zn-trash-row {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-3);
+  padding: var(--zn-space-2) var(--zn-space-4);
+  border-bottom: 1px solid var(--zn-border);
+}
+.zn-trash-row:hover {
+  background: var(--zn-bg-hover);
+}
+
+/* 名称与元信息两行；两者都要能省略号截断（长路径不该把按钮挤出去） */
+.zn-trash-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.zn-trash-name {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-trash-meta {
+  font-size: 0.75rem;
+  color: var(--zn-fg-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zn-trash-actions {
+  display: flex;
+  gap: var(--zn-space-2);
+  flex: none;
+}
+
+/* 破坏性动作（彻底删除 / 清空回收站）—— 与普通文字按钮同形，只换颜色 */
+.zn-plain-btn.is-danger {
+  color: var(--zn-danger, #dc2626);
 }
 
 /* ───────── 声明式 UI（components/UIRenderer.tsx 专用）─────────
