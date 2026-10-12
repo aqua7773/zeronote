@@ -88,8 +88,8 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 - **`android-dev` 也在跑**（WMI 起的，不自起 vite、直连桌面 1420），日志 `.self-logs/android-dev.log`
 - **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（这次为验移动端快捷栏装的）⇒ 改前端即时生效。
   **默认装法仍是打包版**（`tauri android build --apk`，内嵌 dist，改前端必须重打包）
-- **测试库 `_tmp-vault-tb/`**（5 篇笔记，含 `数据库绪论.md`）；`.zn/plugins` 里有 **2 个 junction**：
-  `outline-map` 与 `docprobe`（验收夹具，详见 rev45）。
+- **测试库 `_tmp-vault-tb/`**（5 篇笔记，含 `数据库绪论.md`）；`.zn/plugins` 里有 **3 个 junction**：
+  `outline-map` · `docprobe`（U3a/U3b 夹具，rev45）· `net-demo`（**拆门后它不再被拒载**，rev48 实测）。
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可。
   ⚠️ **改完不一定要切库** —— 2026-10-13 实测：`☰ → 插件管理 → 重新扫描` 就能加载新插件（无需切库、无需重启；vite 不监视库目录，所以只能靠这条或切库）
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
