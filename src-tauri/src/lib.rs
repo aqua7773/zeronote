@@ -413,6 +413,61 @@ fn move_entry(vault: String, from: String, to: String) -> Result<(), String> {
   fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
 }
 
+/// 递归复制（文件 → 单文件；目录 → 建目录后逐项递归）。
+/// **跳过 `.` 开头与 `SKIP_DIRS`** —— `.zn` 是库的私有目录（插件、回收站），
+/// 复制它等于把私货散出去。
+fn copy_path(src: &Path, dst: &Path) -> Result<(), String> {
+  if src.is_dir() {
+    fs::create_dir_all(dst).map_err(|e| format!("创建目录失败 {}：{e}", dst.display()))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("读取目录失败 {}：{e}", src.display()))?;
+    for entry in entries {
+      let entry = entry.map_err(|e| e.to_string())?;
+      let name = entry.file_name().to_string_lossy().to_string();
+      if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+        continue;
+      }
+      copy_path(&entry.path(), &dst.join(&name))?;
+    }
+    Ok(())
+  } else {
+    fs::copy(src, dst)
+      .map(|_| ())
+      .map_err(|e| format!("复制文件失败（{}）：{e}", src.display()))
+  }
+}
+
+/// 复制文件 / **整个目录树**。语义与 `move_entry` 对齐，方便前端一套逻辑写两种粘贴：
+///  · `to` 是**已存在的目录** ⇒ 复制进该目录（用原名）
+///  · 其他情况 ⇒ 当新路径；已存在则拒绝（不静默覆盖）
+///  · **禁止把目录复制进自己的子孙** —— 那会边复制边读取，越滚越大
+#[tauri::command]
+fn copy_entry(vault: String, from: String, to: String) -> Result<(), String> {
+  let src = resolve(&vault, &from)?;
+  if !src.exists() {
+    return Err(format!("源不存在：{from}"));
+  }
+  let mut dst = resolve(&vault, &to)?;
+  if src == dst {
+    return Err("源与目标相同".to_string());
+  }
+  if dst.is_dir() {
+    let name = src
+      .file_name()
+      .ok_or_else(|| format!("无法取得名称：{from}"))?;
+    dst = dst.join(name);
+  }
+  if dst.exists() {
+    return Err(format!("目标已存在，不覆盖：{to}"));
+  }
+  if src.is_dir() && dst.starts_with(&src) {
+    return Err("不能把目录复制到它自己的子目录里".to_string());
+  }
+  if let Some(parent) = dst.parent() {
+    fs::create_dir_all(parent).map_err(|e| format!("创建目标目录失败：{e}"))?;
+  }
+  copy_path(&src, &dst)
+}
+
 /// 校验「导出落盘」的目标路径，并给出**能看懂**的错误。
 ///
 /// ⚠️ **Android 平台差异（真机实测）**：Android 的「另存为」走 SAF，`save()` 返回的是
@@ -891,6 +946,7 @@ pub fn run() {
       note_exists,
       create_dir,
       move_entry,
+      copy_entry,
       write_absolute,
       write_absolute_b64,
       list_plugins,
@@ -1230,6 +1286,42 @@ mod tests {
         .any(|p| p.starts_with(".zn") || p.contains("node_modules")),
       "忽略目录不进清单：{dirs:?}"
     );
+  }
+
+  /// 「创建副本」的地基：递归复制整棵树，**私有目录不外泄**，且三种拒绝都要挡住
+  /// （源不存在 / 目标已存在 / 复制进自己的子孙）。
+  #[test]
+  fn copy_entry_copies_tree_and_refuses_bad_targets() {
+    let d = tmpdir("copy");
+    let v = d.to_string_lossy().to_string();
+    fs::create_dir_all(d.join("src").join("sub")).unwrap();
+    fs::write(d.join("src").join("a.md"), "# a").unwrap();
+    fs::write(d.join("src").join("sub").join("b.md"), "# b").unwrap();
+    fs::create_dir_all(d.join("src").join(".zn")).unwrap();
+    fs::write(d.join("src").join(".zn").join("secret.md"), "# s").unwrap();
+
+    copy_entry(v.clone(), "src".into(), "dst".into()).unwrap();
+    assert!(d.join("dst").join("a.md").is_file(), "顶层文件要复制");
+    assert!(d.join("dst").join("sub").join("b.md").is_file(), "子目录要递归");
+    assert!(!d.join("dst").join(".zn").exists(), "私有目录不该被复制出去");
+
+    // `to` 是**已存在的目录** ⇒ 复制**进**该目录（与 move 同一套语义）：dst/ 里再得一个 src/
+    copy_entry(v.clone(), "src".into(), "dst".into()).unwrap();
+    assert!(
+      d.join("dst").join("src").join("a.md").is_file(),
+      "目标是已存在目录时应复制进去"
+    );
+    assert!(copy_entry(v.clone(), "nope".into(), "x".into()).is_err(), "源不存在要报错");
+
+    // 真正的不覆盖：目标同名**文件**已存在
+    assert!(copy_entry(v.clone(), "src/a.md".into(), "dst/a.md".into()).is_err());
+
+    // `to` 是已存在的目录 ⇒ 复制进去
+    copy_entry(v.clone(), "src/a.md".into(), "dst/sub".into()).unwrap();
+    assert!(d.join("dst").join("sub").join("a.md").is_file());
+
+    // 复制进自己的子孙 ⇒ 拒绝（否则边复制边读取，越滚越大）
+    assert!(copy_entry(v, "src".into(), "src/sub/x".into()).is_err());
   }
 
   #[test]

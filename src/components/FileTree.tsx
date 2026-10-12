@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
@@ -249,9 +255,14 @@ export function FileTree({
   notes,
   dirs = [],
   activePath,
+  clipboard,
   onOpen,
   onNewFile,
   onNewDir,
+  onCut,
+  onCopy,
+  onPaste,
+  onDuplicate,
   onRename,
   onDeleteMany,
 }: {
@@ -271,6 +282,14 @@ export function FileTree({
   onRename: (from: string, to: string, isDir: boolean) => void
   /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
   onDeleteMany: (paths: string[]) => void
+  /** 应用级剪贴板（null = 空）：菜单据此决定「粘贴」这一项在不在 */
+  clipboard: { mode: 'cut' | 'copy'; paths: string[] } | null
+  onCut: (paths: string[]) => void
+  onCopy: (paths: string[]) => void
+  /** 粘贴到 `dir`（`''` = 库根） */
+  onPaste: (dir: string) => void
+  /** 创建副本（同目录 + 「 副本」；文件与目录都支持） */
+  onDuplicate: (path: string) => void
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -398,6 +417,34 @@ export function FileTree({
 
   // 删除是「一步完成 + 可撤销」—— 依据 Apple HIG：常见且可撤销的破坏操作不该弹确认，
   // 只有不可逆的才必须确认。可撤销性由 App 的撤销条提供（几秒内能把文件搬回来）。
+  /**
+   * 键盘快捷键 —— 只在**焦点位于文件树内**时生效（子 `button` 聚焦后 keydown 会冒泡到这里）。
+   * 这样 `Ctrl+C` 在编辑器里仍然是复制文本，不会把整篇笔记复制走。
+   */
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    const mod = e.ctrlKey || e.metaKey
+    const picked = selected.length ? selected : activePath ? [activePath] : []
+    const key = e.key.toLowerCase()
+    if (e.key === 'F2' && picked.length === 1) {
+      e.preventDefault()
+      // 选中集合只含**文件**（目录不参与多选），所以这里恒为文件重命名
+      startRename(picked[0], false)
+    } else if (e.key === 'Delete' && picked.length) {
+      e.preventDefault()
+      deletePaths(picked)
+    } else if (mod && key === 'x' && picked.length) {
+      e.preventDefault()
+      onCut(picked)
+    } else if (mod && key === 'c' && picked.length) {
+      e.preventDefault()
+      onCopy(picked)
+    } else if (mod && key === 'v') {
+      e.preventDefault()
+      // 贴到「选中项所在目录」；没有选中 ⇒ 库根
+      onPaste(picked.length ? parentDir(picked[0]) : '')
+    }
+  }
+
   const deletePaths = (paths: string[]) => {
     onDeleteMany(paths)
     setSelected([])
@@ -415,8 +462,47 @@ export function FileTree({
         if (menu.path) {
           const path = menu.path
           const multi = menu.multi
+          const picked = multi ? [...selectedSet] : [path]
+          // 与 NoteGen 同序：新建 → 剪切 / 复制 / 创建副本 / 粘贴 → 重命名 → 删除
+          list.push({
+            label: '剪切',
+            hint: 'Ctrl+X',
+            divider: true,
+            onClick: () => {
+              onCut(picked)
+              setMenu(null)
+            },
+          })
+          list.push({
+            label: '复制',
+            hint: 'Ctrl+C',
+            onClick: () => {
+              onCopy(picked)
+              setMenu(null)
+            },
+          })
+          list.push({
+            label: '创建副本',
+            onClick: () => {
+              onDuplicate(path)
+              setMenu(null)
+            },
+          })
+          // 剪贴板为空时**不显示**「粘贴」—— MenuItem 没有 disabled 态，
+          // 与其摆一个点了没反应的灰项，不如让它不出现
+          if (clipboard) {
+            list.push({
+              label: '粘贴',
+              hint: 'Ctrl+V',
+              onClick: () => {
+                onPaste(menu.dir)
+                setMenu(null)
+              },
+            })
+          }
           list.push({
             label: '重命名',
+            hint: 'F2',
             divider: true,
             onClick: () => startRename(path, menu.isDir),
           })
@@ -446,6 +532,7 @@ export function FileTree({
   return (
     <div
       className="zn-tree zn-filetree"
+      onKeyDown={onKeyDown}
       onContextMenu={(e) => {
         // 空白处右键 = 在**库根**新建（节点的右键已 stopPropagation，不会走到这里）
         e.preventDefault()

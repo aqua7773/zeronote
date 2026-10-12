@@ -50,6 +50,11 @@ export interface FsApi {
    * 禁止把目录移进自己的子孙。
    */
   move(from: string, to: string): Promise<void>
+  /**
+   * 复制文件或**整个目录树**（语义与 `move` 对齐：`to` 是已存在目录 ⇒ 复制进去；
+   * 目标已存在 ⇒ 报错不覆盖）。复制时跳过 `.zn` 等私有/忽略目录。
+   */
+  copy(from: string, to: string): Promise<void>
   /** 移入 .zn/trash/（不是物理删除）；返回回收站里的库内相对路径，供撤销 rename 回来 */
   delete(path: string): Promise<string>
   exists(path: string): Promise<boolean>

@@ -38,6 +38,9 @@ export function createFsApi(
     /** 移动 / 重命名文件或**整个目录树**（mv 语义：`to` 是已存在目录时移入其中） */
     move: (from: string, to: string) => invoke<void>('move_entry', { vault, from, to }),
 
+    /** 复制文件或整个目录树（跳过 .zn 等私有目录；目标已存在则报错不覆盖） */
+    copy: (from: string, to: string) => invoke<void>('copy_entry', { vault, from, to }),
+
     /** 移入 `.zn/trash/`，返回**回收站里的库内相对路径**（供撤销 rename 回来） */
     delete: (path: string) =>
       invoke<string>('delete_note', { vault, path }),

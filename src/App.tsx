@@ -1136,6 +1136,96 @@ export default function App() {
     [kernel, refresh],
   )
 
+  /* ── 文件树的剪贴板：剪切 / 复制 / 粘贴 / 创建副本 ──
+     状态放**应用级**而不是文件树内部：粘贴后要 refresh，剪切态在树重渲染之间要保持。 */
+  const [clipboard, setClipboard] = useState<{ mode: 'cut' | 'copy'; paths: string[] } | null>(null)
+
+  const cutPaths = useCallback((paths: string[]) => {
+    if (!paths.length) return
+    setClipboard({ mode: 'cut', paths })
+    setToast(paths.length > 1 ? `已剪切 ${paths.length} 项` : '已剪切')
+  }, [])
+
+  const copyPaths = useCallback((paths: string[]) => {
+    if (!paths.length) return
+    setClipboard({ mode: 'copy', paths })
+    setToast(paths.length > 1 ? `已复制 ${paths.length} 项` : '已复制')
+  }, [])
+
+  /** 同目录下的不撞名副本名：`a.md` → `a 副本.md` → `a 副本 2.md`…（目录同理，不拆后缀） */
+  const uniqueCopyTarget = useCallback(
+    async (path: string): Promise<string> => {
+      const k = kernel
+      const slash = path.lastIndexOf('/')
+      const dir = slash >= 0 ? path.slice(0, slash + 1) : ''
+      const name = slash >= 0 ? path.slice(slash + 1) : path
+      const ext = /\.(md|markdown)$/i.exec(name)?.[0] ?? ''
+      const stem = ext ? name.slice(0, -ext.length) : name
+      let cand = `${dir}${stem} 副本${ext}`
+      let i = 2
+      while (k && (await k.fs.exists(cand))) {
+        cand = `${dir}${stem} 副本 ${i}${ext}`
+        i += 1
+      }
+      return cand
+    },
+    [kernel],
+  )
+
+  /**
+   * 粘贴到 `dir`（`''` = 库根）：剪切走 `move`、复制走 `copy`。
+   * 撞名不是一律报错：**复制**自动退成「 副本」，**剪切**才报错（移动没有合理的改名策略）；
+   * 粘回原位时剪切静默跳过（等价于什么都没做），复制则生成副本 —— 与资源管理器一致。
+   */
+  const pasteInto = useCallback(
+    async (dir: string) => {
+      const k = kernel
+      if (!k || !clipboard?.paths.length) return
+      const { mode, paths } = clipboard
+      try {
+        for (const p of paths) {
+          const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p
+          let target = dir ? `${dir}/${name}` : name
+          if (target === p) {
+            if (mode === 'cut') continue
+            target = await uniqueCopyTarget(p)
+          } else if (await k.fs.exists(target)) {
+            if (mode === 'cut') throw new Error(`目标已存在，不覆盖：${target}`)
+            target = await uniqueCopyTarget(target)
+          }
+          await (mode === 'cut' ? k.fs.move(p, target) : k.fs.copy(p, target))
+        }
+        if (mode === 'cut') setClipboard(null)
+        await refresh()
+        setError(null)
+        setToast(mode === 'cut' ? '已移动' : '已粘贴')
+      } catch (e) {
+        // 中途失败：已经搬过去的那些要保持可见，先刷新再报错
+        await refresh()
+        setError(failMsg(mode === 'cut' ? 'rename' : 'create', e))
+      }
+    },
+    [kernel, refresh, clipboard, uniqueCopyTarget],
+  )
+
+  /** 创建副本（同目录 + 「 副本」）—— 文件与目录都支持（内核 `copy_entry` 是递归的） */
+  const duplicateEntry = useCallback(
+    async (path: string) => {
+      const k = kernel
+      if (!k) return
+      try {
+        const target = await uniqueCopyTarget(path)
+        await k.fs.copy(path, target)
+        await refresh()
+        setError(null)
+        setToast(`已创建副本：${target}`)
+      } catch (e) {
+        setError(failMsg('create', e))
+      }
+    },
+    [kernel, refresh, uniqueCopyTarget],
+  )
+
   /**
    * 删除笔记，**支持一次多篇**（笔记库栏的多选走这条）。
    * 删前先把未保存改动落盘，删掉的才是磁盘上的最新版本（Rust 侧是移入 .zn/trash/，不是物理删）。
@@ -1988,6 +2078,11 @@ export default function App() {
             onNewDir={newDirIn}
             onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
             onDeleteMany={(paths) => void deleteNotes(paths)}
+            clipboard={clipboard}
+            onCut={cutPaths}
+            onCopy={copyPaths}
+            onPaste={(dir) => void pasteInto(dir)}
+            onDuplicate={(path) => void duplicateEntry(path)}
           />
         ) : (
           <div
