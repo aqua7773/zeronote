@@ -1,7 +1,7 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:40** · HEAD **`aff0056`** · 本会话共 12 个提交
-> ⚠️ 卡里的 commit/计数会过时 —— 以 `git log --oneline -5` 与实测为准。
+> 生成 **2026-10-12 20:45** · 本会话共 **13** 个提交 · **HEAD 以 `git log --oneline -1` 为准**
+> （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
 > 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
 
 ## 是什么 / 在哪
@@ -40,13 +40,16 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
-**① 移动端新增的「键盘上方快捷栏」没有真机验证（本轮唯一的未验证项）。**
+**① 没有阻塞项 —— 桌面与移动端都已实测通过。**（记下来是因为这块踩过一次：手机默认跑的是打包版）
 
-- 菜单入口现在是**一桌一移**：桌面 = 编辑器右键 →「标记 ›」→ 12 项（**已实测**）；
-  移动端 = 软键盘正上方那条 12 按钮栏（`platform === 'android'` 才渲染，**没上真机**）
-- 代码路径与插件时代相同（同一个 `editor-toolbar` 位置、同一批 `core.mark.*` 命令），
-  但项目规矩是"**桌面截图永远看不出移动端问题**" ⇒ 接上手机先点一遍这 12 个按钮
-- 手机现状：装的是打包版，**改前端必须重打包**（要 HMR 得用 `android-dev.cmd`）
+- 入口**一桌一移**：桌面 = 编辑器右键 →「标记 ›」→ 12 项；移动端 = 软键盘正上方那条 12 按钮栏。
+  **两端都已实测** —— 移动端证据 `_shots/android-markbar.png`、`android-keyboard-bar.png`
+  （键盘弹起时它正好在键盘正上方）、`android-bar-insert.png`（点「B」磁盘 `0 → 4` 字节）
+- ⚠️ **手机默认装的是打包版**（内嵌 dist）⇒ 改前端**必须重打包**才生效。
+  要 HMR 就起 **`android-dev.cmd`**（用 WMI 起、**别用后台 job**，会随会话回收；前提是桌面 dev 开着；
+  手机将通过 `192.168.1.3:1420` 连桌面 vite）。从起到手机跑起来约 **2–3 分钟**
+- **判据**（别靠猜）：`adb logcat` 里出现 `node_modules/.vite/deps/...` = dev/HMR 模式；
+  打包版不会去连 1420，主机 `netstat` 里也没有手机 IP 的连接
 
 **② 上一轮那条"点顶部提示条 `Ctrl+B` 会关掉笔记"—— 载体已撤，疑因已定位。**
 
@@ -64,6 +67,9 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 ## 环境现状（别踩）
 
 - **桌面 dev 在跑**：`tauri dev`（PID 18800，vite `http://localhost:1420`），日志 `.self-logs/desktop-dev.log`
+- **`android-dev` 也在跑**（WMI 起的，不自起 vite、直连桌面 1420），日志 `.self-logs/android-dev.log`
+- **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（这次为验移动端快捷栏装的）⇒ 改前端即时生效。
+  **默认装法仍是打包版**（`tauri android build --apk`，内嵌 dist，改前端必须重打包）
 - **测试库 `_tmp-vault-tb/`**（`probe.md` + `untitled-20261012-195714.md`）；`.zn/plugins` 现在是**空的**
   —— `md-toolbar` 已随「标记收进内核」退役（`examples/md-toolbar/` 也删了，git 历史 `70ef21a` 可查）。
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可（改完**切库一次**生效）

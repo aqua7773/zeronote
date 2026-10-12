@@ -364,10 +364,18 @@ revision: 36
 > 收进内核后提示条左端仍是 `✕`、其右第一个才是 `Ctrl+B 粗体` —— 下次排查先确认用户说的"最左"
 > 是哪一个，别再从零复现（两侧观测相反的证据仍留在 `_shots/watch-frames.log` 与 `_shots/frames/`）。
 >
-> ⚠️ **未验证**：移动端那条快捷栏本轮**没有真机验证**（代码路径与插件时代相同 —— 同一个
-> `editor-toolbar` 位置、同一批命令；但项目规矩是"桌面截图永远看不到移动端问题"）。
-> **下次接手机时先验这一条**。若日后又想要桌面顶部提示条：`70ef21a` 里有 `hint` 形态的
-> `MarkToolbar`（含可开关 + 存 localStorage）可取回。
+> ✅ **移动端已真机验证**（当晚补验，走 `android-dev.cmd` 的 HMR 模式）：
+> · 手机上出现内核那条快捷栏（`_shots/android-markbar.png`）—— 手机库里**没有** md-toolbar 插件，
+>   所以只可能来自内核
+> · 软键盘弹起时它正好落在**键盘正上方**（`_shots/android-keyboard-bar.png`；`f1e38dd` 的
+>   visualViewport 修复与本次内核化叠加生效）
+> · 点「B」真能插入：`test-from-pc.md` 磁盘 `0 → 4` 字节（`****`，`_shots/android-bar-insert.png`）
+> · **怎么起 dev**（下次照做）：`android-dev.cmd` 用 WMI 起（**脱离 DSH 会话**，不要用后台 job ——
+>   会随会话回收）；它不自起 vite，直接连桌面 dev 的 `192.168.1.3:1420`（**前提：桌面 dev 开着**）。
+>   **判据**：logcat 里出现 `tauri.localhost/node_modules/.vite/deps/react-dom_client.js`
+>   —— 只有 vite dev 提供这个路径，打包版不会有；主机 `netstat :1420` 里也应看到手机 IP 的连接。
+>   从"起"到"手机跑起来"约 **2–3 分钟**（Rust 有缓存时）。
+> 若日后又想要桌面顶部提示条：`70ef21a` 里有 `hint` 形态的 `MarkToolbar`（含可开关 + 存 localStorage）可取回。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
