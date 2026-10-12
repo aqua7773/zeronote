@@ -114,6 +114,57 @@ function failMsg(kind: FailKind, e: unknown): string {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
+/* ── 文件关联（双击 .md / 「打开方式」递进来的路径）小工具 ── */
+
+/** 只认 `.md` / `.markdown`（与 Rust 侧 `is_markdown` 同一口径） */
+const MD_RE = /\.(md|markdown)$/i
+
+/**
+ * `file:///C:/a/b.md` → 本地路径。
+ *
+ * Rust 侧其实已经转过一道（`url_to_path`），这里是**第二道保险** ——
+ * 系统递进来的 URI 形态随平台而变，前端不该假设它一定是干净的路径。
+ * 非 file scheme（`content://…`）原样返回，交给调用方给出说明。
+ */
+function toLocalPath(raw: string): string {
+  const s = raw.trim()
+  if (!/^file:\/\//i.test(s)) return s
+  let p = s.slice('file://'.length)
+  try {
+    p = decodeURIComponent(p)
+  } catch {
+    /* 含裸 `%` 的路径解不开就用原文 —— 总比抛异常强 */
+  }
+  // file:///C:/x ⇒ /C:/x；Windows 上得去掉盘符前那条斜杠
+  if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1)
+  return p
+}
+
+/** 拆出父目录与文件名（两种分隔符都认：Android 是 POSIX 路径，桌面是 Windows 路径） */
+function splitPath(p: string): { dir: string; name: string } {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i < 0 ? { dir: '', name: p } : { dir: p.slice(0, i), name: p.slice(i + 1) }
+}
+
+/** 路径比较：统一分隔符、去尾斜杠、忽略大小写（Windows 不区分大小写；放宽比较在其它平台无害） */
+function samePath(a: string, b: string): boolean {
+  const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
+
+/**
+ * 若 `path` 落在库 `vault` 之内，返回**库内相对路径**（`/` 分隔）；否则 `null`。
+ * 返回 `null` 的两种情况：不在库里，或它本身就是库目录。
+ */
+function relPathIn(vault: string, path: string): string | null {
+  const v = vault.replace(/\\/g, '/').replace(/\/+$/, '')
+  const p = path.replace(/\\/g, '/')
+  if (!v) return null
+  const prefix = `${v.toLowerCase()}/`
+  if (p.toLowerCase() === v.toLowerCase() || !p.toLowerCase().startsWith(prefix)) return null
+  return p.slice(prefix.length) || null
+}
+
 function loadDisabled(): Set<string> {
   try {
     return new Set<string>(JSON.parse(localStorage.getItem(LS_DISABLED) ?? '[]'))
@@ -333,6 +384,14 @@ export default function App() {
   const timerRef = useRef<number | null>(null)
   const openNoteRef = useRef<(p: string) => Promise<void>>(async () => {})
   const saveNowRef = useRef<() => Promise<void>>(async () => {})
+  /** 当前库（文件关联要用：判断递进来的文件是否已在库里，而 effect 里不想重挂监听） */
+  const vaultRef = useRef(vault)
+  /** 待打开的文件 —— 切库是异步的，等目标库就绪再开（见下面的「待打开」effect） */
+  const pendingOpenRef = useRef<{ vault: string; name: string } | null>(null)
+  /** 同一路径短时间去重：启动那条会「存状态 + 广播事件」，两条投递有重叠窗口 */
+  const recentOpenRef = useRef<Map<string, number>>(new Map())
+  /** `openExternalFile` 的稳定引用 —— 挂载时的监听只注册一次，不随库重建 */
+  const openExternalFileRef = useRef<(raw: string) => Promise<void>>(async () => {})
 
   useEffect(() => {
     contentRef.current = content
@@ -351,6 +410,10 @@ export default function App() {
   useEffect(() => {
     permissionsRef.current = permissions
   }, [permissions])
+
+  useEffect(() => {
+    vaultRef.current = vault
+  }, [vault])
 
   /**
    * 授权记录：换库时从磁盘读一次。
@@ -596,6 +659,122 @@ export default function App() {
     setDirty(false)
     setSaveState('idle')
     setVault(dir)
+  }, [])
+
+  /**
+   * 「打开一个外部文件」—— 三条入口共用：Windows 的命令行参数 / 单实例转发、
+   * Android 的「打开方式」（Rust 侧 `RunEvent::Opened` → `zn:open-file`）、
+   * 以及 ☰ 菜单的「打开文件…」。
+   *
+   * **方案 A（已定）**：内核 `resolve()` 只接受**库内相对路径**（目前唯一真正落地的安全裁剪），
+   * 所以库外的文件不直接读，而是**把它的父目录当成库打开**（复用 `applyVault`），
+   * 切库完成后再打开那个文件（见下面的「待打开」effect）。
+   * 已经在当前库内的，直接开、不切库。
+   */
+  const openExternalFile = useCallback(
+    async (raw: string) => {
+      const path = toLocalPath(raw)
+      if (!path) return
+      // 去重：同一条可能被投两次（启动时的「存状态 + 广播」重叠窗口）
+      const now = Date.now()
+      const seen = recentOpenRef.current.get(path)
+      if (seen !== undefined && now - seen < 3000) return
+      recentOpenRef.current.set(path, now)
+      // 非 markdown **静默忽略**（与 Rust 侧同一口径，不弹错）
+      if (!MD_RE.test(path)) return
+      if (/^content:\/\//i.test(path)) {
+        // Android SAF：这是**内容 URI**，`std::fs` 读不了（本项目 `host.saveFile` 踩过同一个坑）。
+        // 如实说清，而不是假装打开了一个不存在的文件。
+        setToast('系统递进来的是 SAF 内容 URI（content://…），当前版本读不了它；请在应用内打开笔记库。')
+        return
+      }
+      const cur = vaultRef.current
+      const rel = cur ? relPathIn(cur, path) : null
+      if (rel) {
+        // 已在当前库内 ⇒ 直接开这篇，不必切库
+        await openNoteRef.current(rel)
+        return
+      }
+      const { dir, name } = splitPath(path)
+      if (!dir || !name) return
+      pendingOpenRef.current = { vault: dir, name }
+      await applyVault(dir)
+    },
+    [applyVault],
+  )
+  useEffect(() => {
+    openExternalFileRef.current = openExternalFile
+  }, [openExternalFile])
+
+  /**
+   * 待打开的文件：**等目标库就绪**再 `openNote`。
+   *
+   * `applyVault` 是异步的 —— 它只换掉 `vault` 状态，真正的 `ensure_vault` + 笔记列表刷新
+   * 发生在 kernel 重建之后的 effect 里；切库前就 openNote 会读到**旧库**。
+   * 所以用 ref 记着它，等 `vault` 与 kernel 对齐了再开，用掉即清空。
+   *
+   * 本 effect 必须排在上面 `openNoteRef` 的同步 effect **之后**：同一轮 commit 里
+   * effect 按声明顺序执行，排在后面才拿得到新 kernel 的 `openNote`。
+   */
+  useEffect(() => {
+    const pending = pendingOpenRef.current
+    if (!pending || !vault || !kernel) return
+    if (!samePath(vault, pending.vault)) return
+    pendingOpenRef.current = null
+    void openNoteRef.current(pending.name)
+  }, [vault, kernel])
+
+  /**
+   * 文件关联的接线：挂载后拉一次启动时攒下的文件，再订阅运行期事件。
+   *
+   * 顺序有意如此：**先挂监听再拉取** —— 反过来会漏掉"挂监听之前刚好到达"的那一条
+   * （`opened_urls` 是取走即清空的，漏了就永远丢了）。两条都不阻塞首屏。
+   */
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        const fn = await listen<string>('zn:open-file', (e) => {
+          void openExternalFileRef.current(e.payload)
+        })
+        if (disposed) fn()
+        else unlisten = fn
+      } catch {
+        /* 非 Tauri 环境（浏览器预览）没有事件系统 —— 忽略即可 */
+      }
+      try {
+        const urls = await invoke<string[]>('opened_urls')
+        for (const u of urls) await openExternalFileRef.current(u)
+      } catch {
+        /* 老内核 / 浏览器预览里没有这个命令 —— 忽略即可 */
+      }
+    })()
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
+  /**
+   * ☰ 菜单的「打开文件…」。
+   * 桌面端这是**不装安装包也能验收**的入口（`bundle.fileAssociations` 只在安装包里写注册表）；
+   * Android 上文件选择器能否用**因平台而异**（目录选择器是源码级
+   * `FolderPickerNotImplemented`），所以失败必须兜住并给出可执行的替代路径。
+   */
+  const pickFile = useCallback(async () => {
+    try {
+      const picked = await open({
+        multiple: false,
+        title: '打开 Markdown 文件',
+        filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+      })
+      if (typeof picked !== 'string') return
+      await openExternalFileRef.current(picked)
+    } catch (e) {
+      setToast(`系统文件选择器打不开（${String(e)}）。可改用系统的「打开方式」并选 ZeroNote。`)
+    }
   }, [])
 
   const pickVault = useCallback(async () => {
@@ -1181,6 +1360,8 @@ export default function App() {
   const menuItems: MenuItem[] = [
     { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void runCore('core.newNote') },
     { label: '打开笔记库…', onClick: () => void pickVault() },
+    // 文件关联的**桌面验收入口**（不装安装包也能试）：选一个 .md → 把它的父目录当库打开并打开它
+    { label: '打开文件…', onClick: () => void pickFile() },
     // 笔记库栏的开关：
     //  · 桌面 —— 侧栏常驻，收起后菜单这条是唯一的**重开**入口
     //    （避免同一动作两处可点、让用户猜该用哪个）

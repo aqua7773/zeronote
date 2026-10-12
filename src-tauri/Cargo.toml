@@ -25,3 +25,12 @@ tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-statusbar = { path = "plugins/tauri-plugin-statusbar" }
+
+# 文件关联（桌面）：Windows 上「双击 .md」第二次启动的进程要把参数**转发**给已在运行的实例
+# —— 见 lib.rs 的 `forward_open_targets`。
+#
+# ⚠️ 必须放在 target 专属依赖里：该 crate 源码第一行就是
+# `#![cfg(not(any(target_os = "android", target_os = "ios")))]`，
+# Android 上整个 crate 是空的（引用它的 `init()` 会编译失败）。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"

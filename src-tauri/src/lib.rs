@@ -11,9 +11,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
+use tauri::{Emitter, Manager};
 
 /// 库内私有目录：不进文件树、不进 git
 const PRIVATE_DIR: &str = ".zn";
@@ -604,18 +606,145 @@ fn set_permission(
   Ok(out)
 }
 
+/* ───────────── 文件关联（双击 .md 用 ZeroNote 打开）───────────── */
+//
+// 三条系统入口最后都汇进同一个容器 `OpenedUrls`：
+//  · Windows —— 命令行参数（首次启动）+ `tauri-plugin-single-instance` 回调（已在运行时再双击）
+//    ⚠️ Windows 上**没有** `RunEvent::Opened`：tauri 2.12 的 `src/app.rs:263` 用
+//    `#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]` 把它编译掉了。
+//  · macOS / iOS / Android —— `RunEvent::Opened { urls }`（官方《File Associations on Mobile》）。
+//
+// 容器里存的是**平台路径**（`file://…` 在 Rust 侧就转好了），前端因此只需处理一种形态。
+
+/// 系统 / 命令行递进来的待打开文件（FIFO；`opened_urls` **取走即清空**）。
+#[derive(Default)]
+struct OpenedUrls(Mutex<Vec<String>>);
+
+/// 只认 `.md` / `.markdown`。扩展名不符时**静默忽略** —— 用户没要求打开、也没有错，
+/// 弹一句"不支持的文件类型"只会打扰人（设计决定，见任务卡）。
+fn is_markdown(path: &str) -> bool {
+  let lower = path.to_lowercase();
+  lower.ends_with(".md") || lower.ends_with(".markdown")
+}
+
+/// `file://…` → 平台路径（Windows 的 `file:///C:/a.md` → `C:\a.md`，并顺带处理百分号编码）。
+/// 非 file scheme（Android 的「打开方式」可能给 `content://…`）原样返回 ——
+/// `std::fs` 读不了内容 URI，但**必须如实交出去**：前端才能给出说明，而不是静默无反应。
+fn url_to_path(url: &str) -> String {
+  let raw = url.trim();
+  match tauri::Url::parse(raw) {
+    Ok(u) if u.scheme() == "file" => u
+      .to_file_path()
+      .map(|p| p.to_string_lossy().into_owned())
+      .unwrap_or_else(|_| raw.to_string()),
+    _ => raw.to_string(),
+  }
+}
+
+/// 从一串候选（命令行参数或系统递来的 URI）里挑出**真正要打开**的路径。
+///
+/// 挡掉三样：空串、非 markdown、磁盘上不存在 —— 最后一条顺手把 `argv[0]`
+/// （exe 自己的路径）之类的噪声一起挡了，不需要额外判断下标。
+///
+/// **例外**：内容 URI（`content://…`，Android SAF）不是文件路径，`is_file()` 判断不了它，
+/// 所以按 scheme 特判后原样放行，把"到底能不能读"留给上层判 —— 现在读不了也得看得见。
+fn pick_open_targets<I: IntoIterator<Item = String>>(raws: I) -> Vec<String> {
+  let mut out: Vec<String> = Vec::new();
+  for raw in raws {
+    if raw.trim().is_empty() {
+      continue;
+    }
+    let path = url_to_path(&raw);
+    let is_content_uri = path.starts_with("content:")
+      || path.starts_with("http:")
+      || path.starts_with("https:");
+    if is_content_uri {
+      log::info!("ZeroNote 收到非文件 URI（当前读不了，仍如实上报）：{raw}");
+      if !out.contains(&path) {
+        out.push(path);
+      }
+      continue;
+    }
+    if !is_markdown(&path) {
+      continue;
+    }
+    if fs::metadata(&path).map(|m| m.is_file()).unwrap_or(false) && !out.contains(&path) {
+      out.push(path);
+    }
+  }
+  out
+}
+
+/// 把一批路径**存进状态并广播事件**。
+///
+/// 两件事都做是有原因的：前端还没挂载时事件会丢（启动即带参数的情形），
+/// 那时靠挂载后 `opened_urls` 拉取；前端已挂载时事件即时到达，不必等下一次拉取。
+fn forward_open_targets(app: &tauri::AppHandle, raws: &[String]) {
+  let targets = pick_open_targets(raws.to_vec());
+  if targets.is_empty() {
+    return;
+  }
+  if let Some(state) = app.try_state::<OpenedUrls>() {
+    if let Ok(mut list) = state.0.lock() {
+      for t in &targets {
+        log::info!("ZeroNote 待打开：{t}");
+        list.push(t.clone());
+      }
+    }
+  }
+  for t in targets {
+    let _ = app.emit("zn:open-file", t);
+  }
+}
+
+/// 取走攒下的待打开文件（启动参数 / 第二个实例转发 / 系统事件）。
+/// **取走即清空**：否则前端每次刷新都会把同一个文件重开一遍。
+#[tauri::command]
+fn opened_urls(state: tauri::State<OpenedUrls>) -> Vec<String> {
+  match state.0.lock() {
+    Ok(mut list) => std::mem::take(&mut *list),
+    Err(_) => Vec::new(),
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  // ⚠️ single-instance 必须是**第一个**注册的插件（官方要求）：它要在其它插件初始化之前
+  // 就抢到单实例锁，否则第二个进程会先跑完一遍初始化才退出。
+  // 这也是它必须 cfg 掉的原因 —— 该 crate 在 Android/iOS 上整体为空（见 Cargo.toml）。
+  #[allow(unused_mut)]
+  let mut builder = tauri::Builder::default();
+  #[cfg(desktop)]
+  {
+    builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+      // 第二个实例：把命令行参数转发给已在运行的窗口（Windows「双击 .md」走的就是这里）
+      forward_open_targets(app, &argv);
+    }));
+  }
+
+  builder
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_statusbar::init())
     .setup(|app| {
+      app.manage(OpenedUrls::default());
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
             .build(),
         )?;
+      }
+      #[cfg(desktop)]
+      {
+        // 首次启动就带着文件（Windows 双击 .md，或从终端敲 `zeronote.exe a.md`）：
+        // 此刻前端还没加载，事件发出去会丢 —— 先存进状态，等前端挂载后来 `opened_urls` 取。
+        let targets = pick_open_targets(std::env::args().skip(1));
+        if let Ok(mut list) = app.state::<OpenedUrls>().0.lock() {
+          for t in targets {
+            log::info!("ZeroNote 启动参数待打开：{t}");
+            list.push(t);
+          }
+        }
       }
       Ok(())
     })
@@ -639,10 +768,23 @@ pub fn run() {
       list_vaults,
       delete_plugin,
       read_permissions,
-      set_permission
+      set_permission,
+      opened_urls
     ])
-    .run(tauri::generate_context!())
-    .expect("error while building tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|_app, _event| {
+      // macOS / iOS / Android：系统「用 ZeroNote 打开」递进来的 URL 走这个事件。
+      // ⚠️ Windows **不在其中** —— `RunEvent::Opened` 在 tauri 2.12 里被
+      // `#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]` 编译掉了，
+      // 在 Windows 上直接匹配它根本不过编译，所以整段必须 cfg 包住。
+      // Windows 靠上面的「启动参数 + 单实例转发」。
+      #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+      if let tauri::RunEvent::Opened { urls } = _event {
+        let raws: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+        forward_open_targets(_app, &raws);
+      }
+    });
 }
 
 /* ───────────── 测试（M1 的自动化证据）───────────── */
