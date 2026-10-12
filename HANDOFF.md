@@ -191,6 +191,20 @@ revision: 33
 > 会被 tsc 直接拒（`TS1294`），得写显式字段赋值。
 >
 > **未做**：真机复验（桌面已验；手机上要重装 APK，用户本轮选择不跑）。
+>
+> **补充（同日 19:10 · release 打包版首次验证）**：`pnpm tauri build --no-bundle` 产出
+> `cargo-targets\zeronote\release\zeronote.exe`（**10.5 MB**，release 全量编译 **2m46s**），
+> 在带 `ui-kit` 插件的库上启动 —— 三条独立证据：
+> ① 编辑器底部工具栏渲染（插件的 `view:editor-toolbar` 面板）② `☰` 菜单出现「UI 组件演示」入口
+> （插件的 `view:sidebar` 面板）③ 插件页显示「UI 组件演示 v0.1.0 **已启用**」。
+> ⇒ **打包版能读库里的插件**（此前只有 dev 模式与 Android debug APK 验过；桌面包从没打过）。
+> 证据 `_shots/rel-01-started.png`、`rel-02-menu.png`、`rel-03-plugin-page.png`。
+> **同时也说明：插件不在二进制里** —— 换个库/换台机器，库里没有 `.zn/plugins/` 就没有插件，
+> 要带插件必须连库目录一起拷。
+> ⚠️ **顺带发现一个布局问题**（与打包无关）：窗口宽 1116 时**右栏被挤到最右约 16px**、内容竖排成单列；
+> **dev 版同样复现**（`_shots/rel-12-dev-control.png`，且该库零插件）⇒ 不是插件也不是 release 引起。
+> 右栏 CSS 是 `.zn-rightbar { width: 320px; flex: 0 0 auto }`（`styles.css:1042`），疑似横向溢出被裁。
+> **未深查**，留作独立项。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
@@ -248,6 +262,7 @@ revision: 33
 | **🧬 插件资源自动登记 + 生命期串行链** | `_shots/perm-23-rescan-bottom.png`：连点 6 次「重新扫描」后 **ui-kit / tag-demo 全部已启用**（修前稳定报「命令 id 重复：ui-kit.hit」并变未启用）；`perm-22-rescan-ok.png` 为同一状态下的顶部（**无错误横幅**） | 本次 |
 | **🗂 最近库过期记录自动清理**（缺口 3） | `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 仍在最近列表、底栏报「库目录不存在」→ `gap3-04-menu-cleaned.png`：打开菜单即**自动剔除 + toast 提示** → `gap3-06-persisted.png`：`Ctrl+R` 重载后列表仍干净且**无 toast** ⇒ 真持久化；对照 `gap3-16-menu-zoom3.png`（目录在就不误杀）vs `gap3-17-gate-toast-zoom.png`（菜单弹出后才删目录 ⇒ `applyVault` 的门拦下：**不切库、不报错**）· `cargo test` **17 passed**（新增 `vault_exists_is_read_only`：只读、不建目录） | 本次 |
 | **🚧 平台门（缺口 1）** | `_shots/gate-04-plugins-page.png`：`platforms:["android"]` 的插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无错误横幅**；三组对照 —— `gate-05`（改成双端 ⇒ **已启用**，证明只挡不匹配的、没误杀）· `gate-06` + `gate-07`（懒激活 + 仅移动端 ⇒ 仍跳过，且命令面板里**列不出**它的命令）· `gate-08`（`"windwos"` 拼错 ⇒ **拒载 + 报错并列出合法取值**，不再静默失效）；新增示例 `examples/platform-locked/` | 本次 |
+| **📦 release 打包版加载插件（首次）** | `cargo-targets\zeronote\release\zeronote.exe`（10.5 MB，`tauri build --no-bundle`，2m46s）；带 `ui-kit` 的库上：`_shots/rel-01-started.png`（**编辑器底部工具栏**＝插件的 `editor-toolbar` 面板渲染）· `rel-02-menu.png`（`☰` 菜单出现「UI 组件演示」＝插件的 `sidebar` 面板入口）· `rel-03-plugin-page.png`（插件页「**已启用**」）⇒ 打包版能读库内插件 · 顺带对照 `rel-12-dev-control.png`（dev 版右栏同样被挤窄 ⇒ 布局问题与打包无关） | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
