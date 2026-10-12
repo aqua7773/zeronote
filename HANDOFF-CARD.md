@@ -1,14 +1,16 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:05** · HEAD **`5a31364`** · 本会话共 10 个提交
+> 生成 **2026-10-12 20:40** · HEAD **`aff0056`** · 本会话共 12 个提交
 > ⚠️ 卡里的 commit/计数会过时 —— 以 `git log --oneline -5` 与实测为准。
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev35）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
 
 ## 是什么 / 在哪
 
 `C:\Users\AQUA\Documents\deepseek\ZeroNote` —— **空内核**本地 Markdown 笔记应用
 （Tauri 2 + React 19 + Rust）。一切功能靠插件（库内 `.zn/plugins/<id>/`，装卸＝放/删一个文件夹）；
-内核 10 原语 + 21 种 UINode + 若干插件挂载位（含本轮新增的 `editor-topbar`）。
+内核 10 原语 + 21 种 UINode + 若干插件挂载位（`editor-toolbar` / `editor-topbar` 等）。
+**内核自带的界面**：12 条 Markdown 标记命令（`core.mark.*`）—— 桌面走编辑器右键「标记」子菜单，
+移动端走软键盘正上方那条快捷栏（`src/kernel/markdown-marks.ts` 是唯一真相）。
 
 ## 验收基线（三条都要过）
 
@@ -33,31 +35,38 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 | `f1e38dd` | 手机键盘遮挡修复（`visualViewport`；`adjustResize` 在 targetSdk 35 无效） |
 | `812f80f` | **编辑器顶部「可开关的快捷键提示」** ＋ 修 Rust 漏掉 junction 插件目录 |
 | `5a31364` | 提示条右侧留白，避免与「关闭这篇笔记」按钮重叠 |
+| `70ef21a` | **Markdown 标记收进内核**：12 条 `core.mark.*` + 手机底栏/顶部提示条 + 右键「标记」子菜单（插件 `examples/md-toolbar` 退役） |
+| `aff0056` | **收窄入口**（用户裁决）：桌面只留右键「标记」子菜单，移动端只留键盘上方快捷栏；顺带修 `.zn-titlebar-hotzone` 压顶部吃掉点击的真 bug |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
-**用户报告：点编辑器顶部提示条最左侧的「`Ctrl+B` 粗体」会关闭当前笔记。**
+**① 移动端新增的「键盘上方快捷栏」没有真机验证（本轮唯一的未验证项）。**
 
-- 我**复现不了**：自己点同一按钮 ⇒ `probe.md` **+4 字节**（`****` 插入成功），笔记没被关
-- 用户复现那轮的后台日志**同样**是：`probe.md` 35B → 39B、PID 未变、无新文件
-- ⇒ **两侧观测不一致，原因未查清**（不是"没查"，是"查到的现象和你看到的相反"）
-- **证据已留存，可直接查**：
-  - `_shots/watch-frames.log` —— 20:00:04 → 20:00:38 的完整状态时间线（35B→39B）
-  - `_shots/frames/f-2000*.png` —— **32 帧截图**，每 1.5s 一张（20:00:35 ~ 20:00:52）
-  - `_shots/watch-repro.log` —— 更早一轮（19:58:10 / 19:58:33），同样 +4 字节
-- **建议排查顺序**：① 先看 `_shots/frames/` 里 20:00:35~38 那几帧，确认"被关"那一刻的画面
-  ② 在 `closeNote()`（`App.tsx:757`）与 `core.closeNote` 命令上加临时日志，看是谁调的
-  ③ 怀疑点：`hotkeys-js` 的 `Mod+W`（关闭笔记）被误触发
+- 菜单入口现在是**一桌一移**：桌面 = 编辑器右键 →「标记 ›」→ 12 项（**已实测**）；
+  移动端 = 软键盘正上方那条 12 按钮栏（`platform === 'android'` 才渲染，**没上真机**）
+- 代码路径与插件时代相同（同一个 `editor-toolbar` 位置、同一批 `core.mark.*` 命令），
+  但项目规矩是"**桌面截图永远看不出移动端问题**" ⇒ 接上手机先点一遍这 12 个按钮
+- 手机现状：装的是打包版，**改前端必须重打包**（要 HMR 得用 `android-dev.cmd`）
 
-**另有一个已修的真实缺陷（与上面的现象无关）**：提示条右端与编辑区右上角那个绝对定位的
-「关闭这篇笔记」（`z-index:5`）**重叠** ⇒ 点提示条最右侧的按钮实际点到「关闭」，
-我实测复现过。已给 `.zn-editor-topbar` 加 `padding-right: 72px` 让位（`5a31364`）。
+**② 上一轮那条"点顶部提示条 `Ctrl+B` 会关掉笔记"—— 载体已撤，疑因已定位。**
+
+- 顶部提示条按用户要求**整个删掉了**，所以症状不复存在
+- 但本轮查清了**它为什么点不动**：`.zn-titlebar-hotzone`（`position:absolute; height:20px;
+  z-index:59`，唤出标题栏 + 兜底拖动区）**压在窗口顶部 20px**，而提示条正落在那 20px 里
+  ⇒ 点上去实际点在热区上（还是 drag-region）。**错位点击**很可能就是"笔记被关"的真因
+- 已修：`.zn-editor-topbar` 加 `position:relative; z-index:61` + `align-self:flex-start`
+  （只占内容宽，热区仍可用于唤出标题栏）。**先别再按旧线索重查** —— 见 `HANDOFF.md` rev36
+
+**另有一个已修的真实缺陷**：提示条右端与编辑区右上角那个绝对定位的「关闭这篇笔记」（`z-index:5`）
+会**重叠**（点最右按钮实际点到「关闭」）。提示条虽已撤，但 `.zn-editor-topbar`（插件仍可挂）
+的 `padding-right: 72px` 保留着（`5a31364`）。
 
 ## 环境现状（别踩）
 
 - **桌面 dev 在跑**：`tauri dev`（PID 18800，vite `http://localhost:1420`），日志 `.self-logs/desktop-dev.log`
-- **测试库 `_tmp-vault-tb/`**（`probe.md` + `untitled-20261012-195714.md`）；它的
-  `.zn/plugins/md-toolbar` 是 **junction → `examples/md-toolbar`** ⇒ 改插件后**切库一次**即生效（不用拷）
+- **测试库 `_tmp-vault-tb/`**（`probe.md` + `untitled-20261012-195714.md`）；`.zn/plugins` 现在是**空的**
+  —— `md-toolbar` 已随「标记收进内核」退役（`examples/md-toolbar/` 也删了，git 历史 `70ef21a` 可查）。
+  要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可（改完**切库一次**生效）
 - **手机 `33b676f6`**：装的是 `tauri android build --apk` 的**打包版**（内嵌 dist，
   **改前端必须重打包**；想要 HMR 得改用 `android-dev.cmd`）
 - `_shots/`、`_tmp-*/`、`examples/*/store.json` 都在 `.gitignore` 内
@@ -73,5 +82,6 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev35**）· `docs/内核契约-v0.1.md` · `docs/能力对照-规格2.1-2.8.md` ·
-`docs/插件能力盘点-2026-10-12.md` · `examples/`（本轮新增 `md-toolbar`）
+`HANDOFF.md`（**rev36**）· `docs/内核契约-v0.1.md`（**§2.1.2 = 内核自带的 Markdown 标记**）·
+`docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md` · `examples/`（插件示例；
+`md-toolbar` 已退役删除）
