@@ -795,6 +795,52 @@ revision: 45
 > **下一步**：清单第 2 条 **U1**（Tauri 真窗口 + `capabilities/default.json` 放行窗口 label）——
 > 注意那是**安全边界变更**，落地时在本文档写明"新增了什么权限"。
 
+> ## 📌 rev46（2026-10-13 · 架构原则重定：内核不设防 ＋ **修复优先于防护**）
+>
+> **用户重新说明 5 条原则**（原话与逐条落地见 **`docs/架构原则-2026-10-13.md`** ——
+> **冲突时以它为准**，它覆盖 `内核需求分析-v0.1.md` §2 与 `内核契约-v0.1.md` §4 的旧假设）：
+> ① 无插件时内核就是普通笔记应用 ② 插件权限等同内核、可覆盖内核效果、可把内核搁在一边
+> ③ 覆盖可以、**不得破坏**、关掉插件内核还能用 ④ 权限完全由插件控制、**内核不给任何安全保证**
+> ⑤ **修复优先于防护** —— 不可逆修改之后，从备份的内核重新构建。
+>
+> **用户当场的三处裁决**：`capabilities` **全部拆掉、降级为自述** · 「把内核搁在一边」=
+> **真窗口 + 主壳接管点（分两步）** · `platforms` 门**保留**（实用门，非安全边界）。
+> 追加说明：**内核不提供安装插件后的数据安全保证**（库数据不在保护范围，原则 3 的"不得破坏"
+> 只指内核可用性）；备份放本地；**将来开放第三方使用时，恢复改为从 GitHub 拉备份**。
+>
+> **实测（不是推断）—— capability 表本来就不是边界**：一次性夹具 `examples/raw-ipc-probe/`
+> （manifest **只声明** `command` + `view:sidebar`，**没有 `net`、没有 `fs` 写权限**）：
+> · ① `window.__TAURI_INTERNALS__.invoke` 是 `function` ⇒ 可直连 IPC
+> · ② 不经 `fs` 原语就列出了库内插件
+> · ③ **往库外写文件成功**（`write_absolute`，磁盘实测出文件）
+> · ④ 裸 `fetch` 外网 **`HTTP 200`**（manifest 里**没有** `net`）
+> · ⑤ 直接改内核 DOM（状态栏条纹）——**卸载后不还原** ⇒ 原则 3 的真实缺口：「卸载即净」
+>   只回收**内核记账的资源**（命令/面板/样式/服务/编辑器标记），插件自己伸手改的宿主 DOM
+>   **不在账上** ⇒ 结论：原则 3 只能是「**接口层强制还原 ＋ 信任层插件义务**」。
+> · 另测 **任意路径可读**：`convertFileSrc('C:/Windows/win.ini')` + fetch = `HTTP 200 len 92`
+>   （`assetProtocol.scope` 是 `["**"]`，CSP 放宽后 `connect-src` 含 `http:`）。
+> · Tauri 侧的**真边界只有三条**：开新窗口（缺 `core:webview:allow-create-webview-window`）、
+>   执行系统命令（未装 shell 插件）、**删/移库外文件**（内核没这条命令）—— 详见新文档 §2.2。
+>
+> **独立复验 U3a/U3b（与 rev45 走不同路径，结论一致）** —— 这轮走**面板按钮**而非命令面板，
+> 并修掉夹具的一个真坑：**`contributes.panels` 里的 `location` 内核并不消费**（面板是靠运行时
+> `view.registerPanel` 注册的），只改 manifest 无效 ⇒ 探针一直挂在 `sidebar`，
+> 被 `core.panel.*` 命令提升到主区后**顶掉编辑器** ⇒ `editorRef.current` 为 null ⇒
+> `replaceRange` 静默 no-op（与 rev45 记的边界同源）。改成 `editor-toolbar` 后探针与编辑器**同屏**。
+> 判据：seed / replace **逐字节 `match: true`**（62/62，`firstDiff: null`，磁盘笔记为真源）；
+> 事件链 `open(693) → change(62,dirty) → save(62) → change → save`；
+> 切笔记 `change(旧) → save(旧) → open(新)`；关笔记 `close(path 正确)`。
+> 夹具新增诊断出口 **`window.__docProbeDiag`**（`lenBefore/lenAfter/hasReplaceRange/activeIsNull`）——
+> 「静默失效」的定位靠它一步到位，别再靠猜。
+>
+> ⚠️ **并发提示**：本轮期间**另一个会话**提交了 `05e8319`（U3a/U3b 本体 + rev45 +
+> HANDOFF-CARD 的 18→21 更正）。本会话只提交它**没覆盖**的部分：架构原则文档、两个探针夹具、
+> 夹具改进（诊断出口 + `editor-toolbar`）。
+>
+> **下一步顺序（按"保险先上"调整）**：① **内核自愈**（快照 + 一键从备份重建；必须含
+> **外部 `修复内核.cmd`** —— 应用起不来时那是唯一的路）② 拆权限门 ③ 接管协议 + 还原验收
+> ④ U1 真窗口 ⑤ U2 主壳接管点 ⑥ 重做 `outline-map`。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

@@ -93,7 +93,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可。
   ⚠️ **改完不一定要切库** —— 2026-10-13 实测：`☰ → 插件管理 → 重新扫描` 就能加载新插件（无需切库、无需重启；vite 不监视库目录，所以只能靠这条或切库）
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
-  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **18 passed**。
+  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
 - **手机 `33b676f6`**：装的是 `tauri android build --apk` 的**打包版**（内嵌 dist，
   **改前端必须重打包**；想要 HMR 得改用 `android-dev.cmd`）
