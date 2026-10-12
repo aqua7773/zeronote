@@ -1,6 +1,6 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:45**（23:25 补记 rev37 – rev41）· 本会话共 **18** 个提交 · **HEAD 以 `git log --oneline -1` 为准**
+> 生成 **2026-10-12 20:45**（23:45 补记 rev37 – rev42）· 本会话共 **20** 个提交 · **HEAD 以 `git log --oneline -1` 为准**
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
 > 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
 
@@ -45,6 +45,7 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 | `a7504ef` | **剪切 / 复制 / 创建副本 / 粘贴 ＋ 文件树快捷键**：内核新增递归复制 `copy_entry`；剪贴板放应用级（复制撞名自动退「 副本」）；`Ctrl+X/C/V`、`F2`、`Del` **只在文件树内**生效 |
 | `cf29e76` | **回收站**（用户报「没有入口」）：侧栏常驻入口 ＋ 主区页面（列表 / 恢复 / 彻底删除 / 清空）；内核 4 条新命令 ＋ `delete_note` 改存**原路径**（能恢复回原处）；顺带修 `.zn-main-panel` 顶部 20px 被热区吃掉、顶栏按钮点不动的真 bug |
 | `17d59ac` | **第一个功能插件 `examples/outline-map`**（大纲 ⇄ 思维导图）：解析标题+列表 → 自算布局 → 静态 SVG（跟随主题）＋ 三视图 ＋ 导出 Mermaid mindmap；内核补 `core.panel.<id>` 命令（面板从 ☰ 菜单之外多一个键盘入口）；自带离线自测 `selftest.mjs` |
+| `…+2` | **验收方式换代**：`dev.cmd` 给 WebView2 开 CDP 端口（只在 dev 脚本里，生产不含）＋ `tools/cdp.mjs`（零依赖）—— 按**选择器/文本**找元素、`Input.dispatchMouseEvent` 点击、`Page.captureScreenshot` 截图，**不再算坐标、不抢鼠标**。见 rev42 |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 

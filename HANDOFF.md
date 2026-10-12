@@ -640,6 +640,38 @@ revision: 36
 > **下一批候选**：导图交互（缩放 / 折叠，需换渲染层）· 点大纲项跳到笔记里对应的标题
 > （要内核暴露"滚动到某处"的能力）· 拖拽移动 · `查看目录`
 
+> ## 📌 rev42（同日 23:45 · 换掉「算坐标点鼠标」：CDP 直连 WebView）
+>
+> **用户批评（原话）**：「你就没有优雅一点的操作电脑的方法吗，重视调鼠标点击，慢慢算距离，
+> 允许添加插件或者 mcp」——**说得对**。此前验收 GUI 全靠 `gentle_*`（截图 → 眼估坐标 → 合成鼠标），
+> 代价是抢用户的鼠标、窗口一动坐标就作废、跨轮沿用坐标还会点错（rev41 真误触了「切换笔记库」）。
+>
+> **先查现成经验**（本机纪律：别在信息真空里自创）—— 官方做法就是这条路：
+> [Haprog/tauri-cdp](https://github.com/Haprog/tauri-cdp)（Tauri 2 + WebView2 开 CDP）＋
+> [playwright-cdp](https://github.com/Haprog/playwright-cdp)（Playwright `connectOverCDP` 连上去）。
+>
+> **落地（零依赖、零 Rust 改动）**
+> · `dev.cmd` 加一行 `set "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222"`
+>   —— **只写在 dev 启动脚本**，生产打包根本不经过它 ⇒ 不会开调试端口（官方模板是在 Rust
+>   `run()` 里 `#[cfg(debug_assertions)]` 下 set，效果一样但要动内核；写启动脚本更干净）
+> · `tools/cdp.mjs`：**零依赖**（Node 24 自带 WebSocket 与 fetch），一条命令可连做多步：
+>   `shot <png>` / `text [sel]` / `html [sel]` / `eval <js>` / `click <sel|text:…>` /
+>   `type <sel|text:…> <值>` / `key <Enter…>` / `wait <ms>` / `waitfor <…>` / `list`
+> · 三个实现选择：**点击走 `Input.dispatchMouseEvent`**（页面内的真实输入事件，React 与任何
+>   组件库都认，但**不动系统光标** ⇒ 用户能同时用电脑）；**输入走 `Input.insertText`**
+>   （中文不会被输入法吃掉）；**截图走 `Page.captureScreenshot`**（没有 DWM 边框/多显示器那些坑）
+>
+> **它立刻结清了 rev41 的欠账**（插件面板在有笔记时的渲染）：
+> · `node tools/cdp.mjs text` 直接读出面板真实内容：「39 项 · 5 级」、三视图、完整大纲列表
+> · `eval` 查到导图 SVG：**40 个 `<text>` / 40 个 `<rect>` / 39 条连线**（根 + 39 子节点 ✓ 与解析数一致）
+> · `_shots/om-final-panel.png`：同屏看到大纲 + 导图
+> · ⚠️ **已知限制**：UINode 的 `row` 没有列宽控制，内容偏宽时"并排"会**堆叠**成上大纲下导图；
+>   要看全图请切「导图」单视图（或以后给 row 加 basis）
+>
+> **以后验收 GUI 一律走这条路**（本文档里"算坐标点鼠标"的旧方法降级为兜底）：
+> `cd ZeroNote; node tools/cdp.mjs click "text:xxx" shot _shots/y.png`
+> 前置：dev 用 `dev.cmd` 起（它带着 CDP 端口）；`node tools/cdp.mjs list` 能列出 title=ZeroNote 即通。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
