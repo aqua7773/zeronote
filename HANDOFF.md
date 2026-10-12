@@ -704,6 +704,46 @@ revision: 36
 > **下一批候选**：节点悬浮工具条（参考图里有）· 大纲项点击跳到笔记对应标题（需内核暴露滚动能力）
 > · 导图缩放 / 折叠（需换渲染层）· `查看目录`
 
+> ## 📌 rev44（2026-10-13 · 交接：内核 UI 承载能力盘点 ＋ 插件路线重定）
+>
+> **本轮没有改代码** —— 用户要求「先检查内核现有能力还会不会出现"承载不了插件功能"的情况，
+> 先完善内核，再做插件」，于是做了一次**专项盘点并交接**。
+>
+> **分析结论落在这里**：`docs/插件UI承载能力-2026-10-13.md` —— **下次接手先读它**
+> · 三条系统性缺口：**U1** 插件不能自己开窗口（可拖 / 全屏 / 多开都没有）·
+>   **U2** 没有自定义渲染入口（声明式表达力到顶；iframe 那条路在 Android 上通不了）·
+>   **U3** `doc` 改不了任意区间（无 `replaceRange`）**且 `doc.on(...)` 是空桩**
+>   （`App.tsx:623`，契约声明了却永远不触发 —— 静默失效）
+> · 每条都带代码行号与影响面，不是印象。
+>
+> **用户 2026-10-13 的裁决（改变了架构边界）**
+> · 「**不需要防『插件把界面改成任意样子』**，只是同一套设计风格就行」⇒ **放弃"声明式 UINode 唯一主路"**
+>   （契约 §2.6/§7 一直在守那条，也是 10-12 盘点里的领先项 L1）⇒ **U2 获批**
+> · 「**况且现在是自用阶段**」⇒ 不为第三方插件市场做安全防护
+>
+> **下一步（按顺序；每步跑三条基线 ＋ CDP 验收 ＋ 提交）**
+> 1. **U3a + U3b**（小，1 小时内）：`doc.replaceRange(from,to,text)` 照 `insertAt`（`App.tsx:611-622`）写；
+>    把 `doc.on` 从空桩接上 `open/change/save/close` 四处（**`change` 的去抖策略要先定**，别让插件被击键打爆）
+> 2. **U1**（中）：Tauri 真窗口 —— 前端 `new WebviewWindow(label,{url})` ＋"窗口模式"入口
+>    （约定 `?pluginWindow=<panelId>&group=<key>`；有 `?vault=` 的先例）＋ **capability 放行窗口 label**
+>    （`capabilities/default.json` 现为 `"windows": ["main"]`；**这是安全边界变更**，落地时写清新增加了什么）
+> 3. **U2**（中）：`view.registerWindowContent(mount)` —— 给插件一块真 DOM 自绘；
+>    内核提供 `--zn-*` token 与 `.zn-ui-*` class，靠它们保"同一套设计风格"
+> 4. **插件重做**：`examples/outline-map` 改成"**大纲组右上角按钮 → 弹独立导图窗口**"
+>    （需求清单见该文档 §5，已按用户确认逐条记录，**别再重问**）
+> 5. 打磨：编辑（插入 / 删除 / 折叠主题 → 写回笔记）· 样式切换 · 多导图（连通分量）
+>
+> **环境与工具（现成可用，直接用）**
+> · dev：`dev.cmd`（WMI 起，**带 CDP 端口**）· 手机：`android-dev.cmd`
+> · **GUI 验收一律走 CDP**：`node tools/cdp.mjs click "text:xxx" shot _shots/y.png`
+>   命令：`list` / `text` / `html` / `eval` / `click`（DOM click）/ `rclick`（真实鼠标序列）/ `hover` /
+>   `type`（`Input.insertText`，中文安全）/ `key` / `wait` / `waitfor`
+> · 插件离线自测：`node examples/outline-map/selftest.mjs <笔记> [out.svg]`
+> · 基线：`pnpm exec tsc -b`（0 错）· `pnpm exec oxlint`（**恰好 4 warnings**）· `cargo test --lib`（**21 passed**）
+>
+> **新会话怎么接**：读 `HANDOFF-CARD.md`（一页速览）→ `docs/插件UI承载能力-2026-10-13.md`（本轮分析）→
+> 本文件 rev44 → 从上面「下一步」第 1 条开工。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
