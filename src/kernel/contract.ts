@@ -362,6 +362,12 @@ export type ViewCtx = {
  * 之前这套字面量在 4 处各写一遍，加一个位置得满仓库找。
  */
 export type PanelLocation =
+  /**
+   * ⚠️ **内核当前没有独立侧栏载体**：右侧栏已取消 ⇒ `sidebar` 与 `main` 一样**渲染在主区**
+   * （见 `App.tsx` 的 `pagePanel` 分流）。这条注释是 2026-10-13 补的 —— 在此之前
+   * 文档说"侧栏"，插件作者会以为它能与编辑器同屏（真踩过：`doc.replaceRange` 因为编辑器
+   * 被顶掉而静默 no-op）。要"与编辑器同屏"的位置，用 `editor-topbar` / `editor-toolbar`。
+   */
   | 'sidebar'
   | 'main'
   | 'statusbar'

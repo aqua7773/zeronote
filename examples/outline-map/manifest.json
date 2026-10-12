@@ -2,19 +2,20 @@
   "manifestVersion": 1,
   "id": "outline-map",
   "name": "大纲 · 导图",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "把当前笔记的标题与列表解析成大纲，并画出思维导图（大纲 / 导图 / 并排三视图）；可一键导出成 Mermaid mindmap 插到笔记里",
-  "capabilities": ["doc:read", "doc:write", "command", "view:main"],
+  "description": "v0.2（rev52）：**笔记本身就是大纲** —— 编辑器顶部条给每个「大纲组」（一组连续的列表）一个「❖ 导图」按钮，点了开成**独立窗口**（可拖 / 多开，窗口怎么摆交给 Windows 分屏）；窗口里可插入子主题 / 删除节点，改动**直接写回库文件**（不依赖编辑器挂载）",
+  "capabilities": ["doc:read", "doc:write", "fs:read", "fs:write", "command", "view:editor-topbar"],
   "contributes": {
     "commands": [
-      { "id": "outline-map.refresh", "title": "大纲：重新解析当前笔记" },
-      { "id": "outline-map.insert-mermaid", "title": "大纲：把导图插入笔记（Mermaid mindmap）" }
+      { "id": "outline-map.reload", "title": "大纲：重新读盘并解析" },
+      { "id": "outline-map.open-map", "title": "大纲：把某组导图开成独立窗口" },
+      { "id": "outline-map.add-child", "title": "大纲：在该节点下插入子主题" },
+      { "id": "outline-map.remove-node", "title": "大纲：删除该节点连同它的子项" },
+      { "id": "outline-map.insert-mermaid", "title": "大纲：把某组导图插入笔记（Mermaid mindmap）" }
     ],
-    "panels": [
-      { "id": "outline-map.panel", "title": "大纲 · 导图", "location": "main" }
-    ]
+    "panels": [{ "id": "outline-map.panel", "title": "大纲 · 导图", "location": "editor-topbar" }]
   }
 }

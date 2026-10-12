@@ -6,7 +6,7 @@
  * 这里直接把结果打出来 + 落一份 SVG，需要看图时再用浏览器 headless 转 PNG。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { parseOutline, flatten, toSvg, toMermaid } from './index.js'
+import { parseOutline, parseBlocks, flatNodes, blockToTree, flatten, toSvg, toMermaid } from './index.js'
 
 const file = process.argv[2]
 if (!file) {
@@ -29,6 +29,24 @@ console.log(toMermaid(root, root.text))
 const svg = toSvg(root)
 writeFileSync(outSvg, svg)
 console.log(`— SVG — 已写入 ${outSvg}（${svg.length} 字节）`)
+
+/**
+ * v0.2 的分组（组 = 极大连通的列表块，见 index.js 文件头）。
+ * **带行号**：编辑写回靠它 —— 离线这里就能看出"第几行属于哪一组"对不对。
+ */
+const { blocks } = parseBlocks(md)
+console.log(`— 分组（v0.2）— 共 ${blocks.length} 组`)
+blocks.forEach((b, i) => {
+  const rows = flatNodes(b.nodes)
+  console.log(
+    `  [${i}] ${b.title}：行 ${b.startLine + 1}–${b.endLine + 1}，${rows.length} 项` +
+      `（顶级 ${b.nodes.length}）`,
+  )
+})
+if (blocks.length) {
+  const first = blocks[0]
+  console.log(`— 第 0 组的导图 SVG 长度：${toSvg(blockToTree(first)).length} 字节 —`)
+}
 
 /**
  * 再落一份**带颜色兜底**的 HTML 预览：插件在宿主里靠 `var(--zn-*)` 取主题色，

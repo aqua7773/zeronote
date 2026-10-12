@@ -54,6 +54,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `rev49` | **接管协议**（原则 3 的地基）：① 自动登记补齐（`event.on`/`fs.watch`/`doc.on` 不再靠插件记得 `push`）② 新增 `ctx.host.onRollback(fn)`（登记过的内核代还原）③ **修真缺口**：`command.bind` 覆盖内核命令后 dispose 只 `delete run` ⇒ 卸载插件把 `core.newNote` 变成"没实现"；现在先记原实现、dispose 放回 ④ 审计出口 `window.__znKernelAudit()` ＋ 验收脚本 **`tools/verify-takeover.mjs`（11/11，对照实验 9/11）** |
 | `rev50` | **U1 真窗口**（用户裁决「完全放行」）：`view.openWindow({panel,title,width,height})` 把面板放进独立窗口（可拖 / 多开 / 卸载自动关）；`?pluginWindow=<panelId>` 窗口模式只渲染那个面板。**新增权限**：`core:webview:allow-create-webview-window` ＋ `core:window:allow-destroy` ＋ `windows: ["main","plugin-*"]`（glob 已核实支持）。验收 **`tools/verify-plugin-window.mjs` 10/10**；示例 `examples/window-demo/` |
 | `rev51` | **U2 主壳接管点**：`view.overrideShell({mount})` —— 插件自绘界面**接管整窗**（内核 UI 让位），释放或卸载即复原；**单接管者**（第二个抛明确错误）＋ **内核逃生口**（右下角按钮 / `Ctrl+Alt+Z`，因为接管期间连插件管理页都点不到）。验收 **`tools/verify-shell.mjs` 12/12**；示例 `examples/shell-demo/` |
+| `rev52` | **outline-map 重做成"导图独立窗口"**（用户当场纠向：**笔记就是大纲**，不存在大纲窗口，导图开新窗口，分屏交给 Windows）：入口改为**编辑器顶部条**每组一个「❖ 导图」按钮；窗口里可 `＋子主题` / `✕删子树`，**直接读写库文件**（不依赖编辑器挂载）。验收 **`tools/verify-outline-map.mjs` 7/7**。顺带修正文档：**`sidebar` 面板其实渲染在主区**（只有 `editor-topbar`/`editor-toolbar` 与编辑器同屏） |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
@@ -62,9 +63,10 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > ④ U1 真窗口 ✅ **rev50**（`view.openWindow` ＋ capability **完全放行**：新增
 > `core:webview:allow-create-webview-window`、`core:window:allow-destroy`、`windows:["main","plugin-*"]`）
 > ⑤ U2 主壳接管点 ✅ **rev51**（`view.overrideShell` ＋ 内核逃生口）
-> ⇒ **下一步 = ⑥ 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 → 弹独立导图窗口
-> （可拖 / 全屏 / 多开 / 可编辑并写回笔记）"** —— 窗口（U1）与整窗接管（U2）都已就位，
-> **这一步只动插件，内核侧应该不用再改**（正好检验前几步够不够用）。
+> ⑥ outline-map 重做成"导图独立窗口" ✅ **rev52**（入口=编辑器顶部条每组一个「❖ 导图」；
+> 窗口里编辑直接写库文件；**笔记就是大纲**，分屏交给 Windows）
+> ⇒ **下一步 = ⑥ 的收官打磨**：样式切换 · 折叠 · 撤销重做 · 窗口菜单栏（文件/编辑/AI/查看）· 视觉细化。
+> 另有**一个内核侧待你定的改进点**：UINode 的 `row` 没有 `justify` ⇒ 插件做不出"组标题右上角按钮"。
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
 > 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
 > 待裁决（契约 §6.1）：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
@@ -141,5 +143,6 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·
 `tools/verify-takeover.mjs`（**接管/还原的自动验收**）·
 `tools/verify-plugin-window.mjs`（**独立窗口的自动验收**）·
-`tools/verify-shell.mjs`（**整窗接管的自动验收**）· `examples/`（插件示例；`window-demo` = 窗口示例，
-`shell-demo` = 整窗接管示例，`md-toolbar` 已退役删除）
+`tools/verify-shell.mjs`（**整窗接管的自动验收**）·
+`tools/verify-outline-map.mjs`（**大纲 → 导图窗口的自动验收**）· `examples/`（插件示例；`window-demo` = 窗口示例，
+`shell-demo` = 整窗接管示例，`outline-map` = 导图窗口（v0.2），`md-toolbar` 已退役删除）

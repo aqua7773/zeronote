@@ -1,36 +1,45 @@
 /**
- * 大纲 · 导图 —— ZeroNote 的**第一个功能插件**。
+ * 大纲 · 导图 v0.2（2026-10-13 rev52）—— 第一个功能插件，重做成"**导图在独立窗口**"。
  *
- * 做三件事：
- *   ① 把当前笔记的 **标题 + 列表** 解析成一棵树（大纲）；
- *   ② 按经典"横向树"布局把它画成 **SVG 思维导图**（左大纲 / 右导图 / 并排三视图）；
- *   ③ 一键把导图导出成 **Mermaid `mindmap`** 插进笔记 —— 这是"与生态兼容"的那一半：
- *      mermaid 是通行的文本图格式，别的工具（Typora / Obsidian / 网页 mermaid）都认。
+ * ## 分工（一次架构纠偏：不再指望"与编辑器同屏"）
  *
- * ## 三条设计取舍（写下来免得下次重新纠结）
+ * ```
+ *   主区「大纲 · 导图」面板                        独立窗口（U1）
+ *   ┌──────────────────────────────┐             ┌──────────────────────────────┐
+ *   │ 项目计划   3 项      ❖ 导图  │  ──点击──▶  │ 项目计划        3 项          │
+ *   │  • 调研                      │             │  ┌── 静态 SVG（只读大图）──┐  │
+ *   │  • 设计                      │             │  └────────────────────────┘  │
+ *   │ 另一组     2 项      ❖ 导图  │             │  • 调研          ＋  ✕       │
+ *   │  • 排期                      │             │    • 竞品        ＋  ✕       │
+ *   └──────────────────────────────┘             │    • 用户        ＋  ✕       │
+ *                                                └──────────────────────────────┘
+ * ```
  *
- * **① 为什么用 `html` 节点自己画 SVG，而不是接 markmap？**
- *    markmap 是成熟的"大纲 → 导图"库，但它的交互式渲染要**真 DOM + 脚本**：
- *    `markmap-view` 靠 d3 直接操作一个挂载点，而我们的 `html` 节点是
- *    `dangerouslySetInnerHTML` 注入的静态内容 —— **没有地方跑脚本**
- *    （生产构建里 Tauri 会给 `script-src` 注入打包资源的 sha256，届时内联脚本一律被拦）。
- *    要走 markmap 就得开 webview 逃生口（独立 origin 的页面），而那条路在 Android 上
- *    不服务 `.html`。结论：**自算布局 + 静态 SVG**，零依赖、离线可用、跟随主题，
- *    代价是导图不做缩放/折叠（要交互就得换渲染层，届时再评估）。
+ * **关键取舍：编辑走 `fs` 写库文件，不走 `doc.replaceRange`。**
  *
- * **② 为什么每次 render 都重新解析？**
- *    `render` 按契约是**纯函数**，而插件拿不到"这一页被打开了"的事件。
- *    解析 + 布局 + 拼字符串对几千行笔记也就几毫秒，所以干脆不缓存：
- *    切笔记、改内容之后面板一刷新就跟上，也不会出现"面板里是上一篇的大纲"。
+ * 一开始想把大纲放侧栏（"与编辑器同屏"才有编辑器可改），但实测发现内核里
+ * **`location: 'sidebar'` 的面板其实渲染在主区**（右侧栏早已取消，见 `App.tsx` 的注释）——
+ * 主区被面板占满时编辑器卸载，`doc.replaceRange` 会静默 no-op。
  *
- * **③ 颜色为什么全用 `var(--zn-*)`？**
- *    SVG 是内联进宿主 DOM 的，所以宿主主题变量直接生效 —— 换主题（含暗色）导图跟着变，
- *    插件一行颜色都不用写死。样式塞在一个 `<style>` 里（CSP 的 `style-src` 带
- *    `'unsafe-inline'` 且没有 hash ⇒ 有效），类名统一 `om-` 前缀，避免污染全局。
+ * 而导图本来就在**独立窗口**里，那个 webview 里**没有编辑器**可言。
+ * ⇒ 那就别绕：插件直接 `fs.readText` 读、改完 `fs.writeText` 写回（内核的原子写、库内路径校验都还在）。
+ * 好处是**两边（主区面板 / 独立窗口）用同一套编辑逻辑**，不依赖编辑器是否挂载。
+ *
+ * ⚠️ **已知边界（诚实写下来）**：如果这篇笔记正开在编辑器里且**有未保存的手改**，
+ * 插件写盘的东西可能被稍后的自动保存覆盖（用户手写优先——这个方向是对的）。
+ * 反向也成立：插件写盘后，编辑器里显示的还是旧内容，切走再回来才会重读。
+ *
+ * ## 其它取舍（v0.1 沿用）
+ * · 自算布局 + **静态 SVG**：`html` 节点是静态注入、跑不了脚本（生产 CSP 会拦内联脚本），
+ *   所以 SVG 里放不了按钮 —— 编辑按钮一律用**声明式 UINode**，与图并列放在窗口下半部。
+ * · 颜色全用 `var(--zn-*)`：SVG 内联进宿主 DOM，换主题自动跟随。
+ * · `render` 是同步纯函数 ⇒ 数据放在**闭包缓存**里（读盘是异步的，只在 open/change/编辑后刷新）。
  */
-
 const PANEL_ID = 'outline-map.panel'
-const BIND_VIEW = 'outline-map.view'
+/** 独立窗口的面板 id 前缀：`outline-map.map-<组序号>` */
+const MAP_PREFIX = 'outline-map.map-'
+/** 窗口与主区面板共用的"当前笔记"键（窗口是独立上下文，只能靠 store 交换这点信息） */
+const STORE_LAST = 'lastNote'
 
 /* ───────────────── ① 解析：Markdown → 树 ───────────────── */
 
@@ -43,7 +52,7 @@ const LIST_BASE = 7
 /** 两个空格算一级（Tab 先展开成两个空格） */
 const INDENT_UNIT = 2
 
-/** 去掉行内标记，只留人看的文字（`**粗**` → 粗、`[文字](url)` → 文字、图片 → alt） */
+/** 去掉行内标记，只留人看的文字 */
 const stripInline = (s) =>
   String(s)
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -58,10 +67,9 @@ const stripInline = (s) =>
     .replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1')
     .trim()
 
-/**
- * 解析成树。用"层级栈"处理**任意跳跃**的层级（H1 → H3、缩进从 0 跳到 4 都不会错）：
- * 新节点的父 = 栈里**最后一个层级更小**的节点。
- */
+const indentOf = (s) => String(s).replace(/\t/g, '  ').length
+
+/** 解析成整篇的树（v0.1 的老路，保留：selftest 的既有入口） */
 function parseOutline(md) {
   const root = { text: '', level: 0, children: [] }
   const stack = [root]
@@ -71,7 +79,7 @@ function parseOutline(md) {
   for (const raw of String(md ?? '').split(/\r?\n/)) {
     const line = raw.replace(/\s+$/, '')
     if (FENCE_RE.test(line)) {
-      inFence = !inFence // 代码块里的 `# 注释`、`- 参数` 不是大纲，别当标题收进来
+      inFence = !inFence
       continue
     }
     if (inFence || !line.trim()) continue
@@ -84,8 +92,7 @@ function parseOutline(md) {
       level = atx[1].length
       text = stripInline(atx[2])
     } else if (li) {
-      const indent = li[1].replace(/\t/g, '  ').length
-      level = LIST_BASE + Math.floor(indent / INDENT_UNIT)
+      level = LIST_BASE + Math.floor(indentOf(li[1]) / INDENT_UNIT)
       text = stripInline(li[2])
     } else {
       continue
@@ -99,8 +106,6 @@ function parseOutline(md) {
     if (!firstH1 && atx && atx[1].length === 1) firstH1 = text
   }
 
-  // 文档是**单个 H1 打头**时，把它提升为根 —— 否则根节点和它内容重复
-  // （根显示「绪论」，底下又挂一个「绪论」，导图上会看到两层一样的框）。
   if (root.children.length === 1 && root.children[0].text === firstH1) {
     const top = root.children[0]
     root.text = top.text
@@ -121,32 +126,110 @@ function flatten(root) {
   return out
 }
 
+/**
+ * **v0.2 的核心解析：按"极大连通的列表块"分组**（用户规则 3/4），并且**带行号**。
+ *
+ * 连通性：**空行 / 标题 / 非列表行都断开一个块** ⇒"一组连续的 `- ` 行"就是一个块；
+ * 块名 = 它上方最近的标题（没有 ⇒ `中心主题`）。
+ * 行号是编辑的前提：改哪一行、删到哪一行，全按行号算（改完**整篇写回**）。
+ */
+function parseBlocks(md) {
+  const lines = String(md ?? '').split(/\r?\n/)
+  const blocks = []
+  let cur = null
+  let lastHeading = ''
+  let inFence = false
+  const stack = []
+
+  const closeBlock = () => {
+    if (cur && cur.nodes.length) blocks.push(cur)
+    cur = null
+    stack.length = 0
+  }
+
+  lines.forEach((raw, i) => {
+    const line = raw.replace(/\s+$/, '')
+    if (FENCE_RE.test(line)) {
+      inFence = !inFence
+      closeBlock()
+      return
+    }
+    if (inFence) return
+    if (!line.trim()) {
+      closeBlock()
+      return
+    }
+    const atx = ATX_RE.exec(line)
+    if (atx) {
+      closeBlock()
+      lastHeading = stripInline(atx[2])
+      return
+    }
+    const li = LIST_RE.exec(line)
+    if (!li) {
+      closeBlock()
+      return
+    }
+    const text = stripInline(li[2])
+    if (!text) return
+
+    const indent = indentOf(li[1])
+    if (!cur) cur = { title: lastHeading || '中心主题', startLine: i, endLine: i, nodes: [] }
+    const node = { text, indent, line: i, endLine: i, children: [] }
+    while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop()
+    if (stack.length) stack[stack.length - 1].node.children.push(node)
+    else cur.nodes.push(node)
+    stack.push({ node, indent })
+    cur.endLine = i
+  })
+  closeBlock()
+
+  // 子树的末行：从后往前推 —— 后一个兄弟之前的行都归前一个节点
+  for (const b of blocks) {
+    const flat = flatNodes(b.nodes)
+    for (let k = 0; k < flat.length; k++) {
+      const n = flat[k]
+      const next = flat.slice(k + 1).find((m) => m.indent <= n.indent)
+      n.endLine = next ? next.line - 1 : b.endLine
+    }
+  }
+
+  return { blocks }
+}
+
+/** 块内树 → 先序数组 */
+function flatNodes(nodes, out = []) {
+  for (const n of nodes) {
+    out.push(n)
+    flatNodes(n.children, out)
+  }
+  return out
+}
+
+/** 块 → 导图用的树（根 = 块名） */
+function blockToTree(block) {
+  return { text: block.title, children: block.nodes }
+}
+
 /* ───────────────── ② 布局 + SVG ───────────────── */
 
-const FS = 13 // 正文字号
-const FS_ROOT = 15 // 根节点字号 —— 参考图里根是明显更大的一块
+const FS = 13
+const FS_ROOT = 15
 const NODE_H = 28
 const NODE_H_ROOT = 40
 const PAD_X = 10
-const GAP_X = 52 // 层间距
-const GAP_Y = 10 // 同层相邻节点的缝
+const GAP_X = 52
+const GAP_Y = 10
 const MIN_W = 56
-/** 节点高/字号按层级：根最大、一级次之、其余统一（对齐参考图的"根实心大块 / 一级灰块 / 其余白框"） */
 const hOf = (d) => (d === 0 ? NODE_H_ROOT : NODE_H)
 const fsOf = (d) => (d === 0 ? FS_ROOT : FS)
 
-/** 全角/宽字符按 1 个字号宽估、其余按 0.56 —— 只为排版，不追求像素级精确 */
 const WIDE_RE =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/
 const textWidth = (s, fs = FS) =>
   [...String(s)].reduce((w, ch) => w + (WIDE_RE.test(ch) ? 1 : 0.56), 0) * fs
 
-/**
- * 经典横向树布局：
- *  · 层级 → 横坐标（每层宽度取该层最宽节点 + 层间距）
- *  · 叶子按出现顺序各占一个纵向槽位；父节点纵向居中于它的子节点之间
- * 复杂度 O(n)，几百个节点的导图也是瞬时的。
- */
+/** 经典横向树布局：层级 → 横坐标；叶子按顺序占纵向槽位；父居中于子之间 */
 function layout(root) {
   const levels = []
   const nodes = []
@@ -160,7 +243,6 @@ function layout(root) {
 
   for (const n of nodes) {
     const w = Math.round(textWidth(n.text, fsOf(n.depth))) + PAD_X * 2
-    // 根节点再宽一点，让那块"大色块"看起来是有意为之
     n.w = Math.max(MIN_W, n.depth === 0 ? w + 14 : w)
   }
   const levelW = levels.map((ns) => Math.max(...ns.map((n) => n.w)))
@@ -171,7 +253,7 @@ function layout(root) {
     acc += w + GAP_X
   })
 
-  const SLOT = NODE_H_ROOT + GAP_Y // 槽位按最大节点高算，行距才均匀
+  const SLOT = NODE_H_ROOT + GAP_Y
   let slot = 0
   const place = (n) => {
     if (!n.children.length) {
@@ -204,8 +286,6 @@ function toSvg(root) {
   const H = Math.round(height)
   const out = []
 
-  // 颜色全部走宿主变量 ⇒ 亮/暗主题自动跟随；类名统一 om- 前缀避免污染。
-  // 三层配色 = 参考图那套：根实心大块 / 一级实心灰块 / 其余描边块
   out.push(
     `<style>.om-svg{font-family:var(--zn-font);display:block}` +
       `.om-link{fill:none;stroke:var(--zn-border);stroke-width:1.4}` +
@@ -215,7 +295,6 @@ function toSvg(root) {
       `.om-t{font-size:${FS}px;fill:var(--zn-fg)}` +
       `.om-d1>.om-t{font-weight:500}` +
       `.om-d0>.om-t{font-size:${FS_ROOT}px;fill:#fff;font-weight:600}` +
-      // 悬停高亮：纯 CSS，零脚本（html 节点里跑不了 script）
       `.om-svg g:hover>.om-box{stroke:var(--zn-accent);stroke-width:1.8}` +
       `.om-box{transition:stroke 120ms ease,stroke-width 120ms ease}</style>`,
   )
@@ -228,9 +307,7 @@ function toSvg(root) {
     for (const c of n.children) {
       const x1 = n.x + n.w
       const mx = (x1 + c.x) / 2
-      out.push(
-        `<path class="om-link" d="M${x1} ${n.y} C${mx} ${n.y} ${mx} ${c.y} ${c.x} ${c.y}"/>`,
-      )
+      out.push(`<path class="om-link" d="M${x1} ${n.y} C${mx} ${n.y} ${mx} ${c.y} ${c.x} ${c.y}"/>`)
     }
   }
   for (const n of nodes) {
@@ -252,10 +329,6 @@ function toSvg(root) {
 
 /* ───────────────── ③ 导出：Mermaid mindmap ───────────────── */
 
-/**
- * mermaid 的 mindmap 节点文本：纯中英数 + 空格可以直接写，
- * 含标点（`(`、`[]`、`:` …）必须用 `["..."]` 包起来，否则语法报错。
- */
 const mermaidLabel = (s) => {
   const t = String(s).replace(/[\r\n]+/g, ' ').trim() || '（空）'
   return /^[\w\u4e00-\u9fa5][\w\u4e00-\u9fa5 -]*$/.test(t) ? t : `["${t.replace(/"/g, "'")}"]`
@@ -274,176 +347,383 @@ function toMermaid(root, rootLabel) {
   return out.join('\n')
 }
 
-/* ───────────────── 面板 ───────────────── */
+/* ───────────────── 面板 / 窗口 ───────────────── */
 
-const INDENT = '　' // 全角空格：UINode 的 list 没有缩进字段，用它做视觉层级
+const INDENT = '　' // 全角空格：UINode 没有缩进字段，用它做视觉层级
 
 export default {
-  apply(ctx) {
-    const { doc, command, view, host, subscriptions } = ctx
+  async apply(ctx) {
+    const { doc, command, view, host, fs, store, subscriptions } = ctx
 
-    /** 此刻的展示数据。**不缓存**：每次 render 现算（见文件头取舍②） */
-    function snapshot() {
-      const note = doc.active()
-      if (!note) return { note: null, flat: [], svg: '', mermaid: '', label: '' }
-      const { root, firstH1 } = parseOutline(note.content)
-      const flat = flatten(root)
-      if (!flat.length) return { note, flat, svg: '', mermaid: '', label: '' }
-      const fileName = String(note.path).split('/').pop().replace(/\.(md|markdown)$/i, '')
-      const label = firstH1 || fileName
-      root.text = label
-      return { note, flat, svg: toSvg(root), mermaid: toMermaid(root, label), label }
+    /**
+     * 闭包缓存：`render` 是**同步**纯函数，而读盘是异步的 ⇒ 数据在这儿。
+     * 三个刷新点：① `doc.on('open')`（换了笔记）② `doc.on('change')`（编辑器里改了）
+     * ③ 本插件的编辑命令（改完盘再读一次）—— 窗口那边的数据也走同一套。
+     */
+    let cache = { path: null, content: '', blocks: [] }
+
+    async function reload(path) {
+      if (!path) {
+        cache = { path: null, content: '', blocks: [] }
+        return
+      }
+      try {
+        const content = await fs.readText(path)
+        cache = { path, content, blocks: parseBlocks(content).blocks }
+      } catch (e) {
+        host.log('warn', `读取笔记失败（${path}）：${String(e)}`)
+        cache = { path, content: '', blocks: [] }
+      }
     }
 
-    function render() {
-      const { note, flat, svg } = snapshot()
+    /* ── 编辑：**直接写库文件**（不依赖编辑器挂载，两个窗口同一套） ── */
+    const editLines = (mutate) => {
+      if (!cache.path) {
+        host.notify('没有可写的笔记：先在主窗口打开一篇', 'warn')
+        return Promise.resolve(false)
+      }
+      const lines = String(cache.content).split(/\r?\n/)
+      mutate(lines)
+      return fs
+        .writeText(cache.path, lines.join('\n'))
+        .then(() => reload(cache.path))
+        .then(() => {
+          view.refresh()
+          return true
+        })
+    }
 
-      if (!note) {
-        return {
-          type: 'stack',
-          gap: 'md',
-          children: [
-            { type: 'text', value: '大纲 · 导图', variant: 'title' },
-            { type: 'divider' },
-            {
-              type: 'text',
-              value: '先打开一篇笔记 —— 这个插件读的是**当前打开的那一篇**。',
-              variant: 'caption',
-            },
-          ],
+    /** 按行号插入一行（`at` 是插入位置的上一行号） */
+    const insertAfter = (line, text) =>
+      editLines((lines) => {
+        const at = Math.max(0, Math.min(Number(line), lines.length - 1))
+        lines.splice(at + 1, 0, text)
+      })
+
+    /** 删除 [from, to] 行（含） */
+    const deleteRange = (from, to) =>
+      editLines((lines) => {
+        const a = Math.max(0, Math.min(Number(from), lines.length - 1))
+        const b = Math.max(a, Math.min(Number(to), lines.length - 1))
+        lines.splice(a, b - a + 1)
+      })
+
+    /* ── 窗口模式（U1）：这个 webview 是不是"某个导图窗口"？ ──
+       窗口是独立上下文（没有 doc.active()），所以"当前是哪篇笔记、哪一组"靠 store 传递。
+       定位**不认死索引**：优先按 `startLine` 找回同一组（笔记在两次读取之间被改过也不会错位）。 */
+    const winId = new URLSearchParams(location.search).get('pluginWindow')
+    const isMapWindow = Boolean(winId && winId.startsWith(MAP_PREFIX))
+
+    if (isMapWindow) {
+      const idx = Number(winId.slice(MAP_PREFIX.length))
+      /** 实际渲染哪一组 —— 用 store 里的定位信息校正过的索引（见下） */
+      let groupIndex = idx
+      let title = '导图'
+      /** 诊断出口（CDP / 排查用）：窗口里到底拿到了什么 */
+      const diag = { winId, idx, target: null, err: null, path: null, blocks: 0, group: null }
+      window.__omWin = diag
+
+      try {
+        const target = await store.get(`open:${winId}`, null)
+        diag.target = target
+        if (target?.note) {
+          diag.path = target.note
+          await reload(target.note)
+          diag.blocks = cache.blocks.length
+          // 先按 startLine 认（内容可能被改过），退而按标题，再退按索引
+          const byLine =
+            Number.isFinite(Number(target.startLine)) &&
+            cache.blocks.find((b) => b.startLine === Number(target.startLine))
+          const byTitle = target.title ? cache.blocks.find((b) => b.title === target.title) : null
+          const block = byLine || byTitle || cache.blocks[idx] || null
+          diag.group = block ? { title: block.title, startLine: block.startLine } : null
+          if (block) {
+            groupIndex = cache.blocks.indexOf(block)
+            title = `导图 · ${block.title}`
+          }
+        } else {
+          diag.err = 'store 里没有这个面板的打开记录'
         }
+      } catch (e) {
+        diag.err = String(e)
+        host.log('warn', `导图窗口初始化失败：${String(e)}`)
       }
 
-      if (!flat.length) {
-        return {
-          type: 'stack',
-          gap: 'md',
-          children: [
-            { type: 'text', value: '大纲 · 导图', variant: 'title' },
-            { type: 'text', value: note.path, variant: 'caption' },
-            { type: 'divider' },
-            {
-              type: 'text',
-              value:
-                '这篇里没有可用的层级：写几个 `# 标题`，或用 `- 列表` 缩进两级，' +
-                '导图就会长出来。（代码块里的 `#` 不算）',
-              variant: 'caption',
-            },
-          ],
-        }
-      }
-
-      const maxDepth = flat.reduce((m, r) => Math.max(m, r.depth), 0) + 1
-      const outlineNode = {
-        type: 'list',
-        empty: '没有标题或列表',
-        items: flat.map((r, i) => ({
-          key: `o${i}`,
-          node: {
-            type: 'text',
-            // 全角空格缩进 = 层级；list 没有缩进字段。圆点对齐参考图那种大纲观感
-            value: `${INDENT.repeat(r.depth)}• ${r.text}`,
-            variant: r.depth === 0 ? 'body' : 'caption',
-          },
-        })),
-      }
-      const mapNode = { type: 'html', value: svg }
-
-      return {
-        type: 'stack',
-        gap: 'md',
-        children: [
-          {
-            type: 'row',
-            gap: 'sm',
-            align: 'center',
-            wrap: true,
+      /** 窗口渲染：上半 SVG（只读大图）+ 下半可编辑节点列表（按钮是声明式 UINode——SVG 里放不了） */
+      const renderWindow = () => {
+        const block = cache.blocks[groupIndex]
+        if (!block) {
+          return {
+            type: 'stack',
+            gap: 'md',
             children: [
-              { type: 'text', value: '大纲 · 导图', variant: 'title' },
-              { type: 'badge', text: `${flat.length} 项 · ${maxDepth} 级`, tone: 'muted' },
+              { type: 'text', value: '这一组没了', variant: 'title' },
               {
-                type: 'button',
-                label: '重新解析',
-                variant: 'ghost',
-                onClick: 'outline-map.refresh',
-              },
-              {
-                type: 'button',
-                label: '插入 Mermaid',
-                variant: 'ghost',
-                onClick: 'outline-map.insert-mermaid',
+                type: 'text',
+                value: '笔记内容变了（组数或顺序对不上）。关掉窗口，回主窗口重新点「❖ 导图」。',
+                variant: 'caption',
               },
             ],
-          },
-          { type: 'text', value: note.path, variant: 'caption' },
-          { type: 'divider' },
-          {
-            type: 'tabs',
-            bind: BIND_VIEW,
-            // 切换入口（对齐参考图那两处红框）：图标 + 文字的切换条。
-            // UINode 的 row 没有 justify，做不到"贴到右上角"，所以用 tabs 这条更清楚的入口。
-            tabs: [
-              {
-                key: 'both',
-                label: '◫ 并排',
+          }
+        }
+        const rows = flatNodes(block.nodes)
+        const baseIndent = rows[0]?.indent ?? 0
+        return {
+          type: 'stack',
+          gap: 'md',
+          children: [
+            {
+              type: 'row',
+              gap: 'sm',
+              align: 'center',
+              wrap: true,
+              children: [
+                { type: 'text', value: block.title, variant: 'title' },
+                { type: 'badge', text: `${rows.length} 项`, tone: 'muted' },
+                { type: 'button', label: '重新读盘', variant: 'ghost', onClick: 'outline-map.reload' },
+              ],
+            },
+            { type: 'text', value: cache.path ?? '', variant: 'caption' },
+            { type: 'html', value: toSvg(blockToTree(block)) },
+            { type: 'divider' },
+            { type: 'text', value: '编辑（直接写回库文件；＋ 插子主题 / ✕ 删该节点连同子项）', variant: 'caption' },
+            {
+              type: 'list',
+              empty: '（空组）',
+              items: rows.map((n, i) => ({
+                key: `n${i}`,
                 node: {
                   type: 'row',
-                  gap: 'lg',
-                  align: 'start',
-                  children: [outlineNode, mapNode],
+                  gap: 'xs',
+                  align: 'center',
+                  wrap: true,
+                  children: [
+                    {
+                      type: 'text',
+                      value: `${INDENT.repeat(Math.max(0, Math.round((n.indent - baseIndent) / INDENT_UNIT)))}• ${n.text}`,
+                      variant: 'caption',
+                    },
+                    {
+                      type: 'button',
+                      label: '＋',
+                      variant: 'ghost',
+                      payload: { line: n.line, endLine: n.endLine, indent: n.indent },
+                      onClick: 'outline-map.add-child',
+                    },
+                    {
+                      type: 'button',
+                      label: '✕',
+                      variant: 'ghost',
+                      payload: { line: n.line, endLine: n.endLine },
+                      onClick: 'outline-map.remove-node',
+                    },
+                  ],
                 },
-              },
-              { key: 'outline', label: '☰ 大纲', node: outlineNode },
-              { key: 'map', label: '❖ 导图', node: mapNode },
-            ],
-          },
+              })),
+            },
+          ],
+        }
+      }
+
+      // 编辑命令：窗口里同样注册（改的是同一个库文件）
+      registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
+
+      view.registerPanel({ id: winId, title, location: 'main', render: renderWindow })
+      host.log('info', `导图窗口就绪：${winId}`)
+      return
+    }
+
+    /* ── 主窗口 ── */
+    const known = await store.get(STORE_LAST, null)
+    const opened = doc.active()
+    await reload(opened?.path ?? (typeof known === 'string' ? known : null))
+    if (opened?.path) await store.set(STORE_LAST, opened.path)
+
+    // 换笔记 / 编辑器里改了 ⇒ 跟上（`doc.on` 是 U3b 接上的真事件）
+    subscriptions.push(
+      doc.on('open', (d) => {
+        void store.set(STORE_LAST, d.path)
+        void reload(d.path).then(() => view.refresh())
+      }),
+      doc.on('change', (d) => {
+        // change 带来的是**编辑器里的最新内容**：直接用它算分组，不必再读盘
+        cache = { path: d.path, content: d.content, blocks: parseBlocks(d.content).blocks }
+        view.refresh()
+      }),
+    )
+
+    /**
+     * **编辑器顶部条**上的入口（`location: 'editor-topbar'`）—— 这是本插件唯一常驻的界面。
+     *
+     * 为什么不给"大纲"单独开一块地方（面板 / 侧栏）：用户 2026-10-13 明确 ——
+     * **笔记本身就是大纲**；导图开**独立窗口**，窗口怎么摆（并排/全屏）交给 **Windows 的分屏**，
+     * 插件与内核都不做分屏、也不该再占主区把笔记顶掉。
+     * 所以这里只留一排**每组一个**的按钮：点哪个组，就把那一组开成导图窗口。
+     */
+    const renderTopbar = () => {
+      if (!cache.path) {
+        return {
+          type: 'row',
+          children: [{ type: 'text', value: '打开一篇笔记后，这里会出现「❖ 导图」', variant: 'caption' }],
+        }
+      }
+      if (!cache.blocks.length) {
+        return {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          children: [{ type: 'text', value: '这篇里没有 `- 列表` ⇒ 没有可开的大纲组', variant: 'caption' }],
+        }
+      }
+      return {
+        type: 'row',
+        gap: 'sm',
+        align: 'center',
+        wrap: true,
+        children: [
+          { type: 'text', value: '导图', variant: 'caption' },
+          ...cache.blocks.map((b, bi) => ({
+            type: 'button',
+            label: `❖ ${b.title}`,
+            variant: 'ghost',
+            payload: { block: bi },
+            onClick: 'outline-map.open-map',
+          })),
         ],
       }
     }
 
+    registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
+
     subscriptions.push(
       command.register({
-        id: 'outline-map.refresh',
-        title: '大纲：重新解析当前笔记',
-        run: () => view.refresh(PANEL_ID),
+        id: 'outline-map.reload',
+        title: '大纲：重新读盘并解析',
+        run: async () => {
+          await reload(cache.path)
+          view.refresh()
+          host.notify('已重新读盘')
+        },
       }),
       command.register({
         id: 'outline-map.insert-mermaid',
-        title: '大纲：把导图插入笔记（Mermaid mindmap）',
+        title: '大纲：把某组导图插入笔记（Mermaid mindmap）',
         run: async () => {
-          const { note, mermaid } = snapshot()
-          if (!note) {
-            host.notify('先打开一篇笔记', 'warn')
+          const block = cache.blocks[0]
+          if (!cache.path || !block) {
+            host.notify('当前笔记里没有列表，导不出导图', 'warn')
             return
           }
-          if (!mermaid) {
-            host.notify('这篇里没有标题或列表，导不出导图', 'warn')
-            return
-          }
-          try {
-            // 插在光标处，前后留空行 —— 免得和上下文粘成一段
-            await doc.insertAtCursor(`\n\n\`\`\`mermaid\n${mermaid}\n\`\`\`\n`)
-            host.notify('已插入 Mermaid mindmap（Typora / Obsidian 都能渲染）')
-          } catch (e) {
-            host.notify(`插入失败：${String(e)}`, 'error')
-          }
+          const tree = blockToTree(block)
+          const md = toMermaid(tree, tree.text)
+          const tail = String(cache.content).endsWith('\n') ? '' : '\n'
+          await fs.writeText(cache.path, `${cache.content}${tail}\n\`\`\`mermaid\n${md}\n\`\`\`\n`)
+          await reload(cache.path)
+          view.refresh()
+          host.notify('已把 Mermaid mindmap 追加到笔记末尾')
         },
       }),
+      command.register({
+        id: 'outline-map.open-map',
+        title: '大纲：把某组导图开成独立窗口',
+        run: async (payload) => {
+          const bi = Number((payload ?? {}).block)
+          const block = cache.blocks[Number.isFinite(bi) ? bi : 0]
+          if (!cache.path || !block) {
+            host.notify('先打开一篇带列表的笔记', 'warn')
+            return
+          }
+          const panelId = `${MAP_PREFIX}${cache.blocks.indexOf(block)}`
+          // 窗口是独立上下文：把"哪篇笔记的哪一组"写进 store，供那边的 apply 读。
+          // 除了索引还写 `startLine` / `title` —— 那边优先按它们找回同一组（内容被改过也不会错位）。
+          const blockIndex = cache.blocks.indexOf(block)
+          await store.set(`open:${panelId}`, {
+            note: cache.path,
+            block: blockIndex,
+            startLine: block.startLine,
+            title: block.title,
+          })
+          /**
+           * 先把面板注册上再开窗 —— 内核的 `openWindow` 会校验"面板已注册"（明确报错优于开一个白窗）。
+           * 那边（新 webview）会**自己再注册一次**同 id 的面板，内容是它从 store 读盘后算的；
+           * 这里注册的这份只服务"在主窗口里也能直接看这一组"。
+           */
+          view.registerPanel({
+            id: panelId,
+            title: `导图 · ${block.title}`,
+            location: 'main',
+            render: () => ({
+              type: 'stack',
+              gap: 'md',
+              children: [
+                { type: 'text', value: block.title, variant: 'title' },
+                { type: 'text', value: cache.path ?? '', variant: 'caption' },
+                { type: 'divider' },
+                { type: 'html', value: toSvg(blockToTree(block)) },
+              ],
+            }),
+          })
+          view.openWindow({
+            panel: panelId,
+            title: `导图 · ${block.title}`,
+            width: 940,
+            height: 700,
+          })
+          host.notify(`已在新窗口打开「${block.title}」（可多开；窗口里能编辑）`)
+        },
+      }),
+      // 唯一常驻界面：编辑器顶部条（笔记仍然是大纲本身，见上面 renderTopbar 的说明）
       view.registerPanel({
         id: PANEL_ID,
         title: '大纲 · 导图',
-        location: 'main',
-        render,
+        location: 'editor-topbar',
+        render: renderTopbar,
       }),
     )
 
-    host.log('info', '大纲 · 导图插件就绪（标题 + 列表 → SVG / Mermaid）')
+    host.log('info', `大纲 · 导图 v0.2 就绪（导图在新窗口；编辑直接写库文件）`)
   },
 }
 
 /**
- * 纯函数导出 —— 给 `selftest.mjs` **离线**验证解析/布局/导出用。
- * 宿主只取 `default`，多这几行导出不影响加载；好处是核心逻辑不必开 GUI 就能测
- * （也就没有"抢用户鼠标"的风险）。
+ * 注册"编辑两个命令" —— 主窗口与导图窗口都要有（改的是同一个库文件）。
+ * 抽出来是因为窗口分支会在 `return` 之前提前注册，避免两处重复。
  */
-export { parseOutline, flatten, toSvg, toMermaid }
+function registerEditing(subs, command, { insertAfter, deleteRange, host }) {
+  subs.push(
+    command.register({
+      id: 'outline-map.add-child',
+      title: '大纲：在该节点下插入子主题',
+      run: async (payload) => {
+        const p = payload ?? {}
+        if (!Number.isFinite(Number(p.line))) {
+          host.notify('这条命令要带 { line }（由列表行内按钮传）', 'warn')
+          return
+        }
+        const indent = Number.isFinite(Number(p.indent)) ? Number(p.indent) : 0
+        const at = Number.isFinite(Number(p.endLine)) ? Number(p.endLine) : Number(p.line)
+        const ok = await insertAfter(at, `${' '.repeat(indent + INDENT_UNIT)}- 新主题`)
+        if (ok) host.notify('已插入子主题「新主题」（写回库文件）')
+      },
+    }),
+    command.register({
+      id: 'outline-map.remove-node',
+      title: '大纲：删除该节点连同它的子项',
+      run: async (payload) => {
+        const p = payload ?? {}
+        if (!Number.isFinite(Number(p.line))) {
+          host.notify('这条命令要带 { line }（由列表行内按钮传）', 'warn')
+          return
+        }
+        const last = Number.isFinite(Number(p.endLine)) ? Number(p.endLine) : Number(p.line)
+        const ok = await deleteRange(Number(p.line), last)
+        if (ok) host.notify(`已删除 ${last - Number(p.line) + 1} 行（写回库文件）`)
+      },
+    }),
+  )
+}
+
+/**
+ * 纯函数导出 —— 给 `selftest.mjs` **离线**验证解析/布局/导出用（不必开 GUI）。
+ */
+export { parseOutline, parseBlocks, flatNodes, blockToTree, flatten, toSvg, toMermaid }
