@@ -1180,6 +1180,43 @@ revision: 45
 > ⑥ 窗口里 `✕` 删节点连同子树）。截图 `_shots/outline-map-v2-titlebtn.png`（标题左侧的 ❖）。
 > **基线**：`tsc -b` 0 · `oxlint` 恰好 4 warnings · `cargo test --lib` 21 passed。
 
+> ## 📌 rev55（2026-10-13 · 按钮"无痕融入" ＋ **导图编辑方式定案：改用开源库 Mind Elixir**）
+>
+> **一、按钮无痕融入**（用户要求：不要边框、与标题垂直中心同一水平线）—— 提交 `d5b4a39`：
+> `.zn-line-action` 去掉边框与底色；**尺寸/字号按行字号的 em 给**（H1/H2/H3 各不同，否则同一套
+> 对齐参数在不同级别标题下会一偏一正）；对齐**量出来**：`vertical-align: middle` 近似（实测比标题
+> 中心低 4px）+ `transform: translateY(-0.34em)` 精确拉回 ⇒ 实测 h1 **-0.3px** / h2 **-0.2px**。
+> ⚠️ 踩坑：**`vertical-align` 的长度值是正值上移，`transform` 的负值才是上移**（语义相反，
+> 我先写反成 `vertical-align: -0.34em`，按钮反而掉到 +10px）。
+>
+> **二、导图编辑方式：放弃自画列表，改用开源库**（用户批评「这种编辑方式太难看了…去查有没有开源的
+> 思维导图项目，能用就直接用…不要再闭门造车…不要老是直接动手」⇒ 完全接受：那个"列表 + ＋/✕"
+> 的编辑 UI 是我自创的，确实难看）。
+>
+> **调研结果（这一轮只查、没动代码）**：
+> | 方案 | 本质 | 编辑能力 | 核实状态 |
+> |---|---|---|---|
+> | [markmap](https://github.com/markmap/markmap) | Markdown → 交互式导图（折叠/缩放/主题） | ❌ 只读（官方 README 原文 *"Visualize your Markdown as mindmaps"*） | ✅ 已读官方 README |
+> | **Mind Elixir** | framework-agnostic 的**可编辑**思维导图核心 | ✅ 增删/拖拽/撤销/主题（有导出 API） | ⚠️ **未核实**（GitHub README 两次 404；只看到官方博客与社区评价） |
+> | jsMind / KityMinder | 老牌可编辑导图 | 理论可以 | ⚠️ 未展开 |
+>
+> **用户裁决：选 Mind Elixir**（要在导图里直接拖节点改结构）。
+>
+> **下一步（下个会话，第一步是"读"不是"写"）**：
+> 1. **先读官方文档与示例**：`docs.mind-elixir.com` + 官方 repo（分支名可能不是 master/main ⇒
+>    从官网/包页进，别硬猜 raw URL —— 这轮两次 404 就是猜的代价）。必须确认四件事：
+>    ① 编辑 API（增删节点 / 拖拽 / 撤销重做）② **导出 API**（`getData()`？有没有 outline / OPML /
+>    markdown 导出）③ 体积与 license ④ ESM/UMD 用法（我们要能塞进插件目录离线跑）。
+> 2. **集成路线**（本项目已有能力，不用再改内核）：导图窗口里用 **`view.overrideShell`（U2）**
+>    挂真 DOM + 跑库脚本；库**打包进插件目录**（离线优先，不走 CDN）；编辑结果经导出 API →
+>    转成 `- 列表` + 缩进 → **`fs.writeText` 写回**（窗口里没有编辑器，`doc.replaceRange` 用不了 ——
+>    这条已有先例）。
+> 3. **验收**：CDP 驱动（窗口里加节点/拖拽 → **磁盘笔记**为准），沿用 `tools/verify-outline-map.mjs` 的骨架。
+>
+> **另两件小事待办**：①`HANDOFF-CARD` 的"下一步"段还要把 Mind Elixir 定案写进去（本轮只改了正文）；
+> ② `examples/doc-edit-probe/`（U3a/U3b 夹具本体）留还是删 —— junction 已摘（界面已干净），
+> 留 = 以后想复验 U3 一挂就能跑；删需同步 4 处文档引用。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
