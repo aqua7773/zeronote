@@ -68,6 +68,17 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > ⑥ outline-map 重做成"导图独立窗口" ✅ **rev52** → 插件窗口三键 ＋ `close()` 机制查清 ✅ **rev53**
 > → **行首按钮能力 ＋ 入口改到"组标题左侧"** ✅ **rev54**（`editor.addLineAction`）
 > ⇒ **下一步 = 导图插件的打磨**：样式切换 · 折叠 · 撤销重做 · 窗口菜单栏（文件/编辑/AI/查看）· 视觉细化。
+> 🔁 **rev56 更正：下一步不是"打磨自绘导图"，是"换成开源库"** —— 导图编辑改用
+> **mind-elixir `5.15.1`**（MIT）。四件事已全部核实（详见 `_research/mind-elixir-定案-2026-10-13.md`）：
+> ① 编辑 API 齐（增删/拖动/撤销重做，`allowUndo` + `install(operationHistory)`）；
+> ② 导出有 `getData()`/`getDataString()`/`exportSvg()`/`exportPng()`，**没有 OPML、没有 markdown 文档导出**，
+> 但官方 `plaintextConverter` 给 `- ` + **2 空格缩进**列表 ⇄ 导图数据 ⇒ **"转回 - 列表"直接复用，不自写**；
+> （官方文档里的 `getDataMd()` 是**过时文档**，包内 0 命中）；③ MIT，v5.15.1 离线三件套 **iife 93 KB + css 12 KB + converter 7 KB**；
+> ④ **v5 有 IIFE + ESM 两套**，v6（next）**只有 ESM**。
+> ⚠️ **`npm i mind-elixir` 会装到 `6.0.0-next.4`**（latest tag 指向 pre-release）⇒ **必须锁 `mind-elixir@5.15.1`**。
+> 集成落点照旧：导图窗口 `view.overrideShell` 挂真 DOM（**窗口里接管内核已支持**，`App.tsx:2404`）
+> + 库离线放插件目录 + 导出转列表经 `fs.writeText` 写回。
+> `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成

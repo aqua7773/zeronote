@@ -1217,6 +1217,38 @@ revision: 45
 > ② `examples/doc-edit-probe/`（U3a/U3b 夹具本体）留还是删 —— junction 已摘（界面已干净），
 > 留 = 以后想复验 U3 一挂就能跑；删需同步 4 处文档引用。
 
+> ## 📌 rev56（2026-10-13 · Mind Elixir 四件事核实完毕 ＋ 两件小事收口）
+>
+> **一、四件事全部核实完**（只剩两条"未实测"，已明确标注）——详见
+> **`_research/mind-elixir-定案-2026-10-13.md`**（本轮的交付物，含全部来源）。摘要：
+>
+> | # | 结论 |
+> |---|---|
+> | ① 编辑 API | **齐**。`addChild` / `insertSibling` / `insertParent` / `removeNodes(数组)` / `moveNodeIn·Before·After` / `setNodeTopic` / `copyNodes`；**拖动** = option `draggable: true`；**撤销重做** = `install(operationHistory)` 后得 `undo()/redo()/clearHistory()`（option `allowUndo`，键盘 `Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y` **仅当 `editable` 为真**） |
+> | ② 导出 API | `getData()` / `getDataString()` / `exportSvg()` / `exportPng()` **有**；**OPML、markdown 文档导出都没有**。但官方 **`plaintextConverter`** = `mindElixirToPlaintext()` ⇄ `plaintextToMindElixir()`，格式就是 `- ` + **每层 2 空格缩进** ⇒ **"转回 - 列表"直接复用，不自写**（7,370 B，**零运行时依赖**） |
+> | ③ 体积 / license | **MIT**。v5.15.1 离线三件套 ≈ **112 KB**（iife 92,931 + css 12,441 + converter 7,370）；ESM 版 121,100。**没有 `.min.js`**（jsdelivr 的 entrypoints 是 guessed，指向不存在的文件，别照抄） |
+> | ④ ESM / UMD | **v5 两套都有**：ESM `import MindElixir from 'mind-elixir'` ＋ IIFE `dist/MindElixir.iife.js`（全局名 `MindElixir`，**类在 `.default`**）。**v6（next 线）只有 ESM，iife 被删了** |
+>
+> ⚠️ **两个坑（写代码前必须记住）**：
+> ① **`npm i mind-elixir` 会装到 `6.0.0-next.4`** —— 实测 dist-tags `latest = 6.0.0-next.4`
+> （beta = next.5、next = next.10）⇒ **必须锁 `mind-elixir@5.15.1`**；
+> ② **官方文档有假信息**：`/docs/guides/data-export` 写的 `mind.getDataMd()` 在 5.15.1 产物里
+> **0 命中**（本地解包全文搜），属 v4 遗留 —— 又一条"官方文档也会过时，体积/导出名以包内产物为准"。
+>
+> **二、集成路线确认可行（不用改内核）**：`src/App.tsx:2403-2405` 已有
+> `shellTakeover && shellCtx ? <ShellMount …/> : …` 分支，注释明写"**窗口里同样允许接管**——
+> 但标题条与关闭按钮保留" ⇒ 导图窗口里 `view.overrideShell({mount})` 挂真 DOM 是**内核已支持**的路。
+> 库离线放插件目录（先例 `examples/dep-consumer` / `cdn-import`）；写回走 `fs.writeText`（rev52 先例）。
+>
+> **三、两件小事收口**：
+> ① **卡片已补**：`HANDOFF-CARD.md` 的"下一步"段写进了本定案（原来只在正文）；
+> ② **`examples/doc-edit-probe/` 保留**（不删）—— 7 KB 成本，U3 复验一挂 junction 即跑，
+> 删反而要同步 4 处文档引用。**纪律照旧：按需挂 junction，不常驻**（常驻会让编辑器底部一直挂那条工具条）。
+>
+> **本轮未动业务代码**：`npm pack mind-elixir@5.15.1` 只解到 `_tmp-mind-elixir-dl/`
+> （过程产物，已被 `.gitignore` 的 `_tmp-*/` 覆盖 ⇒ **不进 git**；丢了重跑一条命令即可）。
+> 基线未被触碰（`tsc -b` / `oxlint` / `cargo test` 本轮未跑，因为没有代码改动）。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
