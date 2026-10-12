@@ -82,9 +82,13 @@ export interface SettingsProps {
   onTogglePlugin: (id: string, enabled: boolean) => void
   onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
-  /** 已授权访问网络的插件 id（授权记录存在库里的 `.zn/permissions.json`） */
-  grantedNet: string[]
-  onToggleNet: (id: string, granted: boolean) => void
+  /**
+   * 自称需要 `net` / `proc` 的插件（**只读展示**）。
+   *
+   * 2026-10-13 拆权限门后这一块不再是"开关"：内核不查授权、不做判定，
+   * 这里只是把 `manifest.capabilities` 的**自述**摊开给用户看（原则 4）。
+   */
+  declaredNet: { id: string; name: string; version: string; caps: string[] }[]
 }
 
 export function Settings({
@@ -103,13 +107,12 @@ export function Settings({
   onTogglePlugin,
   onDeletePlugin,
   onReloadPlugins,
-  grantedNet,
-  onToggleNet,
+  declaredNet,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
 
-  /** 声明了 `net` 的插件 —— 只有它们需要授权开关（没声明的插件不受影响） */
-  const netPlugins = plugins.filter((p) => p.capabilities.includes('net'))
+  /* 2026-10-13：原来的 `netPlugins`（从 `plugins` 过滤 `net`）已被 `declaredNet` 取代 ——
+   * 过滤还在，只是搬去了 App（它还要一并算 `proc`，且不再需要授权状态）。 */
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} width={640}>
@@ -201,50 +204,39 @@ export function Settings({
                 />
 
                 {/*
-                  「网络访问」—— capability 授权通道（契约 §4）。
-                  措辞是**故意**这么写的：不能让人以为开了这个就是沙箱。
+                  「网络与进程」—— 2026-10-13 拆权限门后**只读展示**（原则 4）。
+                  措辞必须诚实：内核不做权限判定，所以这里既不拦、也不承诺任何隔离。
                 */}
-                <SectionTitle>网络访问</SectionTitle>
+                <SectionTitle>网络与进程（自述）</SectionTitle>
                 <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
-                  声明了 <code>net</code> 的插件
-                  <b className="text-foreground">默认加载即被拒</b>，要在这里逐个开；
-                  记录写在库内的 <code>.zn/permissions.json</code>，跟库走。
+                  <b className="text-foreground">内核不做权限判定</b>，也不提供任何安全保证 ——
+                  插件与宿主跑在同一个 JS 上下文里，裸 <code>fetch</code>、ESM 静态{' '}
+                  <code>import</code>、直接 <code>invoke()</code> 都能绕开任何声明。
+                  下面列出<b className="text-foreground">自称</b>需要 <code>net</code> /{' '}
+                  <code>proc</code> 的插件，纯属知情：
+                  它们<b className="text-foreground">照常加载</b>，不需要你点头。
                   <br />
-                  <b className="text-foreground">这不是隔离，是一条可绕过的边界。</b>{' '}
-                  插件与宿主跑在同一个 JS 上下文里 —— 裸 <code>fetch</code>、ESM 静态{' '}
-                  <code>import</code>、直接 <code>invoke()</code> 三条路都不经过这张表。
-                  它保证的是<b className="text-foreground">知情与承诺</b>：
-                  开过的插件才加载，谁被开过一眼看得见。
+                  万一改坏了内核：<code>修复内核.cmd</code>（从备份重建，见 {' '}
+                  <code>docs/架构原则-2026-10-13.md</code> §4.5）。
                 </p>
-                {netPlugins.length === 0 ? (
+                {declaredNet.length === 0 ? (
                   <div className="text-[11px] text-muted-foreground">
-                    当前没有插件声明 <code>net</code>。
+                    当前没有插件自称需要 <code>net</code> / <code>proc</code>。
                   </div>
                 ) : (
                   <div>
-                    {netPlugins.map((p) => (
+                    {declaredNet.map((p) => (
                       <Row
                         key={p.id}
                         label={`${p.name} v${p.version}`}
                         hint={
                           <>
                             <code>{p.id}</code>
-                            {' · '}
-                            {grantedNet.includes(p.id) ? '已授权联网' : '未授权（插件将被拒载）'}
-                            {p.enabled ? '' : ' · 插件当前未启用'}
+                            {' · 自称：'}
+                            {p.caps.filter((c) => c === 'net' || c === 'proc').join(' / ')}
                           </>
                         }
-                      >
-                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
-                          <input
-                            type="checkbox"
-                            checked={grantedNet.includes(p.id)}
-                            onChange={(e) => onToggleNet(p.id, e.target.checked)}
-                            aria-label={`允许 ${p.name} 访问网络`}
-                          />
-                          允许联网
-                        </label>
-                      </Row>
+                      />
                     ))}
                   </div>
                 )}

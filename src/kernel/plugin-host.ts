@@ -42,9 +42,9 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'view:main',
   'view:statusbar',
   'view:modal',
-  // 上轮加「编辑器底部工具栏」挂载点时漏登记，插件老实声明它会被判"未知 capability"而拒载
+  // 上轮加「编辑器底部工具栏」挂载点时漏登记 —— 2026-10-13 拆门后**只会警告**，不再拒载
   'view:editor-toolbar',
-  // 编辑器**顶部**提示条（与工具栏对称）—— 加位置时漏登记会变成"未知 capability ⇒ 拒载"
+  // 编辑器**顶部**提示条（与工具栏对称）—— 加位置时漏登记同样只警告
   'view:editor-topbar',
   // editor 原语（行内标记）
   'editor:mark',
@@ -53,20 +53,20 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'proc',
 ]
 
-/**
- * 「默认拒」的两项 —— 不是永远拒，而是**没被用户逐个授权就拒**。
+/* ───────── 2026-10-13 拆权限门（原则 4）：这里原本是三道门，全部移除 ─────────
  *
- * 授权记录 `<私有根>/.zn/permissions.json`（`kernel/permissions.ts`），
- * 由设置页「插件 → 网络访问」区块写入。
- * ⚠️ 这是**可绕过的边界**（插件与宿主同上下文），兑现的是知情与承诺，不是隔离 —— 契约 §4。
+ * 删掉的是：`NEEDS_GRANT`（`net`/`proc` 默认拒）· `IsGranted` / `neverGranted`（查授权记录）·
+ * `scopedFs` / `scopedDoc`（按 capability 裁剪写方法）· 未知 capability 的拒载。
+ *
+ * **为什么删而不是修**：`docs/架构原则-2026-10-13.md` §2 是实测，不是推断 ——
+ * 插件与宿主跑在同一个 JS 上下文里，`window.__TAURI_INTERNALS__.invoke` 就在手边：
+ * 能绕开原语表直连 IPC、能往**库外**写文件、能裸 `fetch`（manifest 没声明 `net` 也照样 200）。
+ * 所以这张表**从来不是边界**，留着只制造"插件明明能用却加载不了"的摩擦。
+ *
+ * 用户 2026-10-13 的裁决：**全部拆掉**，`capabilities` 降级为**自述**
+ * （插件页展示"它要什么" + UI 挂载位合法性提示）。内核不再做权限判定、不承诺任何安全保证；
+ * 出事的兜底是**修复机制**（`scripts/kernel-restore.mjs` / `修复内核.cmd`），不是防护。
  */
-const NEEDS_GRANT: readonly Capability[] = ['net', 'proc']
-
-/** 查授权记录：这个插件的这项能力被用户开过吗 */
-export type IsGranted = (pluginId: string, capability: string) => boolean
-
-/** 缺省（没接线时）一律视为未授权 —— 宁可拒载，不可静默放行 */
-const neverGranted: IsGranted = () => false
 
 export type LoadedPlugin = {
   /** `.zn/plugins/` 下的目录名 */
@@ -97,14 +97,9 @@ export type PluginHostDeps = {
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
-  /**
-   * 查授权记录（`.zn/permissions.json`）。**不接线 = 一律未授权**。
-   *
-   * 之所以是函数而不是一份表：`assertCapabilities` 在加载路径里是**同步**判定的，
-   * 而权限表是异步从磁盘读的 —— 调用方用 ref 提供"当前值"，就不会读到旧闭包，
-   * 也不会因为读表失败而放行。
-   */
-  isGranted?: IsGranted
+  /* 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定，见本文件顶部墓碑注释）。
+   * `.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission` 原样留着
+   * （前端已不读它们）—— 是否整体下线见 `docs/架构原则-2026-10-13.md` §6。 */
 }
 
 /* ───────── 校验 ───────── */
@@ -206,51 +201,40 @@ function assertApiVersion(range: string, pluginId: string): void {
   }
 }
 
-function assertCapabilities(caps: string[], pluginId: string, isGranted: IsGranted): void {
+/**
+ * capability **自述检查**（2026-10-13 拆门后不再拒载）。
+ *
+ * 只做一件事：声明了内核不认识的取值时**警告**（多半是拼错了）—— **不抛错、不拦加载**。
+ * 为什么不再拒：见本文件顶部墓碑注释与 `docs/架构原则-2026-10-13.md` §2 的实测。
+ * 保留这个警告是因为它**没有代价**（不制造摩擦），而拼错的 capability 是作者真想知道的。
+ */
+export function warnUnknownCapabilities(
+  caps: string[],
+  pluginId: string,
+  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void,
+): void {
   const unknown = caps.filter((c) => !ALLOWED_CAPABILITIES.includes(c as Capability))
   if (unknown.length) {
-    throw new Error(`插件 ${pluginId} 声明了未知 capability：${unknown.join(', ')}`)
-  }
-  // 「默认拒」两项：**查授权记录**，不再是"声明即拒"。
-  // 记录里没有 = 没授权（fail closed）；`proc` 目前没有 UI 入口 ⇒ 行为仍是拒。
-  const denied = caps.filter((c) => NEEDS_GRANT.includes(c as Capability) && !isGranted(pluginId, c))
-  if (denied.length) {
-    throw new Error(
-      `插件 ${pluginId} 要求默认拒绝的 capability：${denied.join(', ')}` +
-        `（到「设置 → 插件 → 网络访问」里为它开启；授权记录 .zn/permissions.json）`,
+    onLog(
+      `插件 ${pluginId} 声明了内核不认识的 capability：${unknown.join(', ')}` +
+        `（**不拦加载** —— 内核不做权限判定；但多半是拼错了，合法取值见契约 §4）`,
+      'warn',
     )
   }
 }
 
-/* ───────── capability 裁剪 ───────── */
-
-function deny(pluginId: string, cap: Capability): never {
-  throw new Error(`插件 ${pluginId} 未声明 capability「${cap}」，该调用被拒绝`)
-}
-
-function scopedFs(fs: FsApi, caps: Capability[], pluginId: string): FsApi {
-  if (caps.includes('fs:write')) return fs
-  return {
-    ...fs,
-    writeText: () => deny(pluginId, 'fs:write'),
-    createNote: () => deny(pluginId, 'fs:write'),
-    rename: () => deny(pluginId, 'fs:write'),
-    mkdir: () => deny(pluginId, 'fs:write'),
-    move: () => deny(pluginId, 'fs:write'),
-    delete: () => deny(pluginId, 'fs:write'),
-  }
-}
-
-function scopedDoc(doc: DocApi, caps: Capability[], pluginId: string): DocApi {
-  if (caps.includes('doc:write')) return doc
-  return {
-    ...doc,
-    replaceSelection: () => deny(pluginId, 'doc:write'),
-    insertAtCursor: () => deny(pluginId, 'doc:write'),
-    // 新原语必须与老的两条一起裁 —— 漏一个就等于开了后门（声明与不声明一样能写）
-    insertAt: () => deny(pluginId, 'doc:write'),
-  }
-}
+/* ───────── capability 裁剪：2026-10-13 **已整体移除** ─────────
+ *
+ * 原来这里有 `deny()` + `scopedFs` + `scopedDoc`：没声明 `fs:write` / `doc:write` 的插件，
+ * 写方法会被换成抛错的替身。
+ *
+ * 拆掉的直接理由（原则 4：「权限完全由插件控制，内核不提供任何安全保证」）：
+ * 插件与宿主同上下文，`window.__TAURI_INTERNALS__.invoke` 就能绕过这层裁剪去写任意文件
+ * （实测见 `docs/架构原则-2026-10-13.md` §2）。留着它只会让"声明了才能写"看起来像约束。
+ *
+ * ⚠️ 一条曾经的教训值得记：这段代码的注释里写过"新原语必须与老的两条一起裁 ——
+ * 漏一个就等于开了后门"。那份小心翼翼的维护成本，花的正是"守一道能被绕过的门"的钱。
+ */
 
 /** 登记一个 Disposable，并把它原样返回（方便 `return collect(...)` 链式写法） */
 function collect<T extends Disposable>(subs: Disposable[], d: T): T {
@@ -471,7 +455,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
   // 平台门排在 capability 之前：一个跑不起来的插件，先说"它不适用于这台机器"，
   // 比先说"你还得去授权 net"更接近用户真正需要知道的事。
   assertPlatform(manifest, platformOf(deps.platform))
-  assertCapabilities(manifest.capabilities, manifest.id, deps.isGranted ?? neverGranted)
+  warnUnknownCapabilities(manifest.capabilities, manifest.id, deps.onLog)
 
   const subs: Disposable[] = []
   const readFile = (rel: string) =>
@@ -555,8 +539,9 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
   }
 
   const ctx: PluginContext = {
-    fs: scopedFs(deps.fs, manifest.capabilities, manifest.id),
-    doc: scopedDoc(deps.doc, manifest.capabilities, manifest.id),
+    // 2026-10-13 拆门：不再按 capability 裁剪 —— 插件拿到的就是内核那一份
+    fs: deps.fs,
+    doc: deps.doc,
     index: deps.index,
     event: deps.event,
     command: scopedCommand(deps.command, subs),

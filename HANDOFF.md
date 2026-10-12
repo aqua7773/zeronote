@@ -873,6 +873,48 @@ revision: 45
 > `scopedFs`/`scopedDoc` 的裁剪放开、`capabilities` 降级为自述、设置页「网络访问」改只读展示、
 > 契约 §4 诚实改写。⚠️ 这是**安全模型变更**，用户已对具体方案裁决（2026-10-13）。
 
+> ## 📌 rev48（2026-10-13 · 拆权限门：**原则 4 落地**）
+>
+> **用户裁决**：「全部放开，内核完全不设防，也不提供任何安全保障，插件想做什么全凭自觉」
+> + `capabilities` **全部拆掉、降级为自述**。
+>
+> **改了什么（前端 5 个文件；Rust 一行未动）**
+> · `src/kernel/plugin-host.ts` —— 删三道门：`assertCapabilities`（未知取值拒载 + `net`/`proc` 查授权）
+>   → 换成 `warnUnknownCapabilities`（**只警告、不拦**）；`NEEDS_GRANT` / `IsGranted` / `neverGranted`
+>   删除；`scopedFs` / `scopedDoc`（按 capability 裁剪写方法）删除 ⇒ `ctx.fs` / `ctx.doc`
+>   **就是内核那一份**。
+> · `src/App.tsx` —— 删 `permissions` state / `permissionsRef` / 读授权记录的 effect / `isGranted`
+>   接线 / `toggleNetwork`；`grantedNet` → `declNetPlugins`（改读 **manifest 自述**）。
+> · `src/components/Settings.tsx` —— 「网络访问」开关 → **「网络与进程（自述）」只读展示**
+>   （列出自称需要 `net`/`proc` 的插件 + "内核不做权限判定" + 指路 `修复内核.cmd`）。
+> · `src/kernel/contract.ts` —— `Capability` 注释改成"**自述，不是门**"。
+> · `examples/net-demo/` —— 文案对齐（它原来写着"默认被拒载"，在新原则下是最误导的一句）。
+>
+> **实测（真跑，非推断）**
+> · `examples/net-demo`（声明 `["net","command","view:main"]`）**此前是拒载**（历史证据
+>   `_shots/perm-05-plugins.png`）⇒ 现在插件日志：
+>   `[info] 插件已加载：网络访问示例（net-demo｜esm）`；插件页三颗 ✅；
+>   设置页新区块列出「net-demo · 自称：net」。证据 `_shots/perm-selfdeclare.png`。
+> · `docs/内核契约-v0.1.md` §4 改写：明写"capability 不再是门"，§4.1 标已移除，
+>   §4.2 保留原有三条绕过路径 + **补记 2026-10-13 实测的三条**（写库外 / 读任意文件 / 卸载不还原）。
+>
+> ⚠️ **本轮踩到一个真坑（记下来别再踩）**：演练内核自愈时，我把
+> `src-tauri/capabilities/default.json` 写成非法 JSON ⇒ **Tauri watcher 立刻检测到并重建**
+> ⇒ `failed to parse JSON: key must be a string` ⇒ **dev 进程 exit 101**
+> （恢复脚本随后把文件还原了，但进程已经死了 ⇒ CDP `fetch failed`）。
+> **认知**：`capabilities/` 是**被 Tauri 监视的构建输入**，动它会让正在跑的 dev 崩；
+> 演练这类文件要预期"dev 会死一次"，重启即可（`Start-Process cmd /c dev.cmd`，约 35 秒）。
+>
+> **未动的一块**：`.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission`
+> **原样保留**（前端已不读它们）—— 是否整体下线见 `docs/架构原则-2026-10-13.md` §6（等裁决）。
+>
+> **基线**：`tsc` 0 · `oxlint` **恰好 4 warnings** · `cargo test --lib` **21 passed**。
+>
+> **下一步**：§4.2 **接管协议 + 还原验收** —— 立两条规矩：① 内核给出的每条"接管"入口
+> **必须返回 `Disposable`** 并由宿主登记（卸载即还原）② 插件自绘 / 自改宿主 DOM 时提供登记点
+> （`ctx.host.onRollback` 一类）：**登记过的内核负责还原，没登记的自己负责**；
+> 并给出可自动化的还原判据（卸载后内核 DOM / 命令表 / 订阅表回到基线）。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

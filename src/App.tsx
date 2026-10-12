@@ -30,12 +30,9 @@ import type {
   PluginManifest,
   TrashEntry,
 } from './kernel/contract'
-import {
-  isGranted as isCapabilityGranted,
-  readPermissions,
-  setPermission,
-  type PermissionTable,
-} from './kernel/permissions'
+/* 2026-10-13 拆权限门：`./kernel/permissions` 的四个导入（isGranted / readPermissions /
+ * setPermission / PermissionTable）**已全部移除** —— 内核不再做权限判定，
+ * `.zn/permissions.json` 前端不再读（Rust 侧命令原样留着，见 docs/架构原则-2026-10-13.md §6）。 */
 import { FileTree } from './components/FileTree'
 import { MarkdownEditor } from './components/MarkdownEditor'
 import { MarkToolbar } from './components/MarkToolbar'
@@ -284,14 +281,9 @@ export default function App() {
   const [panelLog, setPanelLog] = useState<string[]>([])
   const [pluginError, setPluginError] = useState<string | null>(null)
   const [panelState, setPanelState] = useState<Record<string, unknown>>({})
-  /**
-   * capability 授权记录（`<库>/.zn/permissions.json`）—— 「默认拒」的 `net` / `proc` 走这张表。
-   *
-   * 与 disabled 不同，它**存在库里**而不是 localStorage：这是"这个库里的这个插件被授权过"
-   * 的承诺，跟着库走才对（多库共用同一个 `.zn`，见 private_root）。
-   * ⚠️ 它是**可绕过的边界**，不是隔离 —— 契约 §4。
-   */
-  const [permissions, setPermissions] = useState<PermissionTable>({})
+  /* 2026-10-13 拆权限门：这里原本是 `permissions` state（读 `.zn/permissions.json`
+   * 的授权记录）。**已删除** —— 内核不设防，不查授权。设置页那一块改成只读展示
+   * `manifest.capabilities` 的**自述**（见下面的 `declNetPlugins`）。 */
 
   /* ── UI ── */
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -468,7 +460,6 @@ export default function App() {
   const activeRef = useRef(activePath)
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
-  const permissionsRef = useRef(permissions)
   const editorRef = useRef<EditorView | null>(null)
   const timerRef = useRef<number | null>(null)
   /**
@@ -510,35 +501,13 @@ export default function App() {
   }, [disabled])
 
   useEffect(() => {
-    permissionsRef.current = permissions
-  }, [permissions])
-
-  useEffect(() => {
     vaultRef.current = vault
   }, [vault])
 
-  /**
-   * 授权记录：换库时从磁盘读一次。
-   *
-   * 读失败**不能**当成"全都授权了" —— 保持原表（首次为空 = 全部未授权），
-   * 并把原因写进插件错误区（Rust 侧对损坏文件同样是 fail closed）。
-   * setState 全在 await 之后，别在 effect 体里同步调（lint + 级联渲染）。
-   */
-  useEffect(() => {
-    if (!vault) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const table = await readPermissions(vault)
-        if (!cancelled) setPermissions(table)
-      } catch (e) {
-        if (!cancelled) setPluginError(`读取授权记录失败：${String(e)}`)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [vault])
+  /* 2026-10-13 拆权限门：这里原本是「换库时读一次授权记录」的 effect
+   * （`readPermissions` + fail-closed 注释）。**已删除** —— 没有表可读了。
+   * ⚠️ 它的旧注释里那句「读失败不能当成全都授权了」值得记住：那是在**为一道
+   * 能被子进程/裸 IPC 绕过的门写防御逻辑**，成本全花在纸上（见 docs/架构原则-2026-10-13.md §2）。 */
 
   /** 运行平台 —— Android 上应用能访问的文件范围与桌面不同 */
   const platform: 'android' | 'windows' = /Android/i.test(navigator.userAgent)
@@ -1711,9 +1680,7 @@ export default function App() {
       service: k.service,
       editor: k.editor,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
-      // 授权判定读 ref 里的"当前值"：加载是异步的，闭包里的 permissions 可能已经过期
-      isGranted: (pluginId, capability) =>
-        isCapabilityGranted(permissionsRef.current, pluginId, capability),
+      // 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定）
     }
 
     /**
@@ -1975,25 +1942,8 @@ export default function App() {
     setReloadToken((t) => t + 1)
   }
 
-  /**
-   * 「网络访问」开关（逐插件）。
-   *
-   * 写盘后**立刻重扫**：`net` 的授权判定发生在 `loadPlugin` 里 —— 不重载的话
-   * 这次开关只改了记录，界面上那个插件依旧是"未授权"（用户会以为是开关坏了）。
-   */
-  const toggleNetwork = async (id: string, granted: boolean) => {
-    const v = vault
-    if (!v) return
-    try {
-      const table = await setPermission(v, id, 'net', granted)
-      permissionsRef.current = table
-      setPermissions(table)
-      setReloadToken((t) => t + 1)
-      setToast(granted ? `已允许「${id}」访问网络` : `已收回「${id}」的网络访问`)
-    } catch (e) {
-      setError(`更新授权记录失败：${String(e)}`)
-    }
-  }
+  /* 2026-10-13 拆权限门：这里原本是 `toggleNetwork()`（写 `.zn/permissions.json`
+   * 并重扫）。**已删除** —— 没有"授权"这回事了，插件声明的能力不再需要用户点头。 */
 
   /**
    * 删除插件：删掉插件目录 → 把它从 disabled 集合里摘掉 → 改 reloadToken
@@ -2033,10 +1983,16 @@ export default function App() {
       : undefined,
   }))
 
-  /** 已授权访问网络的插件 id（设置页「网络访问」区块用；声明了 `net` 的插件才列得出来） */
-  const grantedNet = Object.entries(permissions)
-    .filter(([, caps]) => caps.includes('net'))
-    .map(([id]) => id)
+  /**
+   * 设置页「网络与进程」区块用的清单（2026-10-13 拆门后**只读展示**）。
+   *
+   * 读的是 **manifest 的自述**（`capabilities`），不再是授权记录 ——
+   * 内核不做权限判定，所以这一块的性质从"开关"变成了"告诉你这个插件自称要什么"。
+   * `proc` 一起列：它和 `net` 以前同属"默认拒"，现在同样只是自述。
+   */
+  const declNetPlugins = rows
+    .filter((r) => r.capabilities.includes('net') || r.capabilities.includes('proc'))
+    .map((r) => ({ id: r.id, name: r.name, version: r.version, caps: r.capabilities }))
 
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */
   const titleText = activePath
@@ -2801,8 +2757,7 @@ export default function App() {
         onTogglePlugin={togglePlugin}
         onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
-        grantedNet={grantedNet}
-        onToggleNet={(id, granted) => void toggleNetwork(id, granted)}
+        declaredNet={declNetPlugins}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}
