@@ -29,6 +29,12 @@ export type FsChange = {
 export interface FsApi {
   vaultPath(): string
   listNotes(dir?: string): Promise<NoteMeta[]>
+  /**
+   * 库内**目录清单**（库内相对路径、`/` 分隔、已排序）。
+   * `listNotes` 只上报 `.md` 文件，前端若只靠它反推目录树，**空文件夹不会出现**
+   * ⇒ 文件树要显示空目录（"新建文件夹"看得见）必须用这条。
+   */
+  listDirs(): Promise<string[]>
   readText(path: string): Promise<string>
   writeText(path: string, content: string): Promise<void>
   createNote(path: string, content?: string): Promise<void>

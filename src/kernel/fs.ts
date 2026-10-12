@@ -16,6 +16,9 @@ export function createFsApi(
     listNotes: (dir?: string) =>
       invoke<NoteMeta[]>('list_notes', { vault, dir: dir ?? null }),
 
+    /** 目录清单（含空目录）—— 文件树显示空文件夹的依据 */
+    listDirs: () => invoke<string[]>('list_dirs', { vault }),
+
     readText: (path: string) =>
       invoke<string>('read_note', { vault, path }),
 

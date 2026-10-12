@@ -235,6 +235,8 @@ export default function App() {
     return fromUrl && fromUrl.trim() ? fromUrl : localStorage.getItem(LS_VAULT)
   })
   const [notes, setNotes] = useState<NoteMeta[]>([])
+  /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
+  const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -638,7 +640,12 @@ export default function App() {
   const refresh = useCallback(async () => {
     if (!kernel) return
     try {
-      setNotes(await kernel.fs.listNotes())
+      const [list, dirList] = await Promise.all([
+        kernel.fs.listNotes(),
+        kernel.fs.listDirs(),
+      ])
+      setNotes(list)
+      setDirs(dirList)
       setError(null)
     } catch (e) {
       setError(failMsg('list', e))
@@ -1046,19 +1053,84 @@ export default function App() {
     [kernel],
   )
 
-  /** 重命名笔记 —— 当前打开的正是它时同步 activePath，否则编辑器还指着旧路径 */
+  /**
+   * 重命名 / 移动（文件或**整个目录树**）。
+   *  · 文件走 `rename`，目录走 `move`（只有它能搬目录）
+   *  · 改的正是打开的笔记 ⇒ 同步 activePath；打开的笔记在**被改名的目录里** ⇒ 前缀一起换，
+   *    否则编辑器还指着一条已经不存在的路径（下一次自动保存就会写失败）
+   */
   const renameNote = useCallback(
-    async (from: string, to: string) => {
+    async (from: string, to: string, isDir = false) => {
       const k = kernel
       if (!k) return
       try {
-        await k.fs.rename(from, to)
-        if (activeRef.current === from) setActivePath(to)
+        await (isDir ? k.fs.move(from, to) : k.fs.rename(from, to))
+        const cur = activeRef.current
+        if (cur === from) setActivePath(to)
+        else if (isDir && cur?.startsWith(`${from}/`))
+          setActivePath(`${to}${cur.slice(from.length)}`)
         await refresh()
         setError(null)
         setToast(`已重命名：${to}`)
       } catch (e) {
         setError(failMsg('rename', e))
+      }
+    },
+    [kernel, refresh],
+  )
+
+  /**
+   * 在指定目录（`''` = 库根）新建笔记，返回**落盘后的库内路径**（失败 null）。
+   * 名字先探测再落盘：`create_note` 不覆盖已存在文件，撞名会直接报错，
+   * 所以这里自己避重 —— 否则"新建"会变成一个看不懂的错误。
+   */
+  const newNoteIn = useCallback(
+    async (dir: string): Promise<string | null> => {
+      const k = kernel
+      if (!k) return null
+      const d = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const stamp = `untitled-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+      try {
+        let name = `${stamp}.md`
+        let i = 2
+        while (await k.fs.exists(dir ? `${dir}/${name}` : name)) {
+          name = `${stamp}-${i}.md`
+          i += 1
+        }
+        const path = dir ? `${dir}/${name}` : name
+        await k.fs.createNote(path, '# 新笔记\n\n')
+        await refresh()
+        setError(null)
+        return path
+      } catch (e) {
+        setError(failMsg('create', e))
+        return null
+      }
+    },
+    [kernel, refresh],
+  )
+
+  /** 在指定目录下新建文件夹（`新建文件夹` / `新建文件夹 2` …），返回库内路径 */
+  const newDirIn = useCallback(
+    async (dir: string): Promise<string | null> => {
+      const k = kernel
+      if (!k) return null
+      try {
+        let name = '新建文件夹'
+        let i = 2
+        while (await k.fs.exists(dir ? `${dir}/${name}` : name)) {
+          name = `新建文件夹 ${i}`
+          i += 1
+        }
+        const path = dir ? `${dir}/${name}` : name
+        await k.fs.mkdir(path)
+        await refresh()
+        setError(null)
+        return path
+      } catch (e) {
+        setError(failMsg('create', e))
+        return null
       }
     },
     [kernel, refresh],
@@ -1082,7 +1154,11 @@ export default function App() {
         for (const path of paths) {
           done.push({ path, trash: await k.fs.delete(path) })
         }
-        if (paths.includes(activeRef.current ?? '')) {
+        // 打开的笔记被删，或它**所在的目录**被删 ⇒ 编辑器必须清空，
+        // 否则界面还留着一篇"磁盘上已经没有了"的笔记，下一次自动保存直接报错
+        const cur = activeRef.current
+        const gone = !!cur && paths.some((p) => cur === p || cur.startsWith(`${p}/`))
+        if (gone) {
           setActivePath(null)
           setContent('')
           setDirty(false)
@@ -1887,6 +1963,9 @@ export default function App() {
           // 树项自带「重命名 / 删除」菜单，别抢它
           const el = e.target
           if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
+          // 文件列表区域的**空白处**也归文件树 —— 它要在库根「新建文件 / 新建文件夹」。
+          // 侧栏其余空白（头部、底部库名那行）仍走这个应用级菜单（切库入口在那儿）。
+          if (el instanceof HTMLElement && el.closest('.zn-filetree')) return
           openMainMenu(e.clientX, e.clientY)
         }}
       >
@@ -1902,9 +1981,12 @@ export default function App() {
         {vault ? (
           <FileTree
             notes={notes}
+            dirs={dirs}
             activePath={activePath}
             onOpen={(p) => void openNote(p)}
-            onRename={(from, to) => void renameNote(from, to)}
+            onNewFile={newNoteIn}
+            onNewDir={newDirIn}
+            onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
             onDeleteMany={(paths) => void deleteNotes(paths)}
           />
         ) : (

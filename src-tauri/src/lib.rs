@@ -223,6 +223,47 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
   Ok(())
 }
 
+/// 递归收集库内**所有目录**的库内相对路径，跳过 `.` 开头与 `SKIP_DIRS`。
+///
+/// 为什么需要它：`list_notes` 只上报 `.md` 文件，前端是**从文件路径反推**目录树的
+/// ⇒ **空文件夹在文件树里根本不会出现**，"新建文件夹"会像没反应（静默失效）。
+/// 文件树要能显示空目录，就必须有这条"目录清单"。
+fn collect_dirs(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+  let entries = fs::read_dir(dir).map_err(|e| format!("读取目录失败 {}：{e}", dir.display()))?;
+  for entry in entries {
+    let entry = entry.map_err(|e| e.to_string())?;
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+      continue;
+    }
+    let path = entry.path();
+    if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+      continue;
+    }
+    let rel = path
+      .strip_prefix(root)
+      .map_err(|e| e.to_string())?
+      .to_string_lossy()
+      .replace('\\', "/");
+    out.push(rel);
+    collect_dirs(root, &path, out)?;
+  }
+  Ok(())
+}
+
+/// 库内**目录清单**（库内相对路径、`/` 分隔、已排序）—— 空目录也在内。
+#[tauri::command]
+fn list_dirs(vault: String) -> Result<Vec<String>, String> {
+  let root = PathBuf::from(&vault);
+  if !root.is_dir() {
+    return Err(format!("库目录不存在：{vault}"));
+  }
+  let mut out = Vec::new();
+  collect_dirs(&root, &root, &mut out)?;
+  out.sort();
+  Ok(out)
+}
+
 /// 原子写：同目录临时文件 → sync → rename 覆盖
 fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
   let dir = abs.parent().ok_or_else(|| "无法确定父目录".to_string())?;
@@ -841,6 +882,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       list_notes,
+      list_dirs,
       read_note,
       write_note,
       create_note,
@@ -1165,6 +1207,29 @@ mod tests {
     assert!(paths.contains(&"子目录/c.md".to_string()), "中文子目录要能递归：{paths:?}");
     assert!(!paths.iter().any(|p| p.contains(".zn")), ".zn 不能进文件树");
     assert!(!paths.iter().any(|p| p.ends_with(".txt")), "只收 markdown");
+  }
+
+  /// 空目录也要上报 —— 文件树若只靠 `list_notes` 反推目录，**空文件夹根本不会显示**
+  /// （"新建文件夹"看起来像没反应）。忽略/私密目录照旧不进清单。
+  #[test]
+  fn list_dirs_reports_empty_dirs_and_skips_ignored() {
+    let d = tmpdir("dirs");
+    let v = d.to_string_lossy().to_string();
+    fs::create_dir_all(d.join("空目录")).unwrap();
+    fs::create_dir_all(d.join("a").join("b")).unwrap();
+    fs::create_dir_all(d.join(".zn").join("plugins")).unwrap();
+    fs::create_dir_all(d.join("node_modules").join("x")).unwrap();
+
+    let dirs = list_dirs(v).unwrap();
+    assert!(dirs.contains(&"空目录".to_string()), "空目录必须上报：{dirs:?}");
+    assert!(dirs.contains(&"a".to_string()), "父目录要上报：{dirs:?}");
+    assert!(dirs.contains(&"a/b".to_string()), "多级目录要递归：{dirs:?}");
+    assert!(
+      !dirs
+        .iter()
+        .any(|p| p.starts_with(".zn") || p.contains("node_modules")),
+      "忽略目录不进清单：{dirs:?}"
+    );
   }
 
   #[test]

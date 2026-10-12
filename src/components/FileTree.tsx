@@ -15,27 +15,52 @@ type TreeNode = {
   isDir: boolean
 }
 
-function buildTree(notes: NoteMeta[]): TreeNode[] {
+/**
+ * 目录树 = **目录清单**（`dirs`，含空目录）＋ 笔记清单（`notes`）。
+ *
+ * 目录清单是必需的：只靠笔记路径只能**反推**出"装过文件的"目录，**空文件夹反推不出来**
+ * —— 那样"新建文件夹"会像没反应（静默失效）。所以 Rust 侧单给了 `list_dirs`。
+ */
+function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
   const root: TreeNode[] = []
-  for (const n of notes) {
-    const parts = n.path.split('/')
+
+  /** 逐段找到 / 建出目录节点，返回最末一段（空串 = 库根，返回 null） */
+  const ensureDir = (path: string): TreeNode | null => {
+    if (!path) return null
+    const parts = path.split('/')
     let level = root
     let acc = ''
-    parts.forEach((part, i) => {
+    let node: TreeNode | null = null
+    for (const part of parts) {
       acc = acc ? `${acc}/${part}` : part
-      const isFile = i === parts.length - 1
-      if (isFile) {
-        level.push({ name: part, path: acc, children: [], isDir: false, title: n.title })
-      } else {
-        let dir = level.find((x) => x.isDir && x.name === part)
-        if (!dir) {
-          dir = { name: part, path: acc, children: [], isDir: true }
-          level.push(dir)
-        }
-        level = dir.children
+      let dir = level.find((x) => x.isDir && x.name === part)
+      if (!dir) {
+        dir = { name: part, path: acc, children: [], isDir: true }
+        level.push(dir)
       }
+      level = dir.children
+      node = dir
+    }
+    return node
+  }
+
+  for (const d of dirs) ensureDir(d)
+
+  for (const n of notes) {
+    const parts = n.path.split('/')
+    const name = parts[parts.length - 1]
+    const parentPath = parts.slice(0, -1).join('/')
+    const parent = ensureDir(parentPath)
+    const bucket = parent ? parent.children : root
+    bucket.push({
+      name,
+      path: parentPath ? `${parentPath}/${name}` : name,
+      children: [],
+      isDir: false,
+      title: n.title,
     })
   }
+
   const sort = (nodes: TreeNode[]) => {
     nodes.sort((a, b) =>
       a.isDir === b.isDir ? a.name.localeCompare(b.name, 'zh') : a.isDir ? -1 : 1,
@@ -49,8 +74,32 @@ function buildTree(notes: NoteMeta[]): TreeNode[] {
 /** 路径最后一段（文件名或目录名） */
 const baseName = (p: string) => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p)
 
-/** 右键菜单的状态。`confirmDelete` = 已经在原位置切成「确认删除」 */
-type MenuState = { path: string; x: number; y: number }
+/** 所在目录（库内相对路径，库根 = 空串） */
+const parentDir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/** 内联命名输入框的统一外观（新建与重命名共用） */
+const INPUT_CLASS =
+  'w-full min-w-0 rounded-ui-sm border border-primary bg-background px-1.5 py-0.5 text-xs text-foreground outline-none'
+
+/**
+ * 内联编辑态（**新建后的命名**与**重命名**共用一套输入框）。
+ * 放弃改名（空输入 / Esc）一律**保留原名** —— 删除是右键菜单的职责，不靠清空输入框。
+ */
+type Renaming = { path: string; isDir: boolean }
+
+/**
+ * 右键菜单状态。
+ * `path === null` ⇒ 在树的**空白处**右键：只给"新建…"，落点是库根。
+ * `dir` = "新建…"的落点目录（右键目录 = 它自己；右键文件 = 它的父目录）。
+ */
+type MenuState = {
+  path: string | null
+  dir: string
+  isDir: boolean
+  multi: boolean
+  x: number
+  y: number
+}
 
 function Node({
   node,
@@ -59,7 +108,7 @@ function Node({
   selected,
   onPick,
   onContextMenu,
-  renamingPath,
+  renaming,
   draft,
   setDraft,
   onSubmitRename,
@@ -72,8 +121,8 @@ function Node({
   selected: Set<string>
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
-  onContextMenu: (path: string, x: number, y: number) => void
-  renamingPath: string | null
+  onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
+  renaming: Renaming | null
   draft: string
   setDraft: (v: string) => void
   onSubmitRename: () => void
@@ -83,18 +132,51 @@ function Node({
   const pad = { paddingLeft: `calc(var(--zn-space-2) + ${depth * 12}px)` }
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  // 进入重命名态时全选，直接敲新名字即可覆盖
+  // 进入内联编辑态时全选，直接敲新名字即可覆盖
   useEffect(() => {
-    if (renamingPath === node.path) inputRef.current?.select()
-  }, [renamingPath, node.path])
+    if (renaming?.path === node.path) inputRef.current?.select()
+  }, [renaming, node.path])
+
+  const editing = renaming?.path === node.path
 
   if (node.isDir) {
     return (
       <>
-        <button className="zn-tree-item" style={pad} onClick={() => setOpen((v) => !v)}>
-          <span>{open ? '▾' : '▸'}</span>
-          <span>{node.name}</span>
-        </button>
+        {editing ? (
+          <input
+            ref={inputRef}
+            style={pad}
+            value={draft}
+            aria-label="重命名文件夹"
+            className={INPUT_CLASS}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                onSubmitRename()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                onCancelRename()
+              }
+            }}
+            onBlur={onSubmitRename}
+          />
+        ) : (
+          <button
+            className="zn-tree-item"
+            style={pad}
+            onClick={() => setOpen((v) => !v)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onContextMenu(node.path, true, e.clientX, e.clientY)
+            }}
+            title={`${node.path}（右键：新建 / 重命名 / 删除）`}
+          >
+            <span>{open ? '▾' : '▸'}</span>
+            <span>{node.name}</span>
+          </button>
+        )}
         {open &&
           node.children.map((c) => (
             <Node
@@ -105,7 +187,7 @@ function Node({
               selected={selected}
               onPick={onPick}
               onContextMenu={onContextMenu}
-              renamingPath={renamingPath}
+              renaming={renaming}
               draft={draft}
               setDraft={setDraft}
               onSubmitRename={onSubmitRename}
@@ -123,14 +205,14 @@ function Node({
   const active = node.path === activePath
   const picked = selected.has(node.path) && !active
 
-  if (renamingPath === node.path) {
+  if (editing) {
     return (
       <input
         ref={inputRef}
         style={pad}
         value={draft}
         aria-label="重命名笔记"
-        className="w-full min-w-0 rounded-ui-sm border border-primary bg-background px-1.5 py-0.5 text-xs text-foreground outline-none"
+        className={INPUT_CLASS}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -154,7 +236,7 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        onContextMenu(node.path, e.clientX, e.clientY)
+        onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
     >
@@ -165,21 +247,34 @@ function Node({
 
 export function FileTree({
   notes,
+  dirs = [],
   activePath,
   onOpen,
-  onDeleteMany,
+  onNewFile,
+  onNewDir,
   onRename,
+  onDeleteMany,
 }: {
   notes: NoteMeta[]
+  /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
+  dirs?: string[]
   activePath: string | null
   onOpen: (path: string) => void
+  /**
+   * 在 `dir`（库内相对路径，`''` = 库根）建一篇新笔记。
+   * 返回**落盘后的库内路径**，失败返回 null —— 调用方据此进入内联命名态。
+   */
+  onNewFile: (dir: string) => Promise<string | null>
+  /** 在 `dir` 建一个新文件夹，返回落盘后的库内路径 */
+  onNewDir: (dir: string) => Promise<string | null>
+  /** 重命名 / 移动；`isDir` 决定底层走 `move`（能搬目录树）还是 `rename` */
+  onRename: (from: string, to: string, isDir: boolean) => void
   /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
   onDeleteMany: (paths: string[]) => void
-  onRename: (from: string, to: string) => void
 }) {
-  const tree = useMemo(() => buildTree(notes), [notes])
+  const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const [renamingPath, setRenamingPath] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<Renaming | null>(null)
   const [draft, setDraft] = useState('')
   /** 多选：当前高亮的路径；空数组时退化为「只有打开的那篇被选中」 */
   const [selected, setSelected] = useState<string[]>([])
@@ -233,37 +328,70 @@ export function FileTree({
     onOpen(path)
   }
 
-  const startRename = (path: string) => {
+  const startRename = (path: string, isDir: boolean) => {
     setDraft(baseName(path))
-    setRenamingPath(path)
+    setRenaming({ path, isDir })
     setMenu(null)
   }
 
-  const cancelRename = () => setRenamingPath(null)
+  const cancelRename = () => setRenaming(null)
 
   /**
-   * 提交重命名。规则：
-   *  · 只写文件名 = 同目录改名；写 `子目录/名.md` = 连目录一起（Rust 侧会自动建父目录）
-   *  · 不带后缀自动补 `.md`
+   * 提交重命名 / 移动。规则：
+   *  · 只写名字 = 同目录改名；写 `子目录/名.md` = 连目录一起搬（Rust 侧会自动建父目录）
+   *  · 文件不带后缀自动补 `.md`；**目录不补**（目录名里带点很常见）
    *  · `..`、绝对路径、Windows 非法字符一律交给 Rust 的路径校验拒绝，错误原样显示
+   *  · 空输入 = 放弃改名；刚新建的条目**保留默认名**（删除走右键菜单，不靠清空输入框）
    */
   const submitRename = () => {
-    const from = renamingPath
-    setRenamingPath(null)
-    if (!from) return
+    const r = renaming
+    setRenaming(null)
+    if (!r) return
     const raw = draft.trim()
-    if (!raw) return
-    const dir = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : ''
-    let next = raw.includes('/') ? raw : dir + raw
-    if (!/\.(md|markdown)$/i.test(next)) next += '.md'
-    if (next === from) return
-    onRename(from, next)
+    if (!raw || raw === baseName(r.path)) return
+    const dir = parentDir(r.path)
+    const joined = raw.includes('/') ? raw : dir ? `${dir}/${raw}` : raw
+    if (r.isDir) {
+      if (joined !== r.path) onRename(r.path, joined, true)
+      return
+    }
+    const next = /\.(md|markdown)$/i.test(joined) ? joined : `${joined}.md`
+    if (next !== r.path) onRename(r.path, next, false)
   }
 
-  if (!notes.length) {
+  /** 菜单里的「新建文件 / 新建文件夹」→ 落盘后立刻进入内联命名态 */
+  const createIn = async (dir: string, isDir: boolean) => {
+    setMenu(null)
+    const path = isDir ? await onNewDir(dir) : await onNewFile(dir)
+    if (!path) return
+    // 新建的**文件**顺手打开 —— 用户刚建它，下一步多半就是写内容
+    if (!isDir) onOpen(path)
+    startRename(path, isDir)
+  }
+
+  if (!notes.length && !dirs.length) {
     return (
-      <div className="zn-tree" style={{ color: 'var(--zn-fg-subtle)', fontSize: 'var(--zn-text-sm)' }}>
-        库里还没有 .md 文件
+      <div
+        className="zn-tree zn-filetree"
+        style={{ color: 'var(--zn-fg-subtle)', fontSize: 'var(--zn-text-sm)' }}
+        onContextMenu={(e) => {
+          // 空库也要能新建 —— 空白处右键给「新建文件 / 新建文件夹」
+          e.preventDefault()
+          setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
+        }}
+      >
+        库里还没有 .md 文件（右键可新建）
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            items={[
+              { label: '新建文件', onClick: () => void createIn('', false) },
+              { label: '新建文件夹', onClick: () => void createIn('', true) },
+            ]}
+            onClose={() => setMenu(null)}
+          />
+        )}
       </div>
     )
   }
@@ -278,31 +406,52 @@ export function FileTree({
 
   const items: MenuItem[] = menu
     ? (() => {
-        const multi = selectedSet.size > 1 && selectedSet.has(menu.path)
         const list: MenuItem[] = []
-        if (!multi) {
-          list.push({ label: '重命名', onClick: () => startRename(menu.path) })
-        }
-        list.push({
-          label: multi ? `删除选中的 ${selectedSet.size} 篇` : '删除',
-          danger: true,
-          onClick: () => deletePaths(multi ? [...selectedSet] : [menu.path]),
-        })
-        // 右键的是选中项之外的一条时，额外给一个「删除选中的 N 篇」入口
-        if (!multi && selectedSet.size > 1) {
+        // 与 NoteGen 的右键结构对齐：新建在最上，其次重命名 / 删除。
+        // （它菜单里的「查看目录 / 知识库 / 上传下载 / 删除远程」ZeroNote 没有对应概念，
+        //   故不列出 —— 宁缺勿假。）
+        list.push({ label: '新建文件', onClick: () => void createIn(menu.dir, false) })
+        list.push({ label: '新建文件夹', onClick: () => void createIn(menu.dir, true) })
+        if (menu.path) {
+          const path = menu.path
+          const multi = menu.multi
           list.push({
-            label: `删除选中的 ${selectedSet.size} 篇`,
-            danger: true,
+            label: '重命名',
             divider: true,
-            onClick: () => deletePaths([...selectedSet]),
+            onClick: () => startRename(path, menu.isDir),
           })
+          list.push({
+            label: multi
+              ? `删除选中的 ${selectedSet.size} 项`
+              : menu.isDir
+                ? '删除文件夹'
+                : '删除',
+            danger: true,
+            onClick: () => deletePaths(multi ? [...selectedSet] : [path]),
+          })
+          // 右键的是选中项之外的一条时，额外给一个「删除选中的 N 项」入口
+          if (!multi && selectedSet.size > 1) {
+            list.push({
+              label: `删除选中的 ${selectedSet.size} 项`,
+              danger: true,
+              divider: true,
+              onClick: () => deletePaths([...selectedSet]),
+            })
+          }
         }
         return list
       })()
     : []
 
   return (
-    <div className="zn-tree">
+    <div
+      className="zn-tree zn-filetree"
+      onContextMenu={(e) => {
+        // 空白处右键 = 在**库根**新建（节点的右键已 stopPropagation，不会走到这里）
+        e.preventDefault()
+        setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
+      }}
+    >
       {tree.map((n) => (
         <Node
           key={n.path}
@@ -311,8 +460,17 @@ export function FileTree({
           activePath={activePath}
           selected={selectedSet}
           onPick={pick}
-          onContextMenu={(path, x, y) => setMenu({ path, x, y })}
-          renamingPath={renamingPath}
+          onContextMenu={(path, isDir, x, y) =>
+            setMenu({
+              path,
+              dir: isDir ? path : parentDir(path),
+              isDir,
+              multi: selectedSet.has(path) && selectedSet.size > 1,
+              x,
+              y,
+            })
+          }
+          renaming={renaming}
           draft={draft}
           setDraft={setDraft}
           onSubmitRename={submitRename}
