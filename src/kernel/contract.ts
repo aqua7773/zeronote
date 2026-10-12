@@ -507,6 +507,19 @@ export type Capability =
   | 'net'
   | 'proc'
 
+/**
+ * 插件声明的运行平台。
+ *
+ * **只有两档**：`desktop`（Windows / macOS / Linux 桌面）与 `android`。
+ * 「双端」不是一个取值，而是**两个都写**：`["desktop", "android"]`。
+ * 不写整个字段 = 全平台（向后兼容：老插件一个都不用改）。
+ *
+ * 宿主拿它跟**当前平台**比对（`host.platform` 的 `windows | other` 都算 `desktop`）；
+ * 不匹配的插件**不加载**，并在插件管理页标成「不适用」—— 这不是错误，
+ * 所以**不弹错误横幅**（把桌面专属插件拷到手机上是很正常的操作）。
+ */
+export type PluginPlatform = 'desktop' | 'android'
+
 /** 插件清单：`.zn/plugins/<id>/manifest.json` */
 export type PluginManifest = {
   /** manifest 结构版本（防将来改字段分不清新旧） */
@@ -533,8 +546,11 @@ export type PluginManifest = {
   /** 要注入的样式表（POSIX 相对路径）。主题类插件只写 CSS 即可，不必有 entry */
   styles?: string[]
   description?: string
-  /** 支持的平台；缺省 = 全平台。M3 的 Android 必需项（桌面子进程语义在真机会失败） */
-  platforms?: ('desktop' | 'android' | 'web')[]
+  /**
+   * 支持的平台：`["desktop"]` / `["android"]` / `["desktop","android"]`（双端）。
+   * **缺省 = 全平台**。只在声明里写了、却与当前平台不符的插件上生效 —— 见 `PluginPlatform`。
+   */
+  platforms?: PluginPlatform[]
   capabilities: Capability[]
   /**
    * 依赖的**前置插件**（只声明，**不做拓扑排序、不做版本求解**）。

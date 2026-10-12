@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 32
-更新时间: 2026-10-12（下午 · 缺口 3 完成：最近库**过期记录自动清理 + 提示**，只读探测不误杀）
+revision: 33
+更新时间: 2026-10-12（下午 · 平台门落地：`platforms` 声明真的生效了 —— 桌面 / 移动端 / 双端三档）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -143,6 +143,55 @@ revision: 32
 > **测试残留**：临时库 `_tmp-vault-gap3/`（含 `probe.md`）验证完即已删除；
 > `_shots/gap3-*.png` 十张留在截图目录（该目录在 `.gitignore` 里，不进提交）。
 
+> ## 📌 rev33（同日 14:00 · 缺口 1「`platforms` 声明不强制」→ **平台门落地**）
+>
+> 用户原话：「**改插件应该有桌面或者移动端或者双端的声明**」。
+> 此前 `manifest.platforms` 有字段、18 个示例里 17 个都写了，但 `loadPlugin` **根本不读它** ——
+> 声明纯装饰，Android 照样会拉桌面专属插件。
+>
+> **三档语义（定稿）**
+>
+> | 写法 | 含义 |
+> |---|---|
+> | `["desktop"]` | 仅桌面（Windows / macOS / Linux） |
+> | `["android"]` | 仅移动端 |
+> | `["desktop", "android"]` | 双端 |
+> | 字段整个不写 | 全平台（**向后兼容**，老插件零改动） |
+>
+> 取值从 `desktop | android | web` **收窄为 `desktop | android`** —— `web` 档从来没有任何宿主来源
+> （`host.platform` 只可能是 `windows | android | other`），留着只会让人以为能声明"浏览器版"。
+> 拼错（`"windwos"`）以前是**静默失效**（插件照常加载，作者以为限住了），现在**拒载 + 报错并列出合法取值**。
+>
+> **两套词汇表的归一是本轮的暗坑**：manifest 用 `desktop`，而 `host.platform` 用 `windows`。
+> 归一边界定为 **`other`（macOS / Linux）= `desktop`** —— 桌面就是桌面，不该因为不是 Windows 被判"不适用"。
+>
+> **两道门（同一个 `supportsPlatform`，不是两套判据）**
+> 1. `loadPlugin` 里的 `assertPlatform` —— 所有加载路径的**单一真相**；
+> 2. `App.tsx` 加载循环**开头提前判** —— 必须提前，才能连**懒激活**插件一起挡住：
+>    否则它的 `contributes.commands` 会被静态登记，手机的命令面板里就多出一条永远跑不通的桌面命令。
+>
+> **不匹配 = 正常跳过，不是错误**：插件页显示「不适用 · 仅桌面端 / 仅移动端」+ 开关**禁用**
+> （让人拨一个无效开关比不给开关更糟），且**不进错误横幅** —— 把桌面专属插件拷到手机上太常见了。
+> `PlatformMismatch` 做成专用错误类型，就是为了让调用方能把它和"真失败"分开。
+>
+> **验收（桌面 5 张 + 对照三组）**
+> - `_shots/gate-04-plugins-page.png`：`["android"]` 插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无报错**
+> - `_shots/gate-05-dual-loaded.png`：**对照 A** 改双端 ⇒ **已启用**（证明只挡不匹配的，没有误杀）
+> - `_shots/gate-06-lazy-skipped.png`：**对照 B** 懒激活 + 仅移动端 ⇒ 仍被跳过
+> - `_shots/gate-07-palette-no-cmd.png`：同一状态下的命令面板 ⇒ **列不出它的命令**（懒激活分支未被登记）
+> - `_shots/gate-08-invalid-rejected.png`：**对照 C** `"windwos"` 拼错 ⇒ 拒载 + 错误横幅
+>   「manifest.platforms 有非法取值：windwos（只接受 "desktop" / "android"；要双端就两个都写）」
+> - `_shots/gate-10-cleanup.png`：测试库删掉后最近库**自动移除**它（顺带二次验证 rev32 那条）
+>
+> **新增示例** `examples/platform-locked/`（`platforms: ["android"]`）—— 把 `platforms` 改成
+> `["desktop"]` 推到手机上即可反向验一遍。
+>
+> **基线**：`tsc -b` **0 错误** · `oxlint` **4**（= 基线）· `cargo test --lib` **17 passed**（本轮未动 Rust）。
+> **踩坑**：`tsconfig` 开了 `erasableSyntaxOnly` —— 构造函数参数属性（`constructor(readonly x: T)`）
+> 会被 tsc 直接拒（`TS1294`），得写显式字段赋值。
+>
+> **未做**：真机复验（桌面已验；手机上要重装 APK，用户本轮选择不跑）。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
@@ -198,6 +247,7 @@ revision: 32
 | **📊 CSP 落地 + 白名单内外对照实验** | `tauri.conf.json` 的 `csp` 从 `null` → 白名单；`_shots/csp-02-katex.png`：**katex 的 CDN 加载完全不受影响**（两条公式正常排版 + 绿标「katex 0.16.11（由前置插件提供）」）；对照实验 `csp-05-whitelist.png`（`fetch('https://esm.sh/…')` → **HTTP 200 —— 通**）vs `csp-06-blocked.png`（`fetch('https://example.com/')` → **`TypeError: Failed to fetch` —— 被拦**）⇒ **CSP 真的拦网络**（结论写进契约 §4.2） | 本次 |
 | **🧬 插件资源自动登记 + 生命期串行链** | `_shots/perm-23-rescan-bottom.png`：连点 6 次「重新扫描」后 **ui-kit / tag-demo 全部已启用**（修前稳定报「命令 id 重复：ui-kit.hit」并变未启用）；`perm-22-rescan-ok.png` 为同一状态下的顶部（**无错误横幅**） | 本次 |
 | **🗂 最近库过期记录自动清理**（缺口 3） | `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 仍在最近列表、底栏报「库目录不存在」→ `gap3-04-menu-cleaned.png`：打开菜单即**自动剔除 + toast 提示** → `gap3-06-persisted.png`：`Ctrl+R` 重载后列表仍干净且**无 toast** ⇒ 真持久化；对照 `gap3-16-menu-zoom3.png`（目录在就不误杀）vs `gap3-17-gate-toast-zoom.png`（菜单弹出后才删目录 ⇒ `applyVault` 的门拦下：**不切库、不报错**）· `cargo test` **17 passed**（新增 `vault_exists_is_read_only`：只读、不建目录） | 本次 |
+| **🚧 平台门（缺口 1）** | `_shots/gate-04-plugins-page.png`：`platforms:["android"]` 的插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无错误横幅**；三组对照 —— `gate-05`（改成双端 ⇒ **已启用**，证明只挡不匹配的、没误杀）· `gate-06` + `gate-07`（懒激活 + 仅移动端 ⇒ 仍跳过，且命令面板里**列不出**它的命令）· `gate-08`（`"windwos"` 拼错 ⇒ **拒载 + 报错并列出合法取值**，不再静默失效）；新增示例 `examples/platform-locked/` | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 

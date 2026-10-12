@@ -20,6 +20,14 @@ export type PluginRow = {
   description?: string
   enabled: boolean
   capabilities: string[]
+  /**
+   * 平台不适用时的说明（如「不适用 · 仅桌面端」）。
+   *
+   * 有值 ⇒ 这个插件声明了 `manifest.platforms` 且与当前平台不符，**内核根本没加载它**。
+   * 所以开关要禁用 —— 拨它不会有任何效果，让人拨一个无效开关比不给开关更糟。
+   * 它**不是错误**：把桌面专属插件拷到手机上是很正常的操作，不该报红。
+   */
+  platformNote?: string
 }
 
 export function PluginPanel({
@@ -58,12 +66,21 @@ export function PluginPanel({
                 type="checkbox"
                 className="zn-plugin-switch"
                 checked={p.enabled}
+                disabled={!!p.platformNote}
+                title={
+                  p.platformNote
+                    ? '这个插件声明了只支持特定平台，当前平台不加载它'
+                    : undefined
+                }
                 onChange={(e) => onToggle(p.id, e.target.checked)}
                 aria-label={`启用 ${p.name}`}
               />
               <div className="zn-plugin-meta">
                 <div className="zn-plugin-name">
                   {p.name} <span className="zn-plugin-ver">v{p.version}</span>
+                  {p.platformNote && (
+                    <span className="zn-plugin-ver"> {p.platformNote}</span>
+                  )}
                 </div>
                 {p.description && <div className="zn-plugin-desc">{p.description}</div>}
                 <div className="zn-plugin-caps">

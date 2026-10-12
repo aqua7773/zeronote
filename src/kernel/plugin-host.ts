@@ -24,6 +24,7 @@ import type {
   ServiceApi,
   EditorApi,
   PluginManifest,
+  PluginPlatform,
   StoreApi,
   ViewApi,
 } from './contract'
@@ -76,6 +77,11 @@ export type LoadedPlugin = {
 
 export type PluginHostDeps = {
   vault: string
+  /**
+   * 当前平台（与 `host.platform` 同源）。**平台门的输入** ——
+   * 声明了 `platforms` 的插件拿它比对，不符就不加载（见 `supportsPlatform`）。
+   */
+  platform: HostApi['platform']
   fs: FsApi
   doc: DocApi
   index: IndexApi
@@ -101,6 +107,58 @@ export type PluginHostDeps = {
 
 /* ───────── 校验 ───────── */
 
+/* ── 平台门：manifest.platforms ↔ host.platform ── */
+
+/**
+ * 把 `host.platform` 归一到 manifest 用的两档词汇。
+ *
+ * 两套词汇表不一致是历史遗留：`host.platform` 是 `windows | android | other`
+ * （插件运行时自己查询用），manifest 里是 `desktop | android`（作者关心的粒度）。
+ * **`other`（macOS / Linux 桌面）算 `desktop`** —— 桌面就是桌面，
+ * 不该因为不是 Windows 就把桌面插件判成"不适用"。
+ */
+export function platformOf(host: HostApi['platform']): PluginPlatform {
+  return host === 'android' ? 'android' : 'desktop'
+}
+
+/** 这个插件能在当前平台跑吗 —— **缺省（没写 `platforms`）= 全平台** */
+export function supportsPlatform(
+  m: Pick<PluginManifest, 'platforms'>,
+  current: PluginPlatform,
+): boolean {
+  const declared = m.platforms
+  if (!Array.isArray(declared) || declared.length === 0) return true
+  return declared.includes(current)
+}
+
+/**
+ * 平台不符时抛的**专用错误**。
+ *
+ * 为什么要单独一个类型：调用方必须能把它和"真失败"分开 —— 平台不符是**正常跳过**，
+ * 不能进错误横幅（把桌面专属插件拷到手机上、再打开手机看一眼，太常见了）。
+ */
+export class PlatformMismatch extends Error {
+  // 不用构造函数参数属性：tsconfig 开了 `erasableSyntaxOnly`，那种语法会被 tsc 拒掉
+  readonly pluginId: string
+  readonly declared: PluginPlatform[]
+  readonly current: PluginPlatform
+
+  constructor(pluginId: string, declared: PluginPlatform[], current: PluginPlatform) {
+    super(`插件 ${pluginId} 只支持 ${declared.join(' / ')}，当前是 ${current} —— 已跳过加载`)
+    this.name = 'PlatformMismatch'
+    this.pluginId = pluginId
+    this.declared = declared
+    this.current = current
+  }
+}
+
+/** 平台门本体：不符就抛 `PlatformMismatch`（**所有加载路径都得过它**） */
+function assertPlatform(m: PluginManifest, current: PluginPlatform): void {
+  if (!supportsPlatform(m, current)) {
+    throw new PlatformMismatch(m.id, m.platforms ?? [], current)
+  }
+}
+
 function assertManifest(m: unknown, dir: string): asserts m is PluginManifest {
   const o = m as Partial<PluginManifest> | null
   // entry 不再是必填：纯样式（主题类）插件只声明 styles 即可，不写 JS
@@ -115,8 +173,19 @@ function assertManifest(m: unknown, dir: string): asserts m is PluginManifest {
     }
   }
   if (!Array.isArray(o.capabilities)) throw new Error(`manifest.capabilities 必须是数组（${dir}）`)
-  if (o.platforms && !Array.isArray(o.platforms)) {
-    throw new Error(`manifest.platforms 必须是数组（${dir}）`)
+  if (o.platforms !== undefined) {
+    if (!Array.isArray(o.platforms)) {
+      throw new Error(`manifest.platforms 必须是数组（${dir}）`)
+    }
+    // 写错一个字母（`"windwos"`）以前是**静默失效**：插件照常加载，作者却以为限住了平台。
+    // 现在直接拒载并列出合法取值 —— 与"静默失效比报错危险"同一条纪律。
+    const bad = o.platforms.filter((p) => p !== 'desktop' && p !== 'android')
+    if (bad.length) {
+      throw new Error(
+        `manifest.platforms 有非法取值：${bad.join(', ')}` +
+          `（只接受 "desktop" / "android"；要双端就两个都写）（${dir}）`,
+      )
+    }
   }
   // 至少得有一点东西可加载：一个 JS 入口，或一份要注入的样式
   if (!o.entry && !(Array.isArray(o.styles) && o.styles.length)) {
@@ -395,6 +464,9 @@ export async function readManifest(vault: string, dir: string): Promise<PluginMa
 export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<LoadedPlugin> {
   const manifest = await readManifest(deps.vault, dir)
   assertApiVersion(manifest.apiVersion, manifest.id)
+  // 平台门排在 capability 之前：一个跑不起来的插件，先说"它不适用于这台机器"，
+  // 比先说"你还得去授权 net"更接近用户真正需要知道的事。
+  assertPlatform(manifest, platformOf(deps.platform))
   assertCapabilities(manifest.capabilities, manifest.id, deps.isGranted ?? neverGranted)
 
   const subs: Disposable[] = []

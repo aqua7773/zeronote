@@ -14,7 +14,10 @@ import {
   deletePluginDir,
   listPluginDirs,
   loadPlugin,
+  platformOf,
+  PlatformMismatch,
   readManifest,
+  supportsPlatform,
   unloadPlugin,
   type LoadedPlugin,
   type PluginHostDeps,
@@ -248,6 +251,11 @@ export default function App() {
   const [disabled, setDisabled] = useState<Set<string>>(loadDisabled)
   const [reloadToken, setReloadToken] = useState(0)
   const [loadedIds, setLoadedIds] = useState<string[]>([])
+  /**
+   * 因 **平台不符**被跳过的插件 id（`manifest.platforms` 跟当前平台对不上）。
+   * 这不是错误 —— 插件页把它们标成「不适用」，不进错误横幅。
+   */
+  const [platformSkipped, setPlatformSkipped] = useState<string[]>([])
   const [panels, setPanels] = useState<PanelRegistration[]>([])
   const [panelLog, setPanelLog] = useState<string[]>([])
   const [pluginError, setPluginError] = useState<string | null>(null)
@@ -1190,8 +1198,13 @@ export default function App() {
     const pending = new Map<string, string>()
     /** 本次静态声明过命令的插件 id —— 卸载时要把它们的命令元数据也清掉 */
     const declaredIds = new Set<string>()
+    /** 本次因平台不符被跳过的插件 id（循环末尾交给 state，供插件页标「不适用」） */
+    const platformSkippedIds: string[] = []
+    /** 平台门的输入 —— 取 kernel 的 `host.platform`（单一真相），别另算一遍 UA */
+    const currentPlatform = platformOf(k.host.platform)
     const deps: PluginHostDeps = {
       vault,
+      platform: k.host.platform,
       fs: k.fs,
       doc: k.doc,
       index: k.index,
@@ -1272,6 +1285,15 @@ export default function App() {
           if (cancelled) return
           if (disabledRef.current.has(m.id)) continue
           /**
+           * 平台门（**提前判**，与 `loadPlugin` 里那道用的是同一个 `supportsPlatform`）：
+           * 必须在这里判才能连**懒激活**的插件一起挡住 —— 否则它的命令元数据会被静态登记，
+           * 于是手机的命令面板里列出一条永远跑不通的桌面专属命令。
+           */
+          if (!supportsPlatform(m, currentPlatform)) {
+            platformSkippedIds.push(m.id)
+            continue
+          }
+          /**
            * 懒激活判定：写了 `activationEvents` 且**不含** onStartup / onVaultOpen
            * ⇒ 只静态登记命令元数据，插件代码一行都不跑（命令面板照样列得出它）。
            * 没写（或写了 onStartup）⇒ **老行为**：立即 apply —— 现有插件零影响。
@@ -1306,11 +1328,20 @@ export default function App() {
             loaded.push(l)
             ids.push(m.id)
           } catch (e) {
+            // 平台不符 = 正常跳过，不是错误（上面已提前判过，这里是防御：
+            // 加载期间目录里的 manifest 被换掉，也走同一条路，别报成"加载失败"）
+            if (e instanceof PlatformMismatch) {
+              platformSkippedIds.push(m.id)
+              continue
+            }
             // 被取代时不再报错：那些失败多半是取消造成的假象
             if (!cancelled) setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
           }
         }
-        if (!cancelled) setLoadedIds(ids)
+        if (!cancelled) {
+          setLoadedIds(ids)
+          setPlatformSkipped(platformSkippedIds)
+        }
       } catch (e) {
         if (!cancelled) setPluginError(String(e))
       }
@@ -1324,6 +1355,7 @@ export default function App() {
       // 静态声明的命令元数据是同步资源，当场清（那些插件可能从没被激活过）
       for (const id of declaredIds) k.commands.release(id)
       setLoadedIds([])
+      setPlatformSkipped([])
       // 实例的卸载**不在这里做**：交给链上的下一代开头统一处理（run 的 ① 步）。
       // 这样"卸完"与"开始加载新代"之间不会插进别的任务，也不再有
       // "cleanup 里 fire-and-forget 卸载 → 新代已经在注册命令"的窗口。
@@ -1498,6 +1530,12 @@ export default function App() {
     description: m.description,
     enabled: loadedIds.includes(m.id),
     capabilities: m.capabilities ?? [],
+    // 平台不符 ⇒ 一行说明它只支持哪端（「桌面」/「移动」两类人话，不暴露 desktop/android 字面量）
+    platformNote: platformSkipped.includes(m.id)
+      ? `不适用 · 仅${(m.platforms ?? [])
+          .map((p) => (p === 'desktop' ? '桌面' : '移动'))
+          .join(' / ')}端`
+      : undefined,
   }))
 
   /** 已授权访问网络的插件 id（设置页「网络访问」区块用；声明了 `net` 的插件才列得出来） */
