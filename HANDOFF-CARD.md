@@ -78,6 +78,12 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > ⚠️ **`npm i mind-elixir` 会装到 `6.0.0-next.4`**（latest tag 指向 pre-release）⇒ **必须锁 `mind-elixir@5.15.1`**。
 > 集成落点照旧：导图窗口 `view.overrideShell` 挂真 DOM（**窗口里接管内核已支持**，`App.tsx:2404`）
 > + 库离线放插件目录 + 导出转列表经 `fs.writeText` 写回。
+> ✅ **rev57 已落地**：`examples/outline-map/vendor/` 三件套（MIT，110 KB），窗口内容区由
+> `overrideShell` 接管跑真库（真 DOM + 拖拽 + 中文右键 + 撤销重做）；双向写回 =
+> 400 ms 去抖 → **重定位行号** → `fs.writeText`；undo/redo **不 fire operation** ⇒ 按钮与 `Ctrl+Z` 都补写回。
+> 验收 **`tools/verify-mindmap.mjs` 8/8**（含**真拖拽**：竞品从「调研」下拖进「设计」，磁盘跟着变）；
+> 截图 `_shots/mindmap-v3-window.png`；基线 `tsc` 0 · `oxlint src` 4。
+> **下一步 = 打磨**：跟随 `--zn-*` 主题令牌 · 折叠要不要写回 · 窗口菜单栏 · 与编辑器"未保存手改"的冲突。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
@@ -162,11 +168,14 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev49**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+`HANDOFF.md`（**rev57**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·
 `tools/verify-takeover.mjs`（**接管/还原的自动验收**）·
 `tools/verify-plugin-window.mjs`（**独立窗口的自动验收**）·
 `tools/verify-shell.mjs`（**整窗接管的自动验收**）·
-`tools/verify-outline-map.mjs`（**大纲 → 导图窗口的自动验收**）· `examples/`（插件示例；`window-demo` = 窗口示例，
+`tools/verify-outline-map.mjs`（**大纲 → 导图窗口的自动验收**）·
+**`tools/verify-mindmap.mjs`（v0.3 真导图库的自动验收，8/8，含真拖拽）**·
+`examples/outline-map/vendor/`（**离线库三件套：Mind Elixir 5.15.1，MIT，110 KB**）·
+`examples/`（插件示例；`window-demo` = 窗口示例， `examples/`（插件示例；`window-demo` = 窗口示例，
 `shell-demo` = 整窗接管示例，`outline-map` = 导图窗口（v0.2），`md-toolbar` 已退役删除）

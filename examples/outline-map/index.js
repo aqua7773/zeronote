@@ -352,13 +352,118 @@ function toMermaid(root, rootLabel) {
   return out.join('\n')
 }
 
+/* ───────────────── ④ 真导图库：mind-elixir（离线） ─────────────────
+ *
+ * 用户 2026-10-13 的裁决：「去看有没有开源的思维导图项目，能用就直接用，不要再闭门造车」——
+ * 这个段就是那次裁决的落地：图交给 **Mind Elixir 5.15.1**（MIT）画，
+ * `layout` / `toSvg` 那套自算布局退居"主区预览 + 库载不进时的兜底"。
+ *
+ * 库**就在插件目录里**（`vendor/`，共 110 KB，不走 CDN ⇒ 离线、手机也能用）。
+ * 加载方式必须是"运行时自己装配"：
+ *   · 插件入口本身跑在 **Blob 模块**里 ⇒ **相对导入没有 base 目录**（契约 §3.2 的硬限制）；
+ *   · 所以：`fs.readText` 读出 IIFE 产物 → 补一句 `export default` → 新 Blob → 动态 import。
+ * `vendor/MindElixir.iife.js` 尾部实测是 `I.default = Ct; I.RIGHT = 1; …`（`Ct` 是类），
+ * 所以**类在 `.default` 上**，常量（RIGHT / THEME / DARK_THEME）在同级。
+ */
+const LIB_VERSION = '5.15.1'
+/** 同一个 webview 里只加载一次（失败会清掉缓存，允许重试） */
+let libPromise = null
+
+function loadMindElixir(fs, pluginId) {
+  if (libPromise) return libPromise
+  libPromise = (async () => {
+    const base = `.zn/plugins/${pluginId}/vendor`
+    const [src, css] = await Promise.all([
+      fs.readText(`${base}/MindElixir.iife.js`),
+      fs.readText(`${base}/MindElixir.css`),
+    ])
+    const code = `${src}\nexport default (typeof MindElixir !== 'undefined' && MindElixir.default) || null;`
+    const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
+    try {
+      const mod = await import(/* @vite-ignore */ url)
+      const ME = mod.default
+      if (typeof ME !== 'function') {
+        throw new Error(`MindElixir 全局形状不对（typeof = ${typeof ME}）—— 查 vendor/MindElixir.iife.js`)
+      }
+      return { MindElixir: ME, css, version: LIB_VERSION }
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  })()
+  libPromise.catch(() => {
+    libPromise = null
+  })
+  return libPromise
+}
+
+/**
+ * 块 → mind-elixir 数据。根 = 块名（笔记里那个标题）。
+ * `id` 用**路径**（`n0.2`）而不是行号：行号一改就废，路径能解释、能复现。
+ */
+function blockToMeData(block) {
+  const mk = (node, id) => ({
+    id,
+    topic: node.text,
+    children: (node.children ?? []).map((c, i) => mk(c, `${id}.${i}`)),
+  })
+  return {
+    nodeData: {
+      id: 'root',
+      topic: block.title,
+      root: true,
+      children: (block.nodes ?? []).map((n, i) => mk(n, `n${i}`)),
+    },
+    direction: 1, // MindElixir.RIGHT —— 大纲向右展开成树
+  }
+}
+
+/**
+ * mind-elixir 数据 → 笔记里的 `- ` 行。**根不写**：块名就是笔记里那个标题行。
+ * `baseIndent` 保留原来那组的缩进基准（有人把整列表缩进两格也不打乱）。
+ */
+function meDataToLines(data, baseIndent = 0) {
+  const out = []
+  const walk = (node, depth) => {
+    const text = String(node?.topic ?? '')
+      .replace(/\r?\n/g, ' ')
+      .trim()
+    out.push(`${' '.repeat(baseIndent + depth * INDENT_UNIT)}- ${text}`)
+    for (const c of node?.children ?? []) walk(c, depth + 1)
+  }
+  for (const c of data?.nodeData?.children ?? []) walk(c, 0)
+  return out
+}
+
+/** 宿主当前是不是暗色主题（`<html data-theme="dark">`，见 styles.css） */
+function isDarkTheme() {
+  const t = document.documentElement.dataset.theme
+  if (t) return t === 'dark'
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+/** 右键菜单的中文文案（库默认是英文；字段名见 `contextMenu` 插件） */
+const MM_LOCALE = {
+  addChild: '添加子节点',
+  addParent: '添加父节点',
+  addSibling: '添加兄弟节点',
+  removeNode: '删除节点',
+  focus: '专注模式',
+  cancelFocus: '退出专注',
+  moveUp: '上移',
+  moveDown: '下移',
+  link: '连线',
+  linkBidirectional: '双向连线',
+  clickTips: '点击目标节点',
+  summary: '概要',
+}
+
 /* ───────────────── 面板 / 窗口 ───────────────── */
 
 const INDENT = '　' // 全角空格：UINode 没有缩进字段，用它做视觉层级
 
 export default {
   async apply(ctx) {
-    const { doc, command, view, host, fs, store, subscriptions, editor } = ctx
+    const { doc, command, view, host, fs, store, subscriptions, editor, pluginId } = ctx
 
     /**
      * 闭包缓存：`render` 是**同步**纯函数，而读盘是异步的 ⇒ 数据在这儿。
@@ -534,7 +639,210 @@ export default {
       registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
 
       view.registerPanel({ id: winId, title, location: 'main', render: renderWindow })
-      host.log('info', `导图窗口就绪：${winId}`)
+
+      /* ── 真导图（rev57）：接管这个窗口的**内容区**，在里面跑 mind-elixir ──
+       *
+       * 面板注册照旧保留：它是"身份"（`openWindow` 的校验、标题条上的名字都靠它）。
+       * 真正画图的是 `overrideShell` —— 契约 §2.8 写明**窗口模式下接管的是内容区**，
+       * 标题条与关闭按钮由内核保留（所以接管了自己也关得掉）。
+       * 声明式 UINode 表达不了"画布 + 拖拽"这类界面：这正是 U2 存在的理由。 */
+
+      /** 按 store 里记的定位信息找回"同一组"：先 startLine（内容改过也能认），再标题，最后索引 */
+      const locateBlock = () => {
+        const t = diag.target
+        const byLine =
+          Number.isFinite(Number(t?.startLine)) && cache.blocks.find((b) => b.startLine === Number(t.startLine))
+        const byTitle = t?.title ? cache.blocks.find((b) => b.title === t.title) : null
+        return byLine || byTitle || cache.blocks[groupIndex] || null
+      }
+
+      /**
+       * 写回：导图数据 ⇒ 这一组的 `- ` 行 ⇒ 整篇写盘。
+       *
+       * **先重读盘、再定位行号**：导图是异步交互（拖、双击改名、快捷键），
+       * 这中间编辑器里可能已经改了同一篇 —— 拿旧行号去 splice 会写坏别处。
+       * 定位不上就抛错退出，**绝不"猜一个位置写下去"**。
+       */
+      const saveBack = async (data) => {
+        if (!cache.path) throw new Error('没有笔记路径')
+        await reload(cache.path)
+        const block = locateBlock()
+        if (!block) throw new Error('这一组已不在笔记里（标题或列表被改过）')
+        const flat = flatNodes(block.nodes)
+        const base = flat.length ? Math.min(...flat.map((n) => n.indent)) : 0
+        const fresh = meDataToLines(data, base)
+        return editLines((lines) => {
+          lines.splice(block.startLine, block.endLine - block.startLine + 1, ...fresh)
+        })
+      }
+
+      /** 挂载器：`overrideShell` 的 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
+      const mountMindMap = (el) => {
+        el.replaceChildren()
+        el.style.cssText = 'height:100%;display:flex;flex-direction:column;min-height:0'
+
+        /* 顶栏：状态 + 四个动作。接管期间内核 UI 不在场 ⇒ 这些按钮就是全部入口。 */
+        const bar = document.createElement('div')
+        bar.style.cssText =
+          'display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--zn-border);flex:0 0 auto'
+        const status = document.createElement('span')
+        status.style.cssText =
+          'flex:1;font-size:12px;color:var(--zn-muted,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+
+        const body = document.createElement('div') // mind-elixir 的容器
+        body.style.cssText = 'flex:1 1 auto;min-height:0;position:relative'
+        body.dataset.znMmBody = ''
+
+        let mind = null
+        let ready = false
+        let saveTimer = null
+        let saving = false
+        let again = false
+
+        const setStatus = (text, tone) => {
+          status.textContent = text
+          status.style.color = tone === 'warn' ? '#d9534f' : tone === 'ok' ? '#2e7d32' : 'var(--zn-muted,#888)'
+        }
+
+        const flush = async () => {
+          saveTimer = null
+          if (!mind || !ready) return
+          if (saving) {
+            again = true // 上一次还在写：记一下，写完再补一次（别丢用户的最后一拖）
+            return
+          }
+          saving = true
+          try {
+            const ok = await saveBack(mind.getData())
+            setStatus(ok ? '已写回笔记' : '写回被拒（看日志）', ok ? 'ok' : 'warn')
+          } catch (e) {
+            setStatus(`写回失败：${String(e).slice(0, 80)}`, 'warn')
+            host.log('warn', `导图写回失败：${String(e)}`)
+          } finally {
+            saving = false
+            if (again) {
+              again = false
+              void flush()
+            }
+          }
+        }
+
+        const scheduleSave = () => {
+          if (!ready) return // init/refresh 期间自己发的事件不算"用户编辑"
+          setStatus('待写回…')
+          if (saveTimer) clearTimeout(saveTimer)
+          saveTimer = setTimeout(() => void flush(), 400)
+        }
+
+        const btn = (text, title, onClick) => {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.textContent = text
+          b.title = title
+          b.style.cssText =
+            'font:inherit;font-size:12px;padding:3px 9px;border:1px solid var(--zn-border);border-radius:6px;background:transparent;color:inherit;cursor:pointer'
+          b.onclick = onClick
+          return b
+        }
+
+        /** 读盘 → 建/重画导图（同一个实例、同一条笔记） */
+        const rebind = async () => {
+          ready = false
+          try {
+            const { MindElixir, css, version } = await loadMindElixir(fs, pluginId)
+            if (!document.querySelector('style[data-zn-mm]')) {
+              const st = document.createElement('style')
+              st.dataset.znMm = ''
+              st.textContent = css
+              document.head.appendChild(st)
+            }
+            const block = locateBlock()
+            if (!block) {
+              setStatus('这一组已不在笔记里', 'warn')
+              return
+            }
+            const data = blockToMeData(block)
+            if (mind) {
+              mind.refresh(data)
+            } else {
+              mind = new MindElixir({
+                el: body,
+                direction: 1,
+                editable: true,
+                newTopicName: '新主题', // 与旧版「＋」按钮插的文案保持一致
+                draggable: true, // 节点拖动：v5 内置该交互，这里显式声明意图
+                allowUndo: true, // ⇒ 实例自带 undo() / redo()（init 里自动装 operationHistory）
+                contextMenu: { locale: MM_LOCALE }, // 中文右键菜单（默认英文）
+                theme: isDarkTheme() ? MindElixir.DARK_THEME : MindElixir.THEME,
+              })
+              mind.init(data)
+              mind.bus.addListener('operation', scheduleSave)
+            }
+            ready = true
+            /** 诊断出口（CDP 断言用）：不算"给人看的界面"，但验收要靠它读数 */
+            window.__mmWin = {
+              winId,
+              lib: version,
+              block: block.title,
+              topics: body.querySelectorAll('me-tpc').length,
+              hasUndo: typeof mind.undo === 'function',
+              draggable: mind.draggable,
+            }
+            // 实例本身也露出一个（CDP 驱动 addChild / undo / getData 用）—— 同 `__omWin` / `__docProbeLog` 的先例
+            window.__mmMind = mind
+            setStatus(`mind-elixir ${version} · ${flatNodes(block.nodes).length} 个节点`)
+          } catch (e) {
+            setStatus(`库载入失败：${String(e).slice(0, 80)}`, 'warn')
+            host.log('error', `mind-elixir 载入失败：${String(e)}`)
+          }
+        }
+
+        bar.append(
+          status,
+          btn('撤销', '撤销（Ctrl+Z）', () => {
+            mind?.undo()
+            // undo/redo **不 fire operation** ⇒ 得自己补一次写回，否则"界面回退了、磁盘还留着"
+            void flush()
+          }),
+          btn('重做', '重做（Ctrl+Shift+Z）', () => {
+            mind?.redo()
+            void flush()
+          }),
+          btn('写回', '立刻把这张导图写回笔记', () => void flush()),
+          btn('重画', '丢掉当前视图，按磁盘上的笔记重画', () => void rebind()),
+        )
+        /**
+         * 库内置的 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 直接调 undo/redo，**不 fire operation**
+         * ⇒ 捕获阶段补一次写回（不然"撤销完磁盘还是旧的"，界面与磁盘就分家了）。
+         */
+        const onUndoKey = (e) => {
+          if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+          const k = e.key.toLowerCase()
+          if (k === 'z' || k === 'y') setTimeout(() => void flush(), 60)
+        }
+        el.addEventListener('keydown', onUndoKey, true)
+
+        el.append(bar, body)
+        void rebind()
+
+        return {
+          dispose() {
+            ready = false
+            el.removeEventListener('keydown', onUndoKey, true)
+            if (saveTimer) clearTimeout(saveTimer)
+            saveTimer = null
+            try {
+              mind?.destroy()
+            } catch {
+              /* 已经没了 */
+            }
+            mind = null
+          },
+        }
+      }
+
+      subscriptions.push(view.overrideShell({ mount: mountMindMap }))
+      host.log('info', `导图窗口就绪（内容区由 mind-elixir ${LIB_VERSION} 接管）：${winId}`)
       return
     }
 
@@ -544,9 +852,27 @@ export default {
     await reload(opened?.path ?? (typeof known === 'string' ? known : null))
     if (opened?.path) await store.set(STORE_LAST, opened.path)
 
+    /**
+     * 诊断出口（排查 / 验收用）：主窗口这边认为"当前是哪篇、记得几组"。
+     * 起因：cache 是**异步**填的，空着的时候点「❖」只会弹一句 warn ——
+     * 没有读数就只能猜"是没打开笔记还是开窗失败"（静默失效最贵）。
+     */
+    let docOpenHits = 0
+    window.__omMain = () => ({
+      path: cache.path,
+      blocks: cache.blocks.map((b) => ({
+        title: b.title,
+        titleLine: b.titleLine,
+        start: b.startLine,
+        end: b.endLine,
+      })),
+      docOpenHits,
+    })
+
     // 换笔记 / 编辑器里改了 ⇒ 跟上（`doc.on` 是 U3b 接上的真事件）
     subscriptions.push(
       doc.on('open', (d) => {
+        docOpenHits += 1
         void store.set(STORE_LAST, d.path)
         void reload(d.path).then(() => view.refresh())
       }),
@@ -730,4 +1056,14 @@ function registerEditing(subs, command, { insertAfter, deleteRange, host }) {
 /**
  * 纯函数导出 —— 给 `selftest.mjs` **离线**验证解析/布局/导出用（不必开 GUI）。
  */
-export { parseOutline, parseBlocks, flatNodes, blockToTree, flatten, toSvg, toMermaid }
+export {
+  parseOutline,
+  parseBlocks,
+  flatNodes,
+  blockToTree,
+  flatten,
+  toSvg,
+  toMermaid,
+  blockToMeData,
+  meDataToLines,
+}

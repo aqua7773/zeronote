@@ -1247,6 +1247,58 @@ revision: 45
 >
 > **本轮未动业务代码**：`npm pack mind-elixir@5.15.1` 只解到 `_tmp-mind-elixir-dl/`
 > （过程产物，已被 `.gitignore` 的 `_tmp-*/` 覆盖 ⇒ **不进 git**；丢了重跑一条命令即可）。
+
+> ## 📌 rev57（2026-10-13 · **导图换成真库落地**：窗口里跑 Mind Elixir，拖拽即写回）
+>
+> 用户 2026-10-13 的批评「不要再闭门造车」在本轮闭环：自算布局 + 静态 SVG + 底下一排 ＋/✕
+> 那套"难看"的编辑 UI **退役**，图交给 **Mind Elixir 5.15.1** 画。
+>
+> **一、库怎么进插件（离线，110 KB）**：`examples/outline-map/vendor/` 放三件套 ——
+> `MindElixir.iife.js`(93 KB) + `MindElixir.css`(12 KB) + `PlaintextConverter.js`(7 KB)，全部 MIT。
+> 加载方式必须是"运行时自己装配"，因为**插件入口本身跑在 Blob 模块里 ⇒ 相对导入没有 base 目录**
+> （契约 §3.2 的硬限制，也是 `manifest.files` 只对 CJS 生效的原因）：
+> `fs.readText` 读出 IIFE 源码 → 补一句 `export default MindElixir.default` → 新 Blob → 动态 `import()`。
+> **产物级事实（实测，别再猜）**：IIFE 尾部是 `I.default=Ct; I.RIGHT=1; I.THEME=…`（`Ct` 是类）
+> ⇒ **类在 `.default`**，常量同级；实例上 `allowUndo` 默认 true，`init()` 里自动装 operationHistory
+> ⇒ **`mind.undo()/redo()` 开箱可用**；`draggable` **不是**实例字段（`mind.draggable === undefined`），
+> 但节点拖动**照常工作**（拖动时 DOM 里出现 `.mind-elixir-ghost`）—— 「文档里的字段名」不等于「能力存在」。
+>
+> **二、窗口里怎么画**：`view.overrideShell({ mount })` 接管**窗口内容区**
+> （`App.tsx:2403-2405` 早有该分支，标题条与关闭按钮由内核保留 ⇒ 不会把自己锁死）。
+> `mount` 是同步的、只调一次，所以先占位再 `rebind()` 异步拉库；顶栏四个按钮
+> （撤销/重做/写回/重画）由插件自绘 —— 接管期间内核 UI 不在场，它们就是全部入口。
+>
+> **三、双向写回（真源 = 磁盘）**：块 → 节点树（**id 用路径** `n0.1`，不用行号）；编辑经
+> **400ms 去抖** → `saveBack()`：**先重读盘、再按 startLine/标题重新定位那一组**（导图是异步交互，
+> 中间编辑器可能改过同一篇，拿旧行号 splice 会写坏别处；定位不上就抛错，**绝不猜位置**）
+> → 生成 `- ` 行（缩进基准保留）→ 整篇 `fs.writeText`。
+> ⚠️ **undo/redo 不 fire `operation`** ⇒ 按钮点击与 `Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y`（捕获阶段）
+> 都补了一次写回，否则"界面回退了、磁盘还留着"。
+>
+> **四、验收 `tools/verify-mindmap.mjs` → 8/8**（真源 = 磁盘上的笔记）：
+> ① 命令表 ② `__mmWin.lib === '5.15.1'`（真库跑起来了）③ 真 DOM `.map-container` + 5 个 `me-tpc`
+> ④ `hasUndo` + 右键菜单中文 11 项 ⑤ `addChild` ⇒ 磁盘多出 `  - 新主题`
+> ⑥ 点顶栏「撤销」⇒ 磁盘回到原样 ⑦ **真拖拽**：鼠标把「竞品」从「调研」下拖进「设计」，
+> 磁盘实测 `- 调研 / - 用户 / - 设计 / - 竞品`（ghost 出现 ⇒ 拖动被库识别）。
+> 截图 `_shots/mindmap-v3-window.png`。
+> **基线**：`tsc -b` 0 · `oxlint src` **恰好 4**（`examples/` 另有 313 条历史告警，不在基线内；
+> 本轮新增的两个文件单独 lint = 0/0）。
+>
+> **五、诊断出口（这轮现加，排查靠它们）**：`window.__omMain()`（主窗口：当前笔记 + 分组 + open 命中数）·
+> `window.__mmWin`（窗口：库版本/节点数/hasUndo）· `window.__mmMind`（实例本身，CDP 可驱动）。
+>
+> **六、踩坑（值得记）**：
+> ① **夹具同名 ⇒ 静默空转**：`大纲验收.md` 与本次夹具的 H1 都叫「项目计划」，文件树里两项同名，
+> 点中的是**已删除**那篇的残留项 ⇒ `openNote` 因 `path === activeRef.current` 直接 return
+> ⇒ 没有 `open` 事件 ⇒ 插件一直空转。**教训：夹具标题必须本次独有**；且验收顺序改为
+> **先打开笔记、再重扫插件**（重扫时 `doc.active()` 就是这篇，少依赖一条事件）。
+> 附：`_tmp-vault-tb\大纲验收.md`（33 B 残留，内容只剩标题）已清掉。
+> ② `mind.draggable` 为 undefined **不代表不能拖**（见上）。
+> ③ 顶栏「重画」= 丢视图重读盘；**不要**在编辑中自动 refresh，否则用户拖到一半的节点会被重置。
+>
+> **七、还没做（下一步的打磨清单）**：跟随 `--zn-*` 主题令牌（现在是库自带 Latte/明暗二选一，切换主题需重开窗口）·
+> 折叠/展开状态是否写回笔记（现在不写，纯视图）· 窗口菜单栏 · 与编辑器"未保存手改"的冲突
+> （v0.2 就写明的已知边界，仍在：插件写盘可能被稍后的自动保存覆盖）。
 > 基线未被触碰（`tsc -b` / `oxlint` / `cargo test` 本轮未跑，因为没有代码改动）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
