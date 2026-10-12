@@ -6,6 +6,7 @@
  */
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { API_VERSION } from './contract'
 import type {
   Disposable,
@@ -78,6 +79,20 @@ export type KernelAudit = {
   editorMarks: { id: string; pluginId: string }[]
   /** 插件注入的 `<style>` 数（纯样式插件 / `manifest.styles`） */
   pluginStyles: number
+  /** 当前由内核开着的**插件独立窗口** label（U1）—— 插件卸载后应当回空 */
+  windows: string[]
+}
+
+/** 插件窗口 label 前缀 —— 与 `capabilities/plugin-windows.json` 的 glob 约定必须一致 */
+const PLUGIN_WINDOW_PREFIX = 'plugin-'
+
+/**
+ * Tauri 的窗口 label 只接受 `[A-Za-z0-9/:_-]`，而面板 id 常是 `outline-map.panel` 这种带点的
+ * ⇒ 非白名单字符一律换 `-`。**这一步不能省**：带点的 label 会让新窗口创建失败，
+ * 而失败是**异步**报的（`tauri://error` 事件）—— 不挂监听就变成"点了没反应"。
+ */
+function sanitizeLabelPart(s: string): string {
+  return s.replace(/[^A-Za-z0-9/:_-]/g, '-')
 }
 
 export type Kernel = {
@@ -119,6 +134,13 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
   )
 
   const panelMap = new Map<string, PanelRegistration>()
+  /**
+   * 插件独立窗口的账（U1）：label → 窗口。
+   * 没有这张表，`view.openWindow` 就"开出去收不回来"—— 插件卸载后窗口还挂着，
+   * 而那个窗口里的插件代码还在跑（原则 3：卸载即净）。
+   */
+  const windowMap = new Map<string, WebviewWindow>()
+  let windowSeq = 0
   const view: ViewApi = {
     registerPanel(spec): Disposable {
       // 幂等：同 id 重新注册 = 替换（dev 热重载 / 插件重复加载都靠它兜底）
@@ -165,6 +187,63 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     refresh() {
       // 面板 render 是纯函数：插件改完自己的数据后调这里，宿主重渲染即拿到新内容
       hooks.onPanelsChange([...panelMap.values()])
+    },
+    /**
+     * 把一个面板放进独立窗口（U1 · 契约 §2.2）。
+     *
+     * 窗口是**新的 webview**：它加载同一个 URL 但带 `?pluginWindow=<panelId>`，
+     * 于是那个页面会重新跑一遍插件加载，再只渲染这个面板（`App.tsx` 的窗口模式分支）。
+     */
+    openWindow(spec): Disposable {
+      if (!panelMap.has(spec.panel)) {
+        // 明确报错 > 开一个永远空白的窗口（静默失效最贵）
+        throw new Error(`view.openWindow：面板 ${spec.panel} 还没注册（请先 registerPanel）`)
+      }
+      const label = `${PLUGIN_WINDOW_PREFIX}${sanitizeLabelPart(spec.panel)}-${++windowSeq}`
+      const params = new URLSearchParams({ pluginWindow: spec.panel, vault })
+      const win = new WebviewWindow(label, {
+        url: `${location.origin}${location.pathname}?${params.toString()}`,
+        title: spec.title ?? spec.panel,
+        width: spec.width ?? 900,
+        height: spec.height ?? 640,
+        // 与主窗口一致：无系统边框，拖动靠页面里的 `data-tauri-drag-region`
+        decorations: false,
+        resizable: true,
+      })
+      // 创建失败（capability 没放行 / 平台不支持）**异步**报 —— 不挂它就成了"点了没反应"
+      try {
+        win.once('tauri://error', (e: unknown) => {
+          windowMap.delete(label)
+          const payload = (e as { payload?: unknown } | null)?.payload
+          hooks.onLog(`插件窗口 ${label} 创建失败：${String(payload ?? e)}`, 'error')
+        })
+        /**
+         * **用户自己关掉窗口**也要销账 —— 否则 `audit().windows` 里留着已经不在的 label，
+         * "账"就不再是事实（验收读数和卸载时的遍历都会跟着错）。
+         * 两个事件都挂：`close-requested` 是"要关了"，`destroyed` 是"已经没了"——
+         * 平台差异下不一定都发，任一到就销账，重复销账无害。
+         */
+        const forget = () => windowMap.delete(label)
+        win.once('tauri://close-requested', forget)
+        win.once('tauri://destroyed', forget)
+      } catch {
+        /* 事件系统不可用（浏览器预览）—— 忽略，下面 close() 一样会失败 */
+      }
+      windowMap.set(label, win)
+      let disposed = false
+      return {
+        dispose: () => {
+          if (disposed) return
+          disposed = true
+          windowMap.delete(label)
+          /**
+           * 用 `destroy()` 而不是 `close()` —— 实测结论（U1）：`close()` 要先过一遍
+           * `CloseRequested`（前端可 preventDefault），从**别的**窗口发起时会阻塞到超时、
+           * 甚至窗口根本不消失；插件卸载要的是"立刻、确定地关掉"，不需要那套确认语义。
+           */
+          void win.destroy().catch(() => {})
+        },
+      }
     },
     setState(bind: string, value: unknown) {
       hooks.onPanelStateChange(bind, value)
@@ -270,6 +349,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       editorMarks: editorMarkEntries(),
       // 插件注入的 <style>（injectStyles 会打 data-zn-plugin 标记）—— 数出来即可
       pluginStyles: document.querySelectorAll('style[data-zn-plugin]').length,
+      windows: [...windowMap.keys()].sort(),
     }),
   }
 }

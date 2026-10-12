@@ -965,6 +965,50 @@ revision: 45
 > 未核实项：Tauri 2.12 的 capability `windows` 是否支持 glob（**先查官方文档或实测一次**，别自创）。
 > 契约 §7 未决里的 `permissions.json` 是否整体下线（§6.1）仍待裁决。
 
+> ## 📌 rev50（2026-10-13 · **U1 真窗口落地**：插件能开自己的窗口了）
+>
+> **用户裁决**（本会话）：先「允许新窗口」→ 随即明确 **「按完全权限放行，卡着没有意义」**
+> ⇒ 不做按窗口分级的窄权限，所有窗口权限一致（与原则 4 一脉相承）。
+>
+> ⚠️ **新增的权限（安全边界变更，按硬约束在此写明）** —— `src-tauri/capabilities/default.json`：
+> | 新增 | 作用 |
+> |---|---|
+> | `core:webview:allow-create-webview-window` | 能开新窗口/新 webview（此前这是 Tauri 侧三大硬边界之一） |
+> | `core:window:allow-destroy` | 能立即销毁窗口（关窗走它，见下） |
+> | `windows`: `["main"]` → `["main", "plugin-*"]` | glob 覆盖插件窗口（**已核实** Tauri 2.12 支持 glob：本地 schema + 官方文档都写 "Can be a glob pattern"） |
+> 另：曾按"最小放行"写了一份更窄的 `capabilities/plugin-windows.json`，**按用户裁决已删除**。
+>
+> **改了什么**
+> · `src/kernel/contract.ts` + `kernel.ts` —— 新增 **`view.openWindow({ panel, title?, width?, height? })`**：
+>   开独立窗口、返回 `Disposable`（=关窗），**由宿主自动登记**（`scopedView` 已加它 ⇒ 插件不接返回值也不会漏关）。
+>   内核维护**窗口账** `windowMap`（`audit().windows` 可读）；label 一律 `plugin-<sanitized panelId>-<n>`
+>   （`.` 等非法字符换 `-`）；创建失败走 `tauri://error` **异步**报 —— 挂在日志里，不静默；
+>   用户手动关窗也销账（`close-requested` / `destroyed`）。
+> · `src/App.tsx` —— **窗口模式**：URL 带 `?pluginWindow=<panelId>` 时只渲染那一个面板
+>   （自绘标题条 = 拖动区 + 关闭；无侧栏 / 无编辑器，找不到面板时给明确文案不留白屏）。
+> · `src/styles.css` —— `.zn-plugin-window*` 一套（复用 `--zn-*` 令牌，深浅色跟随主题）。
+> · `examples/window-demo/` —— 示例插件：面板 + 两个命令（打开 / 多开），`view.openWindow` 的参考实现。
+>
+> **三个实测坑（花了两轮才收敛，别再踩）**
+> 1. **capability 是编译期嵌进二进制的** —— 改完 `capabilities/*.json` 光重启进程**不生效**，
+>    必须让 cargo 真的重编（本机做法：touch `src-tauri/src/lib.rs`）。不重编时的症状极迷惑：
+>    窗口能开、插件也加载（**应用自己的命令不受 ACL 管**），但 `plugin:window|close` 被拒 ⇒「点了没反应」。
+> 2. **关窗必须 `destroy()`，不能用 `close()`** —— `close()` 先过 `CloseRequested`（前端可 preventDefault）；
+>    **窗口自己发起时会死锁在自己身上**（命令返回 OK、窗口不消失），从别的窗口发起则阻塞到超时。
+> 3. **内核那层「关窗前落盘」拦截器必须在窗口模式跳过** —— 它在每个窗口都注册，会把插件窗口的
+>    关闭请求吃掉（同一次踩坑的另一半，症状与 ② 一模一样）。
+>
+> **验收**：新脚本 **`tools/verify-plugin-window.mjs` → 10/10**（装插件 / 开窗 / 多开 / 窗口内渲染 /
+> label 约定 / 关窗销账 / 两个窗口都销账 / **卸载插件时开着的窗口被内核自动关掉** / 命令表回基线 /
+> 窗口账回空）。多 target 的坑也顺手记在脚本注释里（CDP target 上看不到窗口 label，只能连上去问）。
+> 截图 `_shots/plugin-window-child.png` · `_shots/plugin-window-main.png`。
+>
+> **基线（本轮实测）**：`tsc -b` 0 · `oxlint` **恰好 4 warnings** · `cargo test --lib` **21 passed**。
+>
+> **下一步**：§4.4 **U2 主壳接管点**（`view.overrideShell(spec)`：插件接管主区/整窗渲染，dispose 后内核 UI 复原）
+> → 然后把 `examples/outline-map` 重做成「大纲组右上角按钮 → 弹独立导图窗口（可拖 / 全屏 / 多开 /
+> 可编辑并写回笔记）」—— 现在 **U1 已经给了那个窗口**，缺的只是"把导图搬进去"。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

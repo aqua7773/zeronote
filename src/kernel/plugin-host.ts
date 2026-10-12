@@ -279,6 +279,8 @@ function scopedView(view: ViewApi, pluginId: string, subs: Disposable[]): ViewAp
       collect(subs, view.registerPanel({ ...spec, pluginId } as typeof spec)),
     registerWebView: (spec) =>
       collect(subs, view.registerWebView({ ...spec, pluginId } as typeof spec)),
+    // 独立窗口也是"插件开出去的东西"：不登记就会在卸载后继续挂着（窗口里的插件还在跑）
+    openWindow: (spec) => collect(subs, view.openWindow(spec)),
   }
 }
 

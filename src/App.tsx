@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { exit, onBackButtonPress } from '@tauri-apps/api/app'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 /**
  * Android 的库路径（方案 D）—— 公共存储。
  * 好处：文件管理器能进、插件能直接拷进 `.zn/plugins/`、卸载不丢数据。
@@ -257,6 +258,20 @@ export default function App() {
   const [activePath, setActivePath] = useState<string | null>(null)
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
+
+  /**
+   * 插件独立窗口模式（U1 · 2026-10-13 rev50）：URL 带 `?pluginWindow=<panelId>`。
+   *
+   * 独立窗口是**新的 webview**（自己的 JS 上下文），所以它照样跑完整的插件加载流程 ——
+   * 只是渲染时**只画那一个面板**：没有侧栏、没有编辑器、没有插件管理页。
+   *
+   * ⚠️ 定义必须放在组件**顶部**：下面几处 effect（尤其是"关窗前落盘"那个拦截器）
+   * 要靠它判断当前是不是插件窗口 —— 放在渲染前定义就会踩 TDZ。
+   */
+  const pluginWindowId = useMemo(
+    () => new URLSearchParams(location.search).get('pluginWindow'),
+    [],
+  )
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -822,6 +837,13 @@ export default function App() {
    */
   const closingRef = useRef(false)
   useEffect(() => {
+    /**
+     * **插件独立窗口直接跳过这层拦截**（U1 · rev50 踩到的真坑）：
+     * 插件窗口不承载编辑器、没有"未保存内容"要兜底，而这个拦截器在每个窗口都会注册 ——
+     * 它会把插件窗口的关闭请求吃掉：`close()` 返回 OK、`close-requested` 也发了，
+     * 但窗口**不消失**（从主窗口发 close 同样无效，因为事件是发给目标窗口的监听器的）。
+     */
+    if (pluginWindowId) return
     let unlisten: (() => void) | null = null
     let disposed = false
     void (async () => {
@@ -848,7 +870,7 @@ export default function App() {
       disposed = true
       unlisten?.()
     }
-  }, [])
+  }, [pluginWindowId])
 
   const openNote = useCallback(
     async (path: string) => {
@@ -2273,6 +2295,61 @@ export default function App() {
           : dirty
             ? '未保存'
             : ''
+
+  /* ── 窗口模式：只渲染那一个面板（插件已在上面那套 effect 里加载完） ── */
+  if (pluginWindowId) {
+    const winPanel = panels.find((p) => p.id === pluginWindowId)
+    return (
+      <div className="zn-plugin-window">
+        {/* 自绘标题条：拖动区 + 关闭（窗口 decorations:false，与主窗口同一套路） */}
+        <div className="zn-plugin-window-bar" data-tauri-drag-region>
+          <span className="zn-plugin-window-title">
+            {winPanel?.title ?? pluginWindowId}
+            {winPanel?.pluginId ? <span className="zn-plugin-window-src">{winPanel.pluginId}</span> : null}
+          </span>
+          <button
+            type="button"
+            className="zn-plain-btn"
+            title="关闭窗口"
+            /**
+             * 用 `destroy()` 而不是 `close()`（U1 实测结论）：
+             * `close()` 要先走一遍 `CloseRequested`（前端可 preventDefault），而**窗口自己
+             * 发起时那一次等待会死锁在自己身上** —— 命令返回 OK，窗口却不消失。
+             * 插件窗口不承载编辑器、没有"未保存内容"要兜底 ⇒ 直接销毁，语义更准也可靠。
+             */
+            onClick={() => void getCurrentWindow().destroy()}
+          >
+            关闭
+          </button>
+        </div>
+        <div className="zn-plugin-window-body">
+          {winPanel ? (
+            <PanelBoundary key={winPanel.id}>
+              {winPanel.webview ? (
+                <WebViewFrame url={winPanel.webview.url} title={winPanel.title} />
+              ) : (
+                <UIRenderer
+                  node={renderPanelSafe(winPanel, panelState)}
+                  state={panelState}
+                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                />
+              )}
+            </PanelBoundary>
+          ) : (
+            <div className="zn-plugin-window-empty">
+              面板 <code>{pluginWindowId}</code> 还没出现
+              <p className="zn-plugin-window-hint">
+                {pluginError
+                  ? `插件加载报错：${pluginError}`
+                  : '插件可能仍在加载；若一直这样，检查插件是否装在当前库里（.zn/plugins/）。'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="zn-app">

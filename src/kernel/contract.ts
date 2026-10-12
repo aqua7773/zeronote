@@ -421,6 +421,36 @@ export interface ViewApi {
     location: 'sidebar' | 'main' | 'modal'
     url: string
   }): Disposable
+  /**
+   * 把一个面板放进**独立窗口**（U1 · 2026-10-13 rev50）。
+   *
+   * 用途：导图 / 预览 / 画布这类"想摊开来看、想跟编辑器并排"的东西 —— 以前只能挤在
+   * 主区里顶掉编辑器（§2.2 的 `location: 'main'`），现在可以开自己的窗口（可拖 / 可缩放 / 能多开）。
+   *
+   * ```js
+   * const win = api.view.openWindow({ panel: 'my-map.panel', title: '我的导图', width: 900, height: 640 })
+   * api.subscriptions.push(win)   // 卸载插件 ⇒ 窗口自动关掉
+   * ```
+   *
+   * **语义与边界**
+   * · `panel` 必须是**已经 `registerPanel` 过的面板 id**（窗口里渲染的就是它的 `render`）。
+   * · **窗口是新的 webview**：它有自己的 JS 上下文，会**重新加载一遍插件**再渲染该面板
+   *   （不是把主窗口的 DOM 搬过去）。所以插件在新窗口里 `apply()` 会再跑一次 —— 那是独立的
+   *   一份命令表 / 面板表，互不影响。想在新窗口里区分"我是窗口模式"，读 `host.platform` 之外
+   *   请用面板 `render(ctx)` 收到的数据自己判断（内核不额外注入标记）。
+   * · 窗口 label 由内核生成、**一律以 `plugin-` 开头**；`capabilities/default.json` 的
+   *   `windows` 用 glob `plugin-*` 覆盖它们。**权限与主窗口完全一致**（2026-10-13 用户裁决：
+   *   完全放行、不按窗口分级 —— 内核不设防，权限由插件自己控制）。
+   * · 返回的 `Disposable` = **关掉这个窗口**并撤账；`dispose()` 幂等，宿主在插件卸载时统一调
+   *   （与其它资源一样由宿主自动登记，插件不接返回值也不会漏关）。
+   * · **平台**：桌面可用；Android 上 Tauri 多窗口支持尚不完整（未实测），失败时抛错。
+   */
+  openWindow(spec: {
+    panel: string
+    title?: string
+    width?: number
+    height?: number
+  }): Disposable
   /** 面板数据变了，请宿主重渲染 —— `render` 是纯函数，插件靠这个把新数据推上去 */
   refresh(panelId?: string): void
   /** 写面板状态（输入框等 bind 值）→ 宿主重渲染。插件清空/预填输入框的标准做法 */

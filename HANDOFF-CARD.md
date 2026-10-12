@@ -52,16 +52,17 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `rev47` | **内核自愈**（原则 5）：`scripts/kernel-snapshot.mjs` / `kernel-restore.mjs` / **双击 `修复内核.cmd`**（应用起不来时唯一的路）。快照白名单 701 文件 / 5.32 MB，四条规矩（先验备份 / 先存 pre-restore / 默认不删 / 恢复后复核） |
 | `rev48` | **拆权限门**（原则 4）：`capabilities` 全部降级为**自述**、`assertCapabilities` 只警告不拦、`scopedFs`/`scopedDoc` 裁剪删除、设置页改只读展示、契约 §4 诚实改写 |
 | `rev49` | **接管协议**（原则 3 的地基）：① 自动登记补齐（`event.on`/`fs.watch`/`doc.on` 不再靠插件记得 `push`）② 新增 `ctx.host.onRollback(fn)`（登记过的内核代还原）③ **修真缺口**：`command.bind` 覆盖内核命令后 dispose 只 `delete run` ⇒ 卸载插件把 `core.newNote` 变成"没实现"；现在先记原实现、dispose 放回 ④ 审计出口 `window.__znKernelAudit()` ＋ 验收脚本 **`tools/verify-takeover.mjs`（11/11，对照实验 9/11）** |
+| `rev50` | **U1 真窗口**（用户裁决「完全放行」）：`view.openWindow({panel,title,width,height})` 把面板放进独立窗口（可拖 / 多开 / 卸载自动关）；`?pluginWindow=<panelId>` 窗口模式只渲染那个面板。**新增权限**：`core:webview:allow-create-webview-window` ＋ `core:window:allow-destroy` ＋ `windows: ["main","plugin-*"]`（glob 已核实支持）。验收 **`tools/verify-plugin-window.mjs` 10/10**；示例 `examples/window-demo/` |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
-> **2026-10-13 更新 —— 先完善内核，再做插件。** 内核增强路线（rev46 定，按"保险先上"排）：
+> **2026-10-13 更新** —— 内核增强路线（rev46 定，按"保险先上"排）：
 > ① 内核自愈 ✅ **rev47** ② 拆权限门 ✅ **rev48** ③ 接管协议 + 还原验收 ✅ **rev49**
-> ⇒ **下一步 = ④ U1 真窗口**（`new WebviewWindow` + capability 放行窗口 label，
-> **那是安全边界变更**，落地时写明新增了什么权限；未核实项：Tauri 2.12 的 capability
-> `windows` 是否支持 glob —— **先查官方文档或实测一次**）→ ⑤ U2 主壳接管点
-> （`view.overrideShell`）→ ⑥ 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 →
-> 弹独立导图窗口（可拖 / 全屏 / 多开 / 可编辑并写回笔记）"。
+> ④ U1 真窗口 ✅ **rev50**（`view.openWindow` ＋ capability **完全放行**：新增
+> `core:webview:allow-create-webview-window`、`core:window:allow-destroy`、`windows:["main","plugin-*"]`）
+> ⇒ **下一步 = ⑤ U2 主壳接管点**（`view.overrideShell(spec)`：插件接管主区/整窗渲染，dispose 后内核 UI 复原）
+> → ⑥ 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 → 弹独立导图窗口
+> （可拖 / 全屏 / 多开 / 可编辑并写回笔记）"—— **窗口已经有了，缺的只是把导图搬进去**。
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
 > 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
 > 待裁决（契约 §6.1）：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
@@ -104,6 +105,11 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 - **接管 / 还原怎么验（rev49）**：`node tools/verify-takeover.mjs` —— 自动建 junction → 走 UI 重扫 →
   比对审计快照 → 删 junction → 再比对，**11 项判据全自动**（自己建/删 junction，**绝不用递归删除**）。
   手动看读数：`node tools/cdp.mjs eval "window.__znKernelAudit()"`
+- **插件独立窗口怎么验（rev50）**：`node tools/verify-plugin-window.mjs`（10 项：开窗 / 多开 /
+  窗口内渲染 / label 约定 / 关窗销账 / **卸载插件时窗口被自动关掉** / 命令表回基线）。
+  ⚠️ 两条硬认知：**改过 `capabilities/*.json` 必须让 cargo 真的重编**（touch `src-tauri/src/lib.rs`）
+  —— capability 是**编译期**嵌进二进制的，光重启进程不生效，症状是"窗口能开但核心命令被拒、点了没反应"；
+  **关窗一律 `destroy()`，别用 `close()`**（`close()` 自身发起会死锁：命令返回 OK、窗口不消失）。
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
@@ -128,4 +134,6 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 `HANDOFF.md`（**rev49**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·
-`tools/verify-takeover.mjs`（**接管/还原的自动验收**）· `examples/`（插件示例；`md-toolbar` 已退役删除）
+`tools/verify-takeover.mjs`（**接管/还原的自动验收**）·
+`tools/verify-plugin-window.mjs`（**独立窗口的自动验收**）· `examples/`（插件示例；`window-demo` = 窗口示例，
+`md-toolbar` 已退役删除）

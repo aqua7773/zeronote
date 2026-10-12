@@ -1252,3 +1252,67 @@ body.is-resizing * {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* ───────── 插件独立窗口（U1 · 2026-10-13 rev50）─────────
+   这个页面由 `?pluginWindow=<panelId>` 触发，只画一个面板：
+   自绘标题条（拖动区 + 关闭）+ 面板本体。样式复用同一套 --zn-* 令牌，
+   所以跟主窗口的深浅色、主题切换保持一致。 */
+.zn-plugin-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+}
+
+.zn-plugin-window-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zn-space-2);
+  flex: 0 0 auto;
+  padding: var(--zn-space-2) var(--zn-space-3);
+  background: var(--zn-bg-subtle);
+  border-bottom: 1px solid var(--zn-border);
+  /* 标题条整条是拖动区：文字不选中，否则拖窗口会变成选文字 */
+  user-select: none;
+}
+
+.zn-plugin-window-title {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  font-size: var(--zn-text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 面板来自哪个插件 —— 与其它地方标注来源同一用意 */
+.zn-plugin-window-src {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--zn-fg-subtle);
+}
+
+.zn-plugin-window-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--zn-space-3);
+}
+
+.zn-plugin-window-empty {
+  padding: 24px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+
+.zn-plugin-window-hint {
+  margin-top: var(--zn-space-2);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--zn-fg-subtle);
+}
+

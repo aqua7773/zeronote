@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "ZeroNote 默认能力：核心 API + 选择文件夹对话框",
+  "description": "ZeroNote 全部窗口的能力（2026-10-13 rev50 用户裁决：**完全放行**，不做按窗口分级的窄权限 —— 内核不设防，权限由插件自己控制）。windows 用 glob `plugin-*` 覆盖插件独立窗口（内核 openWindow 生成的 label 一律以此开头）。",
   "windows": [
-    "main"
+    "main",
+    "plugin-*"
   ],
   "permissions": [
     "core:default",
@@ -14,6 +15,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
-    "core:window:allow-close"
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:webview:allow-create-webview-window"
   ]
 }

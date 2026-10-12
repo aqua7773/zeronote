@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "id": "window-demo",
+  "name": "独立窗口示例",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop"],
+  "description": "U1 示例（2026-10-13 rev50）：把一个面板放进独立窗口 —— 可拖、可缩放、能多开；插件卸载时窗口自动关掉。",
+  "capabilities": ["command", "view:main"],
+  "contributes": {
+    "commands": [
+      { "id": "window-demo.open", "title": "独立窗口示例：在新窗口打开" },
+      { "id": "window-demo.openAgain", "title": "独立窗口示例：再开一个窗口" }
+    ],
+    "panels": [{ "id": "window-demo.panel", "title": "独立窗口示例", "location": "main" }]
+  }
+}
