@@ -201,10 +201,11 @@ revision: 33
 > 证据 `_shots/rel-01-started.png`、`rel-02-menu.png`、`rel-03-plugin-page.png`。
 > **同时也说明：插件不在二进制里** —— 换个库/换台机器，库里没有 `.zn/plugins/` 就没有插件，
 > 要带插件必须连库目录一起拷。
-> ⚠️ **顺带发现一个布局问题**（与打包无关）：窗口宽 1116 时**右栏被挤到最右约 16px**、内容竖排成单列；
-> **dev 版同样复现**（`_shots/rel-12-dev-control.png`，且该库零插件）⇒ 不是插件也不是 release 引起。
-> 右栏 CSS 是 `.zn-rightbar { width: 320px; flex: 0 0 auto }`（`styles.css:1042`），疑似横向溢出被裁。
-> **未深查**，留作独立项。
+> ⚠️ **一处误判（已纠正，教训留下）**：我最初把截图最右侧那条 16px「窄条」当成应用内的**右栏布局 bug**，
+> 还写进了本文档并提交。**用户当场指出：那是截图越界，截到了后面的 DSH 窗口** —— 不是 ZeroNote 的内容。
+> 根因：`GetWindowRect` 返回的矩形**含 DWM 边框**（Win10/11 每边约 8px），按它取矩形截图，
+> 右/下边缘会截进窗口外的画面。dev/release 两版都"复现"也正是因为**误判与代码无关**（两次都越界）。
+> 规避办法见文末「自动化验收方法论」新增的那条。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
@@ -262,7 +263,7 @@ revision: 33
 | **🧬 插件资源自动登记 + 生命期串行链** | `_shots/perm-23-rescan-bottom.png`：连点 6 次「重新扫描」后 **ui-kit / tag-demo 全部已启用**（修前稳定报「命令 id 重复：ui-kit.hit」并变未启用）；`perm-22-rescan-ok.png` 为同一状态下的顶部（**无错误横幅**） | 本次 |
 | **🗂 最近库过期记录自动清理**（缺口 3） | `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 仍在最近列表、底栏报「库目录不存在」→ `gap3-04-menu-cleaned.png`：打开菜单即**自动剔除 + toast 提示** → `gap3-06-persisted.png`：`Ctrl+R` 重载后列表仍干净且**无 toast** ⇒ 真持久化；对照 `gap3-16-menu-zoom3.png`（目录在就不误杀）vs `gap3-17-gate-toast-zoom.png`（菜单弹出后才删目录 ⇒ `applyVault` 的门拦下：**不切库、不报错**）· `cargo test` **17 passed**（新增 `vault_exists_is_read_only`：只读、不建目录） | 本次 |
 | **🚧 平台门（缺口 1）** | `_shots/gate-04-plugins-page.png`：`platforms:["android"]` 的插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无错误横幅**；三组对照 —— `gate-05`（改成双端 ⇒ **已启用**，证明只挡不匹配的、没误杀）· `gate-06` + `gate-07`（懒激活 + 仅移动端 ⇒ 仍跳过，且命令面板里**列不出**它的命令）· `gate-08`（`"windwos"` 拼错 ⇒ **拒载 + 报错并列出合法取值**，不再静默失效）；新增示例 `examples/platform-locked/` | 本次 |
-| **📦 release 打包版加载插件（首次）** | `cargo-targets\zeronote\release\zeronote.exe`（10.5 MB，`tauri build --no-bundle`，2m46s）；带 `ui-kit` 的库上：`_shots/rel-01-started.png`（**编辑器底部工具栏**＝插件的 `editor-toolbar` 面板渲染）· `rel-02-menu.png`（`☰` 菜单出现「UI 组件演示」＝插件的 `sidebar` 面板入口）· `rel-03-plugin-page.png`（插件页「**已启用**」）⇒ 打包版能读库内插件 · 顺带对照 `rel-12-dev-control.png`（dev 版右栏同样被挤窄 ⇒ 布局问题与打包无关） | 本次 |
+| **📦 release 打包版加载插件（首次）** | `cargo-targets\zeronote\release\zeronote.exe`（10.5 MB，`tauri build --no-bundle`，2m46s）；带 `ui-kit` 的库上：`_shots/rel-01-started.png`（**编辑器底部工具栏**＝插件的 `editor-toolbar` 面板渲染）· `rel-02-menu.png`（`☰` 菜单出现「UI 组件演示」＝插件的 `sidebar` 面板入口）· `rel-03-plugin-page.png`（插件页「**已启用**」）⇒ 打包版能读库内插件 · ⚠️ 附带一说「右栏被挤窄」**是误判**（截图越界截到后面的 DSH 窗口，用户指出，已纠正） | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
@@ -644,6 +645,12 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 - **点击前先点一下空白处**消耗窗口激活 —— 非活动窗口的第一次点击会被系统吃掉用于激活。
 - **验收要挑"只可能由被测功能产生"的信号**：验证「文件名进索引」时用单字母 `u`（笔记内容「新笔记」不含 u，只有文件名含），命中即铁证；比搜一个标题正文都有的词强得多。
 - **改 `tauri.conf.json` 的 `devUrl` 加 `?vault=` 可切测试库**（tauri CLI 自动重启，~40 秒），**验完必须改回**。
+- ⚠️ **`GetWindowRect` 含 DWM 边框（Win10/11 每边约 8px）—— 按它取矩形截图会截进窗口外的画面**（2026-10-12 实物踩坑）：
+  ZeroNote 右侧那条 16px「窄条」被我当成应用内的**右栏布局 bug**（还写进本文档并提交了一次），
+  实际是截图越界、截到了**后面的 DSH 窗口**（`_shots/rel-01-started.png` ↔ `rel-12-dev-control.png`），
+  **是用户看屏幕当场发现的**。**判据**：异常内容若只出现在**最外侧约 16px**、且"文字像别的东西"
+  （竖排单字、莫名其妙的拉丁字母）⇒ **先怀疑截图越界，别怀疑布局**。**规避**：截图区域按 `rect` 向内缩 ~10px。
+  （同一条也解释了为什么"dev 与 release 都复现"——误判本来就与代码无关。）
 
 ### 技术事实
 
