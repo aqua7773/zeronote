@@ -416,6 +416,24 @@ async function main() {
     await mouse(cdp, 'mouseReleased', 30, 700, { buttons: 0 })
     await sleep(200)
 
+    /* ⑱ rev62：编辑器有手改时被外部写盘 ⇒ **合并**（两边内容都留住），不是谁覆盖谁 */
+    await mouse(cdp, 'mousePressed', 620, 430, { buttons: 1 })
+    await mouse(cdp, 'mouseReleased', 620, 430, { buttons: 0 })
+    await sleep(150)
+    await cdp.send('Input.insertText', { text: '- 用户手改\n' })
+    // 紧接着外部改盘（模拟导图窗口写回：在另一处加一行）
+    const before18 = disk()
+    writeFileSync(NOTE, `${before18}- 插件写的一行\n`)
+    await sleep(2800) // 等 800ms 自动保存 + watch + 合并全部走完
+    const disk18 = disk()
+    const editor18 = await cdp.js(`document.querySelector('.cm-content')?.innerText ?? ''`)
+    const mergeLog = await cdp.js(`window.__znMergeLog ?? null`)
+    check(
+      '⑱ 手改 + 外部写盘 ⇒ 合并不是覆盖（磁盘上两份改动都在）',
+      disk18.includes('用户手改') && disk18.includes('插件写的一行'),
+      j({ disk: disk18.replace(/\n/g, '⏎').slice(-200), editorHasBoth: editor18.includes('用户手改') && editor18.includes('插件写的一行'), mergeLog }),
+    )
+
     /* ⑥ 画布**空白处右键** ⇒ 我们的全局菜单 ⇒ 点「撤销」⇒ 磁盘（真实路径：菜单项里调 undo + flush） */
     await rightClick(win.cdp, 420, 330)
     const menuState = await win.cdp.js(`(() => {

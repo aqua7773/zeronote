@@ -55,6 +55,7 @@ import {
   type ThemePref,
 } from './lib/theme'
 import { setStatusBarVisible } from './lib/systemBar'
+import { mergeLines } from './lib/merge3'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
@@ -519,6 +520,16 @@ export default function App() {
    * 不拦的话会白设一次 dirty、800ms 后再把同样的内容写回磁盘（幂等，但状态栏会闪"未保存/已保存"）。
    */
   const externalReloadRef = useRef(false)
+  /**
+   * 三方合并的 **BASE**：这份内容"最后一次与磁盘一致"的时刻。
+   *
+   * 维护点只有这四处（漏一个合并就会算错，所以专门列在这儿）：
+   *   · `openNote` 读盘成功 ⇒ base = 刚读到的
+   *   · `saveNow` 写盘成功 ⇒ base = 刚写下去的（包含合并后的结果）
+   *   · `reloadActiveFromDisk` 整篇替换 ⇒ base = 替换后的
+   *   · `mergeWithDisk` 发现"磁盘与我们完全一样" ⇒ 顺手对齐
+   */
+  const baseRef = useRef('')
 
   useEffect(() => {
     contentRef.current = content
@@ -661,6 +672,7 @@ export default function App() {
         flushDocChange()
         setActivePath(null)
         setContent('')
+        baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
         setDirty(false)
         fireDoc('close', p, c, false)
       },
@@ -847,6 +859,66 @@ export default function App() {
    *  · **自动路径**只在编辑器没有未保存修改时才调（`fs.watch` 那段）；
    *    有手改就不覆盖，留给用户走右键「从磁盘重新加载」。
    */
+  /**
+   * 把磁盘与编辑器**合并**（三方：`baseRef` / 编辑器内存 / 磁盘）。
+   *
+   * 这是 rev62「自动合并」的核心。为什么必须三方、而不是二选一：
+   * 导图写盘与用户手改**各自改的可能不是同一块地方** —— 整篇覆盖任一方都会丢内容。
+   * 规则与冲突策略见 `lib/merge3.ts`（冲突 ⇒ 保留编辑器那份：**手写优先**）。
+   *
+   * `applied` = 磁盘确实被外部改过、且已经算过合并；`merged` 是合并结果
+   * （**可能等于 `contentRef.current`** —— 那表示外部改动全落在冲突区、被放弃了）。
+   */
+  const mergeWithDisk = useCallback(async () => {
+    const k = kernel
+    const path = activeRef.current
+    if (!k || !path) return { ok: false as const }
+    let theirs: string
+    try {
+      theirs = await k.fs.readText(path)
+    } catch {
+      return { ok: false as const }
+    }
+    const base = baseRef.current
+    const mine = contentRef.current
+    if (theirs === base) return { ok: true as const, applied: false as const } // 磁盘没动，不用合并
+    if (theirs === mine) {
+      baseRef.current = theirs // 磁盘和我们完全一样：把 base 对齐上去就好
+      return { ok: true as const, applied: false as const }
+    }
+    const r = mergeLines(base, mine, theirs)
+    // 诊断出口（CDP）：每次**真合并**留一条 —— 冲突几处、各方多长，界面上看不出来
+    const w = window as unknown as { __znMergeLog?: unknown[] }
+    const log = (w.__znMergeLog ??= [])
+    log.push({
+      at: new Date().toISOString().slice(11, 23),
+      base: base.length,
+      mine: mine.length,
+      theirs: theirs.length,
+      conflicts: r.conflicts,
+    })
+    if (log.length > 12) log.shift()
+    return { ok: true as const, applied: true as const, merged: r.text, conflicts: r.conflicts }
+  }, [kernel])
+
+  /**
+   * 有手改时被 `fs.watch` 叫起来：**把外部改动合进编辑器**，而不是覆盖。
+   *
+   * 合完仍是"脏"的（结果还没落盘），那一步交给 800ms 的自动保存 ——
+   * 而 `saveNow` **在写盘前还会再合并一次**（真正的防线在那边，watch 只是让画面早点跟上）。
+   */
+  const mergeIntoEditor = useCallback(async () => {
+    const m = await mergeWithDisk()
+    if (!m.ok || !m.applied) return
+    if (m.conflicts) setToast(`已自动合并磁盘上的改动（${m.conflicts} 处冲突保留了你这边）`)
+    if (m.merged !== undefined && m.merged !== contentRef.current) {
+      externalReloadRef.current = true
+      setContent(m.merged)
+      setDirty(true) // 合并结果还没落盘
+      setSaveState('idle')
+    }
+  }, [mergeWithDisk, setToast])
+
   const reloadActiveFromDisk = useCallback(async () => {
     const k = kernel
     const path = activeRef.current
@@ -874,6 +946,7 @@ export default function App() {
       return false
     }
     trace('reloaded')
+    baseRef.current = text // 整篇替换过 ⇒ 内存与磁盘又一致了
     externalReloadRef.current = true // 接下来那次 onChange 是本次替换的副产物，不算用户编辑
     setContent(text)
     setDirty(false)
@@ -890,14 +963,18 @@ export default function App() {
     const sub = kernel.fs.watch(() => {
       void refresh()
       /**
-       * 磁盘变了 ⇒ 当前笔记**没有未保存手改**时自动跟上。
-       * 这正是"导图窗口写回 → 笔记立刻可见"的主路径（rev61）。
-       * 有手改时**刻意不覆盖** —— 用户正在打字，手写优先（方向由用户 2026-10-13 定）。
+       * 磁盘变了，分两条路（rev61 / rev62）：
+       *   · **没有未保存手改** ⇒ 整篇跟上（"导图写回 → 笔记立刻可见"的主路径）；
+       *   · **有手改** ⇒ 走三方合并，把外部改动**并进来**，而不是覆盖（用户在打字，手写优先）。
+       *
+       * ⚠️ watch 只是"让画面早点跟上"；**真正的防线在 `saveNow`** 里写盘前那次合并 ——
+       * 实测 watch 会迟到好几秒，那时 800ms 的自动保存早就把插件写的内容盖掉了。
        */
-      if (!dirtyRef.current) void reloadActiveFromDisk()
+      if (dirtyRef.current) void mergeIntoEditor()
+      else void reloadActiveFromDisk()
     })
     return () => sub.dispose()
-  }, [kernel, refresh, reloadActiveFromDisk])
+  }, [kernel, refresh, reloadActiveFromDisk, mergeIntoEditor])
 
   /* ── 保存：原子写，失败绝不显示「已保存」── */
   const saveNow = useCallback(async () => {
@@ -906,17 +983,36 @@ export default function App() {
     if (!k || !path) return
     setSaveState('saving')
     try {
-      await k.fs.writeText(path, contentRef.current)
+      /**
+       * **写盘之前先合并** —— 自动合并真正生效的地方。
+       *
+       * 不能只靠 `fs.watch`：实测它会迟到好几秒，而这里 800ms 就落盘，
+       * 那一下会把插件刚写进磁盘的内容**整篇盖掉**（这正是"改了没回传"的另一面：
+       * 反过来也会发生 —— 用户的自动保存把导图的改动抹了）。
+       * 合并之后写的是"两边改动都在"的那一份，磁盘与内存重新一致。
+       */
+      const m = await mergeWithDisk()
+      let text = contentRef.current
+      if (m.ok && m.applied && m.merged !== undefined) {
+        text = m.merged
+        if (m.conflicts) setToast(`保存前已与磁盘合并（${m.conflicts} 处冲突保留了你这边）`)
+        if (text !== contentRef.current) {
+          externalReloadRef.current = true
+          setContent(text)
+        }
+      }
+      await k.fs.writeText(path, text)
+      baseRef.current = text
       setDirty(false)
       setSaveState('saved')
       setError(null)
       // 落盘成功才广播 —— 失败时插件不该以为内容安全了（与"失败绝不显示已保存"同一原则）
-      fireDoc('save', path, contentRef.current, false)
+      fireDoc('save', path, text, false)
     } catch (e) {
       setSaveState('error')
       setError(failMsg('write', e))
     }
-  }, [kernel, fireDoc])
+  }, [kernel, fireDoc, mergeWithDisk, setToast])
   useEffect(() => {
     saveNowRef.current = saveNow
   }, [saveNow])
@@ -1031,6 +1127,7 @@ export default function App() {
       if (dirtyRef.current) await saveNowRef.current()
       try {
         const text = await k.fs.readText(path)
+        baseRef.current = text // 三方合并的 BASE = 刚读到的这份
         setContent(text)
         setActivePath(path)
         setDirty(false)
@@ -1061,6 +1158,7 @@ export default function App() {
     const c = contentRef.current
     setActivePath(null)
     setContent('')
+    baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
     setDirty(false)
     setSaveState('idle')
     setError(null)

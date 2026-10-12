@@ -74,14 +74,28 @@ async function rescan(cdp) {
   await click(cdp, 'text:重新扫描')
 }
 
-/** 通过命令面板执行一条命令（命令不进 ☰ 菜单，这是最接近用户操作的路径） */
+/**
+ * 通过命令面板执行一条命令（命令不进 ☰ 菜单，这是最接近用户操作的路径）。
+ *
+ * ⚠️ **选择器必须精确到命令面板那个输入框**（2026-10-13 踩到）：
+ * 主区停在「插件管理」时，页面上有**三个 `checkbox`** 排在命令面板输入框前面 ——
+ * 裸 `input` 会命中 checkbox：搜索词打进空气、`Enter` 还可能顺手切了某个开关。
+ * 症状很有欺骗性：**单独跑可能过，接着别的脚本跑就超时**（verify-shell 的 ④ 第二次接管就是这么挂的）。
+ * 这里用 placeholder 前缀匹配（不写全 `输入命令名…`，省得跟那个省略号字符较劲）。
+ *
+ * ⚠️ **查询词必须唯一定位到目标命令**（同一处的第二个坑，更隐蔽）：`Enter` 执行的是
+ * `filtered[cursor]`，而排序规则是「分数相同则**最近用过的靠前**」。shell-demo 的两条命令
+ * 标题都含「整窗接管」，之前跑过 `release` ⇒ 它被顶到第一位 ⇒ `Enter` 执行了一次**空操作**
+ * （`handle` 为 null 直接 return），表现成"接管容器等不到"，可单独跑一次却可能成功。
+ * ⇒ 查询词一律用**完整命令 id**（`shell-demo.takeover`）：它不是另一条 id 的子序列，唯一命中。
+ */
 async function runCommand(cdp, query) {
   await click(cdp, 'text:☰')
   await sleep(250)
   await click(cdp, 'text:命令面板')
-  await sleep(350)
-  await typeText(cdp, 'input', query)
-  await sleep(250)
+  await sleep(400)
+  await typeText(cdp, 'input[placeholder^="输入命令名"]', query)
+  await sleep(300)
   await key(cdp, 'Enter')
 }
 
@@ -118,7 +132,7 @@ async function main() {
     check('① 插件装上（命令表出现 shell-demo.takeover）', true)
 
     /* ── ② 接管 ── */
-    await runCommand(cdp, '整窗接管')
+    await runCommand(cdp, 'shell-demo.takeover')
     await waitFor(async () => (await cdp.js(STATE_JS)).mount, '接管容器出现')
     await sleep(300)
     const taken = await cdp.js(STATE_JS)
@@ -140,7 +154,7 @@ async function main() {
     await shot(cdp, join(REPO, '_shots', 'shell-released.png'))
 
     /* ── ④ 内核逃生口：插件不给退出入口时，用户也必须能回到内核 ── */
-    await runCommand(cdp, '整窗接管')
+    await runCommand(cdp, 'shell-demo.takeover')
     await waitFor(async () => (await cdp.js(STATE_JS)).mount, '第二次接管容器出现')
     const hasEscape = await cdp.js(`!!document.querySelector('.zn-shell-escape')`)
     check('④ 接管期间内核逃生口在（可见按钮）', hasEscape)
@@ -155,7 +169,7 @@ async function main() {
     /* ── ⑤ 卸载插件 ⇒ 命令表回基线（注：接管**进行中**时内核 UI 不可达，
        所以"卸载"这条只能在释放后走；接管中被锁死的那条路由 ④ 的逃生口覆盖） ── */
     note('再接管一次，然后先逃生口释放、再卸载插件')
-    await runCommand(cdp, '整窗接管')
+    await runCommand(cdp, 'shell-demo.takeover')
     await waitFor(async () => (await cdp.js(STATE_JS)).mount, '第三次接管容器出现')
     await click(cdp, 'text:释放接管')
     await waitFor(async () => !(await cdp.js(STATE_JS)).mount, '释放第三次接管', 8000)
