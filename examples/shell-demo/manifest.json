@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 1,
+  "id": "shell-demo",
+  "name": "整窗接管示例",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "U2 示例（2026-10-13 rev51）：插件自绘界面接管整窗渲染（内核 UI 让位），释放或卸载插件后内核 UI 复原。",
+  "capabilities": ["command", "view:main"],
+  "contributes": {
+    "commands": [
+      { "id": "shell-demo.takeover", "title": "整窗接管示例：接管整个界面" },
+      { "id": "shell-demo.release", "title": "整窗接管示例：释放接管" }
+    ]
+  }
+}

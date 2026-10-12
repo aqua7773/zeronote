@@ -17,6 +17,7 @@ import type {
   IndexApi,
   PanelLocation,
   ServiceApi,
+  ShellSpec,
   StoreApi,
   UINode,
   ViewApi,
@@ -54,6 +55,11 @@ export type KernelHooks = {
   onPanelStateChange: (bind: string, value: unknown) => void
   /** 服务登记表变了（宿主一般不需要处理 —— kernel 已经把它转成 event 广播） */
   onServicesChange?: (list: { name: string; pluginId: string; version?: string; loaded: boolean }[]) => void
+  /**
+   * **整窗接管状态变了**（U2）：`null` = 内核 UI 正常显示；非 null = 那个插件接管了渲染。
+   * 宿主据此决定"渲染内核 UI"还是"渲染接管容器"（DOM 挂载由宿主做，见 `App.tsx` 的 `ShellMount`）。
+   */
+  onShellChange?: (owner: { pluginId: string; spec: ShellSpec } | null) => void
 }
 
 /**
@@ -81,6 +87,8 @@ export type KernelAudit = {
   pluginStyles: number
   /** 当前由内核开着的**插件独立窗口** label（U1）—— 插件卸载后应当回空 */
   windows: string[]
+  /** 当前接管整窗渲染的插件 id（U2）—— `null` = 内核 UI 正常 */
+  shell: string | null
 }
 
 /** 插件窗口 label 前缀 —— 与 `capabilities/plugin-windows.json` 的 glob 约定必须一致 */
@@ -122,6 +130,22 @@ export type Kernel = {
    * 宿主把它挂到 `window.__znKernelAudit` 供 CDP 自动验收（见 `KernelAudit`）。
    */
   audit: () => KernelAudit
+  /**
+   * **读整窗接管的账**（U2）—— 宿主渲染时直接问内核"现在谁在接管"，而不是自己镜像一份 state。
+   * 好处：内核被重建（切库）时这本账随旧内核一起消失，宿主**不可能**留下"接管者已不存在"的幻影。
+   * 返回值变化由 `hooks.onShellChange` 通知（宿主在那里触发一次重渲染即可）。
+   */
+  shellOwner: () => { pluginId: string; spec: ShellSpec } | null
+  /**
+   * **内核强制释放整窗接管**（U2 的逃生口）。
+   *
+   * 为什么必须有：接管期间内核 UI 全部不在渲染树里 ⇒ 插件管理页也点不到。
+   * 插件自己要是不给退出入口（或干脆崩在半路），用户就被锁死了 ——
+   * 原则 3 的"关掉插件内核还能用"必须覆盖**连插件界面都出不来**的情况。
+   *
+   * 清账后宿主会卸载挂载器 ⇒ 插件 `mount` 返回的 `dispose` 依然会被调用（它仍有收尾机会）。
+   */
+  clearShell: () => void
 }
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
@@ -141,6 +165,15 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
    */
   const windowMap = new Map<string, WebviewWindow>()
   let windowSeq = 0
+  /**
+   * **整窗接管的账**（U2）：同一时刻只允许一个接管者。
+   *
+   * 为什么不是"后来者顶掉前者"：那等于静默失效 —— 前一个插件不知道自己的界面被谁换了、
+   * 后一个也不知道自己踩了谁。抛明确错误让人（和插件日志）都看得见，才是可解释的。
+   * `pluginId` 由 `scopedView` 注入（内核这份 view 不认识调用者）。
+   */
+  let shellTakeover: { pluginId: string; spec: ShellSpec } | null = null
+  const notifyShell = () => hooks.onShellChange?.(shellTakeover ? { ...shellTakeover } : null)
   const view: ViewApi = {
     registerPanel(spec): Disposable {
       // 幂等：同 id 重新注册 = 替换（dev 热重载 / 插件重复加载都靠它兜底）
@@ -248,6 +281,40 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     setState(bind: string, value: unknown) {
       hooks.onPanelStateChange(bind, value)
     },
+    /**
+     * 接管整窗渲染（U2 · 契约 §2.8）。内核只维护**账 + 通知**：
+     * DOM 挂载交给宿主（`App.tsx` 的 `ShellMount`）—— 与 panels 同一个模式，内核不碰 React 树。
+     *
+     * `pluginId` 由 `scopedView` 注入；内核自己直接调这份会报错（没有归属的接管无法还原）。
+     */
+    overrideShell(spec: ShellSpec & { pluginId?: string }): Disposable {
+      const pluginId = spec.pluginId
+      if (!pluginId) {
+        throw new Error(
+          'view.overrideShell 必须从插件上下文调用（ctx.view）—— 内核自己调它没有归属，无法还原',
+        )
+      }
+      if (shellTakeover && shellTakeover.pluginId !== pluginId) {
+        throw new Error(
+          `整窗已被插件 ${shellTakeover.pluginId} 接管：请它先释放（dispose）或卸载它，再接管`,
+        )
+      }
+      const entry = { pluginId, spec }
+      shellTakeover = entry
+      notifyShell()
+      let disposed = false
+      return {
+        dispose: () => {
+          if (disposed) return
+          disposed = true
+          // 只有"当前接管的还是我"才清 —— 免得旧实例的 dispose 把新接管者干掉
+          if (shellTakeover === entry) {
+            shellTakeover = null
+            notifyShell()
+          }
+        },
+      }
+    },
   }
 
   /** index 原语：内存全文索引（多关键词 AND + 中文子串），实现见 index-api.ts */
@@ -350,6 +417,15 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       // 插件注入的 <style>（injectStyles 会打 data-zn-plugin 标记）—— 数出来即可
       pluginStyles: document.querySelectorAll('style[data-zn-plugin]').length,
       windows: [...windowMap.keys()].sort(),
+      shell: shellTakeover?.pluginId ?? null,
     }),
+    // 返回**同一引用**（接管期间不变）：宿主的挂载 effect 依赖它 —— 每次新建对象会让 mount 反复重跑
+    shellOwner: () => shellTakeover,
+    clearShell: () => {
+      if (!shellTakeover) return
+      shellTakeover = null
+      notifyShell()
+      hooks.onLog('内核逃生口：已强制释放整窗接管', 'warn')
+    },
   }
 }

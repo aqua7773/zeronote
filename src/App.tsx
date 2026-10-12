@@ -29,6 +29,7 @@ import type {
   NoteDoc,
   NoteMeta,
   PluginManifest,
+  ShellMountCtx,
   TrashEntry,
 } from './kernel/contract'
 /* 2026-10-13 拆权限门：`./kernel/permissions` 的四个导入（isGranted / readPermissions /
@@ -41,6 +42,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
 import { PanelBoundary } from './components/PanelBoundary'
+import { ShellMount } from './components/ShellMount'
 import { Settings } from './components/Settings'
 import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
@@ -272,6 +274,15 @@ export default function App() {
     () => new URLSearchParams(location.search).get('pluginWindow'),
     [],
   )
+
+  /**
+   * **整窗接管**（U2 · rev51）：只留一个"重渲染计数器"，真正的账在**内核**里
+   * （`kernel.shellOwner()`，渲染时直接读）。
+   *
+   * 为什么不自己镜像一份 state：内核被重建（切库 / docApi 换代）时那本账随旧内核消失，
+   * 宿主这边**不可能**留下"接管者已经不存在"的幻影 —— 少一类同步 bug，也少一个 effect。
+   */
+  const [, setShellTick] = useState(0)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -742,8 +753,45 @@ export default function App() {
       onNotify: (msg) => setToast(msg),
       onLog: (msg) => setPanelLog((l) => [...l.slice(-199), msg]),
       onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
+      // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
+      onShellChange: () => setShellTick((t) => t + 1),
     })
   }, [vault, docApi])
+
+  /** 当前整窗接管者（`null` = 内核 UI 正常）—— 直接读内核那本账，引用在接管期间稳定 */
+  const shellTakeover = kernel?.shellOwner() ?? null
+
+  /** `ShellMount` 的挂载上下文 —— 必须是稳定引用（它是 mount 的 effect 依赖，变一次就会重挂载） */
+  const shellCtx = useMemo<ShellMountCtx | null>(
+    () =>
+      shellTakeover
+        ? {
+            pluginId: shellTakeover.pluginId,
+            vault: vault ?? '',
+            platform: kernel?.host.platform ?? 'other',
+          }
+        : null,
+    [shellTakeover, vault, kernel],
+  )
+
+  /**
+   * 接管期间的**内核逃生口**（U2）—— 键盘那半。
+   *
+   * 接管状态下内核 UI 全部不在渲染树里（连插件管理页都点不到），所以必须留一条
+   * "回到内核"的路：否则插件不给退出入口、或崩在半路，用户就被锁死了。
+   * 另一半是右下角那颗可见的小按钮（见渲染分支）；两个入口覆盖"按钮被插件盖住"的情况。
+   */
+  useEffect(() => {
+    if (!shellTakeover) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        kernel?.clearShell()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [shellTakeover, kernel])
 
   /**
    * 内核审计出口（**只读诊断**）—— 接管协议验收判据的载体（2026-10-13 rev49）。
@@ -2323,7 +2371,10 @@ export default function App() {
           </button>
         </div>
         <div className="zn-plugin-window-body">
-          {winPanel ? (
+          {/* U2：窗口里同样允许接管 —— 但**标题条与关闭按钮保留**（否则窗口关不掉） */}
+          {shellTakeover && shellCtx ? (
+            <ShellMount spec={shellTakeover.spec} ctx={shellCtx} />
+          ) : winPanel ? (
             <PanelBoundary key={winPanel.id}>
               {winPanel.webview ? (
                 <WebViewFrame url={winPanel.webview.url} title={winPanel.title} />
@@ -2347,6 +2398,28 @@ export default function App() {
             </div>
           )}
         </div>
+      </div>
+    )
+  }
+
+  /* ── 整窗接管（U2 · rev51）：插件把内核 UI 整个请下场，自己画 ──
+     两条内核侧的兜底：① 拖动区保留（主窗口 decorations:false，否则接管后窗口拖不动）
+     ② 接管只靠插件自己的 UI 退出，或卸载插件 —— 卸载即复原（subscriptions 自动登记）。 */
+  if (shellTakeover && shellCtx) {
+    return (
+      <div className="zn-app zn-shell-host">
+        <div className="zn-titlebar-hotzone" data-tauri-drag-region />
+        <ShellMount spec={shellTakeover.spec} ctx={shellCtx} />
+        {/* 内核逃生口（可见那半）：接管把内核 UI 全挡住了，这颗小按钮是"回到内核"的入口。
+            z-index 拉高 + 固定在右下角，插件在容器里怎么画都盖不住它（除非它故意改内核 DOM）。 */}
+        <button
+          type="button"
+          className="zn-shell-escape"
+          title="内核：释放该插件的整窗接管（快捷键 Ctrl+Alt+Z）"
+          onClick={() => kernel?.clearShell()}
+        >
+          释放接管
+        </button>
       </div>
     )
   }

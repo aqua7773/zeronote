@@ -455,6 +455,50 @@ export interface ViewApi {
   refresh(panelId?: string): void
   /** 写面板状态（输入框等 bind 值）→ 宿主重渲染。插件清空/预填输入框的标准做法 */
   setState(bind: string, value: unknown): void
+  /**
+   * **接管整窗渲染**（U2 · 2026-10-13 rev51）—— 插件把内核 UI 整个请下场，自己画。
+   *
+   * ```js
+   * const d = api.view.overrideShell({
+   *   mount(el, ctx) {
+   *     el.innerHTML = '<div style="padding:24px">我的界面</div>'
+   *     return { dispose: () => { el.innerHTML = '' } }   // 可选：释放时的清理
+   *   },
+   * })
+   * api.subscriptions.push(d)      // 卸载插件 ⇒ dispose ⇒ 内核 UI 自动复原
+   * ```
+   *
+   * **语义**
+   * · `mount(el, ctx)` 在宿主给出的容器元素上执行**一次**（插件直接用 DOM 画 —— 这正是
+   *   "声明式 UINode 表达不了"的那类界面：画布、多窗格、自定义布局）。
+   *   返回 `Disposable` 可选；`dispose()` 时会先调它、再清空容器。
+   * · **同一时刻只允许一个接管者**：第二个插件来接管会**抛明确错误**（而不是静默顶掉前一个 ——
+   *   那样两边都不知道发生了什么）。要换人：前一个 `dispose()` 或卸载它。
+   * · `dispose()`（或卸载插件）⇒ 内核 UI 立刻复原（原则 3：关掉插件内核还能用）。
+   * · **窗口模式**下接管的是"那个窗口的内容区"，标题条与关闭按钮**保留**（否则窗口没法关）。
+   * · 风格统一靠插件自觉：内核提供 `--zn-*` 设计令牌与 `.zn-ui-*` 类
+   *   （用户 2026-10-13 已裁决：不防"插件把界面改成任意样子"，同一套风格即可）。
+   *
+   * ⚠️ 两条边界（**已实测**，见 `docs/内核契约-v0.1.md` §2.8）：
+   * ① 接管期间内核不提供"退出接管"的按钮 —— 退出路径是插件自己给的 UI，或卸载插件；
+   * ② 主窗口 `decorations: false`，所以**拖动区由内核保留**（`data-tauri-drag-region` 热区），
+   *   否则接管后窗口没法拖动。
+   */
+  overrideShell(spec: ShellSpec): Disposable
+}
+
+/** `overrideShell` 的挂载上下文 —— 静态信息，**只在 mount 时给一次** */
+export type ShellMountCtx = {
+  pluginId: string
+  /** 当前库（绝对路径）—— 接管界面里想读笔记时用它，不用再问内核 */
+  vault: string
+  platform: 'windows' | 'android' | 'other'
+}
+
+/** `overrideShell` 的参数（契约 §2.8） */
+export type ShellSpec = {
+  /** 在宿主给的容器上画界面。返回 Disposable 可选（释放时先调它，再清空容器） */
+  mount: (el: HTMLElement, ctx: ShellMountCtx) => void | Disposable
 }
 
 /** 7. store —— 插件自己的持久化（落 .zn/plugins/<id>/store.json） */

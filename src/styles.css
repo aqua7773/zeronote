@@ -1316,3 +1316,43 @@ body.is-resizing * {
   color: var(--zn-fg-subtle);
 }
 
+/* ───────── 整窗接管（U2 · 2026-10-13 rev51）─────────
+   插件把内核 UI 整个请下场：`.zn-shell-mount` 是宿主给的容器，插件在里面直接画 DOM。
+   容器铺满内容区、自己滚 —— 内核只保证"给了块干净画布 + 能拖窗口"。 */
+.zn-shell-host {
+  position: relative;
+}
+
+.zn-shell-mount {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--zn-bg);
+  color: var(--zn-fg);
+}
+
+/* 内核逃生口：接管期间唯一可见的"回到内核"入口。
+   刻意做得克制（小、半透明、悬停才明显）—— 插件全屏自绘时它几乎不打扰；
+   但 z-index 高于挂载容器，插件在容器里怎么画都盖不住它。 */
+.zn-shell-escape {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 100;
+  padding: 4px 10px;
+  border: 1px solid var(--zn-border);
+  border-radius: 999px;
+  background: var(--zn-bg-subtle);
+  color: var(--zn-fg-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.zn-shell-escape:hover {
+  opacity: 1;
+  color: var(--zn-fg);
+}
+

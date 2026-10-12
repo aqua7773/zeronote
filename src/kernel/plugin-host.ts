@@ -281,6 +281,9 @@ function scopedView(view: ViewApi, pluginId: string, subs: Disposable[]): ViewAp
       collect(subs, view.registerWebView({ ...spec, pluginId } as typeof spec)),
     // 独立窗口也是"插件开出去的东西"：不登记就会在卸载后继续挂着（窗口里的插件还在跑）
     openWindow: (spec) => collect(subs, view.openWindow(spec)),
+    // 整窗接管要注入归属：内核那份 view 不认识调用者，而"谁在接管"正是还原的依据
+    overrideShell: (spec) =>
+      collect(subs, view.overrideShell({ ...spec, pluginId } as typeof spec)),
   }
 }
 
