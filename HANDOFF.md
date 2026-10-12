@@ -56,6 +56,36 @@ revision: 30
 >    §2.2 的 `url` 注释曾写「接受 `data:`/`blob:`/`asset:`」，与同节 ④ 的实测结论打架 → 已改为「必须是独立 origin」。
 > 6. **基线未变**：`tsc -b` 0 错误 · `oxlint` 4 warnings · `cargo test --lib` **16 passed**。
 
+> ## 📌 rev31（同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开）
+>
+> **提交 `9fd7e1d`**（6 文件 / 821 行）。用户选 **D（文件关联）**，落点用**方案 A**。
+>
+> | 侧 | 状态 | 证据 |
+> |---|---|---|
+> | **桌面（Windows）** | ✅ **全通** | `bundle.fileAssociations`（md/markdown → `text/markdown`）随安装包注册；exe 带 `.md` 参数启动即切库并打开；**单实例转发**（第二个进程把 argv 交给已运行实例，进程数仍 1） |
+> | **Android** | ⚠️ **`file://` 通、`content://` 不通** | `am start -a VIEW -d file://…` 库内/库外两例都对；`content://…` 只能如实提示"读不了" |
+> | macOS / iOS | 代码路径已接（`RunEvent::Opened`），**未验证** | — |
+>
+> **怎么做的**（按官方《File Associations on Mobile》+ 同类项目 Marko 实证，未自创）
+> · Android 的 intent-filter 由 Tauri 构建系统**自动注入**（`gen/android/.../AndroidManifest.xml` 那处 diff 是 `AUTO-GENERATED`，未手改）
+> · Windows 拿不到 `RunEvent::Opened`（tauri 2.12 把它 `cfg` 到 macos/ios/android）⇒ 走 **`tauri-plugin-single-instance`（必须是第一个插件）+ argv 转发**
+> · 三条入口最后汇进 `OpenedUrls` state：`opened_urls` 命令（启动时拉）+ `zn:open-file` 事件（运行期）
+>
+> **落点 = 方案 A**：接到路径 → 把**父目录当库打开** → 再打开该文件。
+> · **`resolve()` 一字未改**（已复核）、**未加任何库外读写命令** ⇒ 未突破安全边界
+> · 库外直接读写（方案 C）**仍需用户单独授权**，不在本批
+>
+> **⚠️ Android 的真实缺口**：文件管理器「打开方式」递的多半是 `content://`（SAF），而 `std::fs` 读不了
+> ⇒ **手机上"双击打开"日常还不可用**。下一步两条路：接官方 `@tauri-apps/plugin-fs`（走 contentResolver），
+> 或自写 Kotlin 取 fd 中转（参考 `src-tauri/plugins/tauri-plugin-statusbar` 的 JNI 做法）。
+> 建议做成**只读**通道（`read_content_uri`），字节流交给现有库内白名单落盘/显示 —— 不碰 `resolve()`。
+>
+> **验收（我独立复核，非采信子代理自述）**：`tsc -b` 0 · `oxlint` 4 · `cargo test --lib` **16 passed**；
+> 截图 `_shots/fa-desktop-open.png`、`fa-desktop-single-instance.png`、`fa-android-open-in-vault.png`、
+> `fa-android-outside-vault.png`、`fa-android-content-uri.png`。
+>
+> **新增入口**：`☰` 菜单「打开文件…」（桌面不装安装包也能用；Android 用系统「打开方式」选 ZeroNote）。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
