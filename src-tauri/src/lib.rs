@@ -885,10 +885,29 @@ pub fn run() {
 mod tests {
   use super::*;
 
+  /// 测试临时目录。**刻意不用 `std::env::temp_dir()`（`%TEMP%`）**：
+  /// 2026-10-12 夜实测 —— 测试进程往 `%TEMP%` 建目录被拒（`Os code 5 PermissionDenied`，
+  /// 12/18 个用例全挂在 `create_dir_all`），而**同一路径在 pwsh 里可写**
+  /// ⇒ 挡住的是跑测试的那个受限上下文，不是磁盘也不是权限表。
+  /// 改放仓库内 `<repo>/_tmp-test/`：① 该前缀已在 `.gitignore`（`_tmp-*/`）；
+  /// ② 与 `_tmp-vault-tb/` 同一约定；③ 路径可预测，出问题直接去看，
+  /// 不再受系统临时目录的权限摆布。
   fn tmpdir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("zn-test-{tag}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&d);
-    fs::create_dir_all(&d).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("..")
+      .join("_tmp-test");
+    // 目录名**不带 pid**：带 pid 会每跑一次测试就多留 18 个目录（旧版落在 `%TEMP%` 里
+    // 已经堆到 239 个）。固定名的并发风险为零 —— cargo 会在 target 目录上取锁，
+    // 同一 target 的两个 cargo 命令是串行的；测试内部各用例 tag 互不相同。
+    let d = root.join(format!("zn-test-{tag}"));
+    match fs::remove_dir_all(&d) {
+      Ok(()) => {}
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+      // 清理失败**不再静默忽略** —— 上一版的 `let _ =` 正是把"不可写"这个真问题藏起来的那句
+      Err(e) => panic!("清理测试目录失败（{}）：{e}", d.display()),
+    }
+    fs::create_dir_all(&d)
+      .unwrap_or_else(|e| panic!("创建测试目录失败（{}）：{e}", d.display()));
     d
   }
 
