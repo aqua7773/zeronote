@@ -1,23 +1,71 @@
 diff --git a/dist/inline-preview.js b/dist/inline-preview.js
-index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..e672281e31ed7da8cc30bda6749287315bbb9845 100644
+index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..4ef1a18475702d0697c1f0f9443458d00fb2b0a0 100644
 --- a/dist/inline-preview.js
 +++ b/dist/inline-preview.js
-@@ -464,7 +464,17 @@ function buildInlineDecorations(view) {
+@@ -179,6 +179,24 @@ const LINE_CLASS_BY_BLOCK = {
+     Blockquote: 'cm-atomic-blockquote',
+     FencedCode: 'cm-atomic-fenced-code',
+ };
++/**
++ * PATCH(ZeroNote): 对齐 Typora 的「标记后必须有空格才算标记」（标题部分）。
++ *
++ *  - **空 ATX 标题**（`#` 或 `# ` 之后就换行）：Typora 当字面文本
++ *    ⇒ 既不给标题样式，也不隐藏那个 `#`
++ *  - **Setext 下划线只有一个 `-`**：Typora 不当它下划线
++ *    （`===` 与 `---` 照旧当标题；实测 Typora 1.14.10 行为）
++ *
++ * 返回 true = 这个标题节点**不该**按标题渲染。
++ */
++function isBareHeadingForTypora(node, doc) {
++    const text = doc.sliceString(node.from, node.to);
++    if (node.name.startsWith('ATXHeading'))
++        return /^#+[ \t]*$/.test(text);
++    if (node.name.startsWith('SetextHeading'))
++        return text.split('\n').pop().trim() === '-';
++    return false;
++}
+ const HIDEABLE_SYNTAX = new Set([
+     'HeaderMark',
+     'EmphasisMark',
+@@ -423,7 +441,8 @@ function buildInlineDecorations(view) {
+                 }
+             }
+             const lineClass = LINE_CLASS_BY_BLOCK[node.name];
+-            if (lineClass) {
++            // PATCH(ZeroNote): 空标题 / 单个 `-` 的 setext 不给标题样式（对齐 Typora）
++            if (lineClass && !isBareHeadingForTypora(node, doc)) {
+                 const firstLine = doc.lineAt(node.from);
+                 const lastLine = doc.lineAt(node.to);
+                 for (let n = firstLine.number; n <= lastLine.number; n++) {
+@@ -464,7 +483,17 @@ function buildInlineDecorations(view) {
                              hideTo++;
                          }
                      }
 -                    pushReplace(ranges, doc, node.from, hideTo);
-+                    // PATCH(ZeroNote): 空标题不隐藏标记。
-+                    // 原本 `#` 后面直接换行时，HeaderMark 被整段替换掉、又没有内容可显示
-+                    // ⇒ 非活动行上**什么都不剩**，看着像空行（用户会以为内容丢了；其实 `#` 还在文件里）。
-+                    // 判据：标记所属的标题节点在「标记 + 其后空格」处就结束了 = 标题为空。
++                    // PATCH(ZeroNote): 「不按标题渲染」的标题标记**不隐藏**。
++                    // 两处都是 Typora 规则（标记后没空格就不算标记）的推论：
++                    //  · 空标题（`#` 后直接换行）：原本标记被替换掉又没有内容 ⇒ 整行什么都不剩，
++                    //    看着像空行（用户会以为内容丢了；其实 `#` 还在文件里）
++                    //  · Setext 只写一个 `-`：Typora 当字面文本 ⇒ 那个 `-` 得看得见
 +                    const markParent = node.node.parent;
-+                    const emptyAtxHeading = node.name === 'HeaderMark' &&
++                    const bareHeading = node.name === 'HeaderMark' &&
 +                        !!markParent &&
-+                        markParent.name.startsWith('ATXHeading') &&
-+                        hideTo >= markParent.to;
-+                    if (!emptyAtxHeading)
++                        isBareHeadingForTypora(markParent, doc);
++                    if (!bareHeading)
 +                        pushReplace(ranges, doc, node.from, hideTo);
                  }
              }
              if (node.name === 'URL' && node.from < node.to) {
+@@ -500,7 +529,11 @@ function buildInlineDecorations(view) {
+                     pushReplace(ranges, doc, node.from, node.from + 1);
+                 }
+             }
+-            if (node.name === 'ListMark' && node.from < node.to) {
++            // PATCH(ZeroNote): 标记后**没有空格**时 Typora 当字面文本（裸 `-` / `*` / `+` / `1.`）。
++            // 不进这个块 = 不替换成圆点 widget、也不加 alcove 缩进 ⇒ 标记原样可见。
++            // （CommonMark 允许「标记 + 行尾」算列表项，Typora 不认 —— 用户要求对齐 Typora。）
++            if (node.name === 'ListMark' && node.from < node.to &&
++                doc.sliceString(node.to, node.to + 1) === ' ') {
+                 const line = doc.lineAt(node.from);
+                 // Detect a task item from the line text. ListMark is visited
+                 // before the TaskMarker on its line, so a forward single-pass

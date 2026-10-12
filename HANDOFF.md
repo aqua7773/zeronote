@@ -385,19 +385,29 @@ revision: 36
 > —— 它只是照解析结果渲染，没做错。**用户 2026-10-12 裁决：不改**（与 Obsidian / Typora / VS Code 一致）。
 > **规避写法**：分隔线用 `---` 且**前后各留一个空行**；别在段落正下方写只有 `-` / `=` 的行。
 >
-> 🔧 **当晚还打了本仓库唯一的第三方补丁**（`patches/@atomic-editor__editor@0.6.2.patch`，1.4 KB）：
-> **空标题不隐藏 `#`**。
-> · **现象**（用户报）：`#` 后面直接换行 ⇒ 光标离开那一行后**整行变成空白**，像空行一样（用户会以为内容丢了）。
-> · **根因**：库里的 `HIDEABLE_SYNTAX` 含 `HeaderMark`，非活动行把标记 `pushReplace` 掉；空标题没有内容
->   可显示 ⇒ 什么都不剩。`# 有内容` 不受影响（藏掉 `# ` 还剩字）。
-> · **修法**：给隐藏逻辑加一个例外 —— 标记所属节点是 `ATXHeading*`、且「标记 + 其后空格」就到该节点末尾
->   （= 空标题）时**不隐藏**。有内容的标题照旧隐藏 ✓
-> · **升级注意**：以后升 `@atomic-editor/editor` **必须重打**这个补丁（`pnpm patch` → 改 → `pnpm patch-commit`）；
->   npm 上 0.6.2 已是最新（查过），暂时没得升。
-> · **改了 node_modules 之后 vite 必须重启**才会重新预打包（日志会打
->   `Re-optimizing dependencies because lockfile has changed`）；只删 `.vite/deps` 不重启不够。
-> · 证据：`_shots/eh-02-empty-heading.png` —— **同一屏里两种行为都在**：末行空标题的 `#` 可见，
->   首行 `# 新笔记` 的 `#` 仍隐藏（说明补丁没误伤有内容的标题）。
+> 🔧 **当晚打了本仓库唯一的第三方补丁**（`patches/@atomic-editor__editor@0.6.2.patch`，现 3.9 KB）：
+> **分两批，都是改 `@atomic-editor/editor` 的渲染规则**。
+>
+> **① 空标题不隐藏 `#`**（用户报：`#` 后直接换行 ⇒ 光标离开那行后整行空白，像内容丢了）
+> 根因：`HIDEABLE_SYNTAX` 含 `HeaderMark`，非活动行 `pushReplace` 掉；空标题没有内容可显示 ⇒ 什么都不剩。
+>
+> **② 整套对齐 Typora 的「标记后必须有空格」规则**（用户要求「整套 Markdown 语法都对齐 Typora」）
+> · 先**实测** Typora 1.14.10（本机当晚刚装）把规则测出来，再逐条对照 —— **48 个 case**；
+>   测试集 + 结论 + **离线解析脚本**存在 **`_research/typora-parity/`**（下次接手直接续，别重测）。
+> · 结论：**差异只有一条规则的推论**（裸 `-`/`*`/`+`/`1.`、段落 + 单个 `-`、`#` 裸 / `# ` 空标题）；
+>   其余语法（强调 / 代码 / 链接 / 图片 / 表格 / 删除线 / 任务 / 自动链接 / 引用 / 分隔线 / HTML / 转义）
+>   **实测一致**。
+> · 实现：**一条判据**（标记后面是不是空格）落在三处 —— 标题行 class、标题标记隐藏、列表标记。
+> · **没做**：脚注 / 数学公式是 Typora 的**扩展功能**（ZeroNote 根本没有），不属"对齐语法"范围。
+> · **未核清**：段落 + `---` 的标题级别（Typora 视觉像 H1，CommonMark 是 H2）。
+>
+> **升级注意**：以后升 `@atomic-editor/editor` **必须重打**这个补丁（`pnpm patch` → 改 → `pnpm patch-commit`）；
+> npm 上 0.6.2 已是最新（查过），暂时没得升。
+> **改了 node_modules 之后 vite 必须重启**才会重新预打包（日志会打
+> `Re-optimizing dependencies because lockfile has changed`）；只删 `.vite/deps` 不重启不够。
+> 证据：`_shots/eh-02-empty-heading.png`（① —— 同一屏里两种行为都在）、
+> `_shots/zn-suite-02.png`（② 对齐后的 ZeroNote 渲染）、
+> `_shots/tp-suite-top.png` / `tj-x*-typora.png`（Typora 侧的对照）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
