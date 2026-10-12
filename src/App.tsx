@@ -1630,8 +1630,9 @@ export default function App() {
         (p) =>
           p.location !== 'statusbar' &&
           p.location !== 'modal' &&
-          // 工具栏是"贴着编辑器"的辅助条，不该在菜单里单开一个页面
-          p.location !== 'editor-toolbar',
+          // 工具栏 / 顶部提示条是"贴着编辑器"的辅助条，不该在菜单里单开一个页面
+          p.location !== 'editor-toolbar' &&
+          p.location !== 'editor-topbar',
       )
       .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
     ...(mainView === 'editor'
@@ -1805,13 +1806,16 @@ export default function App() {
   const statusPanels = panels.filter((p) => p.location === 'statusbar')
   /* 编辑器底部工具栏：**空数组时一个 DOM 都不渲染** —— 没有插件用这个位置就没有开销 */
   const toolbarPanels = panels.filter((p) => p.location === 'editor-toolbar')
+  /* 编辑器顶部提示条（快捷键提示这类）—— 与底部工具栏同一套规矩：没人注册就不渲染 */
+  const topbarPanels = panels.filter((p) => p.location === 'editor-topbar')
   /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
      （右侧栏已取消，sidebar 不再有独立载体；契约里 location 仍然有效，只是宿主换了承载方式） */
   const pagePanel =
     activePanel &&
     activePanel.location !== 'statusbar' &&
     activePanel.location !== 'modal' &&
-    activePanel.location !== 'editor-toolbar'
+    activePanel.location !== 'editor-toolbar' &&
+    activePanel.location !== 'editor-topbar'
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
@@ -1996,6 +2000,28 @@ export default function App() {
           </div>
         ) : activePath ? (
           <div className="zn-editor-wrap">
+            {/*
+              编辑器**顶部**提示条（`location: 'editor-topbar'`）—— 对称于底部的工具栏：
+              Markdown 标记的快捷键提示、格式提示这类"看着有用、不点也行"的内容挂这里。
+              同样是**没人注册就一个 DOM 都不渲染**；插件把面板 dispose 掉，整条就消失
+              （"可开关"就是这么实现的，内核不需要额外提供可见性开关）。
+            */}
+            {topbarPanels.length > 0 && (
+              <div className="zn-editor-topbar">
+                {topbarPanels.map((p) => (
+                  <PanelBoundary key={p.id}>
+                    <UIRenderer
+                      node={renderPanelSafe(p, panelState)}
+                      state={panelState}
+                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                      onStateChange={(bind, value) =>
+                        setPanelState((s) => ({ ...s, [bind]: value }))
+                      }
+                    />
+                  </PanelBoundary>
+                ))}
+              </div>
+            )}
             <MarkdownEditor
               path={activePath}
               value={content}

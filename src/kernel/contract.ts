@@ -310,6 +310,13 @@ export type PanelLocation =
    * **只在有面板注册到它时才渲染** —— 没有插件用它时，界面与现在完全一样。
    */
   | 'editor-toolbar'
+  /**
+   * 编辑器**顶部**的提示条（2026-10-12 加）—— 与 `editor-toolbar` 对称：
+   * 放"看着有用、不点也行"的东西，比如 Markdown 标记的**快捷键提示**。
+   * 同样**只在该位置有面板注册时才渲染**；面板 dispose 掉它就整条消失
+   * （插件据此实现"可开关"，不需要内核再提供可见性开关）。
+   */
+  | 'editor-topbar'
 
 /** 6. view —— 视图挂载 */
 export interface ViewApi {
@@ -516,6 +523,8 @@ export type Capability =
   | 'view:modal'
   /** 编辑器底部工具栏的挂载点（手机端辅助输入那条） */
   | 'view:editor-toolbar'
+  /** 编辑器顶部提示条的挂载点（与底部工具栏对称） */
+  | 'view:editor-topbar'
   /** 编辑器行内标记规则（`editor.addMark`） */
   | 'editor:mark'
   | 'store'

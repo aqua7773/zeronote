@@ -489,7 +489,10 @@ fn list_vaults(root: String) -> Result<Vec<String>, String> {
   let mut names = Vec::new();
   for entry in fs::read_dir(&dir).map_err(|e| format!("读取库容器失败：{e}"))? {
     let entry = entry.map_err(|e| e.to_string())?;
-    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+    // `path().is_dir()`（**跟随链接**）而不是 `file_type().is_dir()`：
+    // 用户可能把库目录做成 junction / 符号链接，而 `file_type()` 对链接返回 symlink 类型、
+    // `is_dir()` 是 false ⇒ 库会被整个漏掉。（`collect()` 递归扫描那里**故意不跟随**，防链接成环。）
+    if entry.path().is_dir() {
       let name = entry.file_name().to_string_lossy().to_string();
       // 与 collect() 同一套规矩：`.` 开头的跳过，别把私有目录当成库列出来
       if !name.starts_with('.') {
@@ -546,7 +549,10 @@ fn list_plugins(vault: String) -> Result<Vec<String>, String> {
   let mut out = Vec::new();
   for entry in fs::read_dir(&dir).map_err(|e| format!("读取插件目录失败：{e}"))? {
     let entry = entry.map_err(|e| e.to_string())?;
-    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+    // 跟随链接：插件目录常被做成 junction 指向源码目录（开发时改完即生效，不必反复拷），
+    // 而 `file_type()` 对 junction 返回 symlink、`is_dir()` 是 false ⇒ 插件会被整个漏掉。
+    // 这一层不递归，所以跟随链接没有成环风险。
+    if entry.path().is_dir() {
       out.push(entry.file_name().to_string_lossy().to_string());
     }
   }

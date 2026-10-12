@@ -475,6 +475,43 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/* 编辑器**顶部**提示条（`location: 'editor-topbar'`）—— 与底部工具栏同一套规矩：
+   只在插件注册了该位置时才挂载，无插件时**一个 DOM 都没有**（"按需激活"在 CSS 这层）。
+   竖排方向相反（border-bottom），横滑规则一致 —— 提示条内容通常比屏幕宽。 */
+.zn-editor-topbar {
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: center;
+  gap: var(--zn-space-2);
+  padding: var(--zn-space-1) var(--zn-space-3);
+  border-bottom: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+  scrollbar-width: none;
+}
+.zn-editor-topbar::-webkit-scrollbar { display: none; }
+.zn-editor-topbar > * { flex: 0 0 auto; min-width: 0; }
+.zn-editor-topbar .zn-ui-root,
+.zn-editor-topbar .zn-ui-stack { gap: var(--zn-space-1); }
+/* 提示条比工具栏更"轻"：一行矮按钮 + 小一号字，不抢编辑区的注意力 */
+.zn-editor-topbar .zn-ui-row { gap: var(--zn-space-2); }
+.zn-editor-topbar .zn-btn {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: var(--zn-text-sm);
+}
+/* 提示条里**第一个按钮钉在左端**（不随横滑跑掉）：
+   它约定是"关掉这条提示"的开关（见 examples/md-toolbar）。
+   ⚠️ 别钉右端 —— 编辑区右上角已经有一个「关闭」按钮，两者会挤在一起，
+   实测点偏就把笔记关掉了（提示条"消失"是假的，是笔记被关了）。 */
+.zn-editor-topbar .zn-ui-row > *:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--zn-bg-subtle);
+}
+
 /* 编辑器底部工具栏（`location: 'editor-toolbar'`）
    只在插件注册了该位置时才存在 —— 无插件时这个元素**根本不挂载**，
    所以样式怎么写都不会影响默认界面（这是"按需激活"在 CSS 这一层的体现）。 */

@@ -260,6 +260,52 @@ revision: 33
 > **仍未做**：桌面 UI 实测（实施时用户在操作电脑，没抢窗口）。真机已覆盖同一套代码路径，
 > 优先级降低；临时库 `_tmp-vault-tb/` 留着，随时可验。
 
+> ## 📌 rev35（同日 19:50 · 编辑器顶部「可开关的 Markdown 快捷键提示」）
+>
+> 用户要求：「**桌面端编辑界面的顶部做可开关的标记快捷键提示**」。
+>
+> **内核加了一个挂载位 `editor-topbar`**（对称于 `editor-toolbar`）—— 编辑器**顶部**的提示条。
+> 同样是"没人注册就一个 DOM 都不渲染"；面板 `dispose()` 掉，整条就消失
+> ⇒ **"可开关"就是这么实现的，内核不需要再提供可见性开关**。
+> 契约的 `PanelLocation`、capability 白名单（`view:editor-topbar`）、宿主渲染与 `pagePanel`/☰ 菜单的
+> 过滤都同步登记 —— **漏登记 capability 会让插件被判"未知 capability ⇒ 拒载"**，这是加新位置的固定动作。
+>
+> **插件（md-toolbar 0.2.0）**
+> · **9 条命令配了 `keybinding`**：`Mod+B` 粗体 / `Mod+I` 斜体 / `Mod+E` 行内代码 / `Mod+Shift+X` 删除线 /
+>   `Mod+1` 标题 / `Mod+Shift+L` 列表 / `Mod+Shift+T` 待办 / `Mod+Shift+Q` 引用 / `Mod+K` 链接。
+>   键位由内核的 `bindCommandKeybindings` 自动绑定，插件只**声明**（不自己监听）。
+> · 顶部提示条把键位印在按钮上（点一下同样执行）；左端 `✕` 关掉。**只有桌面挂** ——
+>   手机没有 Ctrl 键，"快捷键提示"在那边是伪概念（手机上由底部工具栏承担同一件事）。
+> · 开关状态存插件自己的 `store`（落盘 `{"hint": false}`），下次打开还记得。
+>
+> **两个真 bug（都是这轮实测挖出来的，不是想出来的）**
+> 1. **Rust `list_plugins` 会漏掉 junction 插件目录**：判断用的是 `entry.file_type().is_dir()`，
+>    而 `file_type()` 对 junction / 符号链接返回 **symlink** 类型（`is_dir()` == false）⇒
+>    插件被整个漏掉，界面上看起来就是"插件没加载"（顶部提示条与底部工具栏**一起消失**）。
+>    改成 `entry.path().is_dir()`（**跟随链接**）—— 把插件目录 junction 到源码目录本来就是插件开发者的
+>    正常用法（改完即生效，不必反复拷）。`list_vaults` 一并改；
+>    **`collect()`（笔记树递归扫描）故意不跟随**，防链接成环。
+> 2. **提示条的 `✕` 原本放在右端，与编辑区右上角的「关闭」按钮挤在同一角** ——
+>    实测点偏，把**笔记关掉**了；而"提示条消失了"其实是笔记被关、编辑器区整个不渲染。
+>    我一度误判成"开关没记住状态"。现在 `✕` 放**最前**，CSS 用
+>    `:first-child { position: sticky; left: 0 }` 钉住（横滑也跑不掉）。
+>
+> **验收（桌面实测 + 单测）**
+> · `_shots/topbar-10-loaded.png`：顶部提示条（左端 `✕` + 9 条键位）与底部工具栏**同时在**
+> · `topbar-11-hidden-ok.png`：点 `✕` ⇒ 提示条消失、**笔记仍在**（没有误关）
+> · **磁盘实测**：`_tmp-vault-tb/.zn/plugins/md-toolbar/store.json` = `{"hint": false}`
+> · `topbar-12-remembered.png`：切库重载插件后**仍隐藏**（截图 sha256 与上一张**完全一致**）⇒ 选择被记住
+> · **插件逻辑 21/21**（node 直跑插件 + mock 内核 API）：行首标记落**行首** / 成对标记光标落中间 /
+>   多行加前缀 / 9 条键位无重复 / 桌面挂提示条而**手机不挂** / toggle 开→关→开 + 写 store /
+>   上次选隐藏则开局不显示
+> · **快捷键实测**：按 `Ctrl+B` 后 `probe.md` 末尾出现 `****`（成对标记插入成功）
+> · 基线：`tsc -b` **0** · `oxlint` **4** · `cargo test --lib` **18 passed**
+>
+> **踩坑补记（花了整整两轮）**：改 `examples/` 里的插件后，**测试库里的那份是复制品、不会自动同步** ——
+> 我改了三次插件，应用一直跑的是最早那版（于是"新键位不生效""✕ 不在左端"全都被误判成 bug）。
+> 现在测试库 `_tmp-vault-tb/.zn/plugins/md-toolbar` 是 **junction → `examples/md-toolbar`**，
+> 改完只切库重载即可。副作用：插件的 `store.json` 会被写进 `examples/`，已加 `.gitignore`。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
@@ -318,6 +364,7 @@ revision: 33
 | **🚧 平台门（缺口 1）** | `_shots/gate-04-plugins-page.png`：`platforms:["android"]` 的插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无错误横幅**；三组对照 —— `gate-05`（改成双端 ⇒ **已启用**，证明只挡不匹配的、没误杀）· `gate-06` + `gate-07`（懒激活 + 仅移动端 ⇒ 仍跳过，且命令面板里**列不出**它的命令）· `gate-08`（`"windwos"` 拼错 ⇒ **拒载 + 报错并列出合法取值**，不再静默失效）；新增示例 `examples/platform-locked/` | 本次 |
 | **📦 release 打包版加载插件（首次）** | `cargo-targets\zeronote\release\zeronote.exe`（10.5 MB，`tauri build --no-bundle`，2m46s）；带 `ui-kit` 的库上：`_shots/rel-01-started.png`（**编辑器底部工具栏**＝插件的 `editor-toolbar` 面板渲染）· `rel-02-menu.png`（`☰` 菜单出现「UI 组件演示」＝插件的 `sidebar` 面板入口）· `rel-03-plugin-page.png`（插件页「**已启用**」）⇒ 打包版能读库内插件 · ⚠️ 附带一说「右栏被挤窄」**是误判**（截图越界截到后面的 DSH 窗口，用户指出，已纠正） | 本次 |
 | **⌨️ Markdown 快捷输入栏（手机键盘上方）** | 内核新原语 `doc.insertAt(pos,text,cursorOffset?)`（行首标记落行首 / 成对标记光标落中间；并入 `doc:write` 裁剪）· 插件 `examples/md-toolbar/`（12 按钮、三类行为）· `.zn-editor-toolbar` 改横滑 + 窄屏 40px 触控；**插件逻辑 node 断言 `PASS 9 / FAIL 0`**（行首 0 而非光标 3 / 第 2 行行首 4 / 光标落中间 / 多行加前缀 / 链接落 `[]` / 面板位置 + 12 按钮 + onClick 全命中）；`tsc` 0 · `oxlint` 4 · APK 274.9 MB ⚠️ **手机与桌面 UI 实测待补**（adb 设备掉线 / 用户占用桌面） | 本次 |
+| **⌨️ 编辑器顶部「可开关的快捷键提示」** | 内核新增挂载位 **`editor-topbar`**（对称于底部工具栏；面板 dispose 掉整条消失 ⇒ 可开关）· 插件 9 条命令配 `keybinding`（`Mod+B/I/E/1/K`…）+ 顶部提示条（只桌面挂，手机由底部工具栏承担）· 开关存 `store`；实测：`topbar-10-loaded.png`（提示条 + 底部工具栏同时在）→ 点 `✕` → `topbar-11-hidden-ok.png`（消失且**笔记未被误关**）+ 磁盘 `store.json = {"hint":false}` → `topbar-12-remembered.png`（重载后仍隐藏，sha256 与上一张一致）· **插件逻辑 21/21** · `Ctrl+B` 实测插入 `****` · **顺带修 Rust `list_plugins` 漏掉 junction 插件目录**（`file_type().is_dir()` 对链接返回 false）| 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 
