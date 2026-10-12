@@ -245,6 +245,8 @@ function scopedDoc(doc: DocApi, caps: Capability[], pluginId: string): DocApi {
     ...doc,
     replaceSelection: () => deny(pluginId, 'doc:write'),
     insertAtCursor: () => deny(pluginId, 'doc:write'),
+    // 新原语必须与老的两条一起裁 —— 漏一个就等于开了后门（声明与不声明一样能写）
+    insertAt: () => deny(pluginId, 'doc:write'),
   }
 }
 

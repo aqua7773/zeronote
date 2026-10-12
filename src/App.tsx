@@ -568,6 +568,23 @@ export default function App() {
         })
         v.focus()
       },
+      /**
+       * 按**偏移**插入 —— 行首标记（`# ` 标题）与成对标记（`**粗体**` 光标落中间）都靠它。
+       * 偏移一律夹进 `[0, doc.length]`：插件自己算行首时偶尔会差一两个字符（比如文档刚被改过），
+       * 那种情况该"尽力插进去"，而不是抛错把整条命令打断。
+       */
+      insertAt: (pos, text, cursorOffset) => {
+        const v = editorRef.current
+        if (!v) return
+        const len = v.state.doc.length
+        const at = Math.min(Math.max(pos, 0), len)
+        const caret = at + Math.min(Math.max(cursorOffset ?? text.length, 0), text.length)
+        v.dispatch({
+          changes: { from: at, insert: text },
+          selection: { anchor: caret },
+        })
+        v.focus()
+      },
       on: () => ({ dispose: () => {} }),
     }),
     [],

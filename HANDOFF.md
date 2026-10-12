@@ -207,6 +207,45 @@ revision: 33
 > 右/下边缘会截进窗口外的画面。dev/release 两版都"复现"也正是因为**误判与代码无关**（两次都越界）。
 > 规避办法见文末「自动化验收方法论」新增的那条。
 
+> ## 📌 rev34（同日 19:30 · Markdown 快捷输入栏 —— 落在手机软键盘正上方）
+>
+> 用户要求：「**键盘上面做 markdown 标记的快捷输入**」。
+>
+> **先补了内核原语 `doc.insertAt(pos, text, cursorOffset?)`** —— 不然这事做不成：
+> `insertAtCursor` 只能插在光标处，而工具栏的**行首标记**（`# ` 标题 / `- ` 列表 / `> ` 引用）
+> 在光标停于行中时会被插进句子中间；**成对标记**（`**粗体**`）也没法把光标放进两个标记之间。
+> 按偏移插入让这两件事都成立（偏移越界夹进 `[0,len]`，不抛错）。同步补进 `doc:write` 的**裁剪名单**
+> —— 新原语漏裁等于开了后门；契约 §1.2 已更新。
+>
+> **插件** `examples/md-toolbar/`：**12 个按钮、三类行为**
+> · 成对标记（粗体 / 斜体 / 行内代码 / 删除线）—— 有选中就包住，没有就插一对、光标落中间
+> · 行首标记（标题 / 列表 / 待办 / 引用）—— 插到**光标所在那一行的行首**
+> · 固定片段（代码块 / 链接 / 表格 / 分隔线）—— 光标落在"该填内容"那一格（如链接的 `[]` 里）
+>
+> 界面纯 UINode（`row` + `button`），插件里零 React；每个按钮背后是一条 `command`
+> ⇒ 命令面板里同样能找到这些动作。
+>
+> **挂载位置**：`view` 的 `editor-toolbar`，渲染在**编辑器底部**；手机上键盘弹起时视口被压缩，
+> 它自然落在**键盘正上方**（不是浮动定位，是布局的自然结果）。
+> 为该场景把 `.zn-editor-toolbar` 改成**一条到底 + 横向滑动**（折行会吃掉半屏编辑区），
+> 窄屏按钮加大到 **40px 见方**（手指点得准）。
+>
+> **验收**
+> - **插件逻辑 9/9**：用 node 直接跑插件、mock 掉内核 API 做断言（`PASS 9 / FAIL 0`，EXIT=0）——
+>   行首标记落到行首 0（**不是**光标处 3）· 第 2 行行首 = 4 · 成对标记光标落中间 · 有选中时包住 ·
+>   多行逐行加前缀 · 链接光标落 `[]` 内 · 面板挂 `editor-toolbar` · 按钮 12 个 · 每个 `onClick` 都命中已注册命令
+> - 基线：`tsc -b` **0** · `oxlint` **4**（= 基线）· Rust 未动（`cargo test --lib` 仍 **18 passed**）
+> - APK 已构建（**274.9 MB**，19:26）
+>
+> **⚠️ 待补（诚实标注，两条都不是代码问题）**
+> 1. **手机 UI 实测未完成** —— 插件已推到手机（`/storage/emulated/0/Documents/ZeroNote/.zn/plugins/md-toolbar/`），
+>    但安装 APK 那一步 **adb 设备掉线**：`no devices/emulators found`，`adb kill-server/start-server`
+>    之后仍然没有设备，系统层（PnP）也查不到 Android USB 设备 ⇒ 是**物理连接/手机侧**的事。
+>    设备回来后：`adb install -r src-tauri\gen\android\app\build\outputs\apk\universal\debug\app-universal-debug.apk`
+>    → 打开一篇笔记 → 点出键盘 → 截图确认工具栏贴键盘上方 → 点按钮看标记插得对不对。
+> 2. **桌面 UI 实测未做** —— 实施时用户正在操作电脑（前台是「系统设置」，idle 0ms），**没抢窗口**。
+>    临时库 `_tmp-vault-tb/`（含 md-toolbar 插件）已就位，可直接用。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
@@ -264,6 +303,7 @@ revision: 33
 | **🗂 最近库过期记录自动清理**（缺口 3） | `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 仍在最近列表、底栏报「库目录不存在」→ `gap3-04-menu-cleaned.png`：打开菜单即**自动剔除 + toast 提示** → `gap3-06-persisted.png`：`Ctrl+R` 重载后列表仍干净且**无 toast** ⇒ 真持久化；对照 `gap3-16-menu-zoom3.png`（目录在就不误杀）vs `gap3-17-gate-toast-zoom.png`（菜单弹出后才删目录 ⇒ `applyVault` 的门拦下：**不切库、不报错**）· `cargo test` **17 passed**（新增 `vault_exists_is_read_only`：只读、不建目录） | 本次 |
 | **🚧 平台门（缺口 1）** | `_shots/gate-04-plugins-page.png`：`platforms:["android"]` 的插件在桌面 ⇒ **「不适用 · 仅移动端」+ 开关禁用 + 无错误横幅**；三组对照 —— `gate-05`（改成双端 ⇒ **已启用**，证明只挡不匹配的、没误杀）· `gate-06` + `gate-07`（懒激活 + 仅移动端 ⇒ 仍跳过，且命令面板里**列不出**它的命令）· `gate-08`（`"windwos"` 拼错 ⇒ **拒载 + 报错并列出合法取值**，不再静默失效）；新增示例 `examples/platform-locked/` | 本次 |
 | **📦 release 打包版加载插件（首次）** | `cargo-targets\zeronote\release\zeronote.exe`（10.5 MB，`tauri build --no-bundle`，2m46s）；带 `ui-kit` 的库上：`_shots/rel-01-started.png`（**编辑器底部工具栏**＝插件的 `editor-toolbar` 面板渲染）· `rel-02-menu.png`（`☰` 菜单出现「UI 组件演示」＝插件的 `sidebar` 面板入口）· `rel-03-plugin-page.png`（插件页「**已启用**」）⇒ 打包版能读库内插件 · ⚠️ 附带一说「右栏被挤窄」**是误判**（截图越界截到后面的 DSH 窗口，用户指出，已纠正） | 本次 |
+| **⌨️ Markdown 快捷输入栏（手机键盘上方）** | 内核新原语 `doc.insertAt(pos,text,cursorOffset?)`（行首标记落行首 / 成对标记光标落中间；并入 `doc:write` 裁剪）· 插件 `examples/md-toolbar/`（12 按钮、三类行为）· `.zn-editor-toolbar` 改横滑 + 窄屏 40px 触控；**插件逻辑 node 断言 `PASS 9 / FAIL 0`**（行首 0 而非光标 3 / 第 2 行行首 4 / 光标落中间 / 多行加前缀 / 链接落 `[]` / 面板位置 + 12 按钮 + onClick 全命中）；`tsc` 0 · `oxlint` 4 · APK 274.9 MB ⚠️ **手机与桌面 UI 实测待补**（adb 设备掉线 / 用户占用桌面） | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 

@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "md-toolbar",
+  "name": "Markdown 快捷输入",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "编辑器底部（手机上＝软键盘正上方）一排 Markdown 标记按钮：标题 / 粗体 / 斜体 / 行内代码 / 代码块 / 列表 / 待办 / 引用 / 链接 / 表格 / 删除线 / 分隔线。",
+  "capabilities": ["command", "doc:read", "doc:write", "view:editor-toolbar"]
+}

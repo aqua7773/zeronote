@@ -66,6 +66,21 @@ export interface DocApi {
   selection(): { from: number; to: number; text: string } | null
   replaceSelection(text: string): void
   insertAtCursor(text: string): void
+  /**
+   * 在**指定字符偏移**处插入文本。
+   *
+   * `cursorOffset` = 插入完成后光标距**插入内容开头**的字符数（缺省 = 内容末尾，越界会被夹进范围）。
+   *
+   * 为什么需要它（`insertAtCursor` 不够用）：
+   *  - **行首标记**（`# ` 标题 / `- ` 列表 / `> ` 引用）必须落在**行首** ——
+   *    光标停在行中或行尾时，`insertAtCursor` 会把标记插进句子中间。
+   *    有了按偏移插入，插件可以用 `active().content` + `selection().from` 自己算出目标位置。
+   *  - **成对标记**（`**粗体**`）希望光标落在两个标记**中间**，用户接着打字就是粗体；
+   *    传 `cursorOffset` 即可（否则每次点按钮都得手动把光标挪回去）。
+   *
+   * 偏移越界不抛错：夹到 `[0, content.length]`，把编辑动作做成幂等的"尽力而为"。
+   */
+  insertAt(pos: number, text: string, cursorOffset?: number): void
   on(ev: 'open' | 'change' | 'save' | 'close', cb: (d: NoteDoc) => void): Disposable
 }
 

@@ -479,7 +479,11 @@ body.is-resizing * {
 .zn-editor-toolbar {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
+  /* **一条到底 + 横向滚动**，不换行：手机上按钮多了若折成两三行，
+     会把编辑区挤掉一半（键盘还占着下半屏）。输入法自己的工具条也是横滑的。 */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
   align-items: center;
   gap: var(--zn-space-2);
   padding: var(--zn-space-2) var(--zn-space-3);
@@ -487,15 +491,26 @@ body.is-resizing * {
   background: var(--zn-bg-subtle);
   /* 手机底部有手势条：别把按钮压进系统手势区 */
   padding-bottom: max(var(--zn-space-2), env(safe-area-inset-bottom, 0px));
+  scrollbar-width: none;
 }
-/* 工具栏里的面板按内容宽自适应，别撑满整行 */
-.zn-editor-toolbar > * { flex: 0 1 auto; min-width: 0; }
+.zn-editor-toolbar::-webkit-scrollbar { display: none; }
+/* 工具栏里的面板**不压缩**：窄屏时靠横滑，而不是把按钮挤成一团 */
+.zn-editor-toolbar > * { flex: 0 0 auto; min-width: 0; }
 /* 工具栏空间紧张，把主区那套间距档位收窄 */
 .zn-editor-toolbar .zn-ui-root,
 .zn-editor-toolbar .zn-ui-stack { gap: var(--zn-space-1); }
 .zn-editor-toolbar .zn-ui-row { gap: var(--zn-space-1); }
 /* 按钮矮一点，省竖向空间 */
 .zn-editor-toolbar .zn-btn { padding-top: 3px; padding-bottom: 3px; }
+/* 手机上按钮要够大才点得准（3px 的纵向 padding 是给鼠标的；手指至少 40px 见方） */
+@media (max-width: 820px) {
+  .zn-editor-toolbar { gap: var(--zn-space-3); }
+  .zn-editor-toolbar .zn-btn {
+    min-width: 40px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
 
 /* ───────── 编辑器标记（插件用 editor.addMark 登记的正则高亮）─────────
    这些 class **只在有插件登记规则时**才会出现在 DOM 上；没有插件时编辑器里
