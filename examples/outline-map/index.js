@@ -441,6 +441,46 @@ function isDarkTheme() {
   return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
 }
 
+/**
+ * 把宿主的 `--zn-*` 令牌映射成 mind-elixir 的 `cssVar` —— **主题跟随宿主**，
+ * 而不是库自带那套粉紫 Latte。
+ *
+ * 只覆盖"颜色"那几项：间距 / 圆角 / 节点尺寸是库刻意调过的，照抄会难看。
+ * 根节点那个强调块（`--main-color` / `--main-bgcolor`）**保持库的明暗两套** ——
+ * 它是"根"的视觉标识，跟着宿主的中性灰反而糊成一片。
+ */
+function znMindTheme(MindElixir) {
+  const cs = getComputedStyle(document.documentElement)
+  const v = (name, fallback) => cs.getPropertyValue(name).trim() || fallback
+  const base = isDarkTheme() ? MindElixir.DARK_THEME : MindElixir.THEME
+  const d = base.cssVar
+  return {
+    ...base,
+    /**
+     * ⚠️ **分支色 / 节点边框色不走 CSS 变量**：库在生成每个节点时把 `borderColor`
+     * 设成 `theme.palette[i % palette.length]`（实测：只改 `--panel-border-color` 没用，
+     * 截图里连线还是库自带的粉紫）。所以要跟随宿主就得**换掉整个 palette**。
+     * 用宿主的中性阶梯（深→浅），与项目「中性灰」审美一致，同时保留分支的层次感。
+     */
+    palette: [
+      v('--zn-accent', '#3f3f46'),
+      v('--zn-fg-muted', '#71717a'),
+      v('--zn-fg-subtle', '#a1a1aa'),
+      v('--zn-border-strong', '#d4d4d8'),
+      v('--zn-fg', '#18181b'),
+    ],
+    cssVar: {
+      ...d,
+      '--bgcolor': v('--zn-bg', d['--bgcolor']), // 画布底
+      '--color': v('--zn-fg-muted', d['--color']), // 连线 / 次级文字
+      '--panel-bgcolor': v('--zn-bg-subtle', d['--panel-bgcolor']), // 子节点底
+      '--panel-color': v('--zn-fg', d['--panel-color']), // 子节点文字
+      '--panel-border-color': v('--zn-border', d['--panel-border-color']), // 子节点边框
+      '--selected': v('--zn-accent', d['--selected']), // 选中描边
+    },
+  }
+}
+
 /** 右键菜单的中文文案（库默认是英文；字段名见 `contextMenu` 插件） */
 const MM_LOCALE = {
   addChild: '添加子节点',
@@ -694,6 +734,7 @@ export default {
         body.dataset.znMmBody = ''
 
         let mind = null
+        let themeWatch = null
         let ready = false
         let saveTimer = null
         let saving = false
@@ -773,10 +814,19 @@ export default {
                 draggable: true, // 节点拖动：v5 内置该交互，这里显式声明意图
                 allowUndo: true, // ⇒ 实例自带 undo() / redo()（init 里自动装 operationHistory）
                 contextMenu: { locale: MM_LOCALE }, // 中文右键菜单（默认英文）
-                theme: isDarkTheme() ? MindElixir.DARK_THEME : MindElixir.THEME,
+                theme: znMindTheme(MindElixir), // 跟随宿主 `--zn-*` 令牌，不是库自带那套
               })
               mind.init(data)
               mind.bus.addListener('operation', scheduleSave)
+              /**
+               * 宿主切主题（`<html data-theme>`）⇒ 跟着重画。
+               * `changeTheme` 内部只 `refresh()`、**不 fire operation** ⇒ 换主题不会被当成一次编辑写回。
+               */
+              themeWatch = new MutationObserver(() => mind?.changeTheme(znMindTheme(MindElixir)))
+              themeWatch.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['data-theme'],
+              })
             }
             ready = true
             /** 诊断出口（CDP 断言用）：不算"给人看的界面"，但验收要靠它读数 */
@@ -787,6 +837,10 @@ export default {
               topics: body.querySelectorAll('me-tpc').length,
               hasUndo: typeof mind.undo === 'function',
               draggable: mind.draggable,
+              themeBg: getComputedStyle(body.querySelector('.map-container') ?? body)
+                .getPropertyValue('--bgcolor')
+                .trim(),
+              themePalette: mind.theme?.palette?.[0] ?? null,
             }
             // 实例本身也露出一个（CDP 驱动 addChild / undo / getData 用）—— 同 `__omWin` / `__docProbeLog` 的先例
             window.__mmMind = mind
@@ -828,6 +882,8 @@ export default {
         return {
           dispose() {
             ready = false
+            themeWatch?.disconnect()
+            themeWatch = null
             el.removeEventListener('keydown', onUndoKey, true)
             if (saveTimer) clearTimeout(saveTimer)
             saveTimer = null

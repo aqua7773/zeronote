@@ -356,6 +356,47 @@ async function main() {
       note(`拖拽后：${j(afterDrag.replace(/\n/g, '⏎'))}`)
     }
 
+    /* ⑧ 主题跟随：宿主 `--zn-bg` ⇒ 窗口里 `.map-container` 的 `--bgcolor` */
+    const preTheme = await win.cdp.js(`document.documentElement.dataset.theme || ''`)
+    const themeSync = await win.cdp.js(`(() => {
+      const hostBg = getComputedStyle(document.documentElement).getPropertyValue('--zn-bg').trim()
+      const me = document.querySelector('.map-container')
+      const mapBg = me ? getComputedStyle(me).getPropertyValue('--bgcolor').trim() : null
+      return { hostBg, mapBg }
+    })()`)
+    check(
+      '⑧ 主题跟随宿主（窗口里 --bgcolor === 宿主 --zn-bg）',
+      Boolean(themeSync.mapBg) && themeSync.mapBg === themeSync.hostBg,
+      j(themeSync),
+    )
+
+    /* ⑧c 分支/边框色：库按 palette 逐节点写死，所以跟随宿主 = palette 换了 */
+    const paletteSync = await win.cdp.js(`(() => ({
+      accent: getComputedStyle(document.documentElement).getPropertyValue('--zn-accent').trim(),
+      first: (window.__mmWin && window.__mmWin.themePalette) || null,
+    }))()`)
+    check(
+      '⑧c 分支色跟随宿主（palette[0] === --zn-accent，不再是库自带的粉紫）',
+      Boolean(paletteSync.first) && paletteSync.first.toLowerCase() === paletteSync.accent.toLowerCase(),
+      j(paletteSync),
+    )
+
+    /* ⑧b 切成暗色 ⇒ 库跟着换（**不重开窗口**）；改完复原，别把验收痕迹留下 */
+    const darkSync = await win.cdp.js(`(async () => {
+      document.documentElement.dataset.theme = 'dark'
+      await new Promise((r) => setTimeout(r, 450))
+      const hostBg = getComputedStyle(document.documentElement).getPropertyValue('--zn-bg').trim()
+      const mapBg = getComputedStyle(document.querySelector('.map-container')).getPropertyValue('--bgcolor').trim()
+      document.documentElement.dataset.theme = ${JSON.stringify(preTheme)}
+      await new Promise((r) => setTimeout(r, 300))
+      return { hostBg, mapBg }
+    })()`)
+    check(
+      '⑧b 切暗色 ⇒ 库跟着换（mapBg === #18181b，且与宿主一致）',
+      darkSync.mapBg === darkSync.hostBg && darkSync.mapBg.toLowerCase() === '#18181b',
+      j(darkSync),
+    )
+
     win.cdp.close()
   } finally {
     await closePluginWindows(cdp).catch(() => {})

@@ -83,7 +83,11 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > 400 ms 去抖 → **重定位行号** → `fs.writeText`；undo/redo **不 fire operation** ⇒ 按钮与 `Ctrl+Z` 都补写回。
 > 验收 **`tools/verify-mindmap.mjs` 8/8**（含**真拖拽**：竞品从「调研」下拖进「设计」，磁盘跟着变）；
 > 截图 `_shots/mindmap-v3-window.png`；基线 `tsc` 0 · `oxlint src` 4。
-> **下一步 = 打磨**：跟随 `--zn-*` 主题令牌 · 折叠要不要写回 · 窗口菜单栏 · 与编辑器"未保存手改"的冲突。
+> **打磨（rev58）**：**主题跟随 ✅ 已做**（含 palette —— 分支/边框色由库逐节点写死，只改 CSS 变量没用；
+> 明暗切换即时生效、不必重开窗口）· 折叠状态**定案不写回**（视图状态，笔记是纯 markdown）·
+> 窗口菜单栏**定案不做**（库自带右键+工具栏已够，"AI"项没有真实功能）·
+> **唯一开口**：与编辑器"未保存手改"的冲突（插件写盘 vs 自动保存，**需要拍板优先级**）。
+> 验收 `tools/verify-mindmap.mjs` **11/11**。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
