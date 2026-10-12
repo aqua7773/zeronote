@@ -153,7 +153,9 @@ button {
 .zn-app {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 高度来源：有 `--zn-viewport-h` 就用它（软键盘弹起时由 App.tsx 的 visualViewport 监听写入），
+     否则退回 100%（桌面、无键盘时）。**别写死 100vh** —— 那正是"键盘盖住底部工具栏"的成因。 */
+  height: var(--zn-viewport-h, 100%);
   overflow: hidden;
 }
 

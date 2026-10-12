@@ -237,14 +237,28 @@ revision: 33
 > - 基线：`tsc -b` **0** · `oxlint` **4**（= 基线）· Rust 未动（`cargo test --lib` 仍 **18 passed**）
 > - APK 已构建（**274.9 MB**，19:26）
 >
-> **⚠️ 待补（诚实标注，两条都不是代码问题）**
-> 1. **手机 UI 实测未完成** —— 插件已推到手机（`/storage/emulated/0/Documents/ZeroNote/.zn/plugins/md-toolbar/`），
->    但安装 APK 那一步 **adb 设备掉线**：`no devices/emulators found`，`adb kill-server/start-server`
->    之后仍然没有设备，系统层（PnP）也查不到 Android USB 设备 ⇒ 是**物理连接/手机侧**的事。
->    设备回来后：`adb install -r src-tauri\gen\android\app\build\outputs\apk\universal\debug\app-universal-debug.apk`
->    → 打开一篇笔记 → 点出键盘 → 截图确认工具栏贴键盘上方 → 点按钮看标记插得对不对。
-> 2. **桌面 UI 实测未做** —— 实施时用户正在操作电脑（前台是「系统设置」，idle 0ms），**没抢窗口**。
->    临时库 `_tmp-vault-tb/`（含 md-toolbar 插件）已就位，可直接用。
+> **✅ 真机验证通过（19:35，Redmi Turbo 3 / `33b676f6`）**
+> - `_shots/phone-tb-08.png`：**键盘弹起时工具栏正好落在键盘上沿** ——
+>   自上而下是「编辑器 → 工具栏 `B I <> S H • ☑ ❝ {} 🔗` → 状态栏 → 键盘」
+> - `_shots/phone-tb-09/11*.png` + **文件实测**：光标停在标题行**中间**时点「• 列表」，
+>   落盘结果是 `- # 来自 PC 的测试笔记` —— `- ` **插在行首**，不是光标处
+>   ⇒ `doc.insertAt` 的核心价值真机成立（用旧原语会插成 `# 来自 PC 的- 测试笔记`）
+>
+> **两个坑（都花了轮次，别再踩）**
+> 1. **`adjustResize` 在 targetSdk 35 上不生效**：`AndroidManifest.xml` 里明明写了
+>    `windowSoftInputMode="adjustResize"`，但 edge-to-edge 强制之后系统**不再自动压矮 WebView** ——
+>    键盘是"盖"在页面上的，底部工具栏被整个挡住（`phone-tb-05/06.png` 两轮都是这个现象）。
+>    最终解法是**前端监听 `visualViewport`**（`resize` + `scroll`）把可见高度写进 `--zn-viewport-h`，
+>    `.zn-app` 用 `height: var(--zn-viewport-h, 100%)`。manifest 那条**保留**（旧机型上仍有效，
+>    与前端方案收敛到同一高度）。**教训：手机上"键盘上方"不要指望 Android 帮你让位，自己量。**
+> 2. **`adb shell input` 吃的是物理像素，而截图看的是预览图**（1220 → 838，差 **1.4565** 倍）：
+>    按预览坐标点了一次，落在编辑器空白处 ⇒ **把光标挪到了文档末尾**，
+>    于是第一个 `- ` 插在末尾，一度被误判成"点工具栏会失焦"的 bug。
+>    **换算规则：adb 坐标 = 预览坐标 × (截图物理宽 ÷ 预览宽)**。
+>    （这与文末验收方法论里"不要目测截图坐标"是同一条，我这次栽在没做换算。）
+>
+> **仍未做**：桌面 UI 实测（实施时用户在操作电脑，没抢窗口）。真机已覆盖同一套代码路径，
+> 优先级降低；临时库 `_tmp-vault-tb/` 留着，随时可验。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

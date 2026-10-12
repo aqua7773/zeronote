@@ -17,11 +17,18 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.zeronote"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- windowSoftInputMode="adjustResize"：**软键盘弹起时把 WebView 压矮**，
+             而不是把整个页面往上平移（默认的 adjustUnspecified 会选 pan/nothing）。
+             没有它，编辑器底部那条 Markdown 快捷输入栏（`view` 的 editor-toolbar 位置）
+             会被键盘整个盖住 —— 手机上的实测现象。
+             前端配合：布局用百分比高度（`html/body/#root/.zn-app { height: 100% }`），
+             视口一变矮就自然缩，不需要 `100vh` 那种固定高度。 -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

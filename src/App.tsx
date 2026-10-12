@@ -508,6 +508,37 @@ export default function App() {
     ? 'android'
     : 'windows'
 
+  /**
+   * 软键盘弹起时，把根容器钉到**可见视口**的高度。
+   *
+   * 为什么非自己来不可（真机实测，不是猜的）：`gen/android` 的 AndroidManifest 里写了
+   * `windowSoftInputMode="adjustResize"`，但在 targetSdk 35（edge-to-edge 强制）之后，
+   * 系统**不再自动把 WebView 压矮** —— 键盘是"盖"在页面上的，于是编辑器底部那条
+   * Markdown 快捷输入栏（`view` 的 `editor-toolbar`）被整个挡住。
+   *
+   * `visualViewport` 是唯一跨版本/跨机型都准的「键盘上方还剩多少」来源：
+   * 它一变矮就把高度写进 `--zn-viewport-h`，`.zn-app` 跟着缩 ⇒ 工具栏正好落在键盘上沿。
+   * 与 manifest 的 `adjustResize` **不冲突**：那条在旧机型上生效时两边会收敛到同一个高度。
+   *
+   * 桌面端无副作用 —— 没有软键盘时 `visualViewport.height` 就是窗口高度。
+   */
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--zn-viewport-h', `${Math.round(vv.height)}px`)
+    }
+    apply()
+    vv.addEventListener('resize', apply)
+    // 键盘弹起/收起时，部分机型只发 scroll 不发 resize
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      document.documentElement.style.removeProperty('--zn-viewport-h')
+    }
+  }, [])
+
   /* ── Android：没指定库时用「应用数据目录/vault」──
      手机上的应用访问不了任意文件夹（SAF 限制），所以默认库落在私有目录里。 */
   useEffect(() => {
