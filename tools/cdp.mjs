@@ -33,6 +33,7 @@
  */
 
 import { writeFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 
 const CDP_HTTP = process.env.ZN_CDP ?? 'http://127.0.0.1:9222'
 const TARGET_HINT = process.env.ZN_TARGET ?? 'localhost:1420'
@@ -122,7 +123,15 @@ const ACT_JS = (target, action) => `
     const want = t.slice(5);
     const sel = 'button,[role="tab"],[role="menuitem"],a,li,label,td,th,h1,h2,h3,span,div';
     const cands = [...document.querySelectorAll(sel)].filter(visible);
-    el = cands.find((n) => (n.textContent || '').trim() === want)
+    // 「文本完全相等」的候选可能有好几个（菜单项外层 div 与内层 button 文本一样，
+    // 但 onClick 只挂在内层）—— 优先挑**真正可点**的那些，否则 el.click() 打空
+    // （2026-10-13 踩到：'text:插件管理' 命中了外层 div，菜单项纹丝不动）
+    const clickable = (n) =>
+      n.tagName === 'BUTTON' || n.tagName === 'A'
+      || n.getAttribute('role') === 'menuitem' || n.getAttribute('role') === 'tab';
+    const exact = cands.filter((n) => (n.textContent || '').trim() === want);
+    el = exact.find(clickable)
+      ?? exact[0]
       // 包含匹配时取**文本最短**的那个（= 最具体）。否则 'text:导图' 会命中
       // 整个页面的根容器 —— 它的 innerText 里什么都含（踩过）
       ?? cands
@@ -296,7 +305,32 @@ async function main() {
   cdp.close()
 }
 
-main().catch((e) => {
-  console.error(`✗ ${e.message}`)
-  process.exit(1)
-})
+/* ───────── 可复用导出（2026-10-13 加） ─────────
+ *
+ * 验收脚本（`tools/verify-takeover.mjs`）要复用这套 CDP 封装 —— 于是把这些
+ * 本来"只有 CLI 用"的东西导出。**同时给 `main()` 加主模块判断**：否则被 import 时
+ * 它会拿调用方的 `argv` 当 cdp 命令去跑（等于把验收脚本自己搞挂）。
+ */
+export {
+  Cdp,
+  pickTarget,
+  click,
+  rclick,
+  hover,
+  typeText,
+  key,
+  shot,
+  waitFor,
+  sleep,
+  CDP_HTTP,
+  TARGET_HINT,
+}
+
+/** 只有 `node tools/cdp.mjs …` 直接跑时才进 CLI 流程 */
+const isMainEntry = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMainEntry) {
+  main().catch((e) => {
+    console.error(`✗ ${e.message}`)
+    process.exit(1)
+  })
+}

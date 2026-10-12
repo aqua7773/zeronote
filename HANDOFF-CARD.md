@@ -1,9 +1,9 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日补记 rev45）· **提交数与 HEAD 一律看 `git log`**
+> 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日再补记 rev45、rev46 – rev49）· **提交数与 HEAD 一律看 `git log`**
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev49）**。
 
 ## 是什么 / 在哪
 
@@ -49,14 +49,23 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `9aec96a` | **验收方式换代**：`dev.cmd` 给 WebView2 开 CDP 端口（只在 dev 脚本里，生产不含）＋ `tools/cdp.mjs`（零依赖）—— 按**选择器/文本**找元素、`Input.dispatchMouseEvent` 点击、`Page.captureScreenshot` 截图，**不再算坐标、不抢鼠标**。见 rev42 |
 | `rev44` | **内核 UI 承载能力盘点 ＋ 交接**（没改代码）：查出三条系统性缺口 **U1** 插件不能自开窗口 / **U2** 无自定义渲染入口 / **U3** `doc` 改不了任意区间且 `doc.on` 是**空桩**；用户裁决放弃"声明式唯一主路"⇒ U2 获批。**路线：先完善内核，再做插件** |
 | `rev45` | **内核增强第 1 步：U3 修完** —— `doc.replaceRange(from,to,text)`（区间替换，导图回写笔记的基础）＋ `doc.on` 从**空桩**接上真事件（`open/change/save/close`，`change` **去抖 200ms**，切笔记时先兑现挂起的 change 再播 open ⇒ 不乱序）。验收夹具 `examples/doc-edit-probe/`，CDP ＋ **磁盘为真源**：区间替换后与旧文共同前缀 37/后缀 22 ⇒ 只改了 3 个字符 |
+| `rev47` | **内核自愈**（原则 5）：`scripts/kernel-snapshot.mjs` / `kernel-restore.mjs` / **双击 `修复内核.cmd`**（应用起不来时唯一的路）。快照白名单 701 文件 / 5.32 MB，四条规矩（先验备份 / 先存 pre-restore / 默认不删 / 恢复后复核） |
+| `rev48` | **拆权限门**（原则 4）：`capabilities` 全部降级为**自述**、`assertCapabilities` 只警告不拦、`scopedFs`/`scopedDoc` 裁剪删除、设置页改只读展示、契约 §4 诚实改写 |
+| `rev49` | **接管协议**（原则 3 的地基）：① 自动登记补齐（`event.on`/`fs.watch`/`doc.on` 不再靠插件记得 `push`）② 新增 `ctx.host.onRollback(fn)`（登记过的内核代还原）③ **修真缺口**：`command.bind` 覆盖内核命令后 dispose 只 `delete run` ⇒ 卸载插件把 `core.newNote` 变成"没实现"；现在先记原实现、dispose 放回 ④ 审计出口 `window.__znKernelAudit()` ＋ 验收脚本 **`tools/verify-takeover.mjs`（11/11，对照实验 9/11）** |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
-> **2026-10-13 更新 —— 先完善内核，再做插件。** 见 `docs/插件UI承载能力-2026-10-13.md`：
-> **U3a/U3b ✅ 已完成（rev45，本轮）** ⇒ **下一步 = U1**（Tauri 真窗口 ＋ capability 放行窗口 label，
-> **那是安全边界变更**，落地时写明新增了什么权限）→ **U2**（`view.registerWindowContent` DOM 挂载点）→
-> 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 → 弹独立导图窗口（可拖 / 全屏 / 多开 / 可编辑并写回笔记）"。
-> **用户已裁决**：不需要防"插件把界面改成任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
+> **2026-10-13 更新 —— 先完善内核，再做插件。** 内核增强路线（rev46 定，按"保险先上"排）：
+> ① 内核自愈 ✅ **rev47** ② 拆权限门 ✅ **rev48** ③ 接管协议 + 还原验收 ✅ **rev49**
+> ⇒ **下一步 = ④ U1 真窗口**（`new WebviewWindow` + capability 放行窗口 label，
+> **那是安全边界变更**，落地时写明新增了什么权限；未核实项：Tauri 2.12 的 capability
+> `windows` 是否支持 glob —— **先查官方文档或实测一次**）→ ⑤ U2 主壳接管点
+> （`view.overrideShell`）→ ⑥ 把 `examples/outline-map` 重做成"大纲组**右上角**按钮 →
+> 弹独立导图窗口（可拖 / 全屏 / 多开 / 可编辑并写回笔记）"。
+> 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
+> 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
+> 待裁决（契约 §6.1）：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
+> 前端已不读 ⇒ 是否整体下线（删除是破坏性动作，问过再动）。
 
 **① 没有阻塞项 —— 桌面与移动端都已实测通过。**（记下来是因为这块踩过一次：手机默认跑的是打包版）
 
@@ -92,6 +101,9 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
   `outline-map` · `docprobe`（U3a/U3b 夹具，rev45）· `net-demo`（**拆门后它不再被拒载**，rev48 实测）。
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可。
   ⚠️ **改完不一定要切库** —— 2026-10-13 实测：`☰ → 插件管理 → 重新扫描` 就能加载新插件（无需切库、无需重启；vite 不监视库目录，所以只能靠这条或切库）
+- **接管 / 还原怎么验（rev49）**：`node tools/verify-takeover.mjs` —— 自动建 junction → 走 UI 重扫 →
+  比对审计快照 → 删 junction → 再比对，**11 项判据全自动**（自己建/删 junction，**绝不用递归删除**）。
+  手动看读数：`node tools/cdp.mjs eval "window.__znKernelAudit()"`
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
@@ -113,7 +125,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev44**）· **`docs/插件UI承载能力-2026-10-13.md`（rev44 的 UI 承载盘点 ＋ 下一步路线 —— 接手先读）** ·
-`docs/内核契约-v0.1.md`（**§2.1.2 = 内核自带的 Markdown 标记**）·
-`docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）· `examples/`（插件示例；
-`md-toolbar` 已退役删除）
+`HANDOFF.md`（**rev49**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+**`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
+`docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·
+`tools/verify-takeover.mjs`（**接管/还原的自动验收**）· `examples/`（插件示例；`md-toolbar` 已退役删除）

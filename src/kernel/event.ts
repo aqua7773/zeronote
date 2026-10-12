@@ -14,6 +14,11 @@ type Handler = (payload: unknown) => void
 export type EventBus = EventApi & {
   /** 卸载插件时一次性清掉它的全部订阅 */
   disposeAll: (subs: Disposable[]) => void
+  /**
+   * 诊断用：topic → 当前订阅者数。**给内核审计出口用**（接管协议验收判据之一：
+   * 卸载插件后订阅表要回到基线）——不暴露给插件，所以不在 `EventApi` 契约上。
+   */
+  stats: () => Record<string, number>
 }
 
 export function createEventApi(
@@ -57,6 +62,12 @@ export function createEventApi(
           /* 卸载时单个 dispose 失败不阻断其它 */
         }
       }
+    },
+
+    stats(): Record<string, number> {
+      const out: Record<string, number> = {}
+      for (const [topic, set] of handlers) out[topic] = set.size
+      return out
     },
   }
 }

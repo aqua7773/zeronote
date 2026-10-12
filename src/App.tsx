@@ -9,7 +9,7 @@ import { exit, onBackButtonPress } from '@tauri-apps/api/app'
 const ANDROID_VAULT = '/storage/emulated/0/Documents/ZeroNote'
 import { invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
-import { createKernel, type Kernel, type PanelRegistration } from './kernel/kernel'
+import { createKernel, type Kernel, type KernelAudit, type PanelRegistration } from './kernel/kernel'
 import {
   deletePluginDir,
   listPluginDirs,
@@ -729,6 +729,24 @@ export default function App() {
       onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
     })
   }, [vault, docApi])
+
+  /**
+   * 内核审计出口（**只读诊断**）—— 接管协议验收判据的载体（2026-10-13 rev49）。
+   *
+   * 挂 `window.__znKernelAudit()`：CDP 在「加载插件前 / 卸载插件后」各读一次，
+   * 比较命令表、订阅表、面板、服务、编辑器规则、插件样式是否回到基线。
+   * 生产留着无害：它只读内核自己的登记表，不暴露库数据、不提供任何写入路径。
+   * （它与 `__docProbeDiag` 同属"给静默失效一个出口"的做法 —— 那时是靠诊断出口
+   *   一步定位，而不是靠猜。）
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const w = window as unknown as { __znKernelAudit?: () => KernelAudit }
+    w.__znKernelAudit = () => kernel.audit()
+    return () => {
+      delete w.__znKernelAudit
+    }
+  }, [kernel])
 
   /* ── 文件树 ── */
   const refresh = useCallback(async () => {

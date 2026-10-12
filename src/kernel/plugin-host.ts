@@ -10,6 +10,7 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import { API_VERSION } from './contract'
+import { tagCommandImpl } from './command'
 import type {
   Capability,
   CommandApi,
@@ -253,11 +254,15 @@ function collect<T extends Disposable>(subs: Disposable[], d: T): T {
  * 契约里虽然写着「所有资源必须登记」，但宿主**有能力**兜住的事就不该留给插件作者去记。
  * （`service` / `editor` 早就是宿主强制回收，命令与面板现在跟上。）
  */
-function scopedCommand(cmd: CommandApi, subs: Disposable[]): CommandApi {
+function scopedCommand(cmd: CommandApi, pluginId: string, subs: Disposable[]): CommandApi {
+  const tag = `plugin:${pluginId}`
   return {
     ...cmd,
-    register: (spec) => collect(subs, cmd.register(spec)),
-    bind: (id, run) => collect(subs, cmd.bind(id, run)),
+    // 顺带给实现打归属标记：审计快照靠它判断「这条命令现在是谁在实现」
+    // （`core.newNote` 被接管后，命令表本身完全看不出区别）
+    register: (spec) =>
+      collect(subs, cmd.register({ ...spec, run: tagCommandImpl(spec.run, tag) })),
+    bind: (id, run) => collect(subs, cmd.bind(id, tagCommandImpl(run, tag))),
   }
 }
 
@@ -274,6 +279,70 @@ function scopedView(view: ViewApi, pluginId: string, subs: Disposable[]): ViewAp
       collect(subs, view.registerPanel({ ...spec, pluginId } as typeof spec)),
     registerWebView: (spec) =>
       collect(subs, view.registerWebView({ ...spec, pluginId } as typeof spec)),
+  }
+}
+
+/*
+ * ───────── 接管协议：内核给出的每条注册/接管入口，返回值一律由宿主自动登记 ─────────
+ *
+ * 契约原本写「所有资源必须登记，插件自己 push 进 `subscriptions`」。实测靠不住：
+ * `command.register` / `view.registerPanel` 当初也是这么写的，结果 8 个示例插件
+ * 一个都没接返回值（见 `scopedCommand` 的注释）。`event.on` / `fs.watch` / `doc.on`
+ * 是同一类东西，且漏登记的后果更隐蔽 —— 卸载后回调仍挂在总线/监听通道上，
+ * 闭包仍引用着已卸载插件的状态，要等**下一次事件**才炸（静默失效 > 报错）。
+ *
+ * **宿主有能力兜住的事，就不该留给插件作者去记。** 所以这三个原语统一包装：
+ * 只做登记，**不做能力裁剪**（2026-10-13 拆门后插件拿到的就是内核那一份）。
+ */
+function scopedEvent(event: EventApi, subs: Disposable[]): EventApi {
+  // 展开而非枚举方法：EventApi 将来加方法时这里不会静默漏转发
+  return { ...event, on: (topic, cb) => collect(subs, event.on(topic, cb)) }
+}
+
+function scopedFs(fs: FsApi, subs: Disposable[]): FsApi {
+  return { ...fs, watch: (cb) => collect(subs, fs.watch(cb)) }
+}
+
+function scopedDoc(doc: DocApi, subs: Disposable[]): DocApi {
+  return { ...doc, on: (ev, cb) => collect(subs, doc.on(ev, cb)) }
+}
+
+/**
+ * host 包装：**只加一个登记点** `onRollback`，别的原样透传。
+ *
+ * 为什么需要它（原则 4 之下的唯一出路）：内核**不拦**插件自绘/自改宿主 DOM
+ * （插件与宿主同上下文，拦也拦不住 —— §2 实测）。但"不得破坏、卸载即还原"
+ * （原则 3）总得有个可操作的落点 ⇒ 提供**登记点**：
+ *
+ *   · 登记过 ⇒ 内核在卸载时替你调还原函数（并保证只调一次、抛错不连累别的插件）
+ *   · 没登记 ⇒ 自己负责（插件作者在 `dispose()` 里写回去）
+ *
+ * 语义上它和 `subscriptions.push` 等价，但**意图明确**：这是"对外部世界
+ * （宿主 DOM、全局变量、document 级监听）做的不可记账改动"的还原声明 ——
+ * 而不是又一份需要作者记得手动 push 的 Disposable。
+ */
+function scopedHost(host: HostApi, pluginId: string, subs: Disposable[]): HostApi {
+  return {
+    ...host,
+    onRollback(fn: () => void): Disposable {
+      let disposed = false
+      const sub: Disposable = {
+        dispose: () => {
+          if (disposed) return
+          disposed = true
+          try {
+            fn()
+          } catch (e) {
+            host.log('warn', `插件 ${pluginId} 的 onRollback 回调抛错：${String(e)}`)
+          }
+          // 执行过就从账上摘掉：卸载流程里不会再被调第二次
+          const i = subs.indexOf(sub)
+          if (i >= 0) subs.splice(i, 1)
+        },
+      }
+      subs.push(sub)
+      return sub
+    },
   }
 }
 
@@ -539,15 +608,16 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
   }
 
   const ctx: PluginContext = {
-    // 2026-10-13 拆门：不再按 capability 裁剪 —— 插件拿到的就是内核那一份
-    fs: deps.fs,
-    doc: deps.doc,
+    // 2026-10-13 拆门：不再按 capability 裁剪 —— 插件拿到的就是内核那一份。
+    // 这里的包装**只做"返回值自动登记"**（接管协议第一、二条规矩），别的一律透传。
+    fs: scopedFs(deps.fs, subs),
+    doc: scopedDoc(deps.doc, subs),
     index: deps.index,
-    event: deps.event,
-    command: scopedCommand(deps.command, subs),
+    event: scopedEvent(deps.event, subs),
+    command: scopedCommand(deps.command, manifest.id, subs),
     view: scopedView(deps.view, manifest.id, subs),
     store: deps.store(manifest.id),
-    host: deps.host,
+    host: scopedHost(deps.host, manifest.id, subs),
     service: deps.service(manifest.id),
     editor: deps.editor(manifest.id),
     pluginId: manifest.id,

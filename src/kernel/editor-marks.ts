@@ -62,6 +62,11 @@ export function releaseEditorMarks(pluginId: string): void {
   if (changed) cachedExtensions = null
 }
 
+/** 内核审计出口用：当前全部登记规则（含归属插件） */
+export function editorMarkEntries(): { id: string; pluginId: string }[] {
+  return [...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId }))
+}
+
 /**
  * 扫全文建装饰集。
  *

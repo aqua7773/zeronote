@@ -22,7 +22,7 @@ import type {
   ViewCtx,
 } from './contract'
 import { createCommandApi, type CommandRegistry } from './command'
-import { createScopedEditorApi, releaseEditorMarks } from './editor-marks'
+import { createScopedEditorApi, editorMarkEntries, releaseEditorMarks } from './editor-marks'
 import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { createIndexApi } from './index-api'
@@ -55,6 +55,31 @@ export type KernelHooks = {
   onServicesChange?: (list: { name: string; pluginId: string; version?: string; loaded: boolean }[]) => void
 }
 
+/**
+ * **内核审计快照**（接管协议验收判据 · 2026-10-13 rev49）。
+ *
+ * 用途只有一个：让"卸载插件后内核回到基线"这句话**可判定**。
+ * CDP 侧在加载插件前拍一份，卸载后再拍一份，逐项比对即可 —— 不靠人眼、不靠推断。
+ *
+ * 刻意只收**可稳定比较**的东西（列表已排序 / 不缺省造数）：多一个少一个都是信号。
+ * 内核 DOM 的基线比对不在这里 —— 那由验收脚本自己采关键节点属性（宿主 DOM 千变万化，
+ * 内核提供一个"什么都收"的快照反而会天天误报）。
+ */
+export type KernelAudit = {
+  /** 命令表（id 升序）—— 插件卸载后必须与基线逐字相同 */
+  commands: { id: string; impl: string | null }[]
+  /** 事件订阅表：topic → 订阅者数（无订阅者的 topic 不出现） */
+  eventTopics: Record<string, number>
+  /** 已登记面板：id / 位置 / 归属插件 */
+  panels: { id: string; location: PanelLocation; pluginId?: string }[]
+  /** 服务表：名字 / 提供者 / 是否已实例化 */
+  services: { name: string; pluginId: string; loaded: boolean }[]
+  /** 编辑器标记规则（`pluginId/ruleId`） */
+  editorMarks: { id: string; pluginId: string }[]
+  /** 插件注入的 `<style>` 数（纯样式插件 / `manifest.styles`） */
+  pluginStyles: number
+}
+
 export type Kernel = {
   vault: string
   fs: FsApi
@@ -77,6 +102,11 @@ export type Kernel = {
   editor: (pluginId: string) => EditorApi
   /** 插件卸载时强制回收它登记的编辑器规则 */
   releaseEditorMarks: (pluginId: string) => void
+  /**
+   * 审计快照：命令表 / 订阅表 / 面板 / 服务 / 编辑器规则 / 插件样式。
+   * 宿主把它挂到 `window.__znKernelAudit` 供 CDP 自动验收（见 `KernelAudit`）。
+   */
+  audit: () => KernelAudit
 }
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
@@ -198,6 +228,15 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       }
       return picked
     },
+    /**
+     * 插件拿到的 `host` 由 `scopedHost` 包过一层（`plugin-host.ts`）——**那份**才有
+     * `subscriptions` 可挂。这里是内核自己用的裸 host，直接调它没有账可记 ⇒
+     * 明确警告并返回空 Disposable，而不是静默把回调丢掉（静默失效比报错危险）。
+     */
+    onRollback() {
+      hooks.onLog('裸 host.onRollback 没有订阅账可挂（插件请用 ctx.host）', 'warn')
+      return { dispose: () => {} }
+    },
   }
 
   return {
@@ -214,5 +253,23 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     releaseServices: (pluginId: string) => services.release(pluginId),
     editor: (pluginId: string) => createScopedEditorApi(pluginId),
     releaseEditorMarks: (pluginId: string) => releaseEditorMarks(pluginId),
+    audit: () => ({
+      commands: commands
+        .all()
+        .map((c) => ({ id: c.id, impl: commands.implTag(c.id) }))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+      eventTopics: event.stats(),
+      panels: [...panelMap.values()].map((p) => ({
+        id: p.id,
+        location: p.location,
+        pluginId: p.pluginId,
+      })),
+      services: services
+        .snapshot()
+        .map((s) => ({ name: s.name, pluginId: s.pluginId, loaded: s.loaded })),
+      editorMarks: editorMarkEntries(),
+      // 插件注入的 <style>（injectStyles 会打 data-zn-plugin 标记）—— 数出来即可
+      pluginStyles: document.querySelectorAll('style[data-zn-plugin]').length,
+    }),
   }
 }

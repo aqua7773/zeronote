@@ -468,6 +468,29 @@ export interface HostApi {
     defaultName?: string
     content: string | Uint8Array
   }): Promise<string | null>
+
+  /**
+   * **还原登记点**（接管协议 · 2026-10-13 rev49）。
+   *
+   * 给"插件自绘 / 自改宿主 DOM、登记全局变量、挂 document 级监听"这类**内核记不了账**
+   * 的改动一个可声明的还原入口：
+   *
+   * ```js
+   * const bar = document.querySelector('.zn-statusbar')
+   * const old = bar.style.backgroundImage
+   * api.host.onRollback(() => { bar.style.backgroundImage = old })   // 登记 ⇒ 卸载时内核替你调
+   * bar.style.backgroundImage = 'repeating-linear-gradient(45deg, #ef4444 0 12px, #7f1d1d 12px 24px)'
+   * ```
+   *
+   * 规矩（契约 §4.4）：
+   * - **登记过 ⇒ 内核负责还原**（卸载时按登记逆序逐个调用；单个回调抛错只记日志，不连累别的插件）
+   * - **没登记 ⇒ 自己负责**（在 `dispose()` 里写回去）—— 内核不拦、也管不了
+   * - 手动 `dispose()` 该返回值 = **立刻**执行还原并从账上摘掉（与"取消接管"同义，不会重复调用）
+   *
+   * ⚠️ 它不是沙箱、不是权限门（原则 4：内核不提供任何安全保证）——
+   * 它只是把"卸载即净"从"内核记账的资源"扩展到"插件愿意申报的资源"。
+   */
+  onRollback(fn: () => void): Disposable
 }
 
 /**
@@ -559,7 +582,16 @@ export interface PluginContext {
   service: ServiceApi
   editor: EditorApi
   pluginId: string
-  /** 所有资源必须登记，卸载即净 */
+  /**
+   * 插件自己的资源账。**大部分情况下你不需要主动 push**：
+   * - `command.register/bind` · `view.registerPanel/registerWebView` · `event.on` ·
+   *   `fs.watch` · `doc.on` ⇒ 宿主**自动登记**（返回值收进这里）
+   * - `service.provide` · `editor.addMark` ⇒ 宿主卸载时**强制回收**
+   * - 自改宿主 DOM / 全局变量 ⇒ 用 `host.onRollback(fn)` 登记
+   *
+   * 剩下的（自己 `setInterval`、`window.addEventListener`、造了别的对象）才需要
+   * 手动 `subscriptions.push(...)` —— 卸载时逐个 `dispose()`（契约 §4.4 接管协议）。
+   */
   subscriptions: Disposable[]
 }
 

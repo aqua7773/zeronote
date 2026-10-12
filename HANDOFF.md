@@ -915,6 +915,56 @@ revision: 45
 > （`ctx.host.onRollback` 一类）：**登记过的内核负责还原，没登记的自己负责**；
 > 并给出可自动化的还原判据（卸载后内核 DOM / 命令表 / 订阅表回到基线）。
 
+> ## 📌 rev49（2026-10-13 · **接管协议落地**：原则 3 从"机制在、边界不清"变成可判定）
+>
+> **接手方式**：读 `HANDOFF-CARD.md` → 本文件 rev48 → 从 rev46 定的**下一步顺序第 ③ 步**开工
+> （① 内核自愈 = rev47 ✅ ② 拆权限门 = rev48 ✅ **③ 接管协议 + 还原验收**）。
+> 本轮**前端内核 6 个文件 + 1 个工具 + 1 个夹具**，Rust 一行未动。
+>
+> **改了什么**
+> · `src/kernel/command.ts` —— **`bind` 的还原语义**（本轮修的**真缺口**）：覆盖一条已存在的
+>   命令时先记下 `prevRun`，`dispose` 放回；只有"bind 之前这条命令根本不存在"才整条撤掉。
+>   旧行为是 `delete cur.run` ⇒ **卸载插件把内核功能一起带走**。
+> · `src/kernel/plugin-host.ts` —— 新增 `scopedEvent` / `scopedFs` / `scopedDoc` / `scopedHost`：
+>   **`event.on` / `fs.watch` / `doc.on` 的返回值现在由宿主自动登记**（此前契约要求插件自己
+>   `push`，实测没人推 —— 与当初 `command`/`view` 是同一个坑）；`scopedHost` 提供
+>   **`ctx.host.onRollback(fn)`**，并给插件接管的实现打 `plugin:<id>` 归属标记。
+> · `src/kernel/contract.ts` —— `HostApi.onRollback` 定义 + `PluginContext.subscriptions`
+>   注释重写（哪些自动、哪些强制回收、哪些自己管）。
+> · `src/kernel/kernel.ts` —— 新增 **`kernel.audit()`**（`KernelAudit`）：命令表（含**实现归属**）/
+>   订阅表 / 面板 / 服务 / 编辑器规则 / 插件 `<style>` 数。
+> · `src/kernel/event.ts` · `editor-marks.ts` —— `stats()` / `editorMarkEntries()` 两个诊断读数。
+> · `src/App.tsx` —— 把审计快照挂到 **`window.__znKernelAudit()`**（只读，生产留着无害）。
+>
+> **判据可自动化（这是本轮的真正产物）**
+> · 新脚本 **`tools/verify-takeover.mjs`**：走 UI（☰ → 插件管理 → 重新扫描）装/卸夹具，
+>   前后各拍一次审计快照，**11 项判据**逐条比对 —— 不靠人眼、不碰用户鼠标、不猜坐标。
+> · 夹具 **`examples/takeover-probe/`**（接管 `core.newNote` · `event.on('note:saved')` ·
+>   改状态栏（**登记** `onRollback`）· 改 body 属性（**不登记**）。它是验收脚本的配套输入，
+>   每次跑都要它 —— **保留作可复跑证据，别顺手删**）。
+>   ②③ 两处**故意不接返回值** —— 考的就是"宿主自动登记"。
+> · **`examples/daily-note` 一卸，"新建笔记"四个入口就废** —— 旧行为现场可复现；
+>   判断它靠 `audit.commands` 里 `core.newNote.impl`：`core` 正常 / `null` = 没还原。
+>
+> **对照实验（证明判据真能抓住它，不是自证）**：临时把 `dispose` 改回旧行为跑一次 ⇒
+> **9/11**，精确报出 `core.newNote: {"impl":null}` 与"命令表未回基线"；恢复修复后 **11/11**。
+>
+> **顺带修了 CDP 工具两处**（都是被本轮踩出来的）
+> · `tools/cdp.mjs` 导出 `Cdp`/`click`/`sleep` 等供验收脚本复用，**并给 `main()` 加主模块判断**
+>   —— 否则被 import 时它拿调用方 `argv` 当命令跑，会把验收脚本自己搞挂。
+> · `text:` 定位**优先挑真正可点的元素**（`button`/`a`/`role=menuitem`）：菜单项的
+>   外层 `div` 与内层 `button` 文本完全相同，旧逻辑 `el.click()` 打在外层 div 上，菜单纹丝不动。
+>
+> **基线（本轮实测）**：`tsc -b` 0 · `oxlint` **恰好 4 warnings** · `cargo test --lib` **21 passed**。
+> 证据截图 `_shots/takeover-loaded.png`（插件在时：插件页列出「接管探针」+ 状态栏红条纹）、
+> `_shots/takeover-unloaded.png`（卸载后：条纹复原、命令表回基线）。
+> 文档：契约 **§2.7 接管协议**（权威版本）· `docs/架构原则-2026-10-13.md` §4.2 标 ✅。
+>
+> **下一步**：§4.3 **U1 真窗口**（`new WebviewWindow` + `capabilities` 放行窗口 label）——
+> ⚠️ **那是安全边界变更**，落地时必须在本文档写明**新增了哪条权限**；
+> 未核实项：Tauri 2.12 的 capability `windows` 是否支持 glob（**先查官方文档或实测一次**，别自创）。
+> 契约 §7 未决里的 `permissions.json` 是否整体下线（§6.1）仍待裁决。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

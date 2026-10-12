@@ -33,6 +33,23 @@ type Entry = {
   run?: (...args: unknown[]) => unknown
 }
 
+/**
+ * 实现归属标记的键名。宿主给插件接管的实现打上 `plugin:<id>`，
+ * 审计快照据此回答「这条命令**现在**是谁在实现」—— `core.newNote` 的接管还原
+ * 就得靠它才可判定（命令表本身看不出实现被换过，更看不出被换成了"没有实现"）。
+ */
+const IMPL_TAG = '__znImplTag'
+
+/** 打归属标记。函数对象加属性在 JS 里合法；万一将来实现被冻结，退化成"未标注"也不影响功能 */
+export function tagCommandImpl<T>(run: T, tag: string): T {
+  try {
+    ;(run as unknown as Record<string, unknown>)[IMPL_TAG] = tag
+  } catch {
+    /* 标不上就算了 —— 审计会把它算作 'core'，不该因为诊断信息拖垮功能 */
+  }
+  return run
+}
+
 export type CommandDecl = {
   id: string
   title: string
@@ -55,6 +72,11 @@ export type CommandRegistry = {
   release(pluginId: string): void
   /** 实现是否已绑定（UI 可以据此标注"未激活"） */
   isBound(id: string): boolean
+  /**
+   * 审计用：这条命令当前实现者的归属 —— `plugin:<id>`（插件接管）·
+   * `'core'`（内核注册或未标注）· `null`（静态声明了但实现未绑定）。
+   */
+  implTag(id: string): string | null
 }
 
 export function createCommandApi(
@@ -96,14 +118,38 @@ export function createCommandApi(
         // 没静态声明就 bind ⇒ 视为"自带元数据的注册"，元数据缺省用 id 兜底
         requireNamespace(id)
         registry.set(id, { id, title: id, run })
-      } else {
-        entry.run = run
+        return {
+          dispose: () => {
+            const cur = registry.get(id)
+            // bind 之前这条命令**根本不存在** ⇒ 撤销要整条撤掉，别留空壳条目
+            if (cur && cur.run === run) registry.delete(id)
+          },
+        }
       }
+
+      /**
+       * **接管（覆盖）语义的还原点** —— `bind` 到一条已存在的命令（典型就是
+       * `core.newNote` 这类内核命令）时，先记下被覆盖的实现，`dispose` 时放回去。
+       *
+       * 此前这里只 `delete cur.run`：dispose 之后命令**还在表里但没有实现** ⇒
+       * 执行抛「尚未绑定实现，且没有可用的激活器」⇒ 卸载插件把内核功能一起带走了
+       * （真机可复现：`examples/daily-note` 一卸，「新建笔记」四个入口全废）。
+       * 这正是接管协议要立的第一条规矩：**接管必须可还原，还原到接管前的样子**。
+       *
+       * 嵌套接管也成立：A 先 bind、B 后 bind，则 B 的 `prevRun` 是 A 的实现；
+       * B dispose 还原 A，A dispose 再还原内核。谁最后接管谁负责放回上一层。
+       */
+      const prevRun = entry.run
+      const hadRun = prevRun !== undefined
+      entry.run = run
       return {
         dispose: () => {
           const cur = registry.get(id)
-          // 只清实现，保留静态声明的元数据（插件被卸载但 manifest 还在）
-          if (cur && cur.run === run) delete cur.run
+          // 已经被别人重新接管 ⇒ 不是我的事，别把新实现抹掉
+          if (!cur || cur.run !== run) return
+          if (hadRun) cur.run = prevRun
+          // 原本就是"静态声明过、实现还没绑"的懒激活条目 ⇒ 回到未绑定状态
+          else delete cur.run
         },
       }
     },
@@ -190,6 +236,13 @@ export function createCommandApi(
 
     isBound(id: string) {
       return Boolean(registry.get(id)?.run)
+    },
+
+    implTag(id: string) {
+      const run = registry.get(id)?.run
+      if (!run) return null
+      const tag = (run as unknown as Record<string, unknown>)[IMPL_TAG]
+      return typeof tag === 'string' ? tag : 'core'
     },
   }
 }
