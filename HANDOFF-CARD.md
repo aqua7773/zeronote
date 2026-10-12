@@ -1,6 +1,6 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:45** · 本会话共 **13** 个提交 · **HEAD 以 `git log --oneline -1` 为准**
+> 生成 **2026-10-12 20:45**（21:55 补记 rev37）· 本会话共 **14** 个提交 · **HEAD 以 `git log --oneline -1` 为准**
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
 > 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev36）**。
 
@@ -37,6 +37,7 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 | `5a31364` | 提示条右侧留白，避免与「关闭这篇笔记」按钮重叠 |
 | `70ef21a` | **Markdown 标记收进内核**：12 条 `core.mark.*` + 手机底栏/顶部提示条 + 右键「标记」子菜单（插件 `examples/md-toolbar` 退役） |
 | `aff0056` | **收窄入口**（用户裁决）：桌面只留右键「标记」子菜单，移动端只留键盘上方快捷栏；顺带修 `.zn-titlebar-hotzone` 压顶部吃掉点击的真 bug |
+| `1a297b6` | **修基线第三条**：测试临时目录移出 `%TEMP%`（受限上下文写不了 ⇒ 12/18 用例假失败），改放仓库 `_tmp-test/` |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
@@ -73,6 +74,9 @@ cd src-tauri; cargo test --lib    # 必须 18 passed（看 `running N tests` 数
 - **测试库 `_tmp-vault-tb/`**（`probe.md` + `untitled-20261012-195714.md`）；`.zn/plugins` 现在是**空的**
   —— `md-toolbar` 已随「标记收进内核」退役（`examples/md-toolbar/` 也删了，git 历史 `70ef21a` 可查）。
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可（改完**切库一次**生效）
+- ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
+  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **18 passed**。
+  **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
 - **手机 `33b676f6`**：装的是 `tauri android build --apk` 的**打包版**（内嵌 dist，
   **改前端必须重打包**；想要 HMR 得改用 `android-dev.cmd`）
 - **仓库里有 1 个第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch` ——

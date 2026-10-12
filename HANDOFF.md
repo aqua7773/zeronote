@@ -409,6 +409,35 @@ revision: 36
 > `_shots/zn-suite-02.png`（② 对齐后的 ZeroNote 渲染）、
 > `_shots/tp-suite-top.png` / `tj-x*-typora.png`（Typora 侧的对照）。
 
+> ## 📌 rev37（同日 21:50 · 修基线第三条：测试临时目录移出 `%TEMP%`）
+>
+> **起因**：本轮接手先跑三条基线，第三条 **6 passed / 12 failed** —— 12 个用例全挂在
+> `tmpdir()` 的 `create_dir_all`（`Os code 5 PermissionDenied`），而**代码一行未改**
+> （`git status` 干净、HEAD `e43da6e` 与交接卡一致）⇒ **是环境，不是回归**。
+>
+> **实测到的边界（两条对照，缺一不可）**
+> · 测试进程往 `%TEMP%`（`C:\Users\AQUA\AppData\Local\Temp`）建目录 ⇒ **拒绝访问**
+> · **同一个路径，pwsh 里 `New-Item` 建目录成功** ⇒ 不是磁盘满、也不是权限表坏，
+>   挡住的是**跑测试的那个受限上下文**
+> · 顺带发现 `%TEMP%` 里堆了 **238 个 `zn-test-*` 残留**（旧实现 `let _ = fs::remove_dir_all`
+>   静默忽略失败 ＋ 目录名带 pid ⇒ 每跑一次多留 12 个）
+>
+> **改法（`1a297b6`，只动 `src-tauri\src\lib.rs` 的测试辅助函数，内核逻辑零改动）**
+> · 临时目录改到 **`<repo>/_tmp-test/`** —— 前缀已在 `.gitignore`（`_tmp-*/`），
+>   与既有 `_tmp-vault-tb/` 同一约定，路径可预测；**不再用 `std::env::temp_dir()`**
+> · 目录名**去掉 pid**（`zn-test-<tag>`）：cargo 在 target 上有锁、同一 target 的两个 cargo
+>   命令串行 ⇒ 固定名无并发风险，且不再累积
+> · 清理失败**不再静默忽略**：`NotFound` 放过，其它错误直接 panic 并带路径 ——
+>   原来那句 `let _ =` 正是把"不可写"藏起来的地方（本项目"静默失效比报错危险"那条）
+>
+> **验收（默认环境，未改 TEMP）**：`cargo test --lib` **18 passed / 0 failed** ·
+> `tsc -b` **0 错误** · `oxlint` **4 warnings / 0 errors**
+>
+> ⚠️ **遗留两条**：① `%TEMP%` 里那 238 个空目录（合计 **0 MB**）**没动** —— 在工作区外，
+> 按"删除前先确认"的规矩留给用户定；测试复跑不再新增。② **根因未深挖**（为什么那个受限
+> 上下文写不了 `%TEMP%`）：本会话 approval 被禁用，跑不了 `diagnose-windows-sandbox-acl`
+> 那条**必须非受限执行**的诊断脚本；这次选择先绕开、让基线恢复可跑。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
