@@ -45,7 +45,15 @@ async function pickTarget() {
   const list = await res.json()
   const pages = list.filter((t) => t.type === 'page')
   if (!pages.length) throw new Error('CDP 里没有 page target —— dev 起了吗？端口开了吗？')
-  return pages.find((t) => t.url.includes(TARGET_HINT)) ?? pages[0]
+  const matched = pages.filter((t) => t.url.includes(TARGET_HINT))
+  /**
+   * **默认优先主窗口**：插件独立窗口与主窗口的 URL 是同一个前缀（只多 `?pluginWindow=`），
+   * 只按 `includes` 挑会随机挑到插件窗口 —— 于是"以为在主窗口里执行"其实跑在插件窗口里
+   * （2026-10-13 排查 close 死锁时真踩到）。要连插件窗口请显式设 `ZN_TARGET=pluginWindow=`。
+   */
+  return (
+    matched.find((t) => !t.url.includes('pluginWindow=')) ?? matched[0] ?? pages[0]
+  )
 }
 
 class Cdp {

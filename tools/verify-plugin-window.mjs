@@ -196,8 +196,27 @@ async function main() {
     check('④ label 以 plugin- 开头（capability glob 的约定）', String(win.label).startsWith('plugin-'), j(win.label))
     await shot(win.cdp, join(REPO, '_shots', 'plugin-window-child.png'))
 
-    /* ── ⑤ 关窗：页面消失 + 账销掉 ── */
-    await click(win.cdp, 'text:关闭')
+    /* ── ④b 窗口三键（最小化 / 最大化还原 / 关闭）—— 用户 2026-10-13 要求"一个都不能少" ── */
+    const btnCount = await win.cdp.js(`document.querySelectorAll('.zn-plugin-window-bar .zn-win-btn').length`)
+    check('④b 标题条上有三颗窗口按钮（最小化 / 最大化还原 / 关闭）', btnCount === 3, `实际 ${btnCount} 颗`)
+
+    const isMax = () =>
+      win.cdp.js(
+        `(async () => await window.__TAURI_INTERNALS__.invoke('plugin:window|is_maximized', { label: ${JSON.stringify(win.label)} }))()`,
+      )
+    await win.cdp.js(
+      `(() => { document.querySelectorAll('.zn-plugin-window-bar .zn-win-btn')[1].click(); return true })()`,
+    )
+    await waitFor(async () => (await isMax()) === true, '窗口被最大化', 8000)
+    check('④c 最大化按钮生效（isMaximized = true）', true)
+    await win.cdp.js(
+      `(() => { document.querySelectorAll('.zn-plugin-window-bar .zn-win-btn')[1].click(); return true })()`,
+    )
+    await waitFor(async () => (await isMax()) === false, '窗口被还原', 8000)
+    check('④d 再点一下还原（isMaximized = false）', true)
+
+    /* ── ⑤ 关窗：页面消失 + 账销掉（三键里的 ×，走 destroy） ── */
+    await click(win.cdp, '.zn-plugin-window-bar .zn-win-btn.is-close')
     win.cdp.close()
     await waitFor(async () => (await pluginPageCount()) <= 1, '第一个窗口关闭', 8000)
     const oneLeft = await mainCdp.js(`window.__znKernelAudit().windows`)
@@ -210,7 +229,7 @@ async function main() {
       '第二个窗口的关闭按钮',
       10000,
     )
-    await click(win2.cdp, 'text:关闭')
+    await click(win2.cdp, '.zn-plugin-window-bar .zn-win-btn.is-close')
     win2.cdp.close()
     await waitFor(async () => (await pluginPageCount()) === 0, '第二个窗口关闭', 10000)
     const zero = await mainCdp.js(`window.__znKernelAudit().windows`)
@@ -218,22 +237,46 @@ async function main() {
 
     /* ── ⑥ 卸载插件 ⇒ 内核**自动**关掉还开着的窗口（这才叫"卸载即净"） ── */
     await sleep(400)
+    /* ── ⑥ 插件窗口里的 `close()` 也必须能关（回归判据 · rev53）──
+       曾踩：窗口模式跳过了内核的 close 监听器 ⇒ 插件窗口里一个 close 监听器都没有 ⇒
+       `close()` 只发 `tauri://close-requested`、**没人调 destroy** ⇒ 返回 ok 但窗口不关。
+       现在窗口模式补了一个极简监听器，这条必须过。
+       ⚠️ 调用时**不要 await**：窗口被销毁时那次 invoke 的 Promise 永远不会 resolve（webview 没了），
+       await 它必然超时 —— 这不是 bug，是"窗口已经没了"的正常表现。 */
+    await click(mainCdp, 'text:在新窗口打开')
+    await waitFor(async () => (await pluginPageCount()) >= 1, '为 close 语义测试开的窗口')
+    const closeWin = await waitFor(() => connectPluginWindow(undefined), '连上该窗口')
+    // 等"close 监听器已注册"这个**可断言**的标记（注册是异步的；早于它调 close 没人 destroy）
+    await waitFor(
+      () => closeWin.cdp.js(`window.__znCloseListener === true`),
+      '窗口模式已注册 close 监听器',
+      8000,
+    )
+    await closeWin.cdp.js(
+      `(() => { const w = window.__TAURI_INTERNALS__; w.invoke('plugin:window|close', { label: w.metadata.currentWindow.label }); return 'fired' })()`,
+    )
+    closeWin.cdp.close()
+    await waitFor(async () => (await pluginPageCount()) === 0, 'close() 把窗口关掉', 10000)
+    check('⑥ 插件窗口里的 close() 也能关窗（窗口模式补了极简 close 监听器）', true)
+
+    /* ── ⑦ 卸载插件 ⇒ 开着的窗口被内核自动关掉（"卸载即净"） ── */
+    await sleep(400)
     await click(mainCdp, 'text:在新窗口打开')
     await waitFor(async () => (await pluginPageCount()) >= 1, '为卸载测试开的窗口')
     note('这个窗口**不手动关**，直接卸载插件 —— 期望内核替它关掉')
     removeLink()
     await rescan(mainCdp)
     await waitFor(async () => (await pluginPageCount()) === 0, '卸载后窗口被自动关掉', 12000)
-    check('⑥ 卸载插件 ⇒ 开着的独立窗口被内核自动关掉（subscriptions 登记生效）', true)
+    check('⑦ 卸载插件 ⇒ 开着的独立窗口被内核自动关掉（subscriptions 登记生效）', true)
 
     await sleep(600)
     const after = await mainCdp.js(`window.__znKernelAudit()`)
     check(
-      '⑥b 卸载后命令表逐字回基线',
+      '⑦b 卸载后命令表逐字回基线',
       j(after.commands) === j(baseline.commands),
       j(after.commands) === j(baseline.commands) ? '' : `\n  基线：${j(baseline.commands)}\n  卸载后：${j(after.commands)}`,
     )
-    check('⑥c 卸载后窗口账为空', j(after.windows) === j(baseline.windows), `账：${j(after.windows)}`)
+    check('⑦c 卸载后窗口账为空', j(after.windows) === j(baseline.windows), `账：${j(after.windows)}`)
   } finally {
     removeLink()
     // 主窗口可能因 HMR 重连过：重新取一个连接再关

@@ -55,6 +55,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `rev50` | **U1 真窗口**（用户裁决「完全放行」）：`view.openWindow({panel,title,width,height})` 把面板放进独立窗口（可拖 / 多开 / 卸载自动关）；`?pluginWindow=<panelId>` 窗口模式只渲染那个面板。**新增权限**：`core:webview:allow-create-webview-window` ＋ `core:window:allow-destroy` ＋ `windows: ["main","plugin-*"]`（glob 已核实支持）。验收 **`tools/verify-plugin-window.mjs` 10/10**；示例 `examples/window-demo/` |
 | `rev51` | **U2 主壳接管点**：`view.overrideShell({mount})` —— 插件自绘界面**接管整窗**（内核 UI 让位），释放或卸载即复原；**单接管者**（第二个抛明确错误）＋ **内核逃生口**（右下角按钮 / `Ctrl+Alt+Z`，因为接管期间连插件管理页都点不到）。验收 **`tools/verify-shell.mjs` 12/12**；示例 `examples/shell-demo/` |
 | `rev52` | **outline-map 重做成"导图独立窗口"**（用户当场纠向：**笔记就是大纲**，不存在大纲窗口，导图开新窗口，分屏交给 Windows）：入口改为**编辑器顶部条**每组一个「❖ 导图」按钮；窗口里可 `＋子主题` / `✕删子树`，**直接读写库文件**（不依赖编辑器挂载）。验收 **`tools/verify-outline-map.mjs` 7/7**。顺带修正文档：**`sidebar` 面板其实渲染在主区**（只有 `editor-topbar`/`editor-toolbar` 与编辑器同屏） |
+| `rev53` | **插件窗口补齐三键 ＋ 查清 `close()` 真相**：三键抽成 `WindowControls`（主窗口/插件窗口共用：最小化 / 最大化⇄还原 / 关闭）。**`close()` 只发 `tauri://close-requested`、真正销毁靠监听器里的 `destroy()`** ⇒ 插件窗口当初关不掉是"**没人负责关**"（窗口模式跳过了内核那个 close 监听器），**不是死锁**（rev50 的误判已更正）；窗口模式补极简监听器 + 标记 `__znCloseListener`。验收 **`verify-plugin-window.mjs` 14/14** |
 
 ## ⚠️ 未决问题（下个会话第一件事）
 
@@ -109,14 +110,20 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 - **接管 / 还原怎么验（rev49）**：`node tools/verify-takeover.mjs` —— 自动建 junction → 走 UI 重扫 →
   比对审计快照 → 删 junction → 再比对，**11 项判据全自动**（自己建/删 junction，**绝不用递归删除**）。
   手动看读数：`node tools/cdp.mjs eval "window.__znKernelAudit()"`
-- **插件独立窗口怎么验（rev50）**：`node tools/verify-plugin-window.mjs`（10 项：开窗 / 多开 /
-  窗口内渲染 / label 约定 / 关窗销账 / **卸载插件时窗口被自动关掉** / 命令表回基线）。
-  ⚠️ 两条硬认知：**改过 `capabilities/*.json` 必须让 cargo 真的重编**（touch `src-tauri/src/lib.rs`）
+- **插件独立窗口怎么验（rev50/rev53）**：`node tools/verify-plugin-window.mjs`（**14 项**：开窗 / 多开 /
+  窗口内渲染 / label 约定 / **标题条三颗按钮** / 最大化生效与还原 / 关窗销账 / **`close()` 也能关窗** /
+  **卸载插件时窗口被自动关掉** / 命令表回基线）。
+  ⚠️ 三条硬认知：**改过 `capabilities/*.json` 必须让 cargo 真的重编**（touch `src-tauri/src/lib.rs`）
   —— capability 是**编译期**嵌进二进制的，光重启进程不生效，症状是"窗口能开但核心命令被拒、点了没反应"；
-  **关窗一律 `destroy()`，别用 `close()`**（`close()` 自身发起会死锁：命令返回 OK、窗口不消失）。
+  **`close()` 只发事件、真正销毁靠监听器的 `destroy()`**（见下一条）；**别在将要销毁的窗口里 await close/destroy**。
 - **整窗接管怎么验（rev51）**：`node tools/verify-shell.mjs`（12 项：接管 / 内核 UI 让位 / 审计读数 /
   插件按钮释放 / **内核逃生口释放** / 插件收尾被调 / 卸载后回基线）。⚠️ 接管期间内核 UI 全部不可达
   （含插件管理页）⇒ **逃生口是必需品**（右下角按钮 / `Ctrl+Alt+Z`）；插件**不要 `onStartup` 自动接管**。
+- **`close()` 与 `destroy()` 的区别（rev53 查清，别记错）**：`close()` **只发 `tauri://close-requested`、
+  自己不销毁窗口**；真正销毁靠监听器里的 `destroy()`（`@tauri-apps/api` 的 `onCloseRequested`
+  在未 preventDefault 时就这么做）⇒ **窗口里没有 close 监听器时 `close()` 返回 ok 但窗口不关**。
+  主窗口能关是因为它有"关窗前落盘"监听器。⚠️ 别在**将要被销毁的窗口里 `await` close/destroy**
+  （那次 invoke 的 Promise 永不 resolve，谁 await 谁超时）。
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败

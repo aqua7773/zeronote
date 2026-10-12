@@ -43,6 +43,7 @@ import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
 import { PanelBoundary } from './components/PanelBoundary'
 import { ShellMount } from './components/ShellMount'
+import { WindowControls } from './components/WindowControls'
 import { Settings } from './components/Settings'
 import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
@@ -886,10 +887,13 @@ export default function App() {
   const closingRef = useRef(false)
   useEffect(() => {
     /**
-     * **插件独立窗口直接跳过这层拦截**（U1 · rev50 踩到的真坑）：
-     * 插件窗口不承载编辑器、没有"未保存内容"要兜底，而这个拦截器在每个窗口都会注册 ——
-     * 它会把插件窗口的关闭请求吃掉：`close()` 返回 OK、`close-requested` 也发了，
-     * 但窗口**不消失**（从主窗口发 close 同样无效，因为事件是发给目标窗口的监听器的）。
+     * 插件独立窗口**跳过这层"关窗前落盘"**：它不承载编辑器、没有未保存内容要兜底。
+     *
+     * ⚠️ 但**不能因此让插件窗口一个 close 监听器都没有**（rev53 更正）——
+     * `Window.close()` 只发 `tauri://close-requested` 事件，**真正销毁窗口的是监听器里的
+     * `destroy()`**（`@tauri-apps/api` 的 `onCloseRequested` 在未 preventDefault 时就是这么做的）。
+     * 一个监听器都没有 ⇒ 没人调 destroy ⇒ `close()` 返回 ok 但窗口不关。
+     * 窗口模式因此**另注册一个极简监听器**（见下面那个 effect）。
      */
     if (pluginWindowId) return
     let unlisten: (() => void) | null = null
@@ -918,6 +922,41 @@ export default function App() {
       disposed = true
       unlisten?.()
     }
+  }, [pluginWindowId])
+
+  /**
+   * **插件窗口的极简 close 监听器**（rev53）—— 存在的唯一意义是让 `close()` 这条语义能工作。
+   *
+   * 机制（读本地 `@tauri-apps/api/window.js` + 两个对照实验确认，别再猜）：
+   *   · `Window.close()` → 只 `invoke('plugin:window|close')`，**发 `tauri://close-requested` 事件**，
+   *     **自己不销毁窗口**（`destroy()` 的 API 注释原文：close 是 "emitting a closeRequested
+   *     event" 而不是 "forces the window close"）；
+   *   · 真正销毁由前端监听器负责 —— API 的 `onCloseRequested(handler)` 包装里写着：
+   *     `if (!evt.isPreventDefault()) await this.destroy()`；
+   *   · ⇒ **窗口里一个 close 监听器都没有时，没人调 destroy，`close()` 返回 ok 但窗口不关**。
+   *
+   * 实验证据：E1（无监听器 ⇒ close 返回 ok、窗口仍在）· E2（注册"不 preventDefault 就 destroy"
+   * 的监听器后 ⇒ close 正常关窗）。主窗口一直能关，正是因为它有这个拦截器监听器。
+   *
+   * 插件窗口没有"未保存内容"要兜底，所以这里**什么都不做** —— 不 preventDefault ⇒ API 层 destroy ⇒ 关。
+   */
+  useEffect(() => {
+    if (!pluginWindowId) return
+    let unlisten: (() => void) | undefined
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        unlisten = await getCurrentWindow().onCloseRequested(() => {
+          /* 故意留空：不 preventDefault ⇒ 关闭照常进行 */
+        })
+        // 注册完成的可断言标记：注册是**异步**的（动态 import + await），
+        // 早于它调 close 会"没人 destroy"⇒ 窗口不关。验收脚本等这个标记，而不是猜时间。
+        ;(window as unknown as { __znCloseListener?: boolean }).__znCloseListener = true
+      } catch {
+        /* 非 Tauri 环境（浏览器预览）—— 忽略 */
+      }
+    })()
+    return () => unlisten?.()
   }, [pluginWindowId])
 
   const openNote = useCallback(
@@ -2349,26 +2388,16 @@ export default function App() {
     const winPanel = panels.find((p) => p.id === pluginWindowId)
     return (
       <div className="zn-plugin-window">
-        {/* 自绘标题条：拖动区 + 关闭（窗口 decorations:false，与主窗口同一套路） */}
+        {/* 自绘标题条：拖动区 + 三键（最小化 / 最大化还原 / 关闭）。
+            `data-tauri-drag-region` 不继承给子元素，所以标题文字单独标一次；按钮绝不标。
+            关闭走 `destroy()` —— 点"关闭"就是明确的关，不必再走 close 的请求-应答流程
+            （机制见下面那个极简 close 监听器的注释）。 */}
         <div className="zn-plugin-window-bar" data-tauri-drag-region>
-          <span className="zn-plugin-window-title">
+          <span className="zn-plugin-window-title" data-tauri-drag-region>
             {winPanel?.title ?? pluginWindowId}
             {winPanel?.pluginId ? <span className="zn-plugin-window-src">{winPanel.pluginId}</span> : null}
           </span>
-          <button
-            type="button"
-            className="zn-plain-btn"
-            title="关闭窗口"
-            /**
-             * 用 `destroy()` 而不是 `close()`（U1 实测结论）：
-             * `close()` 要先走一遍 `CloseRequested`（前端可 preventDefault），而**窗口自己
-             * 发起时那一次等待会死锁在自己身上** —— 命令返回 OK，窗口却不消失。
-             * 插件窗口不承载编辑器、没有"未保存内容"要兜底 ⇒ 直接销毁，语义更准也可靠。
-             */
-            onClick={() => void getCurrentWindow().destroy()}
-          >
-            关闭
-          </button>
+          <WindowControls onClose={() => void getCurrentWindow().destroy()} />
         </div>
         <div className="zn-plugin-window-body">
           {/* U2：窗口里同样允许接管 —— 但**标题条与关闭按钮保留**（否则窗口关不掉） */}

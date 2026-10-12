@@ -993,8 +993,9 @@ revision: 45
 > 1. **capability 是编译期嵌进二进制的** —— 改完 `capabilities/*.json` 光重启进程**不生效**，
 >    必须让 cargo 真的重编（本机做法：touch `src-tauri/src/lib.rs`）。不重编时的症状极迷惑：
 >    窗口能开、插件也加载（**应用自己的命令不受 ACL 管**），但 `plugin:window|close` 被拒 ⇒「点了没反应」。
-> 2. **关窗必须 `destroy()`，不能用 `close()`** —— `close()` 先过 `CloseRequested`（前端可 preventDefault）；
->    **窗口自己发起时会死锁在自己身上**（命令返回 OK、窗口不消失），从别的窗口发起则阻塞到超时。
+> 2. **关窗必须 `destroy()`，不能用 `close()`** —— ⚠️ **rev53 更正**：当时写的"自身发起会死锁"
+>    是**错误诊断**。真相见 rev53：`close()` 只发事件、真正销毁靠监听器里的 `destroy()`；
+>    插件窗口当时一个监听器都没有 ⇒ 没人 destroy ⇒ 看起来"死命令"。三键仍直接 destroy（更直）。
 > 3. **内核那层「关窗前落盘」拦截器必须在窗口模式跳过** —— 它在每个窗口都注册，会把插件窗口的
 >    关闭请求吃掉（同一次踩坑的另一半，症状与 ② 一模一样）。
 >
@@ -1092,6 +1093,56 @@ revision: 45
 > 窗口菜单栏（文件/编辑/AI/查看）· 三层配色的视觉细化。
 > **内核侧一个可改进点（本轮暴露）**：UINode 的 `row` **没有 `justify`** ⇒ 插件做不出
 > 真正的"组标题右上角按钮"（现在只能排在行尾/顶部条）。要不要给 `row` 加 `justify`，等你定。
+
+> ## 📌 rev53（2026-10-13 · 插件窗口补齐三键 ＋ **查清 `close()` 的真相**）
+>
+> 用户两个问题把这一轮问出来的：
+> ① 「最小化最大化和 × 呢？」（插件窗口只有一颗"关闭"文字按钮）
+> ② 「`close()` 死锁是什么原因，为什么主窗口不会触发死锁」
+>
+> **一、三键补齐**：把主窗口 `TitleBar` 里的三键抽成 **`src/components/WindowControls.tsx`**，
+> 主窗口与插件窗口**共用同一套按钮**（最小化 / 最大化⇄还原 / 关闭，图标随最大化状态切换）。
+> 插件窗口标题条照旧自带拖动区（`data-tauri-drag-region`，双击=最大化由它内置处理）。
+>
+> **二、`close()` 的真相 —— 不是死锁，是"没人负责关"**（读 `@tauri-apps/api/window.js` + 两个对照实验）
+>
+> ```js
+> async close()   { return invoke('plugin:window|close',   { label }) }   // 只**发事件**
+> async destroy() { return invoke('plugin:window|destroy', { label }) }   // 真关（注释原文：
+>                                        // close 是 "emitting a closeRequested event"）
+> async onCloseRequested(handler) {
+>   return this.listen('tauri://close-requested', async (event) => {
+>     const evt = new CloseRequestedEvent(event)
+>     await handler(evt)
+>     if (!evt.isPreventDefault()) await this.destroy()   // ← 真正关窗的是这一行
+>   })
+> }
+> ```
+>
+> · **`close()` 只发 `tauri://close-requested`，自己不销毁窗口**；真正销毁由**监听器**做。
+> · **主窗口为什么能关**：内核 App 里注册了"关窗前落盘"那个 `onCloseRequested`
+>   （[App.tsx](<src/App.tsx>) 的 `closingRef` effect）—— 不脏就直接放行 ⇒ API 层 `destroy()` ⇒ 关。
+> · **插件窗口当初为什么关不掉**：窗口模式**跳过了**那个拦截器 ⇒ 窗口里**一个 close 监听器都没有**
+>   ⇒ 没人调 destroy ⇒ `close()` 返回 ok 但窗口不动。**看起来像死命令，其实只是没人关。**
+> · **实验（可复跑）**：
+>   E1 无监听器的插件窗口里调 `close()` ⇒ 返回 ok、窗口**仍在**（`_shots` 无关，输出见日志）；
+>   E2 注册"不 preventDefault 就 destroy"的监听器后再调 `close()` ⇒ 窗口**正常关闭**。
+>   （另：原来记的"`close()` 自身发起会死锁 / 从别的窗口发起会阻塞到超时"是**误判** —— rev50 段已加更正；
+>   超时那个现象的真因是：**窗口被销毁时，那次 invoke 的 Promise 永远不会 resolve**，
+>   谁 `await` 它谁超时。验收脚本因此改成"发出去就不等"。）
+> · **修法**：窗口模式补一个**极简** close 监听器（什么都不做 ⇒ 不 preventDefault ⇒ API 层 destroy），
+>   并留一个**可断言标记** `window.__znCloseListener`（注册是异步的，早于它调 close 仍会没人 destroy ——
+>   验收脚本等这个标记，不猜时间）。这样**插件作者写 `getCurrentWindow().close()` 也不会踩坑**。
+>   内核三键仍直接 `destroy()`（用户点的"关"，不必再走一遍请求）。
+>
+> **三、顺带修的工具缺陷**：`tools/cdp.mjs` 的 `pickTarget()` 原来只按 `localhost:1420` 做 `includes`
+> 匹配 —— 插件窗口 URL 前缀相同 ⇒ 会随机挑到插件窗口，于是"以为在主窗口里执行"其实跑在插件窗口里
+> （排查 close 时真踩到）。现在**默认优先不含 `pluginWindow=` 的那个页面**。
+>
+> **验收**：`tools/verify-plugin-window.mjs` → **14/14**（新增：标题条三颗按钮 / 最大化生效 /
+> 再点还原 / **插件窗口里 `close()` 也能关窗** / 卸载插件窗口自动关）；
+> `tools/verify-outline-map.mjs` 回归 **7/7**。截图 `_shots/plugin-window-child.png`（右上角 — □ ×）。
+> **基线**：`tsc -b` 0 · `oxlint` 恰好 4 warnings · `cargo test --lib` 21 passed。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

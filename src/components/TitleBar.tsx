@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
+import { WindowControls } from './WindowControls'
 
 /**
  * 自绘窗口标题栏（记事本式）。
@@ -14,6 +13,9 @@ import { cn } from '@/lib/utils'
  *      所以标题文字要单独标一次；按钮绝不能标（否则点不动）。
  *   ② 双击最大化：由 drag-region 内置处理，不用自己写。
  *   ③ 移动端根本没有窗口装饰这回事 → `showWindowControls=false` 时不渲染按钮。
+ *
+ * 2026-10-13 rev53：三键本身抽到 **`WindowControls`**（插件独立窗口共用同一套按钮，
+ * 且插件窗口的"关闭"要走 `destroy()` —— 见那个组件的注释）。
  */
 export interface TitleBarProps {
   /** 当前文档名；没打开笔记时是库名 */
@@ -44,35 +46,6 @@ export function TitleBar({
   visible = true,
   onHoverChange,
 }: TitleBarProps) {
-  const win = getCurrentWindow()
-
-  /**
-   * 窗口是否最大化 —— 决定右上角那个按钮画「一个框」（最大化）还是
-   * 「两个叠起来的框」（还原），跟系统窗口的行为一致。
-   * 用 Tauri 的 onResized 而不是 window 的 resize：前者由窗口管理器直接驱动，
-   * 双击标题栏 / Win+↑ / 拖到屏幕边缘触发最大化时同样会派发。
-   */
-  const [maximized, setMaximized] = useState(false)
-  useEffect(() => {
-    let unlisten: (() => void) | undefined
-    let disposed = false
-    void (async () => {
-      try {
-        const now = await win.isMaximized()
-        if (!disposed) setMaximized(now)
-        unlisten = await win.onResized(async () => {
-          setMaximized(await win.isMaximized())
-        })
-      } catch {
-        /* 移动端没有窗口装饰，取不到窗口状态也不影响其它功能 */
-      }
-    })()
-    return () => {
-      disposed = true
-      unlisten?.()
-    }
-  }, [win])
-
   // 显隐用**内联样式**：`.zn-titlebar.is-visible` 这条规则在这台 WebView 上不生效
   //（实测 state 已是 true、class 也切了，标题栏却仍不可见），内联优先级最高、一定有效。
   //
@@ -104,7 +77,7 @@ export function TitleBar({
         onClick={() => {
           // 悬挂菜单：**左对齐窗口左边**（x=0）、**顶边贴在标题栏下沿**（y=32）、不留空隙。
           //（用户要求：「左对齐，不留空隙，顶部是贴标题栏底部，不是两个顶部重合」）
-          // 32 就是标题栏高度（.zn-titlebar 的 height）—— 改高度时这两处要一起改。
+          // 32 就是标题栏高度（`.zn-titlebar` 的 height）—— 改高度时这两处要一起改。
           onMenu({ x: 0, y: 32 })
         }}
         title="菜单"
@@ -127,72 +100,7 @@ export function TitleBar({
         {saveLabel}
       </span>
 
-      {showWindowControls ? (
-        <div className="zn-window-controls">
-          <button
-            type="button"
-            className="zn-win-btn"
-            onClick={() => void win.minimize()}
-            title="最小化"
-            aria-label="最小化"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M0 5.5h10" stroke="currentColor" strokeWidth="1" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="zn-win-btn"
-            onClick={() => void win.toggleMaximize()}
-            title={maximized ? '向下还原' : '最大化'}
-            aria-label={maximized ? '向下还原' : '最大化'}
-          >
-            {maximized ? (
-              /* 还原：两个叠起来的方框（后面的框只画露出来的两条边） */
-              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-                <rect
-                  x="0.5"
-                  y="2.5"
-                  width="7"
-                  height="7"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                />
-                <path
-                  d="M2.5 2.5V0.5h7v7h-2"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                />
-              </svg>
-            ) : (
-              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-                <rect
-                  x="0.5"
-                  y="0.5"
-                  width="9"
-                  height="9"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                />
-              </svg>
-            )}
-          </button>
-          <button
-            type="button"
-            className="zn-win-btn is-close"
-            onClick={() => void win.close()}
-            title="关闭窗口"
-            aria-label="关闭窗口"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" strokeWidth="1" />
-            </svg>
-          </button>
-        </div>
-      ) : null}
+      {showWindowControls ? <WindowControls /> : null}
     </header>
   )
 }
