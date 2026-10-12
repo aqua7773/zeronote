@@ -1297,6 +1297,19 @@ body.is-resizing * {
 }
 
 .zn-plugin-window-body {
+  /**
+   * ⚠️ `position: relative` 不是装饰，是**接管的包含块**（rev59 修的 bug）。
+   *
+   * `.zn-shell-mount` 是 `position: absolute; inset: 0`，它的包含块 = **最近的 positioned 祖先**。
+   * 主窗口那边有 `.zn-shell-host { position: relative }` 兜着；而**窗口模式**（`App.tsx` 的
+   * `pluginWindowId` 分支）把这个 mount 直接放进 `.zn-plugin-window-body` —— 这一条以前没有
+   * `position`，于是包含块一路上溯到**视口** ⇒ 挂载容器铺满整窗、把 35px 的标题条压在同层下面。
+   *
+   * 症状（用户 2026-10-13 报的"窗口菜单不做，我怎么用 windows 的退出和分屏"）：
+   * **标题条连同「✕ / 最大化 / 拖动区」全被盖住** ⇒ 看不出怎么关、也没法拖到屏幕边缘贴边。
+   * 实测读数（CDP，插件窗口里）：`mount.top = 0 / h = 1078`（应与 body 一致：`top = 35 / h = 1043`）。
+   */
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;

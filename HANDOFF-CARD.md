@@ -88,6 +88,16 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > 窗口菜单栏**定案不做**（库自带右键+工具栏已够，"AI"项没有真实功能）·
 > **唯一开口**：与编辑器"未保存手改"的冲突（插件写盘 vs 自动保存，**需要拍板优先级**）。
 > 验收 `tools/verify-mindmap.mjs` **11/11**。
+>
+> 🔧 **rev59 修了一个潜伏 bug（"窗口里关不掉、拖不动分屏"就是这个）**：`.zn-shell-mount` 是
+> `position:absolute; inset:0`，而窗口模式的父节点 `.zn-plugin-window-body` **没有 `position`**
+> ⇒ 包含块上溯到视口 ⇒ **挂载容器把 35px 的标题条（✕ / 最大化 / 拖动区）整个盖住**。
+> 从 rev51 潜伏到 rev58（`verify-shell` 只测主窗口接管，那条路有 `.zn-shell-host` 兜着），
+> rev57 让接管第一次跑在窗口模式才触发。修法一行：`.zn-plugin-window-body{position:relative}`。
+> **窗口操作怎么用**（实测）：分屏 = `Win+←/→` 或拖标题条到屏幕边缘 · 最大化 = 双击标题条 / `Win+↑` ·
+> 关窗 = 标题条右侧 ✕ · **退出应用 = 关主窗口**（桌面无"退出"菜单项）·
+> **Win11 悬停最大化弹 Snap Layouts 暂不支持**（tao 的 `WM_NCHITTEST` 不返回 `HTMAXBUTTON`）。
+> 回归：`verify-mindmap` 11/11 · `verify-shell` 12/12 · `tsc` 0 · `oxlint src` 4。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
