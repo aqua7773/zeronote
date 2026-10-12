@@ -580,7 +580,7 @@ export default {
         label: '❖',
         title: '把这一组开成导图窗口',
         onClick: 'outline-map.open-map-at-line',
-        className: 'accent',
+        // 不传 className：要"无痕融入"（用户 2026-10-13）—— 默认档就是最克制的那个
       }),
     )
 

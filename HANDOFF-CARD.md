@@ -65,10 +65,11 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > ④ U1 真窗口 ✅ **rev50**（`view.openWindow` ＋ capability **完全放行**：新增
 > `core:webview:allow-create-webview-window`、`core:window:allow-destroy`、`windows:["main","plugin-*"]`）
 > ⑤ U2 主壳接管点 ✅ **rev51**（`view.overrideShell` ＋ 内核逃生口）
-> ⑥ outline-map 重做成"导图独立窗口" ✅ **rev52**（入口=编辑器顶部条每组一个「❖ 导图」；
-> 窗口里编辑直接写库文件；**笔记就是大纲**，分屏交给 Windows）
-> ⇒ **下一步 = ⑥ 的收官打磨**：样式切换 · 折叠 · 撤销重做 · 窗口菜单栏（文件/编辑/AI/查看）· 视觉细化。
-> 另有**一个内核侧待你定的改进点**：UINode 的 `row` 没有 `justify` ⇒ 插件做不出"组标题右上角按钮"。
+> ⑥ outline-map 重做成"导图独立窗口" ✅ **rev52** → 插件窗口三键 ＋ `close()` 机制查清 ✅ **rev53**
+> → **行首按钮能力 ＋ 入口改到"组标题左侧"** ✅ **rev54**（`editor.addLineAction`）
+> ⇒ **下一步 = 导图插件的打磨**：样式切换 · 折叠 · 撤销重做 · 窗口菜单栏（文件/编辑/AI/查看）· 视觉细化。
+> **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
+> **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
 > 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
 > 待裁决（契约 §6.1）：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
@@ -105,7 +106,11 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 - **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（这次为验移动端快捷栏装的）⇒ 改前端即时生效。
   **默认装法仍是打包版**（`tauri android build --apk`，内嵌 dist，改前端必须重打包）
 - **测试库 `_tmp-vault-tb/`**（5 篇笔记，含 `数据库绪论.md`）；`.zn/plugins` 里有 **3 个 junction**：
-  `outline-map` · `docprobe`（U3a/U3b 夹具，rev45）· `net-demo`（**拆门后它不再被拒载**，rev48 实测）。
+  `outline-map`（开发中的主力插件）· `net-demo`（**拆门后它不再被拒载**，rev48 实测）。
+  U3a/U3b 的夹具 **`docprobe` 已摘除**（2026-10-13：它常驻 ⇒ 编辑器底部一直挂着那条工具条；
+  夹具本体仍在 `examples/doc-edit-probe/`，**要用时按需挂 junction**）。
+  **纪律：验收夹具一律"按需挂"**（脚本里临时建 junction → 跑 → 删，见 `verify-*.mjs`），
+  只有**开发中的插件**才常驻测试库。
   要再测插件：把 `.zn/plugins/<id>` junction 到 `examples/<id>` 即可。
   ⚠️ **改完不一定要切库** —— 2026-10-13 实测：`☰ → 插件管理 → 重新扫描` 就能加载新插件（无需切库、无需重启；vite 不监视库目录，所以只能靠这条或切库）
 - **接管 / 还原怎么验（rev49）**：`node tools/verify-takeover.mjs` —— 自动建 junction → 走 UI 重扫 →

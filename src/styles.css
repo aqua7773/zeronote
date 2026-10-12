@@ -1356,41 +1356,44 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
-/* ───────── 编辑器行首动作按钮（`editor.addLineAction`，rev54）─────────
+/* ───────── 编辑器行首动作按钮（`editor.addLineAction`，rev54/rev55）─────────
    插件在"某一行左侧"放的小按钮：CM6 widget ⇒ **视图元素，不进文档、不占偏移**。
-   默认克制（低对比、悬停才明显），因为笔记正文才是主角。 */
+   **无痕融入**（用户 2026-10-13 要求）：不要边框、不要底色，与标题**垂直居中对齐**。
+   两个要点：
+   · 尺寸与字号都按**行字号**的 em 给（H1/H2/H3 各不同）—— 否则同一套对齐参数在不同级别的
+     标题下会一个偏上一个偏下；
+   · `vertical-align: middle` 实测比标题文字中心**低 4px**（H1：按钮 cy=50 / 文字 cy=46），
+     用 `-0.34em` 拉回；em 随行字号缩放 ⇒ 各级标题都成立。 */
 .zn-line-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-right: 6px;
-  padding: 0;
-  border: 1px solid var(--zn-border);
-  border-radius: 5px;
-  background: var(--zn-bg-subtle);
-  color: var(--zn-fg-muted);
-  font-size: 11px;
+  width: 0.8em;
+  height: 0.8em;
+  font-size: 0.52em;
   line-height: 1;
+  margin: 0 0.3em 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--zn-fg-subtle);
   cursor: pointer;
+  /* 对齐分两步（都是**量出来的**，不是猜的）：
+     ① `vertical-align: middle` 先做行内基线近似对齐（实测它比标题中心低 4px）；
+     ② 用 `transform: translateY()` 精确拉回 —— 注意 `vertical-align` 的**长度值是正值上移**，
+        `transform` 的负值才是上移，两者语义相反，混用很容易越调越偏（我先写反过一次）。 */
   vertical-align: middle;
-  opacity: 0.55;
-  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transform: translateY(-0.34em);
+  opacity: 0.65;
+  transition: opacity 0.15s ease, color 0.15s ease;
 }
 
 .zn-line-action:hover {
   opacity: 1;
   color: var(--zn-accent);
-  border-color: var(--zn-accent);
-}
-
-.zn-line-action.is-accent {
-  color: var(--zn-accent);
-  border-color: var(--zn-accent);
 }
 
 .zn-line-action.is-muted {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
