@@ -1373,6 +1373,20 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [undoDelete])
 
+  /**
+   * toast 到点自动消失（用户 2026-10-12 报：那个「已彻底删除」一直挂着不走）。
+   * 时长按长度给 —— 「已恢复」这类两秒半够读，SAF 那种长说明得留足时间；上限 8 秒。
+   * 渲染处的点击立即关闭（`onClick={() => setToast(null)}`）保留。
+   * ⚠️ setState 写在 setTimeout 的**回调**里：同步写在 effect 里会触发 lint 的
+   * `set-state-in-effect`（本项目基线恰好 4 warnings，多一条都算回归）。
+   */
+  useEffect(() => {
+    if (!toast) return
+    const ms = Math.min(8000, 2500 + toast.length * 60)
+    const t = window.setTimeout(() => setToast(null), ms)
+    return () => window.clearTimeout(t)
+  }, [toast])
+
   const onEditorChange = useCallback((next: string) => {
     setContent(next)
     setDirty(true)
