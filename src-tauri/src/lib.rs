@@ -377,6 +377,19 @@ fn write_absolute_b64(path: String, base64: String) -> Result<(), String> {
   fs::write(&p, bytes).map_err(|e| format!("写入失败（{path}）：{e}"))
 }
 
+/// 库目录是否**仍然存在**（只读，什么都不建）。
+///
+/// 用途：侧栏「切换笔记库」里的**过期记录**清理 —— 库被删掉 / 换了盘之后，
+/// 那条记录会一直留在最近列表里，点它只会得到 `list_notes` 的「库目录不存在」，
+/// 而列表里**没有任何能清掉它的入口**。前端拿这个命令先探测一遍。
+///
+/// 与 `ensure_vault` 的分工要看清楚：那个会**创建**目录，所以探测**绝不能**改调它 ——
+/// 否则"库没了"会被静默变成"库还在，只是空的"。
+#[tauri::command]
+fn vault_exists(vault: String) -> bool {
+  Path::new(&vault).is_dir()
+}
+
 /// 确保库目录（含私有目录）存在。
 /// Android 首次启动时应用私有目录里还没有 `vault`，不建的话 `list_notes` 会直接报「库目录不存在」。
 #[tauri::command]
@@ -764,6 +777,7 @@ pub fn run() {
       read_plugin_file,
       plugin_store_read,
       plugin_store_write,
+      vault_exists,
       ensure_vault,
       list_vaults,
       delete_plugin,
@@ -798,6 +812,26 @@ mod tests {
     let _ = fs::remove_dir_all(&d);
     fs::create_dir_all(&d).unwrap();
     d
+  }
+
+  /// 库存在性探测（「最近库自动清理」的判据）：真目录为真；被删掉的库、文件、空串都为假；
+  /// 而且**探测本身绝不创建目录** —— 它一旦顺手建库，"库没了"就会被静默伪装成"库还在"。
+  #[test]
+  fn vault_exists_is_read_only() {
+    let d = tmpdir("vault-exists");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    let s = |p: &Path| p.to_string_lossy().to_string();
+
+    assert!(vault_exists(s(&vault)));
+    // 探测不得创建目录（这是它不能复用 ensure_vault 的原因）
+    let ghost = d.join("ghost");
+    assert!(!vault_exists(s(&ghost)));
+    assert!(!ghost.exists(), "探测不应创建目录");
+    // 文件不是库目录
+    let file = d.join("note.md");
+    fs::write(&file, "x").unwrap();
+    assert!(!vault_exists(s(&file)));
   }
 
   /// 删除插件：正常路径删掉整个目录；越界 id 与不存在的 id 都必须报错（不能静默成功）

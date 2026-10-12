@@ -1,8 +1,7 @@
 # 项目交接
 
-revision: 30
-更新时间: 2026-10-12（下午 · ⑧ net 授权通道 + ⑩ WebView 逃生口落地；CSP 从 null 变成白名单；
-                     并修掉"重载后命令 id 重复"的双重根因）
+revision: 32
+更新时间: 2026-10-12（下午 · 缺口 3 完成：最近库**过期记录自动清理 + 提示**，只读探测不误杀）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -101,9 +100,48 @@ revision: 30
 >
 > **遗留（诚实标注）**
 > 1. **未做冷启动验证** —— 只验了 HMR 路径（重启会 kill 用户正在用的窗口）
-> 2. **最近库没有「移除」入口** —— 目录删掉后记录仍留在菜单里，点它会报「库目录不存在」。
->    ⇒ 下一批顺手补：`applyVault` 因"目录不存在"失败时，自动把该条从最近库移除并提示。
+> 2. ~~**最近库没有「移除」入口**~~ ✅ **已补（rev32）** —— 打开菜单即只读探测 + 自动剔除 + 提示；
+>    `applyVault` 另加一道门（菜单弹出后目录才被删 ⇒ 拒绝切换并剔除）。见下方 rev32。
 > 3. 测试产物 `_shots\vault-demo-b\` 已删；剪贴板曾被测试占用（现值 `C:\Users\AQUA\Desktop`，无害）。
+
+> ## 📌 rev32（同日 13:40 · 缺口 3「最近库没有移除入口」补齐）
+>
+> 用户本轮选定做交接卡里的 **#3 最近库「移除」入口**。
+>
+> **症状**（本轮开头实测复现，不是转述）：上一次会话留下的失效库
+> `_shots\vault-demo-b` 还挂在「最近打开过的库」里，底栏一直报
+> 「读取笔记库失败：笔记库可能已被移动或删除…（库目录不存在：…）」，
+> 而菜单里**没有任何能清掉这条记录的入口** —— 点它只会再把同一句错报一遍。
+>
+> **做法**（两层，都只读探测、**绝不建目录**）：
+> 1. **打开菜单时探测**：新增 Tauri 命令 `vault_exists(vault) -> bool`（`Path::is_dir()`，1 行）。
+>    `openVaultMenu` 改异步，对**非当前库**的每条记录并行探测；不存在的一律剔出菜单、
+>    同步写回 `localStorage`，并 toast「已从最近笔记库移除（想加回来用「打开其它文件夹…」）」。
+>    **当前库不探测** —— 它正在用，即便目录被删也先据实显示，由文件树的报错去说。
+> 2. **切库时的门**：`applyVault` 开头先探测，目录不存在就**拒绝切换** + 剔记录 + 提示，
+>    返回 `false`；`openExternalFile` 据此清掉「待打开」ref —— 否则那个 pending 会一直等着这个库，
+>    等用户哪天真又建出同名目录、切过去时**突然弹出一篇笔记**。
+>
+> **为什么不用 `ensure_vault` 探测**：它会 `create_dir_all`。拿它探测等于把"库没了"
+> 静默变成"库还在，只是空的" —— **只读**是这条命令的硬约束，单测专门钉住了它。
+>
+> **验收**（桌面实测 5 张截图 + 1 条新单测）
+> - `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 在列表里（当前库，底栏报错）= 缺口现场
+> - `_shots/gap3-04-menu-cleaned.png`：切走后打开菜单 ⇒ **它消失了 + toast 提示**
+> - `_shots/gap3-06-persisted.png`：`Ctrl+R` 重载 WebView 后再开菜单 ⇒ 列表依旧干净、**无 toast**
+>   ⇒ 证明是**真写掉了**，不是每次现场过滤
+> - `_shots/gap3-16-menu-zoom3.png`：临时库 `_tmp-vault-gap3` 目录仍在 ⇒ **不误杀**，正常列出
+> - `_shots/gap3-17-gate-toast-zoom.png`：菜单**已弹出后**才删掉该目录，再点它 ⇒
+>   toast「「_tmp-vault-gap3」已不存在，已从最近笔记库移除。」+ **库没切换、底栏无报错**
+>   （这条文案没有"想加回来"后缀，正好与探测路径**可区分** ⇒ 走的是 `applyVault` 的门）
+> - `cargo test --lib` **17 passed**（新增 `vault_exists_is_read_only`：真目录 true / 幽灵目录 false /
+>   **探测本身不创建目录** / 文件不算库目录）
+>
+> **基线**：`tsc -b` **0 错误** · `oxlint` **4 warnings**（= 基线）· `cargo test --lib` **17 passed**。
+> **未碰安全模型**：新命令是纯只读存在性检查 —— 不进 capability 名单、不改 CSP、不动授权记录。
+>
+> **测试残留**：临时库 `_tmp-vault-gap3/`（含 `probe.md`）验证完即已删除；
+> `_shots/gap3-*.png` 十张留在截图目录（该目录在 `.gitignore` 里，不进提交）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
@@ -159,6 +197,7 @@ revision: 30
 | **🖼 ⑩ WebView 逃生口** | `_shots/webview-06-http.png`：`WebView 示例` 面板里是**插件自己的页面**，页面自证三行 —— 「令牌 <b>32</b> 个 · 模式 <b>light</b> · 第 1 次收到」/「--zn-bg = #fff」/「我的 origin: http://192.168.1.20:8791（**与宿主不同源**）」；`webview-08-dark.png`：切深色后变「模式 **dark** · 第 **2** 次收到」+ `--zn-bg = #18181b` + **整页背景跟着变** ⇒ postMessage 令牌 + 跟随主题切换全通 · 示例 `examples/webview-demo/` | 本次 |
 | **📊 CSP 落地 + 白名单内外对照实验** | `tauri.conf.json` 的 `csp` 从 `null` → 白名单；`_shots/csp-02-katex.png`：**katex 的 CDN 加载完全不受影响**（两条公式正常排版 + 绿标「katex 0.16.11（由前置插件提供）」）；对照实验 `csp-05-whitelist.png`（`fetch('https://esm.sh/…')` → **HTTP 200 —— 通**）vs `csp-06-blocked.png`（`fetch('https://example.com/')` → **`TypeError: Failed to fetch` —— 被拦**）⇒ **CSP 真的拦网络**（结论写进契约 §4.2） | 本次 |
 | **🧬 插件资源自动登记 + 生命期串行链** | `_shots/perm-23-rescan-bottom.png`：连点 6 次「重新扫描」后 **ui-kit / tag-demo 全部已启用**（修前稳定报「命令 id 重复：ui-kit.hit」并变未启用）；`perm-22-rescan-ok.png` 为同一状态下的顶部（**无错误横幅**） | 本次 |
+| **🗂 最近库过期记录自动清理**（缺口 3） | `_shots/gap3-02-menu-before.png`：失效库 `vault-demo-b` 仍在最近列表、底栏报「库目录不存在」→ `gap3-04-menu-cleaned.png`：打开菜单即**自动剔除 + toast 提示** → `gap3-06-persisted.png`：`Ctrl+R` 重载后列表仍干净且**无 toast** ⇒ 真持久化；对照 `gap3-16-menu-zoom3.png`（目录在就不误杀）vs `gap3-17-gate-toast-zoom.png`（菜单弹出后才删目录 ⇒ `applyVault` 的门拦下：**不切库、不报错**）· `cargo test` **17 passed**（新增 `vault_exists_is_read_only`：只读、不建目录） | 本次 |
 
 ## UI / 交互改进（2026-10-11 晚）
 

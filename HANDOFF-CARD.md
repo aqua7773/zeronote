@@ -1,7 +1,11 @@
 # ZeroNote 交接卡
 
 > 生成 **2026-10-12（下午）** · 本批已提交：`3e79c94`（父提交 `fbd3a4a`）
-> 这是**一屏版**；全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev30）**。
+> 这是**一屏版**；全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev32）**。
+>
+> 🔄 **2026-10-12 更晚（rev32）**：这张卡已落后于 `HANDOFF.md` —— **CSP 落地、文件关联、
+> 桌面侧栏切库、最近库过期记录自动清理**都不在卡里。**以 `HANDOFF.md` 和
+> `git log --oneline -5` 为准**；下面两处被 ⚠️ 标出的数字已按 rev32 校正。
 >
 > ⚠️ **本卡里的 commit / 行数 / 计数会随提交过时** —— 以 `git log --oneline -5` 和实际命令输出为准。
 
@@ -29,7 +33,7 @@ cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 
 pnpm exec tsc -b            # 必须 0 错误
 pnpm exec oxlint            # 必须**恰好 4 warnings**（基线，2026-10-12 从 5 变为 4，原因见下）
-cd src-tauri; cargo test --lib   # 必须 16 passed（看 `running N tests` 的数字，别只看 ok）
+cd src-tauri; cargo test --lib   # ⚠️ 必须 17 passed（rev32 新增 vault_exists_is_read_only；看 `running N tests` 的数字，别只看 ok）
 ```
 
 > 📌 `oxlint` 为什么从 5 变 4：`setPluginError(null)` 从 effect 体里挪进了异步回调，
@@ -105,6 +109,7 @@ adb shell input swipe 93 185 93 185 120     # 点 ☰
 | C | **iframe ↔ 宿主能力通道** | 现在 WebView 只能收令牌，不能调 `ctx.*`；需先定 postMessage 协议 + 宿主鉴权 | v0.2 |
 | D | **`host.saveFile` 接 Android SAF** | 现在手机「另存为」会在磁盘留 **0 字节文件**（SAF 返回 `content://`，`std::fs` 处理不了）；不涉安全，但要重打 APK | 未动 |
 | E | **`[[x]]` 接管协商** | atomic 的 wikilink 装饰优先级高于 `editor.addMark`，想接管得跟它协商（HANDOFF 坑⑦） | 未动 |
+| F | ~~最近库「移除」入口~~ | ✅ **本轮已完成（rev32）** —— 打开菜单即只读探测、自动剔除过期记录 + 提示；`applyVault` 另加一道门（菜单弹出后目录才被删 ⇒ 拒绝切换并剔除）。未碰安全模型 | 已完成 |
 
 > 另：**授权记录不绑定插件指纹** —— 插件升一版后旧授权仍有效（契约 §7.6 的未决项），要做指纹得先问用户。
 

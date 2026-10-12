@@ -90,6 +90,29 @@ function loadRecentVaults(): string[] {
   }
 }
 
+/** 写回「最近打开过的库」（配额不足 / 隐私模式下写不进也不影响调用方） */
+function persistRecentVaults(list: string[]): void {
+  try {
+    localStorage.setItem(LS_RECENT_VAULTS, JSON.stringify(list))
+  } catch {
+    /* 存不下就算了 —— 本次照常展示，只是重启后可能回到旧值 */
+  }
+}
+
+/**
+ * 库目录是否**仍然存在**（Rust 侧只读探测，什么都不建）。
+ *
+ * 失败时保守返回 `true`：宁可留着一条过期记录，也不要误删用户的库记录
+ * —— 老内核没有这条命令、浏览器预览里也没有。
+ */
+async function vaultExists(dir: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>('vault_exists', { vault: dir })
+  } catch {
+    return true
+  }
+}
+
 function loadRecentCommands(): string[] {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_CMDS) ?? '[]')
@@ -684,30 +707,55 @@ export default function App() {
     setError(null)
   }, [])
 
-  /** 真正切库：未保存内容先落盘 → 记住 → 重置视图 → 换库。桌面与移动端共用 */
-  const applyVault = useCallback(async (dir: string) => {
-    if (dirtyRef.current) await saveNowRef.current()
-    localStorage.setItem(LS_VAULT, dir)
-    // 记入「最近打开过的库」：最近在前、按归一化路径去重、上限 8 条。
-    // 只在此处写 —— 切库成功的唯一定义点（桌面目录选择器 / 侧栏库切换 / 移动端面板都走它）。
+  /**
+   * 把一个库从「最近打开过的库」里剔掉（含持久化）。
+   *
+   * 场景：库目录已经被删除 / 换了盘 —— 此前这条记录会一直留在菜单里，
+   * 点它只会得到「库目录不存在」，而用户**没有任何清掉它的入口**。
+   */
+  const forgetVault = useCallback((dir: string) => {
     setRecentVaults((prev) => {
-      const next = [dir, ...prev.filter((p) => vaultKey(p) !== vaultKey(dir))].slice(
-        0,
-        RECENT_VAULTS_MAX,
-      )
-      try {
-        localStorage.setItem(LS_RECENT_VAULTS, JSON.stringify(next))
-      } catch {
-        /* 配额不足或隐私模式失败不影响切库本身 */
-      }
+      const next = prev.filter((p) => vaultKey(p) !== vaultKey(dir))
+      if (next.length === prev.length) return prev
+      persistRecentVaults(next)
       return next
     })
-    setActivePath(null)
-    setContent('')
-    setDirty(false)
-    setSaveState('idle')
-    setVault(dir)
   }, [])
+
+  /**
+   * 真正切库：未保存内容先落盘 → 记住 → 重置视图 → 换库。桌面与移动端共用。
+   *
+   * 返回**是否真的切了**：目录不存在时（被删 / 换盘没挂上）拒绝切换，并剔掉那条记录 ——
+   * 切过去只会让文件树报「库目录不存在」，还把一条死记录继续留在最近列表里。
+   */
+  const applyVault = useCallback(
+    async (dir: string): Promise<boolean> => {
+      if (!(await vaultExists(dir))) {
+        forgetVault(dir)
+        setToast(`「${baseName(dir)}」已不存在，已从最近笔记库移除。`)
+        return false
+      }
+      if (dirtyRef.current) await saveNowRef.current()
+      localStorage.setItem(LS_VAULT, dir)
+      // 记入「最近打开过的库」：最近在前、按归一化路径去重、上限 8 条。
+      // 只在此处写 —— 切库成功的唯一定义点（桌面目录选择器 / 侧栏库切换 / 移动端面板都走它）。
+      setRecentVaults((prev) => {
+        const next = [dir, ...prev.filter((p) => vaultKey(p) !== vaultKey(dir))].slice(
+          0,
+          RECENT_VAULTS_MAX,
+        )
+        persistRecentVaults(next)
+        return next
+      })
+      setActivePath(null)
+      setContent('')
+      setDirty(false)
+      setSaveState('idle')
+      setVault(dir)
+      return true
+    },
+    [forgetVault],
+  )
 
   /**
    * 「打开一个外部文件」—— 三条入口共用：Windows 的命令行参数 / 单实例转发、
@@ -746,7 +794,9 @@ export default function App() {
       const { dir, name } = splitPath(path)
       if (!dir || !name) return
       pendingOpenRef.current = { vault: dir, name }
-      await applyVault(dir)
+      // 目录不存在时 `applyVault` 会拒绝切库（并说明原因）—— 那就别把「待打开」留在 ref 里：
+      // 它会一直等着那个库，等用户哪天又建出同名目录、切过去时突然弹出一篇笔记。
+      if (!(await applyVault(dir))) pendingOpenRef.current = null
     },
     [applyVault],
   )
@@ -848,21 +898,40 @@ export default function App() {
    * 桌面端此前切库只有系统目录选择器一条路：想切回上个库得在文件对话框里一路点过去。
    * 这里把**打开过的库**列出来，点一下即切；切换动作仍走 `applyVault`
    * （ensure_vault、笔记刷新、localStorage 一套逻辑不重写）。
+   *
+   * **过期记录自动清理**：目录已被删除（或盘没挂上）的库不再列出来，并当场提示一句 ——
+   * 此前它们留在列表里，点一下只会报「库目录不存在」，用户没有别的办法清掉。
+   * 探测走只读的 `vault_exists`，**不会把库目录建出来**；当前库不探测、照常显示。
    */
-  const openVaultMenu = (clientX: number, clientY: number) => {
+  const openVaultMenu = async (clientX: number, clientY: number) => {
     // 当前库可能还没进「最近」（首次选中、或被清过 localStorage）—— 展示时补在最前。
     // 只补展示，**不写回**持久化：写入点只有 applyVault 一处。
     const shown =
       vault && !recentVaults.some((p) => vaultKey(p) === vaultKey(vault))
         ? [vault, ...recentVaults].slice(0, RECENT_VAULTS_MAX)
         : recentVaults.slice(0, RECENT_VAULTS_MAX)
+    // 并行探测（8 条 × 微秒级 is_dir，串行是白等）。当前库跳过：它正在用，
+    // 即便目录被删也先据实显示，由文件树的报错去说 —— 这里只管"最近列表里的死记录"。
+    const alive = await Promise.all(
+      shown.map((dir) =>
+        vault !== null && vaultKey(dir) === vaultKey(vault) ? true : vaultExists(dir),
+      ),
+    )
+    const gone = shown.filter((_, i) => !alive[i])
+    const live = shown.filter((_, i) => alive[i])
+    if (gone.length > 0) {
+      for (const dir of gone) forgetVault(dir)
+      setToast(
+        `「${gone.map(baseName).join('、')}」已不存在，已从最近笔记库移除（想加回来用「打开其它文件夹…」）。`,
+      )
+    }
     // 不同目录下的同名库（两个 Desktop）光看名字分不开，补一格父目录名
     const nameCount = new Map<string, number>()
-    for (const dir of shown) {
+    for (const dir of live) {
       const n = baseName(dir)
       nameCount.set(n, (nameCount.get(n) ?? 0) + 1)
     }
-    const items: MenuItem[] = shown.map((dir) => {
+    const items: MenuItem[] = live.map((dir) => {
       const name = baseName(dir)
       const isCurrent = vault !== null && vaultKey(dir) === vaultKey(vault)
       const parts = dir.split(/[\\/]/).filter(Boolean)
@@ -1610,7 +1679,7 @@ export default function App() {
       // 侧栏底部的库名按钮是主入口；这条让右键侧栏空白区也能到同一个菜单
       items.push({
         label: '切换笔记库…',
-        onClick: () => openVaultMenu(clientX, clientY),
+        onClick: () => void openVaultMenu(clientX, clientY),
       })
     }
 
@@ -1744,7 +1813,7 @@ export default function App() {
           aria-haspopup="menu"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect()
-            openVaultMenu(r.left, r.top)
+            void openVaultMenu(r.left, r.top)
           }}
         >
           {vault ? baseName(vault) : '未选择笔记库'}
