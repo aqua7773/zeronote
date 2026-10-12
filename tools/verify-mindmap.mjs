@@ -379,6 +379,43 @@ async function main() {
     const addedLine = afterAdd.split(/\r?\n/).find((l) => l.includes('新主题')) ?? '(没有)'
     check('⑤ addChild 写回磁盘（多出一行「- 新主题」）', afterAdd.includes('新主题') && !before.includes('新主题'), j(addedLine))
 
+    /* ⑮ rev61：导图写回 ⇒ **主窗口编辑器不用关开就跟上**（用户 2026-10-13 报的"得关了再开"） */
+    const editorAfterMap = await cdp.js(`document.querySelector('.cm-content')?.innerText ?? ''`)
+    check(
+      '⑮ 导图写回后主窗口编辑器自动跟上（无需关开笔记）',
+      editorAfterMap.includes('新主题'),
+      j(editorAfterMap.replace(/\n/g, '⏎').slice(0, 160)),
+    )
+
+    /* ⑯ 不经导图、直接改盘（脚本/别的编辑器）也跟上 */
+    writeFileSync(NOTE, `${disk()}\n- 外部新增\n`)
+    await sleep(2500)
+    const editorAfterDisk = await cdp.js(`document.querySelector('.cm-content')?.innerText ?? ''`)
+    const reloadLog = await cdp.js(`window.__znReloadLog ?? null`)
+    check(
+      '⑯ 外部直接改盘 ⇒ 编辑器也自动跟上（不限于导图那条路）',
+      editorAfterDisk.includes('外部新增'),
+      j({ tail: editorAfterDisk.replace(/\n/g, '⏎').slice(-120), reloadLog }),
+    )
+
+    /* ⑰ 编辑器右键菜单里有手动出口「从磁盘重新加载」 */
+    await rightClick(cdp, 600, 420)
+    await sleep(400)
+    const editorMenu = await cdp.js(`(() => {
+      const labels = [...document.querySelectorAll('button, li, div')]
+        .map((e) => (e.textContent || '').trim())
+        .filter((t) => t === '从磁盘重新加载' || t === '复制笔记路径' || t === '关闭当前笔记')
+      return [...new Set(labels)]
+    })()`)
+    check(
+      '⑰ 编辑器右键菜单有「从磁盘重新加载」（有手改时的手动出口）',
+      editorMenu.includes('从磁盘重新加载'),
+      j(editorMenu),
+    )
+    await mouse(cdp, 'mousePressed', 30, 700, { buttons: 1 })
+    await mouse(cdp, 'mouseReleased', 30, 700, { buttons: 0 })
+    await sleep(200)
+
     /* ⑥ 画布**空白处右键** ⇒ 我们的全局菜单 ⇒ 点「撤销」⇒ 磁盘（真实路径：菜单项里调 undo + flush） */
     await rightClick(win.cdp, 420, 330)
     const menuState = await win.cdp.js(`(() => {

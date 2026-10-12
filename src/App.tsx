@@ -512,6 +512,13 @@ export default function App() {
   const recentOpenRef = useRef<Map<string, number>>(new Map())
   /** `openExternalFile` 的稳定引用 —— 挂载时的监听只注册一次，不随库重建 */
   const openExternalFileRef = useRef<(raw: string) => Promise<void>>(async () => {})
+  /**
+   * 「外部重载」标记：磁盘内容变了（导图 / 插件写盘、用户点「从磁盘重新加载」）⇒
+   * 我们主动整篇替换编辑器文档。那次替换会**同步**触发一次 `onEditorChange`
+   * （编辑器把外部 value 当成变化报上来），于是那边看到这个标记就直接返回 ——
+   * 不拦的话会白设一次 dirty、800ms 后再把同样的内容写回磁盘（幂等，但状态栏会闪"未保存/已保存"）。
+   */
+  const externalReloadRef = useRef(false)
 
   useEffect(() => {
     contentRef.current = content
@@ -828,12 +835,69 @@ export default function App() {
     }
   }, [kernel])
 
+  /**
+   * 从磁盘重新加载当前笔记 —— **"实时跟上"的那一半**。
+   *
+   * 背景（用户 2026-10-13 报）：导图/插件是直接 `fs.writeText` 写盘的，而编辑器持有的是
+   * **内存里的文档** ⇒「导图改了、笔记里还是旧的，得关掉再开」。这里补上回灌：
+   * 磁盘变了就重读、整篇替换（`MarkdownEditor` 的 `value` 同步 effect 会落到 CM6）。
+   *
+   * 两道保护：
+   *  · `text === contentRef.current`（内容没变 —— 包含"自己刚保存完触发的 watch"）⇒ 什么都不做；
+   *  · **自动路径**只在编辑器没有未保存修改时才调（`fs.watch` 那段）；
+   *    有手改就不覆盖，留给用户走右键「从磁盘重新加载」。
+   */
+  const reloadActiveFromDisk = useCallback(async () => {
+    const k = kernel
+    const path = activeRef.current
+    /**
+     * 诊断出口（CDP / 排查"为什么不刷新"）：最近 12 次尝试与结果。
+     * 起因：「磁盘变了但界面没动」这种静默失效只能靠读数定位 —— 是 watch 没来、
+     * 内容被判成一样、还是读了盘失败，三种原因从界面上一模一样。
+     */
+    const trace = (why: string) => {
+      const w = window as unknown as { __znReloadLog?: unknown[] }
+      const log = (w.__znReloadLog ??= [])
+      log.push({ at: new Date().toISOString().slice(11, 23), why, path })
+      if (log.length > 12) log.shift()
+    }
+    if (!k || !path) return false
+    let text: string
+    try {
+      text = await k.fs.readText(path)
+    } catch {
+      trace('read-fail')
+      return false // 文件被删/读不了：**不动编辑器**（免得把用户的文档清空）
+    }
+    if (text === contentRef.current) {
+      trace('same')
+      return false
+    }
+    trace('reloaded')
+    externalReloadRef.current = true // 接下来那次 onChange 是本次替换的副产物，不算用户编辑
+    setContent(text)
+    setDirty(false)
+    setSaveState('idle')
+    setError(null)
+    // 广播 open：插件（大纲 / 导图）跟着重读，否则它们手里还是旧内容
+    fireDoc('open', path, text, false)
+    return true
+  }, [kernel, fireDoc])
+
   useEffect(() => {
     if (!kernel) return
     void refresh()
-    const sub = kernel.fs.watch(() => void refresh())
+    const sub = kernel.fs.watch(() => {
+      void refresh()
+      /**
+       * 磁盘变了 ⇒ 当前笔记**没有未保存手改**时自动跟上。
+       * 这正是"导图窗口写回 → 笔记立刻可见"的主路径（rev61）。
+       * 有手改时**刻意不覆盖** —— 用户正在打字，手写优先（方向由用户 2026-10-13 定）。
+       */
+      if (!dirtyRef.current) void reloadActiveFromDisk()
+    })
     return () => sub.dispose()
-  }, [kernel, refresh])
+  }, [kernel, refresh, reloadActiveFromDisk])
 
   /* ── 保存：原子写，失败绝不显示「已保存」── */
   const saveNow = useCallback(async () => {
@@ -1620,6 +1684,12 @@ export default function App() {
 
   const onEditorChange = useCallback(
     (next: string) => {
+      // 外部重载引起的那一次回调：文档已经被我们替换过了，不算用户编辑
+      // （见 `externalReloadRef` 的注释 —— 不拦就会白闪一次"未保存"、再把同样内容写一遍）
+      if (externalReloadRef.current) {
+        externalReloadRef.current = false
+        return
+      }
       setContent(next)
       setDirty(true)
       setSaveState('idle')
@@ -2278,6 +2348,19 @@ export default function App() {
           // 编辑器项不存在时它就是第一项，不该再画分隔线（首项不画由 ContextMenu 兜着）
           divider: Boolean(view),
           onClick: () => void navigator.clipboard.writeText(activePath).catch(() => {}),
+        },
+        {
+          /**
+           * 磁盘被外部改过（导图写回、别的编辑器、脚本）而编辑器里还是旧内容时的手动出口。
+           * 自动路径见 `fs.watch` 那段：**没有未保存修改**时会自己跟上；
+           * 这里是"有手改、但我就想丢掉、以磁盘为准"的那一条路。
+           */
+          label: '从磁盘重新加载',
+          onClick: () => {
+            void reloadActiveFromDisk().then((changed) => {
+              setToast(changed ? '已从磁盘重新加载' : '磁盘内容与编辑器一致，无需重载')
+            })
+          },
         },
         { label: '关闭当前笔记', hint: 'Ctrl+W', onClick: () => void closeNote() },
       )
