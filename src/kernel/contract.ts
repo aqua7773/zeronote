@@ -327,7 +327,10 @@ export interface ViewApi {
    * `d.tokens` 是宿主当前生效的**全部 `--zn-*` 设计令牌**；**主题一变化就自动重发**，
    * 所以画布能跟着深浅色与主题切换走。
    *
-   * `url` 接受 `http(s):` / `data:` / `blob:` / `asset:`（库内文件先过 `host.assetUrl`）。
+   * `url` **必须**是独立 origin 的 `http(s):` 页面。
+   * 本地 scheme（`data:` / `blob:` / `srcdoc`）会**继承宿主 CSP**，而 Tauri 编译时注入的 `sha256`
+   * 会让 `'unsafe-inline'` 失效 ⇒ 页面里的内联脚本一律被拦（真机 logcat 实测，见契约 §2.2 ④）；
+   * Tauri 的 asset 协议在 Android 上也不服务 `.html`（`net::ERR_INVALID_RESPONSE`）。
    */
   registerWebView(spec: {
     id: string
