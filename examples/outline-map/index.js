@@ -123,17 +123,23 @@ function flatten(root) {
 
 /* ───────────────── ② 布局 + SVG ───────────────── */
 
-const FS = 13 // 字号
+const FS = 13 // 正文字号
+const FS_ROOT = 15 // 根节点字号 —— 参考图里根是明显更大的一块
 const NODE_H = 28
+const NODE_H_ROOT = 40
 const PAD_X = 10
-const GAP_X = 46 // 层间距
-const GAP_Y = 8 // 同层相邻节点的缝
+const GAP_X = 52 // 层间距
+const GAP_Y = 10 // 同层相邻节点的缝
 const MIN_W = 56
+/** 节点高/字号按层级：根最大、一级次之、其余统一（对齐参考图的"根实心大块 / 一级灰块 / 其余白框"） */
+const hOf = (d) => (d === 0 ? NODE_H_ROOT : NODE_H)
+const fsOf = (d) => (d === 0 ? FS_ROOT : FS)
 
 /** 全角/宽字符按 1 个字号宽估、其余按 0.56 —— 只为排版，不追求像素级精确 */
 const WIDE_RE =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/
-const textWidth = (s) => [...String(s)].reduce((w, ch) => w + (WIDE_RE.test(ch) ? 1 : 0.56), 0) * FS
+const textWidth = (s, fs = FS) =>
+  [...String(s)].reduce((w, ch) => w + (WIDE_RE.test(ch) ? 1 : 0.56), 0) * fs
 
 /**
  * 经典横向树布局：
@@ -152,7 +158,11 @@ function layout(root) {
   }
   walkLevels(root, 0)
 
-  for (const n of nodes) n.w = Math.max(MIN_W, Math.round(textWidth(n.text)) + PAD_X * 2)
+  for (const n of nodes) {
+    const w = Math.round(textWidth(n.text, fsOf(n.depth))) + PAD_X * 2
+    // 根节点再宽一点，让那块"大色块"看起来是有意为之
+    n.w = Math.max(MIN_W, n.depth === 0 ? w + 14 : w)
+  }
   const levelW = levels.map((ns) => Math.max(...ns.map((n) => n.w)))
   const levelX = []
   let acc = 0
@@ -161,10 +171,11 @@ function layout(root) {
     acc += w + GAP_X
   })
 
+  const SLOT = NODE_H_ROOT + GAP_Y // 槽位按最大节点高算，行距才均匀
   let slot = 0
   const place = (n) => {
     if (!n.children.length) {
-      n.y = slot * (NODE_H + GAP_Y) + NODE_H / 2
+      n.y = slot * SLOT + SLOT / 2
       slot += 1
     } else {
       n.children.forEach(place)
@@ -177,7 +188,7 @@ function layout(root) {
   return {
     nodes,
     width: Math.max(MIN_W, acc - GAP_X),
-    height: Math.max(NODE_H, slot * (NODE_H + GAP_Y) - GAP_Y),
+    height: Math.max(NODE_H_ROOT, slot * SLOT - GAP_Y),
   }
 }
 
@@ -193,14 +204,20 @@ function toSvg(root) {
   const H = Math.round(height)
   const out = []
 
-  // 颜色全部走宿主变量 ⇒ 亮/暗主题自动跟随；类名统一 om- 前缀避免污染
+  // 颜色全部走宿主变量 ⇒ 亮/暗主题自动跟随；类名统一 om- 前缀避免污染。
+  // 三层配色 = 参考图那套：根实心大块 / 一级实心灰块 / 其余描边块
   out.push(
     `<style>.om-svg{font-family:var(--zn-font);display:block}` +
       `.om-link{fill:none;stroke:var(--zn-border);stroke-width:1.4}` +
-      `.om-box{fill:var(--zn-bg-subtle);stroke:var(--zn-border)}` +
-      `.om-root>.om-box{fill:var(--zn-accent);stroke:var(--zn-accent)}` +
+      `.om-box{fill:var(--zn-bg);stroke:var(--zn-border)}` +
+      `.om-d1>.om-box{fill:var(--zn-bg-active);stroke:var(--zn-bg-active)}` +
+      `.om-d0>.om-box{fill:var(--zn-accent);stroke:var(--zn-accent)}` +
       `.om-t{font-size:${FS}px;fill:var(--zn-fg)}` +
-      `.om-root>.om-t{fill:#fff;font-weight:600}</style>`,
+      `.om-d1>.om-t{font-weight:500}` +
+      `.om-d0>.om-t{font-size:${FS_ROOT}px;fill:#fff;font-weight:600}` +
+      // 悬停高亮：纯 CSS，零脚本（html 节点里跑不了 script）
+      `.om-svg g:hover>.om-box{stroke:var(--zn-accent);stroke-width:1.8}` +
+      `.om-box{transition:stroke 120ms ease,stroke-width 120ms ease}</style>`,
   )
   out.push(
     `<svg class="om-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" ` +
@@ -217,14 +234,15 @@ function toSvg(root) {
     }
   }
   for (const n of nodes) {
-    out.push(`<g class="${n.depth === 0 ? 'om-root' : ''}">`)
+    const h = hOf(n.depth)
+    out.push(`<g class="om-d${n.depth}">`)
     out.push(
-      `<rect class="om-box" x="${n.x}" y="${(n.y - NODE_H / 2).toFixed(1)}" ` +
-        `width="${n.w}" height="${NODE_H}" rx="6"/>`,
+      `<rect class="om-box" x="${n.x}" y="${(n.y - h / 2).toFixed(1)}" ` +
+        `width="${n.w}" height="${h}" rx="7"/>`,
     )
     out.push(
       `<text class="om-t" x="${(n.x + n.w / 2).toFixed(1)}" ` +
-        `y="${(n.y + FS * 0.35).toFixed(1)}" text-anchor="middle">${esc(n.text)}</text>`,
+        `y="${(n.y + fsOf(n.depth) * 0.35).toFixed(1)}" text-anchor="middle">${esc(n.text)}</text>`,
     )
     out.push('</g>')
   }
@@ -323,8 +341,8 @@ export default {
           key: `o${i}`,
           node: {
             type: 'text',
-            // 全角空格缩进 = 层级；list 没有缩进字段
-            value: `${INDENT.repeat(r.depth)}${r.text}`,
+            // 全角空格缩进 = 层级；list 没有缩进字段。圆点对齐参考图那种大纲观感
+            value: `${INDENT.repeat(r.depth)}• ${r.text}`,
             variant: r.depth === 0 ? 'body' : 'caption',
           },
         })),
@@ -362,10 +380,12 @@ export default {
           {
             type: 'tabs',
             bind: BIND_VIEW,
+            // 切换入口（对齐参考图那两处红框）：图标 + 文字的切换条。
+            // UINode 的 row 没有 justify，做不到"贴到右上角"，所以用 tabs 这条更清楚的入口。
             tabs: [
               {
                 key: 'both',
-                label: '并排',
+                label: '◫ 并排',
                 node: {
                   type: 'row',
                   gap: 'lg',
@@ -373,8 +393,8 @@ export default {
                   children: [outlineNode, mapNode],
                 },
               },
-              { key: 'outline', label: '大纲', node: outlineNode },
-              { key: 'map', label: '导图', node: mapNode },
+              { key: 'outline', label: '☰ 大纲', node: outlineNode },
+              { key: 'map', label: '❖ 导图', node: mapNode },
             ],
           },
         ],

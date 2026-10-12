@@ -110,10 +110,10 @@ class Cdp {
 /* ───────── 页面侧的小助手（拼进 evaluate 的表达式里） ───────── */
 
 /**
- * 找元素。`text:xxx` ⇒ 先找文本完全相等的可见元素，退而求其次找包含它的。
- * 注意：**只返回坐标与文本**（DOM 节点没法通过 returnByValue 传回来）。
+ * 找元素并操作它 —— **找与用必须写在同一段 JS 里**（DOM 节点不能通过 returnByValue 传回来）。
+ * 这段会被 evaluate 执行，返回值必须是可序列化的普通对象。
  */
-const FIND_JS = (target) => `
+const ACT_JS = (target, action) => `
 (() => {
   const t = ${JSON.stringify(target)};
   const visible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -123,14 +123,18 @@ const FIND_JS = (target) => `
     const sel = 'button,[role="tab"],[role="menuitem"],a,li,label,td,th,h1,h2,h3,span,div';
     const cands = [...document.querySelectorAll(sel)].filter(visible);
     el = cands.find((n) => (n.textContent || '').trim() === want)
-      ?? cands.find((n) => (n.textContent || '').includes(want));
+      // 包含匹配时取**文本最短**的那个（= 最具体）。否则 'text:导图' 会命中
+      // 整个页面的根容器 —— 它的 innerText 里什么都含（踩过）
+      ?? cands
+        .filter((n) => (n.textContent || '').includes(want))
+        .sort((a, b) => (a.textContent || '').length - (b.textContent || '').length)[0];
   } else {
     el = document.querySelector(t);
   }
   if (!el) throw new Error('找不到元素：' + t);
   el.scrollIntoView({ block: 'center', inline: 'center' });
   const r = el.getBoundingClientRect();
-  if (!r.width && !r.height) throw new Error('元素不可见：' + t);
+  ${action}
   return {
     x: Math.round(r.left + r.width / 2),
     y: Math.round(r.top + r.height / 2),
@@ -139,34 +143,47 @@ const FIND_JS = (target) => `
   };
 })()`
 
-/* ───────── 命令 ───────── */
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-/** 页面内的真实鼠标事件 —— React 与任何组件库都认，且**不动系统光标** */
+/**
+ * 点击。**走 DOM 的 `el.click()`**，不派发坐标鼠标事件 —— 原因：
+ * 像标题栏那种"悬停才实心"的按钮，坐标点击要先 hover 再按，时序很脆；
+ * 而 `el.click()` 直接触发元素上的 click（React 17+ 委托到 root，照样认），
+ * 与 hover 状态、窗口位置、遮挡都无关。
+ * 需要真实鼠标序列（拖拽、悬停菜单）时用 `rclick` / `hover`。
+ */
 async function click(cdp, target) {
-  const hit = await cdp.js(FIND_JS(target))
-  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
-    await cdp.send('Input.dispatchMouseEvent', {
-      type,
-      x: hit.x,
-      y: hit.y,
-      button: 'left',
-      clickCount: 1,
-      buttons: type === 'mousePressed' ? 1 : 0,
-    })
-  }
+  const hit = await cdp.js(ACT_JS(target, 'el.click();'))
   console.log(`click  <${hit.tag}> ${hit.text}  @${hit.x},${hit.y}`)
 }
 
+/** 真实鼠标序列（先移动再按，能触发 hover 类交互） */
+async function rclick(cdp, target) {
+  const hit = await cdp.js(ACT_JS(target, ''))
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y })
+  await sleep(150)
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: hit.x, y: hit.y, button: 'left', clickCount: 1, buttons: 1,
+  })
+  await sleep(60)
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: hit.x, y: hit.y, button: 'left', clickCount: 1, buttons: 0,
+  })
+  console.log(`rclick <${hit.tag}> ${hit.text}  @${hit.x},${hit.y}`)
+}
+
+/** 把鼠标移到元素上（触发 hover 态，不点） */
+async function hover(cdp, target) {
+  const hit = await cdp.js(ACT_JS(target, ''))
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y })
+  console.log(`hover  <${hit.tag}> ${hit.text}  @${hit.x},${hit.y}`)
+}
+
 async function typeText(cdp, target, value) {
-  const hit = await cdp.js(FIND_JS(target))
-  await cdp.js(`(() => { const el = document.querySelector(${JSON.stringify(target)}) ||
-    [...document.querySelectorAll('input,textarea')].find(e => (e.offsetWidth||e.offsetHeight));
-    if (el) el.focus(); return !!el; })()`)
+  const hit = await cdp.js(ACT_JS(target, 'el.focus(); if (el.select) el.select();'))
   // insertText 走浏览器输入管线 ⇒ 中文不会被输入法吃掉（合成按键就没这待遇）
   await cdp.send('Input.insertText', { text: value })
-  console.log(`type   ${value}  → ${hit.text || hit.tag}`)
+  console.log(`type   "${value}"  → <${hit.tag}> ${hit.text}`)
 }
 
 async function key(cdp, name) {
@@ -193,7 +210,7 @@ async function waitFor(cdp, target, timeoutMs = 6000) {
   const t0 = Date.now()
   for (;;) {
     try {
-      const hit = await cdp.js(FIND_JS(target))
+      const hit = await cdp.js(ACT_JS(target, ''))
       console.log(`ready  ${hit.text || hit.tag}`)
       return hit
     } catch (e) {
@@ -253,6 +270,12 @@ async function main() {
         break
       case 'click':
         await click(cdp, argv[i++])
+        break
+      case 'rclick':
+        await rclick(cdp, argv[i++])
+        break
+      case 'hover':
+        await hover(cdp, argv[i++])
         break
       case 'type':
         await typeText(cdp, argv[i++], argv[i++])
