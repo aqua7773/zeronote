@@ -99,7 +99,10 @@ adb shell input swipe 93 185 93 185 120     # 点 ☰
    会让 `'unsafe-inline'` 失效。**要给插件页面跑脚本，页面必须来自独立 origin（`http(s):`）。**
 2. **Tauri asset 协议在 Android 上不服务 `.html`**（`ERR_INVALID_RESPONSE`），图片可以。
 3. **加 CSP 之后「裸 fetch」真的被 `connect-src` 拦住了**：白名单内 `fetch esm.sh` → HTTP 200；
-   白名单外 `fetch example.com` → `TypeError: Failed to fetch`。**这条边界比 `permissions.json` 硬得多。**
+   白名单外 `fetch example.com` → `TypeError: Failed to fetch`。~~**这条边界比 `permissions.json` 硬得多。**~~
+   ⚠️ **2026-10-12 12:30 已失效**：`connect-src` 被用户裁决**放宽**成 `https: http: ws: wss:` ⇒
+   CSP 不再逐域名管出口。现在插件联网的第一道墙是 **CORS**（由目标服务决定），
+   第二道是 ⑧ 的**加载期**授权（未授权则拒载）—— **运行期拦截为零**（没声明 `net` 的插件照样能 fetch）。
 4. **真机点击用 `input swipe x y x y 120`**（`input tap` 在 WebView 里不生效）。
 
 ---
@@ -109,9 +112,9 @@ adb shell input swipe 93 185 93 185 120     # 点 ☰
 | # | 议题 | 为什么值得做 | 状态 |
 |---|---|---|---|
 | ~~A~~ | ~~**`platforms` 声明强制**~~ | ✅ **已完成（rev33）** —— 三档语义（`["desktop"]` / `["android"]` / 双端）+ 两道门（`loadPlugin` + 加载循环提前判，覆盖懒激活）+ 不匹配只在插件页标「不适用」不报错 + 拼错取值直接拒载报错。示例 `examples/platform-locked/` | 已完成 |
-| B | **沙箱（Worker + 内存/时长上限）** | 唯一能防 `while(true)`、也是唯一能把 capability 变成真隔离的 | v0.2 |
+| B | **沙箱（Worker + 内存/时长上限）** | 唯一能防 `while(true)`、也是唯一能把 capability 变成真隔离的 | ⛔ **2026-10-12 用户裁决：搁置**（插件目前都是自己写的；将来要做插件分发再评估） |
 | C | **iframe ↔ 宿主能力通道** | 现在 WebView 只能收令牌，不能调 `ctx.*`；需先定 postMessage 协议 + 宿主鉴权 | v0.2 |
-| D | **`host.saveFile` 接 Android SAF** | 现在手机「另存为」会在磁盘留 **0 字节文件**（SAF 返回 `content://`，`std::fs` 处理不了）；不涉安全，但要重打 APK | 未动 |
+| D | **`host.saveFile` 接 Android SAF** | 手机「另存为」会留 **0 字节文件**（SAF 返回 `content://`，`std::fs` 处理不了） | ⛔ **用户已声明不走手机方向**（2026-10-12） |
 | E | **`[[x]]` 接管协商** | atomic 的 wikilink 装饰优先级高于 `editor.addMark`，想接管得跟它协商（HANDOFF 坑⑦） | 未动 |
 | F | ~~最近库「移除」入口~~ | ✅ **本轮已完成（rev32）** —— 打开菜单即只读探测、自动剔除过期记录 + 提示；`applyVault` 另加一道门（菜单弹出后目录才被删 ⇒ 拒绝切换并剔除）。未碰安全模型 | 已完成 |
 
@@ -123,7 +126,7 @@ adb shell input swipe 93 185 93 185 120     # 点 ☰
 
 | 想知道 | 读 |
 |---|---|
-| **全部细节 / 证据截图 / 踩坑** | `HANDOFF.md`（rev30） |
+| **全部细节 / 证据截图 / 踩坑** | `HANDOFF.md`（**以头部 revision 为准**，当前 rev33） |
 | **内核 10 个原语的准确签名 + 契约边界** | `docs/内核契约-v0.1.md`（§4 是 capability 与「诚实边界」） |
 | **规格 §2.1–2.8 逐条「能做 / 不能做 / 缺什么」** | `docs/能力对照-规格2.1-2.8.md` |
 | **18 个示例插件怎么用** | `examples/`（每个文件头都有注释表格；真机装了 13 个） |
