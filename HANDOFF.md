@@ -1485,6 +1485,29 @@ revision: 45
 >   **以后在这台机器上构建 Android 都要带 `$env:CARGO_HOME` 指向它**。
 >
 > **四、基线**：`tsc -b` 0 · `oxlint src` 恰好 4（本轮只改了自带插件的 gradle 配置，未动内核源码）。
+
+> ## 📌 rev64（2026-10-13 · 「库放公共存储」的前置条件：**必须手动授予「所有文件访问」**）
+>
+> **用户报错**（release APK 装到**另一台**手机、库选在 `/storage/emulated/0/Documents/ZeroNote`）：
+> `读取插件文件失败 …/.zn/plugins/outline-map/manifest.json: Permission denied (os error 13)`
+>
+> **根因**：`src-tauri/gen/android/app/src/main/AndroidManifest.xml` 里**早就声明**了
+> `MANAGE_EXTERNAL_STORAGE`（"方案 D：把笔记库放公共存储"的注释就在旁边），但这是
+> **Android 的特殊权限，系统不会弹窗申请**，必须用户手动去设置里开。
+>
+> **实证**（本机 adb，连着的这台）：
+> · `com.aqua.zeronote.debug` → `MANAGE_EXTERNAL_STORAGE: allow`（**11 小时前**授的 —— 开发期用
+>   `adb shell appops set … allow`，所以**从没走过手动授权这条路**，也就没人发现说明里缺了它）
+> · `com.aqua.zeronote`（release）→ **没装在这台上**（用户装在另一台）⇒ 新包必然没授 ⇒ 与报错吻合。
+>
+> **教训（写进规范）**：凡是"让用户把文件放到公共存储"的方案，**必须把"去设置里开所有文件访问"
+> 写进安装说明** —— rev63 的 `安装说明.txt` 只写了"建议选公共存储"，漏了这一步。
+>
+> **用户侧修法（30 秒）**：设置 → 应用 → ZeroNote → 权限 → **所有文件访问 → 允许** → 回 App 重新扫描插件。
+>
+> **内核侧待改进（需重新出包）**：**启动时检测该权限**，未授权就明确提示 + 一键跳系统设置页。
+> 现在的表现只是"读插件失败"，用户完全不知道该去开权限 —— 又一次**静默失效**（原则 4：
+> "静默失效比报错危险"，这次连报错都只说了"Permission denied"，没说是哪个权限、去哪开）。
 >
 > **五、仍然存在的取舍（诚实记）**：冲突时**总是 mine 赢** —— 没有"让用户挑一边"的 UI。
 > 导图改的那一行若正巧被用户也改了，那处保留用户版本（toast 会报几处）。真需要逐处选择，

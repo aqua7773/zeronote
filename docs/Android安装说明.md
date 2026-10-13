@@ -1,0 +1,66 @@
+# ZeroNote Android 安装说明
+
+> 这份说明是**给最终用户看的**，随 APK 一起发出去。
+> 每次出包复制一份、把版本号/包名补上即可。
+> ⚠️ **漏一次就是一次"静默失效"**：rev63 那次漏了第 2 步，用户装完只能看到
+> `读取插件文件失败 … Permission denied (os error 13)`，根本猜不到要去开权限。
+
+---
+
+## 1. 装 APK
+
+- 文件名形如 `ZeroNote-<版本>-release.apk`
+- 包名 **`com.aqua.zeronote`**（正式包；与开发用的 `com.aqua.zeronote.debug` 是**两个 App**，可并存）
+- 用 debug 证书签名，直接安装即可；若提示"未知来源"，允许一次
+
+## 2. ⚠️ 开「所有文件访问」权限（**必做，否则插件读不了**）
+
+这是 **Android 的特殊权限，系统不会弹窗申请**，必须手动开：
+
+> **设置 → 应用（或"应用管理"）→ ZeroNote → 权限 → 「所有文件访问」→ 允许**
+
+- 华为 / 荣耀等机型有时收在 **「特殊应用权限」** 里
+- 也可以直接在设置顶部的搜索框搜 **「所有文件」**
+- **不开的后果**：库放在公共存储时，读插件/笔记会报 `Permission denied (os error 13)`
+
+## 3. 建库 / 选库目录
+
+首次打开会让选库目录。**建议选公共存储里的一个文件夹**（如 `Documents/ZeroNote`），理由：
+
+- 文件管理器能看到库、能直接往里拷插件
+- 卸载 App 不丢笔记
+
+（若选默认的应用私有目录，则插件只能靠 `adb` 推进去 —— 文件管理器进不去。）
+
+## 4. 装思维导图插件
+
+把 `outline-map-plugin.zip` 解压到 **`<库目录>/.zn/plugins/`**，结果应当是：
+
+```
+<库目录>/.zn/plugins/outline-map/
+    index.js
+    manifest.json
+    vendor/MindElixir.iife.js
+    vendor/MindElixir.css
+    vendor/PlaintextConverter.js
+```
+
+> zip 里第一层就是 `outline-map` 文件夹，直接解压到 `plugins/` 即可。
+> 目录名保持 `outline-map`（连字符）。
+
+## 5. 在 App 里启用
+
+`☰ → 插件管理 → 重新扫描` → 打开一篇带 `- ` 列表的笔记 → 点**标题左侧的「❖」**开导图窗口。
+
+插件**离线自带 Mind Elixir 5.15.1**（MIT），导图功能不需要联网。
+
+---
+
+## 出包方自查（每次出包前对着过一遍）
+
+| # | 检查 | 为什么 |
+|---|---|---|
+| 1 | `src-tauri/plugins/*/android/build.gradle.kts` 的 `compileSdk` 与主工程一致（当前 37） | 库模块不会自动跟主工程走，依赖升级后 gradle 报 `checkReleaseAarMetadata` |
+| 2 | 构建时带 `CARGO_HOME` 指向可写副本 | 本机 cargo 构建脚本写 `~/.cargo` 会被拒（`os error 5/183`） |
+| 3 | 说明里含第 2 步「所有文件访问」 | 新装的应用默认没这个权限 |
+| 4 | APK 签名用 debug keystore 时，包名与旧包**不同**（`com.aqua.zeronote` vs `…debug`） | 不同包名 ⇒ 并存、不覆盖、数据不互通 |

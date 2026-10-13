@@ -123,6 +123,13 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > ⚠️ **本机构建 Android 必须带 `$env:CARGO_HOME=C:\Users\AQUA\Documents\deepseek\_cargo-home`**
 > （cargo 构建脚本不能写 `~/.cargo`，属按进程的路径拦截；ACL/占用/长路径/Defender CAF 均已排除）。
 > ⚠️ 自带库模块的 `compileSdk` 不跟主工程走（statusbar 曾停在 34，主工程 37）⇒ 升 Tauri 时要手动核对。
+>
+> 🔐 **rev64 补丁（重要前置条件）**：库选在**公共存储**（`/storage/emulated/0/…`）时，
+> **必须手动授予「所有文件访问」**（设置 → 应用 → ZeroNote → 权限 → 所有文件访问 → 允许）。
+> 这是 Android 特殊权限、**系统不弹窗**，manifest 里虽已声明 `MANAGE_EXTERNAL_STORAGE` ——
+> 旧 debug 版当年是开发期 `adb shell appops set … allow` 授的，所以这个坑一直没暴露；
+> 新 release 包装到新手机就报 `Permission denied (os error 13)`。
+> **安装说明里必须写这一步**（rev63 的说明漏了）。内核待改进：启动时检测 + 引导跳设置页。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
