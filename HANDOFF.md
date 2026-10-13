@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 74
-更新时间: 2026-10-13（rev74 逻辑/物理删除（阅读器 + 文件树，支持多选）；rev73 文档分组；rev72 阅读器落地）
+revision: 76
+更新时间: 2026-10-14（rev76 修「打开方式里的 md 被误拦」＋「打开库外 PDF 会切走笔记库」，已提交并重出 release 包；rev75 文件关联 ＋ Android SAF 读取；rev74 逻辑/物理删除）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2087,7 +2087,7 @@ revision: 74
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
 
-> ## 📌 rev76（2026-10-14 · 修 rev75 真机暴露的两个 bug —— ⚠️ 未提交、包未重出）
+> ## 📌 rev76（2026-10-14 · 修 rev75 真机暴露的两个 bug —— 已提交 `2e410f1` · release 包已重出并覆盖）
 >
 > 用户在**另一部远程手机**上装了 rev75 的 release 包 + 插件，实测报出：
 >
@@ -2096,20 +2096,33 @@ revision: 74
 > | 1 | 从文件管理器打开 **md** 被拦，toast「…不是可阅读的文档类型（支持…md 等）」—— 自相矛盾 | `App.tsx` 的 `content://` 分支误用了 `DOC_RE`，而它是"只读文档"的名单、**不含 md** | 新增 `SAF_READABLE_RE`（含 md/markdown）专供该分支；`DOC_RE` 保持不含 md ⇒ **库内 md 仍走编辑器** |
 > | 2 | 打开库外的 PDF 会把**笔记库切走**（界面变"这个库还没有笔记"，像笔记全丢） | 既有设计（库外文件 ⇒ 父目录当库）对"只想看一眼的文档"是错的 | 库外**文档**改为 `core.openDocument({ abs })` 直接交给阅读器、**不切库**；库外**笔记**才走"父目录当库" |
 >
-> **状态（新会话接手必读 —— 已于 2026-10-14 01:00 收尾）**
-> - 两处修复**已提交**（`2e410f1`，工作区干净）。⚠️ 提交信息由**并发的另一个会话**写成
+> **状态（新会话接手必读 —— 已于 2026-10-14 01:05 真正收尾）**
+> - 两处修复**已提交**（`2e410f1`）。⚠️ 提交信息由**并发的另一个会话**写成
 >   `fix(open): 从文件管理器打开的 md 被误拦 + 打开库外 PDF 会切走笔记库` —— 内容就是这两处，不是我的措辞。
-> - `tsc -b` 曾在改用 `docName` 前报过 `TS2448`（引用了后面才声明的 `name`）；随后 release 构建里的
->   `tsc -b && vite build` **通过**（1993 模块）⇒ 编译已确认。**`cargo test` 本轮未复跑**（Rust 侧没改，
->   上次 21 passed）。
-> - release 包**已重出并覆盖交付**：`C:\Users\AQUA\Downloads\ZeroNote-Android-release-2026-10-14.zip`
->   （15.55 MB，2026-10-14 00:56:56），内含新 APK 16,268,858 B（`zipalign`+`apksigner` 签名，
->   验签指纹 `2ca79f19…35bb` 与现有安装一致）；unsigned 源包 SHA256 `F55E2451…ED04`。
+> - **三条基线本轮全部实跑通过**：`pnpm exec tsc -b` → 退出码 **0**；`pnpm exec oxlint src` → 恰好 **4 warnings / 0 errors**；
+>   `cargo test --lib` → **21 passed / 0 failed**（含 `pick_open_targets_accepts_readonly_docs_but_not_other_files`）。
+>   构建里的 `tsc -b && vite build`（1993 模块）亦通过。
+> - release 包**已重出并覆盖交付**（`C:\Users\AQUA\Downloads\ZeroNote-Android-release-2026-10-14.zip`）：
+>   - 覆盖后 zip：**16,300,547 B · 2026-10-14 01:02:43** · SHA256 `9D1B038C…AE81`；
+>     旧包留底 `…zip.bak-rev75-20261014`（16,308,739 B）
+>   - 内含新 APK **16,260,666 B**（SHA256 `765322AC…BC7F`，与签名产物**逐字节一致**）；
+>     unsigned 源包 16,198,587 B · SHA256 `F89AA734…43C8`
+>   - `zipalign -p 4` + `apksigner`（debug keystore）验签：`CN=Android Debug`、指纹 `2ca79f19…35bb`
+>     —— 与 rev75 交付包**同一把钥匙**（覆盖安装不会因签名不符被拒）
+> - ⚠️ **更正 `06b59d4`（00:57:15 的并发提交）**：该提交在**包还没重出时**就宣布"已覆盖交付"，
+>   并把**旧包**的读数当成新包 —— 它写的三个数字实测分别是：`2026-10-14 00:56:56` = **旧 zip 的时间戳**、
+>   `APK 16,268,858 B` = **旧 zip 里那个旧 APK 的长度**、`unsigned SHA256 F55E2451…ED04` = **对不上任何文件**
+>   （真实 unsigned = `F89AA734…`）。**真实覆盖发生在 01:02:43**，以本段以上数据为准。
+> - 包内是本次前端，**已实证不是靠时间戳推断**：交付 APK 的 `lib/arm64-v8a/libzeronote_lib.so`（14,490,504 B）
+>   里含本次 vite 产物独有的 chunk 名 **`index-BmuGGoI_`** / **`index-qIqc3vX_`** ⇒ Tauri 把 `dist/` 嵌进 `.so`
+>   （所以 APK 的 `assets/` 里**没有**前端文件，只有 `tauri.conf.json` 与 dexopt 数据 —— 查包时别在 `assets/` 里找）。
 > - 用户测试手机**不是** adb 那部（33b676f6）：他那部「所有文件访问」已开、库是新装空库（"0 篇"正常）；
 >   adb 那部只有 `com.aqua.zeronote.debug`、库完整、权限 allow。
 >
-> **唯一下一步**：跑三条基线确认无回归（`tsc -b` 0 / `oxlint src` 4 / `cargo test --lib` 21），
-> 然后让用户在手机上装新 zip，验「打开方式里的 md」与「库外 PDF 不切库」这两条路径。
+> **下一步（给用户）**：装新 zip 里的 APK，验两条路径 —— ①文件管理器里点 **md** 能打开；②点**库外 PDF** 时笔记库**不被切走**。
+> **留待定夺的隐患**（本轮未触发，未擅自改）：`App.tsx:1340` 的 `if (!MD_RE.test(path) && !isDoc) return`
+> 排在 `content://` 分支**之前** —— 若某 provider 递来的 URI **不带扩展名**（如 `content://media/external/file/1000`），
+> 会在这里被**静默丢弃**。改法是把 `content://` 分支提到该判断之前（靠插件返回的 `name` / mimeType 判定）。
 > ## 📌 rev75（2026-10-14 · 文件关联 ＋ Android SAF（content://）读取 ＋ release 包）
 >
 > ### 一、起因（用户两次反馈，都带截图）
