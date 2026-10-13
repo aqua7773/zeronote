@@ -26,13 +26,30 @@ type TreeNode = {
    * `core.openDocument` 派发，文件树不掺业务判断。
    */
   kind?: 'note' | 'doc'
+  /**
+   * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录，
+   * 只是把只读文档聚合到一处显示。见 `DOCS_NODE`。
+   */
+  virtual?: boolean
 }
+
+/**
+ * 虚拟「文档」分组的哨兵路径 —— 它**不是**库内路径（真实路径不可能长这样，
+ * 因为 `resolve()` 会拒绝任何带 `__` 前缀的合法文件名的概率极低，
+ * 且这个值只在文件树内部用、从不发给内核）。
+ */
+const DOCS_NODE = '__zn_docs__'
 
 /**
  * 目录树 = **目录清单**（`dirs`，含空目录）＋ 笔记清单（`notes`）。
  *
  * 目录清单是必需的：只靠笔记路径只能**反推**出"装过文件的"目录，**空文件夹反推不出来**
  * —— 那样"新建文件夹"会像没反应（静默失效）。所以 Rust 侧单给了 `list_dirs`。
+ *
+ * **只读文档单独收进一个虚拟「文档」分组**（用户 2026-10-13 要求）：
+ * 文档散落在一堆目录里会让笔记树很难扫；聚合显示后，**文件本身一动不动**
+ * （路径不变、仍在原目录），只是视图上归到一处。文档在磁盘上的真实位置仍然
+ * 靠每行的 `title`（悬停可见完整路径）交代。
  */
 function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
   const root: TreeNode[] = []
@@ -46,7 +63,7 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
     let node: TreeNode | null = null
     for (const part of parts) {
       acc = acc ? `${acc}/${part}` : part
-      let dir = level.find((x) => x.isDir && x.name === part)
+      let dir = level.find((x) => x.isDir && !x.virtual && x.name === part)
       if (!dir) {
         dir = { name: part, path: acc, children: [], isDir: true }
         level.push(dir)
@@ -59,9 +76,24 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   for (const d of dirs) ensureDir(d)
 
+  /** 只读文档的收集桶（最后统一挂到虚拟分组下） */
+  const docs: TreeNode[] = []
+
   for (const n of notes) {
     const parts = n.path.split('/')
     const name = parts[parts.length - 1]
+    // 文档不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
+    if (n.kind === 'doc') {
+      docs.push({
+        name,
+        path: n.path,
+        children: [],
+        isDir: false,
+        title: n.title,
+        kind: 'doc',
+      })
+      continue
+    }
     const parentPath = parts.slice(0, -1).join('/')
     const parent = ensureDir(parentPath)
     const bucket = parent ? parent.children : root
@@ -82,6 +114,20 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
     nodes.forEach((n) => sort(n.children))
   }
   sort(root)
+
+  // 「文档」分组固定放**最后**（笔记优先；它不参与上面那套"目录优先"的排序）
+  if (docs.length) {
+    docs.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+    root.push({
+      name: '文档',
+      path: DOCS_NODE,
+      children: docs,
+      isDir: true,
+      kind: 'doc',
+      virtual: true,
+    })
+  }
+
   return root
 }
 
@@ -186,12 +232,19 @@ function Node({
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
+              // 虚拟分组**不对应磁盘目录** ⇒ 不给任何文件操作菜单（它只是视图聚合）
+              if (node.virtual) return
               onContextMenu(node.path, true, e.clientX, e.clientY)
             }}
-            title={`${node.path}（右键：新建 / 重命名 / 删除）`}
+            title={
+              node.virtual
+                ? '只读文档（PDF / EPUB / …）—— 只是聚到一处显示，文件仍在你原来的目录里'
+                : `${node.path}（右键：新建 / 重命名 / 删除）`
+            }
           >
             <span>{open ? '▾' : '▸'}</span>
             <span>{node.name}</span>
+            {node.virtual && <span className="zn-ext">{node.children.length}</span>}
           </button>
         )}
         {open &&
@@ -458,7 +511,9 @@ export function FileTree({
       if (joined !== r.path) onRename(r.path, joined, true)
       return
     }
-    const next = /\.(md|markdown)$/i.test(joined) ? joined : `${joined}.md`
+    // 只有**没有扩展名**时才补 `.md` —— 否则把 PDF / EPUB 重命名会变成 `手册.pdf.md`
+    // （2026-10-13：只读文档进文件树后才暴露这条；此前树里只有 .md，这分支永远命不中非 md）
+    const next = /\.[a-z0-9]+$/i.test(joined) ? joined : `${joined}.md`
     if (next !== r.path) onRename(r.path, next, false)
   }
 
