@@ -385,22 +385,41 @@ async function main() {
     const addedLine = afterAdd.split(/\r?\n/).find((l) => l.includes('新主题')) ?? '(没有)'
     check('⑤ addChild 写回磁盘（多出一行「- 新主题」）', afterAdd.includes('新主题') && !before.includes('新主题'), j(addedLine))
 
-    /* ⑮ rev61：导图写回 ⇒ **主窗口编辑器不用关开就跟上**（用户 2026-10-13 报的"得关了再开"） */
+    /* ⑮ rev61：导图写回 ⇒ **主窗口编辑器不用关开就跟上**（用户 2026-10-13 报的"得关了再开"）
+       ⚠️ rev65 修正：这里原来**固定等 2 秒就断言** ⇒ 偶发假失败。
+       实测 `fs.watch` 的延迟能到 6 秒（rev61 记录），而 ⑯（紧随其后、等 2.5 秒）反而能过 ——
+       正说明不是产品缺陷，是**断言早于事件**。改成轮询等待，出现即通过。 */
+    const editorGotMapWrite = await waitFor(
+      () => cdp.js(`(document.querySelector('.cm-content')?.innerText ?? '').includes('新主题')`),
+      '导图写回后编辑器出现「新主题」',
+      12000,
+    )
+      .then(() => true)
+      .catch(() => false)
     const editorAfterMap = await cdp.js(`document.querySelector('.cm-content')?.innerText ?? ''`)
     check(
       '⑮ 导图写回后主窗口编辑器自动跟上（无需关开笔记）',
-      editorAfterMap.includes('新主题'),
+      editorGotMapWrite,
       j(editorAfterMap.replace(/\n/g, '⏎').slice(0, 160)),
     )
 
-    /* ⑯ 不经导图、直接改盘（脚本/别的编辑器）也跟上 */
+    /* ⑯ 不经导图、直接改盘（脚本/别的编辑器）也跟上
+       ⚠️ rev65：与 ⑮ **同因** —— 拿固定 `sleep` 等异步事件，而 `fs.watch` 的延迟不稳定（2–6 秒）。
+       把 ⑮ 改成轮询后它就过了，反而轮到 ⑯ 假失败（`reloadLog` 里事件明明到了、只是晚于写死的 2500ms）。
+       **规矩**：凡是"等异步事件"的断言一律轮询，别写死时间。 */
     writeFileSync(NOTE, `${disk()}\n- 外部新增\n`)
-    await sleep(2500)
+    const editorGotDiskWrite = await waitFor(
+      () => cdp.js(`(document.querySelector('.cm-content')?.innerText ?? '').includes('外部新增')`),
+      '外部改盘后编辑器出现「外部新增」',
+      12000,
+    )
+      .then(() => true)
+      .catch(() => false)
     const editorAfterDisk = await cdp.js(`document.querySelector('.cm-content')?.innerText ?? ''`)
     const reloadLog = await cdp.js(`window.__znReloadLog ?? null`)
     check(
       '⑯ 外部直接改盘 ⇒ 编辑器也自动跟上（不限于导图那条路）',
-      editorAfterDisk.includes('外部新增'),
+      editorGotDiskWrite,
       j({ tail: editorAfterDisk.replace(/\n/g, '⏎').slice(-120), reloadLog }),
     )
 
