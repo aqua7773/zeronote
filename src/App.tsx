@@ -215,6 +215,18 @@ const MD_RE = /\.(md|markdown)$/i
 const DOC_RE = /\.(pdf|epub|mobi|azw3|azw|fb2|cbz|txt)$/i
 
 /**
+ * **从别的 App 递进来**（`content://`）时允许阅读的扩展名 —— 比 `DOC_RE` **多 md / markdown**。
+ *
+ * 为什么单独一份：库内的 `.md` 是**笔记**，必须走编辑器（`openNote`）；只有"库外的 md"
+ * 才用阅读器只读打开。共用一个常量会把库内 md 也推进阅读器 ⇒ 笔记没法编辑了。
+ *
+ * ⚠️ **2026-10-14 踩过**：content:// 分支一开始复用了 `DOC_RE`（不含 md），于是从文件管理器
+ * 打开 md 被自己的检查拦掉，而 toast 还写着"支持 pdf / epub / txt / md 等" —— 自相矛盾
+ * （用户截图报的就是这个）。
+ */
+const SAF_READABLE_RE = /\.(pdf|epub|mobi|azw3|azw|fb2|cbz|txt|md|markdown)$/i
+
+/**
  * `file:///C:/a/b.md` → 本地路径。
  *
  * Rust 侧其实已经转过一道（`url_to_path`），这里是**第二道保险** ——
@@ -1343,7 +1355,7 @@ export default function App() {
             { uri: path },
           )
           const name = r.name || '文档'
-          if (!DOC_RE.test(name)) {
+          if (!SAF_READABLE_RE.test(name)) {
             setToast(`「${name}」不是可阅读的文档类型（支持 pdf / epub / txt / md 等）`)
             return
           }
@@ -1359,6 +1371,22 @@ export default function App() {
         // 已在当前库内 ⇒ 直接开：文档交给插件（core.openDocument），笔记走编辑器
         if (isDoc) void kernel?.commands.api.execute('core.openDocument', { path: rel })
         else await openNoteRef.current(rel)
+        return
+      }
+      /**
+       * **库外的只读文档 ⇒ 直接交给阅读器，绝不切库**（2026-10-14 用户实测后改）。
+       *
+       * 原先所有库外文件都走「把父目录当库打开」（那是为**笔记**设计的：编辑器只认库内路径）。
+       * 但从文件管理器点一个 PDF，用户只是想**看一眼** —— 把父目录（比如 `Documents`）当库切过去，
+       * 笔记库就被换掉了，界面显示"这个库还没有笔记"，像笔记全丢了（用户截图报的 bug）。
+       *
+       * 阅读器支持库外**绝对路径**（`core.openDocument({ abs })` → `host.assetUrlAbs`），
+       * 所以文档不需要进库、也不需要切库。
+       */
+      if (isDoc) {
+        // 文件名从路径末段取（`splitPath` 的解构在下面才声明，这里先自己取）
+        const docName = path.split(/[\\/]/).pop() || '文档'
+        void kernel?.commands.api.execute('core.openDocument', { abs: path, name: docName })
         return
       }
       const { dir, name } = splitPath(path)
