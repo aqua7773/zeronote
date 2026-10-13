@@ -117,7 +117,10 @@ const CSS = `
 .dn-bar{display:flex;align-items:center;gap:8px;flex:none;padding:6px 10px;font-size:13px;border-bottom:1px solid var(--zn-border,#e4e4e7);background:var(--zn-bg-subtle,#f7f7f8)}
 .dn-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .dn-meta{flex:none;color:var(--zn-fg-subtle,#71717a)}
-.dn-btn{flex:none;padding:3px 9px;font-size:12px;border:1px solid var(--zn-border,#d4d4d8);border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+/* 顶栏按钮：**触控目标 ≥30px**（手机实测：更小的点不中，还会被系统当图片长按）。
+   注意：这段在模板字符串里，**不能出现反引号**（会提前结束字符串 —— 真踩过）。
+   尺寸也别太大：顶栏元素多，手机上会把最右的「⋮」挤出屏幕（也真踩过）。 */
+.dn-btn{flex:none;min-height:30px;padding:4px 9px;font-size:12.5px;border:1px solid var(--zn-border,#d4d4d8);border-radius:6px;background:transparent;color:inherit;cursor:pointer}
 .dn-bar-btn:disabled{opacity:.4;cursor:default}
 .dn-body{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;background:var(--zn-bg-subtle,#f7f7f8)}
 .dn-page{max-width:100%;height:auto;margin:10px 0;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
@@ -295,7 +298,7 @@ export default {
       const name = nameOf(path)
 
       shell = view.overrideShell({
-        mount: (root) => {
+        mount: (root, mctx) => {
           root.classList.add('dn-root')
           const style = document.createElement('style')
           style.textContent = CSS
@@ -314,9 +317,14 @@ export default {
           const btnNext = el('button', 'dn-btn', '›')
           // 删除入口：**触屏与 EPUB 都得靠它** —— 手机上长按虽然会派发 `contextmenu`，
           // 但 EPUB 的章节跑在 foliate 自己的 iframe 里，那里的右键不会冒泡到我们的容器
-          const btnMore = el('button', 'dn-btn', '⋮')
+          // 用**文字**「删除」而不是 `⋮` 符号：真机实测符号按钮点不中（怀疑命中区/字体问题），
+          // 文字按钮又明确又稳 —— 手机上用户也一眼看得懂。
+          const btnMore = el('button', 'dn-btn', '删除')
           btnMore.title = '删除这个文档…'
-          bar.append(btnClose, title, meta, btnOut, btnIn, btnPrev, btnNext, btnMore)
+          btnMore.style.color = 'var(--zn-danger,#dc2626)'
+          // ⚠️ 「⋮」放**关闭按钮之后**（左起第 2），不放最右：手机上顶栏元素多，
+          // 放最右会被挤出屏幕（真机实测：标题被压没、⋮ 被裁掉一半 ⇒ 点不中）。
+          bar.append(btnClose, btnMore, title, meta, btnOut, btnIn, btnPrev, btnNext)
           root.append(bar)
 
           const body = el('div', 'dn-body')
@@ -462,8 +470,9 @@ export default {
           void (async () => {
             try {
               api = await MOUNTERS[kind](body, { url, name, onMeta: setMeta })
-              // 缩放只有 PDF 有意义（foliate 自己管排版）
-              if (kind !== 'pdf') {
+              // 缩放只有 PDF 有意义（foliate 自己管排版）；手机上再让位给更重要的按钮
+              // （顶栏在窄屏放不下 8 个元素，见上面「⋮」那条注释）
+              if (kind !== 'pdf' || mctx?.platform === 'android') {
                 btnIn.remove()
                 btnOut.remove()
               }
