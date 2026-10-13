@@ -179,8 +179,9 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 
 - **桌面 dev 在跑**：`tauri dev`（PID 18800，vite `http://localhost:1420`），日志 `.self-logs/desktop-dev.log`
 - **`android-dev` 也在跑**（WMI 起的，不自起 vite、直连桌面 1420），日志 `.self-logs/android-dev.log`
-- **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（这次为验移动端快捷栏装的）⇒ 改前端即时生效。
-  **默认装法仍是打包版**（`tauri android build --apk`，内嵌 dist，改前端必须重打包）
+- **手机 `33b676f6`（ARIA 24069RA21C）当前装的是 dev 版**（2026-10-13 为验「长按多选 / 返回键」
+  用 `android-dev.cmd` 装的）⇒ 改前端即时生效，但**依赖桌面 dev 开着**（它连的是 `192.168.1.3:1420`；
+  桌面 dev 一关，手机就白屏）。要它独立运行得重出包（`tauri android build --apk`，内嵌 dist）
 - **测试库 `_tmp-vault-tb/`**（5 篇笔记，含 `数据库绪论.md`）；`.zn/plugins` 里有 **3 个 junction**：
   `outline-map`（开发中的主力插件）· `net-demo`（**拆门后它不再被拒载**，rev48 实测）。
   U3a/U3b 的夹具 **`docprobe` 已摘除**（2026-10-13：它常驻 ⇒ 编辑器底部一直挂着那条工具条；
@@ -207,10 +208,13 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
   主窗口能关是因为它有"关窗前落盘"监听器。⚠️ 别在**将要被销毁的窗口里 `await` close/destroy**
   （那次 invoke 的 Promise 永不 resolve，谁 await 谁超时）。
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
-  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**。
+  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **19 passed**
+  （rev66 删掉授权记录那两个用例后从 21 降到 19）。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
-- **手机 `33b676f6`**：装的是 `tauri android build --apk` 的**打包版**（内嵌 dist，
-  **改前端必须重打包**；想要 HMR 得改用 `android-dev.cmd`）
+- **手机 `33b676f6`**：**当前装的是 dev 版**（2026-10-13 装的，连桌面 `192.168.1.3:1420`）——
+  改前端即时生效，但**桌面 dev 一关就白屏**；要它独立跑得重出包（`tauri android build --apk`）
+- **`android-dev` 还开着**（`Start-Process cmd /c android-dev.cmd`，独立于会话；日志 `.self-logs/android-dev.log`）——
+  它只是在刷 logcat，**关掉不影响已安装的应用**（应用要的是桌面 dev 的 1420）
 - **仓库里有 1 个第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch` ——
   **空标题不隐藏 `#`**（`#` 后直接换行时，那行原本会变成空白，看着像内容丢了）。
   **升级这个库必须重打补丁**；另外**改了 node_modules 之后 vite 要重启**才会重新预打包
