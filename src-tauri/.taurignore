@@ -1,0 +1,7 @@
+# Tauri dev 的 watcher 会盯整个 src-tauri —— 而 Android 构建会在
+# plugins/*/android/.tauri/ 里生成 tauri-api 工程与 gradle 中间产物，
+# 那些变化会反复触发桌面 dev 重建（实测日志刷 "changed. Rebuilding application..."，
+# 窗口起不来、CDP 9222 也不开）。
+# 回退：删掉本文件即可（Tauri 照常工作，只是又会被 android 产物触发重建）。
+plugins/*/android/.tauri/
+target/

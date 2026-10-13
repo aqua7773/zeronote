@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-androidperm"
+version = "0.1.0"
+description = "ZeroNote: 请求 Android「所有文件访问」权限（MANAGE_EXTERNAL_STORAGE），并跳转到系统授权页"
+authors = ["AQUA"]
+license = "MIT"
+edition = "2021"
+build = "build.rs"
+links = "tauri-plugin-androidperm"
+
+[lib]
+name = "tauri_plugin_androidperm"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12.3" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

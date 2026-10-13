@@ -1118,6 +1118,7 @@ pub fn run() {
   builder
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_statusbar::init())
+    .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
       app.manage(OpenedUrls::default());
       if cfg!(debug_assertions) {

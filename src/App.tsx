@@ -55,6 +55,7 @@ import {
   type ThemePref,
 } from './lib/theme'
 import { setStatusBarVisible } from './lib/systemBar'
+import { looksLikeStoragePermissionError, requestAllFilesAccess } from './lib/androidPerm'
 import { mergeLines } from './lib/merge3'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
@@ -184,6 +185,16 @@ function failMsg(kind: FailKind, e: unknown): string {
   // 重名走同一句人话（重命名与新建都可能撞名）
   if ((kind === 'rename' || kind === 'create') && /exists|已?存在/i.test(raw)) {
     return '已存在同名笔记。'
+  }
+  /**
+   * **缺「所有文件访问」权限**必须说清"怎么办"（rev64）。
+   *
+   * 原来只是干巴巴一句 `Permission denied (os error 13)`：用户既不知道是哪个权限、
+   * 也不知道去哪开 —— 它是 Android 的特殊权限、**系统不弹窗申请**，猜是猜不到的。
+   * 这里补上唯一可操作的那一步（命令面板入口已随 rev64 加进内核）。
+   */
+  if (looksLikeStoragePermissionError(raw)) {
+    return '没有「所有文件访问」权限，读不到库里的文件。到 ☰ → 命令面板运行「请求『所有文件访问』权限」，在系统页面允许后再重新扫描插件。'
   }
   return `${FAIL_BASE[kind]}：${FAIL_HINT[kind]}（${raw}）`
 }
@@ -1884,6 +1895,25 @@ export default function App() {
         title: '关闭当前笔记',
         keybinding: 'Mod+W',
         run: () => void closeNote(),
+      }),
+      /**
+       * 请求 Android 的「所有文件访问」权限（rev64）。
+       *
+       * 只在 Android 上真正跳系统页，桌面是 no-op（Rust 侧返回 Ok）⇒ 这里不需要平台分支。
+       * 为什么必须有这个入口：库放公共存储时，缺它的表现只是 `Permission denied (os error 13)`，
+       * 而它属于 Android 的**特殊权限、系统不弹窗申请** ⇒ 用户猜不到该去哪开。
+       */
+      kernel.commands.api.register({
+        id: 'core.requestStoragePermission',
+        title: '请求「所有文件访问」权限（Android）',
+        run: async () => {
+          try {
+            await requestAllFilesAccess()
+            setToast('已打开系统授权页：找到「所有文件访问」并允许，然后回来重新扫描插件')
+          } catch (e) {
+            setToast(`打不开系统授权页：${String(e)}`)
+          }
+        },
       }),
       /**
        * 12 个 Markdown 标记（2026-10-12 从 `examples/md-toolbar` **收进内核**）

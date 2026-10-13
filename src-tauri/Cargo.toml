@@ -25,6 +25,8 @@ tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-statusbar = { path = "plugins/tauri-plugin-statusbar" }
+# 请求 Android「所有文件访问」权限（库放公共存储时必需；系统不弹窗，只能手动开）
+tauri-plugin-androidperm = { path = "plugins/tauri-plugin-androidperm" }
 
 # 文件关联（桌面）：Windows 上「双击 .md」第二次启动的进程要把参数**转发**给已在运行的实例
 # —— 见 lib.rs 的 `forward_open_targets`。
