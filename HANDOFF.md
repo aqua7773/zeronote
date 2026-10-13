@@ -1998,6 +1998,13 @@ revision: 72
 > - **`wasm/`（jbig2 / openjpeg）** 未单独验：简单 PDF 用不到，参数已按官方传（`wasmUrl`）。
 > - **`content://`（Android SAF）** 仍读不了（历史结论，与本插件无关）。
 > - **不做**（用户明确）：最近文件 / 书签 / 阅读进度 / 缩略图 / 目录侧栏。
+>
+> **提交**：`578ccd2` · **基线**：`tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings · `cargo test --lib` **20 passed**。
+> 开工前的内核快照 `_kernel-snapshots/20261013-224056`；功能完成后另落一个（回退用）。
+> 证据截图：`_shots/docreader-01-pdf.png`（桌面 PDF）· `docreader-02-epub.png`（桌面 EPUB）·
+> `docreader-04-txt.png`（TXT）· `docreader-07-epub-final.png`（桌面最终版）·
+> `android-docreader-04-vault.png`（真机文件树里带徽章的文档）· `android-docreader-05-pdf.png`（真机 PDF）·
+> `android-docreader-06-epub.png`（真机 EPUB）。
 
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
