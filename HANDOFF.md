@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 70
-更新时间: 2026-10-13（rev70 卡死兜底落地：原生看门狗 + 闪退 + 启动自愈，7 条判据全过）
+revision: 71
+更新时间: 2026-10-13（rev71 卡死兜底补上移动端接线 + 真机端到端验证全通）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -1846,6 +1846,57 @@ revision: 70
 > **基线**：`tsc` 0 · `oxlint src` 4 · `cargo test --lib` **20 passed**。
 > 证据：`_shots/wd-01-pluginpage.png`（插件页红色徽章）· `.zn/watchdog.log` · dev 日志的 `EXIT=101` 行。
 > 夹具 `examples/hang-plugin/` **保留**（按需挂 junction，**别常驻测试库**）。
+
+> ## 📌 rev71（2026-10-13 · 卡死兜底**补上移动端接线** ＋ **真机端到端验证全通**）
+>
+> **缘起**：rev70 明确留了一条未验项 —— 移动端前后台没接线（只有前端 `visibilitychange`），
+> 且 Android 侧整条链没验。用户：「补上」（当时手机已恢复连接）。
+>
+> ### 一、接线（`src-tauri/src/lib.rs` 的 `.run(...)`）
+>
+> ```rust
+> #[cfg(mobile)]
+> tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Suspended, .. } => { BEAT_PAUSED = true; }
+> #[cfg(mobile)]
+> tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Resumed, .. } => { LAST_BEAT = now; BEAT_PAUSED = false; }
+> ```
+>
+> **两个必须记住的点**：
+> 1. ⚠️ **不能**用 `RunEvent::Resumed` 判"回到前台" —— 那是"事件循环被恢复"（跨平台语义）。
+>    移动端前后台只能用 `WindowEvent::{Suspended, Resumed}`：源码注释写明 Android 由 Activity 的
+>    `onPause` / `onResume` 触发，且两者都是 `#[cfg(mobile)]`（桌面没有这两个变体）。
+> 2. ⚠️ 原来那两处是各自独立的 `if let ... = _event`；`RunEvent` 不是 `Copy`，
+>    **加第二处会撞 "use of moved value"** ⇒ 本轮把整段改成一个 `match _event`（顺带更清楚）。
+>
+> **另外把 dev 开关改成可覆盖**：`if not defined ZN_WATCHDOG set "ZN_WATCHDOG=off"`（`dev.cmd` / `android-dev.cmd`）。
+> ⚠️ 想覆盖成"开"必须 `set ZN_WATCHDOG=on` —— **`set ZN_WATCHDOG=`（空）在 cmd 里是删除变量**，
+> 等于没覆盖，会被 `if not defined` 判成"没设过"又设回 off（这条我第一版写错了，已修正注释）。
+>
+> ### 二、真机验收（ARIA 24069RA21C · Android 16 · dev 版连桌面 1420 · `ZN_WATCHDOG=on` 覆盖）
+>
+> | # | 项 | 实测 |
+> |---|---|---|
+> | 1 | 手机上心跳跑起来 | `{"disabled":false,"lastBeatAgoMs":519→762,"paused":false,"vault":"/storage/emulated/0/Documents/ZeroNote"}` ✅ |
+> | 2 | **判据 4 移动版**：切后台不被误杀 | 按 HOME ⇒ logcat `应用切后台 ⇒ 暂停计时` + 读数 **`paused:true`**；后台保持 **55 秒**后 `pidof` **仍在** ✅ |
+> | 3 | 回前台恢复计时 | logcat `回到前台 ⇒ 恢复计时` + `paused:false` ✅ |
+> | 4 | **端到端卡死**（推夹具进库 → reload 触发加载） | 回前台后 logcat `前端无响应 5353ms` ⇒ **`pidof` 空 ⇒ 进程真被杀** ✅ ⇒ **移动端的 P2（非主线程 `exit(101)`）也成立** |
+> | 5 | 手机上启动自愈 | 新进程起来后 `disabled:["hang-plugin"]`、`loading:null`、心跳正常 ✅ |
+> | 6 | 基线 | `tsc` 0 · `oxlint src` 4 · `cargo test --lib` **20 passed** ✅ |
+>
+> ### 三、一个值得记的行为（不是 bug）
+>
+> 这次卡死**恰好发生在后台**（我在应用处于后台时 reload 了页面）：`paused=true` 压住了判定，
+> 直到**回到前台**才判（20:40:18 恢复 → 20:40:26 判定）。这是**正确**的 ——
+> 后台期间不判是防误杀的前提；而"真卡死"最终仍会被处理（用户一回前台，约 5 秒内应用重启）。
+> ⇒ 结论：**后台卡死的应用会在用户回到前台后 ~5 秒内自动重启**，符合"重进就好"的预期。
+>
+> ### 四、现场已清
+>
+> 手机库里的夹具已逐文件删除（`rm` + `rmdir`，没用 `-r`）、`localStorage` 的禁用记录与探针标记已清空
+> （`disabled: []`）。⚠️ 手机当前仍装 **dev 版**（依赖桌面 dev，见卡片「环境现状」）。
+>
+> **基线**：`tsc` 0 · `oxlint src` 4 · `cargo test --lib` **20 passed**。
+> 备注：`ZN_WATCHDOG_DRYRUN=1` 仍是"只留痕不退出"的观察档，真机排查误判时用它。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

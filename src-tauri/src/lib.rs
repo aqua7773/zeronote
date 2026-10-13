@@ -1268,15 +1268,47 @@ pub fn run() {
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
     .run(|_app, _event| {
-      // macOS / iOS / Android：系统「用 ZeroNote 打开」递进来的 URL 走这个事件。
-      // ⚠️ Windows **不在其中** —— `RunEvent::Opened` 在 tauri 2.12 里被
-      // `#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]` 编译掉了，
-      // 在 Windows 上直接匹配它根本不过编译，所以整段必须 cfg 包住。
-      // Windows 靠上面的「启动参数 + 单实例转发」。
-      #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
-      if let tauri::RunEvent::Opened { urls } = _event {
-        let raws: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
-        forward_open_targets(_app, &raws);
+      // 原先这里是两个各自独立的 `if let ... = _event`；本轮加移动端前后台分支时发现
+      // `RunEvent` 不是 `Copy`，第二处会撞 "use of moved value" ⇒ 改成一次 `match`。
+      match _event {
+        // macOS / iOS / Android：系统「用 ZeroNote 打开」递进来的 URL 走这个事件。
+        // ⚠️ Windows **不在其中** —— `RunEvent::Opened` 在 tauri 2.12 里被
+        // `#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]` 编译掉了，
+        // 在 Windows 上直接匹配它根本不过编译。
+        // Windows 靠上面的「启动参数 + 单实例转发」。
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+        tauri::RunEvent::Opened { urls } => {
+          let raws: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+          forward_open_targets(_app, &raws);
+        }
+
+        // 卡死兜底：**移动端前后台** —— 切后台时 WebView 被系统暂停、心跳自然停，
+        // 不暂停计时就会被看门狗当成"卡死"误杀（这是 rev70 之后唯一没接线的一环）。
+        // ⚠️ 必须用 `WindowEvent::{Suspended,Resumed}`，**不能**用 `RunEvent::Resumed`：
+        // 后者是"事件循环被恢复"，与移动端回到前台是两回事（读 tauri-2.12.3/src/app.rs 核实）。
+        // 源码注释原话：Suspended 在 Android 由 Activity 的 `onPause` 触发、Resumed 由 `onResume`；
+        // 且两者都是 `#[cfg(mobile)]`（桌面不支持）⇒ 整条臂也得 cfg 住，否则桌面编译不过。
+        #[cfg(mobile)]
+        tauri::RunEvent::WindowEvent {
+          event: tauri::WindowEvent::Suspended,
+          ..
+        } => {
+          log::info!("[watchdog] 应用切后台 ⇒ 暂停计时");
+          BEAT_PAUSED.store(true, Ordering::Relaxed);
+        }
+        #[cfg(mobile)]
+        tauri::RunEvent::WindowEvent {
+          event: tauri::WindowEvent::Resumed,
+          ..
+        } => {
+          log::info!("[watchdog] 回到前台 ⇒ 恢复计时");
+          // 和前端 `zn_watchdog_resume` 一样：**必须重置 LAST_BEAT**，
+          // 否则后台待的那段时间会被算进间隔，一回前台就立刻超时。
+          LAST_BEAT.store(now_ms(), Ordering::Relaxed);
+          BEAT_PAUSED.store(false, Ordering::Relaxed);
+        }
+
+        _ => {}
       }
     });
 }

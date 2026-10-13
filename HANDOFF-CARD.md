@@ -64,8 +64,10 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > Rust 原生看门狗（超时 5 s）＋ `std::process::exit(101)` 闪退 ＋ 启动自愈
 >（`zeronote.plugins.loading` 标记 ⇒ 自动禁用 + 插件页红徽章 + toast）。三个前置探针**实测全过**。
 > ⚠️ **dev 脚本已设 `ZN_WATCHDOG=off`**（连续 HMR 会被误判 —— 实测踩过一次，白杀一进程）；
-> 想观察用 `ZN_WATCHDOG_DRYRUN=1`。**Android 侧未验**（当时设备连不上；移动端的前后台暂停接线也还没写，
-> 见 HANDOFF rev70 §六）。夹具 `examples/hang-plugin/` 保留，**按需挂 junction**。
+> 想观察用 `ZN_WATCHDOG_DRYRUN=1`，想在 dev 下开就 `set ZN_WATCHDOG=on`（⚠️ **不能**写 `set ZN_WATCHDOG=`，cmd 里那是删变量）。
+> ✅ **Android 侧已验（rev71）**：前后台接线（`WindowEvent::Suspended/Resumed`）+ 真机全链 ——
+> 切后台 55 秒不被误杀、回前台恢复计时、卡死被 `exit(101)` 真杀掉、重启后自动禁用。
+> 夹具 `examples/hang-plugin/` 保留，**按需挂 junction**。
 
 > 📱 **2026-10-13 rev67：触屏三件真机测清**（结论全在 `HANDOFF.md` rev67 段）——
 > **长按 ✅ 可用**（387 ms 派发 `contextmenu`，弹出的是同一套右键菜单）·
