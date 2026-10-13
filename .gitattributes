@@ -10,6 +10,18 @@
 *.icns binary
 *.woff2 binary
 
+# PDF.js / foliate-js 的离线资产（`public/vendor/`）—— **必须**声明为二进制：
+# 不声明的话上面那行 `* text=auto eol=lf` 会把它们当文本做行尾归一化 ⇒ **入库即损坏**
+# （本机已有先例：gradle wrapper 的 .jar，见 HANDOFF「技术事实」）。
+*.bcmap binary
+*.pfb binary
+*.ttf binary
+*.otf binary
+*.wasm binary
+*.pdf binary
+*.epub binary
+*.zip binary
+
 # 二进制（严禁行尾转换：gradle wrapper jar / 原生库 / 安装包 / 签名文件）
 *.jar binary
 *.so binary

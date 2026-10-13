@@ -20,6 +20,12 @@ type TreeNode = {
   path: string
   children: TreeNode[]
   isDir: boolean
+  /**
+   * `note` = Markdown 笔记；`doc` = 只读文档（pdf / epub / …）。
+   * 只用于**区分显示**（文档挂类型徽章）—— "打开走哪条命令"由 `App.tsx` 的
+   * `core.openDocument` 派发，文件树不掺业务判断。
+   */
+  kind?: 'note' | 'doc'
 }
 
 /**
@@ -65,6 +71,7 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
       children: [],
       isDir: false,
       title: n.title,
+      kind: n.kind,
     })
   }
 
@@ -212,6 +219,11 @@ function Node({
   // 显示名优先用「笔记名」（frontmatter.title → 正文首行），没有才退回文件名。
   // 重命名态的输入框仍是**文件名**（它改的是磁盘上的名字，不是显示名）——
   // 所以下面 title 提示里始终带着真实路径，免得"名字怎么和文件对不上"。
+  // 文档（pdf / epub / …）：Rust 侧给的 `title` 就是**带扩展名的文件名**
+  // （文档没有 frontmatter / 首行标题那套语义），这里再挂一个类型徽章
+  // —— 否则它在树里和笔记长得一模一样，用户分不清哪个能编辑。
+  const isDoc = node.kind === 'doc'
+  const docExt = isDoc ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase() : ''
   const label = node.title || node.name.replace(/\.(md|markdown)$/i, '')
   const active = node.path === activePath
   const picked = selected.has(node.path) && !active
@@ -258,6 +270,7 @@ function Node({
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
     >
       <span>{label}</span>
+      {isDoc && <span className="zn-ext">.{docExt}</span>}
     </button>
   )
 }

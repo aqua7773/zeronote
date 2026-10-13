@@ -3,7 +3,7 @@
 > 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日再补记 rev45、rev46 – rev49）· **提交数与 HEAD 一律看 `git log`**
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev49）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev72）**。
 
 ## 是什么 / 在哪
 
@@ -22,7 +22,7 @@
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 pnpm exec tsc -b                  # 必须 0 错误
 pnpm exec oxlint                  # 必须恰好 4 warnings
-cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧卡片写的 18 是过时数字）
+cd src-tauri; cargo test --lib    # 必须 20 passed（2026-10-13 rev72 实测；21 是 rev66 删授权记录前的数字，18 更旧）
 ```
 
 ## 本会话交付（10 个提交，逐条可回溯）
@@ -59,6 +59,14 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 | `rev54` | **内核新增 `editor.addLineAction`**（CM6 widget 按钮：在某行**左外侧**插可点小按钮）⇒ 导图入口从顶部条挪到**每个大纲组标题的左侧**（用户定：「不放右上角，放标题左侧」；「**笔记本身就是大纲**」）。新 capability `editor:line-action`；命令 `outline-map.open-map-at-line`（payload `{line}`）。验收 **`verify-outline-map.mjs` 6/6**。另：按用户要求把「先查一手来源、不猜、不把未核实结论当经验」写成 `~/.dsh/AGENTS.md` **第 5 条硬性前置** |
 
 ## ⚠️ 未决问题（下个会话第一件事）
+
+> ✅ **文档格式阅读器已落地（rev72，2026-10-13）**：用户点名「兼容 pdf、epub 等多种格式，只读」——
+> 插件 `examples/doc-reader/`（`overrideShell` 自绘）+ **应用内置**渲染资产
+> `public/vendor/pdfjs/`（pdf.js 6.4.299，Apache-2.0）与 `public/vendor/foliate/`（foliate-js 1.0.1，MIT）。
+> 内核小改三处：`NoteMeta.kind`（`note`/`doc`）、`list_notes` 放开只读文档、新命令
+> **`core.openDocument`** 作派发点（插件 `bind` 接管，卸载自动还原）。文件树里点文档即读。
+> **不做**：最近文件 / 书签 / 进度 / 缩略图。设计与实测全集 `docs/文档阅读器-调研-2026-10-13.md`；
+> 判据与未验项见 `HANDOFF.md` rev72。
 
 > ✅ **卡死兜底已实施（rev70，7 条判据全过）**：`docs/卡死兜底方案-2026-10-13.md` 三段全部落地 ——
 > Rust 原生看门狗（超时 5 s）＋ `std::process::exit(101)` 闪退 ＋ 启动自愈
@@ -220,8 +228,13 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **19 passed**
   （rev66 删掉授权记录那两个用例后从 21 降到 19）。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
-- **手机 `33b676f6`**：**当前装的是 dev 版**（2026-10-13 装的，连桌面 `192.168.1.3:1420`）——
-  改前端即时生效，但**桌面 dev 一关就白屏**；要它独立跑得重出包（`tauri android build --apk`）
+- **手机 `33b676f6`（ARIA 24069RA21C）**：装的是 **debug 版**（**2026-10-13 23:06 重出的**，已含本次内核改动：
+  `NoteMeta.kind` / `list_notes` 放开只读文档 / `core.openDocument` / asset scope 修复），连桌面 `192.168.1.3:1420`
+  ⇒ 改前端即时生效，但**桌面 dev 一关就白屏**；要它独立运行得重出包（`tauri android build --apk`）
+- **手机模拟点击（2026-10-13 实测更正旧结论）**：`adb shell input tap` **无效**、原地
+  `input swipe x y x y 120` **这次也无效** ⇒ 用 **`input motionevent DOWN x y` ＋ `UP x y`（中间隔 ~120 ms）**。
+  `screencap` 出来的是**物理像素**（本机 1220×2712），可直接当坐标用
+- **手机库里已装两个插件**：`doc-reader`（文档阅读器，给用户用）· `asset-probe`（能力探针，**用完可删**）
 - **`android-dev` 还开着**（`Start-Process cmd /c android-dev.cmd`，独立于会话；日志 `.self-logs/android-dev.log`）——
   它只是在刷 logcat，**关掉不影响已安装的应用**（应用要的是桌面 dev 的 1420）
 - **仓库里有 1 个第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch` ——
@@ -240,7 +253,8 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev57**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+`HANDOFF.md`（**rev72**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+**`docs/文档阅读器-调研-2026-10-13.md`（只读文档阅读器的选型 ＋ 实测全集）** ·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·
 `tools/verify-takeover.mjs`（**接管/还原的自动验收**）·

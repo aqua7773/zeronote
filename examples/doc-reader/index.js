@@ -1,0 +1,402 @@
+/**
+ * 文档阅读器（doc-reader）—— **只读**，绝不写库文件。
+ *
+ * ## 它接的是哪个口
+ * 内核只认识"这是一份只读文档"（`NoteMeta.kind === 'doc'`），**不认识 pdf/epub**。
+ * 所以内核注册了 `core.openDocument`（默认实现只 toast 一句"没有插件能打开"），
+ * 本插件 `command.bind('core.openDocument', …)` **接管**它 —— 与 `core.newNote` 同一套机制：
+ * bind 只换实现、不动元数据，**卸载时自动还原**（契约 §2.1.1 / §2.7）。
+ *
+ * ## 界面怎么承载
+ * `view.overrideShell`（**真 DOM**）—— 不走 `registerWebView` 的 iframe：那儿是 opaque origin，
+ * 既跑不了 PDF.js 的 canvas，也读不到 foliate-js 需要的 `contentDocument`。
+ * 接管由**用户动作**触发（点文件树里的文档），不是 onStartup —— 符合契约 §2.8 的插件义务。
+ *
+ * ## 渲染库从哪来
+ * 应用内置资源 `<origin>/vendor/…`（**绝对 URL**：插件入口跑在 Blob 模块里，
+ * 相对导入没有 base 目录，见契约 §3.2）：
+ *   · **pdf.js 6.4.299**（Apache-2.0）—— 自绘 canvas 阅读器
+ *   · **foliate-js 1.0.1**（MIT）—— EPUB / MOBI / AZW3 / FB2 / CBZ
+ * ⇒ 升级渲染库只换 `public/vendor`，插件本体不动。
+ *
+ * ## 字节怎么取
+ * `host.assetUrl(库内相对路径)` + `fetch` → Blob。**不用 `fs.readText`**（它按 UTF-8 读，二进制会坏）。
+ * 两条 2026-10-13 实测的事实：
+ *   · asset 协议两端都返回正确 MIME + 支持 Range（桌面与 Android 都是 200 / `application/pdf`）
+ *   · ⚠️ **Android 上"点开头的目录段"会 403**（如 `.zn/…`）—— 根因是 Tauri scope 的
+ *     `requireLiteralLeadingDot`（unix 默认 true）⇒ 已在 `tauri.conf.json` 里显式关掉。
+ *
+ * ## 有意不做（用户 2026-10-13 明确）
+ * 不做「最近打开」、不做书签 / 阅读进度记忆 —— "只要能打开看就行"。
+ */
+
+/* ───────────── 渲染库单例（重开文档不重复 import） ───────────── */
+
+/** 应用内置 vendor 的**绝对** URL：Blob 模块里相对路径没有 base 可解析 */
+const vendor = (p) => new URL(`/vendor/${p}`, location.origin).href
+
+let pdfjsPromise = null
+/**
+ * pdf.js 用 **legacy build**（`public/vendor/pdfjs/build/` 里放的**就是 legacy 那一份**）——
+ * modern build 依赖很新的运行时 API（`Map.prototype.getOrInsertComputed`，TC39 新提案），
+ * 而 **Android System WebView 没有**：2026-10-13 真机实测（Chrome 143）抛
+ * `TypeError: this[#da].getOrInsertComputed is not a function`，桌面 WebView2（Chrome 154）却正常。
+ * legacy 由官方转译（覆盖更老的 Chromium）、体积只大 12%（523 KB + 1.32 MB）；
+ * 同构先例：Readest（Tauri 2 + Android）用的也是 legacy worker。
+ *
+ * ⚠️ **目录名仍叫 `build/` 是有意的**：vite dev server **在启动时就把 `public/` 的文件列表定死**，
+ * 启动后**新增**的路径一律落进 SPA fallback（实测 `/vendor/pdfjs/legacy/…` → `200` 但
+ * `content-type: text/html`、981 字节的 index.html）⇒ 换目录名就得重启 dev 才生效。
+ * 放回既有目录名，dev 下改完立即可用。（生产构建全量复制 `public/`，没有这个问题。）
+ */
+/**
+ * 补齐老 WebView 缺失的新 API。
+ *
+ * 真机实测（Android 16 · System WebView **Chrome 143**）：pdf.js 在**主线程渲染路径**上调用
+ * `Map.prototype.getOrInsertComputed`（很新的 TC39 提案，Chrome < 145 没有）⇒
+ * `TypeError: this[#da].getOrInsertComputed is not a function`。
+ * ⚠️ **桌面测不出来**：WebView2 是 Chrome 154，自带这个 API。
+ * ⚠️ **换 legacy build 也不够**：legacy 只做语法转译、不带这个 polyfill
+ * （真机实测：legacy 版能解析出 1 页，然后仍倒在渲染那一步）。所以这里补上。
+ */
+const ensureMapApis = () => {
+  const M = Map.prototype
+  if (typeof M.getOrInsertComputed === 'function') return
+  Object.defineProperty(M, 'getOrInsertComputed', {
+    value: function (key, compute) {
+      if (!this.has(key)) this.set(key, compute(key))
+      return this.get(key)
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  })
+}
+
+const loadPdfjs = () =>
+  (pdfjsPromise ??= (ensureMapApis(), import(vendor('pdfjs/build/pdf.min.mjs'))))
+
+let foliatePromise = null
+const loadFoliate = () => (foliatePromise ??= import(vendor('foliate/view.js')))
+
+/** 扩展名 → 渲染器。`foliate` 一套通吃电子书格式（它内部自己判 zip / MOBI / FB2） */
+const RENDERERS = {
+  pdf: 'pdf',
+  epub: 'foliate',
+  mobi: 'foliate',
+  azw3: 'foliate',
+  azw: 'foliate',
+  fb2: 'foliate',
+  cbz: 'foliate',
+  txt: 'text',
+}
+
+/* ───────────── 小工具 ───────────── */
+
+const nameOf = (p) => p.split('/').pop() ?? p
+
+const extOf = (p) => {
+  const n = nameOf(p)
+  const i = n.lastIndexOf('.')
+  return i > 0 ? n.slice(i + 1).toLowerCase() : ''
+}
+
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag)
+  if (cls) n.className = cls
+  if (text != null) n.textContent = text
+  return n
+}
+
+/**
+ * 阅读器外观。注入到**接管容器内部** ⇒ 释放接管时随容器一起消失，不污染内核样式。
+ * 颜色一律走 `--zn-*` 令牌 ⇒ 深浅色主题自动跟随。
+ */
+const CSS = `
+.dn-root{display:flex;flex-direction:column;width:100%;height:100%;background:var(--zn-bg,#fff);color:var(--zn-fg,#111)}
+.dn-bar{display:flex;align-items:center;gap:8px;flex:none;padding:6px 10px;font-size:13px;border-bottom:1px solid var(--zn-border,#e4e4e7);background:var(--zn-bg-subtle,#f7f7f8)}
+.dn-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.dn-meta{flex:none;color:var(--zn-fg-subtle,#71717a)}
+.dn-btn{flex:none;padding:3px 9px;font-size:12px;border:1px solid var(--zn-border,#d4d4d8);border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+.dn-bar-btn:disabled{opacity:.4;cursor:default}
+.dn-body{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;background:var(--zn-bg-subtle,#f7f7f8)}
+.dn-page{max-width:100%;height:auto;margin:10px 0;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
+.dn-text{flex:1;margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;font:14px/1.7 ui-monospace,Consolas,monospace}
+.dn-msg{padding:26px;font-size:13px;line-height:1.7;color:var(--zn-fg-subtle,#71717a);max-width:44em}
+`
+
+/* ───────────── 三种渲染器 ───────────── */
+/* 统一接口：返回 { next?, prev?, zoom?, destroy? }；进度通过 onMeta 文本回调推给顶栏 */
+
+async function mountPdf(body, { url, onMeta }) {
+  const pdfjs = await loadPdfjs()
+  // worker **同源**即可（CSP 无需额外放行：无 worker-src 时回退链是 child-src → script-src →
+  // default-src，而 script-src 含 'self'；blob worker 则被 script-src 的 blob: 放行 —— 实测）
+  pdfjs.GlobalWorkerOptions.workerSrc = vendor('pdfjs/build/pdf.worker.min.mjs')
+
+  const doc = await pdfjs.getDocument({
+    url,
+    cMapUrl: vendor('pdfjs/cmaps/'), // 中文 PDF 必需（缺它中文变方框）
+    cMapPacked: true,
+    standardFontDataUrl: vendor('pdfjs/standard_fonts/'),
+    wasmUrl: vendor('pdfjs/wasm/'), // jbig2 / openjpeg（扫描件）
+    isEvalSupported: false, // CVE-2024-4367 缓解：PDF 内嵌 JS 不走 eval
+  }).promise
+
+  const canvas = el('canvas', 'dn-page')
+  body.append(canvas)
+
+  let page = 1
+  let scale = 1
+  let rendering = false
+  let pending = null
+
+  const draw = async (n) => {
+    if (rendering) {
+      pending = n
+      return
+    }
+    rendering = true
+    try {
+      const p = await doc.getPage(n)
+      const vp = p.getViewport({ scale })
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.floor(vp.width * dpr)
+      canvas.height = Math.floor(vp.height * dpr)
+      canvas.style.width = `${Math.floor(vp.width)}px`
+      canvas.style.height = `${Math.floor(vp.height)}px`
+      const ctx = canvas.getContext('2d')
+      await p.render({
+        canvasContext: ctx,
+        viewport: vp,
+        transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+      }).promise
+      page = n
+      onMeta(`第 ${n} / ${doc.numPages} 页 · ${Math.round(scale * 100)}%`)
+    } finally {
+      rendering = false
+      if (pending != null && pending !== page) {
+        const q = pending
+        pending = null
+        void draw(q)
+      }
+    }
+  }
+
+  await draw(1)
+  return {
+    next: () => {
+      if (page < doc.numPages) void draw(page + 1)
+    },
+    prev: () => {
+      if (page > 1) void draw(page - 1)
+    },
+    zoom: (d) => {
+      scale = Math.min(4, Math.max(0.25, +(scale + d).toFixed(2)))
+      void draw(page)
+    },
+    destroy: () => {
+      try {
+        void doc.destroy()
+      } catch {
+        /* 已经没了就算了 */
+      }
+    },
+  }
+}
+
+async function mountFoliate(body, { url, name, onMeta }) {
+  await loadFoliate() // 注册 <foliate-view> 自定义元素
+  const view = document.createElement('foliate-view')
+  view.style.cssText = 'width:100%;height:100%;display:block'
+  body.style.display = 'block' // 连续滚动交给 foliate 自己管，别让 flex 干扰它的测量
+  body.append(view)
+
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`读取失败：HTTP ${res.status}`)
+  // foliate 按 `type` / 文件名判格式 ⇒ 必须是 File（Blob 没有 name）
+  const file = new File([await res.blob()], name)
+
+  view.addEventListener('relocate', (e) => {
+    const d = e.detail ?? {}
+    const pct = d.fraction != null ? ` · ${Math.round(d.fraction * 100)}%` : ''
+    onMeta(`${d.tocItem?.label ?? name}${pct}`)
+  })
+
+  await view.open(file)
+  // 官方 reader.js 也是 open 之后手动推第一屏
+  view.renderer?.setAttribute?.('flow', 'scrolled')
+  view.renderer?.next?.()
+
+  return {
+    next: () => view.goRight?.(),
+    prev: () => view.goLeft?.(),
+    destroy: () => {
+      try {
+        view.close?.()
+      } catch {
+        /* 忽略 */
+      }
+    },
+  }
+}
+
+async function mountText(body, { url, onMeta }) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`读取失败：HTTP ${res.status}`)
+  const text = await res.text()
+  body.style.display = 'block'
+  const pre = el('pre', 'dn-text', text)
+  body.append(pre)
+  onMeta(`${text.length} 字符`)
+  return {}
+}
+
+const MOUNTERS = { pdf: mountPdf, foliate: mountFoliate, text: mountText }
+
+/* ───────────── 插件本体 ───────────── */
+
+export default {
+  apply(ctx) {
+    const { command, view, host, subscriptions } = ctx
+
+    /** 当前接管句柄。内核**同一时刻只允许一个接管者** ⇒ 换文档前必须先放掉旧的 */
+    let shell = null
+    const release = () => {
+      const s = shell
+      shell = null
+      try {
+        s?.dispose()
+      } catch {
+        /* 已经释放过就算了 */
+      }
+    }
+
+    const openDocument = async (payload) => {
+      const path = (payload && typeof payload === 'object' && payload.path) || ''
+      if (!path) return
+      const ext = extOf(path)
+      const kind = RENDERERS[ext]
+      if (!kind) {
+        host.notify(`文档阅读器不认识 .${ext} 这种格式`, 'warn')
+        return
+      }
+
+      release() // 先放掉上一个接管者，否则 overrideShell 会抛"已有接管者"
+
+      const url = host.assetUrl(path)
+      const name = nameOf(path)
+
+      shell = view.overrideShell({
+        mount: (root) => {
+          root.classList.add('dn-root')
+          const style = document.createElement('style')
+          style.textContent = CSS
+          root.append(style)
+
+          /* ── 顶栏：关闭 / 文件名 / 进度 / 缩放 / 翻页 ── */
+          const bar = el('div', 'dn-bar')
+          const btnClose = el('button', 'dn-btn', '✕ 关闭')
+          btnClose.title = '关闭阅读器，回到笔记（Esc）'
+          const title = el('span', 'dn-title', name)
+          title.title = path
+          const meta = el('span', 'dn-meta', '载入中…')
+          const btnOut = el('button', 'dn-btn', '−')
+          const btnIn = el('button', 'dn-btn', '＋')
+          const btnPrev = el('button', 'dn-btn', '‹')
+          const btnNext = el('button', 'dn-btn', '›')
+          bar.append(btnClose, title, meta, btnOut, btnIn, btnPrev, btnNext)
+          root.append(bar)
+
+          const body = el('div', 'dn-body')
+          root.append(body)
+
+          let api = null
+          let dead = false
+          const setMeta = (t) => {
+            if (!dead) meta.textContent = t
+          }
+
+          btnClose.addEventListener('click', release)
+          btnPrev.addEventListener('click', () => api?.prev?.())
+          btnNext.addEventListener('click', () => api?.next?.())
+          btnOut.addEventListener('click', () => api?.zoom?.(-0.25))
+          btnIn.addEventListener('click', () => api?.zoom?.(0.25))
+
+          const onKey = (e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              release()
+            } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+              e.preventDefault()
+              api?.next?.()
+            } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+              e.preventDefault()
+              api?.prev?.()
+            }
+          }
+          document.addEventListener('keydown', onKey)
+
+          void (async () => {
+            try {
+              api = await MOUNTERS[kind](body, { url, name, onMeta: setMeta })
+              // 缩放只有 PDF 有意义（foliate 自己管排版）
+              if (kind !== 'pdf') {
+                btnIn.remove()
+                btnOut.remove()
+              }
+            } catch (e) {
+              if (dead) return
+              body.textContent = ''
+              const m = el('div', 'dn-msg', `打开失败：${e?.message ?? String(e)}`)
+              // Android 上"点开头目录"读不了（asset scope 限制）—— 给出可执行的解释
+              if (/403/.test(String(e?.message))) {
+                m.textContent += '\n\n若是从 . 开头的目录里打开的（如 .zn/…），Android 端读不了 —— 把文档放到普通目录再试。'
+              }
+              body.append(m)
+              setMeta('失败')
+            }
+          })()
+
+          return () => {
+            dead = true
+            document.removeEventListener('keydown', onKey)
+            try {
+              api?.destroy?.()
+            } catch {
+              /* 忽略 */
+            }
+            body.textContent = ''
+          }
+        },
+      })
+
+      host.log('info', `文档阅读器：接管 core.openDocument 打开 ${path}（${kind}）`)
+    }
+
+    /* 接管内核的派发点：bind 只换实现、不动元数据；卸载时宿主自动还原（契约 §2.1.1） */
+    subscriptions.push(command.bind('core.openDocument', openDocument))
+
+    /* 自带一个入口：命令面板里也能开（挑库里第一份文档；没有就如实说） */
+    subscriptions.push(
+      command.register({
+        id: 'doc-reader.open',
+        title: '文档阅读器：打开库内的文档…',
+        run: async () => {
+          try {
+            const list = (await ctx.fs.listNotes()).filter((n) => n.kind === 'doc')
+            if (!list.length) {
+              host.notify('这个库里还没有文档（PDF / EPUB / …）', 'warn')
+              return
+            }
+            await openDocument({ path: list[0].path })
+          } catch (e) {
+            host.notify(`打不开：${String(e)}`, 'warn')
+          }
+        },
+      }),
+    )
+
+    host.log('info', '文档阅读器已就绪（接管 core.openDocument）')
+  },
+}

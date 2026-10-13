@@ -1968,6 +1968,25 @@ export default function App() {
         run: () => void closeNote(),
       }),
       /**
+       * 「打开只读文档」的**派发点**（2026-10-13 加，配合文档阅读器插件）。
+       *
+       * 内核只认识"这是一份只读文档"（`NoteMeta.kind === 'doc'`），**不认识 pdf/epub**：
+       * 怎么渲染是插件的事。所以这里只放一个**默认实现**（如实告诉用户"没有插件能开"），
+       * 插件用 `command.bind('core.openDocument', …)` 接管 —— 与 `core.newNote` 同一套机制
+       * （`bind` 只换实现、不动元数据；**卸载时自动还原**，见契约 §2.1.1）。
+       *
+       * payload：`{ path: string }`（库内相对路径）
+       */
+      kernel.commands.api.register({
+        id: 'core.openDocument',
+        title: '打开文档（PDF / EPUB 等）',
+        run: (payload) => {
+          const p = (payload ?? {}) as { path?: string }
+          const ext = p.path ? p.path.slice(p.path.lastIndexOf('.') + 1).toLowerCase() : '该'
+          setToast(`没有能打开 .${ext} 的插件 —— 到「插件管理」装一个文档阅读器`)
+        },
+      }),
+      /**
        * 请求 Android 的「所有文件访问」权限（rev64）。
        *
        * 只在 Android 上真正跳系统页，桌面是 no-op（Rust 侧返回 Ok）⇒ 这里不需要平台分支。
@@ -2909,7 +2928,13 @@ export default function App() {
             notes={notes}
             dirs={dirs}
             activePath={activePath}
-            onOpen={(p) => void openNote(p)}
+            onOpen={(p) => {
+              /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
+                 走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
+              const meta = notes.find((n) => n.path === p)
+              if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
+              else void openNote(p)
+            }}
             onNewFile={newNoteIn}
             onNewDir={newDirIn}
             onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
@@ -3248,7 +3273,13 @@ export default function App() {
           {/* 左半：库信息与常驻面板。整块包一层，保证从最左开始 ——
               之前只靠末尾一个 margin-left:auto 的空元素压尾，内容为空时排版会漂。 */}
           <div className="zn-statusbar-left">
-            <span>{notes.length} 篇</span>
+            {/* 「篇」只数**笔记**：文档（pdf/epub/…）不是笔记，混进同一个数字会误导 */}
+            <span>
+              {notes.filter((n) => n.kind !== 'doc').length} 篇
+              {notes.some((n) => n.kind === 'doc')
+                ? ` · ${notes.filter((n) => n.kind === 'doc').length} 文档`
+                : ''}
+            </span>
             {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
             {statusPanels.map((p) => (
               <PanelBoundary key={p.id}>

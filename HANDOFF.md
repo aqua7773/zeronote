@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 71
-更新时间: 2026-10-13（rev71 卡死兜底补上移动端接线 + 真机端到端验证全通）
+revision: 72
+更新时间: 2026-10-13（rev72 文档格式阅读器：只读 PDF / EPUB / … 插件落地，内核放开只读文档）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -1897,6 +1897,108 @@ revision: 71
 >
 > **基线**：`tsc` 0 · `oxlint src` 4 · `cargo test --lib` **20 passed**。
 > 备注：`ZN_WATCHDOG_DRYRUN=1` 仍是"只留痕不退出"的观察档，真机排查误判时用它。
+
+> ## 📌 rev72（2026-10-13 · **文档格式阅读器**：只读 PDF / EPUB / … 插件落地）
+>
+> **用户原话**：「下一步做**文档格式兼容插件**，兼容 pdf、epub 等多种格式，**不需要编辑，只需要能阅读就行**」
+> ＋「**不提供最近文件功能，只需要能打开查看就行了**」。
+> 两个选型由用户拍板：**渲染资产放应用内置** · **EPUB 用 foliate-js 多格式通吃**。
+> **设计与实测全集见 `docs/文档阅读器-调研-2026-10-13.md`** —— 本文只留结论、判据与未验项。
+>
+> ### 一、交付物
+>
+> | 落点 | 内容 |
+> |---|---|
+> | **插件** | `examples/doc-reader/`（`index.js` 约 330 行 + manifest）—— 只读，`command.bind('core.openDocument')` 接管 |
+> | **渲染资产** | `public/vendor/pdfjs/`（**pdf.js 6.4.299 的 legacy build**，Apache-2.0；含 cmaps/字体/wasm ⇒ 共 **5.39 MB**）· `public/vendor/foliate/`（foliate-js **1.0.1**，MIT，约 290 KB） |
+> | **内核改动** | `lib.rs`（`NoteMeta.kind` + `collect()` 放开只读文档）· `contract.ts`（类型）· `index-api.ts`（只索引笔记）· `App.tsx`（`core.openDocument` 默认实现 + 文件树分派 + 状态栏分列）· `FileTree.tsx`（文档类型徽章）· `tauri.conf.json`（asset scope 加 `requireLiteralLeadingDot:false`）· `.gitattributes`（新加 5 条二进制规则） |
+> | **夹具** | `examples/asset-probe/`（asset 协议能力探针，可复跑）· 测试库 `probe.pdf`（449 B 最小 PDF）与 `测试书籍.epub`（2.5 KB 自建 EPUB，带脚本探针） |
+>
+> ### 二、桌面判据（全过）
+>
+> | # | 判据 | 实测 |
+> |---|---|---|
+> | 1 | 文件树**看得见**文档 | ✅ 树里出现 `测试书籍.epub` / `probe.pdf`（文档带灰色类型徽章），状态栏分成「**5 篇 · 2 文档**」 |
+> | 2 | 点文档即开（派发生效） | ✅ `window.__znKernelAudit().commands` 里 `core.openDocument.impl === 'plugin:doc-reader'` |
+> | 3 | **PDF 真渲染** | ✅ 接管 + canvas，顶栏「`第 1 / 1 页 · 100%`」；截图 `_shots/docreader-01-pdf.png`（页面上是 `ZeroNote PDF probe`） |
+> | 4 | **EPUB 真渲染 + 保留书籍排版** | ✅ `<foliate-view>` 建出、meta「`第一章 春江 · 0%`」、**书籍自带 CSS 生效**（标题蓝、段落缩进 2em、连续滚动）；截图 `docreader-02-epub.png` |
+> | 5 | **EPUB 章节脚本不执行**（安全） | ✅ 测试书里埋的 `<script>parent.__epubScriptRan=true</script>` ⇒ 实测 **`undefined`**（未执行）；截图 `docreader-03-epub-sandbox.png` |
+> | 6 | 基线 | ✅ `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings · `cargo test --lib` **20 passed** |
+> | 7 | 生产构建带上资产 | ✅ `pnpm build` 成功（5.37s）· `dist/vendor` **217 文件 / 5.53 MB**（asset 走 `public/` ⇒ 随 vite 进 dist） |
+> | 8 | **反复接管 / 释放**（PDF → EPUB → PDF → 释放） | ✅ 连续三次接管无「已有接管者」冲突；每次 `Esc` 后内核 UI 完整回来（文件树 14 项） |
+> | 9 | TXT 直显 | ✅ 点 `说明.txt` → 「78 字符」；正文走 `textContent`（`<b>` **原样显示**，不解析 HTML） |
+>
+> ⚠️ **本轮踩坑（写下来，下次构建 Android 必踩）**：直接跑 `pnpm tauri android build` 时**没人设
+> `CARGO_TARGET_DIR`**，产物会落进工作区内的 `src-tauri\target\` ⇒ 编 C 依赖（`vswhom-sys`）
+> 必报 **MSVC `D8050`（"未能将命令行放入调试记录中"）**。**这不是 MSVC 环境问题**，就是本文件
+> 「技术事实」里那条老铁律。正确姿势（= `android-dev.cmd` 的等价环境）：
+> `$env:CARGO_HOME="C:\Users\AQUA\Documents\deepseek\_cargo-home"` ＋
+> `$env:CARGO_TARGET_DIR="C:\Users\AQUA\cargo-targets\zeronote"` 之后再跑 `pnpm tauri android build --apk --debug --target aarch64`。
+> 代价：两次失败构建在 `src-tauri\target` 里堆了 **8.6 GB** 垃圾（已清理）。
+>
+> ### 三、顺带查清 / 纠正的四条（都有一手来源，别再重查）
+>
+> 1. **Android 上 asset 协议读"点开头的目录"会 403** —— 桌面同一条路 200。
+>    根因：`tauri-2.12.3/src/scope/fs.rs:215-225` 的 `require_literal_leading_dot` **unix 默认 true、windows 默认 false**，
+>    glob `**` 因此不匹配 `.zn` 这类路径段。**修法**：`assetProtocol.scope` 改成对象形式显式写 `false`（schema 有该字段）。
+>    ⚠️ **该修复未在真机复验**（编译期嵌入，要重出二进制）—— 见"未验项"。
+> 2. **旧结论作废**：tauri issue **#11371**（fetch/XHR 丢 `content-range`，原文点名影响 pdf.js 分段加载）
+>    在本仓 tauri **2.12.3** 上**已不复现** —— 实测 Range 返回 `206` 且 `content-range: bytes 0-9/449` 齐全。
+> 3. **CSP 一个字都不用改**：`new Worker(blobURL)` 实测 **ok**。机制（MDN `worker-src`）：`worker-src` 缺失时
+>    回退链是 `child-src → **script-src** → default-src`，而 `script-src` 含 `blob:`
+>    （⚠️ 我原先推断"只回退到 default-src"是**错的**）。
+> 4. ⚠️ **dev 与生产 CSP 不一致（重要）**：`data:`/`blob:` iframe 里的内联脚本，**生产**会被 Tauri 注入的
+>    `sha256` 拦掉（`'unsafe-inline'` 被抵消）、**dev 下会照常执行**（实测 `scriptRan: true`）。
+>    ⇒ **不能把"脚本不执行"寄托在 CSP 上**。所以我们对 foliate 源码做了两处可用改动（见 §四）。
+>
+> ### 四、对第三方源码的改动（两处，原处都有 `⚠️ ZeroNote 改动` 注释）
+>
+> | 文件 | 改动 | 理由 |
+> |---|---|---|
+> | `foliate/fixed-layout.js:1` | 删掉 `import 'construct-style-sheets-polyfill'` | **裸模块名在浏览器里无法解析**；两端都原生支持 `adoptedStyleSheets` |
+> | `foliate/paginator.js:234` · `foliate/fixed-layout.js:90` | `sandbox` **去掉 `allow-scripts`** | 不让 EPUB 自带脚本执行（依据见 §三.4）；`allow-same-origin` 保留 ⇒ 分页仍能读 `contentDocument` |
+>
+> 两个库的 LICENSE 随资产一起复制（pdf.js 的 Apache-2.0 + wasm 各组件的 `LICENSE_*`；foliate 的 MIT）。
+>
+> ### 五、Android 真机（ARIA 24069RA21C · Android 16 · WebView **Chrome 143**）
+>
+> 构建（子 agent 执行）：`CARGO_HOME=…\_cargo-home` ＋ `CARGO_TARGET_DIR=C:\Users\AQUA\cargo-targets\zeronote`
+> ＋ `pnpm tauri android build --apk --debug --target aarch64` → **409 s** · APK **278.3 MB** ·
+> `adb install -r` **Success** · 应用起在前台、无崩溃。
+>
+> | # | 判据 | 实测 |
+> |---|---|---|
+> | 1 | 文件树显示文档（真机） | ✅ 抽屉里 `probe` **.pdf** / `测试书籍` **.epub**（带类型徽章）· 状态栏「**9 篇 · 2 文档**」 |
+> | 2 | **点开 PDF 并渲染** | ✅ 顶栏「第 1 / 1 页 · 100%」，页面渲染出 `ZeroNote PDF probe`（`_shots/android-docreader-05-pdf.png`） |
+> | 3 | **点开 EPUB 并渲染** | ✅ 章节标题 + 中文段落，**书籍 CSS 生效**（`_shots/android-docreader-06-epub.png`） |
+> | 4 | asset 点目录 403 **已修复** | ✅ `.zn/plugins/…/probe.pdf` 从 **403** 变 **200** + `application/pdf` + Range `206` |
+> | 5 | 自动探针四项（无需点击） | ✅ asset ✓ · PDF `300x200` / `nonWhite 1610` · EPUB 标题 + 2 章节 + 782 字 · **脚本 `null`** |
+>
+> **真机点击怎么点（实测有效，HANDOFF 旧结论要补）**：`adb shell input tap` 在 WebView 里无效、
+> 原地 `swipe x y x y 120` 这次也无效，**`adb shell input motionevent DOWN x y` + `UP x y` 有效**
+> （中间隔 ~120 ms）。截图是**物理像素**（本机 1220×2712），可直接当坐标用。
+>
+> ### 六、真机暴露的两个真问题（桌面测不出来 —— 这就是必须上真机的理由）
+>
+> 1. ⚠️ **pdf.js 的 modern build 在 Android WebView 上渲染必炸**：
+>    `TypeError: this[#da].getOrInsertComputed is not a function` —— 真机 WebView 是 **Chrome 143**、
+>    桌面 WebView2 是 **154**，而 `Map.prototype.getOrInsertComputed` 是很新的 TC39 提案。
+>    换 **legacy build**（只大 12%）后**仍不够**：实测 legacy 只做语法转译、**不带这个 polyfill**
+>    （能解析出 1 页，然后仍倒在渲染那一步）⇒ 插件里补了 **3 行 `ensureMapApis()`**，桌面 + 真机双端复测通过。
+> 2. ⚠️ **vite dev server 启动时就把 `public/` 的文件列表定死**：启动后**新增**的路径一律落进
+>    SPA fallback —— 实测 `/vendor/pdfjs/legacy/pdf.min.mjs` → `200` 但 `content-type: text/html`、
+>    **981 字节的 index.html**（诊断方法：拿两个 URL 对账 content-type 与长度，一眼就分清）。
+>    ⇒ dev 下新增 public 文件**要么重启 vite、要么放回既有目录名**；我们选后者
+>    （`public/vendor/pdfjs/build/` 里放的就是 **legacy** 那份，注释写明了）。
+>    **生产构建全量复制 `public/`，没有这个问题。**
+>
+> ### 七、未验 / 未做（诚实清单）
+>
+> - **性能**：大 PDF（几十 MB）与 EPUB 分页未压测（pdf.js 官方 FAQ 提到一页 HiDPI canvas 约 14 MB）。
+> - **`wasm/`（jbig2 / openjpeg）** 未单独验：简单 PDF 用不到，参数已按官方传（`wasmUrl`）。
+> - **`content://`（Android SAF）** 仍读不了（历史结论，与本插件无关）。
+> - **不做**（用户明确）：最近文件 / 书签 / 阅读进度 / 缩略图 / 目录侧栏。
+
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "asset-probe",
+  "name": "Asset 协议探针",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "一次性夹具：验证 host.assetUrl(库内相对路径) + fetch 能否读到 PDF 字节 / 正确 MIME / Range 206。桌面已实测通过（2026-10-13），本夹具用于 Android System WebView 侧的同一验证。结果写进插件 store（store.json）与库根 asset-probe-result.json 双保险。",
+  "capabilities": ["fs:read", "fs:write", "store", "command"]
+}

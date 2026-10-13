@@ -29,6 +29,19 @@ const VAULTS_DIR: &str = ".vaults";
 /// 遍历时跳过的目录名
 const SKIP_DIRS: [&str; 4] = [".zn", ".git", "node_modules", ".obsidian"];
 
+/// 内核只负责**列出来**的只读文档格式（打开交给插件，见 `App.tsx` 的 `core.openDocument`）。
+///
+/// 2026-10-13 加：此前 `collect()` 硬过滤只收 `.md`/`.markdown`，
+/// 于是库里的 PDF / EPUB **在文件树里根本不存在** —— 插件连"能发现它"的机会都没有。
+const DOC_EXTS: [&str; 8] = ["pdf", "epub", "mobi", "azw3", "azw", "fb2", "cbz", "txt"];
+
+/// 文件名（大小写不敏感）是否为内核认识的**只读文档**格式。
+/// 注意 `.md`/`.markdown` 不在此列 —— 它们是笔记（`is_markdown`），走编辑器。
+fn is_readonly_doc(name: &str) -> bool {
+  let lower = name.to_lowercase();
+  DOC_EXTS.iter().any(|e| lower.ends_with(&format!(".{e}")))
+}
+
 #[derive(Serialize)]
 pub struct NoteMeta {
   /// 库内相对路径，统一用 `/`
@@ -38,6 +51,10 @@ pub struct NoteMeta {
   mtime: u64,
   size: u64,
   frontmatter: serde_json::Value,
+  /// `note` = Markdown 笔记（内核可读可写，走编辑器）；
+  /// `doc`  = 只读文档（pdf/epub/…，内核只列出来，打开交给插件）。
+  /// 前端据此分流，见 `App.tsx` 的 `core.openDocument`。
+  kind: String,
 }
 
 /// 库内相对路径 → 绝对路径（拒绝绝对路径、`..`、盘符等）
@@ -183,8 +200,9 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       collect(root, &path, out)?;
       continue;
     }
-    let lower = name.to_lowercase();
-    if !(lower.ends_with(".md") || lower.ends_with(".markdown")) {
+    // 笔记（.md）与**只读文档**（pdf/epub/…）都进文件树；其它一律跳过。
+    let is_note = is_markdown(&name);
+    if !is_note && !is_readonly_doc(&name) {
       continue;
     }
     let meta = match entry.metadata() {
@@ -197,28 +215,39 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
       .map(|d| d.as_millis() as u64)
       .unwrap_or(0);
-    let text = fs::read_to_string(&path).unwrap_or_default();
     let rel = path
       .strip_prefix(root)
       .map_err(|e| e.to_string())?
       .to_string_lossy()
       .replace('\\', "/");
-    let frontmatter = parse_frontmatter(&text);
-    // 显示名三级回退：frontmatter.title → 正文首行 → 文件名
-    let fallback = rel
-      .rsplit('/')
-      .next()
-      .unwrap_or(&rel)
-      .trim_end_matches(".markdown")
-      .trim_end_matches(".md")
-      .to_string();
-    let title = display_title(&frontmatter, &text).unwrap_or(fallback);
+    // 只读文档**不读文本、不解析 frontmatter**：二进制读成 String 没有意义（`read_to_string`
+    // 会失败），而"三级回退标题"是 Markdown 专属语义。文档显示名 = 文件名**含扩展名**
+    //（`手册.pdf` 比 `手册` 有信息量 —— 文件树里一眼能看出类型）。
+    let (frontmatter, title) = if is_note {
+      let text = fs::read_to_string(&path).unwrap_or_default();
+      let fm = parse_frontmatter(&text);
+      let fallback = name
+        .trim_end_matches(".markdown")
+        .trim_end_matches(".md")
+        .to_string();
+      let title = display_title(&fm, &text).unwrap_or(fallback);
+      (fm, title)
+    } else {
+      // 文档显示名 = **去掉扩展名的文件名**（类型由前端挂的 `.pdf` 徽章显示，见 FileTree：
+      // 若这里带上扩展名，树里就会出现 `手册.pdf .pdf` 这种重复）。
+      let stem = name
+        .rsplit_once('.')
+        .map(|(a, _)| a.to_string())
+        .unwrap_or_else(|| name.clone());
+      (serde_json::Value::Null, stem)
+    };
     out.push(NoteMeta {
       path: rel,
       title,
       mtime,
       size: meta.len(),
       frontmatter,
+      kind: if is_note { "note" } else { "doc" }.to_string(),
     });
   }
   Ok(())
@@ -1594,25 +1623,37 @@ mod tests {
   }
 
   #[test]
-  fn list_skips_private_dirs_and_non_markdown() {
+  fn list_covers_notes_and_readonly_docs_but_skips_others() {
     let d = tmpdir("ls");
     let v = d.to_string_lossy().to_string();
     fs::write(d.join("a.md"), "# a").unwrap();
-    fs::write(d.join("b.txt"), "b").unwrap();
+    fs::write(d.join("b.pdf"), "%PDF-1.4").unwrap();
+    fs::write(d.join("c.png"), "PNG").unwrap();
     fs::create_dir_all(d.join("子目录")).unwrap();
     fs::write(d.join("子目录").join("c.md"), "# c").unwrap();
     fs::create_dir_all(d.join(".zn")).unwrap();
     fs::write(d.join(".zn").join("secret.md"), "# s").unwrap();
 
-    let paths: Vec<String> = list_notes(v, None)
-      .unwrap()
-      .into_iter()
-      .map(|m| m.path)
-      .collect();
+    let list = list_notes(v, None).unwrap();
+    let paths: Vec<String> = list.iter().map(|m| m.path.clone()).collect();
     assert!(paths.contains(&"a.md".to_string()));
     assert!(paths.contains(&"子目录/c.md".to_string()), "中文子目录要能递归：{paths:?}");
     assert!(!paths.iter().any(|p| p.contains(".zn")), ".zn 不能进文件树");
-    assert!(!paths.iter().any(|p| p.ends_with(".txt")), "只收 markdown");
+    assert!(
+      !paths.iter().any(|p| p.ends_with(".png")),
+      "非文档（图片等）不进文件树：{paths:?}"
+    );
+
+    // 2026-10-13：只读文档也进文件树（此前只收 .md ⇒ 库里的 PDF 根本看不见）
+    let pdf = list
+      .iter()
+      .find(|m| m.path == "b.pdf")
+      .expect("文档要进文件树");
+    assert_eq!(pdf.kind, "doc", "文档的 kind 必须是 doc");
+    assert_eq!(pdf.title, "b", "文档显示名 = 去掉扩展名的文件名（类型由前端徽章显示）");
+    assert!(pdf.frontmatter.is_null(), "文档不解析 frontmatter");
+    let md = list.iter().find(|m| m.path == "a.md").unwrap();
+    assert_eq!(md.kind, "note", "笔记的 kind 是 note");
   }
 
   /// 空目录也要上报 —— 文件树若只靠 `list_notes` 反推目录，**空文件夹根本不会显示**
