@@ -1449,6 +1449,42 @@ revision: 45
 >   读数 `__znMergeLog` = `{base:72, mine:79, theirs:81, conflicts:0}`）。
 > · 诊断出口：**`window.__znMergeLog`**（与 `__znReloadLog` 对称）。
 > · 回归 `verify-shell` 12/12 · `tsc -b` 0 · `oxlint src` 恰好 4。
+
+> ## 📌 rev63（2026-10-13 · Android 出包：APK + 导图插件 → 互联网中转）
+>
+> **用户要的**：把安卓编译成 APK、**跟导图插件压缩在一起**、通过互联网中转发给他（先提 LocalSend，后改"互联网中转"）。
+>
+> **一、交付物**（litterbox，72 小时）：一个 zip = **APK 43.5 MB**（4 个 ABI：arm64-v8a / armeabi-v7a / x86 / x86_64）
+> + `outline-map-plugin.zip`（55 KB）+ `安装说明.txt`。APK 用 **debug keystore 签名**（zipalign → apksigner，
+> 证书 `CN=Android Debug`）。**包名 `com.aqua.zeronote`**（release 无 `.debug` 后缀）⇒ 与手机上现有
+> `com.aqua.zeronote.debug` **并存**、首次打开是**空库** ⇒ 说明里写清"**首次选库目录建议选公共存储**"，
+> 这样插件能直接放进去（应用私有目录文件管理器进不去 —— 这是 v0.1 就踩过的老坑）。
+>
+> **二、三个坑（都实测排除后才定论；已另存进长期经验）**
+> ① **cargo 的构建脚本在这台机器上不能写 `~/.cargo`**：`tauri-plugin-*` 的 build script 要往
+>    `~/.cargo/registry/src/<mirror>/tauri-plugin-*/android/.tauri/tauri-api` 写 Android 桥工程
+>    （源码 `tauri-plugin/src/build/mobile.rs` 的 `create_dir_all` + `copy_folder`），报 `os error 5 / 183`。
+>    **关键鉴别**：同一个目录 PowerShell 能建能写、cargo 不能；而 cargo **能写项目内的 `target/`**
+>    ⇒ 属于**按进程的路径拦截**。ACL / 只读属性 / 目录占用 / 长路径（路径仅 108 字符）/ Defender 受控文件夹访问
+>    **都逐一实测排除**（CAF 实测为 0）。
+>    **解法**：`robocopy ~/.cargo <可写位置>` 后构建时 `CARGO_HOME` 指过去 —— **不改任何项目文件、原目录一字未动、可回退**。
+>    ⚠️ 别用"预建 `.tauri`"的歪招：`copy_folder` 对目标**非幂等**（内部 `create_dir`），预建反而 183。
+> ② **自带库模块的 `compileSdk` 不会跟主工程走**：`src-tauri/plugins/tauri-plugin-statusbar/android/build.gradle.kts`
+>    停在 **34**，主工程已是 **37** ⇒ gradle `:tauri-plugin-statusbar:checkReleaseAarMetadata` 直接失败
+>    （"compiled against android-34 … use a newer compileSdk of at least 36"）。改成 37，并在文件里写明原因。
+> ③ 附带教训：**job/管道报 `finished` ≠ cargo 子进程结束** —— "任务完成但构建失败"时先查
+>    `Get-Process cargo,rustc`，有残留先杀，否则后续构建会因目录被占报同一类错。
+>
+> **三、传输通道**
+> · 实测 **litterbox 可用**（`litter.catbox.moe`，1 GB / 24h–72h）；`0x0.st` **已停止收上传**
+>   （官方原话：被 AI botnet spam 刷爆）；`gofile` 的 servers 接口当时无响应。
+> · 顺带写了 `tools/localsend-send.mjs`（LocalSend HTTP API 发送器，流式上传 + 速率）。
+>   **本轮没用上**（用户改走互联网中转），留作以后局域网传输用 —— 注意它的硬前提：
+>   **接收端必须人工点"接受"**，Android 锁屏 / App 不在前台时那个弹窗根本不出现。
+> · 构建用的 cargo home 副本在 **`C:\Users\AQUA\Documents\deepseek\_cargo-home`（1.83 GB，项目外，不进 git）**；
+>   **以后在这台机器上构建 Android 都要带 `$env:CARGO_HOME` 指向它**。
+>
+> **四、基线**：`tsc -b` 0 · `oxlint src` 恰好 4（本轮只改了自带插件的 gradle 配置，未动内核源码）。
 >
 > **五、仍然存在的取舍（诚实记）**：冲突时**总是 mine 赢** —— 没有"让用户挑一边"的 UI。
 > 导图改的那一行若正巧被用户也改了，那处保留用户版本（toast 会报几处）。真需要逐处选择，

@@ -8,7 +8,16 @@ plugins {
 
 android {
     namespace = "app.tauri.statusbar"
-    compileSdk = 34
+    /**
+     * ⚠️ 必须**跟主工程一致**（`gen/android/app/build.gradle.kts` 现在是 37）。
+     *
+     * 2026-10-13 踩到：这里一直是 34，而新版 Tauri/依赖要求 `compileSdk ≥ 36` ⇒
+     * gradle 的 `:tauri-plugin-statusbar:checkReleaseAarMetadata` 直接失败：
+     * 「is currently compiled against android-34 … Update this project to use a newer compileSdk
+     *  of at least 36」。以前能编过只是因为主工程当时也是 34/35 —— 依赖一升级就露出来了。
+     * 以后升级 Tauri 时**顺手核对这一行**（库模块的 compileSdk 不会自动跟着主工程走）。
+     */
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24

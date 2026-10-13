@@ -116,6 +116,13 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > 自测 `node tools/selftest-merge.mjs` **16/16**（离线，node 直跑 `.ts`）·
 > 端到端 `tools/verify-mindmap.mjs` **19/19**（⑱：手改 + 外部写盘 ⇒ 磁盘上两份改动都在）·
 > 诊断出口 `window.__znMergeLog`。
+>
+> 📱 **rev63 Android 出包**（用户要：APK + 导图插件 → 互联网中转）：产物 = 一个 zip（APK **43.5 MB**，4 ABI，
+> debug 证书签名 + `outline-map-plugin.zip` + 安装说明），经 **litterbox** 中转（72h）。包名
+> **`com.aqua.zeronote`**（与现有 `…debug` 版并存，空库）⇒ 首次**选公共存储**当库，插件才放得进去。
+> ⚠️ **本机构建 Android 必须带 `$env:CARGO_HOME=C:\Users\AQUA\Documents\deepseek\_cargo-home`**
+> （cargo 构建脚本不能写 `~/.cargo`，属按进程的路径拦截；ACL/占用/长路径/Defender CAF 均已排除）。
+> ⚠️ 自带库模块的 `compileSdk` 不跟主工程走（statusbar 曾停在 34，主工程 37）⇒ 升 Tauri 时要手动核对。
 > `examples/doc-edit-probe/` **保留**（7 KB，U3 复验一挂即跑；junction 按需挂，别常驻）。
 > **内核已放开**（用户 2026-10-13：允许完善内核，需要就改）；行首按钮那条 `row` 缺 `justify` 的顾虑
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
