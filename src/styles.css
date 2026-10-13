@@ -1381,11 +1381,16 @@ body.is-resizing * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 0.8em;
-  height: 0.8em;
-  font-size: 0.52em;
+  /* 尺寸与字号都按**行字号**的 em 给（H1/H2/H3 各不同）—— 见文件上方那段说明 */
+  /* 2026-10-13 用户要求「调大一点」：字号 0.52em → 0.68em，热区 0.8em → 1em。
+     ⚠️ 改字号**必须重测垂直对齐**：`vertical-align: middle` 的偏差取决于行内盒高度，
+     盒一变（0.8em → 1em）偏差就变；下面的 translateY 先按比例缩到 -0.26em，
+     再用 tools 里的量法复核（实测按钮 cy 与标题文字 cy 之差）。 */
+  width: 1em;
+  height: 1em;
+  font-size: 0.68em;
   line-height: 1;
-  margin: 0 0.3em 0 0;
+  margin: 0 0.34em 0 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -1396,7 +1401,7 @@ body.is-resizing * {
      ② 用 `transform: translateY()` 精确拉回 —— 注意 `vertical-align` 的**长度值是正值上移**，
         `transform` 的负值才是上移，两者语义相反，混用很容易越调越偏（我先写反过一次）。 */
   vertical-align: middle;
-  transform: translateY(-0.34em);
+  transform: translateY(-0.26em);
   opacity: 0.65;
   transition: opacity 0.15s ease, color 0.15s ease;
 }

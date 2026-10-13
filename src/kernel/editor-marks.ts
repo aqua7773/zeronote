@@ -229,6 +229,15 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (++guard > 5000) break
       const lineFrom = doc.lineAt(Math.min(m.index, doc.length)).from
       if (seenLines.has(lineFrom)) continue
+      /**
+       * **跨行条件的最后一道关**（rev65）：正则只看得见字节，而"这个标题下面到底有没有列表"
+       * 要看整篇 —— 所以给插件一个能看全文的谓词，返回 false 的行**不画按钮**。
+       * 行号与 `onClick` 的 payload 同一口径（**0 起**），免得插件两处各写一套换算。
+       */
+      if (rule.filter) {
+        const ln = doc.lineAt(lineFrom)
+        if (!rule.filter({ doc: text, line: ln.number - 1, text: ln.text })) continue
+      }
       seenLines.add(lineFrom)
       ranges.push(
         Decoration.widget({

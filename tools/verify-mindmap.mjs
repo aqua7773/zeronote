@@ -43,6 +43,12 @@ const FIXTURE = `# 导图验收项目
 
 - 排期
   - 里程碑
+
+## 空章节（下面故意不放列表）
+
+## 只有一项的组
+
+- 唯一一项
 `
 
 const results = []
@@ -415,6 +421,25 @@ async function main() {
     await mouse(cdp, 'mousePressed', 30, 700, { buttons: 1 })
     await mouse(cdp, 'mouseReleased', 30, 700, { buttons: 0 })
     await sleep(200)
+
+    /* ⑲ rev65：**❖ 只出现在"下面真有列表"的标题上**（空标题不显示按钮） */
+    const btnScan = await cdp.js(`(() => {
+      const lines = [...document.querySelectorAll('.cm-line')]
+      return lines.map((l, i) => ({
+        n: i + 1,
+        hasBtn: !!l.querySelector('.zn-line-action'),
+        t: (l.textContent || '').replace('❖', '').trim().slice(0, 24),
+      }))
+    })()`)
+    const withBtn = btnScan.filter((x) => x.hasBtn).map((x) => x.t)
+    check(
+      '⑲ ❖ 只出现在真有列表的标题上（只有一项的也算，空标题不算）',
+      withBtn.some((t) => t.includes('导图验收项目')) &&
+        withBtn.some((t) => t.includes('另一组')) &&
+        withBtn.some((t) => t.includes('只有一项的组')) &&
+        !withBtn.some((t) => t.includes('空章节')),
+      j({ withBtn, allLines: btnScan.map((x) => `${x.hasBtn ? '❖' : '·'} ${x.t}`) }),
+    )
 
     /* ⑱ rev62：编辑器有手改时被外部写盘 ⇒ **合并**（两边内容都留住），不是谁覆盖谁 */
     await mouse(cdp, 'mousePressed', 620, 430, { buttons: 1 })

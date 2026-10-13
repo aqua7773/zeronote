@@ -1003,27 +1003,51 @@ export default {
     )
 
     /**
-     * **唯一的常驻界面：每个大纲组标题左侧的「❖」按钮**（`editor.addLineAction`，rev54）。
+     * **大纲组标题左侧的「❖」按钮**（`editor.addLineAction`；rev54 引入、**rev65 收紧**）。
      *
-     * 用户 2026-10-13 定的形态：「**笔记本身就是大纲**」，不给大纲另开一块地方；
-     * 导图开独立窗口、分屏交给 Windows；按钮**不放右上角，放标题左侧**。
-     *
-     * 内核侧实现是 CM6 的 **widget decoration**（`side: -1` = 行首之前）——
+     * 用户 2026-10-13 定的形态：「**笔记本身就是大纲**」，导图开独立窗口、分屏交给 Windows；
+     * 按钮**不放右上角，放标题左侧**。内核侧是 CM6 的 widget decoration（`side: -1`），
      * 视图元素、不进文档、不占偏移 ⇒ Markdown 源保持原样。
-     * 点击时命令收到 `{ line }`，这里按 `block.titleLine` 找回那一组。
      *
-     * ⚠️ 两条边界：① 正则只能决定"哪些行有按钮"，所以**每个标题行**都有这个按钮，
-     * "这个标题下到底有没有列表"是**点击时**判断的（没有就提示一句）；
-     * ② 文档开头那段**没有标题**的裸列表，其 `titleLine` 为 -1 ⇒ 没有按钮，
-     * 那种组仍可用命令面板的 `outline-map.open-map` 打开。
+     * **rev65 收紧的规则（用户 2026-10-13）**：**下面没有列表的标题不再显示按钮** ——
+     * 以前是"每个标题行都有按钮，点下去才提示这组没有列表"，现在把判断提前到**渲染时**。
+     *
+     * 怎么做到的：正则只能看单行，所以内核新加了 `filter`（能看全文的谓词，见契约）。
+     * 这里的判据**直接复用导图自己的解析器 `parseBlocks`** ⇒
+     * **"有按钮"与"能开出导图"永远同真同假**，不会出现"有按钮但点开是空的"。
+     *
+     * 三处细节：
+     * · pattern 同时收**标题行与列表行** —— 否则"文档开头那组没有标题的裸列表"没有候选行，
+     *   给它挂入口（用户 2026-10-13 要的）就无从谈起。
+     * · `filter` 会被**逐行**问，而判据是整篇解析 ⇒ 用"上次那份文本"做一层缓存，
+     *   一次装饰器重建只解析一遍。
+     * · 裸列表组挂在**它自己的第一行**上（`startLine`），不是标题行（它没有标题）。
      */
+    let blocksCacheDoc = null
+    let blocksCacheBlocks = []
+    /** `parseBlocks` 的单条缓存 —— 键就是文本本身（CM6 一次重建里传的是同一份字符串） */
+    const blocksOfDoc = (doc) => {
+      if (blocksCacheDoc !== doc) {
+        blocksCacheBlocks = parseBlocks(doc).blocks
+        blocksCacheDoc = doc
+      }
+      return blocksCacheBlocks
+    }
+
     subscriptions.push(
       editor.addLineAction({
         id: 'map-btn',
-        pattern: '^#{1,6}\\s',
+        pattern: '^(?:#{1,6}\\s|\\s*(?:[-*+]|\\d+[.)])\\s)',
         flags: 'm',
         label: '❖',
         title: '把这一组开成导图窗口',
+        filter: ({ doc, line }) => {
+          const blocks = blocksOfDoc(doc)
+          // ① 标题行：这一块（标题 + 它下面的内容）里确实有列表项
+          if (blocks.some((b) => b.titleLine === line && b.nodes.length > 0)) return true
+          // ② 文档开头那组**没有标题**的裸列表：入口挂在它的第一行
+          return blocks.some((b) => b.titleLine === -1 && b.nodes.length > 0 && b.startLine === line)
+        },
         onClick: 'outline-map.open-map-at-line',
         // 不传 className：要"无痕融入"（用户 2026-10-13）—— 默认档就是最克制的那个
       }),
