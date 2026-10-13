@@ -1203,6 +1203,8 @@ body.is-resizing * {
 .zn-plugin-meta { flex: 1; min-width: 0; }
 .zn-plugin-name { font-weight: 600; }
 .zn-plugin-ver { color: var(--zn-fg-subtle); font-weight: 400; font-size: var(--zn-text-sm); }
+/* 被启动自愈关掉的插件（「因上次加载未完成已自动禁用」）—— 用 danger 色，别混进普通备注 */
+.zn-plugin-autodisabled { color: var(--zn-danger); font-weight: 500; font-size: var(--zn-text-sm); }
 .zn-plugin-desc { color: var(--zn-fg-muted); font-size: var(--zn-text-sm); margin-top: 2px; }
 .zn-plugin-caps { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); margin-top: 4px; }
 /* 插件行的「删除」：平时只是个淡图标，hover 才显 danger —— 免得一排红叉吓人 */

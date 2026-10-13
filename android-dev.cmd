@@ -3,6 +3,9 @@ rem ZeroNote Android dev launcher -- CRLF required, do not convert to LF
 set "PATH=%USERPROFILE%\.cargo\bin;%APPDATA%\npm;%PATH%"
 set "CARGO_TARGET_DIR=%USERPROFILE%\cargo-targets\zeronote"
 set "NDK_HOME=%LOCALAPPDATA%\Android\Sdk\ndk\28.2.13676358"
+rem 卡死兜底：dev 下关掉原生看门狗（dev 的 HMR 空窗会被误判成卡死；生产包不带这个变量 ⇒ 默认开）。
+rem 想观察它的行为用 set "ZN_WATCHDOG_DRYRUN=1"。
+set "ZN_WATCHDOG=off"
 cd /d "%~dp0"
 rem 用 tauri.android-dev.json 覆盖 beforeDevCommand —— 安卓这边不再自起 vite，
 rem 直接连桌面 dev 已在提供的 devUrl（两端共用同一个服务，开发时要对照）。

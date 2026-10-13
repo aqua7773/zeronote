@@ -253,12 +253,68 @@ function relPathIn(vault: string, path: string): string | null {
   return p.slice(prefix.length) || null
 }
 
-function loadDisabled(): Set<string> {
+/* ── 卡死兜底 C 段：启动自愈 ──
+ *
+ * `LS_LOADING` 是"即将加载某个插件"时落下的标记（见插件加载循环里那两行）：
+ * 正常路径（加载成功 / 加载失败 / 正常关窗）都会清掉它。所以**启动时还能读到它**，
+ * 只可能是**上一次进程在加载那个插件时死掉了** —— 主线程被占死（看门狗杀的），
+ * 或用户/系统强杀（这两种情况分不出来，所以一律按前者处置）。
+ *
+ * 处置：并入禁用集合 —— **宁可少加载一个插件，也不要一开就再卡一次**。
+ * 代价是"强杀应用"也会误伤一个插件，所以必须 **可见 + 可一键恢复 + 有日志**
+ *（不许静默：静默失效比报错危险）。
+ *
+ * ⚠️ 为什么放在**模块级**而不是组件里：`toast` 的 `useState` 在 `disabled` 之前，
+ * 组件里跑就没法同时喂给两个初值；模块级只在加载时跑一次，顺序与次数都确定
+ *（本仓库已移除 StrictMode，不存在双跑）。
+ */
+const LS_LOADING = 'zeronote.plugins.loading'
+/** 启动自愈认出的插件（`loadDisabled()` 与插件页共用） */
+const bootAutoDisabled = new Set<string>()
+/** 给用户看的那句话（`toast` 初值直接用） */
+let bootAutoDisabledNotice: string | null = null
+
+function bootSelfHeal() {
+  let raw: string | null = null
   try {
-    return new Set<string>(JSON.parse(localStorage.getItem(LS_DISABLED) ?? '[]'))
+    raw = localStorage.getItem(LS_LOADING)
   } catch {
-    return new Set()
+    return
   }
+  if (!raw) return
+  try {
+    localStorage.removeItem(LS_LOADING) // 用过即清：下次启动不再重复判定
+  } catch {
+    /* 清不掉也不影响本次判定 */
+  }
+  try {
+    const id = (JSON.parse(raw) as { id?: unknown })?.id
+    if (typeof id !== 'string' || !id) return
+    bootAutoDisabled.add(id)
+    bootAutoDisabledNotice = `上次加载「${id}」时卡死，已自动禁用它（可在「插件管理」里重新启用）`
+  } catch {
+    /* 标记坏了就当没有 —— 不能因为一条坏标记卡住启动 */
+  }
+}
+bootSelfHeal()
+
+function loadDisabled(): Set<string> {
+  let set: Set<string>
+  try {
+    set = new Set<string>(JSON.parse(localStorage.getItem(LS_DISABLED) ?? '[]'))
+  } catch {
+    set = new Set()
+  }
+  // C 段：把启动自愈认出的插件并进去，**并落盘** —— 否则用户下次刷新它又被加载（又卡一次）
+  if (bootAutoDisabled.size) {
+    for (const id of bootAutoDisabled) set.add(id)
+    try {
+      localStorage.setItem(LS_DISABLED, JSON.stringify([...set]))
+    } catch {
+      /* 写不进去就只在本次会话生效（总比再卡一次好） */
+    }
+  }
+  return set
 }
 
 export default function App() {
@@ -299,7 +355,9 @@ export default function App() {
   const [, setShellTick] = useState(0)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  /* 卡死兜底 C 段：启动自愈若认出了"上次卡死的插件"，**第一眼就告诉用户**（不许静默）。
+     初值直接取模块级结论 —— 不写 effect，免得踩 `set-state-in-effect`（本仓库 lint 基线是恰好 4 条） */
+  const [toast, setToast] = useState<string | null>(bootAutoDisabledNotice)
   /** 移动端的「笔记库」面板（桌面走系统目录选择器，不用它） */
   const [vaultPanelOpen, setVaultPanelOpen] = useState(false)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
@@ -310,6 +368,11 @@ export default function App() {
   /* ── 插件 ── */
   const [manifests, setManifests] = useState<PluginManifest[]>([])
   const [disabled, setDisabled] = useState<Set<string>>(loadDisabled)
+  /**
+   * 因**上次加载未完成**被自动禁用的插件（启动自愈的结论，见模块级的 `bootSelfHeal`）。
+   * 插件页据此显示明确标记 —— 与"用户自己关的"区分开，并且在用户重新启用后消失。
+   */
+  const [autoDisabled, setAutoDisabled] = useState<Set<string>>(() => new Set(bootAutoDisabled))
   const [reloadToken, setReloadToken] = useState(0)
   const [loadedIds, setLoadedIds] = useState<string[]>([])
   /**
@@ -1075,6 +1138,13 @@ export default function App() {
         const { getCurrentWindow } = await import('@tauri-apps/api/window')
         const win = getCurrentWindow()
         const fn = await win.onCloseRequested(async (e) => {
+          // 卡死兜底 C 段：正常关窗 ⇒ 清掉"正在加载"标记。
+          // 否则"加载途中用户自己关窗"会留下标记，下次启动就被误判成卡死（白误伤一个插件）。
+          try {
+            localStorage.removeItem(LS_LOADING)
+          } catch {
+            /* 无所谓 */
+          }
           if (closingRef.current || !dirtyRef.current) return // 放行
           e.preventDefault()
           try {
@@ -2104,6 +2174,14 @@ export default function App() {
             pending.set(m.id, m.id)
             continue
           }
+          // 卡死兜底 C 段：**加载前**落一条"正在加载"标记（localStorage 是同步写 ⇒ 必然落盘，
+          // 实测见 docs/卡死兜底方案-2026-10-13.md §6 的 P3）。插件若在 apply 里占死主线程，
+          // 这条标记就是重启后唯一能指认"是谁卡的"线索。
+          try {
+            localStorage.setItem(LS_LOADING, JSON.stringify({ id: m.id, t: Date.now() }))
+          } catch {
+            /* 写不进去不影响加载本身 */
+          }
           try {
             const l = await loadPlugin(m.id, deps)
             // 加载**完成那一刻**才被取代：当场卸掉再整轮退出（否则它就是幽灵命令）
@@ -2124,6 +2202,14 @@ export default function App() {
             }
             // 被取代时不再报错：那些失败多半是取消造成的假象
             if (!cancelled) setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
+          } finally {
+            // 加载**走完**了（成功或失败）⇒ 标记使命结束。
+            // 只有"进程在这里死掉"才会把它留下 —— 那正是启动自愈要认的那种卡死。
+            try {
+              localStorage.removeItem(LS_LOADING)
+            } catch {
+              /* 无所谓 */
+            }
           }
         }
         if (!cancelled) {
@@ -2279,6 +2365,55 @@ export default function App() {
   }, [])
 
   /**
+   * 卡死兜底：**前端心跳**（判超时的一方在 Rust 的原生看门狗线程里，见 `src-tauri/src/lib.rs`
+   * 的 `spawn_watchdog`）。设计取舍与验收判据见 `docs/卡死兜底方案-2026-10-13.md`。
+   *
+   * 机制很朴素 —— 心跳就是"主线程还活着"的凭据：插件用 `while(true)` 占死主线程后，
+   * 这个 `setInterval` 不再执行，Rust 侧连续超时即判卡死。
+   * （**前端自己判不了**：主线程死了，任何前端定时器都停 —— 这正是要有原生侧的原因。）
+   *
+   * 三个必须的细节：
+   *  · **挂载即 resume**：Rust 侧初始是"暂停"态，不主动恢复就永远不判超时。
+   *  · **不可见就 pause**：手机切后台时 WebView 被系统暂停、心跳自然停 —— 不暂停会被误杀。
+   *  · **pagehide 也 pause**：正常关窗/刷新前先暂停，免得"正在关闭"被当成卡死。
+   */
+  useEffect(() => {
+    if (!vault) return
+    const beat = () => {
+      void invoke('zn_heartbeat', { vault }).catch(() => {})
+    }
+    const syncVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void invoke('zn_watchdog_resume').catch(() => {})
+        beat()
+      } else {
+        void invoke('zn_watchdog_pause').catch(() => {})
+      }
+    }
+    const pause = () => {
+      void invoke('zn_watchdog_pause').catch(() => {})
+      // 关窗 / 刷新都算"正常离开"：顺手清掉"正在加载"标记。
+      // ⚠️ 必须在这里清，别指望关窗监听器 —— 项目的 ✕ 走的是 `getCurrentWindow().destroy()`
+      //（`WindowControls` 的 onClose），**不触发** `onCloseRequested`；只有 `pagehide` 一定会跑到。
+      // 不清的话："加载途中用户关了应用"的标记会留到下次启动 ⇒ 白误伤一个插件。
+      try {
+        localStorage.removeItem(LS_LOADING)
+      } catch {
+        /* 无所谓 */
+      }
+    }
+    syncVisibility()
+    const timer = window.setInterval(beat, 1000)
+    document.addEventListener('visibilitychange', syncVisibility)
+    window.addEventListener('pagehide', pause)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', syncVisibility)
+      window.removeEventListener('pagehide', pause)
+    }
+  }, [vault])
+
+  /**
    * Android 系统返回键接管。
    *
    * 不接管的后果（用户实测「手机也无法返回，只会直接退出」）：
@@ -2317,6 +2452,15 @@ export default function App() {
       else next.add(id)
       return next
     })
+    // 用户自己动手恢复 ⇒ "我替你关的"这条标记使命结束（变成"你重新开的"）
+    if (enabled) {
+      setAutoDisabled((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
     setReloadToken((t) => t + 1)
   }
 
@@ -2359,6 +2503,8 @@ export default function App() {
           .map((p) => (p === 'desktop' ? '桌面' : '移动'))
           .join(' / ')}端`
       : undefined,
+    // 卡死兜底 C 段：被启动自愈关掉的插件 —— 明确标注，别让它静默消失
+    autoDisabledNote: autoDisabled.has(m.id) ? '因上次加载未完成已自动禁用' : undefined,
   }))
 
   /**

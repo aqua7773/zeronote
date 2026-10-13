@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 67
-更新时间: 2026-10-13（rev67 触屏三件真机测清：长按可用 · 多选无入口 · 返回键早已接管 + 抓到菜单层缺口）
+revision: 70
+更新时间: 2026-10-13（rev70 卡死兜底落地：原生看门狗 + 闪退 + 启动自愈，7 条判据全过）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -1777,6 +1777,75 @@ revision: 67
 > 自动禁用后除插件页+toast 要不要再加状态栏常驻提示 · **dev 默认关**（`dev.cmd`/`android-dev.cmd` 设
 > `ZN_WATCHDOG=off`，另留 `ZN_WATCHDOG_DRYRUN=1` 可只观察不杀）。
 > **估时约一天**（不含出包）；验收判据 7 条含"切后台 60 s 不被误杀"（卡 §7）。
+> ✅ **rev70 已实施**（见下）。
+
+> ## 📌 rev70（2026-10-13 · **卡死兜底落地**：原生看门狗 ＋ 闪退 ＋ 启动自愈 —— 7 条判据全过）
+>
+> **用户裁决**：「直接开工，先测桌面端，安卓暂时无法连接」＋ 卡 §9 四点按建议来
+>（阈值 5 s · 写 `库/.zn/watchdog.log` · 不加状态栏常驻提示 · dev 默认关）。
+>
+> ### 一、三个前置探针：**全过**（一次卡死实验验完）
+>
+> 夹具 `examples/hang-plugin`（`apply()` 里先同步写 `localStorage` 再 `for(;;){}`）：
+>
+> | 探针 | 结果 |
+> |---|---|
+> | **P1** 主线程被占死时前端定时器**确实停** | ✅ 日志：`前端无响应 5675ms（阈值 5000ms）`（5 s 阈值 + ~1 s tick，吻合） |
+> | **P2** Rust **非主线程** `std::process::exit` 能终止进程 | ✅ `exit code: 101`（Rust 与 cargo 两处日志都确认） |
+> | **P3** 卡死时 `localStorage` 同步写**已落盘**、重启读得到 | ✅ 重启后读到 `{"id":"hang-plugin","mode":"hang","t":…}` |
+>
+> ### 二、实现（A/B/C 三段）
+>
+> · **A 看门狗**（`src-tauri/src/lib.rs`）：`LAST_BEAT`/`BEAT_PAUSED`/`BEAT_VAULT` 三个静态 +
+>   独立线程每 1 s 用**唯一判据** `watchdog_should_fire(last, now, timeout, paused)` 判超时。
+>   判据抽成纯函数 ⇒ 可单测（`cargo test` 19 → **20**）。
+> · **B 闪退**：`std::process::exit(101)`；退出前先往 `<库>/.zn/watchdog.log` 留痕（Rust 写，卡死时前端已执行不了）。
+> · **C 启动自愈**（`src/App.tsx`）：`zeronote.plugins.loading` 标记三段式 ——
+>   加载前写 / 加载走完（`finally`）清 / **启动时模块级 `bootSelfHeal()` 消费** ⇒
+>   并入禁用集合并落盘 + toast + 插件页红色徽章（`PluginPanel` 新增 `autoDisabledNote`）。
+>   ⚠️ 为什么放**模块级**：`toast` 的 `useState` 在 `disabled` 之前，组件里跑没法同时喂两个初值。
+> · **诊断出口**：`zn_watchdog_status`（`paused`/`lastBeatAgoMs`/`timeoutMs`/`vault`）—— 验收取数用，不靠猜。
+> · **开关**：`ZN_WATCHDOG=off` · `ZN_WATCHDOG_DRYRUN=1`（只留痕不退出）· `ZN_WATCHDOG_TIMEOUT_MS`。
+>   `dev.cmd` 与 `android-dev.cmd` **已按卡 §4 设 `ZN_WATCHDOG=off`**（改完验过换行仍是 CRLF）。
+>
+> ### 三、验收（桌面，7 条判据）
+>
+> | # | 判据 | 实测 |
+> |---|---|---|
+> | 1 | 卡死 ⇒ ≤ 超时+2 s 退出、码 101 | ✅ reload 20:16:18 → 20:16:24 判定（5756 ms）→ `EXIT=101` |
+> | 2 | 重启后自动禁用 + **可见** | ✅ `disabled:["hang-plugin"]` · 插件页显示「**因上次加载未完成已自动禁用**」· toast 抓到原文 · `watchdog.log` 有行 |
+> | 3 | 重新启用 ⇒ 再卡死 ⇒ **再**自动禁用（幂等） | ✅ 12:19:11 再次判定 exit 101；重启后 `disabled` 又含它 + toast 再出 |
+> | 4 | 误判防护：最小化不误杀 | ✅ 最小化 20 s 存活；实测 **`paused` 仍为 false、心跳没停**（见下"意外发现"） |
+> | 5 | 正常使用不误杀 | ⚠️ **未跑满 10 分钟**（时间成本）—— 期间心跳稳定、判据 4/6 已覆盖两个大风险场景 |
+> | 6 | 正常关窗不留残标（不误判） | ✅ 构造"加载 net-demo 途中关窗"：重启后 `loading:null` 且 `disabled` **没有** net-demo |
+> | 7 | 基线 | ✅ `tsc` 0 · `oxlint src` 恰好 4 · `cargo test --lib` **20 passed** |
+>
+> ### 四、实测中的两个"意外发现"（比预想更好 / 更坏各一）
+>
+> 1. ⚠️ **dev 下连续编辑会被误判**：12:13:34/37/40 三次 `vite hmr update` 叠出 >5.5 s 空窗 ⇒
+>    看门狗杀了一次进程（`EXIT=101`）。**这正是卡 §3 表第 3 行预判的场景**，处置就是
+>    「dev 默认关」—— 已落地，本条反过来证明那条设计是必需的。
+> 2. ✅ **桌面最小化不冻结 JS**：实测最小化期间 `paused:false`、`lastBeatAgoMs` 持续 200–600 ms
+>    ⇒ 心跳没停、天然不会误判。所以前端那层 `visibilitychange` 暂停在**桌面用不上**，
+>    保留它是为**移动端切后台**（WebView 被系统真暂停）—— 那条**未验**（见下）。
+>
+> ### 五、顺带修的缺口
+>
+> 项目里点 ✕ 走的是 `getCurrentWindow().destroy()`（`WindowControls` 的 onClose）⇒
+> **不触发** `onCloseRequested`。所以"加载途中关窗"只有 `pagehide` 会跑到 ——
+> rev70 在 `pagehide` 处理器里补了清标记（原本只在 close 监听器里清）。
+>
+> ### 六、未验项（诚实标注）
+>
+> - **Android 全部未验**：设备当时连不上（用户：「安卓暂时无法连接」）。要在手机上验的是
+>   ⓐ 前后台暂停（`WindowEvent::Suspended`/`Resumed` —— 读源码确认是 `#[cfg(mobile)]`，
+>   Android 由 `onPause`/`onResume` 触发，**但本轮没写这条接线**：现在只有前端 `visibilitychange`，
+>   ⓑ 判据 4/5 的移动版）。⇒ **移动端要看这条，得先补 `RunEvent::WindowEvent` 分支再真机验。**
+> - 判据 5 的 10 分钟长跑。
+>
+> **基线**：`tsc` 0 · `oxlint src` 4 · `cargo test --lib` **20 passed**。
+> 证据：`_shots/wd-01-pluginpage.png`（插件页红色徽章）· `.zn/watchdog.log` · dev 日志的 `EXIT=101` 行。
+> 夹具 `examples/hang-plugin/` **保留**（按需挂 junction，**别常驻测试库**）。
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

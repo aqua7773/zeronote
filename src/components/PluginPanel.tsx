@@ -28,6 +28,13 @@ export type PluginRow = {
    * 它**不是错误**：把桌面专属插件拷到手机上是很正常的操作，不该报红。
    */
   platformNote?: string
+  /**
+   * 被**启动自愈**关掉时的说明（如「因上次加载未完成已自动禁用」）。
+   *
+   * 来源：`zeronote.plugins.loading` 标记 —— 上次进程在加载它时死过（看门狗杀的或用户强杀）。
+   * 与 `platformNote` 分开：那不是错误，**这**是"我替你关了它"，必须显眼且可一键恢复。
+   */
+  autoDisabledNote?: string
 }
 
 export function PluginPanel({
@@ -80,6 +87,10 @@ export function PluginPanel({
                   {p.name} <span className="zn-plugin-ver">v{p.version}</span>
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
+                  )}
+                  {/* 卡死兜底 C 段：被启动自愈关掉的 —— 用醒目色，别让它看起来像普通备注 */}
+                  {p.autoDisabledNote && (
+                    <span className="zn-plugin-autodisabled"> {p.autoDisabledNote}</span>
                   )}
                 </div>
                 {p.description && <div className="zn-plugin-desc">{p.description}</div>}

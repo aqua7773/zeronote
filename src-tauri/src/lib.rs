@@ -11,8 +11,9 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
@@ -1026,6 +1027,169 @@ fn opened_urls(state: tauri::State<OpenedUrls>) -> Vec<String> {
   }
 }
 
+/* ───── 卡死兜底：前端心跳 ＋ 原生看门狗（2026-10-13 rev70）─────
+ *
+ * **为什么必须在原生侧**：插件是**进程内 JS**，`while(true)` 占死的是 WebView 的 JS 主线程
+ * ⇒ 前端自己的 `setInterval`／任何"看门狗"都不再执行 —— "前端检测自己卡死"逻辑上不成立。
+ * 所以判超时的一方放在 Rust 的**独立线程**上（它不受 WebView 主线程影响）。
+ *
+ * 三段设计的取舍、防误判与验收判据见 `docs/卡死兜底方案-2026-10-13.md`。
+ *
+ * 开关（默认开/默认值；dev 脚本里显式设 off）：
+ *   · `ZN_WATCHDOG=off`             → 完全不启动看门狗线程
+ *   · `ZN_WATCHDOG_DRYRUN=1`        → 只留痕、不退出（先观察会不会误判）
+ *   · `ZN_WATCHDOG_TIMEOUT_MS=5000` → 超时阈值
+ */
+
+const WATCHDOG_TICK_MS: u64 = 1000;
+const WATCHDOG_DEFAULT_TIMEOUT_MS: u64 = 5000;
+
+/// 最后一次心跳的 epoch 毫秒。**0 = 还没收到过**（此时不判超时 —— 页面可能还在挂载）
+static LAST_BEAT: AtomicU64 = AtomicU64::new(0);
+/// 计时是否暂停（页面不可见 / 应用切后台 / 正在 reload）。**初始为暂停**，等前端第一次 resume。
+static BEAT_PAUSED: AtomicBool = AtomicBool::new(true);
+/// 当前库路径（心跳顺带送来）—— 卡死时要往 `<库>/.zn/watchdog.log` 留痕
+static BEAT_VAULT: Mutex<Option<String>> = Mutex::new(None);
+
+fn now_ms() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_millis() as u64)
+    .unwrap_or(0)
+}
+
+/// 看门狗的**唯一判据**（抽成纯函数是为了能单测 —— 线程与 `process::exit` 都没法在单测里跑）。
+fn watchdog_should_fire(last_beat: u64, now: u64, timeout_ms: u64, paused: bool) -> bool {
+  if paused || last_beat == 0 {
+    return false;
+  }
+  now.saturating_sub(last_beat) > timeout_ms
+}
+
+/// 阈值（`ZN_WATCHDOG_TIMEOUT_MS` 可覆盖）。抽出来是为了让看门狗线程与
+/// `zn_watchdog_status` 用**同一份**口径（两处各读一次 env 迟早会不一致）。
+fn watchdog_timeout_ms() -> u64 {
+  std::env::var("ZN_WATCHDOG_TIMEOUT_MS")
+    .ok()
+    .and_then(|v| v.parse::<u64>().ok())
+    .unwrap_or(WATCHDOG_DEFAULT_TIMEOUT_MS)
+}
+
+/// 前端心跳（页面可见时每秒一次）。顺带把库路径送来，供卡死时留痕。
+#[tauri::command]
+fn zn_heartbeat(vault: Option<String>) {
+  if let Some(v) = vault {
+    if let Ok(mut slot) = BEAT_VAULT.lock() {
+      *slot = Some(v);
+    }
+  }
+  LAST_BEAT.store(now_ms(), Ordering::Relaxed);
+}
+
+/// 暂停计时（`visibilitychange → hidden`、切后台、reload 前）。
+/// **暂停期间不判超时** —— 手机切后台时 WebView 会被系统暂停、心跳自然停，
+/// 不暂停就会被当成"卡死"误杀。
+#[tauri::command]
+fn zn_watchdog_pause() {
+  BEAT_PAUSED.store(true, Ordering::Relaxed);
+}
+
+/// 恢复计时。**必须把 `LAST_BEAT` 重置为当前时刻** —— 否则暂停期间那段时间会被算进间隔，
+/// 一恢复就立刻超时（这是最容易写错的一步）。
+#[tauri::command]
+fn zn_watchdog_resume() {
+  LAST_BEAT.store(now_ms(), Ordering::Relaxed);
+  BEAT_PAUSED.store(false, Ordering::Relaxed);
+}
+
+/// 诊断读数：看门狗眼里的状态。用来判断"到底有没有在计时、会不会误判"
+/// （验收判据 §7 的 4/5 条靠它取数，而不是靠猜）。
+#[tauri::command]
+fn zn_watchdog_status() -> serde_json::Value {
+  let last = LAST_BEAT.load(Ordering::Relaxed);
+  let now = now_ms();
+  serde_json::json!({
+    "paused": BEAT_PAUSED.load(Ordering::Relaxed),
+    "lastBeatAgoMs": if last == 0 { serde_json::Value::Null } else { serde_json::json!(now.saturating_sub(last)) },
+    "timeoutMs": watchdog_timeout_ms(),
+    "vault": BEAT_VAULT.lock().ok().and_then(|v| v.clone()),
+    "disabled": std::env::var("ZN_WATCHDOG").map(|v| v.eq_ignore_ascii_case("off")).unwrap_or(false),
+  })
+}
+
+/// 卡死留痕：往 `<库>/.zn/watchdog.log` 追加一行。**必须 Rust 写** —— 卡死时前端已执行不了。
+/// 还不知道库路径（没选库）就跳过；调用方仍会打 `log::error!`（dev 有 log 插件会落文件）。
+fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
+  let vault = BEAT_VAULT.lock().ok().and_then(|v| v.clone());
+  let Some(vault) = vault else {
+    return;
+  };
+  let dir = Path::new(&vault).join(PRIVATE_DIR);
+  if fs::create_dir_all(&dir).is_err() {
+    return;
+  }
+  let line = format!(
+    "[{}] 前端无响应 {}ms（阈值 {}ms）⇒ 看门狗判定卡死\n",
+    now_ms(),
+    gap_ms,
+    timeout_ms
+  );
+  if let Ok(mut f) = fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(dir.join("watchdog.log"))
+  {
+    let _ = f.write_all(line.as_bytes());
+  }
+}
+
+/// 起看门狗线程（`run()` 的 `setup` 里调用）。
+fn spawn_watchdog() {
+  if std::env::var("ZN_WATCHDOG")
+    .map(|v| v.eq_ignore_ascii_case("off"))
+    .unwrap_or(false)
+  {
+    log::info!("[watchdog] ZN_WATCHDOG=off ⇒ 不启动");
+    return;
+  }
+  let dry = std::env::var("ZN_WATCHDOG_DRYRUN")
+    .map(|v| v == "1")
+    .unwrap_or(false);
+  let timeout_ms = watchdog_timeout_ms();
+
+  std::thread::spawn(move || {
+    log::info!("[watchdog] 启动：阈值 {timeout_ms}ms · dryrun={dry}");
+    // 只在"判定成立的那一刻"留痕一次；心跳回来（gap 回到阈值内）后允许再次判定。
+    let mut reported = false;
+    loop {
+      std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_TICK_MS));
+      let paused = BEAT_PAUSED.load(Ordering::Relaxed);
+      let last = LAST_BEAT.load(Ordering::Relaxed);
+      let now = now_ms();
+      if !watchdog_should_fire(last, now, timeout_ms, paused) {
+        reported = false;
+        continue;
+      }
+      if reported {
+        continue;
+      }
+      reported = true;
+      let gap = now.saturating_sub(last);
+      log::error!("[watchdog] 前端无响应 {gap}ms（阈值 {timeout_ms}ms）");
+      note_watchdog(gap, timeout_ms);
+      if dry {
+        log::warn!("[watchdog] DRYRUN：只留痕，不退出");
+        continue;
+      }
+      // ⚠️ 用 `std::process::exit` 而**不是** `app.exit()`：后者要走 Tauri 的退出流程
+      //（可能依赖主线程参与清理），而主线程此刻**已经死了** —— 等它等于一起卡住。
+      // `std::process::exit` 只依赖当前这个线程，是卡死时唯一可靠的一条路。
+      // 退出码 101 = Rust 的 panic 惯例码，便于事后从日志分辨"这是看门狗杀的"。
+      std::process::exit(101);
+    }
+  });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   // ⚠️ single-instance 必须是**第一个**注册的插件（官方要求）：它要在其它插件初始化之前
@@ -1066,6 +1230,7 @@ pub fn run() {
           }
         }
       }
+      spawn_watchdog();
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -1094,7 +1259,11 @@ pub fn run() {
       ensure_vault,
       list_vaults,
       delete_plugin,
-      opened_urls
+      opened_urls,
+      zn_heartbeat,
+      zn_watchdog_pause,
+      zn_watchdog_resume,
+      zn_watchdog_status
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
@@ -1117,6 +1286,19 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// 看门狗的唯一判据 —— 四条边界一次钉住（线程与 `process::exit` 都没法在单测里跑，故抽成纯函数）。
+  #[test]
+  fn watchdog_fires_only_after_timeout_and_never_when_paused() {
+    // 还没收到过心跳 ⇒ 不判（页面可能还在挂载）
+    assert!(!watchdog_should_fire(0, 999_999, 5_000, false));
+    // 暂停中 ⇒ 永不判（切后台 / 页面隐藏 / reload）
+    assert!(!watchdog_should_fire(1, 999_999, 5_000, true));
+    // 恰好等于阈值 ⇒ 还不判（判据是**超过**阈值）
+    assert!(!watchdog_should_fire(1_000, 6_000, 5_000, false));
+    // 超过阈值 ⇒ 判
+    assert!(watchdog_should_fire(1_000, 6_001, 5_000, false));
+  }
 
   /// 测试临时目录。**刻意不用 `std::env::temp_dir()`（`%TEMP%`）**：
   /// 2026-10-12 夜实测 —— 测试进程往 `%TEMP%` 建目录被拒（`Os code 5 PermissionDenied`，
