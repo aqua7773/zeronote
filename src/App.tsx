@@ -2192,8 +2192,21 @@ export default function App() {
    * 用 ref 传当前逻辑，免得每次状态变化都重新注册返回键监听。
    */
   const backRef = useRef<() => boolean>(() => false)
+  /**
+   * 「层出口」栈 —— 菜单 / 文件树多选这类**状态由组件自持**的浮层，打开时把自己的关闭函数
+   * 压进来；返回键**最先**关它们，再往下才是设置 / 搜索 / 侧栏 / 笔记。
+   *
+   * 为什么要这一层（2026-10-13 rev68 补的缺口）：此前菜单不在链条里 ——
+   * 菜单打开时按返回键会被判成"都没得关" ⇒ 直接 `exit(0)`，**应用退出而菜单还开着**。
+   * 用栈而不是逐个 `if`：这些层的状态不在 App 里，逐个提升 state 会把一个组件的交互拆到两处；
+   * 栈还能自动保证"后开的先关"。
+   */
+  const layerExitsRef = useRef<Array<() => boolean>>([])
   useEffect(() => {
     backRef.current = () => {
+      // ① 最先：自持浮层（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单 / 文件树多选）
+      const stack = layerExitsRef.current
+      if (stack.length && stack[stack.length - 1]()) return true
       if (settingsOpen) {
         setSettingsOpen(false)
         return true
@@ -2225,6 +2238,45 @@ export default function App() {
       return false
     }
   }, [settingsOpen, searchOpen, switcherOpen, paletteOpen, sidebarOpen, mainView, closeNote])
+
+  /* App 自己持有的三个菜单（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单）也压进层出口栈 ——
+     它们既是"返回键该先关掉的一层"，也是 rev68 补掉的那个缺口。 */
+  useEffect(() => {
+    const stack = layerExitsRef.current
+    const close = mainMenu
+      ? () => setMainMenu(null)
+      : vaultMenu
+        ? () => setVaultMenu(null)
+        : menuAt
+          ? () => setMenuAt(null)
+          : null
+    if (!close) return
+    const fn = () => {
+      close()
+      return true
+    }
+    stack.push(fn)
+    return () => {
+      const i = stack.indexOf(fn)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [mainMenu, vaultMenu, menuAt])
+
+  /* 诊断出口（与 `__znKernelAudit` / `__znReloadLog` 同一套路，只读、生产留着无害）：
+     Android 上返回键的触发源是 `onBackButtonPress`，桌面跑不了真机 ——
+     这两个口让脚本能直接跑同一段逻辑并读层数，用来验证"后开的先关"。 */
+  useEffect(() => {
+    const w = window as unknown as {
+      __znBackPress?: () => boolean
+      __znBackLayers?: () => number
+    }
+    w.__znBackPress = () => backRef.current()
+    w.__znBackLayers = () => layerExitsRef.current.length
+    return () => {
+      delete w.__znBackPress
+      delete w.__znBackLayers
+    }
+  }, [])
 
   /**
    * Android 系统返回键接管。
@@ -2721,6 +2773,7 @@ export default function App() {
             onCopy={copyPaths}
             onPaste={(dir) => void pasteInto(dir)}
             onDuplicate={(path) => void duplicateEntry(path)}
+            layers={layerExitsRef}
           />
         ) : (
           <div

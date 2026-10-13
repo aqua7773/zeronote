@@ -1663,6 +1663,91 @@ revision: 67
 > **证据**：`_shots/touch-00-now.png … touch-12-back-drawer.png`（12 张，从小屏 391×868 的 CSS 视口
 > 与物理截图两侧取证）。上面每条结论都能按"测试方法"复跑。
 
+> ## 📌 rev68（2026-10-13 · 触屏三件的落地：**长按进多选** ＋ **菜单层缺口补掉**）
+>
+> **用户裁决三件**：① 把 rev67 那条"长按没有 touchend"的坑说明白；② 安卓多选**做成长按进选择列表**；
+> ③ **把菜单层那个缺口补上**。
+>
+> ### ① 那条坑：为什么长按之后没有 up 事件（一手来源）
+>
+> | 场景 | 实测事件序列（真机，捕获阶段探针） |
+> |---|---|
+> | 普通点击（☰） | `pointerdown → touchstart → pointerup → touchend → click`（完整） |
+> | **长按**（树项 1.2 s） | `pointerdown → touchstart → contextmenu(+429 ms) → pointercancel(+1203 ms) → touchcancel` —— **没有 up / end，也没有 click** |
+>
+> **机制**：`contextmenu` 一发出，就表示**浏览器接管了这次手势**（原生长按菜单）。按 Pointer Events 规范，
+> UA 判定"该 pointer 不会再产生事件"时**必须**发 `pointercancel`（Touch Events 规范对应 `touchcancel`）；
+> 手指抬起时自然就没有 `pointerup`/`touchend`，也不会补 `click`。
+> **实践后果（这条坑真正会咬人的地方）**：
+> ① 任何"等 `touchend`/`pointerup` 收尾"的长按实现会**永远等不到**，临时状态再也复位不了 ——
+> 所以长按的入口应当就是 `contextmenu` 本身，别自己用 `setTimeout` 判长按；
+> ② 反过来也有好处：长按**不会**顺带触发 `click` ⇒ 不必额外防"长按后又把笔记打开了"；
+> ③ 收尾清理要挂在 `pointercancel` / `touchcancel` 上。
+>
+> ### ② 安卓多选：长按一行 → 进「选择模式」
+>
+> 实现落在 `src/components/FileTree.tsx`（**只动前端，Rust 一行未改**）：
+> · **进入**：文件条目的 `onContextMenu` 里判 `(e.nativeEvent as PointerEvent).pointerType === 'touch'`
+>   ⇒ 调 `enterSelect(path)`（进多选 + 选中该行 + 关掉可能开着的菜单）。
+>   **鼠标右键仍是 `pointerType === 'mouse'` ⇒ 照旧弹右键菜单**，桌面行为零变化。
+>   目录条目**不进多选**（多选集合本来就只含文件，与既有 `flatPaths` 口径一致）。
+> · **选择模式内**：点一行 = 加/减选（`pick()` 顶部短路），**不打开笔记** —— 否则一开编辑器抽屉就收起来，
+>   多选根本做不下去。
+> · **多选条**（树顶 sticky，新样式 `.zn-select-bar`）：`✕` 退出 · 「已选 N 项」· 剪切 · 复制 · 删除。
+>   删除走既有 `deletePaths`（现多了一步 `setSelectMode(false)`：删完若还留着"已选 0 项"，看着像没删掉）。
+> · 退出途径两条：`✕` / Android 返回键（见 ③）。
+>
+> ### ③ 缺口补掉：给"自持浮层"加一个**层出口栈**
+>
+> 原缺口（rev67 ④）：菜单状态由 `ContextMenu` 自持、不在 App，所以 `backRef` 那条链判成"都没得关"
+> ⇒ 菜单开着按返回键会 `exit(0)`（应用退出而菜单还开着）。
+>
+> 改法（`src/App.tsx`）：新增 `layerExitsRef: Array<() => boolean>` —— **打开一层就压入它的关闭函数，
+> 关闭时弹出**；`backRef` 的**第一步**就是"有层就关层"。用栈而不是逐个 `if` 的理由：这些层的状态不在 App 里，
+> 逐个提升 state 会把一个组件的交互拆到两处；栈还自动保证**后开的先关**。
+> 接入点：App 的三个菜单（☰ / 库 / 主区·侧栏右键）＋ `FileTree` 的右键菜单与多选（通过新 prop `layers`）。
+>
+> **新增两个只读诊断出口**（与 `__znKernelAudit` / `__znReloadLog` 同一套路，生产留着无害）：
+> `window.__znBackPress()`（跑一次返回键逻辑，返回是否被吃掉）· `window.__znBackLayers()`（当前层数）。
+> 这让**桌面**也能复跑返回键的层级顺序 —— 返回值只在 Android 上由 `onBackButtonPress` 触发。
+>
+> ### 验收（桌面 CDP 实测读数，`_shots/ms-01/02-*.png`）
+>
+> | # | 动作 | 读数 |
+> |---|---|---|
+> | V1 | 文件条目派发 `contextmenu`（`pointerType: touch`） | `selBar=true · picked=1 · layers=1` ✅ |
+> | V2 | 再点第二个文件 | `picked=2`，且 `openDoc=false`（**没打开笔记**）✅ |
+> | V3 | 再点已选的第一项 | `picked=1`（减选）✅ |
+> | V4 | ☰ 菜单打开后读状态 | `menu=1 · layers=1` ← 这就是原来会 `exit(0)` 的状态 |
+> | V5 | `__znBackPress()`（菜单开着） | 返回 `true` · `menu=0 · layers=0` ✅ **缺口修好** |
+> | V6 | 多选模式下 `__znBackPress()` | 返回 `true` · `selBar=false · picked=0` ⇒ **退多选而不是退应用** ✅ |
+> | V7 | 多选条点「复制」 | 执行并退出多选（`selBar=false · layers=0`）✅ |
+> | V8 | 回归：普通点击文件 | `openDoc=true`（桌面打开笔记不受影响）✅ |
+>
+> ⚠️ **读层数要注意时序**：`__znBackPress()` 与 `__znBackLayers()` 若在**同一次调用链里紧挨着**读，
+> 会看到 React 还没跑 effect cleanup 的旧值（读到 1）；隔一次渲染（或 `wait 900`）即为 0 —— 不是残留 bug。
+>
+> ### 真机验收（Android dev 版，连桌面 1420，ARIA 24069RA21C；**真实触摸 + 真实返回键**）
+>
+> | # | 动作 | 读数 |
+> |---|---|---|
+> | R1 | 长按文件「1」1.2 s | `selBar=true · picked=1 · 已选 1 项` ✅ 进多选 |
+> | R2 | 点 test-from-pc | `picked=1` · `openDoc=false`（**没打开笔记**）✅ |
+> | R3 | 再点 新笔记#1 | `picked=2 · 已选 2 项` ✅ |
+> | R4 | **按返回键**（多选模式中） | `selBar=false · picked=0`，**进程存活** ✅ 退多选而非退应用 |
+> | R5 | 打开 ☰ 菜单 → 读状态 | `menu=1 · layers=1` |
+> | R6 | **按返回键**（菜单开着） | `menu=0 · layers=0`，**进程存活** ✅ **缺口修复的真机判定** |
+>
+> ⚠️ **测试时踩的两个坑（记下来，别重踩）**：
+> ① **多选条一出现，整棵树下移 ≈43 CSS px** —— 拿"进入多选前"读到的坐标去点第二项，会点回原项
+>   （读数反而变成"已选 0 项"）。**每次进入/退出多选后必须重读坐标**。
+> ② **抽屉关着、又没有任何浮层时按返回键 = `exit(0)`（设计如此）** —— 我一时多按了一次返回键，
+>   把应用退了一次，差点误判成"缺口没修"。测"某一层"之前**先确认那一层真的开着**（读 `menu=1`），
+>   别在同一条脚本里顺手多按一次。
+>
+> **基线**：`tsc -b` **0 错误** · `oxlint src` **恰好 4 warnings**（未新增）· `cargo test --lib` 本轮未跑
+> （**Rust 一行未改**）。证据：`_shots/ms-01…ms-08*.png`（桌面与真机两侧）。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 

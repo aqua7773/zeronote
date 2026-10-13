@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
@@ -114,6 +115,7 @@ function Node({
   selected,
   onPick,
   onContextMenu,
+  onLongPress,
   renaming,
   draft,
   setDraft,
@@ -128,6 +130,8 @@ function Node({
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
+  /** 触摸长按（Android 把长按转成 `contextmenu`，`pointerType === 'touch'`）—— 手机上进多选 */
+  onLongPress: (path: string) => void
   renaming: Renaming | null
   draft: string
   setDraft: (v: string) => void
@@ -193,6 +197,7 @@ function Node({
               selected={selected}
               onPick={onPick}
               onContextMenu={onContextMenu}
+              onLongPress={onLongPress}
               renaming={renaming}
               draft={draft}
               setDraft={setDraft}
@@ -242,6 +247,12 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
+        /* 触摸长按 → 进多选（而不是弹菜单）。判据用 `pointerType`：鼠标右键是 `mouse`，
+           安卓长按是 `touch`（2026-10-13 真机实测，见 HANDOFF rev67）。 */
+        if ((e.nativeEvent as PointerEvent).pointerType === 'touch') {
+          onLongPress(node.path)
+          return
+        }
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
@@ -265,6 +276,7 @@ export function FileTree({
   onDuplicate,
   onRename,
   onDeleteMany,
+  layers,
 }: {
   notes: NoteMeta[]
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
@@ -290,6 +302,12 @@ export function FileTree({
   onPaste: (dir: string) => void
   /** 创建副本（同目录 + 「 副本」；文件与目录都支持） */
   onDuplicate: (path: string) => void
+  /**
+   * 「层出口」栈（App 持有）—— 多选 / 右键菜单这类**状态由本组件自持**的浮层，
+   * 打开时把自己的关闭函数压进去，让 Android 返回键能先关掉它（见 App 的 `backRef`）。
+   * 不传也能用 —— 返回键只在 Android 存在，桌面端不需要。
+   */
+  layers?: RefObject<Array<() => boolean>>
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -299,6 +317,13 @@ export function FileTree({
   const [selected, setSelected] = useState<string[]>([])
   /** Shift 范围选择的锚点 */
   const [anchor, setAnchor] = useState<string | null>(null)
+  /**
+   * **多选模式**（2026-10-13 加，给手机用）—— 触屏没有 Ctrl/Shift，多选入口等于没了；
+   * 改成「长按一行进选择模式」：进入后点一行 = 加/减选（**不打开**笔记），
+   * 树顶出现批量操作条（剪切 / 复制 / 删除 / 退出）。
+   * 桌面不受影响：鼠标右键的 `pointerType` 是 `mouse`，仍走原来的右键菜单。
+   */
+  const [selectMode, setSelectMode] = useState(false)
 
   /* 用「派生」而不是 effect 同步：外部（搜索面板、快速打开）打开别的笔记时，
      activePath 会变，这里直接把它当作唯一选中项，不必写 setState-in-effect。
@@ -323,6 +348,13 @@ export function FileTree({
   }, [tree])
 
   const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
+    // 多选模式（手机长按进的）：点一行 = 加/减选，**不打开**笔记 —— 否则一开编辑器
+    // 就把抽屉收起来，多选根本做不下去。
+    if (selectMode) {
+      setSelected((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]))
+      setAnchor(path)
+      return
+    }
     if (mods.range && anchor) {
       const a = flatPaths.indexOf(anchor)
       const b = flatPaths.indexOf(path)
@@ -346,6 +378,45 @@ export function FileTree({
     setAnchor(path)
     onOpen(path)
   }
+
+  /** 手机长按一行 → 进多选并把该行选上（Android 把长按转成 `contextmenu`，见 HANDOFF rev67） */
+  const enterSelect = (path: string) => {
+    setMenu(null)
+    setSelectMode(true)
+    setSelected([path])
+    setAnchor(path)
+  }
+
+  /** 退出多选（✕ / Android 返回键）—— 顺手清空选中，视觉上不留残影 */
+  const exitSelect = () => {
+    setSelectMode(false)
+    setSelected([])
+  }
+
+  /* 多选 / 右键菜单都是「返回键该先关掉的一层」—— 打开时把关闭函数压进 App 的层出口栈。
+     ⚠️ 必须写在下面「空库」那个 early return **之前**（Hooks 不能条件执行）。 */
+  useEffect(() => {
+    const stack = layers?.current
+    if (!stack) return
+    const close = menu
+      ? () => setMenu(null)
+      : selectMode
+        ? () => {
+            setSelectMode(false)
+            setSelected([])
+          }
+        : null
+    if (!close) return
+    const fn = () => {
+      close()
+      return true
+    }
+    stack.push(fn)
+    return () => {
+      const i = stack.indexOf(fn)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [menu, selectMode, layers])
 
   const startRename = (path: string, isDir: boolean) => {
     setDraft(baseName(path))
@@ -449,6 +520,8 @@ export function FileTree({
     onDeleteMany(paths)
     setSelected([])
     setMenu(null)
+    // 删完就退出多选 —— 留着"已选 N 项"而 N 已经是 0，看着像没删掉（静默失效的样子）
+    setSelectMode(false)
   }
 
   const items: MenuItem[] = menu
@@ -539,6 +612,50 @@ export function FileTree({
         setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
       }}
     >
+      {/* 多选条（手机长按树项进入）—— 只在这一层出现，操作完自动退出 */}
+      {selectMode && (
+        <div className="zn-select-bar">
+          <button
+            type="button"
+            className="zn-icon-btn"
+            onClick={exitSelect}
+            title="退出多选"
+            aria-label="退出多选"
+          >
+            ✕
+          </button>
+          <span className="zn-select-count">已选 {selectedSet.size} 项</span>
+          <span className="zn-select-actions">
+            <button
+              type="button"
+              className="zn-plain-btn"
+              onClick={() => {
+                onCut([...selectedSet])
+                exitSelect()
+              }}
+            >
+              剪切
+            </button>
+            <button
+              type="button"
+              className="zn-plain-btn"
+              onClick={() => {
+                onCopy([...selectedSet])
+                exitSelect()
+              }}
+            >
+              复制
+            </button>
+            <button
+              type="button"
+              className="zn-plain-btn is-danger"
+              onClick={() => deletePaths([...selectedSet])}
+            >
+              删除
+            </button>
+          </span>
+        </div>
+      )}
       {tree.map((n) => (
         <Node
           key={n.path}
@@ -547,6 +664,7 @@ export function FileTree({
           activePath={activePath}
           selected={selectedSet}
           onPick={pick}
+          onLongPress={enterSelect}
           onContextMenu={(path, isDir, x, y) =>
             setMenu({
               path,
