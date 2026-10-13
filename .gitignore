@@ -37,7 +37,7 @@ _tmp-*/
 _shots/
 
 # 过程产物：出包日志与签名中转（APK/so/zip 都是可重出的中间物，不入库；说明见 _build/README.md）
-_build/
+_build/*
 !_build/README.md
 
 # 内核快照（自愈用；内容与仓库重复，不入库 —— 要异地恢复走 GitHub，见 docs/架构原则-2026-10-13.md §4.5）
