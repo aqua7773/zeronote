@@ -1825,6 +1825,57 @@ export default function App() {
     [kernel, refresh],
   )
 
+  /**
+   * **彻底删除**（不可撤销）—— 内核没有"直接抹掉库内文件"的命令，所以是两步：
+   * `delete` 移进回收站 → `listTrash` 按 `originalPath` 找回 id → `purgeTrash` 真删。
+   *
+   * ⚠️ **不能拿 `delete` 的返回值当 id**：它返回 `.zn/trash/<stamp>/<名>`（带斜杠），
+   * 而 `purge_trash` 明确拒绝带斜杠的 id（`src-tauri/src/lib.rs:561`）。
+   * 中途失败就停在"已在回收站"那一步 —— 文件还能找回来，不会直接丢。
+   * ⚠️ 也不用 `emptyTrash`：那会把**用户之前删的**一并清掉，这里只该删本次选中的。
+   */
+  const purgeNotes = useCallback(
+    async (paths: string[]) => {
+      const k = kernel
+      if (!k || !paths.length) return
+      try {
+        if (paths.includes(activeRef.current ?? '') && dirtyRef.current) {
+          await saveNowRef.current()
+        }
+        for (const path of paths) await k.fs.delete(path)
+        const list = await k.fs.listTrash()
+        let purged = 0
+        for (const path of paths) {
+          const entry = list.find((t) => t.originalPath === path)
+          if (!entry) continue
+          await k.fs.purgeTrash(entry.id)
+          purged++
+        }
+        const cur = activeRef.current
+        if (cur && paths.some((p) => cur === p || cur.startsWith(`${p}/`))) {
+          setActivePath(null)
+          setContent('')
+          setDirty(false)
+          setSaveState('idle')
+        }
+        await refresh()
+        setError(null)
+        setUndoDelete(null) // 彻底删除**不给撤销条**（挂上会误导成"还能恢复"）
+        const msg =
+          purged === paths.length
+            ? purged > 1
+              ? `已彻底删除 ${purged} 项`
+              : '已彻底删除'
+            : `已删除 ${purged} / ${paths.length} 项，其余留在回收站`
+        setToast(msg)
+      } catch (e) {
+        await refresh()
+        setError(failMsg('delete', e))
+      }
+    },
+    [kernel, refresh],
+  )
+
   /** 撤销删除：把回收站里的文件逐个 rename 回原位 */
   const undoDeleteNote = useCallback(async () => {
     const k = kernel
@@ -2939,6 +2990,7 @@ export default function App() {
             onNewDir={newDirIn}
             onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
             onDeleteMany={(paths) => void deleteNotes(paths)}
+            onPurgeMany={(paths) => void purgeNotes(paths)}
             clipboard={clipboard}
             onCut={cutPaths}
             onCopy={copyPaths}

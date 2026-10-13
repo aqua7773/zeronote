@@ -123,6 +123,13 @@ const CSS = `
 .dn-page{max-width:100%;height:auto;margin:10px 0;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
 .dn-text{flex:1;margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;font:14px/1.7 ui-monospace,Consolas,monospace}
 .dn-msg{padding:26px;font-size:13px;line-height:1.7;color:var(--zn-fg-subtle,#71717a);max-width:44em}
+.dn-menu{position:absolute;z-index:20;min-width:190px;padding:4px;border:1px solid var(--zn-border,#d4d4d8);border-radius:8px;background:var(--zn-bg,#fff);box-shadow:0 6px 20px rgba(0,0,0,.18)}
+.dn-menu-item{display:block;width:100%;padding:7px 10px;font-size:13px;text-align:left;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+.dn-menu-item:hover{background:var(--zn-bg-hover,#f4f4f5)}
+.dn-menu-item.is-danger{color:var(--zn-danger,#dc2626)}
+.dn-menu-hint{padding:5px 10px 7px;font-size:11px;color:var(--zn-fg-subtle,#71717a);border-top:1px solid var(--zn-border,#e4e4e7);margin-top:4px}
+.dn-confirm{position:absolute;z-index:21;max-width:300px;padding:12px 14px;border:1px solid var(--zn-border,#d4d4d8);border-radius:10px;background:var(--zn-bg,#fff);box-shadow:0 8px 24px rgba(0,0,0,.22);font-size:13px;line-height:1.6}
+.dn-confirm-row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 `
 
 /* ───────────── 三种渲染器 ───────────── */
@@ -258,7 +265,7 @@ const MOUNTERS = { pdf: mountPdf, foliate: mountFoliate, text: mountText }
 
 export default {
   apply(ctx) {
-    const { command, view, host, subscriptions } = ctx
+    const { command, view, host, subscriptions, fs } = ctx
 
     /** 当前接管句柄。内核**同一时刻只允许一个接管者** ⇒ 换文档前必须先放掉旧的 */
     let shell = null
@@ -305,7 +312,11 @@ export default {
           const btnIn = el('button', 'dn-btn', '＋')
           const btnPrev = el('button', 'dn-btn', '‹')
           const btnNext = el('button', 'dn-btn', '›')
-          bar.append(btnClose, title, meta, btnOut, btnIn, btnPrev, btnNext)
+          // 删除入口：**触屏与 EPUB 都得靠它** —— 手机上长按虽然会派发 `contextmenu`，
+          // 但 EPUB 的章节跑在 foliate 自己的 iframe 里，那里的右键不会冒泡到我们的容器
+          const btnMore = el('button', 'dn-btn', '⋮')
+          btnMore.title = '删除这个文档…'
+          bar.append(btnClose, title, meta, btnOut, btnIn, btnPrev, btnNext, btnMore)
           root.append(bar)
 
           const body = el('div', 'dn-body')
@@ -322,6 +333,117 @@ export default {
           btnNext.addEventListener('click', () => api?.next?.())
           btnOut.addEventListener('click', () => api?.zoom?.(-0.25))
           btnIn.addEventListener('click', () => api?.zoom?.(0.25))
+
+          /* ── 删除：顶栏「⋮」或**右键**唤出，两个入口 —— 逻辑删除 / 物理删除 ──
+             （用户 2026-10-13 要求） */
+          let menuEl = null
+          let confirmEl = null
+          const closeMenu = () => {
+            menuEl?.remove()
+            menuEl = null
+          }
+          const closeConfirm = () => {
+            confirmEl?.remove()
+            confirmEl = null
+          }
+
+          /** 逻辑删除：移入 `.zn/trash/`，**可恢复** */
+          const trashIt = async () => {
+            try {
+              await fs.delete(path)
+              host.notify(`已移入回收站：${name}（「回收站」里能恢复）`)
+              release()
+            } catch (e) {
+              host.notify(`删除失败：${e?.message ?? String(e)}`, 'warn')
+            }
+          }
+
+          /**
+           * 物理删除：**内核没有"直接抹掉库内文件"的命令**，所以是两步 ——
+           * `delete` 移进回收站 → `listTrash` 按 `originalPath` 找回它的 id → `purgeTrash` 真删。
+           *
+           * ⚠️ **不能拿 `delete` 的返回值直接当 id**：它返回 `.zn/trash/<stamp>/<名>`（带斜杠），
+           * 而 `purge_trash` 明确拒绝带斜杠的 id（`src-tauri/src/lib.rs:561`）。
+           * 中途失败就停在"已在回收站"那一步 —— 文件还能找回，不会丢。
+           */
+          const purgeIt = async () => {
+            try {
+              await fs.delete(path)
+              const entry = (await fs.listTrash()).find((t) => t.originalPath === path)
+              if (!entry) throw new Error('放进回收站后没能找回它（文件仍在回收站，可去那里手动删）')
+              await fs.purgeTrash(entry.id)
+              host.notify(`已彻底删除：${name}`)
+              release()
+            } catch (e) {
+              host.notify(`彻底删除失败：${e?.message ?? String(e)}`, 'warn')
+            }
+          }
+
+          /** 把浮层放到点击点附近，并夹进容器内（右侧/底部不越界） */
+          const place = (node, x, y) => {
+            const r = root.getBoundingClientRect()
+            root.append(node)
+            const maxL = Math.max(8, root.clientWidth - node.offsetWidth - 8)
+            const maxT = Math.max(8, root.clientHeight - node.offsetHeight - 8)
+            node.style.left = `${Math.min(Math.max(8, x - r.left), maxL)}px`
+            node.style.top = `${Math.min(Math.max(8, y - r.top), maxT)}px`
+          }
+
+          const openConfirm = (x, y) => {
+            closeConfirm()
+            confirmEl = el('div', 'dn-confirm')
+            const q = el('div', '', `彻底删除「${name}」？`)
+            q.style.fontWeight = '600'
+            const warn = el('div', '', '这会永久抹掉文件，不进回收站 —— 撤不回来。')
+            warn.style.color = 'var(--zn-fg-subtle,#71717a)'
+            const row = el('div', 'dn-confirm-row')
+            const cancel = el('button', 'dn-btn', '取消')
+            cancel.addEventListener('click', closeConfirm)
+            const ok = el('button', 'dn-btn', '彻底删除')
+            ok.style.color = 'var(--zn-danger,#dc2626)'
+            ok.style.borderColor = 'var(--zn-danger,#dc2626)'
+            ok.addEventListener('click', () => {
+              closeConfirm()
+              void purgeIt()
+            })
+            row.append(cancel, ok)
+            confirmEl.append(q, warn, row)
+            place(confirmEl, x, y)
+          }
+
+          const openMenu = (x, y) => {
+            closeConfirm()
+            closeMenu()
+            menuEl = el('div', 'dn-menu')
+            const b1 = el('button', 'dn-menu-item', '删除（移入回收站）')
+            b1.addEventListener('click', () => {
+              closeMenu()
+              void trashIt()
+            })
+            const b2 = el('button', 'dn-menu-item is-danger', '彻底删除…')
+            b2.addEventListener('click', () => {
+              closeMenu()
+              openConfirm(x, y)
+            })
+            menuEl.append(b1, b2, el('div', 'dn-menu-hint', '「回收站」里能恢复；彻底删除不能'))
+            place(menuEl, x, y)
+          }
+
+          btnMore.addEventListener('click', (e) => {
+            e.stopPropagation()
+            const r = btnMore.getBoundingClientRect()
+            openMenu(r.left, r.bottom + 4)
+          })
+          // 桌面右键唤出同一菜单（EPUB 章节在 iframe 里，那种情况用顶栏「⋮」）
+          root.addEventListener('contextmenu', (e) => {
+            e.preventDefault()
+            openMenu(e.clientX, e.clientY)
+          })
+          const onDocDown = (e) => {
+            if (menuEl && !menuEl.contains(e.target) && e.target !== btnMore) closeMenu()
+            if (confirmEl && !confirmEl.contains(e.target)) closeConfirm()
+          }
+          document.addEventListener('mousedown', onDocDown)
 
           const onKey = (e) => {
             if (e.key === 'Escape') {
@@ -361,6 +483,9 @@ export default {
           return () => {
             dead = true
             document.removeEventListener('keydown', onKey)
+            document.removeEventListener('mousedown', onDocDown)
+            closeMenu()
+            closeConfirm()
             try {
               api?.destroy?.()
             } catch {

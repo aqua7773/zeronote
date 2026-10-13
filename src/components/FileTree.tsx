@@ -342,6 +342,7 @@ export function FileTree({
   onDuplicate,
   onRename,
   onDeleteMany,
+  onPurgeMany,
   layers,
 }: {
   notes: NoteMeta[]
@@ -360,6 +361,11 @@ export function FileTree({
   onRename: (from: string, to: string, isDir: boolean) => void
   /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
   onDeleteMany: (paths: string[]) => void
+  /**
+   * **彻底删除**（不进回收站、不可撤销）—— 用户 2026-10-13 要求。
+   * 支持多选；调用方（`App.tsx`）只负责干活，**二次确认由本组件负责**（它是 UI 的事）。
+   */
+  onPurgeMany: (paths: string[]) => void
   /** 应用级剪贴板（null = 空）：菜单据此决定「粘贴」这一项在不在 */
   clipboard: { mode: 'cut' | 'copy'; paths: string[] } | null
   onCut: (paths: string[]) => void
@@ -390,6 +396,14 @@ export function FileTree({
    * 桌面不受影响：鼠标右键的 `pointerType` 是 `mouse`，仍走原来的右键菜单。
    */
   const [selectMode, setSelectMode] = useState(false)
+  /**
+   * 「彻底删除」的二次确认（2026-10-13 加）—— 它**不进回收站、撤不回来**，
+   * 与「删除」（移入回收站）是两回事 ⇒ 必须问一次。
+   * `x/y` 是触发点的视口坐标，浮层用 `position:fixed` 贴在那儿。
+   */
+  const [purgeConfirm, setPurgeConfirm] = useState<{ paths: string[]; x: number; y: number } | null>(
+    null,
+  )
 
   /* 用「派生」而不是 effect 同步：外部（搜索面板、快速打开）打开别的笔记时，
      activePath 会变，这里直接把它当作唯一选中项，不必写 setState-in-effect。
@@ -656,6 +670,16 @@ export function FileTree({
             danger: true,
             onClick: () => deletePaths(multi ? [...selectedSet] : [path]),
           })
+          // 彻底删除（不进回收站）—— 单独一项，且**必须二次确认**（`setPurgeConfirm`）
+          list.push({
+            label: multi ? `彻底删除选中的 ${selectedSet.size} 项…` : '彻底删除…',
+            danger: true,
+            onClick: () => {
+              const targets = multi ? [...selectedSet] : [path]
+              setMenu(null)
+              setPurgeConfirm({ paths: targets, x: menu.x, y: menu.y })
+            },
+          })
           // 右键的是选中项之外的一条时，额外给一个「删除选中的 N 项」入口
           if (!multi && selectedSet.size > 1) {
             list.push({
@@ -721,6 +745,17 @@ export function FileTree({
             >
               删除
             </button>
+            <button
+              type="button"
+              className="zn-plain-btn is-danger"
+              onClick={() => {
+                // 手机没有右键 ⇒ 多选条是唯一的批量入口。
+                // 不在这里清选中：让用户能在确认框里点「取消」而不丢选择。
+                setPurgeConfirm({ paths: [...selectedSet], x: 24, y: 120 })
+              }}
+            >
+              彻底删除
+            </button>
           </span>
         </div>
       )}
@@ -752,6 +787,56 @@ export function FileTree({
       ))}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+
+      {/* 「彻底删除」的二次确认 —— 不进回收站、撤不回来，所以必须问一次（与「删除」是两回事） */}
+      {purgeConfirm && (
+        <div
+          role="dialog"
+          aria-label="确认彻底删除"
+          style={{
+            position: 'fixed',
+            zIndex: 60,
+            width: 288,
+            padding: '12px 14px',
+            border: '1px solid var(--zn-border)',
+            borderRadius: 10,
+            background: 'var(--zn-bg)',
+            color: 'var(--zn-fg)',
+            boxShadow: '0 8px 24px rgba(0,0,0,.22)',
+            fontSize: 'var(--zn-text-sm)',
+            lineHeight: 1.6,
+            left: Math.max(8, Math.min(purgeConfirm.x, window.innerWidth - 300)),
+            top: Math.max(8, Math.min(purgeConfirm.y, window.innerHeight - 160)),
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>
+            {purgeConfirm.paths.length > 1
+              ? `彻底删除这 ${purgeConfirm.paths.length} 项？`
+              : '彻底删除这一项？'}
+          </div>
+          <div style={{ color: 'var(--zn-fg-subtle)' }}>
+            不经过回收站，<strong>永久抹掉</strong> —— 撤不回来。
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+            <button type="button" className="zn-plain-btn" onClick={() => setPurgeConfirm(null)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="zn-plain-btn is-danger"
+              onClick={() => {
+                const ps = purgeConfirm.paths
+                setPurgeConfirm(null)
+                setSelected([])
+                setSelectMode(false)
+                onPurgeMany(ps)
+              }}
+            >
+              彻底删除
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
