@@ -22,7 +22,7 @@
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 pnpm exec tsc -b                  # 必须 0 错误
 pnpm exec oxlint                  # 必须恰好 4 warnings
-cd src-tauri; cargo test --lib    # 必须 20 passed（2026-10-13 rev72 实测；21 是 rev66 删授权记录前的数字，18 更旧）
+cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测；20 是 rev72~rev74 的数字，18 更旧）
 ```
 
 ## 本会话交付（10 个提交，逐条可回溯）
@@ -260,7 +260,7 @@ cd src-tauri; cargo test --lib    # 必须 20 passed（2026-10-13 rev72 实测�
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev74**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+`HANDOFF.md`（**rev75**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
 **`docs/文档阅读器-调研-2026-10-13.md`（只读文档阅读器的选型 ＋ 实测全集）** ·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·

@@ -1,0 +1,9 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """ZeroNote URI 读取插件：允许前端把 Android 系统递来的 `content://`（SAF）文件
+读成应用缓存里的一份临时文件（返回 { path, name }）。
+
+用途：从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了
+content://，只有 Android 的 ContentResolver 能，所以必须走这条原生通道。"""
+permissions = ["allow-read-content-uri"]

@@ -541,6 +541,17 @@ export interface HostApi {
    */
   assetUrl(relPath: string): string
   /**
+   * **库外绝对路径** → asset URL（2026-10-14 加）。
+   *
+   * 为什么需要：Android 系统「打开方式」递来的文件是 `content://`（SAF），
+   * 内核的原生插件会把它复制到应用缓存（**库外绝对路径**）⇒ 阅读器要读它，
+   * 而 `assetUrl` 只接受**库内相对路径**。
+   *
+   * ⚠️ 与 `assetUrl` 一样不做任何校验 —— 权限边界不在内核（原则 4），
+   * 调用方自己清楚拿到的是什么路径。
+   */
+  assetUrlAbs(absPath: string): string
+  /**
    * 弹系统「另存为」对话框，把内容写到用户选的位置（**导出用**）。
    *
    * 返回实际保存的**绝对路径**；用户取消 ⇒ 返回 `null`（不是抛错，插件不用 try/catch）。

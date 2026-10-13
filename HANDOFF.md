@@ -2087,6 +2087,63 @@ revision: 74
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
 
+> ## 📌 rev75（2026-10-14 · 文件关联 ＋ Android SAF（content://）读取 ＋ release 包）
+>
+> ### 一、起因（用户两次反馈，都带截图）
+> 1. 「安卓的 pdf 打开方式没有 zeronote 选项」
+> 2. 「不支持打开其他目录的 md 文件」（toast：系统递进来的是 SAF 内容 URI，读不了）
+>
+> ### 二、两条根因（一手证据）
+>
+> | # | 现象 | 根因 |
+> |---|---|---|
+> | 1 | 「打开方式」里没有 ZeroNote | Tauri 从 `bundle.fileAssociations` **自动生成** intent-filter，而它只配了 md/markdown —— 构建前的 manifest 里只有 `text/markdown` 一条 mimeType |
+> | 2 | 别的目录的文件点开没反应 | 文件管理器递的是 **`content://`（SAF）**：`std::fs` 读不了它，只有 Android 的 `ContentResolver` 能 |
+>
+> ### 三、改了什么
+>
+> | # | 落点 | 改动 |
+> |---|---|---|
+> | ① | `tauri.conf.json` | `fileAssociations` 从 1 条扩到 **7 条**（pdf / epub / mobi+azw3 / fb2 / cbz / txt，`role: Viewer`）⇒ 重建时生成 7 条 mimeType |
+> | ② | `lib.rs` `pick_open_targets` | 放行只读文档（此前**只放行 `.md`** ⇒ PDF 的 intent 到了也被**静默丢掉**）；新增 1 条单测钉住 |
+> | ③ | `App.tsx` | 非 md 走 `core.openDocument`；`content://` 走新的原生通道 |
+> | ④ | **新插件** `src-tauri/plugins/tauri-plugin-uri-reader` | 照 `statusbar` 模板、约 60 行 Kotlin：`read_content_uri(uri)` → `contentResolver.openInputStream` 复制到 `cacheDir/zn-open/<名>` → 返回 `{path,name}`（绝对路径） |
+> | ⑤ | 内核 `host` 原语 | 新增 **`assetUrlAbs(abs)`**（库外绝对路径 → asset URL；`assetUrl` 只认库内相对路径） |
+> | ⑥ | `examples/doc-reader` | 支持 `{abs,name}` 载荷（库外文件**不给删除入口**）、把 `md` 纳入可读（库外 md 以纯文本只读显示） |
+>
+> ### 四、为什么自己写原生插件
+> 官方 `plugin-fs` **至今不支持**读 `content://` —— `tauri-apps/plugins-workspace#1775` 里，报告者只能自己在
+> `FsPlugin.kt` 里加 Kotlin 才解决（维护者只回"要不要我给你写个临时插件"）。⇒ 照项目里 `tauri-plugin-statusbar`
+> 的模板自己写（含 permissions/、build.rs 的 `.android_path("android")` 自动接 gradle）。
+>
+> ### 五、验收
+>
+> | 判据 | 证据 |
+> |---|---|
+> | intent-filter 真的带上 PDF | 构建后 manifest 有 **7 条 mimeType**（含 `application/pdf`、`application/epub+zip`、`text/plain`…） |
+> | **设备侧真机路由** | `cmd package query-activities -a VIEW -c DEFAULT -t application/pdf` → **5 activities found，含 `com.aqua.zeronote.debug/MainActivity`** ✅ |
+> | SAF 链路（Rust→前端→原生插件） | logcat：`ZeroNote 待打开：content://…` → `Tauri plugin: pluginId: uri-reader, command: readContentUri` ✅ |
+> | SAF **实际读取** | ⚠️ **adb 模拟不出系统授权**：`Permission Denial … requires that you obtain access using ACTION_OPEN_DOCUMENT`；`--grant-read-uri-permission` 反而 `SecurityException`（adb shell UID 2000 无权 grant）。真实文件管理器会带 `FLAG_GRANT_READ_URI_PERMISSION` ⇒ 这是**测试手段天花板**，**待用户手动点一次确认** |
+> | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 4 warnings · `cargo test --lib` **21 passed**（新增 `pick_open_targets_accepts_readonly_docs_but_not_other_files`） |
+>
+> ### 六、release 包（用户要求）
+> debug 包 278 MB 的**实测归因**（拆 APK 数的）：同一个 arm64 原生库 **debug 139.0 MB vs release 11.3 MB（12 倍）**，
+> 加上前端 debug 带 sourcemap（16.3 vs 2.6 MB）—— **与"4 个 ABI"无关**（debug 只含 1 个 ABI）。
+> ⇒ `pnpm tauri android build --apk --target aarch64` → **16,204,059 B ≈ 15.45 MB（缩小 94.5%）**，
+> 用 **debug keystore 签名**（`zipalign -p 4` ＋ `apksigner sign --ks ~/.android/debug.keystore`，build-tools 35.0.0）
+> ⇒ 验签指纹 `2ca79f19…35bb` 与现有安装**完全一致**。
+> ⚠️ **但 adb 装不上**：`INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`（国产 ROM 对"装新应用"的限制；
+> 覆盖升级**已有包名**则放行 —— 之前装 debug 版就是这样成功的）⇒ 交付方式改成**手动安装**（安装说明已写明）。
+> ⚠️ release 的包名是 **`com.aqua.zeronote`**（debug 是 `…zeronote.debug`）⇒ 两者**并存**，不是覆盖升级；库路径相同、数据共用。
+>
+> ### 七、踩坑记录（值得留）
+> 1. **release 构建第一次失败**：`LNK1104: 无法打开 …\release\deps\thiserror_impl-…dll` —— **不是源码问题**，
+>    是并发的 `tauri dev` 的 cargo 在抢**同一个** `CARGO_TARGET_DIR`（我跑 `pnpm build` 改写 dist/ 触发了它重编）。
+>    原样重跑一次即成功。**不要为构建去杀用户的 dev 进程**（那是桌面 CDP 验证的通道）。
+> 2. **`adb shell am start` 无法模拟 SAF**：Android 的 URI 授权只能由真实 App 经
+>    `FLAG_GRANT_READ_URI_PERMISSION` 给出，adb shell（UID 2000）没有这个能力。用真实文件管理器点一次来验证，
+>    别在这上面耗轮次。
+
 
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。

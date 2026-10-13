@@ -1014,7 +1014,10 @@ fn pick_open_targets<I: IntoIterator<Item = String>>(raws: I) -> Vec<String> {
       }
       continue;
     }
-    if !is_markdown(&path) {
+    // 笔记（`.md`）与**只读文档**（pdf / epub / …）都放行 —— 后者交给插件
+    // （`core.openDocument`）渲染。2026-10-14 加：此前只放行 `.md`，于是
+    // 系统「打开方式」里选中 ZeroNote 开 PDF，会在这一行被**静默丢掉**。
+    if !is_markdown(&path) && !is_readonly_doc(&path) {
       continue;
     }
     if fs::metadata(&path).map(|m| m.is_file()).unwrap_or(false) && !out.contains(&path) {
@@ -1237,6 +1240,7 @@ pub fn run() {
   builder
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_statusbar::init())
+    .plugin(tauri_plugin_uri_reader::init())
     .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
       app.manage(OpenedUrls::default());
@@ -1620,6 +1624,32 @@ mod tests {
     assert!(purge_trash(v.clone(), "../escape".into()).is_err(), "路径分隔要拒绝");
     assert_eq!(empty_trash(v.clone()).unwrap(), 1);
     assert!(list_trash(v).unwrap().is_empty());
+  }
+
+  /// 外部打开（系统「打开方式」/ 命令行参数 / 单实例转发）要认**只读文档**：
+  /// 2026-10-14 前只放行 `.md`，于是选中 ZeroNote 开 PDF 会在 `pick_open_targets` 里被静默丢掉。
+  #[test]
+  fn pick_open_targets_accepts_readonly_docs_but_not_other_files() {
+    let d = tmpdir("open");
+    fs::write(d.join("a.pdf"), "%PDF-1.4").unwrap();
+    fs::write(d.join("b.epub"), "PK").unwrap();
+    fs::write(d.join("c.png"), "PNG").unwrap();
+    fs::write(d.join("d.md"), "# d").unwrap();
+
+    let picked = pick_open_targets(vec![
+      d.join("a.pdf").to_string_lossy().to_string(),
+      d.join("b.epub").to_string_lossy().to_string(),
+      d.join("c.png").to_string_lossy().to_string(),
+      d.join("d.md").to_string_lossy().to_string(),
+    ]);
+    let names: Vec<String> = picked
+      .iter()
+      .filter_map(|p| Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()))
+      .collect();
+    assert!(names.contains(&"a.pdf".to_string()), "PDF 要放行：{names:?}");
+    assert!(names.contains(&"b.epub".to_string()), "EPUB 要放行：{names:?}");
+    assert!(names.contains(&"d.md".to_string()), "笔记要放行：{names:?}");
+    assert!(!names.contains(&"c.png".to_string()), "图片不放行：{names:?}");
   }
 
   #[test]

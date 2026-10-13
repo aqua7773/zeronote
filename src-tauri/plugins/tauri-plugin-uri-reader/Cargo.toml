@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-uri-reader"
+version = "0.1.0"
+description = "ZeroNote: 读 Android SAF 的 content:// URI（系统「打开方式」递来的文件）"
+authors = ["AQUA"]
+license = "MIT"
+edition = "2021"
+build = "build.rs"
+links = "tauri-plugin-uri-reader"
+
+[lib]
+name = "tauri_plugin_uri_reader"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12.3" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

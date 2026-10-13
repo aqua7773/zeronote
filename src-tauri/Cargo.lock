@@ -3632,6 +3632,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-uri-reader"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4939,6 +4949,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-single-instance",
  "tauri-plugin-statusbar",
+ "tauri-plugin-uri-reader",
 ]
 
 [[package]]

@@ -89,6 +89,11 @@ const RENDERERS = {
   fb2: 'foliate',
   cbz: 'foliate',
   txt: 'text',
+  // `.md` 也吃，但**只用于库外文件**（Android「打开方式」递来的 SAF 文件被复制到缓存后，
+  // 走的就是这条路）：**库内的 .md 是笔记，走编辑器**，根本不会进这里。
+  // 库外 md 按纯文本显示（要编辑得先导入库 —— 那是另一件事）。
+  md: 'text',
+  markdown: 'text',
 }
 
 /* ───────────── 小工具 ───────────── */
@@ -283,9 +288,19 @@ export default {
     }
 
     const openDocument = async (payload) => {
-      const path = (payload && typeof payload === 'object' && payload.path) || ''
-      if (!path) return
-      const ext = extOf(path)
+      const p = payload && typeof payload === 'object' ? payload : {}
+      /**
+       * 两种来源：
+       *   · `{ path }` —— **库内相对路径**（文件树里点文档、或 `core.openDocument` 的常规用法）
+       *   · `{ abs, name }` —— **库外绝对路径**（2026-10-14 加）：Android 系统「打开方式」递来
+       *     的 `content://` 由内核的原生插件复制到应用缓存后，就是走这条（缓存不在库里）。
+       */
+      const abs = typeof p.abs === 'string' && p.abs ? p.abs : ''
+      const path = abs ? '' : typeof p.path === 'string' ? p.path : ''
+      if (!abs && !path) return
+
+      const name = abs ? p.name || abs.split(/[\\/]/).pop() || '文档' : nameOf(path)
+      const ext = extOf(name)
       const kind = RENDERERS[ext]
       if (!kind) {
         host.notify(`文档阅读器不认识 .${ext} 这种格式`, 'warn')
@@ -294,8 +309,7 @@ export default {
 
       release() // 先放掉上一个接管者，否则 overrideShell 会抛"已有接管者"
 
-      const url = host.assetUrl(path)
-      const name = nameOf(path)
+      const url = abs ? host.assetUrlAbs(abs) : host.assetUrl(path)
 
       shell = view.overrideShell({
         mount: (root, mctx) => {
@@ -309,7 +323,7 @@ export default {
           const btnClose = el('button', 'dn-btn', '✕ 关闭')
           btnClose.title = '关闭阅读器，回到笔记（Esc）'
           const title = el('span', 'dn-title', name)
-          title.title = path
+          title.title = abs || path
           const meta = el('span', 'dn-meta', '载入中…')
           const btnOut = el('button', 'dn-btn', '−')
           const btnIn = el('button', 'dn-btn', '＋')
@@ -325,6 +339,9 @@ export default {
           // ⚠️ 「⋮」放**关闭按钮之后**（左起第 2），不放最右：手机上顶栏元素多，
           // 放最右会被挤出屏幕（真机实测：标题被压没、⋮ 被裁掉一半 ⇒ 点不中）。
           bar.append(btnClose, btnMore, title, meta, btnOut, btnIn, btnPrev, btnNext)
+          // 库外文件（Android「打开方式」→ 原生插件复制到缓存的副本）**不给删除入口**：
+          // 它不在库里，内核的删除是"库内相对路径"，对它没有意义；缓存由系统自己回收。
+          if (abs) btnMore.remove()
           root.append(bar)
 
           const body = el('div', 'dn-body')
@@ -505,7 +522,7 @@ export default {
         },
       })
 
-      host.log('info', `文档阅读器：接管 core.openDocument 打开 ${path}（${kind}）`)
+      host.log('info', `文档阅读器：接管 core.openDocument 打开 ${abs || path}（${kind}）`)
     }
 
     /* 接管内核的派发点：bind 只换实现、不动元数据；卸载时宿主自动还原（契约 §2.1.1） */

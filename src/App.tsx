@@ -208,6 +208,13 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 const MD_RE = /\.(md|markdown)$/i
 
 /**
+ * **只读文档**的扩展名（pdf / epub / …），2026-10-14 加。
+ * ⚠️ 口径必须与 Rust 侧 `DOC_EXTS`（`src-tauri/src/lib.rs`）**一致** ——
+ * 那边决定"文件树里列不列"，这边决定"系统「打开方式」递进来时认不认"。改一处要改两处。
+ */
+const DOC_RE = /\.(pdf|epub|mobi|azw3|azw|fb2|cbz|txt)$/i
+
+/**
  * `file:///C:/a/b.md` → 本地路径。
  *
  * Rust 侧其实已经转过一道（`url_to_path`），这里是**第二道保险** ——
@@ -1316,19 +1323,42 @@ export default function App() {
       const seen = recentOpenRef.current.get(path)
       if (seen !== undefined && now - seen < 3000) return
       recentOpenRef.current.set(path, now)
-      // 非 markdown **静默忽略**（与 Rust 侧同一口径，不弹错）
-      if (!MD_RE.test(path)) return
+      // 笔记与**只读文档**都认；其它类型静默忽略（与 Rust 侧同一口径，不弹错）
+      const isDoc = DOC_RE.test(path)
+      if (!MD_RE.test(path) && !isDoc) return
       if (/^content:\/\//i.test(path)) {
-        // Android SAF：这是**内容 URI**，`std::fs` 读不了（本项目 `host.saveFile` 踩过同一个坑）。
-        // 如实说清，而不是假装打开了一个不存在的文件。
-        setToast('系统递进来的是 SAF 内容 URI（content://…），当前版本读不了它；请在应用内打开笔记库。')
+        /**
+         * Android SAF：系统「打开方式」递来的是**内容 URI**，`std::fs` 读不了它。
+         *
+         * 2026-10-14 起交给原生插件 `tauri-plugin-uri-reader`：它在 Android 侧用
+         * `ContentResolver` 把文件**复制到应用缓存**，返回绝对路径；我们再让阅读器读那份副本
+         * （`core.openDocument({ abs })`）。
+         *
+         * 为什么是"复制到缓存"而不是"导入笔记库"：从文件管理器打开多半只是**看一眼**，
+         * 不该往用户的库里塞副本。（md 若要编辑，那属于"导入"，不在本轮。）
+         */
+        try {
+          const r = await invoke<{ path: string; name: string }>(
+            'plugin:uri-reader|read_content_uri',
+            { uri: path },
+          )
+          const name = r.name || '文档'
+          if (!DOC_RE.test(name)) {
+            setToast(`「${name}」不是可阅读的文档类型（支持 pdf / epub / txt / md 等）`)
+            return
+          }
+          void kernel?.commands.api.execute('core.openDocument', { abs: r.path, name })
+        } catch (e) {
+          setToast(`读不了这个文件：${e}`)
+        }
         return
       }
       const cur = vaultRef.current
       const rel = cur ? relPathIn(cur, path) : null
       if (rel) {
-        // 已在当前库内 ⇒ 直接开这篇，不必切库
-        await openNoteRef.current(rel)
+        // 已在当前库内 ⇒ 直接开：文档交给插件（core.openDocument），笔记走编辑器
+        if (isDoc) void kernel?.commands.api.execute('core.openDocument', { path: rel })
+        else await openNoteRef.current(rel)
         return
       }
       const { dir, name } = splitPath(path)
@@ -1338,7 +1368,8 @@ export default function App() {
       // 它会一直等着那个库，等用户哪天又建出同名目录、切过去时突然弹出一篇笔记。
       if (!(await applyVault(dir))) pendingOpenRef.current = null
     },
-    [applyVault],
+    // `kernel` 进依赖：文档要经 `core.openDocument` 派发（切库时 kernel 会重建）
+    [applyVault, kernel],
   )
   useEffect(() => {
     openExternalFileRef.current = openExternalFile
@@ -1359,6 +1390,11 @@ export default function App() {
     if (!pending || !vault || !kernel) return
     if (!samePath(vault, pending.vault)) return
     pendingOpenRef.current = null
+    // 文档（pdf / epub / …）交给插件渲染；笔记走编辑器 —— 与 `openExternalFile` 同一口径
+    if (DOC_RE.test(pending.name)) {
+      void kernel.commands.api.execute('core.openDocument', { path: pending.name })
+      return
+    }
     void openNoteRef.current(pending.name)
   }, [vault, kernel])
 

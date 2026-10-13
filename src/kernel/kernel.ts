@@ -359,6 +359,18 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         return abs
       }
     },
+    /**
+     * 库外**绝对路径** → asset://（2026-10-14 加）。
+     * 用途：Android SAF 的文件被原生插件复制到应用缓存后，阅读器要读那份副本
+     * （缓存目录不在库里，`assetUrl` 的相对路径拼不出来）。
+     */
+    assetUrlAbs(absPath) {
+      try {
+        return convertFileSrc(absPath)
+      } catch {
+        return absPath
+      }
+    },
     async saveFile({ defaultName, content }) {
       // 系统「另存为」对话框：用户取消返回 null（**不抛错** —— 取消是正常操作，不是异常）
       const picked = await save({ defaultPath: defaultName })
