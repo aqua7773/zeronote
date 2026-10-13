@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 45
-更新时间: 2026-10-13（U3a `doc.replaceRange` ＋ U3b `doc.on` 接真事件 —— 内核增强第 1 步）
+revision: 66
+更新时间: 2026-10-13（rev66 权限门遗留整体清掉 —— `permissions.json` 与两条 Rust 命令下线）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -907,6 +907,7 @@ revision: 45
 >
 > **未动的一块**：`.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission`
 > **原样保留**（前端已不读它们）—— 是否整体下线见 `docs/架构原则-2026-10-13.md` §6（等裁决）。
+> ✅ **更正（rev66）**：用户裁决「清掉」⇒ 这两条命令与该文件**已整体删除**（见 rev66 段）。
 >
 > **基线**：`tsc` 0 · `oxlint` **恰好 4 warnings** · `cargo test --lib` **21 passed**。
 >
@@ -964,6 +965,7 @@ revision: 45
 > ⚠️ **那是安全边界变更**，落地时必须在本文档写明**新增了哪条权限**；
 > 未核实项：Tauri 2.12 的 capability `windows` 是否支持 glob（**先查官方文档或实测一次**，别自创）。
 > 契约 §7 未决里的 `permissions.json` 是否整体下线（§6.1）仍待裁决。
+> ✅ **已结清（rev66）**：用户裁决「清掉」⇒ 已整体删除。
 
 > ## 📌 rev50（2026-10-13 · **U1 真窗口落地**：插件能开自己的窗口了）
 >
@@ -1581,6 +1583,36 @@ revision: 45
 > 否则脚本自己的状态（recent 顺序、页面上有几个 input）会变成隐藏变量。
 > 基线未被触碰（`tsc -b` / `oxlint` / `cargo test` 本轮未跑，因为没有代码改动）。
 
+> ## 📌 rev66（2026-10-13 · **权限门遗留整体清掉**：`permissions.json` 与两条命令从仓库消失）
+>
+> **用户裁决**：问「四个未决项第一点（`permissions.json` 是否整体下线）」⇒ 用户原话「**清掉**」。
+>
+> **背景（为什么它是死代码）**：rev48 拆权限门后，前端四个导入、`isGranted` 接线、写文件的
+> `toggleNetwork()` 全删；但 Rust 侧 `read_permissions` / `set_permission` 仍**注册在
+> `invoke_handler`**、仍能写盘，两个单测也仍在跑 —— 而**没有任何代码读它做判定**。
+>
+> **本轮删掉的东西（纯减法）**
+> · 前端：`src/kernel/permissions.ts` **整文件删除**（46 行；当时已无任何 `import`）
+> · Rust：`GRANTABLE` 常量 · `permissions_path` · `read_permissions_file` ·
+>   `read_permissions` · `set_permission` · `invoke_handler` 里那两行
+> · 单测：`permission_grant_and_revoke_roundtrip` · `broken_permission_file_fails_closed`
+> · 三处墓碑注释改写为"已整体删除"（`App.tsx:35` · `plugin-host.ts:103` · `lib.rs:918`），
+>   并在原位置留一段"曾经是什么 / 为什么删"的说明（不留白，免得下一个人考古）
+> · `plugin-host.ts` 顶部设计要点里那句"声明了未授权的 capability → 拒绝加载"**也是过时的**，
+>   一并改成"capability 只做自述校验，未知取值只警告"
+>
+> **基线变化（有意，已实测）**：`cargo test --lib` **21 → 19 passed**（少的正是那两个用例）；
+> `tsc -b` **0 错误** · `oxlint src` **恰好 4 warnings**（未变）。
+> ⚠️ 跑 `pnpm exec oxlint`（不带目录）会得到 **318 warnings** —— 那是把 `examples/` / `tools/`
+> 一起扫了，**验收基线一直是 `oxlint src`**。
+>
+> **未动**：磁盘上可能存在的旧 `<库>/.zn/permissions.json` **不清理**（没人读，留着无害；
+> 实测真实用户库里本来就没有，只有 `_tmp-test` 里单测夹具残留两个）。
+> 回退：git 历史里原版俱在（本轮提交前的 HEAD = `8bbc0d6`）。
+>
+> **下一步**（本轮末尾向用户列出的剩余三条未决）：Android `content://` 打开文件 · 手机触屏
+> 多选/长按/返回键 · 沙箱（已裁决搁置）与 `examples/raw-ipc-probe/` 去留。
+
 > 三角色（主管 / plan / act）与 `DSH-SUPERVISOR-V1` 标识**已于 2026-10-12 按用户要求废止** ——
 > 主会话可直接实现，也可派任意子 agent（规范见 `~/.dsh/AGENTS.md`「子 agent 的使用（允许，不强制角色分工）」）。
 
@@ -1907,8 +1939,10 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 
 ## 未完成项
 
-- [x] **⑧ `net` 授权通道** ✅（2026-10-12 下午）—— 设置页逐插件开关 + `.zn/permissions.json` +
-      契约 §4 诚实改写。⚠️ **授权记录不绑定插件指纹**：插件升一版后旧授权仍有效（那属 §7.6 的未决项）。
+- [x] **⑧ `net` 授权通道** ✅（2026-10-12 下午）→ **🖤 已整套下线（rev66，用户裁决「清掉」）** ——
+      当年做的是设置页逐插件开关 + `.zn/permissions.json` + 契约 §4 诚实改写；2026-10-13 拆权限门
+      后前端先停读，本轮把**前端文件 + Rust 两条命令 + `invoke_handler` 两行 + 两个单测**全删。
+      ⚠️ 当年那条"授权记录不绑定插件指纹"的顾虑**随删除一并消失**（不再有授权记录）。
 - [x] **⑩ WebView 逃生口** ✅（2026-10-12 下午）—— `registerWebView` 最小版 + CSP 落地。
       ⚠️ 页面必须来自**独立 origin**（`http(s):`）：`data:`/`blob:`/`srcdoc` 继承宿主 CSP
       会被 hash 压掉 inline；Tauri asset 协议在 Android 上不服务 `.html`。见契约 §2.2 ④。

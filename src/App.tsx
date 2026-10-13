@@ -33,8 +33,9 @@ import type {
   TrashEntry,
 } from './kernel/contract'
 /* 2026-10-13 拆权限门：`./kernel/permissions` 的四个导入（isGranted / readPermissions /
- * setPermission / PermissionTable）**已全部移除** —— 内核不再做权限判定，
- * `.zn/permissions.json` 前端不再读（Rust 侧命令原样留着，见 docs/架构原则-2026-10-13.md §6）。 */
+ * setPermission / PermissionTable）**已全部移除** —— 内核不再做权限判定。
+ * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
+ * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
 import { FileTree } from './components/FileTree'
 import { MarkdownEditor } from './components/MarkdownEditor'
 import { MarkToolbar } from './components/MarkToolbar'

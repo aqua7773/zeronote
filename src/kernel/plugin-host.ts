@@ -4,7 +4,7 @@
  * 设计要点：
  *  - 插件源码从 `.zn/plugins/<id>/<entry>` 读出来 → Blob URL → 动态 import
  *    （v0.1 **只支持单文件插件**：Blob 里无法解析相对导入）
- *  - 声明了未授权的 capability → 拒绝加载，并说人话
+ *  - capability 只做**自述**校验：未知取值只警告、不拒载（2026-10-13 拆权限门）
  *  - 插件抛异常 → 只卸载该插件，内核继续跑
  *  - 卸载即净：dispose 所有登记资源 + 撤销命令/面板
  */
@@ -100,9 +100,9 @@ export type PluginHostDeps = {
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
-  /* 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定，见本文件顶部墓碑注释）。
-   * `.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission` 原样留着
-   * （前端已不读它们）—— 是否整体下线见 `docs/架构原则-2026-10-13.md` §6。 */
+  /* 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定）。
+   * 同日清尾：`.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission`
+   * **已整体删除** —— 内核不再读写任何授权记录。见 `docs/架构原则-2026-10-13.md` §6.1。 */
 }
 
 /* ───────── 校验 ───────── */

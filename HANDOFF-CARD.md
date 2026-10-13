@@ -135,8 +135,8 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-13 实测；旧�
 > **已作废**（用户改需求：不放右上角了，放标题左侧 —— 已用 `editor.addLineAction` 实现）。
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
 > 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
-> 待裁决（契约 §6.1）：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
-> 前端已不读 ⇒ 是否整体下线（删除是破坏性动作，问过再动）。
+> ✅ **已清（rev66）**：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
+> **已整体删除**（前端早已不读它们是死代码）—— 基线随之变为 `cargo test --lib` **19 passed**。
 
 **① 没有阻塞项 —— 桌面与移动端都已实测通过。**（记下来是因为这块踩过一次：手机默认跑的是打包版）
 
