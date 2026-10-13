@@ -2096,19 +2096,20 @@ revision: 74
 > | 1 | 从文件管理器打开 **md** 被拦，toast「…不是可阅读的文档类型（支持…md 等）」—— 自相矛盾 | `App.tsx` 的 `content://` 分支误用了 `DOC_RE`，而它是"只读文档"的名单、**不含 md** | 新增 `SAF_READABLE_RE`（含 md/markdown）专供该分支；`DOC_RE` 保持不含 md ⇒ **库内 md 仍走编辑器** |
 > | 2 | 打开库外的 PDF 会把**笔记库切走**（界面变"这个库还没有笔记"，像笔记全丢） | 既有设计（库外文件 ⇒ 父目录当库）对"只想看一眼的文档"是错的 | 库外**文档**改为 `core.openDocument({ abs })` 直接交给阅读器、**不切库**；库外**笔记**才走"父目录当库" |
 >
-> **状态（新会话接手必读）**
-> - 这两处改动**只在工作区**（`src/App.tsx`），**未跑基线、未提交**。中途 `tsc -b` 报过
->   `TS2448 'name' used before its declaration`（我插入的代码引用了后面才声明的 `name`）⇒ 已改用局部
->   `docName`，但**改完没来得及复跑 tsc**（用户要求交接）。
-> - 派出的 release 出包 subagent（`0367a23d`）是在 **tsc 报错的状态下**启动的 ⇒ 它的 `pnpm build`
->   大概率失败、**产物不可信**，接手后要重新确认或重跑。
-> - `C:\Users\AQUA\Downloads\ZeroNote-Android-release-2026-10-14.zip`（15.55 MB）是 **rev75 的旧代码**，
->   含上面两个 bug ⇒ **需重出包 → 签名 → 重打包覆盖**（命令见 rev75 §六）。
-> - 用户测试手机**不是** adb 那部（33b676f6）：他那部上「所有文件访问」已开、库是新装空库（"0 篇"正常）；
+> **状态（新会话接手必读 —— 已于 2026-10-14 01:00 收尾）**
+> - 两处修复**已提交**（`2e410f1`，工作区干净）。⚠️ 提交信息由**并发的另一个会话**写成
+>   `fix(open): 从文件管理器打开的 md 被误拦 + 打开库外 PDF 会切走笔记库` —— 内容就是这两处，不是我的措辞。
+> - `tsc -b` 曾在改用 `docName` 前报过 `TS2448`（引用了后面才声明的 `name`）；随后 release 构建里的
+>   `tsc -b && vite build` **通过**（1993 模块）⇒ 编译已确认。**`cargo test` 本轮未复跑**（Rust 侧没改，
+>   上次 21 passed）。
+> - release 包**已重出并覆盖交付**：`C:\Users\AQUA\Downloads\ZeroNote-Android-release-2026-10-14.zip`
+>   （15.55 MB，2026-10-14 00:56:56），内含新 APK 16,268,858 B（`zipalign`+`apksigner` 签名，
+>   验签指纹 `2ca79f19…35bb` 与现有安装一致）；unsigned 源包 SHA256 `F55E2451…ED04`。
+> - 用户测试手机**不是** adb 那部（33b676f6）：他那部「所有文件访问」已开、库是新装空库（"0 篇"正常）；
 >   adb 那部只有 `com.aqua.zeronote.debug`、库完整、权限 allow。
 >
-> **唯一下一步**：`pnpm exec tsc -b` 复跑确认 0 错误 → `cargo test --lib`（应 21 passed）→ 提交 →
-> 重出 release 包 → `zipalign`+`apksigner` 签名 → 覆盖 Downloads 里的 zip。
+> **唯一下一步**：跑三条基线确认无回归（`tsc -b` 0 / `oxlint src` 4 / `cargo test --lib` 21），
+> 然后让用户在手机上装新 zip，验「打开方式里的 md」与「库外 PDF 不切库」这两条路径。
 > ## 📌 rev75（2026-10-14 · 文件关联 ＋ Android SAF（content://）读取 ＋ release 包）
 >
 > ### 一、起因（用户两次反馈，都带截图）
