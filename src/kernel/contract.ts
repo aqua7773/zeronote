@@ -671,29 +671,40 @@ export type EditorLineClassRule = {
    * `line` 从 0 起（与 `addLineAction.onClick` 的 payload 同一口径）。
    * 与 `EditorLineAction.filter` 一样：**同步**、**会被逐行调用** ⇒ 按整篇解析的结果请自行缓存
    * （`outline-map` 里 `mapButtonTargets` 的缓存写法可直接照抄）。
+   *
+   * `folded`（2026-10-14 加）：这一行**当前是否处于折叠状态**，由内核从 CM6 官方折叠状态
+   * （`foldedRanges`）里读出来告诉你 ⇒ "折叠态的行要加什么 class"不必插件自己记账，
+   * 也就不存在"插件记的和编辑器里显示的不是同一个状态"这类错位。
    */
-  classAt: (ctx: { doc: string; line: number; text: string }) => string | null
+  classAt: (ctx: { doc: string; line: number; text: string; folded: boolean }) => string | null
 }
 
 /**
- * **折叠 / 展开**（`editor.addFold`，2026-10-14 rev80 新增）。
+ * **折叠 / 展开**（`editor.addFold`，rev80 新增 · **rev81 换成官方状态机**）。
  *
  * 与上面三条的区别：mark / lineAction / lineClass 都是"翻译成装饰"的**纯函数**，
  * 而折叠牵涉**有状态**的交互与**文档结构**（藏掉一整块子行）。
  *
- * **职责划分（2026-10-14 定案，用户拍板"插件可以覆盖内核实现"）**：
- * · **内核只做只有它能做的那半**：把子行藏起来 —— CM6 的**块替换只能由 StateField 提供**
- *   （放 ViewPlugin 里运行期抛 `Block decorations may not be specified via plugins`），
- *   插件碰不到 CM6 实例，所以这一步留在内核；外加一个 `refresh()` 用来"改完重画"。
- * · **外观与点击归插件**：内核**不再画任何按钮**。插件自己决定圆点长什么样、点了算不算折叠 ——
- *   推荐做法（也正是本项目现在的做法）：把圆托挂在**圆点自己的伪元素**上
- *   （`.cm-atomic-bullet::before`）⇒ 同一个盒子，**同心是定义上的**，不必调像素；
- *   再用 `addLineClass` 给行加 `可折叠 / 已折叠` 的 class、用 `manifest.styles` 注入样式、
- *   自己在编辑器上做事件委托接点击，最后调 `api.editor.refresh()`。
+ * **rev81 起：折点由插件给，状态机用 CM6 官方的。** 背景（查一手来源得到）：
+ * · `@codemirror/language`（**早就在依赖树里**，随 `@atomic-editor/editor` 装上）导出
+ *   `foldService` · `codeFolding` · `foldedRanges` · `foldEffect`/`unfoldEffect` ·
+ *   `foldCode`/`unfoldCode`/`foldAll` · `foldKeymap` —— 折叠的**状态机（StateField + 事务 +
+ *   位置映射 + 键位）官方全都有**，而 atomic-editor 自己没用（它的 dist 里搜不到这些名字）。
+ * · rev80 我们在内核里手写了一套等价的（`Decoration.replace({block:true})` 的 StateField +
+ *   自己管折叠集合 + `refresh()` 广播）。**那部分是重复造**，本轮删掉。
+ * · ⚠️ **但"markdown 列表折叠"上游确实不做**：`@codemirror/lang-markdown` 的 `foldNodeProp`
+ *   显式 `isList(type) ? undefined : …`（它只给标题整节折叠 + 代码块/引用/表格）。
+ *   ⇒ 所以**折点规则（`foldEndAt`）必须由插件提供**，这是上游留的空白，不是重复劳动。
+ * · 还有一条硬约束：CM6 扩展必须是**同一个库实例**产出的 ⇒ 插件**不可能**自己 import
+ *   `@codemirror/language`（插件是库内一个独立 ESM，没有 node_modules）⇒ 官方 API 只能由内核装，
+ *   插件通过下面这三个回调/方法参与。
  *
- * 为什么不再由内核画按钮：独立元素 ⇒ "与库渲染的圆点同心"变成像素题
- * （`absolute + translateY` 要按字体度量硬调；改行内流又要靠 margin 推），实测总要剩 1–2px。
- * 去掉第二个元素，这道题就不存在了。
+ * **职责划分**
+ * · **插件**：`foldEndAt`（哪些行能折、折到哪）+ `initialFolded`（挂载时恢复上次的折叠）
+ *   + `onToggle`（折叠态变了 ⇒ 写盘）+ 外观（`manifest.styles`）与点击（事件委托，
+ *   点击后调 `api.editor.toggleFold(line)`）。
+ * · **内核**：把 `foldEndAt` 接成官方 `foldService`、装 `codeFolding()`、把
+ *   `toggleFold` / `foldAt` / `restoreFolds` 三个方法接到官方 `foldEffect` / `foldedRanges` 上。
  */
 export type EditorFoldRule = {
   /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
@@ -704,8 +715,21 @@ export type EditorFoldRule = {
    * 与 `classAt` / `filter` 同一要求：**同步**、**会被逐行调用** ⇒ 请按整篇缓存解析结果。
    */
   foldEndAt: (ctx: { doc: string; line: number; text: string }) => number | null
-  /** 这一行**当前是否已折叠** —— 状态由插件持有，内核只读不改。 */
-  isFolded: (ctx: { doc: string; line: number; text: string }) => boolean
+  /**
+   * **挂载时**这一行要不要折起来（`restoreFolds()` 也会重新问一遍）。
+   *
+   * 只在这两个时机问 —— 之后"折不折"由 CM6 的状态说了算（`foldedRanges`），
+   * 插件不用再维护一份镜像（rev80 那套"插件自己记账 + 内核来问"就此消失）。
+   * 典型实现：读自己的持久化文件（`.zn/outline-folded.json`）里记的行签名。
+   */
+  initialFolded?: (ctx: { doc: string; line: number; text: string }) => boolean
+  /**
+   * 折叠态**变了**时通知插件（内核主动切换后调用）。
+   *
+   * 插件据此更新自己的持久化记录 —— 注意 `folded` 是**切换后**的状态，
+   * 而 `line` 是 0 起行号（与 `foldEndAt` 同一口径）。
+   */
+  onToggle?: (ctx: { doc: string; line: number; text: string; folded: boolean }) => void
 }
 
 /**
@@ -769,28 +793,35 @@ export interface EditorApi {
    */
   addLineClass(rule: EditorLineClassRule): Disposable
   /**
-   * 登记一条**折叠 / 展开**规则（2026-10-14 rev80 新增）。
+   * 登记一条**折叠 / 展开**规则（rev80 新增 · rev81 换成官方状态机，见上面的类型注释）。
    *
    * ```js
    * api.editor.addFold({
    *   id: 'outline-fold',
-   *   foldEndAt: ({ line }) => tree.lastChildLine(line), // 子项末行（0 起，含）
-   *   isFolded: ({ text }) => foldedSet.has(sig(text)),  // 状态自己的
+   *   foldEndAt: ({ line }) => tree.lastChildLine(line),      // 折点（子项末行，0 起）
+   *   initialFolded: ({ text }) => foldedSet.has(sig(text)),  // 持久化恢复
    *   onToggle: ({ text, folded }) => save(foldedSet, sig(text), folded),
    * })
+   * // 点击（插件自己的事件委托）→ api.editor.toggleFold(line)
    * ```
-   *
-   * 圆点画在**行盒内、该行缩进层级的位置**（与 `addLineAction` 的行盒左侧 gutter 不冲突），
-   * 样式由宿主给（`.zn-fold-dot`）。
    */
   addFold(rule: EditorFoldRule): Disposable
   /**
-   * 让编辑器**立刻重算一次装饰**（2026-10-14 rev80 新增）。
+   * **切换**某一行的折叠状态（`line` 从 0 起）。返回"这一行能不能折"。
    *
-   * 用途：插件**异步**改完自己的展示状态之后（比如从 `.zn/` 里把折叠记录读回来），
-   * 让内核按新状态重画。
+   * 状态机在 CM6 手里（官方 `foldEffect` / `unfoldEffect`），所以这是**命令式**的：
+   * 插件点击时调它即可，不用自己记账。切换后会调对应规则的 `onToggle`（供写盘）。
    */
-  refresh(): void
+  toggleFold(line: number): boolean
+  /** 这一行**当前**是否已折叠（读 CM6 的折叠状态，不是插件记的那份）。 */
+  foldAt(line: number): boolean
+  /**
+   * 重新问一遍各规则的 `initialFolded` 并把结果应用上去（rev81）。
+   *
+   * 用途：插件**异步**读完自己的持久化记录之后（典型：`.zn/outline-folded.json` 读完），
+   * 让内核按它恢复折叠。挂载时内核已自动问过一遍 —— 那次多半读盘还没回来。
+   */
+  restoreFolds(): void
   /**
    * 把一个编辑器里的 DOM 元素换算成**行号（0 起）**；换算不出来给 `null`。
    *

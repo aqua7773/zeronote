@@ -1177,13 +1177,14 @@ export default {
         /**
          * ⚠️ **同步**先把 path 落进 cache（内容仍留旧值，等 reload 覆盖）。
          *
-         * 为什么不能只靠 `reload()`：`isFolded` 是**同步**回调，而 reload 要 await 读盘 ——
-         * 中间那一帧 `cache.path` 还是**上一篇**笔记的 ⇒ 折叠判定查错集合，
+         * 为什么不能只靠 `reload()`：`initialFolded` 是**同步**回调，而 reload 要 await 读盘 ——
+         * 中间那一帧 `cache.path` 还是**上一篇**笔记的 ⇒ 恢复折叠会查错集合，
          * 症状是"切回笔记后折叠全没了 / 折错行"（2026-10-14 实测踩到）。
          */
         cache = { ...cache, path: d.path }
         void reload(d.path).then(() => view.refresh())
-        void foldLoad().then(() => editor.refresh())
+        // 读盘比编辑器挂载慢 ⇒ 读完再让内核按 initialFolded 恢复一次（rev81 起不再需要 refresh）
+        void foldLoad().then(() => editor.restoreFolds())
       }),
       doc.on('change', (d) => {
         // change 带来的是**编辑器里的最新内容**：直接用它算分组，不必再读盘
@@ -1279,7 +1280,7 @@ export default {
     subscriptions.push(
       editor.addLineClass({
         id: 'outline-lines',
-        classAt: ({ doc, line, text }) => {
+        classAt: ({ doc, line, folded }) => {
           const d = depthByLineOf(doc).get(line)
           if (!d) return null
           // 封顶 6 级：样式表只画到 d6（再深的层级共用 d6 的线，视觉上够用）
@@ -1295,7 +1296,11 @@ export default {
            */
           if (foldEndsOfDoc(doc).has(line)) {
             cls.push('zn-ol-foldable')
-            if (foldSetOf(cache.path).includes(foldAnchor(doc, line))) cls.push('zn-ol-folded')
+            /**
+             * `folded` 由**内核**从 CM6 官方折叠状态里读出来（`foldedRanges`，rev81）——
+             * 插件不再自己记一份"哪些行折着"的镜像，也就不会有"插件记的和编辑器显示的不是一回事"。
+             */
+            if (folded) cls.push('zn-ol-folded')
           }
           return cls.join(' ')
         },
@@ -1387,13 +1392,31 @@ export default {
       return foldCacheMap
     }
 
-    /** 诊断出口（CDP 验收用）：当前笔记的折点表与已折叠签名 */
+    /** 诊断出口（CDP 验收用）：当前笔记的折点表、插件记的折叠签名、以及**内核侧实际**的折叠态 */
     window.__omFolds = () => ({
       path: cache.path,
       ends: [...foldEndsOfDoc(cache.content)].map(([line, end]) => `${line}→${end}`),
       folded: [...foldSetOf(cache.path)],
+      // rev81：内核读的是 CM6 官方状态（`foldedRanges`）。它与 `folded` 对不上 = 桥断了
+      kernelFolded: [...foldEndsOfDoc(cache.content).keys()].filter((line) => editor.foldAt(line)),
       loaded: foldAll !== null,
     })
+
+    /**
+     * 诊断出口（CDP 验收用）：谁、什么时候触发的切换。
+     * rev81 起触发点在**内核**（它 dispatch 官方的 foldEffect / unfoldEffect），
+     * 这里记的是插件侧收到的 `onToggle` 通知 —— 两边都有账，对不上就说明桥断了。
+     */
+    const foldLog = (line, folded) => {
+      const src = String(cache.content).split(/\r?\n/)[line] ?? ''
+      ;(window.__omFoldLog ??= []).push({
+        text: src,
+        folded,
+        path: cache.path,
+        at: Date.now(),
+        stack: String(new Error().stack || '').split('\n').slice(1, 4).join(' | '),
+      })
+    }
 
     subscriptions.push(
       editor.addFold({
@@ -1402,7 +1425,30 @@ export default {
           const end = foldEndsOfDoc(d).get(line)
           return end === undefined ? null : end
         },
-        isFolded: ({ doc: d, line }) => foldSetOf(cache.path).includes(foldAnchor(d, line)),
+        /**
+         * **挂载时 / `restoreFolds()` 时**问一次"上次折起来的是哪些行"。
+         *
+         * rev80 这里叫 `isFolded`，是**每次都问**"现在折着没" —— 于是插件必须持有一份
+         * 与编辑器同步的镜像状态（也就是 rev80 那几个坑的来源）。rev81 起状态归 CM6 官方
+         * （`foldedRanges`），插件只在"恢复"这一个时机提供答案。
+         */
+        initialFolded: ({ doc: d, line }) => foldSetOf(cache.path).includes(foldAnchor(d, line)),
+        /**
+         * 折叠态**变了**（内核切换后通知）⇒ 更新插件这份**持久化记录**并写盘。
+         * 视图不用管：子行显隐与行 class 都由内核按官方状态重算。
+         */
+        onToggle: ({ line, folded }) => {
+          const path = cache.path
+          if (!path) return
+          const anchor = foldAnchor(cache.content, line)
+          if (!anchor) return
+          const set = foldSetOf(path)
+          const i = set.indexOf(anchor)
+          if (folded && i < 0) set.push(anchor)
+          else if (!folded && i >= 0) set.splice(i, 1)
+          foldLog(line, folded)
+          foldSaveSoon()
+        },
       }),
     )
 
@@ -1417,27 +1463,16 @@ export default {
      * （折叠时被隐藏的行根本不渲染，索引会整体错位），只有内核手上有 EditorView。
      */
     const toggleFoldAt = (line) => {
-      const path = cache.path
-      if (!path || line === null) return
-      // 锚点要用**源码那行**（`- 大纲`）＋"同文本第几次出现"，不能拿渲染后的 textContent
-      const src = String(cache.content).split(/\r?\n/)[line] ?? ''
-      const anchor = foldAnchor(cache.content, line)
-      if (!anchor) return
-      const set = foldSetOf(path)
-      const i = set.indexOf(anchor)
-      if (i >= 0) set.splice(i, 1) // 已折叠 ⇒ 展开
-      else set.push(anchor) // 未折叠 ⇒ 折叠
-      /** 诊断出口（CDP 验收用）：谁、什么时候触发的切换 */
-      ;(window.__omFoldLog ??= []).push({
-        text: src,
-        folded: i < 0,
-        path,
-        at: Date.now(),
-        stack: String(new Error().stack || '').split('\n').slice(1, 4).join(' | '),
-      })
-      foldSaveSoon()
-      // 让内核按新状态重画：既藏/显子行，也重算行 class（`zn-ol-folded` 控制圆托常驻）
-      editor.refresh()
+      if (!cache.path || line === null) return
+      /**
+       * **折叠 / 展开交给内核**（rev81）：它 dispatch 官方的 `foldEffect` / `unfoldEffect`。
+       *
+       * 插件这侧只剩"点到了哪一行" —— 状态、子行显隐、行 class（`zn-ol-folded`）全部由
+       * 官方折叠状态驱动，插件不再自己改集合再喊 `refresh()`（rev80 那条路上踩过
+       * "状态改了但界面没跟上"的坑）。写盘走 `onToggle` 回调。
+       * 返回值 = 这一行能不能折（叶子行拿到 false，什么也不做）。
+       */
+      editor.toggleFold(line)
     }
 
     const onFoldClick = (e) => {

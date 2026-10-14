@@ -1,19 +1,25 @@
 /**
  * 大纲折叠圆点 —— **外观由插件自己提供**（`manifest.styles` 注入，2026-10-14）。
  *
- * 这一版是用户拍板「插件可以覆盖内核实现」之后的做法，核心只有一句：
- * **不要在圆点之外再造一个元素**。
+ * 这一版把**点与托合成了一个组件**（用户 2026-10-14 定的方向：「直接把两个圆组合成
+ * 一个组件，保证不同平台显示效果相同」）：
  *
- * · 圆托挂在**圆点自己的伪元素**上（`.cm-atomic-bullet::before`）—— 同一个盒子，
- *   ⇒ **同心是定义上的**，不需要任何像素微调。
- *   （上一版是内核画的独立 `<button>`，就得靠 `translateY` / margin 硬凑，实测总剩 1–2px。
- *    详见 `src/kernel/contract.ts` 里 `EditorFoldRule` 的说明。）
+ * · 圆点原本是 atomic 渲染的 `•` **字形**，而字形墨迹**不在盒中心** —— 差多少取决于
+ *   平台字体。实测（Android WebView，`dpr=3.125`）：盒 17×24.65px，墨迹中心比盒中心
+ *   **偏右 3.84px**；桌面（rev80 实测）墨迹≈盒中心 +0.1em。
+ *   ⇒ 只对齐"托"的写法（`left: 50%`）在桌面上同心、在手机上偏心 ——
+ *   **同一份 CSS 不可能同时对齐两端**。
+ * · 所以把字形藏掉（`color: transparent`，占位保留 ⇒ 布局不变），**点也用伪元素画**：
+ *   两个圆共用同一个锚点 ⇒ **同心是定义上的**，跨平台只取决于我们自己写的数值。
+ *   `::before` 画**托**（下层）、`::after` 画**点**（上层）—— 点不会被半透明的托压暗。
+ * · 锚点 `50% / calc(50% + 0.1em)` = 原"托"的位置，也是**桌面实测**的墨迹中心
+ *   ⇒ 桌面视觉零变化；手机上点会随之左移约 3.8px（"不再跟着字形跑"的代价）。
  * · 平时隐身、鼠标移进这一行才浮出；**已折叠的行常驻** —— 状态差异就由"显不显示"承担
  *   （用户原话：「本身就是区分」），所以**没有任何符号**（不做 ＋ / −）。
  * · **点击不在这里管**：`index.js` 在编辑器上做事件委托，命中圆点即切换折叠。
  * · 触屏没有 hover ⇒ 常显，否则手机上根本折叠不了。
  *
- * 尺寸用 CSS 变量 `--zn-fold-size`（默认 17px ≈ 一个中文字符）：想调圆托大小只改这一处。
+ * 尺寸各一个变量：`--zn-dot-size`（圆点，默认 8px）· `--zn-fold-size`（圆托，默认 17px ≈ 一个中文字符）。
  */
 
 .zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet {
@@ -23,20 +29,24 @@
   cursor: pointer;
 }
 
+/* 所有列表圆点：原字形藏掉、改成自己画（见文件头） */
+.zn-editor .cm-line .cm-atomic-bullet {
+  position: relative;
+  /* 原 `•` 字形不显示 —— 它的墨迹不居中，是"两端对不齐"的根因 */
+  color: transparent;
+}
+
 /**
  * ⚠️ **试过 `text-box-trim`，弃用**（2026-10-14 实测）：它本是"让盒＝字形墨迹"的标准机制
  * （`text-box-edge: text`，Chromium 133+），但套在圆点上会把**行高从 29.9px 撑到 34.9px**
  * （"•" 这类标点被当作整行来削）⇒ 列表行高会跟正文不一致。收益 2px、代价 5px，不值。
- * 所以改用下面那行 `top: calc(50% + 0.1em)` 的度量补偿 —— 数值来自像素实测，且随字号缩放。
+ * 现在点是自己画的，`+0.1em` 只作为**两个圆共同的锚点**（不再承担"补偿字形"的职责）。
  */
 
+/* 圆托（只有"可折叠"的行有） */
 .zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet::before {
   content: '';
   position: absolute;
-  /* 同心：`left/top: 50%` 落在圆点盒中心，再用半个尺寸的负 margin 把圆心顶过去。
-     `+ 0.1em` 是**垂直的度量补偿**：`50%` 对的是**盒**中心，而圆点墨迹在盒里偏下
-     2.5px（字体 ascent/descent 空白所致，像素实测 @17px 字号）。
-     em 在伪元素上 = bullet 自身字号（24.65px）⇒ 换字号时同步缩放。 */
   left: 50%;
   top: calc(50% + 0.1em);
   width: var(--zn-fold-size, 17px);
@@ -50,7 +60,21 @@
   pointer-events: none;
 }
 
-/* 鼠标移进这一行 ⇒ 浮出；已折叠的行不管鼠标在不在都显示 */
+/* 圆点（所有列表行）—— 与托同一个锚点 ⇒ 同心 */
+.zn-editor .cm-line .cm-atomic-bullet::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 0.1em);
+  width: var(--zn-dot-size, 8px);
+  height: var(--zn-dot-size, 8px);
+  margin: calc(var(--zn-dot-size, 8px) / -2) 0 0 calc(var(--zn-dot-size, 8px) / -2);
+  border-radius: 50%;
+  background: var(--zn-bullet-color, rgb(113, 113, 122));
+  pointer-events: none;
+}
+
+/* 鼠标移进这一行 ⇒ 托浮出；已折叠的行不管鼠标在不在都显示 */
 .zn-editor .cm-line.zn-ol-foldable:hover .cm-atomic-bullet::before,
 .zn-editor .cm-line.zn-ol-folded .cm-atomic-bullet::before {
   opacity: 1;
