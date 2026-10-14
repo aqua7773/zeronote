@@ -263,7 +263,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
 
 1. **capability／安全模型变更 → 先拿用户对「具体方案」的同意**（方向同意 ≠ 方案同意）
 2. 每批交付：`tsc` 0 + `oxlint` 4 + **实测/截图证据** + 自主提交 + HANDOFF 更新
-3. 手机截图走 `adb shell screencap`；**`adb shell input` 吃物理像素，而截图看的是预览图**（要乘 `物理宽/预览宽`）
+3. 手机截图走 `adb shell screencap`；**`adb shell input` 吃物理像素，而截图看的是预览图**（要乘 `物理宽/预览宽`）。⚠️ **CDP 的 `shot` 抓不到 WebView 里的 canvas** —— rev82 实测：PDF 明明渲染了（canvas 上 44672 个非白像素），CDP 截图里画布却是空白 ⇒ 图片证据用 `adb exec-out screencap -p`，只验"画没画出来"就读 canvas 像素
 4. **内核保持薄**（能当插件做的别塞内核）；**静默失效比报错危险**（看数字，不只看 "ok"）
 5. 桌面 GUI 操作用 `gentle_*`（用户活跃时加 `force: true`）；
    截图区域按窗口 `rect` **向内缩 ~10px**（DWM 边框会截进窗口外的内容）

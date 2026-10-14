@@ -2151,6 +2151,14 @@ revision: 82
 > 2. **`adb shell content query` 的 `--projection` 不能写逗号列表**（本机这台）：会报 `Invalid column _id,_display_name`。
 >    不带 projection 全量输出再本地筛即可。
 > 3. 手机上 `am force-stop` 之后那几个进程号会变 ⇒ **CDP 的 forward 每次都按新 pid 重建**（socket 名带 pid）。
+> 4. ⚠️ **CDP 的 `Page.captureScreenshot` 抓不到 WebView 里的 canvas**（本轮实测）：PDF 明明已渲染 ——
+>    `canvas.dn-page` 尺寸 `1190×1684`、采样 47.6 万像素里 **44672 个非白像素** —— 可 CDP 截出来的图里
+>    画布是**空白**（`_shots/rev82-01/02/03` 都是这样，只有顶栏有字）。
+>    ⇒ 手机验收的**图片证据一律用 `adb exec-out screencap -p > x.png`**（物理屏，体积也大得多：842 KB vs 39 KB），
+>    或者直接用**读数**（canvas 像素统计 / `innerText` 里的页码）。**别拿 CDP 截图的空白当"没渲染"**。
+> 5. 🔒 **别拿真实私人文件当测试样本**：本轮为验"有内容的 PDF"顺手开了手机上的个人信用报告，
+>    `screencap` 出来含**姓名 / 证件号** ⇒ 该截图已**当场删除**，改用非隐私样本（`歌词大全-2.pdf`，478 页）
+>    重做证据。挑测试文件前先看一眼是不是私人材料。
 >
 > ### ✅ 顺带核实了 rev81 留的那条「未核实」结论
 >
@@ -2176,7 +2184,10 @@ revision: 82
 > · `pnpm exec tsc -b` **0 错误** · `pnpm exec oxlint src` **恰好 4**（改完时一度 5 —— `useCallback` 依赖里留了
 >   已删掉的 `platform`，去掉即回基线）· `cargo test --lib` 见提交信息（本轮未动 Rust）
 > · 截图：`_shots/rev82-01-android-hot-open.png`（热）· `rev82-02-android-cold-open.png`（冷）·
->   `rev82-03-android-hot-recheck.png`（修复后热回归）
+>   `rev82-03-android-hot-recheck.png`（修复后热回归）·
+>   **`rev82-05-android-pdf-render.png`（物理屏 `screencap`：478 页的歌词 PDF **内容真的画出来了**）**
+> · 「内容渲染」的硬读数（防"只有顶栏"的假通过）：`canvas.dn-page` = **1190×1684**、
+>   采样 476000 像素里 **44672 非白**（`getImageData` 直读 canvas）
 > · 新增诊断日志（**有意保留**，与 `[zn-uri] listener registered` 同一家族）：
 >   `[zn-uri] 副本就绪 …` / `[zn-uri] openDocument 派发（插件接管就绪=…）` / `[zn-uri] openDocument 返回 …`
 > · **提交**：`a9b3981`（fix 冷启动接管竞态，`src/App.tsx` 1 文件 / +46 −9）＋ 随后的 docs 提交（回填本段）
