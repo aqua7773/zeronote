@@ -1,19 +1,24 @@
 /**
- * 离线自测：**「❖」按钮该出现在哪些行**（`mapButtonLines`）。
+ * 离线自测：**「❖」按钮该出现在哪些行、各自开哪一组**（`mapButtonTargets`）。
  *
- * 起因（2026-10-14 用户实测）：`# 绪论` 下面接着 `## 数据模型` / `## 信息世界基本概念`，
- * 它只是一个**容器标题**（文档结构的根），却被当成了一组大纲、标题左边冒出「❖」按钮。
- * 用户原话：「只有标题下面接大纲的时候才会被判断为大纲，可以转成思维导图。单独的标题
- * 不构成思维导图」。
+ * 起因（2026-10-14 用户实测两条）：
+ * ① `# 绪论` 下面接着 `## 数据模型` / `## 信息世界基本概念`，它只是一个**容器标题**
+ *    （文档结构的根），却被当成一组大纲、标题左边冒出「❖」按钮 ——
+ *    用户原话「只有标题下面接大纲的时候才会被判断为大纲……单独的标题不构成思维导图」。
+ * ② 同一个标题下面用**空行断开**的第二个大纲**完全没有入口**（按钮只画在标题行，点开的是第一组）
+ *    —— 用户原话「单独大纲也应该能够用导图打开」。
+ *
+ * 顺带钉住「有按钮 ⇔ 能开出导图」这条不变量：`mapButtonTargets` 的 `index` 必须落在
+ * `parseBlocks` 的 `blocks` 里，且该块的 `startLine` 与入口行对得上（标题行入口则是 `titleLine`）。
  *
  * 用法：
  *   node selftest-buttons.mjs                     # 跑内置用例（离线，不需要库）
- *   node selftest-buttons.mjs <笔记.md>           # 额外打印某个真实文件的按钮行
+ *   node selftest-buttons.mjs <笔记.md>           # 额外打印某个真实文件的入口表
  *
  * 行号都是 **0 基**（与 `parseBlocks` 的 `titleLine` / `startLine` 同一口径）。
  */
 import { readFileSync } from 'node:fs'
-import { mapButtonLines } from './index.js'
+import { parseBlocks, mapButtonTargets, mapButtonLines } from './index.js'
 
 const cases = [
   {
@@ -22,14 +27,24 @@ const cases = [
     expect: [0],
   },
   {
-    name: '容器标题：H1 下面还接着 H2 ⇒ H1 不给按钮，H2 给（用户 2026-10-14 要的形态）',
+    name: '容器标题：H1 下面还接着 H2 ⇒ H1 那组挂到自己列表首行，H2 给标题行（用户 2026-10-14 ①的形态）',
     md: '# 绪论\n- x\n  - y\n## 数据模型\n- p\n  - q\n',
-    expect: [3],
+    expect: [1, 3],
   },
   {
-    name: '多个同级标题：互不为容器 ⇒ 都给',
+    name: '同一标题下两个独立大纲（空行断开）⇒ 第二个挂它自己的第一行（用户 2026-10-14 ②的形态）',
+    md: '# T\n- a\n  - b\n\n- c\n  - d\n',
+    expect: [0, 4],
+  },
+  {
+    name: '容器标题的组挂到它自己的第一行（标题行不给按钮）',
+    md: '# A\n- x\n  - y\n## B\n- p\n',
+    expect: [1, 3],
+  },
+  {
+    name: '多个同级标题：H1 是容器（下面是 H2）⇒ 它那组挂首行，两个 H2 各给标题行',
     md: '# A\n- x\n## B\n- y\n## C\n- z\n',
-    expect: [2, 4],
+    expect: [1, 2, 4],
   },
   {
     name: '裸列表（文档开头没有标题）⇒ 入口挂在它自己的第一行',
@@ -47,9 +62,9 @@ const cases = [
     expect: [0],
   },
   {
-    name: '容器下面还有更深标题：三级都得看层级（H1 容器 / H2 容器 / H3 叶子）',
+    name: '容器下面还有更深标题：H1、H2 都是容器（各自挂首行），只有 H3 叶子给标题行',
     md: '# A\n- x\n## B\n- y\n### C\n- z\n',
-    expect: [4],
+    expect: [1, 3, 4],
   },
 ]
 
@@ -62,15 +77,45 @@ for (const c of cases) {
   if (!ok) console.log(`      期望 [${c.expect.join(', ')}]，实得 [${got.join(', ')}]`)
 }
 
+/**
+ * 不变量：每个入口都指得到一组，且行号与那一组的标题行/首行一致。
+ * （这条抓的是"按钮画出来了但点开是空的/开错组"这类错位 —— 它比行号清单更本质。）
+ */
+let inv = 0
+for (const c of cases) {
+  const { blocks } = parseBlocks(c.md)
+  for (const t of mapButtonTargets(c.md)) {
+    const b = blocks[t.index]
+    if (!b) {
+      inv += 1
+      console.log(`FAIL  不变量：${c.name} —— 入口行 ${t.line} 指向不存在的组 ${t.index}`)
+      continue
+    }
+    if (t.line !== b.titleLine && t.line !== b.startLine) {
+      inv += 1
+      console.log(
+        `FAIL  不变量：${c.name} —— 入口行 ${t.line} 既不是组标题行 ${b.titleLine} 也不是首行 ${b.startLine}`,
+      )
+    }
+  }
+}
+if (!inv) console.log('PASS  不变量：每个入口行都对得上一个真实组（标题行或首行）')
+
 const file = process.argv[2]
 if (file) {
   const md = readFileSync(file, 'utf8')
   const lines = md.split(/\r?\n/)
-  const got = mapButtonLines(md)
+  const { blocks } = parseBlocks(md)
   console.log(`\n— ${file} —`)
-  console.log(got.length ? '该出按钮的行：' : '（这篇没有按钮）')
-  for (const l of got) console.log(`  第 ${l + 1} 行：${lines[l] ?? ''}`)
+  const targets = mapButtonTargets(md)
+  console.log(targets.length ? '入口表（入口行 → 组）：' : '（这篇没有入口）')
+  for (const t of targets) {
+    console.log(`  第 ${t.line + 1} 行「${lines[t.line] ?? ''}」⇒ 组[${t.index}]「${blocks[t.index]?.title}」`)
+  }
 }
 
-console.log(`\n${cases.length - failed}/${cases.length} passed${failed ? ` —— ${failed} 个失败` : ''}`)
-process.exit(failed ? 1 : 0)
+console.log(
+  `\n${cases.length - failed}/${cases.length} passed` +
+    `${failed ? ` —— ${failed} 个用例失败` : ''}${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
+)
+process.exit(failed + inv ? 1 : 0)

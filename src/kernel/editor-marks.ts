@@ -227,7 +227,18 @@ function buildDecorations(view: EditorView): DecorationSet {
         continue
       }
       if (++guard > 5000) break
-      const lineFrom = doc.lineAt(Math.min(m.index, doc.length)).from
+      /**
+       * ⚠️ **按"匹配里第一个非空白字符"定位行**（2026-10-14 修）
+       *
+       * 插件的 pattern 常写成 `^\s*(?:[-*+]|…)` —— 而 `\s` **包含换行**，所以当目标行
+       * **前面有空行**时，匹配会从那个**空行**的行首就开始：`m.index` 落在空行上，
+       * 按它取行号就把按钮算到了空行 ⇒ 插件按行号判定的 `filter` 直接失配。
+       * 实测（outline-map）：`- 单独大纲…` 前面有空行 ⇒ 该行**该有按钮却没画**，
+       * 而 `__omButtons()` 里明明有它（差 1 行）。
+       */
+      const mText = m[0]
+      const lead = mText.length - mText.replace(/^\s+/, '').length
+      const lineFrom = doc.lineAt(Math.min(m.index + lead, doc.length)).from
       if (seenLines.has(lineFrom)) continue
       /**
        * **跨行条件的最后一道关**（rev65）：正则只看得见字节，而"这个标题下面到底有没有列表"

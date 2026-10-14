@@ -229,24 +229,44 @@ function headingIsContainer(headings, line) {
 }
 
 /**
- * **哪些行该出现「❖」按钮**（纯函数，可离线断言）。
+ * **入口表**：哪些行有「❖」按钮、各自开第几组（`parseBlocks` 的索引）。
+ *
+ * 三种入口行（按优先级）：
+ * 1. **组标题行** —— 该标题不是容器、且这一行还没被别的组占用；
+ * 2. **裸列表组的第一行** —— 文档开头没有标题那种；
+ * 3. **它自己的第一行** —— 上面两种情况用不上时。
+ *
+ * 第 3 条是 2026-10-14 补的（用户实测）：**同一个标题下面可以有多个独立大纲**
+ * （空行把它们断开，见 `parseBlocks` 的连通性规则），它们共享同一行标题 ——
+ * 原来只给标题行画一个按钮，点开的是**第一组**，后面那几组**根本没有入口**。
+ * 用户原话：「单独大纲也应该能够用导图打开」。
+ *
+ * ⚠️ 命令 `outline-map.open-map-at-line` 必须用**同一张表**反查组号，
+ * 否则"按钮画在哪一行"与"点了开哪一组"会各算一套。
+ */
+function mapButtonTargets(md) {
+  const { blocks, headings } = parseBlocks(md)
+  const out = []
+  const used = new Set()
+  blocks.forEach((b, index) => {
+    if (!b.nodes.length) return
+    const isContainer = b.titleLine >= 0 && headingIsContainer(headings, b.titleLine)
+    const line =
+      b.titleLine === -1 || isContainer || used.has(b.titleLine) ? b.startLine : b.titleLine
+    if (used.has(line)) return // 同一行只放一个按钮
+    used.add(line)
+    out.push({ line, index })
+  })
+  return out
+}
+
+/**
+ * **哪些行该出现「❖」按钮**（纯函数，可离线断言）—— `mapButtonTargets` 的简化投影。
  *
  * 与 `parseBlocks` 同一份解析 ⇒「有按钮」与「能开出导图」永远同真同假。
- * 规则 = 每个**非容器**的组标题行 ＋ 文档开头那种**没有标题的裸列表**的第一行。
  */
 function mapButtonLines(md) {
-  const { blocks, headings } = parseBlocks(md)
-  const lines = []
-  for (const b of blocks) {
-    if (!b.nodes.length) continue
-    if (b.titleLine === -1) {
-      lines.push(b.startLine) // 裸列表组：入口挂在它自己的第一行
-      continue
-    }
-    if (headingIsContainer(headings, b.titleLine)) continue // 容器标题不给按钮
-    lines.push(b.titleLine)
-  }
-  return lines
+  return mapButtonTargets(md).map((t) => t.line)
 }
 
 /** 块内树 → 先序数组 */
@@ -1035,6 +1055,15 @@ export default {
       docOpenHits,
     })
 
+    /**
+     * 诊断出口（CDP 验收用）：**当前文档的「入口表」**（`mapButtonTargets` 的原样输出）。
+     *
+     * 为什么要它：按钮是 CM6 的视图装饰，肉眼只能数截图；而"哪几行有入口、各自开第几组"
+     * 是**纯函数**的结果 —— 直接读出来就能断言（与本文件 `selftest-buttons.mjs` 同一套期望）。
+     * 传参可以顺便对任意文本试算：`__omButtons('# A\n- x\n')`。
+     */
+    window.__omButtons = (md) => mapButtonTargets(typeof md === 'string' ? md : cache.content)
+
     // 换笔记 / 编辑器里改了 ⇒ 跟上（`doc.on` 是 U3b 接上的真事件）
     subscriptions.push(
       doc.on('open', (d) => {
@@ -1080,8 +1109,18 @@ export default {
     /** `mapButtonLines` 的单条缓存 —— 键就是文本本身（CM6 一次重建里传的是同一份字符串） */
     const buttonLinesOfDoc = (doc) => {
       if (btnCacheDoc !== doc) {
-        btnCacheLines = new Set(mapButtonLines(doc))
+        btnCacheLines = new Set(mapButtonTargets(doc).map((t) => t.line))
         btnCacheDoc = doc
+        /**
+         * 诊断出口（CDP 排查"按钮该有却没画"用）：filter **实际收到的文本**与它算出的行号。
+         * 起因 2026-10-14：`__omButtons()`（读 cache）说有 2 个入口，屏幕上却只画了 1 个 ——
+         * 只有把 filter 的输入摊开，才能分清是"两次的文本不一样"还是"渲染没重建"。
+         */
+        window.__omFilterSeen = {
+          len: doc.length,
+          targets: [...btnCacheLines],
+          head: doc.slice(0, 48).replace(/\n/g, '|'),
+        }
       }
       return btnCacheLines
     }
@@ -1089,14 +1128,15 @@ export default {
     subscriptions.push(
       editor.addLineAction({
         id: 'map-btn',
-        pattern: '^(?:#{1,6}\\s|\\s*(?:[-*+]|\\d+[.)])\\s)',
+        pattern: '^(?:#{1,6}[^\\S\\n]|[^\\S\\n]*(?:[-*+]|\\d+[.)])[^\\S\\n])',
         flags: 'm',
         label: '❖',
         title: '把这一组开成导图窗口',
         /**
-         * 判据 = `mapButtonLines`（纯函数，与解析同源；**容器标题不给按钮**）。
-         * 2026-10-14 用户实测后收紧：`# 绪论` 下面接的是子标题，它只是一个标题、
-         * 不是"一组大纲" ⇒ 它那行的按钮必须消失（rev65 的"有列表就给"把容器标题也放过了）。
+         * 判据 = `mapButtonTargets`（纯函数，与解析同源）：
+         * · **容器标题不给按钮**（2026-10-14 用户实测：`# 绪论` 下面接子标题，它只是结构的根）；
+         * · **同一标题下第二个及以后的独立大纲**把入口挂到**它自己的第一行**
+         *   （原来它们没有入口 —— 用户原话「单独大纲也应该能够用导图打开」）。
          */
         filter: ({ doc, line }) => buttonLinesOfDoc(doc).has(line),
         onClick: 'outline-map.open-map-at-line',
@@ -1195,12 +1235,17 @@ export default {
             host.notify('这条命令要带 { line }（由标题左侧的「❖」按钮传）', 'warn')
             return
           }
-          const bi = cache.blocks.findIndex((b) => b.titleLine === line)
-          if (bi < 0) {
-            host.notify('这个标题下面还没有列表 ⇒ 没有可开的导图组', 'warn')
+          /**
+           * 按**入口行**反查组号 —— 用与按钮同一张表 `mapButtonTargets`，
+           * 所以"哪一行有按钮"与"点了开哪一组"永远一致
+           * （标题行 / 裸列表首行 / 同标题下第二个独立大纲的首行，三种入口都在表里）。
+           */
+          const hit = mapButtonTargets(cache.content).find((t) => t.line === line)
+          if (!hit) {
+            host.notify('这一行没有可开的导图组（先打开一篇带列表的笔记）', 'warn')
             return
           }
-          await openMapByIndex(bi)
+          await openMapByIndex(hit.index)
         },
       }),
     )
@@ -1254,6 +1299,7 @@ export {
   parseOutline,
   parseBlocks,
   headingIsContainer,
+  mapButtonTargets,
   mapButtonLines,
   flatNodes,
   blockToTree,
