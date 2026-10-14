@@ -43,8 +43,7 @@ function loadScript(src) {
 
 let libsPromise = null
 /** 懒加载三个转换库（只拉一次；失败下次可重试） */
-function libs() {
-  libsPromise ??= (async () => {
+function libs() {  libsPromise ??= (async () => {
     try {
       const [marked] = await Promise.all([
         importWithRetry(vendor('marked/marked.esm.js')),
@@ -64,6 +63,22 @@ function libs() {
     }
   })()
   return libsPromise
+}
+
+/**
+ * 造一个配好的 TurndownService（html 导入与 epub 导入共用）。
+ *
+ * ⚠️ **必须显式 `remove` script / style / head / title / noscript** ——
+ * turndown **不会**替你丢掉它们的**文本内容**：真机实测（`测试书籍.epub` 里藏了一段探测脚本），
+ * 那段 `try{parent.__epubScriptRan=true;…}` 原样进了笔记正文。
+ * EPUB 的 `<head>` 里还有 `<title>` 与内联样式，一并剔掉。
+ */
+async function makeTurndown() {
+  const { TurndownService, gfm } = await libs()
+  const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+  if (gfm) td.use(gfm) // 表格 / 删除线 / 任务列表不在核心
+  td.remove(['script', 'style', 'head', 'title', 'noscript'])
+  return td
 }
 
 /* ─────────── 小工具 ─────────── */
@@ -220,9 +235,7 @@ async function epubToMarkdown(buf) {
   const spine = [...opf.matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)].map((m) => m[1])
   const title = /<dc:title[^>]*>([^<]*)</i.exec(opf)?.[1]?.trim() ?? ''
 
-  const { TurndownService, gfm } = await libs()
-  const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
-  if (gfm) td.use(gfm)
+  const td = await makeTurndown()
 
   const parts = []
   if (title) parts.push(`# ${title}`)
@@ -252,9 +265,7 @@ async function toMarkdown(name, buf) {
   if (ext === 'md' || ext === 'markdown' || ext === 'txt') return decodeText(buf)
 
   if (ext === 'html' || ext === 'htm') {
-    const { TurndownService, gfm } = await libs()
-    const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
-    if (gfm) td.use(gfm) // 表格 / 删除线 / 任务列表不在核心
+    const td = await makeTurndown()
     return td.turndown(decodeText(buf))
   }
 

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 88
-更新时间: 2026-10-15（rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**（txt/html/png/docx/pdf）；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 89
+更新时间: 2026-10-15（rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,37 @@ revision: 88
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev89（2026-10-15 · **epub / pdf 导入验证** ＋ 一个真 bug：脚本混进了正文）
+>
+> ### 一、导入 6 种**全部验证完毕**（本轮补最后两种，在**桌面端**跑）
+>
+> | 方向 | 读数 |
+> |---|---|
+> | **epub → md**（`测试书籍.epub`） | ✅ 67 行：`# ZeroNote 测试书`（`dc:title`）＋ `# 第一章 春江` ＋ 全部段落 |
+> | **pdf → md**（`probe.pdf`，449 B） | ✅ `## 第 1 页` ＋ `ZeroNote PDF probe`（pdf.js 抽文字层） |
+>
+> 桌面跑法（与手机同一份代码）：插件 junction 到 `_tmp-vault-tb` → 重扫 →
+> `__znExec('io.importFile', { path: '<绝对路径>' })`（绝对路径不弹对话框，正好可自动化）。
+>
+> ### 二、🐞 真 bug：**turndown 不会丢掉 `<script>` / `<style>` 的文本内容**
+>
+> 第一次导入那本 epub 时，笔记正文里混进了测试书里的一段探测脚本：
+> `try{parent.__epubScriptRan=true;document.title="SCRIPT-RAN"}catch(e){…}`
+> —— 连同 `<head>` 里的 `<title>` 与内联样式一起进来了。
+>
+> 修法：抽一个 `makeTurndown()`（html 导入与 epub 导入共用），显式
+> `td.remove(['script','style','head','title','noscript'])`。
+> **修后复验**：同一本书重新导入，`__epubScriptRan|SCRIPT-RAN` 命中数 = **0** ✅。
+>
+> 📌 顺带一条方法论：**转换器必须拿"带脏东西"的真实文件试** —— 干净的示例看不出这类问题。
+>
+> ### 三、现在的账
+>
+> · **导入 6 种全部验证**：md / txt / html / docx（手机端）＋ **pdf / epub（桌面端）**
+> · **导出 5 种**：txt / html / png / docx（**手机端到端落盘**）＋ pdf（**探针过**，真实打印待真人点一次）
+> · 待验：pdf 真实打印（桌面）· 桌面端导出落盘（`dialog.save` ＋ `write_absolute`）
+> · 手机端 pdf / epub 导入**可选**复验（同一份代码；手机走 `content://` 那条路已由其它格式验证过）
 
 > ## 📌 rev88（2026-10-15 · **md→pdf**（浏览器打印栈）＋ 桌面端五种导出探针全过）
 >
