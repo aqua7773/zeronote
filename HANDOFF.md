@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 90
-更新时间: 2026-10-15（rev90 docx 导入**表格还原**（改走 convertToHtml ＋ 新增"无 thead 表格"兜底规则，真机验到 GFM 表格）；rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 91
+更新时间: 2026-10-15（rev91 导入导出**收尾**：交付盘点（导入 6 种全验、导出 5 种中 4 种端到端落盘、pdf 仅剩"真实打印"一步）＋ 测试产物清理 ＋ 插件用法与自动化入口；rev90 docx 导入**表格还原**（改走 convertToHtml ＋ 新增"无 thead 表格"兜底规则，真机验到 GFM 表格）；rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,42 @@ revision: 90
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev91（2026-10-15 · 导入导出**收尾**：交付盘点 ＋ 唯一未验项 ＋ 测试产物清理）
+>
+> ### 一、交付盘点（一个字都不虚）
+>
+> | 方向 | 状态 |
+> |---|---|
+> | 导入 md / txt | ✅ 手机真机 |
+> | 导入 html / docx | ✅ 手机真机（docx 的表格已还原成 GFM，见 rev90） |
+> | 导入 pdf / epub | ✅ 桌面真机（**同一份代码**；epub 走 fflate 自解 zip ＋ turndown） |
+> | 导出 txt / html / png / docx | ✅ **手机端到端落盘**（用户亲测 ＋ PNG/docx 签名校验） |
+> | 导出 pdf | ⚠️ **能力已实现 ＋ 探针通过**（`chars=972`）；**"真实打印出一份 PDF"这一步还没人点过** |
+> | 导出落点选择器 | ✅ Android `ACTION_CREATE_DOCUMENT` → `content://` → `write_content_uri` **全链 logcat 取证** |
+>
+> ### 二、唯一未验项 & 怎么验（两分钟）
+>
+> **桌面**：`命令面板 → 导出当前笔记为 PDF…` → 打印对话框里选「另存为 PDF」→ 看文件头是不是 `%PDF-`。
+> 顺带可验桌面落盘：随便导一次 txt / html → 选个位置（`dialog.save` ＋ `write_absolute` 那条路）。
+> （**Android 的 PDF 导出做不了** —— Tauri 打印在 Android 无效，issue #11933 open；插件已明确拒绝并给替代方案。）
+>
+> ### 三、测试产物已清（都核对过是本次生成的）
+>
+> · **桌面测试库**：删 `测试书籍.md` / `probe.md` / `docx表格测试.md` / `docx表格测试.docx`
+>   （**保留**原有的 `测试书籍.epub`、`probe.pdf` 两个样本）
+> · **手机**：删 `io-test*.md / .txt / .html` 与 `Download/_zn-test/`（库回到 10 个 md）
+> · **本地**：删临时目录 `_tmp-vendor/`（vendor 已落 `public/vendor/`）与 `_tmp-io-test/`
+>
+> ### 四、插件怎么用（下次接手看这里）
+>
+> · 命令面板：`导入外部文件…` ／ `导出当前笔记为 {纯文本, 网页, 长图, Word, PDF}…`
+> · 侧栏面板「导入导出」有同样按钮
+> · **自动化验收入口**：`window.__znExec('io.importFile', { path })`、
+>   `window.__znExec('io.export{Txt|Html|Png|Docx|Pdf}', { probe: true })`
+> · ⚠️ 跑自动化前先确认应用**在前台**（后台时 Android 冻结 WebView，CDP 会超时 —— rev87 §四）
+> · 装的库：手机 `/storage/emulated/0/Documents/ZeroNote/.zn/plugins/import-export/`；
+>   桌面测试库 `_tmp-vault-tb/.zn/plugins/import-export`（junction → `examples/import-export`）
 
 > ## 📌 rev90（2026-10-15 · docx 导入的**表格还原**（两处小修，都在真机上验过））
 >
