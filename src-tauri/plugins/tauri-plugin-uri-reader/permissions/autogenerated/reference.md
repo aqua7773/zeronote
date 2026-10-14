@@ -9,6 +9,8 @@ content://，只有 Android 的 ContentResolver 能，所以必须走这条原�
 #### This default permission set includes the following:
 
 - `allow-read-content-uri`
+- `allow-register-listener`
+- `allow-remove-listener`
 
 ## Permission Table
 
@@ -41,6 +43,58 @@ Enables the read_content_uri command without any pre-configured scope.
 <td>
 
 Denies the read_content_uri command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`uri-reader:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`uri-reader:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`uri-reader:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`uri-reader:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
 
 </td>
 </tr>
