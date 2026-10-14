@@ -68,6 +68,32 @@ const cases = [
   },
 ]
 
+/**
+ * 中心主题（`blocks[].title`）—— 2026-10-14 用户裁定：**只有接着标题的第一个块**用标题当中心，
+ * 其余（空行断开的后续块、文档开头的裸列表）一律用「中心主题」。
+ * 用户原话：「单独大纲渲染的中心主题是上一级的标题，实际上不接标题的大纲应该统一使用
+ * 中心主题作为导图中心」。
+ */
+const titleCases = [
+  { name: '接着标题的第一个块 ⇒ 中心主题 = 标题', md: '# T\n- a\n  - b\n', expect: ['T'] },
+  {
+    name: '同一标题下第二个块 ⇒ 中心主题（用户 2026-10-14 裁定）',
+    md: '# T\n- a\n\n- c\n',
+    expect: ['T', '中心主题'],
+  },
+  {
+    name: '同一标题下三个块 ⇒ 只有第一块用标题',
+    md: '# T\n- a\n\n- c\n\n- d\n',
+    expect: ['T', '中心主题', '中心主题'],
+  },
+  { name: '文档开头裸列表 ⇒ 中心主题', md: '- a\n- b\n', expect: ['中心主题'] },
+  {
+    name: '换标题后重新计数 ⇒ 每个标题下的第一个块都用它自己',
+    md: '# A\n- a\n\n- b\n## C\n- c\n',
+    expect: ['A', '中心主题', 'C'],
+  },
+]
+
 let failed = 0
 for (const c of cases) {
   const got = mapButtonLines(c.md)
@@ -101,6 +127,16 @@ for (const c of cases) {
 }
 if (!inv) console.log('PASS  不变量：每个入口行都对得上一个真实组（标题行或首行）')
 
+/* ── 中心主题 ── */
+let tFail = 0
+for (const c of titleCases) {
+  const got = parseBlocks(c.md).blocks.map((b) => b.title)
+  const ok = got.length === c.expect.length && got.every((v, i) => v === c.expect[i])
+  if (!ok) tFail += 1
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`)
+  if (!ok) console.log(`      期望 [${c.expect.join(', ')}]，实得 [${got.join(', ')}]`)
+}
+
 const file = process.argv[2]
 if (file) {
   const md = readFileSync(file, 'utf8')
@@ -114,8 +150,11 @@ if (file) {
   }
 }
 
+const total = cases.length + titleCases.length
+const bad = failed + tFail + inv
 console.log(
-  `\n${cases.length - failed}/${cases.length} passed` +
-    `${failed ? ` —— ${failed} 个用例失败` : ''}${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
+  `\n${total - failed - tFail}/${total} passed` +
+    `${failed ? ` —— 按钮行 ${failed} 个失败` : ''}${tFail ? ` —— 中心主题 ${tFail} 个失败` : ''}` +
+    `${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
 )
-process.exit(failed + inv ? 1 : 0)
+process.exit(bad ? 1 : 0)

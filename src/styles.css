@@ -1434,11 +1434,12 @@ body.is-resizing * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 尺寸与字号都按**行字号**的 em 给（H1/H2/H3 各不同）。
-     2026-10-13 用户要求「调大一点」：字号 0.52em → 0.68em，热区 0.8em → 1em。 */
-  width: 1em;
-  height: 1em;
-  font-size: 0.68em;
+  /* **尺寸统一**（用户 2026-10-14 二次要求：「按钮大小做成统一的，不按级别区分了」）。
+     原来是 `0.68em` + `1em` 的 em 方案 —— 随行字号缩放，于是 H1/H2/列表行三种按钮
+     实测宽度分别是 16/14/12px，看着不齐。改成固定 px 后各级一样大。 */
+  width: 13px;
+  height: 13px;
+  font-size: 13px;
   line-height: 1;
   margin: 0;
   padding: 0;

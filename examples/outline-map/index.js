@@ -141,11 +141,22 @@ function parseBlocks(md) {
   let lastHeading = ''
   /** 最近标题的**行号**（-1 = 文档开头还没有标题）—— 行首按钮要按它定位 */
   let lastHeadingLine = -1
+  /**
+   * **当前标题下是否已经产出过一个块**（2026-10-14 用户裁定用）。
+   *
+   * 起因：空行把一个大纲断成多块时，**第二块起**仍然沿用上面那个标题当中心主题 ——
+   * 用户原话「单独大纲渲染的中心主题是上一级的标题，实际上**不接标题的大纲应该统一使用
+   * 中心主题作为导图中心**」。⇒ 只有"标题下面第一个块"算接着标题，后续块一律用默认中心主题。
+   */
+  let headingUsed = false
   let inFence = false
   const stack = []
 
   const closeBlock = () => {
-    if (cur && cur.nodes.length) blocks.push(cur)
+    if (cur && cur.nodes.length) {
+      blocks.push(cur)
+      headingUsed = true
+    }
     cur = null
     stack.length = 0
   }
@@ -167,6 +178,7 @@ function parseBlocks(md) {
       closeBlock()
       lastHeading = stripInline(atx[2])
       lastHeadingLine = i
+      headingUsed = false // 新标题 ⇒ 它下面的**第一个**块才算接着它
       headings.push({ line: i, level: atx[1].length, text: lastHeading })
       return
     }
@@ -181,7 +193,14 @@ function parseBlocks(md) {
     const indent = indentOf(li[1])
     if (!cur) {
       // `titleLine` = 组标题所在行（-1 = 这组上面没有标题 ⇒ 没有"标题左侧"，也就没有按钮）
-      cur = { title: lastHeading || '中心主题', titleLine: lastHeadingLine, startLine: i, endLine: i, nodes: [] }
+      // 中心主题：只有**接着标题的第一个块**用标题当中心；后续块与裸列表一律用 `中心主题`
+      cur = {
+        title: lastHeading && !headingUsed ? lastHeading : '中心主题',
+        titleLine: lastHeadingLine,
+        startLine: i,
+        endLine: i,
+        nodes: [],
+      }
     }
     const node = { text, indent, line: i, endLine: i, children: [] }
     while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop()
