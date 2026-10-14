@@ -51,6 +51,8 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'editor:mark',
   // 2026-10-13 rev54：编辑器**行首动作按钮**（`editor.addLineAction`）—— 同理，未知值只警告
   'editor:line-action',
+  // 2026-10-14 rev78：编辑器**逐行 class**（`editor.addLineClass`）—— 大纲竖线用
+  'editor:line-class',
   'store',
   'net',
   'proc',

@@ -18,7 +18,7 @@
  * 行号都是 **0 基**（与 `parseBlocks` 的 `titleLine` / `startLine` 同一口径）。
  */
 import { readFileSync } from 'node:fs'
-import { parseBlocks, mapButtonTargets, mapButtonLines } from './index.js'
+import { parseBlocks, mapButtonTargets, mapButtonLines, outlineDepths } from './index.js'
 
 const cases = [
   {
@@ -94,6 +94,29 @@ const titleCases = [
   },
 ]
 
+/**
+ * **层级**（`outlineDepths`，竖线用）：行号 → 深度（1 起）。
+ * 期望写成 `[[行号, 深度], …]`（会按行号排序后逐项比对）。
+ */
+const depthCases = [
+  { name: '层级：平铺三项都是 1', md: '- a\n- b\n- c\n', expect: [[0, 1], [1, 1], [2, 1]] },
+  {
+    name: '层级：三级嵌套 + 回到上层',
+    md: '- a\n  - a1\n    - a11\n  - a2\n- b\n',
+    expect: [[0, 1], [1, 2], [2, 3], [3, 2], [4, 1]],
+  },
+  {
+    name: '层级：同一标题下两个独立块**各从 1 起算**',
+    md: '# T\n- a\n  - a1\n\n- b\n',
+    expect: [[1, 1], [2, 2], [4, 1]],
+  },
+  {
+    name: '层级：正文/标题/空行都不进表',
+    md: '# T\n正文\n- a\n\n- b\n',
+    expect: [[2, 1], [4, 1]],
+  },
+]
+
 let failed = 0
 for (const c of cases) {
   const got = mapButtonLines(c.md)
@@ -150,11 +173,26 @@ if (file) {
   }
 }
 
-const total = cases.length + titleCases.length
-const bad = failed + tFail + inv
+/* ── 层级（竖线） ── */
+let dFail = 0
+for (const c of depthCases) {
+  const got = [...outlineDepths(c.md).entries()].sort((a, b) => a[0] - b[0])
+  const ok =
+    got.length === c.expect.length &&
+    got.every(([line, depth], i) => line === c.expect[i][0] && depth === c.expect[i][1])
+  if (!ok) dFail += 1
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`)
+  if (!ok) {
+    console.log(`      期望 [${c.expect.map((p) => p.join(':')).join(', ')}]`)
+    console.log(`      实得 [${got.map((p) => p.join(':')).join(', ')}]`)
+  }
+}
+
+const total = cases.length + titleCases.length + depthCases.length
+const bad = failed + tFail + dFail + inv
 console.log(
-  `\n${total - failed - tFail}/${total} passed` +
+  `\n${total - failed - tFail - dFail}/${total} passed` +
     `${failed ? ` —— 按钮行 ${failed} 个失败` : ''}${tFail ? ` —— 中心主题 ${tFail} 个失败` : ''}` +
-    `${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
+    `${dFail ? ` —— 层级 ${dFail} 个失败` : ''}${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
 )
 process.exit(bad ? 1 : 0)

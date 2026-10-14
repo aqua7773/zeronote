@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 77
-更新时间: 2026-10-14（rev77 导图「❖」按钮判据收紧：容器标题不给按钮；rev76 修「打开方式里的 md 被误拦」＋「打开库外 PDF 会切走笔记库」，已提交并重出 release 包；rev75 文件关联 ＋ Android SAF 读取）
+revision: 78
+更新时间: 2026-10-14（rev78 大纲竖线：内核新增 `editor.addLineClass`；rev77 导图按钮判据/对齐/中心主题；rev76 修打开方式两个 bug ＋ 重出 release 包）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2087,6 +2087,37 @@ revision: 77
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
 
+> ## 📌 rev78（2026-10-14 · 大纲竖线 —— 内核新增 `editor.addLineClass`）
+>
+> 用户在同一条消息里提了三件：① 按钮**统一对齐** ② 如参考图的**大纲竖线** ③ **折叠展开**。
+> **① ② 本轮完成；③ 方案已定、留给下一轮**（见本段末尾）。
+>
+> | # | 做了什么 | 落点 |
+> |---|---|---|
+> | ① | 按钮**跨层级统一到同一条竖线**（右边缘都是 293）＋ 垂直仍对齐**首行**（dy +1.5~+2.0） | `src/styles.css`（第四次迭代：绝对定位到行盒 ＋ **不设 `top`**，见 rev77 续段的说明） |
+> | ② | 内核新增 **`editor.addLineClass({ id, classAt })`** —— 逐行给**整行**加 class（`Decoration.line`，不插视图元素） | `src/kernel/contract.ts` ＋ `editor-marks.ts`；`plugin-host.ts` 能力表加 `editor:line-class` |
+> | ② | 插件按缩进层级返回 `zn-ol-dN`；样式表用 `background-origin: content-box` 画导轨 | `examples/outline-map/index.js`（新增纯函数 `outlineDepths`）＋ `src/styles.css` |
+>
+> **为什么必须走内核**：渲染后的缩进由 CM6 按层级给 `padding-left`（实测第 1 级 **34px**、每级 **+10.2px**），
+> 源码里的空格数与之无关 ⇒ 用 `addMark` 的正则"数空格"是错的（这正是 §先查现成的价值：量一次就定性）。
+> 竖线位置：本级线在 content-box 左 **-18px**（marker 再往左 6px），每深一级再 **-10.2px**；
+> `background-position` 的多层写法已写到 **d6**（插件侧 `Math.min(d, 6)` 封顶）。
+>
+> **验收**：CDP 实测 d1/d2/d3 行分别是 **1/2/3 层背景**（位置 -18 / -28.2 / -38.4）；离线
+> `selftest-buttons.mjs` → **18/18**（新增 4 条层级用例：平铺 / 三级嵌套 / 同一标题两块各从 1 起算 / 正文不进表）；
+> 基线 `tsc -b` **0** · `oxlint src` **4 warnings**。
+>
+> ⚠️ **加了编辑器规则后要"切一次笔记"才生效**：契约写明扩展数组在**编辑器挂载/切换笔记**时被捕获
+> ⇒ 只点「重新扫描」不够（本轮实测：重扫后 DOM 里没有 `zn-ol-d*`，切一次笔记才出现）。
+>
+> **⏭ ③ 折叠展开（下一轮，方案已定，别重新设计）**
+> · 内核加 `editor.addFold({ id, foldEndAt })`：`foldEndAt(ctx)` 返回折叠范围的**结束行号**（0 起）或 `null`；
+>   内核负责 StateField（折叠行集合）＋ 行首**圆点按钮**（`Decoration.widget`）＋ 用 `Decoration.replace`
+>   隐藏范围内行。插件按列表树提供范围（`outlineDepths` 已有树，扩成"每个节点的子项末行"即可）。
+> · **折叠状态先做内存态**（关笔记即全展开）；要持久化再加 `.zn/`（用户尚未表态）。
+> · 圆点在**缩进层级位置**（用户参考图 2），与导图按钮（行盒左侧 gutter）不冲突；点击切换折叠。
+> · 参考实现：Obsidian 的 [`vslinko/obsidian-outliner`](https://github.com/vslinko/obsidian-outliner)（同样跑在 CM6 上）。
+>
 > ## 📌 rev77（2026-10-14 · 导图「❖」按钮判据收紧：**容器标题不给按钮**）
 >
 > **用户实测反馈**（桌面端 · 库 `_tmp-vault-tb` · 笔记《数据库绪论》截图）：`# 绪论` 左边出现「❖ 导图」按钮

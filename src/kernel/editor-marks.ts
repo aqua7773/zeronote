@@ -19,7 +19,13 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view'
-import type { Disposable, EditorApi, EditorLineAction, EditorMarkRule } from './contract'
+import type {
+  Disposable,
+  EditorApi,
+  EditorLineAction,
+  EditorLineClassRule,
+  EditorMarkRule,
+} from './contract'
 
 type Entry = {
   /** 完整 id（插件前缀 + 规则 id），用在 DOM 属性上 */
@@ -33,6 +39,10 @@ const entries = new Map<string, Entry>()
 /** 行首动作按钮的条目（`addLineAction`，rev54） */
 type LineEntry = { fullId: string; pluginId: string; rule: EditorLineAction }
 const lineEntries = new Map<string, LineEntry>()
+
+/** 逐行 class 的条目（`addLineClass`，rev78 新增 —— 大纲竖线用） */
+type LineClassEntry = { fullId: string; pluginId: string; rule: EditorLineClassRule }
+const lineClassEntries = new Map<string, LineClassEntry>()
 
 /**
  * 行首按钮的视图元素（CM6 Widget）。
@@ -120,9 +130,23 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
         },
       }
     },
+    addLineClass(rule: EditorLineClassRule): Disposable {
+      const fullId = fullIdOf(pluginId, rule.id)
+      lineClassEntries.set(fullId, { fullId, pluginId, rule })
+      cachedExtensions = null
+      return {
+        dispose: () => {
+          if (lineClassEntries.get(fullId)?.pluginId === pluginId) {
+            lineClassEntries.delete(fullId)
+            cachedExtensions = null
+          }
+        },
+      }
+    },
     list: () => [
       ...[...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
       ...[...lineEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
+      ...[...lineClassEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
     ],
   }
 }
@@ -138,6 +162,11 @@ export function releaseEditorMarks(pluginId: string): void {
   for (const [k, e] of [...lineEntries]) {
     if (e.pluginId !== pluginId) continue
     lineEntries.delete(k)
+    changed = true
+  }
+  for (const [k, e] of [...lineClassEntries]) {
+    if (e.pluginId !== pluginId) continue
+    lineClassEntries.delete(k)
     changed = true
   }
   if (changed) cachedExtensions = null
@@ -259,6 +288,29 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
+  /**
+   * **逐行 class**（rev78）：只加 `Decoration.line`，不插视图元素 —— 给"按结构上样式"留出口
+   * （大纲竖线用它：插件按缩进层级返回 `zn-ol-dN`，`styles.css` 用 `background-origin: content-box`
+   * 把线画在**内容盒**左侧，与行盒左侧的按钮互不干扰）。
+   *
+   * 逐行问插件（`classAt`）⇒ **一次重建会对每一行各调一次**：插件侧必须按整篇缓存
+   * （与 `filter` 同一要求）。插件抛错不该让编辑器崩掉 —— 那一行不加 class，其余照做。
+   */
+  for (const { fullId, rule } of lineClassEntries.values()) {
+    for (let n = 1; n <= doc.lines; n++) {
+      const ln = doc.line(n)
+      let cls: string | null = null
+      try {
+        cls = rule.classAt({ doc: text, line: n - 1, text: ln.text })
+      } catch (e) {
+        console.warn(`[editor] 逐行 class ${fullId} 在第 ${n} 行出错：${String(e)}`)
+        cls = null
+      }
+      if (!cls) continue
+      ranges.push(Decoration.line({ class: cls }).range(ln.from))
+    }
+  }
+
   // 交给 CM6 排序（`Decoration.set(ranges, true)`）：widget 与区间装饰混在一起时，
   // 手写排序 + 零宽 range 更容易踩"起点必须严格升序"的坑（原先用 RangeSetBuilder 就是这么要求的）
   return Decoration.set(ranges, true)
@@ -287,7 +339,7 @@ const markPlugin = ViewPlugin.fromClass(
 export function editorMarkExtensions(
   onAction: (commandId: string, payload?: Record<string, unknown>) => void,
 ): Extension[] {
-  if (entries.size === 0 && lineEntries.size === 0) return []
+  if (entries.size === 0 && lineEntries.size === 0 && lineClassEntries.size === 0) return []
   if (cachedExtensions) return cachedExtensions
 
   const clickHandler = EditorView.domEventHandlers({

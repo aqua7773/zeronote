@@ -1465,3 +1465,58 @@ body.is-resizing * {
   opacity: 0.35;
 }
 
+/* ───────── 大纲竖线（`editor.addLineClass` ＋ 插件按层级给的 `zn-ol-dN`，rev78）─────────
+   数据怎么来的（2026-10-14 CDP 实测，别照抄，改字号/缩进要重量）：
+   · 列表层级由 CM6 用 `padding-left` 表达：第 1 级 **34px**、第 2 级 **44.2px**、第 3 级 **54.4px**
+     ⇒ **每级 +10.2px**；
+   · 每级的 marker（`•`）落在各自 **content-box 左侧约 -12px**（悬挂缩进：内容盒左 = 行盒左 + padding）。
+   ⇒ 竖线用 `background-origin: content-box` 定位到**内容盒**左侧（自动跟着 padding 走，不受层级差影响）：
+     **本级线 -18px**（marker 再往左 6px），每深一级再 **-10.2px**（祖先级的线）。
+   ⚠️ 与导图按钮不冲突：按钮在**行盒**左侧的 gutter（右边缘 293），竖线在**内容盒**里（≥319）。
+   ⚠️ 只画"属于该行祖先层级"的线 ⇒ 有子项的层级自然连成一条，叶子层级不出现多余的线。 */
+:root {
+  --zn-ol-line: var(--zn-border);
+}
+
+.zn-editor .cm-line[class*='zn-ol-d'] {
+  background-repeat: no-repeat;
+  background-origin: content-box;
+  background-size: 1px 100%;
+}
+.zn-editor .cm-line.zn-ol-d1 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0);
+  background-position: -18px 0;
+}
+.zn-editor .cm-line.zn-ol-d2 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0);
+  background-size: 1px 100%, 1px 100%;
+  background-position: -28.2px 0, -18px 0;
+}
+.zn-editor .cm-line.zn-ol-d3 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0);
+  background-size: 1px 100%, 1px 100%, 1px 100%;
+  background-position: -38.4px 0, -28.2px 0, -18px 0;
+}
+.zn-editor .cm-line.zn-ol-d4 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0);
+  background-size: 1px 100%, 1px 100%, 1px 100%, 1px 100%;
+  background-position: -48.6px 0, -38.4px 0, -28.2px 0, -18px 0;
+}
+.zn-editor .cm-line.zn-ol-d5 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0);
+  background-size: 1px 100%, 1px 100%, 1px 100%, 1px 100%, 1px 100%;
+  background-position: -58.8px 0, -48.6px 0, -38.4px 0, -28.2px 0, -18px 0;
+}
+/* d6 及更深：共用这一档（插件侧 `Math.min(d, 6)` 封顶）—— 只画到第 6 级的线 */
+.zn-editor .cm-line.zn-ol-d6 {
+  background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
+    linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0);
+  background-size: 1px 100%, 1px 100%, 1px 100%, 1px 100%, 1px 100%, 1px 100%;
+  background-position: -69px 0, -58.8px 0, -48.6px 0, -38.4px 0, -28.2px 0, -18px 0;
+}
+

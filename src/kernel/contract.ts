@@ -652,6 +652,30 @@ export type EditorLineAction = {
 }
 
 /**
+ * **按行加 class**（`editor.addLineClass`，2026-10-14 rev78 新增）。
+ *
+ * 与 `EditorLineAction` 的区别：lineAction 在行首插一个**按钮**；lineClass 只给**整行**加一个
+ * class（不插任何视图元素）—— 用途是"按结构给行上样式"，典型就是**大纲竖线**：
+ * 插件算出每行的缩进层级、返回 `zn-ol-d2` 这种 class，样式表再用它画导轨。
+ *
+ * 为什么不让插件用 `pattern` 数缩进空格：**渲染后的缩进由 CM6 按层级给**
+ * （`padding-left` 实测第 1 级 34px、每级 +10.2px），源码里的空格数与之无关
+ * ⇒ 只有"内核解析出层级、逐行告诉宿主"这一条路。
+ */
+export type EditorLineClassRule = {
+  /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
+  id: string
+  /**
+   * 逐行问：这一行要加什么 class（`null` / 空串 = 不加）。
+   *
+   * `line` 从 0 起（与 `addLineAction.onClick` 的 payload 同一口径）。
+   * 与 `EditorLineAction.filter` 一样：**同步**、**会被逐行调用** ⇒ 按整篇解析的结果请自行缓存
+   * （`outline-map` 里 `mapButtonTargets` 的缓存写法可直接照抄）。
+   */
+  classAt: (ctx: { doc: string; line: number; text: string }) => string | null
+}
+
+/**
  * 编辑器侧的能力。
  *
  * 生效时机：规则在**编辑器挂载 / 切换笔记**时被读取（atomic 那时才捕获扩展数组），
@@ -695,6 +719,22 @@ export interface EditorApi {
    * · 按钮是**视图元素**，不进文档、不占偏移 ⇒ 不会污染 Markdown 源。
    */
   addLineAction(rule: EditorLineAction): Disposable
+  /**
+   * 给**整行**加 class（2026-10-14 rev78 新增）。
+   *
+   * ```js
+   * const depth = depthByLine(doc) // 插件自己解析一次并缓存
+   * api.editor.addLineClass({
+   *   id: 'outline-lines',
+   *   classAt: ({ line }) => (depth.get(line) ? `zn-ol-d${depth.get(line)}` : null),
+   * })
+   * ```
+   *
+   * 只加 class、不插视图元素 ⇒ 与 `addLineAction`（行首按钮）可以同时用在同一行上：
+   * 按钮在**行盒左侧的 gutter**（实测右边缘 293），竖线画在**内容盒**左侧
+   * （`background-origin: content-box`）—— 两者不打架。
+   */
+  addLineClass(rule: EditorLineClassRule): Disposable
   /** 当前生效的规则（诊断用） */
   list(): { id: string; pluginId: string }[]
 }
@@ -791,6 +831,8 @@ export type Capability =
   | 'editor:mark'
   /** 编辑器**行首动作按钮**（`editor.addLineAction`，rev54） */
   | 'editor:line-action'
+  /** 编辑器**逐行 class**（`editor.addLineClass`，rev78） */
+  | 'editor:line-class'
   | 'store'
   | 'net'
   | 'proc'

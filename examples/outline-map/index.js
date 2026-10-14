@@ -288,6 +288,29 @@ function mapButtonLines(md) {
   return mapButtonTargets(md).map((t) => t.line)
 }
 
+/**
+ * **行号 → 列表深度**（1 起）—— 只收**列表行**，正文/标题/空行都不在表里。
+ *
+ * 用途：大纲**竖线**。内核的 `editor.addLineClass` 只能问"这一行要什么 class"，
+ * 而"层级"必须由解析出来（渲染后的缩进是 CM6 按层级给的 `padding-left`，
+ * 跟源码里的空格数无关 —— 见 `contract.ts` 里 `EditorLineClassRule` 的说明）。
+ *
+ * 每个块**各算各的**：同一标题下被空行断开的第二块是独立的一棵树，深度从 1 重新起算
+ * （与 `mapButtonTargets` 把它的入口挂到自己第一行是同一个道理）。
+ */
+function outlineDepths(md) {
+  const { blocks } = parseBlocks(md)
+  const map = new Map()
+  const walk = (nodes, depth) => {
+    for (const n of nodes) {
+      map.set(n.line, depth)
+      walk(n.children, depth + 1)
+    }
+  }
+  for (const b of blocks) walk(b.nodes, 1)
+  return map
+}
+
 /** 块内树 → 先序数组 */
 function flatNodes(nodes, out = []) {
   for (const n of nodes) {
@@ -1164,6 +1187,35 @@ export default {
     )
 
     /**
+     * **大纲竖线**（`editor.addLineClass`，2026-10-14 rev78）—— 按缩进层级给行加 `zn-ol-dN`，
+     * 具体线由 `styles.css` 的 `zn-ol-d*` 规则用 `background-origin: content-box` 画出来。
+     *
+     * 为什么走内核 API 而不是 `addMark` 的正则：**渲染后的缩进由 CM6 按层级给**
+     * （`padding-left` 第 1 级 34px、每级 +10.2px），源码里的空格数与之无关
+     * ⇒ 只能"解析出层级"再逐行告诉宿主。
+     */
+    let depthCacheDoc = null
+    let depthCacheMap = new Map()
+    const depthByLineOf = (doc) => {
+      if (depthCacheDoc !== doc) {
+        depthCacheMap = outlineDepths(doc)
+        depthCacheDoc = doc
+      }
+      return depthCacheMap
+    }
+
+    subscriptions.push(
+      editor.addLineClass({
+        id: 'outline-lines',
+        classAt: ({ doc, line }) => {
+          const d = depthByLineOf(doc).get(line)
+          // 封顶 6 级：样式表只画到 d6（再深的层级共用 d6 的线，视觉上够用）
+          return d ? `zn-ol-d${Math.min(d, 6)}` : null
+        },
+      }),
+    )
+
+    /**
      * 把第 `bi` 组开成独立导图窗口 —— 两个入口共用：
      * · 命令面板 `outline-map.open-map`（按组号）
      * · **标题左侧的「❖」按钮** `outline-map.open-map-at-line`（按行号反查组号）
@@ -1320,6 +1372,7 @@ export {
   headingIsContainer,
   mapButtonTargets,
   mapButtonLines,
+  outlineDepths,
   flatNodes,
   blockToTree,
   flatten,
