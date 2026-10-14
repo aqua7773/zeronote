@@ -2146,7 +2146,8 @@ revision: 81
 > 3. 手机上 `input tap` 依然无效、`input swipe x y x y 120` 有效（rev71 结论今天再次复现）；
 >    `input motionevent DOWN/UP` 本机**没**触发点击（rev80 记过它可用 —— 以后以 `swipe` 为准）。
 >
-> **提交**：`9f4ca9d`（3 文件 / +106 −7：`src/App.tsx` · `android-dev.cmd` · 本文件）。
+> **提交**：`339418e`（rev81 主提交：3 文件 / +108 −7 —— `src/App.tsx` · `android-dev.cmd` · 本文件；
+> 本行提交号是事后回填的，紧跟其后的那个提交只改这一行）。
 
 > ## 📌 rev80（2026-10-14 · 大纲**折叠 / 展开** —— 内核新增 `editor.addFold`）
 >
