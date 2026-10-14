@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 80
-更新时间: 2026-10-14（rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 81
+更新时间: 2026-10-14（rev81 Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`）；并**更正 rev80 对「0 篇」的归因** —— 实为存储权限，不是"退回默认库"。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2087,6 +2087,67 @@ revision: 80
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
 
+> ## 📌 rev81（2026-10-14 · Android「关闭插件窗口」定型：不重载 · 放接管 · 清 URL；＋**更正 rev80 一处误判**）
+>
+> **用户报的活**：rev80 留的那条待修 —— 手机上点插件窗口的 ✕ 之后行为不对
+> （rev80 临时改成 `location.replace` 回主界面）。
+>
+> **落成三件事（同一个 `onClose` 的 Android 分支；桌面一字未动，仍走 `destroy()`）**
+> 1. **`winClosed` state** —— 关窗口只"不画那个面板"，**不重载** ⇒ 库 / 编辑器 / 插件全不用重建。
+> 2. **`kernel.clearShell()`** —— ⚠️ 只翻 state 不够（实测挖出来的）：窗口里插件常把整窗接管
+>    （导图就是），而那本账记在**内核**里、不随窗口 UI 消失 ⇒ 点 ✕ 后屏幕仍是导图，
+>    得再点一次右下角「释放接管」。
+> 3. **`history.replaceState` 清掉 URL 上的 `pluginWindow`** —— 否则 `pluginWindowId` 还挂在 URL 上，
+>    **任何整页重载都会让关掉的窗口复活**（实测：改一行 `src/**` 触发 HMR 后，屏幕又变回那个导图窗口）。
+>
+> **验收（真机 `33b676f6` / Redmi Turbo 3，dev 版 HMR）**
+>
+> | 证据 | 读数 |
+> |---|---|
+> | `_shots/rev81-29-window2.png` | 窗口正常打开：标题条「导图 · 中心主题 / outline-map」＋三键＋ Mind Elixir 导图（6 节点） |
+> | `_shots/rev81-30-after-close.png` | 点 ✕ ⇒ **直接**回主界面（「选一篇开始」＋底栏 **11 篇 · 2 文档**），**不需要**再点「释放接管」 |
+> | `_shots/rev81-12-after-close.png`（对照） | 旧版（只翻 state）：点 ✕ 后屏幕**仍是导图** |
+> | 基线 | `tsc -b` **0** · `oxlint src` 恰好 **4** · `cargo test --lib` **21 passed**（本轮未动 Rust） |
+>
+> ### ⚠️ 更正 rev80 的一条结论：那个「0 篇」不是"退回默认库"
+>
+> rev80 写「`location.replace` 整页重载 ⇒ 退回**默认库**（应用私有 vault）⇒ 0 篇」。**归因错了。**
+>
+> 本轮实测（全部是读数，不是推断）：
+> · 「笔记库」面板显示「**默认库 · 当前** `/storage/emulated/0/Documents/ZeroNote`」⇒ **库一直是对的**；
+> · 那个目录 `ls` 有 **12 个 .md**，而文件树空、状态栏 **0 篇**、**没有任何报错**；
+> · `appops get … MANAGE_EXTERNAL_STORAGE` = **allow**（8 分 54 秒前设置；`rejectTime` = 3 天 5 小时前）
+>   ⇒ 之前处于 **deny**；
+> · `am force-stop` ＋ 重启应用（**没改一行代码、没动库路径**）⇒ 立刻显示「**11 篇 · 2 文档**」。
+>
+> ⇒ 真根因是**存储权限**：Android 11+ 在没有 MANAGE_EXTERNAL_STORAGE 时，对非 media 文件
+> **不报错、也不列出** —— 于是 `list_notes` 返回空数组，界面显示成"这个库还没有笔记"；
+> **与"重载 / 默认库"无关**（重载只是把这件事暴露在用户眼前的那一下）。
+> 📌 顺带查到：应用里其实有一条 `core.requestStoragePermission`（命令面板搜 `open` 能看到，
+> 标题「请求「所有文件访问」权限（Android）」）—— rev64 说"没做引导"，这条命令的来龙去脉**下次先查**。
+> ⚠️ **未核实**：「deny 时不报错也不列出」这条机制目前是**推断**，还没落到一手来源
+> （Android 官方文档 / AOSP 源码）。按 §5「下技术定论前先查一手来源」，**下次接手先查再传**。
+>
+> ### 🔧 顺手：`android-dev.cmd` 补 `CARGO_HOME`
+>
+> 按 rev63 的硬要求补一行 `set "CARGO_HOME=%USERPROFILE%\Documents\deepseek\_cargo-home"`
+> （原文件只有 `CARGO_TARGET_DIR`）。
+> ⚠️ **对当时正在跑的那个进程无效**（它已按 `~/.cargo` 起来了）—— 下次启动才生效。
+> 文件保持 **CRLF**（22 行 / 无 BOM，脚本头部就写着 "CRLF required"）。
+>
+> ### ⚠️ 未实测 / 新发现（如实记，别当已完成）
+> 1. **「整页重载后窗口不复活」（`replaceState` 的效果）未实测** —— 触发它要 full-reload 桌面开发页，
+>    而桌面 ZeroNote 可能正被用户用着（会丢未保存的输入）⇒ 不为一条**纯代码可推**的机制冒这个险。
+> 2. 🐞 **新发现（待查）**：**同一次会话里第二次打开同一篇笔记时 `❖` 按钮不显示**（首次打开正常）；
+>    重启应用后首次打开又正常 ⇒ 与"是否刚启动"相关，**不是**权限、**不是**插件没加载
+>    （同一屏里折叠圆托正常）。插件里**本来就有**诊断出口 `__omFilterSeen` / `__omButtons()`，
+>    其注释（`examples/outline-map/index.js:1230`）记的正是同一现象（"说有 2 个入口，屏幕上却只画了 1 个"）
+>    ⇒ **下次接 CDP 直接读它们，别再用截图猜**。
+> 3. 手机上 `input tap` 依然无效、`input swipe x y x y 120` 有效（rev71 结论今天再次复现）；
+>    `input motionevent DOWN/UP` 本机**没**触发点击（rev80 记过它可用 —— 以后以 `swipe` 为准）。
+>
+> **提交**：`9f4ca9d`（3 文件 / +106 −7：`src/App.tsx` · `android-dev.cmd` · 本文件）。
+
 > ## 📌 rev80（2026-10-14 · 大纲**折叠 / 展开** —— 内核新增 `editor.addFold`）
 >
 > **用户需求**：「做展开」＝ rev78 遗留的 ③（方案上一轮已定：状态**要记**、存库内 `.zn/`、锚点用行签名）。
@@ -2281,10 +2342,14 @@ revision: 80
 >   ⇒ 重载后应用退回**默认库**（应用私有 vault），主界面显示「这个库还没有笔记 / 0 篇」
 >   （`_shots/android-rev80-11.png`）。**数据没丢**：真库在 `/storage/emulated/0/Documents/ZeroNote`，
 >   只是应用指错了地方 —— 关掉应用重开就能回到正确库。
-> - ⚠️ **待修（下次接手，做法已定）**：**别重载**，用一个 state 关掉窗口 UI 就行：
+>   ⚠️ **更正见 rev81**（本条**归因错了**）：那 0 篇与"重载 / 默认库"**无关** —— 库一直指着公共库，
+>   真根因是**存储权限**（deny 时 Android 对非 media 文件不报错、也不列出）。读数与证据见 rev81。
+> - ✅ **已做（rev81，做法比这里定的多两件）**：**别重载**，用一个 state 关掉窗口 UI：
 >   `const [winClosed, setWinClosed] = useState(false)`；窗口分支的渲染条件改成
 >   `pluginWindowId && !winClosed`；Android 的 `onClose` 里 `setWinClosed(true)`。
 >   这样库、编辑器状态、插件全都不用重建（桌面仍走 `destroy()`）。
+>   **rev81 补的两件**：① `kernel.clearShell()`（否则插件的整窗接管仍遮满主界面）；
+>   ② `history.replaceState` 清 URL 的 `pluginWindow`（否则整页重载会让窗口复活）。验收见 rev81。
 > - 📌 **教训**：**Android 上没有"多窗口"** —— 凡是依赖"开/关独立窗口"的桌面假设，
 >   都要在真机上单独验一遍（`close()` 只发事件、`destroy()` 无窗口可销毁，两条在这里都不成立）。
 >

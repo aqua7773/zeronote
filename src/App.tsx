@@ -365,6 +365,18 @@ export default function App() {
   )
 
   /**
+   * 「这个窗口已经被关掉了」—— **只在"用同一个 webview 承载窗口"的平台上用到**（Android）。
+   *
+   * 为什么不重载页面：`location.replace()` 是**整页重载**，重载后库要重新从 URL / 常量解析。
+   * **rev80 真机实测**：重载后应用退回**默认库**，界面变成「这个库还没有笔记 / 0 篇」
+   * （数据没丢，真库在 `/storage/emulated/0/Documents/ZeroNote`，只是应用指错了地方）。
+   * ⚠️ 那一次重载后 URL 里 `vault` 参数为何没起作用**未核实** —— 所以这里不去依赖"URL 里到底有没有它"，
+   * 直接**不重载**：翻一个 state 就只是"不画那一个面板"，库 / 编辑器状态 / 插件全都不用重建。
+   * 桌面端不受影响：它那边的窗口是**真窗口**，走 `destroy()`（见下面 `onClose` 的两条分支）。
+   */
+  const [winClosed, setWinClosed] = useState(false)
+
+  /**
    * **整窗接管**（U2 · rev51）：只留一个"重渲染计数器"，真正的账在**内核**里
    * （`kernel.shellOwner()`，渲染时直接读）。
    *
@@ -2927,8 +2939,10 @@ export default function App() {
             ? '未保存'
             : ''
 
-  /* ── 窗口模式：只渲染那一个面板（插件已在上面那套 effect 里加载完） ── */
-  if (pluginWindowId) {
+  /* ── 窗口模式：只渲染那一个面板（插件已在上面那套 effect 里加载完） ──
+     `winClosed` 只服务于 Android 那条"没有真窗口可关"的路径：关掉窗口 UI 后落回主界面，
+     **不重载页面**（重载会把库退回默认库 —— 见 `winClosed` 的注释）。 */
+  if (pluginWindowId && !winClosed) {
     const winPanel = panels.find((p) => p.id === pluginWindowId)
     return (
       <div className="zn-plugin-window">
@@ -2951,13 +2965,31 @@ export default function App() {
                * `?pluginWindow=<panelId>` 的 UI**（截图里它占满整屏、只有自绘标题条）
                * ⇒ `destroy()` 没有独立窗口可销毁，点了当然没反应。
                *
-               * 所以 Android 上"关闭"的语义 = **回到主界面**：把 URL 上的 `pluginWindow` 去掉重新加载。
+               * 所以 Android 上"关闭"的语义 = **回到主界面**。但**不能用 `location.replace()` 重载**：
+               * rev80 真机实测它会让应用**退回默认库**（界面「0 篇」，数据其实没丢）
+               * ⇒ 改成翻 `winClosed` 这一个 state，库 / 编辑器 / 插件全部原样留着。
                * 桌面保持 `destroy()`（关掉真窗口）。
                */
               if (platform === 'android') {
+                /**
+                 * **URL 也要清掉，但只能用 `history.replaceState`（它不加载页面）。**
+                 * 为什么非清不可：`winClosed` 是内存状态，而 `pluginWindow` 还挂在 URL 上 ——
+                 * 之后任何一次**整页重载**（刷新 / HMR 全量更新 / 系统回收后重建）都会重新读到它，
+                 * 于是"已经关掉的窗口"复活（2026-10-14 真机实测：改一行 `src/**` 触发 HMR 全量重载，
+                 * 屏幕又变回那个导图窗口）。清掉 URL ⇒ 重载后自然回主界面。
+                 */
                 const url = new URL(location.href)
                 url.searchParams.delete('pluginWindow')
-                location.replace(url.toString())
+                history.replaceState(null, '', url.toString())
+                /**
+                 * 同时**释放整窗接管**（U2）：窗口里插件常把整个界面接管成自己的画布（导图就是），
+                 * 而那本账记在**内核**里，不随"窗口 UI 不画了"一起消失 ⇒
+                 * 不清的话主界面仍被它遮满，用户看到的是"点了 ✕ 什么都没变"
+                 * （同日实测：只翻 state 时，关窗后屏幕上仍是导图，得再点一次右下角「释放接管」）。
+                 * 这里用内核逃生口 `clearShell()` —— 它的语义正是"用户强关，接管一起下场"。
+                 */
+                kernel?.clearShell()
+                setWinClosed(true)
                 return
               }
               void getCurrentWindow().destroy()
