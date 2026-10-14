@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 1,
+  "id": "import-export",
+  "name": "导入导出",
+  "version": "0.1.0",
+  "apiVersion": "^0.1.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "把外部文件导入成库内笔记、把笔记导出成其它格式。批 1 只做**导入 md / txt**（pdf / epub / html / docx 与各方向的导出在后续批次）。文件名沿用原文件名（去扩展名 + .md），撞名自动加 -1 / -2 后缀。",
+  "capabilities": ["fs:read", "fs:write", "command", "view:sidebar"],
+  "contributes": {
+    "commands": [
+      { "id": "io.importFile", "title": "导入外部文件…" }
+    ],
+    "panels": [{ "id": "io.panel", "title": "导入导出", "location": "sidebar" }]
+  }
+}

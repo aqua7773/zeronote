@@ -930,10 +930,26 @@ export default function App() {
    */
   useEffect(() => {
     if (!kernel) return
-    const w = window as unknown as { __znKernelAudit?: () => KernelAudit }
+    const w = window as unknown as {
+      __znKernelAudit?: () => KernelAudit
+      __znExec?: (id: string, payload?: unknown) => Promise<unknown>
+    }
     w.__znKernelAudit = () => kernel.audit()
+    /**
+     * 命令执行出口（**给自动化验收用**，2026-10-15 加）。
+     *
+     * 为什么需要：`__znKernelAudit` 只读；而"带 payload 执行一条命令"此前**没有任何入口** ——
+     * 命令面板不带参数、UINode 按钮的 payload 写死在清单里。于是像
+     * `io.importFile({ path: 'content://…' })` 这种**必须传参**的命令，CDP 侧无从触发
+     * （原生文件对话框也没法脚本化点选）⇒ 端到端验收就断在这里。
+     *
+     * 与 `__znKernelAudit` / `__znBackPress` 同属诊断出口：页面里本来就跑着内核本体，
+     * 这里不多给任何主体任何能力（插件自己就能 `execute`）。
+     */
+    w.__znExec = (id, payload) => kernel.commands.api.execute(id, payload)
     return () => {
       delete w.__znKernelAudit
+      delete w.__znExec
     }
   }, [kernel])
 
@@ -1604,7 +1620,8 @@ export default function App() {
     } catch (e) {
       setToast(`系统文件选择器打不开（${String(e)}）。可改用系统的「打开方式」并选 ZeroNote。`)
     }
-  }, [])
+    // `platform` 进依赖：Android 分支不传 filters（见上面的注释），桌面分支才传
+  }, [platform])
 
   const pickVault = useCallback(async () => {
     // 安卓**没有目录选择器**：Tauri 的 dialog.open({directory:true}) 在移动端

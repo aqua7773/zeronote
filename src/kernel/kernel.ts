@@ -5,7 +5,7 @@
  * 两者都不知道对方存在。
  */
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { save } from '@tauri-apps/plugin-dialog'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { API_VERSION } from './contract'
 import type {
@@ -30,6 +30,21 @@ import { createFsApi } from './fs'
 import { createIndexApi } from './index-api'
 import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
+
+/**
+ * `Uint8Array` → base64 —— **必须分块**。
+ *
+ * 一次性 `String.fromCharCode(...arr)` 在几百 KB 上就会 `Maximum call stack size exceeded`；
+ * 导出长图 / PDF 时正好会踩到，所以从第一行就分块（二进制导出统一走这里）。
+ */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
 
 export type PanelRegistration = {
   id: string
@@ -371,18 +386,59 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         return absPath
       }
     },
+    /**
+     * 弹系统文件选择器（**导入用**，2026-10-15 加）。
+     *
+     * Android 上**不传 filters** —— 那边是 MIUI 的「安全访问」，按 MIME 过滤自己那四个分类，
+     * 而 `md` 经 `MimeTypeMap.getMimeTypeFromExtension` 转出来的名字不在它的白名单里
+     * ⇒ 传了就**一个文件都列不出来**（真机实测）。桌面端也不传：导入要吃的格式本来就杂
+     * （md / txt / pdf / epub / html / docx），让人自己选，好过让他猜"为什么我要的文件不在列表里"。
+     */
+    async pickFile() {
+      const picked = await open({ multiple: false, title: '打开文件' })
+      if (!picked || typeof picked !== 'string') return null
+      return picked
+    },
+    /**
+     * 读 SAF 的 `content://`（**导入用**，2026-10-15 加）—— 转发给原生插件
+     * `tauri-plugin-uri-reader`，它用 `ContentResolver` 把文件复制到应用缓存，
+     * 返回 `{ path, name }`（绝对路径 + 文件名）。
+     *
+     * **为什么必须由内核转发**：插件是 Blob 模块，`import` 不到 `@tauri-apps/api`，
+     * 自己拿不到 `invoke`。桌面没有 SAF ⇒ 普通绝对路径原样返回，不复制。
+     */
+    async readContentUri(uri) {
+      if (!/^content:\/\//i.test(uri)) {
+        const name = uri.split(/[\\/]/).pop() ?? 'imported.bin'
+        return { path: uri, name }
+      }
+      return await invoke<{ path: string; name: string }>(
+        'plugin:uri-reader|read_content_uri',
+        { uri },
+      )
+    },
     async saveFile({ defaultName, content }) {
       // 系统「另存为」对话框：用户取消返回 null（**不抛错** —— 取消是正常操作，不是异常）
       const picked = await save({ defaultPath: defaultName })
       if (!picked) return null
+      /**
+       * **Android：`save()` 返回的是 `content://` 内容 URI**（SAF 的 `ACTION_CREATE_DOCUMENT`），
+       * 不是文件路径 ⇒ `write_absolute` 拿它当路径必然失败（契约里原先就标着"Android 受限"）。
+       * 2026-10-15 补上：交给原生插件 `tauri-plugin-uri-reader` 的 `write_content_uri`，
+       * 用 `ContentResolver.openOutputStream` 写进去 —— 这条 URI 由 CREATE_DOCUMENT 授予，**带写权限**。
+       */
+      if (/^content:\/\//i.test(picked)) {
+        const payload =
+          typeof content === 'string' ? { text: content } : { base64: toBase64(content) }
+        await invoke('plugin:uri-reader|write_content_uri', { uri: picked, ...payload })
+        return picked
+      }
       // 库外写入走专用命令（只收绝对路径），见 src-tauri/src/lib.rs
       if (typeof content === 'string') {
         await invoke('write_absolute', { path: picked, content })
       } else {
         // 二进制经 base64 过桥：直接传 Uint8Array 会被序列化成 JSON 数字数组
-        let bin = ''
-        for (let i = 0; i < content.length; i++) bin += String.fromCharCode(content[i])
-        await invoke('write_absolute_b64', { path: picked, base64: btoa(bin) })
+        await invoke('write_absolute_b64', { path: picked, base64: toBase64(content) })
       }
       return picked
     },

@@ -552,6 +552,36 @@ export interface HostApi {
    */
   assetUrlAbs(absPath: string): string
   /**
+   * 弹系统**文件选择器**，让用户挑一个文件（**导入用**）。
+   *
+   * 返回什么取决于平台（2026-10-15 加）：
+   * · **桌面** ⇒ 绝对路径（能直接交给路径型 API）
+   * · **Android** ⇒ `content://` **内容 URI**（SAF）—— `std::fs` 读不了它，
+   *   必须经原生插件 `tauri-plugin-uri-reader` 的 `read_content_uri` 复制到缓存后再用
+   *
+   * 用户取消 ⇒ 返回 `null`（不是抛错）。
+   *
+   * ⚠️ **Android 一律不传 `filters`**（真机实测，2026-10-15）：那边弹的是 MIUI 的
+   * 「安全访问」，它按 **MIME** 过滤自己那四个分类，而 `md` 经
+   * `MimeTypeMap.getMimeTypeFromExtension` 转出来的名字不在它的白名单里
+   * ⇒ 传了 filter 的结果是**一个文件都列不出来**（目录能进、进去是空的）。
+   * 这条平台差异封装在内核里，插件不用自己分平台。
+   */
+  pickFile(): Promise<string | null>
+  /**
+   * 读一个 Android SAF 的 `content://` URI（**导入用**）。
+   *
+   * 为什么必须由宿主提供：插件是 **Blob 模块**，`import` 不到 `@tauri-apps/api`
+   * （独立 ESM、没有 node_modules）⇒ 拿不到 `invoke`，原生插件
+   * `tauri-plugin-uri-reader` 的命令只能由内核转发。
+   *
+   * 原生侧会把内容**复制到应用缓存**再返回 `{ path, name }`（**绝对路径**）——
+   * 拿到之后用 `host.assetUrlAbs(path)` ＋ `fetch()` 就能读内容。
+   *
+   * **桌面**没有 SAF：传进来的应当是普通绝对路径，内核**原样返回、不复制**（零开销）。
+   */
+  readContentUri(uri: string): Promise<{ path: string; name: string }>
+  /**
    * 弹系统「另存为」对话框，把内容写到用户选的位置（**导出用**）。
    *
    * 返回实际保存的**绝对路径**；用户取消 ⇒ 返回 `null`（不是抛错，插件不用 try/catch）。
