@@ -331,10 +331,22 @@
           "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
-          "description": "ZeroNote URI 读取插件：允许前端把 Android 系统递来的 `content://`（SAF）文件\n读成应用缓存里的一份临时文件（返回 { path, name }）。\n\n用途：从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了\ncontent://，只有 Android 的 ContentResolver 能，所以必须走这条原生通道。\n#### This default permission set includes:\n\n- `allow-read-content-uri`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the write_content_uri command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-write-content-uri",
+          "markdownDescription": "Enables the write_content_uri command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_content_uri command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-write-content-uri",
+          "markdownDescription": "Denies the write_content_uri command without any pre-configured scope."
+        },
+        {
+          "description": "ZeroNote URI 读取插件：允许前端把 Android 系统递来的 `content://`（SAF）文件\n读成应用缓存里的一份临时文件（返回 { path, name }），或把内容**写回**用户选定的 `content://`。\n\n用途：① 从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了\ncontent://，只有 Android 的 ContentResolver 能；② 导出（另存为）时把内容写进 SAF 给的 URI。\n#### This default permission set includes:\n\n- `allow-read-content-uri`\n- `allow-write-content-uri`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "ZeroNote URI 读取插件：允许前端把 Android 系统递来的 `content://`（SAF）文件\n读成应用缓存里的一份临时文件（返回 { path, name }）。\n\n用途：从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了\ncontent://，只有 Android 的 ContentResolver 能，所以必须走这条原生通道。\n#### This default permission set includes:\n\n- `allow-read-content-uri`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "ZeroNote URI 读取插件：允许前端把 Android 系统递来的 `content://`（SAF）文件\n读成应用缓存里的一份临时文件（返回 { path, name }），或把内容**写回**用户选定的 `content://`。\n\n用途：① 从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了\ncontent://，只有 Android 的 ContentResolver 能；② 导出（另存为）时把内容写进 SAF 给的 URI。\n#### This default permission set includes:\n\n- `allow-read-content-uri`\n- `allow-write-content-uri`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

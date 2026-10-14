@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 85
-更新时间: 2026-10-15（rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 86
+更新时间: 2026-10-15（rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,60 @@ revision: 85
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev86（2026-10-15 · 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出）
+>
+> 用户在批 1 验收后追加要求：「都做」＋「**还有导出为长图片**」＋「落点**每次让我选目录**」，
+> 并允许重建 Android。本批按选型表（rev85）落地**不依赖重建**的那一半 ＋ 把重建要用的代码写好。
+>
+> ### 一、转换库落地（`public/vendor/`，全部 MIT/BSD，git 入库）
+>
+> | 目录 | 内容 | 体积 |
+> |---|---|---|
+> | `vendor/turndown/` | `turndown.js`（UMD）＋ `turndown-plugin-gfm.js` ＋ 两份 LICENSE | 26,659 ＋ 4,191 B |
+> | `vendor/marked/` | `marked.esm.js`（ESM，可直接 `import()`）＋ LICENSE | 47,076 B |
+> | `vendor/mammoth/` | `mammoth.browser.min.js`（UMD）＋ LICENSE | 405,060 B |
+>
+> 下载方式：`npm pack <pkg>@<ver> --registry=https://registry.npmmirror.com` → 解包 → 取单文件产物。
+> **架构上刻意分两类加载**：ESM 的走绝对 URL `import()`（`new URL('/vendor/…', location.origin)`，
+> Blob 模块里相对路径没有 base），UMD 的走注入 `<script>`（`data-zn-plugin-vendor` 标记，
+> 卸载时由 `host.onRollback` 摘掉）。三个库**懒加载** —— md/txt 导入不需要它们。
+>
+> ### 二、插件能力（`examples/import-export/`）
+>
+> · **导入**：md / markdown / txt（原样）· **html / htm**（turndown＋gfm）· **docx**（mammoth）
+> · **导出**：`io.exportTxt` / `io.exportHtml`（marked 渲染成**单文件 HTML**，样式内联、深浅色自适应）
+> · **`payload.toVault`**：导出**写进笔记库**而不弹保存框 —— 既给"导出到库内"用，
+>   也是**可自动化验收**的那条（系统"另存为"没法脚本化点选）
+> · `payload.path`：导入时不弹选择器直接吃给定路径/URI（同样是给自动化）
+>
+> ### 三、真机验收读数（`33b676f6`）
+>
+> **html → md**（turndown＋gfm，`io-test.md`）：标题 / 加粗 / 斜体 / 链接 / **GFM 表格** /
+> ```` ```js ```` 带语言标注的围栏代码块 / 引用 **全部正确**；⚠️ 小瑕疵：`<title>` 也进了正文首行。
+> **docx → md**（mammoth，`io-test-1.md`）：标题 / 段落 / 项目符号列表 / 二级标题都对；
+> ⚠️ **表格退化成逐单元格一行**（mammoth 走"语义化"、表格支持弱 —— 选型报告里已预告）。
+> **导出 txt**（`io-test-1.txt`，133 B）：标记剥干净（`• 列表项`、引用去 `>`、链接留文字）✅
+> **导出 html**（`io-test-1.html`，1491 B）：单文件 + 内联 CSS + `prefers-color-scheme` 双向适配 ✅
+> · 基线：`tsc -b` 0 · `oxlint src` 4
+>
+> ### 四、为导出补的写通道（**需要重建才生效**）
+>
+> `tauri-plugin-uri-reader` 新增 **`write_content_uri`**：
+> · Kotlin `writeContentUri`：`ContentResolver.openOutputStream(uri)`，`text` / `base64` 二选一
+>   （二进制走 base64 —— Tauri 的 `Vec<u8>` 会被序列化成 JSON 数字数组）
+> · Rust 侧同名命令转发 ＋ `invoke_handler` 登记；`permissions/default.toml` 加 `allow-write-content-uri`
+> · 内核 `host.saveFile` 的 Android 分支（rev85 已接好）就是调它
+> · ⚠️ **只在 `ACTION_CREATE_DOCUMENT` 返回的 URI 上能写**（系统授予写权限）；随手构造的
+>   `content://` 会抛 SecurityException —— 正常现象，不是 bug
+>
+> ### 五、已知局限 / 下一步
+>
+> · docx 表格退化（mammoth）—— 可试 `convertToHtml` ＋ turndown 路线，待评估
+> · html 导入的 `<title>` 混入正文 —— 加一条 turndown 规则即可（下次顺手）
+> · **P1**：pdf→md（复用 pdf.js）、epub→md（复用 foliate）、**md→长图**（modern-screenshot）、
+>   md→docx（docx 库）、桌面 `window.print()` 出 PDF；Android 的 PDF 导出**做不了**（Tauri #11933 open）
+> · 落地清单见 rev85 的选型表
 
 > ## 📌 rev85（2026-10-15 · 导入导出插件：**选型调研定案** ＋ **批 1（md/txt 导入）落地验收**）
 >

@@ -28,6 +28,18 @@ class ReadArgs {
   var uri: String = ""
 }
 
+/**
+ * 写入参数：`text` 与 `base64` **二选一** ——
+ * 文本直接走 UTF-8；二进制（长图 PNG、导出 docx/PDF）走 base64，
+ * 因为 Tauri 的 `Vec<u8>` 参数会被序列化成 JSON 数字数组（1 MB 就上百万个元素）。
+ */
+@InvokeArg
+class WriteArgs {
+  var uri: String = ""
+  var text: String? = null
+  var base64: String? = null
+}
+
 @TauriPlugin
 class UriReaderPlugin(private val activity: Activity) : Plugin(activity) {
   /**
@@ -92,6 +104,43 @@ class UriReaderPlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve(res)
     } catch (ex: Exception) {
       invoke.reject(ex.message ?: "读取 content:// 失败")
+    }
+  }
+
+  /**
+   * 把内容写进 SAF 给的 `content://`（**导出用**）—— 与 `readContentUri` 对称。
+   *
+   * ⚠️ 只能在 `ACTION_CREATE_DOCUMENT` 返回的 URI 上用：那条 URI 由系统授予了**写权限**。
+   * 随手构造的 `content://`（或只读写权限的 GET_CONTENT 结果）会在 `openOutputStream` 抛
+   * SecurityException —— 这是**正常的**，不是 bug（见 HANDOFF rev85 的"假故障"）。
+   */
+  @Command
+  fun writeContentUri(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(WriteArgs::class.java)
+      android.util.Log.i(
+        "ZN-URI",
+        "writeContentUri uri=" + args.uri + " textLen=" + (args.text?.length ?: -1) +
+          " b64Len=" + (args.base64?.length ?: -1)
+      )
+      val ctx = activity.applicationContext
+      val uri = Uri.parse(args.uri)
+      val out = ctx.contentResolver.openOutputStream(uri)
+      if (out == null) {
+        invoke.reject("写不了这个 content:// URI（provider 没有提供输出流）")
+        return
+      }
+      out.use { o ->
+        val b64 = args.base64
+        if (b64 != null) {
+          o.write(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+        } else {
+          o.write((args.text ?: "").toByteArray(Charsets.UTF_8))
+        }
+      }
+      invoke.resolve()
+    } catch (ex: Exception) {
+      invoke.reject(ex.message ?: "写入 content:// 失败")
     }
   }
 }

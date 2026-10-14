@@ -82,6 +82,39 @@ async fn read_content_uri<R: Runtime>(
   }
 }
 
+/// 把一个 `content://` URI **写成文件**（**导出用**）。
+///
+/// 与 `read_content_uri` 对称：Android「另存为」走 SAF 的 `ACTION_CREATE_DOCUMENT`，
+/// 拿到的是 `content://` 内容 URI（不是文件路径）⇒ `std::fs` 与 `write_absolute` 都写不了它，
+/// 只有 `ContentResolver.openOutputStream` 能。这条 URI 由 CREATE_DOCUMENT 授予，**带写权限**。
+///
+/// `text` 与 `base64` 二选一：二进制（长图 / docx）必须走 base64 ——
+/// Tauri 的 `Vec<u8>` 参数会被序列化成 JSON 数字数组，1 MB 就上百万个元素。
+#[tauri::command]
+async fn write_content_uri<R: Runtime>(
+  app: tauri::AppHandle<R>,
+  uri: String,
+  text: Option<String>,
+  base64: Option<String>,
+) -> Result<(), String> {
+  #[cfg(mobile)]
+  {
+    use tauri::Manager;
+    let payload = serde_json::json!({ "uri": uri, "text": text, "base64": base64 });
+    app
+      .state::<UriReader<R>>()
+      .handle
+      .run_mobile_plugin::<serde_json::Value>("writeContentUri", payload)
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+  #[cfg(not(mobile))]
+  {
+    let _ = (app, uri, text, base64);
+    Err("content:// 是 Android 专有协议；桌面端请用 write_absolute".to_string())
+  }
+}
+
 /// 初始化插件。
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   tauri::plugin::Builder::<R>::new("uri-reader")
@@ -106,6 +139,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![read_content_uri])
+    .invoke_handler(tauri::generate_handler![read_content_uri, write_content_uri])
     .build()
 }
