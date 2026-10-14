@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 89
-更新时间: 2026-10-15（rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 90
+更新时间: 2026-10-15（rev90 docx 导入**表格还原**（改走 convertToHtml ＋ 新增"无 thead 表格"兜底规则，真机验到 GFM 表格）；rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,36 @@ revision: 89
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev90（2026-10-15 · docx 导入的**表格还原**（两处小修，都在真机上验过））
+>
+> ### 一、docx 改走 `convertToHtml` ＋ turndown
+>
+> rev86 记的「mammoth 把表格拍成逐单元格一行」属实 —— 它自带的 `convertToMarkdown` 会输出
+> `表头A` / `表头B` / `a` / `b` 各占一行。而 mammoth 的 **HTML** 输出里表格结构是完整的
+> ⇒ 改成 `mammoth.convertToHtml()` ＋ 配好 gfm 的 turndown。
+>
+> ### 二、但 turndown 的 gfm 插件**只认带 `thead` / `th` 的表格**
+>
+> mammoth 输出的 `<table>` **没有 `<thead>`**（首行也是 `<td>`）⇒ 第一次改完，整块
+> `<table>…</table>` 仍被原样留在正文里（真机实测）。
+> 修法：给 turndown 加一条兜底规则 **`tableWithoutThead`** —— `filter` 只命中"没有 thead 的 table"，
+> 把**首行当表头**转成 GFM；有 `thead` 的仍走 gfm 自己的规则。单元格里的 `|` 会转义。
+>
+> **验后读数**（同一个含表格的 docx）：
+>
+> ```
+> | 表头A | 表头B |
+> | --- | --- |
+> | a | b |
+> ```
+>
+> 这条规则同样惠及 **html 导入**（无 `thead` 的表格）。
+>
+> ### 三、待验（未变）
+>
+> · pdf 的**真实打印**（桌面，要真人点一次打印对话框选「另存为 PDF」）
+> · **桌面端导出落盘**（`dialog.save` ＋ `write_absolute`，同样要真人点一次）
 
 > ## 📌 rev89（2026-10-15 · **epub / pdf 导入验证** ＋ 一个真 bug：脚本混进了正文）
 >

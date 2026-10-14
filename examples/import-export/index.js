@@ -78,6 +78,28 @@ async function makeTurndown() {
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
   if (gfm) td.use(gfm) // 表格 / 删除线 / 任务列表不在核心
   td.remove(['script', 'style', 'head', 'title', 'noscript'])
+
+  /**
+   * **mammoth 的表格 HTML 没有 `<thead>`**，而 turndown 的 gfm 插件要求 `th` / `thead`
+   * 才认表格 ⇒ 会原样保留整块 `<table>…</table>`（真机实测，rev89 之后这一轮）。
+   * 这里补一条兜底：把「首行当表头」的无 thead 表格转成 GFM 表格。
+   * （有 `thead` 的会被 `filter` 排除，仍交给 gfm 自己的规则。）
+   */
+  td.addRule('tableWithoutThead', {
+    filter: (node) => node.nodeName === 'TABLE' && !node.querySelector('thead'),
+    replacement: (_content, node) => {
+      const rows = Array.from(node.querySelectorAll('tr'))
+      if (!rows.length) return ''
+      const cell = (c) => (c.textContent ?? '').trim().replace(/\|/g, '\\|')
+      const grid = rows.map((tr) => Array.from(tr.children).map(cell))
+      const width = Math.max(...grid.map((r) => r.length))
+      const pad = (r) => [...r, ...Array(Math.max(0, width - r.length)).fill('')]
+      const line = (r) => `| ${pad(r).join(' | ')} |`
+      return `\n\n${line(grid[0])}\n| ${pad(grid[0])
+        .map(() => '---')
+        .join(' | ')} |\n${grid.slice(1).map(line).join('\n')}\n\n`
+    },
+  })
   return td
 }
 
@@ -270,9 +292,18 @@ async function toMarkdown(name, buf) {
   }
 
   if (ext === 'docx') {
+    /**
+     * 走 **`convertToHtml` + turndown**，而不是 mammoth 自带的 `convertToMarkdown`。
+     *
+     * 真机实测（rev86）：`convertToMarkdown` 把**表格拍成逐单元格一行**
+     * （`表头A` / `表头B` / `a` / `b` 各占一行），而它输出的 HTML 里表格结构是完整的
+     * ⇒ 交给配好 gfm 的 turndown 能还原成 GFM 表格。
+     * 两条路都不做"还原版式"（mammoth 官方也声明走语义化），但**表格这一项差别很明显**。
+     */
     const { mammoth } = await libs()
-    const r = await mammoth.convertToMarkdown({ arrayBuffer: buf })
-    return r.value
+    const r = await mammoth.convertToHtml({ arrayBuffer: buf })
+    const td = await makeTurndown()
+    return td.turndown(r.value)
   }
 
   if (ext === 'pdf') return await pdfToMarkdown(buf)
