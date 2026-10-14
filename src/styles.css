@@ -1427,7 +1427,9 @@ body.is-resizing * {
 
 .zn-line-action {
   position: absolute;
-  left: 0;
+  /* 2026-10-14 用户微调：「再往左一点」⇒ 右边缘从贴行首（0）退到 -4px，与标题之间留出缝隙。
+     仍落在 `.cm-scroller` 的 48px 左内边距里（最左 249 + 按钮宽 ~14px = 263 < 297），不会被裁。 */
+  left: -4px;
   top: 50%;
   display: inline-flex;
   align-items: center;
@@ -1444,8 +1446,9 @@ body.is-resizing * {
   background: transparent;
   color: var(--zn-fg-subtle);
   cursor: pointer;
-  /* 绝对定位 + 位移：向左推出行首、并垂直居中（见文件上方那段 2026-10-14 的说明） */
-  transform: translate(-100%, -50%);
+  /* 绝对定位 + 位移：向左推出行首、垂直居中，再**统一下移 2px**（用户 2026-10-14 微调 ——
+     居中读数比标题文字中心高约 0.3px，但看着偏上；这里是"视觉校正"，不是几何校正）。 */
+  transform: translate(-100%, calc(-50% + 2px));
   opacity: 0.65;
   transition: opacity 0.15s ease, color 0.15s ease;
 }
