@@ -1,7 +1,7 @@
 # 项目交接
 
 revision: 81
-更新时间: 2026-10-14（rev81 Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`）；并**更正 rev80 对「0 篇」的归因** —— 实为存储权限，不是"退回默认库"。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+更新时间: 2026-10-14（rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2135,9 +2135,66 @@ revision: 81
 > ⚠️ **对当时正在跑的那个进程无效**（它已按 `~/.cargo` 起来了）—— 下次启动才生效。
 > 文件保持 **CRLF**（22 行 / 无 BOM，脚本头部就写着 "CRLF required"）。
 >
+> ### 🔁 折叠：把自造的状态机换成 CM6 官方 `codeFolding`（用户当场点的方向）
+>
+> **用户原话**：「前端应该有很多现成可用的 UI 吧？没有必要什么都自己造，插件引入一些依赖不就行了」。
+> 先做了一手来源核实 —— 结论**一半支持他、一半不支持**，都留下：
+>
+> | 查到的一手事实 | 出处 |
+> |---|---|
+> | `@codemirror/language@6.13.1` **早就在依赖树里**（随 `@atomic-editor/editor` 装上），导出 `foldService` · `codeFolding` · `foldedRanges` · `foldEffect`/`unfoldEffect` · `foldCode`/`unfoldCode`/`foldAll` · `foldKeymap` · `foldGutter` | `.pnpm/@codemirror+language@6.13.1/…/dist/index.d.ts` |
+> | 而 atomic-editor **完全没用**那些（它 dist 里搜不到名字）⇒ rev80 我们手写了一套等价物（StateField + 折叠集合 + `refresh()`） | 同包 `dist/*.js` |
+> | `@codemirror/lang-markdown` **自带两种折叠**：标题整节（`headerIndent` 的 foldService）＋ 代码块 / 引用 / 表格（`foldNodeProp`） | 该包 `dist/index.js` |
+> | ⚠️ 但**列表折叠上游明说不做**：`foldNodeProp.add(type => !type.is("Block") \|\| … \|\| isList(type) ? undefined : …)` | 同上（源码原句） |
+>
+> ⇒ **能换掉的是状态机，换不掉的是折点**（上游留的空白）。
+> 而"圆点外观"那一层：它是**编辑器文档里的行内元素**（CM6 widget decoration），不在 React 组件树里
+> ⇒ MUI / Ant / shadcn 都够不到，引组件库只会换来 React root + 体积；那层"现成"的形态本来就是一条 CSS。
+> 另有一条硬约束：**插件不可能自己 import `@codemirror/language`**（CM6 扩展必须同一实例，
+> 而插件是库内独立 ESM、没有 node_modules）⇒ 官方 API 只能由内核装、插件经契约参与。
+>
+> **改法**（对外尽量不动：`addFold` 还在，只是实现换了）
+> · **删**：`buildFoldBlocks` ＋ `foldBlockField`（自造 StateField）＋ `refreshEffect` ＋ `editor.refresh()`
+> · **装**：`codeFolding({ placeholderDOM: 空 span })`（空 = **不留 `…`**，与 rev80 视觉一致）
+>   ＋ `foldService.of(...)`（把插件的 `foldEndAt` 接进去）
+> · **契约**：`isFolded`（每次都被问）→ **`initialFolded`**（只在挂载 / `restoreFolds()` 时问）
+>   ＋ **`onToggle`**（折叠态变了通知插件写盘）；`refresh()` → **`restoreFolds()`**；
+>   `addLineClass.classAt` 新增 **`folded`** 字段（内核算好给你，插件不再维护镜像）
+> · **新增方法**：`toggleFold(line)` · `foldAt(line)`；插件点击 → `editor.toggleFold(line)`
+>
+> **不只是"少写代码"**：折叠范围的**位置随编辑自动 map**（我们原来是"行文本签名 + 同文本第几次出现"，
+> 代码注释里就写着它的局限）；`foldedRanges` 是官方 StateField ⇒ 不存在"插件记的状态与编辑器显示不一致"。
+> ⚠️ **代价**：官方 `codeFolding()` 自带 `foldKeymap`（`Ctrl-Alt-[` / `Ctrl-Alt-]` / `Ctrl-Alt-Shift-[` …）
+> ⇒ **本应用新增了几个折叠键位**（原来没有）。
+>
+> **验收（读数，不是目测）**
+> · 桌面 CDP（`_tmp-vault-tb` ＋ 临时写的 `outline-demo.md`）：点圆点 ⇒
+>   `__omFolds().folded = ["- 一级 A#0"]`、`kernelFolded = [3,2]`、`foldedClass = ["❖•一级 A"]`、
+>   可见行 **8 → 6**（子行被官方块替换藏掉，折点处是**空 placeholder** ⇒ 没有 `…`）；
+>   再点 ⇒ 全部复位，`.zn/outline-folded.json` 写回 `[]`
+> · **手机真机**（`33b676f6`，走 `adb forward` 的 CDP）：**跨会话恢复**生效 ——
+>   盘上留着 rev80 时代记的 `- 二级 A1#0`，新架构读回来并折起（`kernelFolded=[3]`）；
+>   点「一级 A」⇒ 两处折叠并存并写盘；再点 ⇒ 回到只剩「二级 A1」
+> · 截图 `_shots/rev81-38-phone-folded.png`（手机：子行收起、无 `…`、**圆托与圆点同心**）
+> · 基线：`tsc -b` **0** · `oxlint src` 恰好 **4** · `cargo test --lib` **21 passed**（未动 Rust）
+>
+> ### 📱 两条副产品
+> 1. **Android 上其实有多窗口**：手机 CDP 的 target 列表有 **3 个 page** ——
+>    主窗口（`tauri.localhost/`）＋ 两个 `?vault=/storage/emulated/0/Documents/ZeroNote`，
+>    后两个正是"已经关掉"的插件窗口 webview ⇒ `openWindow` 在 Android 上**真的**建了独立 webview
+>    （所以 `destroy()` 没用、rev81 的 `clearShell()` 才有意义）；
+>    **顺带验证了 URL 清理**：那两个页面 URL 里**已经没有 `pluginWindow`**。
+>    ⇒ 待办：Android 关窗目前等于"留一个常驻 webview"，真销毁路径 Tauri Android 还没提供。
+> 2. **手机接上 CDP 了**（以后手机断言不必再截图猜）：
+>    `adb shell cat /proc/net/unix | grep devtools` 拿 socket 名 →
+>    `adb forward tcp:9333 localabstract:webview_devtools_remote_<app pid>` →
+>    `ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost node tools/cdp.mjs …`
+>
 > ### ⚠️ 未实测 / 新发现（如实记，别当已完成）
-> 1. **「整页重载后窗口不复活」（`replaceState` 的效果）未实测** —— 触发它要 full-reload 桌面开发页，
->    而桌面 ZeroNote 可能正被用户用着（会丢未保存的输入）⇒ 不为一条**纯代码可推**的机制冒这个险。
+> 1. ✅ **「整页重载后窗口不复活」（`replaceState` 的效果）后来实测到了**：装 `@codemirror/language` 时
+>    vite 自己打了 `optimized dependencies changed. reloading` —— 一次真正的**整页重载**；
+>    桌面的页面与手机的页面重载后都**回到主界面**、没有复活插件窗口
+>    （手机 CDP 的 target 列表也印证：那些"关掉的窗口"URL 里已无 `pluginWindow`）。
 > 2. 🐞 **新发现（待查）**：**同一次会话里第二次打开同一篇笔记时 `❖` 按钮不显示**（首次打开正常）；
 >    重启应用后首次打开又正常 ⇒ 与"是否刚启动"相关，**不是**权限、**不是**插件没加载
 >    （同一屏里折叠圆托正常）。插件里**本来就有**诊断出口 `__omFilterSeen` / `__omButtons()`，
@@ -2146,8 +2203,11 @@ revision: 81
 > 3. 手机上 `input tap` 依然无效、`input swipe x y x y 120` 有效（rev71 结论今天再次复现）；
 >    `input motionevent DOWN/UP` 本机**没**触发点击（rev80 记过它可用 —— 以后以 `swipe` 为准）。
 >
-> **提交**：`339418e`（rev81 主提交：3 文件 / +108 −7 —— `src/App.tsx` · `android-dev.cmd` · 本文件；
-> 本行提交号是事后回填的，紧跟其后的那个提交只改这一行）。
+> **提交**：
+> · `339418e`（Android 关闭窗口 ＋ `CARGO_HOME`：3 文件 / +108 −7 —— `src/App.tsx` · `android-dev.cmd` · 本文件）
+> · `08e3218`（折叠换成官方状态机：6 文件 / +402 −139 —— `package.json` · `pnpm-lock.yaml` ·
+>   `src/kernel/contract.ts` · `src/kernel/editor-marks.ts` · `examples/outline-map/index.js` · `examples/outline-map/outline.css`）
+> · 随后那个 docs 提交只改本文件（回填上面两个提交号）。
 
 > ## 📌 rev80（2026-10-14 · 大纲**折叠 / 展开** —— 内核新增 `editor.addFold`）
 >
