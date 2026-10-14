@@ -3,7 +3,7 @@
 > 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日再补记 rev45、rev46 – rev49）· **提交数与 HEAD 一律看 `git log`**
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev82）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev83）**。
 
 ## 是什么 / 在哪
 
@@ -248,6 +248,12 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
   `adb shell stat -c '%s' /storage/emulated/0/Documents/ZeroNote/.zn/plugins/<id>/index.js` 与
   `examples/<id>/index.js` **比大小**。同步目前**只能手动** `adb push` ——
   推到**明确文件路径**（推目录会多套一层，rev30 坑④），推完重启应用或「重新扫描」。
+- 🧱 **移动端安全区**（rev83；用户报「顶部 UI 和状态栏冲突，插件好像都存在这个问题」）：
+  **三处各吃一份** `env(safe-area-inset-*)` —— `.zn-app`（主窗口普通 UI）·
+  `.zn-plugin-window`（**独立插件窗口**）· **`.zn-shell-host > .zn-shell-mount`（主窗口整窗接管）**。
+  ⚠️ 最后那条 rev83 才补：`absolute; inset: 0` 的包含块是**祖先的 padding box** ⇒
+  `.zn-app` 的 padding **管不到接管容器**，插件自绘顶栏原本贴着状态栏
+  （实测顶栏 `top: 0`，修好后 `40`）。**插件自己写的 `position: fixed` 元素不受这些 padding 影响**，得自己让开。
 - **手机模拟点击（2026-10-13 实测更正旧结论）**：`adb shell input tap` **无效**、原地
   `input swipe x y x y 120` **这次也无效** ⇒ 用 **`input motionevent DOWN x y` ＋ `UP x y`（中间隔 ~120 ms）**。
   `screencap` 出来的是**物理像素**（本机 1220×2712），可直接当坐标用
@@ -270,7 +276,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev80**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+`HANDOFF.md`（**rev83**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
 **`docs/文档阅读器-调研-2026-10-13.md`（只读文档阅读器的选型 ＋ 实测全集）** ·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·

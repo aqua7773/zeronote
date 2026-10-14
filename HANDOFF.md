@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 82
-更新时间: 2026-10-15（rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 83
+更新时间: 2026-10-15（rev83 **安全区**：整窗接管容器自己让开状态栏/手势条，插件自绘顶栏不再被压（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,54 @@ revision: 82
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev83（2026-10-15 · **安全区**：整窗接管的插件顶栏不再压状态栏）
+>
+> **用户报的活**：「顶部 UI 和状态栏冲突，插件好像都存在这个问题」。
+>
+> ### 根因（读数，不是推断）
+>
+> 真机读数（手机 `33b676f6`，`env(safe-area-inset-top)` = **40px**）：
+>
+> | 选择器 | 修复前 | 修复后 |
+> |---|---|---|
+> | `.zn-app` computed `padding-top` | 40px | 40px |
+> | `.zn-shell-mount` `top` / 高度 | **0** / 868（整屏） | 0 / 868（`padding-top: 40px`） |
+> | 阅读器根 `.dn-root` `top` | **0** | 0（`padding-top: 40px`） |
+> | 顶栏 `.dn-bar` `top` | **0** ← 与状态栏重叠 | **40** ✅ |
+>
+> **机制**：`.zn-shell-mount` 是 `position: absolute; inset: 0`，而**绝对定位子元素的包含块
+> 是祖先的 padding box** —— `.zn-app` 那圈 `padding-top` 仍算在它的定位范围内 ⇒ 它照样贴屏幕顶。
+> ⇒ 所有走 `view.overrideShell`（主窗口整窗接管）的插件，自绘顶栏都被状态栏压住
+> （文档阅读器、shell-demo… 用户说"插件好像都存在"正是这个）。
+>
+> ### 修法（内核层一处，插件不用各自改）
+>
+> 1. **`.zn-shell-host > .zn-shell-mount` 自己吃安全区**（top ＋ bottom）—— 只补**主窗口**这条：
+>    插件**独立窗口**那边 `.zn-plugin-window` 2026-10-14 已经吃过安全区，再补一份会双倍下移。
+> 2. **内核逃生口 `.zn-shell-escape`** → `bottom: calc(10px + env(safe-area-inset-bottom, 0px))`
+>    —— `absolute` 的 bottom 同样相对 padding box，接管容器那层 padding 管不到它。
+> 3. **`.zn-toast` / `.zn-undo`** 的 `bottom: 32px` → `calc(32px + env(safe-area-inset-bottom, 0px))`，让开手势条。
+>
+> 桌面端 `env(...)` 一律取 0 ⇒ **桌面零影响**。
+>
+> ### 验收（**物理 `screencap` 为证** —— CDP 截图看不到系统状态栏）
+>
+> · `_shots/rev83-01-reader-safearea.png`：状态栏独立一行，阅读器顶栏
+>   「✕ 关闭 / pdf-100kb.pdf / 第 1 / 1 页 · 100%」在它**下方**，右下「释放接管」也让开了手势条
+> · `_shots/rev83-03-mapwindow-safearea.png`：导图**独立窗口**（`?pluginWindow=outline-map.map-0`）
+>   本来就对（标题条「导图 · 测试大纲 / − □ ✕」在状态栏下方）⇒ 印证"只有主窗口接管那条漏了"
+> · 基线：`tsc -b` **0** · `oxlint src` **4** · 提交 `dd70a33`（`src/styles.css` / +26 −3）
+>
+> ### 顺带记录（本轮读到的）
+>
+> · **Android 上独立插件窗口是真的另一个 webview**：CDP `list` 能看到
+>   `http://tauri.localhost/?pluginWindow=outline-map.map-0&vault=…` 独立 page ⇒
+>   对窗口断言要 `ZN_TARGET=pluginWindow=`（否则 `cdp.mjs` 默认挑主窗口）
+> · 窗口三键的文本是**空的**（只有 `title`：最小化 / 最大化 / 关闭窗口，class `zn-win-btn`）
+>   ⇒ 脚本点它要按 `title` 找，`text:` 匹配不到（本轮关窗就踩了）
+> · **未做（诚实标注）**：插件自己写的 `position: fixed` 元素仍会贴屏幕边 ——
+>   接管容器的 padding 管不到 `fixed`，那是插件作者的责任；内核这一层给的是正确的容器内边距
 
 > ## 📌 rev82（2026-10-15 · **外部 PDF 双路真机验收**：热启动 ✅ · 冷启动修掉接管竞态 ✅）
 >
