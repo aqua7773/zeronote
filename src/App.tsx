@@ -2941,7 +2941,28 @@ export default function App() {
             {winPanel?.title ?? pluginWindowId}
             {winPanel?.pluginId ? <span className="zn-plugin-window-src">{winPanel.pluginId}</span> : null}
           </span>
-          <WindowControls onClose={() => void getCurrentWindow().destroy()} />
+          <WindowControls
+            onClose={() => {
+              /**
+               * ⚠️ **Android 上不能用 `destroy()`**（2026-10-14 用户实测「关闭按钮不起作用」）。
+               *
+               * 为什么：桌面端的"插件独立窗口"是**真窗口**（`WebviewWindow`），`destroy()` 关掉它天经地义；
+               * 而 **Android 上没有多窗口这回事** —— 那个"导图窗口"其实是**同一个 webview 换成了
+               * `?pluginWindow=<panelId>` 的 UI**（截图里它占满整屏、只有自绘标题条）
+               * ⇒ `destroy()` 没有独立窗口可销毁，点了当然没反应。
+               *
+               * 所以 Android 上"关闭"的语义 = **回到主界面**：把 URL 上的 `pluginWindow` 去掉重新加载。
+               * 桌面保持 `destroy()`（关掉真窗口）。
+               */
+              if (platform === 'android') {
+                const url = new URL(location.href)
+                url.searchParams.delete('pluginWindow')
+                location.replace(url.toString())
+                return
+              }
+              void getCurrentWindow().destroy()
+            }}
+          />
         </div>
         <div className="zn-plugin-window-body">
           {/* U2：窗口里同样允许接管 —— 但**标题条与关闭按钮保留**（否则窗口关不掉） */}

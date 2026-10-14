@@ -2271,6 +2271,23 @@ revision: 80
 > 必须带 `…\deepseek\_cargo-home`（rev63）—— 日志里它用的是 `~/.cargo/registry/…`。本轮侥幸过了，
 > **下次卡住先看这里**。⚠️ 改它要**保住 CRLF**（文件头写明 "CRLF required"）。
 >
+> 🐞 **又修一个手机端 bug（用户报「关闭按钮不起作用」）—— 但它牵出一个新问题，待续**：
+> - **根因**：桌面那套 `getCurrentWindow().destroy()` 在 **Android 上没有独立窗口可销毁** ——
+>   那个"导图窗口"其实是**同一个 webview 换成了 `?pluginWindow=<panelId>` 的 UI**
+>   （截图里它占满整屏、只有自绘标题条）。
+> - **已修**：Android 上"关闭"改成**回到主界面**（URL 去掉 `pluginWindow` 后 `location.replace`）。
+>   手机上实测 ✔ —— 点 ✕ 确实回到了主界面（`_shots/android-rev80-11.png`）。
+> - ⚠️ **它暴露的新问题（重要）**：`location.replace` 会**整页重载**，而 **dev 版的 URL 里没有 `vault` 参数**
+>   ⇒ 重载后应用退回**默认库**（应用私有 vault），主界面显示「这个库还没有笔记 / 0 篇」
+>   （`_shots/android-rev80-11.png`）。**数据没丢**：真库在 `/storage/emulated/0/Documents/ZeroNote`，
+>   只是应用指错了地方 —— 关掉应用重开就能回到正确库。
+> - ⚠️ **待修（下次接手，做法已定）**：**别重载**，用一个 state 关掉窗口 UI 就行：
+>   `const [winClosed, setWinClosed] = useState(false)`；窗口分支的渲染条件改成
+>   `pluginWindowId && !winClosed`；Android 的 `onClose` 里 `setWinClosed(true)`。
+>   这样库、编辑器状态、插件全都不用重建（桌面仍走 `destroy()`）。
+> - 📌 **教训**：**Android 上没有"多窗口"** —— 凡是依赖"开/关独立窗口"的桌面假设，
+>   都要在真机上单独验一遍（`close()` 只发事件、`destroy()` 无窗口可销毁，两条在这里都不成立）。
+>
 > - **提交**：`a292646`（6 文件 / +585 −11）。
 
 > ## 📌 rev79（2026-10-14 · 大纲缩进/竖线第五轮 —— 全部按「一个中文字符」＋ 圆点居中）
