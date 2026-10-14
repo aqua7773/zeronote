@@ -149,6 +149,18 @@ function parseBlocks(md) {
    * 中心主题作为导图中心**」。⇒ 只有"标题下面第一个块"算接着标题，后续块一律用默认中心主题。
    */
   let headingUsed = false
+  /**
+   * **最近那个标题是否仍"紧邻"下面的列表**（2026-10-14 用户实测加的）。
+   *
+   * 起因：用户笔记里 `# 标题接正文` → `123` / `456` → 空行 → `非大纲` → 列表，
+   * 结果那组列表被算成"这个标题下的大纲"、`❖` 入口挂到了标题行上 ——
+   * 用户原话「**标题和大纲之间隔了好几条正文和一个空行，不应该被判断为一组**」。
+   *
+   * 规则：遇到标题 ⇒ true；遇到**正文行** ⇒ false；**空行不清零**
+   * （markdown 里标题与列表之间空一行是常规排版；真正隔断语义的是正文）。
+   * 清零后新起的块 `titleLine = -1` ⇒ 入口挂到**它自己的第一行**、中心主题用默认值。
+   */
+  let headingAdjacent = false
   let inFence = false
   const stack = []
 
@@ -170,6 +182,7 @@ function parseBlocks(md) {
     }
     if (inFence) return
     if (!line.trim()) {
+      // 空行：断开"同一标题下的两个块"，但**不算**把标题与列表隔开（见 `headingAdjacent`）
       closeBlock()
       return
     }
@@ -179,11 +192,14 @@ function parseBlocks(md) {
       lastHeading = stripInline(atx[2])
       lastHeadingLine = i
       headingUsed = false // 新标题 ⇒ 它下面的**第一个**块才算接着它
+      headingAdjacent = true // 标题刚出现 ⇒ 还没被正文隔开
       headings.push({ line: i, level: atx[1].length, text: lastHeading })
       return
     }
     const li = LIST_RE.exec(line)
     if (!li) {
+      // 正文行 ⇒ 后面的大纲不再算"这个标题下的组"（用户 2026-10-14 的判据）
+      headingAdjacent = false
       closeBlock()
       return
     }
@@ -192,11 +208,16 @@ function parseBlocks(md) {
 
     const indent = indentOf(li[1])
     if (!cur) {
-      // `titleLine` = 组标题所在行（-1 = 这组上面没有标题 ⇒ 没有"标题左侧"，也就没有按钮）
-      // 中心主题：只有**接着标题的第一个块**用标题当中心；后续块与裸列表一律用 `中心主题`
+      /**
+       * `titleLine` = 组标题所在行（-1 = 这组上面**没有紧邻的标题** ⇒ 入口挂到它自己第一行）。
+       * 两个条件都要：① 这是该标题下的**第一个**块（`!headingUsed`）
+       * ② 标题与列表之间**没夹正文**（`headingAdjacent`）。
+       * 中心主题同样跟着走：不接标题的大纲用 `中心主题`。
+       */
+      const attachHeading = Boolean(lastHeading) && !headingUsed && headingAdjacent
       cur = {
-        title: lastHeading && !headingUsed ? lastHeading : '中心主题',
-        titleLine: lastHeadingLine,
+        title: attachHeading ? lastHeading : '中心主题',
+        titleLine: attachHeading ? lastHeadingLine : -1,
         startLine: i,
         endLine: i,
         nodes: [],
@@ -1268,7 +1289,7 @@ export default {
            */
           if (foldEndsOfDoc(doc).has(line)) {
             cls.push('zn-ol-foldable')
-            if (foldSetOf(cache.path).includes(foldSig(text))) cls.push('zn-ol-folded')
+            if (foldSetOf(cache.path).includes(foldAnchor(doc, line))) cls.push('zn-ol-folded')
           }
           return cls.join(' ')
         },
@@ -1291,6 +1312,27 @@ export default {
         .trim()
         .replace(/\s+/g, ' ')
         .slice(0, 40)
+
+    /**
+     * 行 → **折叠锚点**。
+     *
+     * ⚠️ **必须带上"同文本的第几次出现"**（用户 2026-10-14 实测踩到）：
+     * 只按文本签名记，内容相同的行会共用同一个锚点 —— 例子就是那篇笔记里的
+     * 顶层 `- 1` 与它子树里的 `- 1`：点**子节点**的圆点，命中的是**父节点**那条记录
+     * ⇒ 一折就把整棵父树收起来（用户原话「点红框节点折叠会触发整个绿框全部折叠」）。
+     *
+     * 序号 = 该文本在本篇里**此前出现过几次**（从 0 数）。它的局限要说清：
+     * 在它**前面**插入一行**完全相同**的文本会让序号错位（罕见；真错位了表现为"折叠记错行"，
+     * 用户再点一下就恢复）。换成"祖先链路径"能更稳，但要在每次重排后重算路径，暂不做。
+     */
+    const foldAnchor = (md, line) => {
+      const lines = String(md ?? '').split(/\r?\n/)
+      const sig = foldSig(lines[line] ?? '')
+      if (!sig) return ''
+      let nth = 0
+      for (let i = 0; i < line; i++) if (foldSig(lines[i] ?? '') === sig) nth++
+      return `${sig}#${nth}`
+    }
 
     /** 整份文件读进内存一份：`isFolded` 是**同步**回调，不能在里面 await */
     let foldAll = null
@@ -1354,7 +1396,7 @@ export default {
           const end = foldEndsOfDoc(d).get(line)
           return end === undefined ? null : end
         },
-        isFolded: ({ text }) => foldSetOf(cache.path).includes(foldSig(text)),
+        isFolded: ({ doc: d, line }) => foldSetOf(cache.path).includes(foldAnchor(d, line)),
       }),
     )
 
@@ -1371,14 +1413,14 @@ export default {
     const toggleFoldAt = (line) => {
       const path = cache.path
       if (!path || line === null) return
-      // 签名要用**源码那行**（`- 大纲`），不能拿渲染后的 textContent（那里是 `•大纲`）
+      // 锚点要用**源码那行**（`- 大纲`）＋"同文本第几次出现"，不能拿渲染后的 textContent
       const src = String(cache.content).split(/\r?\n/)[line] ?? ''
-      const sig = foldSig(src)
-      if (!sig) return
+      const anchor = foldAnchor(cache.content, line)
+      if (!anchor) return
       const set = foldSetOf(path)
-      const i = set.indexOf(sig)
+      const i = set.indexOf(anchor)
       if (i >= 0) set.splice(i, 1) // 已折叠 ⇒ 展开
-      else set.push(sig) // 未折叠 ⇒ 折叠
+      else set.push(anchor) // 未折叠 ⇒ 折叠
       /** 诊断出口（CDP 验收用）：谁、什么时候触发的切换 */
       ;(window.__omFoldLog ??= []).push({
         text: src,
