@@ -106,8 +106,17 @@ class FoldDotWidget extends WidgetType {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = `zn-fold-dot${this.folded ? ' is-folded' : ''}`
-    btn.textContent = this.folded ? '▸' : '▾'
-    const label = this.title ?? (this.folded ? '展开' : '折叠')
+    /**
+     * 符号**交给 CSS 伪元素**画（见 `styles.css` 的 `.zn-fold-dot::before/::after`）：
+     * `−` 是一条横杠、`＋` 再加一条竖杠。
+     *
+     * 为什么不用文字字符：字符会把按钮的 `font-size` 定死成一个小值，
+     * 而定位要用的 `em` 必须**以行字号为基准**才对得上圆点 —— 两者抢同一个属性。
+     * 按钮设 `font-size: inherit`（= 行字号）后，`0.5em` 才是"半个中文字符"。
+     * 平时按钮是隐身的（`.zn-fold-dot` 默认 `opacity: 0`），鼠标移进这一行才浮出来 ⇒
+     * 视觉上就是"圆点变成了一个可点的折叠按钮"（Notion / Obsidian 的同一手法）。
+     */
+    const label = this.title ?? (this.folded ? '展开这一组' : '折叠这一组')
     btn.title = label
     btn.setAttribute('data-zn-fold', this.fullId)
     btn.setAttribute('aria-label', label)

@@ -1577,63 +1577,101 @@ body.is-resizing * {
     calc(var(--zn-ol-step) * 0.5) 0;
 }
 
-/* ───────── 大纲折叠圆点（`editor.addFold`，2026-10-14 rev80）─────────
-   位置：**行盒内、该行缩进层级处**（圆点左缘 = 该行内容盒左往左 `--zn-fold-gap`）——
-   与导图按钮（行盒左侧 gutter，右边缘 293）分开，两者不重叠；也不动竖线
-   （竖线是 `background`，圆点是视图元素，各画各的）。
+/* ───────── 大纲折叠按钮（`editor.addFold`，2026-10-14 rev80）─────────
+   形态（用户 2026-10-14 定，参考图就是"⊖ 大纲"那种）：**隐藏式** ——
+   平时**看不见**（看上去就只是一个普通的点），**鼠标移进这一行**才在**圆点位置**浮出
+   一个"−（折叠）/ ＋（展开）"的圆形按钮；**已折叠的行常显**（否则看不出这里收起过）。
 
-   层级定位复用 `--zn-ol-step`：`dN` 行的内容盒左 = `1.2em + step×(N−1)`
-   ⇒ 圆点 `left = 1.2em + step×(N−1) − --zn-fold-gap`（N≤6，与竖线同级封顶）。
+   位置与圆点**同心**：`dN` 行的圆点中心 = 行盒左 + `step×(N−1)`（marker 起点）+ 半个字符
+   ⇒ `left = calc(step×(N−1) + 0.5em)`，再 `translateX(-50%)` 把按钮自己居中到那个点上。
+   N≤6，与竖线同级封顶。
 
-   ⚠️ 垂直方向**不设 `top`** —— 与导图按钮同一技巧（rev77 第四次迭代实测）：
-   设 `top: 50%` 会相对"折行后的整块"居中，文字折两行时圆点就飘到两行之间；
-   不设 top 则退回 static position（各行为同一个值），再用 translateY 微调。 */
+   ⚠️ 垂直**不设 `top`** —— 与导图按钮同一技巧（rev77 实测）：设 `top: 50%` 是相对
+   "折行后的整块"居中，文字折两行时按钮就飘到两行之间；不设 top 则退回 static position
+   （各行同一个值），再用 translateY 微调。
+
+   鼠标进来时把**本行原圆点变透明** ⇒ 视觉上就是"圆点变成了折叠按钮"
+   （Notion / Obsidian 的同一手法；占位不变，所以文字不会跳）。 */
 :root {
-  /* 圆点左缘相对该行内容盒左的偏移（往左）—— 要贴得更近就调小 */
-  --zn-fold-gap: 17px;
+  --zn-fold-size: 17px;
 }
 
 .zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot {
   position: absolute;
-  width: 15px;
-  height: 15px;
+  width: var(--zn-fold-size);
+  height: var(--zn-fold-size);
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--zn-fg-muted);
-  font-size: 9px;
-  line-height: 1;
+  border-radius: 50%;
+  background: var(--zn-fg-muted);
+  /* ⚠️ **必须 `inherit`**：按钮默认字号是浏览器给的 13.33px，而定位里的 `em`/`--zn-ol-step`
+     都以**本元素字号**为基准 ⇒ 不继承行字号的话，`0.5em` 就不是"半个中文字符"，
+     各级按钮会越深偏得越多（实测 d2 偏 8px）。继承之后 `--zn-ol-step` 在按钮上也 = 1em = 行字号 ✓ */
+  font-size: inherit;
+  /* 符号色 = 页面底色（灰底上一个"挖空"的减号；深色主题下跟着翻过来） */
+  color: var(--zn-bg, #fff);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transform: translateY(1px);
+  /* 平时隐身，且**不吃指针**（否则行首会莫名冒出一个可点区域） */
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease;
 }
-.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot:hover {
-  background: rgba(127, 127, 127, 0.18);
-  color: var(--zn-fg);
+/* 符号：**CSS 画**，不用字符（见 `FoldDotWidget.toDOM` 的说明）——
+   `−` = 一条横杠；`.is-folded` 再加一条竖杠 = `＋`。
+   横杠用 currentColor，颜色由按钮的 `color` 控制（深色主题跟着走）。 */
+.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot::before {
+  content: '';
+  width: 7px;
+  height: 1.6px;
+  border-radius: 1px;
+  background: currentColor;
 }
+.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot.is-folded::after {
+  content: '';
+  position: absolute;
+  width: 1.6px;
+  height: 7px;
+  border-radius: 1px;
+  background: currentColor;
+}
+/* 鼠标移进这一行 ⇒ 浮出；已折叠的行不管鼠标在不在都显示 */
+.zn-editor .cm-line[class*='zn-ol-d']:hover .zn-fold-dot,
 .zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot.is-folded {
-  color: var(--zn-fg);
+  opacity: 1;
+  pointer-events: auto;
+}
+/* 视觉"替换"：hover 时本行圆点让位（只变透明，占位照旧 ⇒ 文字不位移） */
+.zn-editor .cm-line[class*='zn-ol-d']:hover .cm-atomic-bullet {
+  color: transparent;
+}
+/* 触屏没有 hover ⇒ 常显，否则手机上根本折叠不了 */
+@media (hover: none) {
+  .zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .zn-editor .cm-line.zn-ol-d1 .zn-fold-dot {
-  left: calc(1.2em - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 0.5);
 }
 .zn-editor .cm-line.zn-ol-d2 .zn-fold-dot {
-  left: calc(1.2em + var(--zn-ol-step) - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 1.5);
 }
 .zn-editor .cm-line.zn-ol-d3 .zn-fold-dot {
-  left: calc(1.2em + var(--zn-ol-step) * 2 - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 2.5);
 }
 .zn-editor .cm-line.zn-ol-d4 .zn-fold-dot {
-  left: calc(1.2em + var(--zn-ol-step) * 3 - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 3.5);
 }
 .zn-editor .cm-line.zn-ol-d5 .zn-fold-dot {
-  left: calc(1.2em + var(--zn-ol-step) * 4 - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 4.5);
 }
 .zn-editor .cm-line.zn-ol-d6 .zn-fold-dot {
-  left: calc(1.2em + var(--zn-ol-step) * 5 - var(--zn-fold-gap));
+  left: calc(var(--zn-ol-step) * 5.5);
 }
 
