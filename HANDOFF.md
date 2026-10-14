@@ -2253,6 +2253,22 @@ revision: 80
 > - 另推了一篇示例 `outline-demo.md`（嵌套列表）供肉眼验收
 > - ⚠️ 手机交互要用 `adb shell input motionevent DOWN/UP`（`input tap` 无效，rev71 记过）
 >
+> 🔥 **热重载已起（22:34）**：`android-dev.cmd` 经 **WMI** 启动（PID 35352，不随会话回收）——
+> 日志确认 `Detected connected device: ARIA (24069RA21C)` / `Using 192.168.1.3` /
+> `BeforeDevCommand = cmd /c exit 0`（不自起 vite，**直连桌面 1420**）。
+> ⇒ 改 `src/**` **vite HMR 直接热更到手机，不必再出包**（只有 `src-tauri/**` 才重建）。
+> ⚠️ dev 版依赖桌面 dev 开着（连的是 `192.168.1.3:1420`，一关手机白屏）；要独立运行装 release zip。
+> 📌 教训：**改前端别动不动重建 278 MB 的 debug 包 + 装 + 重启**（用户一句"热重载呢？"点出来的）。
+>
+> 🐞 **同轮修的移动端 bug**：导图窗口标题条 / 「✕」**压在 Android 状态栏上** —— 根因
+> **`.zn-plugin-window` 漏了安全区补偿**（主窗口 `.zn-app` 有；插件窗口是**独立 webview**，
+> 主窗口那条 CSS 管不到它；桌面端 `env()` 取 0 所以一直没暴露）。修法：加
+> `env(safe-area-inset-top/bottom)` + `box-sizing: border-box`。提交 `7e8cdbe`。⚠️**尚未在手机复验**。
+>
+> ⚠️ **待修**：`android-dev.cmd` **没设 `CARGO_HOME`**（只设了 CARGO_TARGET_DIR），而本项目规矩是
+> 必须带 `…\deepseek\_cargo-home`（rev63）—— 日志里它用的是 `~/.cargo/registry/…`。本轮侥幸过了，
+> **下次卡住先看这里**。⚠️ 改它要**保住 CRLF**（文件头写明 "CRLF required"）。
+>
 > - **提交**：`a292646`（6 文件 / +585 −11）。
 
 > ## 📌 rev79（2026-10-14 · 大纲缩进/竖线第五轮 —— 全部按「一个中文字符」＋ 圆点居中）
