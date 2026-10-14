@@ -73,11 +73,35 @@ const ensureMapApis = () => {
   })
 }
 
+/**
+ * 动态 import 的**一次带参重试**（2026-10-15 真机实测的救火措施）。
+ *
+ * 症状：`import('/vendor/pdfjs/build/pdf.min.mjs')` 报
+ * `Failed to fetch dynamically imported module: …pdf.min.mjs`，但：
+ * · **同一个 URL 用 `fetch()` 能拿到完整内容**（523758 字节、`content-type: text/javascript`）；
+ * · **同目录同后缀的 `pdf.worker.min.mjs`、以及 `foliate/epub.js` 都能 import**；
+ * · **给那条 URL 加个查询串（`?x=1`）立刻成功**。
+ * ⇒ 判定为该 URL 的加载缓存里有一条坏记录（清应用 `cache/WebView` **无效** ⇒ 记录不在那儿）。
+ * ⚠️ **根因未定**（诚实标注，别当结论传下去）；生产包走 asset 协议、对查询串的支持未知，
+ * 所以**正常路径不带参数**，只在失败后加一次。
+ */
+const importWithRetry = async (url) => {
+  try {
+    return await import(url)
+  } catch (err) {
+    try {
+      return await import(`${url}${url.includes('?') ? '&' : '?'}znretry=${Date.now()}`)
+    } catch {
+      throw err // 两次都失败：抛原始错误（信息更干净，便于诊断）
+    }
+  }
+}
+
 const loadPdfjs = () =>
-  (pdfjsPromise ??= (ensureMapApis(), import(vendor('pdfjs/build/pdf.min.mjs'))))
+  (pdfjsPromise ??= (ensureMapApis(), importWithRetry(vendor('pdfjs/build/pdf.min.mjs'))))
 
 let foliatePromise = null
-const loadFoliate = () => (foliatePromise ??= import(vendor('foliate/view.js')))
+const loadFoliate = () => (foliatePromise ??= importWithRetry(vendor('foliate/view.js')))
 
 /** 扩展名 → 渲染器。`foliate` 一套通吃电子书格式（它内部自己判 zip / MOBI / FB2） */
 const RENDERERS = {
@@ -127,8 +151,15 @@ const CSS = `
    尺寸也别太大：顶栏元素多，手机上会把最右的「⋮」挤出屏幕（也真踩过）。 */
 .dn-btn{flex:none;min-height:30px;padding:4px 9px;font-size:12.5px;border:1px solid var(--zn-border,#d4d4d8);border-radius:6px;background:transparent;color:inherit;cursor:pointer}
 .dn-bar-btn:disabled{opacity:.4;cursor:default}
-.dn-body{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;background:var(--zn-bg-subtle,#f7f7f8)}
-.dn-page{max-width:100%;height:auto;margin:10px 0;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
+.dn-body{flex:1;min-height:0;overflow:auto;background:var(--zn-bg-subtle,#f7f7f8)}
+/* 原尺寸显示（用户 2026-10-15：「PDF 显示会强制缩放，取消掉，做原格式查看」）：
+   原先这行是 max-width:100% 加 height:auto —— 它把 A4（595px 宽）压到屏宽，
+   而 canvas 的 height 是 pdf.js 按 1:1 设的 **inline 尺寸**（CSS 盖不掉）⇒
+   画面被**横向压扁**（宽 66%、高 100%），看着就是"被强制缩放"。
+   现在：块级 + auto margin ⇒ 宽度 > 容器时 auto 归 0，靠 .dn-body 横向滚动看全。
+   （不能用 flex 居中：内容超宽时左边会被裁掉且滚不过去；EPUB / TXT 渲染器自己会把
+   display 覆盖成 block，见各自 mount 里的 body.style.display 赋值）。 */
+.dn-page{display:block;margin:10px auto;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
 .dn-text{flex:1;margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;font:14px/1.7 ui-monospace,Consolas,monospace}
 .dn-msg{padding:26px;font-size:13px;line-height:1.7;color:var(--zn-fg-subtle,#71717a);max-width:44em}
 .dn-menu{position:absolute;z-index:20;min-width:190px;padding:4px;border:1px solid var(--zn-border,#d4d4d8);border-radius:8px;background:var(--zn-bg,#fff);box-shadow:0 6px 20px rgba(0,0,0,.18)}
