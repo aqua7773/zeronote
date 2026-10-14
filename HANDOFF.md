@@ -2263,7 +2263,9 @@ revision: 80
 > 🐞 **同轮修的移动端 bug**：导图窗口标题条 / 「✕」**压在 Android 状态栏上** —— 根因
 > **`.zn-plugin-window` 漏了安全区补偿**（主窗口 `.zn-app` 有；插件窗口是**独立 webview**，
 > 主窗口那条 CSS 管不到它；桌面端 `env()` 取 0 所以一直没暴露）。修法：加
-> `env(safe-area-inset-top/bottom)` + `box-sizing: border-box`。提交 `7e8cdbe`。⚠️**尚未在手机复验**。
+> `env(safe-area-inset-top/bottom)` + `box-sizing: border-box`。提交 `7e8cdbe`。
+> ✅ **已在手机复验（dev 版热重载后实测）**：标题条与三颗按钮（最小化/最大化/✕）落到**状态栏下方**，
+> 证据 `_shots/android-rev80-07.png`（修复后）对比 `_shots/android-rev80-03.png`（修复前压在状态栏上的现场）。
 >
 > ⚠️ **待修**：`android-dev.cmd` **没设 `CARGO_HOME`**（只设了 CARGO_TARGET_DIR），而本项目规矩是
 > 必须带 `…\deepseek\_cargo-home`（rev63）—— 日志里它用的是 `~/.cargo/registry/…`。本轮侥幸过了，
