@@ -1298,8 +1298,21 @@ body.is-resizing * {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* 安全区 padding 要算进高度里，否则整窗溢出一截 */
+  box-sizing: border-box;
   background: var(--zn-bg);
   color: var(--zn-fg);
+  /**
+   * ⚠️ **与 `.zn-app` 同一套安全区补偿 —— 插件窗口原先漏了**（2026-10-14 用户在手机上实测报出）：
+   * 「**导图的关闭重合到状态栏上面了**」—— Android 上标题条与右上角的最小化/关闭按钮
+   * 顶进状态栏、与时间/信号图标叠在一起。
+   *
+   * 为什么只在手机上暴露：桌面端 `env(safe-area-inset-*)` 取 0 ⇒ 看不出来；
+   * 而插件窗口是**独立的 webview**（`?pluginWindow=<panelId>`），主窗口那份 `.zn-app`
+   * 的 padding 管不到它。底部同理（手势条会压住画布的缩放控件）。
+   */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .zn-plugin-window-bar {
