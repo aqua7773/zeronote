@@ -1237,9 +1237,9 @@ body.is-resizing * {
   border-radius: var(--zn-radius-sm);
   color: var(--zn-danger); font-size: var(--zn-text-sm);
 }
-.zn-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
+.zn-toast { position: fixed; left: 50%; bottom: calc(32px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
 /* 撤销条：与 toast 同位，但带一个可点的动作 —— 删除是一步完成的，谁来兜底就靠它 */
-.zn-undo { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #18181b; color: #f4f4f5; padding: 8px 10px 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; }
+.zn-undo { position: fixed; left: 50%; bottom: calc(32px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #18181b; color: #f4f4f5; padding: 8px 10px 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; }
 .zn-undo-btn { border: 0; border-radius: var(--zn-radius-sm); padding: 4px 10px; background: rgba(255,255,255,.14); color: #fff; font-size: var(--zn-text-sm); font-weight: 500; cursor: pointer; transition: background 120ms ease; }
 .zn-undo-btn:hover { background: rgba(255,255,255,.26); }
 
@@ -1394,13 +1394,36 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/**
+ * ⚠️ **主窗口里的接管容器必须自己让开安全区**（rev83；用户报「顶部 UI 和状态栏冲突，
+ * 插件好像都存在这个问题」）。
+ *
+ * 为什么 `.zn-app` 上那份 `padding-top: env(safe-area-inset-top)` 管不到它：
+ * `.zn-shell-mount` 是 `position: absolute; inset: 0`，而**绝对定位子元素的包含块是祖先的
+ * padding box** —— padding 那一圈仍算在它的定位范围里 ⇒ 它照样贴屏幕顶。
+ *
+ * 实测读数（手机 `33b676f6`，`env(safe-area-inset-top)` = **40px**）：
+ * `.zn-app` computed `padding-top: 40px`，而 `.zn-shell-mount` 与阅读器的 `.dn-root`
+ * **`top` 都是 0**、高度 = 整屏 868 ⇒ 插件自绘顶栏（`✕ 关闭 / 文件名 / 第 1 / 3 页`）
+ * 与状态栏那 40px 完全重叠（`_shots/rev82-05-android-pdf-render.png` 看得最清楚）。
+ *
+ * 只补**主窗口**这一条：插件**独立窗口**那边的 `.zn-plugin-window` 已经自己吃过安全区，
+ * 再补一份会双倍下移。桌面端 `env(...)` = 0 ⇒ 无影响。
+ */
+.zn-shell-host > .zn-shell-mount {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* 内核逃生口：接管期间唯一可见的"回到内核"入口。
    刻意做得克制（小、半透明、悬停才明显）—— 插件全屏自绘时它几乎不打扰；
    但 z-index 高于挂载容器，插件在容器里怎么画都盖不住它。 */
 .zn-shell-escape {
   position: absolute;
   right: 10px;
-  bottom: 10px;
+  /* 让开底部手势条：`absolute` 的 bottom 是相对 **padding box**，接管容器那层 padding
+     管不到这里 ⇒ 自己加一份 env（桌面取 0，无影响）。 */
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   z-index: 100;
   padding: 4px 10px;
   border: 1px solid var(--zn-border);
