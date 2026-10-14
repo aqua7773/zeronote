@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 83
-更新时间: 2026-10-15（rev83 **安全区**：整窗接管容器自己让开状态栏/手势条，插件自绘顶栏不再被压（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 84
+更新时间: 2026-10-15（rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）＋ 一个"同 URL 加查询串就好了"的怪案；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条，插件自绘顶栏不再被压（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,64 @@ revision: 83
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev84（2026-10-15 · 文档阅读器**按原始尺寸**看 PDF ＋ 一个「同 URL 加查询串就好了」的怪案）
+>
+> **用户要求**：「PDF 显示会强制缩放，取消掉，做原格式查看」。
+>
+> ### 根因（真机读数）
+>
+> `.dn-page` 上带着 `max-width:100%`（`examples/doc-reader/index.js` 的 CSS）—— 它把页面
+> **压到容器宽**；而 canvas 的 `height` 是 pdf.js 按 1:1 写进 **inline style** 的，
+> CSS 的 `height:auto` 盖不掉 ⇒ **宽被压、高不动 ⇒ 画面横向压扁**（实测宽 66%、高 100%），
+> 顶栏却写着 `100%` ⇒ 用户看到的就是"被强制缩放"。
+>
+> ### 改法
+>
+> · `.dn-page` → `display:block; margin:10px auto`（不再压宽，按 pdf.js 给的原尺寸显示）
+> · `.dn-body` → **去掉 `display:flex; justify-content:center`**（flex 居中在内容超宽时
+>   左边会被裁掉且滚不过去）⇒ 超宽部分靠 `.dn-body` 横向滚动看全
+> · EPUB / TXT 两个渲染器自己会把 `body.style.display` 覆盖成 `block` ⇒ **不受影响**
+>
+> ### 验收（真机 `33b676f6`，物理 `screencap`）
+>
+> | 读数 | 值 |
+> |---|---|
+> | `canvas.dn-page` 显示尺寸 | **841 × 595**（scale=1，横向 A4 的原尺寸） |
+> | `.dn-body` clientW / scrollW | **390 / 841** ⇒ 可横向滚动 |
+> | 顶栏 | 「第 1 / 478 页 · **100%**」名副其实 |
+>
+> 证据 `_shots/rev84-01-pdf-natural-size.png`（比 rev82-05 明显大一号 —— 那版是被压扁的）。
+> 要缩小仍可用顶栏「−」（zoom 0.25–4；手机上点两次约等于适配宽度）。
+>
+> ### ⚠️ 途中撞到一个怪案：无查询串的 `import()` 必失败
+>
+> 同一台手机、同一页面、同一文件，四条对照**当场全跑过**：
+>
+> | 请求 | 结果 |
+> |---|---|
+> | `import('/vendor/pdfjs/build/pdf.min.mjs')` | ❌ `Failed to fetch dynamically imported module` |
+> | 同 URL **`fetch()`** | ✅ 200 / `text/javascript` / **523758 字节**，内容就是 pdf.js（不是 SPA fallback） |
+> | `import('/vendor/pdfjs/build/pdf.worker.min.mjs')`（同目录同后缀） | ✅ |
+> | `import('/vendor/foliate/epub.js')` | ✅ |
+> | `import('…/pdf.min.mjs?x=1')` | ✅ **加个查询串就好了** |
+> | Node 直接 import 本地那份 | ✅ 62 个导出（文件本身是合法 ESM） |
+>
+> **处置**：不等根因，先自愈 —— `importWithRetry()`：**正常路径不带参数**
+> （生产走 asset 协议，对查询串的支持未知），失败后带一次 `?znretry=<时间戳>` 重试，
+> 两次都失败抛原始错误。
+> ⚠️ **根因未定**：清应用 `cache/WebView` **无效**（坏记录不在那儿）；**不是** MIME / 大小 / 语法
+> （同目录同后缀的 worker 1.3 MB 照样能进）。**别当结论传下去** —— 下次先验"加查询串是否就好"。
+>
+> ### 🔧 过程中的两个自伤（都当场修掉，记下来）
+>
+> 1. **在模板字符串里写了反引号**：给 CSS 加注释时用了 `` `max-width:100%` `` 这种写法，
+>    而那段 CSS 本身就在一个**反引号模板字符串**里 ⇒ 提前闭合 ⇒ 插件解析失败 ⇒
+>    表现是 **"插件没接管"**（`openDocument 派发（插件接管就绪=false）`、界面纹丝不动），
+>    **不是**一句明晃晃的语法错。⇒ **改完插件先自检**：
+>    `node --input-type=module --eval "import('file:///<绝对路径>')"`，看到 `PARSE-OK`/能 import 再推。
+> 2. 手机装的是**库内拷贝**：改完必须 `adb push` 到 `.zn/plugins/doc-reader/index.js`
+>    （**推明确文件路径**，别推目录）再重启应用才生效。
 
 > ## 📌 rev83（2026-10-15 · **安全区**：整窗接管的插件顶栏不再压状态栏）
 >
