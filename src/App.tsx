@@ -1567,8 +1567,37 @@ export default function App() {
     try {
       const picked = await open({
         multiple: false,
-        title: '打开 Markdown 文件',
-        filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        title: '打开文件',
+        /**
+         * ⚠️ **Android 一律不传 `filters`**（2026-10-15 真机实测，用户报「打开文件，访问不到手机文件」）。
+         *
+         * 手机上弹的是 **MIUI 的「安全访问」**选择器，它按 **MIME** 过滤自己那四个分类
+         * （文档 / 图片 / 视频 / 音乐），而 `text/markdown` **不在它的白名单**里
+         * ⇒ 传 filter 的结果是**一个文件都列不出来**（只有目录能进，进去是空的 —— 用户的原话）。
+         * 桌面端保留（原生对话框认扩展名），并放宽到阅读器真正支持的格式
+         * （与 `openExternalFile` 的 `SAF_READABLE_RE` 同一份清单）。
+         */
+        ...(platform === 'android'
+          ? {}
+          : {
+              filters: [
+                {
+                  name: '文档',
+                  extensions: [
+                    'md',
+                    'markdown',
+                    'pdf',
+                    'epub',
+                    'mobi',
+                    'azw3',
+                    'azw',
+                    'fb2',
+                    'cbz',
+                    'txt',
+                  ],
+                },
+              ],
+            }),
       })
       if (typeof picked !== 'string') return
       await openExternalFileRef.current(picked)
