@@ -2232,6 +2232,16 @@ revision: 80
 > - **折叠区里的光标**未做特殊处理：光标若落在被隐藏的行上（如折叠后从别处跳过去）行为**未测**。
 > - 折叠记录**不做自动清理**：签名匹配不上就当"未折叠"（宁可展开、不折错行），失效签名会留在文件里
 >   （体积可忽略；将来可加"读回时顺手剔除"）。
+> 📦 **手机端已出包（rev80，同日）** —— `C:\Users\AQUA\Downloads\ZeroNote-Android-2026-10-14-rev80.zip`（7.82 MB）
+> - APK **15.52 MB** · SHA256 `54BB580E…34DF` · 签名指纹 `2ca79f19…35bb`
+>   （**与上一版同一把钥匙** ⇒ 覆盖安装不会被拒）
+> - **包内已实证是本次代码**：APK 里 `lib/arm64-v8a/libzeronote_lib.so` 含本次 vite chunk 名 `index-CUr7ArSz.js`
+> - 内含 **`outline-map-plugin.zip`（68.8 KB）** —— 插件**不在 APK 里**，手机端要把它覆盖到
+>   `<库>/.zn/plugins/outline-map/` 再点「重新扫描」才看得到折叠新功能
+> - 交付包 SHA256 `3D9E1F12…43A2E4` · 构建日志 `_build/android-rev80.log` · 说明 `_build/rev80/安装说明.md`
+> - ⚠️ 顺手修了 `_build/README.md` 的一处**会直接导致构建失败**的缺漏：复现命令漏了
+>   `$env:CARGO_HOME=…\_cargo-home`（不带它构建必失败，rev63 踩过但 README 没记）
+>
 > - **提交**：`a292646`（6 文件 / +585 −11）。
 
 > ## 📌 rev79（2026-10-14 · 大纲缩进/竖线第五轮 —— 全部按「一个中文字符」＋ 圆点居中）
