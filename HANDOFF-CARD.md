@@ -3,7 +3,7 @@
 > 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日再补记 rev45、rev46 – rev49）· **提交数与 HEAD 一律看 `git log`**
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev80）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev82）**。
 
 ## 是什么 / 在哪
 
@@ -232,12 +232,22 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
   写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **19 passed**
   （rev66 删掉授权记录那两个用例后从 21 降到 19）。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
-- **手机 `33b676f6`（ARIA 24069RA21C）**：装的是 **`tauri android build` 出的打包版**（2026-10-13 23:06 重出，
-  已含当时的内核改动）—— ⚠️ **前端是构建那一刻的 `dist` 快照** ⇒ **改 `src/**` 不会 HMR 到手机**，
-  必须重出包（`tauri android build --apk --debug --target aarch64`，约 7 分钟）手机才可见。
-  ⚠️ **2026-10-13 更正**：我当天一度在卡片里写成「装的是 dev 版、连 `192.168.1.3:1420`、改前端即时生效」——
-  **那条是错的**（那是 rev71 时的状态）；重出包后已变回打包版，实测：改完 `FileTree.tsx` 手机截图**纹丝不动**。
-  想即时迭代就用 **`android-dev.cmd`**（dev 版，前提是桌面 dev 开着、手机连局域网 1420）
+- **手机 `33b676f6`（ARIA 24069RA21C）**：**2026-10-15 实测装的是 dev 版**（`android-dev.cmd` 重建后）——
+  判据：logcat 里出现 `node_modules/.vite/deps/…` 与 `[vite] connected`，且**改 `src/**` 真的 HMR 到手机**
+  （rev82 改 `App.tsx` 加诊断日志，2 秒后手机端就打出新日志）。
+  ⚠️ 这两种状态在上游记录里**来回切过两次**（卡片自己写错过一次）⇒ **先看 logcat 判据，别按旧记录断言**。
+  · **dev 版**：连桌面 `192.168.1.3:1420`（桌面 dev 一关手机就白屏），改前端即时生效
+  · **打包版**：内嵌 `dist` 快照，改前端必须重出包（`tauri android build --apk --debug --target aarch64`，约 7 分钟）
+- 📱 **手机 CDP（rev82 起的默认手机断言手段，别再用截图猜）**：
+  `adb shell cat /proc/net/unix | grep devtools` 拿 `@webview_devtools_remote_<pid>` →
+  `adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` →
+  `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs eval|shot|click …`（**pid 变了就得重建 forward**）。
+  应用内 `console.log` 会进 logcat：`adb logcat -v time | Select-String 'Tauri/Console|ZN-URI'`（带行号，定位快）。
+- ⚠️ **手机库里的插件会与仓库漂移**（rev82 实例：`doc-reader` 落后 12 小时、缺 `{abs}` 支持 ⇒
+  外部 PDF 被**静默忽略**、界面纹丝不动、没有任何报错）。判据：
+  `adb shell stat -c '%s' /storage/emulated/0/Documents/ZeroNote/.zn/plugins/<id>/index.js` 与
+  `examples/<id>/index.js` **比大小**。同步目前**只能手动** `adb push` ——
+  推到**明确文件路径**（推目录会多套一层，rev30 坑④），推完重启应用或「重新扫描」。
 - **手机模拟点击（2026-10-13 实测更正旧结论）**：`adb shell input tap` **无效**、原地
   `input swipe x y x y 120` **这次也无效** ⇒ 用 **`input motionevent DOWN x y` ＋ `UP x y`（中间隔 ~120 ms）**。
   `screencap` 出来的是**物理像素**（本机 1220×2712），可直接当坐标用

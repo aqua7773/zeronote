@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 81
-更新时间: 2026-10-14（rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 82
+更新时间: 2026-10-15（rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,110 @@ revision: 81
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev82（2026-10-15 · **外部 PDF 双路真机验收**：热启动 ✅ · 冷启动修掉接管竞态 ✅）
+>
+> **任务来自 rev81 的「下次接手第一件事」**：重建 Android ＋ 真机验证「热启动 intent 转发」
+> 与「外部 PDF」两条链路。本轮把两条都验通了，并**查出两个会让它失败的原因**（一个环境、一个代码）。
+>
+> ### 打通的手段（以后手机断言都这么干，别再截图猜）
+>
+> · **手机 CDP**：`adb shell cat /proc/net/unix | grep devtools` 拿 socket →
+>   `adb forward tcp:93xx localabstract:webview_devtools_remote_<app pid>` →
+>   `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`（`eval` / `shot` / `click` 都能用，`eval` 支持 `awaitPromise`）
+> · **应用内 console 会进 logcat**：`adb logcat -v time | Select-String 'Tauri/Console|ZN-URI'`（有行号，定位极快）
+> · **磁盘为真源**：`adb shell run-as com.aqua.zeronote.debug ls -la cache/zn-open`（内容 URI 的副本落这儿）
+> · 触发一条"外部打开"（**shell 不能发 SAF 的 `content://`** —— 见下方踩坑，改用 MediaStore）：
+>   `adb shell am start -W -a android.intent.action.VIEW -d "content://media/external/file/<id>" -t application/pdf -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity --grant-read-uri-permission`
+>   （id 由 `adb shell content query --uri content://media/external/file` 全量输出里筛 `pdf`；
+>   ⚠️ 这台机器上的 `content` 命令**不支持** `--projection _id,_display_name` 这种写法，会报 `Invalid column`）
+>
+> ### 结果 1：热启动 intent 转发 ✅（先修掉两个坑才通）
+>
+> | 坑 | 读数 / 根因 | 处置 |
+> |---|---|---|
+> | **① 手机库里的 doc-reader 是旧版** | 手机 `index.js` **23341** 字节（10-13 23:38），`grep -c assetUrlAbs` = **0**、`grep -c 'p.abs'` = **0** ⇒ `openDocument({abs,name})` 在 `if (!abs && !path) return` 处**静默返回**（界面纹丝不动、无报错） | `adb push` 仓库新版（**24620** 字节）到 `.zn/plugins/doc-reader/`，重启应用即好 |
+> | **② 热启动 listener 的权限** | rev81 补的 `allow-register-listener` / `allow-remove-listener` **编译进 APK 后生效** —— 本轮 logcat 已是 `[zn-uri] listener registered`（旧报错 `uri-reader.registerListener not …` 消失） | 重建已由 `android-dev.cmd` 完成（本会话开始时正在编译） |
+>
+> **修复后热启动读数**（`am start` 回 `Warning: Activity not started, intent has been delivered to currently running top-most instance.` ⇒ 正是热启动路径）：
+> `ZN-URI: onNewIntent data=content://media/external/file/1000045559` →
+> `readContentUri uri=…` → `[zn-uri] 副本就绪 path=/data/user/0/com.aqua.zeronote.debug/cache/zn-open/pdf-100kb.pdf name=pdf-100kb.pdf 可阅读=true` →
+> `[zn-uri] openDocument 返回 undefined`，界面 `✕ 关闭 pdf-100kb.pdf 第 1 / 1 页 · 100% ‹ ›`。
+> 证据 `_shots/rev82-01-android-hot-open.png`（关掉阅读器回主界面后再发一次：`_shots/rev82-03-android-hot-recheck.png`）。
+>
+> ### 结果 2：冷启动 ❌→✅（**新查出并修掉一个真竞态**）
+>
+> **症状**：`am force-stop` 后带 `content://` 冷启动（`LaunchState: COLD`）—— 应用起来了，
+> 但**不打开阅读器**（界面停在主界面）。而 rev81 记的是"冷启动正常"（那次验的是 `file://`）。
+>
+> **根因（读数，不是推断）**：前端挂载后**立刻**消费启动时攒下的 URI ——
+> 冷启动 logcat 时间线：`readContentUri` 在 `00:27:39.118`、`openDocument 调用`在 `00:27:39.138`（**相隔 20ms**），
+> 而库内插件是**异步 blob import**、更晚才 `bind('core.openDocument')`。
+> 中间那个窗口里命令表里还是**内核占位实现** ⇒ 请求被一句
+> 「没有能打开 .该 的插件 —— 到「插件管理」装一个文档阅读器」吞掉
+> —— 这与用户 10-14 报的「显示没有装插件、但插件已经在运行」是**同一个机制**，
+> rev81 只修了"占位命令拒绝插件接管"（`register()` 改接管语义），**没修"接管晚于消费"的时序**。
+>
+> **修法**（`src/App.tsx`，内核不动）：新增 `waitDocHandler()` ——
+> 判据用内核已有的 `implTag('core.openDocument')`：`'core'` = 还是占位/内核实现、`plugin:<id>` = 已接管；
+> 每 120ms 问一次、最多等 **8 秒**；**热启动第一次就通过（零开销）**，超时后**仍然派发**
+> （确实没插件接管时，那句提示还是该给）。
+> 三处派发点都先等：`content://` 分支 · **库外绝对路径**分支 · 「待打开的库内文档」effect。
+>
+> **修复后冷启动读数**：`[zn-uri] 副本就绪 … 可阅读=true kernel=true` →
+> `[zn-uri] openDocument 派发（插件接管就绪=true）`（约 **120ms** 后接管就绪）→
+> 界面 `✕ 关闭 pdf-100kb.pdf 第 1 / 1 页 · 100% ‹ ›`。证据 `_shots/rev82-02-android-cold-open.png`。
+>
+> ### ⚠️ 踩坑（新，值得记）
+>
+> 1. **shell（UID 2000）发不了 SAF 的 `content://`**：`am start -d content://com.android.externalstorage.documents/document/primary%3ADownload%2F… --grant-read-uri-permission`
+>    会抛 `SecurityException: UID 2000 does not have permission … you could obtain access using ACTION_OPEN_DOCUMENT or related APIs`
+>    —— shell 自己不持有该 URI 的权限，**没法把它转授给目标应用**。这不是应用的问题。
+>    ⇒ 自动化要发内容 URI 就用 **MediaStore** 的 `content://media/external/file/<id>`（shell 可读、可授权）。
+>    真实"文件管理器 → 打开方式"递的是文件管理器自己的 provider（实测用户那次是
+>    `content://com.android.fileexplorer.myprovider/external_files/Download/pdf-100kb.pdf`），那条路**手动点一次**才是真验收。
+> 2. **`adb shell content query` 的 `--projection` 不能写逗号列表**（本机这台）：会报 `Invalid column _id,_display_name`。
+>    不带 projection 全量输出再本地筛即可。
+> 3. 手机上 `am force-stop` 之后那几个进程号会变 ⇒ **CDP 的 forward 每次都按新 pid 重建**（socket 名带 pid）。
+>
+> ### ✅ 顺带核实了 rev81 留的那条「未核实」结论
+>
+> rev81 写：「无 `MANAGE_EXTERNAL_STORAGE` 时 Android 对非 media 文件**不报错也不列出**」——当时标注是推断。
+> 本轮补了一手来源：**AOSP MediaProvider 的 FUSE readdir 实现**里，目录项是**带 filter 过滤**的 ——
+> `jni/include/libfuse_jni/ReaddirHelper.h` 原文：
+> *"If a filter is specified, directory entries must satisfy the given filter. If filter is null, all directory entries(except '.' & '..') are returned."*
+> ⇒ 不满足 filter 的条目**被丢弃**（而不是返回错误），与实测一致（`ls` 有 12 个 `.md`、应用显示 0 篇、**无任何报错**；
+> 授权后 `am force-stop` + 重启立刻 `11 篇 · 2 文档`）。
+> 来源：`https://raw.githubusercontent.com/aosp-mirror/platform_packages_providers_MediaProvider/main/jni/include/libfuse_jni/ReaddirHelper.h`
+> （同目录 `FuseDaemonImpl.cpp` 是传 filter 的调用方，本轮未下载成功 —— 只标注，不下结论）。
+>
+> ### 🔎 顺带查清：`core.requestStoragePermission` 的来龙去脉（rev64 说"没做引导"）
+>
+> 它**确实存在**，是内核命令：`src/App.tsx:2173`（rev64 加）→ `src/lib/androidPerm.ts` 的
+> `requestAllFilesAccess()` → `plugin:androidperm|request_all_files_access`（自写 Tauri 插件
+> `src-tauri/plugins/tauri-plugin-androidperm`，桌面 no-op）。**入口只有命令面板**（搜 `open` 能看到，
+> 标题「请求「所有文件访问」权限（Android）」）。⇒ rev64 的"没做引导"应理解为
+> **没有自动检测 + 没有显式 UI 入口**，不是"没有这条命令"。
+>
+> ### 基线 / 证据
+>
+> · `pnpm exec tsc -b` **0 错误** · `pnpm exec oxlint src` **恰好 4**（改完时一度 5 —— `useCallback` 依赖里留了
+>   已删掉的 `platform`，去掉即回基线）· `cargo test --lib` 见提交信息（本轮未动 Rust）
+> · 截图：`_shots/rev82-01-android-hot-open.png`（热）· `rev82-02-android-cold-open.png`（冷）·
+>   `rev82-03-android-hot-recheck.png`（修复后热回归）
+> · 新增诊断日志（**有意保留**，与 `[zn-uri] listener registered` 同一家族）：
+>   `[zn-uri] 副本就绪 …` / `[zn-uri] openDocument 派发（插件接管就绪=…）` / `[zn-uri] openDocument 返回 …`
+> · **提交**：`a9b3981`（fix 冷启动接管竞态，`src/App.tsx` 1 文件 / +46 −9）＋ 随后的 docs 提交（回填本段）
+> · 基线复跑（本提交前）：`cargo test --lib` **21 passed** / 0 failed
+>
+> ### 遗留 / 下一步
+>
+> - **手机库插件与仓库会漂移**（doc-reader 就这么落后了 12 小时）—— 现在只有"手动 `adb push`"一条路，
+>   建议写个 `tools/sync-phone-plugins.mjs`（或写进交接卡的操作清单），别靠记性。
+> - 手机仍装 **dev 版**（连桌面 `1420`）⇒ 桌面 dev 一关手机就白屏；要独立运行得重出包
+>   （`tauri android build --apk --debug --target aarch64`，约 7 分钟）。
+> - Android 关窗仍留常驻 webview（rev81 记过；Tauri Android 还没给真销毁路径）。
+> - rev81 那条「同一会话第二次打开笔记 ❖ 不显示」依旧**未复现**（回归脚本 `tools/verify-outline-fold.mjs` 在）。
 
 > ## 📌 rev81（2026-10-14 · Android「关闭插件窗口」定型：不重载 · 放接管 · 清 URL；＋**更正 rev80 一处误判**）
 >
