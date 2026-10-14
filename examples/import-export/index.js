@@ -183,6 +183,66 @@ async function pdfToMarkdown(buf) {
 }
 
 /**
+ * EPUB → Markdown。
+ *
+ * **自己解 zip（fflate）＋ turndown 转换**，而不是调 foliate-js 的解析 API ——
+ * foliate 的 `EPUB` 类要求调用方提供一组 `loadText/loadBlob/getSize` 回调（它把 zip 访问
+ * 抽象出去了），而我们**已经在文档阅读器里用过它渲染**（`/vendor/foliate/view.js`）；
+ * 对"抽文本"这个需求，直接 `unzipSync` + 读 OPF/spine 更直白，也复用了已有的 turndown。
+ *
+ * 流程（EPUB = 一个 zip）：`META-INF/container.xml` → OPF 路径 → OPF 里解析
+ * `manifest[id → href]` 与 `spine` 顺序 → 逐章 XHTML 交给 turndown → 拼接。
+ */
+async function epubToMarkdown(buf) {
+  const fflate = await importWithRetry(vendor('fflate/fflate.mjs'))
+  const files = fflate.unzipSync(new Uint8Array(buf))
+  const readPath = (p) => {
+    const hit = files[p] ?? files[decodeURIComponent(p)]
+    return hit ? decodeText(hit) : null
+  }
+
+  const container = readPath('META-INF/container.xml')
+  if (!container) throw new Error('这个 EPUB 里没有 META-INF/container.xml（不是标准 EPUB？）')
+  const opfPath = /full-path="([^"]+)"/.exec(container)?.[1]
+  if (!opfPath) throw new Error('container.xml 里找不到 OPF 路径')
+  const opf = readPath(opfPath)
+  if (!opf) throw new Error(`OPF 读不到：${opfPath}`)
+  const base = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : ''
+
+  // manifest：id → { href, mt }（只认 XHTML / HTML）
+  const manifest = {}
+  for (const tag of opf.match(/<item\b[^>]*>/g) ?? []) {
+    const id = /id="([^"]+)"/.exec(tag)?.[1]
+    const href = /href="([^"]+)"/.exec(tag)?.[1]
+    const mt = /media-type="([^"]+)"/.exec(tag)?.[1] ?? ''
+    if (id && href) manifest[id] = { href, mt }
+  }
+  const spine = [...opf.matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)].map((m) => m[1])
+  const title = /<dc:title[^>]*>([^<]*)</i.exec(opf)?.[1]?.trim() ?? ''
+
+  const { TurndownService, gfm } = await libs()
+  const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+  if (gfm) td.use(gfm)
+
+  const parts = []
+  if (title) parts.push(`# ${title}`)
+  let chapters = 0
+  for (const id of spine) {
+    const item = manifest[id]
+    if (!item) continue
+    if (item.mt && !/x?html/i.test(item.mt)) continue
+    const html = readPath(base + item.href)
+    if (!html) continue
+    chapters++
+    const md = td.turndown(html).trim()
+    if (md) parts.push(md)
+  }
+  if (chapters === 0) throw new Error('这个 EPUB 的 spine 里没有可读的 XHTML 章节')
+  console.log('[io] epub 章节数 =', chapters, '| 标题 =', title)
+  return parts.join('\n\n')
+}
+
+/**
  * `buf` 是原始字节（不是字符串）—— docx 要走 `arrayBuffer`，
  * 文本类才解码；这样只读一次文件。
  */
@@ -205,8 +265,9 @@ async function toMarkdown(name, buf) {
   }
 
   if (ext === 'pdf') return await pdfToMarkdown(buf)
+  if (ext === 'epub') return await epubToMarkdown(buf)
 
-  throw new Error(`还不支持 .${ext}（epub 在下一批）`)
+  throw new Error(`还不支持 .${ext}`)
 }
 
 /* ─────────── Markdown → 其它格式 ─────────── */

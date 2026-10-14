@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 86
-更新时间: 2026-10-15（rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 87
+更新时间: 2026-10-15（rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,53 @@ revision: 86
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev87（2026-10-15 · 导入导出**批 3**：pdf/epub 导入 ＋ 长图 ＋ docx —— **四种导出真机全部验证**）
+>
+> ### 一、四种导出**端到端**验收（用户亲测 ＋ 产物签名校验）
+>
+> 用户在系统「另存为」里选了 `Download/导出/`，四个全部成功落盘：
+>
+> | 格式 | 大小 | 校验 |
+> |---|---|---|
+> | txt | 133 B | 内容与源笔记一致 ✅ |
+> | html | 1,491 B | 单文件 ＋ 内联 CSS ✅ |
+> | **png（长图）** | **60,018 B** | 头 8 字节 = `89 50 4e 47 0d 0a 1a 0a` ✅（合法 PNG） |
+> | **docx** | 9,864 B | 头 4 字节 = `50 4b 03 04` ＋ 内含 `word/document.xml` ✅ |
+>
+> **png 与探针读数 60,018 一字不差** ⇒ "探针渲染"与"另存为"两条路出的是同一份字节。
+>
+> ### 二、Android 的"另存为"写通道**全链打通**
+>
+> `io.exportX` → `host.saveFile` → `dialog.save()`（`ACTION_CREATE_DOCUMENT`）→ 用户选目录 →
+> 返回 `content://` → `uri-reader` 的 **`write_content_uri`** → `ContentResolver.openOutputStream` → 落盘。
+> logcat 取证：`writeContentUri uri=content://com.android.providers.downloads.documents/document/raw%3A… textLen=65`。
+> ⇒ 目标里的「**导出落点每次弹系统选择器让用户选目录**」**已实现并验证**。
+>
+> ### 三、本批新增
+>
+> · **pdf → md**：复用已内置 pdf.js 的 `getTextContent()` ＋ 自写版面启发式（同一行按 `transform`
+>   的 y ±2 归行、行内按 x 排序）；**扫描件明确报错**，不产出空笔记。
+> · **epub → md**：**自己解 zip（fflate 0.8.3，MIT，91 KB）＋ turndown** —— `container.xml` → OPF →
+>   manifest/spine → 逐章 XHTML 转 md。**为什么不用 foliate-js 的解析 API**：它的 `EPUB` 类要求
+>   调用方提供 `loadText/loadBlob/getSize` 回调（zip 访问被抽象出去了），而"抽文本"直接 `unzipSync`
+>   ＋ 读 OPF/spine 更直白、还能**复用已有 turndown**（foliate 仍在文档阅读器里负责渲染）。
+> · **md → docx**：docx 9.11.0 ＋ 自写映射（标题 / 段落 / 列表 / 引用 / 代码块 / 分隔线，行内粗斜体与
+>   行内代码，链接退化成「文字 (url)」）；**中文零成本** —— docx 只写字体名，不像 jsPDF 要嵌 17.7 MB 字体。
+> · **导出探针**（`payload.probe`）：只渲染、不落盘、回报字节数 —— 长图是二进制、走不了 `toVault`，
+>   而"另存为"没法脚本化。
+>
+> ### 四、⚠️ 一个环境坑（记下来）
+>
+> **应用在后台时 CDP 会超时**（Android 冻结后台 WebView 的 JS）⇒ 用 `__znExec` 做自动化验收前，
+> 先用 `dumpsys window | grep mCurrentFocus` 确认应用**在前台**；否则 eval 会挂满超时（本轮真踩）。
+>
+> ### 五、还没做 / 待验
+>
+> · **epub / pdf 导入的真机验证**（代码已就位；手机上有现成样本 `测试书籍.epub` 与 `歌词大全-2.pdf`）
+> · **md → pdf**：桌面走 `window.print()`（Android 的 print 无效，Tauri #11933 open）
+> · 桌面端导出链路未验（`dialog.save` ＋ `write_absolute`）
+> · mammoth 的 docx 表格退化 / html 导入 `<title>` 混入（小瑕疵，见 rev86）
 
 > ## 📌 rev86（2026-10-15 · 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出）
 >
