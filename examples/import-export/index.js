@@ -687,20 +687,27 @@ export default {
       const stem = (d.path.split('/').pop() || 'note').replace(/\.[^.]+$/, '')
 
       /**
-       * PDF 走**独立路径**：它不产出字节流（PDF 由系统打印栈生成），所以不经 `saveFile`。
-       * 平台判断也在这里 —— Android 的 Tauri 打印无效（issue #11933 open）。
+       * ⚠️ **实测更正（2026-10-15）**：`window.print()` 在 Tauri 的 **WebView2 里静默无效** ——
+       * 调用**立即返回**、不弹打印对话框、不产生任何 PDF（真机 + CDP 双向验证：
+       * `window.print` 是 function，但调用后同步返回；`io.exportPdf` 也拿不到任何产物）。
+       *
+       * **一手来源**：`wry-0.57.0/src/webview2/mod.rs:1796`
+       * ```rust
+       * pub fn print(&self) -> Result<()> { self.eval("window.print()", …) }
+       * ```
+       * ⇒ 换成 Tauri 的 Rust `print()` 也救不了（**同一条路**）。
+       * rev88 依据的是 Tauri 源码里一句「`window.print()` works on all platforms」的注释 ——
+       * 那句话**对 WebView2 不成立**（WebView2 需要宿主显式接 `ShowPrintUI`，wry 没接）。
+       *
+       * **改走可靠的两步**：导出 HTML → 提示用户用**浏览器**打开它、浏览器里「打印 → 另存为 PDF」。
+       * 浏览器打印栈比 WebView2 完整，中文零成本（系统字体），也不用把 17.7 MB 字体塞进包里。
        */
       if (format === 'pdf') {
-        if (host.platform === 'android') {
-          throw new Error(
-            'Android 上不能直接导出 PDF（Tauri 的打印在 Android 无效）。' +
-              '可以改用「长图」或「HTML」；系统打印服务也能把 HTML 另存为 PDF。',
-          )
-        }
-        const info = await printMarkdown(d.content, stem, probe)
-        if (probe) return { format, chars: info.chars }
-        host.notify('已调起打印 —— 在「目标打印机」里选「另存为 PDF」')
-        return info
+        const rel = await freeRelPath(stem, 'html')
+        await fs.createNote(rel, await mdToHtml(d.content, stem))
+        host.log('info', `PDF 走浏览器打印：已导出 ${rel}`)
+        host.notify(`已导出「${rel}」—— 用浏览器打开它，「打印 → 另存为 PDF」就得到 PDF`)
+        return { format: 'pdf', viaHtml: rel }
       }
 
       const content = await spec.render(d.content, stem)

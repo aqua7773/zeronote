@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 91
-更新时间: 2026-10-15（rev91 导入导出**收尾**：交付盘点（导入 6 种全验、导出 5 种中 4 种端到端落盘、pdf 仅剩"真实打印"一步）＋ 测试产物清理 ＋ 插件用法与自动化入口；rev90 docx 导入**表格还原**（改走 convertToHtml ＋ 新增"无 thead 表格"兜底规则，真机验到 GFM 表格）；rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 92
+更新时间: 2026-10-15（rev92 ⚠️ **更正 rev88**：`window.print()` 在 WebView2 上静默无效（wry 源码 `print()` = `eval("window.print()")`）⇒ md→pdf 改走「导出 HTML ＋ 浏览器打印」，已验 `{format:pdf, viaHtml:…}`；rev91 导入导出**收尾**：交付盘点（导入 6 种全验、导出 5 种中 4 种端到端落盘、pdf 仅剩"真实打印"一步）＋ 测试产物清理 ＋ 插件用法与自动化入口；rev90 docx 导入**表格还原**（改走 convertToHtml ＋ 新增"无 thead 表格"兜底规则，真机验到 GFM 表格）；rev89 **导入 6 种全部验证完毕**（epub/pdf 在桌面跑通）＋ 修掉一个真 bug（turndown 不剔除 `<script>`/`<style>` 文本，脚本混进正文）；rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2087,6 +2087,45 @@ revision: 91
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
 
+> ## 📌 rev92（2026-10-15 · ⚠️ **更正 rev88**：`window.print()` 在 WebView2 上**静默无效** —— md→pdf 改走「导出 HTML ＋ 浏览器打印」）
+>
+> ### 一、实测（两条独立证据）
+>
+> 1. **CDP 直接调**：`typeof window.print` = `"function"`，但调下去 **同步立即返回**（`print-返回了`）、
+>    **不弹打印对话框、不产生任何产物**
+> 2. **走插件**：`__znExec('io.exportPdf')` 在桌面返回 `null`（那次是"没有打开的笔记"这条早退路径；
+>    但第 1 条的裸调用已经把 `print` 本身的行为定死了）
+> 3. 截图核对：调用后前台仍是 DSH 客户端 / ZeroNote 窗口，**没有**任何打印 UI 出现
+>
+> ### 二、一手来源：wry 的 WebView2 `print()` **就是 eval `window.print()`**
+>
+> `wry-0.57.0/src/webview2/mod.rs:1796`：
+>
+> ```rust
+> pub fn print(&self) -> Result<()> {
+>   self.eval("window.print()", None::<Box<dyn FnOnce(String) + Send + 'static>>)
+> }
+> ```
+>
+> ⇒ **换成 Tauri 的 Rust `print()` 也救不了**（**同一条路**）。WebView2 要弹打印 UI，宿主得显式接
+> `ShowPrintUI`，而 wry 没接。
+>
+> ### 三、⚠️ 更正 rev88 的结论（在原文处也标了）
+>
+> rev88 说「桌面走 `window.print()`」—— **对 WebView2 不成立**。当时的依据是 Tauri 源码里一句
+> 「`window.print()` works on all platforms」的注释，**没实测就采信了**。
+> 这正是 AGENTS 第 5 条硬性前置要防的：**实测 ≠ 解释、注释 ≠ 实现**。
+>
+> ### 四、改法（已验证）
+>
+> `io.exportPdf` 改成**可靠的两步**：**导出 HTML**（写进笔记库）→ 提示用户用**浏览器**打开它、
+> 浏览器里「打印 → 另存为 PDF」。浏览器打印栈完整、中文走系统字体、不必把 17.7 MB 字体塞进包
+> （jsPDF 路线）或踩 pdf-lib 的 CJK 子集化 bug。
+>
+> **验证读数**：`__znExec('io.exportPdf')` → `{"format":"pdf","viaHtml":"outline-demo.html"}` ✅
+>
+> Android 本来就不支持直接导出 PDF（Tauri #11933），这条限制不变。
+
 > ## 📌 rev91（2026-10-15 · 导入导出**收尾**：交付盘点 ＋ 唯一未验项 ＋ 测试产物清理）
 >
 > ### 一、交付盘点（一个字都不虚）
@@ -2187,6 +2226,11 @@ revision: 91
 > ## 📌 rev88（2026-10-15 · **md→pdf**（浏览器打印栈）＋ 桌面端五种导出探针全过）
 >
 > ### 一、md → pdf：走**系统打印栈**（桌面专有）
+>
+> ⚠️ **更正见 rev92** —— 这一节的前提（`window.print()` 在桌面能弹打印对话框）**实测不成立**：
+> WebView2 里 `window.print()` 同步返回、什么也不弹（一手来源：`wry-0.57.0/src/webview2/mod.rs:1796`
+> 的 `print()` 就是 `eval("window.print()")`）。**现行实现改为「导出 HTML ＋ 浏览器里打印成 PDF」**，
+> 下面这段 `printMarkdown` 代码**保留但不再被调用**（万一 WebView2 将来支持）。
 >
 > Markdown → marked → 挂一个 `.zn-print-root` 全屏容器（屏幕上先让用户看到排版）→
 > `window.print()` → 用户在「目标打印机」里选「另存为 PDF」。
