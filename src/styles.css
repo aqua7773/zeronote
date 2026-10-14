@@ -1577,3 +1577,63 @@ body.is-resizing * {
     calc(var(--zn-ol-step) * 0.5) 0;
 }
 
+/* ───────── 大纲折叠圆点（`editor.addFold`，2026-10-14 rev80）─────────
+   位置：**行盒内、该行缩进层级处**（圆点左缘 = 该行内容盒左往左 `--zn-fold-gap`）——
+   与导图按钮（行盒左侧 gutter，右边缘 293）分开，两者不重叠；也不动竖线
+   （竖线是 `background`，圆点是视图元素，各画各的）。
+
+   层级定位复用 `--zn-ol-step`：`dN` 行的内容盒左 = `1.2em + step×(N−1)`
+   ⇒ 圆点 `left = 1.2em + step×(N−1) − --zn-fold-gap`（N≤6，与竖线同级封顶）。
+
+   ⚠️ 垂直方向**不设 `top`** —— 与导图按钮同一技巧（rev77 第四次迭代实测）：
+   设 `top: 50%` 会相对"折行后的整块"居中，文字折两行时圆点就飘到两行之间；
+   不设 top 则退回 static position（各行为同一个值），再用 translateY 微调。 */
+:root {
+  /* 圆点左缘相对该行内容盒左的偏移（往左）—— 要贴得更近就调小 */
+  --zn-fold-gap: 17px;
+}
+
+.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: 9px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transform: translateY(1px);
+}
+.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot:hover {
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--zn-fg);
+}
+.zn-editor .cm-line[class*='zn-ol-d'] .zn-fold-dot.is-folded {
+  color: var(--zn-fg);
+}
+.zn-editor .cm-line.zn-ol-d1 .zn-fold-dot {
+  left: calc(1.2em - var(--zn-fold-gap));
+}
+.zn-editor .cm-line.zn-ol-d2 .zn-fold-dot {
+  left: calc(1.2em + var(--zn-ol-step) - var(--zn-fold-gap));
+}
+.zn-editor .cm-line.zn-ol-d3 .zn-fold-dot {
+  left: calc(1.2em + var(--zn-ol-step) * 2 - var(--zn-fold-gap));
+}
+.zn-editor .cm-line.zn-ol-d4 .zn-fold-dot {
+  left: calc(1.2em + var(--zn-ol-step) * 3 - var(--zn-fold-gap));
+}
+.zn-editor .cm-line.zn-ol-d5 .zn-fold-dot {
+  left: calc(1.2em + var(--zn-ol-step) * 4 - var(--zn-fold-gap));
+}
+.zn-editor .cm-line.zn-ol-d6 .zn-fold-dot {
+  left: calc(1.2em + var(--zn-ol-step) * 5 - var(--zn-fold-gap));
+}
+

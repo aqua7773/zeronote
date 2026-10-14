@@ -53,6 +53,8 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
   'editor:line-action',
   // 2026-10-14 rev78：编辑器**逐行 class**（`editor.addLineClass`）—— 大纲竖线用
   'editor:line-class',
+  // 2026-10-14 rev80：编辑器**折叠/展开**（`editor.addFold`）—— 大纲折叠用
+  'editor:fold',
   'store',
   'net',
   'proc',

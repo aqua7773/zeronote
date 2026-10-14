@@ -18,7 +18,7 @@
  * 行号都是 **0 基**（与 `parseBlocks` 的 `titleLine` / `startLine` 同一口径）。
  */
 import { readFileSync } from 'node:fs'
-import { parseBlocks, mapButtonTargets, mapButtonLines, outlineDepths } from './index.js'
+import { parseBlocks, mapButtonTargets, mapButtonLines, outlineDepths, outlineFoldEnds } from './index.js'
 
 const cases = [
   {
@@ -175,6 +175,41 @@ for (const c of titleCases) {
   if (!ok) console.log(`      期望 [${c.expect.join(', ')}]，实得 [${got.join(', ')}]`)
 }
 
+/**
+ * **折叠范围**（`outlineFoldEnds`，2026-10-14 rev80）：折点 → 子项末行。
+ *
+ * 判据抓三件事：① **只有有子项的行**才是折点（平铺单层不该出现折叠圆点）；
+ * ② 范围是**子树的最大行号**（深层嵌套要一路盖到底）；③ 空行断开的块**各算各的**。
+ */
+const foldCases = [
+  { name: '一层嵌套：父行折叠范围 = 唯一子行', md: '- a\n  - b\n', expect: [[0, 1]] },
+  {
+    name: '两层嵌套：父折到最深子行，中间那层也各自是折点',
+    md: '- a\n  - b\n    - c\n',
+    expect: [
+      [0, 2],
+      [1, 2],
+    ],
+  },
+  { name: '平铺单层列表：没有折点（不给折叠圆点）', md: '- a\n- b\n', expect: [] },
+  {
+    name: '空行断开的两个块：各算各的',
+    md: '- a\n  - b\n\n- c\n  - d\n',
+    expect: [
+      [0, 1],
+      [3, 4],
+    ],
+  },
+  {
+    name: '兄弟节点：前一个有子项、后一个没有',
+    md: '- a\n  - b\n  - c\n- d\n  - e\n',
+    expect: [
+      [0, 2],
+      [3, 4],
+    ],
+  },
+]
+
 const file = process.argv[2]
 if (file) {
   const md = readFileSync(file, 'utf8')
@@ -203,11 +238,27 @@ for (const c of depthCases) {
   }
 }
 
-const total = cases.length + titleCases.length + depthCases.length
-const bad = failed + tFail + dFail + inv
+/* ── 折叠范围（rev80） ── */
+let fFail = 0
+for (const c of foldCases) {
+  const got = [...outlineFoldEnds(c.md).entries()].sort((a, b) => a[0] - b[0])
+  const ok =
+    got.length === c.expect.length &&
+    got.every(([line, end], i) => line === c.expect[i][0] && end === c.expect[i][1])
+  if (!ok) fFail += 1
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`)
+  if (!ok) {
+    console.log(`      期望 [${c.expect.map((p) => p.join(':')).join(', ')}]`)
+    console.log(`      实得 [${got.map((p) => p.join(':')).join(', ')}]`)
+  }
+}
+
+const total = cases.length + titleCases.length + depthCases.length + foldCases.length
+const bad = failed + tFail + dFail + inv + fFail
 console.log(
-  `\n${total - failed - tFail - dFail}/${total} passed` +
+  `\n${total - failed - tFail - dFail - fFail}/${total} passed` +
     `${failed ? ` —— 按钮行 ${failed} 个失败` : ''}${tFail ? ` —— 中心主题 ${tFail} 个失败` : ''}` +
-    `${dFail ? ` —— 层级 ${dFail} 个失败` : ''}${inv ? ` —— 不变量 ${inv} 处失败` : ''}`,
+    `${dFail ? ` —— 层级 ${dFail} 个失败` : ''}${inv ? ` —— 不变量 ${inv} 处失败` : ''}` +
+    `${fFail ? ` —— 折叠 ${fFail} 个失败` : ''}`,
 )
 process.exit(bad ? 1 : 0)

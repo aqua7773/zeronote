@@ -676,6 +676,44 @@ export type EditorLineClassRule = {
 }
 
 /**
+ * **折叠 / 展开**（`editor.addFold`，2026-10-14 rev80 新增）。
+ *
+ * 与上面三条的区别：mark / lineAction / lineClass 都是"翻译成装饰"的**纯函数**，
+ * 而折叠是**有状态的交互** —— 所以状态**不放内核**：插件自己持一份"哪些行已折叠"
+ * （典型按**行文本签名**记，行号会随编辑漂移），内核只做三件事：
+ * ① 问范围（`foldEndAt`）② 问状态（`isFolded`）③ 点击时回调（`onToggle`）然后重画。
+ *
+ * 这么分的好处：内核不必持有 `EditorView`（现有架构里内核拿不到它）、
+ * 也不必引入 StateField 与位置映射；插件改完状态（异步的也行）调一次
+ * `api.editor.refresh()` 就同步过来了。
+ *
+ * 隐藏用 CM6 的 `Decoration.replace({ block: true })`，区间 = **父行末尾 → 末子行末尾**
+ * （`parent.to → endLine.to`）⇒ 只藏子项，父行本身与光标都不动。
+ */
+export type EditorFoldRule = {
+  /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
+  id: string
+  /**
+   * 逐行问：这一行**能否折叠**、能折叠时范围的**结束行号（0 起，含）**；`null` = 不可折叠。
+   *
+   * 与 `classAt` / `filter` 同一要求：**同步**、**会被逐行调用** ⇒ 请按整篇缓存解析结果。
+   */
+  foldEndAt: (ctx: { doc: string; line: number; text: string }) => number | null
+  /** 这一行**当前是否已折叠** —— 状态由插件持有，内核只读不改。 */
+  isFolded: (ctx: { doc: string; line: number; text: string }) => boolean
+  /**
+   * 点了折叠圆点后回调，`folded` 是**切换后**的状态。
+   *
+   * ⚠️ 内核**不会**替你记状态：请在这里更新自己的集合（并按需持久化）。
+   * 回调返回后内核**自动重画一次** —— 所以点击这条路上你不需要（也没法）自己 dispatch；
+   * 若是**异步**才改完状态（例如刚把 `.zn/` 里的折叠记录读回来），再调一次 `refresh()`。
+   */
+  onToggle: (ctx: { line: number; text: string; folded: boolean }) => void
+  /** 折叠圆点的悬停提示 */
+  title?: string
+}
+
+/**
  * 编辑器侧的能力。
  *
  * 生效时机：规则在**编辑器挂载 / 切换笔记**时被读取（atomic 那时才捕获扩展数组），
@@ -735,6 +773,29 @@ export interface EditorApi {
    * （`background-origin: content-box`）—— 两者不打架。
    */
   addLineClass(rule: EditorLineClassRule): Disposable
+  /**
+   * 登记一条**折叠 / 展开**规则（2026-10-14 rev80 新增）。
+   *
+   * ```js
+   * api.editor.addFold({
+   *   id: 'outline-fold',
+   *   foldEndAt: ({ line }) => tree.lastChildLine(line), // 子项末行（0 起，含）
+   *   isFolded: ({ text }) => foldedSet.has(sig(text)),  // 状态自己的
+   *   onToggle: ({ text, folded }) => save(foldedSet, sig(text), folded),
+   * })
+   * ```
+   *
+   * 圆点画在**行盒内、该行缩进层级的位置**（与 `addLineAction` 的行盒左侧 gutter 不冲突），
+   * 样式由宿主给（`.zn-fold-dot`）。
+   */
+  addFold(rule: EditorFoldRule): Disposable
+  /**
+   * 让编辑器**立刻重算一次装饰**（2026-10-14 rev80 新增）。
+   *
+   * 用途：插件**异步**改完自己的展示状态之后（典型：从 `.zn/` 里把折叠记录读回来），
+   * 让内核按新状态重画。**点击折叠那条路不用调它** —— 内核已在 `onToggle` 后自动重画。
+   */
+  refresh(): void
   /** 当前生效的规则（诊断用） */
   list(): { id: string; pluginId: string }[]
 }
@@ -833,6 +894,8 @@ export type Capability =
   | 'editor:line-action'
   /** 编辑器**逐行 class**（`editor.addLineClass`，rev78） */
   | 'editor:line-class'
+  /** 编辑器**折叠/展开**（`editor.addFold`，rev80） */
+  | 'editor:fold'
   | 'store'
   | 'net'
   | 'proc'

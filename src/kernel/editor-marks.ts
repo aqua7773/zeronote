@@ -10,7 +10,7 @@
  * 重叠处理：**先到先得** —— 前一条规则占掉的区间，后面的规则不再着色。
  * 这样多条规则叠加时行为可预期，也避免 CM6 的 RangeSetBuilder 因区间交叉而抛错。
  */
-import type { Extension, Range } from '@codemirror/state'
+import { StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
@@ -22,6 +22,7 @@ import {
 import type {
   Disposable,
   EditorApi,
+  EditorFoldRule,
   EditorLineAction,
   EditorLineClassRule,
   EditorMarkRule,
@@ -43,6 +44,82 @@ const lineEntries = new Map<string, LineEntry>()
 /** 逐行 class 的条目（`addLineClass`，rev78 新增 —— 大纲竖线用） */
 type LineClassEntry = { fullId: string; pluginId: string; rule: EditorLineClassRule }
 const lineClassEntries = new Map<string, LineClassEntry>()
+
+/** 折叠/展开的条目（`addFold`，rev80 新增 —— 大纲折叠用） */
+type FoldEntry = { fullId: string; pluginId: string; rule: EditorFoldRule }
+const foldEntries = new Map<string, FoldEntry>()
+
+/**
+ * **"重算装饰"信号**（rev80）。
+ *
+ * 折叠是**有状态**的交互，而状态在插件手里 ⇒ 插件改完状态要让内核重画。
+ * 空 transaction 不会触发 ViewPlugin 的 `docChanged / viewportChanged`，
+ * 所以用一个自定义 effect 当信号；`refresh()` 就是"朝每个活着的编辑器各 dispatch 一次"。
+ */
+const refreshEffect = StateEffect.define<null>()
+
+/**
+ * 诊断出口（`window.__znFoldStats`）：折叠这条链上"谁在什么时候做了什么"。
+ *
+ * 为什么要有它：折叠是**跨内核/插件两层**的协作（内核问状态 → 插件改 → 内核重画），
+ * 出问题时截图只能看出"没变"，分不清是"没回调""没重画"还是"重画了但状态没变"。
+ * 2026-10-14 就是靠它定位到"块替换区间起点算错 ⇒ 点完圆点行不藏"。
+ */
+function foldStat(kind: string, data: Record<string, unknown>): void {
+  const w = window as unknown as { __znFoldStats?: unknown[] }
+  ;(w.__znFoldStats ??= []).push({ kind, ...data, at: Date.now() })
+}
+
+/**
+ * 活着的编辑器实例（rev80 加的）：`refresh()` 需要拿到 view 才能 dispatch，
+ * 而内核这一层**拿不到** EditorView（`createKernel(vault, doc, hooks)` 里没有它）。
+ * 与其给内核新开一条 view 通道，不如让 ViewPlugin 自己登记 —— 它本来就在每个编辑器里存在。
+ */
+const liveViews = new Set<EditorView>()
+
+/**
+ * 折叠圆点（rev80）。
+ *
+ * 与 `LineActionWidget`（行盒左侧 gutter）不同：这个圆点在**行盒内**、
+ * 按该行缩进层级定位（样式表按 `zn-ol-dN` 给 `left`），所以两套按钮不会打架。
+ * 同样 `ignoreEvent()` 返回 false —— 否则编辑器把点击吃掉，圆点点不动。
+ */
+class FoldDotWidget extends WidgetType {
+  readonly fullId: string
+  readonly folded: boolean
+  readonly title: string | undefined
+
+  constructor(fullId: string, folded: boolean, title: string | undefined) {
+    super()
+    this.fullId = fullId
+    this.folded = folded
+    this.title = title
+  }
+
+  eq(other: FoldDotWidget) {
+    return (
+      other.fullId === this.fullId && other.folded === this.folded && other.title === this.title
+    )
+  }
+
+  toDOM() {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = `zn-fold-dot${this.folded ? ' is-folded' : ''}`
+    btn.textContent = this.folded ? '▸' : '▾'
+    const label = this.title ?? (this.folded ? '展开' : '折叠')
+    btn.title = label
+    btn.setAttribute('data-zn-fold', this.fullId)
+    btn.setAttribute('aria-label', label)
+    btn.setAttribute('aria-expanded', this.folded ? 'false' : 'true')
+    btn.contentEditable = 'false'
+    return btn
+  }
+
+  ignoreEvent() {
+    return false
+  }
+}
 
 /**
  * 行首按钮的视图元素（CM6 Widget）。
@@ -143,10 +220,39 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
         },
       }
     },
+    addFold(rule: EditorFoldRule): Disposable {
+      const fullId = fullIdOf(pluginId, rule.id)
+      foldEntries.set(fullId, { fullId, pluginId, rule })
+      cachedExtensions = null
+      return {
+        dispose: () => {
+          if (foldEntries.get(fullId)?.pluginId === pluginId) {
+            foldEntries.delete(fullId)
+            cachedExtensions = null
+          }
+        },
+      }
+    },
+    refresh() {
+      /**
+       * 朝**每个活着的编辑器**各发一次"重算"信号。
+       * 为什么不是只发当前那个：同一时间可能有多个编辑器（主窗口 + 插件独立窗口里的
+       * 分屏），而 `refresh()` 的语义是"插件的展示状态变了，谁在显示谁重画" ——
+       * 只刷新一个会让另一个保持旧样子（典型症状：导图窗口改了折叠、主窗口不变）。
+       */
+      for (const v of [...liveViews]) {
+        try {
+          v.dispatch({ effects: refreshEffect.of(null) })
+        } catch {
+          /* 正在销毁的 view 可能已经不能 dispatch —— 忽略即可 */
+        }
+      }
+    },
     list: () => [
       ...[...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
       ...[...lineEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
       ...[...lineClassEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
+      ...[...foldEntries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
     ],
   }
 }
@@ -167,6 +273,11 @@ export function releaseEditorMarks(pluginId: string): void {
   for (const [k, e] of [...lineClassEntries]) {
     if (e.pluginId !== pluginId) continue
     lineClassEntries.delete(k)
+    changed = true
+  }
+  for (const [k, e] of [...foldEntries]) {
+    if (e.pluginId !== pluginId) continue
+    foldEntries.delete(k)
     changed = true
   }
   if (changed) cachedExtensions = null
@@ -311,20 +422,132 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
+  /**
+   * **折叠 / 展开**（rev80）：这里只插**圆点**（widget）；**隐藏子行那部分在
+   * `foldBlockField`（StateField）里** —— 见下方那条注释：CM6 不允许 ViewPlugin 提供块级替换。
+   *
+   * 这里仍要算一遍 `folded`，只为"被祖先折叠盖住的行不再插圆点"（否则折叠区里会冒出孤立圆点）。
+   */
+  let hiddenUntil = -1 // 0 起的行号：已被祖先折叠盖到哪一行
+  for (let n = 1; n <= doc.lines; n++) {
+    if (n - 1 <= hiddenUntil) continue
+    const ln = doc.line(n)
+    for (const { fullId, rule } of foldEntries.values()) {
+      let end: number | null = null
+      try {
+        end = rule.foldEndAt({ doc: text, line: n - 1, text: ln.text })
+      } catch (e) {
+        console.warn(`[editor] 折叠范围 ${fullId} 在第 ${n} 行出错：${String(e)}`)
+        end = null
+      }
+      if (end === null || end <= n - 1) continue // 没有子项 ⇒ 不是折点
+      const last = Math.min(end, doc.lines - 1)
+      let folded = false
+      try {
+        folded = rule.isFolded({ doc: text, line: n - 1, text: ln.text })
+      } catch {
+        folded = false // 插件状态取不到就当"没折叠"，别让编辑器崩
+      }
+      ranges.push(
+        Decoration.widget({
+          widget: new FoldDotWidget(fullId, folded, rule.title),
+          side: -1,
+        }).range(ln.from),
+      )
+      if (folded) {
+        hiddenUntil = last
+        break // 本行已由这条规则折叠，不必再问其它规则
+      }
+    }
+  }
+
   // 交给 CM6 排序（`Decoration.set(ranges, true)`）：widget 与区间装饰混在一起时，
   // 手写排序 + 零宽 range 更容易踩"起点必须严格升序"的坑（原先用 RangeSetBuilder 就是这么要求的）
   return Decoration.set(ranges, true)
 }
 
+/**
+ * **折叠的"隐藏子行"那一半：只能由 StateField 提供**（rev80 实测踩到的 CM6 硬约束）。
+ *
+ * CM6 对装饰分权限：**ViewPlugin 不许提供块级装饰** —— 把
+ * `Decoration.replace({ block: true })` 放进 ViewPlugin 的 `decorations` 里，运行期直接抛
+ * `RangeError: Block decorations may not be specified via plugins`。
+ * 症状极隐蔽：**圆点已经变成 ▸、折叠记录也写对了，但子行一行都没藏起来** ——
+ * 抛错发生在 dispatch 的同步处理里，被调用处的 try 吞掉，看起来就像"状态没生效"。
+ *
+ * 所以拆两半：**圆点（widget）留在 ViewPlugin**，**块替换放这个 StateField**。
+ * 这也是 CM6 折叠类扩展的标准写法（`@codemirror/language` 的 code folding 同样如此）。
+ */
+function buildFoldBlocks(state: EditorState): DecorationSet {
+  if (foldEntries.size === 0) return Decoration.none
+  const doc = state.doc
+  const text = doc.toString()
+  const ranges: Range<Decoration>[] = []
+  let hiddenUntil = -1 // 已被祖先折叠盖到哪一行（0 起）
+  for (let n = 1; n <= doc.lines; n++) {
+    if (n - 1 <= hiddenUntil) continue
+    const ln = doc.line(n)
+    for (const { rule } of foldEntries.values()) {
+      let end: number | null = null
+      try {
+        end = rule.foldEndAt({ doc: text, line: n - 1, text: ln.text })
+      } catch {
+        end = null
+      }
+      if (end === null || end <= n - 1) continue
+      const last = Math.min(end, doc.lines - 1)
+      let folded = false
+      try {
+        folded = rule.isFolded({ doc: text, line: n - 1, text: ln.text })
+      } catch {
+        folded = false
+      }
+      if (!folded) continue
+      /**
+       * ⚠️ 区间**必须从第一子行的行首**开始（`doc.line(n + 1).from`），不能从父行末尾算：
+       * 起点落在"父行末尾 / 换行符"上时块替换不生效（子行照旧显示，圆点却已是 ▸）。
+       * 收尾用末子行末尾 ⇒ 整个子块被替换掉，父行原样保留。
+       */
+      const from = doc.line(n + 1).from
+      const endTo = doc.line(last + 1).to
+      if (endTo > from) ranges.push(Decoration.replace({ block: true }).range(from, endTo))
+      hiddenUntil = last
+      break
+    }
+  }
+  return ranges.length ? Decoration.set(ranges, true) : Decoration.none
+}
+
+const foldBlockField = StateField.define<DecorationSet>({
+  // 没有插件登记折叠规则时恒为 none ⇒ 编辑器行为与以前完全一样
+  create: (state) => buildFoldBlocks(state),
+  update(deco, tr) {
+    // 文档变了（行号会漂移）或插件喊了 refresh ⇒ 重算；否则沿用旧装饰并做位置映射
+    const forced = tr.effects.some((e) => e.is(refreshEffect))
+    if (tr.docChanged || forced) return buildFoldBlocks(tr.state)
+    return deco.map(tr.changes)
+  },
+  provide: (f) => EditorView.decorations.from(f),
+})
+
 const markPlugin = ViewPlugin.fromClass(
   class {
+    readonly view: EditorView
     decorations: DecorationSet
     constructor(view: EditorView) {
+      this.view = view
+      liveViews.add(view) // rev80：`refresh()` 靠这张表找到"要重画的编辑器"
       this.decorations = buildDecorations(view)
     }
+    destroy() {
+      liveViews.delete(this.view)
+    }
     update(u: ViewUpdate) {
-      // 只有文档/视口变了才重扫（纯滚动/选区变化不必）
-      if (u.docChanged || u.viewportChanged) {
+      // 文档/视口变了才重扫（纯滚动/选区变化不必）；
+      // rev80 起插件还能用 `refresh()` 强制重算（折叠状态在插件手里，内核看不到它何时变）
+      const forced = u.transactions.some((tr) => tr.effects.some((e) => e.is(refreshEffect)))
+      if (forced) foldStat('rebuild-forced', { lines: u.state.doc.lines })
+      if (u.docChanged || u.viewportChanged || forced) {
         this.decorations = buildDecorations(u.view)
       }
     }
@@ -339,7 +562,13 @@ const markPlugin = ViewPlugin.fromClass(
 export function editorMarkExtensions(
   onAction: (commandId: string, payload?: Record<string, unknown>) => void,
 ): Extension[] {
-  if (entries.size === 0 && lineEntries.size === 0 && lineClassEntries.size === 0) return []
+  if (
+    entries.size === 0 &&
+    lineEntries.size === 0 &&
+    lineClassEntries.size === 0 &&
+    foldEntries.size === 0
+  )
+    return []
   if (cachedExtensions) return cachedExtensions
 
   const clickHandler = EditorView.domEventHandlers({
@@ -365,7 +594,35 @@ export function editorMarkExtensions(
         return true
       }
 
-      // ② 行内标记（原有）：payload 带区间文本与偏移
+      /**
+       * ② **折叠圆点**（rev80）：点击 = 切换折叠。
+       *
+       * 状态在**插件**手里 ⇒ 内核只负责"问出当前状态 → 回调 → 重画"。
+       * 拿不到行号时**直接吃掉这次点击**（返回 true 不做事）：宁可这一次点了没反应，
+       * 也不能瞎猜行号把**别的行**折起来 —— 后者用户看不出原因。
+       */
+      const foldEl = target?.closest?.('[data-zn-fold]') as HTMLElement | null
+      if (foldEl) {
+        const fullId = foldEl.getAttribute('data-zn-fold')
+        const entry = fullId ? foldEntries.get(fullId) : null
+        if (!entry) return false
+        try {
+          const ln = view.state.doc.lineAt(view.posAtDOM(foldEl))
+          const line = ln.number - 1
+          const text = ln.text
+          const wasFolded = entry.rule.isFolded({ doc: view.state.doc.toString(), line, text })
+          entry.rule.onToggle({ line, text, folded: !wasFolded })
+          // 插件改完自己的状态 ⇒ 内核立刻重画（否则界面要等下一次文档变更才更新）
+          view.dispatch({ effects: refreshEffect.of(null) })
+          foldStat('toggle', { line, wasFolded, docs: view.state.doc.lines })
+        } catch (e) {
+          foldStat('toggle-err', { err: String(e) })
+          console.warn(`[editor] 折叠切换 ${fullId} 失败：${String(e)}`)
+        }
+        return true
+      }
+
+      // ③ 行内标记（原有）：payload 带区间文本与偏移
       const el = target?.closest?.('[data-zn-mark]') as HTMLElement | null
       if (!el) return false
       const fullId = el.getAttribute('data-zn-mark')
@@ -383,6 +640,8 @@ export function editorMarkExtensions(
     },
   })
 
-  cachedExtensions = [markPlugin, clickHandler]
+  // `foldBlockField` 必须排在前面：块替换（隐藏子行）与 widget（圆点）由两份装饰合成，
+  // 顺序不影响结果，但把"状态派生"的那份放前面更贴近 CM6 示例的写法。
+  cachedExtensions = [foldBlockField, markPlugin, clickHandler]
   return cachedExtensions
 }

@@ -323,6 +323,30 @@ function outlineDepths(md) {
   return map
 }
 
+/**
+ * **行号 → 该行的"子项末行"**（0 起，含）—— 只收**有子项的列表行**（= 折点）。
+ *
+ * 与 `outlineDepths` 同一棵树：深度决定"画几层竖线"，这个决定"能折叠到哪一行"。
+ * 折叠范围就是该行**子树里的最大行号**（子树在文档里是连续区间）。
+ *
+ * 与 `outlineDepths` 一样**每个块各算各的**：同一标题下被空行断开的第二块是独立的一棵树。
+ */
+function outlineFoldEnds(md) {
+  const { blocks } = parseBlocks(md)
+  const map = new Map()
+  const walk = (nodes) => {
+    for (const n of nodes) {
+      walk(n.children)
+      if (!n.children.length) continue
+      let last = n.line
+      for (const c of flatNodes(n.children)) last = Math.max(last, c.line)
+      map.set(n.line, last)
+    }
+  }
+  for (const b of blocks) walk(b.nodes)
+  return map
+}
+
 /** 块内树 → 先序数组 */
 function flatNodes(nodes, out = []) {
   for (const n of nodes) {
@@ -1123,7 +1147,16 @@ export default {
       doc.on('open', (d) => {
         docOpenHits += 1
         void store.set(STORE_LAST, d.path)
+        /**
+         * ⚠️ **同步**先把 path 落进 cache（内容仍留旧值，等 reload 覆盖）。
+         *
+         * 为什么不能只靠 `reload()`：`isFolded` 是**同步**回调，而 reload 要 await 读盘 ——
+         * 中间那一帧 `cache.path` 还是**上一篇**笔记的 ⇒ 折叠判定查错集合，
+         * 症状是"切回笔记后折叠全没了 / 折错行"（2026-10-14 实测踩到）。
+         */
+        cache = { ...cache, path: d.path }
         void reload(d.path).then(() => view.refresh())
+        void foldLoad().then(() => editor.refresh())
       }),
       doc.on('change', (d) => {
         // change 带来的是**编辑器里的最新内容**：直接用它算分组，不必再读盘
@@ -1223,6 +1256,111 @@ export default {
           const d = depthByLineOf(doc).get(line)
           // 封顶 6 级：样式表只画到 d6（再深的层级共用 d6 的线，视觉上够用）
           return d ? `zn-ol-d${Math.min(d, 6)}` : null
+        },
+      }),
+    )
+
+    /**
+     * **大纲折叠 / 展开**（`editor.addFold`，2026-10-14 rev80）。
+     *
+     * 用户 2026-10-14 裁决「**要记**」⇒ 折叠状态**持久化到库内** `.zn/outline-folded.json`，
+     * **不写进笔记文件**（笔记保持纯 markdown，插件不往正文里塞任何标记）。
+     *
+     * ⚠️ **锚点用"行文本签名"，不存行号**（rev78 方案里点名的那条）：行号会随编辑漂移，
+     * 而折叠状态是**跨会话**的 —— 存行号的话，第二天打开笔记折叠就全跑位了。
+     * 签名 = 该行去空白后的前 40 字；匹配不到就当"没折叠"（宁可展开，不折错行）。
+     */
+    const FOLD_FILE = '.zn/outline-folded.json'
+    const foldSig = (text) =>
+      String(text)
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, 40)
+
+    /** 整份文件读进内存一份：`isFolded` 是**同步**回调，不能在里面 await */
+    let foldAll = null
+    let foldSaveTimer = null
+
+    const foldLoad = async () => {
+      if (foldAll) return foldAll
+      foldAll = {}
+      try {
+        const raw = await fs.readText(FOLD_FILE)
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) foldAll = parsed
+      } catch {
+        /* 文件不存在 / 内容坏了：从空开始。**不是错误** —— 第一次用本来就没有这个文件 */
+      }
+      return foldAll
+    }
+
+    /** 某篇笔记的折叠签名表（就地建，返回的数组可直接改） */
+    const foldSetOf = (path) => {
+      const k = path ?? ''
+      if (!foldAll) foldAll = {}
+      if (!Array.isArray(foldAll[k])) foldAll[k] = []
+      return foldAll[k]
+    }
+
+    /** 写盘去抖 400ms：连续折叠几次只落一次盘 */
+    const foldSaveSoon = () => {
+      if (foldSaveTimer) clearTimeout(foldSaveTimer)
+      foldSaveTimer = setTimeout(() => {
+        foldSaveTimer = null
+        void fs
+          .writeText(FOLD_FILE, JSON.stringify(foldAll ?? {}, null, 2))
+          .catch((e) => host.log('warn', `折叠状态写盘失败：${String(e)}`))
+      }, 400)
+    }
+
+    let foldCacheDoc = null
+    let foldCacheMap = new Map()
+    /** 与 `buttonLinesOfDoc` / `depthByLineOf` 同一套"按整篇缓存"写法（回调会被逐行问） */
+    const foldEndsOfDoc = (d) => {
+      if (foldCacheDoc !== d) {
+        foldCacheMap = outlineFoldEnds(d)
+        foldCacheDoc = d
+      }
+      return foldCacheMap
+    }
+
+    /** 诊断出口（CDP 验收用）：当前笔记的折点表与已折叠签名 */
+    window.__omFolds = () => ({
+      path: cache.path,
+      ends: [...foldEndsOfDoc(cache.content)].map(([line, end]) => `${line}→${end}`),
+      folded: [...foldSetOf(cache.path)],
+      loaded: foldAll !== null,
+    })
+
+    subscriptions.push(
+      editor.addFold({
+        id: 'outline-fold',
+        title: '折叠 / 展开这一组',
+        foldEndAt: ({ doc: d, line }) => {
+          const end = foldEndsOfDoc(d).get(line)
+          return end === undefined ? null : end
+        },
+        isFolded: ({ text }) => foldSetOf(cache.path).includes(foldSig(text)),
+        onToggle: ({ text, folded }) => {
+          if (!cache.path) return
+          /**
+           * 诊断出口（CDP 验收用）：**谁、什么时候**触发的切换。
+           * 2026-10-14 实测遇到"没人点圆点，折叠记录却多了一条"——
+           * 只有把调用栈摊开才分得清是"合成点击贯通"还是"内核重复回调"。
+           */
+          ;(window.__omFoldLog ??= []).push({
+            text,
+            folded,
+            path: cache.path,
+            at: Date.now(),
+            stack: String(new Error().stack || '').split('\n').slice(1, 5).join(' | '),
+          })
+          const sig = foldSig(text)
+          const set = foldSetOf(cache.path)
+          const i = set.indexOf(sig)
+          if (folded && i < 0) set.push(sig)
+          else if (!folded && i >= 0) set.splice(i, 1)
+          foldSaveSoon()
         },
       }),
     )
@@ -1385,6 +1523,7 @@ export {
   mapButtonTargets,
   mapButtonLines,
   outlineDepths,
+  outlineFoldEnds,
   flatNodes,
   blockToTree,
   flatten,
