@@ -78,57 +78,21 @@ function foldStat(kind: string, data: Record<string, unknown>): void {
 const liveViews = new Set<EditorView>()
 
 /**
- * 折叠圆点（rev80）。
+ * ⚠️ **内核不再画折叠按钮**（2026-10-14 定案）。
  *
- * 与 `LineActionWidget`（行盒左侧 gutter）不同：这个圆点在**行盒内**、
- * 按该行缩进层级定位（样式表按 `zn-ol-dN` 给 `left`），所以两套按钮不会打架。
- * 同样 `ignoreEvent()` 返回 false —— 否则编辑器把点击吃掉，圆点点不动。
+ * 原先这里是一个 `FoldDotWidget`（`<button class="zn-fold-dot">`）—— 它是**独立元素**，
+ * 于是"怎么跟库渲染的圆点同心"变成了一道**像素题**：`absolute + translateY` 要按字体度量硬调，
+ * 改行内流又要靠 margin 推，实测怎么都剩 1–2px（用户复看放大截图就发现"托偏上"）。
+ *
+ * **正解是不要第二个元素**：把圆托挂在**圆点自己的伪元素**上（`.cm-atomic-bullet::before`）——
+ * 同一个盒子 ⇒ 同心是**定义上的**，一个像素都不用调。
+ *
+ * 而"圆点长什么样、点了算什么"属于**外观**：按本项目既定原则（插件可用 `manifest.styles`
+ * 注入样式、也可以覆盖内核实现）交回**插件** ——
+ * 插件给行加 `zn-ol-foldable` / `zn-ol-folded` class（复用 `editor.addLineClass`），
+ * 自己写 CSS、自己接点击，改完调 `api.editor.refresh()`。
+ * 内核只保留**只有它能做**的那半：把子行藏起来（CM6 的块替换必须由 StateField 提供，插件碰不到）。
  */
-class FoldDotWidget extends WidgetType {
-  readonly fullId: string
-  readonly folded: boolean
-  readonly title: string | undefined
-
-  constructor(fullId: string, folded: boolean, title: string | undefined) {
-    super()
-    this.fullId = fullId
-    this.folded = folded
-    this.title = title
-  }
-
-  eq(other: FoldDotWidget) {
-    return (
-      other.fullId === this.fullId && other.folded === this.folded && other.title === this.title
-    )
-  }
-
-  toDOM() {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = `zn-fold-dot${this.folded ? ' is-folded' : ''}`
-    /**
-     * 符号**交给 CSS 伪元素**画（见 `styles.css` 的 `.zn-fold-dot::before/::after`）：
-     * `−` 是一条横杠、`＋` 再加一条竖杠。
-     *
-     * 为什么不用文字字符：字符会把按钮的 `font-size` 定死成一个小值，
-     * 而定位要用的 `em` 必须**以行字号为基准**才对得上圆点 —— 两者抢同一个属性。
-     * 按钮设 `font-size: inherit`（= 行字号）后，`0.5em` 才是"半个中文字符"。
-     * 平时按钮是隐身的（`.zn-fold-dot` 默认 `opacity: 0`），鼠标移进这一行才浮出来 ⇒
-     * 视觉上就是"圆点变成了一个可点的折叠按钮"（Notion / Obsidian 的同一手法）。
-     */
-    const label = this.title ?? (this.folded ? '展开这一组' : '折叠这一组')
-    btn.title = label
-    btn.setAttribute('data-zn-fold', this.fullId)
-    btn.setAttribute('aria-label', label)
-    btn.setAttribute('aria-expanded', this.folded ? 'false' : 'true')
-    btn.contentEditable = 'false'
-    return btn
-  }
-
-  ignoreEvent() {
-    return false
-  }
-}
 
 /**
  * 行首按钮的视图元素（CM6 Widget）。
@@ -256,6 +220,19 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
           /* 正在销毁的 view 可能已经不能 dispatch —— 忽略即可 */
         }
       }
+    },
+    lineAtElement(el: Element): number | null {
+      // 哪个 editor 装着这个元素，就在哪个 editor 里换算（插件在多窗口场景下不区分，
+      // 所以挨个问；`dom.contains` 一次判断就够）
+      for (const v of liveViews) {
+        if (!v.dom.contains(el)) continue
+        try {
+          return v.state.doc.lineAt(v.posAtDOM(el)).number - 1
+        } catch {
+          return null
+        }
+      }
+      return null
     },
     list: () => [
       ...[...entries.values()].map((e) => ({ id: e.fullId, pluginId: e.pluginId })),
@@ -431,45 +408,6 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
-  /**
-   * **折叠 / 展开**（rev80）：这里只插**圆点**（widget）；**隐藏子行那部分在
-   * `foldBlockField`（StateField）里** —— 见下方那条注释：CM6 不允许 ViewPlugin 提供块级替换。
-   *
-   * 这里仍要算一遍 `folded`，只为"被祖先折叠盖住的行不再插圆点"（否则折叠区里会冒出孤立圆点）。
-   */
-  let hiddenUntil = -1 // 0 起的行号：已被祖先折叠盖到哪一行
-  for (let n = 1; n <= doc.lines; n++) {
-    if (n - 1 <= hiddenUntil) continue
-    const ln = doc.line(n)
-    for (const { fullId, rule } of foldEntries.values()) {
-      let end: number | null = null
-      try {
-        end = rule.foldEndAt({ doc: text, line: n - 1, text: ln.text })
-      } catch (e) {
-        console.warn(`[editor] 折叠范围 ${fullId} 在第 ${n} 行出错：${String(e)}`)
-        end = null
-      }
-      if (end === null || end <= n - 1) continue // 没有子项 ⇒ 不是折点
-      const last = Math.min(end, doc.lines - 1)
-      let folded = false
-      try {
-        folded = rule.isFolded({ doc: text, line: n - 1, text: ln.text })
-      } catch {
-        folded = false // 插件状态取不到就当"没折叠"，别让编辑器崩
-      }
-      ranges.push(
-        Decoration.widget({
-          widget: new FoldDotWidget(fullId, folded, rule.title),
-          side: -1,
-        }).range(ln.from),
-      )
-      if (folded) {
-        hiddenUntil = last
-        break // 本行已由这条规则折叠，不必再问其它规则
-      }
-    }
-  }
-
   // 交给 CM6 排序（`Decoration.set(ranges, true)`）：widget 与区间装饰混在一起时，
   // 手写排序 + 零宽 range 更容易踩"起点必须严格升序"的坑（原先用 RangeSetBuilder 就是这么要求的）
   return Decoration.set(ranges, true)
@@ -603,35 +541,7 @@ export function editorMarkExtensions(
         return true
       }
 
-      /**
-       * ② **折叠圆点**（rev80）：点击 = 切换折叠。
-       *
-       * 状态在**插件**手里 ⇒ 内核只负责"问出当前状态 → 回调 → 重画"。
-       * 拿不到行号时**直接吃掉这次点击**（返回 true 不做事）：宁可这一次点了没反应，
-       * 也不能瞎猜行号把**别的行**折起来 —— 后者用户看不出原因。
-       */
-      const foldEl = target?.closest?.('[data-zn-fold]') as HTMLElement | null
-      if (foldEl) {
-        const fullId = foldEl.getAttribute('data-zn-fold')
-        const entry = fullId ? foldEntries.get(fullId) : null
-        if (!entry) return false
-        try {
-          const ln = view.state.doc.lineAt(view.posAtDOM(foldEl))
-          const line = ln.number - 1
-          const text = ln.text
-          const wasFolded = entry.rule.isFolded({ doc: view.state.doc.toString(), line, text })
-          entry.rule.onToggle({ line, text, folded: !wasFolded })
-          // 插件改完自己的状态 ⇒ 内核立刻重画（否则界面要等下一次文档变更才更新）
-          view.dispatch({ effects: refreshEffect.of(null) })
-          foldStat('toggle', { line, wasFolded, docs: view.state.doc.lines })
-        } catch (e) {
-          foldStat('toggle-err', { err: String(e) })
-          console.warn(`[editor] 折叠切换 ${fullId} 失败：${String(e)}`)
-        }
-        return true
-      }
-
-      // ③ 行内标记（原有）：payload 带区间文本与偏移
+      // ② 行内标记（原有）：payload 带区间文本与偏移
       const el = target?.closest?.('[data-zn-mark]') as HTMLElement | null
       if (!el) return false
       const fullId = el.getAttribute('data-zn-mark')

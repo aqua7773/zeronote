@@ -679,16 +679,21 @@ export type EditorLineClassRule = {
  * **折叠 / 展开**（`editor.addFold`，2026-10-14 rev80 新增）。
  *
  * 与上面三条的区别：mark / lineAction / lineClass 都是"翻译成装饰"的**纯函数**，
- * 而折叠是**有状态的交互** —— 所以状态**不放内核**：插件自己持一份"哪些行已折叠"
- * （典型按**行文本签名**记，行号会随编辑漂移），内核只做三件事：
- * ① 问范围（`foldEndAt`）② 问状态（`isFolded`）③ 点击时回调（`onToggle`）然后重画。
+ * 而折叠牵涉**有状态**的交互与**文档结构**（藏掉一整块子行）。
  *
- * 这么分的好处：内核不必持有 `EditorView`（现有架构里内核拿不到它）、
- * 也不必引入 StateField 与位置映射；插件改完状态（异步的也行）调一次
- * `api.editor.refresh()` 就同步过来了。
+ * **职责划分（2026-10-14 定案，用户拍板"插件可以覆盖内核实现"）**：
+ * · **内核只做只有它能做的那半**：把子行藏起来 —— CM6 的**块替换只能由 StateField 提供**
+ *   （放 ViewPlugin 里运行期抛 `Block decorations may not be specified via plugins`），
+ *   插件碰不到 CM6 实例，所以这一步留在内核；外加一个 `refresh()` 用来"改完重画"。
+ * · **外观与点击归插件**：内核**不再画任何按钮**。插件自己决定圆点长什么样、点了算不算折叠 ——
+ *   推荐做法（也正是本项目现在的做法）：把圆托挂在**圆点自己的伪元素**上
+ *   （`.cm-atomic-bullet::before`）⇒ 同一个盒子，**同心是定义上的**，不必调像素；
+ *   再用 `addLineClass` 给行加 `可折叠 / 已折叠` 的 class、用 `manifest.styles` 注入样式、
+ *   自己在编辑器上做事件委托接点击，最后调 `api.editor.refresh()`。
  *
- * 隐藏用 CM6 的 `Decoration.replace({ block: true })`，区间 = **父行末尾 → 末子行末尾**
- * （`parent.to → endLine.to`）⇒ 只藏子项，父行本身与光标都不动。
+ * 为什么不再由内核画按钮：独立元素 ⇒ "与库渲染的圆点同心"变成像素题
+ * （`absolute + translateY` 要按字体度量硬调；改行内流又要靠 margin 推），实测总要剩 1–2px。
+ * 去掉第二个元素，这道题就不存在了。
  */
 export type EditorFoldRule = {
   /** 插件内唯一即可；宿主会加上插件前缀防冲突 */
@@ -701,16 +706,6 @@ export type EditorFoldRule = {
   foldEndAt: (ctx: { doc: string; line: number; text: string }) => number | null
   /** 这一行**当前是否已折叠** —— 状态由插件持有，内核只读不改。 */
   isFolded: (ctx: { doc: string; line: number; text: string }) => boolean
-  /**
-   * 点了折叠圆点后回调，`folded` 是**切换后**的状态。
-   *
-   * ⚠️ 内核**不会**替你记状态：请在这里更新自己的集合（并按需持久化）。
-   * 回调返回后内核**自动重画一次** —— 所以点击这条路上你不需要（也没法）自己 dispatch；
-   * 若是**异步**才改完状态（例如刚把 `.zn/` 里的折叠记录读回来），再调一次 `refresh()`。
-   */
-  onToggle: (ctx: { line: number; text: string; folded: boolean }) => void
-  /** 折叠圆点的悬停提示 */
-  title?: string
 }
 
 /**
@@ -792,10 +787,18 @@ export interface EditorApi {
   /**
    * 让编辑器**立刻重算一次装饰**（2026-10-14 rev80 新增）。
    *
-   * 用途：插件**异步**改完自己的展示状态之后（典型：从 `.zn/` 里把折叠记录读回来），
-   * 让内核按新状态重画。**点击折叠那条路不用调它** —— 内核已在 `onToggle` 后自动重画。
+   * 用途：插件**异步**改完自己的展示状态之后（比如从 `.zn/` 里把折叠记录读回来），
+   * 让内核按新状态重画。
    */
   refresh(): void
+  /**
+   * 把一个编辑器里的 DOM 元素换算成**行号（0 起）**；换算不出来给 `null`。
+   *
+   * 给**插件自己做事件委托**用（2026-10-14 加）：插件要接"点圆点折叠"这类交互，
+   * 而 **DOM 子元素的索引不等于行号** —— 折叠时被隐藏的行根本不渲染，
+   * 索引会整体错位。只有内核手上有 `EditorView`（`posAtDOM`），所以这一步由内核提供。
+   */
+  lineAtElement(el: Element): number | null
   /** 当前生效的规则（诊断用） */
   list(): { id: string; pluginId: string }[]
 }

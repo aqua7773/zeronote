@@ -1,0 +1,61 @@
+/**
+ * 大纲折叠圆点 —— **外观由插件自己提供**（`manifest.styles` 注入，2026-10-14）。
+ *
+ * 这一版是用户拍板「插件可以覆盖内核实现」之后的做法，核心只有一句：
+ * **不要在圆点之外再造一个元素**。
+ *
+ * · 圆托挂在**圆点自己的伪元素**上（`.cm-atomic-bullet::before`）—— 同一个盒子，
+ *   ⇒ **同心是定义上的**，不需要任何像素微调。
+ *   （上一版是内核画的独立 `<button>`，就得靠 `translateY` / margin 硬凑，实测总剩 1–2px。
+ *    详见 `src/kernel/contract.ts` 里 `EditorFoldRule` 的说明。）
+ * · 平时隐身、鼠标移进这一行才浮出；**已折叠的行常驻** —— 状态差异就由"显不显示"承担
+ *   （用户原话：「本身就是区分」），所以**没有任何符号**（不做 ＋ / −）。
+ * · **点击不在这里管**：`index.js` 在编辑器上做事件委托，命中圆点即切换折叠。
+ * · 触屏没有 hover ⇒ 常显，否则手机上根本折叠不了。
+ *
+ * 尺寸用 CSS 变量 `--zn-fold-size`（默认 17px ≈ 一个中文字符）：想调圆托大小只改这一处。
+ */
+
+.zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet {
+  /* 圆托的定位参照 = 圆点自己 */
+  position: relative;
+}
+
+/**
+ * ⚠️ **试过 `text-box-trim`，弃用**（2026-10-14 实测）：它本是"让盒＝字形墨迹"的标准机制
+ * （`text-box-edge: text`，Chromium 133+），但套在圆点上会把**行高从 29.9px 撑到 34.9px**
+ * （"•" 这类标点被当作整行来削）⇒ 列表行高会跟正文不一致。收益 2px、代价 5px，不值。
+ * 所以改用下面那行 `top: calc(50% + 0.1em)` 的度量补偿 —— 数值来自像素实测，且随字号缩放。
+ */
+
+.zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet::before {
+  content: '';
+  position: absolute;
+  /* 同心：`left/top: 50%` 落在圆点盒中心，再用半个尺寸的负 margin 把圆心顶过去。
+     `+ 0.1em` 是**垂直的度量补偿**：`50%` 对的是**盒**中心，而圆点墨迹在盒里偏下
+     2.5px（字体 ascent/descent 空白所致，像素实测 @17px 字号）。
+     em 在伪元素上 = bullet 自身字号（24.65px）⇒ 换字号时同步缩放。 */
+  left: 50%;
+  top: calc(50% + 0.1em);
+  width: var(--zn-fold-size, 17px);
+  height: var(--zn-fold-size, 17px);
+  margin: calc(var(--zn-fold-size, 17px) / -2) 0 0 calc(var(--zn-fold-size, 17px) / -2);
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.16);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  /* 点击落在圆点本身（由插件的事件委托处理），伪元素不参与命中测试 */
+  pointer-events: none;
+}
+
+/* 鼠标移进这一行 ⇒ 浮出；已折叠的行不管鼠标在不在都显示 */
+.zn-editor .cm-line.zn-ol-foldable:hover .cm-atomic-bullet::before,
+.zn-editor .cm-line.zn-ol-folded .cm-atomic-bullet::before {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet::before {
+    opacity: 1;
+  }
+}

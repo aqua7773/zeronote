@@ -1252,10 +1252,25 @@ export default {
     subscriptions.push(
       editor.addLineClass({
         id: 'outline-lines',
-        classAt: ({ doc, line }) => {
+        classAt: ({ doc, line, text }) => {
           const d = depthByLineOf(doc).get(line)
+          if (!d) return null
           // 封顶 6 级：样式表只画到 d6（再深的层级共用 d6 的线，视觉上够用）
-          return d ? `zn-ol-d${Math.min(d, 6)}` : null
+          const cls = [`zn-ol-d${Math.min(d, 6)}`]
+          /**
+           * **折叠圆点的外观与可点性都挂在行 class 上**（2026-10-14 改）。
+           *
+           * 圆托由本插件自己的样式表（`outline.css`）画在**圆点自己的伪元素**上
+           * ⇒ 与圆点同一个盒子，**同心是定义上的**（内核不再画独立按钮，也就没有像素题）。
+           * 点击由本插件的事件委托接（见下方 `onFoldClick`）。
+           *
+           * `zn-ol-foldable` = 这一行有子项（能折）；`zn-ol-folded` = 当前已折叠（圆托常驻）。
+           */
+          if (foldEndsOfDoc(doc).has(line)) {
+            cls.push('zn-ol-foldable')
+            if (foldSetOf(cache.path).includes(foldSig(text))) cls.push('zn-ol-folded')
+          }
+          return cls.join(' ')
         },
       }),
     )
@@ -1335,35 +1350,60 @@ export default {
     subscriptions.push(
       editor.addFold({
         id: 'outline-fold',
-        title: '折叠 / 展开这一组',
         foldEndAt: ({ doc: d, line }) => {
           const end = foldEndsOfDoc(d).get(line)
           return end === undefined ? null : end
         },
         isFolded: ({ text }) => foldSetOf(cache.path).includes(foldSig(text)),
-        onToggle: ({ text, folded }) => {
-          if (!cache.path) return
-          /**
-           * 诊断出口（CDP 验收用）：**谁、什么时候**触发的切换。
-           * 2026-10-14 实测遇到"没人点圆点，折叠记录却多了一条"——
-           * 只有把调用栈摊开才分得清是"合成点击贯通"还是"内核重复回调"。
-           */
-          ;(window.__omFoldLog ??= []).push({
-            text,
-            folded,
-            path: cache.path,
-            at: Date.now(),
-            stack: String(new Error().stack || '').split('\n').slice(1, 5).join(' | '),
-          })
-          const sig = foldSig(text)
-          const set = foldSetOf(cache.path)
-          const i = set.indexOf(sig)
-          if (folded && i < 0) set.push(sig)
-          else if (!folded && i >= 0) set.splice(i, 1)
-          foldSaveSoon()
-        },
       }),
     )
+
+    /**
+     * **点圆点 = 折叠 / 展开**（事件委托，2026-10-14 改）。
+     *
+     * 为什么用委托、不直接给圆点绑监听：圆点是**库渲染的**（`.cm-atomic-bullet`），
+     * 每次重排 / 换笔记都会重建 ⇒ 绑上去的监听会跟着丢；委托在文档级挂一次就够。
+     *
+     * 两个判据：① 命中的元素在圆点里；② 它所在行带 `zn-ol-foldable`（＝有子项、能折）。
+     * **行号问内核**（`editor.lineAtElement`）—— DOM 子元素索引 ≠ 行号
+     * （折叠时被隐藏的行根本不渲染，索引会整体错位），只有内核手上有 EditorView。
+     */
+    const toggleFoldAt = (line) => {
+      const path = cache.path
+      if (!path || line === null) return
+      // 签名要用**源码那行**（`- 大纲`），不能拿渲染后的 textContent（那里是 `•大纲`）
+      const src = String(cache.content).split(/\r?\n/)[line] ?? ''
+      const sig = foldSig(src)
+      if (!sig) return
+      const set = foldSetOf(path)
+      const i = set.indexOf(sig)
+      if (i >= 0) set.splice(i, 1) // 已折叠 ⇒ 展开
+      else set.push(sig) // 未折叠 ⇒ 折叠
+      /** 诊断出口（CDP 验收用）：谁、什么时候触发的切换 */
+      ;(window.__omFoldLog ??= []).push({
+        text: src,
+        folded: i < 0,
+        path,
+        at: Date.now(),
+        stack: String(new Error().stack || '').split('\n').slice(1, 4).join(' | '),
+      })
+      foldSaveSoon()
+      // 让内核按新状态重画：既藏/显子行，也重算行 class（`zn-ol-folded` 控制圆托常驻）
+      editor.refresh()
+    }
+
+    const onFoldClick = (e) => {
+      const t = e.target
+      if (!(t instanceof Element)) return
+      if (!t.closest('.cm-atomic-bullet')) return
+      const lineEl = t.closest('.cm-line')
+      if (!lineEl || !lineEl.classList.contains('zn-ol-foldable')) return
+      toggleFoldAt(editor.lineAtElement(lineEl))
+    }
+    document.addEventListener('click', onFoldClick)
+    subscriptions.push({
+      dispose: () => document.removeEventListener('click', onFoldClick),
+    })
 
     /**
      * 把第 `bi` 组开成独立导图窗口 —— 两个入口共用：
