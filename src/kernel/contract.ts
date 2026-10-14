@@ -724,12 +724,19 @@ export type EditorFoldRule = {
    */
   initialFolded?: (ctx: { doc: string; line: number; text: string }) => boolean
   /**
-   * 折叠态**变了**时通知插件（内核主动切换后调用）。
+   * **折叠集合变了**时通知插件 —— 把"当前哪些行折着"**整份**交给它（**对账式**，不是逐行加减）。
    *
-   * 插件据此更新自己的持久化记录 —— 注意 `folded` 是**切换后**的状态，
-   * 而 `line` 是 0 起行号（与 `foldEndAt` 同一口径）。
+   * 为什么不是逐行的 `onToggle(line, folded)`（rev81 第一版正是那样，实测有漏洞）：
+   * 折叠可以**嵌套**，而展开祖先时子孙的折叠会**一起消失**（官方一次 unfold 就全撤了）
+   * ⇒ 逐行通知只为祖先调一次，**子孙的签名留在记录里**；下次打开笔记 `initialFolded`
+   * 又照这些残留把它们折起来 —— 用户看到的是"我明明展开过，重开又折上了"
+   * （本地测试库上实测残留 2 项）。对账式没有这种漂移：内核把**真实**折叠集合
+   * （`foldedLines`，0 起行号、升序）交给你，你整份重写即可。
+   *
+   * ⚠️ 它不只在你调 `toggleFold` 后触发：**用户用官方折叠键位折的**同样会对账
+   * （内核比较两份 `foldedRanges` 的引用，任何来源的折叠变化都算）。
    */
-  onToggle?: (ctx: { doc: string; line: number; text: string; folded: boolean }) => void
+  onFoldChange?: (ctx: { doc: string; foldedLines: number[] }) => void
 }
 
 /**

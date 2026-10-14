@@ -89,6 +89,29 @@ function foldStat(kind: string, data: Record<string, unknown>): void {
 const liveViews = new Set<EditorView>()
 
 /**
+ * **规则集合的版本号**（rev81b）—— 解决"插件比编辑器晚就绪"这件事。
+ *
+ * 内置（`atomic-editor`）在**编辑器挂载时捕获一次**扩展数组，而插件是**异步** blob import，
+ * 常常晚于"自动恢复的那篇笔记" ⇒ 那一次 `buildDecorations` 跑在"规则表还空着"的时候，
+ * 结果是**行首按钮 / 行 class 全都没有**，要等用户手动切一次笔记（切笔记会重建 view）才回来。
+ * 症状与"「❖」有时不显示"完全一致 —— 2026-10-14 在 dev **整页重载**后稳定复现。
+ *
+ * 修法：规则增删时把版本号 +1 并**戳一下**活着的编辑器（一个空 transaction），
+ * ViewPlugin 发现版本变了就重扫 ⇒ 插件什么时候注册完，界面什么时候补上。
+ */
+let entriesVersion = 0
+function pokeEditors(): void {
+  entriesVersion += 1
+  for (const v of [...liveViews]) {
+    try {
+      v.dispatch({})
+    } catch {
+      /* 正在销毁的 view 不能再 dispatch */
+    }
+  }
+}
+
+/**
  * ⚠️ **内核不再画折叠按钮**（2026-10-14 定案）。
  *
  * 原先这里是一个 `FoldDotWidget`（`<button class="zn-fold-dot">`）—— 它是**独立元素**，
@@ -172,12 +195,14 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
       const fullId = fullIdOf(pluginId, rule.id)
       entries.set(fullId, { fullId, pluginId, rule })
       cachedExtensions = null
+      pokeEditors()
       return {
         dispose: () => {
           // 只有"登记的还是自己"才删 —— 免得旧实例的 dispose 干掉新同名规则
           if (entries.get(fullId)?.pluginId === pluginId) {
             entries.delete(fullId)
             cachedExtensions = null
+            pokeEditors()
           }
         },
       }
@@ -186,11 +211,13 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
       const fullId = fullIdOf(pluginId, rule.id)
       lineEntries.set(fullId, { fullId, pluginId, rule })
       cachedExtensions = null
+      pokeEditors()
       return {
         dispose: () => {
           if (lineEntries.get(fullId)?.pluginId === pluginId) {
             lineEntries.delete(fullId)
             cachedExtensions = null
+            pokeEditors()
           }
         },
       }
@@ -199,11 +226,13 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
       const fullId = fullIdOf(pluginId, rule.id)
       lineClassEntries.set(fullId, { fullId, pluginId, rule })
       cachedExtensions = null
+      pokeEditors()
       return {
         dispose: () => {
           if (lineClassEntries.get(fullId)?.pluginId === pluginId) {
             lineClassEntries.delete(fullId)
             cachedExtensions = null
+            pokeEditors()
           }
         },
       }
@@ -212,11 +241,13 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
       const fullId = fullIdOf(pluginId, rule.id)
       foldEntries.set(fullId, { fullId, pluginId, rule })
       cachedExtensions = null
+      pokeEditors()
       return {
         dispose: () => {
           if (foldEntries.get(fullId)?.pluginId === pluginId) {
             foldEntries.delete(fullId)
             cachedExtensions = null
+            pokeEditors()
           }
         },
       }
@@ -241,7 +272,7 @@ export function createScopedEditorApi(pluginId: string): EditorApi {
           continue
         }
         foldStat('toggle', { line, folded: !now, len: range.to - range.from })
-        notifyFoldToggle(v, line, !now)
+        notifyFoldChange(v)
       }
       return any
     },
@@ -306,7 +337,10 @@ export function releaseEditorMarks(pluginId: string): void {
     foldEntries.delete(k)
     changed = true
   }
-  if (changed) cachedExtensions = null
+  if (changed) {
+    cachedExtensions = null
+    pokeEditors()
+  }
 }
 
 /** 内核审计出口用：当前全部登记规则（含归属插件） */
@@ -321,6 +355,15 @@ export function editorMarkEntries(): { id: string; pluginId: string }[] {
  * `indexOf`/正则都是原生实现，几 KB 文本全扫是微秒级；上倒排/增量反而是过早优化。
  */
 function buildDecorations(view: EditorView): DecorationSet {
+  // 四个扩展常驻（见 `editorMarkExtensions` 的注释）⇒ 没有任何规则时这里必须**立刻返回**，
+  // 别白跑一次 `doc.toString()`
+  if (
+    entries.size === 0 &&
+    lineEntries.size === 0 &&
+    lineClassEntries.size === 0 &&
+    foldEntries.size === 0
+  )
+    return Decoration.none
   const doc = view.state.doc
   const text = doc.toString()
   const found: { from: number; to: number; deco: Decoration }[] = []
@@ -559,15 +602,20 @@ function foldedLineSet(state: EditorState): Set<number> {
   return out
 }
 
-/** 折叠态变了 ⇒ 通知登记了规则的插件（写盘 / 更新它自己的记录） */
-function notifyFoldToggle(view: EditorView, line0: number, folded: boolean): void {
+/**
+ * **折叠集合变了 ⇒ 把整份折叠集合交给插件**（对账式；契约里 `onFoldChange` 有为什么）。
+ *
+ * 逐行通知在"嵌套折叠、展开祖先"时会留下子孙的残留签名（实测踩过：本地库上残留 2 项，
+ * 下次打开又照着它们折起来）—— 对账式没有这种漂移。
+ */
+function notifyFoldChange(view: EditorView): void {
   if (foldEntries.size === 0) return
   const doc = view.state.doc
-  if (line0 < 0 || line0 >= doc.lines) return
-  const ctx = { doc: foldTextOf(doc), line: line0, text: doc.line(line0 + 1).text, folded }
+  const foldedLines = [...foldedLineSet(view.state)].sort((a, b) => a - b)
+  const ctx = { doc: foldTextOf(doc), foldedLines }
   for (const { rule } of foldEntries.values()) {
     try {
-      rule.onToggle?.(ctx)
+      rule.onFoldChange?.(ctx)
     } catch (e) {
       console.warn(`[editor] 折叠回调出错：${String(e)}`)
     }
@@ -626,6 +674,8 @@ const markPlugin = ViewPlugin.fromClass(
   class {
     readonly view: EditorView
     decorations: DecorationSet
+    /** 上次重扫时的**规则版本** —— 用来发现"插件在我挂载之后才注册"（见 `pokeEditors`） */
+    seenVersion = entriesVersion
     constructor(view: EditorView) {
       this.view = view
       liveViews.add(view) // 折叠的 toggle / restore 靠这张表找到"活着的编辑器"
@@ -642,15 +692,25 @@ const markPlugin = ViewPlugin.fromClass(
     }
     update(u: ViewUpdate) {
       /**
-       * 文档 / 视口 / **折叠态**变了都要重扫。
-       * 行 class 里的 `zn-ol-folded` 现在读的是 CM6 的折叠状态（`foldedRanges`），
-       * 而官方折叠只发 effect、**不改文档** ⇒ 漏掉这一条就会"折了但圆托不常驻"。
+       * 折叠态变了 ⇒ 重扫装饰（行 class 的 `zn-ol-folded` 依赖它），并**对账**给插件。
+       *
+       * 判据用**两份 `foldedRanges` 的引用**：官方只在 fold / unfold effect 到来时重建它 ——
+       * 这样连"用户用官方键位（`Ctrl-Alt-[`）折的"也会被对账到（那条路不经过 `toggleFold`）。
+       * `foldEntries` 为空时压根没装 `codeFolding` —— 不能去读那个 field（会抛）。
        */
-      const foldChanged = u.transactions.some((tr) =>
-        tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect)),
-      )
-      if (foldChanged) foldStat('fold-changed', { lines: u.state.doc.lines })
-      if (u.docChanged || u.viewportChanged || foldChanged) {
+      const foldChanged =
+        foldEntries.size > 0 && foldedRanges(u.state) !== foldedRanges(u.startState)
+      if (foldChanged) {
+        foldStat('fold-changed', { lines: u.state.doc.lines })
+        notifyFoldChange(u.view)
+      }
+      /**
+       * **规则表在挂载之后变过**（插件晚加载 / 卸载插件）⇒ 也必须重扫，
+       * 否则那一次空表扫出来的"没有按钮"会一直挂到用户手动切笔记（见 `pokeEditors`）。
+       */
+      const rulesChanged = this.seenVersion !== entriesVersion
+      if (rulesChanged) this.seenVersion = entriesVersion
+      if (u.docChanged || u.viewportChanged || foldChanged || rulesChanged) {
         this.decorations = buildDecorations(u.view)
       }
     }
@@ -665,13 +725,18 @@ const markPlugin = ViewPlugin.fromClass(
 export function editorMarkExtensions(
   onAction: (commandId: string, payload?: Record<string, unknown>) => void,
 ): Extension[] {
-  if (
-    entries.size === 0 &&
-    lineEntries.size === 0 &&
-    lineClassEntries.size === 0 &&
-    foldEntries.size === 0
-  )
-    return []
+  /**
+   * ⚠️ **不再"没有规则就返回空数组"**（rev81b）。
+   *
+   * 为什么非改不可：内置（`atomic-editor`）在**编辑器挂载时捕获一次**扩展数组，
+   * 而插件是**异步** blob import —— 若那次调用发生在插件注册**之前**，返回的空数组会被永久用掉：
+   * 之后插件再注册也没用，这几个扩展（widget 装饰、折叠）**永远不在**这个编辑器里。
+   * 症状就是"行首按钮 / 行 class / 折叠全不出现"，手动切一次笔记（重建 view）才回来 ——
+   * 2026-10-14 在 dev 整页重载后稳定复现（也正是"「❖」有时不显示"的真身）。
+   * `pokeEditors()` 只能让**已在扩展里**的插件重扫，救不了这种"扩展压根没装"的情况。
+   *
+   * 所以这四个扩展**常驻**：规则表为空时它们什么都不画（`buildDecorations` 开头就早退）。
+   */
   if (cachedExtensions) return cachedExtensions
 
   const clickHandler = EditorView.domEventHandlers({

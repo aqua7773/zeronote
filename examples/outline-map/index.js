@@ -1403,15 +1403,12 @@ export default {
     })
 
     /**
-     * 诊断出口（CDP 验收用）：谁、什么时候触发的切换。
-     * rev81 起触发点在**内核**（它 dispatch 官方的 foldEffect / unfoldEffect），
-     * 这里记的是插件侧收到的 `onToggle` 通知 —— 两边都有账，对不上就说明桥断了。
+     * 诊断出口（CDP 验收用）：**折叠集合每次变化**的快照。
+     * rev81 起触发点在**内核**（它 dispatch 官方 effect、再对账），这里记的是它送过来的那份集合。
      */
-    const foldLog = (line, folded) => {
-      const src = String(cache.content).split(/\r?\n/)[line] ?? ''
+    const foldLog = (foldedLines) => {
       ;(window.__omFoldLog ??= []).push({
-        text: src,
-        folded,
+        foldedLines: [...foldedLines],
         path: cache.path,
         at: Date.now(),
         stack: String(new Error().stack || '').split('\n').slice(1, 4).join(' | '),
@@ -1434,19 +1431,19 @@ export default {
          */
         initialFolded: ({ doc: d, line }) => foldSetOf(cache.path).includes(foldAnchor(d, line)),
         /**
-         * 折叠态**变了**（内核切换后通知）⇒ 更新插件这份**持久化记录**并写盘。
-         * 视图不用管：子行显隐与行 class 都由内核按官方状态重算。
+         * **对账**：内核把"当前真实折着的行"（0 起、升序）**整份**送过来 ⇒ 整份重写记录。
+         *
+         * 为什么不是逐行加减（rev81 第一版那样，实测有漏洞）：折叠可以嵌套，
+         * 而展开祖先时子孙的折叠**一起消失** ⇒ 逐行通知收不到那几条，
+         * 记录里就留下"其实已经展开"的签名，下次打开又照着它们折起来
+         * （用户看到的是"我明明展开过，重开又折上了"）。
          */
-        onToggle: ({ line, folded }) => {
+        onFoldChange: ({ doc: d, foldedLines }) => {
           const path = cache.path
           if (!path) return
-          const anchor = foldAnchor(cache.content, line)
-          if (!anchor) return
-          const set = foldSetOf(path)
-          const i = set.indexOf(anchor)
-          if (folded && i < 0) set.push(anchor)
-          else if (!folded && i >= 0) set.splice(i, 1)
-          foldLog(line, folded)
+          if (!foldAll) foldAll = {}
+          foldAll[path] = foldedLines.map((line) => foldAnchor(d, line)).filter((a) => !!a)
+          foldLog(foldedLines)
           foldSaveSoon()
         },
       }),
