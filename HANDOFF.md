@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 79
-更新时间: 2026-10-14（rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`；rev77 导图按钮判据/对齐/中心主题；rev76 修打开方式两个 bug ＋ 重出 release 包）
+revision: 80
+更新时间: 2026-10-14（rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,54 @@ revision: 79
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev80（2026-10-14 · 大纲**折叠 / 展开** —— 内核新增 `editor.addFold`）
+>
+> **用户需求**：「做展开」＝ rev78 遗留的 ③（方案上一轮已定：状态**要记**、存库内 `.zn/`、锚点用行签名）。
+>
+> | # | 落点 | 做了什么 |
+> |---|---|---|
+> | ① | `src/kernel/contract.ts` | 新类型 `EditorFoldRule`（`foldEndAt` / `isFolded` / `onToggle`）＋ `EditorApi.addFold` / `refresh`；capability `editor:fold` |
+> | ② | `src/kernel/editor-marks.ts` | 折叠圆点 widget（`FoldDotWidget`）＋ **块替换走 StateField**（`foldBlockField`）＋ 点击切换 ＋ `refresh()`（朝所有活着的编辑器 dispatch 一个自定义 effect） |
+> | ③ | `src/styles.css` | `.zn-fold-dot`：**行盒内、按 `zn-ol-dN` 缩进层级定位**（与导图按钮的 gutter 分开），复用 `--zn-ol-step` |
+> | ④ | `examples/outline-map/` | 纯函数 `outlineFoldEnds`（折点 → 子项末行）＋ 折叠状态按**行文本签名**存 `.zn/outline-folded.json`（**不写进笔记文件**） |
+>
+> **关键取舍：状态放插件、不放内核。** 内核现有架构拿不到 `EditorView`（`createKernel(vault, doc, hooks)`
+> 里没有它），而折叠是**有状态**的交互。所以内核只做四件事："问范围（`foldEndAt`）→ 问状态（`isFolded`）
+> → 点击回调（`onToggle`）→ 重画"；状态与持久化归插件，插件改完状态调一次 `refresh()` 就同步过来。
+> 这样内核不必引入"折叠集合 StateField + 位置映射"，插件侧换笔记也只是换个 key。
+>
+> ### 🔑 本轮两个坑（都花了轮次，别再踩）
+> 1. **CM6：块级装饰不能由 ViewPlugin 提供。** 把 `Decoration.replace({ block: true })` 放进 ViewPlugin 的
+>    `decorations` 里，运行期直接抛 `RangeError: Block decorations may not be specified via plugins`。
+>    症状极隐蔽 —— **圆点已经变成 ▸、折叠记录也写对了，但子行一行都没藏起来**（抛错发生在 dispatch 的
+>    同步处理里，被调用处的 try 吞掉，看起来就像"状态没生效"）。⇒ 拆两半：**圆点 widget 留在 ViewPlugin，
+>    块替换放 StateField**（`@codemirror/language` 的 code folding 也是这个写法）。
+>    另：块替换区间要**从第一子行行首**开始（`doc.line(n+1).from`），从"父行末尾/换行符"算起不生效。
+> 2. **`isFolded` 是同步回调，而笔记路径是异步来的。** 只靠 `reload()`（await 读盘）设 `cache.path`，
+>    中间那一帧 path 还是**上一篇**的 ⇒ 折叠判定查错集合（症状：切回笔记折叠全没 / 折错行）。
+>    修法：`doc.on('open')` 里**同步**先把 path 落进 cache（内容仍留旧值，等 reload 覆盖）。
+>
+> **验收（CDP 实测读数，不是目测）**
+> - **折叠**：点第 8 行「大纲」的圆点 ⇒ 子行 9/10/11 隐藏、圆点 ▾ → ▸、行 12 那组（无子项）不受影响；
+>   `__omFolds().folded = ["- 大纲"]`；`__znFoldStats` 无错误项。
+> - **展开**：再点一次 ⇒ 全部恢复、记录清空、圆点回 ▾。
+> - **持久化**：`.zn/outline-folded.json` = `{ "<笔记相对路径>": ["- 大纲"] }`（mtime 与操作同步）；
+>   **刷新页面**（内存状态清零）＋重挂编辑器 ⇒ 折叠**原样恢复**。
+> - **离线自测**：`node examples/outline-map/selftest-buttons.mjs` → **26/26**（新增 5 条折叠范围用例）。
+> - **基线**：`tsc -b` **0** · `oxlint src` **恰好 4** · `cargo test --lib` **21 passed**。
+> - 截图：`_shots/fold-03-folded.png`（折叠态）· `_shots/fold-02-expanded.png`（展开态）。
+>
+> **三个诊断出口**（查折叠先读它们，别靠截图猜）：`window.__omFolds()`（折点表 / 当前笔记的折叠签名 /
+> 是否已读盘）· `window.__znFoldStats`（内核侧：`toggle` / `toggle-err` / `rebuild-forced`）·
+> `window.__omFoldLog`（插件侧：谁触发的切换 + 调用栈）。
+>
+> ⚠️ **未验 / 待定（如实记）**
+> - 本轮**动了内核** ⇒ 手机端要用上必须**重出 APK**（用户未要求出包）。
+> - **折叠区里的光标**未做特殊处理：光标若落在被隐藏的行上（如折叠后从别处跳过去）行为**未测**。
+> - 折叠记录**不做自动清理**：签名匹配不上就当"未折叠"（宁可展开、不折错行），失效签名会留在文件里
+>   （体积可忽略；将来可加"读回时顺手剔除"）。
+> - **提交**：`a292646`（6 文件 / +585 −11）。
 
 > ## 📌 rev79（2026-10-14 · 大纲缩进/竖线第五轮 —— 全部按「一个中文字符」＋ 圆点居中）
 >
