@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 84
-更新时间: 2026-10-15（rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）＋ 一个"同 URL 加查询串就好了"的怪案；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条，插件自绘顶栏不再被压（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅，并用 AOSP 源码核实 rev81 那条「无权限时不报错也不列出」；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 85
+更新时间: 2026-10-15（rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,78 @@ revision: 84
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev85（2026-10-15 · 导入导出插件：**选型调研定案** ＋ **批 1（md/txt 导入）落地验收**）
+>
+> **用户需求**（原话）：「下一步写导入导出的插件，支持 md 文件导入，和其他文件导入为 md，
+> 或者 md 导出为其他文件」＋「导出为长图片」＋「落点每次让我选目录」。
+>
+> ### 一、选型调研（**先查现成再动手**；结论：没有可行的一把梭）
+>
+> **pandoc-wasm 排除**（同名两个项目都查了）：
+> · 官方 [pandoc/pandoc-wasm](https://github.com/pandoc/pandoc-wasm) npm **v1.1.0**：
+>   `unpackedSize = 58,617,582 B ≈ 55.9 MiB`、许可 **GPL-2.0-or-later**、
+>   浏览器能跑（`@bjorn3/browser_wasi_shim`）、**不能产 PDF**（要 LaTeX 外部进程）
+> · [NathanHimpens/pandoc-wasm](https://github.com/NathanHimpens/pandoc-wasm)：**166 MB** wasm ＋
+>   必须 `wasmtime` 跑 ＋ 自称 experimental
+> ⇒ **体积 ＋ GPL 传染**两条硬伤，**不进默认包**。
+>
+> **逐方向的现成方案**（版本/许可/体积都核过；raw / gzip）：
+>
+> | 方向 | 方案 | 许可 | 体积 | 集成 |
+> |---|---|---|---|---|
+> | txt→md | 自写（`TextDecoder` + GBK 回退） | — | 0 | 插件内 ~40 行 |
+> | html→md | [turndown](https://unpkg.com/turndown@7.2.4/README.md) 7.2.4 ＋ turndown-plugin-gfm 1.0.2 | MIT | 27 KB / 8.9 KB | UMD 直放 vendor |
+> | pdf→md | **复用已内置 pdf.js 6.4.299** ＋ 自写抽取器 | Apache-2.0 | 0 新增 | 已有 |
+> | epub→md | **复用已内置 foliate-js 1.0.1** | MIT | 0 新增 | 已有 |
+> | docx→md | [mammoth](https://www.npmjs.com/package/mammoth) 1.13.0（有 `convertToMarkdown`） | BSD-2 | 405 KB / 102 KB | browser UMD |
+> | md→html | [marked](https://www.npmjs.com/package/marked) 18.1.1（gfm 默认开） | MIT | 47 KB / 14 KB | ESM |
+> | md→docx | [docx](https://www.npmjs.com/package/docx) 9.11.0 ＋ 自写 ~150 行映射 | MIT | 1.36 MB / 286 KB | IIFE |
+> | md→长图 | [modern-screenshot](https://www.npmjs.com/package/modern-screenshot) 4.7.0 | MIT | 55 KB / 14 KB | ESM |
+> | md→pdf | **`window.print()`**（仅桌面） | — | 0 | 自绘打印页 |
+>
+> **三条关键坑**（一手来源）：
+> 1. **Android 上 `window.print()` 无反应**（Tauri [#11933](https://github.com/tauri-apps/tauri/issues/11933) **open**）
+>    ⇒ PDF 导出只在桌面提供，Android 给 HTML / 长图。
+> 2. **jsPDF / pdf-lib 都不合格**：jsPDF 中文要嵌**整**字体（Noto Sans SC 变量 TTF = **17.7 MB**，
+>    `addFont` 无 subset 参数）；pdf-lib 的 CJK 子集化有**未修 bug**（[#1232](https://github.com/Hopding/pdf-lib/issues/1232) open）。
+> 3. **Obsidian Importer 的依赖就是 turndown ＋ turndown-plugin-gfm**
+>    （[package.json](https://raw.githubusercontent.com/obsidianmd/obsidian-importer/master/package.json)）
+>    —— 生态标准做法，不是我们拍的；另注：**Obsidian Importer 自己也不支持 docx/pdf/epub 导入**。
+>
+> ### 二、批 1 已落地并真机验收（**md / txt 导入**）
+>
+> 插件 `examples/import-export/`（命令 `io.importFile` ＋ 侧栏面板）。三个内核配套：
+>
+> · **`host.pickFile()`** —— 弹系统选择器（Android 一律不传 filters，见 `553ebbb`）
+> · **`host.readContentUri(uri)`** —— SAF `content://` → 原生插件复制到缓存 → `{path,name}`；
+>   桌面原样返回。**为什么必须宿主转发**：插件是 **Blob 模块**，`import` 不到 `@tauri-apps/api`，
+>   自己拿不到 `invoke`。
+> · **`window.__znExec(id, payload)`** —— 带 payload 执行命令。**没有它，端到端验收会断在这里**：
+>   命令面板不带参数、UINode 按钮的 payload 写死，而原生文件对话框没法脚本化点选。
+>   ⇒ 以后"必须传参的命令"都靠它自动验收。
+> · 顺带：`host.saveFile` 补了 **Android 分支**（`save()` 返回 `content://` → 交给 `uri-reader` 的
+>   `write_content_uri`；⚠️ **该命令还没落地** ⇒ 导出功能要等它，且**要重建 Android**）；
+>   `toBase64` 改**分块**（原实现 `String.fromCharCode(...arr)` 几百 KB 就爆栈，导出长图正好会踩）。
+>
+> **验收读数**（真机 `33b676f6`，CDP ＋ logcat）：
+> · 绝对路径：`R=untitled-20261014-232959-1.md`（2237 B 落库，撞名加 `-1`）
+> · content://（MediaStore `id=1000045191`）：`[io] 源 = /data/user/0/…/cache/zn-open/untitled-20261012-000854.md`
+>   → `R=…-1.md`
+> · 格式门：传 pdf 的 URI ⇒ 如实报「批 1 只支持 md / txt，拿到的是「pdf-100kb.pdf」」
+> · 验证用的两个副本已删（库回到 10 个 md）· 基线 `tsc -b` 0 / `oxlint src` 4
+>
+> **⚠️ 顺带查清一个"假故障"**：手工构造的 `content://com.android.externalstorage.documents/…`
+> **读不了是正常的** —— 那条 URI 没经过系统授予，应用没有它的权限（`readContentUri` 被
+> `ContentResolver` 拒）。真实场景（文件管理器/系统选择器递来的）**带授权** ✅；
+> 要自动化就用 **MediaStore 的 `content://media/external/file/<id>`**（应用可读）。
+>
+> ### 三、下一步
+>
+> · **P0**：html→md（turndown）、md→html（marked）、docx→md（mammoth）、md→docx（docx）
+> · **P0 前置**：给 `uri-reader` 补 **`write_content_uri`**（导出落点用；**要重建 Android**）
+> · **P1**：pdf→md（pdf.js 抽文本，扫描件明确提示）、epub→md（foliate）、md→长图、桌面打印成 PDF
+> · 落点：桌面 `dialog.save()`；Android `ACTION_CREATE_DOCUMENT`（内核 `saveFile` 分支已接好）
 
 > ## 📌 rev84（2026-10-15 · 文档阅读器**按原始尺寸**看 PDF ＋ 一个「同 URL 加查询串就好了」的怪案）
 >
