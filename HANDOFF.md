@@ -2242,6 +2242,17 @@ revision: 80
 > - ⚠️ 顺手修了 `_build/README.md` 的一处**会直接导致构建失败**的缺漏：复现命令漏了
 >   `$env:CARGO_HOME=…\_cargo-home`（不带它构建必失败，rev63 踩过但 README 没记）
 >
+> 📱 **adb 那台（`33b676f6` / 24069RA21C，Android 16）已同步到 rev80（同日 22:26）**：
+> - 它装的是 **debug 版**（`com.aqua.zeronote.debug`）⇒ 更新它必须出 **debug 包**
+>   （release 包名 `com.aqua.zeronote` + release 签名，装上去只会**并存一个新包**，不是更新）：
+>   `pnpm tauri android build --apk --debug --target aarch64`（Rust dev 编译 **8.16s**；
+>   ⚠️ **debug APK 278 MB** —— universal 含全部 ABI 且未剥离符号，比 release 的 15.5 MB 大一个量级）
+> - `adb install -r` 覆盖成功 ⇒ `lastUpdateTime = 22:26:44`（原 rev76 是 00:23）
+> - ⚠️ **那台的库里原本只有 `doc-reader`、没有大纲插件** ⇒ 顺手 `adb push` 了 `outline-map`
+>   （8 文件）到 `<库>/.zn/plugins/` ⇒ 现在设备上也有折叠能力
+> - 另推了一篇示例 `outline-demo.md`（嵌套列表）供肉眼验收
+> - ⚠️ 手机交互要用 `adb shell input motionevent DOWN/UP`（`input tap` 无效，rev71 记过）
+>
 > - **提交**：`a292646`（6 文件 / +585 −11）。
 
 > ## 📌 rev79（2026-10-14 · 大纲缩进/竖线第五轮 —— 全部按「一个中文字符」＋ 圆点居中）
