@@ -12,6 +12,7 @@
 package app.tauri.urireader
 
 import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import app.tauri.annotation.Command
@@ -29,10 +30,37 @@ class ReadArgs {
 
 @TauriPlugin
 class UriReaderPlugin(private val activity: Activity) : Plugin(activity) {
+  /**
+   * ⚠️ **热启动的 VIEW intent 必须自己接**（2026-10-14 真机实测的根因）。
+   *
+   * Tauri 的 `TauriActivity.onNewIntent` **只**把 intent 交给 `PluginManager`（再分发给各插件），
+   * **没有**转给 tao 的 JNI ⇒ tao 的 `handle_intent` 不执行 ⇒ `RunEvent::Opened`
+   * 在"**应用已经在运行**时"根本不触发。原文只有两行（tauri-2.12.3
+   * `mobile/android-codegen/TauriActivity.kt`）：
+   * `super.onNewIntent(intent)` + `PluginManager.onNewIntent(intent)`。
+   *
+   * 症状：从文件管理器"打开方式"选 ZeroNote —— **冷启动正常**（启动 intent 走另一条路），
+   * **热启动什么都不发生**（应用切到前台、不打开文件、也没有任何提示）。
+   * 实测对照：`am force-stop` 后发同一个内容 URI ⇒ 有反应（能报权限错）；
+   * 应用在运行时发同一个 URI ⇒ 毫无反应。
+   *
+   * 修法：自己把 data URI 用**插件事件**推给前端（前端用
+   * `addPluginListener('uri-reader', 'open-uri', …)` 接），复用既有的 `openExternalFile`。
+   */
+  override fun onNewIntent(intent: Intent) {
+    android.util.Log.i("ZN-URI", "onNewIntent data=" + intent.data)
+    super.onNewIntent(intent)
+    val data = intent.data ?: return
+    val payload = JSObject()
+    payload.put("uri", data.toString())
+    trigger("open-uri", payload)
+  }
+
   @Command
   fun readContentUri(invoke: Invoke) {
     try {
       val args = invoke.parseArgs(ReadArgs::class.java)
+      android.util.Log.i("ZN-URI", "readContentUri uri=" + args.uri)
       val ctx = activity.applicationContext
       val uri = Uri.parse(args.uri)
 

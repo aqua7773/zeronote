@@ -1347,9 +1347,15 @@ export default function App() {
       const seen = recentOpenRef.current.get(path)
       if (seen !== undefined && now - seen < 3000) return
       recentOpenRef.current.set(path, now)
-      // 笔记与**只读文档**都认；其它类型静默忽略（与 Rust 侧同一口径，不弹错）
-      const isDoc = DOC_RE.test(path)
-      if (!MD_RE.test(path) && !isDoc) return
+      /**
+       * ⚠️ **content:// 必须在扩展名检查之前分流**（2026-10-14 真机实测到的 bug）。
+       *
+       * 内容 URI 里**通常没有扩展名**（`content://media/external/file/1000000123`），
+       * 拿它去过 `MD_RE` / `DOC_RE` 必然为 false ⇒ 文件在这一行被**静默丢掉**：
+       * 文件管理器点 PDF 选 ZeroNote，应用起来了、却什么都不打开。
+       * 类型判断只能挪到 `read_content_uri` 返回**副本文件名**之后（`SAF_READABLE_RE`）——
+       * 那时才是唯一知道"这是什么类型"的时刻。
+       */
       if (/^content:\/\//i.test(path)) {
         /**
          * Android SAF：系统「打开方式」递来的是**内容 URI**，`std::fs` 读不了它。
@@ -1377,6 +1383,9 @@ export default function App() {
         }
         return
       }
+      // 笔记与**只读文档**都认；其它类型静默忽略（与 Rust 侧同一口径，不弹错）
+      const isDoc = DOC_RE.test(path)
+      if (!MD_RE.test(path) && !isDoc) return
       const cur = vaultRef.current
       const rel = cur ? relPathIn(cur, path) : null
       if (rel) {
@@ -1414,6 +1423,46 @@ export default function App() {
   useEffect(() => {
     openExternalFileRef.current = openExternalFile
   }, [openExternalFile])
+
+  /**
+   * **Android 热启动的「打开方式」**（2026-10-14 修）。
+   *
+   * 背景：`RunEvent::Opened`（Rust 侧那条线）**只在冷启动**触发 —— Tauri 的
+   * `TauriActivity.onNewIntent` 只把 intent 交给插件管理器、**没转给 tao**（实测根因，
+   * 详见 `src-tauri/plugins/tauri-plugin-uri-reader/android/.../UriReaderPlugin.kt` 的注释）。
+   * 所以"应用已在运行时点文件管理器里的 PDF 选 ZeroNote"什么都不发生。
+   *
+   * 那条路我们自己走：插件在 `onNewIntent` 里推 `open-uri` 事件，这里接到就复用**同一套**
+   * `openExternalFile`（content:// → `read_content_uri` 复制到缓存 → 阅读器）。
+   */
+  useEffect(() => {
+    if (platform !== 'android') return
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void (async () => {
+      try {
+        const { addPluginListener } = await import('@tauri-apps/api/core')
+        const listener = await addPluginListener<{ uri?: string }>(
+          'uri-reader',
+          'open-uri',
+          (p) => {
+            if (p?.uri) void openExternalFileRef.current(p.uri)
+          },
+        )
+        if (disposed) void listener.unregister()
+        else {
+          unlisten = () => void listener.unregister()
+          console.log('[zn-uri] listener registered')
+        }
+      } catch (e) {
+        console.error('[zn-uri] listener failed', e)
+      }
+    })()
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [platform])
 
   /**
    * 待打开的文件：**等目标库就绪**再 `openNote`。

@@ -2243,8 +2243,42 @@ revision: 81
 >   统一用字符串数组 `join`；页面内 `async` 循环 + `awaitPromise` 在这个通道上会 `Runtime.evaluate 超时`
 >   ⇒ 展开循环放**宿主侧**逐个同步 evaluate。
 >
-> **提交**：
-> · `339418e`（Android 关闭窗口 ＋ `CARGO_HOME`：3 文件 / +108 −7 —— `src/App.tsx` · `android-dev.cmd` · 本文件）
+> ### 🔁 续 2（同日 · 「外部 PDF 打不开」—— 两处已修、一处待重建验证）
+>
+> 用户报：手机从文件管理器「打开方式」选 ZeroNote 开外部 PDF ⇒ ① 什么都不发生（热启动）；
+> ② 截图显示 toast **「没有能打开 .该 的插件 —— 到「插件管理」装一个文档阅读器」**，
+> 而插件页显示两个插件都已加载（用户原话「显示没有装插件，但是插件已经在运行了」）。
+>
+> **① 那句话的真根因：内核占位命令抢了 id（已修，桌面已验证）**
+> · 内核在 `App.tsx` 先注册**占位命令** `core.openDocument`（没插件时给友好提示）；
+>   插件的 `command.register()` 撞同 id 时**抛「命令 id 重复」**（`src/kernel/command.ts`）
+>   ⇒ doc-reader 的**接管被拒** —— 插件照打日志「已就绪（接管 core.openDocument）」、
+>   插件页也显示已启用（**这正是"插件已经在运行"的来源**），可执行时跑的是内核占位。
+> · `.该` 也印证：占位只读 `payload.path`，而外部文件走 `{abs, name}` ⇒ 取不到扩展名填了字面量。
+> · 修法：`register()` 改成与 `bind()` 同一套**接管可还原**语义（后来者覆盖、dispose 还原上一层）。
+> · **桌面验证读数**：点库内 `probe.pdf` ⇒ DOM 出现 `probe.pdf · 第 1 / 1 页 · 100% · − ＋ ‹ ›`
+>   （阅读器真的渲染），且 `没有能打开=false`。
+>
+> **② 热启动 intent 转发（代码已落地，真机通道未通）**
+> · 根因（一手证据，tauri-2.12.3 `mobile/android-codegen/TauriActivity.kt`）：
+>   `onNewIntent` **只**调 `PluginManager.onNewIntent(intent)`，**没转给 tao** ⇒ `RunEvent::Opened`
+>   热启动不触发（冷启动正常，已做对照实验）。
+> · 修法：`tauri-plugin-uri-reader` 的 Kotlin 侧重写 `onNewIntent` →
+>   `trigger("open-uri", …)`；`App.tsx` 用 `addPluginListener('uri-reader','open-uri', …)` 接住，
+>   复用同一套 `openExternalFile`。
+> · ⚠️ **真机实测通道没通**，logcat 原文（被截断）：
+>   `[zn-uri] listener failed uri-reader.registerListener not …`
+>   ⇒ **权限缺失**：`permissions/default.toml` 原只有 `allow-read-content-uri`，
+>   已补 `"allow-register-listener", "allow-remove-listener"`。
+>   ⚠️ 权限名待构建校验（名字不对时构建会明确报 unknown permission）；
+>   **permissions 是编译期嵌进二进制的**（rev50 记过）⇒ **必须重建 APK 才生效**。
+>
+> **③ 顺手修掉的真 bug**：前端在 `content://` 分支**之前**就做扩展名检查，而内容 URI 常常
+> 没有扩展名 ⇒ 外部文件被静默丢掉（已把 content 分支提前）。
+>
+> **下次接手第一件事**：重建 Android（`android-dev.cmd` 重启，判据见本文件技术事实）＋真机验证两条链路。
+> 判据：**应用已在运行时**从文件管理器点 PDF ⇒ ZeroNote 里出现阅读器，而不是那句 toast。
+> **提交**：本轮修复与本节一起提交（`git log -1`）。
 > · `08e3218`（折叠换成官方状态机：6 文件 / +402 −139 —— `package.json` · `pnpm-lock.yaml` ·
 >   `src/kernel/contract.ts` · `src/kernel/editor-marks.ts` · `examples/outline-map/index.js` · `examples/outline-map/outline.css`）
 > · `4066476`（折叠记录对账式 ＋ 扩展常驻：4 文件 / +290 −43，含新脚本 `tools/verify-outline-fold.mjs`）

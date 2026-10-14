@@ -94,10 +94,25 @@ export function createCommandApi(
   const api: CommandApi = {
     register(cmd: CommandSpec): Disposable {
       requireNamespace(cmd.id)
-      if (registry.has(cmd.id)) {
-        throw new Error(`命令 id 重复：${cmd.id}`)
+      /**
+       * ⚠️ **同 id 不再是"抛错"，而是"接管"**（rev81 修，真机实测的 bug）。
+       *
+       * 内核自己会先注册几条**占位命令**（典型：`core.openDocument` —— 没插件时给一句
+       * 「到「插件管理」装一个文档阅读器」的友好提示）。插件随后想接管同 id 时，
+       * 原来那句 `throw new Error('命令 id 重复')` 直接把它**拒之门外**：
+       * 插件日志照打「已就绪（接管 core.openDocument）」、插件页也显示已启用，
+       * 可**执行时跑的还是内核占位** ⇒ 打开外部 PDF 弹
+       * 「没有能打开 .该 的插件 —— 到「插件管理」装一个文档阅读器」
+       * （用户 2026-10-14 报的"显示没有装插件、但插件已经在运行"就是这个）。
+       *
+       * 现在与 `bind()` 用同一套**接管可还原**语义：后来者覆盖，`dispose` 时把上一层放回去
+       * （卸掉插件 ⇒ 恢复成内核占位，而不是把内核功能一起带走）。
+       * 覆盖时留一条 warn，便于诊断"谁接管了谁"。
+       */
+      const prev = registry.get(cmd.id)
+      if (prev) {
+        console.warn(`[command] ${cmd.id} 已被注册 —— 后来者接管（dispose 时还原上一条）`)
       }
-      // register 同时给元数据与实现（老写法）；pluginId 由 bind 的场景补
       registry.set(cmd.id, {
         id: cmd.id,
         title: cmd.title,
@@ -107,7 +122,11 @@ export function createCommandApi(
       })
       return {
         dispose: () => {
-          registry.delete(cmd.id)
+          // 只有"当前实现还是我自己"才动 —— 免得旧实例的 dispose 干掉新接管者
+          const cur = registry.get(cmd.id)
+          if (cur?.run !== cmd.run) return
+          if (prev) registry.set(cmd.id, prev)
+          else registry.delete(cmd.id)
         },
       }
     },

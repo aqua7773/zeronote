@@ -6,4 +6,4 @@ description = """ZeroNote URI 读取插件：允许前端把 Android 系统递�
 
 用途：从文件管理器「用 ZeroNote 打开」**其他目录**里的 md / pdf —— Rust 的 std::fs 读不了
 content://，只有 Android 的 ContentResolver 能，所以必须走这条原生通道。"""
-permissions = ["allow-read-content-uri"]
+permissions = ["allow-read-content-uri", "allow-register-listener", "allow-remove-listener"]
