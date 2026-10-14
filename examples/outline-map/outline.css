@@ -19,6 +19,8 @@
 .zn-editor .cm-line.zn-ol-foldable .cm-atomic-bullet {
   /* 圆托的定位参照 = 圆点自己 */
   position: relative;
+  /* "这个圆点能点"的提示（旧版由内核 CSS 给，外观搬到插件后漏了 ⇒ 补上） */
+  cursor: pointer;
 }
 
 /**
