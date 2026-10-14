@@ -248,6 +248,17 @@ function headingIsContainer(headings, line) {
 }
 
 /**
+ * 这组列表里**有没有嵌套**（任一节点带子项）。
+ *
+ * 用户 2026-10-14 第四次要求：「**单独一个大纲**不用竖线**也不视为导图**」——
+ * 落成判据就是这条：**单层平铺列表不算大纲**（不给「❖」入口）。
+ * 理由：单层列表开成导图只有一个节点，毫无意义；它也不需要层级引导线。
+ */
+function hasNested(nodes) {
+  return nodes.some((n) => n.children.length > 0)
+}
+
+/**
  * **入口表**：哪些行有「❖」按钮、各自开第几组（`parseBlocks` 的索引）。
  *
  * 三种入口行（按优先级）：
@@ -269,6 +280,7 @@ function mapButtonTargets(md) {
   const used = new Set()
   blocks.forEach((b, index) => {
     if (!b.nodes.length) return
+    if (!hasNested(b.nodes)) return // 单层平铺列表不算大纲（用户 2026-10-14 第四次要求）
     const isContainer = b.titleLine >= 0 && headingIsContainer(headings, b.titleLine)
     const line =
       b.titleLine === -1 || isContainer || used.has(b.titleLine) ? b.startLine : b.titleLine
