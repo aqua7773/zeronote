@@ -1338,6 +1338,30 @@ export default function App() {
    * 切库完成后再打开那个文件（见下面的「待打开」effect）。
    * 已经在当前库内的，直接开、不切库。
    */
+  /**
+   * **冷启动竞态：等文档插件接管 `core.openDocument` 再派发**（rev82，真机实测挖出来的）。
+   *
+   * 症状（真机读数）：应用**冷启动**时从文件管理器点 PDF —— `onNewIntent`/`opened_urls`
+   * 那条线在前端挂载后**立刻**执行（实测 `readContentUri` 在应用起来后 ~20ms 就跑完了），
+   * 而库内插件（doc-reader）是**异步 blob import**、更晚才 `bind('core.openDocument')`。
+   * 两者之间那个窗口里，命令表里还是**内核占位实现** ⇒ 请求被一句
+   * 「没有能打开 .该 的插件 —— 到「插件管理」装一个文档阅读器」吞掉
+   * （用户看到的正是"明明插件在跑却说没装"）。
+   *
+   * 判据用内核的 `implTag('core.openDocument')`：`'core'` = 还是占位/内核实现，
+   * `plugin:<id>` = 已被插件接管。热启动时第一次判断就通过（零开销）。
+   * 超时（8 秒）后**仍然派发** —— 那说明确实没有插件接管，该给用户的提示还得给。
+   */
+  const waitDocHandler = useCallback(async (timeoutMs = 8000) => {
+    const t0 = Date.now()
+    for (;;) {
+      const tag = kernel?.commands.implTag('core.openDocument')
+      if (tag && tag !== 'core') return true
+      if (Date.now() - t0 >= timeoutMs) return false
+      await new Promise((r) => setTimeout(r, 120))
+    }
+  }, [kernel])
+
   const openExternalFile = useCallback(
     async (raw: string) => {
       const path = toLocalPath(raw)
@@ -1373,11 +1397,19 @@ export default function App() {
             { uri: path },
           )
           const name = r.name || '文档'
+          console.log(
+            `[zn-uri] 副本就绪 path=${r.path} name=${name} 可阅读=${SAF_READABLE_RE.test(name)} kernel=${!!kernel}`,
+          )
           if (!SAF_READABLE_RE.test(name)) {
             setToast(`「${name}」不是可阅读的文档类型（支持 pdf / epub / txt / md 等）`)
             return
           }
-          void kernel?.commands.api.execute('core.openDocument', { abs: r.path, name })
+          const ready = await waitDocHandler()
+          console.log(`[zn-uri] openDocument 派发（插件接管就绪=${ready}）`)
+          void kernel?.commands.api
+            .execute('core.openDocument', { abs: r.path, name })
+            .then((x) => console.log('[zn-uri] openDocument 返回', String(x)))
+            .catch((e) => console.error('[zn-uri] openDocument 抛错', String(e)))
         } catch (e) {
           setToast(`读不了这个文件：${e}`)
         }
@@ -1407,6 +1439,7 @@ export default function App() {
       if (isDoc) {
         // 文件名从路径末段取（`splitPath` 的解构在下面才声明，这里先自己取）
         const docName = path.split(/[\\/]/).pop() || '文档'
+        await waitDocHandler()
         void kernel?.commands.api.execute('core.openDocument', { abs: path, name: docName })
         return
       }
@@ -1418,7 +1451,7 @@ export default function App() {
       if (!(await applyVault(dir))) pendingOpenRef.current = null
     },
     // `kernel` 进依赖：文档要经 `core.openDocument` 派发（切库时 kernel 会重建）
-    [applyVault, kernel],
+    [applyVault, kernel, waitDocHandler],
   )
   useEffect(() => {
     openExternalFileRef.current = openExternalFile
@@ -1479,13 +1512,17 @@ export default function App() {
     if (!pending || !vault || !kernel) return
     if (!samePath(vault, pending.vault)) return
     pendingOpenRef.current = null
-    // 文档（pdf / epub / …）交给插件渲染；笔记走编辑器 —— 与 `openExternalFile` 同一口径
-    if (DOC_RE.test(pending.name)) {
-      void kernel.commands.api.execute('core.openDocument', { path: pending.name })
-      return
-    }
-    void openNoteRef.current(pending.name)
-  }, [vault, kernel])
+    void (async () => {
+      // 文档（pdf / epub / …）交给插件渲染；笔记走编辑器 —— 与 `openExternalFile` 同一口径。
+      // 文档这条同样要等接管者（冷启动竞态，见 `waitDocHandler` 注释）。
+      if (DOC_RE.test(pending.name)) {
+        await waitDocHandler()
+        void kernel.commands.api.execute('core.openDocument', { path: pending.name })
+        return
+      }
+      void openNoteRef.current(pending.name)
+    })()
+  }, [vault, kernel, waitDocHandler])
 
   /**
    * 文件关联的接线：挂载后拉一次启动时攒下的文件，再订阅运行期事件。
