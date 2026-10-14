@@ -2191,12 +2191,15 @@ revision: 80
 > `anchor-scope` / `text-box-trim` / `text-box-edge` **全部支持**（`CSS.supports` 实测）。
 > 本次没用锚定定位 —— 因为"不要第二个元素"比"锚定第二个元素"更彻底。
 >
-> 📌 另外改了一条**反标准但用户点名要**的：**编辑区光标改成箭头**（`src/styles.css` 的
-> `.zn-editor .cm-content { cursor: default }`）。起因是用户报"鼠标在整个编辑窗口都不显示、
-> 找不到鼠标在哪" —— 实测各区域 `cursor` **全是 `auto`**（没人设过 `text`/`none`），
-> 而 `.cm-content` 是 `contenteditable` ⇒ 浏览器对 `auto` 渲染 **I-beam 竖线**（编辑器惯例，
-> **不是**改动引入的）。用户要箭头 ⇒ 给箭头；只改形状，编辑/拖选/键盘照常。
-> **下次接手别"修回去"** —— 这是用户偏好，不是 bug。
+> 📌 另外改了一条**反标准但用户点名要**的：**编辑区光标分层**（`src/styles.css`）——
+> 用户先是报"鼠标在整个编辑窗口都不显示、找不到鼠标在哪"（实测各区域 `cursor` **全是 `auto`**，
+> 而 `.cm-content` 是 `contenteditable` ⇒ 浏览器对 `auto` 渲染 **I-beam 竖线**，编辑器惯例，
+> **不是**改动引入的）；我先把整块改成箭头，用户随即纠正：
+> 「**靠近正文变光标，其他区域显示为箭头**」⇒ 最终形态：
+> · `.zn-editor .cm-content { cursor: default }`（空白/内边距/行尾 ⇒ 箭头）
+> · `.zn-editor .cm-content .cm-line span { cursor: text }`（CM6 把文本都包在 span 里 ⇒ I-beam）
+> 实测：含文字的 span = `text`、`.cm-line`/`.cm-content` = `default`、可折叠圆点 = `pointer`。
+> **下次接手别"修回"整块 I-beam 或整块箭头** —— 这是用户偏好，不是 bug。
 > 同时插件给**可折叠行的圆点**补了 `cursor: pointer`（外观搬去插件时漏的），
 > 叶子行不给手型（它本来就不可点）。
 >
