@@ -2203,11 +2203,52 @@ revision: 81
 > 3. 手机上 `input tap` 依然无效、`input swipe x y x y 120` 有效（rev71 结论今天再次复现）；
 >    `input motionevent DOWN/UP` 本机**没**触发点击（rev80 记过它可用 —— 以后以 `swipe` 为准）。
 >
+> ### 🔁 续（同日 · 折叠记录改「对账式」＋ 扩展常驻 ＋ 回归脚本）
+>
+> 起因：想用刚打通的**手机 CDP** 查上一轮那条「第二次打开笔记 ❖ 不显示」—— 结果先查出**两个别的真问题**。
+>
+> **① 折叠记录会留「其实已经展开」的残留签名（真 bug，已修）**
+> · 症状：内核侧看到的折叠集合比实际折叠数多 —— 本地库实测残留 `["- 1#1","- 2#0"]` 而实际折叠 **0** 行。
+> · 根因：第一版的 `onToggle(line, folded)` 是**逐行加减**，而**折叠可以嵌套** ——
+>   展开祖先时子孙的折叠会**一起消失**（官方一次 unfold 全撤），逐行通知只为祖先调一次
+>   ⇒ 子孙签名留在记录里 ⇒ 下次打开 `initialFolded` 又照它们折起来
+>   （用户视角：「我明明展开过，重开又折上了」）。
+> · 改法：`onToggle` → **`onFoldChange({ doc, foldedLines })`（对账式）** ——
+>   内核把**真实折叠集合**整份交给插件、插件整份重写。判据来自
+>   `foldedRanges(u.state) !== foldedRanges(u.startState)` ⇒ **用户用官方键位折的也能对账到**。
+> · 验收：桌面脚本 ④d 从 `dom=1 签名=3`（FAIL）变成 `dom=1 签名=1`（PASS）；⑥ 写盘 `disk=[] mem=[]`。
+>
+> **② 扩展「按需激活」有个时序坑（机制清楚，已防御；触发路径未复现）**
+> · `editorMarkExtensions()` 原本「没有任何规则 ⇒ 返回空数组」，而 `MarkdownEditor.tsx:260` 的注释写明：
+>   数组**每次 render 现场构造，但 atomic 只在 mount / 切换笔记时读它** ⇒
+>   若那次读取发生在插件（异步 blob import）注册**之前**，这几个扩展就**永久不在**这个编辑器里
+>   （症状恰好是"按钮 / 行 class / 折叠全不出现，手动切一次笔记才回来"）。
+> · 改法：四个扩展**常驻**（规则表为空时 `buildDecorations` 立即 return）＋ 新增
+>   `pokeEditors()` / `entriesVersion`：规则增删时朝活着的编辑器发一个空 transaction，
+>   ViewPlugin 见版本变了就重扫。
+> · ⚠️ **诚实标注**：一度以为在 dev 整页重载后**复现**了它（`btnDom:0` 而 `om:2`），
+>   随后发现那是**页面压根没打开笔记**（`.cm-line` 数为 0）—— **不是复现**。
+>   所以这条属于"**机制推得通、路径没复现**"的防御性修复，**不是**已验证的 bug 修复。
+> · 副作用：`codeFolding()` 常驻 ⇒ 官方折叠键位（`Ctrl-Alt-[` 等）在没有折叠插件时也生效。
+>
+> **③ 那条「❖ 第二次打开不显示」—— 4 条路径都没复现**
+> 试过：首开 / 关掉再开 / 先点进编辑器聚焦再开 / 换一篇再切回来 —— 每次都 `btnDom === omButtons().length`。
+> ⇒ 按现状记 **「未能复现」**（当时那次观测处在 rev81 的 HMR 中间态：我连续部署过三版 `App.tsx`、
+> 插件还是 rev80 版），**不下结论**。但已把这条路径固化成回归脚本：
+>
+> **新增 `tools/verify-outline-fold.mjs`**（折叠 + ❖ 的可重复验收，判据见文件头注释）
+> · 桌面 `ZN_CDP=http://127.0.0.1:9222 ZN_TARGET=localhost:1420 node tools/verify-outline-fold.mjs` → **10/10**
+> · 手机 `ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost …` → **9/9**（⑥ 只在桌面可查）
+> · 两个脚本坑记一笔：**别用模板字符串嵌页面内表达式**（踩 `SyntaxError: missing ) after argument list`），
+>   统一用字符串数组 `join`；页面内 `async` 循环 + `awaitPromise` 在这个通道上会 `Runtime.evaluate 超时`
+>   ⇒ 展开循环放**宿主侧**逐个同步 evaluate。
+>
 > **提交**：
 > · `339418e`（Android 关闭窗口 ＋ `CARGO_HOME`：3 文件 / +108 −7 —— `src/App.tsx` · `android-dev.cmd` · 本文件）
 > · `08e3218`（折叠换成官方状态机：6 文件 / +402 −139 —— `package.json` · `pnpm-lock.yaml` ·
 >   `src/kernel/contract.ts` · `src/kernel/editor-marks.ts` · `examples/outline-map/index.js` · `examples/outline-map/outline.css`）
-> · 随后那个 docs 提交只改本文件（回填上面两个提交号）。
+> · `4066476`（折叠记录对账式 ＋ 扩展常驻：4 文件 / +290 −43，含新脚本 `tools/verify-outline-fold.mjs`）
+> · 随后那个 docs 提交只改本文件（回填上面三个提交号）。
 
 > ## 📌 rev80（2026-10-14 · 大纲**折叠 / 展开** —— 内核新增 `editor.addFold`）
 >
