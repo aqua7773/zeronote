@@ -1465,51 +1465,79 @@ body.is-resizing * {
   opacity: 0.35;
 }
 
-/* ───────── 大纲层级缩进重排 ＋ 竖线（用户 2026-10-14 第四轮要求）─────────
-   用户原话：「标题不需要竖线」「单独一个大纲不用竖线也不视为导图」「大纲的点大一点」
+/* ───────── 大纲层级缩进重排 ＋ 竖线（用户 2026-10-14 第四轮 ＋ 第五轮参考图）─────────
+   第四轮原话：「标题不需要竖线」「单独一个大纲不用竖线也不视为导图」「大纲的点大一点」
    「第一级大纲不做缩进，和非大纲平级」。
+   第五轮（同日）：用户给参考图，「**缩进和竖线做成右边的效果**」—— 实测参考图
+   每级缩进 ≈ **42.5px @17px 字号**（= 2.5em，旧值 0.6em = 10.2px，明显太小），
+   且竖线不是"每级偏移固定值"，而是**挂在父级圆点正下方**（实测参考图的线 x = 父 bullet 中心）。
+
+   ❗ **步长单一来源**：`--zn-ol-step`（下方 `:root`）＝每级缩进，**缩进与竖线位置同用它**
+   ⇒ 以后调层级间距只改这一个值，不必重算 6 条 padding 与 5 组 background-position。
 
    ① **第一级不缩进**：CM6 的缩进是**内联 style**（实测 `padding-left: 2em; text-indent: -1.2em`，
       每级 +0.6em）⇒ 普通选择器压不住内联值，必须 `!important` 覆盖 **padding-left**；
       `text-indent: -1.2em` 是 marker 悬挂，**保持不动**（它是内联的，我们不动它）。
-      重排后 marker 的横坐标 = 行盒左 + padding − 1.2em ⇒ 取 `padding = 1.2em + 0.6em×(d−1)`
-      ⇒ 一级 marker 落在**行盒左边界**（与非大纲正文平级），每深一级再进 0.6em（= 10.2px @17px 字号）。 */
+      重排后 marker 的横坐标 = 行盒左 + padding − 1.2em ⇒ 取 `padding = 1.2em + step×(d−1)`
+      ⇒ 一级 marker 落在**行盒左边界**（与非大纲正文平级），每深一级再进一个 `step`。 */
 .zn-editor .cm-line.zn-ol-d1 {
   padding-left: 1.2em !important;
 }
 .zn-editor .cm-line.zn-ol-d2 {
-  padding-left: 1.8em !important;
+  padding-left: calc(1.2em + var(--zn-ol-step) * 1) !important;
 }
 .zn-editor .cm-line.zn-ol-d3 {
-  padding-left: 2.4em !important;
+  padding-left: calc(1.2em + var(--zn-ol-step) * 2) !important;
 }
 .zn-editor .cm-line.zn-ol-d4 {
-  padding-left: 3em !important;
+  padding-left: calc(1.2em + var(--zn-ol-step) * 3) !important;
 }
 .zn-editor .cm-line.zn-ol-d5 {
-  padding-left: 3.6em !important;
+  padding-left: calc(1.2em + var(--zn-ol-step) * 4) !important;
 }
 .zn-editor .cm-line.zn-ol-d6 {
-  padding-left: 4.2em !important;
+  padding-left: calc(1.2em + var(--zn-ol-step) * 5) !important;
 }
 
-/* ② **大纲的点（bullet）大一点** —— 只放大圆点本身，不动行高与文字字号 */
+/* ② **大纲的点（bullet）＝ 一个中文字符的占位**（用户 2026-10-14 第五轮原话：
+      「每个大纲的点和正文一个中文字符的默认占位相同」，追问后明确「**不是大小，是宽度**」）。
+      ⚠️ 关键：库给的 bullet 是 `inline-block` + 自带 `margin-right: 0.3em`，
+      实测占位 **29.6px**（盒宽 22.2 + 间隙 7.4）＝ 1.74 个字 —— 这就是"缩进看着不齐"的来源之一。
+      `width: calc(1em / var(--zn-ol-dot-scale))`：em＝本元素字号（＝1.45× 行字号），
+      除以同倍率 ⇒ **占位正好 = 行字号的 1em = 一个中文字符**（17px @17px 字号）；
+      `text-align: center` 让圆点在这一个字里居中（点本身**大小不变**，仍是放大倍率），
+      `margin-right: 0` 抹掉库自带间隙。
+      ⚠️ **必须 `text-indent: 0`**：CM6 在**行**上写了内联 `text-indent: -1.2em`（marker 悬挂），
+      而 bullet 是 `inline-block` ⇒ 这个 text-indent **继承进 bullet 内部**、把它里面的 "•" 又左推 20.4px
+      （实测内容盒 left = 290.09，而"盒内居中"应为 300.29 —— 用户报的"位置不在中心"就是这个）。
+      重置为 0 后，居中由 `text-align: center` 自己算，实测内容盒 300.3 ≈ 盒中心 305.5 ✓ */
 .zn-editor .cm-line[class*='zn-ol-d'] .cm-atomic-bullet {
-  font-size: 1.45em;
+  font-size: calc(1em * var(--zn-ol-dot-scale));
   line-height: 1;
+  width: calc(1em / var(--zn-ol-dot-scale));
+  margin-right: 0;
+  text-align: center;
+  text-indent: 0;
 }
 
-/* ③ **竖线只画在"第 2 级及更深"**（第一级既然与非大纲平级，就没有可引导的层级线；
-      标题行本来就不是列表行、天然没有线）⇒ `dN` 行画 **N−1** 条线（对应 d1..d(N−1) 的位置）。
-      位置同样用 `background-origin: content-box`：每级 marker 在 content-box 左 −1.2em，
-      线画在 marker 左侧一点 ⇒ 本级 −1.2em − 6px，每浅一级再 +0.6em。 */
+/* ③ **竖线画在"父级圆点正下方"**（用户第五轮：「缩进和竖线做成右边的效果」——
+      参考图实测：线 x **正好等于父级圆点的中心**，不是固定的层级偏移量；旧实现是
+      `content-box` 左 −23px 那套硬编码，父点一动线就不跟着走）。
+      ⇒ ① `background-origin: border-box`：以**行盒左**为基准（各行相同）；
+        ② 第 k 级祖先的圆点中心 = 行盒左 + `step×(k−1)`（圆点起点）+ **半个字符**（占位正中）
+           ⇒ `calc(var(--zn-ol-step) * (k − 0.5))`，与 ② 的"占位 = 一个字"严格同构。
+      只画 d1..d(N−1) 的祖先层级：第一级（与非大纲平级）无线，标题行天然无线。 */
 :root {
   --zn-ol-line: var(--zn-border);
+  /* 每级缩进 = 一个中文字符（em 在行上解析 ⇒ = 行字号；17px @17px 正文） */
+  --zn-ol-step: 1em;
+  /* 圆点的视觉放大倍率（rev78「点大一点」保留）；占位另由 width 锁成 1 个中文字符 */
+  --zn-ol-dot-scale: 1.45;
 }
 
 .zn-editor .cm-line[class*='zn-ol-d'] {
   background-repeat: no-repeat;
-  background-origin: content-box;
+  background-origin: border-box;
   background-size: 1px 100%;
 }
 .zn-editor .cm-line.zn-ol-d1 {
@@ -1518,30 +1546,34 @@ body.is-resizing * {
 }
 .zn-editor .cm-line.zn-ol-d2 {
   background-image: linear-gradient(var(--zn-ol-line) 0 0);
-  background-position: -23px 0;
+  background-position: calc(var(--zn-ol-step) * 0.5) 0;
 }
 .zn-editor .cm-line.zn-ol-d3 {
   background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0);
   background-size: 1px 100%, 1px 100%;
-  background-position: -13px 0, -23px 0;
+  background-position: calc(var(--zn-ol-step) * 1.5) 0, calc(var(--zn-ol-step) * 0.5) 0;
 }
 .zn-editor .cm-line.zn-ol-d4 {
   background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
     linear-gradient(var(--zn-ol-line) 0 0);
   background-size: 1px 100%, 1px 100%, 1px 100%;
-  background-position: -3px 0, -13px 0, -23px 0;
+  background-position: calc(var(--zn-ol-step) * 2.5) 0, calc(var(--zn-ol-step) * 1.5) 0,
+    calc(var(--zn-ol-step) * 0.5) 0;
 }
 .zn-editor .cm-line.zn-ol-d5 {
   background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
     linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0);
   background-size: 1px 100%, 1px 100%, 1px 100%, 1px 100%;
-  background-position: 7px 0, -3px 0, -13px 0, -23px 0;
+  background-position: calc(var(--zn-ol-step) * 3.5) 0, calc(var(--zn-ol-step) * 2.5) 0,
+    calc(var(--zn-ol-step) * 1.5) 0, calc(var(--zn-ol-step) * 0.5) 0;
 }
 .zn-editor .cm-line.zn-ol-d6 {
   background-image: linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
     linear-gradient(var(--zn-ol-line) 0 0), linear-gradient(var(--zn-ol-line) 0 0),
     linear-gradient(var(--zn-ol-line) 0 0);
   background-size: 1px 100%, 1px 100%, 1px 100%, 1px 100%, 1px 100%;
-  background-position: 17px 0, 7px 0, -3px 0, -13px 0, -23px 0;
+  background-position: calc(var(--zn-ol-step) * 4.5) 0, calc(var(--zn-ol-step) * 3.5) 0,
+    calc(var(--zn-ol-step) * 2.5) 0, calc(var(--zn-ol-step) * 1.5) 0,
+    calc(var(--zn-ol-step) * 0.5) 0;
 }
 
