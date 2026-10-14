@@ -135,6 +135,8 @@ function flatten(root) {
 function parseBlocks(md) {
   const lines = String(md ?? '').split(/\r?\n/)
   const blocks = []
+  /** 标题清单（行号 + 层级）—— 判断"容器标题"要用（见 `headingIsContainer`） */
+  const headings = []
   let cur = null
   let lastHeading = ''
   /** 最近标题的**行号**（-1 = 文档开头还没有标题）—— 行首按钮要按它定位 */
@@ -165,6 +167,7 @@ function parseBlocks(md) {
       closeBlock()
       lastHeading = stripInline(atx[2])
       lastHeadingLine = i
+      headings.push({ line: i, level: atx[1].length, text: lastHeading })
       return
     }
     const li = LIST_RE.exec(line)
@@ -199,7 +202,51 @@ function parseBlocks(md) {
     }
   }
 
-  return { blocks }
+  return { blocks, headings }
+}
+
+/**
+ * **这个标题是不是"容器"** —— 它下面（在遇到同级或更浅的标题之前）还有**更深一级的标题**。
+ *
+ * 用户 2026-10-14 定的判据（原话）：「**只有标题下面接大纲的时候才会被判断为大纲，
+ * 可以转成思维导图。单独的标题不构成思维导图**」。
+ * 落成可判定的形式：`# 绪论` 下面接着 `## 数据模型` / `## 信息世界基本概念` ⇒ 它**只是文档
+ * 结构的根**（容器），不算"一组大纲" ⇒ 它那一行不给按钮；`## 数据模型`（下面直接就是列表）
+ * 才是一组 ⇒ 给按钮。
+ *
+ * 为什么必须看**标题层级**而不是"这行下面有没有列表"：容器标题下面通常也有列表，
+ * 但那些列表其实归它下面的子标题管（`# 绪论` 下那 20 行列表就是这种情况）。
+ */
+function headingIsContainer(headings, line) {
+  const self = headings.find((h) => h.line === line)
+  if (!self) return false
+  for (const h of headings) {
+    if (h.line <= line) continue
+    if (h.level <= self.level) return false // 同级 / 更浅 ⇒ 这个标题的辖区到此结束
+    return true // 出现更深一级的标题 ⇒ 它是容器
+  }
+  return false
+}
+
+/**
+ * **哪些行该出现「❖」按钮**（纯函数，可离线断言）。
+ *
+ * 与 `parseBlocks` 同一份解析 ⇒「有按钮」与「能开出导图」永远同真同假。
+ * 规则 = 每个**非容器**的组标题行 ＋ 文档开头那种**没有标题的裸列表**的第一行。
+ */
+function mapButtonLines(md) {
+  const { blocks, headings } = parseBlocks(md)
+  const lines = []
+  for (const b of blocks) {
+    if (!b.nodes.length) continue
+    if (b.titleLine === -1) {
+      lines.push(b.startLine) // 裸列表组：入口挂在它自己的第一行
+      continue
+    }
+    if (headingIsContainer(headings, b.titleLine)) continue // 容器标题不给按钮
+    lines.push(b.titleLine)
+  }
+  return lines
 }
 
 /** 块内树 → 先序数组 */
@@ -1022,16 +1069,21 @@ export default {
      * · `filter` 会被**逐行**问，而判据是整篇解析 ⇒ 用"上次那份文本"做一层缓存，
      *   一次装饰器重建只解析一遍。
      * · 裸列表组挂在**它自己的第一行**上（`startLine`），不是标题行（它没有标题）。
+     * · **rev76（2026-10-14）再收紧一档 —— 容器标题不给按钮**：标题下面还接着更深一级标题时
+     *   （`# 绪论` 下面接 `## 数据模型` / `## 信息世界基本概念`），它只是文档结构的**根**，
+     *   不算"一组大纲"（用户原话：「只有标题下面接大纲的时候才会被判断为大纲……单独的标题
+     *   不构成思维导图」）。判据落在纯函数 `mapButtonLines` / `headingIsContainer` 里，
+     *   本处 filter 只是查表。
      */
-    let blocksCacheDoc = null
-    let blocksCacheBlocks = []
-    /** `parseBlocks` 的单条缓存 —— 键就是文本本身（CM6 一次重建里传的是同一份字符串） */
-    const blocksOfDoc = (doc) => {
-      if (blocksCacheDoc !== doc) {
-        blocksCacheBlocks = parseBlocks(doc).blocks
-        blocksCacheDoc = doc
+    let btnCacheDoc = null
+    let btnCacheLines = new Set()
+    /** `mapButtonLines` 的单条缓存 —— 键就是文本本身（CM6 一次重建里传的是同一份字符串） */
+    const buttonLinesOfDoc = (doc) => {
+      if (btnCacheDoc !== doc) {
+        btnCacheLines = new Set(mapButtonLines(doc))
+        btnCacheDoc = doc
       }
-      return blocksCacheBlocks
+      return btnCacheLines
     }
 
     subscriptions.push(
@@ -1041,13 +1093,12 @@ export default {
         flags: 'm',
         label: '❖',
         title: '把这一组开成导图窗口',
-        filter: ({ doc, line }) => {
-          const blocks = blocksOfDoc(doc)
-          // ① 标题行：这一块（标题 + 它下面的内容）里确实有列表项
-          if (blocks.some((b) => b.titleLine === line && b.nodes.length > 0)) return true
-          // ② 文档开头那组**没有标题**的裸列表：入口挂在它的第一行
-          return blocks.some((b) => b.titleLine === -1 && b.nodes.length > 0 && b.startLine === line)
-        },
+        /**
+         * 判据 = `mapButtonLines`（纯函数，与解析同源；**容器标题不给按钮**）。
+         * 2026-10-14 用户实测后收紧：`# 绪论` 下面接的是子标题，它只是一个标题、
+         * 不是"一组大纲" ⇒ 它那行的按钮必须消失（rev65 的"有列表就给"把容器标题也放过了）。
+         */
+        filter: ({ doc, line }) => buttonLinesOfDoc(doc).has(line),
         onClick: 'outline-map.open-map-at-line',
         // 不传 className：要"无痕融入"（用户 2026-10-13）—— 默认档就是最克制的那个
       }),
@@ -1202,6 +1253,8 @@ function registerEditing(subs, command, { insertAfter, deleteRange, host }) {
 export {
   parseOutline,
   parseBlocks,
+  headingIsContainer,
+  mapButtonLines,
   flatNodes,
   blockToTree,
   flatten,
