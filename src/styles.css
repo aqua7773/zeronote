@@ -1592,3 +1592,21 @@ body.is-resizing * {
   cursor: text;
 }
 
+/* ───────── 插入符（caret）颜色（用户 2026-10-14 揪出的真凶）─────────
+   症状：用户说"白底应该是黑光标，现在是白光标……才会造成光标消失的假象"。
+   实测 `.cm-content` 的 `caret-color` = **`rgba(0,0,0,0)`（全透明）**，而外层 `.cm-editor` 是黑色。
+   根因：`@atomic-editor/editor` 注入的主题样式里有一套
+   （`.ͼ4 .cm-content` / `.ͼ4 .cm-line`）写的是 `caret-color: transparent` ——
+   那是给"**自绘光标**"主题配套的；我们用的是这套主题、**却没有自绘光标**
+   ⇒ 插入符直接不可见（**一直如此**，不是本轮改动引入的）。
+
+   修法：用主题变量 `--zn-fg` 顶掉 ⇒ 浅色主题黑、深色主题浅，自动正确。
+   ⚠️ 特异性必须**高过**库的 `.ͼ4 .cm-content`（同为 0,2,0，且库的 style 可能后注入）
+   ⇒ 多写一层 `.cm-editor`（0,3,0）。改这里别再简化掉那一层。 */
+.zn-editor .cm-editor .cm-content,
+.zn-editor .cm-editor .cm-line {
+  /* `!important`：库那套主题样式是**运行时注入 `<style>`** 的，注入顺序不由我们控制
+     （实测同权重时它后到 ⇒ 赢），覆盖第三方主题时这是正当用法。 */
+  caret-color: var(--zn-fg) !important;
+}
+
