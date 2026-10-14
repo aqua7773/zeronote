@@ -337,6 +337,126 @@ async function mdToLongImage(md, title) {
   }
 }
 
+/** 行内标记 → docx 的 `TextRun[]`（粗体 / 斜体 / 行内代码；链接退化成 `文字 (url)`） */
+function inlineRuns(D, text) {
+  const out = []
+  const re = /(\*\*([^*]+)\*\*)|(`([^`]+)`)|(\*([^*]+)\*)|(\[([^\]]+)\]\(([^)]+)\))/g
+  let last = 0
+  let m
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(new D.TextRun(text.slice(last, m.index)))
+    if (m[2] != null) out.push(new D.TextRun({ text: m[2], bold: true }))
+    else if (m[4] != null)
+      out.push(new D.TextRun({ text: m[4], font: { ascii: 'Consolas', eastAsia: '等线' } }))
+    else if (m[6] != null) out.push(new D.TextRun({ text: m[6], italics: true }))
+    else if (m[8] != null) out.push(new D.TextRun({ text: `${m[8]} (${m[9]})` }))
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(new D.TextRun(text.slice(last)))
+  return out.length ? out : [new D.TextRun(text)]
+}
+
+/**
+ * Markdown → **docx**（[docx](https://www.npmjs.com/package/docx) 9.11.0，自写映射）。
+ *
+ * 为什么不引现成的 markdown-docx：选型报告里那几个包**月下载个位数**，或 2016 年就停更
+ * （见 HANDOFF rev85）；而 `docx` 本身活跃维护（MIT），且**中文零成本** ——
+ * 它只写字体名（`font.eastAsia`），**不需要内嵌字体**（对比 jsPDF 要嵌 17.7 MB 的思源黑体）。
+ *
+ * 覆盖：标题 1–6 / 段落 / 无序列表 / 有序列表（都按项目符号）/ 引用 / 围栏代码块 / 分隔线；
+ * 行内：粗体 / 斜体 / 行内代码 / 链接（退化成文字 + url）。
+ * **表格与图片暂不支持**（如实标注，不静默丢——列表外的行照样进正文）。
+ */
+async function mdToDocx(md, title) {
+  await loadScript(vendor('docx/docx.iife.js'))
+  const D = window.docx
+  if (!D || !D.Document || !D.Packer) throw new Error('docx 库没有挂到 window（vendor 加载异常）')
+
+  const children = [new D.Paragraph({ heading: D.HeadingLevel.TITLE, children: [new D.TextRun(title)] })]
+  const lines = md.replace(/\r\n?/g, '\n').split('\n')
+  let inCode = false
+  let codeBuf = []
+
+  const flushCode = () => {
+    if (!codeBuf.length) return
+    children.push(
+      new D.Paragraph({
+        children: codeBuf.map(
+          (t) => new D.TextRun({ text: t, font: { ascii: 'Consolas', eastAsia: '等线' }, size: 20 }),
+        ),
+      }),
+    )
+    codeBuf = []
+  }
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '')
+    if (/^\s*```/.test(line)) {
+      if (inCode) {
+        flushCode()
+        inCode = false
+      } else {
+        inCode = true
+      }
+      continue
+    }
+    if (inCode) {
+      codeBuf.push(raw)
+      continue
+    }
+
+    const h = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (h) {
+      const lvl = D.HeadingLevel[`HEADING_${h[1].length}`]
+      children.push(new D.Paragraph({ heading: lvl, children: inlineRuns(D, h[2]) }))
+      continue
+    }
+    const ul = /^\s*[-*+]\s+(.*)$/.exec(line)
+    if (ul) {
+      children.push(new D.Paragraph({ bullet: { level: 0 }, children: inlineRuns(D, ul[1]) }))
+      continue
+    }
+    const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line)
+    if (ol) {
+      children.push(new D.Paragraph({ bullet: { level: 0 }, children: inlineRuns(D, ol[1]) }))
+      continue
+    }
+    const bq = /^>\s?(.*)$/.exec(line)
+    if (bq) {
+      children.push(
+        new D.Paragraph({
+          indent: { left: 360 },
+          children: [new D.TextRun({ text: bq[1], italics: true, color: '52525B' })],
+        }),
+      )
+      continue
+    }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      children.push(new D.Paragraph('——————')) // docx 没有原生分割线；用一条字符线（保守 API）
+      continue
+    }
+    if (line.trim() === '') {
+      children.push(new D.Paragraph(''))
+      continue
+    }
+    children.push(new D.Paragraph({ children: inlineRuns(D, line) }))
+  }
+  flushCode()
+
+  const doc = new D.Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: { ascii: 'Calibri', eastAsia: '微软雅黑' }, size: 22 },
+        },
+      },
+    },
+    sections: [{ children }],
+  })
+  const blob = await D.Packer.toBlob(doc)
+  return new Uint8Array(await blob.arrayBuffer())
+}
+
 /* ─────────── 插件本体 ─────────── */
 
 export default {
@@ -403,6 +523,7 @@ export default {
       txt: { ext: 'txt', render: (md, stem) => mdToText(md, stem) },
       html: { ext: 'html', render: (md, stem) => mdToHtml(md, stem) },
       png: { ext: 'png', render: (md, stem) => mdToLongImage(md, stem) },
+      docx: { ext: 'docx', render: (md, stem) => mdToDocx(md, stem) },
     }
 
     async function exportActive(format, toVault, probe) {
@@ -471,6 +592,7 @@ export default {
       ['io.exportTxt', 'txt', '导出当前笔记为纯文本（txt）…'],
       ['io.exportHtml', 'html', '导出当前笔记为网页（html）…'],
       ['io.exportPng', 'png', '导出当前笔记为长图（PNG）…'],
+      ['io.exportDocx', 'docx', '导出当前笔记为 Word（docx）…'],
     ]) {
       subscriptions.push(
         command.register({
@@ -502,6 +624,7 @@ export default {
             { type: 'button', label: '导出为 txt…', onClick: 'io.exportTxt' },
             { type: 'button', label: '导出为 html…', onClick: 'io.exportHtml' },
             { type: 'button', label: '导出为长图 png…', onClick: 'io.exportPng' },
+            { type: 'button', label: '导出为 Word docx…', onClick: 'io.exportDocx' },
             { type: 'divider' },
             {
               type: 'text',
