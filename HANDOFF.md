@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 87
-更新时间: 2026-10-15（rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
+revision: 88
+更新时间: 2026-10-15（rev88 **md→pdf**（浏览器打印栈，桌面专有；探针加了"绝不弹打印框"的闸）＋ 桌面端**五种导出探针全过**（txt/html/png/docx/pdf）；rev87 导入导出**批 3**：pdf（复用 pdf.js）/ epub（fflate＋turndown）导入、**长图导出**、**md→docx**，且**四种导出（txt/html/png/docx）真机端到端全部验证**（用户亲测＋签名校验）；rev86 导入导出**批 2**：html / docx 导入 ＋ txt / html 导出（turndown / marked / mammoth 落 `public/vendor/`），并给导出的 Android 写通道补 `write_content_uri`（需重建生效）；rev85 导入导出插件开工：**选型调研定案**（pandoc-wasm 排除：55.9 MB + GPL；逐方向改用现成包）＋ **批 1 md/txt 导入落地验收**（`797ffc8`，含 `host.pickFile` / `host.readContentUri` / `window.__znExec`）；rev84 文档阅读器**按原始尺寸**看 PDF：取消 `max-width` 强制缩放（`792a0d7`）；rev83 **安全区**：整窗接管容器自己让开状态栏/手势条（`dd70a33`）；rev82 外部 PDF **双路真机验收**：热启动 ✅ ＋ **冷启动修掉「插件接管晚于消费」竞态** ✅；rev81 ① Android「关闭插件窗口」定型：不重载 ＋ 放接管（`clearShell`）＋ 清 URL（`replaceState`），并**更正 rev80 对「0 篇」的归因** —— 实为存储权限；② **折叠状态机由自造换成 CM6 官方 `codeFolding`**（折点仍归插件），圆点与圆托合成同一个组件 ⇒ 跨平台同心；③ 手机也能接 CDP 了（`adb forward … webview_devtools_remote_<pid>`）。rev80 大纲折叠/展开：内核 `editor.addFold` ＋ 库内 `.zn/outline-folded.json` 持久化；rev79 大纲缩进/竖线按「一个中文字符」＋ 圆点居中；rev78 大纲竖线：内核新增 `editor.addLineClass`）
 项目: ZeroNote
 
 > ## 📌 rev30 一次看懂（2026-10-12 下午）
@@ -2086,6 +2086,40 @@ revision: 87
 > | 基线 | `tsc -b` 0 错误 · `oxlint src` 恰好 **4** warnings |
 >
 > **提交**：`374f05b`（删除功能）· `64024a1`（真机三处修复）。
+
+> ## 📌 rev88（2026-10-15 · **md→pdf**（浏览器打印栈）＋ 桌面端五种导出探针全过）
+>
+> ### 一、md → pdf：走**系统打印栈**（桌面专有）
+>
+> Markdown → marked → 挂一个 `.zn-print-root` 全屏容器（屏幕上先让用户看到排版）→
+> `window.print()` → 用户在「目标打印机」里选「另存为 PDF」。
+> · 打印态用 `@media print{body>*{display:none!important}}` **只留这一块**，
+>   `@page{margin:16mm 14mm}`，并对 `pre / blockquote / table / img` 加 `break-inside:avoid`（不被切页）
+> · **Android 直接拒绝并给替代方案** —— Tauri 的打印在 Android 无效（[#11933](https://github.com/tauri-apps/tauri/issues/11933) open）
+> · 不自绘 PDF 的理由见 rev85：jsPDF 中文要嵌 17.7 MB 整字体、pdf-lib 的 CJK 子集化有未修 bug
+> · ⚠️ **探针加了一道闸**：`printMarkdown(..., dryRun)` 在 dryRun 时**绝不调 `print()`** ——
+>   否则自动化一跑就弹系统打印框，等于把会话卡死（写的时候就防住了，没等踩）
+>
+> ### 二、桌面端五种导出探针全过（读数，笔记 `大纲示例`）
+>
+> | 格式 | 读数 |
+> |---|---|
+> | txt | 55 B |
+> | html | 1,438 B |
+> | png（长图） | **55,886 B** |
+> | docx | **9,770 B** |
+> | pdf | **chars = 972**（打印页生成成功，dryRun 未弹框） |
+>
+> 桌面验证的前置：把插件 **junction 到桌面测试库** `_tmp-vault-tb/.zn/plugins/import-export`
+> → `__znExec('core.plugins')` → 点「重新扫描」（vite 不监视库目录，HMR 覆盖不到库内插件）。
+>
+> ### 三、待验（下一步）
+>
+> · **pdf 的真实打印**（要真人点一次打印对话框选「另存为 PDF」）
+> · **桌面端导出落盘**（`dialog.save` ＋ `write_absolute`，同样要真人点一次"另存为"）
+> · **手机端 pdf / epub 导入**（代码就位；需应用在**前台** —— 后台时 CDP 超时，见 rev87 §四）
+>
+> 至此导出 **5 种**（txt / html / png / docx / pdf）能力齐备，其中 **4 种已在手机上端到端落盘验证**。
 
 > ## 📌 rev87（2026-10-15 · 导入导出**批 3**：pdf/epub 导入 ＋ 长图 ＋ docx —— **四种导出真机全部验证**）
 >

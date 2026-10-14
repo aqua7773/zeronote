@@ -518,6 +518,51 @@ async function mdToDocx(md, title) {
   return new Uint8Array(await blob.arrayBuffer())
 }
 
+/**
+ * Markdown → **PDF：走浏览器打印栈**（桌面专有）。
+ *
+ * 为什么不自绘 PDF：选型报告里 jsPDF 的中文要嵌**整**字体（Noto Sans SC 变量 TTF = 17.7 MB）、
+ * pdf-lib 的 CJK 子集化有**未修 bug**（HANDOFF rev85 有链接）。而 `window.print()` 用系统字体、
+ * 中文零成本、零体积 —— Tauri 源码注释原文：「`window.print()` works on all platforms」。
+ *
+ * 做法：往 `body` 挂一个 `.zn-print-root`，**屏幕上**全屏显示（让用户先看到排版），
+ * **打印时**用 `@media print` 把 `body` 的其它子元素全部隐藏、只留它，并加 `@page` 边距与
+ * `break-inside: avoid`（表格/代码块不被切页）。
+ *
+ * ⚠️ **Android 走不通**（Tauri 的打印在 Android 无效，issue #11933 open）—— 平台判断在调用处。
+ */
+async function printMarkdown(md, title, dryRun) {
+  const { marked } = await libs()
+  const body = marked.parse(md)
+  const box = document.createElement('div')
+  box.className = 'zn-print-root'
+  box.innerHTML =
+    `<style>` +
+    `@media screen{.zn-print-root{position:fixed;inset:0;z-index:9999;overflow:auto;background:#fff;color:#18181b;padding:2.2em 1.2em;font:16px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}}` +
+    `@media print{body>*{display:none!important}body>.zn-print-root{display:block!important;position:static;padding:0;overflow:visible}` +
+    `@page{margin:16mm 14mm}pre,blockquote,table,img{break-inside:avoid}}` +
+    `h1{font-size:1.8em}h2{font-size:1.4em}h3{font-size:1.15em}` +
+    `pre{background:#f4f4f5;padding:.8em;border-radius:6px;overflow:auto}` +
+    `code{background:#f4f4f5;padding:.1em .3em;border-radius:4px}` +
+    `pre code{background:none}` +
+    `blockquote{margin:.9em 0;padding:.15em 1em;border-left:3px solid #d4d4d8;color:#52525b}` +
+    `table{border-collapse:collapse}th,td{border:1px solid #d4d4d8;padding:.3em .6em}` +
+    `</style>` +
+    `<h1>${escHtml(title)}</h1>${body}`
+  document.body.append(box)
+  await new Promise((r) => setTimeout(r, 250)) // 等排版完成再调打印
+  const chars = box.innerHTML.length
+  if (dryRun) {
+    // 探针模式：只报排版结果，**绝不调 `print()`**
+    // —— 那会弹出系统打印对话框，在自动化里等于把会话卡死（本轮特意加这道闸）
+    box.remove()
+    return { chars }
+  }
+  window.print() // 打印栈：用户在「目标打印机」里选「另存为 PDF」
+  setTimeout(() => box.remove(), 3000) // 打印对话框通常是阻塞的；不阻塞时兜底清理
+  return { chars }
+}
+
 /* ─────────── 插件本体 ─────────── */
 
 export default {
@@ -585,6 +630,8 @@ export default {
       html: { ext: 'html', render: (md, stem) => mdToHtml(md, stem) },
       png: { ext: 'png', render: (md, stem) => mdToLongImage(md, stem) },
       docx: { ext: 'docx', render: (md, stem) => mdToDocx(md, stem) },
+      // `pdf` 没有 `render` —— 它由**系统打印栈**生成（见上面 pdf 分支），这里只为通过格式校验
+      pdf: { ext: 'pdf', render: null },
     }
 
     async function exportActive(format, toVault, probe) {
@@ -596,6 +643,24 @@ export default {
       const spec = EXPORTERS[format]
       if (!spec) throw new Error(`未知导出格式：${format}`)
       const stem = (d.path.split('/').pop() || 'note').replace(/\.[^.]+$/, '')
+
+      /**
+       * PDF 走**独立路径**：它不产出字节流（PDF 由系统打印栈生成），所以不经 `saveFile`。
+       * 平台判断也在这里 —— Android 的 Tauri 打印无效（issue #11933 open）。
+       */
+      if (format === 'pdf') {
+        if (host.platform === 'android') {
+          throw new Error(
+            'Android 上不能直接导出 PDF（Tauri 的打印在 Android 无效）。' +
+              '可以改用「长图」或「HTML」；系统打印服务也能把 HTML 另存为 PDF。',
+          )
+        }
+        const info = await printMarkdown(d.content, stem, probe)
+        if (probe) return { format, chars: info.chars }
+        host.notify('已调起打印 —— 在「目标打印机」里选「另存为 PDF」')
+        return info
+      }
+
       const content = await spec.render(d.content, stem)
 
       /**
@@ -654,6 +719,7 @@ export default {
       ['io.exportHtml', 'html', '导出当前笔记为网页（html）…'],
       ['io.exportPng', 'png', '导出当前笔记为长图（PNG）…'],
       ['io.exportDocx', 'docx', '导出当前笔记为 Word（docx）…'],
+      ['io.exportPdf', 'pdf', '导出当前笔记为 PDF…'],
     ]) {
       subscriptions.push(
         command.register({
@@ -686,6 +752,7 @@ export default {
             { type: 'button', label: '导出为 html…', onClick: 'io.exportHtml' },
             { type: 'button', label: '导出为长图 png…', onClick: 'io.exportPng' },
             { type: 'button', label: '导出为 Word docx…', onClick: 'io.exportDocx' },
+            { type: 'button', label: '导出为 PDF（打印）…', onClick: 'io.exportPdf' },
             { type: 'divider' },
             {
               type: 'text',
