@@ -19,13 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # 顺序不能反：setup-node@v5 默认会按 packageManager 缓存依赖，
+      # 它执行时 pnpm 必须已经在 PATH 里（rev130 实测：先 setup-node 会报 "Unable to locate pnpm"）。
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 22
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

@@ -139,6 +139,9 @@ revision: 130
 >   （截图属过程产物、不随仓库分发）；修后本地五步全过。
 > - **CI 二跑（run 39061817380）：全绿**，7m3s —— 11 步全过（含 Setup Rust + `cargo test --lib`）。
 >   annotations 仅剩：既知 4 条 oxlint 警告 + Node 20 弃用提示（已把 checkout / setup-node 升到 v5）。
+> - **CI 三跑（升 v5 后）：失败** —— `Unable to locate executable file: pnpm`。根因：`setup-node@v5`
+>   默认按 `packageManager` 缓存依赖，执行时 pnpm 还没装。**修法：先 `pnpm/action-setup` 再
+>   `setup-node`（顺序不能反）**，已照改并重推。
 >
 > ## 📌 rev129（2026-10-18 · 开发约定与架构边界：docs/开发约定.md）
 >
