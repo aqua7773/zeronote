@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev122）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev123）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,20 +18,20 @@ pwsh -File scripts\verify.ps1
 # 五步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过
 ```
 
-## 最近一轮（rev122）
+## 最近一轮（rev123）
 
-- **App.tsx 拆分 L1+L2**（方案 `docs/App拆分方案-2026-10-18.md`）：**3928 → 3501 行**。
-  - L1：`lib/app-paths` · `lib/recent` · `lib/fail-msg` · `lib/boot-heal`（纯搬移）。
-  - L2：`components/AppSidebar` · `AppTrashView` · `AppEmptyState` · `AppStatusBar` · `AppResizer`。
-- **测试 44 → 102 条**：L1 单测 43 + L2 组件测试 15（happy-dom + @testing-library/react）。
-- 验收：`verify.ps1` 五步全过（tsc 0 · oxlint 6 warnings · cargo 27 · check-docs · **vitest 102**）。
-- 未做 L3：状态域 hook 化（共享 20+ state/ref，风险高，下一轮逐个抽）。
+- **L3 第一刀：`useFileOps` hook**（剪贴板 / 回收站 / 删除 / 撤销）—— App **3501 → 3238 行**。
+  - 原段整段移除，改 `useFileOps({...})` 解构，其余调用点零改动。
+  - `lib/format.ts`：`fmtSize` 抽成纯函数。
+- **测试 102 → 113 条**：`use-file-ops.test.tsx` 11 条（renderHook + 假 kernel）。
+- 验收：`verify.ps1` 五步全过（tsc 0 · oxlint 6 warnings · cargo 27 · check-docs · **vitest 113**）。
+- 剩：`useDocSession` / `usePluginHost`（与文档域/插件域有双向数据流，单独一批）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| App.tsx 拆分 | ✅ rev122 L1+L2（3928 → 3501 行）；L3 状态 hook 化待做 |
+| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 L3 第一刀（useFileOps）→ **3238 行**；剩 useDocSession / usePluginHost |
 | 前端单测 | ✅ rev122：102 条（含 15 条组件测试），已并入 `verify.ps1` 第 5 步 |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |

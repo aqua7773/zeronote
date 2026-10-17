@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 122
-更新时间: 2026-10-18（rev122 App.tsx 拆分 L1+L2：3928→3501 行，测试 102 条）
+revision: 123
+更新时间: 2026-10-18（rev123 L3 第一刀：useFileOps 抽成 hook，App 3501→3238 行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev123 | 2026-10-18 · **L3 第一刀**：`useFileOps` hook（剪贴板 / 回收站 / 删除 / 撤销）· App **3501 → 3238** 行 · `lib/format.ts` · 测试 **113 条** |
 | rev122 | 2026-10-18 · **App.tsx 拆分 L1+L2**：4 个 lib 模块 + 5 个组件（3928 → **3501** 行）· 前端测试 **102 条** · 方案 `docs/App拆分方案-2026-10-18.md` |
 | rev121 | 2026-10-18 · 修 rev120 记录的两条待定语义（**merge3 同点插入判冲突** · **command 接管改层栈**）+ **vitest 并入 `verify.ps1` 第 5 步**（44 passed） |
 | rev120 | 2026-10-18 · **前端单测（vitest）**：独立配置 + `tests/` 41 条（merge3 / command / event），记录 2 个待定语义 |
@@ -102,6 +103,48 @@ revision: 122
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev123（2026-10-18 · L3 第一刀：useFileOps 抽成 hook，App 3238 行）
+>
+> 用户裁决「做 L3」。按方案的风险排序，先抽**依赖最少**的文件操作域（剪贴板 / 回收站 / 删除 / 撤销）。
+>
+> ### 1 产物
+>
+> - `src/hooks/useFileOps.ts`（~330 行）：`clipboard` / `cutPaths` / `copyPaths` / `pasteInto` /
+>   `duplicateEntry` / `trash` / `confirmPurge` / `confirmEmpty` / `openTrash` / `restoreTrashItem` /
+>   `purgeTrashItem` / `emptyTrashAll` / `deleteNotes` / `purgeNotes` / `undoDelete` / `undoDeleteNote` / `fmtSize`。
+> - `src/lib/format.ts`：`fmtSize`（纯函数，回收站列表用）。
+> - `App.tsx`：**3501 → 3238 行（−263）**。原段整段删除，改成一个 `useFileOps({...})` 解构 ——
+>   其余调用点（侧栏 props、回收站视图、撤销条）**零改动**，变量名保持不变。
+>
+> ### 2 关键约束（迁移时逐条保留）
+>
+> - 删除：先落盘未保存改动 → 逐个 `delete` → 打开着的笔记/目录被删则清空编辑器 → 挂撤销条；
+> - 彻底删除：`delete` → `listTrash` 按 `originalPath` 找 id → `purgeTrash`（**不拿 delete 返回值当 id**）；
+> - 剪切：撞名报错、粘回原位静默跳过；复制：撞名自动退成「 副本」；
+> - 撤销条 5 秒自动消失的 effect 也一并迁入。
+>
+> ### 3 测试（102 → 113 条）
+>
+> `tests/use-file-ops.test.tsx` 11 条（`renderHook` + 假 kernel）：剪切/复制提示、粘贴撞名两种策略、
+> 删除挂撤销条、删除打开着的笔记清空四态、撤销走 `restore_trash`、彻底删除两步、清空回收站。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint **6 warnings（未新增）** · cargo 27 · check-docs · **vitest 113 passed**。
+>
+> ### 5 踩坑记录
+>
+> `undoDelete` 的 `useState` 最初留在原位置（deleteNotes **之后**），而 `deleteNotes` 的依赖数组引用了
+> `setUndoDelete` ⇒ oxlint `react(immutability)` 报「Cannot access variable while it is being initialized」
+> （第 7 条 warning）。把 state 提到 `deleteNotes` 之前即消除。**教训：抽 hook 时 state 声明顺序要满足所有引用方的初始化顺序。**
+>
+> ### 仍未做
+>
+> `useDocSession`（打开/保存/合并，~700 行）与 `usePluginHost`（加载链/`.znp`，~500 行）——
+> 它们与文档域/插件域有双向数据流，需各自单独一批、每抽一个跑一次 verify。
+
+
+>
 > ## 📌 rev122（2026-10-18 · App.tsx 拆分 L1+L2：3928 → 3501 行）
 >
 > 用户要求：「设计方案然后做拆分，拆完测试」。方案落 `docs/App拆分方案-2026-10-18.md`
