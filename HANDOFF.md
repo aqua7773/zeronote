@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 127
-更新时间: 2026-10-18（rev127 L3 第五刀：useExternalFile 抽成 hook，App 2801→2583 行）
+revision: 128
+更新时间: 2026-10-18（rev128 L3 第六刀：usePluginHost 抽成 hook，App 2583→2285 行；L3 收官）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev128 | 2026-10-18 · **L3 第六刀（收官）**：`usePluginHost` hook（加载链 / 懒激活 / `.znp` 安装）· App **2583 → 2285** 行 · 测试 **173 条** |
 | rev127 | 2026-10-18 · **L3 第五刀**：`useExternalFile` hook（openExternalFile / SAF / 待打开 / 文件关联接线）· App **2801 → 2583** 行 · 测试 **163 条** |
 | rev126 | 2026-10-18 · **L3 第四刀**：`useDocApi` hook（docApi / fireDoc / flushDocChange）· App **2935 → 2801** 行 · 测试 **149 条** |
 | rev125 | 2026-10-18 · **L3 第三刀**：`useDocSession` hook（打开 / `[[链接]]` / 关闭）· App **2980 → 2935** 行 · 测试 **132 条** |
@@ -107,6 +108,42 @@ revision: 127
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev128（2026-10-18 · L3 第六刀：usePluginHost 抽成 hook，App 2285 行 · L3 收官）
+>
+> 继续 L3，最后一刀。这一刀抽**插件宿主**：加载链 effect（扫描 → 预装 → 懒激活/立即加载 →
+> 平台门 → 串行链）与 `.znp` 安装（从路径安装 / 插件页按钮 / CDP 诊断出口）。
+>
+> ### 1 产物
+>
+> - `src/hooks/usePluginHost.ts`（~390 行）：加载链与安装链整段迁出；`loadedPluginsRef` /
+>   `pluginChainRef` 一并迁入（只有这个 effect 用它们）。
+> - `App.tsx`：**2583 → 2285 行（−298）**。加载 effect 与 `.znp` 安装段删除，换
+>   `usePluginHost({ kernel, vault, reloadToken, disabledRef, 各 setter })` 解构 `installZnp`。
+> - 清理 plugin-host / plugin-roots / builtin-plugins 的导入与 `confirm` 导入
+>   （`PluginDirEntry` / `deletePluginDir` 留在 App：插件页删除与来源判断仍用它）。
+>
+> ### 2 守住的三条语义
+>
+> - `loadedPluginsRef` 跨 effect 可见 + `splice(0)` 消费 ⇒ 中途打断也不留幽灵命令；
+> - `pluginChainRef` 串行 ⇒ 卸旧代与装新代不交错（不撞「命令 id 重复」）；
+> - 平台门在加载前提前判；加载前落 `LS_LOADING`、`finally` 清（启动自愈靠它指认卡死插件）。
+>
+> ### 3 测试（163 → 173 条）
+>
+> `tests/use-plugin-host.test.tsx` 10 条：扫描与立即加载、懒激活（declare + activate）、
+> 已禁用/平台不符跳过、`LS_LOADING` 落与清、重扫先卸旧代、`.znp` 安装（确认 / 未签名提示 /
+> 取消 / 选文件）、`__znInstallZnp` 挂载与卸载。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 4 warnings · cargo 27 · check-docs · **vitest 173 passed**。
+>
+> ### L3 收官
+>
+> App.tsx 从 **3928 → 2285 行**（−1643），6 个 hook：useFileOps / useDocIO / useDocSession /
+> useDocApi / useExternalFile / usePluginHost。**拆 App 的清单已清空** —— 下一步不再是拆分会话，
+> 而是回到功能/工程债：iframe ↔ 宿主能力通道、插件签名与分发、同步等（见卡片「未决」表）。
+>
 > ## 📌 rev127（2026-10-18 · L3 第五刀：useExternalFile 抽成 hook，App 2583 行）
 >
 > 继续 L3。这一刀抽**外部文件**域：三条入口共用的 `openExternalFile` + 冷启动竞态等待

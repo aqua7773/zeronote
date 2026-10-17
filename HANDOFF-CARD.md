@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev127）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev128）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -20,11 +20,13 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-按顺序拆 L3 剩余部分。每拆一步：**先写测试 → `verify.ps1` 五步全过 → 提交 → HANDOFF 新 rev**，不做批量合并。
+**L3（拆 App.tsx）已收官**（rev122–128，3928 → 2285 行，6 个 hook）。下一轮不再是拆分会话，从「未决 / 下一步」表挑一项：
 
-1. ~~`useDocApi`~~ ✅ **rev126 已完成**（17 条测试，App 2801 行）
-2. ~~`useExternalFile`~~ ✅ **rev127 已完成**（14 条测试，App 2583 行）
-3. **`usePluginHost`**（~500 行）：插件加载链 / `.znp` 安装 / 跨库插件根。动手前先 `rg -n "collectPluginDirs|\.znp|loadPlugin"` 确认真实行号与依赖（旧的 ~1800–2400 已过时）。
+1. **iframe ↔ 宿主能力通道**（v0.2 功能项，需求明确、无前置依赖）
+2. **插件签名（公私钥）/ 分发 / 更新通道**（rev119 已做完整性 sha256 + `.znp` 安装）
+3. 工程债（P3）/ 同步 · AI 标签 · 密级（方向待定）
+
+每做一步：**先写测试 → `verify.ps1` 五步全过 → 提交 → HANDOFF 新 rev**。
 
 ### 本会话踩过的三个坑（务必避开）
 
@@ -32,21 +34,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev127）
+## 最近一轮（rev128）
 
-- **L3 第五刀：`useExternalFile` hook**（`openExternalFile` / `waitDocHandler` / SAF / 待打开 / 文件关联）—— App **2801 → 2583 行**。
-  - 整段迁出，`useExternalFile({ platform, kernel, vault, applyVault, setToast, refs })`；`pickFile` 留在 App。
-  - 「待打开」effect 仍排在 `openNoteRef` 同步 effect 之后（声明顺序即执行顺序）。
-  - 清理 7 个不再使用的 import。
-- **测试 149 → 163 条**：`use-external-file.test.tsx` 14 条。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 163**）。
-- 剩：`usePluginHost`。
+- **L3 第六刀（收官）：`usePluginHost` hook**（加载链 / 懒激活 / `.znp` 安装）—— App **2583 → 2285 行**。
+  - 加载 effect + 安装段整段迁出；`loadedPluginsRef` / `pluginChainRef` 一并迁入。
+  - 清理 plugin-host / plugin-roots / builtin-plugins 与 `confirm` 的导入。
+- **测试 163 → 173 条**：`use-plugin-host.test.tsx` 10 条。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 173**）。
+- **L3 收官**：App **3928 → 2285 行**，6 个 hook。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile → **2583 行**；剩 usePluginHost |
+| App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |
 | 前端单测 | ✅ rev122：102 条（含 15 条组件测试），已并入 `verify.ps1` 第 5 步 |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
