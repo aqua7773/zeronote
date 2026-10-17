@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 121
-更新时间: 2026-10-18（rev121 修两条待定语义 + vitest 并入 verify.ps1 第 5 步）
+revision: 122
+更新时间: 2026-10-18（rev122 App.tsx 拆分 L1+L2：3928→3501 行，测试 102 条）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev122 | 2026-10-18 · **App.tsx 拆分 L1+L2**：4 个 lib 模块 + 5 个组件（3928 → **3501** 行）· 前端测试 **102 条** · 方案 `docs/App拆分方案-2026-10-18.md` |
 | rev121 | 2026-10-18 · 修 rev120 记录的两条待定语义（**merge3 同点插入判冲突** · **command 接管改层栈**）+ **vitest 并入 `verify.ps1` 第 5 步**（44 passed） |
 | rev120 | 2026-10-18 · **前端单测（vitest）**：独立配置 + `tests/` 41 条（merge3 / command / event），记录 2 个待定语义 |
 | rev119 | 2026-10-18 · **插件完整性 sha256**（不符拒载）+ **`.znp` 单文件安装** + 安装确认框（列出自述能力与未签名提示） |
@@ -101,6 +102,53 @@ revision: 121
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev122（2026-10-18 · App.tsx 拆分 L1+L2：3928 → 3501 行）
+>
+> 用户要求：「设计方案然后做拆分，拆完测试」。方案落 `docs/App拆分方案-2026-10-18.md`
+> （分层 L1 模块 / L2 组件 / L3 hook / L4 性能，按风险排序）。本轮做 **L1 + L2**。
+>
+> ### 1 L1：模块级工具 → `src/lib/`（−241 行）
+>
+> | 新模块 | 迁入 |
+> |---|---|
+> | `lib/app-paths.ts` | `vaultKey` · `baseName` · `toLocalPath` · `splitPath` · `samePath` · `relPathIn` · `MD_RE` / `DOC_RE` / `SAF_READABLE_RE` |
+> | `lib/recent.ts` | 最近库/最近命令的读写 · `vaultExists` · 上限常量 |
+> | `lib/fail-msg.ts` | `failMsg` + `FailKind` / 话术表 · `SaveState` |
+> | `lib/boot-heal.ts` | 启动自愈（模块级执行）+ `loadDisabled` + `LS_DISABLED` / `LS_LOADING` |
+>
+> 纯搬移：函数体与注释原样，只改 import/export。
+>
+> ### 2 L2：JSX 块 → `src/components/`（−186 行）
+>
+> `AppSidebar`（侧栏 + FileTree 挂载）· `AppTrashView`（回收站整页）·
+> `AppEmptyState`（空态三态 + Markdown 速查表，`MARKDOWN_CHEATS` 一同迁入）·
+> `AppStatusBar`（计数 + statusbar 面板 + 字数）· `AppResizer`（拖拽分隔线）。
+>
+> 均为纯 props 渲染、不持有状态；二次确认、抽屉开关等状态仍留在 App。
+>
+> ### 3 测试（44 → **102 条**）
+>
+> - L1 单测 43 条：`app-paths` 20 · `recent` 9 · `fail-msg` 7 · `boot-heal` 7（启动自愈用动态 import + localStorage 替身）。
+> - L2 组件测试 15 条（happy-dom + @testing-library/react）：`AppEmptyState` 4 · `AppTrashView` 6（含点两次确认）· `AppStatusBar` 5。
+> - `vitest.config.ts` 的 include 扩到 `tests/**/*.test.{ts,tsx}`。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint **6 warnings（未新增）** · cargo 27 passed · check-docs · **vitest 102 passed**。
+>
+> ### 5 踩坑记录
+>
+> 用脚本按行号删除迁移段落时，中途又做过一次 edit ⇒ 行号偏移，误删了
+> `DOC_CHANGE_DEBOUNCE_MS` 与 `MARKDOWN_CHEATS` 的结尾，tsc 报 `TS1128`。已按残片修复；
+> 教训：**按行号改文件时，先落最终行号再做一次 edit 都不要**，或每次改完重新 grep 定位。
+>
+> ### 仍未做（L3）
+>
+> 状态域 hook 化（`useDocSession` / `usePluginHost` / `useFileOps`）—— 共享 20+ state/ref，
+> 风险高；组件测试已就位，建议下一轮逐个抽、每抽一个跑一次 verify。
+
+
+>
 > ## 📌 rev121（2026-10-18 · 修两条待定语义 + vitest 并入 verify）
 >
 > 用户裁决「一起做」（rev120 末列的两条路都做）。

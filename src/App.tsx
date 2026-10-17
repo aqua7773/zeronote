@@ -38,7 +38,6 @@ import type {
  * setPermission / PermissionTable）**已全部移除** —— 内核不再做权限判定。
  * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
  * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
-import { FileTree } from './components/FileTree'
 import { MarkdownEditor } from './components/MarkdownEditor'
 import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
@@ -50,6 +49,12 @@ import { WindowControls } from './components/WindowControls'
 import { Settings } from './components/Settings'
 import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
+/* rev122 拆分 L2：侧栏 / 回收站 / 空态 / 状态栏 —— 原样迁到 components/ */
+import { AppSidebar } from './components/AppSidebar'
+import { AppTrashView } from './components/AppTrashView'
+import { AppEmptyState } from './components/AppEmptyState'
+import { AppResizer } from './components/AppResizer'
+import { AppStatusBar } from './components/AppStatusBar'
 import {
   applyTheme,
   loadThemePref,
@@ -58,8 +63,37 @@ import {
   type ThemePref,
 } from './lib/theme'
 import { setStatusBarVisible } from './lib/systemBar'
-import { looksLikeStoragePermissionError, requestAllFilesAccess } from './lib/androidPerm'
+import { requestAllFilesAccess } from './lib/androidPerm'
 import { mergeLines } from './lib/merge3'
+/* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
+import {
+  baseName,
+  DOC_RE,
+  MD_RE,
+  relPathIn,
+  SAF_READABLE_RE,
+  samePath,
+  splitPath,
+  toLocalPath,
+  vaultKey,
+} from './lib/app-paths'
+import {
+  loadRecentCommands,
+  loadRecentVaults,
+  LS_RECENT_CMDS,
+  persistRecentVaults,
+  RECENT_CMDS_MAX,
+  RECENT_VAULTS_MAX,
+  vaultExists,
+} from './lib/recent'
+import { failMsg, type SaveState } from './lib/fail-msg'
+import {
+  bootAutoDisabled,
+  bootAutoDisabledNotice,
+  loadDisabled,
+  LS_DISABLED,
+  LS_LOADING,
+} from './lib/boot-heal'
 import { renderPanelSafe } from './kernel/panel-safe'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
@@ -67,7 +101,6 @@ import { SearchPanel } from './components/SearchPanel'
 import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
 import {
-  Button,
   ContextMenu,
   Dialog,
   DialogBody,
@@ -76,7 +109,6 @@ import {
 } from '@/components/ui'
 
 const LS_VAULT = 'zeronote.vault'
-const LS_DISABLED = 'zeronote.plugins.disabled'
 const AUTOSAVE_MS = 800
 /**
  * `doc.on('change')` 的**去抖窗口**（U3b 决策，2026-10-13）。
@@ -91,273 +123,6 @@ const AUTOSAVE_MS = 800
  * 硬分会把判据塞进内核（违背"内核保持薄"）。要更细的粒度由插件自己再压一层。
  */
 const DOC_CHANGE_DEBOUNCE_MS = 200
-/** 命令面板的「最近使用」——持久化，重启后依然置顶（上限 8 条） */
-const LS_RECENT_CMDS = 'zeronote.commands.recent'
-const RECENT_CMDS_MAX = 8
-/** 最近打开过的库（侧栏底部的「切换笔记库」菜单用；上限 8 条，最近在前） */
-const LS_RECENT_VAULTS = 'zeronote.vaults.recent'
-const RECENT_VAULTS_MAX = 8
-
-/**
- * 起始页的 **Markdown 标记速查表**（2026-10-17 用户：「起始页改成markdown各种标记提示，
- * 新建笔记可以保留」）。左列是写法、右列是作用；点「新建笔记」照抄即可。
- */
-const MARKDOWN_CHEATS: { syntax: string; desc: string }[] = [
-  { syntax: '# 标题', desc: '一到六级标题' },
-  { syntax: '**粗体**', desc: '加粗' },
-  { syntax: '*斜体*', desc: '斜体' },
-  { syntax: '~~删除~~', desc: '删除线' },
-  { syntax: '- 项目', desc: '无序列表（Tab 缩进）' },
-  { syntax: '1. 第一项', desc: '有序列表' },
-  { syntax: '- [ ] 待办', desc: '任务列表（[x] 已完成）' },
-  { syntax: '> 引用', desc: '引用（> > 二级嵌套）' },
-  { syntax: '`行内代码`', desc: '行内代码' },
-  { syntax: '```', desc: '代码块' },
-  { syntax: '[文字](链接)', desc: '链接（点 ↗ 打开）' },
-  { syntax: '![说明](图片)', desc: '图片' },
-  { syntax: '| A | B |', desc: '表格（:---: 控制对齐）' },
-  { syntax: '---', desc: '分割线' },
-]
-
-/**
- * 库路径的去重口径：Windows 下大小写与斜杠方向都不敏感，
- * 同一个库写成 `C:\a\b` 和 `c:/a/b/` 得算同一条。
- */
-function vaultKey(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-}
-
-/** 路径最后一段（库目录名）；末位斜杠先吃掉 */
-function baseName(p: string): string {
-  return p.split(/[\\/]/).filter(Boolean).pop() ?? p
-}
-
-function loadRecentVaults(): string[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_VAULTS) ?? '[]')
-    if (!Array.isArray(raw)) return []
-    return raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_VAULTS_MAX)
-  } catch {
-    return []
-  }
-}
-
-/** 写回「最近打开过的库」（配额不足 / 隐私模式下写不进也不影响调用方） */
-function persistRecentVaults(list: string[]): void {
-  try {
-    localStorage.setItem(LS_RECENT_VAULTS, JSON.stringify(list))
-  } catch {
-    /* 存不下就算了 —— 本次照常展示，只是重启后可能回到旧值 */
-  }
-}
-
-/**
- * 库目录是否**仍然存在**（Rust 侧只读探测，什么都不建）。
- *
- * 失败时保守返回 `true`：宁可留着一条过期记录，也不要误删用户的库记录
- * —— 老内核没有这条命令、浏览器预览里也没有。
- */
-async function vaultExists(dir: string): Promise<boolean> {
-  try {
-    return await invoke<boolean>('vault_exists', { vault: dir })
-  } catch {
-    return true
-  }
-}
-
-function loadRecentCommands(): string[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(LS_RECENT_CMDS) ?? '[]')
-    if (!Array.isArray(raw)) return []
-    return raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_CMDS_MAX)
-  } catch {
-    return []
-  }
-}
-
-/**
- * 把底层异常翻译成用户能懂的话。
- *
- * 依据 NN/g Error-Message Guidelines：说清**具体出了什么问题**、给出**可执行的补救**，
- * 不罗列错误码、不指责用户、不过早报错。原始异常仍附在末尾括号里 ——
- * 排查时有用，但不占主位。
- */
-type FailKind = 'read' | 'write' | 'create' | 'rename' | 'delete' | 'list' | 'vault'
-
-const FAIL_BASE: Record<FailKind, string> = {
-  read: '无法打开这篇笔记',
-  write: '保存失败',
-  create: '新建笔记失败',
-  rename: '重命名失败',
-  delete: '删除失败',
-  list: '读取笔记库失败',
-  vault: '这个文件夹无法作为笔记库',
-}
-
-const FAIL_HINT: Record<FailKind, string> = {
-  read: '文件可能已被移动或删除，可点「重新扫描」。',
-  write: '磁盘可能已满或文件被占用；内容仍在编辑器里，稍后重试即可。',
-  create: '请确认笔记库可写。',
-  rename: '请检查是否与现有文件重名。',
-  delete: '文件可能正被其他程序占用。',
-  list: '笔记库可能已被移动或删除，可重新选择一个文件夹。',
-  vault: '请确认该文件夹有读写权限。',
-}
-
-function failMsg(kind: FailKind, e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e)
-  // 重名走同一句人话（重命名与新建都可能撞名）
-  if ((kind === 'rename' || kind === 'create') && /exists|已?存在/i.test(raw)) {
-    return '已存在同名笔记。'
-  }
-  /**
-   * **缺「所有文件访问」权限**必须说清"怎么办"（rev64）。
-   *
-   * 原来只是干巴巴一句 `Permission denied (os error 13)`：用户既不知道是哪个权限、
-   * 也不知道去哪开 —— 它是 Android 的特殊权限、**系统不弹窗申请**，猜是猜不到的。
-   * 这里补上唯一可操作的那一步（命令面板入口已随 rev64 加进内核）。
-   */
-  if (looksLikeStoragePermissionError(raw)) {
-    return '没有「所有文件访问」权限，读不到库里的文件。到 ☰ → 命令面板运行「请求『所有文件访问』权限」，在系统页面允许后再重新扫描插件。'
-  }
-  return `${FAIL_BASE[kind]}：${FAIL_HINT[kind]}（${raw}）`
-}
-
-type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-
-/* ── 文件关联（双击 .md / 「打开方式」递进来的路径）小工具 ── */
-
-/** 只认 `.md` / `.markdown`（与 Rust 侧 `is_markdown` 同一口径） */
-const MD_RE = /\.(md|markdown)$/i
-
-/**
- * **只读文档**的扩展名（pdf / epub / …），2026-10-14 加。
- * ⚠️ 口径必须与 Rust 侧 `DOC_EXTS`（`src-tauri/src/lib.rs`）**一致** ——
- * 那边决定"文件树里列不列"，这边决定"系统「打开方式」递进来时认不认"。改一处要改两处。
- */
-const DOC_RE = /\.(pdf|epub|mobi|azw3|azw|fb2|cbz|txt)$/i
-
-/**
- * **从别的 App 递进来**（`content://`）时允许阅读的扩展名 —— 比 `DOC_RE` **多 md / markdown**。
- *
- * 为什么单独一份：库内的 `.md` 是**笔记**，必须走编辑器（`openNote`）；只有"库外的 md"
- * 才用阅读器只读打开。共用一个常量会把库内 md 也推进阅读器 ⇒ 笔记没法编辑了。
- *
- * ⚠️ **2026-10-14 踩过**：content:// 分支一开始复用了 `DOC_RE`（不含 md），于是从文件管理器
- * 打开 md 被自己的检查拦掉，而 toast 还写着"支持 pdf / epub / txt / md 等" —— 自相矛盾
- * （用户截图报的就是这个）。
- */
-const SAF_READABLE_RE = /\.(pdf|epub|mobi|azw3|azw|fb2|cbz|txt|md|markdown)$/i
-
-/**
- * `file:///C:/a/b.md` → 本地路径。
- *
- * Rust 侧其实已经转过一道（`url_to_path`），这里是**第二道保险** ——
- * 系统递进来的 URI 形态随平台而变，前端不该假设它一定是干净的路径。
- * 非 file scheme（`content://…`）原样返回，交给调用方给出说明。
- */
-function toLocalPath(raw: string): string {
-  const s = raw.trim()
-  if (!/^file:\/\//i.test(s)) return s
-  let p = s.slice('file://'.length)
-  try {
-    p = decodeURIComponent(p)
-  } catch {
-    /* 含裸 `%` 的路径解不开就用原文 —— 总比抛异常强 */
-  }
-  // file:///C:/x ⇒ /C:/x；Windows 上得去掉盘符前那条斜杠
-  if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1)
-  return p
-}
-
-/** 拆出父目录与文件名（两种分隔符都认：Android 是 POSIX 路径，桌面是 Windows 路径） */
-function splitPath(p: string): { dir: string; name: string } {
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i < 0 ? { dir: '', name: p } : { dir: p.slice(0, i), name: p.slice(i + 1) }
-}
-
-/** 路径比较：统一分隔符、去尾斜杠、忽略大小写（Windows 不区分大小写；放宽比较在其它平台无害） */
-function samePath(a: string, b: string): boolean {
-  const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return norm(a) === norm(b)
-}
-
-/**
- * 若 `path` 落在库 `vault` 之内，返回**库内相对路径**（`/` 分隔）；否则 `null`。
- * 返回 `null` 的两种情况：不在库里，或它本身就是库目录。
- */
-function relPathIn(vault: string, path: string): string | null {
-  const v = vault.replace(/\\/g, '/').replace(/\/+$/, '')
-  const p = path.replace(/\\/g, '/')
-  if (!v) return null
-  const prefix = `${v.toLowerCase()}/`
-  if (p.toLowerCase() === v.toLowerCase() || !p.toLowerCase().startsWith(prefix)) return null
-  return p.slice(prefix.length) || null
-}
-
-/* ── 卡死兜底 C 段：启动自愈 ──
- *
- * `LS_LOADING` 是"即将加载某个插件"时落下的标记（见插件加载循环里那两行）：
- * 正常路径（加载成功 / 加载失败 / 正常关窗）都会清掉它。所以**启动时还能读到它**，
- * 只可能是**上一次进程在加载那个插件时死掉了** —— 主线程被占死（看门狗杀的），
- * 或用户/系统强杀（这两种情况分不出来，所以一律按前者处置）。
- *
- * 处置：并入禁用集合 —— **宁可少加载一个插件，也不要一开就再卡一次**。
- * 代价是"强杀应用"也会误伤一个插件，所以必须 **可见 + 可一键恢复 + 有日志**
- *（不许静默：静默失效比报错危险）。
- *
- * ⚠️ 为什么放在**模块级**而不是组件里：`toast` 的 `useState` 在 `disabled` 之前，
- * 组件里跑就没法同时喂给两个初值；模块级只在加载时跑一次，顺序与次数都确定
- *（本仓库已移除 StrictMode，不存在双跑）。
- */
-const LS_LOADING = 'zeronote.plugins.loading'
-/** 启动自愈认出的插件（`loadDisabled()` 与插件页共用） */
-const bootAutoDisabled = new Set<string>()
-/** 给用户看的那句话（`toast` 初值直接用） */
-let bootAutoDisabledNotice: string | null = null
-
-function bootSelfHeal() {
-  let raw: string | null = null
-  try {
-    raw = localStorage.getItem(LS_LOADING)
-  } catch {
-    return
-  }
-  if (!raw) return
-  try {
-    localStorage.removeItem(LS_LOADING) // 用过即清：下次启动不再重复判定
-  } catch {
-    /* 清不掉也不影响本次判定 */
-  }
-  try {
-    const id = (JSON.parse(raw) as { id?: unknown })?.id
-    if (typeof id !== 'string' || !id) return
-    bootAutoDisabled.add(id)
-    bootAutoDisabledNotice = `上次加载「${id}」时卡死，已自动禁用它（可在「插件管理」里重新启用）`
-  } catch {
-    /* 标记坏了就当没有 —— 不能因为一条坏标记卡住启动 */
-  }
-}
-bootSelfHeal()
-
-function loadDisabled(): Set<string> {
-  let set: Set<string>
-  try {
-    set = new Set<string>(JSON.parse(localStorage.getItem(LS_DISABLED) ?? '[]'))
-  } catch {
-    set = new Set()
-  }
-  // C 段：把启动自愈认出的插件并进去，**并落盘** —— 否则用户下次刷新它又被加载（又卡一次）
-  if (bootAutoDisabled.size) {
-    for (const id of bootAutoDisabled) set.add(id)
-    try {
-      localStorage.setItem(LS_DISABLED, JSON.stringify([...set]))
-    } catch {
-      /* 写不进去就只在本次会话生效（总比再卡一次好） */
-    }
-  }
-  return set
-}
 
 export default function App() {
   /* ── 库与文档 ── */
@@ -3395,182 +3160,55 @@ export default function App() {
         }}
       >
       {showSidebar && (
-      <aside className={`zn-sidebar${sidebarOpen ? ' is-open' : ''}`} style={{ width: sidebarWidth }}>
-        <div className="zn-sidebar-head">
-          {/* 固定显示应用名；具体是哪个库看状态栏右侧的完整路径（那儿更准确）。
-              悬停在这行上仍能看到库路径，信息没丢。 */}
-          <span className="zn-vault-name" title={vault ?? ''}>
-            ZeroNote
-          </span>
-        </div>
-        {vault ? (
-          <FileTree
-            notes={notes}
-            dirs={dirs}
-            activePath={activePath}
-            onOpen={(p) => {
-              /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
-                 走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
-              const meta = notes.find((n) => n.path === p)
-              if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
-              else void openNote(p)
-            }}
-            onNewFile={newNoteIn}
-            onNewDir={newDirIn}
-            onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
-            onDeleteMany={(paths) => void deleteNotes(paths)}
-            onPurgeMany={(paths) => void purgeNotes(paths)}
-            clipboard={clipboard}
-            onCut={cutPaths}
-            onCopy={copyPaths}
-            onPaste={(dir) => void pasteInto(dir)}
-            onDuplicate={(path) => void duplicateEntry(path)}
-            layers={layerExitsRef}
-          />
-        ) : (
-          <div
-            className="zn-tree"
-            style={{ fontSize: 'var(--zn-text-sm)', color: 'var(--zn-fg-subtle)' }}
-          >
-            还没选择笔记库
-          </div>
-        )}
-        {/* 库信息归侧栏底部（用户要求）；状态栏留给文档级信息。
-            这里显示库目录名，完整路径挂在 tooltip 上。
-            它是一个**按钮**：点一下弹「切换笔记库」（最近打开过的库 + 打开其它文件夹…），
-            不必再绕系统目录选择器。菜单贴在按钮上方展开（见 openVaultMenu）。 */}
-        {/* 回收站入口（常驻）—— 删除一直是进 `.zn/trash/` 的，这是唯一能再拿到它们的地方 */}
-        <button
-          type="button"
-          className="zn-sidebar-foot"
-          onClick={openTrash}
-          title="回收站：删除的笔记都在这里，可恢复"
-        >
-          🗑 回收站
-        </button>
-        <button
-          type="button"
-          className="zn-sidebar-foot"
-          title={vault ?? ''}
-          aria-haspopup="menu"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            void openVaultMenu(r.left, r.top)
+        <AppSidebar
+          vault={vault}
+          notes={notes}
+          dirs={dirs}
+          activePath={activePath}
+          open={sidebarOpen}
+          width={sidebarWidth}
+          layers={layerExitsRef}
+          clipboard={clipboard}
+          onOpen={(p) => {
+            /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
+               走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
+            const meta = notes.find((n) => n.path === p)
+            if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
+            else void openNote(p)
           }}
-        >
-          {vault ? baseName(vault) : '未选择笔记库'}
-        </button>
-      </aside>
+          onNewFile={newNoteIn}
+          onNewDir={newDirIn}
+          onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
+          onDeleteMany={(paths) => void deleteNotes(paths)}
+          onPurgeMany={(paths) => void purgeNotes(paths)}
+          onCut={cutPaths}
+          onCopy={copyPaths}
+          onPaste={(dir) => void pasteInto(dir)}
+          onDuplicate={(path) => void duplicateEntry(path)}
+          onOpenTrash={openTrash}
+          onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
+        />
       )}
 
       {showSidebar && isDesktop && (
-        /* 分隔线：拖它调左右占比。事件挂在 document 上 —— 指针拖快时会跑出这条
-           5px 的窄线，只绑在自己身上会丢事件。拖拽期间临时锁掉文字选择与光标。
-           只在桌面渲染：移动端侧栏是抽屉，宽度由抽屉自己定，没有"调占比"这回事。 */
-        <div
-          className="zn-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="拖动调整笔记库栏宽度"
-          onPointerDown={(e) => {
-            // 用 Pointer Events 而不是 mouse 系列：鼠标、触摸、触控笔一套搞定，
-            // Android 上没有 mousedown，用 mouse 事件这条分隔线在手机上根本拖不动。
-            e.preventDefault()
-            const startX = e.clientX
-            const startW = sidebarWidth
-            const onMove = (ev: PointerEvent) => {
-              setSidebarWidth(Math.min(560, Math.max(160, startW + (ev.clientX - startX))))
-            }
-            const onUp = () => {
-              document.removeEventListener('pointermove', onMove)
-              document.removeEventListener('pointerup', onUp)
-              document.body.classList.remove('is-resizing')
-            }
-            document.addEventListener('pointermove', onMove)
-            document.addEventListener('pointerup', onUp)
-            // 用 class 而不是 inline style：拖快时指针会甩到编辑器上，
-            // 而 CodeMirror 内部有自己的 user-select，光设 body 的 inline 压不住它。
-            document.body.classList.add('is-resizing')
-          }}
-        />
+        /* 分隔线：拖它调左右占比（实现见 AppResizer，含 document 级事件与夹限） */
+        <AppResizer width={sidebarWidth} onResize={setSidebarWidth} />
       )}
 
       <main className="zn-main">
         {mainView === 'trash' ? (
-          /* 回收站：整页视图（与插件管理共用同一套主区骨架） */
-          <div className="zn-main-panel">
-            <div className="zn-main-panel-bar">
-              <span>回收站</span>
-              <div className="zn-main-panel-actions">
-                {trash.length > 0 && (
-                  <button
-                    type="button"
-                    className={`zn-plain-btn${confirmEmpty ? ' is-danger' : ''}`}
-                    onClick={() => {
-                      // 不可撤销 ⇒ 点两次
-                      if (confirmEmpty) void emptyTrashAll()
-                      else setConfirmEmpty(true)
-                    }}
-                    title="清空回收站（不可撤销）"
-                  >
-                    {confirmEmpty ? `确认清空 ${trash.length} 项？` : '清空回收站'}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="zn-plain-btn"
-                  onClick={() => setMainView('editor')}
-                  title="返回编辑器"
-                >
-                  返回编辑器
-                </button>
-              </div>
-            </div>
-            <div className="zn-main-panel-body">
-              {trash.length === 0 ? (
-                <div className="zn-trash-empty">回收站是空的</div>
-              ) : (
-                <ul className="zn-trash-list">
-                  {trash.map((t) => (
-                    <li key={t.id} className="zn-trash-row">
-                      <div className="zn-trash-main">
-                        <span className="zn-trash-name">
-                          {t.isDir ? '📁 ' : ''}
-                          {t.name}
-                        </span>
-                        <span className="zn-trash-meta">
-                          {t.originalPath ?? '原位置未知（旧格式条目）'} ·{' '}
-                          {new Date(t.deletedAt).toLocaleString()} · {fmtSize(t.size)}
-                        </span>
-                      </div>
-                      <div className="zn-trash-actions">
-                        <button
-                          type="button"
-                          className="zn-plain-btn"
-                          onClick={() => void restoreTrashItem(t.id)}
-                          title={t.originalPath ? `恢复到 ${t.originalPath}` : '恢复到库根'}
-                        >
-                          恢复
-                        </button>
-                        <button
-                          type="button"
-                          className={`zn-plain-btn${confirmPurge === t.id ? ' is-danger' : ''}`}
-                          onClick={() => {
-                            // 不可撤销 ⇒ 点两次
-                            if (confirmPurge === t.id) void purgeTrashItem(t.id)
-                            else setConfirmPurge(t.id)
-                          }}
-                          title="彻底删除（不可撤销）"
-                        >
-                          {confirmPurge === t.id ? '确认删除' : '彻底删除'}
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
+          <AppTrashView
+            trash={trash}
+            confirmEmpty={confirmEmpty}
+            confirmPurge={confirmPurge}
+            onEmpty={() => void emptyTrashAll()}
+            onConfirmEmpty={() => setConfirmEmpty(true)}
+            onRestore={(id) => void restoreTrashItem(id)}
+            onPurge={(id) => void purgeTrashItem(id)}
+            onConfirmPurge={(id) => setConfirmPurge(id)}
+            onBack={() => setMainView('editor')}
+            fmtSize={fmtSize}
+          />
         ) : pagePanel || mainView === 'plugins' ? (
           /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
@@ -3708,89 +3346,24 @@ export default function App() {
              ② 给学习线索（快捷键就地教学）
              ③ 给一个真正能点的开始动作
              分三种情况，不用同一句话糊弄「有库但没打开」的场景。 */
-          <div className="zn-empty">
-            {!vault ? (
-              <>
-                <h1>ZeroNote</h1>
-                <p>
-                  还没有打开笔记库。选一个文件夹 —— 里面的 <code>.md</code> 就是你的笔记；
-                  内核只负责 <b>读写</b>、<b>编辑</b>、<b>本地存储</b> 与 <b>插件宿主</b>。
-                </p>
-                <Button variant="primary" size="lg" onClick={() => void pickVault()}>
-                  选择笔记库
-                </Button>
-              </>
-            ) : notes.length === 0 ? (
-              <>
-                <h1>这个库还没有笔记</h1>
-                <p>
-                  <code>{vault.split(/[\\/]/).pop()}</code> 里还没有 <code>.md</code> 文件。
-                </p>
-                <Button variant="primary" size="lg" onClick={() => runCore('core.newNote')}>
-                  新建第一条
-                </Button>
-              </>
-            ) : (
-              <>
-                <h1>选一篇开始</h1>
-                <p>从左侧列表打开，或新建一篇。常用 Markdown 标记：</p>
-                <Button variant="primary" size="lg" onClick={() => runCore('core.newNote')}>
-                  新建笔记
-                </Button>
-                {/* Markdown 速查表（2026-10-17 用户：起始页改成标记提示，新建按钮保留） */}
-                <div className="zn-md-cheatsheet">
-                  {MARKDOWN_CHEATS.map((c) => (
-                    <div key={c.syntax} className="zn-md-cheat">
-                      <code>{c.syntax}</code>
-                      <span>{c.desc}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            <div className="zn-empty-keys">
-              <span>
-                <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建
-              </span>
-              <span>
-                <kbd>Ctrl</kbd>+<kbd>P</kbd> 命令面板
-              </span>
-              <span>
-                <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> 搜索
-              </span>
-            </div>
-          </div>
+          <AppEmptyState
+            vault={vault}
+            notes={notes}
+            onPickVault={() => void pickVault()}
+            onNewNote={() => runCore('core.newNote')}
+          />
         )}
 
-        <div className="zn-statusbar">
-          {/* 左半：库信息与常驻面板。整块包一层，保证从最左开始 ——
-              之前只靠末尾一个 margin-left:auto 的空元素压尾，内容为空时排版会漂。 */}
-          <div className="zn-statusbar-left">
-            {/* 「篇」只数**笔记**：文档（pdf/epub/…）不是笔记，混进同一个数字会误导 */}
-            <span>
-              {notes.filter((n) => n.kind !== 'doc').length} 篇
-              {notes.some((n) => n.kind === 'doc')
-                ? ` · ${notes.filter((n) => n.kind === 'doc').length} 文档`
-                : ''}
-            </span>
-            {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}
-            {statusPanels.map((p) => (
-              <PanelBoundary key={p.id}>
-                <UIRenderer
-                  node={renderPanelSafe(p, panelState)}
-                  state={panelState}
-                  onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                  onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-                />
-              </PanelBoundary>
-            ))}
-            {error && <span style={{ color: 'var(--zn-danger)' }}>⚠ {error}</span>}
-          </div>
-          {/* 右下角：当前文档字数（不含空白） */}
-          <span title="当前文档字数（不含空白）">
-            {activePath ? `${charCount.toLocaleString()} 字` : ''}
-          </span>
-        </div>
+        <AppStatusBar
+          notes={notes}
+          statusPanels={statusPanels}
+          panelState={panelState}
+          error={error}
+          activePath={activePath}
+          charCount={charCount}
+          onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+          onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+        />
       </main>
       </div>
 

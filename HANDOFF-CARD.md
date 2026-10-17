@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev121）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev122）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,19 +18,21 @@ pwsh -File scripts\verify.ps1
 # 五步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过
 ```
 
-## 最近一轮（rev121）
+## 最近一轮（rev122）
 
-- **修 rev120 记录的两条待定语义**：① `merge3` 同点插入改判**冲突**（mine 赢、theirs 那段丢弃）；
-  ② `command` 接管改**层栈**（`dispose` 只摘自己那层 ⇒ A 先卸、B 后卸落回内核，不再有僵尸实现）。
-- **vitest 并入 `verify.ps1` 第 5 步**：自检从四步变五步，基线行含 `vitest 44 passed`。
-- 验收：`verify.ps1` 五步全过（cargo 27 · **vitest 44** · tsc 0 · oxlint 6 warnings · check-docs）。
-- 备注：`.ps1` 改完跑过 `fix-bom.ps1`（edit 会剥 BOM，已恢复）。
+- **App.tsx 拆分 L1+L2**（方案 `docs/App拆分方案-2026-10-18.md`）：**3928 → 3501 行**。
+  - L1：`lib/app-paths` · `lib/recent` · `lib/fail-msg` · `lib/boot-heal`（纯搬移）。
+  - L2：`components/AppSidebar` · `AppTrashView` · `AppEmptyState` · `AppStatusBar` · `AppResizer`。
+- **测试 44 → 102 条**：L1 单测 43 + L2 组件测试 15（happy-dom + @testing-library/react）。
+- 验收：`verify.ps1` 五步全过（tsc 0 · oxlint 6 warnings · cargo 27 · check-docs · **vitest 102**）。
+- 未做 L3：状态域 hook 化（共享 20+ state/ref，风险高，下一轮逐个抽）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| 前端单测 | ✅ rev121：44 条，已并入 `verify.ps1` 第 5 步；无组件测试 |
+| App.tsx 拆分 | ✅ rev122 L1+L2（3928 → 3501 行）；L3 状态 hook 化待做 |
+| 前端单测 | ✅ rev122：102 条（含 15 条组件测试），已并入 `verify.ps1` 第 5 步 |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
 | 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项、P3 工程债 |
@@ -55,7 +57,7 @@ pwsh -File scripts\verify.ps1
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
-- **前端单测**：`pnpm test`（vitest，`tests/**/*.test.ts`）；已并入 `verify.ps1` 第 5 步，不依赖浏览器/tauri mock。
+- **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，102 条）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。
 - `.gitignore`：`_shots/`、`_tmp-*/`、`examples/*/store.json`。
 
