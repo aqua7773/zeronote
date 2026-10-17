@@ -19,7 +19,7 @@ $lintOut = (pnpm exec oxlint src 2>&1 | Out-String)
 $warn = [regex]::Match($lintOut, 'Found\s+(\d+)\s+warnings?').Groups[1].Value
 if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ oxlint 失败（有 error）' -ForegroundColor Red }
 elseif (-not $warn) { $fail++; Write-Host '❌ oxlint 输出里找不到 warning 数（解析规则要跟着输出格式改）' -ForegroundColor Yellow }
-else { Write-Host "✅ oxlint：0 error · $warn warnings（基线 4）" -ForegroundColor Green }
+else { Write-Host "✅ oxlint：0 error · $warn warnings" -ForegroundColor Green }
 
 Write-Host '=== 3/4 内核单元测试（cargo test --lib）===' -ForegroundColor Cyan
 # 本机铁律：Rust 产物必须在工作区之外
