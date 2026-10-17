@@ -1,0 +1,84 @@
+import { invoke } from '@tauri-apps/api/core'
+
+/**
+ * **内置插件**（2026-10-17）。
+ *
+ * 用户反馈：安卓上插件目录在应用私有空间，用户没法像桌面那样自己拷 ——
+ * 「安卓插件能不能不用自己一道目录，而是默认放在目录，要安装其他插件的时候再自己添加到目录里面」。
+ *
+ * 做法：把常用插件的源码用 vite 的 `?raw` **打进前端包**，App 启动时通过
+ * `write_plugin_file` 写进 `<私有根>/.zn/plugins/<id>/`（已存在则覆盖为内置版本）。
+ * 用户之后要装别的插件，仍然是往同一个目录里加（桌面/安卓一致）。
+ *
+ * ⚠️ 只打包**运行必需**的文件（index.js / manifest.json / 样式），不带 selftest / store。
+ */
+
+// outline-map（大纲 · 导图）
+import outlineMapIndex from '../../examples/outline-map/index.js?raw'
+import outlineMapManifest from '../../examples/outline-map/manifest.json?raw'
+import outlineMapCss from '../../examples/outline-map/outline.css?raw'
+// daily-note（当天目录新建）
+import dailyNoteIndex from '../../examples/daily-note/index.js?raw'
+import dailyNoteManifest from '../../examples/daily-note/manifest.json?raw'
+// doc-reader（文档阅读器）
+import docReaderIndex from '../../examples/doc-reader/index.js?raw'
+import docReaderManifest from '../../examples/doc-reader/manifest.json?raw'
+// import-export（导入导出）
+import importExportIndex from '../../examples/import-export/index.js?raw'
+import importExportManifest from '../../examples/import-export/manifest.json?raw'
+// inspiration-flow（灵感流）
+import inspirationIndex from '../../examples/inspiration-flow/index.js?raw'
+import inspirationManifest from '../../examples/inspiration-flow/manifest.json?raw'
+// tag-demo（标签）
+import tagIndex from '../../examples/tag-demo/index.js?raw'
+import tagManifest from '../../examples/tag-demo/manifest.json?raw'
+// editor-marks（编辑器标记：[[引用]] / #标签 / ==高亮==）
+import marksIndex from '../../examples/editor-marks/index.js?raw'
+import marksManifest from '../../examples/editor-marks/manifest.json?raw'
+// theme-sepia（米色主题，纯 CSS）
+import sepiaManifest from '../../examples/theme-sepia/manifest.json?raw'
+import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
+
+type BuiltinPlugin = { id: string; files: Record<string, string> }
+
+export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
+  {
+    id: 'outline-map',
+    files: {
+      'index.js': outlineMapIndex,
+      'manifest.json': outlineMapManifest,
+      'outline.css': outlineMapCss,
+    },
+  },
+  { id: 'daily-note', files: { 'index.js': dailyNoteIndex, 'manifest.json': dailyNoteManifest } },
+  { id: 'doc-reader', files: { 'index.js': docReaderIndex, 'manifest.json': docReaderManifest } },
+  {
+    id: 'import-export',
+    files: { 'index.js': importExportIndex, 'manifest.json': importExportManifest },
+  },
+  {
+    id: 'inspiration-flow',
+    files: { 'index.js': inspirationIndex, 'manifest.json': inspirationManifest },
+  },
+  { id: 'tag-demo', files: { 'index.js': tagIndex, 'manifest.json': tagManifest } },
+  { id: 'editor-marks', files: { 'index.js': marksIndex, 'manifest.json': marksManifest } },
+  { id: 'theme-sepia', files: { 'manifest.json': sepiaManifest, 'theme.css': sepiaCss } },
+]
+
+/**
+ * 把内置插件写进当前库的私有插件目录。
+ *
+ * 幂等：每次都覆盖为内置版本（保证升级后代码一致）；用户自己加的插件不受影响。
+ * 单个文件失败只警告、不中断（少一个图标样式不该让整个 App 起不来）。
+ */
+export async function ensureBuiltinPlugins(vault: string): Promise<void> {
+  for (const plugin of BUILTIN_PLUGINS) {
+    for (const [rel, content] of Object.entries(plugin.files)) {
+      try {
+        await invoke('write_plugin_file', { vault, pluginId: plugin.id, rel, content })
+      } catch (e) {
+        console.warn(`[zn] 内置插件 ${plugin.id}/${rel} 写入失败`, e)
+      }
+    }
+  }
+}

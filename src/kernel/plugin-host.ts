@@ -75,9 +75,33 @@ const ALLOWED_CAPABILITIES: readonly Capability[] = [
  * 出事的兜底是**修复机制**（`scripts/kernel-restore.mjs` / `修复内核.cmd`），不是防护。
  */
 
+/**
+ * 插件住在**哪一个** `.zn/plugins/` 下。
+ *
+ * 2026-10-17 起插件有两个来源（见 `plugin-roots.ts`）：
+ *  - `global` —— 应用级共享目录（`appDataDir()`），**所有笔记库都能用**；
+ *  - `vault`  —— 当前库自己的目录（`<库>/.zn/plugins/`，Android 多库时是库根那份）。
+ *
+ * 身份必须跟着插件走，不能只记目录名：同一个 `dir` 可能两处都有，
+ * 而读 manifest / 读入口 / 写 store / 删除的路径算法全靠这个根。
+ */
+export type PluginSource = 'global' | 'vault'
+
+/** 一次扫描得到的插件条目 */
+export type PluginDirEntry = {
+  /** `.zn/plugins/` 下的目录名 */
+  dir: string
+  /** 该插件所在的根（全局根 / 库根）—— 读文件、写 store、删除都按它算路径 */
+  root: string
+  source: PluginSource
+}
+
 export type LoadedPlugin = {
   /** `.zn/plugins/` 下的目录名 */
   dir: string
+  /** 这份插件从哪个根加载（卸载/重扫时读文件、写 store 仍按它算） */
+  root: string
+  source: PluginSource
   manifest: PluginManifest
   instance: Plugin
   /** 插件登记的全部资源（卸载时逐个 dispose） */
@@ -97,7 +121,7 @@ export type PluginHostDeps = {
   event: EventApi
   command: CommandApi
   view: ViewApi
-  store: (pluginId: string) => StoreApi
+  store: (pluginId: string, root?: string) => StoreApi
   host: HostApi
   /** 服务注册表（按插件 id 视图化）—— 「前置插件」靠它互调 */
   service: (pluginId: string) => ServiceApi
@@ -503,24 +527,33 @@ function injectStyles(pluginId: string, css: string): Disposable {
 
 /* ───────── 加载 / 卸载 ───────── */
 
-export async function listPluginDirs(vault: string): Promise<string[]> {
-  return invoke<string[]>('list_plugins', { vault })
+/**
+ * 列出某个根下的插件目录（`<root>/.zn/plugins/` 的子目录，已排序）。
+ *
+ * `root` 既可以是**当前库**，也可以是**全局插件根**（`appDataDir()`）——
+ * Rust 侧 `private_root()` 只做路径计算，不关心传进来的是不是"真库"。
+ */
+export async function listPluginDirs(root: string): Promise<string[]> {
+  return invoke<string[]>('list_plugins', { vault: root })
 }
 
 /**
  * 删除插件目录（连同 manifest / 入口 / store.json）。
  *
+ * `root` 决定删的是**全局**那份还是**库内**那份 —— 必须与加载时的根一致，
+ * 否则会删错位置（或报"插件不存在"）。
+ *
  * **不可撤销**，而且刻意不进回收站 —— 插件属于"把目录拷回来就能重装"的东西；
  * 回收站的命名规则是为 `.md` 设计的，塞目录进去反而没人看得懂。删完调
  * `setReloadToken` 就会走一遍正常的重扫 / 卸载流程。
  */
-export async function deletePluginDir(vault: string, pluginId: string): Promise<void> {
-  return invoke<void>('delete_plugin', { vault, pluginId })
+export async function deletePluginDir(root: string, pluginId: string): Promise<void> {
+  return invoke<void>('delete_plugin', { vault: root, pluginId })
 }
 
-export async function readManifest(vault: string, dir: string): Promise<PluginManifest> {
+export async function readManifest(root: string, dir: string): Promise<PluginManifest> {
   const raw = await invoke<string>('read_plugin_file', {
-    vault,
+    vault: root,
     pluginId: dir,
     rel: 'manifest.json',
   })
@@ -529,8 +562,9 @@ export async function readManifest(vault: string, dir: string): Promise<PluginMa
   return parsed
 }
 
-export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<LoadedPlugin> {
-  const manifest = await readManifest(deps.vault, dir)
+export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): Promise<LoadedPlugin> {
+  const { root, dir } = entry
+  const manifest = await readManifest(root, dir)
   assertApiVersion(manifest.apiVersion, manifest.id)
   // 平台门排在 capability 之前：一个跑不起来的插件，先说"它不适用于这台机器"，
   // 比先说"你还得去授权 net"更接近用户真正需要知道的事。
@@ -539,7 +573,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
 
   const subs: Disposable[] = []
   const readFile = (rel: string) =>
-    invoke<string>('read_plugin_file', { vault: deps.vault, pluginId: dir, rel })
+    invoke<string>('read_plugin_file', { vault: root, pluginId: dir, rel })
 
   /** 登记的资源要在任何一步失败时清干净，避免留下「半个插件」 */
   const rollback = () => {
@@ -563,7 +597,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
       throw e
     }
     deps.onLog(`插件已加载（纯样式）：${manifest.name}（${manifest.id}）`, 'info')
-    return { dir, manifest, instance: { apply: () => {} }, subs }
+    return { dir, root, source: entry.source, manifest, instance: { apply: () => {} }, subs }
   }
 
   // ── 有 JS 入口：先嗅探形态，再组装成 ESM 交给 import ──
@@ -627,7 +661,9 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
     event: scopedEvent(deps.event, subs),
     command: scopedCommand(deps.command, manifest.id, subs),
     view: scopedView(deps.view, manifest.id, subs),
-    store: deps.store(manifest.id),
+    // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
+    // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。
+    store: deps.store(manifest.id, root),
     host: scopedHost(deps.host, manifest.id, subs),
     service: deps.service(manifest.id),
     editor: deps.editor(manifest.id),
@@ -644,7 +680,7 @@ export async function loadPlugin(dir: string, deps: PluginHostDeps): Promise<Loa
 
   const fileNote = manifest.files?.length ? `，${manifest.files.length + 1} 个文件` : ''
   deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info')
-  return { dir, manifest, instance, subs }
+  return { dir, root, source: entry.source, manifest, instance, subs }
 }
 
 /** 卸载即净：先 dispose 插件自己登记的，再兜底 dispose 全部 subs */

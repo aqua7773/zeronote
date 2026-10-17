@@ -347,6 +347,51 @@ function outlineDepths(md) {
     }
   }
   for (const b of blocks) walk(b.nodes, 1)
+
+  /**
+   * 补**空列表项**的深度（2026-10-17 用户报：「同级列表没有内容和有内容缩进不同」）。
+   *
+   * 背景：`parseBlocks` 会跳过「`- ` 后面还没写内容」的列表行（它不进树、也不该进导图，
+   * 否则导图里会多一个空白节点）—— 但**它仍然是列表行**。没有 `zn-ol-dN` 时，
+   * 这一行只能用 CM6 的默认缩进（实测 padding-left 34px），比同级列表多出一截。
+   *
+   * 这里按缩进回推：取它前面最近一个「缩进不比它深」的非空列表行的深度。
+   * 找不到就按第一级（1）。
+   */
+  const lines = String(md ?? '').split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    if (map.has(i)) continue
+    // ⚠️ 用**原始行**、不 trimEnd：`- `（空列表项）去掉尾空格就只剩 `-`，
+    // 匹配不上 `LIST_RE`（它要求 marker 后至少一个空格）。
+    const m = LIST_RE.exec(lines[i])
+    if (!m || stripInline(m[2])) continue
+    const indent = indentOf(m[1])
+    /**
+     * 按**缩进关系**定深度（不是直接抄前一行）：
+     *  · 前一个列表行缩进**更小** ⇒ 它是父级，深度 = 父 + 1；
+     *  · 缩进**相等** ⇒ 同级，深度照抄；
+     *  · 缩进更大 ⇒ 那是更深的兄弟，继续往上找。
+     * 这样「Tab 把空项缩进成子项」之后，那一行才会真的按子级缩进渲染。
+     */
+    let depth = 1
+    for (let j = i - 1; j >= 0; j--) {
+      const pm = LIST_RE.exec(lines[j])
+      // 内层要的是**非空**列表行（空的没进 map、没法当参照）—— 注意与上面外层的条件相反
+      if (!pm || !stripInline(pm[2])) continue
+      const prevIndent = indentOf(pm[1])
+      const prevDepth = map.get(j) ?? 1
+      if (prevIndent < indent) {
+        depth = prevDepth + 1
+        break
+      }
+      if (prevIndent === indent) {
+        depth = prevDepth
+        break
+      }
+    }
+    map.set(i, depth)
+  }
+
   return map
 }
 

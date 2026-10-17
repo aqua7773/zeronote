@@ -126,7 +126,11 @@ export type Kernel = {
   event: EventBus
   commands: CommandRegistry
   view: ViewApi
-  store: (pluginId: string) => StoreApi
+  /**
+   * 插件私有存储工厂。`root` 缺省 = 当前库；全局插件传**全局根**，
+   * 让它的 store 也跟着插件走（跨库一份配置）。
+   */
+  store: (pluginId: string, root?: string) => StoreApi
   host: HostApi
   /** 「前置插件」用的服务注册表（按插件 id 视图化，卸载即回收） */
   service: (pluginId: string) => ServiceApi
@@ -462,7 +466,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     commands,
     view,
     host,
-    store: (pluginId: string) => createStoreApi(vault, pluginId),
+    store: (pluginId: string, root?: string) => createStoreApi(root ?? vault, pluginId),
     service: (pluginId: string) => services.scoped(pluginId),
     releaseServices: (pluginId: string) => services.release(pluginId),
     editor: (pluginId: string) => createScopedEditorApi(pluginId),

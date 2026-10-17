@@ -370,6 +370,47 @@ fn rename_note(vault: String, from: String, to: String) -> Result<(), String> {
   fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))
 }
 
+/// 把 `src` 目录的内容**逐项**搬到 `dst`（`dst` 不存在则创建）。
+///
+/// 为什么需要它（2026-10-17 实测）：Windows 上 `fs::rename` 把**非空目录**移进另一个
+/// **已存在的目录**里会返回 `ACCESS_DENIED`（os error 5）。同一个目录用 `pwsh` 的
+/// `MoveFileExW` 能移、本进程 `fs::rename` 不能；而**空目录**和**文件**都正常 ——
+/// 所以「删文件夹」只能对空文件夹生效，装了内容的文件夹永远删不掉。
+///
+/// 逐项搬运把操作降级成两条**已验证可用**的原语：文件 `fs::rename` + 目录 `create_dir_all`。
+/// 中途失败**不丢数据**：已搬的部分留在 `dst`（回收站里），源里剩下的原样不动 ——
+/// 调用方会把错误报给用户，用户可以在回收站里看到已搬走的那部分。
+fn move_tree(src: &Path, dst: &Path) -> Result<(), String> {
+  fs::create_dir_all(dst).map_err(|e| format!("创建回收站子目录失败 {}：{e}", dst.display()))?;
+  let entries = fs::read_dir(src).map_err(|e| format!("读取目录失败 {}：{e}", src.display()))?;
+  let mut failure: Option<String> = None;
+  for entry in entries {
+    let entry = match entry {
+      Ok(e) => e,
+      Err(e) => {
+        failure = Some(e.to_string());
+        break;
+      }
+    };
+    let child_src = entry.path();
+    let child_dst = dst.join(entry.file_name());
+    let moved = if child_src.is_dir() {
+      move_tree(&child_src, &child_dst)
+    } else {
+      fs::rename(&child_src, &child_dst)
+        .map_err(|e| format!("移入回收站失败（{}）：{e}", child_src.display()))
+    };
+    if let Err(e) = moved {
+      failure = Some(e);
+      break;
+    }
+  }
+  match failure {
+    Some(e) => Err(e),
+    None => Ok(()),
+  }
+}
+
 /// 删除 = 移入 `.zn/trash/<时间戳>/<原相对路径>`（可恢复）。
 /// 返回回收站里的**库内相对路径**，供调用方做「撤销」（把它 rename 回原位）。
 ///
@@ -400,7 +441,17 @@ fn delete_note(vault: String, path: String) -> Result<String, String> {
   fs::write(dest_dir.join(ORIGIN_FILE), &path)
     .map_err(|e| format!("写入回收站元信息失败：{e}"))?;
   let dest = dest_dir.join(&name);
-  fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
+  // 文件 / 空目录：一次 rename 就够（Windows 上这两条一直可用）。
+  // 非空目录：fast path 失败后**降级逐项搬运** —— 见 `move_tree` 的说明。
+  if abs.is_dir() {
+    if fs::rename(&abs, &dest).is_err() {
+      move_tree(&abs, &dest)?;
+      // 源里此时只剩空目录树；逐项删掉（空目录删除已验证可用）
+      fs::remove_dir_all(&abs).map_err(|e| format!("移入回收站后清理原目录失败：{e}"))?;
+    }
+  } else {
+    fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
+  }
   Ok(format!("{PRIVATE_DIR}/trash/{stamp}/{name}"))
 }
 
@@ -541,7 +592,16 @@ fn restore_trash(vault: String, id: String) -> Result<String, String> {
     if let Some(parent) = dst.parent() {
       fs::create_dir_all(parent).map_err(|e| format!("恢复失败（建父目录）：{e}"))?;
     }
-    fs::rename(&payload, &dst).map_err(|e| format!("恢复失败（{rel}）：{e}"))?;
+    // 与 `delete_note` 同一个 Windows 坑（见 `move_tree`）：非空目录的 rename 可能
+    // ACCESS_DENIED —— 回收站里存的正是**整棵目录树**，所以恢复同样要能降级逐项搬回。
+    if payload.is_dir() {
+      if fs::rename(&payload, &dst).is_err() {
+        move_tree(&payload, &dst)?;
+        fs::remove_dir_all(&payload).map_err(|e| format!("恢复后清理回收站失败：{e}"))?;
+      }
+    } else {
+      fs::rename(&payload, &dst).map_err(|e| format!("恢复失败（{rel}）：{e}"))?;
+    }
     // 整个 stamp 目录（含 `.origin`）一起清掉，回收站里不留碎片
     let _ = fs::remove_dir_all(&src);
     return Ok(rel);
@@ -645,6 +705,16 @@ fn move_entry(vault: String, from: String, to: String) -> Result<(), String> {
   }
   if let Some(parent) = dst.parent() {
     fs::create_dir_all(parent).map_err(|e| format!("创建目标目录失败：{e}"))?;
+  }
+  // 非空目录的 rename 在 Windows 上可能 ACCESS_DENIED（见 `move_tree` 的说明）——
+  // 与 `delete_note` 同一套降级：逐项搬过去，再把源空壳删掉。
+  if src.is_dir() {
+    if fs::rename(&src, &dst).is_err() {
+      move_tree(&src, &dst)?;
+      fs::remove_dir_all(&src).map_err(|e| format!("移动后清理原目录失败：{e}"))?;
+      return Ok(());
+    }
+    return Ok(());
   }
   fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
 }
@@ -914,10 +984,74 @@ fn delete_plugin(vault: String, plugin_id: String) -> Result<(), String> {
   Ok(())
 }
 
+/// 用**系统默认程序**打开一个外链（只允许 http/https）。
+///
+/// 为什么需要：编辑器里的链接点击走 `window.open`，而 Tauri 的 WebView **不接管**它
+/// ⇒ 点上去静默无反应（2026-10-17 用户报「链接无法跳转打开浏览器」）。
+///
+/// 安全边界：这是「打开外部程序」的入口 ——
+/// ① 只放行 `http://` / `https://`，其它协议（`file:` / `javascript:` / 自定义 scheme）一律拒绝；
+/// ② **不经过 shell 解析**：Windows 用 `explorer`、macOS 用 `open`、Linux 用 `xdg-open`，
+///    参数原样传给系统，不会出现 `&` / `|` 被解释成命令拼接的机会。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+  let u = url.trim().to_string();
+  if !(u.starts_with("http://") || u.starts_with("https://")) {
+    return Err(format!("只允许打开 http/https 链接：{u}"));
+  }
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("explorer")
+      .arg(&u)
+      .spawn()
+      .map_err(|e| format!("打开链接失败：{e}"))?;
+  }
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .arg(&u)
+      .spawn()
+      .map_err(|e| format!("打开链接失败：{e}"))?;
+  }
+  #[cfg(target_os = "linux")]
+  {
+    std::process::Command::new("xdg-open")
+      .arg(&u)
+      .spawn()
+      .map_err(|e| format!("打开链接失败：{e}"))?;
+  }
+  #[cfg(any(target_os = "android", target_os = "ios"))]
+  {
+    return Err("移动端暂不支持打开外部链接".to_string());
+  }
+  Ok(())
+}
+
 #[tauri::command]
 fn read_plugin_file(vault: String, plugin_id: String, rel: String) -> Result<String, String> {
   let path = plugin_file(&vault, &plugin_id, &rel)?;
   fs::read_to_string(&path).map_err(|e| format!("读取插件文件失败 {}：{e}", path.display()))
+}
+
+/// **写入插件文件**（2026-10-17 内置插件预装用）。
+///
+/// 为什么需要：安卓上插件目录在应用私有空间，用户没法像桌面那样自己拷；
+/// APK 要能把几个插件**随包预装**进去。前端把插件源码（`?raw` 导入）通过这条命令
+/// 写进 `<私有根>/.zn/plugins/<id>/`，用户之后要装别的插件再自己往目录里加。
+///
+/// 走 `plugin_file` 而不是直接 `dir.join(rel)`：路径校验（防 `..` / 绝对路径）收在同一处。
+#[tauri::command]
+fn write_plugin_file(
+  vault: String,
+  plugin_id: String,
+  rel: String,
+  content: String,
+) -> Result<(), String> {
+  let path = plugin_file(&vault, &plugin_id, &rel)?;
+  if let Some(parent) = path.parent() {
+    fs::create_dir_all(parent).map_err(|e| format!("创建插件目录失败：{e}"))?;
+  }
+  fs::write(&path, content).map_err(|e| format!("写插件文件失败 {}：{e}", path.display()))
 }
 
 #[tauri::command]
@@ -1286,12 +1420,14 @@ pub fn run() {
       write_absolute_b64,
       list_plugins,
       read_plugin_file,
+      write_plugin_file,
       plugin_store_read,
       plugin_store_write,
       vault_exists,
       ensure_vault,
       list_vaults,
       delete_plugin,
+      open_external,
       opened_urls,
       zn_heartbeat,
       zn_watchdog_pause,
@@ -1569,6 +1705,50 @@ mod tests {
     assert!(!d.join("x.md").exists());
     let trash = d.join(".zn").join("trash");
     assert_eq!(fs::read_dir(&trash).unwrap().count(), 1);
+  }
+
+  /// `move_tree` 只搬内容、保持层级、**不删源目录**（收尾由 `delete_note` 负责）。
+  #[test]
+  fn move_tree_preserves_layout() {
+    let d = tmpdir("mvtree");
+    let src = d.join("src");
+    fs::create_dir_all(src.join("子")).unwrap();
+    fs::write(src.join("子").join("a.md"), "A").unwrap();
+    fs::write(src.join("b.md"), "B").unwrap();
+    let dst = d.join("dst");
+    move_tree(&src, &dst).unwrap();
+    assert_eq!(fs::read_to_string(dst.join("子").join("a.md")).unwrap(), "A");
+    assert_eq!(fs::read_to_string(dst.join("b.md")).unwrap(), "B");
+    assert!(src.exists(), "move_tree 不删源目录");
+  }
+
+  /// **非空目录删除**（2026-10-17 真机 bug 的回归）：两层嵌套 + 两个文件，
+  /// 必须完整进回收站、能恢复回原位、内容不丢。
+  ///
+  /// 为什么这条必须存在：Windows 上「非空目录 rename 进已存在目录」会 ACCESS_DENIED，
+  /// 而空目录/文件正常 —— 此前没有用例覆盖"删一个**有内容**的文件夹"这个组合。
+  #[test]
+  fn delete_non_empty_dir_survives_and_restores() {
+    let d = tmpdir("deldir");
+    let v = d.to_string_lossy().to_string();
+    fs::create_dir_all(d.join("父").join("子")).unwrap();
+    fs::write(d.join("父").join("子").join("x.md"), "# x").unwrap();
+    fs::write(d.join("父").join("y.md"), "# y").unwrap();
+
+    let trash_path = delete_note(v.clone(), "父".into()).unwrap();
+    assert!(!d.join("父").exists(), "源目录必须被移走：{trash_path}");
+    let list = list_trash(v.clone()).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].original_path.as_deref(), Some("父"));
+    assert!(list[0].is_dir);
+
+    assert_eq!(restore_trash(v.clone(), list[0].id.clone()).unwrap(), "父");
+    assert_eq!(
+      fs::read_to_string(d.join("父").join("子").join("x.md")).unwrap(),
+      "# x",
+      "恢复后嵌套内容必须还在"
+    );
+    assert_eq!(fs::read_to_string(d.join("父").join("y.md")).unwrap(), "# y");
   }
 
   /// 回收站全链路：删除记下**原路径** → 列表 → 恢复回**原处** → 彻底删除 / 清空。

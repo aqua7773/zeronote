@@ -22,15 +22,16 @@ export default {
       api.command.bind('core.newNote', async (payload) => {
         const d = new Date()
         const dir = `笔记/${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
-        // 快速切换里给了名字就用它；否则按灵感流的约定用 HH-mm-ss
+        // 快速切换里给了名字就用它；否则 `新笔记-时-分-秒`（用户 2026-10-17 定 ——
+        // 文件树显示的就是**文件名**，光叫 `HH-mm-ss` 认不出是"新建的笔记"）
         const given = String((payload && payload.name) || '').trim()
         const base = given
           ? given.replace(/\.md$/i, '')
-          : `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+          : `新笔记-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
         const path = `${dir}/${base}.md`
 
         await api.fs.mkdir(dir) // 幂等：当天第一篇会建目录
-        await api.fs.createNote(path, `# ${base}\n\n`)
+        await api.fs.createNote(path, '')
         api.host.notify(`已建在当天目录：${path}`)
         await api.doc.open(path)
       }),
