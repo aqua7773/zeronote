@@ -1,0 +1,50 @@
+name: verify
+
+# P3-3 落地：把本机的五步验收搬进 CI —— 每次 push / PR 都跑，不靠人记得。
+# 与 scripts/verify.ps1 对齐：tsc 0 错误 · oxlint 0 error · cargo test --lib · check-docs · vitest 全过。
+# 用 windows-latest：本机是 Windows / MSVC，cargo test --lib 在这里最贴近真实编译环境。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check (tsc -b)
+        run: pnpm exec tsc -b
+
+      - name: Lint (oxlint src)
+        run: pnpm exec oxlint src
+
+      - name: Unit tests (vitest)
+        run: pnpm exec vitest run
+
+      - name: Docs consistency (check-docs)
+        run: node scripts/check-docs.mjs
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo test (src-tauri)
+        working-directory: src-tauri
+        run: cargo test --lib

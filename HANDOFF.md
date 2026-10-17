@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 129
-更新时间: 2026-10-18（rev129 开发约定：目录职责 / hook 规范 / 重构 checklist，防复发）
+revision: 130
+更新时间: 2026-10-18（rev130 P3-3 落地：GitHub 私有仓库 + CI 五步）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev130 | 2026-10-18 · **P3-3 落地**：GitHub 私有仓库 `aqua7773/zeronote` + `.github/workflows/verify.yml`（五步 CI）· gh 登录 / 代理要点 |
 | rev129 | 2026-10-18 · **开发约定与架构边界**：`docs/开发约定.md`（目录职责 / hook 规范 / 重构 checklist / 事故清单）· 拆分方案转 historical · 卡片加硬约束第 6 条 |
 | rev128 | 2026-10-18 · **L3 第六刀（收官）**：`usePluginHost` hook（加载链 / 懒激活 / `.znp` 安装）· App **2583 → 2285** 行 · 测试 **173 条** |
 | rev127 | 2026-10-18 · **L3 第五刀**：`useExternalFile` hook（openExternalFile / SAF / 待打开 / 文件关联接线）· App **2801 → 2583** 行 · 测试 **163 条** |
@@ -109,6 +110,30 @@ revision: 129
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev130（2026-10-18 · P3-3 落地：GitHub 私有仓库 + CI 五步）
+>
+> 结清测试报告里最后一项工程债 **P3-3（无远程仓库、无 CI）**。
+>
+> ### 1 产物
+>
+> - GitHub 私有仓库：`https://github.com/aqua7773/zeronote`（main 已推，仓库 6.06 MiB）。
+> - `.github/workflows/verify.yml`：push / PR 跑五步 —— tsc 0 错误 · oxlint 0 error · vitest ·
+>   check-docs · cargo test --lib（`windows-latest`，与本机 MSVC 环境一致）。
+> - git 全局身份：`aqua7773` / `129979993+aqua7773@users.noreply.github.com`。
+>
+> ### 2 环境要点（下一轮别踩）
+>
+> - 本机 **github.com 直连超时，必须走本地代理** `http://127.0.0.1:26561`（设 `HTTPS_PROXY` /
+>   `HTTP_PROXY`）。`gh auth login` 不带代理会卡在 OAuth token 交换 —— 实测踩过一次，换代理后成功。
+> - `gh` 已登录（keyring；token scopes: `repo` / `gist` / `read:org`）；但 **gh 不在当前 PATH**，
+>   用完整路径 `C:\Program Files\GitHub CLI\gh.exe`（或重开终端）。
+> - `_kernel-snapshots/` 仍被 git 忽略 —— 远程仓库里没有它（属另一件事，未做）。
+>
+> ### 3 验收
+>
+> 仓库已建并推送成功；workflow 已入仓，**CI 首次运行结果见 Actions 页面**
+> （首次 cargo test 要下载工具链 + 编译，预计 5–10 分钟；失败则按日志修 workflow）。
+>
 > ## 📌 rev129（2026-10-18 · 开发约定与架构边界：docs/开发约定.md）
 >
 > L3 收官后先立规矩。把 rev122–128 的实测教训写成**长期有效**的约定，防止下一个人
