@@ -110,7 +110,7 @@ ZeroNote\
 | 插件能调什么接口 | `docs/内核契约-v0.2.md`（与 `src/kernel/contract.ts` 一一对应） |
 | 项目现在到哪了 | `HANDOFF-CARD.md` |
 | 某个功能怎么做的、踩过什么坑 | `HANDOFF.md`（按 rev 查） |
-| 目标需求（19 章） | `docs/requirements/current.md` |
+| 需求存档（暂不采用） | `docs/requirements/current.md`（draft） |
 | 文档怎么写 | `docs/文档编写规范.md` |
 
 ## 铁律

@@ -13,7 +13,7 @@
 | 为什么这样设计（原则 / 取舍） | `docs/架构原则-2026-10-13.md` | **active** | `archive/插件UI承载能力-2026-10-13.md`（方案已落地，作设计史） |
 | 插件接口 / 数据模型 | `docs/内核契约-v0.2.md`（代码真相是 `src/kernel/contract.ts`） | **active** | 契约 §4 已被架构原则覆盖，读时以架构原则为准 |
 | 插件能力现状 / 对标六家 | `HANDOFF-CARD.md` + 契约 §4 | **active** | `archive/插件能力盘点-2026-10-12.md`（**historical**：rev30 快照） |
-| 需求（目标） | `docs/requirements/current.md`（＝《需求2》，19 章） | **active** | `archive/Markdown 笔记应用需求规格 v1.0.md`（**superseded**：Flutter+SQLite）、`archive/1.目录结构.md`（**historical** 原始素材） |
+| 需求（目标） | **暂无**（2026-10-17 用户裁定：需求2 暂不采用） | — | `docs/requirements/current.md`（**draft**，仅参考）；`archive/` 旧需求（superseded） |
 | 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
 | 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（rev 索引在文首） | **active** | — |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
