@@ -142,6 +142,7 @@ revision: 130
 > - **CI 三跑（升 v5 后）：失败** —— `Unable to locate executable file: pnpm`。根因：`setup-node@v5`
 >   默认按 `packageManager` 缓存依赖，执行时 pnpm 还没装。**修法：先 `pnpm/action-setup` 再
 >   `setup-node`（顺序不能反）**，已照改并重推。
+> - **CI 四跑（run 39062422910）：全绿** —— 顺序修复生效；annotations 只剩既知 4 条 oxlint 警告。
 >
 > ## 📌 rev129（2026-10-18 · 开发约定与架构边界：docs/开发约定.md）
 >
