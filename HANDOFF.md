@@ -127,6 +127,11 @@ revision: 119
 >
 > - `verify.ps1` 四步全过（tsc 0 · oxlint 6 warnings · **cargo 27 passed** · check-docs）
 > - 新增 2 个 Rust 单测：`install_znp_writes_manifest_and_entries` · `install_znp_rejects_path_escape`
+> - **sha256 两条路径实测**（2026-10-18，测试库 `sha-demo` 夹具）：
+>   ① 正确 hash ⇒ 插件正常加载（`window.__shaDemo === 'loaded'`）；
+>   ② 篡改入口 ⇒ 拒载，插件页显示
+>   `插件 sha-demo 完整性校验失败：入口文件 sha256 不符（manifest 声明 202a91ab5b1c…，实际 4ccb2a10ec9a…）—— 文件可能被改过`。
+>   夹具验完已删。
 > - UI 按钮未做端到端（原生文件选择器无法脚本化）；`install_znp` 有单测 + 类型检查覆盖
 >
 > ### 仍未做
@@ -221,7 +226,8 @@ revision: 119
 > - 修复过程中 dev 崩过一次（`0xc0000374`，HMR 触发，已知坑），已重启；全部实测在新 dev 上重做。
 > - 测试库 `_tmp-vault-tb` 新增：`p1-p2-verify.md`、`fm-probe.md`、`新笔记-00-30-39.md`、
 >   `新笔记-00-31-28.md`、探针插件 `.zn/plugins/p12-probe/`；`_shots/rev117/`；`_tmp-perf*/`（各 1000 篇）。
->   均已 gitignore，清理与否留给用户定。
+>   **2026-10-18 已清理**（含 `.zn/ids.json` 里的孤儿键）；`_shots/rev117/` 只留
+>   `09-fixed-fold.png` —— 本文引用的折叠修复证据。
 
 > ## 📌 rev116（2026-10-17 · 起始页速查表手机单列：左留白 48 ＋ 间隔 73）
 >
