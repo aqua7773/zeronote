@@ -54,11 +54,13 @@ if (idxStart >= 0) {
 }
 
 // ④ 引用文件存在
+// `_shots/` 是**本地证据目录**（被 .gitignore 排除、CI 不检出）⇒ 不参与「引用存在」判定，
+// 否则本地通过、CI 必红（rev130 首次 CI 实测：HANDOFF 里几十条 `_shots/*.png` 全部报缺）。
 const scanFiles = ['README.md', 'HANDOFF.md', 'HANDOFF-CARD.md', 'docs/README.md', ...fs.readdirSync(docsDir).filter((n) => n.endsWith('.md')).map((n) => 'docs/' + n)]
 for (const f of [...new Set(scanFiles)]) {
   if (!exists(f)) continue
   const txt = read(f)
-  for (const m of txt.matchAll(/`((?:_shots|tools|examples|scripts)\/[^`\s*]+\.(?:png|mjs|ps1))`/g)) {
+  for (const m of txt.matchAll(/`((?:tools|examples|scripts)\/[^`\s*]+\.(?:png|mjs|ps1))`/g)) {
     if (!exists(m[1])) problems.push(f + ' 引用了不存在的文件: ' + m[1])
   }
 }
