@@ -93,20 +93,39 @@ describe('command 注册表', () => {
     await expect(reg.api.execute('core.x')).resolves.toBe('core')
   })
 
-  it('旧实例 dispose 不抹掉新接管者（当前实现不是我不动）', async () => {
-    // ⚠️ 记录的是**现状**：a 被 b 覆盖后 a.dispose() 直接 return（不抹 b，正确），
-    // 但 a 那层还原点也就丢了 ⇒ b.dispose() 还原的是 a（僵尸实现），不是内核。
-    // 真实危害：插件 A、B 先后接管同一命令，A 先卸载、B 后卸载 ⇒ 命令落回已卸载的 A。
-    // 修复要在 dispose 里把"被跳过的层"从还原链上摘掉（需内核改动，见 rev120 待定）。
+  it('旧实例 dispose 不抹掉新接管者，且不留下僵尸还原点', async () => {
+    // rev121 修：接管改成层栈后，A.dispose 只摘掉 A 那层（不碰 B），
+    // B.dispose 落回**内核**而不是 A。修之前 A 那层还原点会随"跳过"一起丢失，
+    // B 卸后命令指向已卸载的 A（僵尸实现）。
     const reg = createCommandApi()
     reg.api.register({ id: 'core.x', title: 'x', run: () => 'core' })
     const a = reg.api.bind('core.x', () => 'A')
     const b = reg.api.bind('core.x', () => 'B')
     await expect(reg.api.execute('core.x')).resolves.toBe('B')
-    a.dispose() // 此时当前实现是 b，a 的 dispose 必须无效
+    a.dispose() // 此时当前实现是 b，A 的 dispose 摘自己的层，不影响 b
     await expect(reg.api.execute('core.x')).resolves.toBe('B')
     b.dispose()
-    await expect(reg.api.execute('core.x')).resolves.toBe('A')
+    await expect(reg.api.execute('core.x')).resolves.toBe('core')
+  })
+
+  it('A 先卸、B 后卸 ⇒ 落回内核（rev121 修的僵尸实现）', async () => {
+    const reg = createCommandApi()
+    reg.api.register({ id: 'core.y', title: 'y', run: () => 'core' })
+    const a = reg.api.bind('core.y', () => 'A')
+    const b = reg.api.bind('core.y', () => 'B')
+    a.dispose()
+    await expect(reg.api.execute('core.y')).resolves.toBe('B')
+    b.dispose()
+    await expect(reg.api.execute('core.y')).resolves.toBe('core')
+  })
+
+  it('dispose 幂等：同一层摘两次不抛、也不影响栈', async () => {
+    const reg = createCommandApi()
+    reg.api.register({ id: 'core.z', title: 'z', run: () => 'core' })
+    const a = reg.api.bind('core.z', () => 'A')
+    a.dispose()
+    expect(() => a.dispose()).not.toThrow()
+    await expect(reg.api.execute('core.z')).resolves.toBe('core')
   })
 
   it('bind 未知 id ⇒ 建条目（title 退化为 id），dispose 整条删除', async () => {

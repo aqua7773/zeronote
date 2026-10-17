@@ -88,15 +88,20 @@ describe('mergeLines', () => {
     expect(r.text).not.toContain('<<<<<<<')
   })
 
-  it('两边都在末尾追加不同内容 ⇒ 同点插入两边都保留（当前语义，不算冲突）', () => {
-    // ⚠️ 记录的是**现状**，不是理想要的行为：
-    // 两边块都是 base 末尾的零长度插入（start === end === 1），
-    // 归并判据 `cm.end <= ct.start` 认为它们不交叠 ⇒ 两段都留下、conflicts = 0。
-    // 语义上"同一位置插入"更接近冲突（diff3 会报冲突）。改判据属于产品决策，
-    // 见 HANDOFF rev120「前端单测」段：待定。
+  it('两边都在末尾追加不同内容 ⇒ 同点插入判冲突，mine 赢', () => {
+    // rev121 修：两边块都是 base 末尾的零长度插入（start === end === 1），
+    // 原来按 `cm.end <= ct.start` 判"不交叠"⇒ 两段都保留、conflicts = 0（用户看不到提示）。
+    // 现在 `samePointInsert` 把同点插入判为冲突：mine 赢、theirs 那段丢弃、conflicts 计数。
     const r = mergeLines('a\n', 'a\nmine\n', 'a\ntheirs\n')
-    expect(r.text).toBe('a\nmine\ntheirs\n')
-    expect(r.conflicts).toBe(0)
+    expect(r.text).toBe('a\nmine\n')
+    expect(r.conflicts).toBe(1)
+  })
+
+  it('同点插入冲突后，theirs 在别处的块照常合并', () => {
+    // mine 在 y 前插 M；theirs 在 y 前插 T（同点 ⇒ 冲突、T 丢弃）并在末尾插 W（别处 ⇒ 保留）
+    const r = mergeLines('x\ny\nz\n', 'x\nM\ny\nz\n', 'x\nT\ny\nz\nW\n')
+    expect(r.text).toBe('x\nM\ny\nz\nW\n')
+    expect(r.conflicts).toBe(1)
   })
 
   it('尾换行在合并结果里保留', () => {

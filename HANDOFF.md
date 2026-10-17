@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 120
-更新时间: 2026-10-18（rev120 前端单测 vitest：41 条，覆盖 merge3 / command / event）
+revision: 121
+更新时间: 2026-10-18（rev121 修两条待定语义 + vitest 并入 verify.ps1 第 5 步）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev121 | 2026-10-18 · 修 rev120 记录的两条待定语义（**merge3 同点插入判冲突** · **command 接管改层栈**）+ **vitest 并入 `verify.ps1` 第 5 步**（44 passed） |
 | rev120 | 2026-10-18 · **前端单测（vitest）**：独立配置 + `tests/` 41 条（merge3 / command / event），记录 2 个待定语义 |
 | rev119 | 2026-10-18 · **插件完整性 sha256**（不符拒载）+ **`.znp` 单文件安装** + 安装确认框（列出自述能力与未签名提示） |
 | rev118 | 2026-10-18 · 契约 v0.2 **落到代码**（API_VERSION 0.2.0 + 插件 manifest 统一）+ **独立笔记 ID**（`.zn/ids.json`）+ rename 全库引用重写 |
@@ -99,6 +100,38 @@ revision: 120
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev121（2026-10-18 · 修两条待定语义 + vitest 并入 verify）
+>
+> 用户裁决「一起做」（rev120 末列的两条路都做）。
+>
+> ### 1 A1：merge3 同点插入判冲突
+>
+> - `samePointInsert(a, b)`：两块都是零长度（`start === end`）且落在同一点 ⇒ 判冲突，
+>   mine 赢、theirs 那段丢弃、`conflicts + 1`（diff3 语义）。
+> - 冲突清理补一条：零长度 mine 块 `[1,1)` 用 `start < cm.end` 一个都命中不了，
+>   必须额外丢掉「同一点上的 theirs 零长度块」，否则下一轮会当独立插入重新吐出来（= 旧 bug）。
+> - 影响：编辑器末尾打字 + 插件末尾追加 现在会**丢插件那段**（用户已接受这个取舍），但 `conflicts` 有值可提示。
+> - 不相交合并、插入 vs 替换同点（`{1,1}` vs `{1,2}`）行为不变。
+>
+> ### 2 A2：command 接管改「层栈」
+>
+> - `Entry` 从「单实现 + dispose 闭包还原点」改为 `layers: Layer[]` 栈：
+>   `register` / `bind` / `declare` 各 push 一层，`dispose` **只摘自己那层**（`dropLayer`，引用相等、幂等），栈空才删条目。
+> - 修复：A、B 先后接管同一命令、A 先卸载时，B 卸载后落回**内核**（之前落回已卸载的 A —— 僵尸实现）。
+> - 元数据也随层还原（`metaOf` 从栈顶往下取第一个有值的层）；`bind` 层不带元数据，沿用 `declare` 的标题/快捷键。
+> - 语义微调：`declare` 的 dispose 现在也只摘自己那层（不再无条件删条目）。
+>
+> ### 3 B：vitest 并入 verify.ps1
+>
+> - `verify.ps1` 从四步变**五步**：新增 `=== 5/5 前端单元测试（vitest）===`，解析 `Tests N passed`，失败计入 `$fail`；
+>   基线行改为 `tsc · oxlint · cargo · vitest`。
+> - 改完 `.ps1` 跑了 `fix-bom.ps1`：edit 会剥 BOM，已恢复 `EF BB BF`（PS 5.1 下无 BOM 会按 GBK 解析）。
+>
+> ### 验收
+>
+> - `verify.ps1` 五步全过：tsc 0 · oxlint 6 warnings · cargo **27 passed** · check-docs · **vitest 44 passed**（318 ms）。
+> - 前端单测 44 条（rev120 的 41 + A1 新增 1 + A2 新增 2）。
 
 > ## 📌 rev120（2026-10-18 · 前端单测 vitest：41 条覆盖内核纯逻辑）
 >

@@ -18,19 +18,38 @@
  *
  * 老的 `register()` 原样保留：没写 `activationEvents` 的插件走的还是"启动即 apply"的老路，
  * 现有插件一个都不用改。
+ *
+ * ## 接管是"层栈"，不是"单槽 + 还原点"（rev121 重构）
+ *
+ * 以前每条命令只存**一份**实现，覆盖时把上一层塞进 dispose 的闭包；dispose 只在
+ * 「当前实现还是我自己」时才还原。于是 A、B 先后接管、A 先卸载时：A 的 dispose 被跳过
+ * （对，不能抹 B），但 A 那层还原点也没了 ⇒ B 卸载后还原到**已卸载的 A**（"僵尸实现"，
+ * rev120 单测记录、rev121 修）。
+ *
+ * 现在每条命令维护 `layers` 栈：register / bind / declare 各 push 一层，dispose **只摘自己那层**。
+ * 谁先卸都不会影响别人，栈空才算命令消失 —— 还原链天然正确：A 卸掉后 B 直接落回内核。
  */
 import type { CommandApi, CommandSpec, Disposable } from './contract'
 
-/** 注册表内部条目：元数据可能来自静态声明，实现可能晚到 */
-type Entry = {
-  id: string
-  title: string
+/**
+ * 一层：实现和元数据都可能来自不同层。
+ * `bind` 只带 `run`（元数据沿用下面那层）· `declare` 只带元数据（没有实现）·
+ * `register` 两样都带。
+ */
+type Layer = {
+  run?: (...args: unknown[]) => unknown
+  title?: string
   keybinding?: string
   when?: string
+}
+
+/** 注册表内部条目：id + 拥有者 + 层栈（栈顶 = 当前生效） */
+type Entry = {
+  id: string
   /** 拥有者插件 id —— 静态声明时就知道，用它找到该激活谁 */
   pluginId?: string
-  /** 实现。懒激活插件要等 `bind()` 之后才有 */
-  run?: (...args: unknown[]) => unknown
+  /** **非空**；栈顶那层是当前实现/元数据的来源 */
+  layers: Layer[]
 }
 
 /**
@@ -79,6 +98,20 @@ export type CommandRegistry = {
   implTag(id: string): string | null
 }
 
+/** 从栈顶往下取第一个定义了该字段的层 —— bind 层不带元数据，自然沿用下面那层 */
+function metaOf<K extends 'title' | 'keybinding' | 'when'>(e: Entry, key: K): Layer[K] {
+  for (let i = e.layers.length - 1; i >= 0; i--) {
+    const v = e.layers[i][key]
+    if (v !== undefined) return v
+  }
+  return undefined
+}
+
+/** 当前生效的实现 = **栈顶那层**的 run（栈顶是 declare 的空层时 = 未绑定） */
+function currentRun(e: Entry): ((...args: unknown[]) => unknown) | undefined {
+  return e.layers[e.layers.length - 1]?.run
+}
+
 export function createCommandApi(
   onError: (id: string, err: unknown) => void = () => {},
 ): CommandRegistry {
@@ -91,9 +124,28 @@ export function createCommandApi(
     }
   }
 
+  /**
+   * 从栈里摘掉一层；摘空就删条目。
+   * 幂等 —— 重复 dispose、或者条目已被 `release` 掉，都不该抛。
+   */
+  function dropLayer(id: string, layer: Layer) {
+    const e = registry.get(id)
+    if (!e) return
+    const i = e.layers.lastIndexOf(layer)
+    if (i < 0) return
+    e.layers.splice(i, 1)
+    if (e.layers.length === 0) registry.delete(id)
+  }
+
   const api: CommandApi = {
     register(cmd: CommandSpec): Disposable {
       requireNamespace(cmd.id)
+      const layer: Layer = {
+        title: cmd.title,
+        keybinding: cmd.keybinding,
+        when: cmd.when,
+        run: cmd.run,
+      }
       /**
        * ⚠️ **同 id 不再是"抛错"，而是"接管"**（rev81 修，真机实测的 bug）。
        *
@@ -105,88 +157,53 @@ export function createCommandApi(
        * 「没有能打开 .该 的插件 —— 到「插件管理」装一个文档阅读器」
        * （用户 2026-10-14 报的"显示没有装插件、但插件已经在运行"就是这个）。
        *
-       * 现在与 `bind()` 用同一套**接管可还原**语义：后来者覆盖，`dispose` 时把上一层放回去
-       * （卸掉插件 ⇒ 恢复成内核占位，而不是把内核功能一起带走）。
+       * 现在把新层压上栈顶：后来者接管，`dispose` 时只摘掉自己那层
+       * ⇒ 卸掉插件恢复成内核占位，而不是把内核功能一起带走。
        * 覆盖时留一条 warn，便于诊断"谁接管了谁"。
        */
       const prev = registry.get(cmd.id)
       if (prev) {
         console.warn(`[command] ${cmd.id} 已被注册 —— 后来者接管（dispose 时还原上一条）`)
+        prev.layers.push(layer)
+      } else {
+        registry.set(cmd.id, { id: cmd.id, layers: [layer] })
       }
-      registry.set(cmd.id, {
-        id: cmd.id,
-        title: cmd.title,
-        keybinding: cmd.keybinding,
-        when: cmd.when,
-        run: cmd.run,
-      })
-      return {
-        dispose: () => {
-          // 只有"当前实现还是我自己"才动 —— 免得旧实例的 dispose 干掉新接管者
-          const cur = registry.get(cmd.id)
-          if (cur?.run !== cmd.run) return
-          if (prev) registry.set(cmd.id, prev)
-          else registry.delete(cmd.id)
-        },
-      }
+      return { dispose: () => dropLayer(cmd.id, layer) }
     },
 
     bind(id: string, run: (...args: unknown[]) => unknown): Disposable {
+      const layer: Layer = { run }
       const entry = registry.get(id)
       if (!entry) {
         // 没静态声明就 bind ⇒ 视为"自带元数据的注册"，元数据缺省用 id 兜底
         requireNamespace(id)
-        registry.set(id, { id, title: id, run })
-        return {
-          dispose: () => {
-            const cur = registry.get(id)
-            // bind 之前这条命令**根本不存在** ⇒ 撤销要整条撤掉，别留空壳条目
-            if (cur && cur.run === run) registry.delete(id)
-          },
-        }
+        layer.title = id
+        registry.set(id, { id, layers: [layer] })
+      } else {
+        /**
+         * 只压实现层、不动元数据：`declare` 登记过的标题/快捷键/条件继续沿用。
+         * dispose 时摘掉这层 ⇒ 回到"静态声明过、实现未绑定"的状态（懒激活语义）。
+         */
+        entry.layers.push(layer)
       }
-
-      /**
-       * **接管（覆盖）语义的还原点** —— `bind` 到一条已存在的命令（典型就是
-       * `core.newNote` 这类内核命令）时，先记下被覆盖的实现，`dispose` 时放回去。
-       *
-       * 此前这里只 `delete cur.run`：dispose 之后命令**还在表里但没有实现** ⇒
-       * 执行抛「尚未绑定实现，且没有可用的激活器」⇒ 卸载插件把内核功能一起带走了
-       * （真机可复现：`examples/daily-note` 一卸，「新建笔记」四个入口全废）。
-       * 这正是接管协议要立的第一条规矩：**接管必须可还原，还原到接管前的样子**。
-       *
-       * 嵌套接管也成立：A 先 bind、B 后 bind，则 B 的 `prevRun` 是 A 的实现；
-       * B dispose 还原 A，A dispose 再还原内核。谁最后接管谁负责放回上一层。
-       */
-      const prevRun = entry.run
-      const hadRun = prevRun !== undefined
-      entry.run = run
-      return {
-        dispose: () => {
-          const cur = registry.get(id)
-          // 已经被别人重新接管 ⇒ 不是我的事，别把新实现抹掉
-          if (!cur || cur.run !== run) return
-          if (hadRun) cur.run = prevRun
-          // 原本就是"静态声明过、实现还没绑"的懒激活条目 ⇒ 回到未绑定状态
-          else delete cur.run
-        },
-      }
+      return { dispose: () => dropLayer(id, layer) }
     },
 
     async execute(id: string, ...args: unknown[]): Promise<unknown> {
-      let entry = registry.get(id)
+      const entry = registry.get(id)
       if (!entry) throw new Error(`命令不存在：${id}`)
 
+      let run = currentRun(entry)
       // 静态声明过、实现还没上来 ⇒ 先激活它的插件（这正是懒激活发生的地方）
-      if (!entry.run) {
+      if (!run) {
         if (!entry.pluginId || !activator) {
           throw new Error(`命令 ${id} 尚未绑定实现，且没有可用的激活器`)
         }
         await activator(entry.pluginId)
-        entry = registry.get(id)
+        const after = registry.get(id)
+        run = after ? currentRun(after) : undefined
       }
 
-      const run = entry?.run
       if (!run) throw new Error(`命令 ${id} 激活后仍未绑定实现`)
 
       try {
@@ -198,7 +215,7 @@ export function createCommandApi(
     },
 
     list() {
-      return [...registry.values()].map(({ id, title }) => ({ id, title }))
+      return [...registry.values()].map((e) => ({ id: e.id, title: metaOf(e, 'title') ?? e.id }))
     },
   }
 
@@ -215,11 +232,11 @@ export function createCommandApi(
     },
 
     all() {
-      return [...registry.values()].map(({ id, title, keybinding, when }) => ({
-        id,
-        title,
-        keybinding,
-        when,
+      return [...registry.values()].map((e) => ({
+        id: e.id,
+        title: metaOf(e, 'title') ?? e.id,
+        keybinding: metaOf(e, 'keybinding'),
+        when: metaOf(e, 'when'),
       }))
     },
 
@@ -229,18 +246,13 @@ export function createCommandApi(
       if (existing) {
         throw new Error(`命令 id 重复：${decl.id}`)
       }
-      registry.set(decl.id, {
-        id: decl.id,
+      const layer: Layer = {
         title: decl.title,
         keybinding: decl.keybinding,
         when: decl.when,
-        pluginId: decl.pluginId,
-      })
-      return {
-        dispose: () => {
-          registry.delete(decl.id)
-        },
       }
+      registry.set(decl.id, { id: decl.id, pluginId: decl.pluginId, layers: [layer] })
+      return { dispose: () => dropLayer(decl.id, layer) }
     },
 
     setActivator(fn) {
@@ -254,11 +266,13 @@ export function createCommandApi(
     },
 
     isBound(id: string) {
-      return Boolean(registry.get(id)?.run)
+      const e = registry.get(id)
+      return Boolean(e && currentRun(e))
     },
 
     implTag(id: string) {
-      const run = registry.get(id)?.run
+      const e = registry.get(id)
+      const run = e ? currentRun(e) : undefined
       if (!run) return null
       const tag = (run as unknown as Record<string, unknown>)[IMPL_TAG]
       return typeof tag === 'string' ? tag : 'core'

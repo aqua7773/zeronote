@@ -144,13 +144,22 @@ export function mergeLines(base: string, mine: string, theirs: string): MergeRes
     bi = Math.max(bi, blk.end)
   }
 
+  /**
+   * 两个块都是 base 上的**零长度插入**且落在同一点 ⇒ 语义是「两边在同一位置各插了一段」，
+   * 判冲突（diff3 的行为）。不这样判的话，`cm.end <= ct.start`（1 <= 1）会把它们当成
+   * 「互不干扰」⇒ 两段都保留、`conflicts = 0`，用户看不到任何提示（rev120 单测记录、rev121 修）。
+   */
+  const samePointInsert = (a: Block, b: Block) =>
+    a.start === a.end && b.start === b.end && a.start === b.start
+
   while (mi < mb.length && ti < tb.length) {
     const cm = mb[mi]
     const ct = tb[ti]
-    if (cm.end <= ct.start) {
+    const collide = samePointInsert(cm, ct)
+    if (!collide && cm.end <= ct.start) {
       applyBlock(cm) // mine 的块整体在 theirs 之前：互不干扰
       mi++
-    } else if (ct.end <= cm.start) {
+    } else if (!collide && ct.end <= cm.start) {
       applyBlock(ct)
       ti++
     } else {
@@ -158,7 +167,20 @@ export function mergeLines(base: string, mine: string, theirs: string): MergeRes
       applyBlock(cm)
       mi++
       conflicts++
-      while (ti < tb.length && tb[ti].start < cm.end) ti++
+      /**
+       * 丢弃被这次冲突吃掉的 theirs 块：
+       *  · 普通交叠 —— 起点落在 mine 块 `[start, end)` 内；
+       *  · 同点插入 —— mine 是零长度块（`end === start`），上面那条一个都命中不了，
+       *    必须额外把「同一点上的 theirs 零长度块」也丢掉，否则它下一轮会被当成独立插入
+       *    重新吐出来（= 修之前"两段都保留"的 bug）。
+       */
+      while (
+        ti < tb.length &&
+        (tb[ti].start < cm.end ||
+          (cm.start === cm.end && tb[ti].start === cm.start && tb[ti].end === tb[ti].start))
+      ) {
+        ti++
+      }
     }
   }
   while (mi < mb.length) applyBlock(mb[mi++])
