@@ -267,6 +267,57 @@ body.is-resizing * {
   user-select: none;
 }
 
+/* 子级容器（2026-10-17 用户逐条确认的规则）——
+   **同时满足**「该文件夹后面还有同级条目」+「它自己有子项」才画竖线：
+   · 每层最后一个文件夹不画（三级2、文档、五～八级1）；
+   · 有同级但没子项的不画（一级文件夹2、二级2、四级1）；
+   · 跨文件夹的"同级"不算 —— 用 DOM 兄弟天然满足（测试书籍在「文档」的子树里）。
+   实现：`.zn-node:not(:last-child) > .zn-tree-kids` 才有左边框；
+   竖线高度 = 子级容器高度 = 它的所有子项，正好从第一个子项贯穿到最后一个子项。 */
+.zn-tree-kids {
+  margin-left: calc(var(--zn-space-2) + 10px);
+  padding-left: 6px;
+}
+.zn-node:not(:last-child) > .zn-tree-kids {
+  /* 颜色与粗细都跟横线一致（用户 2026-10-17：「竖线颜色跟横线一样」→「宽度也一样」） */
+  border-left: 2.5px solid var(--zn-border);
+}
+
+/* 树节点包一层（按钮 + 子级容器）。保留这层是为了结构稳定，
+   当前没有样式依赖它。 */
+.zn-node {
+  position: relative;
+}
+
+/* 折叠/展开的三角（用户 2026-10-17：「三角形做大一点」→「再大一点」→「加到 25」） */
+.zn-tree-caret {
+  flex: none;
+  width: 22px;
+  font-size: 25px;
+  line-height: 1;
+  text-align: center;
+  color: var(--zn-fg-muted);
+}
+
+/* 文件行前面的圆点（与三角同宽 22px、同一行内垂直居中）。
+   字号 12px 是**视觉尺寸对齐**：`●` 在 25px 下直径约 17px，比三角（约 10px 高）大太多；
+   12px 的 `●` 直径约 8px，和三角的视觉体量相当。 */
+.zn-tree-dot {
+  font-size: 12px;
+}
+
+/* 框选的选择框（鼠标左键拖拽，2026-10-17）——
+   蓝框是"框选"这一交互的通用语言（资源管理器 / 浏览器 / 桌面都这么画），
+   刻意不跟 --zn-accent 走：那套色是"选中行"的底色，画框会看不出来。 */
+.zn-marquee {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  border: 1px solid rgba(59, 130, 246, 0.75);
+  background: rgba(59, 130, 246, 0.16);
+  border-radius: 2px;
+}
+
 /* 多选时被选中的行。当前打开的那条另有 .is-active，两者不叠加 ——
    active 是"正在编辑这篇"，picked 是"打算批量操作这几篇"，轻重不同。 */
 .zn-tree-item.is-picked {
@@ -289,8 +340,48 @@ body.is-resizing * {
   text-overflow: ellipsis;
 }
 
+/* 层级分隔线（2026-10-17 用户要求「取消竖线，改成横线」）——
+   画在**名字文字**上，只到文件名结束为止，不延伸到侧栏右边缘（用户第二版要求）。
+   `padding-bottom` 让线离字远一点，不贴着字形底部。
+   粗细 2.5px：用户指定（1px 太细、3px 太抢）。 */
+.zn-tree-label {
+  border-bottom: 2.5px solid var(--zn-border);
+  padding-bottom: 2px;
+}
+
 .zn-tree-item:hover { background: var(--zn-bg-hover); }
 .zn-tree-item.is-active { background: var(--zn-bg-active); font-weight: 600; }
+/* 拖拽移动的落点（2026-10-17）—— 与「选中」区分开：选中是实底，落点是蓝描边。
+   带 transition：拖过多个行时高亮是"滑过去"的，不是硬切。 */
+.zn-tree-item.is-drop-target {
+  background: rgba(59, 130, 246, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.75);
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+/* 被拖动的源行：淡出，表示"它正在被搬走" */
+.zn-tree-item.is-dragging {
+  opacity: 0.45;
+}
+
+/* 拖拽时跟随鼠标的小标签（名字或「xxx 等 N 项」） */
+.zn-drag-ghost {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--zn-border);
+  background: var(--zn-bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  color: var(--zn-fg);
+  font-size: var(--zn-text-sm);
+  white-space: nowrap;
+  /* 稍微偏离指针，别挡住落点 */
+  transform: translate(14px, -10px);
+  /* 跟手：位置变化时短过渡，看起来是"滑"过去的而不是瞬移 */
+  transition: left 40ms linear, top 40ms linear;
+}
 .zn-tree-item .zn-ext { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
 
 /* 多选条（手机长按树项进入）—— 贴在树顶，操作完自动退出 */
@@ -510,6 +601,149 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/* 源码 / 预览切换（2026-10-17 用户三轮位置调整：左上角 → 右上角并排 → **关闭下面**）——
+   与 `.zn-editor-close`（top: 8px / right: 14px / 高 24px）上下对齐：放在它正下方。 */
+.zn-editor-modebar {
+  position: absolute;
+  top: 40px;
+  right: 14px;
+  /* 高于编辑器内容：否则会被 CM6 的 .cm-editor 盖住（实测文字被裁掉） */
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: 24px;
+}
+.zn-mode-toggle {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-subtle);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.zn-mode-toggle:hover {
+  opacity: 1;
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+
+/* 源码模式容器（CM6 裸编辑器）—— 撑满编辑区 */
+.zn-source-editor {
+  height: 100%;
+  overflow: hidden;
+}
+.zn-source-editor .cm-editor {
+  height: 100%;
+}
+
+/* 表格工具条（2026-10-17 用户要「调整行列 / 对齐按钮 / 表格菜单 + 删除按钮」）——
+   光标进表格时浮在表格左上角；操作直接改文档源码。 */
+.zn-table-toolbar {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  background: var(--zn-bg);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+.zn-table-toolbar button {
+  min-width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.zn-table-toolbar button:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-table-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--zn-border);
+  margin: 0 2px;
+}
+.zn-table-menu {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--zn-bg);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  z-index: 21;
+}
+.zn-table-menu button {
+  text-align: left;
+  height: 26px;
+  padding: 0 8px;
+}
+.zn-table-menu hr {
+  border: 0;
+  border-top: 1px solid var(--zn-border);
+  margin: 4px 0;
+}
+
+/* 快捷调整行列数（2026-10-17 用户澄清：参考图那个网格是调尺寸，不是对齐） */
+.zn-table-size-panel {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  padding: 6px;
+  background: var(--zn-bg);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  z-index: 21;
+}
+.zn-table-size-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.zn-table-size-row {
+  display: flex;
+  gap: 2px;
+}
+.zn-table-toolbar .zn-table-size-cell {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  border: 1px solid var(--zn-border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+.zn-table-toolbar .zn-table-size-cell.is-hot {
+  background: var(--zn-accent, #c4b5fd);
+  border-color: var(--zn-accent, #c4b5fd);
+}
+.zn-table-size-label {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--zn-fg-muted);
+}
+
 /* 编辑器**顶部**提示条（`location: 'editor-topbar'`）—— 与底部工具栏同一套规矩：
    只在插件注册了该位置时才挂载，无插件时**一个 DOM 都没有**（"按需激活"在 CSS 这层）。
    竖排方向相反（border-bottom），横滑规则一致 —— 提示条内容通常比屏幕宽。 */
@@ -663,6 +897,71 @@ body.is-resizing * {
 }
 
 .zn-empty p { margin: 0; max-width: 460px; text-align: center; line-height: 1.6; }
+
+/* 起始页 Markdown 速查表（2026-10-17 用户：「起始页改成markdown各种标记提示」→
+   「排版改优雅和谐对称一点」）——
+   两列等宽网格；每列内「语法块固定宽 + 说明自适应」，左右两列的语法块因此严格对齐；
+   整表水平居中，行距/列距统一。 */
+.zn-md-cheatsheet {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 36px;
+  row-gap: 9px;
+  /* 2026-10-17 用户用临时调节器手动拖定：**宽 620 / 右移 54**（视觉对齐，不是数学居中）——
+     flex 居中下右移量 = margin-left ÷ 2（108 ÷ 2 = 54）。
+     `calc(100% - 132px)`：108 左移 + 24 右留白，窄窗口不贴边、不溢出。 */
+  width: 620px;
+  max-width: min(620px, calc(100% - 132px));
+  margin: 20px 0 0 108px;
+  text-align: left;
+}
+.zn-md-cheat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.zn-md-cheat code {
+  flex: none;
+  width: 104px;
+  box-sizing: border-box;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--zn-bg-subtle);
+  color: var(--zn-fg);
+  font-family: var(--zn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zn-md-cheat span {
+  flex: 1;
+  min-width: 0;
+  color: var(--zn-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 640px) {
+  .zn-md-cheatsheet {
+    grid-template-columns: 1fr;
+    /* 单列布局（2026-10-17 用户手拖定）：左边留白 45px、右边 9px，占满其余宽度 ——
+       之前沿用桌面宽度（620/108）只剩 ~300px，间隔一调大解释文字就被挤成省略号。 */
+    width: calc(100% - 54px);
+    max-width: none;
+    margin-left: 48px;
+    margin-right: 0;
+  }
+  /* 单列的行距（标记块 ↔ 解释）：用户 2026-10-17 手拖定 73px；
+     桌面两列仍是 10px（列一窄 73 就没地方了）。 */
+  .zn-md-cheat {
+    gap: 73px;
+  }
+}
 
 /* 空态里的快捷键线索 —— NN/g：空态是「就地教学」的最佳位置 */
 .zn-empty-keys {
@@ -1203,6 +1502,9 @@ body.is-resizing * {
 .zn-plugin-meta { flex: 1; min-width: 0; }
 .zn-plugin-name { font-weight: 600; }
 .zn-plugin-ver { color: var(--zn-fg-subtle); font-weight: 400; font-size: var(--zn-text-sm); }
+/* 来源徽标（rev94）：全局 = 换个库也还在；本库 = 跟着库走。用中性小标签，别抢插件名 */
+.zn-plugin-source { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid var(--zn-border); border-radius: 999px; color: var(--zn-fg-muted); background: var(--zn-bg-subtle); font-size: 11px; font-weight: 500; line-height: 18px; vertical-align: middle; }
+.zn-plugin-source-vault { color: var(--zn-fg-subtle); }
 /* 被启动自愈关掉的插件（「因上次加载未完成已自动禁用」）—— 用 danger 色，别混进普通备注 */
 .zn-plugin-autodisabled { color: var(--zn-danger); font-weight: 500; font-size: var(--zn-text-sm); }
 .zn-plugin-desc { color: var(--zn-fg-muted); font-size: var(--zn-text-sm); margin-top: 2px; }
@@ -1212,6 +1514,9 @@ body.is-resizing * {
 .zn-plugin-del:hover { color: var(--zn-danger); background: var(--zn-bg-hover); border-color: var(--zn-border); }
 .zn-plugins-log { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); font-size: var(--zn-text-sm); }
 .zn-plugins-log pre { max-height: 160px; overflow: auto; margin: var(--zn-space-2) 0 0; color: var(--zn-fg-muted); white-space: pre-wrap; }
+/* 全局插件根（rev94）：列表底部的只读说明，让"拷到哪全库生效"有个明确落点 */
+.zn-plugins-globalroot { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); word-break: break-all; }
+.zn-plugins-globalroot-hint { color: var(--zn-fg-subtle); }
 
 /* ───────── 右栏（M2）───────── */
 .zn-rightbar { width: 320px; flex: 0 0 auto; display: flex; flex-direction: column; background: var(--zn-bg-subtle); border-left: 1px solid var(--zn-border); overflow: hidden; }
@@ -1462,6 +1767,76 @@ body.is-resizing * {
       两全：水平统一 ＋ 垂直首行。 */
 .zn-editor .cm-line {
   position: relative;
+}
+
+/* 已完成任务的勾（2026-10-17 用户要求「深色模式下勾改成黑色」）——
+   atomic 默认用 `#fff` 画勾（`border-right/bottom-color: #ffffff`），
+   而深色主题下选中方块是**浅色**（`--atomic-editor-accent` 被主题设成浅色），
+   白勾在浅底上几乎看不见。深色主题改成黑勾。 */
+:root[data-theme='dark'] .zn-editor .cm-atomic-task-checkbox::after {
+  border-right-color: #000;
+  border-bottom-color: #000;
+}
+
+/* 嵌套引用（2026-10-17 用户报「引用嵌套无效」→「每个嵌套有一个框」→「做成右侧这样」）——
+   atomic 的 `.cm-atomic-blockquote` 只表达"这一行在引用里"，**不分层级**
+   ⇒ `> 一级` 与 `> > 二级` 渲染出来一模一样。内核的 `quoteDepthPlugin` 按行首
+   `>` 个数加 `zn-quote-dN`，这里：
+   · 每一级仍然缩进（padding-left）；
+   · **一级框（行左）对所有引用行都在** —— 所以它是一根贯穿整个引用块的连续线；
+   · 二级 / 三级的框用伪元素画在**各自缩进处**（短框，只覆盖自己那行）。
+   ⚠️ d3 行同时要"二级框 + 三级框"：一个伪元素画不了两条，所以 ::before 画二级、::after 画三级。 */
+.zn-editor .cm-line.zn-quote-d2 {
+  padding-left: calc(1rem + 1.5em);
+}
+.zn-editor .cm-line.zn-quote-d3 {
+  padding-left: calc(1rem + 3em);
+}
+.zn-editor .cm-line.zn-quote-d4 {
+  padding-left: calc(1rem + 4.5em);
+}
+
+/* 二级框：d2、d3、d4 行都有（1.5em 处） */
+.zn-editor .cm-line.zn-quote-d2::before,
+.zn-editor .cm-line.zn-quote-d3::before,
+.zn-editor .cm-line.zn-quote-d4::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(1rem + 1.5em - 3px);
+  border-left: 3px solid var(--atomic-editor-accent-soft, #c4b5fd);
+  pointer-events: none;
+}
+
+/* 三级框：只有 d3、d4 行有（3em 处） */
+.zn-editor .cm-line.zn-quote-d3::after,
+.zn-editor .cm-line.zn-quote-d4::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(1rem + 3em - 3px);
+  border-left: 3px solid var(--atomic-editor-accent-soft, #c4b5fd);
+  pointer-events: none;
+}
+
+/* 行内代码背景（2026-10-17 用户：「行内代码背景不明显」）——
+   atomic 默认用 --atomic-editor-code-bg（深色下 ≈#262626），在深色底上几乎看不出来。
+   这里用**前景色半透明**混一层：不挑底色，浅/深主题都成立。 */
+:root[data-theme='dark'] .zn-editor .cm-atomic-inline-code {
+  background: color-mix(in srgb, var(--zn-fg) 16%, transparent);
+}
+:root:not([data-theme='dark']) .zn-editor .cm-atomic-inline-code {
+  background: color-mix(in srgb, var(--zn-fg) 10%, transparent);
+}
+
+/* 分割线（2026-10-17 用户：「分割线不明显，加粗一个像素」）——
+   atomic 用 1px `--atomic-editor-border`（深色下 #3d3d3d，在深色底上几乎看不见）。
+   加粗到 2px，颜色改用主题的 `--zn-border-strong`（深色下 #3f3f46，比默认亮一档）。 */
+.zn-editor .cm-line.cm-atomic-hr::after {
+  border-top-width: 2px;
+  border-top-color: var(--zn-border-strong, var(--zn-border));
 }
 
 .zn-line-action {

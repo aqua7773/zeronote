@@ -137,6 +137,44 @@ const baseName = (p: string) => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 
 /** 所在目录（库内相对路径，库根 = 空串） */
 const parentDir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
+/**
+ * 框选命中：选择框与树节点**相交**即算。
+ *
+ * 不过滤「祖先目录 + 子项」：用户框住一片时，视觉上就该整片高亮。
+ * 去重放在**批量操作**那一侧（`dedupe`）—— 删/移动目录时整棵树一起走，
+ * 子项再列一次会变成"找不到源"。
+ */
+function hitTest(
+  root: HTMLElement,
+  box: { x0: number; y0: number; x1: number; y1: number },
+): string[] {
+  const hits: string[] = []
+  for (const el of root.querySelectorAll<HTMLElement>('[data-zn-path]')) {
+    const r = el.getBoundingClientRect()
+    // 完全不重叠 ⇒ 跳过（相交即选，与资源管理器一致）
+    if (r.right < box.x0 || r.left > box.x1 || r.bottom < box.y0 || r.top > box.y1) continue
+    const p = el.dataset.znPath
+    if (p) hits.push(p)
+  }
+  return hits
+}
+
+/**
+ * 去掉「祖先已经在列表里」的路径。
+ *
+ * 为什么需要：框选会把目录和目录里的条目一起选中，而删除/剪切/复制目录时是**整棵树**一起动
+ * —— 子项再列一次，第二个操作就会报"要删除的东西不存在"。
+ */
+function dedupe(paths: string[]): string[] {
+  const set = new Set(paths)
+  return paths.filter((p) => {
+    for (const q of set) {
+      if (q !== p && p.startsWith(`${q}/`)) return false
+    }
+    return true
+  })
+}
+
 /** 内联命名输入框的统一外观（新建与重命名共用） */
 const INPUT_CLASS =
   'w-full min-w-0 rounded-ui-sm border border-primary bg-background px-1.5 py-0.5 text-xs text-foreground outline-none'
@@ -166,6 +204,9 @@ function Node({
   depth,
   activePath,
   selected,
+  dropTarget,
+  reveal,
+  dragging,
   onPick,
   onContextMenu,
   onLongPress,
@@ -180,6 +221,12 @@ function Node({
   activePath: string | null
   /** 当前多选集合（用 Set 判断，避免每行 O(n) 扫数组） */
   selected: Set<string>
+  /** 拖拽移动的落点（高亮用；`null` = 没在拖） */
+  dropTarget?: string | null
+  /** 需要自动展开到的路径（新建/重命名落在折叠的目录里时，父级把路径放进来） */
+  reveal?: string | null
+  /** 正在被拖动的条目（源行淡出） */
+  dragging?: string | null
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
@@ -192,7 +239,11 @@ function Node({
   onCancelRename: () => void
 }) {
   const [open, setOpen] = useState(true)
-  const pad = { paddingLeft: `calc(var(--zn-space-2) + ${depth * 12}px)` }
+  /**
+   * 节点自身的内边距**固定** —— 层级缩进交给外面那层 `.zn-tree-kids`（每层一条竖线）。
+   * 以前是 `depth * 12px`，缩进靠节点自己算，画不出引导线。
+   */
+  const pad = { paddingLeft: 'var(--zn-space-2)' }
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   // 进入内联编辑态时全选，直接敲新名字即可覆盖
@@ -200,11 +251,16 @@ function Node({
     if (renaming?.path === node.path) inputRef.current?.select()
   }, [renaming, node.path])
 
+  // 新建/重命名落在本节点子树里 ⇒ 自动展开（否则输入框在折叠目录里，看着像"没反应"）
+  useEffect(() => {
+    if (reveal && (reveal === node.path || reveal.startsWith(`${node.path}/`))) setOpen(true)
+  }, [reveal, node.path])
+
   const editing = renaming?.path === node.path
 
   if (node.isDir) {
     return (
-      <>
+      <div className="zn-node">
         {editing ? (
           <input
             ref={inputRef}
@@ -226,8 +282,11 @@ function Node({
           />
         ) : (
           <button
-            className="zn-tree-item"
+            className={`zn-tree-item${selected.has(node.path) ? ' is-picked' : ''}${
+              dropTarget === node.path ? ' is-drop-target' : ''
+            }${dragging === node.path ? ' is-dragging' : ''}`}
             style={pad}
+            data-zn-path={node.path}
             onClick={() => setOpen((v) => !v)}
             onContextMenu={(e) => {
               e.preventDefault()
@@ -242,30 +301,42 @@ function Node({
                 : `${node.path}（右键：新建 / 重命名 / 删除）`
             }
           >
-            <span>{open ? '▾' : '▸'}</span>
-            <span>{node.name}</span>
+            <span className="zn-tree-caret">{open ? '▾' : '▸'}</span>
+            <span className="zn-tree-label">{node.name}</span>
             {node.virtual && <span className="zn-ext">{node.children.length}</span>}
           </button>
         )}
-        {open &&
-          node.children.map((c) => (
-            <Node
-              key={c.path}
-              node={c}
-              depth={depth + 1}
-              activePath={activePath}
-              selected={selected}
-              onPick={onPick}
-              onContextMenu={onContextMenu}
-              onLongPress={onLongPress}
-              renaming={renaming}
-              draft={draft}
-              setDraft={setDraft}
-              onSubmitRename={onSubmitRename}
-              onCancelRename={onCancelRename}
-            />
-          ))}
-      </>
+        {open && node.children.length > 0 && (
+          /**
+           * 子级包一层容器：缩进与**竖向引导线**都靠它（2026-10-17 用户要求「层级更清晰」）。
+           * 好处：每层一条 `border-left`，深度一眼可见，还不用在节点上算渐变背景。
+           * ⚠️ **空文件夹不渲染容器**：竖线规则是 `.zn-node:not(:last-child) > .zn-tree-kids`
+           * —— 若空文件夹也有容器，`kids: 0` 却会画出一条空竖线（用户规则：有同级但没子项的不加）。
+           */
+          <div className="zn-tree-kids">
+            {node.children.map((c) => (
+              <Node
+                key={c.path}
+                node={c}
+                depth={depth + 1}
+                activePath={activePath}
+                selected={selected}
+                dropTarget={dropTarget}
+                reveal={reveal}
+                dragging={dragging}
+                onPick={onPick}
+                onContextMenu={onContextMenu}
+                onLongPress={onLongPress}
+                renaming={renaming}
+                draft={draft}
+                setDraft={setDraft}
+                onSubmitRename={onSubmitRename}
+                onCancelRename={onCancelRename}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -277,8 +348,20 @@ function Node({
   // —— 否则它在树里和笔记长得一模一样，用户分不清哪个能编辑。
   const isDoc = node.kind === 'doc'
   const docExt = isDoc ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase() : ''
-  const label = node.title || node.name.replace(/\.(md|markdown)$/i, '')
-  const active = node.path === activePath
+  /**
+   * 显示名（2026-10-17 用户定「文件显示 .md」）：
+   *  · 笔记 —— 直接显示**磁盘文件名**（含 `.md`），一眼看出是 Markdown；
+   *  · 只读文档（pdf/epub/…）—— 去掉扩展名：它后面已经跟着 `.pdf` 徽章了，
+   *    再带一次会变成 `测试书籍.epub .epub`。
+   */
+  const label = isDoc ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
+  /**
+   * 高亮判据**用选中集合**，不用裸 `activePath`（2026-10-17 修）：
+   * `selectedSet` 已经处理了「selected 为空 ⇒ 回退到当前打开的那篇」，
+   * 而点空白处会把 `selectionCleared` 置真、让集合变空 —— 若这里还按 activePath 判，
+   * 打开的笔记会继续亮着，看起来就是"没清掉选中"。
+   */
+  const active = node.path === activePath && selected.has(node.path)
   const picked = selected.has(node.path) && !active
 
   if (editing) {
@@ -305,10 +388,14 @@ function Node({
   }
 
   return (
-    <button
-      className={`zn-tree-item${active ? ' is-active' : ''}${picked ? ' is-picked' : ''}`}
-      style={pad}
-      onClick={(e) => onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
+    <div className="zn-node">
+      <button
+        className={`zn-tree-item${active ? ' is-active' : ''}${picked ? ' is-picked' : ''}${
+          dropTarget === node.path ? ' is-drop-target' : ''
+        }${dragging === node.path ? ' is-dragging' : ''}`}
+        style={pad}
+        data-zn-path={node.path}
+        onClick={(e) => onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -322,9 +409,15 @@ function Node({
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
     >
-      <span>{label}</span>
+      {/* 圆点：与目录行的三角同宽同高，垂直居中 —— 让文件行也有"项目符号"，
+          且名字与同级文件夹名对齐（用户 2026-10-17：「笔记前面加圆点，大小与三角一致」） */}
+      <span className="zn-tree-caret zn-tree-dot" aria-hidden="true">
+        ●
+      </span>
+      <span className="zn-tree-label">{label}</span>
       {isDoc && <span className="zn-ext">.{docExt}</span>}
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -404,15 +497,65 @@ export function FileTree({
   const [purgeConfirm, setPurgeConfirm] = useState<{ paths: string[]; x: number; y: number } | null>(
     null,
   )
+  /**
+   * **框选**（2026-10-17 用户要求：鼠标左键拖拽，像资源管理器一样一次选中一片）。
+   * `marquee` 是选择框的视口坐标（`null` = 没在拖）。
+   */
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
+    null,
+  )
+
+  /** 拖拽移动时鼠标下的目标文件夹（只用于高亮，`null` = 没有有效落点） */
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  /** 正在被拖动的条目（源行半透明；`null` = 没在拖） */
+  const [draggingPath, setDraggingPath] = useState<string | null>(null)
+  /** 跟随鼠标的拖动标签（2026-10-17：拖拽要有跟手的视觉反馈） */
+  const [dragGhost, setDragGhost] = useState<{ x: number; y: number; label: string } | null>(null)
+  /**
+   * 需要**自动展开**到的路径（2026-10-17）。
+   *
+   * 起因（用户报）：文件夹折叠时点「新建文件夹」，新条目与内联输入框都不会出现 ——
+   * 因为子树只在 `{open && children.map(...)}` 里渲染。用户看到的是"菜单点了没反应"。
+   * 新建 / 重命名时把父目录路径放进来，对应节点展开一次。
+   */
+  const [reveal, setReveal] = useState<string | null>(null)
+  /** 树容器 —— 框选要按每个节点的真实位置求交，得从 DOM 里量 */
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  /** 刚框选完 —— 用来拦掉紧随其后的那次 click（否则会顺手打开笔记/折叠目录） */
+  const suppressClickRef = useRef(false)
+  /**
+   * 「用户主动把选中清空了」—— 2026-10-17 加。
+   *
+   * 背景：`selectedSet` 在 `selected` 为空时会**回退到 `activePath`**（打开一篇笔记时
+   * 那行要高亮，这是外部打开/搜索跳转变更时的唯一高亮来源）。但点空白处要求"全不选"
+   * ⇒ 光清 `selected` 不够：回退逻辑会让**当前打开的那篇**继续亮着，看起来就是没清掉。
+   * 所以单独记一个"已被主动清空"，点行 / 换笔记时复位。
+   */
+  const [selectionCleared, setSelectionCleared] = useState(false)
 
   /* 用「派生」而不是 effect 同步：外部（搜索面板、快速打开）打开别的笔记时，
      activePath 会变，这里直接把它当作唯一选中项，不必写 setState-in-effect。
      注意依赖必须是 selected / activePath 本身 —— 若在外面先算出 "effectiveSelected"
      数组再依赖它，那个数组每次渲染都是新的，memo 就白做了（lint 也会报）。 */
   const selectedSet = useMemo(() => {
-    const eff = selected.length ? selected : activePath ? [activePath] : []
+    const eff = selected.length
+      ? selected
+      : !selectionCleared && activePath
+        ? [activePath]
+        : []
     return new Set(eff)
-  }, [selected, activePath])
+  }, [selected, activePath, selectionCleared])
+
+  /* 换了笔记（外部打开 / 搜索跳转）⇒ 恢复"回退到 activePath"的行为 */
+  useEffect(() => {
+    setSelectionCleared(false)
+  }, [activePath])
+
+  /**
+   * 所有**真实目录**的路径集合 —— 拖拽移动只认文件夹做落点。
+   * 虚拟「文档」分组不在这里（它只是视图聚合，不是磁盘目录）。
+   */
+  const dirPathSet = useMemo(() => new Set(dirs), [dirs])
 
   /** 按**显示顺序**摊平的路径表 —— 树是嵌套的，Shift 范围选择得按屏幕上的顺序来 */
   const flatPaths = useMemo(() => {
@@ -428,6 +571,8 @@ export function FileTree({
   }, [tree])
 
   const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
+    // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
+    setSelectionCleared(false)
     // 多选模式（手机长按进的）：点一行 = 加/减选，**不打开**笔记 —— 否则一开编辑器
     // 就把抽屉收起来，多选根本做不下去。
     if (selectMode) {
@@ -467,6 +612,114 @@ export function FileTree({
     setAnchor(path)
   }
 
+  /**
+   * 鼠标左键在树里的两种拖拽（2026-10-17）：
+   *
+   *  · 从**条目上**按下再拖 = **拖拽移动**（把笔记/文件夹拖进另一个文件夹）；
+   *  · 从**空白处**按下再拖 = **框选**。
+   *
+   * 约束与取舍：
+   *  · 只认鼠标左键 —— 触摸走长按（手指拖拽在列表里通常是想滚动）；
+   *  · 位移超过 4px 才算拖拽，否则仍是普通点击（打开笔记 / 折叠目录）；
+   *  · 点在**滚动条**上不算；
+   *  · 拖拽移动只认**文件夹**做落点（虚拟「文档」分组不是目录），且拒绝拖进自己/自己的子孙；
+   *  · 拖的若是选中集合里的一项 ⇒ **整批移动**；否则只移动它自己；
+   *  · 拖完拦掉那次 click，否则一松手就把最后经过的笔记打开了。
+   *
+   * 为什么监听 window 而不是容器的 `onPointerMove`：拖出侧栏时容器收不到事件，
+   * 框/拖都会卡住；挂到 window 上，松手在哪儿都能结束。
+   */
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 || (e.pointerType && e.pointerType !== 'mouse')) return
+    const root = rootRef.current
+    if (!root) return
+    // 点在滚动条上 → 放行（垂直滚动条占容器右侧那几像素）
+    const box0 = root.getBoundingClientRect()
+    if (root.offsetWidth - root.clientWidth > 0 && e.clientX > box0.left + root.clientWidth) return
+
+    const start = { x: e.clientX, y: e.clientY }
+    /** 按下点落在哪个条目上（null = 空白 ⇒ 框选模式） */
+    const fromPath =
+      (e.target as HTMLElement).closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+    let dragging = false
+    /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
+    let target: string | null = null
+
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - start.x
+      const dy = ev.clientY - start.y
+      if (!dragging && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+      dragging = true
+
+      if (!fromPath) {
+        // ── 框选 ──
+        const box = {
+          x0: Math.min(start.x, ev.clientX),
+          y0: Math.min(start.y, ev.clientY),
+          x1: Math.max(start.x, ev.clientX),
+          y1: Math.max(start.y, ev.clientY),
+        }
+        setMarquee(box)
+        setSelected(hitTest(root, box))
+        /**
+         * 框选**不进多选模式**（2026-10-17 用户要求）：树顶那条批量操作条只在
+         * 手机长按时出现；桌面框选完直接用**右键菜单**操作这批选中项。
+         */
+        setSelectMode(false)
+        return
+      }
+
+      // ── 拖拽移动：只认文件夹做落点 ──
+      const over =
+        document
+          .elementFromPoint(ev.clientX, ev.clientY)
+          ?.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+      const ok =
+        !!over && over !== fromPath && !over.startsWith(`${fromPath}/`) && dirPathSet.has(over)
+      target = ok ? over : null
+      setDropTarget(target)
+      // 拖拽视觉：源行淡出 + 跟手的小标签（用户 2026-10-17：「拖拽要有动画效果」）
+      setDraggingPath(fromPath)
+      const count = selectedSet.has(fromPath) && selectedSet.size > 1 ? selectedSet.size : 1
+      setDragGhost({
+        x: ev.clientX,
+        y: ev.clientY,
+        label: count > 1 ? `${baseName(fromPath)} 等 ${count} 项` : baseName(fromPath),
+      })
+    }
+
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setMarquee(null)
+      setDropTarget(null)
+      setDraggingPath(null)
+      setDragGhost(null)
+      if (!dragging) return
+      suppressClickRef.current = true
+      // 同一次点击的 click 在本轮任务里派发 —— 下一轮再清，保证拦得到
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+
+      if (!fromPath || !target) return
+      // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项
+      const paths =
+        selectedSet.has(fromPath) && selectedSet.size > 1 ? dedupe([...selectedSet]) : [fromPath]
+      // 已经在目标目录里的跳过（搬进原地 = 白跑一趟，Rust 那边还会报「目标已存在」）
+      const moved = paths.filter((p) => parentDir(p) !== target)
+      if (!moved.length) return
+      for (const p of moved) {
+        onRename(p, `${target}/${baseName(p)}`, dirPathSet.has(p))
+      }
+      setSelected([])
+      setSelectionCleared(true)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   /** 退出多选（✕ / Android 返回键）—— 顺手清空选中，视觉上不留残影 */
   const exitSelect = () => {
     setSelectMode(false)
@@ -501,6 +754,8 @@ export function FileTree({
   const startRename = (path: string, isDir: boolean) => {
     setDraft(baseName(path))
     setRenaming({ path, isDir })
+    // 父目录折叠时先展开：否则输入框在折叠的子树里，看着像"点了没反应"
+    setReveal(parentDir(path))
     setMenu(null)
   }
 
@@ -576,7 +831,7 @@ export function FileTree({
    */
   const onKeyDown = (e: ReactKeyboardEvent) => {
     const mod = e.ctrlKey || e.metaKey
-    const picked = selected.length ? selected : activePath ? [activePath] : []
+    const picked = dedupe(selected.length ? selected : activePath ? [activePath] : [])
     const key = e.key.toLowerCase()
     if (e.key === 'F2' && picked.length === 1) {
       e.preventDefault()
@@ -599,7 +854,8 @@ export function FileTree({
   }
 
   const deletePaths = (paths: string[]) => {
-    onDeleteMany(paths)
+    // 框选可能同时选中目录与它里面的条目 —— 删除按树走，先去掉被目录包含的子项
+    onDeleteMany(dedupe(paths))
     setSelected([])
     setMenu(null)
     // 删完就退出多选 —— 留着"已选 N 项"而 N 已经是 0，看着像没删掉（静默失效的样子）
@@ -617,7 +873,7 @@ export function FileTree({
         if (menu.path) {
           const path = menu.path
           const multi = menu.multi
-          const picked = multi ? [...selectedSet] : [path]
+          const picked = multi ? dedupe([...selectedSet]) : [path]
           // 与 NoteGen 同序：新建 → 剪切 / 复制 / 创建副本 / 粘贴 → 重命名 → 删除
           list.push({
             label: '剪切',
@@ -697,13 +953,52 @@ export function FileTree({
   return (
     <div
       className="zn-tree zn-filetree"
+      ref={rootRef}
       onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onClickCapture={(e) => {
+        // 框选刚结束的那次 click 一律拦掉 —— 见 `onPointerDown` 的说明
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false
+          e.preventDefault()
+          e.stopPropagation()
+        }
+      }}
+      onClick={(e) => {
+        // 点**空白处** = 取消选中（与资源管理器一致，2026-10-17 用户要求）。
+        // 点节点时事件从节点冒泡上来 —— target 落在 `[data-zn-path]` 里，这里不动选中。
+        if (!(e.target as HTMLElement).closest('[data-zn-path]')) {
+          setSelected([])
+          setAnchor(null)
+          // 连「当前打开的那篇」的高亮也一起收掉（否则回退逻辑会让它继续亮着）
+          setSelectionCleared(true)
+          setSelectMode(false) // 手机上长按进来的多选也一并退出（选中已空，操作条没意义）
+        }
+      }}
       onContextMenu={(e) => {
         // 空白处右键 = 在**库根**新建（节点的右键已 stopPropagation，不会走到这里）
         e.preventDefault()
         setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
       }}
     >
+      {/* 框选的选择框：fixed 定位（不占布局、跟随视口坐标），松手即消失 */}
+      {marquee && (
+        <div
+          className="zn-marquee"
+          style={{
+            left: marquee.x0,
+            top: marquee.y0,
+            width: marquee.x1 - marquee.x0,
+            height: marquee.y1 - marquee.y0,
+          }}
+        />
+      )}
+      {/* 拖拽移动时跟随鼠标的小标签（拖拽的"动画反馈"：源行淡出 + 这个跟手胶囊） */}
+      {dragGhost && (
+        <div className="zn-drag-ghost" style={{ left: dragGhost.x, top: dragGhost.y }}>
+          {dragGhost.label}
+        </div>
+      )}
       {/* 多选条（手机长按树项进入）—— 只在这一层出现，操作完自动退出 */}
       {selectMode && (
         <div className="zn-select-bar">
@@ -722,7 +1017,7 @@ export function FileTree({
               type="button"
               className="zn-plain-btn"
               onClick={() => {
-                onCut([...selectedSet])
+                onCut(dedupe([...selectedSet]))
                 exitSelect()
               }}
             >
@@ -732,7 +1027,7 @@ export function FileTree({
               type="button"
               className="zn-plain-btn"
               onClick={() => {
-                onCopy([...selectedSet])
+                onCopy(dedupe([...selectedSet]))
                 exitSelect()
               }}
             >
@@ -766,6 +1061,9 @@ export function FileTree({
           depth={0}
           activePath={activePath}
           selected={selectedSet}
+          dropTarget={dropTarget}
+          reveal={reveal}
+          dragging={draggingPath}
           onPick={pick}
           onLongPress={enterSelect}
           onContextMenu={(path, isDir, x, y) =>

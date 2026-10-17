@@ -21,6 +21,13 @@ export type PluginRow = {
   enabled: boolean
   capabilities: string[]
   /**
+   * 插件来源（2026-10-17 rev94）：
+   *  - `global` —— 全局插件根（`appDataDir()`），**换库也还在**；
+   *  - `vault`  —— 当前库自己的 `.zn/plugins/`，跟着库走。
+   * 缺省按库内处理（旧数据 / 拿不到来源时）。
+   */
+  source?: 'global' | 'vault'
+  /**
    * 平台不适用时的说明（如「不适用 · 仅桌面端」）。
    *
    * 有值 ⇒ 这个插件声明了 `manifest.platforms` 且与当前平台不符，**内核根本没加载它**。
@@ -41,17 +48,22 @@ export function PluginPanel({
   plugins,
   error,
   log,
+  globalRoot,
   onToggle,
   onDelete,
 }: {
   plugins: PluginRow[]
   error?: string | null
   log?: string[]
+  /** 全局插件根（`appDataDir()`）—— 空态与列表底部都要告诉用户"拷到哪能全库生效" */
+  globalRoot?: string | null
   onToggle: (id: string, enabled: boolean) => void
   onDelete: (id: string) => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
+  /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
+  const pendingIsGlobal = pending?.source === 'global'
 
   return (
     <div className="zn-plugins">
@@ -61,7 +73,15 @@ export function PluginPanel({
 
       {plugins.length === 0 ? (
         <div className="zn-plugins-empty">
-          还没有插件。把插件目录放进 <code>&lt;库&gt;/.zn/plugins/&lt;id&gt;/</code> 后点「重新扫描」。
+          还没有插件。两种放法（放好点「重新扫描」，不用重启）：
+          <br />
+          <br />
+          · <strong>所有笔记库共用</strong> →{' '}
+          <code>{globalRoot ? `${globalRoot}` : '<应用数据目录>'}</code> 下的{' '}
+          <code>.zn/plugins/&lt;id&gt;/</code>
+          <br />
+          · 只在这个库用 → <code>&lt;当前库&gt;/.zn/plugins/&lt;id&gt;/</code>
+          <br />
           <br />
           参考实现：<code>examples/hello-plugin/</code>
         </div>
@@ -85,6 +105,19 @@ export function PluginPanel({
               <div className="zn-plugin-meta">
                 <div className="zn-plugin-name">
                   {p.name} <span className="zn-plugin-ver">v{p.version}</span>
+                  {p.source === 'global' && (
+                    <span
+                      className="zn-plugin-source"
+                      title="装在全局插件目录：所有笔记库都能用"
+                    >
+                      全局
+                    </span>
+                  )}
+                  {p.source === 'vault' && (
+                    <span className="zn-plugin-source zn-plugin-source-vault" title="只在这个库生效">
+                      本库
+                    </span>
+                  )}
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
                   )}
@@ -119,6 +152,14 @@ export function PluginPanel({
         </details>
       )}
 
+      {/* 全局插件根：告诉用户"拷到哪能全库生效"，且让"本库插件"有对照物（rev94） */}
+      {globalRoot && (
+        <div className="zn-plugins-globalroot">
+          全局插件目录：<code>{globalRoot}</code> 下的 <code>.zn/plugins/</code>
+          <span className="zn-plugins-globalroot-hint"> 放这里的插件所有笔记库都能用</span>
+        </div>
+      )}
+
       <Dialog
         open={pending !== null}
         onOpenChange={(next) => {
@@ -132,13 +173,25 @@ export function PluginPanel({
         />
         <DialogBody>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            会把插件目录 <code>.zn/plugins/{pending?.id ?? ''}</code> 整个删掉 ——
-            入口脚本、manifest、以及它自己的 store.json 一起。
+            会把插件目录{' '}
+            <code>
+              {pendingIsGlobal ? (globalRoot ?? '全局插件根') : '<当前库>'} 下的 .zn/plugins/
+              {pending?.id ?? ''}
+            </code>{' '}
+            整个删掉 —— 入口脚本、manifest、以及它自己的 store.json 一起。
             <br />
             <br />
             这步
             <strong className="font-semibold text-foreground">不可撤销</strong>
-            ；要装回来就把插件目录重新拷进 <code>.zn/plugins/</code>。
+            ；要装回来就把插件目录重新拷回去。
+            {pendingIsGlobal && (
+              <>
+                <br />
+                <br />
+                这是<strong className="font-semibold text-foreground">全局</strong>插件 ——
+                删掉后所有笔记库都不再有它。
+              </>
+            )}
           </p>
         </DialogBody>
         <DialogFooter>

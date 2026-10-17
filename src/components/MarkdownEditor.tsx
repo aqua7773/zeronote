@@ -1,13 +1,84 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { type Extension, type EditorState } from '@codemirror/state'
-import { EditorView, ViewPlugin } from '@codemirror/view'
+import { invoke } from '@tauri-apps/api/core'
+import { Prec, Range, type Extension, type EditorState } from '@codemirror/state'
+import { EditorView, ViewPlugin, keymap, Decoration, type DecorationSet } from '@codemirror/view'
+import type { ViewUpdate } from '@codemirror/view'
+import { syntaxTree } from '@codemirror/language'
 import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
 import { editorMarkExtensions } from '../kernel/editor-marks'
+import { SourceModeView } from './SourceModeView'
+import { TableToolbar, type TableInfo } from './TableToolbar'
 
 /** 编辑器 state 缓存上限（篇）；超过按 LRU 淘汰，避免开过很多笔记后内存无限涨 */
 const MAX_CACHED_STATES = 20
+
+/**
+ * 嵌套引用（2026-10-17 用户报「引用嵌套无效」）。
+ *
+ * atomic 的 `.cm-atomic-blockquote` 只表达"这一行在引用里"，**不分层级**
+ * ⇒ `> 一级` 与 `> > 二级` 渲染出来一模一样。这里按行首 `>` 的个数给行加
+ * `zn-quote-dN`（样式在 styles.css 里逐级缩进）。
+ */
+const QUOTE_LINE_RE = /^\s*(?:>\s*)+/
+
+function quoteDecorations(view: EditorView): DecorationSet {
+  const decos: Range<Decoration>[] = []
+  for (const { from, to } of view.visibleRanges) {
+    let pos = from
+    while (pos <= to) {
+      const line = view.state.doc.lineAt(pos)
+      const m = QUOTE_LINE_RE.exec(line.text)
+      if (m) {
+        const depth = (m[0].match(/>/g) ?? []).length
+        decos.push(
+          Decoration.line({ class: `zn-quote-d${Math.min(depth, 4)}` }).range(line.from),
+        )
+      }
+      pos = line.to + 1
+    }
+  }
+  return Decoration.set(decos)
+}
+
+const quoteDepthPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+    constructor(view: EditorView) {
+      this.decorations = quoteDecorations(view)
+    }
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = quoteDecorations(update.view)
+      }
+    }
+  },
+  { decorations: (v: { decorations: DecorationSet }) => v.decorations },
+)
+
+/**
+ * Tab / Shift-Tab：只在**列表行**上做缩进（2026-10-17 用户报「空列表无法直接缩进成子项」）。
+ *
+ * 为什么不能用 atomic 自带的 `indentWithTab`：它底层是 CM6 的 `indentMore`，
+ * 而 markdown 语言包的缩进规则基于**语法块** —— `- `（空的列表项）在语法树里
+ * 没有可缩进的块，实测按 Tab 毫无反应（有内容的 `- 无序列表` 能缩进）。
+ *
+ * 这里自己接管：行首是 `-` / `*` / `+` / `1.` + 空白的行，Tab 加 2 个空格、
+ * Shift-Tab 减 0–2 个。**非列表行返回 false**，交还给 atomic 原来的处理。
+ */
+function indentListLine(view: EditorView, dir: 1 | -1): boolean {
+  const { state } = view
+  const line = state.doc.lineAt(state.selection.main.head)
+  if (!/^\s*(?:[-*+]|\d+[.)])\s+/.test(line.text)) return false
+  if (dir > 0) {
+    view.dispatch({ changes: { from: line.from, insert: '  ' } })
+    return true
+  }
+  const m = /^ {1,2}/.exec(line.text)
+  if (m) view.dispatch({ changes: { from: line.from, to: line.from + m[0].length } })
+  return true
+}
 
 type Props = {
   /** 当前笔记的库内相对路径；null = 未打开 */
@@ -131,6 +202,38 @@ const EDITOR_CSS = `
  * undo 历史与选区），其余时候不重建 —— 若不给 documentId，它会把
  * `markdownSource` 当身份，等于每次输入都重建编辑器。
  */
+/**
+ * 点击在表格 widget 上时返回表格信息（工具条要用）；否则 null。
+ *
+ * 为什么用**点击目标**而不是选区：atomic 的表格是 widget（整表替换），
+ * 点进单元格走的是 contenteditable，**CM6 的选区并不落在表格里** ——
+ * 用 `selection.head` 判断永远为 false（实测工具条不出现）。
+ */
+function computeTableInfoFromEvent(view: EditorView, target: HTMLElement): TableInfo | null {
+  const widget = target.closest('.cm-atomic-table') as HTMLElement | null
+  if (!widget) return null
+  const from = view.posAtDOM(widget)
+  const tree = syntaxTree(view.state)
+  let node: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(from, 1)
+  while (node && node.name !== 'Table') node = node.parent
+  if (!node) return null
+  const host = view.dom.getBoundingClientRect()
+  const rect = widget.getBoundingClientRect()
+  const cell = target.closest('th, td') as HTMLElement | null
+  const tr = cell?.parentElement as HTMLElement | null
+  const head = tr?.parentElement?.tagName === 'THEAD'
+  const rowIdx = tr ? [...(tr.parentElement as HTMLElement).children].indexOf(tr) : 0
+  const col = cell && tr ? [...tr.children].indexOf(cell) : 0
+  return {
+    from: node.from,
+    to: node.to,
+    row: head ? 0 : rowIdx + 1,
+    col,
+    x: rect.left - host.left,
+    y: rect.top - host.top - 30,
+  }
+}
+
 export function MarkdownEditor({
   path,
   value,
@@ -142,6 +245,27 @@ export function MarkdownEditor({
   onCommand,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
+  /**
+   * 源码模式开关（2026-10-17 用户：「增加切换源码模式」）。
+   * 持久化在 localStorage —— 关掉应用再开，仍停在用户上次选的模式。
+   */
+  const [sourceMode, setSourceMode] = useState(() => {
+    try {
+      return localStorage.getItem('zeronote.sourceMode') === '1'
+    } catch {
+      return false
+    }
+  })
+  /** 表格工具条：当前编辑器 view + 光标所在表格的信息 */
+  const [editorView, setEditorView] = useState<EditorView | null>(null)
+  const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
+  useEffect(() => {
+    try {
+      localStorage.setItem('zeronote.sourceMode', sourceMode ? '1' : '0')
+    } catch {
+      /* 隐私模式等拿不到 storage —— 忽略 */
+    }
+  }, [sourceMode])
   const handleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null)
   /** 当前笔记路径的镜像 —— ViewPlugin 的 destroy 回调里读不到 props */
   const pathRef = useRef<string | null>(path)
@@ -176,6 +300,8 @@ export function MarkdownEditor({
   // render 期一律不出现 `*.current`，ref 只在事件/生命周期回调里读写。
   const adoptView = useCallback((view: EditorView) => {
     viewRef.current = view
+    // 表格工具条要拿 view 做操作（对齐/插行）—— 用 state 存一份，避免 render 期读 ref
+    setEditorView(view)
     // 滚动位置必须**实时**记，不能在销毁时读 —— ViewPlugin 的 destroy 回调里
     // view.scrollDOM 往往已被重置为 0，那样存下来的永远是"顶部"
     // （实测：切走再切回，视野跳回第一行）。
@@ -207,6 +333,8 @@ export function MarkdownEditor({
       }
     }
     if (viewRef.current === view) viewRef.current = null
+    setEditorView(null)
+    setTableInfo(null)
     onReadyRef.current?.(null)
   }, [])
 
@@ -239,6 +367,16 @@ export function MarkdownEditor({
   // （它的 mount effect 只依赖 documentId）。因此不需要 useRef/useState 缓存 ——
   // 也顺带避免了在 render 期读 `*.current`（oxlint 的 react(refs) 会报）。
   const extensions: Extension[] = [
+    // Tab / Shift-Tab：列表行手动缩进（见 `indentListLine` 的说明）。
+    // `Prec.high` 保证排在 atomic 自带的 `indentWithTab` 之前。
+    Prec.high(
+      keymap.of([
+        { key: 'Tab', run: (view) => indentListLine(view, 1) },
+        { key: 'Shift-Tab', run: (view) => indentListLine(view, -1) },
+      ]),
+    ),
+    // 嵌套引用：按行首 `>` 的个数加 `zn-quote-dN`（atomic 自己不分层级）。
+    quoteDepthPlugin,
     // ⚠️ 查找面板**不是** CM6 原生的 `defaultSearchPanel`（踩坑记录，别再试一遍）：
     // atomic 的源码写的是 `search({ top: true, createPanel: … defaultSearchPanel(…) })`，
     // 但实测面板只有一个查找框 + 上/下/关闭（placeholder 是 "Search" 而非 CM6 的 "Find"），
@@ -410,14 +548,49 @@ export function MarkdownEditor({
         </div>
       )}
 
-      <div className="zn-editor">
-        <AtomicCodeMirrorEditor
-          documentId={path ?? ''}
-          markdownSource={value}
-          onMarkdownChange={handleMarkdownChange}
-          editorHandleRef={handleRef}
-          extensions={extensions}
-        />
+      <div
+        className="zn-editor"
+        onPointerDown={(e) => {
+          // 点击表格 widget → 算出表格信息（工具条浮在表格左上角）；
+          // 点别处 → null（隐藏）。注意用 viewRef 而不是 state：事件里读 ref 才拿得到最新 view。
+          const view = viewRef.current
+          if (!view) return
+          setTableInfo(computeTableInfoFromEvent(view, e.target as HTMLElement))
+        }}
+      >
+        <div className="zn-editor-modebar">
+          <button
+            type="button"
+            className="zn-mode-toggle"
+            onClick={() => setSourceMode((v) => !v)}
+            title={sourceMode ? '切回预览（Live Preview）' : '切换到源码模式（显示原始 markdown）'}
+          >
+            {sourceMode ? '预览' : '源码'}
+          </button>
+        </div>
+        {sourceMode ? (
+          <SourceModeView path={path} value={value} onChange={handleMarkdownChange} />
+        ) : (
+          <AtomicCodeMirrorEditor
+            documentId={path ?? ''}
+            markdownSource={value}
+            onMarkdownChange={handleMarkdownChange}
+            editorHandleRef={handleRef}
+            extensions={extensions}
+            /**
+             * 链接点击（2026-10-17 用户报「链接无法跳转打开浏览器」）：
+             * atomic 默认走 `window.open`，而 Tauri 的 WebView **不接管**它 ⇒ 静默无反应。
+             * 这里转给内核命令 `open_external`（只放行 http/https，用系统默认程序打开）。
+             */
+            onLinkClick={(url) => {
+              void invoke('open_external', { url }).catch((e) => {
+                console.warn('[zn] 打开链接失败', url, e)
+              })
+            }}
+          />
+        )}
+        {/* 表格工具条：光标在表格里时浮在表格左上角 */}
+        <TableToolbar view={editorView} info={tableInfo} />
       </div>
     </>
   )

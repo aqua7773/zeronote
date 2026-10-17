@@ -13,7 +13,6 @@ import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type KernelAudit, type PanelRegistration } from './kernel/kernel'
 import {
   deletePluginDir,
-  listPluginDirs,
   loadPlugin,
   platformOf,
   PlatformMismatch,
@@ -21,8 +20,11 @@ import {
   supportsPlatform,
   unloadPlugin,
   type LoadedPlugin,
+  type PluginDirEntry,
   type PluginHostDeps,
 } from './kernel/plugin-host'
+import { collectPluginDirs, tryGlobalPluginRoot } from './kernel/plugin-roots'
+import { ensureBuiltinPlugins } from './kernel/builtin-plugins'
 import type {
   DocApi,
   DocEvent,
@@ -95,6 +97,27 @@ const RECENT_CMDS_MAX = 8
 /** 最近打开过的库（侧栏底部的「切换笔记库」菜单用；上限 8 条，最近在前） */
 const LS_RECENT_VAULTS = 'zeronote.vaults.recent'
 const RECENT_VAULTS_MAX = 8
+
+/**
+ * 起始页的 **Markdown 标记速查表**（2026-10-17 用户：「起始页改成markdown各种标记提示，
+ * 新建笔记可以保留」）。左列是写法、右列是作用；点「新建笔记」照抄即可。
+ */
+const MARKDOWN_CHEATS: { syntax: string; desc: string }[] = [
+  { syntax: '# 标题', desc: '一到六级标题' },
+  { syntax: '**粗体**', desc: '加粗' },
+  { syntax: '*斜体*', desc: '斜体' },
+  { syntax: '~~删除~~', desc: '删除线' },
+  { syntax: '- 项目', desc: '无序列表（Tab 缩进）' },
+  { syntax: '1. 第一项', desc: '有序列表' },
+  { syntax: '- [ ] 待办', desc: '任务列表（[x] 已完成）' },
+  { syntax: '> 引用', desc: '引用（> > 二级嵌套）' },
+  { syntax: '`行内代码`', desc: '行内代码' },
+  { syntax: '```', desc: '代码块' },
+  { syntax: '[文字](链接)', desc: '链接（点 ↗ 打开）' },
+  { syntax: '![说明](图片)', desc: '图片' },
+  { syntax: '| A | B |', desc: '表格（:---: 控制对齐）' },
+  { syntax: '---', desc: '分割线' },
+]
 
 /**
  * 库路径的去重口径：Windows 下大小写与斜杠方向都不敏感，
@@ -398,6 +421,14 @@ export default function App() {
 
   /* ── 插件 ── */
   const [manifests, setManifests] = useState<PluginManifest[]>([])
+  /**
+   * 每个插件的**来源**（manifest id → 条目）—— 2026-10-17 rev94 加。
+   * 同一份插件可能来自全局根，也可能来自当前库；删除 / 懒激活必须按来源找对的根，
+   * 插件页也靠它显示「全局 / 本库」徽标。
+   */
+  const [pluginEntries, setPluginEntries] = useState<Record<string, PluginDirEntry>>({})
+  /** 全局插件根（插件页展示用；拿不到就是 null） */
+  const [globalRoot, setGlobalRoot] = useState<string | null>(null)
   const [disabled, setDisabled] = useState<Set<string>>(loadDisabled)
   /**
    * 因**上次加载未完成**被自动禁用的插件（启动自愈的结论，见模块级的 `bootSelfHeal`）。
@@ -1711,9 +1742,9 @@ export default function App() {
       ? /\.md$/i.test(given)
         ? given
         : `${given}.md`
-      : `untitled-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.md`
+      : `新笔记-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}.md`
     try {
-      await k.fs.createNote(name, '# 新笔记\n\n')
+      await k.fs.createNote(name, '')
       await refresh()
       await openNoteRef.current(name)
     } catch (e) {
@@ -1754,7 +1785,7 @@ export default function App() {
           setActivePath(`${to}${cur.slice(from.length)}`)
         await refresh()
         setError(null)
-        setToast(`已重命名：${to}`)
+        // 不再弹「已重命名：<路径>」—— 列表里那一行已经变了，路径又长又挡视线（用户 2026-10-17 要求）
       } catch (e) {
         setError(failMsg('rename', e))
       }
@@ -1773,7 +1804,12 @@ export default function App() {
       if (!k) return null
       const d = new Date()
       const pad = (n: number) => String(n).padStart(2, '0')
-      const stamp = `untitled-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+      /**
+       * 默认文件名 = `新笔记-时-分-秒`（用户 2026-10-17 定）。
+       * 此前是 `untitled-<年月日时分秒>` —— 文件树又显示正文首行的「新笔记」，
+       * 结果一排文件长得一模一样、分不出哪篇是哪篇。
+       */
+      const stamp = `新笔记-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
       try {
         let name = `${stamp}.md`
         let i = 2
@@ -1782,7 +1818,7 @@ export default function App() {
           i += 1
         }
         const path = dir ? `${dir}/${name}` : name
-        await k.fs.createNote(path, '# 新笔记\n\n')
+        await k.fs.createNote(path, '')
         await refresh()
         setError(null)
         return path
@@ -2084,12 +2120,22 @@ export default function App() {
     [kernel, refresh],
   )
 
-  /** 撤销删除：把回收站里的文件逐个 rename 回原位 */
+  /** 撤销删除：把回收站里的东西逐个恢复回原位 */
   const undoDeleteNote = useCallback(async () => {
     const k = kernel
     if (!k || !undoDelete) return
     try {
-      for (const it of undoDelete) await k.fs.rename(it.trash, it.path)
+      for (const it of undoDelete) {
+        /**
+         * 走内核的 `restore_trash`，**不要用裸 rename**（2026-10-17 修）：
+         * 回收站里存的是**整棵目录树**，而 Windows 上非空目录的 rename 会 ACCESS_DENIED
+         * （见 `lib.rs` 的 `move_tree`）。`restore_trash` 已经带降级路径。
+         * id 从回收站路径 `.zn/trash/<stamp>/<名字>` 的第二段取。
+         */
+        const m = /^\.zn\/trash\/([^/]+)\//.exec(it.trash)
+        if (m) await k.fs.restoreTrash(m[1])
+        else await k.fs.rename(it.trash, it.path) // 兜底：不认识的老形态
+      }
       await refresh()
       setError(null)
       setToast(undoDelete.length > 1 ? `已恢复 ${undoDelete.length} 篇` : '已恢复')
@@ -2332,8 +2378,8 @@ export default function App() {
     let cancelled = false
     // 用 ref 里那份（跨 effect 可见）：中途被打断时 cleanup 也能清到正在加载的插件
     const loaded = loadedPluginsRef.current
-    /** 静态声明了命令、但**还没加载**的插件：id → 目录（激活时用） */
-    const pending = new Map<string, string>()
+    /** 静态声明了命令、但**还没加载**的插件：id → 条目（激活时用；条目带根，全局/库内都找得对） */
+    const pending = new Map<string, PluginDirEntry>()
     /** 本次静态声明过命令的插件 id —— 卸载时要把它们的命令元数据也清掉 */
     const declaredIds = new Set<string>()
     /** 本次因平台不符被跳过的插件 id（循环末尾交给 state，供插件页标「不适用」） */
@@ -2365,9 +2411,9 @@ export default function App() {
       // 本代已被取代：一颗插件都别再加载（会跟新代撞命令 id）
       if (cancelled) throw new Error(`插件 ${pluginId} 正在重载，请重试`)
       if (loaded.some((l) => l.manifest.id === pluginId)) return
-      const dir = pending.get(pluginId)
-      if (!dir) throw new Error(`找不到待激活的插件：${pluginId}`)
-      const l = await loadPlugin(dir, deps)
+      const entry = pending.get(pluginId)
+      if (!entry) throw new Error(`找不到待激活的插件：${pluginId}`)
+      const l = await loadPlugin(entry, deps)
       pending.delete(pluginId)
       // 同加载路径：激活期间 effect 可能已被取消，别留下幽灵。
       // **先判取消再 push** —— cleanup 已经 splice 过清单，push 进去就再没人管它了
@@ -2403,18 +2449,30 @@ export default function App() {
       k.commands.setActivator(activate)
       setPluginError(null)
       try {
-        const dirs = await listPluginDirs(vault)
+        // 2026-10-17 rev94：**两个来源** —— 当前库 + 全局插件根（`appDataDir()`），
+        // 同名目录库内优先。切库只换掉"库内"那半，全局那半永远在 ⇒ 插件跨库生效。
+        // 0. 内置插件预装（2026-10-17）：APK 里带的几个插件先写进私有目录，
+  //    之后扫描才能看到它们。用户自己加的插件不受影响。
+  await ensureBuiltinPlugins(vault)
+  if (cancelled) return
+  const entries = await collectPluginDirs(vault)
         const list: PluginManifest[] = []
-        for (const d of dirs) {
+        /** manifest id → 条目：后面加载 / 懒激活 / 删除都从这里取根 */
+        const byId: Record<string, PluginDirEntry> = {}
+        for (const entry of entries) {
           if (cancelled) return
           try {
-            list.push(await readManifest(vault, d))
+            const m = await readManifest(entry.root, entry.dir)
+            list.push(m)
+            byId[m.id] = entry
           } catch (e) {
-            setPluginError(`读取插件 ${d} 失败：${String(e)}`)
+            setPluginError(`读取插件 ${entry.dir} 失败：${String(e)}`)
           }
         }
         if (cancelled) return
         setManifests(list)
+        setPluginEntries(byId)
+        setGlobalRoot(await tryGlobalPluginRoot())
         const ids: string[] = []
         for (const m of list) {
           // 每轮都先看取消：**被取代就整轮退出**，绝不继续注册（继续只会跟新代撞 id）
@@ -2449,7 +2507,9 @@ export default function App() {
                 setPluginError(`插件 ${m.id} 的命令声明冲突：${String(e)}`)
               }
             }
-            pending.set(m.id, m.id)
+            const entry = byId[m.id]
+            if (!entry) continue // 防御：byId 与 list 同步写入，正常到不了这里
+            pending.set(m.id, entry)
             continue
           }
           // 卡死兜底 C 段：**加载前**落一条"正在加载"标记（localStorage 是同步写 ⇒ 必然落盘，
@@ -2461,7 +2521,9 @@ export default function App() {
             /* 写不进去不影响加载本身 */
           }
           try {
-            const l = await loadPlugin(m.id, deps)
+            const entry = byId[m.id]
+            if (!entry) continue
+            const l = await loadPlugin(entry, deps)
             // 加载**完成那一刻**才被取代：当场卸掉再整轮退出（否则它就是幽灵命令）
             if (cancelled) {
               await unloadPlugin(l, deps)
@@ -2754,8 +2816,10 @@ export default function App() {
   const deletePlugin = async (id: string) => {
     const v = vault
     if (!v) return
+    // 按**来源**删：全局插件删全局那份，库内插件删库内那份 —— 删错根要么删错位置、要么报"不存在"
+    const root = pluginEntries[id]?.root ?? v
     try {
-      await deletePluginDir(v, id)
+      await deletePluginDir(root, id)
       setDisabled((prev) => {
         const next = new Set(prev)
         next.delete(id)
@@ -2775,6 +2839,8 @@ export default function App() {
     description: m.description,
     enabled: loadedIds.includes(m.id),
     capabilities: m.capabilities ?? [],
+    // 2026-10-17 rev94：这个插件从哪来 —— 全局的那份换库也在，库内的那份跟着库走
+    source: pluginEntries[m.id]?.source,
     // 平台不符 ⇒ 一行说明它只支持哪端（「桌面」/「移动」两类人话，不暴露 desktop/android 字面量）
     platformNote: platformSkipped.includes(m.id)
       ? `不适用 · 仅${(m.platforms ?? [])
@@ -3439,6 +3505,7 @@ export default function App() {
                   plugins={rows}
                   error={pluginError}
                   log={panelLog}
+                  globalRoot={globalRoot}
                   onToggle={togglePlugin}
                   onDelete={(id) => void deletePlugin(id)}
                 />
@@ -3550,10 +3617,19 @@ export default function App() {
             ) : (
               <>
                 <h1>选一篇开始</h1>
-                <p>从左侧列表打开，或新建一篇。</p>
+                <p>从左侧列表打开，或新建一篇。常用 Markdown 标记：</p>
                 <Button variant="primary" size="lg" onClick={() => runCore('core.newNote')}>
                   新建笔记
                 </Button>
+                {/* Markdown 速查表（2026-10-17 用户：起始页改成标记提示，新建按钮保留） */}
+                <div className="zn-md-cheatsheet">
+                  {MARKDOWN_CHEATS.map((c) => (
+                    <div key={c.syntax} className="zn-md-cheat">
+                      <code>{c.syntax}</code>
+                      <span>{c.desc}</span>
+                    </div>
+                  ))}
+                </div>
               </>
             )}
             <div className="zn-empty-keys">
