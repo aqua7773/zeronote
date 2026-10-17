@@ -69,3 +69,110 @@ index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..4ef1a18475702d0697c1f0f9443458d0
                  const line = doc.lineAt(node.from);
                  // Detect a task item from the line text. ListMark is visited
                  // before the TaskMarker on its line, so a forward single-pass
+diff --git a/dist/table-widget.js b/dist/table-widget.js
+index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdda3791fef 100644
+--- a/dist/table-widget.js
++++ b/dist/table-widget.js
+@@ -45,6 +45,8 @@ export function splitRowCells(line) {
+ function parseTable(state, tableNode) {
+     const header = [];
+     const rows = [];
++    /** PATCH(ZeroNote): 每列对齐（GFM delimiter 冒号），null = 无冒号（默认左） */
++    let aligns = [];
+     const cursor = tableNode.cursor();
+     if (!cursor.firstChild())
+         return null;
+@@ -55,11 +57,26 @@ function parseTable(state, tableNode) {
+         else if (cursor.name === 'TableRow') {
+             rows.push(collectCells(state, cursor.node));
+         }
+-        // TableDelimiter (per-row `|` and whole-line `|---|---|`) is ignored.
++        else if (cursor.name === 'TableDelimiter') {
++            // PATCH(ZeroNote): 用户 2026-10-17 报「表格对齐语法不生效」——
++            // delimiter 行（`| :--- | :---: | ---: |`）的冒号决定每列对齐。
++            aligns = splitRowCells(state.sliceDoc(cursor.from, cursor.to)).map((raw) => {
++                const t = raw.trim();
++                const left = t.startsWith(':');
++                const right = t.endsWith(':');
++                if (left && right)
++                    return 'center';
++                if (right)
++                    return 'right';
++                if (left)
++                    return 'left';
++                return null;
++            });
++        }
+     } while (cursor.nextSibling());
+     if (header.length === 0)
+         return null;
+-    return { header, rows };
++    return { header, rows, aligns };
+ }
+ // Escape cell content so it can't break the row's GFM structure: an
+ // unescaped `|` would split the cell into two columns, and a stray
+@@ -73,7 +90,9 @@ export function serializeTable(model) {
+     const columnCount = model.header.length;
+     const lines = [];
+     lines.push('| ' + model.header.map(escapeCell).join(' | ') + ' |');
+-    lines.push('| ' + model.header.map(() => '---').join(' | ') + ' |');
++    // PATCH(ZeroNote): 保留每列对齐（否则编辑表格后对齐语法被冲掉）
++    const delimCell = (a) => (a === 'center' ? ':---:' : a === 'right' ? '---:' : a === 'left' ? ':---' : '---');
++    lines.push('| ' + model.header.map((_, i) => delimCell(model.aligns?.[i] ?? null)).join(' | ') + ' |');
+     for (const row of model.rows) {
+         const padded = [];
+         for (let c = 0; c < columnCount; c++)
+@@ -85,7 +104,9 @@ export function serializeTable(model) {
+ function readModelFromDom(wrap) {
+     const header = Array.from(wrap.querySelectorAll('thead th')).map(readCellSource);
+     const rows = Array.from(wrap.querySelectorAll('tbody tr')).map((tr) => Array.from(tr.querySelectorAll('td')).map(readCellSource));
+-    return { header, rows };
++    // PATCH(ZeroNote): 把对齐从 DOM 读回来，否则编辑后 serializeTable 会丢对齐
++    const aligns = Array.from(wrap.querySelectorAll('thead th')).map((th) => th.style.textAlign || null);
++    return { header, rows, aligns };
+ }
+ // A cell's raw markdown lives in `dataset.raw` — the source of truth
+ // that `readModelFromDom` reads when serializing the table back to
+@@ -561,6 +582,9 @@ class TableWidget extends WidgetType {
+             return false;
+         if (other.model.rows.length !== this.model.rows.length)
+             return false;
++        // PATCH(ZeroNote): 对齐变了也要重建（否则改 `:---:` 后 DOM 不刷新）
++        if (JSON.stringify(other.model.aligns ?? []) !== JSON.stringify(this.model.aligns ?? []))
++            return false;
+         return true;
+     }
+     toDOM(view) {
+@@ -570,8 +594,9 @@ class TableWidget extends WidgetType {
+         wrap.appendChild(table);
+         const thead = document.createElement('thead');
+         const headerRow = document.createElement('tr');
++        const aligns = this.model.aligns ?? [];
+         for (const text of this.model.header) {
+-            headerRow.appendChild(makeCell('th', text, view));
++            headerRow.appendChild(makeCell('th', text, view, aligns[headerRow.childElementCount] ?? null));
+         }
+         thead.appendChild(headerRow);
+         table.appendChild(thead);
+@@ -580,7 +605,7 @@ class TableWidget extends WidgetType {
+         for (const row of this.model.rows) {
+             const tr = document.createElement('tr');
+             for (let c = 0; c < colCount; c++) {
+-                tr.appendChild(makeCell('td', row[c] ?? '', view));
++                tr.appendChild(makeCell('td', row[c] ?? '', view, aligns[c] ?? null));
+             }
+             tbody.appendChild(tr);
+         }
+@@ -594,8 +619,11 @@ class TableWidget extends WidgetType {
+         return true;
+     }
+ }
+-function makeCell(tag, text, view) {
++function makeCell(tag, text, view, align) {
+     const cell = document.createElement(tag);
++    // PATCH(ZeroNote): GFM 列对齐（`left` / `center` / `right`）
++    if (align)
++        cell.style.textAlign = align;
+     cell.dataset.raw = text;
+     // The cell itself is not contenteditable — only the inner source
+     // element is. This keeps the image preview strictly visual (no
