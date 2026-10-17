@@ -22,7 +22,7 @@
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 pnpm exec tsc -b                  # 必须 0 错误
 pnpm exec oxlint                  # 必须恰好 4 warnings
-cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测；20 是 rev72~rev74 的数字，18 更旧）
+cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-17 复测；以 scripts\verify.ps1 输出为准）
 ```
 
 ## 本会话交付（10 个提交，逐条可回溯）
@@ -170,7 +170,8 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
 > 背景盘点见 `docs/插件UI承载能力-2026-10-13.md`；**用户已裁决**：不需要防"插件把界面改成
 > 任意样子"（同一套设计风格即可）· 自用阶段 ⇒ **放弃"声明式唯一主路"**。
 > ✅ **已清（rev66）**：`.zn/permissions.json` 与 Rust 的 `read_permissions`/`set_permission`
-> **已整体删除**（前端早已不读它们是死代码）—— 基线随之变为 `cargo test --lib` **19 passed**。
+> **已整体删除**（前端早已不读它们是死代码）—— 当时基线变为 `cargo test --lib` **19 passed**；
+> 其后看门狗 +1 → 20、rev75 文件关联 +1 → **当前 21**（以 `scripts\verify.ps1` 输出为准）。
 
 **① 没有阻塞项 —— 桌面与移动端都已实测通过。**（记下来是因为这块踩过一次：手机默认跑的是打包版）
 
@@ -229,8 +230,8 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-14 rev75 实测�
   主窗口能关是因为它有"关窗前落盘"监听器。⚠️ 别在**将要被销毁的窗口里 `await` close/destroy**
   （那次 invoke 的 Promise 永不 resolve，谁 await 谁超时）。
 - ⚠️ **Rust 测试的临时目录在 `<repo>/_tmp-test/`，不是 `%TEMP%`** —— 跑测试的那个受限上下文
-  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **19 passed**
-  （rev66 删掉授权记录那两个用例后从 21 降到 19）。
+  写不了 `%TEMP%`（`Os code 5 PermissionDenied`，rev37）。`cargo test --lib` 现 **21 passed**
+  （rev66 删到 19，rev70 看门狗 +1 → 20，rev75 +1 → 21；以 `scripts\verify.ps1` 输出为准）。
   **别把它改回 `std::env::temp_dir()`**，否则 12/18 用例立刻假失败
 - **手机 `33b676f6`（ARIA 24069RA21C）**：**2026-10-15 实测装的是 dev 版**（`android-dev.cmd` 重建后）——
   判据：logcat 里出现 `node_modules/.vite/deps/…` 与 `[vite] connected`，且**改 `src/**` 真的 HMR 到手机**
