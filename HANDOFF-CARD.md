@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev124）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev125）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,20 +18,20 @@ pwsh -File scripts\verify.ps1
 # 五步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过
 ```
 
-## 最近一轮（rev124）
+## 最近一轮（rev125）
 
-- **L3 第二刀：`useDocIO` hook**（刷新 / 三方合并 / 保存 / 编辑器变更 + 兜底 flush）—— App **3239 → 2980 行**。
-  - 四段整段移除（refresh → 关窗前 effect、onEditorChange），改 `useDocIO({...})` 解构。
-  - refs 留在 App 传入（docApi 还要用），`closingRef` 随 effect 迁入。
-- **测试 113 → 122 条**：`use-doc-io.test.tsx` 9 条。
-- 验收：五步全过（tsc 0 · **oxlint 5 warnings**（比上轮少 1）· cargo 27 · check-docs · **vitest 122**）。
-- 剩：`openNote`/`docApi`/`openExternalFile`、`usePluginHost`。
+- **L3 第三刀：`useDocSession` hook**（打开 / `[[链接]]` / 关闭）—— App **2980 → 2935 行**。
+  - 原段整段移除，改 `useDocSession({...})` 解构；`openNoteRef` 同步 effect 一并迁入。
+  - 与 `useDocIO` 分工：IO 管读写/合并，session 管"当前是哪一篇"。
+- **测试 122 → 132 条**：`use-doc-session.test.tsx` 10 条。
+- 验收：五步全过（tsc 0 · oxlint 5 · cargo 27 · check-docs · **vitest 132**）。
+- 剩：`docApi`（114 行）· `openExternalFile`（~495 行）· `usePluginHost`。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO → **2980 行**；剩 openNote/docApi/openExternalFile / usePluginHost |
+| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession → **2935 行**；剩 docApi / openExternalFile / usePluginHost |
 | 前端单测 | ✅ rev122：102 条（含 15 条组件测试），已并入 `verify.ps1` 第 5 步 |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |

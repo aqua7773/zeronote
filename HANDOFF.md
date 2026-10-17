@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 124
-更新时间: 2026-10-18（rev124 L3 第二刀：useDocIO 抽成 hook，App 3239→2980 行）
+revision: 125
+更新时间: 2026-10-18（rev125 L3 第三刀：useDocSession 抽成 hook，App 2980→2935 行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev125 | 2026-10-18 · **L3 第三刀**：`useDocSession` hook（打开 / `[[链接]]` / 关闭）· App **2980 → 2935** 行 · 测试 **132 条** |
 | rev124 | 2026-10-18 · **L3 第二刀**：`useDocIO` hook（刷新 / 三方合并 / 保存 / 编辑器变更 + 兜底 flush）· App **3239 → 2980** 行 · 测试 **122 条** · oxlint 6→5 |
 | rev123 | 2026-10-18 · **L3 第一刀**：`useFileOps` hook（剪贴板 / 回收站 / 删除 / 撤销）· App **3501 → 3238** 行 · `lib/format.ts` · 测试 **113 条** |
 | rev122 | 2026-10-18 · **App.tsx 拆分 L1+L2**：4 个 lib 模块 + 5 个组件（3928 → **3501** 行）· 前端测试 **102 条** · 方案 `docs/App拆分方案-2026-10-18.md` |
@@ -104,6 +105,36 @@ revision: 124
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev125（2026-10-18 · L3 第三刀：useDocSession 抽成 hook，App 2935 行）
+>
+> 继续 L3。这一刀抽**文档会话**：`openNote` / `openWikiLink` / `closeNote`（打开哪篇、关掉哪篇）。
+>
+> ### 1 产物
+>
+> - `src/hooks/useDocSession.ts`（~200 行）：三个动作 + `openNoteRef` 同步 effect。
+> - `App.tsx`：**2980 → 2935 行（−45）**。原段（openNote / openWikiLink / closeNote）整段删除，
+>   换 `useDocSession({...})` 解构；其余调用点（侧栏、快速切换、搜索、命令）零改动。
+>
+> ### 2 与 useDocIO 的分工
+>
+> `useDocIO` 管"内容怎么读写/合并"；`useDocSession` 管"当前是哪一篇"。
+> 切换前落盘仍走 `saveNowRef`（与迁出前同一套语义，不重复实现）。
+>
+> ### 3 测试（122 → 132 条）
+>
+> `tests/use-doc-session.test.tsx` 10 条：openNote 正常/脏先存/同篇不动作/失败不清空/frontmatter 跟随、
+> closeNote 清空四态/脏先存、openWikiLink 命中与找不到、openNoteRef 挂载后同步。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 5 · cargo 27 · check-docs · **vitest 132 passed**。
+>
+> ### 仍未做
+>
+> `docApi`（114 行，依赖 fireDoc/flushDocChange 与 refs）· `openExternalFile`（~495 行，SAF）· `usePluginHost`。
+
+
+>
 > ## 📌 rev124（2026-10-18 · L3 第二刀：useDocIO 抽成 hook，App 2980 行）
 >
 > 继续 L3。这一刀抽**文档读写域**（上一刀是文件操作域）。

@@ -67,6 +67,8 @@ import { requestAllFilesAccess } from './lib/androidPerm'
 import { useFileOps } from './hooks/useFileOps'
 /* rev124 拆分 L3：文档读写域（刷新 / 合并 / 保存 / 编辑器变更）抽成 hook */
 import { useDocIO } from './hooks/useDocIO'
+/* rev125 拆分 L3：文档会话（打开 / 关闭 / [[链接]]）抽成 hook */
+import { useDocSession } from './hooks/useDocSession'
 /* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
 import {
   baseName,
@@ -828,76 +830,31 @@ export default function App() {
     return () => unlisten?.()
   }, [pluginWindowId])
 
-  const openNote = useCallback(
-    async (path: string) => {
-      const k = kernel
-      if (!k || path === activeRef.current) return
-      flushDocChange() // 上一篇挂起的 change 先兑现，别让它落在 open(new) 之后（会乱序）
-      if (dirtyRef.current) await saveNowRef.current()
-      try {
-        const text = await k.fs.readText(path)
-        // P1-2：这篇笔记的 frontmatter 跟着文档一起走（见 `frontmatterRef`）。
-        // 列表里暂时找不到（刚新建、还没刷新）就退化成空对象，别让它 undefined。
-        frontmatterRef.current = notesRef.current.find((n) => n.path === path)?.frontmatter ?? {}
-        baseRef.current = text // 三方合并的 BASE = 刚读到的这份
-        setContent(text)
-        setActivePath(path)
-        setDirty(false)
-        setSaveState('idle')
-        setError(null)
-        setSidebarOpen(false) // 窄屏：选完笔记自动收抽屉
-        fireDoc('open', path, text, false)
-      } catch (e) {
-        setError(failMsg('read', e))
-      }
+  /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
+  const { openNote, openWikiLink, closeNote } = useDocSession({
+    kernel,
+    notes,
+    fireDoc,
+    flushDocChange,
+    refs: {
+      activeRef,
+      contentRef,
+      dirtyRef,
+      baseRef,
+      frontmatterRef,
+      notesRef,
+      saveNowRef,
+      openNoteRef,
     },
-    [kernel, fireDoc, flushDocChange],
-  )
-  useEffect(() => {
-    openNoteRef.current = openNote
-  }, [openNote])
+    setActivePath,
+    setContent,
+    setDirty,
+    setSaveState,
+    setError,
+    setToast,
+    setSidebarOpen,
+  })
 
-  /**
-   * `[[笔记名]]` 点击跳转（P2-2 · 2026-10-18）。
-   *
-   * 匹配顺序：库内相对路径（去 `.md`）→ 路径后缀（`[[日记/今天]]`）→ 显示标题。
-   * 找不到就提示 —— 静默无反应正是这条问题原来的样子（用户点了没动静，以为功能坏了）。
-   */
-  const openWikiLink = useCallback(
-    (target: string) => {
-      const norm = (s: string) => s.replace(/\\/g, '/').replace(/\.md$/i, '').trim()
-      const want = norm(target)
-      const hit =
-        notes.find((n) => n.id === target) ??
-        notes.find((n) => norm(n.path) === want) ??
-        notes.find((n) => norm(n.path).endsWith(`/${want}`)) ??
-        notes.find((n) => norm(n.title) === want)
-      if (hit) void openNote(hit.path)
-      else setToast(`没有找到「${target}」这篇笔记`)
-    },
-    [notes, openNote],
-  )
-
-  /**
-   * 关闭当前笔记，回到「未打开」的空态。
-   * 有未保存内容先落盘（与切笔记、切库同一套语义）。
-   * 此前**完全没有这个动作** —— 库里只有一篇笔记时，文件树点它还是它，等于出不去。
-   */
-  const closeNote = useCallback(async () => {
-    if (dirtyRef.current) await saveNowRef.current()
-    // 顺序：兑现挂起的 change → 取快照（清空之前！）→ 清空 → 广播 close
-    flushDocChange()
-    const p = activeRef.current
-    const c = contentRef.current
-    setActivePath(null)
-    setContent('')
-    baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
-    frontmatterRef.current = {} // P1-2：文档关了，frontmatter 也跟着清掉
-    setDirty(false)
-    setSaveState('idle')
-    setError(null)
-    fireDoc('close', p, c, false)
-  }, [fireDoc, flushDocChange])
 
   /**
    * 把一个库从「最近打开过的库」里剔掉（含持久化）。
