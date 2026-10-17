@@ -12,12 +12,13 @@
 
 | 模块 | 能做什么 |
 |---|---|
-| **库与文件** | 选一个文件夹当库（桌面可记住最近库、安卓支持多库）；层级文件夹、空目录可见、多选、剪切 / 复制 / 粘贴 / 重命名；桌面双击 `.md` 用 ZeroNote 打开（文件关联 + 单实例） |
-| **编辑** | CodeMirror 6 即时渲染；12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）；查找 `Ctrl+F` / 替换 `Ctrl+H`；每笔记独立撤销栈；光标与滚动位置记忆 |
+| **库与文件** | 选一个文件夹当库（桌面可记住最近库、安卓支持多库）；**文件树显示文件名**、新建默认名 `新笔记-时-分-秒`；层级文件夹、空目录可见、**层级引导线**、多选（`Ctrl/Shift` 点选 ＋ **鼠标左键拖拽框选**）、**拖拽移动**（把笔记/文件夹拖进另一个文件夹）、剪切 / 复制 / 粘贴 / 重命名；桌面双击 `.md` 用 ZeroNote 打开（文件关联 + 单实例） |
+| **起始页** | 打开即见 **Markdown 标记速查表**（14 条两列，rev111），新建按钮保留 |
+| **编辑** | CodeMirror 6 即时渲染；12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）；**源码 / 预览切换**（rev107）；**表格工具栏**（对齐 / 插删行列，rev109）；空列表项 **Tab 缩进**（rev101）；**链接点击打开浏览器**（rev102）；查找 `Ctrl+F` / 替换 `Ctrl+H`；每笔记独立撤销栈；光标与滚动位置记忆 |
 | **保存** | 停笔 800ms 自动保存 ｜ `Ctrl+S` ｜ 关窗前保底；写盘前与磁盘做**行级三方合并**（插件写了同一文件也不互相覆盖）；原子写（临时文件 + rename） |
-| **回收站** | 逻辑删除进 `.zn/trash/`（可恢复回原处）；物理删除两步走 + 二次确认 |
+| **回收站** | 逻辑删除进 `.zn/trash/`（可恢复回原处，**文件夹连同子项整树**）；物理删除两步走 + 二次确认 |
 | **搜索** | 全文内存索引（多关键词 AND + 中文子串）；命令面板 `Ctrl+P`；快速切换 `Ctrl+O` |
-| **插件** | 库内 `.zn/plugins/<id>/` 即插件；`☰ → 插件管理 → 重新扫描` 即生效；10 原语、21 种 UINode、5 个挂载位、独立窗口（`view.openWindow`）、整窗接管（`view.overrideShell`）、懒激活、四种入口形态、多文件 CJS |
+| **插件** | 两种放法：**全局插件根**（`<应用数据目录>/.zn/plugins/`，所有笔记库共用、切库不掉）或库内 `.zn/plugins/<id>/`（只在这个库生效；同名库内优先）；`☰ → 插件管理 → 重新扫描` 即生效，插件页显示「全局 / 本库」来源；**内置预装**（随包分发，启动写进上述目录，rev110）；10 原语、21 种 UINode、6 个挂载位、独立窗口（`view.openWindow`）、整窗接管（`view.overrideShell`）、懒激活、四种入口形态、多文件 CJS |
 | **文档阅读器** | PDF / EPUB / MOBI / AZW3 / FB2 / CBZ / TXT 只读打开；文件树里统一收进虚拟「文档 N」分组，文件位置不动 |
 | **导入导出** | 导入 md / txt / html / docx / epub / pdf；导出 txt / html / docx / png / md→pdf（导出 HTML 后用浏览器打印，WebView2 不支持直接打印） |
 | **稳定性** | 原生看门狗：插件卡死 → 应用闪退（退出码 101）→ 下次启动自动禁用该插件并提示；内核自愈：快照 + `修复内核.cmd` 从备份重建 |
@@ -65,8 +66,8 @@ android-dev.cmd
 
 ```powershell
 pnpm exec tsc -b                 # 0 错误
-pnpm exec oxlint                 # 恰好 4 warnings
-cd src-tauri; cargo test --lib   # 21 passed
+pnpm exec oxlint src             # 0 error（当前 6 warnings，以 verify 输出为准；全仓扫会把 examples 也算进去）
+cd src-tauri; cargo test --lib   # 必须全过（当前 23，以 verify 输出为准）
 # 或一键：pwsh -File scripts\verify.ps1（会打印真实数字）
 ```
 
@@ -77,6 +78,7 @@ cd src-tauri; cargo test --lib   # 21 passed
 ```
 ZeroNote\
   src\                 前端全部代码：主壳 + 内核原语实现 + 组件
+    kernel\            原语实现 + 插件宿主 / 插件来源（`plugin-roots.ts`）/ 内置插件（`builtin-plugins.ts`）
   src-tauri\           Rust 原生内核：文件命令 / 原子写 / 回收站 / 看门狗
   examples\            29 个示例插件（功能主力；部分只是验收夹具）
   tools\               CDP 自动验收脚本（不碰用户鼠标）
@@ -95,7 +97,7 @@ ZeroNote\
 | 前端 | React 19 + TypeScript + Vite 8 |
 | 编辑器 | CodeMirror 6 + `@atomic-editor/editor`（即时渲染） |
 | 数据 | `.md` + YAML frontmatter；库内相对路径即 ID；无数据库 |
-| 插件 | 库内目录 + Blob 动态 import（与宿主同上下文） |
+| 插件 | 库内目录 / 全局目录（`<应用数据目录>/.zn/plugins/`，跨库共用）/ 内置预装（`?raw` 打进包）＋ Blob 动态 import（与宿主同上下文） |
 | 原生 | Rust（文件命令 / 原子写 / 看门狗） |
 | 许可证 | MIT |
 
@@ -105,7 +107,7 @@ ZeroNote\
 |---|---|
 | 文档全家桶谁说了算 | `docs/README.md`（索引 + 权威矩阵） |
 | 为什么这样设计（最高权威） | `docs/架构原则-2026-10-13.md` |
-| 插件能调什么接口 | `docs/内核契约-v0.1.md`（与 `src/kernel/contract.ts` 一一对应） |
+| 插件能调什么接口 | `docs/内核契约-v0.2.md`（与 `src/kernel/contract.ts` 一一对应） |
 | 项目现在到哪了 | `HANDOFF-CARD.md` |
 | 某个功能怎么做的、踩过什么坑 | `HANDOFF.md`（按 rev 查） |
 | 目标需求（19 章） | `docs/requirements/current.md` |
@@ -113,7 +115,7 @@ ZeroNote\
 
 ## 铁律
 
-1. 内核里**不出现**「标签 / 同步 / AI / 画布 / 灵感流」这些词
+1. 内核代码**不实现**「标签 / 同步 / AI / 画布 / 灵感流」这些功能（内置插件只是把插件打包分发，逻辑仍在插件里）
 2. 只有 `.md` + frontmatter，**没有私有笔记格式**
 3. 所有写入原子；删除进 `.zn/trash/`；只接受库内相对路径
-4. 改契约 → 必须同步改 `docs/内核契约-v0.1.md` 并升版本
+4. 改契约 → 必须同步改 `docs/内核契约-v0.2.md` 并升版本

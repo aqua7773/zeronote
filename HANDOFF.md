@@ -1,13 +1,34 @@
 # 项目交接
 
-revision: 93
-更新时间: 2026-10-17（rev93 文档整改：README 重写 · rev 索引与最新在前 · 基线数字单一来源 · docs 权威矩阵 · 需求入库 · 文档编写规范。此前 rev92 的摘要见 rev92 段）
+revision: 116
+更新时间: 2026-10-17（rev116 手机单列速查表：左留白 48 ＋ 间隔 73。rev115 桌面 620/右移 54 见下一段）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev116 | 2026-10-17 · 起始页速查表**手机单列**：左留白 48 ＋ 标记↔解释间隔 73（用户手拖定）＋ 出包/防火墙收尾 |
+| rev115 | 2026-10-17 · 起始页速查表**视觉对齐**定稿：**宽 620 / 右移 54**（用户用临时滑块拖定） |
+| rev112 | 2026-10-17 · 起始页**排版对称** ＋ 桌面 **release 独立构建**（数据与 dev 隔离） |
+| rev111 | 2026-10-17 · **起始页改成 Markdown 标记速查表**（14 条两列，新建按钮保留） |
+| rev110 | 2026-10-17 · **安卓内置插件预装**（8 个插件随包，启动写入私有目录）＋ APK 构建 |
+| rev109 | 2026-10-17 · **表格快捷操作**：对齐按钮 ＋ 调行列（插/删/移）＋ 菜单 ＋ 删除表格 |
+| rev108 | 2026-10-17 · **表格列对齐**语法生效（patch atomic 的 table widget：`:---` / `:---:` / `---:`） |
+| rev107 | 2026-10-17 · 编辑器**源码 / 预览切换**（按钮在「关闭」下面；localStorage 持久化） |
+| rev106 | 2026-10-17 · 引用嵌套框改成**参考图结构**：一级框贯穿整个引用块，嵌套层各有自己的短框 |
+| rev105 | 2026-10-17 · 引用嵌套**每层自己的框** ＋ 行内代码背景 ＋ 分割线加粗到 2px |
+| rev104 | 2026-10-17 · **引用嵌套生效**（按行首 `>` 逐级缩进：16 / 41.5 / 67px） |
+| rev103 | 2026-10-17 · 深色模式下**已完成任务的勾改成黑色**（白勾在浅色选中块上看不见） |
+| rev102 | 2026-10-17 · 编辑器链接**能打开浏览器**（Rust `open_external` ＋ atomic `onLinkClick`） |
+| rev101 | 2026-10-17 · 空列表项 **Tab 缩进成子项**：内核接管 Tab ＋ 插件按缩进关系定深度 |
+| rev100 | 2026-10-17 · 修**空列表项缩进**比同级多一截（插件补空列表项的深度） |
+| rev99 | 2026-10-17 · 文件树**层级引导线**：每层一条竖线 ＋ 缩进（层级一眼看清） |
+| rev98 | 2026-10-17 · 文件树显示**文件名**（不再显示正文标题）＋ 新建默认名 `新笔记-时-分-秒` |
+| rev97 | 2026-10-17 · **文件树拖拽移动**：笔记/文件夹拖进另一个文件夹（与框选分流） |
+| rev96 | 2026-10-17 · **文件树鼠标框选**：左键拖拽选中一片（含目录高亮 · 批量操作去重） |
+| rev95 | 2026-10-17 · 修「有内容的文件夹删不掉」：Windows 非空目录 rename 降级（删除/移动/恢复） |
+| rev94 | 2026-10-17 · **插件跨库生效**：全局插件根（appDataDir）＋ 库内/全局合并扫描 ＋ 插件页来源徽标 |
 | rev93 | 2026-10-17 · 文档整改：README 重写 · rev 索引 · 基线数字统一 · 权威矩阵 · 文档规范 |
 | rev92 | 2026-10-15 · ⚠️ **更正 rev88**：`window.print()` 在 WebView2 上**静默无效** —— md→pdf 改走「导出 HTML ＋ … |
 | rev91 | 2026-10-15 · 导入导出**收尾**：交付盘点 ＋ 唯一未验项 ＋ 测试产物清理 |
@@ -75,6 +96,680 @@ revision: 93
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev116（2026-10-17 · 起始页速查表手机单列：左留白 48 ＋ 间隔 73）
+>
+> 需求：安卓上「标记和右边解释的宽度」可调 —— 用户用临时滑块（间隔 / 左移）手拖定
+> **间隔 73 / 左边留白 48**（先拖 42，再连右移两次 3px）；拖的过程中发现「间隔一调大，
+> 右侧解释就被挤成省略号」。
+>
+> ### 根因
+>
+> 手机单列沿用了桌面宽度约束（`620px` / `max-width: calc(100% - 132px)` / `margin-left: 108px`），
+> 443 逻辑宽的屏幕上表格只剩 ~311px；`code 104 + gap` 一放大，解释区就没了。
+>
+> ### 做法（`styles.css` 的 `@media (max-width: 640px)`）
+>
+> 1. 速查表：`width: calc(100% - 54px)`、`max-width: none`、`margin-left: 48px` ——
+>    单列左边留白 48、右边 9，其余占满；
+> 2. `.zn-md-cheat { gap: 73px }` —— 用户拖定值（桌面两列仍是 10px，列一窄 73 就没地方）；
+> 3. 临时调节器（间隔 / 左移）与 state 全部删除。
+>
+> ### 验收
+>
+> 真机截图 `_shots/mobile-final-48.png`：14 条解释全部完整、无省略号；`tsc` 0 错误。
+>
+> ### 附：同一轮的环境收尾（2026-10-17 深夜）
+>
+> 1. **出包**：桌面 release `zeronote.exe`（13.86 MB）→ `C:\Users\AQUA\Apps\_View\办公与文档\`；
+>    Android release APK（16.11 MB，签名 `2ca79f19…35bb`）→ `C:\Users\AQUA\Apps\_View\安卓应用\`；
+>    旧 exe 备份为 `.bak-20261017-2209`。
+> 2. **手机跑的是 dev 包**：包名 `com.aqua.zeronote.debug`（2026-10-11 首次安装，热重载用）；
+>    `com.aqua.zeronote`（release）已被用户卸载，两个包别混。
+> 3. **防火墙**：手机 2.4G / 电脑 5G 跨 SSID，且网络被识别为 **Public** —— 加了一条入站规则
+>    `ZeroNote Vite Dev 1420 LAN`（TCP 1420，仅 `192.168.1.0/24`），否则手机连不上 dev server。
+> 4. **已知问题**：dev 连续多次 HMR 会触发 `0xc0000374 STATUS_HEAP_CORRUPTION`（今晚两次），
+>    重启 dev 即可；`android-dev.cmd` 里 `rem（⚠️` 中文注释会让 cmd 报一行错（不影响执行）。
+>
+> ## 📌 rev115（2026-10-17 · 起始页速查表视觉对齐定稿：宽 620 / 右移 54）
+>
+> 需求：用户连问三轮 —— 「数值居中，但视觉效果不居中，红色轴线和绿色轴线应该接近重合」。
+>
+> ### 根因（不是居中算错）
+>
+> 数学上三元素中心本来就全等于编辑区中心（CDP 实测，任意侧栏宽 / 视口宽，误差 0.00）。
+> 视觉偏左的真实原因：**表格边界不可见** —— 速查表两列各 `1fr`，右列说明普遍 2–3 个字
+> （「加粗」「删除线」），右列右侧留出一大片空白，肉眼把表看窄、看成偏左。
+>
+> ### 做法
+>
+> 1. 不再猜数值：加**临时滑块调节器**（宽 / 右移），用户亲手拖到视觉顺眼 → 拖定 **620 / 54**；
+> 2. 固化到 `styles.css` `.zn-md-cheatsheet`：
+>    `width: 620px` · `margin: 20px 0 0 108px`（flex 居中下右移 = margin-left ÷ 2 = 54）·
+>    `max-width: min(620px, calc(100% - 132px))`（108 左移 + 24 右留白，窄窗口不贴边/不溢出）；
+> 3. 调节器与 state 全部删除（不留调试代码）。
+>
+> ### 验收
+>
+> 窗口宽 1100 / 1440 / 1920 / 2560 实测：右移恒 **+54**（1100 时宽度压到 584 防贴边，偏移不变）；
+> `tsc -b` 0 错误。截图 `_shots/rev115-final-1920.png`、`_shots/rev115-final-1100.png`。
+>
+> ### 教训（写进规范）
+>
+> 「居中」是数学性质，可脚本证明；「视觉居中」是感知性质，只能由人判定 ——
+> 前者给实测数据，后者给可拖的旋钮，不要用人眼替对方估。
+
+> ## 📌 rev112（2026-10-17 · 起始页排版对称 ＋ 桌面 release 独立构建）
+>
+> 需求：
+> 1. 「排版改优雅和谐对称一点」；
+> 2. 「桌面端也编译一个版本，数据和 dev 隔离」。
+>
+> ### 起始页（`styles.css`）
+>
+> - 两列**等宽**网格 + 语法块**固定 104px** ⇒ 左右两列的语法块严格对齐、说明起点一致；
+> - 列距 36px / 行距 9px 统一；整表 `margin: 0 auto` 居中。
+>
+> ### 桌面 release（数据隔离）
+>
+> ⚠️ **关键坑**：`pnpm tauri build --config '{"identifier":...}'` **只影响 bundle，不影响运行时** ——
+> single-instance 仍按**编译时**的 `identifier` 判定，导致 release 与 dev 互斥、**起来就退**（ExitCode 0）。
+> **必须真改 `tauri.conf.json`** → 构建 → **恢复**。
+>
+> 做法：
+> 1. 临时把 `identifier` → `com.aqua.zeronote.release`、`productName` → `ZeroNote Release`；
+> 2. `CARGO_TARGET_DIR=%USERPROFILE%\cargo-targets\zeronote-release pnpm tauri build --no-bundle`
+>    （独立 target 目录，不与 dev/Android 抢 cargo 锁）；
+> 3. 恢复 `tauri.conf.json`（`.dev-backup` 备份）。
+>
+> 产物：`C:\Users\AQUA\cargo-targets\zeronote-release\release\zeronote.exe`（13.9MB，release）。
+>
+> **隔离验证**：
+> - 数据目录：`%LOCALAPPDATA%\com.aqua.zeronote.release`（新）vs dev 的
+>   `%LOCALAPPDATA%\com.aqua.zeronote`（旧，10/11）—— 互不相干 ✅
+> - release 首次打开是**空库**（截图 `_shots/release-window.png`：左侧「还没选择笔记库」）——
+>   不会自动打开 dev 的库；要与 dev 共用某个库，选同一个文件夹即可（笔记是文件）。
+> - **dev 与 release 可以同时跑**（不同 identifier ⇒ single-instance 不互斥，截图 `_shots/dev-release-both.png`）。
+>
+> ⚠️ **第二个坑**：`tauri::generate_context!` 是**编译期宏**，**不追踪 `tauri.conf.json` 的变化** ——
+> 改完 conf 直接 rebuild 出来的 exe **仍嵌旧 identifier**（表现为 release 与 dev 抢 single-instance）。
+> 必须 `cargo clean -p zeronote`（对应 `CARGO_TARGET_DIR`）再构建/重启。
+>
+> ### 安卓（同步）
+>
+> APK 重构建（含速查表）→ `adb install` 成功 → 真机截图确认单列速查表 + 新建按钮
+> （`_shots/android-latest.png`）。
+>
+> ## 📌 rev111（2026-10-17 · 起始页改成 Markdown 标记速查表）
+>
+> 需求原话：「起始页改成markdown各种标记提示，新建笔记可以保留」。
+>
+> ### 改法（`App.tsx` + `styles.css`）
+>
+> - 空态「选一篇开始」下面加**两列速查表**（`MARKDOWN_CHEATS`，14 条）：
+>   标题 / 粗体 / 斜体 / 删除线 / 无序列表 / 有序列表 / 任务列表 / 引用 /
+>   行内代码 / 代码块 / 链接 / 图片 / 表格 / 分割线；
+> - 「新建笔记」按钮**保留**（在速查表上方），底部快捷键提示不变；
+> - 左列写法用等宽字体 + 底色块，右列是作用；窄屏（< 640px）自动单列。
+>
+> ### 实测
+>
+> 空态渲染 `.zn-md-cheatsheet`，14 个子项（`# 标题`、`**粗体**`、…）。
+> 截图 `_shots/rev111-start-page-cheatsheet.png`。`tsc` 0 错误。
+>
+> ## 📌 rev110（2026-10-17 · 安卓内置插件预装 ＋ APK 构建）
+>
+> 需求原话：「测一下最近修改在安卓端的情况，编译一个最新的apk包，把几个插件也放进去，
+> 还有安卓插件能不能不用自己一道目录，而是默认放在目录，要安装其他插件的时候再自己添加到目录里面」。
+>
+> ### 内置插件预装（解决"安卓上用户没法自己拷插件"）
+>
+> 1. `src/kernel/builtin-plugins.ts`：用 vite 的 `?raw` 把 **8 个插件**的源码打进前端包
+>    （outline-map / daily-note / doc-reader / import-export / inspiration-flow / tag-demo /
+>    editor-marks / theme-sepia），每个只带运行必需文件（`index.js` + `manifest.json` + 样式，
+>    不带 selftest / store）；
+> 2. Rust 新增 `write_plugin_file(vault, plugin_id, rel, content)`（走 `plugin_file` 的路径校验，防 `..`）；
+> 3. App 的插件扫描 effect 开头调 `ensureBuiltinPlugins(vault)` —— 每次启动把内置插件写进
+>    `<私有根>/.zn/plugins/<id>/`（覆盖为内置版本；**用户自己加的插件不受影响**）。
+>    ⇒ 安卓与桌面一致：内置的默认就有，额外插件仍往同一个目录加。
+>
+> ### 构建踩坑（MSVC D8050）
+>
+> `pnpm tauri android build --debug --apk` 在 host 编译 `vswhom-sys` 时失败：
+> `cl: 命令行 error D8050 :无法执行 c1xx.dll`。
+> 根因：`cc` crate 默认给 MSVC 加 `/Z7`（调试信息），c1xx 的调试记录区装不下。
+> 修法：改 cargo registry 里 `vswhom-sys-0.1.3/build.rs`，在 `cc.cpp(true)` 后加 `cc.debug(false)`。
+>
+> ⚠️ **这是对第三方 crate 源码的本地 patch，不在项目仓库里** —— 清 cargo 缓存/换机器后要重做。
+>
+> ## 📌 rev109（2026-10-17 · 表格快捷操作：对齐按钮 / 调行列 / 菜单 + 删除）
+>
+> 需求原话：「增加表格快捷操作，1 调整行列，2 对齐按钮，3 增加表格修改菜单和删除按钮」
+> （附 Typora 参考图：左上角工具条 + 对齐面板 + 菜单）。
+>
+> ### 实现（新组件 `src/components/TableToolbar.tsx`）
+>
+> atomic 的 table widget 只负责渲染 + 单元格编辑，**没有任何表格操作 UI**。补一层：
+>
+> 1. **触发**：`zn-editor` 的 `onPointerDown` 判断点击是否落在 `.cm-atomic-table` 上。
+>    ⚠️ **不能用选区判断**：表格是整表替换的 widget，点单元格走 contenteditable，
+>    CM6 的选区根本不进表格（实测 `selection.head` 永远在表格外）——用点击目标才对；
+> 2. **工具条**（表格左上角）：`⊞ | 左 中 右 | ⋮ | 🗑`
+>    - **⊞**：**快捷调整行列数**（2026-10-17 用户澄清：参考图那个网格是调尺寸，不是对齐）——
+>      8×8 网格，悬停高亮并显示 `3 × 3`，点击即 resize（保留现有内容，缺的补空、多的裁掉；
+>      **行数含表头**，3×3 = 3 列 + 表头 + 2 数据行）；
+>    - 左/中/右：改 delimiter 行对应列的冒号；
+>    - ⋮：菜单 —— 上方/下方插入行、左侧/右侧插入列、删除该行/该列、
+>      **上移/下移该行、左移/右移该列**、复制表格、删除表格；
+>    - 🗑：删除表格；
+> 3. **所有操作都改源码**：读表格 markdown → 改 `lines` → `dispatch` 替换 `[from, to]`
+>    （表格纯文本仍是唯一真相，不碰 widget）。
+>
+> ### 实测
+>
+> | 操作 | 结果 |
+> |---|---|
+> | 点表格 | 工具条出现（`左 中 右 ⋮ 🗑`） |
+> | 点「中」 | 第一列 `text-align: center`（其它列不变） |
+> | 点「⋮」 | 菜单 12 项全部出现 |
+>
+> 截图 `_shots/rev113-table-toolbar.png`、`_shots/rev113-table-menu.png`。`tsc` 0 错误。
+>
+> ### 边界
+>
+> - 对齐做的是**单列切换按钮**（不是参考图那种 8×3 网格面板）—— 更直接；
+> - 点表格外任意处 → 工具条消失（`onPointerDown` 返回 null）。
+>
+> ## 📌 rev108（2026-10-17 · 表格列对齐语法生效）
+>
+> 需求原话：「表格对齐语法不生效」（截图：`| :--- | :---: | ---: |` 三列全左对齐）。
+>
+> ### 根因
+>
+> atomic 的 table widget（`table-widget.js` 的 `parseTable`）**解析时忽略 delimiter 行**
+> （源码注释原话 "TableDelimiter ... is ignored"），`serializeTable` 也统一重建 `| --- |`
+> ⇒ 对齐冒号被丢掉；渲染层 `makeCell` 自然也没有 `text-align`。
+>
+> ### 修法（patch atomic：`patches/@atomic-editor__editor@0.6.2.patch`）
+>
+> 1. `parseTable`：读 `TableDelimiter` 整行 → `splitRowCells` → 冒号解析成 `left/center/right/null`；
+> 2. `serializeTable`：delimiter 行按 `aligns` 重建（`:---` / `:---:` / `---:`）；
+> 3. `toDOM` / `makeCell`：给 `th` / `td` 设 `style.textAlign`；
+> 4. `readModelFromDom`：从 `th.style.textAlign` 读回（编辑后不丢）；`eq` 比较 `aligns`（改对齐后重建 DOM）。
+>
+> ### 实测
+>
+> | 列 | 语法 | th / td 的 `text-align` |
+> |---|---|---|
+> | 左对齐 | `:---` | `left` |
+> | 居中 | `:---:` | **`center`** |
+> | 右对齐 | `---:` | **`right`** |
+>
+> 截图 `_shots/rev112-table-align2.png`。
+>
+> ⚠️ **vite 缓存坑**（实测）：改 `node_modules` 里的依赖后，vite dev server 的内存模块图
+> **不会失效** ⇒ 必须**重启 dev**（`dev.cmd`）才生效；只删 `.vite/deps` 不够。
+> patch 已持久化（`pnpm patch-commit`），`pnpm install` 后会重新应用。
+>
+> ## 📌 rev107（2026-10-17 · 编辑器「源码 / 预览」切换）
+>
+> 需求原话：「增加切换源码模式」→（位置两轮调整）「放在编辑框左上角，和右边关闭同高」→
+> 「放左边挡到渲染，跟关闭并列在右上角吧」。
+>
+> ### 实现
+>
+> 1. 新组件 `src/components/SourceModeView.tsx`：CM6 `basicSetup` + `markdown()` ——
+>    **不加载 atomic 的 live preview 装饰**，直接显示原始 markdown（`#` / `**` / `>` 全可见），带行号；
+> 2. `MarkdownEditor` 加 `sourceMode` state（localStorage `zeronote.sourceMode` 持久化），
+>    按钮放在 `zn-editor-modebar`：**右上角、与「关闭」并排**（`top: 8px; right: 70px`，
+>    关闭是 `right: 14px`）—— 用同一套尺寸（24px 高 / 13px 字 / opacity .45）；
+> 3. 两种模式**共用同一份 `value`**：源码里编辑走 `onChange`，切回预览时
+>    atomic 的 value 同步 effect 自动把内容灌进去。
+>
+> ### 实测
+>
+> | 检查 | 结果 |
+> |---|---|
+> | 切源码 | `.zn-source-editor` 出现，首行文本 `# 一级标题`（原始 markdown） |
+> | 切预览 | `.zn-source-editor` 消失、atomic 编辑器回来 |
+> | 位置 | modebar `top: 8` / right 1850；close `top: 8` / left 1864；**不重叠** |
+> | 持久化 | reload 后仍停在源码模式（localStorage） |
+>
+> 截图 `_shots/rev110-modebar-right.png`。
+>
+> ⚠️ 一个坑（已处理）：modebar 会被 `.cm-editor` 盖住 ⇒ `z-index: 10`。
+> （早期「左上角」方案会遮住第一行，已按用户要求移到右上角，`.cm-content` 顶部留白也随之撤销。）
+>
+> ## 📌 rev106（2026-10-17 · 引用嵌套框改成「右侧参考图」结构）
+>
+> 用户给两张对比图：左边当前实现（一级框在嵌套行处断开）、右边目标（一级框**贯穿整个引用块**，
+> 二级/三级各有**自己的短框**在缩进处）。
+>
+> ### 上一版的问题
+>
+> 上一版把嵌套行的行左框设成 `border-left-color: transparent`（只留嵌套框）
+> ⇒ 一级框在二级/三级行处**断开**，与参考图不符。
+>
+> ### 改法
+>
+> 1. **删掉** transparent 规则 —— 一级框（atomic 的 `border-left`）对**所有引用行**都保留
+>    ⇒ 相邻行接起来就是一根连续贯穿线；
+> 2. `::before` 画**二级框**（d2/d3/d4 行，1.5em 处）；
+> 3. `::after` 画**三级框**（d3/d4 行，3em 处）——
+>    ⚠️ 一个伪元素画不了两条线，所以 d3 行要同时用 `::before` + `::after`。
+>
+> ### 实测
+>
+> d1/d2/d3 行的 `border-left-width` 全是 3px（紫色，连续）；d2 有 `::before`、d3 有 `::before + ::after`。
+> 截图 `_shots/rev108-quote-target.png`。
+>
+> 颜色说明：框色跟**当前主题**（`--atomic-editor-accent-soft`，紫）；参考图的绿色是参考主题的绿。
+>
+> ## 📌 rev105（2026-10-17 · 引用嵌套每层自己的框 ＋ 行内代码背景 ＋ 分割线加粗）
+>
+> 需求三连：
+> 1. 「每个嵌套有一个框」—— 嵌套引用不再共用行左那条通线；
+> 2. 「行内代码背景不明显」；
+> 3. 「分割线不明显，加粗一个像素」。
+>
+> ### 改法（全在 `styles.css`）
+>
+> 1. **嵌套框**：`.zn-quote-d2/3/4` 的行左 `border-left-color: transparent`（只隐颜色、保留宽度，
+>    避免布局跳动），再用 `::before` 在**各自缩进处**画 3px 紫框
+>    （`left: calc(1rem + 1.5em×N - 3px)`，与对应 `padding-left` 对齐）；
+> 2. **行内代码背景**：atomic 默认的 `--atomic-editor-code-bg` 太接近底色 →
+>    改用 `color-mix(in srgb, var(--zn-fg) 16%, transparent)`（深色 16% / 浅色 10%），
+>    **不挑底色**，两层主题都成立；
+> 3. **分割线**：`::after` 的 `border-top` 从 1px → **2px**，颜色从 `--atomic-editor-border`(#3d3d3d)
+>    改为 `--zn-border-strong`(#3f3f46)，深色下亮一档。
+>
+> ### 实测
+>
+> | 项 | 结果 |
+> |---|---|
+> | 嵌套框 | q2 `padding-left: 41.5px` + `::before` 紫框 `rgb(196,181,253)`；q3 67px |
+> | 行内代码 | 背景 `color(srgb 0.957 0.957 0.961 / 0.16)` |
+> | 分割线 | `border-top-width: 2px`、`rgb(63,63,70)` · 截图 `_shots/rev107-hr-thicker.png` |
+>
+> ## 📌 rev104（2026-10-17 · 引用嵌套生效）
+>
+> 需求原话：「引用嵌套无效」（截图里 `> > 二级` 和 `> 一级` 长得一模一样）。
+>
+> ### 根因
+>
+> atomic 的 `.cm-atomic-blockquote` 只表达"这一行在引用里"，**不分层级** ——
+> 嵌套行的 class 实际是重复的 `cm-atomic-blockquote cm-atomic-blockquote`，但样式相同 ⇒ 无视觉差异。
+>
+> ### 修法
+>
+> 1. `MarkdownEditor` 加 `quoteDepthPlugin`（ViewPlugin + 行装饰）：按行首 `>` 的个数给行加
+>    `zn-quote-dN`（N = min(个数, 4)），可见范围变化/编辑时重算；
+> 2. `styles.css` 给 d2 / d3 / d4 逐级加 `padding-left`。
+>
+> ### 实测
+>
+> | 行 | class | `padding-left` |
+> |---|---|---|
+> | `> 一级` | `zn-quote-d1` | 16px |
+> | `> > 二级` | `zn-quote-d2` | **41.5px** |
+> | `> > > 三级` | `zn-quote-d3` | **67px** |
+> | `> 回到一级` | `zn-quote-d1` | 16px |
+>
+> 截图 `_shots/rev105-quote-nested.png`。
+>
+> ⚠️ 类型坑：装饰数组要写 `Range<Decoration>[]`（`Range` 从 `@codemirror/state` 导入）；
+> 写成 `ReturnType<Decoration['line']>` 会报 `Property 'line' does not exist on type 'Decoration'`
+> （索引访问类型取不到**静态方法**）。改后 `tsc` 0 错误。
+>
+> ### 边界
+>
+> 紫色左边框仍画在**行左边缘**（视觉上是一条通线），嵌套靠**缩进**区分；
+> 若以后要"每一层嵌套各有自己的框"，需要换掉 `border-left`（改成随缩进内移的 inset 线）。
+>
+> ## 📌 rev103（2026-10-17 · 深色模式下已完成任务的勾改成黑色）
+>
+> 需求原话：「深色模式下已完成任务的勾改成黑色」。
+>
+> ### 根因
+>
+> atomic 的 `.cm-atomic-task-checkbox::after` 用**写死的白色**（`border-right/bottom-color: #ffffff`）
+> 画勾；深色主题下选中方块被主题设成**浅色**（截图里的浅灰），白勾几乎看不见。
+>
+> ### 修法（`styles.css`）
+>
+> ```css
+> :root[data-theme='dark'] .zn-editor .cm-atomic-task-checkbox::after {
+>   border-right-color: #000;
+>   border-bottom-color: #000;
+> }
+> ```
+>
+> 项目主题由 `html[data-theme='dark']` 驱动（`src/lib/theme.ts:42`），所以只在深色下生效，
+> 浅色主题仍是白勾（紫底）。
+>
+> ### 实测
+>
+> 深色下 `::after` 的 `border-right-color` = `rgb(0, 0, 0)`；
+> 截图 `_shots/rev104-task-check-dark.png`（浅灰底 + 黑勾，清晰可辨）。
+>
+> ## 📌 rev102（2026-10-17 · 编辑器里的链接能打开浏览器了）
+>
+> 症状（用户截图）：`[百度](https://www.baidu.com)` 渲染出的外链图标（↗）点了没反应。
+>
+> ### 根因
+>
+> atomic 默认 `window.open(url, '_blank', …)` 打开链接，而 **Tauri 的 WebView 不接管 `window.open`**
+> ⇒ 静默失败。atomic 早就留了口子：`AtomicCodeMirrorEditor` 的 `onLinkClick?: (url) => void` prop
+> （源码注释原话：route link opens through their platform's external-URL mechanism (Tauri IPC, …)）。
+>
+> ### 修法
+>
+> 1. **Rust 新增 `open_external(url)` 命令**：只放行 `http://` / `https://`；用**系统默认程序**打开，
+>    且**不经过 shell 解析**（Windows `explorer`、macOS `open`、Linux `xdg-open`）——
+>    避免 URL 里的 `&` / `|` 被当命令拼接（这是"打开外部程序"的入口，必须守边界）；
+> 2. `MarkdownEditor` 传 `onLinkClick={(url) => invoke('open_external', { url })}`。
+>
+> ### 实测
+>
+> - `invoke('open_external', {url:'https://www.baidu.com'})` → `OPEN-OK`，Chrome 18:41:26 启动；
+> - 派发 click 到链接图标区 → `onLinkClick` 收到 URL（调试记录 `["https://www.baidu.com"]`）——
+>   浏览器在**已运行的 Chrome 里开新标签**（不新建进程，所以进程数看着没变）。
+>
+> ### 两个易踩的点
+>
+> 1. **点击区域**：编辑模式下只有链接**右侧的外链图标**（↗）是打开区，点文字是进编辑
+>    （atomic 的 `linkIconHitTarget` 只认 trailing-icon 区；只读模式才是整条链接可点）；
+> 2. **事件类型**：`makeLinkClickHandler` 绑的是 **`click`**（不是 pointerdown）——
+>    用 pointerdown 测会误判"没反应"。
+>
+> 边界：移动端返回「暂不支持打开外部链接」；内部链接（`./x.md`、`[[x]]`）不在此命令范围内。
+>
+> ## 📌 rev101（2026-10-17 · 空列表项 **Tab 缩进成子项**）
+>
+> 需求原话：「空列表无法直接缩进成子项」。
+>
+> ### 两个独立原因，都修了
+>
+> 1. **Tab 本身不缩进**：atomic 自带的 `indentWithTab` 底层是 CM6 的 `indentMore`，
+>    而 markdown 的缩进规则基于**语法块** —— `- `（空列表项）在语法树里没有可缩进的块。
+>    ⇒ 内核新增 `Prec.high(keymap.of([Tab / Shift-Tab → indentListLine]))`：
+>    只在列表行（`-`/`*`/`+`/`1.` + 空白）上 +2 / −1~2 空格，非列表行交还原处理。
+> 2. **缩进后不变成子项**：`outlineDepths` 的补丁原来「取前一个缩进更浅的行、直接抄它的深度」——
+>    抄成了**同级**。改成按缩进关系：前一行缩进更小 ⇒ 父级（深度 +1）；相等 ⇒ 同级；更大 ⇒ 继续往上找。
+>
+> ### 实测
+>
+> | 输入的 md | `outlineDepths` | 渲染 |
+> |---|---|---|
+> | `- 无序列表\n  - ` | `[0→1, 1→2]` | 行1 `zn-ol-d2` / **37.4px**（子项）|
+> | `- 无序列表\n- ` | `[0→1, 1→1]` | 行1 `zn-ol-d1` / 20.4px（同级）|
+> | `- a\n  - b\n  - c` | `[0→1, 1→2, 2→2]` | 正常 |
+>
+> 截图 `_shots/rev103-tab-child2.png`。`tsc` 0 错误；插件（junction → examples）与全局副本已同步。
+>
+> ## 📌 rev100（2026-10-17 · 修「空列表项缩进比同级多一截」）
+>
+> 症状（用户截图，编辑器里）：
+>
+> ```
+> # 标题1
+> - 无序列表
+> - 无序列表
+> -            ← 空项，圆点比上面两项靠右
+> ```
+>
+> ### 根因
+>
+> 列表行的缩进由 `outline-map` 插件的 `outlineDepths`（行 → 深度）驱动：内核按
+> `zn-ol-dN` 给行加 `padding-left: 1.2em`；空项的深度两条路都断了：
+> 1. `parseBlocks` **跳过**「`- ` 后面没内容」的列表行（设计如此 —— 它不该进导图）；
+> 2. 第一版补丁用 `trimEnd()` 匹配，`- ` 去掉尾空格只剩 `-`，`LIST_RE` 匹配不上（真因）。
+>
+> ⇒ 空项没有 `zn-ol-dN`，走 CM6 默认缩进：实测 **34px**，同级是 **20.4px**。
+>
+> ### 修法（`examples/outline-map/index.js` 的 `outlineDepths`）
+>
+> 补一轮"空列表项"扫描：用**原始行**匹配 `LIST_RE`，按缩进回推深度
+> （取前面最近一个「缩进不比它深」的非空列表行的深度）。**不进** `parseBlocks` 的树 ——
+> 空项仍不会出现在导图里。
+>
+> ### 实测
+>
+> 三行的 class / `padding-left`：`zn-ol-d1 / 20.4px`、`zn-ol-d1 / 20.4px`、
+> **`zn-ol-d1 / 20.4px`**（空项一致）· 截图 `_shots/rev102-list-indent-fixed2.png`。
+>
+> ⚠️ 插件同步：`_tmp-vault-tb` 的 `.zn/plugins/outline-map` 是 **junction 指向 examples**，
+> 改 examples 即生效；若以后换成实体拷贝，记得两边同步（库内优先于全局）。
+>
+> ## 📌 rev99（2026-10-17 · 文件树**层级引导线**：每层一条竖线 ＋ 缩进）
+>
+> 需求原话：「树的层级区分更清晰一点」。
+>
+> ### 改法（`FileTree.tsx` + `styles.css`）
+>
+> - 子级缩进交给**每个目录子级包的一层 `.zn-tree-kids`**（节点自身 padding 固定为 `var(--zn-space-2)`）；
+> - 三角 `.zn-tree-caret` 放大到 **25px**（用户三轮要求：「做大一点」→「再大一点」→「加到 25」）；
+> - **横线**（`.zn-tree-label` 的 `border-bottom`）：画在**名字文字**上，只到文件名结束、
+>   不延伸到侧栏右边缘；粗细 **2.5px**（DPR=1 的 100% 缩放屏上浏览器会取整成 2px 渲染，
+>   125% 缩放才真正显示 2.5 物理像素）；
+> - **竖线**（2026-10-17 用户逐条确认的规则）：一个文件夹**同时满足**
+>   「后面还有同级条目」+「它自己有子项」才画 —— `.zn-node:not(:last-child) > .zn-tree-kids`
+>   （`.zn-tree-kids` 的 `border-left: 2px`，容器高度 = 子项总高度，线从第一个子项贯穿到最后一个）。
+>   反例全部覆盖：有同级但没子项（一级文件夹2 / 二级2 / 四级1）不画；
+>   有子项但没同级（三级2 / 五～八级1 / 文档）不画；跨文件夹的"同级"不算（DOM 兄弟天然满足）。
+>   ⚠️ **空文件夹不渲染 `.zn-tree-kids`**（`children.length > 0` 才渲染），否则会画出一条空竖线；
+>   两个踩过的坑留作记录：① button 的 `overflow: hidden` 会把 `::before` 整条裁掉；
+>   ② `--zn-border` 太浅，在米色背景上看不见（改用 `--zn-fg-subtle`）；
+> - **文件行前面的圆点**（`.zn-tree-dot`，12px）：与目录三角同宽（22px）、同行内垂直居中，
+>   既当项目符号，又保证文件与同级文件夹的**名字左对齐**。
+>
+> 效果：横线只到文件名 + 按规则出现的竖线 + 文件与文件夹名左对齐
+> （`_shots/rev101-tree-rule-final2.png`、`_shots/rev99-tree-align-files.png`）。
+>
+> ### 边界
+>
+> - 横线用 `var(--zn-border)`，深色主题下同样适用；
+> - 缩进约 19px/级（10px margin + 6px padding + 8px 节点内边距），
+>   深层嵌套（5 层以上）在窄侧栏里会显得紧凑 —— 目前用户库最深 5 层，正常。
+>
+> ## 📌 rev98（2026-10-17 · 文件树显示**文件名** ＋ 新建默认名 `新笔记-时-分-秒`）
+>
+> 需求原话：「不显示新笔记，默认显示文件原名，文件原名默认规则：新笔记-时-分-秒」。
+>
+> ### 两处改动
+>
+> 1. **文件树显示名**（`FileTree.tsx`）：`node.title || 文件名` → **只用文件名**，
+>    且**笔记保留 `.md` 后缀**（用户 2026-10-17 追加「文件显示 .md」）；只读文档仍去扩展名
+>    （它后面已经跟着 `.epub` / `.pdf` 徽章，再带一次会变成 `测试书籍.epub .epub`）。
+>    此前 `NoteMeta.title` 走的是「frontmatter.title → 正文首行 → 文件名」三级回退，
+>    新建的笔记在树里全变成正文首行的「新笔记」，一排文件看不出谁是谁。
+> 2. **默认新建名**：
+>    - `App.newNote`（`core.newNote` 的实现，菜单 / 首页按钮 / Ctrl+N 都走它）：
+>      `untitled-<年月日时分秒>` → `新笔记-时-分-秒`；
+>    - `App.newNoteIn`（右键「新建文件」/ 文件夹里新建）：同上；
+>    - `examples/daily-note`（启用时会接管 `core.newNote`）：`HH-mm-ss` → `新笔记-时-分-秒`
+>      （同步拷进全局插件目录）。
+>
+> ### 追加（同日）
+>
+> - **新建笔记默认内容 = 空**（用户 2026-10-17）——三处 `createNote(..., '# 新笔记\n\n')` 全改成 `''`
+>   （`App.newNote` / `App.newNoteIn` / `examples/daily-note`，插件那份同步到全局目录）；
+> - **竖线颜色/宽度最终与横线一致**（`2.5px` + `--zn-border`，用户两轮要求「颜色一样」→「宽度也一样」）。
+>
+> ### 实测
+>
+> - 新建（`_tmp-vault-tb`，走内核 `core.newNote`）⇒ 磁盘 `新笔记-16-22-40.md`，文件树显示
+>   `新笔记-16-22-40`（文件名，不再是「新笔记」）。
+> - 测试产物已删。
+>
+> ### 边界
+>
+> - `daily-note` 插件当前是**禁用**状态（早前被启动自愈关过），所以实际走的是内核默认命名；
+>   启用它也会用同一个命名规则（源码与全局拷贝都已改）。
+> - 文件树不再看 `frontmatter.title` —— 若以后想让「标题优先」回来，改 `label` 那一行即可。
+>
+> ## 📌 rev97（2026-10-17 · 文件树**拖拽移动**：把笔记/文件夹拖进另一个文件夹）
+>
+> 需求原话：「笔记拖拽进文件夹」。
+>
+> ### 两种拖拽的分工（与资源管理器一致）
+>
+> | 起点 | 行为 |
+> |---|---|
+> | 在**条目上**按下再拖 | **移动**该项（它在选中集合里 ⇒ 整批移动） |
+> | 在**空白处**按下再拖 | 框选（rev96） |
+>
+> ### 实现（`src/components/FileTree.tsx` + `styles.css`）
+>
+> - `onPointerDown` 里按 `e.target.closest('[data-zn-path]')` 分流：命中条目 = 拖拽移动，否则 = 框选；
+> - 拖拽中用 `document.elementFromPoint` 找鼠标下的条目，**只认文件夹**做落点
+>   （虚拟「文档」分组不是磁盘目录；拖到自己/自己的子孙一律无效）；
+> - 落点高亮 `.is-drop-target`（蓝描边 + 淡蓝底，与选中态的实底区分）；
+> - 松手：对每个待移动项调 `onRename(from, 目标/名字, isDir)`
+>   —— 文件走 `rename_note`、目录走 `move_entry`（后者 rev95 已带非空目录降级）；
+> - 已经在目标目录里的跳过（否则 Rust 报「目标已存在」）；拖完拦掉那次 click；
+> - 新建 / 重命名时把父目录路径放进 `reveal`，对应节点**自动展开**一次 ——
+>   否则文件夹折叠时点「新建文件夹」，新条目与内联输入框都在折叠的子树里，
+>   用户看到的是"菜单点了没反应"（2026-10-17 用户报）；
+> - **重命名 / 拖拽移动不再弹「已重命名：<路径>」toast**（用户 2026-10-17 要求）——
+>   列表里那一行已经变了，长路径提示反而挡视线；
+> - 拖拽的**视觉反馈**（2026-10-17 用户要求「要有动画」）：源行淡出（`.is-dragging`）＋
+>   跟手的小胶囊标签 `.zn-drag-ghost`（批量时显示「xxx 等 N 项」）＋ 落点高亮带 120ms transition。
+>
+> ### 实测（临时库，合成 pointer 事件 + 磁盘核对）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | `甲.md` 拖到 `乙/` | 磁盘 `乙/甲.md`；拖拽中 `乙` 高亮 |
+> | 拖到**文件**上 | 无高亮、不移动（只认文件夹） |
+> | `乙/`（含子文件）拖到 `丙/` | 磁盘 `丙/乙/甲.md`（整棵树一起搬） |
+> | **折叠**的 `笔记/` 里新建文件夹 | 目录自动展开 + 内联输入框出现 |
+> | 拖拽中的视觉 | 源行 `is-dragging`（淡出）· 跟手标签「甲.md」· 落点 `is-drop-target` · `_shots/rev97-drag-animation.png` |
+>
+> ### 未做（明确边界）
+>
+> - 拖到**空白处** = 不动作（没有做"移回库根"）；
+> - 拖拽过程中的**自动滚动 / 自动展开折叠的文件夹**未处理；
+> - 触摸端不参与（手指拖拽 = 滚动）。
+>
+> ## 📌 rev96（2026-10-17 · 文件树**鼠标框选**：左键拖拽一次选中一片）
+>
+> 需求原话：「做鼠标左键像红框一样一次选中的功能」。
+>
+> ### 实现（`src/components/FileTree.tsx` + `styles.css`）
+>
+> - `pointerdown` 只认**鼠标左键**（触摸仍走长按——手指拖拽在列表里多半是想滚动）；
+>   `pointermove/up` 挂在 **window** 上，拖出侧栏也能正常收尾；
+> - 位移 > 4px 才算框选，否则仍是普通点击（打开笔记 / 折叠目录）；
+> - 点在**滚动条**上不算（否则拖滚动条会拖出选择框）；
+> - 选择框 `.zn-marquee`：`position: fixed` + 蓝色半透明 + `pointer-events: none`；
+> - 命中规则 = 与节点矩形**相交**（与资源管理器一致）；**框选完不弹批量操作条**
+>   （用户 2026-10-17 定：桌面直接在选中项上右键，菜单里出现「删除选中的 N 项 / 彻底删除选中的 N 项」；
+>   手机上仍走长按进多选条）；
+> - 拖完拦掉紧随的 click（否则一松手就把最后经过的笔记打开了）；
+> - 点**树的空白处** = 取消选中 —— 连「当前打开的那篇」的行高亮也一起收掉
+>   （`selectionCleared` 关掉 `selectedSet` 回退到 activePath 的那条逻辑；手机上长按进来的多选也一并退出）。
+>
+> ### 顺带补的两个缺口
+>
+> 1. **目录节点此前没有选中态**（`.is-picked` 只加在文件上）⇒ 框选中目录时看不出来，补上；
+> 2. 框选会同时选中**目录和它里面的条目** ⇒ 批量操作前用 `dedupe()` 去掉「祖先已在列表里」
+>    的子项 —— 否则删除第二个条目会报「要删除的东西不存在」（目录已被整棵树搬走）。
+>
+> ### 实测（CDP 真实鼠标事件 `Input.dispatchMouseEvent`，`_test-vault`）
+>
+> - 拖拽中：选择框出现 · 3 项高亮（`笔记` 目录 + `笔记/灵感流.md` + `灵感` 目录）
+> - 松手：选择框消失 · 选中保留 · **无批量操作条** · **笔记没有被误打开**（click 拦截生效）
+> - 在选中项上右键：菜单出现「**删除选中的 3 项**」「彻底删除选中的 3 项…」（剪切/复制同样作用于整批）
+> - 点 ✕ 退出多选后，普通单击仍正常打开笔记（手机长按那条路径未受影响）
+> - `tsc -b` 0 错误
+>
+> ### 未做（明确边界）
+>
+> - **触摸端不参与框选**（手指拖拽 = 滚动；手机多选仍走长按）；
+> - 拖拽过程中**滚动**树（自动滚动）未处理 —— 框选只能覆盖当前可见区域。
+>
+> ## 📌 rev95（2026-10-17 · 修「有内容的文件夹删不掉」—— Windows 非空目录 rename 降级）
+>
+> 症状（用户报）：文件树里右键「删除文件夹」—— **空文件夹能删，装了内容的删不掉**，
+> 报「删除失败：文件可能正被其他程序占用。（移入回收站失败：拒绝访问。 (os error 5)）」。
+>
+> ### 复现与分层（临时库，CDP 直调内核命令）
+>
+> | 操作 | 结果 |
+> |---|---|
+> | 删 `甲`（含子目录 + 文件） | ❌ os error 5 |
+> | 删 `空父/空子`（两层**空**目录） | ❌ os error 5 |
+> | 删 `x.md`（文件） | ✅ |
+> | 删 `子`（删完文件后的空目录） | ✅ |
+> | `move_entry` 非空目录 → **已存在目录** | ❌ 同样错误 |
+> | `move_entry` 非空目录 → **新名字** | ✅ |
+> | `pwsh` 的 `MoveFileExW(REPLACE_EXISTING)` 移同一个目录 | ✅ |
+>
+> ### 结论
+>
+> **不是「文件被其他程序占用」**（同一台机器、同一时刻 pwsh 能移），而是本进程
+> `fs::rename`（`MoveFileExW`）对「**非空目录** → **已存在目录内**」这一组合拿到 ACCESS_DENIED
+> （os error 5）。空目录与文件都不受影响 —— 于是只有「装了内容的文件夹」删不掉，
+> 而错误文案还把它误导成「别的程序占用」。
+>
+> ### 修法（三处，同一套降级）
+>
+> 1. `delete_note`：目录先走 rename 快路径；失败降级 **`move_tree()`**
+>    （文件 `rename` + 目录 `create_dir_all` 逐项搬，再删源空壳）—— 这两条原语都已在同一进程验证可用；
+> 2. `move_entry`：同样降级（剪切 / 粘贴文件夹本来也会中招）；
+> 3. `restore_trash`（以及前端撤销）：恢复的是**整棵目录树**，同样降级；
+>    `undoDeleteNote` 改走 `restore_trash`，不再用裸 `rename`。
+>
+> ### 验证
+>
+> - `cargo test --lib` **23 passed**（新增 2 条：`move_tree_preserves_layout`、
+>   `delete_non_empty_dir_survives_and_restores` —— 两层嵌套 + 两个文件，删 → 恢复 → 内容一致）
+> - dev + CDP 实测（临时库）：右键「删除文件夹」→ 磁盘上目录消失 + toast「已移入回收站」
+>   （`_shots/rev95-delete-nested-folder.png`）；点「撤销」→ 目录树与子文件全部回来、内容一致；
+>   回收站「恢复」往返一致。
+> - `tsc -b` 0 错误 · `oxlint` 4 warnings（见文末基线单一来源）
+>
+> **未做**：Android 真机复验 —— 同一套 Rust 代码，但 Android 是 Linux 文件系统，理论上不会走这个
+> Windows 特有分支。
+>
+> ## 📌 rev94（2026-10-17 · **插件跨库生效**：全局插件根 ＋ 两处合并扫描 ＋ 来源徽标）
+>
+> 需求原话：「zeronote 做插件跨笔记库生效」。诊断后的分工：
+> - **Android 早就有**：库在 `<根>/.vaults/<名字>/` 时 Rust `private_root()` 把私有根上提到库根，
+>   插件从库根读 ⇒ 切库不掉（证据：rev 段里 `android-vault-T-plugins.png`）。
+> - **桌面端没有**：库是用户自选的任意目录，插件目录 = `<该库>/.zn/plugins/`，切到另一个库整套消失。
+>
+> 本轮补的就是桌面端这条，方案（用户 2026-10-17 选定 A + 应用数据目录）：
+>
+> | 改动 | 文件 | 要点 |
+> |---|---|---|
+> | 新增全局根 + 合并扫描 | `src/kernel/plugin-roots.ts`（新） | 全局根 = `appDataDir()`，插件目录 `<appDataDir>/.zn/plugins/`；扫描 = 库内 + 全局，**同名目录库内优先** |
+> | 插件身份带根 | `src/kernel/plugin-host.ts` | `PluginSource` / `PluginDirEntry`；`listPluginDirs` / `readManifest` / `deletePluginDir` / `loadPlugin` 全部按**根**算路径 |
+> | 接线 | `src/App.tsx` | 扫描用 `collectPluginDirs(vault)`；`pluginEntries` 记 id→来源；**删除按来源路由**；懒激活 pending 存条目而不是目录名（顺带修掉"目录名 = manifest.id"的隐含假设） |
+> | 数据落点 | `src/kernel/store.ts` 调用方 `kernel.ts` | store 跟着插件所在根走：全局插件的数据全局一份，库内插件的数据落库内 |
+> | UI | `src/components/PluginPanel.tsx` + `styles.css` | 每行「全局 / 本库」徽标；空态给出两种放法；删除确认按来源显示路径；列表底部常驻全局目录路径 |
+>
+> **为什么全局根不新增 Rust 命令**：`list_plugins` / `read_plugin_file` / `delete_plugin` /
+> `plugin_store_*` 的路径全是 `private_root(vault).join(".zn/plugins/<id>")` ——
+> 把 `appDataDir()` 当 `vault` 传进去，算出来就是 `<appDataDir>/.zn/plugins/<id>`。
+> Rust 只做路径数学，不关心传进来的是不是"真库"。少改内核 = 少一次全量编译与一整类回归。
+>
+> **冲突规则**：同一个目录名两处都有 ⇒ 库内优先（更具体），全局那份不加载、插件页不出现第二行。
+>
+> ### 实测（2026-10-17 · dev + CDP，用户库未动）
+>
+> 三条基线全过：`tsc -b` 0 错误 · `oxlint` 4 warnings · `cargo test --lib` **21 passed**（Rust 零改动）。
+>
+> | 判据 | 做法 | 结果 / 截图 |
+> |---|---|---|
+> | 全局插件能被发现并加载 | 把 `examples/hello-plugin` 拷进 `%APPDATA%\com.aqua.zeronote\.zn\plugins\hello-plugin/` → 插件页「重新扫描」 | 列表出现 `Hello 示例插件 v0.1.0` **「全局」**徽标 · `_shots/rev94-global-plugin.png` |
+> | **切库后仍在**（需求本体） | 当前库切到一个**空库**（库里没有 `.zn`；用 localStorage 改 vault + reload）→ 打开插件管理 | Hello 插件**照旧在**、徽标仍是「全局」· `_shots/rev94-global-plugin-empty-vault.png` |
+> | 库内同名插件覆盖全局 | 再把 `hello-plugin` 拷进空库的 `.zn/plugins/` → 重新扫描 | **同一行**、徽标变「本库」（库内那份生效，全局那份被覆盖；没有出现第二行）· `_shots/rev94-vault-plugin-wins.png` |
+> | 全局目录不存在时降级 | 首轮扫描时 `%APPDATA%\com.aqua.zeronote` 还不存在 | 插件页正常显示空态 + 全局路径提示，**无错误横幅**（`collectPluginDirs` 里全局读失败只返回库内） |
+>
+> 测试痕迹已清理（临时空库 `_tmp-vault-empty/` 与全局 `hello-plugin` 已删；用户库 `Documents\md` 的 vault 记录已还原）。
+> 截图在 `_shots/rev94-*.png`。仍未做：**Android 真机复验**（Android 的库根共享机制未改，风险只在新增的全局根分支）。
+>
 > ## 📌 rev93（2026-10-17 · 文档整改：README 重写 · rev 索引 · 基线数字统一 · 权威矩阵 · 文档规范）
 
 > 依据：一次外部文档审查（24 份 / 约 9,900 行；报告在工作区 `ZreoNote\ZeroNote-文档审查报告.md`）。**本轮只动文档，未改代码。**
@@ -665,7 +1360,7 @@ revision: 93
 > ### 遗留 / 下一步
 >
 > - **手机库插件与仓库会漂移**（doc-reader 就这么落后了 12 小时）—— 现在只有"手动 `adb push`"一条路，
->   建议写个 `tools/sync-phone-plugins.mjs`（或写进交接卡的操作清单），别靠记性。
+>   **目前没有**现成工具；若要做，写一个 `sync-phone-plugins.mjs` 放进 `tools/`（尚未创建），或先把操作写进交接卡，别靠记性。
 > - 手机仍装 **dev 版**（连桌面 `1420`）⇒ 桌面 dev 一关手机就白屏；要独立运行得重出包
 >   （`tauri android build --apk --debug --target aarch64`，约 7 分钟）。
 > - Android 关窗仍留常驻 webview（rev81 记过；Tauri Android 还没给真销毁路径）。
@@ -1866,7 +2561,7 @@ revision: 93
 > 以前完全一样（向后兼容）。`line` 与 `onClick` 的 payload **同口径（0 起）**。
 > `src/kernel/contract.ts`（类型 + 边界注释）与 `src/kernel/editor-marks.ts`（在 buildDecorations
 > 里、去重之后、插 widget 之前调用）各改一处。
-> ⚠️ `docs/内核契约-v0.1.md` **尚未同步**这一条（待办，别当成已完成）。
+> ⚠️ `docs/内核契约-v0.2.md` **尚未同步**这一条（待办，别当成已完成）。
 >
 > **二、插件的判据 = 导图自己的解析器**
 > `filter` 直接复用 `parseBlocks`（块 = 标题 + 到下一个**同级或更高级**标题为止；列表标记
@@ -2543,7 +3238,7 @@ revision: 93
 >   `_shots/perm-05-plugins.png`）⇒ 现在插件日志：
 >   `[info] 插件已加载：网络访问示例（net-demo｜esm）`；插件页三颗 ✅；
 >   设置页新区块列出「net-demo · 自称：net」。证据 `_shots/perm-selfdeclare.png`。
-> · `docs/内核契约-v0.1.md` §4 改写：明写"capability 不再是门"，§4.1 标已移除，
+> · `docs/内核契约-v0.2.md` §4 改写：明写"capability 不再是门"，§4.1 标已移除，
 >   §4.2 保留原有三条绕过路径 + **补记 2026-10-13 实测的三条**（写库外 / 读任意文件 / 卸载不还原）。
 >
 > ⚠️ **本轮踩到一个真坑（记下来别再踩）**：演练内核自愈时，我把
@@ -2599,7 +3294,7 @@ revision: 93
 > ## 📌 rev46（2026-10-13 · 架构原则重定：内核不设防 ＋ **修复优先于防护**）
 >
 > **用户重新说明 5 条原则**（原话与逐条落地见 **`docs/架构原则-2026-10-13.md`** ——
-> **冲突时以它为准**，它覆盖 `内核需求分析-v0.1.md` §2 与 `内核契约-v0.1.md` §4 的旧假设）：
+> **冲突时以它为准**，它覆盖 `内核需求分析-v0.1.md` §2 与 `内核契约-v0.2.md` §4 的旧假设）：
 > ① 无插件时内核就是普通笔记应用 ② 插件权限等同内核、可覆盖内核效果、可把内核搁在一边
 > ③ 覆盖可以、**不得破坏**、关掉插件内核还能用 ④ 权限完全由插件控制、**内核不给任何安全保证**
 > ⑤ **修复优先于防护** —— 不可逆修改之后，从备份的内核重新构建。
@@ -3442,7 +4137,7 @@ revision: 93
 | 项 | 证据（命令 / 输出 / 文件） | 基线版本 | 时间 |
 |---|---|---|---|
 | 需求分析冻结 | `_笔记应用选型\内核需求分析-v0.1.md` | — | 2026-10-11 |
-| 内核契约 v0.1 | `docs\内核契约-v0.1.md`（8 原语 + manifest + capability + 无沙箱声明 + §7 未决 6–9） | — | 2026-10-11 |
+| 内核契约 v0.1 | `docs\内核契约-v0.2.md`（8 原语 + manifest + capability + 无沙箱声明 + §7 未决 6–9） | — | 2026-10-11 |
 | **M1 内核单测** | `cargo test` → **9 passed / 0 failed** | `cargo-targets\zeronote` | 2026-10-11 |
 | **M1 前端检查** | `tsc -b` 0 错误；`oxlint` 0 error | — | 2026-10-11 |
 | **M1 窗口实跑** | `_shots\m1-01.png` | — | 2026-10-11 |
@@ -3678,7 +4373,7 @@ NoteGen 的 `entry` 可选支持纯资源型）：
 - **导出形状归一**：`export default {apply}` / `export function apply` /
   `module.exports = function`（导出函数本身）/ `registerPlugin({register})` 四种都认。
 - **失败回滚**：样式注入或 `apply()` 失败时清掉已登记资源，不留"半个插件"。
-- **契约同步**：`docs\内核契约-v0.1.md` 新增 §3.1 入口形态表 / §3.2 files 解析 / §3.3 纯样式插件；
+- **契约同步**：`docs\内核契约-v0.2.md` 新增 §3.1 入口形态表 / §3.2 files 解析 / §3.3 纯样式插件；
   `contract.ts` 的 `PluginManifest.entry` 变可选，新增 `files` / `styles`。
 - **示例**：`examples\` 下新增 cjs-single / cjs-multi（含 lib 二级目录互相 require）/
   yank-style / theme-sepia / cdn-import 五个，覆盖全部形态。

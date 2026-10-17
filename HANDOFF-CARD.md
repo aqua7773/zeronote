@@ -1,14 +1,15 @@
 # ZeroNote 交接卡
 
-> 生成 **2026-10-12 20:45**（2026-10-13 00:20 补记 rev37 – rev44；同日再补记 rev45、rev46 – rev49）· **提交数与 HEAD 一律看 `git log`**
+> 最初生成 2026-10-12 20:45 · **最后更新 2026-10-17（rev116）** · 提交数与 HEAD 一律看 `git log`
 > （这张卡在"写死数字"上错过七次 —— 最后那次甚至在"不写死数字"这句话里又写了一个，已彻底删掉）
 > （不钉具体 hash：这行上次就写错过，钉了反而误导；下面交付表里的历史 hash 不会变，可以留）
-> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev92）**。
+> 全部细节（证据截图、踩坑、逐条验收）在 **`HANDOFF.md`（rev116）**。
 
 ## 是什么 / 在哪
 
 `C:\Users\AQUA\Documents\deepseek\ZeroNote` —— **空内核**本地 Markdown 笔记应用
-（Tauri 2 + React 19 + Rust）。一切功能靠插件（库内 `.zn/plugins/<id>/`，装卸＝放/删一个文件夹）；
+（Tauri 2 + React 19 + Rust）。一切功能靠插件（**全局目录** `<应用数据目录>/.zn/plugins/<id>/` 跨库共用，
+或**库内** `.zn/plugins/<id>/` 只在本库生效；装卸＝放/删一个文件夹）；
 内核 10 原语 + 21 种 UINode + 若干插件挂载位（`editor-toolbar` / `editor-topbar` 等）。
 **内核自带的界面**：12 条 Markdown 标记命令（`core.mark.*`）—— 桌面走编辑器右键「标记」子菜单，
 移动端走软键盘正上方那条快捷栏（`src/kernel/markdown-marks.ts` 是唯一真相）。
@@ -21,11 +22,20 @@
 ```powershell
 cd C:\Users\AQUA\Documents\deepseek\ZeroNote
 pnpm exec tsc -b                  # 必须 0 错误
-pnpm exec oxlint                  # 必须恰好 4 warnings
-cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-17 复测；以 scripts\verify.ps1 输出为准）
+pnpm exec oxlint src              # 0 error（当前 6 warnings；以 verify.ps1 输出为准）
+cd src-tauri; cargo test --lib    # 必须全过（当前 23 passed；以 scripts\verify.ps1 输出为准）
 ```
 
-## 本会话交付（10 个提交，逐条可回溯）
+## 最近一轮（2026-10-17 rev116）
+
+- **起始页速查表定稿**：桌面两列 **620 宽 / 右移 54**；手机单列（≤640px）**左留白 48 ＋ 标记↔解释间隔 73**（都经用户滑块手拖定）。
+- **出包**：release `zeronote.exe`（13.86 MB）→ `C:\Users\AQUA\Apps\_View\办公与文档\`；
+  Android release APK（16.11 MB，签名 `2ca79f19…35bb`）→ `C:\Users\AQUA\Apps\_View\安卓应用\`。
+- **手机测试入口是 dev 包**：`com.aqua.zeronote.debug`（热重载，连桌面 `192.168.1.3:1420`）；release 包 `com.aqua.zeronote` 已卸载，别混。
+- **防火墙**：dev server 1420 已放行（仅 `192.168.1.0/24`；网络被识别为 Public，不加规则手机连不上）。
+- **已知问题**：dev 连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION` 崩溃，重启即恢复。
+
+## 交付记录（逐条可回溯）
 
 | 提交 | 内容 |
 |---|---|
@@ -280,7 +290,7 @@ cd src-tauri; cargo test --lib    # 必须 21 passed（2026-10-17 复测；以 s
 
 ## 细节读哪
 
-`HANDOFF.md`（**rev92**）· `docs/内核契约-v0.1.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
+`HANDOFF.md`（**rev116**）· `docs/内核契约-v0.2.md`（**§2.7 接管协议 = 还原规矩的权威版本**）·
 **`docs/文档阅读器-调研-2026-10-13.md`（只读文档阅读器的选型 ＋ 实测全集）** ·
 **`docs/插件UI承载能力-2026-10-13.md`（UI 承载盘点 ＋ 路线）** · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）·
 `docs/能力对照-规格2.1-2.8.md` · `docs/插件能力盘点-2026-10-12.md`（权限/分发/沙箱维度）·

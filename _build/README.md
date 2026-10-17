@@ -15,6 +15,7 @@ Android release 出包的中转物：构建日志、`zipalign`/`apksigner` 的�
 | `rev80/libzeronote_lib.so` | 从 APK 里取出的 arm64 原生库，用于搜前端 chunk 名（`index-CUr7ArSz.js` 命中 ✓） | 校验用，可删 |
 | `rev80/outline-map-plugin.zip` | 大纲插件包（手机端单独更新用，68.8 KB） | 已写进交付 zip |
 | `rev80/安装说明.md` | 手机端两步安装说明 | 已写进交付 zip |
+| `rev115/ZeroNote-release.apk` | 2026-10-17 rev115 出包（release APK ＋ `.idsig`） | 已交付 |
 | `android-rev76.log` | 2026-10-14 01:02 同上 | 对应提交 `2e410f1` |
 | `rev76/ZeroNote-release.apk` | 同上产物经 `zipalign -p 4` + `apksigner` 签名 | 已逐字节写进交付 zip |
 | `rev76/verify-from-zip.apk` | 从交付 zip 回取，用于「包内是否真是本次代码」的校验 | 校验用，可删 |

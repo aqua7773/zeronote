@@ -1,5 +1,7 @@
 # Tauri 2 在 Android 上的文件访问能力调研
 
+> 状态：**historical**（调研快照，带日期）｜最后核对：2026-10-17 ｜说明：结论按当时实测；引用前先看日期
+
 > 目的：判断 ZeroNote（Tauri 2.12 + React 19 本地 Markdown 笔记）能否把笔记库从应用私有目录改到**用户可见的公共目录**（如 `/storage/emulated/0/Documents/ZeroNote`），以及目录选择器在 Android 上是否可用。
 >
 > 调研日期：2026-10-11 ｜ 性质：**只读调研**（未改动 ZeroNote 任何既有文件；本报告为新建文件）

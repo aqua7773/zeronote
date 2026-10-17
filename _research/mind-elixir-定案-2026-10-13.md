@@ -1,5 +1,7 @@
 # Mind Elixir 调研定案（rev56 · 2026-10-13）
 
+> 状态：**historical**（调研快照，带日期）｜最后核对：2026-10-17 ｜说明：结论按当时实测；引用前先看日期
+
 > **一行结论**：导图编辑改用 **`mind-elixir@5.15.1`**（MIT）。
 > 离线把 `dist/` 里的 IIFE + CSS + PlaintextConverter 放进插件目录；
 > 数据 ⇄ `- 列表` **复用官方 `plaintextConverter`，不自写**；
