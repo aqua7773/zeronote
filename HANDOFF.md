@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 126
-更新时间: 2026-10-18（rev126 L3 第四刀：useDocApi 抽成 hook，App 2935→2801 行）
+revision: 127
+更新时间: 2026-10-18（rev127 L3 第五刀：useExternalFile 抽成 hook，App 2801→2583 行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev127 | 2026-10-18 · **L3 第五刀**：`useExternalFile` hook（openExternalFile / SAF / 待打开 / 文件关联接线）· App **2801 → 2583** 行 · 测试 **163 条** |
 | rev126 | 2026-10-18 · **L3 第四刀**：`useDocApi` hook（docApi / fireDoc / flushDocChange）· App **2935 → 2801** 行 · 测试 **149 条** |
 | rev125 | 2026-10-18 · **L3 第三刀**：`useDocSession` hook（打开 / `[[链接]]` / 关闭）· App **2980 → 2935** 行 · 测试 **132 条** |
 | rev124 | 2026-10-18 · **L3 第二刀**：`useDocIO` hook（刷新 / 三方合并 / 保存 / 编辑器变更 + 兜底 flush）· App **3239 → 2980** 行 · 测试 **122 条** · oxlint 6→5 |
@@ -106,6 +107,41 @@ revision: 126
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev127（2026-10-18 · L3 第五刀：useExternalFile 抽成 hook，App 2583 行）
+>
+> 继续 L3。这一刀抽**外部文件**域：三条入口共用的 `openExternalFile` + 冷启动竞态等待
+> `waitDocHandler` + Android 热启动监听 + 「待打开」effect + 文件关联接线 effect。
+>
+> ### 1 产物
+>
+> - `src/hooks/useExternalFile.ts`（~310 行）：整段迁出，注释与分支顺序逐字保留。
+> - `App.tsx`：**2801 → 2583 行（−218）**。`openExternalFile` / `waitDocHandler` / 三个 effect
+>   整段删除，换 `useExternalFile({ platform, kernel, vault, applyVault, setToast, refs })`；
+>   `pickFile`（☰ 菜单「打开文件…」）留在 App，经 `openExternalFileRef` 进入。
+> - 清理 7 个迁移后不再使用的 import（DOC_RE / MD_RE / relPathIn / SAF_READABLE_RE / samePath /
+>   splitPath / toLocalPath）。
+>
+> ### 2 顺序不变的一个关键点
+>
+> 「待打开」effect 必须排在 `openNoteRef` 同步 effect **之后**（同一轮 commit 按声明顺序执行，
+> 排后面才拿得到新 kernel 的 `openNote`）。hook 调用点仍在 `useDocSession` 之后，顺序保持。
+>
+> ### 3 测试（149 → 163 条）
+>
+> `tests/use-external-file.test.tsx` 14 条：waitDocHandler 已接管/超时、空路径、3 秒去重、
+> content:// 可读/不可读、库内笔记与文档、库外文档不切库、库外笔记切父目录、切库失败不留待打开、
+> 待打开 effect 对齐/未对齐、文件关联 listen + opened_urls、Android 热启动只注册在 android。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 4 warnings · cargo 27 · check-docs · **vitest 163 passed**。
+>
+> ### 仍未做
+>
+> `usePluginHost`（~500 行，插件加载链 / `.znp` 安装 / 跨库插件根）。
+> **续接点**：下一轮做 L3 最后一刀 `usePluginHost`；它依赖 kernel 与多处 state，动手前先
+> `rg -n "collectPluginDirs|\.znp|loadPlugin"` 确认真实行号与依赖（卡片里的 ~1800–2400 已过时）。
+>
 > ## 📌 rev126（2026-10-18 · L3 第四刀：useDocApi 抽成 hook，App 2801 行）
 >
 > 继续 L3。这一刀抽**文档原语 + 事件广播**：`docApi`（active / open / close / save / selection /
