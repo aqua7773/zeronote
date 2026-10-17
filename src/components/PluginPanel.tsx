@@ -28,6 +28,12 @@ export type PluginRow = {
    */
   source?: 'global' | 'vault'
   /**
+   * 入口完整性（2026-10-18 rev119）：
+   * · `verified` —— manifest 带 `sha256`，加载时已比对通过；
+   * · `none`     —— 没有 `sha256`（未校验 / 未签名，安装时也会提示）。
+   */
+  integrity?: 'verified' | 'none'
+  /**
    * 平台不适用时的说明（如「不适用 · 仅桌面端」）。
    *
    * 有值 ⇒ 这个插件声明了 `manifest.platforms` 且与当前平台不符，**内核根本没加载它**。
@@ -51,6 +57,7 @@ export function PluginPanel({
   globalRoot,
   onToggle,
   onDelete,
+  onInstall,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -59,6 +66,8 @@ export function PluginPanel({
   globalRoot?: string | null
   onToggle: (id: string, enabled: boolean) => void
   onDelete: (id: string) => void
+  /** 安装 `.znp` 插件包（rev119）—— 空态与列表都能看到入口 */
+  onInstall?: () => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
@@ -70,6 +79,11 @@ export function PluginPanel({
       {/* 这里原本有一条「插件」标题栏 + 重新扫描按钮 + 下横线。
           用户要求去掉标题和横线，扫描按钮挪到主区顶栏（见 App 的 .zn-main-panel-bar）。 */}
       {error && <div className="zn-plugins-error">⚠ {error}</div>}
+
+      {/* 安装 .znp（2026-10-18 rev119）：确认框会列出它自称要的能力与签名状态 */}
+      <div style={{ display: 'flex', gap: 8, padding: '2px 0 10px' }}>
+        <Button onClick={() => onInstall?.()}>安装插件包（.znp）…</Button>
+      </div>
 
       {plugins.length === 0 ? (
         <div className="zn-plugins-empty">
@@ -120,6 +134,21 @@ export function PluginPanel({
                   )}
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
+                  )}
+                  {p.integrity === 'verified' ? (
+                    <span
+                      className="zn-plugin-source"
+                      title="manifest 带 sha256，加载时已比对入口文件"
+                    >
+                      已校验
+                    </span>
+                  ) : (
+                    <span
+                      className="zn-plugin-ver"
+                      title="manifest 没有 sha256：内核不校验入口文件（未签名）"
+                    >
+                      未校验
+                    </span>
                   )}
                   {/* 卡死兜底 C 段：被启动自愈关掉的 —— 用醒目色，别让它看起来像普通备注 */}
                   {p.autoDisabledNote && (

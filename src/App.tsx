@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { open } from '@tauri-apps/plugin-dialog'
+import { confirm, open } from '@tauri-apps/plugin-dialog'
 import { exit, onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 /**
@@ -2870,6 +2870,49 @@ export default function App() {
     }
   }
 
+  /**
+   * 安装 `.znp` 插件包（2026-10-18 rev119）。
+   *
+   * 流程：选文件 → Rust `read_znp` 预览 manifest → **原生确认框列出它自称要的能力**
+   * （capability 只是自述、内核不拦截 —— 所以把"它要什么 + 有没有签名"摊开让用户决定）
+   * → `install_znp` 解包到全局插件根 → 重扫插件。
+   */
+  const installZnp = useCallback(async () => {
+    try {
+      const picked = await open({
+        multiple: false,
+        title: '选择插件包（.znp）',
+        filters: [{ name: 'ZeroNote 插件包', extensions: ['znp'] }],
+      })
+      if (!picked || typeof picked !== 'string') return
+      const preview = await invoke<{
+        manifest: {
+          id: string
+          name: string
+          version: string
+          capabilities?: string[]
+          sha256?: string
+        }
+        files: string[]
+      }>('read_znp', { path: picked })
+      const m = preview.manifest
+      const caps = (m.capabilities ?? []).join('、') || '（未声明）'
+      const sign = m.sha256
+        ? '✓ 带完整性校验（sha256）'
+        : '⚠ 未签名：没有 sha256，安装后它会以你的权限执行任意代码'
+      const ok = await confirm(
+        `安装插件「${m.name}」v${m.version}？\n\n自称需要：${caps}\n文件：${preview.files.length} 个\n\n${sign}`,
+        { title: '安装插件包', kind: 'warning' },
+      )
+      if (!ok) return
+      const id = await invoke<string>('install_znp', { vault, path: picked })
+      setReloadToken((t) => t + 1)
+      setToast(`插件已安装：${id}`)
+    } catch (e) {
+      setError(`安装插件失败：${String(e)}`)
+    }
+  }, [vault])
+
   const rows: PluginRow[] = manifests.map((m) => ({
     id: m.id,
     name: m.name,
@@ -2887,6 +2930,8 @@ export default function App() {
       : undefined,
     // 卡死兜底 C 段：被启动自愈关掉的插件 —— 明确标注，别让它静默消失
     autoDisabledNote: autoDisabled.has(m.id) ? '因上次加载未完成已自动禁用' : undefined,
+    // rev119：入口带 sha256 ⇒ 已校验；没有 ⇒ 未校验（安装 .znp 时也会提示未签名）
+    integrity: m.sha256 ? 'verified' : 'none',
   }))
 
   /**
@@ -3546,6 +3591,7 @@ export default function App() {
                   globalRoot={globalRoot}
                   onToggle={togglePlugin}
                   onDelete={(id) => void deletePlugin(id)}
+                  onInstall={() => void installZnp()}
                 />
               )}
             </div>

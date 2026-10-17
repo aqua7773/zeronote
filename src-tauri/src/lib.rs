@@ -1151,6 +1151,77 @@ fn list_plugins(vault: String) -> Result<Vec<String>, String> {
 /// ① `plugin_dir()` 的白名单（只允许字母数字与 `-` `_` `.`），越不出插件目录；
 /// ② 删之前再确认目标**确实在** `<私有根>/.zn/plugins/` 之下，且不等于该目录本身
 ///    （`starts_with` 是路径组件级比较，不是字符串前缀，`..` 之类绕不过去）。
+/// 一个 `.znp` 插件包（单文件 JSON）：
+/// `{ "znp": 1, "manifest": { …manifest.json 的内容… }, "files": { "index.js": "…", "outline.css": "…" } }`
+///
+/// 为什么不打包成 zip：Rust 侧没有 zip 依赖；而插件包 99% 是文本 ——
+/// JSON 包**零依赖、可读可 diff**，缺点只是二进制资源要 base64（目前没有插件带二进制）。
+/// 包内路径全部走 `plugin_file()` 的白名单校验 ⇒ `..` 越不出去。
+#[derive(serde::Deserialize)]
+struct ZnPack {
+  #[serde(default)]
+  znp: Option<u32>,
+  manifest: serde_json::Value,
+  #[serde(default)]
+  files: serde_json::Map<String, serde_json::Value>,
+}
+
+fn read_znp_file(path: &str) -> Result<ZnPack, String> {
+  let raw = fs::read_to_string(path).map_err(|e| format!("读取插件包失败：{e}"))?;
+  let pack: ZnPack =
+    serde_json::from_str(&raw).map_err(|e| format!("插件包不是合法 JSON：{e}"))?;
+  if let Some(v) = pack.znp {
+    if v != 1 {
+      return Err(format!("不支持的插件包版本：{v}（当前支持 1）"));
+    }
+  }
+  let id = pack
+    .manifest
+    .get("id")
+    .and_then(|v| v.as_str())
+    .unwrap_or("");
+  if id.is_empty() {
+    return Err("插件包缺少 manifest.id".to_string());
+  }
+  if pack.manifest.get("entry").is_some() && pack.files.is_empty() {
+    return Err("插件包声明了 entry 但 files 是空的".to_string());
+  }
+  Ok(pack)
+}
+
+/// 只读预览：安装确认框拿它显示名称 / 版本 / 能力 / 是否带 sha256。
+#[tauri::command]
+fn read_znp(path: String) -> Result<serde_json::Value, String> {
+  let pack = read_znp_file(&path)?;
+  let files: Vec<String> = pack.files.keys().cloned().collect();
+  Ok(serde_json::json!({ "manifest": pack.manifest, "files": files }))
+}
+
+/// 安装 `.znp` 到 `<私有根>/.zn/plugins/<id>/`（覆盖写同名文件；不删旧文件）。
+#[tauri::command]
+fn install_znp(vault: String, path: String) -> Result<String, String> {
+  let pack = read_znp_file(&path)?;
+  let id = pack
+    .manifest
+    .get("id")
+    .and_then(|v| v.as_str())
+    .unwrap_or("")
+    .to_string();
+  let dir = plugin_dir(&vault, &id)?;
+  fs::create_dir_all(&dir).map_err(|e| format!("创建插件目录失败：{e}"))?;
+  let manifest_text = serde_json::to_string_pretty(&pack.manifest)
+    .map_err(|e| format!("序列化 manifest 失败：{e}"))?;
+  atomic_write(&dir.join("manifest.json"), &manifest_text)?;
+  for (rel, val) in pack.files.iter() {
+    let text = val
+      .as_str()
+      .ok_or_else(|| format!("插件包里的 {rel} 不是字符串（二进制资源暂不支持）"))?;
+    let target = plugin_file(&vault, &id, rel)?;
+    atomic_write(&target, text)?;
+  }
+  Ok(id)
+}
+
 #[tauri::command]
 fn delete_plugin(vault: String, plugin_id: String) -> Result<(), String> {
   let dir = plugin_dir(&vault, &plugin_id)?;
@@ -1608,6 +1679,8 @@ pub fn run() {
       ensure_vault,
       list_vaults,
       delete_plugin,
+      read_znp,
+      install_znp,
       open_external,
       opened_urls,
       zn_heartbeat,
@@ -1866,6 +1939,35 @@ mod tests {
     atomic_write(&f, "第二版").unwrap();
     assert_eq!(fs::read_to_string(&f).unwrap(), "第二版");
     assert!(!d.join("a.zn-tmp").exists(), "临时文件必须被清掉");
+  }
+
+  /// rev119：`.znp` 安装写到 `<库>/.zn/plugins/<id>/`
+  #[test]
+  fn install_znp_writes_manifest_and_entries() {
+    let d = tmpdir("znp");
+    let v = d.to_string_lossy().to_string();
+    let pack = r#"{"znp":1,"manifest":{"id":"demo","name":"演示","version":"1.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"export default { apply(){} }"}}"#;
+    let p = d.join("demo.znp");
+    fs::write(&p, pack).unwrap();
+    let id = install_znp(v, p.to_string_lossy().to_string()).unwrap();
+    assert_eq!(id, "demo");
+    let mf = fs::read_to_string(d.join(".zn/plugins/demo/manifest.json")).unwrap();
+    assert!(mf.contains("\"demo\""));
+    let js = fs::read_to_string(d.join(".zn/plugins/demo/index.js")).unwrap();
+    assert!(js.contains("apply"));
+  }
+
+  /// rev119：插件包里的 `..` 必须被拒（插件目录逃逸）
+  #[test]
+  fn install_znp_rejects_path_escape() {
+    let d = tmpdir("znp2");
+    let pack = r#"{"znp":1,"manifest":{"id":"demo","name":"x","version":"1","apiVersion":"^0.2.0","entry":"index.js"},"files":{"../evil.js":"x"}}"#;
+    let p = d.join("bad.znp");
+    fs::write(&p, pack).unwrap();
+    assert!(
+      install_znp(d.to_string_lossy().to_string(), p.to_string_lossy().to_string()).is_err(),
+      "含 .. 的路径必须被拒"
+    );
   }
 
   /// rev118：ID 稳定、改名后跟着走、引用被重写（文件名与标题两种写法）

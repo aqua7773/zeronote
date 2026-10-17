@@ -222,6 +222,12 @@ function assertManifest(m: unknown, dir: string): asserts m is PluginManifest {
 }
 
 /** major 相同即可加载（契约 §5：同一 major 内插件不改代码必须可用） */
+/** 入口文件内容的 SHA-256（hex）—— 完整性校验用（2026-10-18 rev119），Web Crypto 零依赖 */
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 function assertApiVersion(range: string, pluginId: string): void {
   const wantMajor = range.replace(/^[\^~>=<\s]*/, '').split('.')[0]
   const haveMajor = API_VERSION.split('.')[0]
@@ -602,6 +608,20 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
 
   // ── 有 JS 入口：先嗅探形态，再组装成 ESM 交给 import ──
   const entrySrc = await readFile(manifest.entry)
+  /**
+   * **完整性校验**（2026-10-18 rev119）：manifest 声明了 `sha256` 就必须对得上。
+   * 只覆盖入口一个文件 —— 它是"文件被改过/装坏了"的提示，不是签名（见契约 §3）。
+   * 用 Web Crypto，零新依赖。
+   */
+  if (manifest.sha256) {
+    const got = await sha256Hex(entrySrc)
+    const want = manifest.sha256.trim().toLowerCase()
+    if (got !== want) {
+      throw new Error(
+        `插件 ${manifest.id} 完整性校验失败：入口文件 sha256 不符（manifest 声明 ${want.slice(0, 12)}…，实际 ${got.slice(0, 12)}…）—— 文件可能被改过`,
+      )
+    }
+  }
   const kind = sniffEntryKind(entrySrc)
 
   let code: string
