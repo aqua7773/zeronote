@@ -135,7 +135,8 @@ revision: 119
 > - **`.znp` 安装链路实测**（2026-10-18，经诊断出口 `window.__znInstallZnp(path, false)` 驱动）：
 >   安装 `znp-demo.znp` ⇒ 返回 id、`manifest.json`（231 B）+ `index.js`（64 B）落盘、
 >   重扫后插件执行（`window.__znpDemo === true`）、管理页显示「znp 演示 v1.0.0 · 本库 · 未校验 · command」。
->   ⚠️ **原生文件选择器与确认框仍未断言**（CDP 点不了原生对话框）；夹具验完已删。
+>   ✅ **原生文件选择器与确认框已人工验证**（2026-10-18 用户跑通：安装触发与「未签名」提示均正常，
+>   实装的是翠绿主题包 `C:\Users\AQUA\Downloads\zeronote-theme-green.znp`）；夹具验完已删。
 >
 > ### 仍未做
 >
