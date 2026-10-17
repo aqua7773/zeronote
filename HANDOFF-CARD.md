@@ -18,6 +18,24 @@ pwsh -File scripts\verify.ps1
 # 五步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过
 ```
 
+## 下个会话第一件事
+
+按顺序拆 L3 剩余部分。每拆一步：**先写测试 → `verify.ps1` 五步全过 → 提交 → HANDOFF 新 rev**，不做批量合并。
+
+1. **`useDocApi`**（~130 行，风险最低，先做这个）
+   把 `docApi`（`App.tsx` 570–682）+ `fireDoc`（537–550）+ `flushDocChange`（559–566）抽成 `src/hooks/useDocApi.ts`。
+   它**不依赖 kernel**（全是 ref + `editorRef`）⇒ 无循环依赖；App 里 `kernel` 的 `useMemo` 仍依赖返回的 `docApi`。
+   - 接收 refs：`docSubsRef` · `frontmatterRef` · `activeRef` · `contentRef` · `dirtyRef` · `editorRef` · `docPendingRef` · `docChangeTimerRef` · `saveNowRef` · `openNoteRef`
+   - ⚠️ `editorRef` **必须留在 App**（`MarkdownEditor` 的 `onReady` 与右键「标记」命令都要用），只作参数传入。
+2. **`useExternalFile`**（~495 行）：`openExternalFile` + SAF `content://` + 「待打开」effect。动手前先整段读 1215–1710。
+3. **`usePluginHost`**（~500 行）：插件加载链 / `.znp` 安装（App 中段 ~1800–2400）。
+
+### 本会话踩过的三个坑（务必避开）
+
+- **按行号脚本删段**：先把最终行号定死再动手；中途再 edit 会让行号整体偏移（rev122 因此误删过 `DOC_CHANGE_DEBOUNCE_MS`，tsc `TS1128`）。
+- **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
+- **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
+
 ## 最近一轮（rev125）
 
 - **L3 第三刀：`useDocSession` hook**（打开 / `[[链接]]` / 关闭）—— App **2980 → 2935 行**。

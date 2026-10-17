@@ -132,6 +132,8 @@ revision: 125
 > ### 仍未做
 >
 > `docApi`（114 行，依赖 fireDoc/flushDocChange 与 refs）· `openExternalFile`（~495 行，SAF）· `usePluginHost`。
+> **续接点**：下一轮先抽 `useDocApi`（docApi + fireDoc + flushDocChange，无 kernel 依赖、风险最低），
+> 步骤与三个已知坑见 `HANDOFF-CARD.md` 的「下个会话第一件事」。
 
 
 >
