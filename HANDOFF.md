@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 123
-更新时间: 2026-10-18（rev123 L3 第一刀：useFileOps 抽成 hook，App 3501→3238 行）
+revision: 124
+更新时间: 2026-10-18（rev124 L3 第二刀：useDocIO 抽成 hook，App 3239→2980 行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev124 | 2026-10-18 · **L3 第二刀**：`useDocIO` hook（刷新 / 三方合并 / 保存 / 编辑器变更 + 兜底 flush）· App **3239 → 2980** 行 · 测试 **122 条** · oxlint 6→5 |
 | rev123 | 2026-10-18 · **L3 第一刀**：`useFileOps` hook（剪贴板 / 回收站 / 删除 / 撤销）· App **3501 → 3238** 行 · `lib/format.ts` · 测试 **113 条** |
 | rev122 | 2026-10-18 · **App.tsx 拆分 L1+L2**：4 个 lib 模块 + 5 个组件（3928 → **3501** 行）· 前端测试 **102 条** · 方案 `docs/App拆分方案-2026-10-18.md` |
 | rev121 | 2026-10-18 · 修 rev120 记录的两条待定语义（**merge3 同点插入判冲突** · **command 接管改层栈**）+ **vitest 并入 `verify.ps1` 第 5 步**（44 passed） |
@@ -103,6 +104,45 @@ revision: 123
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev124（2026-10-18 · L3 第二刀：useDocIO 抽成 hook，App 2980 行）
+>
+> 继续 L3。这一刀抽**文档读写域**（上一刀是文件操作域）。
+>
+> ### 1 产物
+>
+> - `src/hooks/useDocIO.ts`（~330 行）：`refresh` · `mergeWithDisk`（rev62 三方合并）·
+>   `mergeIntoEditor` · `reloadActiveFromDisk` · `saveNow`（写盘前合并 + 原子写）·
+>   `onEditorChange`（800ms 自动保存 + `doc.on('change')` 去抖广播）·
+>   三个兜底 effect（`fs.watch` 回灌、失焦/页面隐藏落盘、关窗前落盘）。
+> - `App.tsx`：**3239 → 2980 行（−259）**。四段（refresh 到关窗前 effect、onEditorChange）整段删除，
+>   换成一个 `useDocIO({...})` 解构；`openNote`/`closeNote`/`docApi` 仍在 App（下一刀）。
+>
+> ### 2 设计要点
+>
+> - refs 留在 App 创建、作为参数传入（`notesRef` / `contentRef` / `activeRef` / `dirtyRef` / `baseRef` /
+>   `saveNowRef` / `timerRef` / `docChangeTimerRef` / `docPendingRef` / `externalReloadRef`）——
+>   它们是"事件里读最新值"的那一份，与 App 顶部注释的口径一致；App 里 `docApi` 还要用它们。
+> - `closingRef`（关窗闸门）随 effect 一起迁入 hook（`useRef(false)`）。
+> - 写盘顺序原样保留：先合并 → 写 → 成功才 `fireDoc('save')`；失败绝不显示「已保存」。
+>
+> ### 3 测试（113 → 122 条）
+>
+> `tests/use-doc-io.test.tsx` 9 条：refresh 写 notesRef、saveNow 成功/未变/失败三态、
+> onEditorChange（正常 / 外部重载跳过 / 去抖广播）、reloadActiveFromDisk（变了 / 没变）。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · **oxlint 5 warnings**（比上一轮少 1 —— 原来 `App.tsx` 里
+> `refresh()` 那条 `set-state-in-effect` 随 effect 迁进 hook 后不再命中）· cargo 27 · check-docs · **vitest 122 passed**。
+>
+> ### 仍未做
+>
+> - `useDocSession` 的剩余部分：`openNote` / `openWikiLink` / `closeNote` / `docApi`（与 `openNoteRef` 互相引用，需一起搬）。
+> - `openExternalFile`（~495 行，SAF / 文件关联）。
+> - `usePluginHost`（加载链 / `.znp`）。
+
+
+>
 > ## 📌 rev123（2026-10-18 · L3 第一刀：useFileOps 抽成 hook，App 3238 行）
 >
 > 用户裁决「做 L3」。按方案的风险排序，先抽**依赖最少**的文件操作域（剪贴板 / 回收站 / 删除 / 撤销）。
