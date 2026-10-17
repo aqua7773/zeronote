@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 119
-更新时间: 2026-10-18（rev119 插件完整性 sha256 + `.znp` 单文件安装 + 安装确认框）
+revision: 120
+更新时间: 2026-10-18（rev120 前端单测 vitest：41 条，覆盖 merge3 / command / event）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev120 | 2026-10-18 · **前端单测（vitest）**：独立配置 + `tests/` 41 条（merge3 / command / event），记录 2 个待定语义 |
 | rev119 | 2026-10-18 · **插件完整性 sha256**（不符拒载）+ **`.znp` 单文件安装** + 安装确认框（列出自述能力与未签名提示） |
 | rev118 | 2026-10-18 · 契约 v0.2 **落到代码**（API_VERSION 0.2.0 + 插件 manifest 统一）+ **独立笔记 ID**（`.zn/ids.json`）+ rename 全库引用重写 |
 | rev117 | 2026-10-18 · 测试报告 16 项**逐条实测**（11 成立 / 1 作废 / 2 待验）+ 修复 7 项（折叠竖线 · frontmatter 透传 · 原子写 .bak · 暗色竖线 · `[[链接]]`点击 · 轮询兜底 · engines） |
@@ -99,6 +100,55 @@ revision: 119
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev120（2026-10-18 · 前端单测 vitest：41 条覆盖内核纯逻辑）
+>
+> 此前前端只有 `tsc -b` + `oxlint`，**没有一条行为级测试**；内核里最容易出错、
+> 又最难人工回归的三块（三方合并 / 命令接管还原 / 事件总线）全是纯函数，最适合单测。
+>
+> ### 1 接入方式
+>
+> - `vitest` **5.0.5**（devDependency，`pnpm add -D vitest`）。
+> - `vitest.config.ts` **独立于** `vite.config.ts`：后者读网卡枚举（`lanIp`）挂 react/tailwind 插件，
+>   单测用不上，还会把「本机有没有局域网」变成测试前置条件。这里只留 `@` 别名 + `tests/**/*.test.ts`。
+> - 测试放 `tests/`（**不在** `tsconfig.app.json` 的 `include: ["src"]` 里）⇒ `tsc -b` 基线仍是「只查 src」，
+>   测试代码由 vitest 自己转译，不会让 `verify.ps1` 第 1 步变红。
+> - `package.json`：`"test": "vitest run"` · `"test:watch": "vitest"`（**未**并入 `verify.ps1` 四步，见未做）。
+>
+> ### 2 覆盖（41 条）
+>
+> | 文件 | 条数 | 覆盖点 |
+> |---|---|---|
+> | `tests/merge3.test.ts` | 19 | `splitLines` 尾空串往返 · `diffBlocks` 增/删/改/多块/DP 规模退化 · `mergeLines` 快捷路径、不相交合并、冲突 mine 赢、尾换行、中文行 |
+> | `tests/command.test.ts` | 15 | 命名空间校验 · 同 id 接管与 dispose 还原 · 懒激活（declare/bind/activator）· 嵌套接管 · `release` · `implTag` 三态 · onError |
+> | `tests/event.test.ts` | 7 | on/emit · dispose 清空 · Set 去重 · 单 handler 抛错隔离 · disposeAll 容错 · stats |
+>
+> 实测：`pnpm exec vitest run` → **3 files / 41 passed**（285 ms）。
+> `verify.ps1` 复跑四步全过（tsc 0 · oxlint 6 warnings · cargo 27 passed · check-docs），基线未动。
+>
+> ### 3 单测记录出的两个待定语义（**只记录，未改代码**）
+>
+> 写测试时按「应该怎样」断言的 3 条实际都对不上实现，核对后确认是**行为差异而非测试写错**，
+> 已按现状断言并注释，留给产品/内核决策：
+>
+> 1. **merge3 同点插入不算冲突**：`base` 末尾两边各追加一行（块都是 `start === end`），
+>    归并判据 `cm.end <= ct.start` 认为不交叠 ⇒ 两段**都保留**、`conflicts = 0`。
+>    后果：编辑器末尾打字 + 插件末尾追加 ⇒ 两段拼接（内容不丢，但没有冲突提示）。
+>    ⚠️ diff3 标准语义会把「同一位置插入」判冲突；改判据属于合并策略变更。
+> 2. **command 还原链残留（僵尸实现）**：A、B 先后 `bind` 同一命令，A 先 dispose
+>    （此时实现是 B ⇒ 按设计跳过、不抹 B），但 A 那层还原点也就丢了 ⇒ B dispose 后还原到 **A**
+>    而不是内核。危害：插件 A 已卸载，命令仍指回 A 的函数。
+>    修法要在 dispose 时把「被跳过的层」从还原链摘掉 —— 需要内核改动，未做。
+>
+> ### 未做
+>
+> - **未并入 `verify.ps1`**：四步是文档写死的基线（`check-docs` 会校验），加第 5 步要先改文档与 `check-docs`；
+>   当前单独跑 `pnpm test`。
+> - **没有组件测试**：`src/components/**` 需要 DOM 环境（happy-dom/jsdom + @testing-library/react，新依赖未加）；
+>   `src/kernel/store.ts` / `fs.ts` 依赖 Tauri `invoke`，未 mock。
+> - 上述两个待定语义未修。
+
+
+>
 > ## 📌 rev119（2026-10-18 · 插件完整性 sha256 + `.znp` 单文件安装）
 >
 > 接 rev118（用户裁决「2 做 A+B、3 做 A+B」的后半）。

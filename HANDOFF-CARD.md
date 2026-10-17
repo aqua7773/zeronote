@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev119）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev120）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,18 +18,23 @@ pwsh -File scripts\verify.ps1
 # 四步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过
 ```
 
-## 最近一轮（rev119）
+## 最近一轮（rev120）
 
-- **插件完整性**：`manifest.sha256`（入口文件 SHA-256）—— 不符**拒载**；没写 ⇒ 管理页标「未校验」、安装时提示「未签名」。
-- **`.znp` 单文件安装**：JSON 包（`{znp:1, manifest, files}`），插件管理页「安装插件包（.znp）…」→ 确认框列出自述能力 + 签名状态 → 解包到全局插件根。
-- **capability 安装确认**：维持「自述、不拦截」，但安装时把清单摊给用户。
-- **验收**：`verify.ps1` 四步全过（cargo **27 passed**，新增 2 个 `.znp` 单测）；`.znp` UI 链路已人工跑通（2026-10-18，触发与未签名提示正常）。
-- **仍未做**：真正的签名（公私钥）/ 市场 / 更新通道。
+- **前端单测（vitest 5.0.5）**：`tests/` 下 41 条，覆盖 `lib/merge3`（19）· `kernel/command`（15）· `kernel/event`（7）。
+- `vitest.config.ts` 独立于 `vite.config.ts`（不读网卡、不挂 react/tailwind）；测试放 `tests/`，
+  不在 `tsconfig.app.json` 的 include 里 ⇒ `tsc -b` 基线不变。
+- 跑法：`pnpm test`（`vitest run`）· `pnpm test:watch`。**未**并入 `verify.ps1` 四步。
+- 验收：41 passed（285 ms）；`verify.ps1` 四步复跑全过，基线未动。
+- ⚠️ 单测记录出 2 个**待定语义**（未改代码）：① merge3 同点插入不判冲突（两段都保留）；
+  ② command 还原链残留（B dispose 后落回已卸载的 A）。详见 HANDOFF rev120 §3。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| 前端单测 | ✅ rev120：vitest + 41 条（merge3 / command / event）；未并入 verify.ps1，无组件测试 |
+| merge3 同点插入语义 | ⏳ rev120 记录：两边末尾各追加 ⇒ 两段都保留、conflicts 0（未定改不改） |
+| command 还原链残留 | ⏳ rev120 记录：A、B 先后接管、A 先卸 ⇒ B 卸后落回 A（需内核改动） |
 | 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项、P3 工程债 |
 | 插件签名 / 分发 | ⚠️ rev119 已做 A+B：完整性 sha256 + `.znp` 安装 + 未签名提示；**真签名（公私钥）/ 市场 / 更新通道未做** |
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
@@ -38,7 +43,7 @@ pwsh -File scripts\verify.ps1
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 沙箱 | ⏸ 搁置（用户裁决） |
 
-> 已结清：文档阅读器（rev72–74）· 卡死兜底（rev70/71）· 触屏三件（rev67/68）· 插件跨库（rev94）· 内置预装（rev110）· 文档对齐（rev93 + 2026-10-17 契约 v0.2）。
+> 已结清：文档阅读器（rev72–74）· 卡死兜底（rev70/71）· 触屏三件（rev67/68）· 插件跨库（rev94）· 内置预装（rev110）· 文档对齐（rev93 + 2026-10-17 契约 v0.2）· 前端单测（rev120）。
 
 ## 环境现状（活信息）
 
@@ -52,6 +57,7 @@ pwsh -File scripts\verify.ps1
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
+- **前端单测**：`pnpm test`（vitest，`tests/**/*.test.ts`）；目前不依赖浏览器/tauri mock。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。
 - `.gitignore`：`_shots/`、`_tmp-*/`、`examples/*/store.json`。
 
