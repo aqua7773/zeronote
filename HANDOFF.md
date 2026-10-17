@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 125
-更新时间: 2026-10-18（rev125 L3 第三刀：useDocSession 抽成 hook，App 2980→2935 行）
+revision: 126
+更新时间: 2026-10-18（rev126 L3 第四刀：useDocApi 抽成 hook，App 2935→2801 行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev126 | 2026-10-18 · **L3 第四刀**：`useDocApi` hook（docApi / fireDoc / flushDocChange）· App **2935 → 2801** 行 · 测试 **149 条** |
 | rev125 | 2026-10-18 · **L3 第三刀**：`useDocSession` hook（打开 / `[[链接]]` / 关闭）· App **2980 → 2935** 行 · 测试 **132 条** |
 | rev124 | 2026-10-18 · **L3 第二刀**：`useDocIO` hook（刷新 / 三方合并 / 保存 / 编辑器变更 + 兜底 flush）· App **3239 → 2980** 行 · 测试 **122 条** · oxlint 6→5 |
 | rev123 | 2026-10-18 · **L3 第一刀**：`useFileOps` hook（剪贴板 / 回收站 / 删除 / 撤销）· App **3501 → 3238** 行 · `lib/format.ts` · 测试 **113 条** |
@@ -105,6 +106,47 @@ revision: 125
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev126（2026-10-18 · L3 第四刀：useDocApi 抽成 hook，App 2801 行）
+>
+> 继续 L3。这一刀抽**文档原语 + 事件广播**：`docApi`（active / open / close / save / selection /
+> replaceSelection / insertAtCursor / insertAt / replaceRange / on）+ `fireDoc` + `flushDocChange`。
+> 按交接卡要求，这也是三刀里**风险最低**的一刀（无 kernel 依赖）。
+>
+> ### 1 产物
+>
+> - `src/hooks/useDocApi.ts`（241 行）：原段整段迁出，逐字保留注释与"尽力而为"语义。
+> - `App.tsx`：**2935 → 2801 行（−134）**。`fireDoc` / `flushDocChange` / `docApi` 三段删除，
+>   换 `useDocApi({ refs, setActivePath, setContent, setDirty })` 解构；kernel 的 `useMemo` 依赖
+>   仍是 `docApi`，其余调用点零改动。
+> - `editorRef` 按计划**留在 App**（`MarkdownEditor` 的 `onReady` 与右键「标记」命令都要用），只传进 hook。
+>
+> ### 2 与 kernel 的依赖方向
+>
+> 本 hook **不依赖 kernel**（全是 ref + editorRef）⇒ 不引入循环依赖；`docApi` 引用稳定
+> （`useMemo` 依赖 `fireDoc` / `flushDocChange`，而它们的依赖链只到 ref）⇒ App 里
+> `kernel` 不会因此重建。
+>
+> ### 3 测试（132 → 149 条）
+>
+> `tests/use-doc-api.test.tsx` 17 条：active 空/快照、open 转发、close 清空四态 + 清空之前取快照、
+> change 先兑现再 close 的顺序、save 转发、selection 无编辑器/有编辑器、
+> replaceSelection / insertAtCursor / insertAt 偏移夹紧 / insertAt cursorOffset 夹紧 /
+> replaceRange 交换与夹紧、on 广播 + 抛错隔离 + dispose 幂等、fireDoc 无 path 不播、
+> flushDocChange 兑现与空 pending。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · **oxlint 4 warnings**（CommandPalette 2 + FileTree 2；新 hook 的
+> ref 依赖用 `eslint-disable-next-line` 注明原因，无新增 warning）· cargo 27 · check-docs ·
+> **vitest 149 passed**。
+>
+> ### 仍未做
+>
+> `openExternalFile`（~495 行，SAF `content://` + 「待打开」effect）· `usePluginHost`（~500 行，
+> 插件加载链 / `.znp` 安装）。
+> **续接点**：下一轮做 `useExternalFile` —— 动手前先整段读完 openExternalFile 相关 effect（拆分后
+> 行号已变，以 `rg -n "openExternalFile"` 为准）。
+>
 > ## 📌 rev125（2026-10-18 · L3 第三刀：useDocSession 抽成 hook，App 2935 行）
 >
 > 继续 L3。这一刀抽**文档会话**：`openNote` / `openWikiLink` / `closeNote`（打开哪篇、关掉哪篇）。

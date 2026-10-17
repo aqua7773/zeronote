@@ -26,7 +26,6 @@ import {
 import { collectPluginDirs, tryGlobalPluginRoot } from './kernel/plugin-roots'
 import { ensureBuiltinPlugins } from './kernel/builtin-plugins'
 import type {
-  DocApi,
   DocEvent,
   NoteDoc,
   NoteMeta,
@@ -69,6 +68,8 @@ import { useFileOps } from './hooks/useFileOps'
 import { useDocIO } from './hooks/useDocIO'
 /* rev125 拆分 L3：文档会话（打开 / 关闭 / [[链接]]）抽成 hook */
 import { useDocSession } from './hooks/useDocSession'
+/* rev126 拆分 L3：文档原语 + 事件广播（docApi / fireDoc / flushDocChange）抽成 hook */
+import { useDocApi } from './hooks/useDocApi'
 /* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
 import {
   baseName,
@@ -525,162 +526,25 @@ export default function App() {
     }
   }, [vault, platform])
 
-  /* ── doc 事件广播（U3b）── */
-  /**
-   * 把文档事件广播给所有订阅者。
-   *
-   * **为什么显式传 path/content/dirty 而不是读 ref**：四个 fire 点里有三个（`open`/`save`/`change`）
-   * 都发生在 `setContent` / `setActivePath` **之后**，而 `contentRef` / `activeRef` 是在
-   * `useEffect` 里同步的 —— 那一刻 ref 还停在**旧值**。读 ref 会广播出"上一秒的文档"，
-   * 这种错法不报错、极难查（正是 U3 这次要修的那类静默失效）。所以快照由调用方显式给出。
-   *
-   * 单个订阅者抛错**不影响**其它订阅者，也不会把编辑动作带崩：逐个 try/catch 后 `console.error`。
-   */
-  const fireDoc = useCallback(
-    (ev: DocEvent, path: string | null, content: string, dirty: boolean) => {
-      const subs = docSubsRef.current.get(ev)
-      if (!subs || subs.size === 0 || !path) return
-      const d: NoteDoc = { path, content, frontmatter: frontmatterRef.current, dirty }
-      for (const cb of [...subs]) {
-        try {
-          cb(d)
-        } catch (e) {
-          console.error(`[doc.on:${ev}] 插件回调抛错（已隔离）`, e)
-        }
-      }
+  /* ── doc 原语 + 事件广播（rev126 · L3 第四刀）—— 见 hooks/useDocApi.ts ── */
+  const { fireDoc, flushDocChange, docApi } = useDocApi({
+    refs: {
+      docSubsRef,
+      frontmatterRef,
+      activeRef,
+      contentRef,
+      dirtyRef,
+      baseRef,
+      editorRef,
+      docPendingRef,
+      docChangeTimerRef,
+      saveNowRef,
+      openNoteRef,
     },
-    [],
-  )
-
-  /**
-   * 兑现去抖窗口里挂起的 `change`（切笔记 / 关笔记前调用）。
-   *
-   * 不兑现的话会**乱序**：`change(old)` 落在 `open(new)` 之后才广播，插件会拿旧内容去改新文档。
-   * 所以切走之前先把"这篇笔记的最后状态"播出去，再播 `open` / `close`。
-   */
-  const flushDocChange = useCallback(() => {
-    if (docChangeTimerRef.current !== null) {
-      window.clearTimeout(docChangeTimerRef.current)
-      docChangeTimerRef.current = null
-    }
-    const pending = docPendingRef.current
-    docPendingRef.current = null
-    if (pending) fireDoc('change', pending.path, pending.content, true)
-  }, [fireDoc])
-
-  /* ── doc 原语：React 状态 + CM6 实例 → 契约形状 ── */
-  const docApi: DocApi = useMemo(
-    () => ({
-      active: () =>
-        activeRef.current
-          ? {
-              path: activeRef.current,
-              content: contentRef.current,
-              frontmatter: frontmatterRef.current,
-              dirty: dirtyRef.current,
-            }
-          : null,
-      open: (p) => openNoteRef.current(p),
-      close: () => {
-        // 与 closeNote 同一套语义：快照必须**在清空之前**取，否则订阅者拿到的是空文档
-        const p = activeRef.current
-        const c = contentRef.current
-        flushDocChange()
-        setActivePath(null)
-        setContent('')
-        baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
-        frontmatterRef.current = {} // P1-2：文档关了，frontmatter 也跟着清掉
-        setDirty(false)
-        fireDoc('close', p, c, false)
-      },
-      save: () => saveNowRef.current(),
-      selection: () => {
-        const v = editorRef.current
-        if (!v) return null
-        const { from, to } = v.state.selection.main
-        return { from, to, text: v.state.sliceDoc(from, to) }
-      },
-      replaceSelection: (text) => {
-        const v = editorRef.current
-        if (!v) return
-        const { from, to } = v.state.selection.main
-        v.dispatch({ changes: { from, to, insert: text } })
-        v.focus()
-      },
-      insertAtCursor: (text) => {
-        const v = editorRef.current
-        if (!v) return
-        const pos = v.state.selection.main.head
-        v.dispatch({
-          changes: { from: pos, insert: text },
-          selection: { anchor: pos + text.length },
-        })
-        v.focus()
-      },
-      /**
-       * 按**偏移**插入 —— 行首标记（`# ` 标题）与成对标记（`**粗体**` 光标落中间）都靠它。
-       * 偏移一律夹进 `[0, doc.length]`：插件自己算行首时偶尔会差一两个字符（比如文档刚被改过），
-       * 那种情况该"尽力插进去"，而不是抛错把整条命令打断。
-       */
-      insertAt: (pos, text, cursorOffset) => {
-        const v = editorRef.current
-        if (!v) return
-        const len = v.state.doc.length
-        const at = Math.min(Math.max(pos, 0), len)
-        const caret = at + Math.min(Math.max(cursorOffset ?? text.length, 0), text.length)
-        v.dispatch({
-          changes: { from: at, insert: text },
-          selection: { anchor: caret },
-        })
-        v.focus()
-      },
-      /**
-       * 按**区间**替换 —— 结构化编辑（导图 ⇄ 大纲双向回写、表格单元格、任务勾选）靠它。
-       * `from` / `to` 顺序颠倒自动交换；两端夹进 `[0, doc.length]`；`text === ''` 即删除该区间。
-       * 与 `insertAt` 同一套"尽力而为、不抛错"策略：插件算出的偏移差一两个字符时，
-       * 该把改动落下去，而不是抛错把整条命令打断。
-       */
-      replaceRange: (from, to, text, cursorOffset) => {
-        const v = editorRef.current
-        if (!v) return
-        const len = v.state.doc.length
-        const a = Math.min(Math.max(Math.min(from, to), 0), len)
-        const b = Math.min(Math.max(Math.max(from, to), 0), len)
-        const caret = a + Math.min(Math.max(cursorOffset ?? text.length, 0), text.length)
-        v.dispatch({
-          changes: { from: a, to: b, insert: text },
-          selection: { anchor: caret },
-        })
-        v.focus()
-      },
-      /**
-       * 订阅文档事件（U3b —— 此前这里返回的是永远不触发的空桩）。
-       * 注册进 `docSubsRef`；`dispose` 幂等，集合空了就把 key 删掉（不给长会话留泄漏）。
-       */
-      on: (ev, cb) => {
-        let set = docSubsRef.current.get(ev)
-        if (!set) {
-          set = new Set()
-          docSubsRef.current.set(ev, set)
-        }
-        set.add(cb)
-        const owner = set
-        return {
-          dispose: () => {
-            owner.delete(cb)
-            if (owner.size === 0) docSubsRef.current.delete(ev)
-          },
-        }
-      },
-    }),
-    /**
-     * `fireDoc` / `flushDocChange` 都是 `useCallback` 的稳定引用（依赖链只到 ref），
-     * 进依赖数组**不会**导致 docApi 重建、更不会连带重建 kernel。
-     * 但还是必须写全：漏依赖 = "docApi 里读到上一代的 fire"，这类错法不报错、极难查
-     * （正是本轮 U3 要修的那类静默失效）。oxlint 的 exhaustive-deps 也会拦。
-     */
-    [fireDoc, flushDocChange],
-  )
+    setActivePath,
+    setContent,
+    setDirty,
+  })
 
   /* ── 内核（库变了才重建）── */
   const kernel: Kernel | null = useMemo(() => {

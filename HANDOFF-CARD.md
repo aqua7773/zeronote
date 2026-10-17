@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev125）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev126）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -22,12 +22,8 @@ pwsh -File scripts\verify.ps1
 
 按顺序拆 L3 剩余部分。每拆一步：**先写测试 → `verify.ps1` 五步全过 → 提交 → HANDOFF 新 rev**，不做批量合并。
 
-1. **`useDocApi`**（~130 行，风险最低，先做这个）
-   把 `docApi`（`App.tsx` 570–682）+ `fireDoc`（537–550）+ `flushDocChange`（559–566）抽成 `src/hooks/useDocApi.ts`。
-   它**不依赖 kernel**（全是 ref + `editorRef`）⇒ 无循环依赖；App 里 `kernel` 的 `useMemo` 仍依赖返回的 `docApi`。
-   - 接收 refs：`docSubsRef` · `frontmatterRef` · `activeRef` · `contentRef` · `dirtyRef` · `editorRef` · `docPendingRef` · `docChangeTimerRef` · `saveNowRef` · `openNoteRef`
-   - ⚠️ `editorRef` **必须留在 App**（`MarkdownEditor` 的 `onReady` 与右键「标记」命令都要用），只作参数传入。
-2. **`useExternalFile`**（~495 行）：`openExternalFile` + SAF `content://` + 「待打开」effect。动手前先整段读 1215–1710。
+1. ~~`useDocApi`~~ ✅ **rev126 已完成**（17 条测试，App 2801 行）
+2. **`useExternalFile`**（~495 行）：`openExternalFile` + SAF `content://` + 「待打开」effect。动手前先整段读完相关 effect（拆分后行号已变，用 `rg -n "openExternalFile"` 定位）。
 3. **`usePluginHost`**（~500 行）：插件加载链 / `.znp` 安装（App 中段 ~1800–2400）。
 
 ### 本会话踩过的三个坑（务必避开）
@@ -36,20 +32,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev125）
+## 最近一轮（rev126）
 
-- **L3 第三刀：`useDocSession` hook**（打开 / `[[链接]]` / 关闭）—— App **2980 → 2935 行**。
-  - 原段整段移除，改 `useDocSession({...})` 解构；`openNoteRef` 同步 effect 一并迁入。
-  - 与 `useDocIO` 分工：IO 管读写/合并，session 管"当前是哪一篇"。
-- **测试 122 → 132 条**：`use-doc-session.test.tsx` 10 条。
-- 验收：五步全过（tsc 0 · oxlint 5 · cargo 27 · check-docs · **vitest 132**）。
-- 剩：`docApi`（114 行）· `openExternalFile`（~495 行）· `usePluginHost`。
+- **L3 第四刀：`useDocApi` hook**（`docApi` + `fireDoc` + `flushDocChange`）—— App **2935 → 2801 行**。
+  - 原三段整段移除，改 `useDocApi({ refs, setActivePath, setContent, setDirty })` 解构；`editorRef` 留在 App。
+  - 不依赖 kernel ⇒ 无循环依赖；`docApi` 引用稳定，kernel 不重建。
+- **测试 132 → 149 条**：`use-doc-api.test.tsx` 17 条。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 149**）。
+- 剩：`openExternalFile`（~495 行）· `usePluginHost`。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession → **2935 行**；剩 docApi / openExternalFile / usePluginHost |
+| App.tsx 拆分 | ✅ rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi → **2801 行**；剩 openExternalFile / usePluginHost |
 | 前端单测 | ✅ rev122：102 条（含 15 条组件测试），已并入 `verify.ps1` 第 5 步 |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
