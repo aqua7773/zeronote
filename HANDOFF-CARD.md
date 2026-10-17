@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-17（rev116）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev117）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,18 +18,19 @@ pwsh -File scripts\verify.ps1
 # 四步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过
 ```
 
-## 最近一轮（rev116）
+## 最近一轮（rev117）
 
-- **起始页速查表定稿**：桌面两列 620 宽 / 右移 54；手机单列（≤640px）左留白 48 ＋ 标记↔解释间隔 73（用户滑块手拖定）。
-- **出包**：release `zeronote.exe`（13.86 MB）→ `Apps\_View\办公与文档\`；Android APK（16.11 MB）→ `Apps\_View\安卓应用\`。
-- **手机测试入口是 dev 包** `com.aqua.zeronote.debug`（连桌面 1420）；release `com.aqua.zeronote` 已卸载，别混。
-- **防火墙**：1420 已放行（仅 `192.168.1.0/24`）。
-- **已知问题**：dev 连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION` 崩溃，重启即恢复。
+- **测试报告 16 项逐条实测**：11 成立 · 1 作废 · 2 待验 · 2 不算缺陷；**修了 7 项** —— P1-1 折叠竖线 · P1-2 frontmatter 透传 · P1-3 原子写 `.bak` · P2-1 暗色竖线 · P2-2 `[[链接]]` 点击 · P2-5 轮询兜底 · P2-6 engines。
+- **P1-4 不是代码问题**：1000 篇冷启动 12s、热态 90–607ms；同目录 `pwsh` 读 1000 篇全文仅 379ms ⇒ Windows 首次访问 / Defender 主导。
+- **P2-3 待真机**：Android 二进制导出（png/zip）需真机 UI 操作复验。
+- **验收**：`verify.ps1` 四步全过（tsc 0 · oxlint 6 warnings · cargo 23 passed）；`verify-outline-fold.mjs` 10/10。
+- **已知问题**：dev 连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION` 崩溃，重启即恢复（本轮又踩一次）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| 测试报告（2026-10-17 · 16 项） | ✅ rev117 已修 7 项（P1-1/2/3 · P2-1/2/5/6）；剩 P2-3 待真机、P2-7 观察项、P3 工程债 |
 | 插件签名 / 分发 / 更新通道 | ❌ 未做（只有全局根，无市场 / 签名） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
 | 同步 / AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
@@ -42,6 +43,7 @@ pwsh -File scripts\verify.ps1
 
 - **桌面 dev**：`tauri dev`（vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
 - **手机 `33b676f6`（ARIA 24069RA21C）**：2026-10-15 实测装的是 **dev 版**（连 `192.168.1.3:1420`，桌面 dev 一关就白屏）。判据：logcat 出现 `node_modules/.vite/deps/…`。
+- **防火墙**：1420 已放行（TCP，仅 `192.168.1.0/24`；网络被识别为 Public、手机 2.4G / 电脑 5G 跨 SSID）。
 - **手机 CDP**（默认手机断言手段）：`adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` → `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`。
 - **手机模拟点击**：`input tap` 无效；用 `input motionevent DOWN x y` ＋ `UP x y`（间隔 ~120 ms）。`screencap` 是物理像素。
 - **测试库 `_tmp-vault-tb/`**：5 篇笔记；`.zn/plugins` 有 junction（outline-map / net-demo）。验收夹具**按需挂**，别常驻。

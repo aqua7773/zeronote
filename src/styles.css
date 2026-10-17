@@ -114,6 +114,13 @@
   --zn-bg-active: #303036;
   --zn-border: #2e2e33;
   --zn-border-strong: #3f3f46;
+  /**
+   * 大纲竖线在暗色下单独提亮（P2-1 · 2026-10-18）。
+   * 浅色沿改 `--zn-border` 即可；暗色若也沿用它只有 1.2:1（#2e2e33 on #18181b），
+   * 用户实测「几乎看不见」。这里取 #6b6b73 ≈ 3.4:1（WCAG 非文本 ≥3:1），
+   * 不直接抬 `--zn-border` 是为了不把全局边框也一起点亮。
+   */
+  --zn-ol-line: #6b6b73;
   --zn-fg: #f4f4f5;
   --zn-fg-muted: #a1a1aa;
   --zn-fg-subtle: #71717a;

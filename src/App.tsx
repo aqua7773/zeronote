@@ -636,6 +636,17 @@ export default function App() {
    * **指向同一份表**，且都不触发重渲染。
    */
   const docSubsRef = useRef<Map<DocEvent, Set<(d: NoteDoc) => void>>>(new Map())
+  /**
+   * 当前打开笔记的 **frontmatter**（P1-2 · 2026-10-18）。
+   *
+   * Rust 侧 `list_notes` / `read_note` 早就解析好了，但广播文档事件时写死 `{}` ——
+   * 标签 / 密级 / 创建时间这些"跟随 md 文件但不在正文里"的信息因此没有任何落点，
+   * 插件只能自己重解析正文。这里在 `openNote` 时从列表 meta 抄一份，`fireDoc` 与
+   * `doc.active()` 都读它。放 ref：`docApi` 的 `useMemo` 依赖是 `[]`。
+   */
+  const frontmatterRef = useRef<Record<string, unknown>>({})
+  /** `notes` 的最新值（`openNote` 不在 `notes` 的依赖里，靠这个 ref 拿 meta） */
+  const notesRef = useRef<NoteMeta[]>([])
   /** `change` 去抖计时器（见 `DOC_CHANGE_DEBOUNCE_MS`） */
   const docChangeTimerRef = useRef<number | null>(null)
   /** 去抖窗口里待广播的内容 —— 用户在 200ms 内又敲了一下就覆盖它，最后只广播一次 */
@@ -761,7 +772,7 @@ export default function App() {
     (ev: DocEvent, path: string | null, content: string, dirty: boolean) => {
       const subs = docSubsRef.current.get(ev)
       if (!subs || subs.size === 0 || !path) return
-      const d: NoteDoc = { path, content, frontmatter: {}, dirty }
+      const d: NoteDoc = { path, content, frontmatter: frontmatterRef.current, dirty }
       for (const cb of [...subs]) {
         try {
           cb(d)
@@ -797,7 +808,7 @@ export default function App() {
           ? {
               path: activeRef.current,
               content: contentRef.current,
-              frontmatter: {},
+              frontmatter: frontmatterRef.current,
               dirty: dirtyRef.current,
             }
           : null,
@@ -810,6 +821,7 @@ export default function App() {
         setActivePath(null)
         setContent('')
         baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
+        frontmatterRef.current = {} // P1-2：文档关了，frontmatter 也跟着清掉
         setDirty(false)
         fireDoc('close', p, c, false)
       },
@@ -993,6 +1005,7 @@ export default function App() {
         kernel.fs.listDirs(),
       ])
       setNotes(list)
+      notesRef.current = list
       setDirs(dirList)
       setError(null)
     } catch (e) {
@@ -1287,6 +1300,9 @@ export default function App() {
       if (dirtyRef.current) await saveNowRef.current()
       try {
         const text = await k.fs.readText(path)
+        // P1-2：这篇笔记的 frontmatter 跟着文档一起走（见 `frontmatterRef`）。
+        // 列表里暂时找不到（刚新建、还没刷新）就退化成空对象，别让它 undefined。
+        frontmatterRef.current = notesRef.current.find((n) => n.path === path)?.frontmatter ?? {}
         baseRef.current = text // 三方合并的 BASE = 刚读到的这份
         setContent(text)
         setActivePath(path)
@@ -1306,6 +1322,26 @@ export default function App() {
   }, [openNote])
 
   /**
+   * `[[笔记名]]` 点击跳转（P2-2 · 2026-10-18）。
+   *
+   * 匹配顺序：库内相对路径（去 `.md`）→ 路径后缀（`[[日记/今天]]`）→ 显示标题。
+   * 找不到就提示 —— 静默无反应正是这条问题原来的样子（用户点了没动静，以为功能坏了）。
+   */
+  const openWikiLink = useCallback(
+    (target: string) => {
+      const norm = (s: string) => s.replace(/\\/g, '/').replace(/\.md$/i, '').trim()
+      const want = norm(target)
+      const hit =
+        notes.find((n) => norm(n.path) === want) ??
+        notes.find((n) => norm(n.path).endsWith(`/${want}`)) ??
+        notes.find((n) => norm(n.title) === want)
+      if (hit) void openNote(hit.path)
+      else setToast(`没有找到「${target}」这篇笔记`)
+    },
+    [notes, openNote],
+  )
+
+  /**
    * 关闭当前笔记，回到「未打开」的空态。
    * 有未保存内容先落盘（与切笔记、切库同一套语义）。
    * 此前**完全没有这个动作** —— 库里只有一篇笔记时，文件树点它还是它，等于出不去。
@@ -1319,6 +1355,7 @@ export default function App() {
     setActivePath(null)
     setContent('')
     baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
+    frontmatterRef.current = {} // P1-2：文档关了，frontmatter 也跟着清掉
     setDirty(false)
     setSaveState('idle')
     setError(null)
@@ -3546,6 +3583,7 @@ export default function App() {
               replaceOpen={replaceOpen}
               onCloseReplace={() => setReplaceOpen(false)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+              onWikiLinkOpen={openWikiLink}
             />
             {/*
               编辑器底部工具栏 —— **内核那一条只有移动端有**（用户 2026-10-12 定：

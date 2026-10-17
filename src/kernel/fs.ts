@@ -88,15 +88,22 @@ export function createFsApi(
       })
         .then((fn) => {
           if (disposed) fn()
-          else unlisten = fn
+          else {
+            unlisten = fn
+            // P2-5：事件通道可用 ⇒ 关掉轮询。轮询只是"监听不可用"的兜底，
+            // 而它每个订阅者一条、3 秒一次全库 list_notes（内核 + N 个插件 = N+1 次 IPC）。
+            stopPoll()
+          }
         })
         .catch(() => {
-          /* 事件通道不可用 —— 轮询兜底 */
+          // 事件通道不可用 ⇒ 轮询兜底
+          startPoll()
         })
 
-      // 轮询兜底：比对清单，发现差异即上报
+      // 轮询兜底（**只在事件通道不可用时启动**）：比对清单，发现差异即上报
       let last = new Map<string, number>()
-      const poll = window.setInterval(async () => {
+      let poll: number | null = null
+      const pollOnce = async () => {
         if (disposed) return
         try {
           const notes = await invoke<NoteMeta[]>('list_notes', { vault, dir: null })
@@ -111,12 +118,25 @@ export function createFsApi(
         } catch {
           /* 库不可用（被移动/删除）时静默，下一轮再试 */
         }
-      }, 3000)
+      }
+
+      const startPoll = () => {
+        if (poll !== null || disposed) return
+        poll = window.setInterval(() => {
+          void pollOnce()
+        }, 3000)
+      }
+      const stopPoll = () => {
+        if (poll !== null) {
+          window.clearInterval(poll)
+          poll = null
+        }
+      }
 
       return {
         dispose: () => {
           disposed = true
-          window.clearInterval(poll)
+          stopPoll()
           unlisten?.()
         },
       }

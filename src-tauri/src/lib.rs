@@ -294,7 +294,15 @@ fn list_dirs(vault: String) -> Result<Vec<String>, String> {
   Ok(out)
 }
 
-/// 原子写：同目录临时文件 → sync → rename 覆盖
+/// 原子写：同目录临时文件 → sync → rename 覆盖。
+///
+/// **先写临时文件、再换名**：任何一步失败，原文件都还在。
+/// 覆盖已存在目标时 `fs::rename` 在 Windows 上**本来就会替换**（std 对应
+/// `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING`，见 `std::fs::rename` 文档）；
+/// 只有目标被别的进程占住等情况下 rename 才失败 —— 此时走 `.zn-bak` 三步：
+/// 旧文件 → `.zn-bak`，新文件 → 原位，成功后再删 `.zn-bak`。
+/// 中途任何一步失败都能把旧文件还原回去，**不会出现"旧内容已删、新内容未就位"的窗口**
+/// （P1-3 · 2026-10-18；旧实现的注释「Windows 的 rename 不覆盖已存在文件」是错的）。
 fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
   let dir = abs.parent().ok_or_else(|| "无法确定父目录".to_string())?;
   fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
@@ -308,12 +316,25 @@ fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
   match fs::rename(&tmp, abs) {
     Ok(()) => Ok(()),
     Err(_) => {
-      // Windows 的 rename 不覆盖已存在文件：内容已完整落盘，先删旧再改名
-      let _ = fs::remove_file(abs);
-      fs::rename(&tmp, abs).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        format!("替换原文件失败：{e}")
-      })
+      // 覆盖失败（多为目标被占用）：旧文件先挪到 .bak，新文件上位后再删 .bak
+      let bak = abs.with_extension("zn-bak");
+      let had_old = fs::rename(abs, &bak).is_ok();
+      match fs::rename(&tmp, abs) {
+        Ok(()) => {
+          if had_old {
+            let _ = fs::remove_file(&bak);
+          }
+          Ok(())
+        }
+        Err(e) => {
+          // 新文件没上位 ⇒ 把旧的还原（还原失败不掩盖真正的错误）
+          if had_old {
+            let _ = fs::rename(&bak, abs);
+          }
+          let _ = fs::remove_file(&tmp);
+          Err(format!("替换原文件失败：{e}"))
+        }
+      }
     }
   }
 }

@@ -97,6 +97,14 @@ type Props = {
    * 编辑器本身**不认识任何插件** —— 它只知道"这段文本要执行这个命令"。
    */
   onCommand?: (id: string, payload?: Record<string, unknown>) => void
+  /**
+   * `[[笔记名]]` 被点击时把目标交回宿主打开（P2-2 · 2026-10-18）。
+   *
+   * 背景：atomic 的 inline-preview 把 `[[x]]` 渲染成**普通链接**（黄底 + 图标），
+   * 点击只走 `onLinkClick(url)` —— 而那条路只认 http/https，`[[x]]` 于是没有任何出口。
+   * 编辑器负责把"点了哪个 wiki 链接"告诉宿主，**找哪篇笔记、找不到怎么办由宿主决定**。
+   */
+  onWikiLinkOpen?: (target: string) => void
 }
 
 /**
@@ -243,6 +251,7 @@ export function MarkdownEditor({
   replaceOpen = false,
   onCloseReplace,
   onCommand,
+  onWikiLinkOpen,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
   /**
@@ -294,6 +303,34 @@ export function MarkdownEditor({
     onSaveRef.current = onSave
     onReadyRef.current = onReady
   }, [onChange, onSave, onReady])
+
+  /**
+   * `[[笔记名]]` 点击跳转（P2-2 · 2026-10-18）。
+   *
+   * 为什么不用 CM6 的 `domEventHandlers`：atomic 的 inline-preview 在链接元素上
+   * 自己处理点击（`onLinkClick` 只认 http/https）并把事件拦下，CM6 挂在 contentDOM
+   * 上的冒泡监听收不到 —— 实测点了完全没反应。改用 document **捕获阶段**：
+   * 事件先到这里，确认是编辑器里的 `[[…]]` 再决定拦不拦。
+   *
+   * 目标名直接取链接的可见文本（atomic 渲染出的就是 `[[…]]` 里的目标；
+   * `[[目标|显示名]]` 时拿到的是显示名，属已知取舍，由宿主的匹配兜底）。
+   */
+  useEffect(() => {
+    if (!onWikiLinkOpen) return
+    const onClick = (ev: MouseEvent) => {
+      const el = (ev.target as HTMLElement | null)?.closest?.('.cm-atomic-link')
+      if (!el) return
+      const content = handleRef.current?.getContentDOM()
+      if (!content || !content.contains(el)) return
+      const target = el.textContent?.trim()
+      if (!target) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      onWikiLinkOpen(target)
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [onWikiLinkOpen])
 
   // 下面三个都是稳定引用（useCallback([])），所以扩展数组可以在首帧安全地
   // 捕获它们。全部放在 useCallback 里，也顺带满足 oxlint 的 react(refs)：

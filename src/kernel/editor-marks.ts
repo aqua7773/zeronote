@@ -366,6 +366,13 @@ function buildDecorations(view: EditorView): DecorationSet {
     return Decoration.none
   const doc = view.state.doc
   const text = doc.toString()
+  /**
+   * **被折叠隐藏的行**（P1-1 · 2026-10-18）：折叠后这些行在视图里不存在，但 `doc` 仍是全文。
+   * 逐行生成 `Decoration.line` / 行首按钮时若照旧挂上去，CM6 会把它们 map 到折叠区间内部，
+   * 背景线仍按行盒绘制 ⇒ **折叠后父行下方残留一条竖线**（用户截图所报）。
+   * 跳过它们，装饰只落在可见行上。
+   */
+  const hidden = hiddenLineSet(view.state)
   const found: { from: number; to: number; deco: Decoration }[] = []
 
   for (const { fullId, rule } of entries.values()) {
@@ -388,6 +395,8 @@ function buildDecorations(view: EditorView): DecorationSet {
         continue
       }
       if (++guard > 5000) break // 兜底：正则太贪时别把主线程锁死
+      // 命中折叠隐藏行 ⇒ 跳过（否则 mark 装饰会被 map 到折叠点，视觉上粘在父行后面）
+      if (hidden.has(doc.lineAt(m.index).number - 1)) continue
       found.push({
         from: m.index,
         to: m.index + m[0].length,
@@ -449,6 +458,8 @@ function buildDecorations(view: EditorView): DecorationSet {
       const lead = mText.length - mText.replace(/^\s+/, '').length
       const lineFrom = doc.lineAt(Math.min(m.index + lead, doc.length)).from
       if (seenLines.has(lineFrom)) continue
+      // 折叠隐藏行上的按钮同样会"掉"到折叠点（见 `hiddenLineSet`）
+      if (hidden.has(doc.lineAt(lineFrom).number - 1)) continue
       /**
        * **跨行条件的最后一道关**（rev65）：正则只看得见字节，而"这个标题下面到底有没有列表"
        * 要看整篇 —— 所以给插件一个能看全文的谓词，返回 false 的行**不画按钮**。
@@ -484,6 +495,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   const foldedLines = foldedLineSet(view.state)
   for (const { fullId, rule } of lineClassEntries.values()) {
     for (let n = 1; n <= doc.lines; n++) {
+      if (hidden.has(n - 1)) continue
       const ln = doc.line(n)
       let cls: string | null = null
       try {
@@ -598,6 +610,28 @@ function foldedLineSet(state: EditorState): Set<number> {
     })
   } catch {
     /* 同上：没有折叠规则就没有这个 field */
+  }
+  return out
+}
+
+/**
+ * **被折叠隐藏的行集合**（0 起）—— 给装饰生成用（P1-1）。
+ *
+ * 与 `foldedLineSet`（父行）互补：那个回答"这一行是不是折叠的父行"，这个回答
+ * "这一行现在根本没有显示"。`foldedRanges` 的每个 range 覆盖 `from..to`，
+ * 其中所有行都是被隐藏的子行（不含父行）。
+ */
+function hiddenLineSet(state: EditorState): Set<number> {
+  const out = new Set<number>()
+  if (foldEntries.size === 0) return out
+  try {
+    foldedRanges(state).between(0, state.doc.length, (from, to) => {
+      const first = state.doc.lineAt(from).number - 1
+      const last = state.doc.lineAt(Math.max(from, to - 1)).number - 1
+      for (let n = first; n <= last; n++) out.add(n)
+    })
+  } catch {
+    /* 没装 codeFolding（没有任何折叠规则）时没有这个 field —— 当作没有隐藏行 */
   }
   return out
 }

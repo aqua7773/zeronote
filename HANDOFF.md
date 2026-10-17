@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 116
-更新时间: 2026-10-17（rev116 手机单列速查表：左留白 48 ＋ 间隔 73。rev115 桌面 620/右移 54 见下一段）
+revision: 117
+更新时间: 2026-10-18（rev117 测试报告逐条实测 + 7 项修复：折叠竖线 / frontmatter / 原子写 / 暗色竖线 / wikilink / 轮询 / engines）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev117 | 2026-10-18 · 测试报告 16 项**逐条实测**（11 成立 / 1 作废 / 2 待验）+ 修复 7 项（折叠竖线 · frontmatter 透传 · 原子写 .bak · 暗色竖线 · `[[链接]]`点击 · 轮询兜底 · engines） |
 | rev116 | 2026-10-17 · 起始页速查表**手机单列**：左留白 48 ＋ 标记↔解释间隔 73（用户手拖定）＋ 出包/防火墙收尾 |
 | rev115 | 2026-10-17 · 起始页速查表**视觉对齐**定稿：**宽 620 / 右移 54**（用户用临时滑块拖定） |
 | rev112 | 2026-10-17 · 起始页**排版对称** ＋ 桌面 **release 独立构建**（数据与 dev 隔离） |
@@ -95,6 +96,57 @@ revision: 116
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev117（2026-10-18 · 测试报告 16 项逐条实测 + 7 项修复）
+>
+> 起点是 `docs/测试报告-2026-10-17.md`（基于 rev92 的历史快照）。**在当前 HEAD 上逐条实测核实**：
+> 11 项仍成立 · 1 项作废（P2-4）· 2 项待验（P1-5 实为配置问题 / P2-3 需真机）·
+> 2 项不算缺陷（P2-7 观察项 / P3-4 方法论）。修了其中 7 项。
+>
+> ### 修复
+>
+> 1. **P1-1 折叠残留竖线**（`kernel/editor-marks.ts`）：新增 `hiddenLineSet`，
+>    行 class / 行首按钮 / mark 装饰一律**跳过被折叠隐藏的行**。之前它们会被 map 到折叠点，
+>    背景线照画 ⇒「内容没了、线还在」。实测：折叠「一级 A」后其下方不再有线
+>    （`_shots/rev117/09-fixed-fold.png` vs 修复前 `07-after-unfold.png`）。
+> 2. **P1-2 `frontmatter` 恒空**（`App.tsx`）：新增 `frontmatterRef`，`openNote` 时从
+>    `list_notes` 的 meta 抄一份，`doc.on(...)` 与 `doc.active()` 都读它。
+>    实测（临时探针读 `window.__p12`）：打开 `fm-probe.md`，`open` 事件里
+>    `frontmatter` = `{priority, tags, title}`（修复前恒 `{}`）。
+> 3. **P1-3 原子写先删旧**（`lib.rs`）：改 `.zn-bak` 三步（旧→bak、新→原位、删 bak），
+>    任一步失败可还原。顺带更正注释：`std::fs::rename` 在 Windows **本来就会覆盖**
+>    （`MoveFileExW`），原注释「不覆盖已存在文件」是错的。
+> 4. **P2-1 暗色竖线对比度**（`styles.css`）：暗色单独给 `--zn-ol-line: #6b6b73`（≈3.4:1），
+>    不抬全局 `--zn-border`。实测计算值 `#6b6b73`。
+> 5. **P2-2 `[[链接]]` 点击**（`MarkdownEditor.tsx`）：atomic 的 inline-preview 点击只认
+>    http/https。改在 document **捕获阶段**接管 `.cm-atomic-link`，取链接可见文本交宿主
+>    `openWikiLink`（路径 → 后缀 → 标题三级匹配，找不到有 toast）。实测：点
+>    `[[新笔记-18-09-36]]` 后标题变为「一级标题」。
+> 6. **P2-5 每订阅者 3 秒轮询**（`kernel/fs.ts`）：轮询改为**只在事件通道不可用时**启动
+>    （`listen` 成功 → `stopPoll()`，失败 → `startPoll()`）。
+> 7. **P2-6 无 engines**（`package.json`）：`packageManager: pnpm@10.34.6` +
+>    `engines.node >=20` / `pnpm >=9`。
+>
+> ### 未改（附依据）
+>
+> - **P1-4 冷启动慢**：1000 篇实测冷启动 **12,045 ms**、热态 **90–607 ms**；
+>   同目录 `pwsh` 读 1000 篇全文仅 **379 ms** ⇒ 不是「取标题读全文」的锅，
+>   是 Windows 首次访问 + Defender 扫描。改代码收益低，留给「大库优化」单独评估。
+> - **P2-3 Android 二进制导出**：需真机 UI 操作，本轮未测。
+> - **P2-7「❖ 与手柄同排」**：观察项，等用户判断。
+> - **P3-1/2/3**：App.tsx 3,660 行 / 无前端单测 / 无远程 CI —— 工程债，单独立项。
+>
+> ### 验收
+>
+> `scripts\verify.ps1` 四步全过（tsc 0 · oxlint 6 warnings · cargo 23 passed · check-docs）；
+> `tools/verify-outline-fold.mjs` **10/10**。
+>
+> ### 副作用 / 夹具
+>
+> - 修复过程中 dev 崩过一次（`0xc0000374`，HMR 触发，已知坑），已重启；全部实测在新 dev 上重做。
+> - 测试库 `_tmp-vault-tb` 新增：`p1-p2-verify.md`、`fm-probe.md`、`新笔记-00-30-39.md`、
+>   `新笔记-00-31-28.md`、探针插件 `.zn/plugins/p12-probe/`；`_shots/rev117/`；`_tmp-perf*/`（各 1000 篇）。
+>   均已 gitignore，清理与否留给用户定。
 
 > ## 📌 rev116（2026-10-17 · 起始页速查表手机单列：左留白 48 ＋ 间隔 73）
 >
