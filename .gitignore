@@ -51,3 +51,6 @@ examples/*/store.json
 
 # Tauri Android 构建缓存（`gen/android/` 本身入库，但它的 Kotlin/Gradle 中间产物不入库）
 src-tauri/gen/android/.kotlin/
+
+# 临时配置备份（rev112 release 构建用，不入库）
+src-tauri/tauri.conf.json.dev-backup

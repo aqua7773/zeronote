@@ -9,7 +9,7 @@ set "CARGO_HOME=%USERPROFILE%\Documents\deepseek\_cargo-home"
 set "NDK_HOME=%LOCALAPPDATA%\Android\Sdk\ndk\28.2.13676358"
 rem 卡死兜底：dev 下默认关掉原生看门狗（dev 的 HMR 空窗会被误判成卡死；生产包不带这个变量 ⇒ 默认开）。
 rem 用 `if not defined` 是为了**允许外部覆盖** —— 想在真机上验看门狗时先 `set ZN_WATCHDOG=on`
-rem（⚠️ 不能写 `set ZN_WATCHDOG=`：cmd 里那是**删除变量**，等于没覆盖），或 `set ZN_WATCHDOG_DRYRUN=1`。
+rem ⚠️ 不能写 `set ZN_WATCHDOG=`：cmd 里那是**删除变量**，等于没覆盖），或 `set ZN_WATCHDOG_DRYRUN=1`。
 if not defined ZN_WATCHDOG set "ZN_WATCHDOG=off"
 cd /d "%~dp0"
 rem 用 tauri.android-dev.json 覆盖 beforeDevCommand —— 安卓这边不再自起 vite，
