@@ -3,7 +3,7 @@
   "id": "window-demo",
   "name": "独立窗口示例",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop"],
   "description": "U1 示例（2026-10-13 rev50）：把一个面板放进独立窗口 —— 可拖、可缩放、能多开；插件卸载时窗口自动关掉。",

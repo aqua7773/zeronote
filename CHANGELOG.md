@@ -2,7 +2,13 @@
 
 > 状态：**active** ｜最后核对：2026-10-17 ｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
 
-## [0.2] - 2026-10-17
+## [0.2] - 2026-10-17（文档）/ 2026-10-18（rev118 落到代码）
+
+> **2026-10-18（rev118）**：`API_VERSION` 由 `0.1.0` 升为 `0.2.0`；所有
+> `examples/*/manifest.json` 的 `apiVersion` 同步改 `^0.2.0`。加载校验只看 major
+> （`assertApiVersion`），0.1 / 0.2 互通，现装插件不受影响。
+> 同轮落地：`NoteMeta.id`（独立笔记 ID，存 `<库>/.zn/ids.json`）+ `rename` 时 ID 跟随
+> 与全库 `[[链接]]` / `](相对路径)` 重写。
 
 ### Added
 - capability：`editor:line-action`（rev54）· `editor:line-class`（rev78）· `editor:fold`（rev80）

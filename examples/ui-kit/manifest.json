@@ -3,7 +3,7 @@
   "id": "ui-kit",
   "name": "UI 组件演示",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "把 UINode 每一种节点过一遍：既是给插件作者的示例，也是渲染器的回归清单",

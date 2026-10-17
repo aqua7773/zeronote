@@ -3,7 +3,7 @@
   "id": "theme-sepia",
   "name": "米色主题（纯 CSS）",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "styles": ["theme.css"],
   "description": "形态 4：没有 entry，只注入 CSS —— 主题类插件不必写 JS",
   "platforms": ["desktop", "android"],

@@ -3,7 +3,7 @@
   "id": "inspiration-flow",
   "name": "灵感流",
   "version": "0.2.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "规格 2.1：聊天式捕捉，一条 = 笔记/年/月/日/HH-mm-ss.md；时间流查看、点击进编辑器、快捷标签、手机端工具栏",

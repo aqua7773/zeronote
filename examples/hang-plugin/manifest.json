@@ -3,7 +3,7 @@
   "id": "hang-plugin",
   "name": "卡死探针",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "故意占死 JS 主线程 —— 验证原生看门狗与启动自愈（按需挂 junction，别常驻）",
   "platforms": ["desktop", "android"],

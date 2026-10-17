@@ -3,7 +3,7 @@
   "id": "hello",
   "name": "Hello 示例插件",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "M2 验收用的最小插件：注册 1 个命令 + 挂 1 个侧栏面板（声明式 UI）",
   "capabilities": ["command", "view:sidebar"],

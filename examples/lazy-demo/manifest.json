@@ -3,7 +3,7 @@
   "id": "lazy-demo",
   "name": "懒激活示例",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "演示 activationEvents：启动时不加载，命令被点才 apply（命令面板照样列得出它）",

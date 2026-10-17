@@ -13,6 +13,11 @@ export type Disposable = { dispose(): void }
 export type NoteMeta = {
   /** 库内相对路径，统一 POSIX 分隔符（`notes/a.md`） */
   path: string
+  /**
+   * **独立笔记 ID**（2026-10-18 rev118）：改名/移动不变，存在 `<库>/.zn/ids.json`。
+   * 索引与链接优先按它定位；外部程序移动文件后可能换新 ID（内核在 `list_notes` 补发）。
+   */
+  id: string
   title: string
   /** 毫秒时间戳 */
   mtime: number
@@ -871,7 +876,15 @@ export interface EditorApi {
   list(): { id: string; pluginId: string }[]
 }
 
-export const API_VERSION = '0.1.0'
+/**
+ * 内核契约版本（2026-10-18 rev118：0.1.0 → **0.2.0**）。
+ *
+ * 为什么升：契约文档 2026-10-17 已写成 v0.2（补 3 capability + host 3 方法 + editor 6 方法 +
+ * 插件三种来源），而代码一直停在 `0.1.0` —— 文档与代码各说一个版本。
+ * 加载校验只看 **major**（`plugin-host.ts` 的 `assertApiVersion`），所以 0.1 / 0.2 互通；
+ * 升号不会让现装插件失载。插件 manifest 一并写成 `^0.2.0`，让「声明值 = 内核值」。
+ */
+export const API_VERSION = '0.2.0'
 
 /**
  * 9. service —— 插件之间的**带返回值**互调，也是「前置插件」的载体。

@@ -3,7 +3,7 @@
   "id": "editor-marks",
   "name": "编辑器标记演示",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "演示 editor.addMark：把 [[笔记名]] 渲染成可点链接（点击跳转）、#标签 着色",

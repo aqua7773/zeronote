@@ -8,6 +8,7 @@
 //
 // 这里**只实现文件能力**，不认识任何具体功能（标签 / 同步 / AI 都不在这）。
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -46,6 +47,10 @@ fn is_readonly_doc(name: &str) -> bool {
 pub struct NoteMeta {
   /// 库内相对路径，统一用 `/`
   path: String,
+  /// **独立笔记 ID**（2026-10-18 rev118）：与路径解耦，改名/移动不变。
+  /// 存在 `<库>/.zn/ids.json`（`{ 相对路径: id }`），由内核维护；外部程序移动文件会丢，
+  /// 下次 `list_notes` 补一个新的（引用按 ID 找不到时前端回退到按名字匹配）。
+  id: String,
   title: String,
   /// 毫秒时间戳
   mtime: u64,
@@ -243,6 +248,8 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
     };
     out.push(NoteMeta {
       path: rel,
+      // 独立 ID 在 `list_notes` 收集完之后统一填（见那里：缺失的补一个并落盘）
+      id: String::new(),
       title,
       mtime,
       size: meta.len(),
@@ -339,6 +346,117 @@ fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
   }
 }
 
+/* ───────────── 独立笔记 ID（2026-10-18 rev118） ───────────── */
+
+/// ID 表：`<库>/.zn/ids.json`，`{ 库内相对路径: id }`。
+///
+/// 放 `.zn` 而不是写进正文 frontmatter —— **不动用户的 md 内容**是硬约束。
+/// 代价：外部程序移动文件后键会失效，下次 `list_notes` 补一个新 ID（渲染层仍能按名字找到）。
+fn ids_file(root: &Path) -> PathBuf {
+  root.join(PRIVATE_DIR).join("ids.json")
+}
+
+fn load_ids(root: &Path) -> BTreeMap<String, String> {
+  match fs::read_to_string(ids_file(root)) {
+    Ok(t) => serde_json::from_str(&t).unwrap_or_default(),
+    Err(_) => BTreeMap::new(),
+  }
+}
+
+fn save_ids(root: &Path, ids: &BTreeMap<String, String>) -> Result<(), String> {
+  let json = serde_json::to_string_pretty(ids).map_err(|e| format!("序列化 ID 表失败：{e}"))?;
+  atomic_write(&ids_file(root), &json)
+}
+
+/// 生成 ID：毫秒 + 纳秒低位 + 进程号混在一起（不引 uuid 依赖）；碰撞概率可忽略。
+fn new_note_id() -> String {
+  let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+  let mix = (d.subsec_nanos() as u64) ^ ((std::process::id() as u64) << 20) ^ (d.as_millis() as u64);
+  format!("n{mix:012x}")
+}
+
+/// 文件名 stem（去掉 `.md` / `.markdown`）
+fn stem_of(rel: &str) -> String {
+  let name = rel.rsplit('/').next().unwrap_or(rel);
+  name.trim_end_matches(".markdown")
+    .trim_end_matches(".md")
+    .to_string()
+}
+
+/// `rename` 之后重写全库引用：`[[旧名]]` / `[[旧名|显示]]` / `[[旧标题]]` / `](旧路径)`。
+///
+/// 返回改动的文件数；跳过 `.zn` 等私有目录、`.md` 之外的文件、以及 >4MB 的文件。
+/// 只做**字面文本替换**（正则替换会误伤代码块/链接里的同名字符串是更糟的取舍）。
+fn rewrite_links(
+  root: &Path,
+  old_rel: &str,
+  new_rel: &str,
+  old_title: Option<&str>,
+) -> Result<usize, String> {
+  let old_stem = stem_of(old_rel);
+  let new_stem = stem_of(new_rel);
+  let mut changed = 0usize;
+  let mut stack = vec![root.to_path_buf()];
+  while let Some(dir) = stack.pop() {
+    let entries = match fs::read_dir(&dir) {
+      Ok(e) => e,
+      Err(_) => continue,
+    };
+    for entry in entries {
+      let Ok(entry) = entry else { continue };
+      let name = entry.file_name().to_string_lossy().to_string();
+      if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+        continue;
+      }
+      let path = entry.path();
+      let Ok(ft) = entry.file_type() else { continue };
+      if ft.is_dir() {
+        stack.push(path);
+        continue;
+      }
+      if !is_markdown(&name) {
+        continue;
+      }
+      let rel = path
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+      if rel == new_rel {
+        continue; // 被改名的那篇本身
+      }
+      let too_big = entry
+        .metadata()
+        .map(|m| m.len() > 4 * 1024 * 1024)
+        .unwrap_or(true);
+      if too_big {
+        continue;
+      }
+      let Ok(text) = fs::read_to_string(&path) else {
+        continue;
+      };
+      let mut next = text.clone();
+      if !old_stem.is_empty() && old_stem != new_stem {
+        next = next.replace(&format!("[[{old_stem}]]"), &format!("[[{new_stem}]]"));
+        next = next.replace(&format!("[[{old_stem}|"), &format!("[[{new_stem}|"));
+      }
+      if let Some(t) = old_title {
+        if !t.is_empty() && t != old_stem && t != new_stem {
+          next = next.replace(&format!("[[{t}]]"), &format!("[[{new_stem}]]"));
+          next = next.replace(&format!("[[{t}|"), &format!("[[{new_stem}|"));
+        }
+      }
+      if old_rel != new_rel {
+        next = next.replace(&format!("]({old_rel})"), &format!("]({new_rel})"));
+      }
+      if next != text {
+        atomic_write(&path, &next)?;
+        changed += 1;
+      }
+    }
+  }
+  Ok(changed)
+}
+
 /* ───────────── 命令 ───────────── */
 
 #[tauri::command]
@@ -354,6 +472,25 @@ fn list_notes(vault: String, dir: Option<String>) -> Result<Vec<NoteMeta>, Strin
   let mut out = Vec::new();
   collect(&root, &start, &mut out)?;
   out.sort_by(|a, b| a.path.cmp(&b.path));
+  // 独立 ID（rev118）：缺失的补一个；整张表**只写了有新项时**才落盘。
+  let mut ids = load_ids(&root);
+  let mut dirty = false;
+  for m in out.iter_mut() {
+    match ids.get(&m.path) {
+      Some(id) => m.id = id.clone(),
+      None => {
+        let id = new_note_id();
+        ids.insert(m.path.clone(), id.clone());
+        m.id = id;
+        dirty = true;
+      }
+    }
+  }
+  if dirty {
+    if let Err(e) = save_ids(&root, &ids) {
+      log::warn!("保存 ID 表失败：{e}");
+    }
+  }
   Ok(out)
 }
 
@@ -380,15 +517,38 @@ fn create_note(vault: String, path: String, content: String) -> Result<(), Strin
 
 #[tauri::command]
 fn rename_note(vault: String, from: String, to: String) -> Result<(), String> {
-  let src = resolve(&vault, &from)?;
-  let dst = resolve(&vault, &to)?;
+  let from_norm = from.trim().replace('\\', "/");
+  let to_norm = to.trim().replace('\\', "/");
+  let src = resolve(&vault, &from_norm)?;
+  let dst = resolve(&vault, &to_norm)?;
   if dst.exists() {
-    return Err(format!("目标已存在，不覆盖：{to}"));
+    return Err(format!("目标已存在，不覆盖：{to_norm}"));
   }
   if let Some(dir) = dst.parent() {
     fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
   }
-  fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))
+  // 旧标题：`[[标题]]` 形式的引用也要跟着改（rename 之前读）
+  let old_title = fs::read_to_string(&src).ok().map(|t| {
+    let fm = parse_frontmatter(&t);
+    display_title(&fm, &t).unwrap_or_default()
+  });
+  fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))?;
+  // ① ID 跟着文件走（rev118）
+  let root = PathBuf::from(&vault);
+  let mut ids = load_ids(&root);
+  if let Some(id) = ids.remove(&from_norm) {
+    ids.insert(to_norm.clone(), id);
+    if let Err(e) = save_ids(&root, &ids) {
+      log::warn!("迁移 ID 表失败：{e}");
+    }
+  }
+  // ② 全库引用重写（失败不回滚改名，只留日志 —— 笔记本身已经安全落位）
+  match rewrite_links(&root, &from_norm, &to_norm, old_title.as_deref()) {
+    Ok(0) => {}
+    Ok(n) => log::info!("rename: 重写了 {n} 篇笔记里的引用"),
+    Err(e) => log::warn!("rename: 引用重写失败（文件已改名）：{e}"),
+  }
+  Ok(())
 }
 
 /// 把 `src` 目录的内容**逐项**搬到 `dst`（`dst` 不存在则创建）。
@@ -1706,6 +1866,56 @@ mod tests {
     atomic_write(&f, "第二版").unwrap();
     assert_eq!(fs::read_to_string(&f).unwrap(), "第二版");
     assert!(!d.join("a.zn-tmp").exists(), "临时文件必须被清掉");
+  }
+
+  /// rev118：ID 稳定、改名后跟着走、引用被重写（文件名与标题两种写法）
+  #[test]
+  fn ids_are_stable_and_follow_rename() {
+    let d = tmpdir("ids");
+    let v = d.to_string_lossy().to_string();
+    fs::write(d.join("a.md"), "# 甲\n").unwrap();
+    fs::write(d.join("b.md"), "见 [[a]] 与 [[甲]]\n").unwrap();
+    let first = list_notes(v.clone(), None).unwrap();
+    let a_id = first
+      .iter()
+      .find(|m| m.path == "a.md")
+      .expect("a.md 应在列表里")
+      .id
+      .clone();
+    assert!(!a_id.is_empty(), "ID 不应为空");
+    let again = list_notes(v.clone(), None).unwrap();
+    assert_eq!(
+      again.iter().find(|m| m.path == "a.md").unwrap().id,
+      a_id,
+      "同一路径两次 list 的 ID 必须一致"
+    );
+
+    rename_note(v.clone(), "a.md".into(), "c.md".into()).unwrap();
+    let after = list_notes(v.clone(), None).unwrap();
+    assert_eq!(
+      after.iter().find(|m| m.path == "c.md").unwrap().id,
+      a_id,
+      "改名后 ID 必须跟着文件走"
+    );
+    assert_eq!(
+      fs::read_to_string(d.join("b.md")).unwrap(),
+      "见 [[c]] 与 [[c]]\n",
+      "[[文件名]] 与 [[标题]] 两种引用都要重写"
+    );
+  }
+
+  /// rev118：`](旧相对路径)` 也要重写，`[[旧名|显示名]]` 保留显示名
+  #[test]
+  fn rename_rewrites_path_links_and_aliases() {
+    let d = tmpdir("rw");
+    let v = d.to_string_lossy().to_string();
+    fs::write(d.join("a.md"), "# 甲\n").unwrap();
+    fs::write(d.join("b.md"), "链接：](a.md) 和 [[a|别名]]\n").unwrap();
+    rename_note(v, "a.md".into(), "c.md".into()).unwrap();
+    assert_eq!(
+      fs::read_to_string(d.join("b.md")).unwrap(),
+      "链接：](c.md) 和 [[c|别名]]\n"
+    );
   }
 
   #[test]

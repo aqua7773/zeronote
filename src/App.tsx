@@ -1332,6 +1332,7 @@ export default function App() {
       const norm = (s: string) => s.replace(/\\/g, '/').replace(/\.md$/i, '').trim()
       const want = norm(target)
       const hit =
+        notes.find((n) => n.id === target) ??
         notes.find((n) => norm(n.path) === want) ??
         notes.find((n) => norm(n.path).endsWith(`/${want}`)) ??
         notes.find((n) => norm(n.title) === want)

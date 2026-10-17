@@ -3,7 +3,7 @@
   "id": "raw-ipc-probe",
   "name": "裸 IPC 探针（临时）",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop"],
   "description": "一次性验收夹具：证明插件与宿主同上下文 —— 不经原语表可直连 Tauri IPC、可写库外路径、可改内核 DOM。验收完即删。",

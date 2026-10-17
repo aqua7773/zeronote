@@ -3,7 +3,7 @@
   "id": "dep-katex",
   "name": "公式渲染（前置插件）",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "前置插件示例：提供 katex 服务。懒加载 —— 没有任何插件 consume 时，一次网络请求都不会发生",

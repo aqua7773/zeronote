@@ -3,7 +3,7 @@
   "id": "net-demo",
   "name": "网络访问示例",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "网络出口与边界对照：声明了 net 也照常加载（2026-10-13 拆权限门，内核不做权限判定）—— 面板里三个按钮分别打有 CORS / 无 CORS / 清单外的靶子",
   "platforms": ["desktop", "android"],

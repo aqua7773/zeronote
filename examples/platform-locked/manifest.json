@@ -3,7 +3,7 @@
   "id": "platform-locked",
   "name": "平台门示例（仅移动端）",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "声明 platforms:[\"android\"] —— 桌面端整个跳过它（插件页标「不适用 · 仅移动端」）。把 platforms 改成 [\"desktop\"] 推到手机上，两个方向都能验。",
   "platforms": ["android"],

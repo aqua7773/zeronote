@@ -3,7 +3,7 @@
   "id": "index-scope",
   "name": "索引分区演示",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "演示 index.scoped：同一个关键词，默认分区搜不到、机密分区才搜得到",

@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev117）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev118）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -18,20 +18,21 @@ pwsh -File scripts\verify.ps1
 # 四步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过
 ```
 
-## 最近一轮（rev117）
+## 最近一轮（rev118）
 
-- **测试报告 16 项逐条实测**：11 成立 · 1 作废 · 2 待验 · 2 不算缺陷；**修了 7 项** —— P1-1 折叠竖线 · P1-2 frontmatter 透传 · P1-3 原子写 `.bak` · P2-1 暗色竖线 · P2-2 `[[链接]]` 点击 · P2-5 轮询兜底 · P2-6 engines。
-- **P1-4 不是代码问题**：1000 篇冷启动 12s、热态 90–607ms；同目录 `pwsh` 读 1000 篇全文仅 379ms ⇒ Windows 首次访问 / Defender 主导。
-- **P2-3 已作废**：用户 2026-10-18 实测长图 png 可导出；产品**没有「导出 zip」功能**（导出只有 txt/html/png/docx/pdf，测试报告的 zip 是笔误）。
-- **验收**：`verify.ps1` 四步全过（tsc 0 · oxlint 6 warnings · cargo 23 passed）；`verify-outline-fold.mjs` 10/10。
-- **已知问题**：dev 连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION` 崩溃，重启即恢复（本轮又踩一次）。
+- **契约 v0.2 落到代码**：`API_VERSION` `0.1.0` → **`0.2.0`**；29 个 `examples/*/manifest.json` 的 `apiVersion` → `^0.2.0`（加载只比 major，现装插件不受影响）。
+- **独立笔记 ID**：`NoteMeta.id`，存 `<库>/.zn/ids.json`；`rename` 时 ID 跟着文件走，外部移动由 `list_notes` 补发。
+- **rename 全库引用重写**：`[[旧名]]` / `[[旧名|显示]]` / `[[旧标题]]` / `](旧路径)` → 新名（字面替换，跳过 `.zn` 与 >4MB）。
+- **验收**：`verify.ps1` 四步全过；`cargo test --lib` **25 passed**（新增 2 个 ID/重写单测）。
+- **下一步（rev119）**：插件签名分发 A+B（manifest sha256 + 未签名提示 + `.znp` 单文件安装）· capability 安装确认弹窗。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
 | 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项、P3 工程债 |
-| 插件签名 / 分发 / 更新通道 | ❌ 未做（只有全局根，无市场 / 签名） |
+| 插件签名 / 分发（A+B 已裁决） | ⏳ rev119：manifest sha256 + 未签名提示 + `.znp` 单文件安装 |
+| capability 安装确认（A+B 已裁决） | ⏳ rev119：维持自述 + 安装时弹「它自称要…」 |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
 | 同步 / AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
@@ -42,6 +43,7 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：`tauri dev`（vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
+- **dev 崩溃**：连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION`，重启即恢复（rev117 / rev118 各踩一次）。
 - **手机 `33b676f6`（ARIA 24069RA21C）**：2026-10-15 实测装的是 **dev 版**（连 `192.168.1.3:1420`，桌面 dev 一关就白屏）。判据：logcat 出现 `node_modules/.vite/deps/…`。
 - **防火墙**：1420 已放行（TCP，仅 `192.168.1.0/24`；网络被识别为 Public、手机 2.4G / 电脑 5G 跨 SSID）。
 - **手机 CDP**（默认手机断言手段）：`adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` → `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`。

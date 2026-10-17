@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 117
-更新时间: 2026-10-18（rev117 测试报告逐条实测 + 7 项修复：折叠竖线 / frontmatter / 原子写 / 暗色竖线 / wikilink / 轮询 / engines）
+revision: 118
+更新时间: 2026-10-18（rev118 契约 v0.2 落到代码：API_VERSION 0.2.0 + 独立笔记 ID + rename 引用重写）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev118 | 2026-10-18 · 契约 v0.2 **落到代码**（API_VERSION 0.2.0 + 插件 manifest 统一）+ **独立笔记 ID**（`.zn/ids.json`）+ rename 全库引用重写 |
 | rev117 | 2026-10-18 · 测试报告 16 项**逐条实测**（11 成立 / 1 作废 / 2 待验）+ 修复 7 项（折叠竖线 · frontmatter 透传 · 原子写 .bak · 暗色竖线 · `[[链接]]`点击 · 轮询兜底 · engines） |
 | rev116 | 2026-10-17 · 起始页速查表**手机单列**：左留白 48 ＋ 标记↔解释间隔 73（用户手拖定）＋ 出包/防火墙收尾 |
 | rev115 | 2026-10-17 · 起始页速查表**视觉对齐**定稿：**宽 620 / 右移 54**（用户用临时滑块拖定） |
@@ -96,6 +97,42 @@ revision: 117
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev118（2026-10-18 · 契约 v0.2 落到代码 + 独立笔记 ID + rename 引用重写）
+>
+> 用户裁决：契约 v0.2 三项「统一更新版本 / 独立 ID / 插件签名分发 A+B / capability A+B」。
+> 本轮做前两项；签名分发与安装确认排下一轮。
+>
+> ### 1 版本统一（契约 v0.2 = 代码）
+>
+> - `contract.ts` 的 `API_VERSION`：`0.1.0` → **`0.2.0`**（此前文档写 v0.2、代码停 0.1）。
+> - 29 个 `examples/*/manifest.json` + 测试库 6 个插件的 `apiVersion` → `^0.2.0`。
+> - 加载校验只比 major（`assertApiVersion`），0.1 / 0.2 互通，现装插件不受影响。
+> - `CHANGELOG.md` / 契约 §5 版本历史同步。
+>
+> ### 2 独立笔记 ID
+>
+> - `NoteMeta.id`（Rust + 前端类型）：存 `<库>/.zn/ids.json`（`{ 相对路径: id }`）。
+>   **不写进正文 frontmatter** —— 不动用户 md 内容是硬约束；代价是外部程序移动文件后键失效，
+>   `list_notes` 会补一个新 ID。
+> - ID 生成：毫秒 + 纳秒低位 + 进程号混合（不引 uuid 依赖）。
+> - `rename_note`：ID 键跟着文件走；`list_notes` 只在有新项时才写盘。
+> - 前端 `openWikiLink`：先按 ID 精确匹配，再回退 路径 → 后缀 → 标题。
+>
+> ### 3 rename 全库引用重写（§7.1）
+>
+> `rewrite_links`：`[[旧文件名]]` / `[[旧名|显示]]` / `[[旧标题]]` / `](旧相对路径)` → 新名。
+> 只做**字面替换**（不引正则，避免误伤代码块里的同名字符串）；跳过 `.zn` 等私有目录与 >4MB 文件；
+> 失败只留日志、不回滚改名（笔记本身已安全落位）。
+>
+> ### 验收
+>
+> - `scripts\verify.ps1` 四步全过（tsc 0 · oxlint 6 warnings · cargo test 25 passed · check-docs）
+> - 新增 2 个 Rust 单测：`ids_are_stable_and_follow_rename` · `rename_rewrites_path_links_and_aliases`
+>
+> ### 下一步（未做）
+>
+> 插件签名分发 A+B（manifest sha256 + 未签名提示 + `.znp` 单文件安装）· capability 安装确认弹窗。
 
 > ## 📌 rev117（2026-10-18 · 测试报告 16 项逐条实测 + 7 项修复）
 >

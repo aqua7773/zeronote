@@ -3,7 +3,7 @@
   "id": "cdn-import",
   "name": "CDN 依赖实测",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "实测：ESM 单文件能否 import 公网 CDN 上的 npm 包",
   "platforms": ["desktop", "android"],

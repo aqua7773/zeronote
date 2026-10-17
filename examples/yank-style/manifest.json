@@ -3,7 +3,7 @@
   "id": "yank-style",
   "name": "全局注册示例",
   "version": "0.1.0",
-  "apiVersion": "^0.1.0",
+  "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "形态 3：window.registerPlugin({name, register}) —— Yank Note 就是这个写法",
   "platforms": ["desktop", "android"],
