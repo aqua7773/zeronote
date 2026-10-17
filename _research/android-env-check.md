@@ -5,6 +5,7 @@
 > 检查方式：**只读查询**。未安装、未升级、未改 PATH、未改任何配置、未启动任何服务。
 > 检查时间：本次会话（同日基线：ZeroNote 桌面 Rust 产物时间 2026-10-11 16:10）。
 > 参照物：`NoteGen-Self`（本机已跑通 Android 真机 dev 模式）——其 `SELF-README.md` §4.1 / §5.3 记为经验起点。
+> ⚠️ 文中出现的 `NoteGen-Self` 路径只是**当时的历史参照**，不是 ZeroNote 的依赖；ZeroNote 自己的配置见 `src-tauri/`、`.cargo/config.toml` 与 `android-dev.cmd`。
 
 ---
 
