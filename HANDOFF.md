@@ -132,7 +132,10 @@ revision: 119
 >   ② 篡改入口 ⇒ 拒载，插件页显示
 >   `插件 sha-demo 完整性校验失败：入口文件 sha256 不符（manifest 声明 202a91ab5b1c…，实际 4ccb2a10ec9a…）—— 文件可能被改过`。
 >   夹具验完已删。
-> - UI 按钮未做端到端（原生文件选择器无法脚本化）；`install_znp` 有单测 + 类型检查覆盖
+> - **`.znp` 安装链路实测**（2026-10-18，经诊断出口 `window.__znInstallZnp(path, false)` 驱动）：
+>   安装 `znp-demo.znp` ⇒ 返回 id、`manifest.json`（231 B）+ `index.js`（64 B）落盘、
+>   重扫后插件执行（`window.__znpDemo === true`）、管理页显示「znp 演示 v1.0.0 · 本库 · 未校验 · command」。
+>   ⚠️ **原生文件选择器与确认框仍未断言**（CDP 点不了原生对话框）；夹具验完已删。
 >
 > ### 仍未做
 >

@@ -2871,47 +2871,78 @@ export default function App() {
   }
 
   /**
-   * 安装 `.znp` 插件包（2026-10-18 rev119）。
+   * 安装 `.znp` 插件包（2026-10-18 rev119）—— **从路径**安装的核心实现。
    *
-   * 流程：选文件 → Rust `read_znp` 预览 manifest → **原生确认框列出它自称要的能力**
-   * （capability 只是自述、内核不拦截 —— 所以把"它要什么 + 有没有签名"摊开让用户决定）
+   * 流程：Rust `read_znp` 预览 manifest → **确认框列出它自称要的能力**
+   * （capability 只是自述、内核不拦截 —— 把"它要什么 + 有没有签名"摊开让用户决定）
    * → `install_znp` 解包到全局插件根 → 重扫插件。
+   *
+   * `confirmFirst: false` 只给自动化验收用（见下面的 `__znInstallZnp`）。
    */
-  const installZnp = useCallback(async () => {
-    try {
-      const picked = await open({
-        multiple: false,
-        title: '选择插件包（.znp）',
-        filters: [{ name: 'ZeroNote 插件包', extensions: ['znp'] }],
-      })
-      if (!picked || typeof picked !== 'string') return
-      const preview = await invoke<{
-        manifest: {
-          id: string
-          name: string
-          version: string
-          capabilities?: string[]
-          sha256?: string
+  const installZnpFromPath = useCallback(
+    async (picked: string, confirmFirst = true): Promise<string | null> => {
+      try {
+        const preview = await invoke<{
+          manifest: {
+            id: string
+            name: string
+            version: string
+            capabilities?: string[]
+            sha256?: string
+          }
+          files: string[]
+        }>('read_znp', { path: picked })
+        const m = preview.manifest
+        if (confirmFirst) {
+          const caps = (m.capabilities ?? []).join('、') || '（未声明）'
+          const sign = m.sha256
+            ? '✓ 带完整性校验（sha256）'
+            : '⚠ 未签名：没有 sha256，安装后它会以你的权限执行任意代码'
+          const ok = await confirm(
+            `安装插件「${m.name}」v${m.version}？\n\n自称需要：${caps}\n文件：${preview.files.length} 个\n\n${sign}`,
+            { title: '安装插件包', kind: 'warning' },
+          )
+          if (!ok) return null
         }
-        files: string[]
-      }>('read_znp', { path: picked })
-      const m = preview.manifest
-      const caps = (m.capabilities ?? []).join('、') || '（未声明）'
-      const sign = m.sha256
-        ? '✓ 带完整性校验（sha256）'
-        : '⚠ 未签名：没有 sha256，安装后它会以你的权限执行任意代码'
-      const ok = await confirm(
-        `安装插件「${m.name}」v${m.version}？\n\n自称需要：${caps}\n文件：${preview.files.length} 个\n\n${sign}`,
-        { title: '安装插件包', kind: 'warning' },
-      )
-      if (!ok) return
-      const id = await invoke<string>('install_znp', { vault, path: picked })
-      setReloadToken((t) => t + 1)
-      setToast(`插件已安装：${id}`)
-    } catch (e) {
-      setError(`安装插件失败：${String(e)}`)
+        const id = await invoke<string>('install_znp', { vault, path: picked })
+        setReloadToken((t) => t + 1)
+        setToast(`插件已安装：${id}`)
+        return id
+      } catch (e) {
+        setError(`安装插件失败：${String(e)}`)
+        return null
+      }
+    },
+    [vault],
+  )
+
+  /** 插件管理页按钮：选文件 → 走上面的完整流程 */
+  const installZnp = useCallback(async () => {
+    const picked = await open({
+      multiple: false,
+      title: '选择插件包（.znp）',
+      filters: [{ name: 'ZeroNote 插件包', extensions: ['znp'] }],
+    })
+    if (!picked || typeof picked !== 'string') return
+    await installZnpFromPath(picked)
+  }, [installZnpFromPath])
+
+  /**
+   * `.znp` 安装的**诊断出口**（2026-10-18 rev119）。
+   *
+   * 为什么需要：UI 用原生文件选择器，CDP 驱动不了它 ——「选文件 → 确认 → 安装 → 重扫」
+   * 这条链路唯一可断言的入口就是这里。与 `__znExec` 同类：页面里本来就跑着内核本体，
+   * 不多给任何主体任何能力。
+   */
+  useEffect(() => {
+    const w = window as unknown as {
+      __znInstallZnp?: (path: string, confirmFirst?: boolean) => Promise<string | null>
     }
-  }, [vault])
+    w.__znInstallZnp = (path, confirmFirst) => installZnpFromPath(path, confirmFirst ?? true)
+    return () => {
+      delete w.__znInstallZnp
+    }
+  }, [installZnpFromPath])
 
   const rows: PluginRow[] = manifests.map((m) => ({
     id: m.id,
