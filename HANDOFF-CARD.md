@@ -84,6 +84,7 @@ pwsh -File scripts\verify.ps1
 3. 手机截图走 `adb shell screencap`；**CDP `shot` 抓不到 WebView 里的 canvas**。
 4. **内核保持薄**；**静默失效比报错危险**（看数字，不只看 "ok"）。
 5. GUI 验收用 `gentle_*`；截图按窗口 `rect` 向内缩 ~10px。
+6. **改代码 / 重构前先读 `docs/开发约定.md`**（小步、测试先行、不盲删行号段、hook 依赖豁免要写原因）。
 
 ## 授权边界（给 AI）
 
