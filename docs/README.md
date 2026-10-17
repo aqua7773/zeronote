@@ -10,10 +10,10 @@
 
 | 主题 | 唯一权威 | 状态 | 其他文档 |
 |---|---|---|---|
-| 为什么这样设计（原则 / 取舍） | `docs/架构原则-2026-10-13.md` | **active** | `插件UI承载能力-2026-10-13.md`（方案已落地，作设计史） |
+| 为什么这样设计（原则 / 取舍） | `docs/架构原则-2026-10-13.md` | **active** | `archive/插件UI承载能力-2026-10-13.md`（方案已落地，作设计史） |
 | 插件接口 / 数据模型 | `docs/内核契约-v0.2.md`（代码真相是 `src/kernel/contract.ts`） | **active** | 契约 §4 已被架构原则覆盖，读时以架构原则为准 |
-| 插件能力现状 / 对标六家 | `HANDOFF-CARD.md` + 契约 §4 | **active** | `插件能力盘点-2026-10-12.md`（**historical**：rev30 快照） |
-| 需求（目标） | `docs/requirements/current.md`（＝《需求2》，19 章） | **active** | `Markdown 笔记应用需求规格 v1.0.md`（**superseded**：Flutter+SQLite）、`1.目录结构.md`（**historical** 原始素材） |
+| 插件能力现状 / 对标六家 | `HANDOFF-CARD.md` + 契约 §4 | **active** | `archive/插件能力盘点-2026-10-12.md`（**historical**：rev30 快照） |
+| 需求（目标） | `docs/requirements/current.md`（＝《需求2》，19 章） | **active** | `archive/Markdown 笔记应用需求规格 v1.0.md`（**superseded**：Flutter+SQLite）、`archive/1.目录结构.md`（**historical** 原始素材） |
 | 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
 | 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（rev 索引在文首） | **active** | — |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
@@ -35,7 +35,6 @@
 
 ## 欠账（明确记着，不假装没有）
 
-- `_research/*` 尚未逐份加状态头（都是 10-11 ~ 10-13 的历史调研，引用前先看日期）
-- `UI规划-v0.1.md` 的 P0 状态表与 HANDOFF 有出入（P0-6 实际已完成）
 - `docs/guides/` 方向未落地：`Android安装说明.md` 仍在 `docs/` 根
-- 没有 CHANGELOG：契约改了多轮仍是 v0.1（规范要求下次改契约时补）
+- 历史文档已统一归档到 `docs/archive/`（2026-10-17）
+- CHANGELOG 已建（2026-10-17，契约 v0.2）
