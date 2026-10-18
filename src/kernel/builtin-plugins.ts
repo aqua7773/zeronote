@@ -75,6 +75,20 @@ export async function ensureBuiltinPlugins(vault: string): Promise<void> {
   for (const plugin of BUILTIN_PLUGINS) {
     for (const [rel, content] of Object.entries(plugin.files)) {
       try {
+        /**
+         * **幂等**：内容一样就不写（rev137）。
+         *
+         * 原先无条件覆盖 ⇒ 每次启动/每次插件重载都改写 18 个文件。dev 下这些文件在项目树内，
+         * watcher 会当成源码变化 ⇒ HMR ⇒ React Refresh 重放 effect ⇒ 插件加载链重跑 ⇒
+         * 再写一遍 —— 形成每 ~6 秒一轮的循环（主题样式每轮消失几百毫秒 = 闪深色）。
+         * 内容比较能让「没变化」的启动完全静默；真正的升级/首次安装照常写入。
+         */
+        try {
+          const cur = await invoke<string>('read_plugin_file', { vault, pluginId: plugin.id, rel })
+          if (cur === content) continue
+        } catch {
+          /* 文件不存在 / 读失败 ⇒ 走写入 */
+        }
         await invoke('write_plugin_file', { vault, pluginId: plugin.id, rel, content })
       } catch (e) {
         console.warn(`[zn] 内置插件 ${plugin.id}/${rel} 写入失败`, e)

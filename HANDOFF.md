@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 136
-更新时间: 2026-10-18（rev136 排查标题栏闪深色 + 修幽灵插件样式累积）
+revision: 137
+更新时间: 2026-10-18（rev137 修复「放着不动也定时闪深色」：Vite HMR 写盘循环）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev137 | 2026-10-18 · **修复「放着不动也定时闪深色」**：Vite HMR 写盘循环（内置插件每次覆盖写 → watcher → HMR → 重放 effect → 再写）· 30 秒静止采样验证稳定 |
 | rev136 | 2026-10-18 · **排查「标题栏出现时闪深色」**（hover 路径未复现）+ 修**幽灵插件样式累积**（幂等注入）· 测试 192 |
 | rev135 | 2026-10-18 · **修复翠绿主题闪深色**：插件样式首屏预热（缓存 + `main.tsx` 挂载前注入）· 测试 **192** |
 | rev134 | 2026-10-18 · **侧栏头部加设置图标**（lucide Settings → 复用设置弹窗）· CDP 实测 · 测试 **186** |
@@ -116,7 +117,52 @@ revision: 136
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev137（2026-10-18 · 修复「放着不动也定时闪一下深色」：Vite HMR 写盘循环）
+>
+> 用户补充关键线索：「**放着不动也会定时闪一下**」—— 据此重查，定位到每 ~6 秒一轮的
+> **写盘 → HMR → 重放 effect → 再写** 循环。
+>
+> ### 1 证据链（CDP 采样 + dev 日志 + 文件 mtime）
+>
+> 1. 16ms 采样（30 秒静止）：`style[data-zn-plugin]` 每 ~3–6 秒**整批消失** → `body` 背景从
+>    `#0c1a12`（翠绿深色）变 `rgb(24,24,27)`（内核深色）→ ~340ms 后 outline-map 注入 →
+>    ~60ms 后 theme-green 注入 ⇒ 插件在**周期性卸载重载**。
+> 2. `kernel` 每 ~2 秒被重建（计数），但 App **未重挂载**（mount=0）。
+> 3. `usePluginHost` effect 重跑时 `kernel / vault / reloadToken` 三个依赖**都没变** ⇒ 只能是
+>    React Refresh 重放 effect。
+> 4. `.self-logs/desktop-dev.log`：**每 6–7 秒一批** `hmr update /src/styles.css, /src/App.tsx`
+>    （单次 3–27 行）。
+> 5. 文件 mtime 扫描：`examples/*` 与 `_tmp-vault-tb/.zn/plugins/*` 共 **18 个文件同一秒被改写**。
+>
+> ### 2 根因
+>
+> `ensureBuiltinPlugins` **每次插件加载都无条件覆盖写** 8 个内置插件（18 个文件），且写在
+> **项目树内** ⇒ Vite watcher 当成源码变化 ⇒ HMR ⇒ React Refresh 重放所有 effect ⇒
+> 插件加载链重跑 ⇒ **又写一遍** ⇒ 无限循环。每轮插件全部卸载重载，主题样式消失几百毫秒
+> —— 用户看到的就是「定时闪一下深色」。**与标题栏 hover 无关**（rev136 的观察被这条线索推翻）。
+>
+> ### 3 修复
+>
+> - `vite.config.ts`：`server.watch.ignored` 加 `**/_tmp-*/**` · `**/.zn/**` · `**/_shots/**` ·
+>   `**/_build/**` —— 运行时写入目录不再触发前端 HMR。
+> - `builtin-plugins.ts`：**幂等写入**（先读、内容相同就跳过；升级 / 首次安装照常写）。
+> - `App.tsx`：kernel 改 state 懒初始化（**防御性**：即使将来还有抖动，kernel 也不会跟着重建；
+>   真因已在上面两条修掉）。
+>
+> ### 4 验证（CDP）
+>
+> 修复后 30 秒静止采样：**只有 1 条记录**（`outline-map,theme-green | rgb(12,26,18)`）——
+> 插件样式全程稳定，不再周期性消失。
+>
+> ### 5 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 192 passed**。
+>
 > ## 📌 rev136（2026-10-18 · 排查「标题栏出现时闪深色」+ 修幽灵插件样式累积）
+>
+> ⚠️ **更正见 rev137**：本轮「未定位」的定时闪与 hover 无关，真因是 Vite HMR 写盘循环
+> （`ensureBuiltinPlugins` 每轮覆盖写入项目树内文件 ⇒ watcher ⇒ HMR ⇒ 重放 effect ⇒ 再写）。
+> 本轮的 hover 排查数据仍然有效（hover 本身不重建 kernel）。
 >
 > 用户补充：**每次顶部隐藏的标题栏（自绘）出现时会闪一下原本的深色界面**。
 >

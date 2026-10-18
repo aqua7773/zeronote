@@ -531,17 +531,38 @@ export default function App() {
   })
 
   /* ── 内核（库变了才重建）── */
-  const kernel: Kernel | null = useMemo(() => {
-    if (!vault) return null
-    return createKernel(vault, docApi, {
-      onPanelsChange: setPanels,
-      onNotify: (msg) => setToast(msg),
-      onLog: (msg) => setPanelLog((l) => [...l.slice(-199), msg]),
-      onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
-      // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
-      onShellChange: () => setShellTick((t) => t + 1),
-    })
-  }, [vault, docApi])
+  /**
+   * 内核实例用 **state 懒初始化 + 换库时调整**，而不是 `useMemo`（rev136–137 排查结论）。
+   *
+   * 排查过程：dev 下实测 `kernel` 每 ~2–6 秒被重建一次 ⇒ `usePluginHost` 的 effect 重跑
+   * ⇒ 插件全部卸载重载 ⇒ 主题样式消失几百毫秒（用户看到「放着不动也定时闪一下深色」）。
+   * 真因是 **Vite HMR 循环**（`ensureBuiltinPlugins` 每次启动写盘 → watcher → HMR →
+   * React Refresh 重放 effect → 再写；rev137 已在 `vite.config.ts` / `builtin-plugins.ts` 修掉）。
+   *
+   * state 不会被 HMR 重放/缓存丢弃影响：只有 `vault` 变了才创建新实例（渲染期调整 state 是
+   * React 承认的模式，会立即重渲染，用户看不到中间帧）。`createKernel` 是纯构造、不碰 DOM。
+   * 保留这个写法作为**防御**：即使将来再有类似抖动，kernel 也不会跟着重建。
+   */
+  const makeKernel = (v: string | null): Kernel | null =>
+    v
+      ? createKernel(v, docApi, {
+          onPanelsChange: setPanels,
+          onNotify: (msg) => setToast(msg),
+          onLog: (msg) => setPanelLog((l) => [...l.slice(-199), msg]),
+          onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
+          // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
+          onShellChange: () => setShellTick((t) => t + 1),
+        })
+      : null
+
+  const [kernelSlot, setKernelSlot] = useState<{ vault: string | null; kernel: Kernel | null }>(
+    () => ({ vault, kernel: makeKernel(vault) }),
+  )
+  if (kernelSlot.vault !== vault) {
+    // 换库：同步调整（本次渲染结果会被 React 丢弃并立即重渲染）
+    setKernelSlot({ vault, kernel: makeKernel(vault) })
+  }
+  const kernel = kernelSlot.vault === vault ? kernelSlot.kernel : null
 
   /** 当前整窗接管者（`null` = 内核 UI 正常）—— 直接读内核那本账，引用在接管期间稳定 */
   const shellTakeover = kernel?.shellOwner() ?? null

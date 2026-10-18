@@ -50,7 +50,16 @@ export default defineConfig({
     // hmr.host 是服务端注入给**所有**客户端的，桌面端会连同一个局域网 IP
     // （本机访问自己的局域网地址没问题）。需要覆盖时设 ZN_HMR_HOST。
     hmr: hmrHost ? { host: hmrHost } : undefined,
-    watch: { ignored: ['**/src-tauri/**'] },
+    watch: {
+      /**
+       * 不让「运行时会被写」的目录触发前端 HMR（rev137 实测根因）：
+       * 内置插件由 `ensureBuiltinPlugins` 写进 `<库>/.zn/plugins/`，验收夹具库 `_tmp-*` 也在
+       * 项目树内 —— 这些写入会被 watcher 当成源码变化 ⇒ HMR ⇒ React Refresh 重放 effect
+       * ⇒ 插件加载链重跑 ⇒ 又写一遍，形成「写 → HMR → 重载 → 再写」的无限循环
+       * （实测周期 ≈6 秒；用户看到的就是「插件主题样式消失几百毫秒 = 闪一下深色」）。
+       */
+      ignored: ['**/src-tauri/**', '**/_tmp-*/**', '**/.zn/**', '**/_shots/**', '**/_build/**'],
+    },
   },
   build: {
     target: 'esnext',

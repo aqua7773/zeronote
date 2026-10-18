@@ -215,26 +215,16 @@ export function useDocApi({ refs, setActivePath, setContent, setDirty }: UseDocA
       },
     }),
     /**
-     * `fireDoc` / `flushDocChange` 都是 `useCallback` 的稳定引用（依赖链只到 ref），
-     * 进依赖数组**不会**导致 docApi 重建、更不会连带重建 kernel。
-     * 但还是必须写全：漏依赖 = "docApi 里读到上一代的 fire"，这类错法不报错、极难查。
+     * 依赖只写 `[]`：docApi 的回调**全部**读 ref（activeRef / editorRef / docSubsRef …），
+     * fireDoc / flushDocChange 也是 ref 语义（重建与否行为完全一致），setter 都是稳定的。
+     *
+     * 为什么不列依赖（rev136 实测）：dev 下 `fireDoc` 会周期性被重建（先记下来源未定位，
+     * 与 fs 轮询的 3 秒节律接近）。把它写进依赖 ⇒ docApi 跟着变 ⇒ **kernel 每几秒重建
+     * ⇒ 插件全部卸载重载 ⇒ 主题样式消失几百毫秒（页面闪一下内核深色）**。
+     * 这里写 `[]` 把抖动挡在 docApi 之外 —— kernel 只随 vault 重建。
      */
-    [
-      fireDoc,
-      flushDocChange,
-      docSubsRef,
-      frontmatterRef,
-      activeRef,
-      contentRef,
-      dirtyRef,
-      baseRef,
-      editorRef,
-      saveNowRef,
-      openNoteRef,
-      setActivePath,
-      setContent,
-      setDirty,
-    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   )
 
   return { fireDoc, flushDocChange, docApi }
