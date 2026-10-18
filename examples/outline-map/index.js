@@ -575,32 +575,43 @@ function toMermaid(root, rootLabel) {
  * 这个段就是那次裁决的落地：图交给 **Mind Elixir 5.15.1**（MIT）画，
  * `layout` / `toSvg` 那套自算布局退居"主区预览 + 库载不进时的兜底"。
  *
- * 库**就在插件目录里**（`vendor/`，共 110 KB，不走 CDN ⇒ 离线、手机也能用）。
- * 加载方式必须是"运行时自己装配"：
- *   · 插件入口本身跑在 **Blob 模块**里 ⇒ **相对导入没有 base 目录**（契约 §3.2 的硬限制）；
- *   · 所以：`fs.readText` 读出 IIFE 产物 → 补一句 `export default` → 新 Blob → 动态 import。
- * `vendor/MindElixir.iife.js` 尾部实测是 `I.default = Ct; I.RIGHT = 1; …`（`Ct` 是类），
+ * 库的位置（rev173.7）：**应用内置资源** `public/vendor/mind-elixir/`，
+ * 与文档阅读器的 pdf.js / foliate 同一套 —— 不再放插件目录。
+ * 原因：旧写法读 `.zn/plugins/<id>/vendor/…`，而 rev173.5 取消了「库内插件」，
+ * 那个路径在用户删掉库内插件目录后就读不到了（实测「导图显示库载入失败」）。
+ * 内置资源随应用包分发，与库无关、切库不丢。
+ *
+ * 加载方式仍是"运行时自己装配"：
+ *   · 插件入口跑在 **Blob 模块**里 ⇒ **相对导入没有 base 目录**（契约 §3.2 的硬限制）；
+ *   · 所以：fetch 出 IIFE 源码 → 补一句 `export default` → 新 Blob → 动态 import。
+ * `MindElixir.iife.js` 尾部实测是 `I.default = Ct; I.RIGHT = 1; …`（`Ct` 是类），
  * 所以**类在 `.default` 上**，常量（RIGHT / THEME / DARK_THEME）在同级。
  */
 const LIB_VERSION = '5.15.1'
+/** 应用内置 vendor 的**绝对** URL（Blob 模块里相对路径没有 base 可解析） */
+const vendorUrl = (p) => new URL(`/vendor/mind-elixir/${p}`, location.origin).href
 /** 同一个 webview 里只加载一次（失败会清掉缓存，允许重试） */
 let libPromise = null
 
-function loadMindElixir(fs, pluginId) {
+function loadMindElixir() {
   if (libPromise) return libPromise
   libPromise = (async () => {
-    const base = `.zn/plugins/${pluginId}/vendor`
-    const [src, css] = await Promise.all([
-      fs.readText(`${base}/MindElixir.iife.js`),
-      fs.readText(`${base}/MindElixir.css`),
+    const [res, cssRes] = await Promise.all([
+      fetch(vendorUrl('MindElixir.iife.js')),
+      fetch(vendorUrl('MindElixir.css')),
     ])
+    if (!res.ok) {
+      throw new Error(`载入 MindElixir 失败：HTTP ${res.status} —— 查应用包里的 public/vendor/mind-elixir/`)
+    }
+    const src = await res.text()
+    const css = await cssRes.text()
     const code = `${src}\nexport default (typeof MindElixir !== 'undefined' && MindElixir.default) || null;`
     const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
     try {
       const mod = await import(/* @vite-ignore */ url)
       const ME = mod.default
       if (typeof ME !== 'function') {
-        throw new Error(`MindElixir 全局形状不对（typeof = ${typeof ME}）—— 查 vendor/MindElixir.iife.js`)
+        throw new Error(`MindElixir 全局形状不对（typeof = ${typeof ME}）—— 查 public/vendor/mind-elixir/MindElixir.iife.js`)
       }
       return { MindElixir: ME, css, version: LIB_VERSION }
     } finally {
@@ -720,7 +731,7 @@ const INDENT = '　' // 全角空格：UINode 没有缩进字段，用它做视�
 
 export default {
   async apply(ctx) {
-    const { doc, command, view, host, fs, store, subscriptions, editor, pluginId } = ctx
+    const { doc, command, view, host, fs, store, subscriptions, editor } = ctx
 
     /**
      * 闭包缓存：`render` 是**同步**纯函数，而读盘是异步的 ⇒ 数据在这儿。
@@ -1082,7 +1093,7 @@ export default {
         const rebind = async () => {
           ready = false
           try {
-            const { MindElixir, css, version } = await loadMindElixir(fs, pluginId)
+            const { MindElixir, css, version } = await loadMindElixir()
             if (!document.querySelector('style[data-zn-mm]')) {
               const st = document.createElement('style')
               st.dataset.znMm = ''

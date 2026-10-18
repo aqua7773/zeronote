@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.6
-更新时间: 2026-10-18（rev173.6 清理库内插件残留：整目录迁移后删除两库 .zn/plugins）
+revision: 173.7
+更新时间: 2026-10-18（rev173.7 修「导图显示库载入失败」：MindElixir 移进 public/vendor）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.7 | 2026-10-18 · **修「导图显示库载入失败」**：MindElixir 移进 `public/vendor/mind-elixir/`，outline-map 改 fetch 内置资源（不再读库内 `.zn/plugins/…/vendor`）；11 个插件桌面冒烟 |
 | rev173.6 | 2026-10-18 · **清理库内插件残留**：新命令 `copy_plugin_dir` 整目录迁移（含未声明的 vendor）→ 删除桌面库 11 / 手机库 9 个 `.zn/plugins` 目录；插件只剩全局根 · cargo **32** |
 | rev173.5 | 2026-10-18 · **取消库内插件**：插件只在全局根 `<应用数据目录>/.zn/plugins/`；安装/内置预装/扫描/删除全部走全局；旧副本用 `__znMigratePlugins()` 搬移（桌面 11 / 手机 9）· 测试 **237** |
 | rev173.4 | 2026-10-18 · **插件分类**：`manifest.category`（editor/reader/theme/tool/demo）+ 插件页分组 + 存量插件（examples 29 / 全局 6 / 库内 11 / 手机 9）补齐 · 测试 **237** |
@@ -151,6 +152,51 @@ revision: 173.6
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.7（2026-10-18 · 修「导图显示库载入失败」）
+>
+> 用户：「导图显示库载入失败，把其他现有插件也测一遍」。
+>
+> ### 1 根因
+>
+> - `outline-map` 从 `.zn/plugins/outline-map/vendor/` **读自己的渲染库**（MindElixir 三件套）。
+>   rev173.5 取消库内插件 + rev173.6 删掉库内目录后，这个**库内路径**不存在 ⇒ 「库载入失败」。
+> - 正确模型：渲染库属于**应用内置资源**（与 doc-reader 的 pdf.js / foliate 一样在 `public/vendor/`），
+>   而不是插件目录 —— 插件目录随 .znp 分发，不该塞 110 KB 的第三方库。
+>
+> ### 2 修复
+>
+> - MindElixir 三件套移到 `public/vendor/mind-elixir/`（随应用包分发、离线可用）；
+> - `examples/outline-map/index.js` 的 `loadMindElixir()` 改为
+>   `fetch(new URL('/vendor/mind-elixir/…', location.origin))`（绝对 URL + Blob 动态 import，
+>   装配方式不变），不再 `fs.readText` 插件目录；顺带删掉不再用的 `pluginId` 解构。
+>
+> ### 3 验证（桌面）
+>
+> | 判据 | 结果 |
+> |---|---|
+> | 导图窗口 | 「新笔记-18-09-36」点 ❖ → 窗口显示「mind-elixir 5.15.1 · 3 个节点」 |
+> | 内置资源 | `fetch('/vendor/mind-elixir/MindElixir.iife.js')` → 200 |
+> | 全局插件已更新 | 全局根 `outline-map/index.js` 含 `vendorUrl`（内置预装覆盖写） |
+>
+> ### 4 其它插件冒烟（桌面 · 11 个全在，全部启用）
+>
+> | 插件 | 结果 |
+> |---|---|
+> | 文档阅读器 | 打开 `probe.pdf` → pdf.js 画布出现 ✓ |
+> | 导入导出 | `io.panel` 面板打开、按钮齐全 ✓ |
+> | 灵感流 | 面板「落在 笔记/年/月/日 · 共 0 条」✓ |
+> | 当天目录新建 | `core.newNote` → `笔记/2026/10/18/新笔记-22-23-20.md` ✓（测试文件已删） |
+> | 编辑器标记 / 标签演示 / 网络示例 / Asset 探针 | 命令执行无异常 ✓（探针会记录 404：它测的就是这条边界） |
+> | 主题（翠绿 / 米色） | `<style data-zn-plugin>` 注入 ✓ |
+> | 大纲·导图 | 见 §3 ✓ |
+>
+> ### 5 手机端（顺带）
+>
+> - 9 个插件启用、分组正常；文档阅读器打开 EPUB（「测试书籍.epub · 0%」分页控件）✓；主题样式注入 ✓。
+> - ⚠️ **手机端行首「❖」不渲染**：`__znKernelAudit().editorMarks` 只有 editor-marks 的两条 mark，
+>   没有 outline-map 的 line action；命令能执行但移动端没有可弹的独立窗口。与本次修复无关（历史缺口），
+>   记为待查 —— 手机端要导图，得先确认移动端 UI 该怎么承接（主区面板 or 全屏覆盖）。
+>
 > ## 📌 rev173.6（2026-10-18 · 清理库内插件残留）
 >
 > 用户：「清理」—— rev173.5 里库内 `.zn/plugins/` 旧目录还留着
