@@ -78,7 +78,9 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
-- **桌面 dev**：`tauri dev`（vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
+- **桌面 dev**：`pwsh -File scripts\dev.ps1`（= 先把 WebView2 用户数据目录指到项目内 `_tmp-ebwebview`，再 `tauri dev`；vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
+- **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`）；已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
+- **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
 - **GitHub**：账号 `aqua7773`（gh 已登录，keyring）；**github.com 直连超时，必须走本地代理 `http://127.0.0.1:26561`**（`HTTPS_PROXY`）。gh 不在当前 PATH，用 `C:\Program Files\GitHub CLI\gh.exe`。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION`，重启即恢复（rev117 / rev118 各踩一次）。
 - **手机 `33b676f6`（ARIA 24069RA21C）**：2026-10-15 实测装的是 **dev 版**（连 `192.168.1.3:1420`，桌面 dev 一关就白屏）。判据：logcat 出现 `node_modules/.vite/deps/…`。

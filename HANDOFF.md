@@ -218,6 +218,13 @@ revision: 173.11
 > 参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)、
 > [Quicker 讨论](https://getquicker.net/QA/Question/41733)、[tauri#11969](https://github.com/tauri-apps/tauri/issues/11969)。
 >
+> **落地的修复**：
+> - `scripts\dev.ps1`（新增）：启动 dev 前把 `WEBVIEW2_USER_DATA_FOLDER` 指到项目内 `_tmp-ebwebview`
+>   —— 默认目录被管理员实例污染也能跑（普通权限验证过 webview 能建）。
+> - `src-tauri/src/lib.rs`：dev 模式的 `tauri-plugin-log` **去掉 `LogDir` target**（只写 stdout）。
+>   否则 `%LOCALAPPDATA%\com.aqua.zeronote\logs` 被管理员实例写过之后，普通权限启动直接
+>   `failed to initialize plugin log: 拒绝访问 (os error 5)` panic（此时 webview 其实已建好）。
+>
 > **下次教训**：CDP 关插件窗口别用 `plugin:window|destroy`（label 来源与预期不一致，实测连主窗口一起关）；
 > 要关就关主窗口里内核账上的窗口（`windows` 列表）或让用户手点关闭。
 

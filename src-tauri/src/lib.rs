@@ -1777,9 +1777,23 @@ pub fn run() {
     .setup(|app| {
       app.manage(OpenedUrls::default());
       if cfg!(debug_assertions) {
+        /*
+         * ⚠️ **dev 日志只进 stdout，不写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`**（rev173.11）。
+         *
+         * 起因（2026-10-18）：管理员权限跑过一次 dev 之后，普通权限启动就报
+         * `failed to initialize plugin log: 拒绝访问 (os error 5)` —— 默认 targets 里的
+         * `LogDir` 打不开被高权限实例占住的日志文件，整个 setup 直接 panic（webview 反而已经建好了）。
+         * dev 看终端 / `.self-logs/desktop-dev.log` 就够（它们本来就是 stdout 重定向）。
+         * 要恢复文件日志：删掉 `.clear_targets()` 那行，并确认 `%LOCALAPPDATA%\com.aqua.zeronote\logs`
+         * 是**普通权限**能写的（别再用管理员跑 dev）。
+         */
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
+            .clear_targets()
+            .target(tauri_plugin_log::Target::new(
+              tauri_plugin_log::TargetKind::Stdout,
+            ))
             .build(),
         )?;
       }
