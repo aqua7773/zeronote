@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.8
-更新时间: 2026-10-18（rev173.8 手机工具栏加「缩进 / 取消缩进」）
+revision: 173.9
+更新时间: 2026-10-18（rev173.9 交接：导图点击偶发不生效待查）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.9 | 2026-10-18 · **交接**：用户报「导图点击有时候不生效」→ 要求先交接；记录当前状态 + 排查线索 |
 | rev173.8 | 2026-10-18 · **手机工具栏加「缩进 / 取消缩进」**：`core.indent` / `core.outdent`（与 Tab/Shift+Tab 同一份逻辑，只对列表行）+ 按钮 ⇤ ⇥ · 测试 **243** |
 | rev173.7 | 2026-10-18 · **修「导图显示库载入失败」**：MindElixir 移进 `public/vendor/mind-elixir/`，outline-map 改 fetch 内置资源（不再读库内 `.zn/plugins/…/vendor`）；11 个插件桌面冒烟 |
 | rev173.6 | 2026-10-18 · **清理库内插件残留**：新命令 `copy_plugin_dir` 整目录迁移（含未声明的 vendor）→ 删除桌面库 11 / 手机库 9 个 `.zn/plugins` 目录；插件只剩全局根 · cargo **32** |
@@ -153,6 +154,45 @@ revision: 173.8
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.9（2026-10-18 · 交接：导图点击偶发不生效待查）
+>
+> 用户报「导图点击有时候不生效」，随后要求「先交接」—— 本轮**只做交接，未排查**。
+>
+> ### 当前状态
+>
+> - HEAD `652e82a`（rev173.8）；工作区干净；`verify.ps1` 全绿
+>   （tsc 0 / oxlint 3w / cargo **32** / vitest **243** / check-docs 过）。
+> - 桌面 dev（vite 1420）与安卓 dev 都在跑；手机 `33b676f6` 在线。
+>
+> ### 下个会话第一件事：复现「导图点击不生效」
+>
+> 已定位的线索（**未验证**，别当结论）：
+>
+> | 点 | 位置 |
+> |---|---|
+> | 入口注册 | `examples/outline-map/index.js`：`editor.addLineAction({ onClick: 'outline-map.open-map-at-line' })` |
+> | 内核点击 | `src/kernel/editor-marks.ts` 的 `LineActionWidget`（`data-zn-line-action`，点按钮执行命令） |
+> | 命令实现 | 同一插件文件里的 `open-map-at-line` 处理器（按光标行找组） |
+>
+> 待查方向（按可能性排）：
+> 1. **按钮点击不移动光标** —— 命令按「当前光标行」找大纲组，而光标还停在别处 ⇒ 打开空组/提示找不到；
+>    对照 `buttonLinesOfDoc(doc).has(line)` 的 filter 与命令里的行判定是否同源。
+> 2. `buttonLinesOfDoc` 的缓存（`btnCacheLines`）在编辑后没失效 ⇒ 按钮出现在旧行、点了打不开。
+> 3. 窗口创建失败（`view.openWindow` 多开 / 同 id 冲突 / 窗口被复用）。
+> 4. 点击事件被编辑器吞掉（mousedown 未 preventDefault，或 widget 在滚动后被虚拟化重建）。
+>
+> 复现手法：打开一篇带列表的笔记 → 连点 ❖ 多次 → 观察
+> `__znKernelAudit().windows`（窗口数量）、`__znExec('outline-map.open-map-at-line')` 的返回、
+> 以及插件日志；重点记录「点击时按钮所在行」与「光标所在行」是否一致。
+>
+> ### 另外两条既有问题（别忘）
+>
+> - **手机端 ❖ 不渲染**：`__znKernelAudit().editorMarks` 只有 editor-marks 的两条 mark，没有
+>   outline-map 的 line action；命令能跑但移动端没有可弹的独立窗口。方向未定（主区面板 or 全屏覆盖）。
+> - `_tmp-vault-tb/diagram-test.md` 里有**用户自己输入的内容**（`# 白天`、`- 1`、`- 2`，22:25 起）——
+>   别当测试文件删；里面还有早先自动化测试留下的两处缩进。
+> - `_tmp-plugin-backup/`（桌面 11 + 手机 9 个旧插件目录）已备份，确认无误后可删。
+>
 > ## 📌 rev173.8（2026-10-18 · 手机工具栏加「缩进 / 取消缩进」）
 >
 > 用户：「手机端键盘上的快捷列表加个缩进和取消缩进（回退一个缩进）按键」。
