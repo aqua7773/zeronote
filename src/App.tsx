@@ -375,6 +375,46 @@ export default function App() {
     void setStatusBarVisible(!sidebarOpen)
   }, [sidebarOpen])
 
+  /**
+   * 移动端抽屉手势（2026-10-18 用户要求）：
+   *  · 从**左边缘**（≤24px）向右滑 → 打开笔记库侧栏；
+   *  · 抽屉打开时向左滑 → 关闭。
+   * 只认「横向位移 ≥60 且明显大于纵向」的滑动 —— 避免跟列表滚动 / 编辑器选字打架。
+   */
+  useEffect(() => {
+    if (!/Android/i.test(navigator.userAgent)) return
+    let sx = 0
+    let sy = 0
+    let tracking = false
+    let fromEdge = false
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      sx = e.touches[0].clientX
+      sy = e.touches[0].clientY
+      tracking = true
+      /* 起点不敢贴最左边：Android 全面屏手势的「返回」是从边缘 ~24dp 起滑的，
+         贴边滑会被系统吃掉（app 收到 touchcancel、还会直接返回）。留 80px 安全区。 */
+      fromEdge = sx <= 80
+    }
+    const onEnd = (e: TouchEvent) => {
+      if (!tracking) return
+      tracking = false
+      const t = e.changedTouches[0]
+      if (!t) return
+      const dx = t.clientX - sx
+      const dy = t.clientY - sy
+      if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return
+      if (dx > 0 && fromEdge && !sidebarOpen) setSidebarOpen(true)
+      else if (dx < 0 && sidebarOpen) setSidebarOpen(false)
+    }
+    window.addEventListener('touchstart', onStart, { passive: true })
+    window.addEventListener('touchend', onEnd, { passive: true })
+    return () => {
+      window.removeEventListener('touchstart', onStart)
+      window.removeEventListener('touchend', onEnd)
+    }
+  }, [sidebarOpen])
+
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
   const dirtyRef = useRef(dirty)
