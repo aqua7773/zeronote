@@ -1983,9 +1983,8 @@ export default function App() {
         saveDirty={dirty}
         onMenu={setMenuAt}
         // 2026-10-18 用户要求：☰ = 文件树栏开关（桌面切常驻侧栏、移动端切抽屉）；
-        // 桌面用右键 ☰ 弹菜单，移动端另给一个「⋯」菜单按钮（见 showMenuButton）。
+        // 桌面用右键 ☰ 弹菜单。移动端「⋯」已按用户要求去掉（2026-10-18）。
         onToggleSidebar={() => (isDesktop ? setSidebarVisible((v) => !v) : setSidebarOpen((v) => !v))}
-        showMenuButton={!isDesktop}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
         onHoverChange={setTitlebarVisible}

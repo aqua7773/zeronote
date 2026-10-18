@@ -99,6 +99,12 @@
   --zn-text-lg: 16px;
 
   --zn-sidebar-w: 260px;
+
+  /* 顶栏 / 侧栏的「ZeroNote」logo —— 2026-10-18 用户调好后**固定**：
+     logo 15px · 左右偏移 11px · ☰ 三个横线 20px */
+  --zn-logo-size: 15px;
+  --zn-logo-offset: 11px;
+  --zn-menu-btn-size: 20px;
 }
 
 /*
@@ -234,7 +240,7 @@ body.is-resizing * {
   border-radius: var(--zn-radius-sm);
   background: transparent;
   color: var(--zn-fg-muted);
-  font-size: 14px;
+  font-size: var(--zn-menu-btn-size);
   line-height: 1;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
@@ -259,6 +265,7 @@ body.is-resizing * {
 .zn-vault-name {
   flex: 1;
   min-width: 0;
+  font-size: var(--zn-logo-size);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -491,8 +498,10 @@ body.is-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--zn-logo-size);
   font-family: var(--zn-font-mono);
-  font-size: var(--zn-text-sm);
+  /* 左右位置微调（2026-10-18 临时可调；0 就是原位） */
+  transform: translateX(var(--zn-logo-offset));
   color: var(--zn-fg);
 }
 
@@ -1645,6 +1654,10 @@ body.is-resizing * {
 
 @media (max-width: 820px) {
   .zn-mobile-only { display: inline-flex; align-items: center; }
+
+  /* 移动端顶栏的 logo / 文档名靠**最右侧**（2026-10-18 用户要求） */
+  .zn-titlebar-name { text-align: right; }
+  .zn-titlebar { padding-right: var(--zn-space-3); }
 
   /* 移动端没有「关闭」按钮（返回键即关闭）—— 「源码」切换直接占它原来的位置（右上角第一行）。
      2026-10-18 用户要求：「移动端编辑界面没必要放关闭按钮，返回就是关闭，把源码放到关闭按钮的位置」。 */
