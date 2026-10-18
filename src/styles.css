@@ -1607,27 +1607,28 @@ body.is-resizing * {
   overflow: hidden;
 }
 
-/* 底部常驻输入条（safe-area 让开系统手势条） */
+/* 底部常驻圆形按钮（右下角，比原输入条上移 20px；safe-area 让开系统手势条） */
 .zn-mobile-compose {
   position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  height: 52px;
+  right: 20px;
+  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px;
+  justify-content: center;
+  padding: 0;
   border: 0;
-  border-radius: 26px;
-  background: var(--zn-bg);
-  color: var(--zn-fg-muted);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.14);
-  font-size: 15px;
+  border-radius: 50%;
+  background: var(--zn-accent);
+  color: var(--zn-accent-fg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  font-size: 30px;
+  line-height: 1;
   z-index: 5;
 }
 
-.zn-mobile-compose-plus { font-size: 22px; color: var(--zn-fg); }
+.zn-mobile-compose-plus { font-size: 30px; line-height: 1; }
 
 /* ───────── 窄屏（手机竖屏）：单栏 + 抽屉式侧栏 ───────── */
 .zn-mobile-only { display: none; }

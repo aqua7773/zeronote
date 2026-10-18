@@ -104,14 +104,25 @@ export function MobileNoteCards({ notes, onOpen, onNewNote, readText, onDelete, 
               </button>
             </div>
             <div className="zn-mobile-card-body">
-              {contents[n.path] ?? (n.kind === 'note' ? '…' : n.title)}
+              {contents[n.path] === undefined
+                ? '…'
+                : contents[n.path]
+                  ? contents[n.path]
+                  : n.kind === 'note'
+                    ? '（空笔记）'
+                    : n.title}
             </div>
           </article>
         ))}
       </div>
-      <button type="button" className="zn-mobile-compose" onClick={onNewNote}>
+      <button
+        type="button"
+        className="zn-mobile-compose"
+        onClick={onNewNote}
+        aria-label="新建一条"
+        title="新建一条"
+      >
         <span className="zn-mobile-compose-plus">＋</span>
-        <span>点击输入，新建一条</span>
       </button>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
