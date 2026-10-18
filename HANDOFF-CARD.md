@@ -94,12 +94,13 @@ pwsh -File scripts\verify.ps1
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
 - **CDP 关窗口的坑（rev173.11 踩过）**：别用 `plugin:window|destroy` 关插件窗口 —— 实测**主窗口一起没了**（进程只剩插件窗口、9222 消失）。关窗口让用户点，或只 `clearShell` 不毁窗口。
 - **WebView2 用户数据目录坏了 = dev 起不来**（rev173.11，含事后更正）：`0x800700AA`（资源使用中）/
-  `0x8000FFFF`（灾难性故障）/ `failed to initialize plugin log: 拒绝访问 (os error 5)` 都是它的症状。
-  ⚠️ 早先写的「DSH 沙箱拦 `%LOCALAPPDATA%` 写入」**是错的**（本会话是 danger-full-access）；
-  真实差异是**全新目录 vs 被污染目录**。污染来源（多因叠加）：
-  ① 用 CDP `plugin:window|destroy` 误关主窗口 + kill 进程；② 手删 `EBWebView\Default\LOCK` / 改名 UDF 目录；
-  ③ 管理员权限跑过 dev（它写下的日志/缓存属主是 `Administrators`，普通权限再跑又坏一轮）。
-  **修法**：`pwsh -File scripts\dev.ps1`（UDF → 项目内 `_tmp-ebwebview`，普通权限稳定）。
+  `0x8000FFFF`（灾难性故障）/ `拒绝访问 (os error 5)`。
+  **已证实**：Tauri 用 `app_local_data_dir()` = `%LOCALAPPDATA%\com.aqua.zeronote` 当 WebView2 UDF
+  （`manager/webview.rs:559-576`）；该路径**空目录 → 0x8000FFFF**，**路径不存在 → os error 5**；
+  同一路径 pwsh/node 能建能写（ACL/重解析都正常）⇒ **不是沙箱、不是 ACL**。
+  **修法**：`pwsh -File scripts\dev.ps1` —— `WEBVIEW2_USER_DATA_FOLDER` 实测**生效**，UDF 换到项目内
+  `_tmp-ebwebview` 后 webview/log/界面全正常。
+  **唯一未闭环点**：zeronote.exe 为何在该路径创建 UDF 失败（同路径 pwsh/node 可以），不阻塞使用。
   **规矩**：dev 只用普通权限跑；别手删 UDF 里的 `LOCK`；别用 `plugin:window|destroy` 关窗口。
   参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)（UDF 被占用）、
   [Quicker 讨论](https://getquicker.net/QA/Question/41733)（管理员/普通实例冲突）。

@@ -223,6 +223,21 @@ revision: 173.11
 > 所以「管理员污染」只是**其中一环**，不是最初那次的原因。结论不变：
 > **换全新 UDF（项目内 `_tmp-ebwebview`）+ dev 日志只写 stdout** 是最稳的修法；
 > 规矩：别用管理员跑 dev、别手删 UDF 里的 `LOCK`、关窗口用手点（别用 `plugin:window|destroy`）。
+>
+> **最终实验（2026-10-18 23:3x–23:4x，普通权限，逐个对照）**：
+> - Tauri 在 Windows 上把 **`app_local_data_dir()` = `%LOCALAPPDATA%\com.aqua.zeronote`** 作为 WebView2 的
+>   user data folder（`tauri/src/manager/webview.rs:559-576`，目录不存在时 `create_dir_all`）。
+> - 该目录**只剩两个备份子目录**（无 `EBWebView`）→ 启动报 `0x8000FFFF`（webview 创建失败）。
+> - 该目录**整体改名**（路径不存在）→ 启动报 `拒绝访问 (os error 5)`（`create_dir_all` 失败）。
+> - 同一路径、同一用户：`pwsh` 的 `New-Item` 能建、`node` 子进程能建能写（`icacls` 正常、非 reparse、
+>   无 Deny ACE）⇒ **不是文件沙箱、不是 ACL**。
+> - 设 `WEBVIEW2_USER_DATA_FOLDER=<repo>\_tmp-ebwebview`（实测**生效**：新目录下自动出现 `EBWebView\` 子目录）
+>   → webview + log + 界面全部正常（用户 23:25 实测，此脚本即 `scripts\dev.ps1`）。
+>
+> **闭环状态**：症状链、触发操作、有效修法都已证实；**唯一未闭环点**是「zeronote.exe 为何无法在该路径
+> 创建/初始化 WebView2 UDF（os error 5）—— 同路径下 pwsh/node 可以」。这不阻塞使用（dev 走 `scripts\dev.ps1`），
+> 若以后要追：直接 `Start-Process target\debug\zeronote.exe` 对比 cargo 启动方式，或用 ProcMon 抓该 exe 的
+> `CreateFile` 失败项。
 > 参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)、
 > [Quicker 讨论](https://getquicker.net/QA/Question/41733)、[tauri#11969](https://github.com/tauri-apps/tauri/issues/11969)。
 >
