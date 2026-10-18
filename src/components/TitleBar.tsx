@@ -29,11 +29,15 @@ export interface TitleBarProps {
   /** ☰ 点开菜单：把按钮的屏幕位置交回宿主去弹 */
   onMenu: (at: { x: number; y: number }) => void
   /**
-   * ☰ 变成**文件树栏（侧栏）开关**（2026-10-18 用户要求）。
-   * 传了它 ⇒ 左键切换侧栏、右键才弹菜单；不传（移动端）⇒ 保持"左键弹菜单"
-   * —— 移动端的侧栏抽屉本来就集成在菜单里，☰ 是它唯一入口。
+   * ☰ 变成**文件树栏（侧栏）开关**（2026-10-18 用户要求，桌面 + 移动端都生效）。
+   * 传了它 ⇒ 左键切换侧栏、右键才弹菜单。
    */
   onToggleSidebar?: () => void
+  /**
+   * 移动端：☰ 已被侧栏开关占用 ⇒ 在它旁边多画一个「⋯」菜单按钮
+   * （手机没有右键，菜单必须有可见入口）。
+   */
+  showMenuButton?: boolean
   /** 桌面端才渲染窗口控制按钮 */
   showWindowControls?: boolean
   /** 是否滑出显示（自动隐藏：鼠标靠近顶部、或键盘焦点进来时显示） */
@@ -49,6 +53,7 @@ export function TitleBar({
   saveDirty,
   onMenu,
   onToggleSidebar,
+  showMenuButton = false,
   showWindowControls = true,
   visible = true,
   onHoverChange,
@@ -105,6 +110,20 @@ export function TitleBar({
       >
         ☰
       </button>
+
+      {/* 移动端：☰ 已让给侧栏开关（手机没有右键），菜单改由这个「⋯」进 */}
+      {showMenuButton ? (
+        <button
+          type="button"
+          className="zn-icon-btn"
+          onClick={() => onMenu({ x: 0, y: 32 })}
+          title="菜单"
+          aria-label="菜单"
+          aria-haspopup="menu"
+        >
+          ⋯
+        </button>
+      ) : null}
 
       <span className="zn-titlebar-name" data-tauri-drag-region title={title}>
         {title}
