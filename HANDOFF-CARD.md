@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev160）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev161）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev160）
+## 最近一轮（rev161）
 
-- 移动端卡片**长按弹菜单**：打开 / 重命名… / 删除（回收站）/ 彻底删除…（与右上「⋯」同一个菜单）。
-- 重命名用 `window.prompt`（同目录、`.md` 自动补后缀）。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev160-longpress-165748.png`。
+- **菜单打开时点外面只关菜单**：ContextMenu 改用全屏透明遮罩 `.zn-menu-scrim`，点击不漏到下面的卡片/按钮。
+- 卡片流不再触发应用主菜单（`.zn-body` 的 contextmenu 捕获排除 `.zn-mobile-home`）。
+- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev161-closeonly4-170108.png`。
 
 ## 未决 / 下一步
 

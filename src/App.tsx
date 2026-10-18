@@ -1963,6 +1963,8 @@ export default function App() {
           // 树项自带「重命名 / 删除」菜单，别抢它
           const el = e.target
           if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
+          // 移动端卡片流自带长按菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」），别抢它
+          if (el instanceof HTMLElement && el.closest('.zn-mobile-home')) return
           // 文件列表区域的**空白处**也归文件树 —— 它要在库根「新建文件 / 新建文件夹」。
           // 侧栏其余空白（头部、底部库名那行）仍走这个应用级菜单（切库入口在那儿）。
           if (el instanceof HTMLElement && el.closest('.zn-filetree')) return

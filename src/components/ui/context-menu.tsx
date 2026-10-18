@@ -79,18 +79,11 @@ export function ContextMenu({
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
-    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
   /**
@@ -132,14 +125,20 @@ export function ContextMenu({
   }, [x, y, anchor, items])
 
   return createPortal(
-    <div
-      ref={menuRef}
-      className="fixed z-[70] max-h-[85vh] min-w-[190px] overflow-y-auto rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
-      style={{ left: x, top: y, visibility: 'hidden' }}
-      role="menu"
-    >
-      <MenuItems items={items} onClose={onClose} />
-    </div>,
+    <>
+      {/* 全屏透明遮罩：点「菜单外面」**只关菜单**，点击不会漏给下面的卡片/按钮
+          （2026-10-18 用户要求：「菜单打开时点其他位置只触发关闭菜单一个操作」）。
+          用遮罩而不是 document 监听：彻底避免"关菜单那一下的 click 穿到下层"。 */}
+      <div className="zn-menu-scrim" onClick={onClose} />
+      <div
+        ref={menuRef}
+        className="fixed z-[70] max-h-[85vh] min-w-[190px] overflow-y-auto rounded-ui-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+        style={{ left: x, top: y, visibility: 'hidden' }}
+        role="menu"
+      >
+        <MenuItems items={items} onClose={onClose} />
+      </div>
+    </>,
     document.body,
   )
 }

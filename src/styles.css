@@ -1631,6 +1631,14 @@ body.is-resizing * {
 
 .zn-mobile-compose-plus { font-size: 30px; line-height: 1; }
 
+/* 右键/长按菜单的全屏透明遮罩：只负责「点外面关菜单」——
+   点击被它吃掉，不会漏到下面的卡片/按钮（2026-10-18 用户要求）。 */
+.zn-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 69;
+}
+
 /* ───────── 窄屏（手机竖屏）：单栏 + 抽屉式侧栏 ───────── */
 .zn-mobile-only { display: none; }
 .zn-scrim { display: none; }
