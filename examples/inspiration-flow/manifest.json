@@ -6,7 +6,7 @@
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "规格 2.1：聊天式捕捉，一条 = 笔记/年/月/日/HH-mm-ss.md；时间流查看、点击进编辑器、快捷标签、手机端工具栏",
+  "description": "随手记灵感，按时间流水",
   "category": "editor",
   "capabilities": [
     "fs:read",

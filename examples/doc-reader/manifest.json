@@ -6,7 +6,7 @@
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "只读文档阅读器：PDF（pdf.js）+ EPUB / MOBI / AZW3 / FB2 / CBZ（foliate-js）+ TXT。接管内核的 core.openDocument ⇒ 在文件树里点文档即开；**不改任何文件**。渲染库是应用内置资源（public/vendor，MIT/Apache-2.0），插件本体很薄（换库只需换 vendor 目录）。",
+  "description": "只读打开电子书和文档",
   "category": "reader",
   "capabilities": ["fs:read", "command", "view:main", "store"],
   "contributes": {

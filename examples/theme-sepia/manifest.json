@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "apiVersion": "^0.2.0",
   "styles": ["theme.css"],
-  "description": "形态 4：没有 entry，只注入 CSS —— 主题类插件不必写 JS",
+  "description": "米色配色，只换外观",
   "platforms": ["desktop", "android"],
   "category": "theme",
   "capabilities": []

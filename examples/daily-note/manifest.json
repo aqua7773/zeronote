@@ -6,7 +6,7 @@
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "接管「新建笔记」：一律落在 笔记/年/月/日/ 下（规格 2.1 2.2 的固定目录结构）",
+  "description": "新建笔记自动按日期归档",
   "category": "tool",
   "capabilities": ["fs:read", "fs:write", "doc:read", "doc:write", "command"]
 }
