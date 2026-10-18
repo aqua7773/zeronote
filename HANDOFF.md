@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.13
-更新时间: 2026-10-19（rev173.13 插件页：说明压到 15 字 + 分类可折叠；顺手修回手机 dev）
+revision: 173.14
+更新时间: 2026-10-19（rev173.14 设置文案精简 + 插件能力不再展示；两端 dev HMR 断连需刷新）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.14 | 2026-10-19 · **设置文案精简**（当前库 / 自动保存 / 外观 / 关于各一句）+ **插件能力不再展示**（插件行能力列表与「网络与进程（自述）」整块删除）· 测试 **249** |
 | rev173.13 | 2026-10-19 · **插件页**：说明只显示 **15 字**（`clampText`，全文进悬停 title）+ **分类可折叠**（点组标题收起/展开，状态记 localStorage）· 测试 **249**；顺手修回手机 dev（`gen/android` 残留 `.probe` identifier 导致构建失败） |
 | rev173.12 | 2026-10-18 · **交接**：rev173.11 收口——手机导图点击已修（`data-zn-line` + 手机整窗接管）；WebView2 起不来**真根因 = 项目目录 Low IL**（exe 继承后写不了 `%LOCALAPPDATA%`），`icacls src-tauri /setintegritylevel (OI)(CI)Medium` 修复；dev 恢复运行、库 = `_tmp-vault-tb` |
 | rev173.11 | 2026-10-18 · **手机端导图点击修复落地**：① 按钮带 `data-zn-line`（点击不再依赖 `posAtDOM` 反查行号）② 手机端补上**整窗接管**（`makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` 时 `view.overrideShell`，不再走静默失败的多窗口）· 真机 3 轮 ✓ · 测试 **243** |
@@ -158,6 +159,31 @@ revision: 173.13
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.14（2026-10-19 · 设置文案精简 + 插件能力不再展示）
+>
+> 用户：「设置里面其他说明的地方也同理，还有插件声明的能力不用显示出来」。
+>
+> ### 1 已交付
+>
+> | 改动 | 位置 | 要点 |
+> |---|---|---|
+> | 插件行不再列能力 | `src/components/PluginPanel.tsx` | 删掉 `fs:read · doc:read …` 那一行 |
+> | 「网络与进程（自述）」整块删除 | `src/components/Settings.tsx` · `src/App.tsx` | prop `declaredNet` 与 `declNetPlugins` 一并删（能力自述不再展示） |
+> | 设置说明改短 | `src/components/Settings.tsx` | 自动保存 →「停手约 0.8 秒后自动保存」；外观 →「跟随系统时自动切换深浅色」；当前库 →「选一个文件夹作为笔记库」；关于页只留一句 |
+> | 空态与删除确认精简 | `src/components/PluginPanel.tsx` | 空态一句放法；删除确认一句「不可撤销」 |
+>
+> ### 2 验收
+>
+> tsc 0 · oxlint **3 warnings**（未增）· vitest **249**（28 文件）· check-docs 过 · Rust 未改动（沿用 32 passed）。
+>
+> 桌面与手机实测（`_shots/desktop-settings-slim-*.png` / `android-settings-slim-*.png`）：
+> 插件行能力消失、设置说明变短、手机打开插件页同样生效。
+>
+> ### 3 注意：两端 HMR 会断
+>
+> 00:16 之后桌面与手机的 HMR 都出现过重载失败（手机 logcat：`Failed to reload /src/App.tsx`）。
+> **代码改动没看到时先刷新页面**：桌面窗口 `Ctrl+R`；手机 `adb shell am force-stop com.aqua.zeronote.debug` 后重开。
+>
 > ## 📌 rev173.13（2026-10-19 · 插件页：说明压到 15 字 + 分类可折叠）
 >
 > 用户：「插件说明不要这么长，控制在 15 个字，然后插件分类加折叠功能」。

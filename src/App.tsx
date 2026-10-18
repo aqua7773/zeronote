@@ -210,8 +210,8 @@ export default function App() {
   const [pluginError, setPluginError] = useState<string | null>(null)
   const [panelState, setPanelState] = useState<Record<string, unknown>>({})
   /* 2026-10-13 拆权限门：这里原本是 `permissions` state（读 `.zn/permissions.json`
-   * 的授权记录）。**已删除** —— 内核不设防，不查授权。设置页那一块改成只读展示
-   * `manifest.capabilities` 的**自述**（见下面的 `declNetPlugins`）。 */
+   * 的授权记录）。**已删除** —— 内核不设防，不查授权；设置页也不再展示能力自述
+   * （2026-10-19 用户要求「插件声明的能力不用显示出来」）。 */
 
   /* ── UI ── */
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -1762,17 +1762,6 @@ export default function App() {
     integrity: m.sha256 ? 'verified' : 'none',
   }))
 
-  /**
-   * 设置页「网络与进程」区块用的清单（2026-10-13 拆门后**只读展示**）。
-   *
-   * 读的是 **manifest 的自述**（`capabilities`），不再是授权记录 ——
-   * 内核不做权限判定，所以这一块的性质从"开关"变成了"告诉你这个插件自称要什么"。
-   * `proc` 一起列：它和 `net` 以前同属"默认拒"，现在同样只是自述。
-   */
-  const declNetPlugins = rows
-    .filter((r) => r.capabilities.includes('net') || r.capabilities.includes('proc'))
-    .map((r) => ({ id: r.id, name: r.name, version: r.version, caps: r.capabilities }))
-
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */
   const titleText = activePath
     ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
@@ -2523,7 +2512,6 @@ export default function App() {
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
         // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
         onInstall={() => void installZnp()}
-        declaredNet={declNetPlugins}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

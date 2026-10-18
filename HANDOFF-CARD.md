@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.13）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.14）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,13 +30,13 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.13 · 插件页）
+## 最近一轮（rev173.14 · 设置与插件页精简）
 
-- 用户：「插件说明不要这么长，控制在 15 个字，然后插件分类加折叠功能」。
-- **说明**：`clampText()` 只显示前 15 字 + `…`（全文进悬停 `title`；manifest 原文不动）。
-- **折叠**：点分类标题收起/展开，chevron 转向；状态记 `localStorage['zn-plugin-groups-collapsed']`（全局 1 份）。
-- **验收**：`verify.ps1` 五步全过（tsc 0 · lint 3 warnings · cargo 32 · check-docs · vitest **249**）；桌面截图 `_shots/desktop-plugin-page-0*.png`（折叠后重开仍折叠）。
-- **环境**：手机 dev 已恢复 —— 真因是 `gen/android` 构建产物残留 `.probe` identifier（被 gradle 误报成 `pnpm.bat` 失败）；现桌面 + 手机两端同时在跑。
+- 用户：插件说明压到 15 字、分类可折叠；设置里其他说明也同理；插件声明的能力不用显示。
+- **插件页**：说明只显示前 15 字 + `…`（悬停看全文）；分类标题可折叠并记忆；**能力列表已删**。
+- **设置**：自动保存 / 外观 / 当前库各一句；「网络与进程（自述）」整块删除（连 `declaredNet`）。
+- **验收**：tsc 0 · lint 3 warnings · cargo 32 · check-docs · vitest **249**。
+- **环境**：两端 dev 都在跑；**HMR 会断，代码改动看不到时先刷新**（桌面 Ctrl+R / 手机重开 app）。
 
 ## 未决 / 下一步
 

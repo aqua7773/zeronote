@@ -171,14 +171,8 @@ export function PluginPanel({
 
       {plugins.length === 0 ? (
         <div className="zn-plugins-empty">
-          还没有插件。放法（放好点「重新扫描」，不用重启）：
-          <br />
-          <br />
-          · 插件目录 → <code>{globalRoot ? `${globalRoot}` : '<应用数据目录>'}</code> 下的{' '}
-          <code>.zn/plugins/&lt;id&gt;/</code>
-          <br />
-          <br />
-          参考实现：<code>examples/hello-plugin/</code>
+          还没有插件。把插件文件夹放到 <code>{globalRoot ?? '<应用数据目录>'}</code> 下的{' '}
+          <code>.zn/plugins/&lt;id&gt;/</code>，点「重新扫描」即可。
         </div>
       ) : (
         <div className="zn-plugin-list">
@@ -244,9 +238,6 @@ export function PluginPanel({
                     {clampText(p.description, DESC_MAX)}
                   </div>
                 )}
-                <div className="zn-plugin-caps">
-                  {p.capabilities.length ? p.capabilities.join(' · ') : '未声明任何能力'}
-                </div>
               </div>
               <button
                 type="button"
@@ -292,25 +283,15 @@ export function PluginPanel({
         />
         <DialogBody>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            会把插件目录{' '}
+            删掉插件目录{' '}
             <code>
               {pendingIsGlobal ? (globalRoot ?? '全局插件根') : '<当前库>'} 下的 .zn/plugins/
               {pending?.id ?? ''}
-            </code>{' '}
-            整个删掉 —— 入口脚本、manifest、以及它自己的 store.json 一起。
-            <br />
-            <br />
-            这步
+            </code>
+            （含 manifest 与 store.json），
             <strong className="font-semibold text-foreground">不可撤销</strong>
-            ；要装回来就把插件目录重新拷回去。
-            {pendingIsGlobal && (
-              <>
-                <br />
-                <br />
-                这是<strong className="font-semibold text-foreground">全局</strong>插件 ——
-                删掉后所有笔记库都不再有它。
-              </>
-            )}
+            ；要装回来重新拷回即可。
+            {pendingIsGlobal && ' 这是全局插件，所有笔记库都不再有它。'}
           </p>
         </DialogBody>
         <DialogFooter>
