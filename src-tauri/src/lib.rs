@@ -1246,6 +1246,48 @@ fn list_plugins(vault: String) -> Result<Vec<String>, String> {
   Ok(out)
 }
 
+/// 把一个插件目录**整目录**从一处复制到另一处（rev173.6 清理迁移用：库内 → 全局根）。
+///
+/// 为什么要它：按 manifest 声明文件逐个搬不够 —— 插件会自己
+/// `fs.readText('.zn/plugins/<id>/vendor/…')` 读**未声明**的资源
+/// （`outline-map` 的 MindElixir 三件套）。整目录复制才是完整搬家。
+///
+/// 目标侧**已存在的文件不覆盖**，返回本次实际复制的文件数
+/// （全局根的内置 / 新版本优先，库内旧副本只补缺口）。
+#[tauri::command]
+fn copy_plugin_dir(
+  from_vault: String,
+  to_vault: String,
+  plugin_id: String,
+) -> Result<u32, String> {
+  let src = plugin_dir(&from_vault, &plugin_id)?;
+  let dst = plugin_dir(&to_vault, &plugin_id)?;
+  if !src.is_dir() {
+    return Err(format!("源插件目录不存在：{plugin_id}"));
+  }
+  fn walk(src: &Path, dst: &Path, copied: &mut u32) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("创建目标目录失败：{e}"))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("读取源目录失败：{e}"))? {
+      let entry = entry.map_err(|e| e.to_string())?;
+      let from = entry.path();
+      let to = dst.join(entry.file_name());
+      if from.is_dir() {
+        walk(&from, &to, copied)?;
+      } else {
+        if to.exists() {
+          continue;
+        }
+        fs::copy(&from, &to).map_err(|e| format!("复制插件文件失败：{e}"))?;
+        *copied += 1;
+      }
+    }
+    Ok(())
+  }
+  let mut copied = 0u32;
+  walk(&src, &dst, &mut copied)?;
+  Ok(copied)
+}
+
 /// 删除一个插件（连同它的目录：manifest / 入口 / store.json）。
 ///
 /// 与笔记删除**不同**：这里直接删、不进回收站 —— 插件是"把目录拷回来就能重装"的东西，
@@ -1784,6 +1826,7 @@ pub fn run() {
       ensure_vault,
       list_vaults,
       delete_plugin,
+      copy_plugin_dir,
       read_znp,
       install_znp,
       open_external,
@@ -2420,6 +2463,44 @@ mod tests {
       list_plugins(v).unwrap(),
       vec!["alpha".to_string(), "beta".to_string()]
     );
+  }
+
+  /// 插件整目录复制（rev173.6 清理迁移）：子目录一起带走，目标已有文件不覆盖。
+  #[test]
+  fn copy_plugin_dir_copies_tree_and_keeps_existing() {
+    let d = tmpdir("copyplug");
+    let vault = d.join("vault");
+    let global = d.join("global");
+    // 源：库内插件，带**未声明**的 vendor 子目录
+    let src = vault.join(".zn").join("plugins").join("p1");
+    fs::create_dir_all(src.join("vendor")).unwrap();
+    fs::write(src.join("manifest.json"), "{}").unwrap();
+    fs::write(src.join("vendor").join("lib.js"), "v1").unwrap();
+    // 目标：已有一个更新的 manifest
+    let dst = global.join(".zn").join("plugins").join("p1");
+    fs::create_dir_all(&dst).unwrap();
+    fs::write(dst.join("manifest.json"), "new").unwrap();
+
+    let n = copy_plugin_dir(
+      vault.to_string_lossy().to_string(),
+      global.to_string_lossy().to_string(),
+      "p1".into(),
+    )
+    .unwrap();
+    assert_eq!(n, 1, "只补缺口：manifest 已存在不覆盖，vendor/lib.js 要复制");
+    assert_eq!(fs::read_to_string(dst.join("manifest.json")).unwrap(), "new");
+    assert_eq!(
+      fs::read_to_string(dst.join("vendor").join("lib.js")).unwrap(),
+      "v1"
+    );
+
+    // 源不存在 ⇒ 明确报错
+    assert!(copy_plugin_dir(
+      vault.to_string_lossy().to_string(),
+      global.to_string_lossy().to_string(),
+      "nope".into(),
+    )
+    .is_err());
   }
 
   /* ── 插入图片（rev173）── */

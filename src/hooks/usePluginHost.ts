@@ -402,14 +402,11 @@ export function usePluginHost({
   }, [installZnpFromPath, kernel])
 
   /**
-   * 把**库内旧插件**搬进全局根（rev173.5 迁移用，一次性的）。
+   * 把**库内旧插件**搬进全局根（rev173.5 引入 / rev173.6 改为整目录复制）。
    *
-   * 取消库内插件后，装在 `<库>/.zn/plugins/` 的旧副本不会再被扫描 —— 这里按 manifest
-   * 声明过的文件（`entry` / `styles` / `files`）逐个读出来，写进全局根；全局已有的文件**不覆盖**
-   * （内置预装优先，库内旧副本不该把新版本顶掉）。
-   *
-   * 为什么不需要给 Rust 加 copy 命令：manifest 已经声明了全部运行文件；
-   * 未声明的 vendor 目录不在迁移范围（内置插件会补，第三方的请重装 .znp）。
+   * 取消库内插件后，装在 `<库>/.zn/plugins/` 的旧副本不会再被扫描 —— 这里整目录复制到全局根。
+   * 为什么不用前端逐文件搬：插件会自己读**未声明**的资源（`outline-map` 的 vendor），
+   * 只有 Rust 侧的整目录复制能把它们一起带走；目标已有文件不覆盖（内置 / 新版本优先）。
    */
   const migrateVaultPlugins = useCallback(async () => {
     const moved: string[] = []
@@ -418,37 +415,14 @@ export function usePluginHost({
     const ids = await listPluginDirs(vault).catch(() => [] as string[])
     for (const id of ids) {
       try {
-        const raw = await invoke<string>('read_plugin_file', {
-          vault,
+        await invoke<number>('copy_plugin_dir', {
+          fromVault: vault,
+          toVault: globalRoot,
           pluginId: id,
-          rel: 'manifest.json',
         })
-        const m = JSON.parse(raw) as { entry?: string; styles?: string[]; files?: string[] }
-        const rels = [
-          'manifest.json',
-          ...(m.entry ? [m.entry] : []),
-          ...(m.styles ?? []),
-          ...(m.files ?? []),
-        ]
-        for (const rel of rels) {
-          let content: string
-          try {
-            content = await invoke<string>('read_plugin_file', { vault, pluginId: id, rel })
-          } catch {
-            continue
-          }
-          try {
-            // 全局已有同文件 ⇒ 保留（内置 / 已迁移的新版本优先）
-            await invoke<string>('read_plugin_file', { vault: globalRoot, pluginId: id, rel })
-            continue
-          } catch {
-            /* 全局没有 ⇒ 写 */
-          }
-          await invoke('write_plugin_file', { vault: globalRoot, pluginId: id, rel, content })
-        }
         moved.push(id)
       } catch {
-        /* 读失败（二进制 / 损坏）⇒ 跳过这个插件 */
+        /* 读失败（损坏 / 权限）⇒ 跳过这个插件 */
       }
     }
     setReloadToken((t) => t + 1)

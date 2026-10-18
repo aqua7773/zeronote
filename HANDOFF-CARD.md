@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173.5）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173.6）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,21 +34,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.5）
+## 最近一轮（rev173.6）
 
-- **取消库内插件**（用户：「取消库内插件这种形式，所有插件都是全局的」）：
-  · 插件只有全局根 `<应用数据目录>/.zn/plugins/`；安装 `.znp` / 内置预装 / 扫描 / 删除全部走全局；
-  · 插件页去掉「本库」徽章与「两种放法」空态，底部只显示一个插件目录；
-  · 迁移口 `window.__znMigratePlugins()` 把库内旧副本搬进全局（全局已有文件不覆盖）。
-- 迁移结果：桌面全局 11 个、手机全局 9 个；**库内旧目录保留未删**。
-- 边界：`outline-map` 会从当前库 `.zn/plugins/…/vendor` 读渲染库 —— 要删库内目录，先把它搬进全局根。
-- 上一轮：插件分类（rev173.4，`manifest.category` + 插件页分组）。
+- **清理库内插件残留**（用户：「清理」）：
+  · 新命令 `copy_plugin_dir` **整目录**迁移（含 manifest 未声明的 `vendor/`；上一版按清单搬会漏）；
+  · 删除桌面库 11 个 / 手机库 9 个 `.zn/plugins/` 目录；删前备份到 `_tmp-plugin-backup/`（可删）；
+  · 插件现在真的只剩全局根一处。
+- 验证：删后桌面插件页 11 个、手机 9 个，分组不变；手机全局根 `outline-map/vendor/` 三件套就位；cargo 32。
+- 上一轮：取消库内插件（rev173.5）、插件分类（rev173.4）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| 插件存放 | ✅ **rev173.5**：只全局一处（库内插件取消）；桌面 11 / 手机 9 已迁移 |
+| 插件存放 | ✅ **rev173.6**：只全局一处；两库 `.zn/plugins` 已删（备份在 `_tmp-plugin-backup/`） |
 | 插件分类 | ✅ **rev173.4**：manifest.category + 插件页分组 + 存量插件全部补齐 |
 | 图片 / 附件 | ✅ **rev173.3**：附件入口（文件树分组 + 预览）+ 右键「插入附件…」统一入口；桌面 / 手机实测 |
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |

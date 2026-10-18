@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.5
-更新时间: 2026-10-18（rev173.5 取消库内插件：所有插件只在全局插件根）
+revision: 173.6
+更新时间: 2026-10-18（rev173.6 清理库内插件残留：整目录迁移后删除两库 .zn/plugins）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.6 | 2026-10-18 · **清理库内插件残留**：新命令 `copy_plugin_dir` 整目录迁移（含未声明的 vendor）→ 删除桌面库 11 / 手机库 9 个 `.zn/plugins` 目录；插件只剩全局根 · cargo **32** |
 | rev173.5 | 2026-10-18 · **取消库内插件**：插件只在全局根 `<应用数据目录>/.zn/plugins/`；安装/内置预装/扫描/删除全部走全局；旧副本用 `__znMigratePlugins()` 搬移（桌面 11 / 手机 9）· 测试 **237** |
 | rev173.4 | 2026-10-18 · **插件分类**：`manifest.category`（editor/reader/theme/tool/demo）+ 插件页分组 + 存量插件（examples 29 / 全局 6 / 库内 11 / 手机 9）补齐 · 测试 **237** |
 | rev173.3 | 2026-10-18 · **附件**：文件树「附件」分组（图片进树、点开预览）+ 右键「插入附件…」为唯一入口（图片写 `![]()` 渲染不变、其它文件写 `[]()`）· 测试 **230 / cargo 31** |
@@ -150,6 +151,35 @@ revision: 173.5
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.6（2026-10-18 · 清理库内插件残留）
+>
+> 用户：「清理」—— rev173.5 里库内 `.zn/plugins/` 旧目录还留着
+>（`outline-map` 的 vendor 还在被插件读，所以上一条没敢删）。
+>
+> ### 1 先补全，再删
+>
+> - 新 Rust 命令 `copy_plugin_dir(from_vault, to_vault, plugin_id)`：**整目录复制**
+>   （含 manifest 未声明的 `vendor/` 子目录），目标已有文件不覆盖，返回实际复制数。
+> - `__znMigratePlugins()` 改用它（上一版只按 manifest 声明文件搬 ⇒ 漏 vendor）。
+>
+> ### 2 删除
+>
+> | 目录 | 内容 | 备份 |
+> |---|---|---|
+> | 桌面库 `_tmp-vault-tb/.zn/plugins/` | 11 个目录 | `_tmp-plugin-backup/vault-plugins` |
+> | 手机库 `/storage/emulated/0/Documents/ZeroNote/.zn/plugins/` | 9 个目录 | `_tmp-plugin-backup/android-vault-plugins` |
+>
+> 备份目录在 `_tmp-*`（gitignore），确认没问题后可以删。
+>
+> ### 3 验证
+>
+> | 判据 | 证据 |
+> |---|---|
+> | 桌面插件不受影响 | 删后刷新：11 个，分组 编辑增强 4 / 阅读 1 / 主题外观 2 / 工具 2 / 示例与探针 2 |
+> | 手机插件不受影响 | 删后刷新：9 个，分组 编辑增强 4 / 阅读 1 / 主题外观 2 / 工具 2 |
+> | vendor 已搬进手机全局根 | `run-as ls .zn/plugins/outline-map/vendor` → MindElixir.css / MindElixir.iife.js / PlaintextConverter.js |
+> | 单元测试 | `cargo test --lib` **32** passed（新增 `copy_plugin_dir_copies_tree_and_keeps_existing`） |
+>
 > ## 📌 rev173.5（2026-10-18 · 取消库内插件）
 >
 > 用户：「取消库内插件这种形式，所有插件都是全局的」。
