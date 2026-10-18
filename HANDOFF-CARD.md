@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173.11）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173.12）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -20,11 +20,9 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-**「手机端导图点击偶发不生效」已在 rev173.11 修完并真机验证**（行号 `data-zn-line` + 手机整窗接管）。
+**做「iframe ↔ 宿主能力通道」（v0.2）**，之后是**插件签名 / 分发**（真签名 / 市场 / 更新通道）。
 
-下一步按优先级挑：**iframe ↔ 宿主能力通道**（v0.2）→ **插件签名 / 分发**（真签名 / 市场 / 更新通道）。
-
-读 `docs/内核契约-v0.2.md` §2.8（`overrideShell`）再动；细节在 `HANDOFF.md` rev173.11 段。
+先读 `docs/内核契约-v0.2.md`（§2.8 `overrideShell`、§4 capability）再动手；本轮 rev173.11 的手机导图整窗接管就是这套能力的现成参考。
 
 ### 本会话踩过的三个坑（务必避开）
 
@@ -32,21 +30,16 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.11 · 手机端导图点击修复）
+## 最近一轮（rev173.12 · 交接）
 
-- 用户：「继续 zeronote 项目，看 `HANDOFF-CARD.md` 的『下个会话第一件事』，按方案改完再验证」。
-- **① 按 rev173.10 方案改内核**：`LineActionWidget` 带 `lineNo` + `data-zn-line`（`eq` 也比 `lineNo`）；
-  `buildDecorations` 传行号；点击**优先读 `data-zn-line`**，`posAtDOM` 只补 `from`。
-- **② 真机暴露第二层**：行号修好后手机点 ❖ 已能命中组（notify 变成「已在新窗口打开」），但
-  Android 只有单 webview ⇒ `openWindow` 静默失败、`shell` 恒 null。插件补**手机整窗接管**：
-  `makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` → `view.overrideShell`（连点先释放）；
-  新增 `saveGroupLines` 写回。
-- **验证**：真机 33b676f6 点 ❖ → `shell="outline-map"`、`__mmWin={tag:"mobile-0", lib:"5.15.1", topics:6}`；
-  释放再点 3 轮全成功；写回落盘（测试后已恢复笔记原文）；桌面开窗不回归；`verify.ps1` 全绿（见交接卡验收基线）。
-- ⚠️ **环境事故**：桌面冒烟后用 CDP `plugin:window|destroy` 关测试窗口时**主窗口一起没了**；
-  之后 `pnpm tauri dev` 连续失败（WebView2 `0x800700AA` / `0x8000FFFF`、log 插件 `os error 5`）——
-  多因叠加，详见「环境现状」；修法 = `pwsh -File scripts\dev.ps1`（全新 UDF 放项目内 + 日志只 stdout）。
-- ⚠️ **更正 rev173.7 / rev173.9 的结论**：手机端 ❖ 是渲染的，且点击入口已通（rev173.11 起整窗接管）。
+- 用户：「交接」。本轮把 rev173.11 收口，并把开发环境修回可用。
+- **交付一（手机导图）**：`data-zn-line` 行号 + 手机整窗接管；真机 3 轮 ✓、写回落盘、桌面不回归。
+- **交付二（环境）**：WebView2 起不来的**真根因** = 项目目录被标 **Low IL**，exe 继承后写不了
+  `%LOCALAPPDATA%`（症状 `os error 5` / `0x8000FFFF`）；修复 `icacls src-tauri /setintegritylevel (OI)(CI)Medium`。
+  过程中我方两次归因错误（先"沙箱"、后"管理员污染"），均在 HANDOFF rev173.11 §5 原文处更正。
+- **当前环境**：dev 运行中（`pnpm tauri dev`，库 = `_tmp-vault-tb`，2 篇 / 3 文档 / 2 附件）；
+  `scripts\dev.ps1` 保留（无害）；`verify.ps1` 五步全过（cargo 32 / vitest 243）。
+- ⚠️ **更正 rev173.7 / rev173.9**：手机端 ❖ 是渲染的，且入口已通（rev173.11 起整窗接管）。
 
 ## 未决 / 下一步
 
@@ -78,7 +71,8 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
-- **桌面 dev**：`pwsh -File scripts\dev.ps1`（= 先把 WebView2 用户数据目录指到项目内 `_tmp-ebwebview`，再 `tauri dev`；vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
+- **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
+- **交接时 dev 状态**：运行中；库 = `_tmp-vault-tb`（2 篇笔记 / 3 文档 / 2 附件）。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。

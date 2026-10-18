@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.11
-更新时间: 2026-10-18（rev173.11：手机端导图点击——按 rev173.10 方案修 `data-zn-line` 行号 + 补手机端整窗接管，真机 3 轮验证通过）
+revision: 173.12
+更新时间: 2026-10-18（rev173.12 交接：rev173.11 收口——手机导图点击已修、WebView2 根因（Low IL）闭环、dev 恢复运行）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.12 | 2026-10-18 · **交接**：rev173.11 收口——手机导图点击已修（`data-zn-line` + 手机整窗接管）；WebView2 起不来**真根因 = 项目目录 Low IL**（exe 继承后写不了 `%LOCALAPPDATA%`），`icacls src-tauri /setintegritylevel (OI)(CI)Medium` 修复；dev 恢复运行、库 = `_tmp-vault-tb` |
 | rev173.11 | 2026-10-18 · **手机端导图点击修复落地**：① 按钮带 `data-zn-line`（点击不再依赖 `posAtDOM` 反查行号）② 手机端补上**整窗接管**（`makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` 时 `view.overrideShell`，不再走静默失败的多窗口）· 真机 3 轮 ✓ · 测试 **243** |
 | rev173.10 | 2026-10-18 · **交接**：手机端导图点击偶发不生效——根因定位（`posAtDOM` 反查行号在虚拟化后失败）+ 修复方案（按钮带 `data-zn-line`）；**代码已回滚、未修** |
 | rev173.9 | 2026-10-18 · **交接**：用户报「导图点击有时候不生效」→ 要求先交接；记录当前状态 + 排查线索 |
@@ -156,6 +157,41 @@ revision: 173.11
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.12（2026-10-18 · 交接：rev173.11 收口 + WebView2 根因闭环）
+>
+> 用户：「交接」。本轮把 rev173.11 的两件事收口，并把开发环境修回可用状态。
+>
+> ### 1 已交付（5 个提交）
+>
+> | 提交 | 内容 |
+> |---|---|
+> | `d0e1c82` | 手机端导图点击：`data-zn-line` 行号 + 插件手机整窗接管（真机 3 轮 ✓、写回落盘、桌面不回归） |
+> | `65c8368` | `scripts\dev.ps1` + dev 日志只写 stdout |
+> | `b52e4b3` / `23f7088` / `0ae23fe` | WebView2 排障过程与**两次更正**（沙箱→多因→Low IL） |
+> | `b7e2d84` | **真根因**：项目目录 Low IL → exe 继承后写不了 `%LOCALAPPDATA%`；`icacls src-tauri /setintegritylevel (OI)(CI)Medium` 修复 |
+>
+> ### 2 当前环境（活信息）
+>
+> - **dev 运行中**：`pnpm tauri dev`（vite 1420，窗口正常）；库 = `_tmp-vault-tb`（2 篇笔记 / 3 文档 / 2 附件）。
+> - **WebView2**：默认 UDF `%LOCALAPPDATA%\com.aqua.zeronote\EBWebView`，IL 修复后正常（23:46 起）。
+> - **完整性级别**：`src-tauri` / `target` = **Medium**（已修）；项目根与 `src` 仍是 Low IL —— 目前不影响，若以后产物落在 Low 目录再按同样命令修。
+> - 旧 UDF 备份：`_tmp-appdata-bak\`（`EBWebView.elevated-bak` / `logs.bak-2322`，gitignore）。
+>
+> ### 3 下个会话第一件事
+>
+> **iframe ↔ 宿主能力通道（v0.2）** → 之后**插件签名 / 分发**（真签名 / 市场 / 更新通道）。
+>
+> ### 4 本轮踩过的坑（务必避开）
+>
+> 1. **CDP `plugin:window|destroy` 关插件窗口会连主窗口一起没**（实测）——关窗口让用户点。
+> 2. **原生文件夹对话框不吃「文件夹:」输入框的粘贴** —— 正确操作：`Ctrl+L` → 输入路径 → `Enter` → 再 `Enter`（第二下 = 「选择文件夹」）。
+> 3. **Low IL 会让 exe 静默失去 `%LOCALAPPDATA%` 写权限**（症状 `os error 5` / WebView2 `0x8000FFFF`）；查 `icacls <目录> | Select-String Mandatory`。
+> 4. 排查顺序：**先拿进程级证据**（让同一个 exe 自己 `create_dir_all` + 打印 `app_local_data_dir`），比反复删目录/改名快得多。
+>
+> ### 5 验收基线
+>
+> `verify.ps1` 全过（23:47 实测）：tsc 0 · oxlint 0 error / 3 warnings · cargo test --lib **32** · check-docs 过 · vitest **243**（27 文件）。
+>
 > ## 📌 rev173.11（2026-10-18 · 手机端导图点击：行号修复 + 手机整窗接管）
 >
 > 用户：「继续 zeronote 项目，看 `HANDOFF-CARD.md` 的『下个会话第一件事』，按方案改完再验证」。
