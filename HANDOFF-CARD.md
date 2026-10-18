@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev169）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev170）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,10 +34,10 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev169）
+## 最近一轮（rev170）
 
-- 文件树展开/折叠状态**按库持久化**（localStorage `zn-tree-collapsed:<库路径>`；没记录 = 全展开）；重开/重载恢复上次状态。
-- 验收：新增 4 条测试 · tsc 0 · oxlint 3 · 手机截图 `_shots/tree-collapsed-173438.png`（重载后「笔记」仍折叠）。
+- **输入状态下右划不打开侧栏**（焦点在 input/textarea/contentEditable）；左划关闭不受影响。判定抽到 `lib/swipe.ts`。
+- 验收：新增 `tests/swipe.test.ts` 7 条 · 手机 CDP 断言（输入态 false / 非输入态 true）· 截图 `_shots/typing-swipe2-174410.png` · `_shots/notyping-ok-174607.png`。
 
 ## 未决 / 下一步
 

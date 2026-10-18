@@ -77,6 +77,7 @@ import {
   vaultExists,
 } from './lib/recent'
 import { failMsg, type SaveState } from './lib/fail-msg'
+import { isTypingNow, swipeIntent } from './lib/swipe'
 import {
   bootAutoDisabled,
   bootAutoDisabledNotice,
@@ -382,6 +383,10 @@ export default function App() {
    * 只认「横向位移 ≥60 且明显大于纵向」的滑动 —— 避免跟列表纵向滚动打架。
    * 用**捕获阶段**监听：编辑器（CM6）等内部组件可能 stopPropagation，冒泡阶段会漏。
    * 注意：贴最左 24px 起滑会被 Android 全面屏手势的「返回」吃掉（系统优先）。
+   *
+   * rev170（2026-10-18 用户要求「设置成输入状态不生效」）：**输入状态下右划不打开侧栏**——
+   * 打字时手指在正文里左右划很容易被当成打开抽屉，一开就打断键盘与光标；关闭方向不受影响。
+   * 判定逻辑抽在 `lib/swipe.ts`（纯函数，单测覆盖）。
    */
   useEffect(() => {
     if (!/Android/i.test(navigator.userAgent)) return
@@ -399,11 +404,12 @@ export default function App() {
       tracking = false
       const t = e.changedTouches[0]
       if (!t) return
-      const dx = t.clientX - sx
-      const dy = t.clientY - sy
-      if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return
-      if (dx > 0 && !sidebarOpen) setSidebarOpen(true)
-      else if (dx < 0 && sidebarOpen) setSidebarOpen(false)
+      const action = swipeIntent(t.clientX - sx, t.clientY - sy, {
+        sidebarOpen,
+        typing: isTypingNow(),
+      })
+      if (action === 'open') setSidebarOpen(true)
+      else if (action === 'close') setSidebarOpen(false)
     }
     window.addEventListener('touchstart', onStart, { passive: true, capture: true })
     window.addEventListener('touchend', onEnd, { passive: true, capture: true })
