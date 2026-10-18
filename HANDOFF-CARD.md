@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev171）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev172）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev171）
+## 最近一轮（rev172）
 
-- 修**手机设置页「安装插件包（.znp）」点了没反应**：`Settings.tsx` 复用 `PluginPanel` 时漏传 `onInstall`（按钮 onClick 空操作）。
-- 验收：手机实测点击后系统文件管理器拉起（`com.android.fileexplorer/.picker`）。
-- ⚠️ 测试机 debug 包 Rust 是旧的（无 `read_znp`），完整安装要用新包验。
+- **Android 装 .znp 全链路修通**：① Android 不传 filters（MIUI 会藏未知类型，.znp 不可见）② `content://` 先经 `uri-reader.read_content_uri` 复制成缓存路径再 `read_znp`。
+- 验收：真机 dev 版完整装了一遍「翠绿主题」成功（选文件 → 确认框 → Ok → 列表出现且主题变绿）。
+- 测试机现在是 **dev 版（连桌面 vite）**，前端改动走 HMR；Rust 改动才需重装。
 
 ## 未决 / 下一步
 

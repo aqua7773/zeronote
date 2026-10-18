@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 171
-更新时间: 2026-10-18（rev171 手机设置页「安装插件包」不弹文件管理器：Settings 漏传 onInstall）
+revision: 172
+更新时间: 2026-10-18（rev172 Android 安装 .znp：不传 filters + content:// 转缓存路径）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev172 | 2026-10-18 · **Android 装 .znp 全链路修通**：不传 filters（MIUI 会藏未知类型）+ `content://` 先经 uri-reader 复制成缓存路径 · 测试 **206** |
 | rev171 | 2026-10-18 · 修**手机设置页「安装插件包（.znp）」点了没反应**（Settings 复用 PluginPanel 时漏传 `onInstall`）· 测试 **206** |
 | rev170 | 2026-10-18 · **输入状态下右划不打开侧栏**（`lib/swipe.ts` 纯函数；左划关闭不受影响）· 测试 **206** |
 | rev169 | 2026-10-18 · 文件树展开/折叠状态**按库持久化**（localStorage `zn-tree-collapsed:<库路径>`；重开恢复上次状态）· 测试 **199** |
@@ -143,6 +144,34 @@ revision: 171
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev172（2026-10-18 · Android 安装 .znp 全链路修通）
+>
+> 用户：「手机从入口插件安装 znp 无法生效」。真机全链路排查，两处断点：
+>
+> ### 1 选择器里看不到 .znp
+>
+> - `installZnp` 传了 `filters: [{ extensions: ['znp'] }]`。`.znp` 没有对应 MIME
+>   （`MimeTypeMap.getMimeTypeFromExtension` 返回 null），MIUI「安全访问」一旦收到 filters
+>   就把**未知类型**文件（.znp / apk / zip / json…）全部藏起来，只留图片 / 文档 / 媒体
+>   ⇒ 用户根本选不到插件包。
+> - 修法同 `App.pickFile`：**Android 不传 filters**（真机实测：不传时 `.znp` 正常出现）。
+>
+> ### 2 选中后报「No such file or directory」
+>
+> - Android 文件选择器返回的是 **`content://` SAF URI**，不是文件系统路径；`read_znp` 用
+>   `std::fs` 读它必然 ENOENT。
+> - 修复：`installZnpFromPath` 检测 `content://` → 先走原生插件
+>   `plugin:uri-reader|read_content_uri`（ContentResolver 复制进应用缓存，返回可读绝对路径），
+>   再 `read_znp` / `install_znp`（与阅读器导入同一套机制）。
+>
+> ### 3 验收（真机 · dev 版连 vite）
+>
+> - 设置 → 插件 → 安装插件包（.znp）→ 系统选择器 → Download → 选
+>   `zeronote-theme-green.znp` → 确认框「翠绿主题 v1.0.0 / 未签名」→ Ok
+>   ⇒ 插件列表出现「翠绿主题 v1.0.0」（已启用），主题变绿。
+> - 截图 `_shots/znp-confirm2-184007.png`（确认框）· `_shots/znp-installed-184024.png`（装好）。
+> - ⚠️ 测试机当前是 **dev 版（连桌面 vite）**，改前端走 HMR，不再每次重装 APK。
+>
 > ## 📌 rev171（2026-10-18 · 手机设置页「安装插件包」点了没反应）
 >
 > 用户：「手机安装znp包，点击无法唤醒文件管理」。

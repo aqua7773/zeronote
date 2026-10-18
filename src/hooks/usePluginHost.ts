@@ -328,6 +328,20 @@ export function usePluginHost({
   const installZnpFromPath = useCallback(
     async (picked: string, confirmFirst = true): Promise<string | null> => {
       try {
+        /**
+         * Android 的文件选择器返回的是 **`content://` SAF URI**，不是文件系统路径 ——
+         * 直接交给 Rust 的 `std::fs` 会报「No such file or directory」（2026-10-18 真机实测）。
+         * 交给原生插件 `uri-reader` 的 `read_content_uri`：用 ContentResolver 把内容
+         * 复制进应用缓存并返回可读的绝对路径（与阅读器导入走同一套）。
+         */
+        let path = picked
+        if (/^content:\/\//i.test(path)) {
+          const copied = await invoke<{ path: string; name: string }>(
+            'plugin:uri-reader|read_content_uri',
+            { uri: path },
+          )
+          path = copied.path
+        }
         const preview = await invoke<{
           manifest: {
             id: string
@@ -337,7 +351,7 @@ export function usePluginHost({
             sha256?: string
           }
           files: string[]
-        }>('read_znp', { path: picked })
+        }>('read_znp', { path })
         const m = preview.manifest
         if (confirmFirst) {
           const caps = (m.capabilities ?? []).join('、') || '（未声明）'
@@ -350,7 +364,7 @@ export function usePluginHost({
           )
           if (!ok) return null
         }
-        const id = await invoke<string>('install_znp', { vault, path: picked })
+        const id = await invoke<string>('install_znp', { vault, path })
         setReloadToken((t) => t + 1)
         setToast(`插件已安装：${id}`)
         return id
@@ -367,11 +381,21 @@ export function usePluginHost({
     const picked = await open({
       multiple: false,
       title: '选择插件包（.znp）',
-      filters: [{ name: 'ZeroNote 插件包', extensions: ['znp'] }],
+      /**
+       * ⚠️ **Android 一律不传 `filters`**（2026-10-18 真机实测）。
+       *
+       * `.znp` 没有对应的 MIME（`MimeTypeMap.getMimeTypeFromExtension` 返回 null），
+       * 而 MIUI 的「安全访问」选择器一旦收到 filters，就把**未知类型**的文件（.znp / apk /
+       * zip / json…）全部藏起来，只留图片 / 文档 / 媒体 ⇒ 用户在选择器里**根本看不到**插件包，
+       * 表现就是「点安装无法生效」。不传 filters 时列表完整（与 `App.pickFile` 同一修法）。
+       */
+      ...(kernel?.host.platform === 'android'
+        ? {}
+        : { filters: [{ name: 'ZeroNote 插件包', extensions: ['znp'] }] }),
     })
     if (!picked || typeof picked !== 'string') return
     await installZnpFromPath(picked)
-  }, [installZnpFromPath])
+  }, [installZnpFromPath, kernel])
 
   /**
    * `.znp` 安装的**诊断出口**（2026-10-18 rev119）。
