@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 170
-更新时间: 2026-10-18（rev170 输入状态下右划不打开侧栏；手势判定抽 lib/swipe.ts）
+revision: 171
+更新时间: 2026-10-18（rev171 手机设置页「安装插件包」不弹文件管理器：Settings 漏传 onInstall）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev171 | 2026-10-18 · 修**手机设置页「安装插件包（.znp）」点了没反应**（Settings 复用 PluginPanel 时漏传 `onInstall`）· 测试 **206** |
 | rev170 | 2026-10-18 · **输入状态下右划不打开侧栏**（`lib/swipe.ts` 纯函数；左划关闭不受影响）· 测试 **206** |
 | rev169 | 2026-10-18 · 文件树展开/折叠状态**按库持久化**（localStorage `zn-tree-collapsed:<库路径>`；重开恢复上次状态）· 测试 **199** |
 | rev168 | 2026-10-18 · 编辑界面顶栏笔记标题**屏幕居中**（`.zn-app.is-editing` + 绝对定位；起始页 ZeroNote 仍靠右）· 测试 **195** |
@@ -142,6 +143,30 @@ revision: 170
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev171（2026-10-18 · 手机设置页「安装插件包」点了没反应）
+>
+> 用户：「手机安装znp包，点击无法唤醒文件管理」。
+>
+> ### 1 根因
+>
+> - 设置弹窗的「插件」段复用 `PluginPanel`，但 `Settings.tsx` **漏传 `onInstall`**
+>   ⇒ 按钮 `onClick={() => onInstall?.()}` 变成空操作，点了什么都不发生、也没有报错。
+> - 手机从设置进插件页（长按/点齿轮）只有这一条路，所以「安装插件包（.znp）」看起来完全失效；
+>   桌面主区插件页（另一处 `PluginPanel`）不受影响。
+>
+> ### 2 修复
+>
+> - `SettingsProps` 增加 `onInstall`，设置页渲染 `PluginPanel` 时传入；
+>   `App.tsx` 的 `<Settings>` 传 `onInstall={() => void installZnp()}`。
+>
+> ### 3 验收
+>
+> - 手机实测（CDP + adb）：设置 → 插件 → 点「安装插件包（.znp）…」→
+>   `topResumedActivity` 变成 `com.android.fileexplorer/.picker.PickMainNavigatorActivity`
+>   （系统文件管理器拉起）✓
+> - ⚠️ 测试机的 **debug 包 Rust 侧是旧的**（没有 `read_znp` / `install_znp`），选完文件会报
+>   「Command read_znp not found」——这是**包旧**，不是本轮代码问题；新 release 包 / 新 debug 包才带这两个命令。
+>
 > ## 📌 rev170（2026-10-18 · 输入状态下右划不打开侧栏）
 >
 > 用户：「输入状态下设置为右划打开侧栏不生效」→「设置成输入状态不生效」。

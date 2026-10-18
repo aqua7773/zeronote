@@ -83,6 +83,12 @@ export interface SettingsProps {
   onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
   /**
+   * 安装 `.znp` 插件包（2026-10-18 修：设置页的插件段复用了 PluginPanel，
+   * 但漏传 `onInstall` ⇒ 手机从设置进插件页点「安装插件包」时 `onInstall?.()` 是空操作，
+   * 表现为「点击无法唤醒文件管理」）。由 App 传 `installZnp`。
+   */
+  onInstall: () => void
+  /**
    * 自称需要 `net` / `proc` 的插件（**只读展示**）。
    *
    * 2026-10-13 拆权限门后这一块不再是"开关"：内核不查授权、不做判定，
@@ -107,6 +113,7 @@ export function Settings({
   onTogglePlugin,
   onDeletePlugin,
   onReloadPlugins,
+  onInstall,
   declaredNet,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
@@ -201,6 +208,7 @@ export function Settings({
                   log={pluginLog}
                   onToggle={onTogglePlugin}
                   onDelete={onDeletePlugin}
+                  onInstall={onInstall}
                 />
 
                 {/*

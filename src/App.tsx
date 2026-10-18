@@ -2334,6 +2334,8 @@ export default function App() {
         onTogglePlugin={togglePlugin}
         onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
+        // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
+        onInstall={() => void installZnp()}
         declaredNet={declNetPlugins}
       />
 
