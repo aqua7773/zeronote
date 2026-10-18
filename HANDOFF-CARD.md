@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev144）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev145）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,12 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev144）
+## 最近一轮（rev145）
 
-- **菜单避让所有文件行**（用户要求：「保证不遮挡选中项目」+「未选中也不要遮挡」）。
-- `ContextMenu.avoid`：渲染后量菜单尺寸，与行矩形相交就挪（下 → 上 → 右 → 左 → 顶部），零重叠优先。
-- `FileTree` 交的是**树里所有行**的矩形，不只选中行；避让在事件处理里算（不违反 ref 规则）。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 桌面 CDP 实测 overlap=[]。手机上菜单最终固定位置待用户圈定。
+- **菜单定位定稿**：桌面跟在鼠标**右下角**（+8/+10，超视口翻转）；手机固定**屏幕右下角**（用户圈的位置）。
+- 去掉 rev144 的菜单避让（用户要求桌面跟手）；首帧隐藏避免位置闪。
+- `FileTree` 按 UA 选 `anchor`：Android → `bottom-right`，桌面 → `pointer`。
+- 验收：tsc 0 · oxlint 4 · **vitest 195** · 桌面 CDP `dx=8 dy=10` · 手机截图右下角。
 
 ## 未决 / 下一步
 
