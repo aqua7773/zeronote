@@ -187,6 +187,10 @@ revision: 173.13
 >   「`pnpm.bat` 启动失败」（最后一个 fallback 的异常盖住了真正的非零退出）。
 >   改回 `com.aqua.zeronote` 后一次构建通过；真机 `com.aqua.zeronote.debug` 连 `192.168.1.3:1420` 正常。
 > - 失败现场备份：`.self-logs/android-dev-20261018-2341-fail.log`（1.8 MB）。
+> - **HMR 更新失败会白屏**（2026-10-19 00:16 实测）：手机端拉 `/src/hooks/useFileOps.ts?t=…` 时
+>   `tauri::protocol::tauri` 报 `Failed to request …: error sending request` ⇒ vite 接着报
+>   `Failed to reload /src/App.tsx`，页面停在白屏（不是代码错误 —— 同一时刻桌面 HMR 正常、手机 TCP 1420 可连）。
+>   处置：`adb shell am force-stop com.aqua.zeronote.debug` 后重开即恢复（00:22 实测）。
 > - 目前两端 dev 同时在跑：桌面 `pnpm tauri dev`（1420）+ 手机 `android-dev.cmd`。
 >
 > ## 📌 rev173.12（2026-10-18 · 交接：rev173.11 收口 + WebView2 根因闭环）

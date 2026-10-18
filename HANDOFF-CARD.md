@@ -79,6 +79,9 @@ pwsh -File scripts\verify.ps1
 - **防火墙**：1420 已放行（TCP，仅 `192.168.1.0/24`；网络被识别为 Public、手机 2.4G / 电脑 5G 跨 SSID）。
 - **手机 CDP**（默认手机断言手段）：`adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` → `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`。
 - **手机模拟点击**：`input tap` 无效；用 `input motionevent DOWN x y` ＋ `UP x y`（间隔 ~120 ms）。`screencap` 是物理像素。
+- **手机白屏（HMR 失败）**：vite 报 `Failed to reload /src/App.tsx` 后页面不回滚 ⇒ 白屏
+  （先看 logcat 是不是 `tauri::protocol::tauri: Failed to request …: error sending request`）；
+  `adb shell am force-stop com.aqua.zeronote.debug` 重开即恢复（2026-10-19 实测）。
 - **测试库 `_tmp-vault-tb/`**：1 篇笔记（`新笔记-18-09-36.md`）+ 3 个只读文档；`.zn/plugins` 有 10 个插件目录（daily-note / editor-marks / inspiration-flow / tag-demo / theme-sepia / asset-probe / doc-reader / import-export / net-demo / outline-map）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
