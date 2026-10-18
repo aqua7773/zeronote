@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev149）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev156）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev149）
+## 最近一轮（rev156）
 
-- **彻底删除确认框改 portal**（用户报「删除框被截断」）：侧栏抽屉的 transform 会把 `position:fixed` 裁掉；改 `createPortal` 到 body 后完整显示。
-- 定位仍 fixed + viewport clamp（left ≤ 屏宽−296，top ≤ 屏高−170）。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev149-purge3-161623.png`。
+- **移动端起始页 = flomo 风卡片流**（用户给截图要求）：时间 + 正文摘要卡片、右上「⋯」菜单（打开/删除/彻底删除）、底部「＋ 点击输入，新建一条」。
+- 语音输入**不做**（用户：「语音先不做」，文案已改掉避免误导）。
+- 桌面端仍用原起始页；`rev150–155` 已回退到 `backup/rev155` 分支。
+- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev156-cards2-164905.png`。
 
 ## 未决 / 下一步
 

@@ -38,6 +38,7 @@ import { TitleBar } from './components/TitleBar'
 import { AppSidebar } from './components/AppSidebar'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
+import { MobileNoteCards } from './components/MobileNoteCards'
 import { AppResizer } from './components/AppResizer'
 import { AppStatusBar } from './components/AppStatusBar'
 import {
@@ -2150,6 +2151,16 @@ export default function App() {
               关闭
             </button>
           </div>
+        ) : !isDesktop ? (
+          /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
+          <MobileNoteCards
+            notes={notes}
+            onOpen={(p) => void openNote(p)}
+            onNewNote={() => void runCore('core.newNote')}
+            readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
+            onDelete={(p) => void deleteNotes([p])}
+            onPurge={(p) => void purgeNotes([p])}
+          />
         ) : (
           /* 空态：按 NN/g「空态三原则」组织 ——
              ① 说清当前状态（是"还没打开"，不是"加载中"）
