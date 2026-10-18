@@ -1646,6 +1646,10 @@ body.is-resizing * {
 @media (max-width: 820px) {
   .zn-mobile-only { display: inline-flex; align-items: center; }
 
+  /* 移动端没有「关闭」按钮（返回键即关闭）—— 「源码」切换直接占它原来的位置（右上角第一行）。
+     2026-10-18 用户要求：「移动端编辑界面没必要放关闭按钮，返回就是关闭，把源码放到关闭按钮的位置」。 */
+  .zn-editor-modebar { top: 8px; }
+
   /* 背景贴满整屏（上下都到屏幕边缘），系统栏的间距改用**内部 padding** 让开。
      之前把 env(safe-area-inset-*) 直接当成 top/bottom，于是抽屉上方与下方各露出
      一块没盖住的灰 —— 用户反馈的「上下两端没覆盖」就是这个。

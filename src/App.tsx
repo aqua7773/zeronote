@@ -2142,16 +2142,19 @@ export default function App() {
               </MarkToolbar>
             ) : null}
             {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
-                不放标题栏，免得跟窗口那个 × 挨着分不清 */}
-            <button
-              type="button"
-              className="zn-editor-close"
-              onClick={() => void closeNote()}
-              title="关闭这篇笔记（Ctrl+W）"
-              aria-label="关闭当前笔记"
-            >
-              关闭
-            </button>
+                不放标题栏，免得跟窗口那个 × 挨着分不清。
+                移动端不渲染：返回键就是关闭（2026-10-18 用户要求「编辑界面没必要放关闭按钮」）。 */}
+            {isDesktop && (
+              <button
+                type="button"
+                className="zn-editor-close"
+                onClick={() => void closeNote()}
+                title="关闭这篇笔记（Ctrl+W）"
+                aria-label="关闭当前笔记"
+              >
+                关闭
+              </button>
+            )}
           </div>
         ) : !isDesktop ? (
           /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
