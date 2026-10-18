@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
@@ -1130,55 +1131,59 @@ export function FileTree({
         />
       )}
 
-      {/* 「彻底删除」的二次确认 —— 不进回收站、撤不回来，所以必须问一次（与「删除」是两回事） */}
-      {purgeConfirm && (
-        <div
-          role="dialog"
-          aria-label="确认彻底删除"
-          style={{
-            position: 'fixed',
-            zIndex: 60,
-            width: 288,
-            padding: '12px 14px',
-            border: '1px solid var(--zn-border)',
-            borderRadius: 10,
-            background: 'var(--zn-bg)',
-            color: 'var(--zn-fg)',
-            boxShadow: '0 8px 24px rgba(0,0,0,.22)',
-            fontSize: 'var(--zn-text-sm)',
-            lineHeight: 1.6,
-            left: Math.max(8, Math.min(purgeConfirm.x, window.innerWidth - 300)),
-            top: Math.max(8, Math.min(purgeConfirm.y, window.innerHeight - 160)),
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>
-            {purgeConfirm.paths.length > 1
-              ? `彻底删除这 ${purgeConfirm.paths.length} 项？`
-              : '彻底删除这一项？'}
-          </div>
-          <div style={{ color: 'var(--zn-fg-subtle)' }}>
-            不经过回收站，<strong>永久抹掉</strong> —— 撤不回来。
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-            <button type="button" className="zn-plain-btn" onClick={() => setPurgeConfirm(null)}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="zn-plain-btn is-danger"
-              onClick={() => {
-                const ps = purgeConfirm.paths
-                setPurgeConfirm(null)
-                setSelected([])
-                setSelectMode(false)
-                onPurgeMany(ps)
-              }}
-            >
-              彻底删除
-            </button>
-          </div>
-        </div>
-      )}
+      {/* 「彻底删除」的二次确认 —— 不进回收站、撤不回来，所以必须问一次（与「删除」是两回事）。
+          用 portal 挂到 body：侧栏抽屉有 transform 动画，`position:fixed` 会被祖先裁掉
+          （2026-10-18 手机实测「删除框被截断」）。 */}
+      {purgeConfirm &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-label="确认彻底删除"
+            style={{
+              position: 'fixed',
+              zIndex: 60,
+              width: 288,
+              padding: '12px 14px',
+              border: '1px solid var(--zn-border)',
+              borderRadius: 10,
+              background: 'var(--zn-bg)',
+              color: 'var(--zn-fg)',
+              boxShadow: '0 8px 24px rgba(0,0,0,.22)',
+              fontSize: 'var(--zn-text-sm)',
+              lineHeight: 1.6,
+              left: Math.max(8, Math.min(purgeConfirm.x, window.innerWidth - 296)),
+              top: Math.max(8, Math.min(purgeConfirm.y, window.innerHeight - 170)),
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>
+              {purgeConfirm.paths.length > 1
+                ? `彻底删除这 ${purgeConfirm.paths.length} 项？`
+                : '彻底删除这一项？'}
+            </div>
+            <div style={{ color: 'var(--zn-fg-subtle)' }}>
+              不经过回收站，<strong>永久抹掉</strong> —— 撤不回来。
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+              <button type="button" className="zn-plain-btn" onClick={() => setPurgeConfirm(null)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="zn-plain-btn is-danger"
+                onClick={() => {
+                  const ps = purgeConfirm.paths
+                  setPurgeConfirm(null)
+                  setSelected([])
+                  setSelectMode(false)
+                  onPurgeMany(ps)
+                }}
+              >
+                彻底删除
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev148）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev149）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev148）
+## 最近一轮（rev149）
 
-- **手机菜单 = 点按处右下固定距离**（用户定稿）：菜单左上角 = 点按处 + (16, 56)。
-- 屏幕边缘放不下就贴边 clamp，保持右下方向、不翻侧。桌面不变（鼠标右下角 +8/+10）。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev148-phone-offset-161136.png`。
+- **彻底删除确认框改 portal**（用户报「删除框被截断」）：侧栏抽屉的 transform 会把 `position:fixed` 裁掉；改 `createPortal` 到 body 后完整显示。
+- 定位仍 fixed + viewport clamp（left ≤ 屏宽−296，top ≤ 屏高−170）。
+- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev149-purge3-161623.png`。
 
 ## 未决 / 下一步
 
