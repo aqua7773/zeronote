@@ -34,12 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev139）
+## 最近一轮（rev140）
 
-- **文件树顶栏**（用户看图提的需求）：文件列表上方一栏，「新建笔记 / 新建文件夹」两个按钮；复用右键同一套 `createIn('', …)`，空库也有。
-- **rev138 约定升级**：`docs/开发约定.md` 新增「先查现成」总原则 + §0.5 六环节清单（需求 / 选依赖 / 写实现 / 排查 / 下结论 / 写文档）。
-- 测试 **194**：`tests/file-tree-toolbar.test.tsx` 2 条；截图 `_shots/rev139-tree-toolbar.png`。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 194**）。
+- **手机长按文件 → 弹电脑右键同款菜单**（不再转多选）；**多选入口**：树顶「多选」按钮 + 右键菜单「多选」项（仅文件）。
+- 两个冒泡坑已修：工具栏按钮 / 菜单项点击会被树容器「点空白取消多选」吃掉。
+- 桌面与手机 CDP 都实测通过（截图 `_shots/rev140-phone-multiselect.png`）；测试 **196**。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 196**）。
 
 ## 未决 / 下一步
 

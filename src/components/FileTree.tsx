@@ -209,7 +209,6 @@ function Node({
   dragging,
   onPick,
   onContextMenu,
-  onLongPress,
   renaming,
   draft,
   setDraft,
@@ -230,8 +229,6 @@ function Node({
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
-  /** 触摸长按（Android 把长按转成 `contextmenu`，`pointerType === 'touch'`）—— 手机上进多选 */
-  onLongPress: (path: string) => void
   renaming: Renaming | null
   draft: string
   setDraft: (v: string) => void
@@ -326,7 +323,6 @@ function Node({
                 dragging={dragging}
                 onPick={onPick}
                 onContextMenu={onContextMenu}
-                onLongPress={onLongPress}
                 renaming={renaming}
                 draft={draft}
                 setDraft={setDraft}
@@ -399,12 +395,8 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        /* 触摸长按 → 进多选（而不是弹菜单）。判据用 `pointerType`：鼠标右键是 `mouse`，
-           安卓长按是 `touch`（2026-10-13 真机实测，见 HANDOFF rev67）。 */
-        if ((e.nativeEvent as PointerEvent).pointerType === 'touch') {
-          onLongPress(node.path)
-          return
-        }
+        // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）；
+        // 多选改由树顶「多选」按钮进入，长按不再转多选。
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
@@ -604,14 +596,6 @@ export function FileTree({
     onOpen(path)
   }
 
-  /** 手机长按一行 → 进多选并把该行选上（Android 把长按转成 `contextmenu`，见 HANDOFF rev67） */
-  const enterSelect = (path: string) => {
-    setMenu(null)
-    setSelectMode(true)
-    setSelected([path])
-    setAnchor(path)
-  }
-
   /**
    * 鼠标左键在树里的两种拖拽（2026-10-17）：
    *
@@ -804,10 +788,15 @@ export function FileTree({
    */
   const toolbar = (
     <div className="zn-tree-toolbar">
+      {/* ⚠️ 每个按钮都要 `stopPropagation`：根容器的 onClick 把「点空白」当成取消多选，
+          不拦住的话刚点「多选」就被同一次冒泡立刻退出（2026-10-18 实测）。 */}
       <button
         type="button"
         className="zn-plain-btn zn-tree-new"
-        onClick={() => void createIn('', false)}
+        onClick={(e) => {
+          e.stopPropagation()
+          void createIn('', false)
+        }}
         title="在库根新建笔记"
       >
         新建笔记
@@ -815,10 +804,28 @@ export function FileTree({
       <button
         type="button"
         className="zn-plain-btn zn-tree-new"
-        onClick={() => void createIn('', true)}
+        onClick={(e) => {
+          e.stopPropagation()
+          void createIn('', true)
+        }}
         title="在库根新建文件夹"
       >
         新建文件夹
+      </button>
+      {/* 多选入口（2026-10-18 用户要求）：手机长按改为弹菜单，多选改从这里进 */}
+      <button
+        type="button"
+        className="zn-plain-btn zn-tree-new"
+        onClick={(e) => {
+          e.stopPropagation()
+          setMenu(null)
+          setSelected([])
+          setAnchor(null)
+          setSelectMode(true)
+        }}
+        title="进入多选：点选文件后可批量剪切 / 复制 / 删除"
+      >
+        多选
       </button>
     </div>
   )
@@ -973,6 +980,23 @@ export function FileTree({
               onClick: () => deletePaths([...selectedSet]),
             })
           }
+          /**
+           * 多选入口（2026-10-18 用户要求）：右键 / 手机长按弹出的就是这个菜单，
+           * 从这里进多选并选中当前这一条（已在多选模式时不再重复给）。
+           */
+          // 只对**文件**给多选入口 —— 现有选择集合的语义是「只含文件」（见上面 onKeyDown 注释）
+          if (!multi && !menu.isDir) {
+            list.push({
+              label: '多选',
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                setSelectMode(true)
+                setSelected([path])
+                setAnchor(path)
+              },
+            })
+          }
         }
         return list
       })()
@@ -995,6 +1019,9 @@ export function FileTree({
       onClick={(e) => {
         // 点**空白处** = 取消选中（与资源管理器一致，2026-10-17 用户要求）。
         // 点节点时事件从节点冒泡上来 —— target 落在 `[data-zn-path]` 里，这里不动选中。
+        // ⚠️ 右键菜单项点击也会冒泡到这里（菜单不是 portal）：必须放行，否则点「多选」
+        // 会被同一次冒泡立刻取消（2026-10-18 实测）。
+        if ((e.target as HTMLElement).closest('[role="menu"]')) return
         if (!(e.target as HTMLElement).closest('[data-zn-path]')) {
           setSelected([])
           setAnchor(null)
@@ -1094,7 +1121,6 @@ export function FileTree({
           reveal={reveal}
           dragging={draggingPath}
           onPick={pick}
-          onLongPress={enterSelect}
           onContextMenu={(path, isDir, x, y) =>
             setMenu({
               path,
