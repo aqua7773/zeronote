@@ -226,8 +226,12 @@ function Node({
   reveal?: string | null
   /** 正在被拖动的条目（源行淡出） */
   dragging?: string | null
-  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
-  onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
+  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围；`pos` 是点击位置，选中多项时用来直接弹菜单 */
+  onPick: (
+    path: string,
+    mods: { toggle: boolean; range: boolean },
+    pos: { x: number; y: number },
+  ) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
   renaming: Renaming | null
   draft: string
@@ -391,7 +395,13 @@ function Node({
         }${dragging === node.path ? ' is-dragging' : ''}`}
         style={pad}
         data-zn-path={node.path}
-        onClick={(e) => onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
+        onClick={(e) =>
+          onPick(
+            node.path,
+            { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey },
+            { x: e.clientX, y: e.clientY },
+          )
+        }
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -561,14 +571,41 @@ export function FileTree({
     return out
   }, [tree])
 
-  const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
+  /**
+   * 多选后**直接弹菜单**（2026-10-18 用户要求：「多选时直接弹出选中后的菜单，
+   * 不需要再右键一次」）。只对 **≥2 项**的选中集合弹：单项选中时普通点击已经
+   * 打开笔记了，交给右键/长按自己开菜单。
+   */
+  const openBatchMenu = (paths: string[], focusPath: string, x: number, y: number) => {
+    if (paths.length < 2) return
+    const focus = paths.includes(focusPath) ? focusPath : paths[0]
+    setMenu({
+      path: focus,
+      dir: parentDir(focus),
+      isDir: false,
+      multi: true,
+      x,
+      y,
+    })
+  }
+
+  const pick = (
+    path: string,
+    mods: { toggle: boolean; range: boolean },
+    pos: { x: number; y: number },
+  ) => {
     // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
     setSelectionCleared(false)
     // 点选模式（右键菜单「多选」进的）：点一行 = 加/减选，**不打开**笔记 ——
     // 否则一开编辑器就把抽屉收起来，多选根本做不下去。
+    // 选到 ≥2 项就直接弹批量菜单，不用再长按/右键一次。
     if (selectMode) {
-      setSelected((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]))
+      const next = selected.includes(path)
+        ? selected.filter((p) => p !== path)
+        : [...selected, path]
+      setSelected(next)
       setAnchor(path)
+      openBatchMenu(next, path, pos.x, pos.y)
       return
     }
     if (mods.range && anchor) {
@@ -577,16 +614,18 @@ export function FileTree({
       if (a >= 0 && b >= 0) {
         const lo = Math.min(a, b)
         const hi = Math.max(a, b)
-        setSelected(flatPaths.slice(lo, hi + 1))
+        const next = flatPaths.slice(lo, hi + 1)
+        setSelected(next)
+        openBatchMenu(next, path, pos.x, pos.y)
         return
       }
     }
     if (mods.toggle) {
-      setSelected((prev) => {
-        const base = prev.length ? prev : activePath ? [activePath] : []
-        return base.includes(path) ? base.filter((p) => p !== path) : [...base, path]
-      })
+      const base = selected.length ? selected : activePath ? [activePath] : []
+      const next = base.includes(path) ? base.filter((p) => p !== path) : [...base, path]
+      setSelected(next)
       setAnchor(path)
+      openBatchMenu(next, path, pos.x, pos.y)
       return
     }
     // 普通点击：单选 + 打开
@@ -627,6 +666,8 @@ export function FileTree({
     let dragging = false
     /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
     let target: string | null = null
+    /** 框选最近一次的选择框 —— 松手时按它算命中集合，用来直接弹菜单 */
+    let lastBox: { x0: number; y0: number; x1: number; y1: number } | null = null
 
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - start.x
@@ -642,9 +683,10 @@ export function FileTree({
           x1: Math.max(start.x, ev.clientX),
           y1: Math.max(start.y, ev.clientY),
         }
+        lastBox = box
         setMarquee(box)
         setSelected(hitTest(root, box))
-        // 框选**不进点选模式**：框选完直接用右键菜单操作这批选中项
+        // 框选**不进点选模式**：框选完直接用弹出的批量菜单操作这批选中项
         setSelectMode(false)
         return
       }
@@ -668,7 +710,7 @@ export function FileTree({
       })
     }
 
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       setMarquee(null)
@@ -682,7 +724,13 @@ export function FileTree({
         suppressClickRef.current = false
       }, 0)
 
-      if (!fromPath || !target) return
+      // 框选松手：≥2 项就直接弹批量菜单（2026-10-18 用户要求，省掉再右键一次）
+      if (!fromPath) {
+        if (lastBox) openBatchMenu(hitTest(root, lastBox), '', ev.clientX, ev.clientY)
+        return
+      }
+
+      if (!target) return
       // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项
       const paths =
         selectedSet.has(fromPath) && selectedSet.size > 1 ? dedupe([...selectedSet]) : [fromPath]

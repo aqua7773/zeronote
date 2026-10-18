@@ -77,13 +77,11 @@ describe('FileTree 顶栏', () => {
     expect(menu).toBeTruthy()
     fireEvent.click(within(menu).getByText('多选'))
 
-    // 点第二行 = 加选（不打开笔记）
+    // 点第二行 = 加选（不打开笔记），并**直接弹出批量菜单**（不用再右键一次）
     fireEvent.click(rows[1])
     expect(props.onOpen).not.toHaveBeenCalled()
-
-    // 再右键 = 批量菜单（删除选中的 2 项）
-    fireEvent.contextMenu(rows[1])
     const menu2 = document.querySelector('[role="menu"]') as HTMLElement
+    expect(menu2).toBeTruthy()
     expect(within(menu2).getByText('删除选中的 2 项')).toBeTruthy()
     // 批量条始终不出现
     expect(container.querySelector('.zn-select-bar')).toBeNull()
