@@ -69,11 +69,12 @@ export function ContextMenu({
   /**
    * 定位方式（2026-10-18 用户定）：
    *  · `pointer`（默认，桌面）—— **跟在鼠标右下角**（+8/+10），超出视口自动翻转；
-   *  · `above-pointer`（手机）—— 出现在**长按点上方**、固定拉开 12px：
-   *    手指在长按点下方，菜单往上放不会被手挡住；放不下就翻到下方。
-   *  · `bottom-right` —— 固定在**视口右下角**（保留备用）。
+   *  · `below-pointer`（手机）—— 挂在**长按点下方固定 72px**（离长按位置拉开一段距离），
+   *    左缘在长按点右 16px；下方放不下就翻到长按点上方 12px。
+   *  · `above-pointer` —— 长按点上方固定 12px（备选）。
+   *  · `bottom-right` —— 固定在视口右下角（备选）。
    */
-  anchor?: 'pointer' | 'bottom-right' | 'above-pointer'
+  anchor?: 'pointer' | 'bottom-right' | 'above-pointer' | 'below-pointer'
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -106,6 +107,14 @@ export function ContextMenu({
     if (anchor === 'bottom-right') {
       left = window.innerWidth - rect.width - 8
       top = window.innerHeight - rect.height - 8
+    } else if (anchor === 'below-pointer') {
+      // 手机：菜单固定在**点按处右下**（右 16 / 下 56 的固定距离）；
+      // 屏幕边缘放不下就**贴边 clamp**（不翻到反侧，保持"右下"这个方向）
+      const DX = 16
+      const DY = 56
+      left = Math.max(8, Math.min(x + DX, window.innerWidth - rect.width - 8))
+      top = y + DY
+      if (top + rect.height > window.innerHeight - 8) top = Math.max(8, y - rect.height - DY)
     } else if (anchor === 'above-pointer') {
       // 手机长按：菜单放在**长按点上方**（手指在下面挡着），固定拉开 12px
       left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))

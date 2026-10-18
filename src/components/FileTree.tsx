@@ -572,11 +572,11 @@ export function FileTree({
   }, [tree])
 
   /**
-   * 菜单定位：桌面跟鼠标右下角（`pointer`）；手机出现在**长按点上方**固定距离
-   * （`above-pointer`，手指在下方挡着，往上放才看得见）—— 用户 2026-10-18 要求。
+   * 菜单定位：桌面跟鼠标右下角（`pointer`）；手机挂在**长按点下方固定 72px**
+   * （`below-pointer`，离长按位置拉开一段距离，不挡长按行）—— 用户 2026-10-18 定。
    */
-  const menuAnchor: 'pointer' | 'above-pointer' = /Android/i.test(navigator.userAgent)
-    ? 'above-pointer'
+  const menuAnchor: 'pointer' | 'below-pointer' = /Android/i.test(navigator.userAgent)
+    ? 'below-pointer'
     : 'pointer'
 
   /**
