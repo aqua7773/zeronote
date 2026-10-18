@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev131）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev132）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev131）
+## 最近一轮（rev132）
 
-- **工程债四件**：① 卡片过时数字改「以输出为准」② App 集成冒烟 3 条（真实挂载 App，三条启动分支）③ atomic-editor 补丁回归 4 条（静态护栏 + 真实 CM6 渲染）④ 快照备份分层结论（不入库是设计，见开发约定 §7）。
-- 配套：`vitest.config.ts` 加 `server.deps.inline: ['@atomic-editor/editor']`。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 180**）。
+- **桌面 ☰ 改为文件树栏开关**（用户看图提的需求）：左键切换侧栏，**右键 ☰ 打开菜单**；tooltip/aria 同步。
+- 移动端不传 `onToggleSidebar` ⇒ 保持原行为（☰ 仍是菜单入口，抽屉从菜单进）。
+- 测试 **180 → 183**：`tests/titlebar.test.tsx` 3 条（桌面左键 / 桌面右键 / 移动端不变）。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 183**）。
 
 ## 未决 / 下一步
 

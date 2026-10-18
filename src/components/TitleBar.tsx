@@ -28,6 +28,12 @@ export interface TitleBarProps {
   saveDirty?: boolean
   /** ☰ 点开菜单：把按钮的屏幕位置交回宿主去弹 */
   onMenu: (at: { x: number; y: number }) => void
+  /**
+   * ☰ 变成**文件树栏（侧栏）开关**（2026-10-18 用户要求）。
+   * 传了它 ⇒ 左键切换侧栏、右键才弹菜单；不传（移动端）⇒ 保持"左键弹菜单"
+   * —— 移动端的侧栏抽屉本来就集成在菜单里，☰ 是它唯一入口。
+   */
+  onToggleSidebar?: () => void
   /** 桌面端才渲染窗口控制按钮 */
   showWindowControls?: boolean
   /** 是否滑出显示（自动隐藏：鼠标靠近顶部、或键盘焦点进来时显示） */
@@ -42,6 +48,7 @@ export function TitleBar({
   saveError,
   saveDirty,
   onMenu,
+  onToggleSidebar,
   showWindowControls = true,
   visible = true,
   onHoverChange,
@@ -75,14 +82,26 @@ export function TitleBar({
         type="button"
         className="zn-icon-btn"
         onClick={() => {
+          // 桌面：左键 = 文件树栏开关（2026-10-18 用户要求）；菜单让给右键。
+          // 移动端：没有 onToggleSidebar ⇒ 保持原行为（左键弹菜单，抽屉从菜单进）。
+          if (onToggleSidebar) {
+            onToggleSidebar()
+            return
+          }
           // 悬挂菜单：**左对齐窗口左边**（x=0）、**顶边贴在标题栏下沿**（y=32）、不留空隙。
           //（用户要求：「左对齐，不留空隙，顶部是贴标题栏底部，不是两个顶部重合」）
           // 32 就是标题栏高度（`.zn-titlebar` 的 height）—— 改高度时这两处要一起改。
           onMenu({ x: 0, y: 32 })
         }}
-        title="菜单"
-        aria-label="菜单"
-        aria-haspopup="menu"
+        onContextMenu={(e) => {
+          // 菜单的唯一入口（桌面版左键被侧栏开关占用了）：右键 ☰ 弹同一份菜单
+          if (!onToggleSidebar) return
+          e.preventDefault()
+          onMenu({ x: 0, y: 32 })
+        }}
+        title={onToggleSidebar ? '切换文件树栏（右键打开菜单）' : '菜单'}
+        aria-label={onToggleSidebar ? '切换文件树栏' : '菜单'}
+        aria-haspopup={onToggleSidebar ? undefined : 'menu'}
       >
         ☰
       </button>

@@ -1922,6 +1922,9 @@ export default function App() {
         saveError={saveState === 'error'}
         saveDirty={dirty}
         onMenu={setMenuAt}
+        // 2026-10-18 用户要求：桌面版 ☰ = 文件树栏开关（左键切换、右键弹菜单）；
+        // 移动端不传 —— 侧栏抽屉集成在菜单里，☰ 仍是菜单入口。
+        onToggleSidebar={isDesktop ? () => setSidebarVisible((v) => !v) : undefined}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
         onHoverChange={setTitlebarVisible}
