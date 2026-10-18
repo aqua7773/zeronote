@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.4
-更新时间: 2026-10-18（rev173.4 插件分类：manifest.category + 插件页分组 + 存量补齐）
+revision: 173.5
+更新时间: 2026-10-18（rev173.5 取消库内插件：所有插件只在全局插件根）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.5 | 2026-10-18 · **取消库内插件**：插件只在全局根 `<应用数据目录>/.zn/plugins/`；安装/内置预装/扫描/删除全部走全局；旧副本用 `__znMigratePlugins()` 搬移（桌面 11 / 手机 9）· 测试 **237** |
 | rev173.4 | 2026-10-18 · **插件分类**：`manifest.category`（editor/reader/theme/tool/demo）+ 插件页分组 + 存量插件（examples 29 / 全局 6 / 库内 11 / 手机 9）补齐 · 测试 **237** |
 | rev173.3 | 2026-10-18 · **附件**：文件树「附件」分组（图片进树、点开预览）+ 右键「插入附件…」为唯一入口（图片写 `![]()` 渲染不变、其它文件写 `[]()`）· 测试 **230 / cargo 31** |
 | rev173.2 | 2026-10-18 · 图片预览**按返回键先退预览**（预览压进层出口栈；再按一次才关笔记） |
@@ -149,6 +150,37 @@ revision: 173.4
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.5（2026-10-18 · 取消库内插件）
+>
+> 用户：「取消库内插件这种形式，所有插件都是全局的」。
+>
+> ### 1 代码
+>
+> - `plugin-roots.ts`：`collectPluginDirs()` 不再接收库参数，**只扫全局根**（`appDataDir()/.zn/plugins/`）；
+>   删掉两处合并与「库内优先」规则。
+> - `usePluginHost`：内置预装写**全局根**（`ensureBuiltinPlugins(globalRoot)`）；
+>   `.znp` 安装 `install_znp({ vault: globalRoot })`；删除插件直接用加载时记下的 root。
+> - `App.deletePlugin`：root 只从 `pluginEntries[id].root` 取（不再回退到当前库）。
+> - `PluginPanel`：去掉「本库」徽章与「两种放法」空态；底部说明改为「插件目录：… 所有笔记库共用这一份」。
+> - 新增迁移口 `window.__znMigratePlugins()`（`usePluginHost`）：把库内 `.zn/plugins/<id>/`
+>   按 manifest 声明过的文件（`entry` / `styles` / `files`）搬进全局根，**全局已有文件不覆盖**。
+>
+> ### 2 数据迁移
+>
+> | 位置 | 结果 |
+> |---|---|
+> | 桌面全局根 | 11 个（原 8 个内置/已装 + 从测试库搬入 asset-probe / net-demo / theme-green） |
+> | 手机全局根 | 9 个（`/data/user/0/com.aqua.zeronote.debug/.zn/plugins`；`__znMigratePlugins` 迁移） |
+> | 桌面测试库 `.zn/plugins` | **保留未删**（11 个目录，插件已不再扫描；见边界） |
+> | 手机库 `.zn/plugins` | **保留未删**（9 个目录，同上） |
+>
+> ### 3 边界（重要）
+>
+> - **库内旧目录没删**：① 迁移已确认全局有副本；② `outline-map` 这类插件会自己
+>   `fs.readText('.zn/plugins/outline-map/vendor/…')` 读**当前库**里的 vendor —— 删掉库内目录会让它的
+>   导图窗口加载失败（手机端全局副本只有声明的文件，没有 vendor）。确认要彻底删库内目录时，
+>   先把 vendor 之类未声明资源也搬进全局根。
+>
 > ## 📌 rev173.4（2026-10-18 · 插件分类）
 >
 > 用户三连：「插件越来越多了，开始做插件分类存放」→「插件创建的时候加一个分类的类型，

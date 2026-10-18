@@ -120,14 +120,11 @@ export function PluginPanel({
 
       {plugins.length === 0 ? (
         <div className="zn-plugins-empty">
-          还没有插件。两种放法（放好点「重新扫描」，不用重启）：
+          还没有插件。放法（放好点「重新扫描」，不用重启）：
           <br />
           <br />
-          · <strong>所有笔记库共用</strong> →{' '}
-          <code>{globalRoot ? `${globalRoot}` : '<应用数据目录>'}</code> 下的{' '}
+          · 插件目录 → <code>{globalRoot ? `${globalRoot}` : '<应用数据目录>'}</code> 下的{' '}
           <code>.zn/plugins/&lt;id&gt;/</code>
-          <br />
-          · 只在这个库用 → <code>&lt;当前库&gt;/.zn/plugins/&lt;id&gt;/</code>
           <br />
           <br />
           参考实现：<code>examples/hello-plugin/</code>
@@ -158,19 +155,6 @@ export function PluginPanel({
               <div className="zn-plugin-meta">
                 <div className="zn-plugin-name">
                   {p.name} <span className="zn-plugin-ver">v{p.version}</span>
-                  {p.source === 'global' && (
-                    <span
-                      className="zn-plugin-source"
-                      title="装在全局插件目录：所有笔记库都能用"
-                    >
-                      全局
-                    </span>
-                  )}
-                  {p.source === 'vault' && (
-                    <span className="zn-plugin-source zn-plugin-source-vault" title="只在这个库生效">
-                      本库
-                    </span>
-                  )}
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
                   )}
@@ -225,8 +209,8 @@ export function PluginPanel({
       {/* 全局插件根：告诉用户"拷到哪能全库生效"，且让"本库插件"有对照物（rev94） */}
       {globalRoot && (
         <div className="zn-plugins-globalroot">
-          全局插件目录：<code>{globalRoot}</code> 下的 <code>.zn/plugins/</code>
-          <span className="zn-plugins-globalroot-hint"> 放这里的插件所有笔记库都能用</span>
+          插件目录：<code>{globalRoot}</code> 下的 <code>.zn/plugins/</code>
+          <span className="zn-plugins-globalroot-hint"> 所有笔记库共用这一份</span>
         </div>
       )}
 

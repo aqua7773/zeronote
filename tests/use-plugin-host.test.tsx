@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   supportsPlatform: vi.fn(() => true),
   collectPluginDirs: vi.fn(),
   tryGlobalPluginRoot: vi.fn(async () => null),
+  // rev173.5：插件只装全局根 —— 安装/迁移都要拿它（测试里固定一个路径）
+  globalPluginRoot: vi.fn(async () => '/appdata'),
   ensureBuiltinPlugins: vi.fn(async () => {}),
   invoke: vi.fn(),
   confirm: vi.fn(async () => true),
@@ -27,6 +29,7 @@ vi.mock('../src/kernel/plugin-host', () => ({
 vi.mock('../src/kernel/plugin-roots', () => ({
   collectPluginDirs: mocks.collectPluginDirs,
   tryGlobalPluginRoot: mocks.tryGlobalPluginRoot,
+  globalPluginRoot: mocks.globalPluginRoot,
 }))
 vi.mock('../src/kernel/builtin-plugins', () => ({ ensureBuiltinPlugins: mocks.ensureBuiltinPlugins }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: mocks.confirm, open: mocks.open }))
@@ -196,7 +199,10 @@ describe('usePluginHost', () => {
       expect.stringContaining('Demo'),
       expect.objectContaining({ title: '安装插件包' }),
     )
-    expect(mocks.invoke).toHaveBeenCalledWith('install_znp', { vault: '/vault', path: '/tmp/demo.znp' })
+    expect(mocks.invoke).toHaveBeenCalledWith('install_znp', {
+      vault: '/appdata',
+      path: '/tmp/demo.znp',
+    })
     expect(args.setReloadToken).toHaveBeenCalled()
     expect(args.setToast).toHaveBeenCalledWith('插件已安装：demo')
   })
@@ -242,7 +248,7 @@ describe('usePluginHost', () => {
       await result.current.installZnp()
     })
     expect(mocks.open).toHaveBeenCalledWith(expect.objectContaining({ title: '选择插件包（.znp）' }))
-    expect(mocks.invoke).toHaveBeenCalledWith('install_znp', { vault: '/vault', path: '/tmp/z.znp' })
+    expect(mocks.invoke).toHaveBeenCalledWith('install_znp', { vault: '/appdata', path: '/tmp/z.znp' })
   })
 
   it('__znInstallZnp 诊断出口挂载/卸载', async () => {

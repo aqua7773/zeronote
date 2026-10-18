@@ -1,14 +1,14 @@
 import { invoke } from '@tauri-apps/api/core'
 
 /**
- * **内置插件**（2026-10-17）。
+ * **内置插件**（2026-10-17；2026-10-18 rev173.5 起只写全局根）。
  *
  * 用户反馈：安卓上插件目录在应用私有空间，用户没法像桌面那样自己拷 ——
  * 「安卓插件能不能不用自己一道目录，而是默认放在目录，要安装其他插件的时候再自己添加到目录里面」。
  *
  * 做法：把常用插件的源码用 vite 的 `?raw` **打进前端包**，App 启动时通过
- * `write_plugin_file` 写进 `<私有根>/.zn/plugins/<id>/`（已存在则覆盖为内置版本）。
- * 用户之后要装别的插件，仍然是往同一个目录里加（桌面/安卓一致）。
+ * `write_plugin_file` 写进**全局插件根**（`appDataDir()/.zn/plugins/<id>/`，已存在则覆盖为内置版本）。
+ * 用户之后要装别的插件，仍然是往同一个目录里加（桌面/安卓一致、所有库共用）。
  *
  * ⚠️ 只打包**运行必需**的文件（index.js / manifest.json / 样式），不带 selftest / store。
  */
@@ -71,7 +71,11 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
  * 幂等：每次都覆盖为内置版本（保证升级后代码一致）；用户自己加的插件不受影响。
  * 单个文件失败只警告、不中断（少一个图标样式不该让整个 App 起不来）。
  */
-export async function ensureBuiltinPlugins(vault: string): Promise<void> {
+/**
+ * 把内置插件写进**全局插件根**（`root` = `appDataDir()`；rev173.5 起插件只有全局一处）。
+ * 幂等：内容一样就跳过（原因见下面的注释）。
+ */
+export async function ensureBuiltinPlugins(root: string): Promise<void> {
   for (const plugin of BUILTIN_PLUGINS) {
     for (const [rel, content] of Object.entries(plugin.files)) {
       try {
@@ -84,12 +88,16 @@ export async function ensureBuiltinPlugins(vault: string): Promise<void> {
          * 内容比较能让「没变化」的启动完全静默；真正的升级/首次安装照常写入。
          */
         try {
-          const cur = await invoke<string>('read_plugin_file', { vault, pluginId: plugin.id, rel })
+          const cur = await invoke<string>('read_plugin_file', {
+            vault: root,
+            pluginId: plugin.id,
+            rel,
+          })
           if (cur === content) continue
         } catch {
           /* 文件不存在 / 读失败 ⇒ 走写入 */
         }
-        await invoke('write_plugin_file', { vault, pluginId: plugin.id, rel, content })
+        await invoke('write_plugin_file', { vault: root, pluginId: plugin.id, rel, content })
       } catch (e) {
         console.warn(`[zn] 内置插件 ${plugin.id}/${rel} 写入失败`, e)
       }

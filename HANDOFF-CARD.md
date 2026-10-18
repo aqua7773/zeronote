@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173.5）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
 
 `C:\Users\AQUA\Documents\deepseek\ZeroNote` —— **空内核**本地 Markdown 笔记应用（Tauri 2 + React 19 + Rust）。
-一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/`（跨库共用）或**库内** `.zn/plugins/<id>/`（只在本库生效，同名库内优先）；装卸＝放/删一个文件夹。
+一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— **唯一位置**（跨库共用；rev173.5 起取消库内插件）；装卸＝放/删一个文件夹。
 内核 10 原语 + 21 种 UINode + 6 个挂载位 + 真窗口 / 整窗接管。
 内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换。
 **插件预装**：新版 APK 内置 8 个常用插件（rev110）。
@@ -34,19 +34,21 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.4）
+## 最近一轮（rev173.5）
 
-- **插件分类**（用户：「插件越来越多了，开始做插件分类存放」）：
-  · manifest 可选 `category`（`editor`/`reader`/`theme`/`tool`/`demo`），插件页按它分组（标题吸顶 + 数量）；
-  · 不写就按「形状 + 名字」推断（纯 CSS ⇒ 主题、demo/probe ⇒ 示例…）；**只影响展示**，加载与安装路径不变；
-  · 存量补齐：examples 29、全局根 6、库内 11、手机 9；脚本 `scripts/plugin-category-backfill.mjs`（幂等）；
-  · 「创建」指开发者做插件：新插件 manifest 写 `"category"`（`docs/开发约定.md §1.1`、契约 §3），不做应用内创建向导。
-- 验收：插件页分组「编辑增强 4 / 阅读 1 / 主题外观 2 / 工具 2 / 示例与探针 2」；vitest **237**。
+- **取消库内插件**（用户：「取消库内插件这种形式，所有插件都是全局的」）：
+  · 插件只有全局根 `<应用数据目录>/.zn/plugins/`；安装 `.znp` / 内置预装 / 扫描 / 删除全部走全局；
+  · 插件页去掉「本库」徽章与「两种放法」空态，底部只显示一个插件目录；
+  · 迁移口 `window.__znMigratePlugins()` 把库内旧副本搬进全局（全局已有文件不覆盖）。
+- 迁移结果：桌面全局 11 个、手机全局 9 个；**库内旧目录保留未删**。
+- 边界：`outline-map` 会从当前库 `.zn/plugins/…/vendor` 读渲染库 —— 要删库内目录，先把它搬进全局根。
+- 上一轮：插件分类（rev173.4，`manifest.category` + 插件页分组）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| 插件存放 | ✅ **rev173.5**：只全局一处（库内插件取消）；桌面 11 / 手机 9 已迁移 |
 | 插件分类 | ✅ **rev173.4**：manifest.category + 插件页分组 + 存量插件全部补齐 |
 | 图片 / 附件 | ✅ **rev173.3**：附件入口（文件树分组 + 预览）+ 右键「插入附件…」统一入口；桌面 / 手机实测 |
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |

@@ -36,13 +36,17 @@
 
 > **2026-10-17 起两种新情况**：① 插件可放**全局目录** `<应用数据目录>/.zn/plugins/`（所有笔记库共用、切库不掉，rev94）；
 > ② 新版 APK 会**预装 8 个常用插件**（rev110），装完即可用 —— 下面的手工解压步骤只在需要更新/新增插件时才做。
+>
+> ⚠️ **2026-10-18 rev173.5：取消库内插件** —— 插件**只有全局目录一处**，
+> `<库目录>/.zn/plugins/` 不再被扫描。下面的手工步骤请把目标改成全局目录
+>（手机上它在应用私有空间，用 App 里的「安装插件包（.znp）」最省事）。
 
 ## 4. 装思维导图插件
 
-把 `outline-map-plugin.zip` 解压到 **`<库目录>/.zn/plugins/`**，结果应当是：
+把插件目录放到**全局插件根**：`<应用数据目录>/.zn/plugins/`，结果应当是：
 
 ```
-<库目录>/.zn/plugins/outline-map/
+<应用数据目录>/.zn/plugins/outline-map/
     index.js
     manifest.json
     vendor/MindElixir.iife.js
@@ -50,8 +54,8 @@
     vendor/PlaintextConverter.js
 ```
 
-> zip 里第一层就是 `outline-map` 文件夹，直接解压到 `plugins/` 即可。
-> 目录名保持 `outline-map`（连字符）。
+> 目录名保持 `outline-map`（连字符）。手机上优先用 App 内「安装插件包（.znp）」——
+> 应用数据目录经 adb 推入的旧做法仍可用，但 `.znp` 更简单。
 
 ## 5. 在 App 里启用
 

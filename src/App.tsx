@@ -1694,10 +1694,12 @@ export default function App() {
    * 失败时只报错、**不动界面状态** —— 磁盘上没删掉，界面就不该假装删了。
    */
   const deletePlugin = async (id: string) => {
-    const v = vault
-    if (!v) return
-    // 按**来源**删：全局插件删全局那份，库内插件删库内那份 —— 删错根要么删错位置、要么报"不存在"
-    const root = pluginEntries[id]?.root ?? v
+    // rev173.5：插件只有**全局一处**，root 直接取加载时记下的那个（同一份数据）。
+    const root = pluginEntries[id]?.root
+    if (!root) {
+      setToast('找不到这个插件的目录（可能已被删掉），点「重新扫描」刷新一下')
+      return
+    }
     try {
       await deletePluginDir(root, id)
       setDisabled((prev) => {

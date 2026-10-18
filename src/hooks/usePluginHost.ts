@@ -22,6 +22,7 @@ import { confirm, open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import type { Kernel } from '../kernel/kernel'
 import {
+  listPluginDirs,
   loadPlugin,
   platformOf,
   PlatformMismatch,
@@ -32,7 +33,7 @@ import {
   type PluginDirEntry,
   type PluginHostDeps,
 } from '../kernel/plugin-host'
-import { collectPluginDirs, tryGlobalPluginRoot } from '../kernel/plugin-roots'
+import { collectPluginDirs, globalPluginRoot, tryGlobalPluginRoot } from '../kernel/plugin-roots'
 import { ensureBuiltinPlugins } from '../kernel/builtin-plugins'
 import type { PluginManifest } from '../kernel/contract'
 import { LS_LOADING } from '../lib/boot-heal'
@@ -181,13 +182,14 @@ export function usePluginHost({
       k.commands.setActivator(activate)
       setPluginError(null)
       try {
-        // 2026-10-17 rev94：**两个来源** —— 当前库 + 全局插件根（`appDataDir()`），
-        // 同名目录库内优先。切库只换掉"库内"那半，全局那半永远在 ⇒ 插件跨库生效。
-        // 0. 内置插件预装（2026-10-17）：APK 里带的几个插件先写进私有目录，
-        //    之后扫描才能看到它们。用户自己加的插件不受影响。
-        await ensureBuiltinPlugins(vault)
+        // 2026-10-18 rev173.5：插件**只有全局一处**（用户「取消库内插件这种形式，
+        // 所有插件都是全局的」）—— 内置预装、扫描、安装、删除都落在 `appDataDir()/.zn/plugins/`。
+        // 切库不再换插件；库内 `.zn/plugins/` 的旧副本由迁移脚本搬走。
+        // 0. 内置插件预装：先写进全局插件根，之后扫描才能看到它们。
+        const globalRoot = await tryGlobalPluginRoot()
+        if (globalRoot) await ensureBuiltinPlugins(globalRoot)
         if (cancelled) return
-        const entries = await collectPluginDirs(vault)
+        const entries = await collectPluginDirs()
         const list: PluginManifest[] = []
         /** manifest id → 条目：后面加载 / 懒激活 / 删除都从这里取根 */
         const byId: Record<string, PluginDirEntry> = {}
@@ -204,7 +206,7 @@ export function usePluginHost({
         if (cancelled) return
         setManifests(list)
         setPluginEntries(byId)
-        setGlobalRoot(await tryGlobalPluginRoot())
+        setGlobalRoot(globalRoot)
         const ids: string[] = []
         for (const m of list) {
           // 每轮都先看取消：**被取代就整轮退出**，绝不继续注册（继续只会跟新代撞 id）
@@ -364,7 +366,9 @@ export function usePluginHost({
           )
           if (!ok) return null
         }
-        const id = await invoke<string>('install_znp', { vault, path })
+        // rev173.5：装到**全局插件根**（库内插件已取消）
+        const root = await globalPluginRoot()
+        const id = await invoke<string>('install_znp', { vault: root, path })
         setReloadToken((t) => t + 1)
         setToast(`插件已安装：${id}`)
         return id
@@ -373,7 +377,7 @@ export function usePluginHost({
         return null
       }
     },
-    [vault, setReloadToken, setToast, setError],
+    [setReloadToken, setToast, setError],
   )
 
   /** 插件管理页按钮：选文件 → 走上面的完整流程 */
@@ -398,6 +402,60 @@ export function usePluginHost({
   }, [installZnpFromPath, kernel])
 
   /**
+   * 把**库内旧插件**搬进全局根（rev173.5 迁移用，一次性的）。
+   *
+   * 取消库内插件后，装在 `<库>/.zn/plugins/` 的旧副本不会再被扫描 —— 这里按 manifest
+   * 声明过的文件（`entry` / `styles` / `files`）逐个读出来，写进全局根；全局已有的文件**不覆盖**
+   * （内置预装优先，库内旧副本不该把新版本顶掉）。
+   *
+   * 为什么不需要给 Rust 加 copy 命令：manifest 已经声明了全部运行文件；
+   * 未声明的 vendor 目录不在迁移范围（内置插件会补，第三方的请重装 .znp）。
+   */
+  const migrateVaultPlugins = useCallback(async () => {
+    const moved: string[] = []
+    if (!vault) return { moved }
+    const globalRoot = await globalPluginRoot()
+    const ids = await listPluginDirs(vault).catch(() => [] as string[])
+    for (const id of ids) {
+      try {
+        const raw = await invoke<string>('read_plugin_file', {
+          vault,
+          pluginId: id,
+          rel: 'manifest.json',
+        })
+        const m = JSON.parse(raw) as { entry?: string; styles?: string[]; files?: string[] }
+        const rels = [
+          'manifest.json',
+          ...(m.entry ? [m.entry] : []),
+          ...(m.styles ?? []),
+          ...(m.files ?? []),
+        ]
+        for (const rel of rels) {
+          let content: string
+          try {
+            content = await invoke<string>('read_plugin_file', { vault, pluginId: id, rel })
+          } catch {
+            continue
+          }
+          try {
+            // 全局已有同文件 ⇒ 保留（内置 / 已迁移的新版本优先）
+            await invoke<string>('read_plugin_file', { vault: globalRoot, pluginId: id, rel })
+            continue
+          } catch {
+            /* 全局没有 ⇒ 写 */
+          }
+          await invoke('write_plugin_file', { vault: globalRoot, pluginId: id, rel, content })
+        }
+        moved.push(id)
+      } catch {
+        /* 读失败（二进制 / 损坏）⇒ 跳过这个插件 */
+      }
+    }
+    setReloadToken((t) => t + 1)
+    return { moved }
+  }, [vault, setReloadToken])
+
+  /**
    * `.znp` 安装的**诊断出口**（2026-10-18 rev119）。
    *
    * 为什么需要：UI 用原生文件选择器，CDP 驱动不了它 ——「选文件 → 确认 → 安装 → 重扫」
@@ -407,12 +465,16 @@ export function usePluginHost({
   useEffect(() => {
     const w = window as unknown as {
       __znInstallZnp?: (path: string, confirmFirst?: boolean) => Promise<string | null>
+      __znMigratePlugins?: () => Promise<{ moved: string[] }>
     }
     w.__znInstallZnp = (path, confirmFirst) => installZnpFromPath(path, confirmFirst ?? true)
+    // rev173.5：库内 → 全局的迁移口（真机上 UI 点不到「复制目录」，这条让脚本能跑同一段逻辑）
+    w.__znMigratePlugins = () => migrateVaultPlugins()
     return () => {
       delete w.__znInstallZnp
+      delete w.__znMigratePlugins
     }
-  }, [installZnpFromPath])
+  }, [installZnpFromPath, migrateVaultPlugins])
 
   return { installZnpFromPath, installZnp }
 }
