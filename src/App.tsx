@@ -2160,6 +2160,7 @@ export default function App() {
             readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
             onDelete={(p) => void deleteNotes([p])}
             onPurge={(p) => void purgeNotes([p])}
+            onRename={(from, to) => void renameNote(from, to, false)}
           />
         ) : (
           /* 空态：按 NN/g「空态三原则」组织 ——

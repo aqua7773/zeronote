@@ -17,6 +17,8 @@ type Props = {
   readText: (path: string) => Promise<string>
   onDelete: (path: string) => void
   onPurge: (path: string) => void
+  /** 重命名（同目录）：组件给完整新路径 */
+  onRename: (from: string, to: string) => void
 }
 
 /** mtime（毫秒）→ `2026-10-18 14:08:32`（2026-10-18 用户要求：精确到秒） */
@@ -40,7 +42,15 @@ const plain = (md: string) => {
   return t.replace(/\s+/g, ' ').trim()
 }
 
-export function MobileNoteCards({ notes, onOpen, onNewNote, readText, onDelete, onPurge }: Props) {
+export function MobileNoteCards({
+  notes,
+  onOpen,
+  onNewNote,
+  readText,
+  onDelete,
+  onPurge,
+  onRename,
+}: Props) {
   /** 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件） */
   const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
   const [contents, setContents] = useState<Record<string, string>>({})
@@ -67,9 +77,23 @@ export function MobileNoteCards({ notes, onOpen, onNewNote, readText, onDelete, 
     }
   }, [sorted, readText])
 
+  /** 重命名：prompt 输入新文件名（同目录）；`.md` 笔记没写后缀时自动补 */
+  const rename = (path: string) => {
+    const base = path.slice(path.lastIndexOf('/') + 1)
+    const next = window.prompt('重命名（新文件名）', base)
+    if (!next) return
+    const name = next.trim()
+    if (!name || name === base) return
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+    const finalName = /\.md$/i.test(path) && !/\.[a-z0-9]+$/i.test(name) ? `${name}.md` : name
+    onRename(path, dir ? `${dir}/${finalName}` : finalName)
+  }
+
+  /** 长按 / 右上「⋯」都能弹这张菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」） */
   const items: MenuItem[] = menu
     ? [
         { label: '打开', onClick: () => onOpen(menu.path) },
+        { label: '重命名…', divider: true, onClick: () => rename(menu.path) },
         { label: '删除（回收站）', danger: true, divider: true, onClick: () => onDelete(menu.path) },
         {
           label: '彻底删除…',
@@ -88,7 +112,16 @@ export function MobileNoteCards({ notes, onOpen, onNewNote, readText, onDelete, 
           <div className="zn-mobile-empty">还没有笔记 —— 点下面的输入框记一条。</div>
         )}
         {sorted.map((n) => (
-          <article key={n.path} className="zn-mobile-card" onClick={() => onOpen(n.path)}>
+          <article
+            key={n.path}
+            className="zn-mobile-card"
+            onClick={() => onOpen(n.path)}
+            onContextMenu={(e) => {
+              // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单
+              e.preventDefault()
+              setMenu({ path: n.path, x: e.clientX, y: e.clientY })
+            }}
+          >
             <div className="zn-mobile-card-time">
               <span>{fmtTime(n.mtime)}</span>
               <button
