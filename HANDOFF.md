@@ -208,8 +208,15 @@ revision: 173.11
 > - 换 `WEBVIEW2_USER_DATA_FOLDER` 指向 `_tmp-wv2` 后 webview 能建，又报 `failed to initialize plugin log: 拒绝访问 (os error 5)`。
 >
 > 已做：删残留 `EBWebView\Default\LOCK`、旧日志 `ZeroNote.log` / `logs` 目录改名备份
-> （`logs.bak-2311` 在 `%LOCALAPPDATA%\com.aqua.zeronote\`）。**恢复结果见 HANDOFF-CARD 的「环境现状」**；
-> 未恢复时需要用户手动重启一次 dev。
+> （`logs.bak-2311` 在 `%LOCALAPPDATA%\com.aqua.zeronote\`）。
+>
+> **实测结论（2026-10-18 23:2x 补）**：
+> ① 在 DSH 会话内启动 `pnpm tauri dev` **必失败** —— 三次对照（默认目录 / 同盘非 workspace / workspace 内）
+>    只有 workspace 内能建 webview ⇒ DSH 子进程沙箱拦了 `%LOCALAPPDATA%` 写入；dev 一律在 DSH 外语跑。
+> ② 用户实测「管理员跑可以，普通权限报 `0x800700AA`」⇒ 管理员实例污染了同一个 user data folder。
+>    普通权限修法：确认无残留进程 → `Rename-Item EBWebView EBWebView.elevated-bak` → 重跑（普通权限重建目录）。
+> 参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)、
+> [Quicker 讨论](https://getquicker.net/QA/Question/41733)、[tauri#11969](https://github.com/tauri-apps/tauri/issues/11969)。
 >
 > **下次教训**：CDP 关插件窗口别用 `plugin:window|destroy`（label 来源与预期不一致，实测连主窗口一起关）；
 > 要关就关主窗口里内核账上的窗口（`windows` 列表）或让用户手点关闭。

@@ -90,7 +90,17 @@ pwsh -File scripts\verify.ps1
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
 - **CDP 关窗口的坑（rev173.11 踩过）**：别用 `plugin:window|destroy` 关插件窗口 —— 实测**主窗口一起没了**（进程只剩插件窗口、9222 消失）。关窗口让用户点，或只 `clearShell` 不毁窗口。
-- **桌面 dev 从 DSH 会话内启动可能失败**：WebView2 报 `0x800700AA`（资源使用中）/ `0x8000FFFF`（灾难性故障），疑似受限子进程的命名管道/IPC 限制；**用户手动在会话外启动一次即可**（rev173.11 事故后待用户重启确认）。
+- **桌面 dev 从 DSH 会话内启动必失败**（rev173.11 实测）：WebView2 报 `0x800700AA` / `0x8000FFFF`。
+  三次对照：默认目录失败、同盘非 workspace 目录失败、**只有 `workspace 内`目录能建 webview** ⇒
+  DSH 子进程的沙箱拦了 `%LOCALAPPDATA%` 写入。**结论：Tauri dev 一律在 DSH 外的终端跑。**
+- **普通权限 / 管理员权限不能混跑**（2026-10-18 用户实测）：用管理员跑过一次 `pnpm tauri dev` 后，
+  普通权限再跑报 `0x800700AA`（WebView2 的 user data folder 里留了管理员实例的状态）。
+  修法（普通权限终端）：
+  1. 确认没有残留 `zeronote.exe` / 该应用的 `msedgewebview2.exe`；
+  2. `Rename-Item "$env:LOCALAPPDATA\com.aqua.zeronote\EBWebView" "EBWebView.elevated-bak"`；
+  3. `pnpm tauri dev` → WebView2 用普通权限重建目录（丢 localStorage 偏好，不丢笔记）。
+  参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)（UDF 被占用）、
+  [Quicker 讨论](https://getquicker.net/QA/Question/41733)（管理员/普通实例冲突）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
 - **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，条数以 `verify.ps1` 输出为准）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。
