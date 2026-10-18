@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev167）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev168）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,11 +34,10 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev167）
+## 最近一轮（rev168）
 
-- 移动端顶栏：**去掉「⋯」**、logo **靠最右**、尺寸定稿 **☰ 20px / logo 15px / 左右偏移 11px**（临时调节器已删）。
-- 修掉 `.zn-titlebar-name` 里覆盖变量的旧 `font-size`（「logo 字号无效」的根因）。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机截图 `_shots/rev167-final-171848.png`。
+- 编辑界面：顶栏笔记标题（如「笔记1」）**屏幕居中**（`.zn-app.is-editing` + 绝对定位）；起始页 ZeroNote 仍靠右。
+- 验收：tsc 0 · oxlint 4 · vitest 195 · 手机截图 `_shots/title-center2-172845.png`（编辑）· `_shots/title-home-172854.png`（起始页）。
 
 ## 未决 / 下一步
 

@@ -1971,8 +1971,10 @@ export default function App() {
     )
   }
 
+  // 编辑界面（打开了笔记）时顶栏标题居中 —— 移动端样式挂在 `.zn-app.is-editing` 上
+  //（2026-10-18 用户要求：「编辑框笔记标题（笔记1）居中」；起始页的 ZeroNote 仍靠右）。
   return (
-    <div className="zn-app">
+    <div className={`zn-app${mainView === 'editor' && activePath ? ' is-editing' : ''}`}>
       {/* 顶部热区：标题栏隐藏时，鼠标碰到窗口最上面几像素即可唤出；
           它同时兼任拖动区 —— 标题栏藏起来时窗口也要拖得动。 */}
       <div className="zn-titlebar-hotzone" data-tauri-drag-region />

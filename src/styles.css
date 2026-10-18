@@ -1659,6 +1659,20 @@ body.is-resizing * {
   .zn-titlebar-name { text-align: right; }
   .zn-titlebar { padding-right: var(--zn-space-3); }
 
+  /* 编辑界面（`.zn-app.is-editing`）：笔记标题**屏幕居中**（2026-10-18 用户要求
+     「编辑框笔记标题（笔记1）居中」）。起始页的 ZeroNote 不在此列，仍靠右。
+     用绝对定位而不是 text-align:center —— flex 里左侧有 ☰、右侧有保存状态，
+     只靠 text-align 会把文字挤得偏右；absolute + translateX(-50%) 才是真居中。
+     长标题由 max-width + ellipsis 兜底；save-state 用 margin-left:auto 固定在右。 */
+  .zn-app.is-editing .zn-titlebar-name {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - 140px);
+    text-align: center;
+  }
+  .zn-app.is-editing .zn-titlebar .zn-save-state { margin-left: auto; }
+
   /* 移动端没有「关闭」按钮（返回键即关闭）—— 「源码」切换直接占它原来的位置（右上角第一行）。
      2026-10-18 用户要求：「移动端编辑界面没必要放关闭按钮，返回就是关闭，把源码放到关闭按钮的位置」。 */
   .zn-editor-modebar { top: 8px; }
