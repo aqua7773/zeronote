@@ -80,6 +80,7 @@ import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { categorizePlugin } from './lib/plugin-category'
+import { indentLine } from './kernel/editor-indent'
 import {
   bootAutoDisabled,
   bootAutoDisabledNotice,
@@ -1236,6 +1237,29 @@ export default function App() {
           const p = (payload ?? {}) as { path?: string }
           const ext = p.path ? p.path.slice(p.path.lastIndexOf('.') + 1).toLowerCase() : '该'
           setToast(`没有能打开 .${ext} 的插件 —— 到「插件管理」装一个文档阅读器`)
+        },
+      }),
+      /**
+       * 缩进 / 取消缩进（rev173.8 · 用户「手机端键盘上的快捷列表加个缩进和取消缩进按键」）。
+       *
+       * 与编辑器里 Tab / Shift+Tab 走**同一份**逻辑（`kernel/editor-indent.ts`）：
+       * 只对列表行生效，缩进 +2 空格、反缩进 -1~2 空格。手机键盘上没有 Tab 键，
+       * 这两个命令就是它的按钮版（命令面板里也能搜到）。
+       */
+      kernel.commands.api.register({
+        id: 'core.indent',
+        title: '缩进（列表行 +2 空格）',
+        run: () => {
+          const v = editorRef.current
+          if (v) indentLine(v, 1)
+        },
+      }),
+      kernel.commands.api.register({
+        id: 'core.outdent',
+        title: '取消缩进（列表行 -2 空格）',
+        run: () => {
+          const v = editorRef.current
+          if (v) indentLine(v, -1)
         },
       }),
       /**

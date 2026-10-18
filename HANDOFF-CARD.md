@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173.7）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173.8）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,21 +34,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.7）
+## 最近一轮（rev173.8）
 
-- **修「导图显示库载入失败」**（用户报告）：`outline-map` 原来从 `.zn/plugins/outline-map/vendor/`
-  读 MindElixir —— 库内插件取消 + 库内目录清理后这条**库内路径**不存在。
-  修复：MindElixir 三件套移进 `public/vendor/mind-elixir/`（应用内置资源，与 pdf.js / foliate 同套），
-  插件改成 `fetch('/vendor/mind-elixir/…')` + Blob 动态 import。
-- 桌面验证：导图窗口显示「mind-elixir 5.15.1 · 3 个节点」；11 个插件全部冒烟通过
-  （阅读器 canvas、导入导出面板、灵感流面板、当天目录新建路径正确、主题注入、探针/网络命令无异常）。
-- 手机端：9 个插件正常、EPUB 阅读器正常；⚠️ 行首「❖」不渲染（历史缺口，待查）。
-- 上一轮：清理库内插件残留（rev173.6）、取消库内插件（rev173.5）。
+- **手机工具栏加「缩进 / 取消缩进」**（用户要求）：`MarkToolbar` 最前面两个按钮 `⇤` / `⇥`，
+  走新命令 `core.indent` / `core.outdent`；逻辑与编辑器 Tab / Shift+Tab **共用**
+  （`lib/indent.ts` 纯函数 + `kernel/editor-indent.ts`），只对列表行生效。
+- 真机验证：`- 一` → 点 ⇥ → 落盘 `  - 一`；再点 ⇤ → 回到 `- 一`；单测 6 条。
+- ⚠️ `diagram-test.md` 里有**用户自己输入的内容**（22:25 起），本轮只碰自己的测试文件、没再动它。
+- 上一轮：导图「库载入失败」修复（rev173.7）、清理库内插件（rev173.6）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| 手机工具栏缩进 | ✅ **rev173.8**：`⇤` / `⇥` 按钮（与 Tab / Shift+Tab 同一份逻辑） |
 | 手机端导图入口 | ⚠️ **待查**：行首「❖」不渲染（`editorMarks` 里没有 outline-map 的 line action）；命令能跑但移动端没有独立窗口 |
 | 插件存放 | ✅ **rev173.6**：只全局一处；两库 `.zn/plugins` 已删（备份在 `_tmp-plugin-backup/`） |
 | 插件分类 | ✅ **rev173.4**：manifest.category + 插件页分组 + 存量插件全部补齐 |

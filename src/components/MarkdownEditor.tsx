@@ -9,6 +9,7 @@ import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
 import { editorMarkExtensions } from '../kernel/editor-marks'
+import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
 import { SourceModeView } from './SourceModeView'
 import { TableToolbar, type TableInfo } from './TableToolbar'
@@ -68,19 +69,10 @@ const quoteDepthPlugin = ViewPlugin.fromClass(
  *
  * 这里自己接管：行首是 `-` / `*` / `+` / `1.` + 空白的行，Tab 加 2 个空格、
  * Shift-Tab 减 0–2 个。**非列表行返回 false**，交还给 atomic 原来的处理。
+ *
+ * 实现在 `kernel/editor-indent.ts` —— 手机键盘上方工具栏的「缩进 / 取消缩进」按钮
+ * （`core.indent` / `core.outdent` 命令）走的是**同一份**逻辑，改规则只改一处。
  */
-function indentListLine(view: EditorView, dir: 1 | -1): boolean {
-  const { state } = view
-  const line = state.doc.lineAt(state.selection.main.head)
-  if (!/^\s*(?:[-*+]|\d+[.)])\s+/.test(line.text)) return false
-  if (dir > 0) {
-    view.dispatch({ changes: { from: line.from, insert: '  ' } })
-    return true
-  }
-  const m = /^ {1,2}/.exec(line.text)
-  if (m) view.dispatch({ changes: { from: line.from, to: line.from + m[0].length } })
-  return true
-}
 
 /**
  * 正文图片的 src 解析（2026-10-18 用户要求「markdown 插入图片」）。
@@ -554,12 +546,12 @@ export function MarkdownEditor({
   // （它的 mount effect 只依赖 documentId）。因此不需要 useRef/useState 缓存 ——
   // 也顺带避免了在 render 期读 `*.current`（oxlint 的 react(refs) 会报）。
   const extensions: Extension[] = [
-    // Tab / Shift-Tab：列表行手动缩进（见 `indentListLine` 的说明）。
+    // Tab / Shift-Tab：列表行手动缩进（见 `kernel/editor-indent.ts`）。
     // `Prec.high` 保证排在 atomic 自带的 `indentWithTab` 之前。
     Prec.high(
       keymap.of([
-        { key: 'Tab', run: (view) => indentListLine(view, 1) },
-        { key: 'Shift-Tab', run: (view) => indentListLine(view, -1) },
+        { key: 'Tab', run: (view) => indentLine(view, 1) },
+        { key: 'Shift-Tab', run: (view) => indentLine(view, -1) },
       ]),
     ),
     // 嵌套引用：按行首 `>` 的个数加 `zn-quote-dN`（atomic 自己不分层级）。

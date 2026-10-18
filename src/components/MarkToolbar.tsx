@@ -26,9 +26,27 @@ type Props = {
 export function MarkToolbar({ marks, onRun, children }: Props) {
   return (
     <div className="zn-editor-toolbar">
-      {/* 内核没有标记要画、又只有插件面板时，别留一个空的按钮行占位 */}
+      {/* 手机键盘上没有 Tab 键 —— 缩进 / 反缩进用按钮补上（rev173.8）。
+          命令与编辑器里的 Tab / Shift+Tab 走同一份逻辑（只对列表行生效）。
+          内核没有标记要画、又只有插件面板时，别留一个空的按钮行占位。 */}
       {marks.length > 0 ? (
         <div className="zn-ui-row">
+          <button
+            type="button"
+            className="zn-btn zn-ui-btn-ghost"
+            title="取消缩进（Shift+Tab）"
+            onClick={() => onRun('core.outdent')}
+          >
+            ⇤
+          </button>
+          <button
+            type="button"
+            className="zn-btn zn-ui-btn-ghost"
+            title="缩进（Tab）"
+            onClick={() => onRun('core.indent')}
+          >
+            ⇥
+          </button>
           {marks.map((m) => (
             <button
               key={m.id}
