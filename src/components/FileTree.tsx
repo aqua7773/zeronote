@@ -197,6 +197,8 @@ type MenuState = {
   multi: boolean
   x: number
   y: number
+  /** 菜单**不允许盖住**的矩形（视口坐标，= 弹菜单那一刻的选中行）；无选中行时省略 */
+  avoid?: Array<{ left: number; top: number; right: number; bottom: number }>
 }
 
 function Node({
@@ -572,9 +574,28 @@ export function FileTree({
   }, [tree])
 
   /**
+   * 树里**所有可见行**的视口矩形（文件 + 目录）—— 菜单不许盖住任何一行
+   * （用户 2026-10-18：「未选中也不要遮挡」）。
+   * ⚠️ 必须在**事件处理里**调用 —— 渲染期读 `rootRef.current` 会被 React 规则拦
+   * （lint `react(refs)`「Cannot access refs during render」）。
+   */
+  const allRowRects = (): MenuState['avoid'] => {
+    const root = rootRef.current
+    if (!root) return undefined
+    const out: Array<{ left: number; top: number; right: number; bottom: number }> = []
+    for (const el of root.querySelectorAll<HTMLElement>('[data-zn-path]')) {
+      const r = el.getBoundingClientRect()
+      out.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
+    }
+    return out.length ? out : undefined
+  }
+
+  /**
    * 多选后**直接弹菜单**（2026-10-18 用户要求：「多选时直接弹出选中后的菜单，
    * 不需要再右键一次」）。只对 **≥2 项**的选中集合弹：单项选中时普通点击已经
    * 打开笔记了，交给右键/长按自己开菜单。
+   * 菜单**不许盖住选中行**（用户要求「一定要保证不遮挡选中项目」）—— 把选中行的
+   * 矩形一并交给 `ContextMenu` 避让。
    */
   const openBatchMenu = (paths: string[], focusPath: string, x: number, y: number) => {
     if (paths.length < 2) return
@@ -586,6 +607,7 @@ export function FileTree({
       multi: true,
       x,
       y,
+      avoid: allRowRects(),
     })
   }
 
@@ -1101,6 +1123,8 @@ export function FileTree({
               multi: selectedSet.has(path) && selectedSet.size > 1,
               x,
               y,
+              // 菜单不许盖住**任何**行（选中 / 未选中都一样）
+              avoid: allRowRects(),
             })
           }
           renaming={renaming}
@@ -1111,7 +1135,15 @@ export function FileTree({
         />
       ))}
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={items}
+          avoid={menu.avoid}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       {/* 「彻底删除」的二次确认 —— 不进回收站、撤不回来，所以必须问一次（与「删除」是两回事） */}
       {purgeConfirm && (

@@ -60,11 +60,18 @@ export function ContextMenu({
   y,
   items,
   onClose,
+  avoid,
 }: {
   x: number
   y: number
   items: MenuItem[]
   onClose: () => void
+  /**
+   * **不允许被菜单盖住**的矩形（视口坐标），如文件树里选中的行（2026-10-18：
+   * 用户要求「保证不遮挡选中项目」）。菜单渲染后量实际尺寸，若与任一矩形相交，
+   * 就整块挪到不重叠的一侧：选中项下方 → 上方 → 右侧 → 左侧 → 视口底部兜底。
+   */
+  avoid?: Array<{ left: number; top: number; right: number; bottom: number }>
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -83,14 +90,74 @@ export function ContextMenu({
     }
   }, [onClose])
 
-  // 视口边界翻转
+  // 位置修正：① 视口边界翻转（原有行为）② 避开 `avoid` 给出的矩形
   useEffect(() => {
     const el = menuRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    if (rect.right > window.innerWidth) el.style.left = `${Math.max(0, x - rect.width)}px`
-    if (rect.bottom > window.innerHeight) el.style.top = `${Math.max(0, y - rect.height)}px`
-  }, [x, y])
+    let left = x
+    let top = y
+    if (rect.right > window.innerWidth) left = Math.max(0, x - rect.width)
+    if (rect.bottom > window.innerHeight) top = Math.max(0, y - rect.height)
+
+    if (avoid?.length) {
+      const overlaps = (l: number, t: number) =>
+        avoid.some(
+          (a) =>
+            !(l + rect.width <= a.left || l >= a.right || t + rect.height <= a.top || t >= a.bottom),
+        )
+      if (overlaps(left, top)) {
+        const box = {
+          left: Math.min(...avoid.map((r) => r.left)),
+          top: Math.min(...avoid.map((r) => r.top)),
+          right: Math.max(...avoid.map((r) => r.right)),
+          bottom: Math.max(...avoid.map((r) => r.bottom)),
+        }
+        /** 与 `avoid` 矩形重叠的面积（像素²）—— 用来在"都放不下"时挑遮挡最少的 */
+        const area = (l: number, t: number) =>
+          avoid.reduce((sum, a) => {
+            const w = Math.min(l + rect.width, a.right) - Math.max(l, a.left)
+            const h = Math.min(t + rect.height, a.bottom) - Math.max(t, a.top)
+            return w > 0 && h > 0 ? sum + w * h : sum
+          }, 0)
+        const inView = (l: number, t: number) =>
+          l >= 0 &&
+          t >= 0 &&
+          l + rect.width <= window.innerWidth - 4 &&
+          t + rect.height <= window.innerHeight - 4
+        const cands: Array<[number, number]> = [
+          [left, box.bottom + 8], // 整块列表下方（最常见的空白区）
+          [left, box.top - rect.height - 8], // 列表上方
+          [box.right + 8, top], // 列表右侧（桌面侧栏 → 主编辑区）
+          [box.left - rect.width - 8, top], // 列表左侧
+          [left, 4], // 视口顶部
+        ]
+        /** 先找**完全不遮挡**且完整可见的位置；都不行就挑遮挡面积最小的（物理上无解时） */
+        let zero: [number, number] | null = null
+        let best: [number, number] | null = null
+        let bestArea = Infinity
+        for (const c of cands) {
+          if (!inView(c[0], c[1])) continue
+          const a = area(c[0], c[1])
+          if (a === 0) {
+            zero = c
+            break
+          }
+          if (a < bestArea) {
+            bestArea = a
+            best = c
+          }
+        }
+        const pick = zero ?? best
+        if (pick) {
+          left = pick[0]
+          top = pick[1]
+        }
+      }
+    }
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }, [x, y, avoid, items])
 
   return createPortal(
     <div
