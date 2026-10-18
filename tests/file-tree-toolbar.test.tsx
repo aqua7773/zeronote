@@ -60,7 +60,7 @@ describe('FileTree 顶栏', () => {
     expect(screen.getByRole('button', { name: '新建文件夹' })).toBeTruthy()
   })
 
-  it('rev141：顶栏 / 批量条移除，右键「多选」保留（点行只加减选，批量走菜单）', () => {
+  it('rev143：点「多选」菜单原地切换成多选菜单，再点第二行直接换成 2 项菜单', () => {
     const props = makeProps({ notes: [note('a.md', 'a'), note('b.md', 'b')] })
     const { container } = render(<FileTree {...(props as never)} />)
 
@@ -71,13 +71,16 @@ describe('FileTree 顶栏', () => {
     const rows = container.querySelectorAll('.zn-tree-item')
     expect(rows.length).toBe(2)
 
-    // 右键菜单里的「多选」保留，点击进入点选模式
+    // 右键 → 点「多选」：菜单不关，原地切换成多选菜单（「删除选中的 1 项」）
     fireEvent.contextMenu(rows[0])
     const menu = document.querySelector('[role="menu"]') as HTMLElement
     expect(menu).toBeTruthy()
     fireEvent.click(within(menu).getByText('多选'))
+    const menu1 = document.querySelector('[role="menu"]') as HTMLElement
+    expect(menu1).toBeTruthy()
+    expect(within(menu1).getByText('删除选中的 1 项')).toBeTruthy()
 
-    // 点第二行 = 加选（不打开笔记），并**直接弹出批量菜单**（不用再右键一次）
+    // 点第二行 = 加选（不打开笔记），菜单直接换成 2 项版本
     fireEvent.click(rows[1])
     expect(props.onOpen).not.toHaveBeenCalled()
     const menu2 = document.querySelector('[role="menu"]') as HTMLElement

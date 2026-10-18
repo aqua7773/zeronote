@@ -1004,20 +1004,23 @@ export function FileTree({
             })
           }
           /**
-           * 「多选」入口（2026-10-18 用户要求保留；rev141 用户圈掉顶栏按钮与批量条后，
-           * 这里是**唯一**的入口）：进入点选模式并选中当前这一条，之后点行只加/减选，
-           * 再右键/长按对整批操作（菜单里会出现「删除选中的 N 项」）。
+           * 「多选」入口（2026-10-18 用户要求保留；rev141 圈掉顶栏按钮与批量条后，这里是
+           * **唯一**的入口）。点击后**菜单原地切换**成多选菜单（不关、不要求再右键一次），
+           * 之后点行只加/减选，选到 ≥2 项时 `pick` 再弹一次批量菜单。
            */
           // 只对**文件**给多选入口 —— 现有选择集合的语义是「只含文件」（见上面 onKeyDown 注释）
           if (!multi && !menu.isDir) {
             list.push({
               label: '多选',
               divider: true,
+              // ⚠️ keepOpen：ContextMenu 点完默认会 onClose；这里要**原地切换**，不能关
+              keepOpen: true,
               onClick: () => {
-                setMenu(null)
                 setSelectMode(true)
                 setSelected([path])
                 setAnchor(path)
+                // 菜单**不关**：直接把 `multi` 置真，下一帧 items 重算成多选菜单
+                setMenu((m) => (m ? { ...m, multi: true } : m))
               },
             })
           }
