@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.12
-更新时间: 2026-10-18（rev173.12 交接：rev173.11 收口——手机导图点击已修、WebView2 根因（Low IL）闭环、dev 恢复运行）
+revision: 173.13
+更新时间: 2026-10-19（rev173.13 插件页：说明压到 15 字 + 分类可折叠；顺手修回手机 dev）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.13 | 2026-10-19 · **插件页**：说明只显示 **15 字**（`clampText`，全文进悬停 title）+ **分类可折叠**（点组标题收起/展开，状态记 localStorage）· 测试 **249**；顺手修回手机 dev（`gen/android` 残留 `.probe` identifier 导致构建失败） |
 | rev173.12 | 2026-10-18 · **交接**：rev173.11 收口——手机导图点击已修（`data-zn-line` + 手机整窗接管）；WebView2 起不来**真根因 = 项目目录 Low IL**（exe 继承后写不了 `%LOCALAPPDATA%`），`icacls src-tauri /setintegritylevel (OI)(CI)Medium` 修复；dev 恢复运行、库 = `_tmp-vault-tb` |
 | rev173.11 | 2026-10-18 · **手机端导图点击修复落地**：① 按钮带 `data-zn-line`（点击不再依赖 `posAtDOM` 反查行号）② 手机端补上**整窗接管**（`makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` 时 `view.overrideShell`，不再走静默失败的多窗口）· 真机 3 轮 ✓ · 测试 **243** |
 | rev173.10 | 2026-10-18 · **交接**：手机端导图点击偶发不生效——根因定位（`posAtDOM` 反查行号在虚拟化后失败）+ 修复方案（按钮带 `data-zn-line`）；**代码已回滚、未修** |
@@ -157,6 +158,37 @@ revision: 173.12
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.13（2026-10-19 · 插件页：说明压到 15 字 + 分类可折叠）
+>
+> 用户：「插件说明不要这么长，控制在 15 个字，然后插件分类加折叠功能」。
+>
+> ### 1 已交付
+>
+> | 改动 | 文件 | 要点 |
+> |---|---|---|
+> | 说明截断 15 字 | `src/lib/format.ts` · `src/components/PluginPanel.tsx` | 新增 `clampText()`：按 Unicode 码点截前 15 字 + `…`；全文进悬停 `title`；manifest 原文不动 |
+> | 分类折叠 | `src/components/PluginPanel.tsx` | 组标题改成 `<button>`（带 `aria-expanded`），点一下收起/展开；chevron 折叠时转 -90° |
+> | 折叠状态持久化 | 同上 | `localStorage['zn-plugin-groups-collapsed']`，**全局 1 份**（插件不分库）；全展开时删记录 |
+> | 样式 | `src/styles.css` | `.zn-plugin-group-head` 重置 button 默认样式（width / border / font / cursor）+ hover 变亮；`.zn-plugin-group.is-collapsed` 转箭头 |
+> | 测试 | `tests/plugin-panel.test.tsx`（新 · 6 条） | clampText 边界 · 截断 + title · 折叠/展开 · 重挂载仍折叠 · 全展开清记录 |
+>
+> ### 2 验收（2026-10-19 00:20 实测）
+>
+> `verify.ps1` 五步：tsc 0 · oxlint **0 error / 3 warnings**（未增）· cargo test --lib **32** · check-docs 过 · vitest **249**（28 文件）。
+>
+> 桌面实测（截图 `_shots/desktop-plugin-page-00…04*.png`）：设置 → 插件，说明全部 ≤15 字 + `…`；
+> 点「编辑增强」收起、箭头转向；关设置再开仍折叠（`-03` 与 `-04` 的 sha256 相同 = 状态一致）。
+> 手机 dev 端跑同一份前端（vite HMR），组件行为相同。
+>
+> ### 3 环境附注（顺手修回手机 dev）
+>
+> - **手机 dev 上次失败的真因**：`src-tauri/gen/android/app/src/main/assets/tauri.conf.json`（构建产物）残留旧 identifier
+>   `com.aqua.zeronote.probe` ⇒ tauri 去找 `com/aqua/zeronote/probe` 目录失败；gradle 又把它误报成
+>   「`pnpm.bat` 启动失败」（最后一个 fallback 的异常盖住了真正的非零退出）。
+>   改回 `com.aqua.zeronote` 后一次构建通过；真机 `com.aqua.zeronote.debug` 连 `192.168.1.3:1420` 正常。
+> - 失败现场备份：`.self-logs/android-dev-20261018-2341-fail.log`（1.8 MB）。
+> - 目前两端 dev 同时在跑：桌面 `pnpm tauri dev`（1420）+ 手机 `android-dev.cmd`。
+>
 > ## 📌 rev173.12（2026-10-18 · 交接：rev173.11 收口 + WebView2 根因闭环）
 >
 > 用户：「交接」。本轮把 rev173.11 的两件事收口，并把开发环境修回可用状态。

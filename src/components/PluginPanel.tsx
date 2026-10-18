@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
+import { clampText } from '../lib/format'
 import {
   PLUGIN_CATEGORY_HINT,
   PLUGIN_CATEGORY_LABEL,
   PLUGIN_CATEGORY_ORDER,
+  isPluginCategory,
   type PluginCategory,
 } from '../lib/plugin-category'
 
@@ -61,6 +63,33 @@ export type PluginRow = {
   category?: PluginCategory
 }
 
+/** 插件页的说明最多显示 15 个字（用户 2026-10-19 要求；全文放悬停 title） */
+const DESC_MAX = 15
+
+/** 分类折叠状态 —— 全局一份（插件本身就是全局的，不按库隔离） */
+const COLLAPSED_KEY = 'zn-plugin-groups-collapsed'
+
+function readCollapsed(): Set<PluginCategory> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY)
+    if (!raw) return new Set()
+    const arr: unknown = JSON.parse(raw)
+    return Array.isArray(arr) ? new Set(arr.filter(isPluginCategory)) : new Set()
+  } catch {
+    // 记录坏了就按全展开算 —— 折叠状态不值得让插件页打不开
+    return new Set()
+  }
+}
+
+function writeCollapsed(next: Set<PluginCategory>) {
+  try {
+    if (next.size === 0) localStorage.removeItem(COLLAPSED_KEY)
+    else localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]))
+  } catch {
+    // 配额满 / 隐私模式：不持久也要能用
+  }
+}
+
 export function PluginPanel({
   plugins,
   error,
@@ -84,6 +113,28 @@ export function PluginPanel({
   const [pending, setPending] = useState<PluginRow | null>(null)
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
   const pendingIsGlobal = pending?.source === 'global'
+
+  /**
+   * 折叠的分类（2026-10-19 用户「插件分类加折叠功能」）。
+   *
+   * 默认全展开 —— 与升级前观感一致；折叠状态全局记 1 份（插件不分库）。
+   * 用 state + effect 落盘：不在 setState updater 里写 localStorage
+   * （开发模式 updater 可能被调用两次，副作用放外面更稳）。
+   */
+  const [collapsed, setCollapsed] = useState<Set<PluginCategory>>(readCollapsed)
+
+  useEffect(() => {
+    writeCollapsed(collapsed)
+  }, [collapsed])
+
+  const toggleGroup = (cat: PluginCategory) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
+  }
 
   /**
    * 按分类分组（rev173.4 · 用户「插件越来越多了，开始做插件分类存放」）。
@@ -132,12 +183,22 @@ export function PluginPanel({
       ) : (
         <div className="zn-plugin-list">
           {groups.map((g) => (
-            <section className="zn-plugin-group" key={g.category}>
-              <div className="zn-plugin-group-head" title={g.hint}>
+            <section
+              className={`zn-plugin-group${collapsed.has(g.category) ? ' is-collapsed' : ''}`}
+              key={g.category}
+            >
+              <button
+                type="button"
+                className="zn-plugin-group-head"
+                title={g.hint}
+                aria-expanded={!collapsed.has(g.category)}
+                onClick={() => toggleGroup(g.category)}
+              >
+                <ChevronDown size={14} className="zn-plugin-group-chevron" aria-hidden="true" />
                 {g.label}
                 <span className="zn-plugin-group-count">{g.rows.length}</span>
-              </div>
-              {g.rows.map((p) => (
+              </button>
+              {!collapsed.has(g.category) && g.rows.map((p) => (
             <div className="zn-plugin-row" key={p.id}>
               <input
                 type="checkbox"
@@ -178,7 +239,11 @@ export function PluginPanel({
                     <span className="zn-plugin-autodisabled"> {p.autoDisabledNote}</span>
                   )}
                 </div>
-                {p.description && <div className="zn-plugin-desc">{p.description}</div>}
+                {p.description && (
+                  <div className="zn-plugin-desc" title={p.description}>
+                    {clampText(p.description, DESC_MAX)}
+                  </div>
+                )}
                 <div className="zn-plugin-caps">
                   {p.capabilities.length ? p.capabilities.join(' · ') : '未声明任何能力'}
                 </div>

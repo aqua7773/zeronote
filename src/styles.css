@@ -1500,7 +1500,12 @@ body.is-resizing * {
 .zn-plugin-list { flex: 1; overflow: auto; }
 /* 插件分类分组（rev173.4）：标题吸顶 + 数量，行样式沿用原来的 .zn-plugin-row */
 .zn-plugin-group { margin-bottom: var(--zn-space-2); }
-.zn-plugin-group-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 6px var(--zn-space-3); background: var(--zn-bg-subtle); border-bottom: 1px solid var(--zn-border); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); font-weight: 600; }
+/* 分类标题可点击折叠（2026-10-19 用户「插件分类加折叠功能」）：
+   button 重置掉浏览器默认样式，sticky + 数量照旧；chevron 折叠时转 -90° */
+.zn-plugin-group-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px var(--zn-space-3); background: var(--zn-bg-subtle); border: 0; border-bottom: 1px solid var(--zn-border); color: var(--zn-fg-muted); font-family: inherit; font-size: var(--zn-text-sm); font-weight: 600; text-align: left; cursor: pointer; }
+.zn-plugin-group-head:hover { color: var(--zn-fg); }
+.zn-plugin-group-chevron { flex: none; transition: transform 120ms ease; }
+.zn-plugin-group.is-collapsed .zn-plugin-group-chevron { transform: rotate(-90deg); }
 .zn-plugin-group-count { color: var(--zn-fg-subtle); font-weight: 400; }
 .zn-plugin-row { display: flex; gap: var(--zn-space-3); align-items: flex-start; padding: var(--zn-space-3); border-bottom: 1px solid var(--zn-border); }
 .zn-plugin-switch { margin-top: 2px; }
