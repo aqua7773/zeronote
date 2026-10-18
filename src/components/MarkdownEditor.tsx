@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { Prec, Range, type Extension, type EditorState } from '@codemirror/state'
 import { EditorView, ViewPlugin, keymap, Decoration, type DecorationSet } from '@codemirror/view'
@@ -165,6 +166,11 @@ type Props = {
    * 编辑器负责把"点了哪个 wiki 链接"告诉宿主，**找哪篇笔记、找不到怎么办由宿主决定**。
    */
   onWikiLinkOpen?: (target: string) => void
+  /**
+   * Android 返回键的「层出口」栈（App 的 `layerExitsRef`）。
+   * 图片预览打开时压一层：返回键先关预览，而不是往下走把笔记关掉。
+   */
+  layers?: RefObject<Array<() => boolean>>
 }
 
 /**
@@ -345,6 +351,7 @@ export function MarkdownEditor({
   onCloseReplace,
   onCommand,
   onWikiLinkOpen,
+  layers,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
   /**
@@ -462,6 +469,27 @@ export function MarkdownEditor({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [previewSrc])
+
+  /**
+   * 预览压进 Android 返回键层栈（rev173.2 · 用户报「预览时返回先退预览，现在直接关了笔记」）。
+   *
+   * 返回键链在 App 的 `backRef`：先弹 `layerExitsRef` 栈顶；没有这一层就会被当成
+   * "没有浮层"继续往下走，最后 `closeNote()` —— 预览明明还开着，笔记先没了。
+   * 弹出一个返回 true 的关闭函数即可拦在笔记之前。
+   */
+  useEffect(() => {
+    if (!previewSrc || !layers) return
+    const stack = layers.current
+    const close = () => {
+      setPreviewSrc(null)
+      return true
+    }
+    stack.push(close)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [previewSrc, layers])
 
   // 下面三个都是稳定引用（useCallback([])），所以扩展数组可以在首帧安全地
   // 捕获它们。全部放在 useCallback 里，也顺带满足 oxlint 的 react(refs)：

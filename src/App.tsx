@@ -2237,6 +2237,7 @@ export default function App() {
               onCloseReplace={() => setReplaceOpen(false)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
+              layers={layerExitsRef}
             />
             {/*
               编辑器底部工具栏 —— **内核那一条只有移动端有**（用户 2026-10-12 定：
