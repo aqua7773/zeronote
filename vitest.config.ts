@@ -19,5 +19,11 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.{ts,tsx}'],
     environment: 'node',
+    /**
+     * `@atomic-editor/editor` 的 dist 用无扩展名 ESM 相对导入（`./AtomicCodeMirrorEditor`），
+     * 默认会被当成 external ⇒ 打开它的测试报 "Cannot find module"。
+     * 交给 Vite 内联解析，补丁回归测试才能真实挂载编辑器（rev131）。
+     */
+    server: { deps: { inline: ['@atomic-editor/editor'] } },
   },
 })

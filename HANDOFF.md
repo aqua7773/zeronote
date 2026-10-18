@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 130
-更新时间: 2026-10-18（rev130 P3-3 落地：GitHub 私有仓库 + CI 五步）
+revision: 131
+更新时间: 2026-10-18（rev131 工程债四件：App 集成测试 / 补丁回归 / 快照备份结论 / 卡片数字）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev131 | 2026-10-18 · **工程债四件**：App 集成测试（3 条）· atomic-editor 补丁回归（4 条·含真实渲染）· 快照备份分层结论 · 卡片过时数字 · 测试 173 → **180** |
 | rev130 | 2026-10-18 · **P3-3 落地**：GitHub 私有仓库 `aqua7773/zeronote` + `.github/workflows/verify.yml`（五步 CI）· gh 登录 / 代理要点 |
 | rev129 | 2026-10-18 · **开发约定与架构边界**：`docs/开发约定.md`（目录职责 / hook 规范 / 重构 checklist / 事故清单）· 拆分方案转 historical · 卡片加硬约束第 6 条 |
 | rev128 | 2026-10-18 · **L3 第六刀（收官）**：`usePluginHost` hook（加载链 / 懒激活 / `.znp` 安装）· App **2583 → 2285** 行 · 测试 **173 条** |
@@ -110,6 +111,44 @@ revision: 130
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev131（2026-10-18 · 工程债四件：App 集成测试 / 补丁回归 / 快照备份结论 / 卡片数字）
+>
+> L3 + CI 之后回头清工程债（用户要求「工程债按顺序解决」）。
+>
+> ### 1 工程债 #4：卡片过时数字
+>
+> `HANDOFF-CARD.md`「前端单测 102 条」→「条数以 `verify.ps1` 输出为准」—— 卡内不再写易变数字。
+>
+> ### 2 工程债 #1：App 编排层集成测试（3 条）
+>
+> `tests/app-smoke.test.tsx`：**真实挂载 `App`**（不 mock kernel/fs，只 mock 最外层 Tauri API 与
+> 两个平台副作用模块），断言三种启动分支 —— 无库「ZeroNote / 选择笔记库」、有库无笔记
+> 「这个库还没有笔记」、有库有笔记文件树显示 `a.md`。此前的测试全在 hook/组件，这是第一份
+> **App 接线回归网**（state → hook → props → 渲染）。
+>
+> ### 3 工程债 #2：atomic-editor 补丁回归（4 条）
+>
+> `tests/atomic-editor-patch.test.tsx`：
+>
+> - **静态护栏**：`package.json` 的 `patchedDependencies` 指向补丁 + `node_modules` 的
+>   `dist/inline-preview.js` 里确实有 `isBareHeadingForTypora` —— 升级 atomic 后忘记重打会立刻红
+>   （「升级必须重打」从约定变成测试）；
+> - **渲染行为**（真实 atomic + CM6）：正常 ATX 标题有 `cm-atomic-h1…h6`；空标题（`# ` 后换行）
+>   没有；Setext 单个 `-` 不算标题、`---` 算。
+> - 配套 `vitest.config.ts` 加 `server.deps.inline: ['@atomic-editor/editor']`（它的 dist 用无扩展名
+>   ESM 相对导入，默认被当 external ⇒ 报 `Cannot find module`）。
+>
+> ### 4 工程债 #3：快照备份的定性结论（不新加产物）
+>
+> 核实 `_kernel-snapshots/`（5 份、52 MB；`scripts/kernel-snapshot.mjs` 生成 / `kernel-restore.mjs`
+> 恢复；manifest 记录 `git.head`、`branch`、`dirty`）—— 内容与仓库重复，**不入库是设计而非遗漏**。
+> 备份分两层写进 `docs/开发约定.md §7`：已提交内容走 GitHub + CI；未提交的脏工作区走本地快照
+> （内核级大改前先打一份）。把 52 MB 压进仓库没有意义（膨胀且继续增长），故**不做**。
+>
+> ### 5 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 180 passed**（173 → 180）。
+>
 > ## 📌 rev130（2026-10-18 · P3-3 落地：GitHub 私有仓库 + CI 五步）
 >
 > 结清测试报告里最后一项工程债 **P3-3（无远程仓库、无 CI）**。

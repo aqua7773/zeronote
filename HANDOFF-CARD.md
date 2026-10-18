@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev128）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev131）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,14 +34,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev128）
+## 最近一轮（rev131）
 
-- **L3 第六刀（收官）：`usePluginHost` hook**（加载链 / 懒激活 / `.znp` 安装）—— App **2583 → 2285 行**。
-  - 加载 effect + 安装段整段迁出；`loadedPluginsRef` / `pluginChainRef` 一并迁入。
-  - 清理 plugin-host / plugin-roots / builtin-plugins 与 `confirm` 的导入。
-- **测试 163 → 173 条**：`use-plugin-host.test.tsx` 10 条。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 173**）。
-- **L3 收官**：App **3928 → 2285 行**，6 个 hook。
+- **工程债四件**：① 卡片过时数字改「以输出为准」② App 集成冒烟 3 条（真实挂载 App，三条启动分支）③ atomic-editor 补丁回归 4 条（静态护栏 + 真实 CM6 渲染）④ 快照备份分层结论（不入库是设计，见开发约定 §7）。
+- 配套：`vitest.config.ts` 加 `server.deps.inline: ['@atomic-editor/editor']`。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 180**）。
 
 ## 未决 / 下一步
 
@@ -50,9 +47,12 @@ pwsh -File scripts\verify.ps1
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |
 | 前端单测 | ✅ rev120 起持续扩充，已并入 `verify.ps1` 第 5 步（数字看输出） |
 | 远程仓库 / CI（P3-3） | ✅ **rev130**：`github.com/aqua7773/zeronote`（private）+ `.github/workflows/verify.yml`（五步） |
+| App 编排层集成测试 | ✅ **rev131**：`tests/app-smoke.test.tsx` 3 条（真实挂载 App，覆盖三种启动分支） |
+| atomic-editor 补丁回归 | ✅ **rev131**：`tests/atomic-editor-patch.test.tsx` 4 条（升级忘重打会红 + 真实渲染断言） |
+| 快照备份 | ✅ **rev131**：`_kernel-snapshots/` 不入库是设计（与仓库重复）；分层见 `docs/开发约定.md §7` |
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
-| 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项、P3 工程债 |
+| 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项（工程债已 rev131 清） |
 | 插件签名 / 分发 | ⚠️ rev119 已做 A+B：完整性 sha256 + `.znp` 安装 + 未签名提示；**真签名（公私钥）/ 市场 / 更新通道未做** |
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
@@ -75,7 +75,7 @@ pwsh -File scripts\verify.ps1
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
-- **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，102 条）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
+- **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，条数以 `verify.ps1` 输出为准）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。
 - `.gitignore`：`_shots/`、`_tmp-*/`、`examples/*/store.json`。
 
