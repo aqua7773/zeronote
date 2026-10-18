@@ -1975,6 +1975,7 @@ export default function App() {
           onDuplicate={(path) => void duplicateEntry(path)}
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
+          onOpenSettings={() => openOverlay('settings')}
         />
       )}
 

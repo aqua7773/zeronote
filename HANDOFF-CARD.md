@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev133）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev134）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,12 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev133）
+## 最近一轮（rev134）
 
-- **移动端同步**：☰ 左键 = 抽屉开关；☰ 右侧新增 **⋯** 按钮 = 菜单（手机没有右键，菜单不能丢入口）。
-- 桌面行为不变（左键切换 / 右键菜单）。两端都实测：桌面 sidebar on/off + 右键菜单；手机抽屉 + 遮罩 + ⋯ 菜单。
-- 测试 **183 → 184**：`tests/titlebar.test.tsx` 4 条（新增移动端分工）。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 184**）。
+- **侧栏头部加设置图标**（ZeroNote 右侧，lucide `Settings`）：点开复用现有设置弹窗；☰ 菜单里的「设置」保留。
+- CDP 实测：点图标 → `role="dialog"` 出现、含「关于」；Esc 关闭。
+- 测试 **184 → 186**：`tests/app-sidebar.test.tsx` 2 条。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 186**）。
 
 ## 未决 / 下一步
 

@@ -5,6 +5,7 @@
  * （宽度拖拽在 `App` 的 resizer 里，状态仍在 App）。
  */
 import type { MutableRefObject } from 'react'
+import { Settings } from 'lucide-react'
 import type { NoteMeta } from '../kernel/contract'
 import { baseName } from '../lib/app-paths'
 import { FileTree } from './FileTree'
@@ -33,6 +34,8 @@ export type AppSidebarProps = {
   onOpenTrash: () => void
   /** 弹出「切换笔记库」菜单（坐标 = 按钮的 client 坐标） */
   onOpenVaultMenu: (x: number, y: number) => void
+  /** 打开设置（2026-10-18 用户要求：侧栏头部放一个设置图标，不必再进 ☰ 菜单） */
+  onOpenSettings: () => void
 }
 
 export function AppSidebar({
@@ -56,6 +59,7 @@ export function AppSidebar({
   onDuplicate,
   onOpenTrash,
   onOpenVaultMenu,
+  onOpenSettings,
 }: AppSidebarProps) {
   return (
     <aside className={`zn-sidebar${open ? ' is-open' : ''}`} style={{ width }}>
@@ -65,6 +69,17 @@ export function AppSidebar({
         <span className="zn-vault-name" title={vault ?? ''}>
           ZeroNote
         </span>
+        {/* 设置入口（2026-10-18 用户要求）—— 图标放侧栏头部右侧，省掉「☰ 菜单 → 设置」两步；
+            ☰ 菜单里的「设置」项保留（两处入口不冲突）。 */}
+        <button
+          type="button"
+          className="zn-icon-btn"
+          onClick={onOpenSettings}
+          title="设置"
+          aria-label="设置"
+        >
+          <Settings size={15} />
+        </button>
       </div>
       {vault ? (
         <FileTree
