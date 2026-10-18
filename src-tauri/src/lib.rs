@@ -955,6 +955,78 @@ fn copy_entry(vault: String, from: String, to: String) -> Result<(), String> {
   copy_path(&src, &dst)
 }
 
+/// 「插入图片」接受的扩展名（小写；与前端 `src/lib/insert-image.ts` 的 IMAGE_EXTS 同一份）。
+const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"];
+
+/// 把**库外**的图片复制进笔记所在目录，返回库内相对路径（如 `sub/image-x.png`）。
+///
+/// 为什么不用 `copy_entry`：它只接受库内相对路径，搬不进外面的文件；
+/// `write_absolute_b64` 又要求前端先把整个文件读成 base64（大图很慢）。
+/// 这里一步到位 —— 源可以是桌面文件路径，也可以是 Android `content://` 经
+/// `read_content_uri` 复制出的缓存路径（副本保留原始文件名，扩展名不丢）。
+///
+/// 命名：`<stem>.<ext>`，重名依次 `<stem>-1.<ext>`、`<stem>-2.<ext>`……**不覆盖**任何已有文件。
+/// `stem` 由前端生成（`image-20261018-203055`），这里再过一遍白名单：
+/// 只留 ASCII 字母数字与 `-`，限 64 字符，防止它变成路径或超长名。
+#[tauri::command]
+fn import_attachment(
+  vault: String,
+  note_path: String,
+  src: String,
+  stem: String,
+) -> Result<String, String> {
+  let note_abs = resolve(&vault, &note_path)?;
+  let dir = note_abs
+    .parent()
+    .ok_or_else(|| "笔记路径无效（没有所在目录）".to_string())?;
+  let src_path = PathBuf::from(&src);
+  if !src_path.is_file() {
+    return Err(format!("找不到图片：{src}"));
+  }
+  let ext = src_path
+    .extension()
+    .and_then(|e| e.to_str())
+    .map(|e| e.to_ascii_lowercase())
+    .unwrap_or_default();
+  if !IMAGE_EXTS.contains(&ext.as_str()) {
+    return Err(format!(
+      "不是支持的图片格式（只认 {}）：{src}",
+      IMAGE_EXTS.join(" / ")
+    ));
+  }
+  let clean: String = stem
+    .chars()
+    .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+    .take(64)
+    .collect();
+  let base = if clean.is_empty() {
+    "image".to_string()
+  } else {
+    clean
+  };
+  // 库内相对目录（`note_path` 已由 resolve 保证只含 Normal 组件，不会带 `..`）
+  let note_rel = note_path.trim().replace('\\', "/");
+  let dir_rel = note_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+  for n in 0..1000u32 {
+    let name = if n == 0 {
+      format!("{base}.{ext}")
+    } else {
+      format!("{base}-{n}.{ext}")
+    };
+    let dst = dir.join(&name);
+    if dst.exists() {
+      continue;
+    }
+    fs::copy(&src_path, &dst).map_err(|e| format!("复制图片失败：{e}"))?;
+    return Ok(if dir_rel.is_empty() {
+      name
+    } else {
+      format!("{dir_rel}/{name}")
+    });
+  }
+  Err("同名文件过多，放弃".to_string())
+}
+
 /// 校验「导出落盘」的目标路径，并给出**能看懂**的错误。
 ///
 /// ⚠️ **Android 平台差异（真机实测）**：Android 的「另存为」走 SAF，`save()` 返回的是
@@ -1668,6 +1740,7 @@ pub fn run() {
       create_dir,
       move_entry,
       copy_entry,
+      import_attachment,
       write_absolute,
       write_absolute_b64,
       list_plugins,
@@ -2305,5 +2378,84 @@ mod tests {
       list_plugins(v).unwrap(),
       vec!["alpha".to_string(), "beta".to_string()]
     );
+  }
+
+  /* ── 插入图片（rev173）── */
+
+  /// 复制进笔记所在目录：返回库内相对路径、内容一致、重名不覆盖。
+  #[test]
+  fn import_attachment_copies_next_to_note_without_overwrite() {
+    let d = tmpdir("attach");
+    let vault = d.join("vault");
+    fs::create_dir_all(vault.join("sub")).unwrap();
+    fs::write(vault.join("sub").join("a.md"), "x").unwrap();
+    let src = d.join("picked.png");
+    fs::write(&src, b"PNG1").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let s = src.to_string_lossy().to_string();
+
+    let rel = import_attachment(
+      v.clone(),
+      "sub/a.md".into(),
+      s.clone(),
+      "image-20261018-200000".into(),
+    )
+    .unwrap();
+    assert_eq!(rel, "sub/image-20261018-200000.png");
+    assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
+
+    // 同一秒再插一张 ⇒ 加 -1，绝不覆盖
+    fs::write(&src, b"PNG2").unwrap();
+    let rel2 = import_attachment(
+      v,
+      "sub/a.md".into(),
+      s,
+      "image-20261018-200000".into(),
+    )
+    .unwrap();
+    assert_eq!(rel2, "sub/image-20261018-200000-1.png");
+    assert_eq!(
+      fs::read(vault.join("sub/image-20261018-200000.png")).unwrap(),
+      b"PNG1"
+    );
+  }
+
+  /// 库根笔记 ⇒ 相对路径不带目录；stem 里的路径分隔符被剥掉（不能借此写到库外）。
+  #[test]
+  fn import_attachment_sanitizes_stem_and_handles_root_note() {
+    let d = tmpdir("attach-stem");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("a.md"), "x").unwrap();
+    let src = d.join("picked.PNG");
+    fs::write(&src, b"x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let s = src.to_string_lossy().to_string();
+    let rel = import_attachment(v, "a.md".into(), s, "../../evil".into()).unwrap();
+    // 扩展名统一小写；文件仍落在库根
+    assert_eq!(rel, "evil.png");
+    assert!(vault.join("evil.png").is_file());
+  }
+
+  /// 非图片扩展名 / 源不存在 / 越界笔记路径 ⇒ 明确报错（不能静默复制一个 .exe 进来）。
+  #[test]
+  fn import_attachment_rejects_non_image_and_missing_src() {
+    let d = tmpdir("attach-bad");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("a.md"), "x").unwrap();
+    let exe = d.join("tool.exe");
+    fs::write(&exe, b"MZ").unwrap();
+    let png = d.join("ok.png");
+    fs::write(&png, b"x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let exe_s = exe.to_string_lossy().to_string();
+    let png_s = png.to_string_lossy().to_string();
+
+    assert!(import_attachment(v.clone(), "a.md".into(), exe_s, "image".into()).is_err());
+    let missing = d.join("nope.png").to_string_lossy().to_string();
+    assert!(import_attachment(v.clone(), "a.md".into(), missing, "image".into()).is_err());
+    // 越界 note_path 也拒绝（复用 resolve）
+    assert!(import_attachment(v, "../evil.md".into(), png_s, "image".into()).is_err());
   }
 }

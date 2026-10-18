@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev172）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,16 +34,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev172）
+## 最近一轮（rev173）
 
-- **Android 装 .znp 全链路修通**：① Android 不传 filters（MIUI 会藏未知类型，.znp 不可见）② `content://` 先经 `uri-reader.read_content_uri` 复制成缓存路径再 `read_znp`。
-- 验收：真机 dev 版完整装了一遍「翠绿主题」成功（选文件 → 确认框 → Ok → 列表出现且主题变绿）。
-- 测试机现在是 **dev 版（连桌面 vite）**，前端改动走 HMR；Rust 改动才需重装。
+- **Markdown 插入图片**（用户要求入口「放在编辑器右键菜单」）：
+  右键「插入图片…」→ 选图 → 复制进**笔记所在目录**（`image-YYYYMMDD-HHMMSS.<ext>`，重名 `-1/-2`）
+  → 光标处插入 `![](相对路径)`；渲染时相对路径 → `convertFileSrc` 的 asset URL（不写绝对路径进 .md）。
+- 覆盖三处渲染点：正文块、表格内 `<img>`、CM6 虚拟化重挂载；MutationObserver 微任务里改 src，不闪破图。
+- 验收：桌面 + 真机都实测插入 / 落盘 / 渲染（截图 `_shots/rev173-*.png`）；vitest 226、cargo 30 全过。
+- 边界：图片不进文件树；手机拉起系统选择器那一步不可自动化，用 `window.__znInsertImage(path)` 验链路。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| Markdown 插入图片 | ✅ **rev173**：编辑器右键菜单；图片复制进笔记目录 + 相对路径渲染；桌面 / 手机实测 |
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |
 | 前端单测 | ✅ rev120 起持续扩充，已并入 `verify.ps1` 第 5 步（数字看输出） |
 | 远程仓库 / CI（P3-3） | ✅ **rev130**：`github.com/aqua7773/zeronote`（private）+ `.github/workflows/verify.yml`（五步） |

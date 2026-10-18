@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { Prec, Range, type Extension, type EditorState } from '@codemirror/state'
 import { EditorView, ViewPlugin, keymap, Decoration, type DecorationSet } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
@@ -8,6 +8,7 @@ import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
 import { editorMarkExtensions } from '../kernel/editor-marks'
+import { resolveImageAbsPath } from '../lib/insert-image'
 import { SourceModeView } from './SourceModeView'
 import { TableToolbar, type TableInfo } from './TableToolbar'
 
@@ -80,9 +81,68 @@ function indentListLine(view: EditorView, dir: 1 | -1): boolean {
   return true
 }
 
+/**
+ * 正文图片的 src 解析（2026-10-18 用户要求「markdown 插入图片」）。
+ *
+ * 为什么需要它：atomic-editor 的 image-blocks 把 `![](url)` 渲染成 `<img>`，
+ * 而 `img.src` 用的就是**文档原文**。写进 `.md` 的必须是相对路径（换机器 / 换端
+ * 都能用），但 WebView 会把相对路径解析成 `http://localhost:1420/…` ⇒ 404 裂图。
+ * 这里在 widget 挂进 DOM 的**同一帧**把 src 换成 asset URL ——
+ * MutationObserver 回调是微任务，早于绘制，所以不会闪破图。
+ *
+ * 覆盖两处创建 `<img>` 的地方：image-blocks（正文块）与 table-widget（表格单元格），
+ * 以及 CM6 虚拟化重挂载（滚走再滚回来 widget 会重建）。
+ */
+function fixImageSrc(
+  view: EditorView,
+  vault: string | null | undefined,
+  notePath: string | null,
+) {
+  for (const img of view.contentDOM.querySelectorAll('img')) {
+    const raw = img.getAttribute('src')
+    if (!raw) continue
+    // 已经是可直接加载的 URL（网络图 / data: / plugin 的 asset:）就别碰
+    if (/^(?:https?|data|blob|asset):/i.test(raw)) continue
+    const abs = resolveImageAbsPath(vault, notePath, raw)
+    if (!abs) continue
+    let url: string
+    try {
+      url = convertFileSrc(abs)
+    } catch {
+      // 非 Tauri 环境（浏览器预览 / 单测）没有 asset 协议：保持原文，别让整页炸掉
+      continue
+    }
+    // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
+    if (img.src !== url) img.src = url
+  }
+}
+
+function imageAssetPlugin(vault: string | null | undefined, notePath: string | null) {
+  return ViewPlugin.fromClass(
+    class {
+      private readonly observer: MutationObserver
+      constructor(view: EditorView) {
+        this.observer = new MutationObserver(() => fixImageSrc(view, vault, notePath))
+        this.observer.observe(view.contentDOM, { childList: true, subtree: true })
+        fixImageSrc(view, vault, notePath)
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          fixImageSrc(update.view, vault, notePath)
+        }
+      }
+      destroy() {
+        this.observer.disconnect()
+      }
+    },
+  )
+}
+
 type Props = {
   /** 当前笔记的库内相对路径；null = 未打开 */
   path: string | null
+  /** 库根**绝对路径**（把笔记里的相对图片路径转成 asset URL 用） */
+  vault?: string | null
   /** 打开时载入的初始内容 */
   value: string
   onChange: (next: string) => void
@@ -244,6 +304,7 @@ function computeTableInfoFromEvent(view: EditorView, target: HTMLElement): Table
 
 export function MarkdownEditor({
   path,
+  vault,
   value,
   onChange,
   onSave,
@@ -437,6 +498,8 @@ export function MarkdownEditor({
     // 直接闭包捕获 onCommand：数组每次 render 现场构造，而 atomic 只在 mount / 切换
     // 笔记时读它，那时捕获到的就是当次渲染的回调，不需要 ref 中转。
     ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
+    // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
+    imageAssetPlugin(vault, path),
   ]
 
   // 兜底（正常走不到）：万一将来 atomic 的内部实现不再触发我们注入的

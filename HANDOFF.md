@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 172
-更新时间: 2026-10-18（rev172 Android 安装 .znp：不传 filters + content:// 转缓存路径）
+revision: 173
+更新时间: 2026-10-18（rev173 Markdown 插入图片：编辑器右键菜单 + 相对路径渲染）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173 | 2026-10-18 · **Markdown 插入图片**：编辑器右键菜单「插入图片…」→ 复制进笔记目录 → 相对路径渲染成 asset URL（桌面 + 手机实测）· 测试 **226 / cargo 30** |
 | rev172 | 2026-10-18 · **Android 装 .znp 全链路修通**：不传 filters（MIUI 会藏未知类型）+ `content://` 先经 uri-reader 复制成缓存路径 · 测试 **206** |
 | rev171 | 2026-10-18 · 修**手机设置页「安装插件包（.znp）」点了没反应**（Settings 复用 PluginPanel 时漏传 `onInstall`）· 测试 **206** |
 | rev170 | 2026-10-18 · **输入状态下右划不打开侧栏**（`lib/swipe.ts` 纯函数；左划关闭不受影响）· 测试 **206** |
@@ -144,6 +145,51 @@ revision: 172
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173（2026-10-18 · Markdown 插入图片）
+>
+> 用户：「先做 markdown 插入图片，现在还没有插入图片的方式」→ 指定入口「**放在编辑器右键菜单**」。
+>
+> ### 1 现状核实（先查现成）
+>
+> - **渲染是现成的**：atomic-editor 0.6.2 自带 `image-blocks.js`，`![alt](url)` 会渲染成块级 `<img>`。
+>   但它 `img.src = this.src`（文档原文）⇒ 相对路径被 WebView 解析成 `http://localhost:1420/…`，
+>   实测 `naturalWidth = 0`（裂图）。**所以缺的不是渲染，是「相对路径 → asset URL」这一段**。
+> - **插入入口此前没有**；`copy_entry` 只接受库内相对路径，搬不进库外图片。
+>
+> ### 2 实现（四个点）
+>
+> - **入口**：编辑器右键菜单「插入图片…」（`粘贴` 与 `查找…` 之间；桌面右键与手机长按同一菜单）。
+> - **链路**：`dialog.open`（桌面传图片 filters；Android 沿用 rev172 结论**不传**）
+>   → `content://` 先经 `uri-reader.read_content_uri` 复制成缓存路径
+>   → 新命令 `import_attachment`（`src-tauri/src/lib.rs`）复制进**笔记所在目录**：
+>     命名 `image-YYYYMMDD-HHMMSS.<ext>`，重名 `-1/-2`，扩展名白名单
+>     png/jpg/jpeg/gif/webp/bmp/svg/avif，`stem` 再过一遍白名单（只留字母数字与 `-`）
+>   → 光标处插入 `![](相对笔记目录的路径)`，图片语法**独占一行**（前后按需补 `\n`）。
+> - **渲染**：`MarkdownEditor` 新增 `vault` prop；`imageAssetPlugin`（CM6 ViewPlugin）在 widget
+>   挂进 DOM 的**同一帧**把相对 src 换成 `convertFileSrc(abs)` —— MutationObserver 回调是微任务，
+>   早于绘制，所以**不闪破图**。覆盖三处：正文块、表格内 `<img>`（table-widget）、虚拟化重挂载。
+> - **纯逻辑**：`src/lib/insert-image.ts`（路径解析 / 相对路径 / 命名 / 插入位置），可单测、不碰 DOM。
+>
+> ### 3 验收
+>
+> | 判据 | 证据 |
+> |---|---|
+> | 桌面菜单有入口 | CDP 右键 `.cm-content` → 菜单项 `粘贴 / 插入图片… / 查找…`；截图 `_shots/rev173-menu.png` |
+> | 桌面插入 + 落盘 | `__znInsertImage(<库外 png>)` → `image-20261018-203028.png` 418055 B（与源一致），笔记写入 `![](image-…)` |
+> | 桌面渲染 | DOM `naturalWidth = 1220`（改前为 0）· 截图 `_shots/rev173-insert.png` |
+> | 手机菜单 | 真机 `33b676f6`（dev 版）菜单同样出现「插入图片…」· 截图 `_shots/rev173-android.png` |
+> | 手机插入 + 落盘 | `/storage/emulated/0/Documents/ZeroNote/image-20261018-203630.png` 418055 B，笔记写入，渲染 1220 |
+> | 单测 | `vitest` 226 passed（新增 20 条）· `cargo test --lib` 30 passed（新增 3 条） |
+>
+> ### 4 已知边界
+>
+> - 图片**不进文件树**（`collect()` 只收 .md 与只读文档）——放笔记同目录因此不会出现空目录；
+>   附件没有列表入口（要管理就直接去文件夹）。
+> - 手机点「插入图片…」会拉起系统选择器，这一步**系统对话框无法自动化**；
+>   本轮用 `window.__znInsertImage(path)` 诊断口验证了「复制 + 插入」同一链路（与 `__znInstallZnp` 同套路）。
+> - 测试夹具已清：桌面 `_tmp-vault-tb` 的 pic-test.md / phone.png / image-*；
+>   手机库的 image-20261018-203630.png（笔记恢复为 0 字节空笔记）、`/sdcard/Download/zn-test.png`。
+>
 > ## 📌 rev172（2026-10-18 · Android 安装 .znp 全链路修通）
 >
 > 用户：「手机从入口插件安装 znp 无法生效」。真机全链路排查，两处断点：

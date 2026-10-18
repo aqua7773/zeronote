@@ -78,6 +78,7 @@ import {
 } from './lib/recent'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
+import { IMAGE_EXTS, attachmentStem, imageInsertion, pathFromNote } from './lib/insert-image'
 import {
   bootAutoDisabled,
   bootAutoDisabledNotice,
@@ -1431,6 +1432,82 @@ export default function App() {
   }, [])
 
   /**
+   * 编辑器右键菜单「插入图片…」（2026-10-18 用户要求「markdown 插入图片」）。
+   *
+   * 全链路：选图 → Android `content://` 先经 uri-reader 复制成缓存路径
+   * → `import_attachment` 复制进**笔记所在目录**（重名自动加 -1/-2）
+   * → 光标处插入 `![](相对笔记目录的路径)`。
+   *
+   * 为什么图片放笔记目录：库内相对路径不含 `..` 时，换端 / 换机器 / 外部编辑器
+   * 都能直接打开；渲染时的解析规则见 `lib/insert-image.ts`。
+   */
+  const insertImageFromPath = useCallback(
+    async (src: string) => {
+      const view = editorRef.current
+      if (!view || !activePath || !vault) return
+      const rel = await invoke<string>('import_attachment', {
+        vault,
+        notePath: activePath,
+        src,
+        stem: attachmentStem(new Date()),
+      })
+      const target = pathFromNote(activePath, rel)
+      const sel = view.state.selection.main
+      const edit = imageInsertion(view.state.doc.toString(), sel.from, sel.to, target)
+      view.dispatch({
+        changes: { from: edit.from, to: edit.to, insert: edit.insert },
+        selection: { anchor: edit.anchor },
+        scrollIntoView: true,
+      })
+      view.focus()
+      setToast(`已插入图片 ${target}`)
+    },
+    [activePath, vault],
+  )
+
+  const insertImage = useCallback(async () => {
+    if (!editorRef.current || !activePath || !vault) return
+    try {
+      const picked = await open({
+        multiple: false,
+        title: '插入图片',
+        /*
+         * Android 不传 filters：rev172 真机实测 MIUI「安全访问」按 MIME 过滤自己的
+         * 四个分类，传了反而可能把目标藏起来（.znp 就是这么丢的）；不传时列表完整。
+         * 桌面端传图片类型，省得用户在一堆文档里找。
+         */
+        ...(platform === 'android'
+          ? {}
+          : { filters: [{ name: '图片', extensions: [...IMAGE_EXTS] }] }),
+      })
+      if (typeof picked !== 'string') return
+      let src = picked
+      // Android SAF 返回的是 content://，std::fs 读不了 —— 先复制进应用缓存拿绝对路径
+      if (/^content:\/\//i.test(src)) {
+        const copy = await invoke<{ path: string; name: string }>(
+          'plugin:uri-reader|read_content_uri',
+          { uri: src },
+        )
+        src = copy.path
+      }
+      await insertImageFromPath(src)
+    } catch (e) {
+      setToast(`插入图片失败：${String(e)}`)
+    }
+  }, [activePath, insertImageFromPath, platform, vault])
+
+  /* 诊断出口（与 `__znBackPress` 同一套路）：插入图片要过系统文件选择器，
+     CDP 点不了原生对话框 —— 这个口让脚本直接喂一个**已存在的文件路径**，
+     走与右键菜单完全相同的「复制 + 插入」链路。 */
+  useEffect(() => {
+    const w = window as unknown as { __znInsertImage?: (src: string) => Promise<void> }
+    w.__znInsertImage = (src) => insertImageFromPath(src)
+    return () => {
+      delete w.__znInsertImage
+    }
+  }, [insertImageFromPath])
+
+  /**
    * 卡死兜底：**前端心跳**（判超时的一方在 Rust 的原生看门狗线程里，见 `src-tauri/src/lib.rs`
    * 的 `spawn_watchdog`）。设计取舍与验收判据见 `docs/卡死兜底方案-2026-10-13.md`。
    *
@@ -1721,6 +1798,7 @@ export default function App() {
               })
           },
         },
+        { label: '插入图片…', onClick: () => void insertImage() },
         { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => synthKey('f') },
       )
 
@@ -2148,6 +2226,7 @@ export default function App() {
             )}
             <MarkdownEditor
               path={activePath}
+              vault={vault}
               value={content}
               onChange={onEditorChange}
               onSave={() => void saveNow()}
