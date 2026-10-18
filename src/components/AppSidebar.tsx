@@ -83,6 +83,9 @@ export function AppSidebar({
       </div>
       {vault ? (
         <FileTree
+          // 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的）
+          key={vault}
+          vault={vault}
           notes={notes}
           dirs={dirs}
           activePath={activePath}

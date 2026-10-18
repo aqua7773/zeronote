@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -40,6 +41,28 @@ type TreeNode = {
  * 且这个值只在文件树内部用、从不发给内核）。
  */
 const DOCS_NODE = '__zn_docs__'
+
+/**
+ * 文件树展开状态持久化（2026-10-18 用户要求：「文件树现在是每次进入都会展开，
+ * 设置成默认记住上次状态」）。
+ *
+ * 只记**折叠**的路径集合：没有记录 = 全展开，与旧行为一致（老用户升级后观感不变）。
+ * 按库隔离（key 带库路径）—— 每个库的目录结构不同，混在一起会串。
+ * localStorage 不可用（隐私模式 / 配额满）时静默退回内存态，不影响使用。
+ */
+const TREE_COLLAPSED_KEY = 'zn-tree-collapsed'
+
+function readCollapsed(vault: string | null): Set<string> {
+  try {
+    const raw = localStorage.getItem(vault ? `${TREE_COLLAPSED_KEY}:${vault}` : TREE_COLLAPSED_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr)
+      ? new Set(arr.filter((x): x is string => typeof x === 'string'))
+      : new Set()
+  } catch {
+    return new Set()
+  }
+}
 
 /**
  * 目录树 = **目录清单**（`dirs`，含空目录）＋ 笔记清单（`notes`）。
@@ -208,6 +231,8 @@ function Node({
   dropTarget,
   reveal,
   dragging,
+  collapsed,
+  onToggleOpen,
   onPick,
   onContextMenu,
   renaming,
@@ -227,6 +252,10 @@ function Node({
   reveal?: string | null
   /** 正在被拖动的条目（源行淡出） */
   dragging?: string | null
+  /** 已折叠的目录路径（FileTree 持有并持久化；各节点的 open 由它派生） */
+  collapsed: Set<string>
+  /** 切换某个目录的展开 / 折叠 */
+  onToggleOpen: (path: string) => void
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围；`pos` 是点击位置，选中多项时用来直接弹菜单 */
   onPick: (
     path: string,
@@ -240,7 +269,12 @@ function Node({
   onSubmitRename: () => void
   onCancelRename: () => void
 }) {
-  const [open, setOpen] = useState(true)
+  /**
+   * 展开 / 折叠**不再由节点自己 useSate(true) 决定**（2026-10-18 用户要求「记住上次状态」）：
+   * 状态源收归 FileTree 的 `collapsed` 集合并落 localStorage，这里只做派生。
+   * 没记录的目录 = 展开（与旧行为一致）。
+   */
+  const open = !collapsed.has(node.path)
   /**
    * 节点自身的内边距**固定** —— 层级缩进交给外面那层 `.zn-tree-kids`（每层一条竖线）。
    * 以前是 `depth * 12px`，缩进靠节点自己算，画不出引导线。
@@ -254,9 +288,11 @@ function Node({
   }, [renaming, node.path])
 
   // 新建/重命名落在本节点子树里 ⇒ 自动展开（否则输入框在折叠目录里，看着像"没反应"）
+  // 只在「确实折着」时动一次：toggle 是切换语义，不拦 open 反而会把它折上。
   useEffect(() => {
-    if (reveal && (reveal === node.path || reveal.startsWith(`${node.path}/`))) setOpen(true)
-  }, [reveal, node.path])
+    if (!reveal) return
+    if (!open && (reveal === node.path || reveal.startsWith(`${node.path}/`))) onToggleOpen(node.path)
+  }, [reveal, open, node.path, onToggleOpen])
 
   const editing = renaming?.path === node.path
 
@@ -289,7 +325,7 @@ function Node({
             }${dragging === node.path ? ' is-dragging' : ''}`}
             style={pad}
             data-zn-path={node.path}
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => onToggleOpen(node.path)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -323,6 +359,8 @@ function Node({
                 depth={depth + 1}
                 activePath={activePath}
                 selected={selected}
+                collapsed={collapsed}
+                onToggleOpen={onToggleOpen}
                 dropTarget={dropTarget}
                 reveal={reveal}
                 dragging={dragging}
@@ -427,6 +465,7 @@ export function FileTree({
   notes,
   dirs = [],
   activePath,
+  vault = null,
   clipboard,
   onOpen,
   onNewFile,
@@ -444,6 +483,11 @@ export function FileTree({
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
   dirs?: string[]
   activePath: string | null
+  /**
+   * 当前库的绝对路径 —— **展开/折叠状态按库隔离**（2026-10-18 用户要求
+   * 「默认记住上次状态」；每个库的目录结构不同，共用一个 key 会串）。
+   */
+  vault?: string | null
   onOpen: (path: string) => void
   /**
    * 在 `dir`（库内相对路径，`''` = 库根）建一篇新笔记。
@@ -477,6 +521,32 @@ export function FileTree({
   layers?: RefObject<Array<() => boolean>>
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
+  /**
+   * **折叠的目录集合**（2026-10-18 用户要求「文件树默认记住上次状态」）。
+   * 记「折叠」而不是「展开」：默认全展开 = 空集合，与升级前观感一致。
+   * 换库时靠 `AppSidebar` 的 `key={vault}` 重建本组件 ⇒ 自然读到那个库自己的记录。
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => readCollapsed(vault ?? null))
+
+  // 折叠状态一变就落盘（localStorage 同步写，很便宜）
+  useEffect(() => {
+    try {
+      const key = vault ? `${TREE_COLLAPSED_KEY}:${vault}` : TREE_COLLAPSED_KEY
+      if (collapsed.size > 0) localStorage.setItem(key, JSON.stringify([...collapsed]))
+      else localStorage.removeItem(key)
+    } catch {
+      /* 存不了就退化成"只记在内存里"（隐私模式 / 配额满），不影响用 */
+    }
+  }, [collapsed, vault])
+
+  const toggleOpen = useCallback((path: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [renaming, setRenaming] = useState<Renaming | null>(null)
   const [draft, setDraft] = useState('')
@@ -1099,6 +1169,8 @@ export function FileTree({
           depth={0}
           activePath={activePath}
           selected={selectedSet}
+          collapsed={collapsed}
+          onToggleOpen={toggleOpen}
           dropTarget={dropTarget}
           reveal={reveal}
           dragging={draggingPath}
