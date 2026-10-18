@@ -8,7 +8,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
  * 前提：拿到「所有文件访问」（MANAGE_EXTERNAL_STORAGE）权限。
  */
 const ANDROID_VAULT = '/storage/emulated/0/Documents/ZeroNote'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type KernelAudit, type PanelRegistration } from './kernel/kernel'
 import { deletePluginDir, type PluginDirEntry } from './kernel/plugin-host'
@@ -78,7 +78,7 @@ import {
 } from './lib/recent'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
-import { IMAGE_EXTS, attachmentStem, imageInsertion, pathFromNote } from './lib/insert-image'
+import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import {
   bootAutoDisabled,
   bootAutoDisabledNotice,
@@ -169,6 +169,11 @@ export default function App() {
   /* 卡死兜底 C 段：启动自愈若认出了"上次卡死的插件"，**第一眼就告诉用户**（不许静默）。
      初值直接取模块级结论 —— 不写 effect，免得踩 `set-state-in-effect`（本仓库 lint 基线是恰好 4 条） */
   const [toast, setToast] = useState<string | null>(bootAutoDisabledNotice)
+  /**
+   * 图片附件预览地址（rev173.3「附件的入口」）。
+   * 文件树「附件」分组里点一张图 → 全屏看原图；null = 没开。
+   */
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
   /** 移动端的「笔记库」面板（桌面走系统目录选择器，不用它） */
   const [vaultPanelOpen, setVaultPanelOpen] = useState(false)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
@@ -1432,57 +1437,88 @@ export default function App() {
   }, [])
 
   /**
-   * 编辑器右键菜单「插入图片…」（2026-10-18 用户要求「markdown 插入图片」）。
+   * 图片附件预览（rev173.3 · 用户「附件的入口也没做」）。
    *
-   * 全链路：选图 → Android `content://` 先经 uri-reader 复制成缓存路径
-   * → `import_attachment` 复制进**笔记所在目录**（重名自动加 -1/-2）
-   * → 光标处插入 `![](相对笔记目录的路径)`。
-   *
-   * 为什么图片放笔记目录：库内相对路径不含 `..` 时，换端 / 换机器 / 外部编辑器
-   * 都能直接打开；渲染时的解析规则见 `lib/insert-image.ts`。
+   * 文件树「附件」分组里点一张图 → 全屏看原图。**不能走 `openNote`**（那会按文本
+   * 读二进制、必然失败），也不用插件：内核自己就能把它显示出来（asset 协议）。
    */
-  const insertImageFromPath = useCallback(
+  const openImagePreview = useCallback(
+    (relPath: string) => {
+      if (!vault) return
+      const abs = `${vault.replace(/\\/g, '/').replace(/\/+$/, '')}/${relPath}`
+      try {
+        setImagePreview(convertFileSrc(abs))
+      } catch {
+        setToast('图片预览不可用（当前环境没有 asset 协议）')
+      }
+    },
+    [vault],
+  )
+
+  // 图片预览：压进返回键层栈（Android 返回先关预览）+ Esc 关闭
+  useEffect(() => {
+    if (!imagePreview) return
+    const stack = layerExitsRef.current
+    const close = () => {
+      setImagePreview(null)
+      return true
+    }
+    stack.push(close)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setImagePreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [imagePreview])
+
+  /**
+   * 插入附件（rev173.3 · 用户「插入附件也放在编辑区右键菜单」，rev173.4 起**唯一入口**：
+   * 「取消插入图片的入口，统一放附件，但是图片的渲染不变」）。
+   *
+   * 选任意文件 → 复制进笔记所在目录 → 按扩展名写不同语法：
+   *  · 图片（png/jpg/…）→ `![](image-时间戳.ext)`，走编辑器图片渲染（与以前完全一致）；
+   *  · 其它文件 → `[原名.ext](相对路径)`，点开由宿主分流。
+   * 图片用时间戳名、其它文件保留原名主干 —— 图片常是截图（原名无意义、还容易撞名）。
+   */
+  const insertFileFromPath = useCallback(
     async (src: string) => {
       const view = editorRef.current
       if (!view || !activePath || !vault) return
+      const asImage = isImageFileName(src)
       const rel = await invoke<string>('import_attachment', {
         vault,
         notePath: activePath,
         src,
-        stem: attachmentStem(new Date()),
+        stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
       })
       const target = pathFromNote(activePath, rel)
+      const label = rel.split('/').pop() ?? target
       const sel = view.state.selection.main
-      const edit = imageInsertion(view.state.doc.toString(), sel.from, sel.to, target)
+      const doc = view.state.doc.toString()
+      const edit = asImage
+        ? imageInsertion(doc, sel.from, sel.to, target)
+        : linkInsertion(doc, sel.from, sel.to, target, label)
       view.dispatch({
         changes: { from: edit.from, to: edit.to, insert: edit.insert },
         selection: { anchor: edit.anchor },
         scrollIntoView: true,
       })
       view.focus()
-      setToast(`已插入图片 ${target}`)
+      setToast(asImage ? `已插入图片 ${label}` : `已插入附件 ${label}`)
     },
     [activePath, vault],
   )
 
-  const insertImage = useCallback(async () => {
+  const insertAttachment = useCallback(async () => {
     if (!editorRef.current || !activePath || !vault) return
     try {
-      const picked = await open({
-        multiple: false,
-        title: '插入图片',
-        /*
-         * Android 不传 filters：rev172 真机实测 MIUI「安全访问」按 MIME 过滤自己的
-         * 四个分类，传了反而可能把目标藏起来（.znp 就是这么丢的）；不传时列表完整。
-         * 桌面端传图片类型，省得用户在一堆文档里找。
-         */
-        ...(platform === 'android'
-          ? {}
-          : { filters: [{ name: '图片', extensions: [...IMAGE_EXTS] }] }),
-      })
+      const picked = await open({ multiple: false, title: '插入附件' })
       if (typeof picked !== 'string') return
       let src = picked
-      // Android SAF 返回的是 content://，std::fs 读不了 —— 先复制进应用缓存拿绝对路径
       if (/^content:\/\//i.test(src)) {
         const copy = await invoke<{ path: string; name: string }>(
           'plugin:uri-reader|read_content_uri',
@@ -1490,22 +1526,62 @@ export default function App() {
         )
         src = copy.path
       }
-      await insertImageFromPath(src)
+      await insertFileFromPath(src)
     } catch (e) {
-      setToast(`插入图片失败：${String(e)}`)
+      setToast(`插入附件失败：${String(e)}`)
     }
-  }, [activePath, insertImageFromPath, platform, vault])
+  }, [activePath, insertFileFromPath, vault])
 
-  /* 诊断出口（与 `__znBackPress` 同一套路）：插入图片要过系统文件选择器，
+  /**
+   * 正文里点**库内相对链接**（附件）→ 按类型分流（rev173.3）：
+   * 图片 → 预览；只读文档 → 阅读器插件（`core.openDocument`）；其它 → 提示路径。
+   * 相对路径按**当前笔记所在目录**解析（与插入时写进 .md 的规则一致）。
+   */
+  const openLocalLink = useCallback(
+    (raw: string) => {
+      let rel = raw.trim()
+      try {
+        rel = decodeURIComponent(rel)
+      } catch {
+        /* 不是合法转义就按原样用 */
+      }
+      rel = rel.replace(/^\.\//, '').replace(/^\/+/, '')
+      const noteDir =
+        activePath && activePath.includes('/')
+          ? activePath.slice(0, activePath.lastIndexOf('/'))
+          : ''
+      const norm = normalizePosix(noteDir ? `${noteDir}/${rel}` : rel)
+      if (!norm) {
+        setToast('附件路径越界，忽略')
+        return
+      }
+      const meta = notes.find((n) => n.path === norm)
+      if (!meta) {
+        setToast(`库里没有这个附件：${norm}`)
+        return
+      }
+      if (meta.kind === 'image') openImagePreview(norm)
+      else if (meta.kind === 'doc') runCore('core.openDocument', { path: norm })
+      else setToast(`附件：${norm}（暂不支持直接打开）`)
+    },
+    [activePath, notes, openImagePreview, runCore],
+  )
+
+  /* 诊断出口（与 `__znBackPress` 同一套路）：插入附件要过系统文件选择器，
      CDP 点不了原生对话框 —— 这个口让脚本直接喂一个**已存在的文件路径**，
-     走与右键菜单完全相同的「复制 + 插入」链路。 */
+     走与右键菜单完全相同的「复制 + 插入」链路（图片 / 其它文件自动分流）。 */
   useEffect(() => {
-    const w = window as unknown as { __znInsertImage?: (src: string) => Promise<void> }
-    w.__znInsertImage = (src) => insertImageFromPath(src)
-    return () => {
-      delete w.__znInsertImage
+    const w = window as unknown as {
+      __znInsertFile?: (src: string) => Promise<void>
+      __znOpenLocalLink?: (rel: string) => void
     }
-  }, [insertImageFromPath])
+    w.__znInsertFile = (src) => insertFileFromPath(src)
+    w.__znOpenLocalLink = (rel) => openLocalLink(rel)
+    return () => {
+      delete w.__znInsertFile
+      delete w.__znOpenLocalLink
+    }
+  }, [insertFileFromPath, openLocalLink])
 
   /**
    * 卡死兜底：**前端心跳**（判超时的一方在 Rust 的原生看门狗线程里，见 `src-tauri/src/lib.rs`
@@ -1798,7 +1874,7 @@ export default function App() {
               })
           },
         },
-        { label: '插入图片…', onClick: () => void insertImage() },
+        { label: '插入附件…', onClick: () => void insertAttachment() },
         { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => synthKey('f') },
       )
 
@@ -2109,6 +2185,7 @@ export default function App() {
                走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
             const meta = notes.find((n) => n.path === p)
             if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
+            else if (meta?.kind === 'image') openImagePreview(p)
             else void openNote(p)
           }}
           onNewFile={newNoteIn}
@@ -2237,6 +2314,7 @@ export default function App() {
               onCloseReplace={() => setReplaceOpen(false)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
+              onLocalLinkOpen={openLocalLink}
               layers={layerExitsRef}
             />
             {/*
@@ -2450,6 +2528,17 @@ export default function App() {
           {toast}
         </div>
       ) : null}
+
+      {/* 图片附件全屏预览（rev173.3）：点遮罩 / Esc / Android 返回键关闭 */}
+      {imagePreview && (
+        <div
+          className="zn-img-preview"
+          role="presentation"
+          onClick={() => setImagePreview(null)}
+        >
+          <img src={imagePreview} alt="" />
+        </div>
+      )}
     </div>
   )
 }

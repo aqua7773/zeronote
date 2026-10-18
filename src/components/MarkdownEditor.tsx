@@ -167,6 +167,14 @@ type Props = {
    */
   onWikiLinkOpen?: (target: string) => void
   /**
+   * 点正文里的**库内相对链接**（附件，rev173.3）→ 交给宿主按类型分流：
+   * 图片预览 / 文档阅读器 / 提示路径。`http(s):` 这类外部链接仍走 `open_external`。
+   *
+   * 为什么要这个口：atomic 的 `onLinkClick` 只认 http/https，本地附件链接
+   * （`[报告](报告.pdf)`）以前点了完全没反应。
+   */
+  onLocalLinkOpen?: (relPath: string) => void
+  /**
    * Android 返回键的「层出口」栈（App 的 `layerExitsRef`）。
    * 图片预览打开时压一层：返回键先关预览，而不是往下走把笔记关掉。
    */
@@ -226,24 +234,6 @@ const EDITOR_CSS = `
   .zn-editor .cm-atomic-image img {
     max-height: 23vh;
   }
-}
-/* 点正文图片弹全屏预览：点遮罩 / 按 Esc 关闭 */
-.zn-img-preview {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.82);
-  cursor: zoom-out;
-}
-.zn-img-preview img {
-  max-width: 94vw;
-  max-height: 92vh;
-  object-fit: contain;
-  border-radius: 6px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 /* CM6 的查找/替换面板本来是「两行块流」（中间用 <br> 分隔），
    而 atomic 给它的 form 设了不换行的 flex —— 结果替换行与后面的按钮被挤出可视区
@@ -351,6 +341,7 @@ export function MarkdownEditor({
   onCloseReplace,
   onCommand,
   onWikiLinkOpen,
+  onLocalLinkOpen,
   layers,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
@@ -781,6 +772,11 @@ export function MarkdownEditor({
              * 这里转给内核命令 `open_external`（只放行 http/https，用系统默认程序打开）。
              */
             onLinkClick={(url) => {
+              // 库内相对链接（附件，没有 scheme）→ 交给宿主分流；外部链接走系统打开
+              if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+                onLocalLinkOpen?.(url)
+                return
+              }
               void invoke('open_external', { url }).catch((e) => {
                 console.warn('[zn] 打开链接失败', url, e)
               })

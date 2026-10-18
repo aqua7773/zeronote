@@ -34,22 +34,22 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173）
+## 最近一轮（rev173.3）
 
-- **Markdown 插入图片**（用户要求入口「放在编辑器右键菜单」）：
-  右键「插入图片…」→ 选图 → 复制进**笔记所在目录**（`image-YYYYMMDD-HHMMSS.<ext>`，重名 `-1/-2`）
-  → 光标处插入 `![](相对路径)`；渲染时相对路径 → `convertFileSrc` 的 asset URL（不写绝对路径进 .md）。
-- 覆盖三处渲染点：正文块、表格内 `<img>`、CM6 虚拟化重挂载；MutationObserver 微任务里改 src，不闪破图。
-- 验收：桌面 + 真机都实测插入 / 落盘 / 渲染（截图 `_shots/rev173-*.png`）；vitest 226、cargo 30 全过。
-- 边界：图片不进文件树；手机拉起系统选择器那一步不可自动化，用 `window.__znInsertImage(path)` 验链路。
-- **显示尺寸（rev173.1）**：正文里缩略显示（桌面 280px 高 / 手机 23vh，长宽各为上一版一半），点图片看原图（点遮罩 / Esc 关闭）。
-- **返回键（rev173.2）**：预览打开时按返回键先退预览（压进层出口栈），再按一次才关笔记。
+- **附件**（用户三连要求：附件入口 / 插入附件放右键菜单 / 取消插入图片入口统一走附件）：
+  · 文件树新增「附件」分组：图片进树（`.png` 徽章），点开全屏预览；返回键先关预览（rev173.2）。
+  · 编辑器右键菜单**只留「插入附件…」**：选任意文件 → 复制进笔记目录 →
+    图片写 `![](image-时间戳.ext)`（**渲染不变**）、其它文件写 `[原名.ext](相对路径)`。
+  · `import_attachment` 放宽到任意普通文件（挡 exe/bat/ps1 等），图片用时间戳名、其它保留原名。
+  · 正文点库内相对链接 → 图片预览 / 只读文档走 `core.openDocument` / 其它提示路径。
+- 验收：vitest **230**、cargo **31**；桌面与手机都实测（`_shots/rev1733-*.png`）。
+- 边界：图片缩略 280px（桌面）/ 23vh（手机）；附件不在正文渲染（只出链接）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| Markdown 插入图片 | ✅ **rev173**：编辑器右键菜单；图片复制进笔记目录 + 相对路径渲染；桌面 / 手机实测 |
+| 图片 / 附件 | ✅ **rev173.3**：附件入口（文件树分组 + 预览）+ 右键「插入附件…」统一入口；桌面 / 手机实测 |
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |
 | 前端单测 | ✅ rev120 起持续扩充，已并入 `verify.ps1` 第 5 步（数字看输出） |
 | 远程仓库 / CI（P3-3） | ✅ **rev130**：`github.com/aqua7773/zeronote`（private）+ `.github/workflows/verify.yml`（五步） |

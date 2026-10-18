@@ -383,8 +383,9 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
       part.pendingRemoves.clear()
       try {
         // 只索引**笔记**：`listNotes` 2026-10-13 起也会返回只读文档（`kind: 'doc'`，
-        // 如 pdf/epub），而索引是"Markdown 全文搜索"，对二进制调 `readText` 只会白读一遍。
-        const list = (await deps.fs.listNotes()).filter((m) => m.kind !== 'doc')
+        // 如 pdf/epub），2026-10-18 rev173.3 起还有图片（`kind: 'image'`）——
+        // 索引是"Markdown 全文搜索"，对二进制调 `readText` 只会白读一遍。
+        const list = (await deps.fs.listNotes()).filter((m) => m.kind === 'note')
         const next = new Map<string, Entry>()
         for (let i = 0; i < list.length; i += READ_BATCH) {
           const chunk = list.slice(i, i + READ_BATCH)

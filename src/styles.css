@@ -2143,3 +2143,25 @@ body.is-resizing * {
   caret-color: var(--zn-fg) !important;
 }
 
+/* ───────── 图片全屏预览（rev173.1 · 2026-10-18）─────────
+   两处共用：编辑器正文点图片（MarkdownEditor）、文件树「附件」分组点图片（App）——
+   所以放在全局样式里，不塞在编辑器组件的 <style> 里（那边没挂载时样式会丢）。
+   点遮罩 / Esc / Android 返回键关闭（返回键层栈见 App 的 backRef）。 */
+.zn-img-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+.zn-img-preview img {
+  max-width: 94vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+

@@ -27,10 +27,11 @@ type TreeNode = {
    * 只用于**区分显示**（文档挂类型徽章）—— "打开走哪条命令"由 `App.tsx` 的
    * `core.openDocument` 派发，文件树不掺业务判断。
    */
-  kind?: 'note' | 'doc'
+  kind?: 'note' | 'doc' | 'image'
   /**
    * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录，
    * 只是把只读文档聚合到一处显示。见 `DOCS_NODE`。
+   * 2026-10-18 rev173.3：图片附件同理，聚到「附件」分组（`ATTACH_NODE`）。
    */
   virtual?: boolean
 }
@@ -41,6 +42,15 @@ type TreeNode = {
  * 且这个值只在文件树内部用、从不发给内核）。
  */
 const DOCS_NODE = '__zn_docs__'
+
+/**
+ * 虚拟「附件」分组的哨兵路径（rev173.3）—— 图片附件的聚合入口。
+ *
+ * 为什么要有它：「插入图片」把图复制进笔记所在目录后，文件树里**什么都看不到**，
+ * 用户找不到自己的图（「附件的入口也没做」）。图片收进一个分组：
+ * 一处能看到全部附件、点开就是全屏预览，不污染笔记的目录层级。
+ */
+const ATTACH_NODE = '__zn_attachments__'
 
 /**
  * 文件树展开状态持久化（2026-10-18 用户要求：「文件树现在是每次进入都会展开，
@@ -100,21 +110,23 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   for (const d of dirs) ensureDir(d)
 
-  /** 只读文档的收集桶（最后统一挂到虚拟分组下） */
+  /** 只读文档 / 图片附件的收集桶（最后统一挂到各自的虚拟分组下） */
   const docs: TreeNode[] = []
+  const images: TreeNode[] = []
 
   for (const n of notes) {
     const parts = n.path.split('/')
     const name = parts[parts.length - 1]
-    // 文档不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
-    if (n.kind === 'doc') {
-      docs.push({
+    // 文档 / 图片不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
+    if (n.kind === 'doc' || n.kind === 'image') {
+      const bucket = n.kind === 'doc' ? docs : images
+      bucket.push({
         name,
         path: n.path,
         children: [],
         isDir: false,
         title: n.title,
-        kind: 'doc',
+        kind: n.kind,
       })
       continue
     }
@@ -148,6 +160,19 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
       children: docs,
       isDir: true,
       kind: 'doc',
+      virtual: true,
+    })
+  }
+
+  // 「附件」分组（rev173.3）：图片附件的唯一可见入口，排在「文档」之后
+  if (images.length) {
+    images.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+    root.push({
+      name: '附件',
+      path: ATTACH_NODE,
+      children: images,
+      isDir: true,
+      kind: 'image',
       virtual: true,
     })
   }
@@ -386,14 +411,17 @@ function Node({
   // （文档没有 frontmatter / 首行标题那套语义），这里再挂一个类型徽章
   // —— 否则它在树里和笔记长得一模一样，用户分不清哪个能编辑。
   const isDoc = node.kind === 'doc'
-  const docExt = isDoc ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase() : ''
+  /** 图片附件（rev173.3）：与只读文档同样挂扩展名徽章，点开走图片预览 */
+  const isImage = node.kind === 'image'
+  const ext =
+    isDoc || isImage ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase() : ''
   /**
    * 显示名（2026-10-17 用户定「文件显示 .md」）：
    *  · 笔记 —— 直接显示**磁盘文件名**（含 `.md`），一眼看出是 Markdown；
-   *  · 只读文档（pdf/epub/…）—— 去掉扩展名：它后面已经跟着 `.pdf` 徽章了，
+   *  · 只读文档（pdf/epub/…）/ 图片 —— 去掉扩展名：它后面已经跟着 `.pdf` / `.png` 徽章了，
    *    再带一次会变成 `测试书籍.epub .epub`。
    */
-  const label = isDoc ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
+  const label = isDoc || isImage ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
   /**
    * 高亮判据**用选中集合**，不用裸 `activePath`（2026-10-17 修）：
    * `selectedSet` 已经处理了「selected 为空 ⇒ 回退到当前打开的那篇」，
@@ -455,7 +483,7 @@ function Node({
         ●
       </span>
       <span className="zn-tree-label">{label}</span>
-      {isDoc && <span className="zn-ext">.{docExt}</span>}
+      {(isDoc || isImage) && <span className="zn-ext">.{ext}</span>}
       </button>
     </div>
   )

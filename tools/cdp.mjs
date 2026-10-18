@@ -20,11 +20,12 @@
  *
  *   node tools/cdp.mjs text
  *   node tools/cdp.mjs click "text:新建笔记" shot _shots/a.png
+ *   node tools/cdp.mjs clickat 439 74                 # 真实鼠标点页面坐标（带 clientX/Y）
  *   node tools/cdp.mjs eval "document.title"
  *   node tools/cdp.mjs type "input" "hello" key Enter shot b.png
  *
  * 命令：`shot <path>` · `text [sel]` · `html [sel]` · `eval <js>` ·
- *       `click <sel|text:…>` · `type <sel|text:…> <值>` · `key <Enter|Escape|…>` ·
+ *       `click <sel|text:…>` · `clickat <x> <y>` · `type <sel|text:…> <值>` · `key <Enter|Escape|…>` ·
  *       `wait <ms>` · `waitfor <sel|text:…>` · `list`
  *
  * 环境变量 `ZN_CDP`（默认 `http://127.0.0.1:9222`）、`ZN_TARGET`（多页面时挑哪个）。
@@ -189,6 +190,26 @@ async function rclick(cdp, target) {
   console.log(`rclick <${hit.tag}> ${hit.text}  @${hit.x},${hit.y}`)
 }
 
+/**
+ * 在**页面坐标**点一下（真实鼠标事件，带 clientX / clientY）。
+ *
+ * 为什么需要它：`click` 走 `el.click()`，合成事件的坐标是 0,0 ——
+ * atomic 的链接「尾部图标热区」用 `event.clientX` 与元素 rect 比较，
+ * 合成点击永远落在热区外（实测点了没反应）。这里发真实鼠标序列。
+ */
+async function clickAt(cdp, x, y) {
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+  await sleep(80)
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1,
+  })
+  await sleep(60)
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x, y, button: 'left', clickCount: 1, buttons: 0,
+  })
+  console.log(`clickat @${x},${y}`)
+}
+
 /** 把鼠标移到元素上（触发 hover 态，不点） */
 async function hover(cdp, target) {
   const hit = await cdp.js(ACT_JS(target, ''))
@@ -287,6 +308,9 @@ async function main() {
         break
       case 'click':
         await click(cdp, argv[i++])
+        break
+      case 'clickat':
+        await clickAt(cdp, Number(argv[i++]), Number(argv[i++]))
         break
       case 'rclick':
         await rclick(cdp, argv[i++])

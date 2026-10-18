@@ -12,9 +12,11 @@ import {
   attachmentStem,
   dirnamePosix,
   imageInsertion,
+  linkInsertion,
   normalizePosix,
   pathFromNote,
   resolveImageAbsPath,
+  stemFromFileName,
 } from '../src/lib/insert-image'
 
 describe('normalizePosix', () => {
@@ -99,6 +101,37 @@ describe('pathFromNote', () => {
 describe('attachmentStem', () => {
   it('固定格式 image-YYYYMMDD-HHMMSS（带前导零）', () => {
     expect(attachmentStem(new Date(2026, 9, 18, 20, 30, 5))).toBe('image-20261018-203005')
+  })
+})
+
+describe('stemFromFileName', () => {
+  it('去扩展名、取文件名、中文保留', () => {
+    expect(stemFromFileName('C:\\Downloads\\报告 终版.pdf')).toBe('报告-终版')
+    expect(stemFromFileName('/storage/emulated/0/a.tar.gz')).toBe('a.tar')
+  })
+
+  it('空白转 -，空主干回退 file', () => {
+    expect(stemFromFileName('my file.docx')).toBe('my-file')
+    expect(stemFromFileName('.gitignore')).toBe('gitignore')
+    expect(stemFromFileName('...')).toBe('file')
+  })
+})
+
+describe('linkInsertion', () => {
+  it('生成 [名](路径)，并沿用独占一行的块规则', () => {
+    expect(linkInsertion('abc', 3, 3, '报告.pdf', '报告.pdf')).toEqual({
+      from: 3,
+      to: 3,
+      insert: '\n[报告.pdf](报告.pdf)',
+      anchor: 3 + '\n[报告.pdf](报告.pdf)'.length,
+    })
+  })
+
+  it('空文档 / 选区替换', () => {
+    expect(linkInsertion('', 0, 0, 'a.zip', 'a.zip').insert).toBe('[a.zip](a.zip)')
+    const got = linkInsertion('xxYYzz', 2, 4, 'a.zip', 'a.zip')
+    expect(got.insert).toBe('\n[a.zip](a.zip)\n')
+    expect(got.to).toBe(4)
   })
 })
 

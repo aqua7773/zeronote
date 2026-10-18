@@ -25,14 +25,16 @@ export type NoteMeta = {
   frontmatter: Record<string, unknown>
   /**
    * `note` = Markdown 笔记（内核可编辑，走编辑器）；
-   * `doc`  = 只读文档（pdf / epub / mobi / cbz / txt …）。
+   * `doc`  = 只读文档（pdf / epub / mobi / cbz / txt …）；
+   * `image` = 图片附件（png / jpg / gif / webp / svg …，rev173.3 起进文件树）。
    *
-   * 2026-10-13 加：内核此前只列 `.md`，库里放了 PDF 也看不见。
-   * 现在两类都进文件树，但**只有 `note` 进索引、只有 `note` 走 `openNote`**；
-   * `doc` 交给插件 —— 内核注册 `core.openDocument` 派发（见 `App.tsx`），
-   * 插件用 `command.bind('core.openDocument', …)` 接管。
+   * 2026-10-13 加 doc：内核此前只列 `.md`，库里放了 PDF 也看不见。
+   * 2026-10-18 加 image：「插入图片」把图复制进笔记目录后，文件树里什么都看不到 ⇒
+   * 用户「附件的入口也没做」。现在三类都进文件树，但：
+   * **只有 `note` 进索引、只有 `note` 走 `openNote`**；`doc` 交给插件
+   * （`core.openDocument` 派发）；`image` 由内核自己弹图片预览。
    */
-  kind: 'note' | 'doc'
+  kind: 'note' | 'doc' | 'image'
 }
 
 export type FsChange = {

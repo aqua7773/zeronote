@@ -118,9 +118,54 @@ export function imageInsertion(
   relPath: string,
   alt = '',
 ): { from: number; to: number; insert: string; anchor: number } {
-  const text = `![${alt}](${relPath})`
-  let insert = text
+  return blockInsertion(doc, from, to, `![${alt}](${relPath})`)
+}
+
+/** 块规则：插入内容独占一行（前后按需补 `\n`） */
+function blockInsertion(
+  doc: string,
+  from: number,
+  to: number,
+  markdown: string,
+): { from: number; to: number; insert: string; anchor: number } {
+  let insert = markdown
   if (from > 0 && doc[from - 1] !== '\n') insert = `\n${insert}`
   if (to < doc.length && doc[to] !== '\n') insert = `${insert}\n`
   return { from, to, insert, anchor: from + insert.length }
+}
+
+/**
+ * 插入**附件链接**（普通文件，rev173.3）：`[文件名](相对路径)`，与图片一样独占一行。
+ *
+ * 为什么不是图片语法：非图片文件 `![]()` 会渲染成裂图；用普通链接，
+ * 点击时由宿主按扩展名分流（图片预览 / 文档阅读器 / 提示路径）。
+ */
+export function linkInsertion(
+  doc: string,
+  from: number,
+  to: number,
+  relPath: string,
+  label: string,
+): { from: number; to: number; insert: string; anchor: number } {
+  return blockInsertion(doc, from, to, `[${label}](${relPath})`)
+}
+
+/**
+ * 源文件是不是图片（按扩展名，大小写不敏感）。
+ * 「插入附件」用它决定写 `![]()`（图片，走渲染）还是 `[]()`（普通链接）。
+ */
+export function isImageFileName(path: string): boolean {
+  const ext = path.split(/[\\/]/).pop()?.split('.').pop()?.toLowerCase() ?? ''
+  return (IMAGE_EXTS as readonly string[]).includes(ext)
+}
+
+/**
+ * 从源文件名取「主干」当附件名：`报告 终版.pdf` → `报告-终版`。
+ * 去扩展名、空白转 `-`、限 64 字符；空则回退 `file`（Rust 侧还有一层白名单清洗）。
+ */
+export function stemFromFileName(path: string): string {
+  const base = path.split(/[\\/]/).pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  const stem = dot > 0 ? base.slice(0, dot) : base
+  return stem.replace(/\s+/g, '-').replace(/^\.+/, '').slice(0, 64) || 'file'
 }

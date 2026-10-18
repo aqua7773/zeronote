@@ -43,6 +43,17 @@ fn is_readonly_doc(name: &str) -> bool {
   DOC_EXTS.iter().any(|e| lower.ends_with(&format!(".{e}")))
 }
 
+/// 文件名（大小写不敏感）是否为**图片附件**（`insert_image` 复制进来的那些）。
+///
+/// 2026-10-18 rev173.3：图片此前完全不进 `list_notes` ⇒ 文件树里看不到，
+/// 用户「附件的入口也没做」。收进树后由前端归到「附件」虚拟分组，点开走图片预览。
+fn is_image(name: &str) -> bool {
+  name
+    .rsplit_once('.')
+    .map(|(_, e)| IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    .unwrap_or(false)
+}
+
 #[derive(Serialize)]
 pub struct NoteMeta {
   /// 库内相对路径，统一用 `/`
@@ -206,8 +217,11 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       continue;
     }
     // 笔记（.md）与**只读文档**（pdf/epub/…）都进文件树；其它一律跳过。
+    // 2026-10-18 rev173.3：图片附件也进（kind = image，前端归到「附件」分组）。
     let is_note = is_markdown(&name);
-    if !is_note && !is_readonly_doc(&name) {
+    let is_doc = is_readonly_doc(&name);
+    let is_img = is_image(&name);
+    if !is_note && !is_doc && !is_img {
       continue;
     }
     let meta = match entry.metadata() {
@@ -225,9 +239,9 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       .map_err(|e| e.to_string())?
       .to_string_lossy()
       .replace('\\', "/");
-    // 只读文档**不读文本、不解析 frontmatter**：二进制读成 String 没有意义（`read_to_string`
-    // 会失败），而"三级回退标题"是 Markdown 专属语义。文档显示名 = 文件名**含扩展名**
-    //（`手册.pdf` 比 `手册` 有信息量 —— 文件树里一眼能看出类型）。
+    // 只读文档 / 图片**不读文本、不解析 frontmatter**：二进制读成 String 没有意义
+    //（`read_to_string` 会失败），而"三级回退标题"是 Markdown 专属语义。
+    // 显示名 = 去掉扩展名的文件名（类型由前端挂的 `.pdf` / `.png` 徽章显示）。
     let (frontmatter, title) = if is_note {
       let text = fs::read_to_string(&path).unwrap_or_default();
       let fm = parse_frontmatter(&text);
@@ -254,7 +268,15 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       mtime,
       size: meta.len(),
       frontmatter,
-      kind: if is_note { "note" } else { "doc" }.to_string(),
+      kind: if is_note {
+        "note"
+      } else if is_img {
+        // rev173.3：图片附件（文件树里归到「附件」分组，点开是图片预览）
+        "image"
+      } else {
+        "doc"
+      }
+      .to_string(),
     });
   }
   Ok(())
@@ -958,6 +980,11 @@ fn copy_entry(vault: String, from: String, to: String) -> Result<(), String> {
 /// 「插入图片」接受的扩展名（小写；与前端 `src/lib/insert-image.ts` 的 IMAGE_EXTS 同一份）。
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"];
 
+/// 不允许复制进库的扩展名（可执行 / 脚本）—— 附件区不该有能直接双击运行的东西。
+const BLOCKED_EXTS: &[&str] = &[
+  "exe", "dll", "bat", "cmd", "com", "scr", "msi", "ps1", "vbs", "js", "jar", "apk",
+];
+
 /// 把**库外**的图片复制进笔记所在目录，返回库内相对路径（如 `sub/image-x.png`）。
 ///
 /// 为什么不用 `copy_entry`：它只接受库内相对路径，搬不进外面的文件；
@@ -988,19 +1015,24 @@ fn import_attachment(
     .and_then(|e| e.to_str())
     .map(|e| e.to_ascii_lowercase())
     .unwrap_or_default();
-  if !IMAGE_EXTS.contains(&ext.as_str()) {
-    return Err(format!(
-      "不是支持的图片格式（只认 {}）：{src}",
-      IMAGE_EXTS.join(" / ")
-    ));
+  // rev173.3：图片之外也允许任意**普通文件**（「插入附件」用）；
+  // 只挡可执行 / 脚本 —— 附件目录里出现能双击运行的东西只可能是误操作。
+  if ext.is_empty() {
+    return Err(format!("文件没有扩展名，无法判断类型：{src}"));
   }
+  if BLOCKED_EXTS.contains(&ext.as_str()) {
+    return Err(format!("不允许插入可执行 / 脚本文件（.{ext}）：{src}"));
+  }
+  // stem 白名单：保留 Unicode 字母数字（中文文件名要能留住）、`-`、`_`；空格转 `-`。
+  // 路径分隔符与其它符号一律丢掉 —— 不能让 stem 变成路径。
   let clean: String = stem
     .chars()
-    .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+    .map(|c| if c == ' ' { '-' } else { c })
+    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
     .take(64)
     .collect();
   let base = if clean.is_empty() {
-    "image".to_string()
+    "file".to_string()
   } else {
     clean
   };
@@ -2245,6 +2277,7 @@ mod tests {
     fs::write(d.join("a.md"), "# a").unwrap();
     fs::write(d.join("b.pdf"), "%PDF-1.4").unwrap();
     fs::write(d.join("c.png"), "PNG").unwrap();
+    fs::write(d.join("d.bin"), "BIN").unwrap();
     fs::create_dir_all(d.join("子目录")).unwrap();
     fs::write(d.join("子目录").join("c.md"), "# c").unwrap();
     fs::create_dir_all(d.join(".zn")).unwrap();
@@ -2256,8 +2289,8 @@ mod tests {
     assert!(paths.contains(&"子目录/c.md".to_string()), "中文子目录要能递归：{paths:?}");
     assert!(!paths.iter().any(|p| p.contains(".zn")), ".zn 不能进文件树");
     assert!(
-      !paths.iter().any(|p| p.ends_with(".png")),
-      "非文档（图片等）不进文件树：{paths:?}"
+      !paths.iter().any(|p| p.ends_with(".bin")),
+      "非笔记 / 非文档 / 非图片的文件仍不进文件树：{paths:?}"
     );
 
     // 2026-10-13：只读文档也进文件树（此前只收 .md ⇒ 库里的 PDF 根本看不见）
@@ -2270,6 +2303,15 @@ mod tests {
     assert!(pdf.frontmatter.is_null(), "文档不解析 frontmatter");
     let md = list.iter().find(|m| m.path == "a.md").unwrap();
     assert_eq!(md.kind, "note", "笔记的 kind 是 note");
+
+    // 2026-10-18 rev173.3：图片附件也进文件树（前端归到「附件」分组）
+    let png = list
+      .iter()
+      .find(|m| m.path == "c.png")
+      .expect("图片要进文件树（附件的入口）");
+    assert_eq!(png.kind, "image", "图片的 kind 必须是 image");
+    assert_eq!(png.title, "c", "图片显示名 = 去掉扩展名的文件名");
+    assert!(png.frontmatter.is_null(), "图片不解析 frontmatter");
   }
 
   /// 空目录也要上报 —— 文件树若只靠 `list_notes` 反推目录，**空文件夹根本不会显示**
@@ -2437,9 +2479,43 @@ mod tests {
     assert!(vault.join("evil.png").is_file());
   }
 
-  /// 非图片扩展名 / 源不存在 / 越界笔记路径 ⇒ 明确报错（不能静默复制一个 .exe 进来）。
+  /// 附件：普通文件（pdf 等）允许复制；中文 stem 保留；可执行扩展名拒绝（rev173.3）。
   #[test]
-  fn import_attachment_rejects_non_image_and_missing_src() {
+  fn import_attachment_allows_plain_files_and_keeps_chinese_stem() {
+    let d = tmpdir("attach-any");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("a.md"), "x").unwrap();
+    let src = d.join("报告.pdf");
+    fs::write(&src, b"%PDF-1.4").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let rel = import_attachment(
+      v.clone(),
+      "a.md".into(),
+      src.to_string_lossy().to_string(),
+      "报告 终版".into(),
+    )
+    .unwrap();
+    assert_eq!(rel, "报告-终版.pdf", "中文留在文件名里，空格转 -");
+    assert!(vault.join("报告-终版.pdf").is_file());
+
+    let bat = d.join("tool.bat");
+    fs::write(&bat, b"echo hi").unwrap();
+    assert!(
+      import_attachment(
+        v,
+        "a.md".into(),
+        bat.to_string_lossy().to_string(),
+        "tool".into()
+      )
+      .is_err(),
+      "可执行 / 脚本文件必须拒绝"
+    );
+  }
+
+  /// 可执行扩展名 / 源不存在 / 越界笔记路径 ⇒ 明确报错（不能静默复制一个 .exe 进来）。
+  #[test]
+  fn import_attachment_rejects_executable_and_missing_src() {
     let d = tmpdir("attach-bad");
     let vault = d.join("vault");
     fs::create_dir_all(&vault).unwrap();
