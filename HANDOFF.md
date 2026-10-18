@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.9
-更新时间: 2026-10-18（rev173.9 交接：导图点击偶发不生效待查）
+revision: 173.10
+更新时间: 2026-10-18（rev173.10 交接：手机端导图点击偶发不生效——根因已定位、修复方案已写、未验证）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.10 | 2026-10-18 · **交接**：手机端导图点击偶发不生效——根因定位（`posAtDOM` 反查行号在虚拟化后失败）+ 修复方案（按钮带 `data-zn-line`）；**代码已回滚、未修** |
 | rev173.9 | 2026-10-18 · **交接**：用户报「导图点击有时候不生效」→ 要求先交接；记录当前状态 + 排查线索 |
 | rev173.8 | 2026-10-18 · **手机工具栏加「缩进 / 取消缩进」**：`core.indent` / `core.outdent`（与 Tab/Shift+Tab 同一份逻辑，只对列表行）+ 按钮 ⇤ ⇥ · 测试 **243** |
 | rev173.7 | 2026-10-18 · **修「导图显示库载入失败」**：MindElixir 移进 `public/vendor/mind-elixir/`，outline-map 改 fetch 内置资源（不再读库内 `.zn/plugins/…/vendor`）；11 个插件桌面冒烟 |
@@ -154,6 +155,60 @@ revision: 173.9
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.10（2026-10-18 · 交接：手机端导图点击偶发不生效）
+>
+> 用户：「导图点击有时候不生效，是手机端的」→「排查完交接」→「不修复，直接交接」。
+> 本轮**只排查到根因 + 写好修复方案，代码已回滚**（工作区干净，HEAD 仍是 rev173.9 的 `919a8c3`）。
+>
+> ### 1 现象与复现（真机 33b676f6）
+>
+> - 手机打开 `diagram-test.md`（`# 导图测试` + 列表），编辑器左侧出现 `❖`（按钮**会**渲染）。
+> - 点 `❖` → **没反应**：`__znKernelAudit().shell` 仍为 `null`、`windows` 为 0，界面停在编辑器。
+> - 直接 `__znExec('outline-map.open-map-at-line')`（不带 payload）→ 插件 `run` 里
+>   `Number(payload.line)` 是 NaN ⇒ 只 `host.notify('这条命令要带 { line }')`；
+>   手机端 toast 不显示 ⇒ 连提示都看不到。
+>
+> ### 2 根因（已定位，未修）
+>
+> `src/kernel/editor-marks.ts` 的行首按钮点击处理器（`EditorView.domEventHandlers`）里：
+>
+> ```ts
+> from = view.posAtDOM(actEl)
+> line = view.state.doc.lineAt(from).number - 1   // 行号完全依赖 posAtDOM
+> ```
+>
+> - 手机上 CM6 的虚拟化会把 widget 拆掉重建，**`posAtDOM` 会抛错** ⇒ `line` 保持 `-1`；
+> - 插件 `mapButtonTargets(cache.content).find((t) => t.line === line)` 用 -1 永远不命中 ⇒
+>   `host.notify('这一行没有可开的导图组…')`（手机 toast 不显示）⇒ 用户看到「点了没反应」；
+> - 桌面窗口大、widget 基本不重建，很难复现 —— 与「手机端偶发」完全吻合。
+>
+> ⚠️ **更正 rev173.7 §5 的结论**：那里写「手机端 ❖ 不渲染（`editorMarks` 里没有
+> outline-map 的 line action）」—— 实测**按钮是渲染的**（DOM 有 `outline-map/map-btn`），
+> 当时没看到是因为插件还是旧版本（`ensureBuiltinPlugins` 尚未写入新 index.js）。问题在点击环节。
+>
+> ### 3 修复方案（已写好、tsc/oxlint 通过，但**未实测验证**，已回滚）
+>
+> 改动只在 `src/kernel/editor-marks.ts`，两处：
+>
+> 1. `LineActionWidget` 增加字段 `lineNo: number`（**0 起**，与 `filter` 的 `line`、`onClick` payload 同口径），
+>    `toDOM()` 里 `btn.setAttribute('data-zn-line', String(this.lineNo))`；`eq()` 比较也要加 `lineNo`；
+> 2. `buildDecorations()` 画按钮时传 `doc.lineAt(lineFrom).number - 1`；
+> 3. 点击处理器**优先读 `data-zn-line`**，`posAtDOM` 只用来补 `from`：
+>
+> ```ts
+> const dataLine = actEl.getAttribute('data-zn-line')
+> let line = dataLine !== null ? Number(dataLine) : -1
+> let from = -1
+> try { from = view.posAtDOM(actEl) } catch { /* 只少了上下文 */ }
+> if (!Number.isFinite(line) || line < 0) {
+>   try { if (from >= 0) line = view.state.doc.lineAt(from).number - 1 } catch { line = -1 }
+> }
+> onAction(cmd, { line, from })
+> ```
+>
+> 验证路径（下次）：手机点 `❖` **连点多次**，每次都应进入导图（整窗接管：
+> `__znKernelAudit().shell` 非 null）；再跑 `verify.ps1` 五步 → 提交 → 新 rev。
+>
 > ## 📌 rev173.9（2026-10-18 · 交接：导图点击偶发不生效待查）
 >
 > 用户报「导图点击有时候不生效」，随后要求「先交接」—— 本轮**只做交接，未排查**。
