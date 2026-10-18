@@ -44,8 +44,8 @@ pwsh -File scripts\verify.ps1
 - **验证**：真机 33b676f6 点 ❖ → `shell="outline-map"`、`__mmWin={tag:"mobile-0", lib:"5.15.1", topics:6}`；
   释放再点 3 轮全成功；写回落盘（测试后已恢复笔记原文）；桌面开窗不回归；`verify.ps1` 全绿（见交接卡验收基线）。
 - ⚠️ **环境事故**：桌面冒烟后用 CDP `plugin:window|destroy` 关测试窗口时**主窗口一起没了**；
-  之后从 DSH 会话内重启 `pnpm tauri dev` 连续失败（WebView2 `0x800700AA` / `0x8000FFFF`，
-  sandbox 下疑似 WebView2 的命名管道受限）⇒ **桌面 dev 需要用户手动重启一次**。详见 `HANDOFF.md` rev173.11 §5。
+  之后 `pnpm tauri dev` 连续失败（WebView2 `0x800700AA` / `0x8000FFFF`、log 插件 `os error 5`）——
+  多因叠加，详见「环境现状」；修法 = `pwsh -File scripts\dev.ps1`（全新 UDF 放项目内 + 日志只 stdout）。
 - ⚠️ **更正 rev173.7 / rev173.9 的结论**：手机端 ❖ 是渲染的，且点击入口已通（rev173.11 起整窗接管）。
 
 ## 未决 / 下一步
@@ -79,7 +79,8 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：`pwsh -File scripts\dev.ps1`（= 先把 WebView2 用户数据目录指到项目内 `_tmp-ebwebview`，再 `tauri dev`；vite 1420），日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`）；已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
+- **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
+  注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
 - **GitHub**：账号 `aqua7773`（gh 已登录，keyring）；**github.com 直连超时，必须走本地代理 `http://127.0.0.1:26561`**（`HTTPS_PROXY`）。gh 不在当前 PATH，用 `C:\Program Files\GitHub CLI\gh.exe`。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION`，重启即恢复（rev117 / rev118 各踩一次）。
@@ -92,15 +93,14 @@ pwsh -File scripts\verify.ps1
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
 - **CDP 关窗口的坑（rev173.11 踩过）**：别用 `plugin:window|destroy` 关插件窗口 —— 实测**主窗口一起没了**（进程只剩插件窗口、9222 消失）。关窗口让用户点，或只 `clearShell` 不毁窗口。
-- **桌面 dev 从 DSH 会话内启动必失败**（rev173.11 实测）：WebView2 报 `0x800700AA` / `0x8000FFFF`。
-  三次对照：默认目录失败、同盘非 workspace 目录失败、**只有 `workspace 内`目录能建 webview** ⇒
-  DSH 子进程的沙箱拦了 `%LOCALAPPDATA%` 写入。**结论：Tauri dev 一律在 DSH 外的终端跑。**
-- **普通权限 / 管理员权限不能混跑**（2026-10-18 用户实测）：用管理员跑过一次 `pnpm tauri dev` 后，
-  普通权限再跑报 `0x800700AA`（WebView2 的 user data folder 里留了管理员实例的状态）。
-  修法（普通权限终端）：
-  1. 确认没有残留 `zeronote.exe` / 该应用的 `msedgewebview2.exe`；
-  2. `Rename-Item "$env:LOCALAPPDATA\com.aqua.zeronote\EBWebView" "EBWebView.elevated-bak"`；
-  3. `pnpm tauri dev` → WebView2 用普通权限重建目录（丢 localStorage 偏好，不丢笔记）。
+- **WebView2 用户数据目录坏了 = dev 起不来**（rev173.11，含事后更正）：`0x800700AA`（资源使用中）/
+  `0x8000FFFF`（灾难性故障）/ `failed to initialize plugin log: 拒绝访问 (os error 5)` 都是它的症状。
+  ⚠️ 早先写的「DSH 沙箱拦 `%LOCALAPPDATA%` 写入」**是错的**（本会话是 danger-full-access）；
+  真实差异是**全新目录 vs 被污染目录**。污染来源（多因叠加）：
+  ① 用 CDP `plugin:window|destroy` 误关主窗口 + kill 进程；② 手删 `EBWebView\Default\LOCK` / 改名 UDF 目录；
+  ③ 管理员权限跑过 dev（它写下的日志/缓存属主是 `Administrators`，普通权限再跑又坏一轮）。
+  **修法**：`pwsh -File scripts\dev.ps1`（UDF → 项目内 `_tmp-ebwebview`，普通权限稳定）。
+  **规矩**：dev 只用普通权限跑；别手删 UDF 里的 `LOCK`；别用 `plugin:window|destroy` 关窗口。
   参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)（UDF 被占用）、
   [Quicker 讨论](https://getquicker.net/QA/Question/41733)（管理员/普通实例冲突）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。

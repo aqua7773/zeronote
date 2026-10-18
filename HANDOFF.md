@@ -210,11 +210,19 @@ revision: 173.11
 > 已做：删残留 `EBWebView\Default\LOCK`、旧日志 `ZeroNote.log` / `logs` 目录改名备份
 > （`logs.bak-2311` 在 `%LOCALAPPDATA%\com.aqua.zeronote\`）。
 >
-> **实测结论（2026-10-18 23:2x 补）**：
-> ① 在 DSH 会话内启动 `pnpm tauri dev` **必失败** —— 三次对照（默认目录 / 同盘非 workspace / workspace 内）
->    只有 workspace 内能建 webview ⇒ DSH 子进程沙箱拦了 `%LOCALAPPDATA%` 写入；dev 一律在 DSH 外语跑。
-> ② 用户实测「管理员跑可以，普通权限报 `0x800700AA`」⇒ 管理员实例污染了同一个 user data folder。
->    普通权限修法：确认无残留进程 → `Rename-Item EBWebView EBWebView.elevated-bak` → 重跑（普通权限重建目录）。
+> ⚠️ **更正（2026-10-18 23:35，用户质疑后复核）**：本条最初把原因归为「DSH 沙箱拦 `%LOCALAPPDATA%` 写入」——
+> 这**是错的**：本会话文件策略是 **danger-full-access**（不限制写入）；而且 `Documents\wv2-probe`（非 workspace）
+> 也失败、只有 `_tmp-wv2`（项目内）成功 —— 差异更像「**全新目录 vs 被污染的目录**」，不是沙箱。
+>
+> **更准确的因果链**：
+> 1. 我用 CDP `plugin:window|destroy` 误关主窗口 → 再 kill 进程 ⇒ WebView2 的 user data folder 留在不一致状态；
+> 2. 我手动删了 `EBWebView\Default\LOCK`、又改名/还原 UDF 目录 ⇒ 进一步破坏（连新目录都 0x8000FFFF）；
+> 3. 管理员权限跑一次能起来（高完整性，绕过冲突检查），但它写下的日志/缓存属主是 `Administrators`，
+>    普通权限再跑又坏一轮（webview 0x800700AA + `log` 插件 os error 5）。
+>
+> 所以「管理员污染」只是**其中一环**，不是最初那次的原因。结论不变：
+> **换全新 UDF（项目内 `_tmp-ebwebview`）+ dev 日志只写 stdout** 是最稳的修法；
+> 规矩：别用管理员跑 dev、别手删 UDF 里的 `LOCK`、关窗口用手点（别用 `plugin:window|destroy`）。
 > 参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)、
 > [Quicker 讨论](https://getquicker.net/QA/Question/41733)、[tauri#11969](https://github.com/tauri-apps/tauri/issues/11969)。
 >
