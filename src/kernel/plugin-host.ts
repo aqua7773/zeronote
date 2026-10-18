@@ -525,6 +525,15 @@ const styleTags = new Map<string, HTMLStyleElement>()
 function injectStyles(pluginId: string, css: string): Disposable {
   // 真实样式已注入 ⇒ 预热样式让位（它只是首屏那一下的替身，见 lib/boot-plugin-styles.ts）
   dropBootPluginStyles()
+  /**
+   * 同 id 的旧样式先移除（2026-10-18 实测踩到）：dev 下 React Refresh 重挂载 `App` 后，
+   * 旧一代插件实例的 `loaded` 数组没人消费（新 hook 实例是新的 ref）⇒ 旧样式永远留在 DOM 里，
+   * 一份叠一份（实测累积到 3 份主题样式）。生产没有 HMR，但同 id 本来也只该有一份 ——
+   * 统一在这里做幂等注入。
+   */
+  for (const old of document.querySelectorAll('style[data-zn-plugin]')) {
+    if ((old as HTMLElement).dataset.znPlugin === pluginId) old.remove()
+  }
   const el = document.createElement('style')
   el.dataset.znPlugin = pluginId
   el.textContent = css

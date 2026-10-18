@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev135）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev136）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,12 +34,10 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev135）
+## 最近一轮（rev136）
 
-- **修复「翠绿主题闪一下深色」**：主题是插件 `theme-green`（纯 CSS），样式注入晚于首屏 ⇒ 闪内核深色。
-- 修法：插件样式缓存进 localStorage，`main.tsx` 在 React 挂载前注入预热样式；真实注入/加载完成即撤掉。
-- 实测：缓存写入 ✓；删真实样式后 `--zn-bg=#18181b`，预热后 `#0c1a12`（翠绿深色）✓。
-- 测试 **186 → 192**：`tests/boot-plugin-styles.test.ts` 6 条。
+- **排查「标题栏出现时闪深色」**：CDP 16ms 采样 + 连拍 6 帧 —— hover 期间 `--zn-bg`、插件样式、kernel 引用**全都不变**，没复现深色帧。**未定位，需用户确认场景**（标题栏还是 ☰ 菜单？出现还是隐藏时？是否只在 dev）。
+- **修幽灵插件样式累积**：dev 下 React Refresh 重挂载会让旧插件样式残留（实测 3 份）→ `injectStyles` 改为幂等注入（先删同 id 旧样式）。
 - 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 192**）。
 
 ## 未决 / 下一步
