@@ -69,10 +69,11 @@ export function ContextMenu({
   /**
    * 定位方式（2026-10-18 用户定）：
    *  · `pointer`（默认，桌面）—— **跟在鼠标右下角**（+8/+10），超出视口自动翻转；
-   *  · `bottom-right`（手机）—— 固定在**视口右下角**：左侧是文件列表抽屉，
-   *    放右下角就不遮任何文件行（用户圈的位置）。
+   *  · `above-pointer`（手机）—— 出现在**长按点上方**、固定拉开 12px：
+   *    手指在长按点下方，菜单往上放不会被手挡住；放不下就翻到下方。
+   *  · `bottom-right` —— 固定在**视口右下角**（保留备用）。
    */
-  anchor?: 'pointer' | 'bottom-right'
+  anchor?: 'pointer' | 'bottom-right' | 'above-pointer'
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -105,6 +106,11 @@ export function ContextMenu({
     if (anchor === 'bottom-right') {
       left = window.innerWidth - rect.width - 8
       top = window.innerHeight - rect.height - 8
+    } else if (anchor === 'above-pointer') {
+      // 手机长按：菜单放在**长按点上方**（手指在下面挡着），固定拉开 12px
+      left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))
+      top = y - rect.height - 12
+      if (top < 8) top = Math.min(window.innerHeight - rect.height - 8, y + 12)
     } else {
       left = x + 8
       top = y + 10

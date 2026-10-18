@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev145）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev146）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,12 +34,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev145）
+## 最近一轮（rev146）
 
-- **菜单定位定稿**：桌面跟在鼠标**右下角**（+8/+10，超视口翻转）；手机固定**屏幕右下角**（用户圈的位置）。
-- 去掉 rev144 的菜单避让（用户要求桌面跟手）；首帧隐藏避免位置闪。
-- `FileTree` 按 UA 选 `anchor`：Android → `bottom-right`，桌面 → `pointer`。
-- 验收：tsc 0 · oxlint 4 · **vitest 195** · 桌面 CDP `dx=8 dy=10` · 手机截图右下角。
+- **手机菜单**：从屏幕右下角改为**长按点上方固定 12px**（`above-pointer`），手指在下方挡住菜单的问题解决；上方放不下自动翻下方。
+- 桌面不变：鼠标右下角（+8/+10）。
+- 验收：tsc 0 · oxlint 4 · **vitest 195** · 手机 adb 截图 `_shots/rev146-phone-menu-160256.png`。
 
 ## 未决 / 下一步
 
