@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "把外部文件导入成库内笔记、把笔记导出成其它格式。批 1 只做**导入 md / txt**（pdf / epub / html / docx 与各方向的导出在后续批次）。文件名沿用原文件名（去扩展名 + .md），撞名自动加 -1 / -2 后缀。",
+  "category": "tool",
   "capabilities": ["fs:read", "fs:write", "command", "view:sidebar"],
   "contributes": {
     "commands": [

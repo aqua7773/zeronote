@@ -8,6 +8,8 @@
 
 export type Disposable = { dispose(): void }
 
+import type { PluginCategory } from '../lib/plugin-category'
+
 /* ───────────────── 数据面 ───────────────── */
 
 export type NoteMeta = {
@@ -1041,6 +1043,16 @@ export type PluginManifest = {
    */
   platforms?: PluginPlatform[]
   capabilities: Capability[]
+  /**
+   * **插件分类**（2026-10-18 rev173.4，可选）：插件页按它分组展示。
+   *
+   * `editor` 编辑增强 · `reader` 阅读 · `theme` 主题外观 · `tool` 工具 · `demo` 示例与探针。
+   * 不写 ⇒ 宿主按形状与 id 关键词推断（`lib/plugin-category.ts` 的 `categorizePlugin`）：
+   * 纯 CSS（只有 `styles` 没有 `entry`）算主题，id 带 demo/probe 算示例，其余按关键词猜。
+   *
+   * ⚠️ 它只影响**展示分组**：加载、安装路径（`.zn/plugins/<id>/`）、权限都不看这个字段。
+   */
+  category?: PluginCategory
   /**
    * 依赖的**前置插件**（只声明，**不做拓扑排序、不做版本求解**）。
    *

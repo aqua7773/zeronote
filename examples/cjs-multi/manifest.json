@@ -8,6 +8,7 @@
   "files": ["lib/greet.js", "lib/counter.js"],
   "description": "形态 2：多文件 + require('./lib/x.js') —— 单文件限制已解除",
   "platforms": ["desktop", "android"],
+  "category": "demo",
   "capabilities": ["command", "store", "view:statusbar"],
   "contributes": { "commands": [{ "id": "cjs-multi.count", "title": "多文件示例：计数 +1" }] }
 }

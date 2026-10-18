@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "U2 示例（2026-10-13 rev51）：插件自绘界面接管整窗渲染（内核 UI 让位），释放或卸载插件后内核 UI 复原。",
+  "category": "demo",
   "capabilities": ["command", "view:main"],
   "contributes": {
     "commands": [

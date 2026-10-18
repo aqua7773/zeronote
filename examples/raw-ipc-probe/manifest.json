@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop"],
   "description": "一次性验收夹具：证明插件与宿主同上下文 —— 不经原语表可直连 Tauri IPC、可写库外路径、可改内核 DOM。验收完即删。",
+  "category": "demo",
   "capabilities": ["command", "view:sidebar"],
   "contributes": {
     "commands": [{ "id": "rawprobe.run", "title": "探针：跑一遍裸 IPC 测试" }],

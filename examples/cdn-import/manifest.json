@@ -7,6 +7,7 @@
   "entry": "index.js",
   "description": "实测：ESM 单文件能否 import 公网 CDN 上的 npm 包",
   "platforms": ["desktop", "android"],
+  "category": "demo",
   "capabilities": ["view:statusbar"],
   "contributes": {}
 }

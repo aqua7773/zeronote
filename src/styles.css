@@ -1498,6 +1498,10 @@ body.is-resizing * {
 .zn-plugins-error { padding: var(--zn-space-2) var(--zn-space-3); color: var(--zn-danger); font-size: var(--zn-text-sm); border-bottom: 1px solid var(--zn-border); }
 .zn-plugins-empty { padding: var(--zn-space-4); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); line-height: 1.7; }
 .zn-plugin-list { flex: 1; overflow: auto; }
+/* 插件分类分组（rev173.4）：标题吸顶 + 数量，行样式沿用原来的 .zn-plugin-row */
+.zn-plugin-group { margin-bottom: var(--zn-space-2); }
+.zn-plugin-group-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 6px var(--zn-space-3); background: var(--zn-bg-subtle); border-bottom: 1px solid var(--zn-border); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); font-weight: 600; }
+.zn-plugin-group-count { color: var(--zn-fg-subtle); font-weight: 400; }
 .zn-plugin-row { display: flex; gap: var(--zn-space-3); align-items: flex-start; padding: var(--zn-space-3); border-bottom: 1px solid var(--zn-border); }
 .zn-plugin-switch { margin-top: 2px; }
 .zn-plugin-meta { flex: 1; min-width: 0; }

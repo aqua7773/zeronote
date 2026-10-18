@@ -34,21 +34,20 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.3）
+## 最近一轮（rev173.4）
 
-- **附件**（用户三连要求：附件入口 / 插入附件放右键菜单 / 取消插入图片入口统一走附件）：
-  · 文件树新增「附件」分组：图片进树（`.png` 徽章），点开全屏预览；返回键先关预览（rev173.2）。
-  · 编辑器右键菜单**只留「插入附件…」**：选任意文件 → 复制进笔记目录 →
-    图片写 `![](image-时间戳.ext)`（**渲染不变**）、其它文件写 `[原名.ext](相对路径)`。
-  · `import_attachment` 放宽到任意普通文件（挡 exe/bat/ps1 等），图片用时间戳名、其它保留原名。
-  · 正文点库内相对链接 → 图片预览 / 只读文档走 `core.openDocument` / 其它提示路径。
-- 验收：vitest **230**、cargo **31**；桌面与手机都实测（`_shots/rev1733-*.png`）。
-- 边界：图片缩略 280px（桌面）/ 23vh（手机）；附件不在正文渲染（只出链接）。
+- **插件分类**（用户：「插件越来越多了，开始做插件分类存放」）：
+  · manifest 可选 `category`（`editor`/`reader`/`theme`/`tool`/`demo`），插件页按它分组（标题吸顶 + 数量）；
+  · 不写就按「形状 + 名字」推断（纯 CSS ⇒ 主题、demo/probe ⇒ 示例…）；**只影响展示**，加载与安装路径不变；
+  · 存量补齐：examples 29、全局根 6、库内 11、手机 9；脚本 `scripts/plugin-category-backfill.mjs`（幂等）；
+  · 「创建」指开发者做插件：新插件 manifest 写 `"category"`（`docs/开发约定.md §1.1`、契约 §3），不做应用内创建向导。
+- 验收：插件页分组「编辑增强 4 / 阅读 1 / 主题外观 2 / 工具 2 / 示例与探针 2」；vitest **237**。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
+| 插件分类 | ✅ **rev173.4**：manifest.category + 插件页分组 + 存量插件全部补齐 |
 | 图片 / 附件 | ✅ **rev173.3**：附件入口（文件树分组 + 预览）+ 右键「插入附件…」统一入口；桌面 / 手机实测 |
 | App.tsx 拆分 | ✅ **L3 收官**：rev122 L1+L2 · rev123 useFileOps · rev124 useDocIO · rev125 useDocSession · rev126 useDocApi · rev127 useExternalFile · rev128 usePluginHost → **2285 行** |
 | 前端单测 | ✅ rev120 起持续扩充，已并入 `verify.ps1` 第 5 步（数字看输出） |

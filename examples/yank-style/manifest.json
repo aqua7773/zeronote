@@ -7,6 +7,7 @@
   "entry": "index.js",
   "description": "形态 3：window.registerPlugin({name, register}) —— Yank Note 就是这个写法",
   "platforms": ["desktop", "android"],
+  "category": "demo",
   "capabilities": ["command", "view:statusbar"],
   "contributes": { "commands": [{ "id": "yank-style.hello", "title": "全局注册示例：你好" }] }
 }

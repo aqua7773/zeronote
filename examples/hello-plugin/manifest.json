@@ -6,6 +6,7 @@
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "description": "M2 验收用的最小插件：注册 1 个命令 + 挂 1 个侧栏面板（声明式 UI）",
+  "category": "demo",
   "capabilities": ["command", "view:sidebar"],
   "contributes": {
     "commands": [{ "id": "hello.say", "title": "Hello：打个招呼", "keybinding": "Mod+Shift+H" }],

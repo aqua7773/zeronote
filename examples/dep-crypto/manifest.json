@@ -7,5 +7,6 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "前置插件：用 WebCrypto 提供 AES-GCM 加解密。内核一行不改 —— 密钥不明文这件事由插件负责",
+  "category": "tool",
   "capabilities": ["command", "store", "fs:read", "fs:write"]
 }

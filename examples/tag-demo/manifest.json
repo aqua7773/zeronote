@@ -7,5 +7,6 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "演示 index.tags 标签聚合 与 query 的字段过滤（规格 2.3 的「搜索范围含标签」）",
+  "category": "editor",
   "capabilities": ["index:query", "index:write", "command"]
 }

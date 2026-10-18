@@ -7,5 +7,6 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "前置插件示例：提供 katex 服务。懒加载 —— 没有任何插件 consume 时，一次网络请求都不会发生",
+  "category": "tool",
   "capabilities": ["command"]
 }

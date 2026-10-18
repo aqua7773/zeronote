@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "接管协议验收夹具（rev49）：接管 core.newNote / 订阅事件 / 自改宿主 DOM（一处登记、一处不登记）。全程故意不接返回值 —— 考的就是宿主自动登记。它是 tools/verify-takeover.mjs 的配套输入，每次跑验收都要它，保留作可复跑证据。",
+  "category": "demo",
   "capabilities": ["command", "view:statusbar"],
   "contributes": {
     "commands": [{ "id": "takeover-probe.ping", "title": "接管探针：打个招呼" }]

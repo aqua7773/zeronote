@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "U3a/U3b 验收夹具：doc.replaceRange（区间替换）与 doc.on（真事件）的最小可信路径。验收完可删。",
+  "category": "demo",
   "capabilities": ["doc:read", "doc:write", "command", "view:editor-toolbar"],
   "contributes": {
     "commands": [

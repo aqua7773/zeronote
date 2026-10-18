@@ -79,6 +79,7 @@ import {
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
+import { categorizePlugin } from './lib/plugin-category'
 import {
   bootAutoDisabled,
   bootAutoDisabledNotice,
@@ -1721,6 +1722,8 @@ export default function App() {
     capabilities: m.capabilities ?? [],
     // 2026-10-17 rev94：这个插件从哪来 —— 全局的那份换库也在，库内的那份跟着库走
     source: pluginEntries[m.id]?.source,
+    // rev173.4：插件页分组用的分类（manifest 没写就按形状 / 关键词推断）
+    category: categorizePlugin(m),
     // 平台不符 ⇒ 一行说明它只支持哪端（「桌面」/「移动」两类人话，不暴露 desktop/android 字面量）
     platformNote: platformSkipped.includes(m.id)
       ? `不适用 · 仅${(m.platforms ?? [])

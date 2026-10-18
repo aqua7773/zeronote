@@ -7,5 +7,6 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "演示 editor.addMark：把 [[笔记名]] 渲染成可点链接（点击跳转）、#标签 着色",
+  "category": "editor",
   "capabilities": ["fs:read", "doc:read", "doc:write", "command"]
 }

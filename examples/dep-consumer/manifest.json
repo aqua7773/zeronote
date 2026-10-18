@@ -7,6 +7,7 @@
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "消费者示例：软依赖 dep-katex。拿不到服务就降级显示提示，不崩、不阻塞",
+  "category": "demo",
   "capabilities": ["view:main"],
   "dependencies": ["dep-katex"]
 }

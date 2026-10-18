@@ -1,7 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
+import {
+  PLUGIN_CATEGORY_HINT,
+  PLUGIN_CATEGORY_LABEL,
+  PLUGIN_CATEGORY_ORDER,
+  type PluginCategory,
+} from '../lib/plugin-category'
 
 /**
  * 插件管理面板（M2）—— 「装上出现 / 卸下消失」的可视化开关。
@@ -48,6 +54,11 @@ export type PluginRow = {
    * 与 `platformNote` 分开：那不是错误，**这**是"我替你关了它"，必须显眼且可一键恢复。
    */
   autoDisabledNote?: string
+  /**
+   * 分类（rev173.4）：插件页按它分组。
+   * App 侧用 `categorizePlugin` 算好（manifest 的 `category` 优先，没写就推断）。
+   */
+  category?: PluginCategory
 }
 
 export function PluginPanel({
@@ -73,6 +84,28 @@ export function PluginPanel({
   const [pending, setPending] = useState<PluginRow | null>(null)
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
   const pendingIsGlobal = pending?.source === 'global'
+
+  /**
+   * 按分类分组（rev173.4 · 用户「插件越来越多了，开始做插件分类存放」）。
+   *
+   * 空组不画（只装了 3 个插件却铺 5 个标题会很吵）；组内保持 App 给的顺序
+   * （manifest 列表本身按目录名排）。分类只影响展示，不影响加载 / 安装路径。
+   */
+  const groups = useMemo(() => {
+    const byCat = new Map<PluginCategory, PluginRow[]>()
+    for (const p of plugins) {
+      const cat = p.category ?? 'tool'
+      const list = byCat.get(cat)
+      if (list) list.push(p)
+      else byCat.set(cat, [p])
+    }
+    return PLUGIN_CATEGORY_ORDER.filter((c) => byCat.has(c)).map((c) => ({
+      category: c,
+      label: PLUGIN_CATEGORY_LABEL[c],
+      hint: PLUGIN_CATEGORY_HINT[c],
+      rows: byCat.get(c) ?? [],
+    }))
+  }, [plugins])
 
   return (
     <div className="zn-plugins">
@@ -101,7 +134,13 @@ export function PluginPanel({
         </div>
       ) : (
         <div className="zn-plugin-list">
-          {plugins.map((p) => (
+          {groups.map((g) => (
+            <section className="zn-plugin-group" key={g.category}>
+              <div className="zn-plugin-group-head" title={g.hint}>
+                {g.label}
+                <span className="zn-plugin-group-count">{g.rows.length}</span>
+              </div>
+              {g.rows.map((p) => (
             <div className="zn-plugin-row" key={p.id}>
               <input
                 type="checkbox"
@@ -170,6 +209,8 @@ export function PluginPanel({
                 <Trash2 size={14} />
               </button>
             </div>
+              ))}
+            </section>
           ))}
         </div>
       )}

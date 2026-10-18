@@ -8,6 +8,7 @@
   "platforms": ["desktop", "android"],
   "description": "v0.2（rev54）：**笔记本身就是大纲** —— 每个「大纲组」的**标题左侧**有一个「❖」按钮（内核 `editor.addLineAction`），点了把那组开成**独立导图窗口**（可拖 / 多开，窗口怎么摆交给 Windows 分屏）；窗口里可插入子主题 / 删除节点，改动**直接写回库文件**。**rev76 起：容器标题不给按钮** —— 标题下面还接着更深一级标题时（如 `# 绪论` 下面接 `## 数据模型`），它只是结构的根，不算一组大纲",
   "styles": ["outline.css"],
+  "category": "editor",
   "capabilities": ["doc:read", "doc:write", "fs:read", "fs:write", "command", "editor:line-action", "editor:line-class", "editor:fold"],
   "contributes": {
     "commands": [
