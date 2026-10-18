@@ -662,6 +662,253 @@ function meDataToLines(data, baseIndent = 0) {
   return out
 }
 
+/** 挂载器：`overrideShell` 的 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
+function makeMindMapMount({ locateBlock, saveBack, host, tag }) {
+  return (el) => {
+    el.replaceChildren()
+    // 只补 overflow：`position/inset` 交给 `.zn-shell-mount` 的 CSS（它在窗口模式下铺满内容区）
+    el.style.overflow = 'hidden'
+
+    /**
+     * **没有顶栏**（用户 2026-10-13 裁决）—— 上一版那条自绘栏压掉画布高度，
+     * 而且"看着像菜单栏却没有菜单"。现在改成：
+     *   · 四个动作（撤销 / 重做 / 写回 / 重画）进**画布空白处的右键菜单**
+     *     （节点上右键仍是库自己那套，已中文化）
+     *   · 状态信息改成**悬浮在画布左上角**的小浮层（`pointer-events:none`，不挡画布操作）
+     */
+    const body = document.createElement('div') // mind-elixir 的容器：铺满整个内容区
+    /**
+     * ⚠️ **别给这个元素设 `position`** —— 库的构造函数里有 `S.style.position = 'relative'`，
+     * 会把它收到的 el 改掉；而 `relative` + `inset/四边:0` **不是拉伸**，只是"偏移 0"
+     * ⇒ 容器高度塌回内容高度（实测 `.map-container` 403，而内容区 665）。
+     * 只给 `width/height: 100%`，让它撑满上面那个已经铺满的挂载区。
+     */
+    body.style.cssText = 'width:100%;height:100%'
+    body.dataset.znMmBody = ''
+
+    const status = document.createElement('div')
+    status.dataset.znMmStatus = ''
+    status.style.cssText =
+      'position:absolute;left:8px;top:8px;z-index:5;pointer-events:none;padding:2px 8px;' +
+      'border:1px solid var(--zn-border);border-radius:999px;background:var(--zn-bg-subtle);' +
+      'font-size:11px;line-height:1.7;color:var(--zn-fg-muted);opacity:.9;' +
+      'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%'
+
+    let mind = null
+    let themeWatch = null
+    let ready = false
+    let saveTimer = null
+    let saving = false
+    let again = false
+
+    const setStatus = (text, tone) => {
+      status.textContent = text
+      // 用宿主令牌，不写死颜色（浮层也要跟着明暗主题走）
+      status.style.color =
+        tone === 'warn' ? 'var(--zn-danger)' : tone === 'ok' ? 'var(--zn-success)' : 'var(--zn-fg-muted)'
+      status.style.borderColor = tone === 'warn' ? 'var(--zn-danger)' : 'var(--zn-border)'
+    }
+
+    const flush = async () => {
+      saveTimer = null
+      if (!mind || !ready) return
+      if (saving) {
+        again = true // 上一次还在写：记一下，写完再补一次（别丢用户的最后一拖）
+        return
+      }
+      saving = true
+      try {
+        const ok = await saveBack(mind.getData())
+        setStatus(ok ? '已写回笔记' : '写回被拒（看日志）', ok ? 'ok' : 'warn')
+      } catch (e) {
+        setStatus(`写回失败：${String(e).slice(0, 80)}`, 'warn')
+        host.log('warn', `导图写回失败：${String(e)}`)
+      } finally {
+        saving = false
+        if (again) {
+          again = false
+          void flush()
+        }
+      }
+    }
+
+    const scheduleSave = () => {
+      if (!ready) return // init/refresh 期间自己发的事件不算"用户编辑"
+      setStatus('待写回…')
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = setTimeout(() => void flush(), 400)
+    }
+
+    /* ── 画布空白处的右键菜单：四个动作的**唯一常驻入口**（顶栏已撤） ── */
+    const menu = document.createElement('div')
+    menu.dataset.znMmMenu = ''
+    menu.style.cssText =
+      'position:fixed;z-index:60;display:none;min-width:150px;padding:4px;border:1px solid var(--zn-border);' +
+      'border-radius:8px;background:var(--zn-bg);box-shadow:0 10px 28px rgba(0,0,0,.16)'
+
+    const hideMenu = () => {
+      menu.style.display = 'none'
+    }
+
+    const mkItem = (label, hint, run) => {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.textContent = label
+      if (hint) {
+        const h = document.createElement('span')
+        h.textContent = hint
+        h.style.cssText = 'float:right;color:var(--zn-fg-subtle);font-size:11px;margin-left:16px'
+        b.appendChild(h)
+      }
+      b.style.cssText =
+        'display:block;width:100%;text-align:left;font:inherit;font-size:13px;padding:6px 10px;' +
+        'border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer'
+      b.onmouseenter = () => {
+        b.style.background = 'var(--zn-bg-hover)'
+      }
+      b.onmouseleave = () => {
+        b.style.background = 'transparent'
+      }
+      b.onclick = () => {
+        hideMenu()
+        run()
+      }
+      return b
+    }
+
+    menu.append(
+      mkItem('撤销', 'Ctrl+Z', () => {
+        mind?.undo()
+        void flush() // undo/redo **不 fire operation** ⇒ 自己补一次写回
+      }),
+      mkItem('重做', 'Ctrl+Shift+Z', () => {
+        mind?.redo()
+        void flush()
+      }),
+      mkItem('写回', '', () => void flush()),
+      mkItem('重画', '按磁盘重读', () => void rebind()),
+    )
+
+    /**
+     * 在**捕获阶段**听右键：库在容器上装了它自己的节点菜单，
+     * 只有"节点之外"的右键才归我们（捕获 + `stopPropagation` ⇒ 两条路不打架）。
+     */
+    const onContextMenu = (e) => {
+      if (e.target instanceof Element && e.target.closest('me-tpc')) return // 节点上 ⇒ 交给库
+      e.preventDefault()
+      e.stopPropagation()
+      menu.style.display = 'block'
+      const r = menu.getBoundingClientRect()
+      menu.style.left = `${Math.min(e.clientX, Math.max(6, window.innerWidth - r.width - 6))}px`
+      menu.style.top = `${Math.min(e.clientY, Math.max(6, window.innerHeight - r.height - 6))}px`
+    }
+    const onAnyPointerDown = (e) => {
+      if (!menu.contains(e.target)) hideMenu()
+    }
+    el.addEventListener('contextmenu', onContextMenu, true)
+    document.addEventListener('pointerdown', onAnyPointerDown, true)
+
+    /** 读盘 → 建/重画导图（同一个实例、同一条笔记） */
+    const rebind = async () => {
+      ready = false
+      try {
+        const { MindElixir, css, version } = await loadMindElixir()
+        if (!document.querySelector('style[data-zn-mm]')) {
+          const st = document.createElement('style')
+          st.dataset.znMm = ''
+          st.textContent = css
+          document.head.appendChild(st)
+        }
+        const block = locateBlock()
+        if (!block) {
+          setStatus('这一组已不在笔记里', 'warn')
+          return
+        }
+        const data = blockToMeData(block)
+        if (mind) {
+          mind.refresh(data)
+        } else {
+          mind = new MindElixir({
+            el: body,
+            direction: 1,
+            editable: true,
+            newTopicName: '新主题', // 与旧版「＋」按钮插的文案保持一致
+            draggable: true, // 节点拖动：v5 内置该交互，这里显式声明意图
+            allowUndo: true, // ⇒ 实例自带 undo() / redo()（init 里自动装 operationHistory）
+            contextMenu: { locale: MM_LOCALE }, // 中文右键菜单（默认英文）
+            theme: znMindTheme(MindElixir), // 跟随宿主 `--zn-*` 令牌，不是库自带那套
+          })
+          mind.init(data)
+          mind.bus.addListener('operation', scheduleSave)
+          /**
+           * 宿主切主题（`<html data-theme>`）⇒ 跟着重画。
+           * `changeTheme` 内部只 `refresh()`、**不 fire operation** ⇒ 换主题不会被当成一次编辑写回。
+           */
+          themeWatch = new MutationObserver(() => mind?.changeTheme(znMindTheme(MindElixir)))
+          themeWatch.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-theme'],
+          })
+        }
+        ready = true
+        /** 诊断出口（CDP 断言用）：不算"给人看的界面"，但验收要靠它读数 */
+        window.__mmWin = {
+          tag,
+          lib: version,
+          block: block.title,
+          topics: body.querySelectorAll('me-tpc').length,
+          hasUndo: typeof mind.undo === 'function',
+          draggable: mind.draggable,
+          themeBg: getComputedStyle(body.querySelector('.map-container') ?? body)
+            .getPropertyValue('--bgcolor')
+            .trim(),
+          themePalette: mind.theme?.palette?.[0] ?? null,
+        }
+        // 实例本身也露出一个（CDP 驱动 addChild / undo / getData 用）—— 同 `__omWin` / `__docProbeLog` 的先例
+        window.__mmMind = mind
+        setStatus(`mind-elixir ${version} · ${flatNodes(block.nodes).length} 个节点`)
+      } catch (e) {
+        setStatus(`库载入失败：${String(e).slice(0, 80)}`, 'warn')
+        host.log('error', `mind-elixir 载入失败：${String(e)}`)
+      }
+    }
+
+    /**
+     * 库内置的 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 直接调 undo/redo，**不 fire operation**
+     * ⇒ 捕获阶段补一次写回（不然"撤销完磁盘还是旧的"，界面与磁盘就分家了）。
+     */
+    const onUndoKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' || k === 'y') setTimeout(() => void flush(), 60)
+    }
+    el.addEventListener('keydown', onUndoKey, true)
+
+    el.append(body, status, menu)
+    void rebind()
+
+    return {
+      dispose() {
+        ready = false
+        themeWatch?.disconnect()
+        themeWatch = null
+        el.removeEventListener('contextmenu', onContextMenu, true)
+        document.removeEventListener('pointerdown', onAnyPointerDown, true)
+        el.removeEventListener('keydown', onUndoKey, true)
+        if (saveTimer) clearTimeout(saveTimer)
+        saveTimer = null
+        try {
+          mind?.destroy()
+        } catch {
+          /* 已经没了 */
+        }
+        mind = null
+      },
+    }
+  }
+}
+
+
 /** 宿主当前是不是暗色主题（`<html data-theme="dark">`，见 styles.css） */
 function isDarkTheme() {
   const t = document.documentElement.dataset.theme
@@ -944,250 +1191,8 @@ export default {
         })
       }
 
-      /** 挂载器：`overrideShell` 的 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
-      const mountMindMap = (el) => {
-        el.replaceChildren()
-        // 只补 overflow：`position/inset` 交给 `.zn-shell-mount` 的 CSS（它在窗口模式下铺满内容区）
-        el.style.overflow = 'hidden'
 
-        /**
-         * **没有顶栏**（用户 2026-10-13 裁决）—— 上一版那条自绘栏压掉画布高度，
-         * 而且"看着像菜单栏却没有菜单"。现在改成：
-         *   · 四个动作（撤销 / 重做 / 写回 / 重画）进**画布空白处的右键菜单**
-         *     （节点上右键仍是库自己那套，已中文化）
-         *   · 状态信息改成**悬浮在画布左上角**的小浮层（`pointer-events:none`，不挡画布操作）
-         */
-        const body = document.createElement('div') // mind-elixir 的容器：铺满整个内容区
-        /**
-         * ⚠️ **别给这个元素设 `position`** —— 库的构造函数里有 `S.style.position = 'relative'`，
-         * 会把它收到的 el 改掉；而 `relative` + `inset/四边:0` **不是拉伸**，只是"偏移 0"
-         * ⇒ 容器高度塌回内容高度（实测 `.map-container` 403，而内容区 665）。
-         * 只给 `width/height: 100%`，让它撑满上面那个已经铺满的挂载区。
-         */
-        body.style.cssText = 'width:100%;height:100%'
-        body.dataset.znMmBody = ''
-
-        const status = document.createElement('div')
-        status.dataset.znMmStatus = ''
-        status.style.cssText =
-          'position:absolute;left:8px;top:8px;z-index:5;pointer-events:none;padding:2px 8px;' +
-          'border:1px solid var(--zn-border);border-radius:999px;background:var(--zn-bg-subtle);' +
-          'font-size:11px;line-height:1.7;color:var(--zn-fg-muted);opacity:.9;' +
-          'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%'
-
-        let mind = null
-        let themeWatch = null
-        let ready = false
-        let saveTimer = null
-        let saving = false
-        let again = false
-
-        const setStatus = (text, tone) => {
-          status.textContent = text
-          // 用宿主令牌，不写死颜色（浮层也要跟着明暗主题走）
-          status.style.color =
-            tone === 'warn' ? 'var(--zn-danger)' : tone === 'ok' ? 'var(--zn-success)' : 'var(--zn-fg-muted)'
-          status.style.borderColor = tone === 'warn' ? 'var(--zn-danger)' : 'var(--zn-border)'
-        }
-
-        const flush = async () => {
-          saveTimer = null
-          if (!mind || !ready) return
-          if (saving) {
-            again = true // 上一次还在写：记一下，写完再补一次（别丢用户的最后一拖）
-            return
-          }
-          saving = true
-          try {
-            const ok = await saveBack(mind.getData())
-            setStatus(ok ? '已写回笔记' : '写回被拒（看日志）', ok ? 'ok' : 'warn')
-          } catch (e) {
-            setStatus(`写回失败：${String(e).slice(0, 80)}`, 'warn')
-            host.log('warn', `导图写回失败：${String(e)}`)
-          } finally {
-            saving = false
-            if (again) {
-              again = false
-              void flush()
-            }
-          }
-        }
-
-        const scheduleSave = () => {
-          if (!ready) return // init/refresh 期间自己发的事件不算"用户编辑"
-          setStatus('待写回…')
-          if (saveTimer) clearTimeout(saveTimer)
-          saveTimer = setTimeout(() => void flush(), 400)
-        }
-
-        /* ── 画布空白处的右键菜单：四个动作的**唯一常驻入口**（顶栏已撤） ── */
-        const menu = document.createElement('div')
-        menu.dataset.znMmMenu = ''
-        menu.style.cssText =
-          'position:fixed;z-index:60;display:none;min-width:150px;padding:4px;border:1px solid var(--zn-border);' +
-          'border-radius:8px;background:var(--zn-bg);box-shadow:0 10px 28px rgba(0,0,0,.16)'
-
-        const hideMenu = () => {
-          menu.style.display = 'none'
-        }
-
-        const mkItem = (label, hint, run) => {
-          const b = document.createElement('button')
-          b.type = 'button'
-          b.textContent = label
-          if (hint) {
-            const h = document.createElement('span')
-            h.textContent = hint
-            h.style.cssText = 'float:right;color:var(--zn-fg-subtle);font-size:11px;margin-left:16px'
-            b.appendChild(h)
-          }
-          b.style.cssText =
-            'display:block;width:100%;text-align:left;font:inherit;font-size:13px;padding:6px 10px;' +
-            'border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer'
-          b.onmouseenter = () => {
-            b.style.background = 'var(--zn-bg-hover)'
-          }
-          b.onmouseleave = () => {
-            b.style.background = 'transparent'
-          }
-          b.onclick = () => {
-            hideMenu()
-            run()
-          }
-          return b
-        }
-
-        menu.append(
-          mkItem('撤销', 'Ctrl+Z', () => {
-            mind?.undo()
-            void flush() // undo/redo **不 fire operation** ⇒ 自己补一次写回
-          }),
-          mkItem('重做', 'Ctrl+Shift+Z', () => {
-            mind?.redo()
-            void flush()
-          }),
-          mkItem('写回', '', () => void flush()),
-          mkItem('重画', '按磁盘重读', () => void rebind()),
-        )
-
-        /**
-         * 在**捕获阶段**听右键：库在容器上装了它自己的节点菜单，
-         * 只有"节点之外"的右键才归我们（捕获 + `stopPropagation` ⇒ 两条路不打架）。
-         */
-        const onContextMenu = (e) => {
-          if (e.target instanceof Element && e.target.closest('me-tpc')) return // 节点上 ⇒ 交给库
-          e.preventDefault()
-          e.stopPropagation()
-          menu.style.display = 'block'
-          const r = menu.getBoundingClientRect()
-          menu.style.left = `${Math.min(e.clientX, Math.max(6, window.innerWidth - r.width - 6))}px`
-          menu.style.top = `${Math.min(e.clientY, Math.max(6, window.innerHeight - r.height - 6))}px`
-        }
-        const onAnyPointerDown = (e) => {
-          if (!menu.contains(e.target)) hideMenu()
-        }
-        el.addEventListener('contextmenu', onContextMenu, true)
-        document.addEventListener('pointerdown', onAnyPointerDown, true)
-
-        /** 读盘 → 建/重画导图（同一个实例、同一条笔记） */
-        const rebind = async () => {
-          ready = false
-          try {
-            const { MindElixir, css, version } = await loadMindElixir()
-            if (!document.querySelector('style[data-zn-mm]')) {
-              const st = document.createElement('style')
-              st.dataset.znMm = ''
-              st.textContent = css
-              document.head.appendChild(st)
-            }
-            const block = locateBlock()
-            if (!block) {
-              setStatus('这一组已不在笔记里', 'warn')
-              return
-            }
-            const data = blockToMeData(block)
-            if (mind) {
-              mind.refresh(data)
-            } else {
-              mind = new MindElixir({
-                el: body,
-                direction: 1,
-                editable: true,
-                newTopicName: '新主题', // 与旧版「＋」按钮插的文案保持一致
-                draggable: true, // 节点拖动：v5 内置该交互，这里显式声明意图
-                allowUndo: true, // ⇒ 实例自带 undo() / redo()（init 里自动装 operationHistory）
-                contextMenu: { locale: MM_LOCALE }, // 中文右键菜单（默认英文）
-                theme: znMindTheme(MindElixir), // 跟随宿主 `--zn-*` 令牌，不是库自带那套
-              })
-              mind.init(data)
-              mind.bus.addListener('operation', scheduleSave)
-              /**
-               * 宿主切主题（`<html data-theme>`）⇒ 跟着重画。
-               * `changeTheme` 内部只 `refresh()`、**不 fire operation** ⇒ 换主题不会被当成一次编辑写回。
-               */
-              themeWatch = new MutationObserver(() => mind?.changeTheme(znMindTheme(MindElixir)))
-              themeWatch.observe(document.documentElement, {
-                attributes: true,
-                attributeFilter: ['data-theme'],
-              })
-            }
-            ready = true
-            /** 诊断出口（CDP 断言用）：不算"给人看的界面"，但验收要靠它读数 */
-            window.__mmWin = {
-              winId,
-              lib: version,
-              block: block.title,
-              topics: body.querySelectorAll('me-tpc').length,
-              hasUndo: typeof mind.undo === 'function',
-              draggable: mind.draggable,
-              themeBg: getComputedStyle(body.querySelector('.map-container') ?? body)
-                .getPropertyValue('--bgcolor')
-                .trim(),
-              themePalette: mind.theme?.palette?.[0] ?? null,
-            }
-            // 实例本身也露出一个（CDP 驱动 addChild / undo / getData 用）—— 同 `__omWin` / `__docProbeLog` 的先例
-            window.__mmMind = mind
-            setStatus(`mind-elixir ${version} · ${flatNodes(block.nodes).length} 个节点`)
-          } catch (e) {
-            setStatus(`库载入失败：${String(e).slice(0, 80)}`, 'warn')
-            host.log('error', `mind-elixir 载入失败：${String(e)}`)
-          }
-        }
-
-        /**
-         * 库内置的 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 直接调 undo/redo，**不 fire operation**
-         * ⇒ 捕获阶段补一次写回（不然"撤销完磁盘还是旧的"，界面与磁盘就分家了）。
-         */
-        const onUndoKey = (e) => {
-          if (!(e.ctrlKey || e.metaKey) || e.altKey) return
-          const k = e.key.toLowerCase()
-          if (k === 'z' || k === 'y') setTimeout(() => void flush(), 60)
-        }
-        el.addEventListener('keydown', onUndoKey, true)
-
-        el.append(body, status, menu)
-        void rebind()
-
-        return {
-          dispose() {
-            ready = false
-            themeWatch?.disconnect()
-            themeWatch = null
-            el.removeEventListener('contextmenu', onContextMenu, true)
-            document.removeEventListener('pointerdown', onAnyPointerDown, true)
-            el.removeEventListener('keydown', onUndoKey, true)
-            if (saveTimer) clearTimeout(saveTimer)
-            saveTimer = null
-            try {
-              mind?.destroy()
-            } catch {
-              /* 已经没了 */
-            }
-            mind = null
-          },
-        }
-      }
-
+      const mountMindMap = makeMindMapMount({ locateBlock, saveBack, host, tag: winId })
       subscriptions.push(view.overrideShell({ mount: mountMindMap }))
       host.log('info', `导图窗口就绪（内容区由 mind-elixir ${LIB_VERSION} 接管）：${winId}`)
       return
@@ -1542,14 +1547,64 @@ export default {
     })
 
     /**
+     * 主窗口（手机整窗接管）里写回第 `bi` 组 —— 与窗口分支的 `saveBack` 同一套纪律：
+     * **先重读盘**（导图是异步交互，这中间编辑器可能改了同一篇）再定位行号，定位不上就抛错。
+     */
+    const saveGroupLines = async (bi, data) => {
+      if (!cache.path) throw new Error('没有笔记路径')
+      const want = cache.blocks[bi]
+      await reload(cache.path)
+      const block =
+        (want && cache.blocks.find((b) => b.startLine === want.startLine)) ||
+        (want && cache.blocks.find((b) => b.title === want.title)) ||
+        cache.blocks[bi] ||
+        null
+      if (!block) throw new Error('这一组已不在笔记里（标题或列表被改过）')
+      const flat = flatNodes(block.nodes)
+      const base = flat.length ? Math.min(...flat.map((n) => n.indent)) : 0
+      const fresh = meDataToLines(data, base)
+      return editLines((lines) => {
+        lines.splice(block.startLine, block.endLine - block.startLine + 1, ...fresh)
+      })
+    }
+
+    /** 手机端整窗接管的释放器（连点「❖」时先释放上一次，见 `openMapByIndex`） */
+    let mobileShell = null
+
+    /**
      * 把第 `bi` 组开成独立导图窗口 —— 两个入口共用：
      * · 命令面板 `outline-map.open-map`（按组号）
      * · **标题左侧的「❖」按钮** `outline-map.open-map-at-line`（按行号反查组号）
+     *
+     * rev173.11：**手机端改走整窗接管**（Tauri Android 只有单 webview，`openWindow` 会静默失败）。
      */
     const openMapByIndex = async (bi) => {
       const block = cache.blocks[bi]
       if (!cache.path || !block) {
         host.notify('先打开一篇带列表的笔记', 'warn')
+        return
+      }
+      /**
+       * **手机：主窗口整窗接管**（rev173.11 真机实测后的修复）。
+       *
+       * 为什么不能 `openWindow`：Tauri 2 的 Android 没有多 webview 窗口（`unstable` 未开），
+       * 内核 `openWindow` 的创建失败只落到 `tauri://error` 日志 ⇒ 表现为"点了没反应"
+       * （2026-10-18 实测：notify 说已打开、`windows` 恒为 0、`shell` 恒为 null）。
+       * 这里走契约 §2.8 的整窗接管，与桌面导图窗口**共用同一套画布挂载器**。
+       * 连点「❖」= 先释放上一次接管（否则内核会拒绝"整窗已被自己接管"）。
+       */
+      if (host.platform === 'android') {
+        mobileShell?.dispose()
+        mobileShell = null
+        const mount = makeMindMapMount({
+          locateBlock: () => cache.blocks[bi] ?? null,
+          saveBack: (data) => saveGroupLines(bi, data),
+          host,
+          tag: `mobile-${bi}`,
+        })
+        mobileShell = view.overrideShell({ mount })
+        subscriptions.push(mobileShell)
+        host.notify(`已打开导图「${block.title}」—— 右下角「释放接管」返回`)
         return
       }
       const panelId = `${MAP_PREFIX}${bi}`

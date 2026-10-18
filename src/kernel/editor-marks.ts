@@ -144,15 +144,30 @@ class LineActionWidget extends WidgetType {
   readonly label: string
   readonly title: string | undefined
   readonly className: string | undefined
+  /**
+   * 行号（**0 起**，与 `filter` / `onClick` payload 同口径）。
+   *
+   * 点击时**不再依赖 `posAtDOM` 反查行号**（rev173.11）：手机端 CM6 虚拟化会拆掉重建
+   * widget，`posAtDOM` 偶发抛错 ⇒ 行号停在 -1 ⇒ 插件 `find(t => t.line === -1)` 永不命中
+   * ⇒ 看起来"点了没反应"（手机 toast 也不显示）。
+   */
+  readonly lineNo: number
 
   // ⚠️ 不能写成 `constructor(readonly label: string)`（TS 的参数属性）——
   // 本项目 `erasableSyntaxOnly: true`，那种语法会生成代码，直接编译不过（官方示例是参数属性写法）
-  constructor(fullId: string, label: string, title: string | undefined, className: string | undefined) {
+  constructor(
+    fullId: string,
+    label: string,
+    title: string | undefined,
+    className: string | undefined,
+    lineNo: number,
+  ) {
     super()
     this.fullId = fullId
     this.label = label
     this.title = title
     this.className = className
+    this.lineNo = lineNo
   }
 
   eq(other: LineActionWidget) {
@@ -160,7 +175,9 @@ class LineActionWidget extends WidgetType {
       other.fullId === this.fullId &&
       other.label === this.label &&
       other.title === this.title &&
-      other.className === this.className
+      other.className === this.className &&
+      // 行号变了必须重画 DOM（否则 `data-zn-line` 留旧值，点击开到错的行）
+      other.lineNo === this.lineNo
     )
   }
 
@@ -171,6 +188,8 @@ class LineActionWidget extends WidgetType {
     btn.textContent = this.label
     if (this.title) btn.title = this.title
     btn.setAttribute('data-zn-line-action', this.fullId)
+    // 行号随按钮一起进 DOM：点击时可脱离 `posAtDOM` 拿到行号（rev173.11，手机虚拟化兜底）
+    btn.setAttribute('data-zn-line', String(this.lineNo))
     btn.setAttribute('aria-label', this.title ?? this.label)
     btn.contentEditable = 'false'
     return btn
@@ -458,8 +477,10 @@ function buildDecorations(view: EditorView): DecorationSet {
       const lead = mText.length - mText.replace(/^\s+/, '').length
       const lineFrom = doc.lineAt(Math.min(m.index + lead, doc.length)).from
       if (seenLines.has(lineFrom)) continue
+      // 行号（**0 起**）：连同 widget 一起进视图，点击时不再靠 `posAtDOM` 反查（rev173.11）
+      const lineNo = doc.lineAt(lineFrom).number - 1
       // 折叠隐藏行上的按钮同样会"掉"到折叠点（见 `hiddenLineSet`）
-      if (hidden.has(doc.lineAt(lineFrom).number - 1)) continue
+      if (hidden.has(lineNo)) continue
       /**
        * **跨行条件的最后一道关**（rev65）：正则只看得见字节，而"这个标题下面到底有没有列表"
        * 要看整篇 —— 所以给插件一个能看全文的谓词，返回 false 的行**不画按钮**。
@@ -467,12 +488,12 @@ function buildDecorations(view: EditorView): DecorationSet {
        */
       if (rule.filter) {
         const ln = doc.lineAt(lineFrom)
-        if (!rule.filter({ doc: text, line: ln.number - 1, text: ln.text })) continue
+        if (!rule.filter({ doc: text, line: lineNo, text: ln.text })) continue
       }
       seenLines.add(lineFrom)
       ranges.push(
         Decoration.widget({
-          widget: new LineActionWidget(fullId, rule.label, rule.title, rule.className),
+          widget: new LineActionWidget(fullId, rule.label, rule.title, rule.className, lineNo),
           side: -1,
         }).range(lineFrom),
       )
@@ -784,13 +805,27 @@ export function editorMarkExtensions(
         const entry = fullId ? lineEntries.get(fullId) : null
         const cmd = entry?.rule.onClick
         if (!cmd) return false
+        /**
+         * ⚠️ **行号优先读 widget 自带的 `data-zn-line`**（rev173.11）。
+         *
+         * 手机端 CM6 虚拟化会拆掉重建 widget，`posAtDOM` 偶发抛错 ⇒ 以前 `line` 停在 -1，
+         * 插件按 -1 判定"这一行没有可开的组" ⇒ 用户看到"点了没反应"（手机 toast 不显示）。
+         * `posAtDOM` 现在只用来补 `from`（插件拿它做光标上下文；拿不到不影响开导图）。
+         */
+        const dataLine = actEl.getAttribute('data-zn-line')
+        let line = dataLine !== null ? Number(dataLine) : -1
         let from = -1
-        let line = -1
         try {
           from = view.posAtDOM(actEl)
-          line = view.state.doc.lineAt(from).number - 1 // CM6 行号从 1 起，插件用 0 起
         } catch {
           /* 拿不到定位不影响命令本身，只是少了上下文 */
+        }
+        if (!Number.isFinite(line) || line < 0) {
+          try {
+            if (from >= 0) line = view.state.doc.lineAt(from).number - 1
+          } catch {
+            line = -1
+          }
         }
         onAction(cmd, { line, from })
         return true

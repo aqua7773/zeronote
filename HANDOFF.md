@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.10
-更新时间: 2026-10-18（rev173.10 交接：手机端导图点击偶发不生效——根因已定位、修复方案已写、未验证）
+revision: 173.11
+更新时间: 2026-10-18（rev173.11：手机端导图点击——按 rev173.10 方案修 `data-zn-line` 行号 + 补手机端整窗接管，真机 3 轮验证通过）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.11 | 2026-10-18 · **手机端导图点击修复落地**：① 按钮带 `data-zn-line`（点击不再依赖 `posAtDOM` 反查行号）② 手机端补上**整窗接管**（`makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` 时 `view.overrideShell`，不再走静默失败的多窗口）· 真机 3 轮 ✓ · 测试 **243** |
 | rev173.10 | 2026-10-18 · **交接**：手机端导图点击偶发不生效——根因定位（`posAtDOM` 反查行号在虚拟化后失败）+ 修复方案（按钮带 `data-zn-line`）；**代码已回滚、未修** |
 | rev173.9 | 2026-10-18 · **交接**：用户报「导图点击有时候不生效」→ 要求先交接；记录当前状态 + 排查线索 |
 | rev173.8 | 2026-10-18 · **手机工具栏加「缩进 / 取消缩进」**：`core.indent` / `core.outdent`（与 Tab/Shift+Tab 同一份逻辑，只对列表行）+ 按钮 ⇤ ⇥ · 测试 **243** |
@@ -154,6 +155,64 @@ revision: 173.10
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.11（2026-10-18 · 手机端导图点击：行号修复 + 手机整窗接管）
+>
+> 用户：「继续 zeronote 项目，看 `HANDOFF-CARD.md` 的『下个会话第一件事』，按方案改完再验证」。
+>
+> ### 1 按 rev173.10 方案改内核（`src/kernel/editor-marks.ts`，三处）
+>
+> 1. `LineActionWidget` 加 `lineNo`（0 起）+ `toDOM()` 写 `data-zn-line`；`eq()` 也比 `lineNo`
+>    （行号变了必须重画 DOM，否则属性留旧值 → 点到错的行）；
+> 2. `buildDecorations()` 画按钮时传 `doc.lineAt(lineFrom).number - 1`（`filter` 也复用同一变量）；
+> 3. 点击处理器**优先读 `data-zn-line`**，`posAtDOM` 只在缺行号时补 `from`。
+>
+> ### 2 真机实测暴露第二层：手机端**根本没有承接导图的 UI**
+>
+> 行号修好后手机点 ❖，notify 从「这一行没有可开的导图组」变成「已在新窗口打开「白天」」——
+> 说明行号已正确命中组。但窗口没出现：`__znKernelAudit().windows` 恒为 0、`shell` 恒 null。
+>
+> 根因：`openMapByIndex` 无条件走 `view.openWindow`（Tauri 多 webview 窗口）；
+> **Android 只有单 webview**（`Cargo.toml` 的 tauri 未开 `unstable`、`capabilities/` 也没有
+> plugin-windows 的 glob），`new WebviewWindow` 的创建失败只落到 `tauri://error` 日志 ⇒ 完全静默。
+> 插件里 `overrideShell` 只在 `winId`（插件窗口上下文）分支调用 —— 主窗口没有手机分支。
+> 这正是 rev173.9 记的「移动端没有可弹的独立窗口，方向未定」。
+>
+> ### 3 补手机端整窗接管（`examples/outline-map/index.js`）
+>
+> - `mountMindMap` 从窗口分支抽成**模块级** `makeMindMapMount({ locateBlock, saveBack, host, tag })`
+>   —— 窗口与手机共用同一套画布挂载器（MindElixir / 右键菜单 / 写回节流 / 主题跟随都在里面）；
+> - 窗口分支改为 `makeMindMapMount({ …, tag: winId })`；
+> - `openMapByIndex`：`host.platform === 'android'` 时走 `view.overrideShell({ mount })`（整窗接管，
+>   右下角「释放接管」返回）；**连点先 `dispose()` 上一次接管**（否则内核拒绝"已被自己接管"）；
+> - 新增 `saveGroupLines(bi, data)`：手机端写回（先重读盘 → 按 startLine/title 找回同一组 → 写盘），
+>   与窗口分支的 `saveBack` 同一套纪律。
+>
+> ### 4 验证
+>
+> | 判据 | 结果 |
+> |---|---|
+> | 手机点 ❖（真机 33b676f6） | `shell = "outline-map"`、`.zn-shell-host` 出现、`__mmWin = {tag:"mobile-0", lib:"5.15.1", topics:6}`、状态「mind-elixir 5.15.1 · 5 个节点」✓ |
+> | 手机连点 3 轮（释放→再点） | 每轮 `shell` 都回到 `outline-map`、画布 6 个节点 ✓ |
+> | 手机写回 | `__mmMind` 里加「冒烟节点」→ 磁盘出现 `- 冒烟节点` ✓（测试后已把 `diagram-test.md` 恢复原文） |
+> | 桌面不回归 | `outline-map.open-map` → 新窗口 target `?pluginWindow=outline-map.map-0`；窗口内 `shell="outline-map"`、`__mmWin.tag="outline-map.map-0"`、3 个节点 ✓ |
+> | `verify.ps1` | tsc 0 错误 · oxlint 0 error / 3 warnings · cargo test --lib **32** passed · check-docs 过 · vitest **243** passed（27 文件）✓ |
+>
+> ### 5 ⚠️ 环境事故（本轮自己造的）
+>
+> 桌面冒烟后想关掉测试插件窗口，用 CDP 在插件窗口页面执行
+> `__TAURI_INTERNALS__.invoke('plugin:window|destroy', { label: currentWindow.label })`
+> —— **主窗口一起没了**（进程还在，但只剩插件窗口；`9222` 调试端口消失）。
+> 之后重启 `pnpm tauri dev` 连续报：
+> - `failed to create webview: WebView2 error: WindowsError(0x800700AA 请求的资源在使用中)` —— 旧 WebView2 数据目录锁；
+> - 换 `WEBVIEW2_USER_DATA_FOLDER` 指向 `_tmp-wv2` 后 webview 能建，又报 `failed to initialize plugin log: 拒绝访问 (os error 5)`。
+>
+> 已做：删残留 `EBWebView\Default\LOCK`、旧日志 `ZeroNote.log` / `logs` 目录改名备份
+> （`logs.bak-2311` 在 `%LOCALAPPDATA%\com.aqua.zeronote\`）。**恢复结果见 HANDOFF-CARD 的「环境现状」**；
+> 未恢复时需要用户手动重启一次 dev。
+>
+> **下次教训**：CDP 关插件窗口别用 `plugin:window|destroy`（label 来源与预期不一致，实测连主窗口一起关）；
+> 要关就关主窗口里内核账上的窗口（`windows` 列表）或让用户手点关闭。
 
 > ## 📌 rev173.10（2026-10-18 · 交接：手机端导图点击偶发不生效）
 >

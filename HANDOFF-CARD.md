@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173.10）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev173.11）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -20,17 +20,11 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-**按现成方案修「手机端导图点击偶发不生效」**（rev173.10 已定位根因、写好方案、代码回滚了）：
+**「手机端导图点击偶发不生效」已在 rev173.11 修完并真机验证**（行号 `data-zn-line` + 手机整窗接管）。
 
-1. `src/kernel/editor-marks.ts`：`LineActionWidget` 加 `lineNo` 字段 + `data-zn-line`；
-   `buildDecorations()` 传行号；点击处理器**优先读 `data-zn-line`**（`posAtDOM` 只补 `from`）
-2. 手机点 `❖` 连点多次 → 每次都该整窗接管（`__znKernelAudit().shell` 非 null）
-3. `verify.ps1` 五步全过 → 提交 → 新 rev
+下一步按优先级挑：**iframe ↔ 宿主能力通道**（v0.2）→ **插件签名 / 分发**（真签名 / 市场 / 更新通道）。
 
-根因一句话：手机虚拟化重建 widget 后 `posAtDOM` 偶发失败 ⇒ 命令拿到的行号是 -1 ⇒ 插件判「没有可开的组」。
-完整方案与代码片段在 `HANDOFF.md` rev173.10 段。
-
-其余待办（按优先级）：iframe ↔ 宿主能力通道 → 插件签名 / 分发。
+读 `docs/内核契约-v0.2.md` §2.8（`overrideShell`）再动；细节在 `HANDOFF.md` rev173.11 段。
 
 ### 本会话踩过的三个坑（务必避开）
 
@@ -38,24 +32,29 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.10 · 交接）
+## 最近一轮（rev173.11 · 手机端导图点击修复）
 
-- 用户：「导图点击有时候不生效，是手机端的」→「排查完交接」→「不修复，直接交接」。
-- **根因已定位**：行首按钮点击靠 `view.posAtDOM(btn)` 反查行号；手机让 CM6 虚拟化重建 widget 后
-  它偶发失败 ⇒ 行号 -1 ⇒ 插件判「这一行没有可开的导图组」（手机 toast 不显示）⇒ 看起来没反应。
-- 复现证据：点 ❖ 后 `__znKernelAudit().shell` 仍为 `null`、`windows` 为 0。
-- 修复方案已写好（按钮带 `data-zn-line`，行号不再依赖 posAtDOM），但**代码已按用户要求回滚**，
-  工作区干净、HEAD `919a8c3`（rev173.9 交接）。
-- ⚠️ **更正 rev173.7 的结论**：手机端 ❖ **是渲染的**（当时没看到是插件旧版本），问题在点击环节。
-- 下一步见「下个会话第一件事」。
+- 用户：「继续 zeronote 项目，看 `HANDOFF-CARD.md` 的『下个会话第一件事』，按方案改完再验证」。
+- **① 按 rev173.10 方案改内核**：`LineActionWidget` 带 `lineNo` + `data-zn-line`（`eq` 也比 `lineNo`）；
+  `buildDecorations` 传行号；点击**优先读 `data-zn-line`**，`posAtDOM` 只补 `from`。
+- **② 真机暴露第二层**：行号修好后手机点 ❖ 已能命中组（notify 变成「已在新窗口打开」），但
+  Android 只有单 webview ⇒ `openWindow` 静默失败、`shell` 恒 null。插件补**手机整窗接管**：
+  `makeMindMapMount` 抽成模块级共用；`host.platform === 'android'` → `view.overrideShell`（连点先释放）；
+  新增 `saveGroupLines` 写回。
+- **验证**：真机 33b676f6 点 ❖ → `shell="outline-map"`、`__mmWin={tag:"mobile-0", lib:"5.15.1", topics:6}`；
+  释放再点 3 轮全成功；写回落盘（测试后已恢复笔记原文）；桌面开窗不回归；`verify.ps1` 全绿（见交接卡验收基线）。
+- ⚠️ **环境事故**：桌面冒烟后用 CDP `plugin:window|destroy` 关测试窗口时**主窗口一起没了**；
+  之后从 DSH 会话内重启 `pnpm tauri dev` 连续失败（WebView2 `0x800700AA` / `0x8000FFFF`，
+  sandbox 下疑似 WebView2 的命名管道受限）⇒ **桌面 dev 需要用户手动重启一次**。详见 `HANDOFF.md` rev173.11 §5。
+- ⚠️ **更正 rev173.7 / rev173.9 的结论**：手机端 ❖ 是渲染的，且点击入口已通（rev173.11 起整窗接管）。
 
 ## 未决 / 下一步
 
 | 项 | 状态 |
 |---|---|
-| 导图点击偶发不生效（手机） | 🟡 **根因已定位、方案已写、未修**（用户要求先交接）：`posAtDOM` 反查行号在虚拟化后失败 ⇒ 行号 -1；修法见 `HANDOFF.md` rev173.10 |
+| 导图点击偶发不生效（手机） | ✅ **rev173.11**：行号改为 `data-zn-line`（不再靠 `posAtDOM` 反查）+ 手机端补整窗接管；真机 3 轮验证 |
 | 手机工具栏缩进 | ✅ **rev173.8**：`⇤` / `⇥` 按钮（与 Tab / Shift+Tab 同一份逻辑） |
-| 手机端导图入口 | ⚠️ **待查**：行首「❖」不渲染（`editorMarks` 里没有 outline-map 的 line action）；命令能跑但移动端没有独立窗口 |
+| 手机端导图入口 | ✅ **rev173.11**：点 ❖ → `overrideShell` 整窗接管（mind-elixir 真画布），右下角「释放接管」返回 |
 | 插件存放 | ✅ **rev173.6**：只全局一处；两库 `.zn/plugins` 已删（备份在 `_tmp-plugin-backup/`） |
 | 插件分类 | ✅ **rev173.4**：manifest.category + 插件页分组 + 存量插件全部补齐 |
 | 图片 / 附件 | ✅ **rev173.3**：附件入口（文件树分组 + 预览）+ 右键「插入附件…」统一入口；桌面 / 手机实测 |
@@ -89,6 +88,9 @@ pwsh -File scripts\verify.ps1
 - **测试库 `_tmp-vault-tb/`**：1 篇笔记（`新笔记-18-09-36.md`）+ 3 个只读文档；`.zn/plugins` 有 10 个插件目录（daily-note / editor-marks / inspiration-flow / tag-demo / theme-sepia / asset-probe / doc-reader / import-export / net-demo / outline-map）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
+  实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
+- **CDP 关窗口的坑（rev173.11 踩过）**：别用 `plugin:window|destroy` 关插件窗口 —— 实测**主窗口一起没了**（进程只剩插件窗口、9222 消失）。关窗口让用户点，或只 `clearShell` 不毁窗口。
+- **桌面 dev 从 DSH 会话内启动可能失败**：WebView2 报 `0x800700AA`（资源使用中）/ `0x8000FFFF`（灾难性故障），疑似受限子进程的命名管道/IPC 限制；**用户手动在会话外启动一次即可**（rev173.11 事故后待用户重启确认）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
 - **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，条数以 `verify.ps1` 输出为准）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。
