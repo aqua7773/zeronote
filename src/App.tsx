@@ -376,25 +376,23 @@ export default function App() {
   }, [sidebarOpen])
 
   /**
-   * 移动端抽屉手势（2026-10-18 用户要求）：
-   *  · 从**左边缘**（≤24px）向右滑 → 打开笔记库侧栏；
-   *  · 抽屉打开时向左滑 → 关闭。
-   * 只认「横向位移 ≥60 且明显大于纵向」的滑动 —— 避免跟列表滚动 / 编辑器选字打架。
+   * 移动端抽屉手势（2026-10-18 用户要求「直接全局生效」）：
+   *  · 任意界面上 左→右滑 → 打开笔记库侧栏（不限定起点区域）；
+   *  · 抽屉打开时 右→左滑 → 关闭。
+   * 只认「横向位移 ≥60 且明显大于纵向」的滑动 —— 避免跟列表纵向滚动打架。
+   * 用**捕获阶段**监听：编辑器（CM6）等内部组件可能 stopPropagation，冒泡阶段会漏。
+   * 注意：贴最左 24px 起滑会被 Android 全面屏手势的「返回」吃掉（系统优先）。
    */
   useEffect(() => {
     if (!/Android/i.test(navigator.userAgent)) return
     let sx = 0
     let sy = 0
     let tracking = false
-    let fromEdge = false
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
       sx = e.touches[0].clientX
       sy = e.touches[0].clientY
       tracking = true
-      /* 起点不敢贴最左边：Android 全面屏手势的「返回」是从边缘 ~24dp 起滑的，
-         贴边滑会被系统吃掉（app 收到 touchcancel、还会直接返回）。留 80px 安全区。 */
-      fromEdge = sx <= 80
     }
     const onEnd = (e: TouchEvent) => {
       if (!tracking) return
@@ -404,14 +402,14 @@ export default function App() {
       const dx = t.clientX - sx
       const dy = t.clientY - sy
       if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return
-      if (dx > 0 && fromEdge && !sidebarOpen) setSidebarOpen(true)
+      if (dx > 0 && !sidebarOpen) setSidebarOpen(true)
       else if (dx < 0 && sidebarOpen) setSidebarOpen(false)
     }
-    window.addEventListener('touchstart', onStart, { passive: true })
-    window.addEventListener('touchend', onEnd, { passive: true })
+    window.addEventListener('touchstart', onStart, { passive: true, capture: true })
+    window.addEventListener('touchend', onEnd, { passive: true, capture: true })
     return () => {
-      window.removeEventListener('touchstart', onStart)
-      window.removeEventListener('touchend', onEnd)
+      window.removeEventListener('touchstart', onStart, true)
+      window.removeEventListener('touchend', onEnd, true)
     }
   }, [sidebarOpen])
 
