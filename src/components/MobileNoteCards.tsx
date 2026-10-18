@@ -19,11 +19,11 @@ type Props = {
   onPurge: (path: string) => void
 }
 
-/** mtime（毫秒）→ `2026-10-18 14:08` */
+/** mtime（毫秒）→ `2026-10-18 14:08:32`（2026-10-18 用户要求：精确到秒） */
 const fmtTime = (ms: number) => {
   const d = new Date(ms)
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 /** 把 Markdown 压成纯文本摘要（去 frontmatter / 标题符号 / 列表与强调标记 / 代码块） */
