@@ -796,6 +796,33 @@ export function FileTree({
     startRename(path, isDir)
   }
 
+  /**
+   * 树顶栏：**新建笔记 / 新建文件夹**（2026-10-18 用户要求，截图红框位置）。
+   *
+   * 复用右键菜单同一套 `createIn`：落盘后进入内联命名态、新笔记顺手打开 —— 行为与右键完全一致。
+   * 空库与有内容两种情况都要有（空库时右键虽然也能新建，但没有可见入口）。
+   */
+  const toolbar = (
+    <div className="zn-tree-toolbar">
+      <button
+        type="button"
+        className="zn-plain-btn zn-tree-new"
+        onClick={() => void createIn('', false)}
+        title="在库根新建笔记"
+      >
+        新建笔记
+      </button>
+      <button
+        type="button"
+        className="zn-plain-btn zn-tree-new"
+        onClick={() => void createIn('', true)}
+        title="在库根新建文件夹"
+      >
+        新建文件夹
+      </button>
+    </div>
+  )
+
   if (!notes.length && !dirs.length) {
     return (
       <div
@@ -807,6 +834,7 @@ export function FileTree({
           setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
         }}
       >
+        {toolbar}
         库里还没有 .md 文件（右键可新建）
         {menu && (
           <ContextMenu
@@ -981,6 +1009,7 @@ export function FileTree({
         setMenu({ path: null, dir: '', isDir: true, multi: false, x: e.clientX, y: e.clientY })
       }}
     >
+      {toolbar}
       {/* 框选的选择框：fixed 定位（不占布局、跟随视口坐标），松手即消失 */}
       {marquee && (
         <div

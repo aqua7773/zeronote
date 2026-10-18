@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev138）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-18（rev139）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -34,12 +34,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev137）
+## 最近一轮（rev139）
 
-- **修复「放着不动也定时闪一下深色」**：真因是 **Vite HMR 写盘循环** —— `ensureBuiltinPlugins` 每次加载都覆盖写 18 个内置插件文件（在项目树内）→ watcher → HMR → React Refresh 重放 effect → 再写，每 ~6 秒一轮；每轮插件卸载重载、主题样式消失几百毫秒。
-- 修法：① `vite.config.ts` 的 `watch.ignored` 加 `_tmp-*` / `.zn` / `_shots` / `_build`；② `ensureBuiltinPlugins` 幂等写入（内容相同跳过）；③ kernel 改 state 懒初始化（防御）。
-- 验证：修复后 30 秒静止采样只有 1 条记录（样式全程稳定）。
-- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 192**）。
+- **文件树顶栏**（用户看图提的需求）：文件列表上方一栏，「新建笔记 / 新建文件夹」两个按钮；复用右键同一套 `createIn('', …)`，空库也有。
+- **rev138 约定升级**：`docs/开发约定.md` 新增「先查现成」总原则 + §0.5 六环节清单（需求 / 选依赖 / 写实现 / 排查 / 下结论 / 写文档）。
+- 测试 **194**：`tests/file-tree-toolbar.test.tsx` 2 条；截图 `_shots/rev139-tree-toolbar.png`。
+- 验收：五步全过（tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 194**）。
 
 ## 未决 / 下一步
 

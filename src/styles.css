@@ -274,6 +274,26 @@ body.is-resizing * {
   user-select: none;
 }
 
+/* 文件树顶栏：新建笔记 / 新建文件夹（2026-10-18 用户要求，位置=文件列表上方） */
+.zn-tree-toolbar {
+  display: flex;
+  gap: var(--zn-space-2);
+  padding: 0 0 var(--zn-space-2);
+  margin-bottom: var(--zn-space-2);
+  border-bottom: 1px solid var(--zn-border);
+}
+.zn-tree-toolbar .zn-tree-new {
+  flex: 1;
+  /* 顶栏按钮要一眼看得见 —— 不沿用 .zn-plain-btn 的「悬停才亮」 */
+  opacity: 1;
+  color: var(--zn-fg-muted);
+  background: var(--zn-bg-subtle);
+}
+.zn-tree-toolbar .zn-tree-new:hover {
+  color: var(--zn-fg);
+  background: var(--zn-bg-hover);
+}
+
 /* 子级容器（2026-10-17 用户逐条确认的规则）——
    **同时满足**「该文件夹后面还有同级条目」+「它自己有子项」才画竖线：
    · 每层最后一个文件夹不画（三级2、文档、五～八级1）；
