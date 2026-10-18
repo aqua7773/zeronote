@@ -42,6 +42,7 @@ pwsh -File scripts\verify.ps1
 - 覆盖三处渲染点：正文块、表格内 `<img>`、CM6 虚拟化重挂载；MutationObserver 微任务里改 src，不闪破图。
 - 验收：桌面 + 真机都实测插入 / 落盘 / 渲染（截图 `_shots/rev173-*.png`）；vitest 226、cargo 30 全过。
 - 边界：图片不进文件树；手机拉起系统选择器那一步不可自动化，用 `window.__znInsertImage(path)` 验链路。
+- **显示尺寸（rev173.1）**：正文里缩略显示（桌面 280px 高 / 手机 23vh，长宽各为上一版一半），点图片看原图（点遮罩 / Esc 关闭）。
 
 ## 未决 / 下一步
 

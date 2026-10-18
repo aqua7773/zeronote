@@ -207,6 +207,38 @@ const EDITOR_CSS = `
   max-width: none !important;
   margin-inline: 0 !important;
 }
+/* 正文图片的预览尺寸（rev173.1 用户反馈「显示得太大了」→「再小一点，长宽都减半」）。
+   atomic 只给 max-width:100%，竖长截图会按原比例铺满整屏 ⇒ 限制**最大高度**，
+   宽度按比例收缩；看原图点一下图片（下方的 .zn-img-preview 遮罩）。
+   尺寸口径：桌面 280px / 手机 23vh（上一版 560px / 46vh 的一半）。 */
+.zn-editor .cm-atomic-image img {
+  max-height: min(29vh, 280px);
+  width: auto;
+  cursor: zoom-in;
+}
+@media (max-width: 640px) {
+  .zn-editor .cm-atomic-image img {
+    max-height: 23vh;
+  }
+}
+/* 点正文图片弹全屏预览：点遮罩 / 按 Esc 关闭 */
+.zn-img-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+.zn-img-preview img {
+  max-width: 94vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
 /* CM6 的查找/替换面板本来是「两行块流」（中间用 <br> 分隔），
    而 atomic 给它的 form 设了不换行的 flex —— 结果替换行与后面的按钮被挤出可视区
    （实测只剩 查找框 + ↑ ↓ ✕）。恢复块流即可拿回完整的查找+替换面板。 */
@@ -329,6 +361,8 @@ export function MarkdownEditor({
   /** 表格工具条：当前编辑器 view + 光标所在表格的信息 */
   const [editorView, setEditorView] = useState<EditorView | null>(null)
   const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
+  /** 正文图片的全屏预览地址（null = 没开）。rev173.1：正文里只显示缩略尺寸，点开看原图 */
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   useEffect(() => {
     try {
       localStorage.setItem('zeronote.sourceMode', sourceMode ? '1' : '0')
@@ -392,6 +426,42 @@ export function MarkdownEditor({
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
   }, [onWikiLinkOpen])
+
+  /**
+   * 点正文图片 → 全屏预览（rev173.1 · 用户反馈「显示得太大了」）。
+   *
+   * atomic 的图片 widget 在 `mousedown` 里 preventDefault 并把光标挪到源码行
+   * （`image-blocks.js` 的 onPointer），冒泡阶段拿不到干净的 click ⇒ 走 document
+   * 捕获阶段（与上面 `[[…]]` 同一套路）。
+   *
+   * 预览用的是 `img.src` —— `fixImageSrc` 已把它换成 asset URL（原图分辨率），
+   * CSS 只是把正文里的显示尺寸压小。
+   */
+  useEffect(() => {
+    const onClick = (ev: MouseEvent) => {
+      const img = (ev.target as HTMLElement | null)?.closest?.(
+        '.cm-atomic-image img',
+      ) as HTMLImageElement | null
+      if (!img) return
+      const content = handleRef.current?.getContentDOM()
+      if (!content || !content.contains(img)) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      setPreviewSrc(img.src)
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [])
+
+  // Esc 关闭图片预览
+  useEffect(() => {
+    if (!previewSrc) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewSrc(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [previewSrc])
 
   // 下面三个都是稳定引用（useCallback([])），所以扩展数组可以在首帧安全地
   // 捕获它们。全部放在 useCallback 里，也顺带满足 oxlint 的 react(refs)：
@@ -692,6 +762,16 @@ export function MarkdownEditor({
         {/* 表格工具条：光标在表格里时浮在表格左上角 */}
         <TableToolbar view={editorView} info={tableInfo} />
       </div>
+      {/* 正文图片全屏预览（rev173.1）：点遮罩 / Esc 关闭 */}
+      {previewSrc && (
+        <div
+          className="zn-img-preview"
+          role="presentation"
+          onClick={() => setPreviewSrc(null)}
+        >
+          <img src={previewSrc} alt="" />
+        </div>
+      )}
     </>
   )
 }
