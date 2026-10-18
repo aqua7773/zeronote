@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-18（rev173.12）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.13）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,16 +30,13 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.12 · 交接）
+## 最近一轮（rev173.13 · 插件页）
 
-- 用户：「交接」。本轮把 rev173.11 收口，并把开发环境修回可用。
-- **交付一（手机导图）**：`data-zn-line` 行号 + 手机整窗接管；真机 3 轮 ✓、写回落盘、桌面不回归。
-- **交付二（环境）**：WebView2 起不来的**真根因** = 项目目录被标 **Low IL**，exe 继承后写不了
-  `%LOCALAPPDATA%`（症状 `os error 5` / `0x8000FFFF`）；修复 `icacls src-tauri /setintegritylevel (OI)(CI)Medium`。
-  过程中我方两次归因错误（先"沙箱"、后"管理员污染"），均在 HANDOFF rev173.11 §5 原文处更正。
-- **当前环境**：dev 运行中（`pnpm tauri dev`，库 = `_tmp-vault-tb`，2 篇 / 3 文档 / 2 附件）；
-  `scripts\dev.ps1` 保留（无害）；`verify.ps1` 五步全过（cargo 32 / vitest 243）。
-- ⚠️ **更正 rev173.7 / rev173.9**：手机端 ❖ 是渲染的，且入口已通（rev173.11 起整窗接管）。
+- 用户：「插件说明不要这么长，控制在 15 个字，然后插件分类加折叠功能」。
+- **说明**：`clampText()` 只显示前 15 字 + `…`（全文进悬停 `title`；manifest 原文不动）。
+- **折叠**：点分类标题收起/展开，chevron 转向；状态记 `localStorage['zn-plugin-groups-collapsed']`（全局 1 份）。
+- **验收**：`verify.ps1` 五步全过（tsc 0 · lint 3 warnings · cargo 32 · check-docs · vitest **249**）；桌面截图 `_shots/desktop-plugin-page-0*.png`（折叠后重开仍折叠）。
+- **环境**：手机 dev 已恢复 —— 真因是 `gen/android` 构建产物残留 `.probe` identifier（被 gradle 误报成 `pnpm.bat` 失败）；现桌面 + 手机两端同时在跑。
 
 ## 未决 / 下一步
 
