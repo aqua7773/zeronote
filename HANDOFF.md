@@ -234,10 +234,21 @@ revision: 173.11
 > - 设 `WEBVIEW2_USER_DATA_FOLDER=<repo>\_tmp-ebwebview`（实测**生效**：新目录下自动出现 `EBWebView\` 子目录）
 >   → webview + log + 界面全部正常（用户 23:25 实测，此脚本即 `scripts\dev.ps1`）。
 >
-> **闭环状态**：症状链、触发操作、有效修法都已证实；**唯一未闭环点**是「zeronote.exe 为何无法在该路径
-> 创建/初始化 WebView2 UDF（os error 5）—— 同路径下 pwsh/node 可以」。这不阻塞使用（dev 走 `scripts\dev.ps1`），
-> 若以后要追：直接 `Start-Process target\debug\zeronote.exe` 对比 cargo 启动方式，或用 ProcMon 抓该 exe 的
-> `CreateFile` 失败项。
+> **根因（2026-10-18 23:45，已闭环）**：项目目录被标成 **Low 完整性级别（Low IL）** ——
+> `src-tauri` / `target\debug` / `src` / 项目根都带 `Mandatory Label\Low Mandatory Level:(I)(OI)(CI)(NW)`。
+> zeronote.exe 继承 Low IL ⇒ **写不了 `%LOCALAPPDATA%`（Medium）**：
+> - `std::fs::create_dir_all("...\zn-rust-probe")` 直接 `拒绝访问 (os error 5)`（同路径 pwsh/node 正常）；
+> - WebView2 环境创建 → `0x8000FFFF`（UDF 建不出来）。
+> 管理员能跑 = High IL 不受 No-Write-Up 限制；`scripts\dev.ps1` 能跑 = 项目内目录同样是 Low IL
+> （Low 进程可写 Low），属于"碰巧有效"。
+>
+> **修复**（已执行）：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步），重编后
+> exe 变 Medium → `[zn] create OK`、`app_local_data_dir` 正常、`EBWebView` 自动创建、**dev 用默认 UDF
+> 成功启动**（2026-10-18 23:46 实测，PID 3980 运行中）。
+>
+> **遗留建议**：`src-tauri` 已设 Medium，`cargo clean` 重建 `target` 不会退回 Low；若以后 `src` / 项目根
+> 再出现 Low IL 标签（例如从某些工具/下载渠道带入），对**产物的父目录**重设 Medium 即可。
+> `scripts\dev.ps1` 保留（无害）；`tauri-plugin-log` dev 只写 stdout 也保留（少一个要维护的目录）。
 > 参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)、
 > [Quicker 讨论](https://getquicker.net/QA/Question/41733)、[tauri#11969](https://github.com/tauri-apps/tauri/issues/11969)。
 >

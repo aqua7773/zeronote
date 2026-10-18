@@ -93,17 +93,14 @@ pwsh -File scripts\verify.ps1
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
 - **CDP 关窗口的坑（rev173.11 踩过）**：别用 `plugin:window|destroy` 关插件窗口 —— 实测**主窗口一起没了**（进程只剩插件窗口、9222 消失）。关窗口让用户点，或只 `clearShell` 不毁窗口。
-- **WebView2 用户数据目录坏了 = dev 起不来**（rev173.11，含事后更正）：`0x800700AA`（资源使用中）/
-  `0x8000FFFF`（灾难性故障）/ `拒绝访问 (os error 5)`。
-  **已证实**：Tauri 用 `app_local_data_dir()` = `%LOCALAPPDATA%\com.aqua.zeronote` 当 WebView2 UDF
-  （`manager/webview.rs:559-576`）；该路径**空目录 → 0x8000FFFF**，**路径不存在 → os error 5**；
-  同一路径 pwsh/node 能建能写（ACL/重解析都正常）⇒ **不是沙箱、不是 ACL**。
-  **修法**：`pwsh -File scripts\dev.ps1` —— `WEBVIEW2_USER_DATA_FOLDER` 实测**生效**，UDF 换到项目内
-  `_tmp-ebwebview` 后 webview/log/界面全正常。
-  **唯一未闭环点**：zeronote.exe 为何在该路径创建 UDF 失败（同路径 pwsh/node 可以），不阻塞使用。
+- **dev 起不来的真根因：项目目录被标了 Low 完整性级别（Low IL）**（rev173.11 查到底）：
+  `src-tauri` / `target\debug` / `src` / 项目根都带 `Mandatory Label\Low Mandatory Level:(I)(OI)(CI)(NW)`。
+  zeronote.exe 继承 Low IL ⇒ **写不了 `%LOCALAPPDATA%`（Medium）** ⇒ `create_dir_all` 报
+  `拒绝访问 (os error 5)` / WebView2 报 `0x8000FFFF` / log 插件同一错误；管理员能跑 = High IL 不受限。
+  同路径 pwsh/node（Medium）完全正常 —— 所以之前误判成沙箱/ACL。
+  **修复**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步），重编后 exe 变 Medium，
+  **dev 用默认 UDF 正常启动**（23:46 实测）。`scripts\dev.ps1` 保留（无害）。
   **规矩**：dev 只用普通权限跑；别手删 UDF 里的 `LOCK`；别用 `plugin:window|destroy` 关窗口。
-  参考：[腾讯 MSDK FAQ](https://docs.itop.qq.com/v5/zh-CN/FAQS/PC/PcLoginMicrosoftEdgeErr.html)（UDF 被占用）、
-  [Quicker 讨论](https://getquicker.net/QA/Question/41733)（管理员/普通实例冲突）。
 - **Rust 测试临时目录**：`<repo>/_tmp-test/`（不是 `%TEMP%`，受限上下文写不了）。
 - **前端单测**：`pnpm test`（vitest，`tests/**/*.test.{ts,tsx}`，条数以 `verify.ps1` 输出为准）；组件测试用 happy-dom，文件首行 `// @vitest-environment happy-dom`。
 - **第三方补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`）；升级必须重打。

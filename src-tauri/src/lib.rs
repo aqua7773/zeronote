@@ -1780,12 +1780,12 @@ pub fn run() {
         /*
          * ⚠️ **dev 日志只进 stdout，不写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`**（rev173.11）。
          *
-         * 起因（2026-10-18）：管理员权限跑过一次 dev 之后，普通权限启动就报
-         * `failed to initialize plugin log: 拒绝访问 (os error 5)` —— 默认 targets 里的
-         * `LogDir` 打不开被高权限实例占住的日志文件，整个 setup 直接 panic（webview 反而已经建好了）。
-         * dev 看终端 / `.self-logs/desktop-dev.log` 就够（它们本来就是 stdout 重定向）。
-         * 要恢复文件日志：删掉 `.clear_targets()` 那行，并确认 `%LOCALAPPDATA%\com.aqua.zeronote\logs`
-         * 是**普通权限**能写的（别再用管理员跑 dev）。
+         * 起因（2026-10-18）：项目目录被标成 **Low 完整性级别**（Low IL），zeronote.exe 继承后
+         * 写不了 `%LOCALAPPDATA%`（Medium）—— 表现是 `failed to initialize plugin log: 拒绝访问
+         * (os error 5)` / `WebView2 0x8000FFFF`。IL 已用 `icacls src-tauri /setintegritylevel
+         * (OI)(CI)Medium` 修好（见 HANDOFF rev173.11 §5）；日志仍只走 stdout，理由：
+         * dev 看终端 / `.self-logs/desktop-dev.log` 就够（本来也是 stdout 重定向），
+         * 少一个要维护的目录。要恢复文件日志：删掉 `.clear_targets()` 那行。
          */
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
