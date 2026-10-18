@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
+import { applyBootPluginStyles } from './lib/boot-plugin-styles'
 
 /**
  * 注意：**没有 StrictMode**。
@@ -8,4 +9,9 @@ import './styles.css'
  * StrictMode 的双调用会与异步清理竞争，导致面板重复注册 / 插件重复激活。
  * 插件宿主的幂等性由内核自己保证（`registerPanel` 同 id 替换、命令 id 重复抛错）。
  */
+
+// 首屏预热插件样式（主题类插件）—— 必须在 React 挂载前、且在内核 styles.css 之后，
+// 否则主题插件要等异步加载完才生效，等于每次启动都闪一下内核深色（rev135）。
+applyBootPluginStyles()
+
 createRoot(document.getElementById('root')!).render(<App />)

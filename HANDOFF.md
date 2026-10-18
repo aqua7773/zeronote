@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 134
-更新时间: 2026-10-18（rev134 侧栏头部加设置图标）
+revision: 135
+更新时间: 2026-10-18（rev135 修复「翠绿主题闪深色」：插件样式首屏预热）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev135 | 2026-10-18 · **修复翠绿主题闪深色**：插件样式首屏预热（缓存 + `main.tsx` 挂载前注入）· 测试 **192** |
 | rev134 | 2026-10-18 · **侧栏头部加设置图标**（lucide Settings → 复用设置弹窗）· CDP 实测 · 测试 **186** |
 | rev133 | 2026-10-18 · **移动端同步**：☰ = 抽屉开关 + 新增 **⋯** 菜单按钮（手机无右键）· 两端 CDP 实测 · 测试 **184** |
 | rev132 | 2026-10-18 · **桌面 ☰ = 文件树栏开关**（左键切换 / 右键菜单）· 移动端不变 · 测试 180 → **183** |
@@ -114,6 +115,39 @@ revision: 134
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev135（2026-10-18 · 修复「翠绿主题闪一下深色」：插件样式首屏预热）
+>
+> 用户报告：翠绿主题经常闪一下原本的深色界面。
+>
+> ### 1 根因（读代码确认，不是猜）
+>
+> 「翠绿」**不是内核主题**（内核只有 light/dark/system，`index.html` 有内联脚本防闪），
+> 而是**纯 CSS 插件** `theme-green`（`manifest.styles` 由宿主注入 `<style>`）。
+> 它的注入发生在 `usePluginHost` 的加载链里 —— **React 挂载之后**，且要等读 manifest + 读 CSS
+> 的 await 跑完才 append。于是首屏先用内核深色渲染，插件加载完成才变绿 ⇒ 闪一下。
+> 每次刷新 / 冷启动 / 切库（插件重载）都会再来一次；`theme-sepia` 同理。
+>
+> ### 2 修法：样式缓存 + 首屏预热
+>
+> - `src/lib/boot-plugin-styles.ts`（新）：`cachePluginStyle` / `uncachePluginStyle` /
+>   `applyBootPluginStyles` / `dropBootPluginStyles`，缓存进 localStorage（`zeronote.plugin.styles`）。
+> - `plugin-host.ts` 的 `injectStyles`：真实注入时写缓存 + 删预热样式；`dispose` 时删缓存。
+> - `main.tsx`：`applyBootPluginStyles()` 在 React 挂载前、内核 `styles.css` 之后执行
+>   ⇒ 首屏直接用缓存里的主题样式（文档顺序在后，同特异性下主题变量胜出）。
+> - `usePluginHost.ts`：加载链 `finally` 里 `dropBootPluginStyles()` —— 插件被禁用 / 卸载时
+>   预热样式不残留（否则「禁用主题」等于无效）。
+>
+> ### 3 实测（CDP）
+>
+> - 缓存写入确认：`outline-map:2723`、`theme-green:591` 字符；
+> - 删掉真实插件样式 → `--zn-bg=#18181b`（内核深色）；调 `applyBootPluginStyles()` →
+>   `#0c1a12`（翠绿深色）—— 预热样式确实能覆盖内核主题（顺序 / 特异性正确）。
+>
+> ### 4 验收
+>
+> `verify.ps1` 五步全过：tsc 0 · oxlint 4 · cargo 27 · check-docs · **vitest 192 passed**
+> （186 → 192，`tests/boot-plugin-styles.test.ts` 6 条）。
+>
 > ## 📌 rev134（2026-10-18 · 侧栏头部加设置图标）
 >
 > 用户看图提需求：设置功能放到侧栏头部（ZeroNote 右侧），做一个设置图标。

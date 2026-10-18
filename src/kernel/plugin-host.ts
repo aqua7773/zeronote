@@ -11,6 +11,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import { API_VERSION } from './contract'
 import { tagCommandImpl } from './command'
+import {
+  cachePluginStyle,
+  dropBootPluginStyles,
+  uncachePluginStyle,
+} from '../lib/boot-plugin-styles'
 import type {
   Capability,
   CommandApi,
@@ -518,15 +523,20 @@ export function toPlugin(mod: unknown): Plugin | undefined {
 const styleTags = new Map<string, HTMLStyleElement>()
 
 function injectStyles(pluginId: string, css: string): Disposable {
+  // 真实样式已注入 ⇒ 预热样式让位（它只是首屏那一下的替身，见 lib/boot-plugin-styles.ts）
+  dropBootPluginStyles()
   const el = document.createElement('style')
   el.dataset.znPlugin = pluginId
   el.textContent = css
   document.head.appendChild(el)
   styleTags.set(pluginId, el)
+  // 记进 localStorage：下次启动在 React 挂载前先摆上，避免主题闪一下深色
+  cachePluginStyle(pluginId, css)
   return {
     dispose: () => {
       el.remove()
       styleTags.delete(pluginId)
+      uncachePluginStyle(pluginId)
     },
   }
 }

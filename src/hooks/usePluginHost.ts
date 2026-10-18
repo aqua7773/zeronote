@@ -36,6 +36,7 @@ import { collectPluginDirs, tryGlobalPluginRoot } from '../kernel/plugin-roots'
 import { ensureBuiltinPlugins } from '../kernel/builtin-plugins'
 import type { PluginManifest } from '../kernel/contract'
 import { LS_LOADING } from '../lib/boot-heal'
+import { dropBootPluginStyles } from '../lib/boot-plugin-styles'
 
 export type UsePluginHostArgs = {
   kernel: Kernel | null
@@ -289,6 +290,10 @@ export function usePluginHost({
         }
       } catch (e) {
         if (!cancelled) setPluginError(String(e))
+      } finally {
+        // 本代加载完（无论成败）⇒ 首屏预热样式让位：真实样式已由 injectStyles 注入；
+        // 若主题插件被禁用 / 已卸载，缓存里的旧主题必须撤掉，否则「禁用」等于无效（rev135）。
+        dropBootPluginStyles()
       }
     })
     pluginChainRef.current = run.catch(() => {})
