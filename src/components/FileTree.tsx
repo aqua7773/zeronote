@@ -395,8 +395,7 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）；
-        // 多选改由树顶「多选」按钮进入，长按不再转多选。
+        // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）。
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
@@ -460,7 +459,7 @@ export function FileTree({
   /** 创建副本（同目录 + 「 副本」；文件与目录都支持） */
   onDuplicate: (path: string) => void
   /**
-   * 「层出口」栈（App 持有）—— 多选 / 右键菜单这类**状态由本组件自持**的浮层，
+   * 「层出口」栈（App 持有）—— 右键菜单这类**状态由本组件自持**的浮层，
    * 打开时把自己的关闭函数压进去，让 Android 返回键能先关掉它（见 App 的 `backRef`）。
    * 不传也能用 —— 返回键只在 Android 存在，桌面端不需要。
    */
@@ -475,10 +474,10 @@ export function FileTree({
   /** Shift 范围选择的锚点 */
   const [anchor, setAnchor] = useState<string | null>(null)
   /**
-   * **多选模式**（2026-10-13 加，给手机用）—— 触屏没有 Ctrl/Shift，多选入口等于没了；
-   * 改成「长按一行进选择模式」：进入后点一行 = 加/减选（**不打开**笔记），
-   * 树顶出现批量操作条（剪切 / 复制 / 删除 / 退出）。
-   * 桌面不受影响：鼠标右键的 `pointerType` 是 `mouse`，仍走原来的右键菜单。
+   * **点选模式**（2026-10-13 加，给手机用；rev141 收敛成只剩右键入口）——
+   * 触屏没有 Ctrl/Shift，多选入口等于没了；从右键/长按菜单的「多选」进入后，
+   * 点一行 = 加/减选（**不打开**笔记），再右键/长按对整批操作（菜单里显示
+   * 「删除选中的 N 项」等）。rev141 按用户要求去掉了顶栏按钮与批量操作条。
    */
   const [selectMode, setSelectMode] = useState(false)
   /**
@@ -565,8 +564,8 @@ export function FileTree({
   const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
     // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
     setSelectionCleared(false)
-    // 多选模式（手机长按进的）：点一行 = 加/减选，**不打开**笔记 —— 否则一开编辑器
-    // 就把抽屉收起来，多选根本做不下去。
+    // 点选模式（右键菜单「多选」进的）：点一行 = 加/减选，**不打开**笔记 ——
+    // 否则一开编辑器就把抽屉收起来，多选根本做不下去。
     if (selectMode) {
       setSelected((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]))
       setAnchor(path)
@@ -645,10 +644,7 @@ export function FileTree({
         }
         setMarquee(box)
         setSelected(hitTest(root, box))
-        /**
-         * 框选**不进多选模式**（2026-10-17 用户要求）：树顶那条批量操作条只在
-         * 手机长按时出现；桌面框选完直接用**右键菜单**操作这批选中项。
-         */
+        // 框选**不进点选模式**：框选完直接用右键菜单操作这批选中项
         setSelectMode(false)
         return
       }
@@ -704,13 +700,7 @@ export function FileTree({
     window.addEventListener('pointerup', up)
   }
 
-  /** 退出多选（✕ / Android 返回键）—— 顺手清空选中，视觉上不留残影 */
-  const exitSelect = () => {
-    setSelectMode(false)
-    setSelected([])
-  }
-
-  /* 多选 / 右键菜单都是「返回键该先关掉的一层」—— 打开时把关闭函数压进 App 的层出口栈。
+  /* 右键菜单 / 点选模式都是「返回键该先关掉的一层」—— 打开时把关闭函数压进 App 的层出口栈。
      ⚠️ 必须写在下面「空库」那个 early return **之前**（Hooks 不能条件执行）。 */
   useEffect(() => {
     const stack = layers?.current
@@ -788,8 +778,8 @@ export function FileTree({
    */
   const toolbar = (
     <div className="zn-tree-toolbar">
-      {/* ⚠️ 每个按钮都要 `stopPropagation`：根容器的 onClick 把「点空白」当成取消多选，
-          不拦住的话刚点「多选」就被同一次冒泡立刻退出（2026-10-18 实测）。 */}
+      {/* ⚠️ 按钮都要 `stopPropagation`：根容器的 onClick 把空白处点击当成「取消选中」，
+          不拦住的话新建完还没点开编辑器，选中就被同一次冒泡清掉了。 */}
       <button
         type="button"
         className="zn-plain-btn zn-tree-new"
@@ -811,21 +801,6 @@ export function FileTree({
         title="在库根新建文件夹"
       >
         新建文件夹
-      </button>
-      {/* 多选入口（2026-10-18 用户要求）：手机长按改为弹菜单，多选改从这里进 */}
-      <button
-        type="button"
-        className="zn-plain-btn zn-tree-new"
-        onClick={(e) => {
-          e.stopPropagation()
-          setMenu(null)
-          setSelected([])
-          setAnchor(null)
-          setSelectMode(true)
-        }}
-        title="进入多选：点选文件后可批量剪切 / 复制 / 删除"
-      >
-        多选
       </button>
     </div>
   )
@@ -893,7 +868,7 @@ export function FileTree({
     onDeleteMany(dedupe(paths))
     setSelected([])
     setMenu(null)
-    // 删完就退出多选 —— 留着"已选 N 项"而 N 已经是 0，看着像没删掉（静默失效的样子）
+    // 删完就退出点选模式（选中已空，留着模式只会让下一次点击变成"加选"）
     setSelectMode(false)
   }
 
@@ -981,8 +956,9 @@ export function FileTree({
             })
           }
           /**
-           * 多选入口（2026-10-18 用户要求）：右键 / 手机长按弹出的就是这个菜单，
-           * 从这里进多选并选中当前这一条（已在多选模式时不再重复给）。
+           * 「多选」入口（2026-10-18 用户要求保留；rev141 用户圈掉顶栏按钮与批量条后，
+           * 这里是**唯一**的入口）：进入点选模式并选中当前这一条，之后点行只加/减选，
+           * 再右键/长按对整批操作（菜单里会出现「删除选中的 N 项」）。
            */
           // 只对**文件**给多选入口 —— 现有选择集合的语义是「只含文件」（见上面 onKeyDown 注释）
           if (!multi && !menu.isDir) {
@@ -1019,15 +995,15 @@ export function FileTree({
       onClick={(e) => {
         // 点**空白处** = 取消选中（与资源管理器一致，2026-10-17 用户要求）。
         // 点节点时事件从节点冒泡上来 —— target 落在 `[data-zn-path]` 里，这里不动选中。
-        // ⚠️ 右键菜单项点击也会冒泡到这里（菜单不是 portal）：必须放行，否则点「多选」
-        // 会被同一次冒泡立刻取消（2026-10-18 实测）。
+        // ⚠️ 右键菜单项点击也会冒泡到这里（菜单不是 portal）：必须放行，否则点菜单项
+        // 会被同一次冒泡立刻当成「点空白」清掉选中（2026-10-18 实测）。
         if ((e.target as HTMLElement).closest('[role="menu"]')) return
         if (!(e.target as HTMLElement).closest('[data-zn-path]')) {
           setSelected([])
           setAnchor(null)
           // 连「当前打开的那篇」的高亮也一起收掉（否则回退逻辑会让它继续亮着）
           setSelectionCleared(true)
-          setSelectMode(false) // 手机上长按进来的多选也一并退出（选中已空，操作条没意义）
+          setSelectMode(false) // 点选模式也一并退出（选中已空，再点一行不该继续加选）
         }
       }}
       onContextMenu={(e) => {
@@ -1053,61 +1029,6 @@ export function FileTree({
       {dragGhost && (
         <div className="zn-drag-ghost" style={{ left: dragGhost.x, top: dragGhost.y }}>
           {dragGhost.label}
-        </div>
-      )}
-      {/* 多选条（手机长按树项进入）—— 只在这一层出现，操作完自动退出 */}
-      {selectMode && (
-        <div className="zn-select-bar">
-          <button
-            type="button"
-            className="zn-icon-btn"
-            onClick={exitSelect}
-            title="退出多选"
-            aria-label="退出多选"
-          >
-            ✕
-          </button>
-          <span className="zn-select-count">已选 {selectedSet.size} 项</span>
-          <span className="zn-select-actions">
-            <button
-              type="button"
-              className="zn-plain-btn"
-              onClick={() => {
-                onCut(dedupe([...selectedSet]))
-                exitSelect()
-              }}
-            >
-              剪切
-            </button>
-            <button
-              type="button"
-              className="zn-plain-btn"
-              onClick={() => {
-                onCopy(dedupe([...selectedSet]))
-                exitSelect()
-              }}
-            >
-              复制
-            </button>
-            <button
-              type="button"
-              className="zn-plain-btn is-danger"
-              onClick={() => deletePaths([...selectedSet])}
-            >
-              删除
-            </button>
-            <button
-              type="button"
-              className="zn-plain-btn is-danger"
-              onClick={() => {
-                // 手机没有右键 ⇒ 多选条是唯一的批量入口。
-                // 不在这里清选中：让用户能在确认框里点「取消」而不丢选择。
-                setPurgeConfirm({ paths: [...selectedSet], x: 24, y: 120 })
-              }}
-            >
-              彻底删除
-            </button>
-          </span>
         </div>
       )}
       {tree.map((n) => (

@@ -411,41 +411,6 @@ body.is-resizing * {
 }
 .zn-tree-item .zn-ext { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
 
-/* 多选条（手机长按树项进入）—— 贴在树顶，操作完自动退出 */
-.zn-select-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--zn-space-2);
-  /* 树自己有 padding：用负 margin 让条子贴边，sticky 时才不会浮在项目之间 */
-  position: sticky;
-  top: calc(var(--zn-space-2) * -1);
-  margin: calc(var(--zn-space-2) * -1) calc(var(--zn-space-2) * -1) var(--zn-space-2);
-  padding: var(--zn-space-2);
-  border-bottom: 1px solid var(--zn-border);
-  background: var(--zn-bg-subtle);
-  font-size: var(--zn-text-sm);
-  z-index: 2;
-}
-
-.zn-select-count {
-  flex: 1;
-  min-width: 0;
-  color: var(--zn-fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.zn-select-actions {
-  display: flex;
-  gap: var(--zn-space-1);
-  flex: none;
-}
-
-.zn-select-actions .zn-plain-btn {
-  padding: 2px var(--zn-space-1);
-}
-
 .zn-main {
   flex: 1;
   min-width: 0;

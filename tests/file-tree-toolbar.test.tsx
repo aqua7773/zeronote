@@ -60,29 +60,32 @@ describe('FileTree 顶栏', () => {
     expect(screen.getByRole('button', { name: '新建文件夹' })).toBeTruthy()
   })
 
-  it('点「多选」进入多选模式（出现批量操作条、0 项已选）', () => {
-    const props = makeProps()
+  it('rev141：顶栏 / 批量条移除，右键「多选」保留（点行只加减选，批量走菜单）', () => {
+    const props = makeProps({ notes: [note('a.md', 'a'), note('b.md', 'b')] })
     const { container } = render(<FileTree {...(props as never)} />)
+
+    // 顶栏只剩两个新建按钮；批量条不存在
+    expect(screen.queryByRole('button', { name: '多选' })).toBeNull()
     expect(container.querySelector('.zn-select-bar')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '多选' }))
-    expect(container.querySelector('.zn-select-bar')).toBeTruthy()
-    expect(screen.getByText(/已选 0 项/)).toBeTruthy()
-  })
+    const rows = container.querySelectorAll('.zn-tree-item')
+    expect(rows.length).toBe(2)
 
-  it('右键菜单里有「多选」：点击进入多选并选中该行', () => {
-    const props = makeProps()
-    const { container } = render(<FileTree {...(props as never)} />)
-
-    const row = container.querySelector('.zn-tree-item')
-    expect(row).toBeTruthy()
-    fireEvent.contextMenu(row as Element)
-
+    // 右键菜单里的「多选」保留，点击进入点选模式
+    fireEvent.contextMenu(rows[0])
     const menu = document.querySelector('[role="menu"]') as HTMLElement
     expect(menu).toBeTruthy()
     fireEvent.click(within(menu).getByText('多选'))
 
-    expect(container.querySelector('.zn-select-bar')).toBeTruthy()
-    expect(screen.getByText(/已选 1 项/)).toBeTruthy()
+    // 点第二行 = 加选（不打开笔记）
+    fireEvent.click(rows[1])
+    expect(props.onOpen).not.toHaveBeenCalled()
+
+    // 再右键 = 批量菜单（删除选中的 2 项）
+    fireEvent.contextMenu(rows[1])
+    const menu2 = document.querySelector('[role="menu"]') as HTMLElement
+    expect(within(menu2).getByText('删除选中的 2 项')).toBeTruthy()
+    // 批量条始终不出现
+    expect(container.querySelector('.zn-select-bar')).toBeNull()
   })
 })
