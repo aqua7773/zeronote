@@ -223,8 +223,8 @@ revision: 173.46
 >
 > - 新增 **Rust** 命令 ⇒ dev APK 必须重装（只改前端才 reload 即生效）；已按硬约束 7 的例外走一次 `pnpm tauri android dev`。
 > - **`__znPasteImage` 链路在 Android 通过**：canvas 生成 PNG → `import_attachment_b64` → 落 `/storage/emulated/0/Documents/ZeroNote/image-20261020-010016.png`（622 B）→ 正文 `![](...)` + 图片渲染正常（截图 `_shots/phone-paste-17346.png`）。测试数据已清理（笔记写回 0 字节、图片删除）。
-> - **真实「长按粘贴」仍未验证**：没法从 adb 可靠地把图片放进 Android 剪贴板 —— 页面内 `execCommand('copy')` 返回 false，`navigator.clipboard.write` 报 `NotAllowedError: Write permission denied`（WebView 未授权）。
->   下次真机验证路径：手机截图 → 相册/浏览器长按「复制图片」→ 编辑器长按「粘贴」；若 `clipboardData.files` 为空 ⇒ 降级「仅桌面」并在 UI 明确提示（rev173.45 的兜底）。
+> - **真实「长按粘贴」：✅ 用户 2026-10-20 手机真机实测可用**（dev 包连电脑 1420，长按粘贴图片直接进正文）—— 说明 Android WebView 的 `clipboardData.files` 对图片剪贴板有效，**不需要降级「仅桌面」**。
+> - 提醒：从 adb 没法把图片塞进 Android 剪贴板做自动化（页面内 `execCommand('copy')` 返回 false、`navigator.clipboard.write` 报 `NotAllowedError: Write permission denied`），所以这一项只能人工验 —— 已由用户完成。
 >
 > ### 验收基线
 >
