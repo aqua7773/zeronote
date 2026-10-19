@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.28）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.28.1）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,13 +30,13 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.28 · 记账 v0.2：统计图表 + CSV 导入导出）
+## 最近一轮（rev173.28.1 · 记账：原始通知诊断）
 
-- **统计视图**：分类占比（progress 条）+ 近 6 月支出 SVG 柱状图（手写，无图表库）；纯函数 `summarizeByCategory` / `monthlyTrend` / `trendSvg`。
-- **CSV 导出**：RFC 4180 + UTF-8 BOM；桌面走系统「另存为」，Android 写库根目录。真机实测 6 条 / 466 B。
-- **CSV 导入**：微信、支付宝账单自动识别表头；`¥`、`/` 不计收支、GBK 兜底；按交易单号去重。真机实测：导入 2 条、二次导入全部去重。
-- verify 基线：vitest **309**（+23）· oxlint 3 warnings · cargo 32。
-- 证据：`_shots/acc-31-stats.png`（桌面）、`acc-62-phone-stats.png`（手机）、`acc-export-phone.csv`。
+- **诊断视图**：面板「诊断」→ 最近一次同步的 **20 条原文**（含未识别）+ `已记账/未识别` 徽标 + 原因
+  （命中忽略规则 / 没支付短语 / 有短语没金额）。只存本机 store，不导出。
+- 用途：遇到「付了钱没进账」时自己看原因，把原文发给 AI 补规则。
+- verify 基线：vitest **314** · oxlint 3 warnings · cargo 32。
+- 证据：`_shots/acc-63-diag.png`。
 
 ### 本轮踩坑（内置插件开发必读）
 
@@ -66,7 +66,7 @@ pwsh -File scripts\verify.ps1
 | 插件签名 / 分发 | ⚠️ rev119 已做 A+B：完整性 sha256 + `.znp` 安装 + 未签名提示；**真签名（公私钥）/ 市场 / 更新通道未做** |
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
-| 记账插件 | ✅ **v0.2 完成**（rev173.16 原生捕获 / rev173.17 分类学习 / rev173.18 点分类即改+自定义分类 / **rev173.28 统计图表 + CSV 导入导出**）。待办：**文案校准**（要真实通知原文）· 预算 · CSV 导入「/」行的人工确认 · 分类删除/排序 · AI 分类（可选） |
+| 记账插件 | ✅ **v0.2 完成**（rev173.16 原生捕获 / rev173.17 分类学习 / rev173.18 点分类即改+自定义分类 / rev173.28 统计图表 + CSV 导入导出 / **rev173.28.1 原始通知诊断**）。待办：**真实文案校准**（诊断视图已就绪：遇到漏记看原文+原因，发来补规则）· 预算 · 分类删除/排序 · AI 分类（可选） |
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |

@@ -23,6 +23,10 @@ const MAX_TX = 500
 /** 手动改分类时可选的分类 */
 const CATEGORIES = ['餐饮', '交通', '购物', '通讯', '居住', '医疗', '娱乐', '收入', '其他']
 
+/** 最近一次同步拿到的**原始通知**（诊断用；只存本机 store，不导出、不上传） */
+const RAW_KEY = 'rawNotices'
+const MAX_RAW = 20
+
 /* ───────────────────────── 纯函数（可单测） ───────────────────────── */
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -263,6 +267,26 @@ export function dedupeTransactions(list, windowMs = 90000) {
     if (!dup) out.push(tx)
   }
   return out
+}
+
+/**
+ * 诊断：这条通知**为什么没被记上**（`parseNotification` 返回 null 时的原因）。
+ * 只解释、不改写——用于「原始通知」视图，让用户能对照原文补规则。
+ */
+export function describeNotice(n, userMap = {}) {
+  const tx = parseNotification(n, userMap)
+  if (tx) return { ok: true, reason: '' }
+  if (!n || !(`${n.title || ''}${n.text || ''}`.trim())) {
+    return { ok: false, reason: '空通知' }
+  }
+  const s = `${n.title || ''} | ${n.text || ''}`
+  const ignored = IGNORE.find((re) => re.test(s))
+  if (ignored) return { ok: false, reason: `命中忽略规则 ${ignored}（验证码/还款/余额类）` }
+  if (!PAY_PHRASES.some((p) => s.includes(p))) {
+    return { ok: false, reason: '没有支付短语（付款成功 / 收款到账 / 转账…）' }
+  }
+  if (extractAmount(s) === null) return { ok: false, reason: '有支付短语，但没找到金额' }
+  return { ok: false, reason: '未知原因' }
 }
 
 /* ───────────────────── 统计（rev173.28）───────────────────── */
@@ -586,6 +610,14 @@ export default {
     } catch {
       categories = CATEGORIES
     }
+    /** 最近一次同步拿到的原始通知（诊断视图用） */
+    let raws = []
+    try {
+      const saved = await store.get(RAW_KEY, [])
+      if (Array.isArray(saved)) raws = saved
+    } catch {
+      raws = []
+    }
     /** 正在改分类的交易 id（null = 列表视图） */
     let editingId = null
     /** 面板视图：账单列表 / 统计（rev173.28） */
@@ -653,8 +685,19 @@ export default {
         notices = []
       }
       let added = 0
+      const seen = []
       for (const n of notices) {
         const tx = parseNotification(n, userMap)
+        // 诊断留痕：**每条**原始通知都记一笔（含未识别的），只存本机 store
+        seen.push({
+          pkg: n.pkg || '',
+          app: n.app || '',
+          title: String(n.title || '').slice(0, 80),
+          text: String(n.text || '').slice(0, 200),
+          time: Number(n.time) || Date.now(),
+          ok: !!tx,
+          reason: tx ? '' : describeNotice(n, userMap).reason,
+        })
         if (!tx) continue
         if (txs.some((x) => x.id === tx.id)) continue
         txs.push(tx)
@@ -663,6 +706,14 @@ export default {
       txs = dedupeTransactions(txs)
       txs.sort((a, b) => a.time - b.time)
       await persist()
+      if (seen.length) {
+        raws = seen.slice(-MAX_RAW)
+        try {
+          await store.set(RAW_KEY, raws)
+        } catch {
+          /* 诊断数据存不下不影响记账 */
+        }
+      }
       host.notify(added > 0 ? `同步完成：新增 ${added} 条账单` : '同步完成：没有新账单')
       refresh()
     }
@@ -827,6 +878,7 @@ export default {
 
     function render() {
       if (mode === 'stats') return renderStats()
+      if (mode === 'diag') return renderDiag()
 
       // 改分类视图：只显示这笔 + 分类按钮列表
       if (editingId) {
@@ -908,6 +960,7 @@ export default {
               { type: 'button', label: '统计', onClick: 'accounting.stats', variant: 'ghost' },
               { type: 'button', label: '导出 CSV', onClick: 'accounting.exportCsv', variant: 'ghost' },
               { type: 'button', label: '导入 CSV', onClick: 'accounting.importCsv', variant: 'ghost' },
+              { type: 'button', label: '诊断', onClick: 'accounting.diag', variant: 'ghost' },
               { type: 'button', label: '检查权限', onClick: 'accounting.check', variant: 'ghost' },
               { type: 'button', label: '打开授权页', onClick: 'accounting.openSettings', variant: 'ghost' },
             ],
@@ -1047,6 +1100,79 @@ export default {
       }
     }
 
+    /** 原始通知诊断（rev173.28.1）：同步时留下的原文 + 为什么没记上 */
+    function renderDiag() {
+      const list = raws.slice().reverse()
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              {
+                type: 'button',
+                label: '返回账单',
+                onClick: 'accounting.backToList',
+                variant: 'ghost',
+              },
+              { type: 'text', value: '原始通知', variant: 'title' },
+            ],
+          },
+          {
+            type: 'text',
+            value:
+              '点「同步通知」后，最近 20 条原文会留在这里（只在本机 store，不导出）。「未识别」的行是解析规则没认出来的 —— 对照原文就能看出该补什么。',
+            variant: 'caption',
+            tone: 'muted',
+          },
+          {
+            type: 'list',
+            empty: '还没有同步记录。先去「同步通知」拉一次通知。',
+            items: list.map((r, i) => ({
+              key: `${r.time}-${i}`,
+              node: {
+                type: 'stack',
+                gap: 'sm',
+                children: [
+                  {
+                    type: 'row',
+                    align: 'center',
+                    wrap: true,
+                    gap: 'sm',
+                    children: [
+                      {
+                        type: 'text',
+                        value: `${fmtTime(r.time)} · ${r.app || r.pkg || '未知'}`,
+                        variant: 'caption',
+                        tone: 'muted',
+                      },
+                      {
+                        type: 'badge',
+                        text: r.ok ? '已记账' : '未识别',
+                        tone: r.ok ? 'success' : 'warn',
+                      },
+                    ],
+                  },
+                  {
+                    type: 'text',
+                    value: `${r.title ? `${r.title} · ` : ''}${r.text || ''}`,
+                    variant: 'caption',
+                  },
+                  ...(r.reason
+                    ? [{ type: 'text', value: `原因：${r.reason}`, variant: 'caption', tone: 'warn' }]
+                    : []),
+                ],
+              },
+            })),
+          },
+        ],
+      }
+    }
+
     subscriptions.push(
       command.register({
         id: 'accounting.sync',
@@ -1070,6 +1196,14 @@ export default {
         id: 'accounting.importCsv',
         title: '记账：导入 CSV（微信/支付宝账单）',
         run: () => importCsv(),
+      }),
+      command.register({
+        id: 'accounting.diag',
+        title: '记账：原始通知诊断',
+        run: () => {
+          mode = 'diag'
+          refresh()
+        },
       }),
       command.register({
         id: 'accounting.backToList',

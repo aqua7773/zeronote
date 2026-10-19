@@ -16,6 +16,7 @@
       { "id": "accounting.stats", "title": "记账：统计" },
       { "id": "accounting.exportCsv", "title": "记账：导出 CSV" },
       { "id": "accounting.importCsv", "title": "记账：导入 CSV（微信/支付宝账单）" },
+      { "id": "accounting.diag", "title": "记账：原始通知诊断" },
       { "id": "accounting.backToList", "title": "记账：返回账单列表" },
       { "id": "accounting.check", "title": "记账：检查通知权限" },
       { "id": "accounting.openSettings", "title": "记账：打开通知使用权设置" },
