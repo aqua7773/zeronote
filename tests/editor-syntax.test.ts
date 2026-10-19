@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { Text } from '@codemirror/state'
-import { findMathBlocks, findMermaidBlocks, parseInline } from '../src/kernel/editor-syntax'
+import {
+  findMathBlocks,
+  findMermaidBlocks,
+  parseInline,
+  sanitizeHtml,
+} from '../src/kernel/editor-syntax'
 
 describe('parseInline · 上标', () => {
   it('识别 ^x^ 并给出内容区间', () => {
@@ -130,6 +135,42 @@ describe('parseInline · 脚注引用', () => {
     const hits = parseInline('$x[^1]$')
     expect(hits.filter((h) => h.kind === 'footref')).toHaveLength(0)
     expect(hits.some((h) => h.kind === 'math')).toBe(true)
+  })
+})
+
+describe('parseInline · 内嵌 HTML', () => {
+  it('识别白名单标签对', () => {
+    const hits = parseInline('内嵌：<ins>下划线</ins> 结束')
+    expect(hits.filter((h) => h.kind === 'html')).toHaveLength(1)
+  })
+
+  it('开关关掉时不识别（显示源码）', () => {
+    expect(parseInline('<ins>下划线</ins>', false).filter((h) => h.kind === 'html')).toHaveLength(0)
+  })
+})
+
+describe('sanitizeHtml · 白名单净化', () => {
+  it('保留白名单标签', () => {
+    expect(sanitizeHtml('<ins>下划线</ins>')).toBe('<ins>下划线</ins>')
+  })
+
+  it('剔除事件属性与 style', () => {
+    const out = sanitizeHtml('<span onclick="alert(1)" style="color:red">x</span>')
+    expect(out).not.toContain('onclick')
+    expect(out).not.toContain('style')
+    expect(out).toContain('x')
+  })
+
+  it('script 与 iframe 整段剔除', () => {
+    const out = sanitizeHtml('<script>alert(1)</script><iframe src="x"></iframe>')
+    expect(out).not.toContain('script')
+    expect(out).not.toContain('iframe')
+  })
+
+  it('不在白名单的标签只留文本（如 div）', () => {
+    const out = sanitizeHtml('<div>纯文本</div>')
+    expect(out).not.toContain('<div>')
+    expect(out).toContain('纯文本')
   })
 })
 

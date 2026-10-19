@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.38
-更新时间: 2026-10-19（rev173.38 Markdown 语法增强第二批：脚注 / Mermaid / 定义列表）
+revision: 173.39
+更新时间: 2026-10-19（rev173.39 内嵌 HTML 白名单渲染 + 设置开关）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.39 | 2026-10-19 · **内嵌 HTML 白名单渲染**：`sanitizeHtml`（自实现，DOMParser 遍历白名单）· 属性全剔除 · script/style 丢弃 · 设置「内嵌 HTML」渲染/显示源码 · 默认渲染 · 测试 **343** |
 | rev173.38 | 2026-10-19 · **Markdown 语法增强第二批**：脚注 `[^1]`（上标引用 + 点击跳转定义 + 定义行整行接管）· Mermaid ```mermaid 块（异步渲染 SVG，失败保留源码）· 定义列表（术语加粗 + 解释弱化）· 测试 **337** |
 | rev173.37 | 2026-10-19 · **版本管理**：单一来源 `package.json` · 关于页改读 vite 注入 `__APP_VERSION__` · `scripts/release.mjs` 同步三处 + `--tag` · 首版 **0.2.0**（tag `v0.2.0`）· CHANGELOG 增「应用版本」段 |
 | rev173.36 | 2026-10-19 · **Markdown 语法增强第一批**：`src/kernel/editor-syntax.ts`（内核扩展，插件 API 做不了 widget）· 上标 `^x^` · 下标 `~x~` · Emoji `:name:` · 行内/块级数学（KaTeX）· 光标行显示源码 · 测试 **17** |
@@ -183,6 +184,25 @@ revision: 173.38
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.39（2026-10-19 · 内嵌 HTML 白名单渲染 + 设置开关）
+>
+> 用户问「内嵌 HTML 按之前约定不做，这是哪条约定的」→ 核实：**没有约定** —— 是我把自己的建议写成了「约定」。
+> 随后调研主流做法（VS Code 默认 Strict 安全模式、Joplin 直接渲染、GitHub 白名单 sanitizer），
+> 采用「渲染 + 限制」：白名单标签 + 属性全剔除。
+>
+> | 项 | 处理 |
+> |---|---|
+> | 白名单 | `ins / del / mark / kbd / sup / sub / br / span / strong / em / b / i / u / s / small / code` |
+> | 净化 | `sanitizeHtml`（`editor-syntax.ts`，自实现 DOMParser 遍历）：属性**全剔除**（事件/style/class）· `script` / `style` 整段丢弃 · 未知标签只留文本 |
+> | 设置 | 设置 → 通用 → 「内嵌 HTML」：渲染 / 显示源码；默认渲染；localStorage `zeronote.renderHtml` |
+> | 切换生效 | 开关变化时用 `key` 重建编辑器（扩展 mount 时读 prop；模块级开关会读到旧值 —— 实测踩过） |
+>
+> ⚠️ 为什么不用 DOMPurify：它在 **happy-dom 单测环境**里行为不可靠
+> （实测**剥掉了白名单标签**、又**放行了 iframe**）⇒ 自实现 30 行白名单，单测与运行时行为一致。
+>
+> 实测（CDP · dev 23:0x）：`<ins>` / `<strong>` 渲染、`<span onclick style>` 属性被剔除、`<script>` 与 `<div>` 显示源码；
+> 设置切「显示源码」→ widget 归零，切回 → 恢复。截图 `_shots/md-html-01.png`。测试 **28**（本模块）。
 
 > ## 📌 rev173.38（2026-10-19 · Markdown 语法增强第二批：脚注 / Mermaid / 定义列表）
 >

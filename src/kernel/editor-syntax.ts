@@ -30,6 +30,68 @@ import {
 import type { Extension, Range, Text } from '@codemirror/state'
 import { StateField, type EditorState } from '@codemirror/state'
 
+/**
+ * 内嵌 HTML 的渲染开关（设置页「内嵌 HTML」）：作为**参数**一路传下来，
+ * 而不是模块级状态 —— 模块级状态在「设置切换 → key 重建编辑器」时读到的是旧值（实测踩过）。
+ * 白名单见 `HTML_ALLOWED_TAGS`：只放行纯排版标签，**属性一律剔除**（事件属性、style、class 全丢）。
+ */
+
+/** 允许渲染的内嵌 HTML 标签（无脚本、无外链、无表单） */
+const HTML_ALLOWED_TAGS = new Set([
+  'ins',
+  'del',
+  'mark',
+  'kbd',
+  'sup',
+  'sub',
+  'br',
+  'span',
+  'strong',
+  'em',
+  'b',
+  'i',
+  'u',
+  's',
+  'small',
+  'code',
+])
+
+/**
+ * 白名单净化（自实现，见 rev173.39 说明）。
+ *
+ * 不用 DOMPurify 的原因：它在 happy-dom 单测环境里行为不可靠（实测**剥掉了白名单标签**、
+ * 又**放行了 iframe**），而运行时又是另一个环境 —— 行为无法用单测锁住。
+ * 自实现：DOMParser 解析 → 只保留白名单标签、**丢弃全部属性**、文本原样；
+ * 未知标签只把文本内容上提；`script` / `style` 整段丢弃。
+ */
+export function sanitizeHtml(raw: string): string {
+  if (typeof DOMParser === 'undefined') return ''
+  const doc = new DOMParser().parseFromString(raw, 'text/html')
+  const out = doc.createElement('span')
+  const walk = (node: Node, parent: Element) => {
+    // 3 = TEXT_NODE（用数字而不是常量：happy-dom 里常量有时缺失）
+    if (node.nodeType === 3) {
+      parent.appendChild(doc.createTextNode(node.textContent ?? ''))
+      return
+    }
+    if (node.nodeType !== 1) return
+    const el = node as Element
+    const tag = el.tagName.toLowerCase()
+    // 危险标签：连内容一起丢
+    if (tag === 'script' || tag === 'style') return
+    if (!HTML_ALLOWED_TAGS.has(tag)) {
+      // 未知标签：文本内容上提
+      el.childNodes.forEach((c) => walk(c, parent))
+      return
+    }
+    const clean = doc.createElement(tag)
+    el.childNodes.forEach((c) => walk(c, clean))
+    parent.appendChild(clean)
+  }
+  doc.body.childNodes.forEach((n) => walk(n, out))
+  return out.innerHTML
+}
+
 const supMark = Decoration.mark({ class: 'zn-sup' })
 const subMark = Decoration.mark({ class: 'zn-sub' })
 /** 空替换：隐藏 `^` / `~` 标记本身 */
@@ -101,6 +163,27 @@ class FootnoteDefWidget extends WidgetType {
     body.textContent = this.body
     wrap.append(sup, body)
     return wrap
+  }
+  override ignoreEvent() {
+    return true
+  }
+}
+
+/** 内嵌 HTML（白名单净化后渲染；属性全部剔除） */
+class HtmlWidget extends WidgetType {
+  raw: string
+  constructor(raw: string) {
+    super()
+    this.raw = raw
+  }
+  override eq(other: HtmlWidget) {
+    return other.raw === this.raw
+  }
+  override toDOM() {
+    const span = document.createElement('span')
+    span.className = 'zn-html'
+    span.innerHTML = sanitizeHtml(this.raw)
+    return span
   }
   override ignoreEvent() {
     return true
@@ -307,6 +390,7 @@ export type InlineMatch =
   | { kind: 'emoji'; from: number; to: number; ch: string }
   | { kind: 'math'; from: number; to: number; tex: string }
   | { kind: 'footref'; from: number; to: number; num: string }
+  | { kind: 'html'; from: number; to: number; raw: string }
 
 /** 行内代码区间（`` `…` ``）—— 里面的语法一律不动 */
 function codeRanges(text: string): Array<[number, number]> {
@@ -320,8 +404,9 @@ function codeRanges(text: string): Array<[number, number]> {
 /**
  * 解析单行里的增强语法（纯函数，单测直接测它）。
  * 偏移都是**行内相对偏移**（0 起）。
+ * `renderHtml` = 是否渲染内嵌 HTML（设置开关；关着时 HTML 整段不识别，显示源码）。
  */
-export function parseInline(text: string): InlineMatch[] {
+export function parseInline(text: string, renderHtml = true): InlineMatch[] {
   const out: InlineMatch[] = []
   const codes = codeRanges(text)
   const inCode = (i: number) => codes.some(([a, b]) => i >= a && i < b)
@@ -372,13 +457,23 @@ export function parseInline(text: string): InlineMatch[] {
     out.push({ kind: 'footref', from: m.index, to: m.index + m[0].length, num: m[1] })
   }
 
+  // 内嵌 HTML（仅白名单标签；设置开关关着时整段不识别）
+  if (renderHtml) {
+    const htmlRe =
+      /<(ins|del|mark|kbd|sup|sub|strong|em|b|i|u|s|small|code|span)(?:\s[^>]*)?>([\s\S]*?)<\/\1>|<br\s*\/?>/gi
+    while ((m = htmlRe.exec(text))) {
+      if (inCode(m.index) || inMath(m.index)) continue
+      out.push({ kind: 'html', from: m.index, to: m.index + m[0].length, raw: m[0] })
+    }
+  }
+
   return out
 }
 
 /** 把一行的识别结果翻译成 CM6 装饰器（偏移转为文档坐标） */
-function lineDecorations(from: number, text: string): Range<Decoration>[] {
+function lineDecorations(from: number, text: string, renderHtml: boolean): Range<Decoration>[] {
   const out: Range<Decoration>[] = []
-  for (const hit of parseInline(text)) {
+  for (const hit of parseInline(text, renderHtml)) {
     if (hit.kind === 'emoji') {
       out.push(
         Decoration.replace({ widget: new EmojiWidget(hit.ch) }).range(
@@ -400,6 +495,15 @@ function lineDecorations(from: number, text: string): Range<Decoration>[] {
     if (hit.kind === 'footref') {
       out.push(
         Decoration.replace({ widget: new FootnoteRefWidget(hit.num) }).range(
+          from + hit.from,
+          from + hit.to,
+        ),
+      )
+      continue
+    }
+    if (hit.kind === 'html') {
+      out.push(
+        Decoration.replace({ widget: new HtmlWidget(hit.raw) }).range(
           from + hit.from,
           from + hit.to,
         ),
@@ -488,7 +592,7 @@ function blockDecorations(state: EditorState): DecorationSet {
 }
 
 /** 行内装饰器（ViewPlugin 用；**不含 block 装饰器**） */
-function buildInlineDecorations(view: EditorView): DecorationSet {
+function buildInlineDecorations(view: EditorView, renderHtml: boolean): DecorationSet {
   const decos: Range<Decoration>[] = []
   const doc = view.state.doc
   // 光标所在行不渲染（与 Live Preview 一致：那一行显示源码）
@@ -526,7 +630,7 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
           pos = line.to + 1
           continue
         }
-        decos.push(...lineDecorations(line.from, line.text))
+        decos.push(...lineDecorations(line.from, line.text, renderHtml))
         // 定义列表（rev173.38）：术语行 + 下一行缩进解释
         //   术语
         //     解释（2+ 空格或 Tab 缩进）
@@ -564,18 +668,18 @@ const syntaxBlockField = StateField.define<DecorationSet>({
 })
 
 /** 接入 `MarkdownEditor` 的 extensions 数组 */
-export function editorSyntaxExtensions(): Extension {
+export function editorSyntaxExtensions(renderHtml = true): Extension {
   return [
     syntaxBlockField,
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet
         constructor(view: EditorView) {
-          this.decorations = buildInlineDecorations(view)
+          this.decorations = buildInlineDecorations(view, renderHtml)
         }
         update(u: ViewUpdate) {
           if (u.docChanged || u.viewportChanged || u.selectionSet) {
-            this.decorations = buildInlineDecorations(u.view)
+            this.decorations = buildInlineDecorations(u.view, renderHtml)
           }
         }
       },

@@ -168,6 +168,11 @@ type Props = {
    */
   onLocalLinkOpen?: (relPath: string) => void
   /**
+   * 内嵌 HTML 是否渲染（rev173.39 · 设置页开关；默认开）。
+   * 关闭时 HTML 语法原样显示（源码），打开时按白名单渲染（属性剔除）。
+   */
+  renderHtml?: boolean
+  /**
    * Android 返回键的「层出口」栈（App 的 `layerExitsRef`）。
    * 图片预览打开时压一层：返回键先关预览，而不是往下走把笔记关掉。
    */
@@ -337,6 +342,7 @@ export function MarkdownEditor({
   onWikiLinkOpen,
   onLocalLinkOpen,
   layers,
+  renderHtml = true,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
   /**
@@ -582,7 +588,7 @@ export function MarkdownEditor({
     // 笔记时读它，那时捕获到的就是当次渲染的回调，不需要 ref 中转。
     ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
     // Markdown 语法增强（rev173.36）：上标 ^x^ / 下标 ~x~ / Emoji :name:
-    editorSyntaxExtensions(),
+    editorSyntaxExtensions(renderHtml),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
     imageAssetPlugin(vault, path),
   ]

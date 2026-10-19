@@ -75,6 +75,12 @@ export interface SettingsProps {
   /** 主题偏好（第 3 组）：浅色 / 深色 / 跟随系统 */
   themePref: ThemePref
   onThemeChange: (pref: ThemePref) => void
+  /**
+   * 内嵌 HTML 是否渲染（rev173.39）：开 = 白名单标签（ins/strong/kbd 等）渲染成真样式，
+   * 关 = 编辑器里显示源码。属性一律剔除，脚本/iframe 永不渲染。
+   */
+  renderHtml: boolean
+  onRenderHtmlChange: (v: boolean) => void
   /** 插件段：直接把现有 PluginPanel 复用进来，不重复实现 */
   plugins: PluginRow[]
   pluginError?: string | null
@@ -100,6 +106,8 @@ export function Settings({
   onPickVault,
   themePref,
   onThemeChange,
+  renderHtml,
+  onRenderHtmlChange,
   plugins,
   pluginError,
   pluginLog,
@@ -148,6 +156,33 @@ export function Settings({
                   </button>
                 </Row>
                 <Row label="自动保存" hint="停手约 0.8 秒后自动保存" />
+                <Row
+                  label="内嵌 HTML"
+                  hint="按白名单渲染（ins / strong / kbd 等）；脚本与事件属性一律剔除"
+                >
+                  <div className="flex overflow-hidden rounded-ui-sm border border-border-strong">
+                    {(
+                      [
+                        [true, '渲染'],
+                        [false, '显示源码'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={String(value)}
+                        type="button"
+                        onClick={() => onRenderHtmlChange(value)}
+                        className={cn(
+                          'px-2.5 py-1 text-xs transition-colors',
+                          renderHtml === value
+                            ? 'bg-primary zn-on-accent'
+                            : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
                 <Row label="外观" hint="跟随系统时自动切换深浅色">
                   <div className="flex overflow-hidden rounded-ui-sm border border-border-strong">
                     {(

@@ -266,6 +266,25 @@ export default function App() {
   /** 左上角菜单栏的弹出位置；null = 关闭 */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [themePref, setThemePref] = useState<ThemePref>(loadThemePref)
+  /**
+   * 内嵌 HTML 是否渲染（rev173.39）。持久化在 localStorage，默认开（与 Joplin / VS Code 的习惯一致）。
+   * 渲染走 `editor-syntax.ts` 的白名单净化；真正生效是「下一次装饰器重建」（滚动/输入/切选区）。
+   */
+  const [renderHtml, setRenderHtml] = useState(() => {
+    try {
+      return window.localStorage.getItem('zeronote.renderHtml') !== '0'
+    } catch {
+      return true
+    }
+  })
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('zeronote.renderHtml', renderHtml ? '1' : '0')
+    } catch {
+      /* 隐私模式等拿不到 storage —— 忽略 */
+    }
+  }, [renderHtml])
 
   /**
    * 打开某个浮层时**关掉其余的** —— 它们都是模态，同时开着会叠层。
@@ -2412,6 +2431,10 @@ export default function App() {
               </div>
             )}
             <MarkdownEditor
+              // 内嵌 HTML 开关变化时重建编辑器 —— 扩展是 mount 时读 prop，
+              // 不重建的话切换后要等下一次文档/选区变化才生效（rev173.39 实测）
+              key={renderHtml ? 'html-on' : 'html-off'}
+              renderHtml={renderHtml}
               path={activePath}
               vault={vault}
               value={content}
@@ -2601,6 +2624,8 @@ export default function App() {
         onPickVault={() => void pickVault()}
         themePref={themePref}
         onThemeChange={setThemePref}
+        renderHtml={renderHtml}
+        onRenderHtmlChange={setRenderHtml}
         plugins={rows}
         pluginError={pluginError}
         pluginLog={panelLog}
