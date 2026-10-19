@@ -57,3 +57,6 @@ src-tauri/tauri.conf.json.dev-backup
 
 # Tauri 插件模块的 gradle 构建缓存（与 gen/android 同理，不入库）
 src-tauri/plugins/*/android/build/
+
+# Tauri CLI 的临时目录（构建时生成，不入库 —— rev173.37 打 tag 时挡路发现的）
+src-tauri/plugins/*/android/.tauri/
