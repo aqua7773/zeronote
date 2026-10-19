@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.25
-更新时间: 2026-10-19（rev173.25 桌面 release exe 构建并放到 _View）
+revision: 173.26
+更新时间: 2026-10-19（rev173.26 release 与 dev 完全隔离：独立 identifier + 独立数据目录）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.26 | 2026-10-19 · **release 与 dev 完全隔离**：临时把 `identifier → com.aqua.zeronote.release`、`productName → ZeroNote Release` + 独立 `CARGO_TARGET_DIR=cargo-targets\zeronote-release` + `cargo clean -p zeronote` → 1m42s / 14.11 MB → 恢复 conf → 实测数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release`（dev 的 `com.aqua.zeronote` 未动）· 两者可同时运行 |
 | rev173.25 | 2026-10-19 · **桌面 release exe 构建**：`pnpm tauri build --no-bundle`（`CARGO_TARGET_DIR=cargo-targets\zeronote`）→ **3m59s** / **14.11 MB** → 复制到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（SHA256 `B73B9A46…`）· ⚠️ 与 dev 同 identifier ⇒ single-instance 互斥 |
 | rev173.24 | 2026-10-19 · **使用手册导出 PDF**：`docs/ZeroNote-手机版使用手册.pdf`（29 页 / 2.51 MB / 12 图内嵌）· 工具链 pandoc 3.11 → HTML（`--embed-resources` 内嵌图片）→ Edge headless `--print-to-pdf` · 打印样式入库 `docs/manual-print.css`（重出命令见该 rev 段） |
 | rev173.23 | 2026-10-19 · **手机版用户使用手册**（`docs/使用手册-移动端.md` 面向普通用户）+ **12 张真机截图**（`docs/images/manual-mobile/`，1220→760px 压缩 1.9 MB）· 覆盖：首页/新建/长按快捷入口/抽屉/切库/卡片菜单/回收站/编辑区菜单/导图/记账/设置/插件 · 进 `docs/README.md` 矩阵 |
@@ -170,6 +171,50 @@ revision: 173.25
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.26（2026-10-19 · release 与 dev 完全隔离）
+>
+> 用户：「和 dev 版本隔离，不能相互影响和冲突」。
+>
+> ### 1 做法（rev110 那套 + 这次的实测复核）
+>
+> ⚠️ **`--config '{"identifier":...}'` 只影响 bundle，不影响运行时** —— single-instance 看的是
+> **编译期**嵌进去的 identifier。必须真改 `tauri.conf.json` 再编、编完恢复：
+>
+> ```powershell
+> # 1 备份 + 改 conf（identifier / productName）
+> Copy-Item src-tauri\tauri.conf.json _tmp-conf\tauri.conf.json.bak
+> #   "identifier": "com.aqua.zeronote" → "com.aqua.zeronote.release"
+> #   "productName": "ZeroNote"        → "ZeroNote Release"
+>
+> # 2 独立 target + 清掉主 crate（generate_context! 是编译期宏，不追踪 conf 变化）
+> $env:CARGO_TARGET_DIR = "$env:USERPROFILE\cargo-targets\zeronote-release"
+> cd src-tauri; cargo clean -p zeronote; cd ..
+> pnpm tauri build --no-bundle
+>
+> # 3 finally 里恢复 conf、删备份
+> ```
+>
+> ### 2 实测（这次真跑过，不是照抄 rev110）
+>
+> | 项 | 结果 |
+> |---|---|
+> | conf 恢复 | ✅ `productName=ZeroNote` / `identifier=com.aqua.zeronote`（备份已删） |
+> | exe 内嵌标识 | ✅ 二进制里能搜到 `com.aqua.zeronote.release`（UTF-8） |
+> | 启动 | ✅ 进程存活 6 s 不退出（同 identifier 时会秒退） |
+> | **数据目录** | ✅ 新建 `%LOCALAPPDATA%\com.aqua.zeronote.release`；dev 的 `%LOCALAPPDATA%\com.aqua.zeronote` **原样未动** |
+> | 产物 | `cargo-targets\zeronote-release\release\zeronote.exe` · 14.11 MB · 1m42s |
+>
+> ### 3 三个目录各管一件事（以后别混）
+>
+> | target 目录 | 用途 |
+> |---|---|
+> | `cargo-targets\zeronote` | Android（`aarch64-linux-android`） |
+> | `cargo-targets\zeronote-release` | 桌面隔离 release |
+> | `src-tauri\target` | 不要用（会触发 MSVC D8050） |
+>
+> 已覆盖到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`；窗口标题现在显示 **ZeroNote Release**，
+> 和 dev 的「ZeroNote」一眼能分开。插件也在各自 identifier 的目录下，互不可见。
+>
 > ## 📌 rev173.25（2026-10-19 · 桌面 release exe 构建 → `_View`）
 >
 > 用户：「构建最新的 release exe 包，放在 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`」。

@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.25）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.26）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,11 +30,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.25 · 桌面 release exe）
+## 最近一轮（rev173.26 · release 与 dev 完全隔离）
 
-- 构建：`CARGO_TARGET_DIR=%USERPROFILE%\cargo-targets\zeronote` + `pnpm tauri build --no-bundle` → **3m59s** / **14.11 MB**。
-- 产物已放到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（版本 0.1.0，SHA256 `B73B9A46…`）。
-- ⚠️ 与 dev 同 identifier ⇒ **single-instance 互斥**：dev 开着时双击会瞬间退出（不是崩）。要并存走 rev110 的隔离 identifier 方案。
+- 临时改 conf（`identifier → com.aqua.zeronote.release`、`productName → ZeroNote Release`）+ 独立 `CARGO_TARGET_DIR=zeronote-release` + `cargo clean -p zeronote` → 1m42s / 14.11 MB → **finally 恢复 conf**。
+- 实测：exe 二进制含 `.release` · 启动存活 · 新建 `%LOCALAPPDATA%\com.aqua.zeronote.release`，dev 的 `com.aqua.zeronote` **未动** · 两者可同时跑。
+- 已覆盖 `_View\办公与文档\zeronote.exe`；窗口标题 = **ZeroNote Release**（与 dev 的 ZeroNote 区分）。
 - verify 基线：vitest **286** · oxlint 3 warnings · cargo 32。
 
 ## 未决 / 下一步
@@ -62,7 +62,7 @@ pwsh -File scripts\verify.ps1
 | 记账插件 | ✅ **rev173.16 v0.1 / rev173.17 分类可改+学习 / rev173.18 点分类即改+自定义分类**：原生捕获 + 解析/分类/去重/手动记账；真机端到端通过。待办：真实微信/支付宝文案校准、统计图表、预算、CSV 导入导出、分类删除/排序、AI 分类（可选） |
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
-| 桌面 release exe | ✅ **rev173.25**：`pnpm tauri build --no-bundle` → 14.11 MB；已放 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（与 dev 互斥，见下） |
+| 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
 | 同步 / AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 沙箱 | ⏸ 搁置（用户裁决） |
