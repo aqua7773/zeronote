@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
 import { applyBootPluginStyles } from './lib/boot-plugin-styles'
+import { GlobalScrollbars } from './components/GlobalScrollbars'
 
 /**
  * 注意：**没有 StrictMode**。
@@ -14,4 +15,11 @@ import { applyBootPluginStyles } from './lib/boot-plugin-styles'
 // 否则主题插件要等异步加载完才生效，等于每次启动都闪一下内核深色（rev135）。
 applyBootPluginStyles()
 
-createRoot(document.getElementById('root')!).render(<App />)
+createRoot(document.getElementById('root')!).render(
+  <>
+    <App />
+    {/* 全局自绘滚动条（rev173.34）：所有滚动容器统一、隐藏轨道、沉浸式滑块。
+        挂在 App 外，整窗接管（插件 shell）时也生效。 */}
+    <GlobalScrollbars />
+  </>,
+)
