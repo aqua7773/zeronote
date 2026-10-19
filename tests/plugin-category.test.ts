@@ -39,8 +39,8 @@ describe('categorizePlugin', () => {
 
   it('关键词推断：reader / editor', () => {
     expect(categorizePlugin({ id: 'doc-reader', entry: 'index.js' })).toBe('reader')
-    expect(categorizePlugin({ id: 'editor-marks', entry: 'index.js' })).toBe('editor')
     expect(categorizePlugin({ id: 'outline-map', entry: 'index.js' })).toBe('editor')
+    expect(categorizePlugin({ id: 'any-editor-plugin', entry: 'index.js' })).toBe('editor')
   })
 
   it('猜不出来归工具（不新增「其它」组）', () => {

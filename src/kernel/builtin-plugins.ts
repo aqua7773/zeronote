@@ -26,12 +26,6 @@ import importExportManifest from '../../examples/import-export/manifest.json?raw
 // inspiration-flow（灵感流）
 import inspirationIndex from '../../examples/inspiration-flow/index.js?raw'
 import inspirationManifest from '../../examples/inspiration-flow/manifest.json?raw'
-// tag-demo（标签）
-import tagIndex from '../../examples/tag-demo/index.js?raw'
-import tagManifest from '../../examples/tag-demo/manifest.json?raw'
-// editor-marks（编辑器标记：[[引用]] / #标签 / ==高亮==）
-import marksIndex from '../../examples/editor-marks/index.js?raw'
-import marksManifest from '../../examples/editor-marks/manifest.json?raw'
 // theme-sepia（米色主题，纯 CSS）
 import sepiaManifest from '../../examples/theme-sepia/manifest.json?raw'
 import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
@@ -59,8 +53,6 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
     id: 'inspiration-flow',
     files: { 'index.js': inspirationIndex, 'manifest.json': inspirationManifest },
   },
-  { id: 'tag-demo', files: { 'index.js': tagIndex, 'manifest.json': tagManifest } },
-  { id: 'editor-marks', files: { 'index.js': marksIndex, 'manifest.json': marksManifest } },
   { id: 'theme-sepia', files: { 'manifest.json': sepiaManifest, 'theme.css': sepiaCss } },
   {
     id: 'accounting',

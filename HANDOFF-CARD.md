@@ -9,7 +9,7 @@
 一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— **唯一位置**（跨库共用；rev173.5 起取消库内插件）；装卸＝放/删一个文件夹。
 内核 10 原语 + 21 种 UINode + 6 个挂载位 + 真窗口 / 整窗接管。
 内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换。
-**插件预装**：新版 APK 内置 8 个常用插件（rev110 起 8 个；rev173.16 加「记账」；2026-10-19 移除「当天目录新建」`daily-note`）。
+**插件预装**：新版 APK 内置 **6** 个常用插件（rev110 起 8 个；rev173.16 加「记账」；2026-10-19 起移出 `daily-note` / `editor-marks` / `tag-demo`）。
 
 ## 验收基线（以输出为准，不写死数字）
 
@@ -93,10 +93,10 @@ pwsh -File scripts\verify.ps1
 - **手机白屏（HMR 失败）**：vite 报 `Failed to reload /src/App.tsx` 后页面不回滚 ⇒ 白屏
   （先看 logcat 是不是 `tauri::protocol::tauri: Failed to request …: error sending request`）；
   `adb shell am force-stop com.aqua.zeronote.debug` 重开即恢复（2026-10-19 实测）。
-- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（9 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
+- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（7 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
 - **测试插件只在 `examples/`，不预装**（2026-10-19 用户定，硬约束 8）：
   要用时 `Copy-Item examples\<id> $env:APPDATA\com.aqua.zeronote\.zn\plugins\ -Recurse` → 重扫；用完删。
-  已清出全局：`asset-probe` / `net-demo` / `daily-note` / `tag-showcase`。
+  已清出全局：`asset-probe` / `net-demo` / `daily-note` / `tag-showcase` / `editor-marks` / `tag-demo`。
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。

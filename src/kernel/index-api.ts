@@ -85,7 +85,7 @@ function titleFromPath(path: string): string {
 
 /**
  * 抽标签：兼容 frontmatter 的三种写法（`tags: [a, b]` / 多行 `- a` / `tags: a, b`）
- * 以及正文里的 `#标签`（与 `examples/editor-marks` 同一约定）。
+ * 以及正文里的 `#标签`（与编辑器标记的抽取约定一致）。
  *
  * 为什么在前端自己解析、不复用 Rust 的 `parse_frontmatter`：那边只认**单行** `key: value`
  * （`src-tauri/src/lib.rs`），多行标签数组会被整段跳过。而这里拿到的是**全文**，

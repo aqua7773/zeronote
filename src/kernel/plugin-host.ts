@@ -287,9 +287,9 @@ function collect<T extends Disposable>(subs: Disposable[], d: T): T {
 /**
  * command 视图：**自动登记**插件注册的每一条命令。
  *
- * 背景（真机实测）：`examples/ui-kit` / `tag-demo` 等**8 个**示例都只写了
+ * 背景（真机实测）：`examples/` 里**8 个**示例都只写了
  * `command.register({…})` 而没接返回值 ⇒ 删除时 `subscriptions` 里没有它 ⇒
- * 卸载不撤销命令 ⇒ **第二次加载同一个插件必撞「命令 id 重复：ui-kit.hit」**。
+ * 卸载不撤销命令 ⇒ **第二次加载同一个插件必撞「命令 id 重复」**。
  * 重扫 / 授权 / 切库都会触发重载，所以这条路径一击即中。
  *
  * 契约里虽然写着「所有资源必须登记」，但宿主**有能力**兜住的事就不该留给插件作者去记。
