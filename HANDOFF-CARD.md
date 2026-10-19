@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.26）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.27）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,11 +30,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.26 · release 与 dev 完全隔离）
+## 最近一轮（rev173.27 · 安卓测试流程固化）
 
-- 临时改 conf（`identifier → com.aqua.zeronote.release`、`productName → ZeroNote Release`）+ 独立 `CARGO_TARGET_DIR=zeronote-release` + `cargo clean -p zeronote` → 1m42s / 14.11 MB → **finally 恢复 conf**。
-- 实测：exe 二进制含 `.release` · 启动存活 · 新建 `%LOCALAPPDATA%\com.aqua.zeronote.release`，dev 的 `com.aqua.zeronote` **未动** · 两者可同时跑。
-- 已覆盖 `_View\办公与文档\zeronote.exe`；窗口标题 = **ZeroNote Release**（与 dev 的 ZeroNote 区分）。
+- 用户第二次批评「忘掉已装 debug 包 / 测试机别装 release」→ **写进硬约束 7**：
+  测试机只 `am start` + `reload`，**不跑 `tauri android dev`/`android build`**；只有改 Rust / 原生才重装。
+- 实操验证：停掉重编 → `am start` → 白屏 → reload 一次 → 起始页正常；桌面 dev 同时在线。
+- 顺带清理：手机 `/sdcard/*.png` 113 个（39 MB）+ `_shots/` 今日安卓截图 56 个（21.6 MB）。
 - verify 基线：vitest **286** · oxlint 3 warnings · cargo 32。
 
 ## 未决 / 下一步
@@ -78,7 +79,9 @@ pwsh -File scripts\verify.ps1
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
 - **GitHub**：账号 `aqua7773`（gh 已登录，keyring）；**github.com 直连超时，必须走本地代理 `http://127.0.0.1:26561`**（`HTTPS_PROXY`）。gh 不在当前 PATH，用 `C:\Program Files\GitHub CLI\gh.exe`。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION`，重启即恢复（rev117 / rev118 各踩一次）。
-- **手机 `33b676f6`（ARIA 24069RA21C）**：2026-10-15 实测装的是 **dev 版**（连 `192.168.1.3:1420`，桌面 dev 一关就白屏）。判据：logcat 出现 `node_modules/.vite/deps/…`。
+- **手机 `33b676f6`（ARIA 24069RA21C）= 测试机，只跑已装的 dev 包**（`com.aqua.zeronote.debug`，连电脑 1420）：
+  启动 `adb shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`；前端改动 reload 即生效。
+  **别为测试重编 APK**（硬约束 7）；判据：logcat 出现 `node_modules/.vite/deps/…`。**不装 release**。
 - **防火墙**：1420 已放行（TCP，仅 `192.168.1.0/24`；网络被识别为 Public、手机 2.4G / 电脑 5G 跨 SSID）。
 - **手机 CDP**（默认手机断言手段）：`adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` → `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`。
 - **手机模拟点击**：`input tap` 无效；用 `input motionevent DOWN x y` ＋ `UP x y`（间隔 ~120 ms）。`screencap` 是物理像素。
@@ -111,6 +114,11 @@ pwsh -File scripts\verify.ps1
 4. **内核保持薄**；**静默失效比报错危险**（看数字，不只看 "ok"）。
 5. GUI 验收用 `gentle_*`；截图按窗口 `rect` 向内缩 ~10px。
 6. **动手前先查现成**（`docs/开发约定.md §0.5`：同类案例 / 官方文档 / 项目内已有能力；查不到再自建）；改代码 / 重构前先读该文档。
+7. **安卓测试机只跑已装的 dev 包，不要重新编译/安装**（2026-10-19 用户第二次提醒，已经踩过很多次）：
+   - 启动：`adb shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`（**别再跑 `tauri android dev` / `android build`**）
+   - 改前端（`.tsx/.ts/.css`）→ 页面 `location.reload()` 就生效；白屏也先 reload 一次
+   - 只有改了 **Rust（`src-tauri/src`）/ 原生插件** 才需要重装 APK
+   - **测试机不装 release 包**（`com.aqua.zeronote` 是分发包：内置 dist、不接 1420、与 dev 数据目录不同）
 
 ## 授权边界（给 AI）
 

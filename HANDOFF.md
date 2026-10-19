@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.26
-更新时间: 2026-10-19（rev173.26 release 与 dev 完全隔离：独立 identifier + 独立数据目录）
+revision: 173.27
+更新时间: 2026-10-19（rev173.27 安卓测试流程固化：只启动已装 dev 包，不重编；并清理截图）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.27 | 2026-10-19 · **安卓测试流程固化（用户第二次批评）**：测试机已有 dev 包 ⇒ `am start` + `reload` 即可，**不再跑 `tauri android dev`/`android build`**；测试机不装 release · 写入卡片硬约束 **7** · 顺带清理手机 `/sdcard/*.png` **113 个 / 39 MB** 与 `_shots/` 今日安卓截图 **56 个 / 21.6 MB** |
 | rev173.26 | 2026-10-19 · **release 与 dev 完全隔离**：临时把 `identifier → com.aqua.zeronote.release`、`productName → ZeroNote Release` + 独立 `CARGO_TARGET_DIR=cargo-targets\zeronote-release` + `cargo clean -p zeronote` → 1m42s / 14.11 MB → 恢复 conf → 实测数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release`（dev 的 `com.aqua.zeronote` 未动）· 两者可同时运行 |
 | rev173.25 | 2026-10-19 · **桌面 release exe 构建**：`pnpm tauri build --no-bundle`（`CARGO_TARGET_DIR=cargo-targets\zeronote`）→ **3m59s** / **14.11 MB** → 复制到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（SHA256 `B73B9A46…`）· ⚠️ 与 dev 同 identifier ⇒ single-instance 互斥 |
 | rev173.24 | 2026-10-19 · **使用手册导出 PDF**：`docs/ZeroNote-手机版使用手册.pdf`（29 页 / 2.51 MB / 12 图内嵌）· 工具链 pandoc 3.11 → HTML（`--embed-resources` 内嵌图片）→ Edge headless `--print-to-pdf` · 打印样式入库 `docs/manual-print.css`（重出命令见该 rev 段） |
@@ -171,6 +172,40 @@ revision: 173.26
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.27（2026-10-19 · 安卓测试流程固化：不重编、不装 release）
+>
+> 用户原话：「已经出现很多次把安卓已经安装 debug 包忘掉的事情了，还有测试机不装 release，每次都跑 dev」。
+> 这是**第二次**为同一件事被提醒（第一次是「安卓测试用 dev」），所以这次写进**卡片硬约束**，不只记在 rev 里。
+>
+> ### 1 规则（已进 `HANDOFF-CARD.md` 硬约束 7）
+>
+> | 场景 | 正确做法 | 错误做法 |
+> |---|---|---|
+> | 要跑安卓测试 | `adb shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity` | `pnpm tauri android dev`（全量重编 1-2 分钟） |
+> | 改了前端 | 页面 `location.reload()`（CDP 或重开 app） | 重装 APK |
+> | 白屏 | 先 reload 一次（`@vite/client` 竞态） | 认定 APK 坏了、重装 |
+> | 改了 Rust / 原生插件 | 这时才需要重装 | — |
+> | 测试机装什么 | 只装 `com.aqua.zeronote.debug`（连 1420） | 装 `com.aqua.zeronote`（release：内置 dist、不接 1420） |
+>
+> 为什么容易忘：`android-dev.cmd` 与历史交接文档都把「跑 dev」写成了默认动作；
+> 而实际只有 **Rust / 原生层**变了才需要重装。前端靠 vite，压根不经过 APK。
+>
+> ### 2 本轮实操（按新规则走了一遍）
+>
+> - 停掉正在全量重编的 `android-dev.cmd`；
+> - `am force-stop` → `am start` → 页面白屏 → **reload 一次** → 起始页正常（`#root` 6844 字符）；
+> - 桌面 dev 同时在线（`src-tauri\target\debug\zeronote.exe`，窗口标题 ZeroNote）。
+>
+> ### 3 顺带清理（用户要求「把安卓端产生的截图清理一下」）
+>
+> | 位置 | 删除 | 保留 |
+> |---|---|---|
+> | 手机 `/sdcard/*.png` | **113 个 / 39 MB** | 0（DCIM 用户照片未动） |
+> | `_shots/` 今日安卓截图 | **56 个 / 21.6 MB** | 14 张桌面截图 + 4 张被 HANDOFF 引用的（dev-04/05/10/12） |
+>
+> `_shots/` 仍有 1110 个历史文件（208 MB），其中被 HANDOFF/docs 引用的 **152 张**不能删（删了证据断链）；
+> 若要继续瘦身，只能按「被引用就留」逐个扫。
+>
 > ## 📌 rev173.26（2026-10-19 · release 与 dev 完全隔离）
 >
 > 用户：「和 dev 版本隔离，不能相互影响和冲突」。
