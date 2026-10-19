@@ -69,7 +69,7 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态**：运行中；库 = `_tmp-vault-tb`（2 篇笔记 / 3 文档 / 2 附件）。
+- **交接时 dev 状态**：交接过程中由 DSH 后台 job 托管的 dev 已被 job 结束时清理（exit `0xFFFFFFFF`）——**以后用你自己的终端跑 `pnpm tauri dev`**，别让 AI 用后台 job 长时间托管 GUI 进程（job 结束会连带杀进程树）。库已选 `_tmp-vault-tb`（2 篇 / 3 文档 / 2 附件），localStorage 已落盘，下次启动直接回到它。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
