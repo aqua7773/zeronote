@@ -1687,7 +1687,7 @@ body.is-resizing * {
   position: absolute;
   left: 0;
   top: 0;
-  transform: rotate(var(--a, 0deg)) translateY(-112px);
+  transform: rotate(var(--a, 0deg)) translateY(-106px);
   /* 槽只是定角度的旋转层；必须让点击穿过，否则会盖住别的槽里的圆
      （rev173.20 真机实测：点「记账」打不开面板）。 */
   pointer-events: none;
@@ -1698,9 +1698,9 @@ body.is-resizing * {
   position: absolute;
   left: 0;
   top: 0;
-  width: 60px;
-  height: 60px;
-  margin: -30px 0 0 -30px;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
   display: flex;
   flex-direction: column;
   align-items: center;
