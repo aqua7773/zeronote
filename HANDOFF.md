@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.31
-更新时间: 2026-10-19（rev173.31 编辑器标记 / 标签演示退出功能列表）
+revision: 173.32
+更新时间: 2026-10-19（rev173.32 暗色滚动条跟随主题）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.32 | 2026-10-19 · **暗色滚动条跟随主题**：`EDITOR_CSS` 加 `:root[data-theme='dark'] .zn-editor .cm-scroller { color-scheme: dark }`（UA 级开关）· 只挂编辑器子树、亮色用默认值 · CDP 实测暗/亮切换 + 源码模式 · 测试 **314** |
 | rev173.31 | 2026-10-19 · **编辑器标记 / 标签演示退出功能列表**：`editor-marks` + `tag-demo` 移出全局与预装（8→**6**），源码留 `examples/`；全局剩 **7 个**；`#标签` 不再着色、`[[双链]]` 点击不再跳转（原语仍在） |
 | rev173.30 | 2026-10-19 · **测试插件退出功能列表**：全局目录删 `asset-probe` / `net-demo`（源码留在 `examples/` = 测试库）；全局剩 **9 个**插件 · 用法写进卡片「测试插件只在 examples，用时复制」 |
 | rev173.29 | 2026-10-19 · **移除测试插件**：删 `examples/daily-note`（当天目录新建）＋ `BUILTIN_PLUGINS` 条目（预装 9→**8**）＋ 全局/手机副本；**立卡片硬约束 8「测试/验收产生的插件不留在功能里」** · 测试 **314** |
@@ -176,6 +177,25 @@ revision: 173.31
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.32（2026-10-19 · 暗色滚动条跟随主题）
+>
+> 用户报（交接卡未决表最后一条）：编辑器右侧内容滚动条没跟随暗色主题，仍是浅色。
+>
+> | 项 | 处理 |
+> |---|---|
+> | 修法 | `EDITOR_CSS` 加 `:root[data-theme='dark'] .zn-editor .cm-scroller { color-scheme: dark }` —— UA 级开关，滚动条与原生控件一起变暗 |
+> | 作用域 | 只挂编辑器子树（沿用 `EDITOR_CSS` 既有约定「不动全局 styles.css」）；源码模式（`SourceModeView`）也在 `.zn-editor` 内，一并覆盖 |
+> | 亮色 | 默认值 `normal`，不需要对应规则 |
+>
+> 实测（CDP · dev 21:1x）：
+> - `getComputedStyle(.cm-scroller).colorScheme`：暗色 `dark` → 切 `data-theme='light'` 得 `normal` → 切回 `dark`
+> - 截图对比 `_shots/scrollbar-before.png`（轨道白）→ `_shots/scrollbar-after.png`（轨道深灰，滑块不变）
+> - 源码模式 `.cm-scroller` 同为 `dark`
+>
+> ⚠️ HMR 后立刻读 `getComputedStyle` 可能仍是旧值（规则已进 DOM，计算值晚一拍）—— 等几秒再读，否则会误判「没生效」（本轮踩过）。
+>
+> 测试 **314**（CSS 改动，用例数不变）。
 
 > ## 📌 rev173.31（2026-10-19 · 编辑器标记 / 标签演示退出功能列表）
 >

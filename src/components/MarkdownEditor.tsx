@@ -209,6 +209,13 @@ const EDITOR_CSS = `
 .zn-editor .atomic-cm-editor .cm-scroller {
   padding: var(--zn-editor-pad-y, 28px) var(--zn-editor-pad-x, 48px) 60px !important;
 }
+/* 暗色下原生滚动条跟随主题（rev173.32 · 用户报「编辑器右侧内容滚动条仍是浅色」）。
+   color-scheme 是 UA 级开关（Chromium/WebView2 支持）：滚动条与原生控件一起变暗。
+   只挂在滚动容器上，不写全局 —— 亮色就是默认值，无需对应规则；
+   源码模式（SourceModeView）也在 .zn-editor 子树内，一并覆盖。 */
+:root[data-theme='dark'] .zn-editor .cm-scroller {
+  color-scheme: dark;
+}
 .zn-editor .atomic-cm-editor .cm-content {
   max-width: none !important;
   margin-inline: 0 !important;
