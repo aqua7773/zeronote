@@ -40,3 +40,11 @@ tauri-plugin-uri-reader = { path = "plugins/tauri-plugin-uri-reader" }
 # Android 上整个 crate 是空的（引用它的 `init()` 会编译失败）。
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+
+# WebView2 设置（仅 Windows）：关闭**浏览器加速键**（Ctrl+F 原生查找栏 / Ctrl+R / F5…）
+# —— 见 lib.rs 的 `disable_browser_accelerator_keys`。Android 没有 WebView2，整段 cfg 掉。
+# ⚠️ 版本必须与 tauri 2.12.3 内部用的一致（webview2-com 0.39 + windows-core 0.62），
+#    否则接口类型是两份不同的 COM 定义，`cast` 会编译失败。
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"

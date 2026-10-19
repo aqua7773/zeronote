@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.41
-更新时间: 2026-10-19（rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.42
+更新时间: 2026-10-19（rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.42 | 2026-10-19 · **Ctrl+F 修回编辑器查找**：WebView2 原生查找栏（右上角、`2/2`）禁用 —— `with_webview` + `ICoreWebView2Settings3::SetAreBrowserAcceleratorKeysEnabled(false)`（读回确认）· 真实按键实测 · cargo 依赖 `webview2-com 0.39` / `windows-core 0.62` |
 | rev173.41 | 2026-10-19 · **插件失败可见 + 外链提示**：`collectPluginDirs(onError)` 读目录失败上报 · `ensureBuiltinPlugins` 返回失败清单 → toast + 插件页错误 · 编辑器 `onNotify`（外链失败用户可见，手机提示复制到浏览器）· 测试 **358** |
 | rev173.40 | 2026-10-19 · **搜索索引增量 + 内核事件派发**：新增 `src/kernel/fs-events.ts` 包装 fs 写路径（save/create/rename/move/delete/restore）→ `index.upsert/remove` + `note:*` 事件 · `index:rebuilt` · `app:ready` / `vault:open` · 外部改动经 `fs.watch` 跟随 · 查询态不再显示过时索引数 · 测试 **349** |
 | rev173.39 | 2026-10-19 · **内嵌 HTML 白名单渲染**：`sanitizeHtml`（自实现，DOMParser 遍历白名单）· 属性全剔除 · script/style 丢弃 · 设置「内嵌 HTML」渲染/显示源码 · 默认渲染 · 测试 **343** |
@@ -186,6 +187,29 @@ revision: 173.41
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.42（2026-10-19 · Ctrl+F 修回编辑器查找：关掉 WebView2 原生查找栏）
+>
+> 用户反馈「搜索框位置有点奇怪」+ 截图里搜索框带 `2/2` 计数、在窗口右上角。
+> 定位：那不是应用的搜索框，是 **WebView2 自带的查找栏** —— Ctrl+F 在浏览器层就被吃掉，
+> 页面里的 CM6 `searchKeymap`（`Mod-f` → `openSearchPanel`）根本收不到按键，
+> 所以编辑器自带的查找面板（`cm-atomic-search-input`）永远打不开。
+>
+> | 项 | 结论 |
+> |---|---|
+> | 为什么不能配置 | Tauri 2.12.3 没有暴露 wry 的 `with_browser_accelerator_keys`（核过本地 `tauri-2.12.3/src/webview`，无此 API） |
+> | 修法 | `WebviewWindow::with_webview` → `controller.CoreWebView2().Settings().cast::<ICoreWebView2Settings3>()` → `SetAreBrowserAcceleratorKeysEnabled(false)`；再读回 `AreBrowserAcceleratorKeysEnabled` 确认 false |
+> | 依赖 | `webview2-com = "0.39"` + `windows-core = "0.62"`（与 tauri 内部一致，否则 COM 接口类型不互通） |
+> | 调用点 | `run()` 的 setup，主窗口 label `main` |
+> | 副作用 | Ctrl+R / F5 / Ctrl+P（打印）等浏览器快捷键一并失效；dev 靠 vite HMR，不依赖 F5 |
+>
+> 实测用**真实按键**（`gentle_keys ctrl+f`，不是 CDP 合成事件 —— CDP 的 `Input.dispatchKeyEvent`
+> 不走浏览器加速键，测不出这个问题）：DevTools 里出现 `.cm-atomic-search-input`，面板
+> rect `x=532 y=32 w=568`（编辑器顶部、横跨编辑区）；截图 `_shots/ctrl-f-after.png`。日志：
+> `[webview2] 浏览器加速键已关闭（读回 enabled=false）`。
+>
+> ⚠️ 插件独立窗口（`view.openWindow`）是新 webview，**没有**单独处理 ⇒ 插件窗口里 Ctrl+F
+> 仍是 WebView2 原生栏（P2：要一致得在窗口创建后逐窗口设置）。
 
 > ## 📌 rev173.41（2026-10-19 · 插件失败可见 + 外链提示）
 >

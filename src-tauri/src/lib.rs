@@ -1707,6 +1707,53 @@ fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
   }
 }
 
+/// 关闭 WebView2 的**浏览器加速键**（rev173.42 · 2026-10-19）。
+///
+/// 为什么必须做：WebView2 默认把 Ctrl+F 变成它**自带的查找栏**（窗口右上角、页面样式之外，
+/// 位置无法自定义），而且会先于页面 keydown 吃掉按键 —— 于是 atomic 编辑器的查找面板
+/// （`cm-atomic-search-input`，渲染在编辑器顶部）永远打不开，用户看到的"搜索框位置奇怪"
+/// 就是这条内置查找栏。Tauri 2.12.3 **没有**把 wry 的 `with_browser_accelerator_keys`
+/// 暴露到配置/Builder 上（已核 tauri-2.12.3 `src/webview` 无此 API），只能走
+/// `with_webview` + `ICoreWebView2Settings3`。
+///
+/// 副作用（可接受）：Ctrl+R / F5 / Ctrl+P（打印）等浏览器快捷键一并失效 ——
+/// 对桌面笔记应用是好事（避免误刷新丢编辑状态）；dev 仍靠 vite HMR，不依赖 F5。
+#[cfg(windows)]
+fn disable_browser_accelerator_keys(webview: &tauri::WebviewWindow) {
+  use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+  use windows_core::Interface;
+
+  let result = webview.with_webview(|wv| unsafe {
+    let controller = wv.controller();
+    let Ok(core) = controller.CoreWebView2() else {
+      return;
+    };
+    let Ok(settings) = core.Settings() else { return };
+    // Settings → Settings3 是同一 COM 对象的 QueryInterface（3 是 2 的子接口）
+    let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() else {
+      return;
+    };
+    if let Err(e) = settings3.SetAreBrowserAcceleratorKeysEnabled(false) {
+      log::warn!("[webview2] 关闭浏览器加速键失败：{e}");
+      return;
+    }
+    // 读回确认（静默失效比报错危险）
+    let mut enabled = windows_core::BOOL(1);
+    if settings3
+      .AreBrowserAcceleratorKeysEnabled(&mut enabled)
+      .is_ok()
+    {
+      log::info!(
+        "[webview2] 浏览器加速键已关闭（读回 enabled={}）—— Ctrl+F 交给编辑器查找面板",
+        enabled.as_bool()
+      );
+    }
+  });
+  if let Err(e) = result {
+    log::warn!("[webview2] with_webview 调用失败：{e}");
+  }
+}
+
 /// 起看门狗线程（`run()` 的 `setup` 里调用）。
 fn spawn_watchdog() {
   if std::env::var("ZN_WATCHDOG")
@@ -1811,6 +1858,11 @@ pub fn run() {
         }
       }
       spawn_watchdog();
+      // 主窗口：关掉 WebView2 自带的浏览器快捷键（Ctrl+F 原生查找栏等）—— rev173.42
+      #[cfg(windows)]
+      if let Some(webview) = app.get_webview_window("main") {
+        disable_browser_accelerator_keys(&webview);
+      }
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![

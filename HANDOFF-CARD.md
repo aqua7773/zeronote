@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.41）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.42）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -31,10 +31,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.41 · 2026-10-19）
+## 本会话（rev173.28 – 173.42 · 2026-10-19）
 
 | rev | 内容 |
 |---|---|
+| 173.42 | **Ctrl+F 修回编辑器查找**：关掉 WebView2 原生查找栏（`ICoreWebView2Settings3`）· 真实按键实测 · 副作用：Ctrl+R/F5 等一并失效 |
 | 173.41 | **缺陷修复 ②**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast + 插件页 · 外链失败 → toast（手机提示复制到浏览器） |
 | 173.40 | **缺陷修复 ①**：搜索索引真增量（`fs-events.ts` 包装写路径 + 外部 `watch`）· 内核事件真派发（`note:*` / `index:rebuilt` / `app:ready` / `vault:open`） |
 | 173.39 | **内嵌 HTML 白名单渲染**：DOMParser 自实现净化（属性全剔除 / script 丢弃）· 设置「内嵌 HTML」渲染 / 显示源码 · 默认渲染 |
@@ -86,6 +87,7 @@ pwsh -File scripts\verify.ps1
 | 桌面时间流面板 | ✅ **rev173.33**：侧栏与编辑区之间常驻（默认 300px，可拖 160–560）· 卡片复用手机起始页 `MobileNoteCards variant="panel"`（无 ＋ / 无长按）· 点卡片按 kind 派发（doc / image / note）· 插件页 / 回收站不显示 |
 | 滚动条 | ✅ **rev173.34**：全局自绘（`GlobalScrollbars`）—— 所有滚动容器统一 · 无轨道 · 6px 半透明滑块（封顶 120px）· 滚动出现静止淡出 · 可拖 · 原生滚动条全部藏掉 |
 | 搜索 / 事件总线 | ✅ **rev173.40**：索引真增量（写路径 + 外部改动）· `note:*` / `index:rebuilt` / `app:ready` / `vault:open` 派发 · 契约 §1.4 补 payload 表 |
+| Ctrl+F 原生查找栏 | ✅ **rev173.42**：WebView2 浏览器加速键关闭（编辑器面板在顶部）· ⚠️ 插件独立窗口未处理（P2） |
 | 插件 / 外链失败静默 | ✅ **rev173.41**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast · 外链失败 → toast（手机提示复制到浏览器）；迁移库内插件仍静默（P2） |
 | 灵感流插件 | ⏸ **rev173.35 搁置**：移出预装 + 桌面/手机全局目录删除 · 源码留 `examples/inspiration-flow/`（要用：复制进全局目录 + 重扫） |
 | Markdown 语法增强 | ✅ **rev173.36 + 173.38 + 173.39 三批完成**：上标 / 下标 / Emoji / 数学（行内 + 块级）· 脚注（编号 + 跳转）· Mermaid 图表 · 定义列表 · **内嵌 HTML 白名单渲染**（设置可关）· 内核 `src/kernel/editor-syntax.ts` |
