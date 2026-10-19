@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.23
-更新时间: 2026-10-19（rev173.23 手机版用户使用手册 + 12 张真机截图）
+revision: 173.24
+更新时间: 2026-10-19（rev173.24 使用手册导出 PDF）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.24 | 2026-10-19 · **使用手册导出 PDF**：`docs/ZeroNote-手机版使用手册.pdf`（29 页 / 2.51 MB / 12 图内嵌）· 工具链 pandoc 3.11 → HTML（`--embed-resources` 内嵌图片）→ Edge headless `--print-to-pdf` · 打印样式入库 `docs/manual-print.css`（重出命令见该 rev 段） |
 | rev173.23 | 2026-10-19 · **手机版用户使用手册**（`docs/使用手册-移动端.md` 面向普通用户）+ **12 张真机截图**（`docs/images/manual-mobile/`，1220→760px 压缩 1.9 MB）· 覆盖：首页/新建/长按快捷入口/抽屉/切库/卡片菜单/回收站/编辑区菜单/导图/记账/设置/插件 · 进 `docs/README.md` 矩阵 |
 | rev173.22 | 2026-10-19 · **快捷入口排列修正**：rev173.21 用的 ±40°/±140° 是错的（下方两点掉到圆心底下了）→ 按参考图改成 **0°/±48°/±96°**（底部两点与圆心几乎同高，才是「半圆」）· 半径 112→106、圆 60→56 · 真机坐标实测对齐 · vitest **286** |
 | rev173.21 | 2026-10-19 · **快捷入口按用户锁屏截图重做**：＋ 上移到 120px（用户圈的位置）· 环**以 ＋ 为圆心**、半圆「上三下二」0°/±40°/±140° · 中心圆与按钮重合 · 修**点空白穿透打开笔记**（click 关闭）+ 中心圆绿边 · vitest **286** |
@@ -168,6 +169,43 @@ revision: 173.23
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.24（2026-10-19 · 使用手册导出 PDF）
+>
+> 用户：「手册转成pdf」。
+>
+> ### 1 产物
+>
+> `docs/ZeroNote-手机版使用手册.pdf` —— **29 页 / 2.51 MB / 12 张截图内嵌**（单文件，换人发不用带图）。
+> 打印样式：`docs/manual-print.css`（入库，重出时直接复用）。
+>
+> ### 2 工具链（本机实测可用，没装新软件）
+>
+> 本机**没有** xelatex / wkhtmltopdf / LibreOffice，但有 **pandoc 3.11** 和 **Edge**，所以走
+> `md → HTML（图内嵌）→ Edge headless 打印`：
+>
+> ```powershell
+> cd docs
+> pandoc '使用手册-移动端.md' -f gfm -t html5 -s --embed-resources --resource-path=. `
+>   --metadata title='ZeroNote 手机版使用手册' --include-in-header=manual-print.css -o _manual.html
+>
+> & "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe" `
+>   --headless=new --disable-gpu --no-pdf-header-footer --virtual-time-budget=15000 `
+>   --print-to-pdf="C:\Users\AQUA\Documents\deepseek\ZeroNote\docs\_manual.pdf" `
+>   "file:///C:/Users/AQUA/Documents/deepseek/ZeroNote/docs/_manual.html"
+> ```
+>
+> 最后把 `_manual.pdf` 改名成中文名，删掉 `_manual.html`（2.5 MB 中间物，不入库）。
+>
+> ### 3 踩坑：Edge 打印**不认中文输出路径**
+>
+> `--print-to-pdf="…\docs\ZeroNote-手机版使用手册.pdf"` 直接跑 → **退出码 0 但文件根本没生成**
+> （静默失败，最容易误判成功）。改成先输出英文名 `_manual.pdf`、再 `Move-Item` 就正常。
+>
+> ### 4 验证
+>
+> 文件 2.51 MB · PDF 头 `%PDF-1.4` · `/Type /Page` ≈ 29 页 · `/Subtype /Image` **正好 12 个**（与手册图数一致）。
+> 文本流搜不到中文是**正常的**（Edge 用字体子集 + CID 编码），别拿「搜不到字」当失败判据。
+>
 > ## 📌 rev173.23（2026-10-19 · 手机版用户使用手册 + 12 张真机截图）
 >
 > 用户：「写个面向普通用户的使用手册，移动端的，通俗易懂，包含软件各种功能和入口，附带截图」。
