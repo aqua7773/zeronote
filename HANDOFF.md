@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.24
-更新时间: 2026-10-19（rev173.24 使用手册导出 PDF）
+revision: 173.25
+更新时间: 2026-10-19（rev173.25 桌面 release exe 构建并放到 _View）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.25 | 2026-10-19 · **桌面 release exe 构建**：`pnpm tauri build --no-bundle`（`CARGO_TARGET_DIR=cargo-targets\zeronote`）→ **3m59s** / **14.11 MB** → 复制到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（SHA256 `B73B9A46…`）· ⚠️ 与 dev 同 identifier ⇒ single-instance 互斥 |
 | rev173.24 | 2026-10-19 · **使用手册导出 PDF**：`docs/ZeroNote-手机版使用手册.pdf`（29 页 / 2.51 MB / 12 图内嵌）· 工具链 pandoc 3.11 → HTML（`--embed-resources` 内嵌图片）→ Edge headless `--print-to-pdf` · 打印样式入库 `docs/manual-print.css`（重出命令见该 rev 段） |
 | rev173.23 | 2026-10-19 · **手机版用户使用手册**（`docs/使用手册-移动端.md` 面向普通用户）+ **12 张真机截图**（`docs/images/manual-mobile/`，1220→760px 压缩 1.9 MB）· 覆盖：首页/新建/长按快捷入口/抽屉/切库/卡片菜单/回收站/编辑区菜单/导图/记账/设置/插件 · 进 `docs/README.md` 矩阵 |
 | rev173.22 | 2026-10-19 · **快捷入口排列修正**：rev173.21 用的 ±40°/±140° 是错的（下方两点掉到圆心底下了）→ 按参考图改成 **0°/±48°/±96°**（底部两点与圆心几乎同高，才是「半圆」）· 半径 112→106、圆 60→56 · 真机坐标实测对齐 · vitest **286** |
@@ -169,6 +170,40 @@ revision: 173.24
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.25（2026-10-19 · 桌面 release exe 构建 → `_View`）
+>
+> 用户：「构建最新的 release exe 包，放在 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`」。
+>
+> ### 1 命令（可复用）
+>
+> ```powershell
+> cd C:\Users\AQUA\Documents\deepseek\ZeroNote
+> $env:CARGO_TARGET_DIR = "$env:USERPROFILE\cargo-targets\zeronote"
+> pnpm tauri build --no-bundle
+> ```
+>
+> - `--no-bundle`：只要 exe，不打 MSI/NSIS（省时间）
+> - `CARGO_TARGET_DIR` **必须**指到工作区外（否则 MSVC `D8050`，见 rev110）
+> - `beforeBuildCommand` 会先跑 `pnpm build`（tsc + vite build，约 30 s）
+>
+> ### 2 结果
+>
+> | 项 | 值 |
+> |---|---|
+> | 耗时 | **3m59s**（前端 30s + Rust release 编译 3m29s，有部分依赖缓存） |
+> | 产物 | `C:\Users\AQUA\cargo-targets\zeronote\release\zeronote.exe` |
+> | 大小 / 版本 | **14.11 MB** · ProductName `ZeroNote` · 0.1.0 |
+> | SHA256 | `B73B9A4639996D0AC9069FD11E82D838C6138D7ECAC20CDC057FF1E42DA53A0A` |
+> | 已放到 | `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe` |
+>
+> ### 3 注意
+>
+> - 这个 exe 的 `identifier` 是 `com.aqua.zeronote`（**没改**）⇒ 和桌面 dev **抢 single-instance**：
+>   dev 开着时双击它会立刻退出（ExitCode 0，不是崩）。要和 dev 同时跑，走 rev110 那套
+>   「临时改 identifier + `cargo clean -p zeronote` + 独立 target」。
+> - `_View` 目录里其它项都是 junction（指向各自安装目录），这个是**实体 exe**（14 MB），
+>   双击即可用；卸载/移动就删这一个文件，不留碎片。
+>
 > ## 📌 rev173.24（2026-10-19 · 使用手册导出 PDF）
 >
 > 用户：「手册转成pdf」。
