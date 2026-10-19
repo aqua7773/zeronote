@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.44
-更新时间: 2026-10-20（rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.45
+更新时间: 2026-10-20（rev173.45 交接：下个会话开工粘贴图片；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.45 | 2026-10-20 · **交接**：本会话 173.40–173.44 收口 · 交接时状态 · **下个会话开工 #1 粘贴图片的执行路径**（新增 Rust `import_attachment_b64` + CM6 paste handler）· #4/#3/#2 起点 |
 | rev173.44 | 2026-10-20 · **待办登记（用户指定 4 项）**：粘贴图片 / 搜索筛选（正则·标签·属性）/ 全局替换 / 多标签页·分屏 —— 明细与验收口径进 `HANDOFF-CARD.md`「待办」段；建议顺序 1→4→3→2 |
 | rev173.43 | 2026-10-19 · **查找面板改成悬挂窗**：`.cm-panels-top` → fixed 遮罩层 + 居中卡片（对齐 `.zn-palette`：560px / 12vh / 同阴影）· 点遮罩关闭 · 面板不再推正文 · 实测截图 `_shots/search-float-final.png` |
 | rev173.42 | 2026-10-19 · **Ctrl+F 修回编辑器查找**：WebView2 原生查找栏（右上角、`2/2`）禁用 —— `with_webview` + `ICoreWebView2Settings3::SetAreBrowserAcceleratorKeysEnabled(false)`（读回确认）· 真实按键实测 · cargo 依赖 `webview2-com 0.39` / `windows-core 0.62` |
@@ -189,6 +190,69 @@ revision: 173.44
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.45（2026-10-20 · 交接：下个会话从「粘贴图片」开工）
+>
+> ### 本会话已完成（173.40–173.44）
+>
+> | rev | 内容 | 状态 |
+> |---|---|---|
+> | 173.40 | 搜索索引真增量（`src/kernel/fs-events.ts`）+ 内核事件真派发（`note:*` / `index:rebuilt` / `app:ready` / `vault:open`） | ✅ 提交 `5dc3ad5` |
+> | 173.41 | 插件目录 / 内置插件 / 外链失败可见（toast + pluginError） | ✅ 同上提交 |
+> | 173.42 | Ctrl+F 修回编辑器查找（关 WebView2 浏览器加速键，`ICoreWebView2Settings3`） | ✅ `34ac87b` |
+> | 173.43 | 查找面板改成悬挂窗（对齐命令面板：fixed 遮罩 + 560px 卡片 + 点遮罩关闭） | ✅ `1cf9a76` |
+> | 173.44 | 用户指定 4 项待办登记（见 `HANDOFF-CARD.md`「待办」段） | ✅ `926a3de` |
+>
+> ### 交接时状态（2026-10-20 00:xx）
+>
+> - **dev 在跑**：`dev.cmd` 起的（vite 1420 + CDP 9222）；库 `_tmp-vault-tb`（3 篇 md + 3 文档 + 2 附件）。
+> - **基线**：`scripts\verify.ps1` 全过（tsc 0 / oxlint 3 warnings / cargo 32 / check-docs / vitest **358**）。
+> - **git**：工作区干净，HEAD 见 `git log`；本轮无未提交改动。
+> - **待办**：`HANDOFF-CARD.md`「待办：与同类应用对比补齐」4 项，顺序 **1 → 4 → 3 → 2**。
+>
+> ### ⭐ 下个会话开工 #1：编辑器粘贴图片（Ctrl+V）
+>
+> **验收口径**（卡片同款）：截图 → Ctrl+V → 图片落到**笔记所在目录**（`image-YYYYMMDD-HHmmss.ext`）→ 正文光标处插入
+> `![](相对路径)` → toast 提示；桌面 + 手机各验一次。
+>
+> **关键结论：这不是纯前端活。** 剪贴板图片在 WebView 里只是内存里的 `File`，没有磁盘路径，
+> 现成的 `import_attachment(vault, note_path, src, stem)` 是**从磁盘文件复制**的（`src-tauri/src/lib.rs:999`），
+> 所以必须新增一条**从字节写库**的命令，例如：
+>
+> ```
+> import_attachment_b64(vault, note_path, stem, ext, base64) -> Result<String, String>
+> ```
+>
+> 复用 `import_attachment` 已有的全部检查：扩展名小写、`BLOCKED_EXTS` 黑名单、stem 白名单
+> （字母数字/`-`/`_`，≤64 字符）、撞名递增 `-1/-2`、路径不许穿越；只是源改为内存字节（`fs::write`）。
+>
+> **执行路径（6 步）**
+>
+> 1. 读 `src/components/MarkdownEditor.tsx` 的 `extensions`（L563 起）——在 CM6 里加 `EditorView.domEventHandlers({ paste })`
+>    （先 grep `AtomicCodeMirrorEditor.js` 看 atomic 自己有没有 paste 处理器，有则用 `Prec.high` 抢先）。
+> 2. 处理器里：`e.clipboardData?.files` 中找 `image/*`（**只有确实带图片时才接管**，否则 `return false` 放行默认粘贴，
+>    否则会吞掉从网页/Excel 复制的文字）；`file.arrayBuffer()` → base64。
+> 3. 组件新增 prop（如 `onPasteImage?: (img: { base64: string; ext: string }) => void`），App 传实现。
+> 4. App 侧照抄 `insertFileFromPath`（L1588）的后半段：`invoke('import_attachment_b64', …)` → `pathFromNote` →
+>    `imageInsertion` → `view.dispatch` → `setToast`。
+> 5. Rust：新增命令 + `generate_handler!` 注册 + 单测（照 `import_attachment_copies_next_to_note_without_overwrite`
+>    的写法，测 b64 写入 / 撞名 / 路径穿越 / 非法扩展名）。
+> 6. 验收：桌面截图粘贴走一遍；手机长按粘贴走一遍（真机 dev 包 reload 即生效，**不要重编 APK**）。
+>
+> **坑（先记下）**
+> - atomic 的 paste 默认行为未知 —— 先读它的 dist 再动手，别假设 CM6 裸行为。
+> - 手机 `clipboardData.files` 是否可用要真机验证；不可用就降级为「仅桌面」并明确提示，别静默失效。
+> - 建议加**单张大小上限**（如 10 MB），超限 toast 提示，不写盘。
+> - 图片命名复用 `attachmentStem(new Date())`（`src/lib/insert-image.ts:94`），别自创格式。
+>
+> ### #4 / #3 / #2 的起点（各一句话，细节看卡片待办表）
+>
+> - **#4 搜索筛选**：`index.query(q, { tag, dir })` 已支持、`index.tags()` 已就绪 → 只缺 SearchPanel 的筛选行；
+>   正则要动 `index-api.ts` 的匹配层（新增 `opts.regex`），属性筛选要先扩 `Entry` 的 frontmatter 解析。
+> - **#3 全局替换**：遍历 `fs.listNotes` + `readText` 统计命中 → 试运行清单 → 逐文件 `fs.writeText`；
+>   写前先备份到 `.zn/`（或复用回收站），避免误替换不可逆。
+> - **#2 标签页**：`App.tsx` 的 `activePath` → `tabs[] + activeTab`；`stateCacheRef` / `scrollCacheRef` 已按 path 缓存，
+>   切换前必须 flush 当前文档（`saveNow`），否则丢最后一次编辑。
 
 > ## 📌 rev173.44（2026-10-20 · 待办登记：与同类应用对比补齐 4 项）
 >
