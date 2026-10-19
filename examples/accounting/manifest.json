@@ -8,11 +8,15 @@
   "platforms": ["desktop", "android"],
   "description": "通知自动记账与手动记账",
   "category": "tool",
-  "capabilities": ["store", "command", "view:main"],
+  "capabilities": ["store", "command", "view:main", "fs", "host"],
   "activationEvents": ["onStartup"],
   "contributes": {
     "commands": [
       { "id": "accounting.sync", "title": "记账：同步支付通知" },
+      { "id": "accounting.stats", "title": "记账：统计" },
+      { "id": "accounting.exportCsv", "title": "记账：导出 CSV" },
+      { "id": "accounting.importCsv", "title": "记账：导入 CSV（微信/支付宝账单）" },
+      { "id": "accounting.backToList", "title": "记账：返回账单列表" },
       { "id": "accounting.check", "title": "记账：检查通知权限" },
       { "id": "accounting.openSettings", "title": "记账：打开通知使用权设置" },
       { "id": "accounting.addExpense", "title": "记账：记一笔支出" },

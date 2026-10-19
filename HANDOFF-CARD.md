@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.27）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.28）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,13 +30,19 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.27 · 安卓测试流程固化）
+## 最近一轮（rev173.28 · 记账 v0.2：统计图表 + CSV 导入导出）
 
-- 用户第二次批评「忘掉已装 debug 包 / 测试机别装 release」→ **写进硬约束 7**：
-  测试机只 `am start` + `reload`，**不跑 `tauri android dev`/`android build`**；只有改 Rust / 原生才重装。
-- 实操验证：停掉重编 → `am start` → 白屏 → reload 一次 → 起始页正常；桌面 dev 同时在线。
-- 顺带清理：手机 `/sdcard/*.png` 113 个（39 MB）+ `_shots/` 今日安卓截图 56 个（21.6 MB）。
-- verify 基线：vitest **286** · oxlint 3 warnings · cargo 32。
+- **统计视图**：分类占比（progress 条）+ 近 6 月支出 SVG 柱状图（手写，无图表库）；纯函数 `summarizeByCategory` / `monthlyTrend` / `trendSvg`。
+- **CSV 导出**：RFC 4180 + UTF-8 BOM；桌面走系统「另存为」，Android 写库根目录。真机实测 6 条 / 466 B。
+- **CSV 导入**：微信、支付宝账单自动识别表头；`¥`、`/` 不计收支、GBK 兜底；按交易单号去重。真机实测：导入 2 条、二次导入全部去重。
+- verify 基线：vitest **309**（+23）· oxlint 3 warnings · cargo 32。
+- 证据：`_shots/acc-31-stats.png`（桌面）、`acc-62-phone-stats.png`（手机）、`acc-export-phone.csv`。
+
+### 本轮踩坑（内置插件开发必读）
+
+- 改 `examples/` 后**必须让页面 reload**（CDP `location.reload()`）再重扫：`ensureBuiltinPlugins` 会用 vite `?raw` 的旧内容覆盖全局目录。
+- WebView2 的 CDP 端点只认 `node fetch`（`Invoke-WebRequest` 一律 404）。
+- 手机 SAF 看不到新文件 = MediaStore 没索引（先广播扫描 / VIEW 打开一次）。
 
 ## 未决 / 下一步
 
@@ -60,7 +66,7 @@ pwsh -File scripts\verify.ps1
 | 插件签名 / 分发 | ⚠️ rev119 已做 A+B：完整性 sha256 + `.znp` 安装 + 未签名提示；**真签名（公私钥）/ 市场 / 更新通道未做** |
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
-| 记账插件 | ✅ **rev173.16 v0.1 / rev173.17 分类可改+学习 / rev173.18 点分类即改+自定义分类**：原生捕获 + 解析/分类/去重/手动记账；真机端到端通过。待办：真实微信/支付宝文案校准、统计图表、预算、CSV 导入导出、分类删除/排序、AI 分类（可选） |
+| 记账插件 | ✅ **v0.2 完成**（rev173.16 原生捕获 / rev173.17 分类学习 / rev173.18 点分类即改+自定义分类 / **rev173.28 统计图表 + CSV 导入导出**）。待办：**文案校准**（要真实通知原文）· 预算 · CSV 导入「/」行的人工确认 · 分类删除/排序 · AI 分类（可选） |
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |

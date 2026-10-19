@@ -25,6 +25,14 @@ const CATEGORIES = ['餐饮', '交通', '购物', '通讯', '居住', '医疗', 
 
 /* ───────────────────────── 纯函数（可单测） ───────────────────────── */
 
+const pad = (n) => String(n).padStart(2, '0')
+
+/** 毫秒 → 「YYYY-MM」月份键（统计按自然月分组） */
+export function monthKey(ms) {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+}
+
 /** 明显不是账单的通知（验证码、还款提醒、余额播报…）——先杀掉，避免误记 */
 const IGNORE = [/验证码/, /已过期/, /已失效/, /已还清/, /还款成功/, /余额/, /账单已出/, /积分/]
 
@@ -257,18 +265,294 @@ export function dedupeTransactions(list, windowMs = 90000) {
   return out
 }
 
-/* ───────────────────────── 插件本体 ───────────────────────── */
+/* ───────────────────── 统计（rev173.28）───────────────────── */
 
-const pad = (n) => String(n).padStart(2, '0')
+/** 某年某月（month 1–12）的**支出**按分类汇总；降序，pct 为占本月支出的比例 */
+export function summarizeByCategory(txs, year, month) {
+  const key = `${year}-${pad(month)}`
+  const list = (txs || []).filter(
+    (t) =>
+      t &&
+      t.type === 'expense' &&
+      Number.isFinite(Number(t.amount)) &&
+      monthKey(t.time) === key,
+  )
+  const total = list.reduce((s, t) => s + Number(t.amount), 0)
+  const map = new Map()
+  for (const t of list) {
+    const category = t.category || '其他'
+    const row = map.get(category) || { category, amount: 0, count: 0 }
+    row.amount += Number(t.amount)
+    row.count += 1
+    map.set(category, row)
+  }
+  const rows = [...map.values()].sort((a, b) => b.amount - a.amount)
+  return { total, rows: rows.map((r) => ({ ...r, pct: total > 0 ? r.amount / total : 0 })) }
+}
+
+/** 近 n 个月（含本月）的支出/收入，按月升序；没有记录的月份补 0 */
+export function monthlyTrend(txs, n = 6, now = Date.now()) {
+  const base = new Date(now)
+  const out = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(base.getFullYear(), base.getMonth() - i, 1)
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+    const list = (txs || []).filter((t) => t && monthKey(t.time) === key)
+    const sum = (type) =>
+      list.filter((t) => t.type === type).reduce((s, t) => s + (Number(t.amount) || 0), 0)
+    out.push({
+      key,
+      label: `${d.getMonth() + 1}月`,
+      expense: sum('expense'),
+      income: sum('income'),
+    })
+  }
+  return out
+}
+
+/** SVG 柱状图（近 n 月支出）。颜色全走主题变量，自动跟随深浅色 */
+export function trendSvg(trend) {
+  const W = 320
+  const H = 132
+  const padL = 6
+  const padR = 6
+  const padT = 18
+  const padB = 24
+  const n = Math.max(1, trend.length)
+  const max = Math.max(1, ...trend.map((m) => Number(m.expense) || 0))
+  const innerW = W - padL - padR
+  const innerH = H - padT - padB
+  const slot = innerW / n
+  const barW = Math.min(26, slot * 0.5)
+  const bars = trend
+    .map((m, i) => {
+      const value = Number(m.expense) || 0
+      const x = padL + slot * i + (slot - barW) / 2
+      const h = value > 0 ? Math.max(2, (value / max) * innerH) : 0
+      const y = padT + innerH - h
+      const cx = (x + barW / 2).toFixed(1)
+      const label = esc(String(m.label))
+      const valueText = value > 0 ? esc(fmtShort(value)) : ''
+      return (
+        `<g>` +
+        `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(
+          1,
+        )}" height="${h.toFixed(1)}" rx="3" fill="var(--zn-accent)" opacity="${
+          value > 0 ? 0.85 : 0.15
+        }" />` +
+        (valueText
+          ? `<text x="${cx}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--zn-fg-muted)">${valueText}</text>`
+          : '') +
+        `<text x="${cx}" y="${H - 7}" text-anchor="middle" font-size="9" fill="var(--zn-fg-muted)">${label}</text>` +
+        `</g>`
+      )
+    })
+    .join('')
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" style="max-width:480px;display:block" role="img" aria-label="近 ${n} 个月支出趋势">${bars}</svg>`
+}
+
+/** 金额缩写：12345.6 → 1.2万；1234 → 1.2k；< 1000 取整 */
+function fmtShort(v) {
+  const n = Number(v) || 0
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(Math.round(n))
+}
+
+/** HTML 转义 —— 分类名 / 商户名来自通知原文，html 节点是 innerHTML 直投 */
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/* ───────────────────── CSV 导出（rev173.29）───────────────────── */
+
+/** 账单 → CSV（RFC 4180；默认带 UTF-8 BOM，Excel 打开中文不乱码） */
+export function toCsv(txs, opts = {}) {
+  const bom = opts.bom !== false
+  const rows = [['时间', '类型', '金额', '商户', '分类', '来源', '状态']]
+  for (const t of txs || []) {
+    rows.push([
+      fmtDateTime(t.time),
+      t.type === 'income' ? '收入' : '支出',
+      (Number(t.amount) || 0).toFixed(2),
+      t.merchant || '',
+      t.category || '',
+      t.source || '',
+      t.status === 'pending' ? '金额待补' : '已确认',
+    ])
+  }
+  const body = rows.map((r) => r.map(csvCell).join(',')).join('\r\n')
+  return (bom ? '\uFEFF' : '') + body + '\r\n'
+}
+
+/** CSV 单元格转义：含逗号 / 双引号 / 换行时用双引号包起来，内部引号翻倍 */
+function csvCell(v) {
+  const s = String(v == null ? '' : v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** 毫秒 → 「YYYY-MM-DD HH:mm:ss」（导出用，带年份便于对账） */
+function fmtDateTime(ms) {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+/** 毫秒 → 「YYYYMMDD」（导出文件名） */
+function dateStamp(ms) {
+  const d = new Date(ms)
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+}
+
+/* ───────────────────── CSV 导入（rev173.30）───────────────────── */
+
+/** 拆一行 CSV（RFC 4180：双引号包裹、内部 `""` 转义） */
+function splitCsvLine(line) {
+  const out = []
+  let cur = ''
+  let quoted = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (quoted) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"'
+          i++
+        } else {
+          quoted = false
+        }
+      } else {
+        cur += ch
+      }
+    } else if (ch === '"') {
+      quoted = true
+    } else if (ch === ',') {
+      out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+/** 账单时间「2026-10-19 12:36:06」→ 毫秒（本地时区；解析不出返回 0） */
+function parseBillTime(s) {
+  const m = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(
+    String(s || ''),
+  )
+  if (!m) return 0
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime()
+}
+
+/**
+ * 解析**微信 / 支付宝**导出的账单 CSV（两家表头都含「交易时间 / 交易对方 / 收/支」）。
+ * 返回 `{ ok, source, rows, reason }`；「/」（不计收支）与金额解析失败的行跳过。
+ */
+export function parseBillCsv(text) {
+  const src = String(text || '').replace(/^\uFEFF/, '')
+  const lines = src.split(/\r?\n/)
+  const headerIdx = lines.findIndex(
+    (l) => /交易时间/.test(l) && /交易对方/.test(l) && /(收\/支|收支)/.test(l),
+  )
+  if (headerIdx < 0) {
+    return {
+      ok: false,
+      source: '',
+      rows: [],
+      reason: '不是可识别的账单（表头需含「交易时间 / 交易对方 / 收/支」）',
+    }
+  }
+  const header = splitCsvLine(lines[headerIdx]).map((h) => h.replace(/\s/g, ''))
+  const col = (...names) => {
+    for (const n of names) {
+      const i = header.findIndex((h) => h.includes(n))
+      if (i >= 0) return i
+    }
+    return -1
+  }
+  const iTime = col('交易时间')
+  const iCounter = col('交易对方')
+  const iGoods = col('商品')
+  const iDir = col('收/支', '收支')
+  const iAmount = col('金额')
+  const iNo = col('交易单号', '交易订单号')
+  if (iTime < 0 || iDir < 0 || iAmount < 0) {
+    return { ok: false, source: '', rows: [], reason: '账单缺少必要列（交易时间 / 收/支 / 金额）' }
+  }
+  const source = /微信支付账单|微信支付|微信昵称/.test(src.slice(0, 4000))
+    ? '微信账单'
+    : '支付宝账单'
+  const rows = []
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith('-----')) continue
+    const cells = splitCsvLine(line)
+    const dir = (cells[iDir] || '').trim()
+    if (dir !== '支出' && dir !== '收入') continue
+    const amount = Number(String(cells[iAmount] || '').replace(/[¥￥,\s]/g, ''))
+    if (!(amount > 0)) continue
+    const time = parseBillTime(cells[iTime])
+    if (!time) continue
+    const merchant = ((cells[iCounter] || '').trim() || (cells[iGoods] || '').trim() || '未知商户')
+    const goods = iGoods >= 0 ? cells[iGoods] || '' : ''
+    const no = (iNo >= 0 ? cells[iNo] || '' : '').trim()
+    rows.push({
+      id: `imp-${no || `${time}-${amount}`}`,
+      amount,
+      type: dir === '收入' ? 'income' : 'expense',
+      merchant,
+      category: dir === '收入' ? '收入' : classify(merchant, goods),
+      source: '导入',
+      pkg: 'import',
+      time,
+      raw: line.slice(0, 300),
+      status: 'confirmed',
+      ...(no ? { txNo: no } : {}),
+    })
+  }
+  if (!rows.length) {
+    return { ok: false, source, rows: [], reason: '账单里没有可导入的收支记录' }
+  }
+  return { ok: true, source, rows, reason: '' }
+}
+
+/** 导入去重：有交易单号按单号；没有则按「时间(分钟) + 金额 + 商户 + 收支」 */
+export function mergeImported(txs, imported) {
+  const keyOf = (t) =>
+    t.txNo
+      ? `no:${t.txNo}`
+      : `k:${Math.floor(t.time / 60000)}|${t.amount}|${t.merchant}|${t.type}`
+  const seen = new Set((txs || []).map(keyOf))
+  const list = [...(txs || [])]
+  let added = 0
+  let skipped = 0
+  for (const t of imported || []) {
+    const k = keyOf(t)
+    if (seen.has(k)) {
+      skipped++
+      continue
+    }
+    seen.add(k)
+    list.push(t)
+    added++
+  }
+  list.sort((a, b) => a.time - b.time)
+  return { added, skipped, list }
+}
+
+/* ───────────────────────── 插件本体 ───────────────────────── */
 
 function fmtTime(ms) {
   const d = new Date(ms)
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function monthKey(ms) {
-  const d = new Date(ms)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
 }
 
 /** Tauri IPC（插件在宿主页面里跑，拿注入的全局入口；桌面/浏览器没有它） */
@@ -278,7 +562,7 @@ function ipc() {
 
 export default {
   async apply(ctx) {
-    const { command, view, host, store, subscriptions } = ctx
+    const { command, view, host, store, subscriptions, fs } = ctx
 
     /** 内存镜像：store 是异步的，面板 render 是同步的 */
     let txs = []
@@ -304,6 +588,8 @@ export default {
     }
     /** 正在改分类的交易 id（null = 列表视图） */
     let editingId = null
+    /** 面板视图：账单列表 / 统计（rev173.28） */
+    let mode = 'list'
     let status = { enabled: false, note: '正在检查通知权限…' }
 
     const refresh = () => {
@@ -464,7 +750,84 @@ export default {
       host.notify(`已记一笔${type === 'income' ? '收入' : '支出'}：¥${amount}`)
     }
 
+    /**
+     * 导出 CSV：桌面走系统「另存为」；Android 的 SAF 另存为不受支持（host.saveFile 会明确报错）
+     * ⇒ 写进库根目录，用户在文件树里能看到、再自行分享。
+     */
+    async function exportCsv() {
+      if (!txs.length) {
+        host.notify('还没有账单可导出', 'warn')
+        return
+      }
+      const csv = toCsv(txs)
+      const name = `ZeroNote记账-${dateStamp(Date.now())}.csv`
+      if (host.platform !== 'android') {
+        try {
+          const path = await host.saveFile({ defaultName: name, content: csv })
+          if (path) host.notify(`已导出 ${txs.length} 条到 ${path}`)
+          return
+        } catch (e) {
+          host.notify(`另存为失败：${String(e)}；改为写入库内`, 'warn')
+        }
+      }
+      try {
+        await fs.writeText(name, csv)
+        host.notify(`已写入库根目录：${name}（共 ${txs.length} 条）`)
+      } catch (e) {
+        host.notify(`导出失败：${String(e)}`, 'error')
+      }
+    }
+
+    /**
+     * 导入微信 / 支付宝账单 CSV。
+     * 桌面 `pickFile()` 给绝对路径；Android 给 `content://`（先经 uri-reader 复制到缓存）。
+     * 编码兜底：先严格 UTF-8，失败再按 GBK（支付宝导出常是 GBK）。
+     */
+    async function importCsv() {
+      let picked = null
+      try {
+        picked = await host.pickFile()
+      } catch (e) {
+        host.notify(`选择文件失败：${String(e)}`, 'error')
+        return
+      }
+      if (!picked) return
+      try {
+        let path = picked
+        if (/^content:\/\//i.test(picked)) {
+          const r = await host.readContentUri(picked)
+          path = r.path
+        }
+        const res = await fetch(host.assetUrlAbs(path))
+        const buf = await res.arrayBuffer()
+        let text = ''
+        try {
+          text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+        } catch {
+          text = new TextDecoder('gbk').decode(buf)
+        }
+        const parsed = parseBillCsv(text)
+        if (!parsed.ok) {
+          host.notify(parsed.reason, 'warn')
+          return
+        }
+        const { added, skipped, list } = mergeImported(txs, parsed.rows)
+        if (!added) {
+          host.notify(`没有新账单（重复 ${skipped} 条）`, 'warn')
+          return
+        }
+        txs = list
+        await persist()
+        refresh()
+        host.notify(`导入 ${added} 条（${parsed.source}），跳过重复 ${skipped} 条`)
+      } catch (e) {
+        host.notify(`导入失败：${String(e)}`, 'error')
+      }
+    }
+
     function render() {
+      if (mode === 'stats') return renderStats()
+
       // 改分类视图：只显示这笔 + 分类按钮列表
       if (editingId) {
         const tx = txs.find((t) => t.id === editingId)
@@ -542,6 +905,9 @@ export default {
             children: [
               { type: 'text', value: '记账', variant: 'title' },
               { type: 'button', label: '同步通知', onClick: 'accounting.sync' },
+              { type: 'button', label: '统计', onClick: 'accounting.stats', variant: 'ghost' },
+              { type: 'button', label: '导出 CSV', onClick: 'accounting.exportCsv', variant: 'ghost' },
+              { type: 'button', label: '导入 CSV', onClick: 'accounting.importCsv', variant: 'ghost' },
               { type: 'button', label: '检查权限', onClick: 'accounting.check', variant: 'ghost' },
               { type: 'button', label: '打开授权页', onClick: 'accounting.openSettings', variant: 'ghost' },
             ],
@@ -619,11 +985,99 @@ export default {
       }
     }
 
+    /** 统计视图（rev173.28）：本月分类占比 + 近 6 个月支出柱状图 */
+    function renderStats() {
+      const now = new Date()
+      const key = monthKey(Date.now())
+      const inMonth = txs.filter((t) => monthKey(t.time) === key)
+      const spend = inMonth
+        .filter((t) => t.type === 'expense')
+        .reduce((s, t) => s + t.amount, 0)
+      const income = inMonth
+        .filter((t) => t.type === 'income')
+        .reduce((s, t) => s + t.amount, 0)
+      const sum = summarizeByCategory(txs, now.getFullYear(), now.getMonth() + 1)
+      const trend = monthlyTrend(txs, 6)
+
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              {
+                type: 'button',
+                label: '返回账单',
+                onClick: 'accounting.backToList',
+                variant: 'ghost',
+              },
+              { type: 'text', value: '统计', variant: 'title' },
+            ],
+          },
+          {
+            type: 'text',
+            value: `本月支出 ¥${spend.toFixed(2)} · 收入 ¥${income.toFixed(2)} · 结余 ¥${(
+              income - spend
+            ).toFixed(2)}`,
+          },
+          ...(sum.rows.length
+            ? [
+                { type: 'text', value: '支出分类占比', variant: 'caption', tone: 'muted' },
+                ...sum.rows.map((r) => {
+                  const pct = Math.round(r.pct * 100)
+                  return {
+                    type: 'progress',
+                    value: r.amount,
+                    max: sum.total || 1,
+                    label: `${r.category} ¥${r.amount.toFixed(2)} · ${
+                      pct === 0 && r.amount > 0 ? '<1' : pct
+                    }% · ${r.count} 笔`,
+                  }
+                }),
+              ]
+            : [{ type: 'text', value: '本月还没有支出记录', tone: 'muted' }]),
+          { type: 'divider' },
+          { type: 'text', value: '近 6 个月支出', variant: 'caption', tone: 'muted' },
+          { type: 'html', value: trendSvg(trend) },
+        ],
+      }
+    }
+
     subscriptions.push(
       command.register({
         id: 'accounting.sync',
         title: '记账：同步支付通知',
         run: () => sync(),
+      }),
+      command.register({
+        id: 'accounting.stats',
+        title: '记账：统计',
+        run: () => {
+          mode = 'stats'
+          refresh()
+        },
+      }),
+      command.register({
+        id: 'accounting.exportCsv',
+        title: '记账：导出 CSV',
+        run: () => exportCsv(),
+      }),
+      command.register({
+        id: 'accounting.importCsv',
+        title: '记账：导入 CSV（微信/支付宝账单）',
+        run: () => importCsv(),
+      }),
+      command.register({
+        id: 'accounting.backToList',
+        title: '记账：返回账单列表',
+        run: () => {
+          mode = 'list'
+          refresh()
+        },
       }),
       command.register({
         id: 'accounting.check',

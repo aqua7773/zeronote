@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.27
-更新时间: 2026-10-19（rev173.27 安卓测试流程固化：只启动已装 dev 包，不重编；并清理截图）
+revision: 173.28
+更新时间: 2026-10-19（rev173.28 记账 v0.2：统计图表 + CSV 导入导出 · 真机端到端）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.28 | 2026-10-19 · **记账 v0.2**：统计视图（分类占比 progress + 近 6 月 SVG 柱状图）· CSV 导出（桌面另存为 / Android 写库根）· CSV 导入（微信/支付宝账单自动识别表头 + 单号去重 + GBK 兜底）· 真机端到端（导出 6 条 / 导入 2 条 / 二次导入全去重）· vitest **309** |
 | rev173.27 | 2026-10-19 · **安卓测试流程固化（用户第二次批评）**：测试机已有 dev 包 ⇒ `am start` + `reload` 即可，**不再跑 `tauri android dev`/`android build`**；测试机不装 release · 写入卡片硬约束 **7** · 顺带清理手机 `/sdcard/*.png` **113 个 / 39 MB** 与 `_shots/` 今日安卓截图 **56 个 / 21.6 MB** |
 | rev173.26 | 2026-10-19 · **release 与 dev 完全隔离**：临时把 `identifier → com.aqua.zeronote.release`、`productName → ZeroNote Release` + 独立 `CARGO_TARGET_DIR=cargo-targets\zeronote-release` + `cargo clean -p zeronote` → 1m42s / 14.11 MB → 恢复 conf → 实测数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release`（dev 的 `com.aqua.zeronote` 未动）· 两者可同时运行 |
 | rev173.25 | 2026-10-19 · **桌面 release exe 构建**：`pnpm tauri build --no-bundle`（`CARGO_TARGET_DIR=cargo-targets\zeronote`）→ **3m59s** / **14.11 MB** → 复制到 `C:\Users\AQUA\Apps\_View\办公与文档\zeronote.exe`（SHA256 `B73B9A46…`）· ⚠️ 与 dev 同 identifier ⇒ single-instance 互斥 |
@@ -171,6 +172,71 @@ revision: 173.27
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.28（2026-10-19 · 记账 v0.2：统计图表 + CSV 导入导出）
+>
+> 用户拍板「先做记账插件待办」（三选：文案校准 · 统计图表 · CSV 导入导出）。本轮做后两项 + 文案校准的**工具基础**；
+> 文案校准本身留给真实通知样本（见末尾「未做」）。
+>
+> ### 1 统计视图（面板「统计」按钮 / `accounting.stats`）
+>
+> | 模块 | 内容 |
+> |---|---|
+> | 纯函数 | `summarizeByCategory(txs, year, month)`（只算支出、降序、占比/笔数）· `monthlyTrend(txs, n, now)`（含本月、跨年、缺月补 0） |
+> | 分类占比 | `progress` 节点：`餐饮 ¥92.00 · 89% · 3 笔`（占比 <1% 显示 `<1%`，不显示 0%） |
+> | 趋势图 | `trendSvg()` 手写 SVG 柱状图（320×132 viewBox / 宽度 100% 上限 480px / 颜色全走 `--zn-*` token）—— **不引图表库** |
+> | 切视图 | `mode = 'list' \| 'stats'` 闭包状态；`accounting.backToList` 返回 |
+>
+> ### 2 CSV 导出（`accounting.exportCsv`）
+>
+> - `toCsv()`：RFC 4180 转义 + **UTF-8 BOM**（Excel 打开中文不乱码）；列 = 时间,类型,金额,商户,分类,来源,状态
+> - 桌面：`host.saveFile({ defaultName })` → 系统「另存为」（用户取消 ⇒ 返回 null，**不写库内**）
+> - Android：SAF 另存为不受支持 ⇒ `fs.writeText()` 写**库根目录**，`host.notify` 给出文件名
+> - **真机实测**（ARIA 24069RA21C）：点「导出 CSV」→ toast「已写入库根目录…（共 6 条）」→
+>   `/storage/emulated/0/Documents/ZeroNote/ZeroNote记账-20261019.csv`（466 B，6 行，金额两位小数）
+>
+> ### 3 CSV 导入（`accounting.importCsv`）
+>
+> - `parseBillCsv()` 两家账单**自动识别**：表头定位（含「交易时间 / 交易对方 / 收/支」的行，跳过说明行）、
+>   `¥`/`￥`/千分位金额、`支出`/`收入` 方向、微信 `/`（不计收支）跳过、收入统一归「收入」分类
+> - `mergeImported()` 去重：有**交易单号**按单号；无则「分钟 + 金额 + 商户 + 收支」
+> - 编码兜底：严格 UTF-8 失败 ⇒ GBK（支付宝导出常是 GBK）
+> - 文件读取：`host.pickFile()`（Android 给 `content://`）→ `host.readContentUri()` 复制到缓存 →
+>   `fetch(host.assetUrlAbs(path))` → `arrayBuffer`（沿用 import-export 的成熟路径）
+> - **真机端到端**：SAF 选 `wechat-bill.csv` → toast「导入 2 条（微信账单）」→ 列表新增「肯德基 ¥45.00 · 餐饮」「张三 ¥88.00 · 收入」；
+>   **二次导入同一文件** → 「没有新账单（重复 2 条）」✅ 去重生效
+>
+> ### 4 单测与基线
+>
+> | 文件 | 条数 | 覆盖 |
+> |---|---|---|
+> | `tests/accounting-stats.test.ts` | 7 | 月份键 / 分类汇总 / 6 月趋势跨年 / SVG 转义与金额缩写 |
+> | `tests/accounting-csv.test.ts` | 6 | 表头 / BOM / 两位小数 / RFC 4180 转义 / 空账本 |
+> | `tests/accounting-import.test.ts` | 10 | 微信·支付宝表头 / `/` 跳过 / 异常输入 / 单号与时间金额去重 |
+>
+> verify 全过：tsc 0 · oxlint **3** warnings · cargo **32** · vitest **309**（286 → 309）。
+>
+> 证据：`_shots/acc-31-stats.png`（桌面统计）· `acc-62-phone-stats.png`（手机统计）· `acc-export-phone.csv`（导出文件）·
+> `acc-58-wechat.png` / `acc-60-pick.png`（SAF 搜索与勾选）· `acc-53-dl5.png`（选择器浏览）
+>
+> ### 5 踩坑（下次别重复）
+>
+> 1. **内置插件改 examples 后，dev 里「点重新扫描」不会生效**：`ensureBuiltinPlugins` 用 vite `?raw` 打包的内容**覆盖**全局目录，
+>    而 `?raw` 不会 HMR 进已加载的模块 ⇒ 必须让页面 reload（CDP `location.reload()`）或重启 dev。
+>    手动 `Copy-Item` 到全局目录也会被下一次重扫覆盖回旧版。
+> 2. **CDP 端口用 node fetch 才通**：`Invoke-WebRequest http://127.0.0.1:9222/json/list` 一律 404（WebView2 对 Host/UA 挑剔），
+>    `node -e "fetch(...)"` 正常 —— `tools/cdp.mjs` 本来就是 fetch。
+> 3. **手机 SAF 看不到新文件是 MediaStore 没索引**：`adb push`/`cp` 后要触发扫描
+>    （`am broadcast MEDIA_SCANNER_SCAN_FILE`，或 `am start -a VIEW -d file://…` 打开一次），否则「浏览」与搜索都空。
+>    另外 `input text` 中文会被输入法改成拼音（搜英文文件名最稳）。
+> 4. **minimized 窗口里的 Tauri 对话框不显示**：`Start-Process -WindowStyle Minimized` 起 dev 后，另存为对话框虽然存在
+>    （EnumWindows 能看到），但不在前台上（`SetForegroundWindow` 会被前台锁拒）。GUI 验收前先 `ShowWindow(SW_RESTORE)`。
+>
+> ### 6 未做
+>
+> - **文案校准**：需要真实微信/支付宝**通知原文**（当前 6 条真实记录全部识别成功；漏识别的样本才能校准规则）。
+>   下一步可加「原始通知诊断」视图（sync 时保留最近 N 条原文 + 解析结果），用户遇到漏记时能直接看到原因。
+> - 预算、分类删除/排序、AI 分类（调研 §6.5 的 v0.2/v0.3 其余项）。
 
 > ## 📌 rev173.27（2026-10-19 · 安卓测试流程固化：不重编、不装 release）
 >
