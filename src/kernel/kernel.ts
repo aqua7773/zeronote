@@ -358,7 +358,8 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
 
   const host: HostApi = {
     apiVersion: API_VERSION,
-    appVersion: '0.1.0',
+    // 应用版本号：来自 package.json（vite 注入，rev173.37）—— 不再硬编码
+    appVersion: __APP_VERSION__,
     platform: /Android/i.test(navigator.userAgent) ? 'android' : 'windows',
     log(level, msg) {
       hooks.onLog(`[${level}] ${msg}`, level)

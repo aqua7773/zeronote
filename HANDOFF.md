@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.36
-更新时间: 2026-10-19（rev173.36 Markdown 语法增强第一批：上标/下标/Emoji/数学公式）
+revision: 173.37
+更新时间: 2026-10-19（rev173.37 版本管理：应用版本 0.1.0 → 0.2.0 + 发版脚本）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.37 | 2026-10-19 · **版本管理**：单一来源 `package.json` · 关于页改读 vite 注入 `__APP_VERSION__` · `scripts/release.mjs` 同步三处 + `--tag` · 首版 **0.2.0**（tag `v0.2.0`）· CHANGELOG 增「应用版本」段 |
 | rev173.36 | 2026-10-19 · **Markdown 语法增强第一批**：`src/kernel/editor-syntax.ts`（内核扩展，插件 API 做不了 widget）· 上标 `^x^` · 下标 `~x~` · Emoji `:name:` · 行内/块级数学（KaTeX）· 光标行显示源码 · 测试 **17** |
 | rev173.35 | 2026-10-19 · **灵感流插件搁置**：`inspiration-flow` 移出 `BUILTIN_PLUGINS`（预装 6→**5**）· 桌面 + 手机全局目录删除 · 源码留 `examples/` · 手册预装列表更新 · 测试 **315** |
 | rev173.34 | 2026-10-19 · **全局自绘滚动条**：所有滚动容器统一 · 无轨道 · 6px 半透明滑块（长度封顶 120px）· 滚动出现静止淡出 · 可拖 · 编辑器 / 卡片流 / 文件树 / 面板全覆盖 · 测试 **315** |
@@ -181,6 +182,27 @@ revision: 173.36
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.37（2026-10-19 · 版本管理：应用版本 0.1.0 → 0.2.0 + 发版脚本）
+>
+> 用户问「软件有版本控制吗，我看一直是 0.1.0」。
+> 现状：Git 有完整历史 + 私有仓库，但**没有 tag / release**；应用版本号散在 4 处、从未递增；
+> 关于页显示的是 `kernel.ts` 里硬编码的 `0.1.0`（注意：契约版本 0.2 是插件 API 的号，两套）。
+>
+> | 项 | 处理 |
+> |---|---|
+> | 单一来源 | `package.json` 的 `version`（唯一真源） |
+> | 关于页 | `kernel.ts` 改读 vite 注入的 `__APP_VERSION__`（`vite.config.ts` 从 package.json 注入） |
+> | 发版脚本 | `scripts/release.mjs <x.y.z> [--tag]`：同步 `package.json` / `tauri.conf.json` / `Cargo.toml`；`--tag` 打 `vX.Y.Z`（要求工作区干净） |
+> | 首版 | **0.2.0**（tag `v0.2.0`） |
+> | 文档 | `CHANGELOG.md` 新增「应用版本」区段（与契约版本分开） |
+>
+> 发版流程（脚本头注释里也有）：
+> 1. `node scripts/release.mjs 0.3.0`
+> 2. 更新 `CHANGELOG.md`
+> 3. `git add -A && git commit -m "chore(release): v0.3.0"`
+> 4. `node scripts/release.mjs 0.3.0 --tag`
+> 5. `git push origin main --tags`
 
 > ## 📌 rev173.36（2026-10-19 · Markdown 语法增强第一批：上标 / 下标 / Emoji / 数学公式）
 >

@@ -1,8 +1,18 @@
 import { networkInterfaces } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+
+/**
+ * 应用版本号的**单一来源** = `package.json` 的 `version`（rev173.37）。
+ * 发版用 `node scripts/release.mjs <x.y.z>` 同步三处（package.json / tauri.conf.json / Cargo.toml）；
+ * 前端经 `__APP_VERSION__` 注入（关于页显示它，不再硬编码）。
+ */
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+  version: string
+}
 
 /**
  * 找一个**真机可达**的局域网 IPv4，供 HMR 用。
@@ -34,6 +44,10 @@ const hmrHost = process.env.ZN_HMR_HOST ?? lanIp()
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // 应用版本号注入（关于页 / 将来更新检查用；值来自 package.json）
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   // 与 tsconfig.app.json 的 paths 对齐：抄 Lumina/shadcn 组件时 import 不用改
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

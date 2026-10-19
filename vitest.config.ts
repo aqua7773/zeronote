@@ -1,5 +1,15 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vitest/config'
+
+/**
+ * 应用版本号（rev173.37）：与 vite.config.ts 同一个来源 —— package.json。
+ * 单测不经过 vite define，所以这里显式注入，否则 `kernel.ts` 会抛
+ * `ReferenceError: __APP_VERSION__ is not defined`（app-smoke 实测踩过）。
+ */
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+  version: string
+}
 
 /**
  * 前端单测（vitest）—— 只测**纯逻辑**：kernel/lib 里不碰 DOM、不碰 Tauri invoke 的模块。
@@ -13,6 +23,9 @@ import { defineConfig } from 'vitest/config'
  * 不会因为一条断言写法让 verify.ps1 第 1 步变红。
  */
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
