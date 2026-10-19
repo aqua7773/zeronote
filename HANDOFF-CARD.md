@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.29）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.31）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -20,7 +20,9 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-**回到主线：iframe ↔ 宿主能力通道（v0.2）**；再往后是插件签名 / 分发。
+1. **主线：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 已写明要 `postMessage` 请求/应答协议 + **宿主侧鉴权**；再往后是插件签名 / 分发。
+2. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪：遇到没记账的通知，看原文 + 原因，发来补规则）。
+3. **暗色滚动条**（未决表最后一条）：编辑区右侧滚动条没跟随暗色。
 
 可选小项：卡片长按菜单没进返回键层栈（菜单开着按返回 → 直接退 App），要补就顺手。
 
@@ -30,11 +32,17 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.29 · 移除测试插件 daily-note）
+## 本会话（rev173.28 – 173.31 · 2026-10-19）
 
-- 删 `examples/daily-note`（当天目录新建）＋ 内置预装条目（9 → **8**）＋ 全局/手机副本；新建笔记回到内核默认命名。
-- **立硬约束 8**：测试/验收产生的插件不留在「功能」里（不预装、不进用户列表、验收完即删）。
-- 测试基线：vitest **314**；证据：无（删除类改动，以「reload 后目录不再出现」为判据）。
+| rev | 内容 |
+|---|---|
+| 173.28 | **记账 v0.2**：统计视图（分类占比 + 近 6 月 SVG 柱状图）· CSV 导出（桌面另存为 / Android 写库根）· CSV 导入（微信/支付宝账单 + 单号去重 + GBK 兜底）· 真机端到端 |
+| 173.28.1 | 记账：**原始通知诊断**（sync 留最近 20 条原文 + 未识别原因，只本机） |
+| 173.29 | **移除测试插件** `daily-note`（预装 9→8）· 立**硬约束 8**「测试插件不留在功能」 |
+| 173.30 | `asset-probe` / `net-demo` 退出全局（9→7）· 测试插件用法写进「环境现状」 |
+| 173.31 | `editor-marks` / `tag-demo` 退出全局与预装（8→**6**）· 全局剩 **7 个**插件 |
+
+**结果**：`#标签` 不再着色、`[[双链]]` 点击不再跳转（原语与源码都在 `examples/`，随时可装回）。
 
 ### 本轮踩坑（内置插件开发必读）
 
@@ -78,7 +86,7 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态**：交接过程中由 DSH 后台 job 托管的 dev 已被 job 结束时清理（exit `0xFFFFFFFF`）——**以后用你自己的终端跑 `pnpm tauri dev`**，别让 AI 用后台 job 长时间托管 GUI 进程（job 结束会连带杀进程树）。库已选 `_tmp-vault-tb`（2 篇 / 3 文档 / 2 附件），localStorage 已落盘，下次启动直接回到它。
+- **交接时 dev 状态**：`dev.cmd` 起的（**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。**别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
