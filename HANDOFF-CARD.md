@@ -93,7 +93,10 @@ pwsh -File scripts\verify.ps1
 - **手机白屏（HMR 失败）**：vite 报 `Failed to reload /src/App.tsx` 后页面不回滚 ⇒ 白屏
   （先看 logcat 是不是 `tauri::protocol::tauri: Failed to request …: error sending request`）；
   `adb shell am force-stop com.aqua.zeronote.debug` 重开即恢复（2026-10-19 实测）。
-- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（11 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
+- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（9 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
+- **测试插件只在 `examples/`，不预装**（2026-10-19 用户定，硬约束 8）：
+  要用时 `Copy-Item examples\<id> $env:APPDATA\com.aqua.zeronote\.zn\plugins\ -Recurse` → 重扫；用完删。
+  已清出全局：`asset-probe` / `net-demo` / `daily-note` / `tag-showcase`。
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
