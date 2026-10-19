@@ -23,6 +23,7 @@
 | 卡死兜底（看门狗 + 启动自愈） | `docs/卡死兜底方案-2026-10-13.md` | **active** | — |
 | UI / 交互规范 | `docs/UI规划-v0.1.md` | **active**（P0-6 已按 HANDOFF 校正为 `ef3bf13`） | `_research/成熟产品布局规范.md` / `交互规范.md`（historical 调研） |
 | Android 安装（用户向） | `docs/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |
+| 手机版使用手册（用户向） | `docs/使用手册-移动端.md` | **active** | 截图在 `docs/images/manual-mobile/`（真机 2026-10-19） |
 | 功能测试快照（rev92） | `docs/测试报告-2026-10-17.md` | **historical** | 部分结论已被 rev48/110/116 修复或推翻，见段内注记 |
 | 外部技术调研 | `_research/*` | **historical**（均带日期） | — |
 | 出包过程产物 | `_build/*` | **disposable**（可重建） | — |
