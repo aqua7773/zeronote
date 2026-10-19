@@ -90,6 +90,7 @@ import {
   LS_LOADING,
 } from './lib/boot-heal'
 import { renderPanelSafe } from './kernel/panel-safe'
+import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
 import { SearchPanel } from './components/SearchPanel'
@@ -688,6 +689,25 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [shellTakeover, kernel])
+
+  /**
+   * 外部改动 → 全库索引 + `note:changed` 事件（rev173.40）。
+   *
+   * 与 `useDocIO` 里那条 watch 各管一摊：那边管「当前文档被外部改了 ⇒ 回灌编辑器」，
+   * 这边管「任何 .md 变了 ⇒ 索引跟上 + 通知插件」。分开订阅而不是合并，
+   * 是因为索引要覆盖**所有**笔记，而回灌只需要当前打开的那篇。
+   *
+   * 依赖只列 `kernel`：kernel 换库时重建，旧订阅在 cleanup 里 dispose。
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const sub = kernel.fs.watch((e) => {
+      applyExternalChange(e, kernel.fs, kernel.index, kernel.event, (msg) => {
+        setPanelLog((l) => [...l.slice(-199), msg])
+      })
+    })
+    return () => sub.dispose()
+  }, [kernel])
 
   /**
    * 内核审计出口（**只读诊断**）—— 接管协议验收判据的载体（2026-10-13 rev49）。
@@ -2448,6 +2468,7 @@ export default function App() {
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onLocalLinkOpen={openLocalLink}
+              onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
             />
             {/*

@@ -168,6 +168,12 @@ type Props = {
    */
   onLocalLinkOpen?: (relPath: string) => void
   /**
+   * 用户可见的提示出口（rev173.41）。之前"打开外部链接失败"只打 `console.warn`——
+   * 手机上 `open_external` 本来就不支持（原生层直接拒绝），点链接等于**零反馈**。
+   * 宿主传 `setToast` 进来；不传则仍退回 console（浏览器预览 / 单测）。
+   */
+  onNotify?: (msg: string) => void
+  /**
    * 内嵌 HTML 是否渲染（rev173.39 · 设置页开关；默认开）。
    * 关闭时 HTML 语法原样显示（源码），打开时按白名单渲染（属性剔除）。
    */
@@ -341,6 +347,7 @@ export function MarkdownEditor({
   onCommand,
   onWikiLinkOpen,
   onLocalLinkOpen,
+  onNotify,
   layers,
   renderHtml = true,
 }: Props) {
@@ -779,8 +786,14 @@ export function MarkdownEditor({
                 onLocalLinkOpen?.(url)
                 return
               }
-              void invoke('open_external', { url }).catch((e) => {
-                console.warn('[zn] 打开链接失败', url, e)
+              void invoke('open_external', { url }).catch((e: unknown) => {
+                const msg = `打开链接失败：${url}（${
+                  /Android/i.test(navigator.userAgent)
+                    ? '移动端暂不支持打开外部链接，请复制到浏览器'
+                    : String(e)
+                }）`
+                if (onNotify) onNotify(msg)
+                else console.warn('[zn] 打开链接失败', url, e)
               })
             }}
           />

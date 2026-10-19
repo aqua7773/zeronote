@@ -39,15 +39,26 @@ export async function tryGlobalPluginRoot(): Promise<string | null> {
 /**
  * 收集本代要加载的插件条目：**只有全局根**（rev173.5）。
  *
- * 全局根读失败 ⇒ 返回空列表（不让"全局目录不存在"拖垮整个插件系统）。
+ * 全局根读失败 ⇒ 返回空列表（不让"全局目录不存在"拖垮整个插件系统），
+ * 但**必须把失败原因交出去**（rev173.41）：静默返回空数组时，用户只看到
+ * 「插件全没了」，没有任何线索；插件页的 `pluginError` 就是这条通道。
+ *
+ * 首次运行时全局目录不存在是**正常状态**（还没有插件），所以错误只在
+ * 真正读目录失败时上报 —— 由 Rust 的 `list_plugins` 区分（目录不存在返回空表）。
  */
-export async function collectPluginDirs(): Promise<PluginDirEntry[]> {
+export async function collectPluginDirs(
+  onError?: (msg: string) => void,
+): Promise<PluginDirEntry[]> {
   let root: string
   try {
     root = await globalPluginRoot()
-  } catch {
+  } catch (e) {
+    onError?.(`插件根目录解析失败：${String(e)}`)
     return []
   }
-  const dirs = await listPluginDirs(root).catch(() => [] as string[])
+  const dirs = await listPluginDirs(root).catch((e: unknown) => {
+    onError?.(`读取插件目录失败（${root}）：${String(e)}`)
+    return [] as string[]
+  })
   return dirs.map((dir) => ({ dir, root, source: 'global' }))
 }

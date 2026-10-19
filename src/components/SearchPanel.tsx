@@ -14,8 +14,9 @@ import { cn } from '@/lib/utils'
  * 这样面板可以单测（塞一个假的 IndexApi）、也能被插件复用。
  *
  * 索引生命周期：首次打开时自动 `rebuild()` 一次（缓存进内存），之后靠内核里的
- * `upsert` / `remove` 增量维护；面板里那个「重建索引」按钮是给外部改动（比如
- * 手动往库里拷了 500 个 md 而 fs.watch 没触发）兜底的。
+ * `upsert` / `remove` 增量维护 —— **rev173.40 起真的接线了**：内核把 `fs` 写路径包了一层
+ * （`src/kernel/fs-events.ts`），本机保存/新建/改名/删除会即时更新索引，外部改动由
+ * `fs.watch` 跟随。面板里那个「重建索引」按钮留着做兜底（比如 watch 漏报、手动拷了 500 个 md）。
  */
 export type SearchPanelProps = {
   open: boolean
@@ -258,7 +259,12 @@ export function SearchPanel({
       : busy
         ? '搜索中…'
         : hasQuery
-          ? `${sorted.length} 条结果${stat ? ` · 索引 ${stat.count} 篇` : ''}`
+          ? /**
+             * 查询态**不再显示 `stat.count`**（rev173.40）：索引现在是增量维护的，
+             * `stat` 只是上次 rebuild 的快照 —— 删/建几篇后数字就过时，显示出来是错的。
+             * 空态仍显示它（那时它刚 rebuild 过，语义正确）。
+             */
+            `${sorted.length} 条结果`
           : stat
             ? `已索引 ${stat.count} 篇 · ${stat.ms} ms`
             : '索引未建立'

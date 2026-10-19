@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.39）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.41）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -8,7 +8,7 @@
 `C:\Users\AQUA\Documents\deepseek\ZeroNote` —— **空内核**本地 Markdown 笔记应用（Tauri 2 + React 19 + Rust）。
 一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— **唯一位置**（跨库共用；rev173.5 起取消库内插件）；装卸＝放/删一个文件夹。
 内核 10 原语 + 21 种 UINode + 6 个挂载位 + 真窗口 / 整窗接管。
-内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换 · **桌面「时间流」面板**（rev173.33：侧栏与编辑区之间常驻，卡片与手机起始页同一套）。
+内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换 · **桌面「时间流」面板**（rev173.33：侧栏与编辑区之间常驻，卡片与手机起始页同一套）· **增量搜索索引 + 内核事件总线**（rev173.40：`note:saved` 等 9 种事件真派发）。
 **插件预装**：新版 APK 内置 **5** 个常用插件（大纲·导图 / 文档阅读器 / 导入导出 / 米色主题 / 记账；rev173.16 加「记账」；2026-10-19 rev173.29–31 移出 `daily-note` / `editor-marks` / `tag-demo`，**rev173.35 移出 `inspiration-flow`（灵感流，搁置）**）。
 
 ## 验收基线（以输出为准，不写死数字）
@@ -31,10 +31,12 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.39 · 2026-10-19）
+## 本会话（rev173.28 – 173.41 · 2026-10-19）
 
 | rev | 内容 |
 |---|---|
+| 173.41 | **缺陷修复 ②**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast + 插件页 · 外链失败 → toast（手机提示复制到浏览器） |
+| 173.40 | **缺陷修复 ①**：搜索索引真增量（`fs-events.ts` 包装写路径 + 外部 `watch`）· 内核事件真派发（`note:*` / `index:rebuilt` / `app:ready` / `vault:open`） |
 | 173.39 | **内嵌 HTML 白名单渲染**：DOMParser 自实现净化（属性全剔除 / script 丢弃）· 设置「内嵌 HTML」渲染 / 显示源码 · 默认渲染 |
 | 173.38 | **Markdown 语法增强第二批**：脚注（上标引用 + 点击跳转 + 定义行接管）· Mermaid 图表（异步渲染）· 定义列表 |
 | 173.37 | **版本管理**：单一来源 package.json · 关于页读 vite 注入 · `scripts/release.mjs` 同步三处 + tag · 首版 **0.2.0** |
@@ -83,6 +85,8 @@ pwsh -File scripts\verify.ps1
 | 暗色模式滚动条 | ✅ **rev173.32**：`EDITOR_CSS` 加 `:root[data-theme='dark'] .zn-editor .cm-scroller { color-scheme: dark }`（UA 级开关）· 亮色默认值 · 源码模式一并覆盖 · CDP 实测 + 截图对比 |
 | 桌面时间流面板 | ✅ **rev173.33**：侧栏与编辑区之间常驻（默认 300px，可拖 160–560）· 卡片复用手机起始页 `MobileNoteCards variant="panel"`（无 ＋ / 无长按）· 点卡片按 kind 派发（doc / image / note）· 插件页 / 回收站不显示 |
 | 滚动条 | ✅ **rev173.34**：全局自绘（`GlobalScrollbars`）—— 所有滚动容器统一 · 无轨道 · 6px 半透明滑块（封顶 120px）· 滚动出现静止淡出 · 可拖 · 原生滚动条全部藏掉 |
+| 搜索 / 事件总线 | ✅ **rev173.40**：索引真增量（写路径 + 外部改动）· `note:*` / `index:rebuilt` / `app:ready` / `vault:open` 派发 · 契约 §1.4 补 payload 表 |
+| 插件 / 外链失败静默 | ✅ **rev173.41**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast · 外链失败 → toast（手机提示复制到浏览器）；迁移库内插件仍静默（P2） |
 | 灵感流插件 | ⏸ **rev173.35 搁置**：移出预装 + 桌面/手机全局目录删除 · 源码留 `examples/inspiration-flow/`（要用：复制进全局目录 + 重扫） |
 | Markdown 语法增强 | ✅ **rev173.36 + 173.38 + 173.39 三批完成**：上标 / 下标 / Emoji / 数学（行内 + 块级）· 脚注（编号 + 跳转）· Mermaid 图表 · 定义列表 · **内嵌 HTML 白名单渲染**（设置可关）· 内核 `src/kernel/editor-syntax.ts` |
 | 版本管理 | ✅ **rev173.37**：单一来源 `package.json` · 关于页 vite 注入 · `scripts/release.mjs <x.y.z> [--tag]` · 首版 **0.2.0**（tag `v0.2.0`）· 发版流程见 HANDOFF |

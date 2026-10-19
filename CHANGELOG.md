@@ -27,6 +27,8 @@
 - 插件来源：`global` / `vault` / `builtin`（rev94 / rev110）
 
 ### Changed
+- 内核事件总线**真正派发**（rev173.40）：`note:saved` / `note:created` / `note:renamed` /
+  `note:deleted` / `note:changed` / `index:rebuilt` / `app:ready` / `vault:open`；payload 表见契约 §1.4
 - `saveFile` 接受 `Uint8Array`（二进制导出）
 - capability 语义改为**自述**（非门）—— rev48 拆门、rev66 清遗留
 - 「插件只住库内」的旧描述被三种来源取代

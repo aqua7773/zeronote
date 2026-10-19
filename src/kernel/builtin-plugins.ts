@@ -63,8 +63,14 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
 /**
  * 把内置插件写进**全局插件根**（`root` = `appDataDir()`；rev173.5 起插件只有全局一处）。
  * 幂等：内容一样就跳过（原因见下面的注释）。
+ *
+ * 返回值 = 写失败的文件清单（rev173.41）。以前失败只 `console.warn` ——
+ * 用户看到的是「导图 / 阅读器 / 记账莫名没了」，没有任何线索；调用方据此出提示。
  */
-export async function ensureBuiltinPlugins(root: string): Promise<void> {
+export async function ensureBuiltinPlugins(
+  root: string,
+): Promise<{ failed: { pluginId: string; rel: string; error: string }[] }> {
+  const failed: { pluginId: string; rel: string; error: string }[] = []
   for (const plugin of BUILTIN_PLUGINS) {
     for (const [rel, content] of Object.entries(plugin.files)) {
       try {
@@ -88,8 +94,10 @@ export async function ensureBuiltinPlugins(root: string): Promise<void> {
         }
         await invoke('write_plugin_file', { vault: root, pluginId: plugin.id, rel, content })
       } catch (e) {
+        failed.push({ pluginId: plugin.id, rel, error: String(e) })
         console.warn(`[zn] 内置插件 ${plugin.id}/${rel} 写入失败`, e)
       }
     }
   }
+  return { failed }
 }

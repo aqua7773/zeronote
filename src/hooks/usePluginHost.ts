@@ -93,6 +93,11 @@ export function usePluginHost({
    */
   const loadedPluginsRef = useRef<LoadedPlugin[]>([])
   /**
+   * `app:ready` 是否已发过（契约 §1.4，rev173.40）。**应用级事件只发一次**；
+   * 重扫插件 / 切库发的是 `vault:open`（"当前库这一代插件已就位"）。
+   */
+  const readyRef = useRef(false)
+  /**
    * 插件生命周期的**串行链**：同一时刻只有一代在「卸载上一代 / 加载本代」。
    *
    * 为什么必须是串行的（真机实测两轮才收敛）：
@@ -187,9 +192,25 @@ export function usePluginHost({
         // 切库不再换插件；库内 `.zn/plugins/` 的旧副本由迁移脚本搬走。
         // 0. 内置插件预装：先写进全局插件根，之后扫描才能看到它们。
         const globalRoot = await tryGlobalPluginRoot()
-        if (globalRoot) await ensureBuiltinPlugins(globalRoot)
+        if (globalRoot) {
+          const builtin = await ensureBuiltinPlugins(globalRoot)
+          if (builtin.failed.length > 0 && !cancelled) {
+            /**
+             * 内置插件写不进去 = 界面上少掉导图/阅读器/导入导出/主题/记账，
+             * 但用户完全看不出原因（rev173.41 之前只有 console.warn）。
+             * 走 toast + 插件页错误两条通道：toast 保证"当场看见"，pluginError 留存可回看。
+             */
+            const first = builtin.failed[0]
+            const msg = `内置插件写入失败 ${builtin.failed.length} 个文件（${first.pluginId}/${first.rel}）：${first.error}`
+            setPluginError(msg)
+            setToast(msg)
+          }
+        }
         if (cancelled) return
-        const entries = await collectPluginDirs()
+        const entries = await collectPluginDirs((msg) => {
+          // 读目录失败不再是"插件列表空着"的静默状态（rev173.41）：插件页会显示这条原因
+          if (!cancelled) setPluginError(msg)
+        })
         const list: PluginManifest[] = []
         /** manifest id → 条目：后面加载 / 懒激活 / 删除都从这里取根 */
         const byId: Record<string, PluginDirEntry> = {}
@@ -289,6 +310,19 @@ export function usePluginHost({
         if (!cancelled) {
           setLoadedIds(ids)
           setPlatformSkipped(platformSkippedIds)
+          /**
+           * 内核生命周期事件（契约 §1.4，rev173.40）。
+           *
+           * **为什么在这里发**：插件在 `loadPlugin` 里注册的 `event.on(...)` 只有加载完
+           * 这一代才全部就位 —— 更早发，监听者收不到，事件等于没发。
+           * `vault:open` 每代都发（重扫 / 切库都是"当前库的插件已就位"）；
+           * `app:ready` 只发一次（应用级）。
+           */
+          k.event.emit('vault:open', { vault })
+          if (!readyRef.current) {
+            readyRef.current = true
+            k.event.emit('app:ready', { vault })
+          }
         }
       } catch (e) {
         if (!cancelled) setPluginError(String(e))

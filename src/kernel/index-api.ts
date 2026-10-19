@@ -32,6 +32,13 @@ export type ExcerptSegment = { text: string; hit: boolean }
 
 export type IndexDeps = {
   fs: FsApi
+  /**
+   * 一次 `rebuild()` 完成（含 scoped 分区重建）。
+   *
+   * 内核拿它派发 `index:rebuilt` 事件（契约 §1.4）：插件要"重建后做点什么"（刷新搜索页、
+   * 重新拉标签统计）不必轮询。**分区名一起给** —— 插件只关心自己那份分区时能直接筛。
+   */
+  onRebuilt?: (stats: { count: number; ms: number; partition: string }) => void
 }
 
 /** query 缺省返回条数 */
@@ -378,6 +385,7 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
 
     async function rebuildImpl(): Promise<{ count: number; ms: number }> {
       const t0 = Date.now()
+      let result: { count: number; ms: number } | null = null
       part.building = true
       part.pendingUpserts.clear()
       part.pendingRemoves.clear()
@@ -400,13 +408,27 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
           }
         }
         part.docs = next
-        return { count: part.docs.size, ms: Date.now() - t0 }
+        result = { count: part.docs.size, ms: Date.now() - t0 }
+        return result
       } finally {
         for (const [p, t] of part.pendingUpserts) applyUpsert(p, t)
         for (const p of part.pendingRemoves) part.docs.delete(p)
         part.pendingUpserts.clear()
         part.pendingRemoves.clear()
         part.building = false
+        /**
+         * 广播放在 `finally` 的**回放之后**：监听者收到事件立刻 `query()` 时，重建期间写进来
+         * 的那几篇也已经在索引里了（否则就是一个"事件到了但数据没到"的竞态）。
+         * 只有**成功**重建才广播（失败由调用方拿到 reject，不该再报一次"完成"）；
+         * 回调抛错不能拖垮 rebuild —— 插件监听器写错是它的事，索引是内核能力。
+         */
+        if (result) {
+          try {
+            deps.onRebuilt?.({ ...result, partition: name })
+          } catch {
+            /* 监听器异常不影响重建结果 */
+          }
+        }
       }
     }
 

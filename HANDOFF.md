@@ -1,13 +1,15 @@
 # 项目交接
 
-revision: 173.39
-更新时间: 2026-10-19（rev173.39 内嵌 HTML 白名单渲染 + 设置开关）
+revision: 173.41
+更新时间: 2026-10-19（rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.41 | 2026-10-19 · **插件失败可见 + 外链提示**：`collectPluginDirs(onError)` 读目录失败上报 · `ensureBuiltinPlugins` 返回失败清单 → toast + 插件页错误 · 编辑器 `onNotify`（外链失败用户可见，手机提示复制到浏览器）· 测试 **358** |
+| rev173.40 | 2026-10-19 · **搜索索引增量 + 内核事件派发**：新增 `src/kernel/fs-events.ts` 包装 fs 写路径（save/create/rename/move/delete/restore）→ `index.upsert/remove` + `note:*` 事件 · `index:rebuilt` · `app:ready` / `vault:open` · 外部改动经 `fs.watch` 跟随 · 查询态不再显示过时索引数 · 测试 **349** |
 | rev173.39 | 2026-10-19 · **内嵌 HTML 白名单渲染**：`sanitizeHtml`（自实现，DOMParser 遍历白名单）· 属性全剔除 · script/style 丢弃 · 设置「内嵌 HTML」渲染/显示源码 · 默认渲染 · 测试 **343** |
 | rev173.38 | 2026-10-19 · **Markdown 语法增强第二批**：脚注 `[^1]`（上标引用 + 点击跳转定义 + 定义行整行接管）· Mermaid ```mermaid 块（异步渲染 SVG，失败保留源码）· 定义列表（术语加粗 + 解释弱化）· 测试 **337** |
 | rev173.37 | 2026-10-19 · **版本管理**：单一来源 `package.json` · 关于页改读 vite 注入 `__APP_VERSION__` · `scripts/release.mjs` 同步三处 + `--tag` · 首版 **0.2.0**（tag `v0.2.0`）· CHANGELOG 增「应用版本」段 |
@@ -184,6 +186,41 @@ revision: 173.39
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.41（2026-10-19 · 插件失败可见 + 外链提示）
+>
+> 完善性评估里列的「静默失效」三条，逐条给出口：用户不该只看到「插件没了」。
+>
+> | 位置 | 之前 | 现在 |
+> |---|---|---|
+> | `collectPluginDirs` | 读全局插件目录失败 ⇒ `catch(() => [])`，插件页空着 | 接受 `onError`，失败原因进 `pluginError`（插件页可见） |
+> | `ensureBuiltinPlugins` | 写失败只 `console.warn` | 返回 `{ failed: [{pluginId, rel, error}] }`；调用处 → toast + `pluginError`（"内置插件写入失败 N 个文件…"） |
+> | 编辑器点外链 | 失败只 `console.warn`（手机 `open_external` 必失败 ⇒ 零反馈） | 新增 `onNotify` prop；App 传 `setToast`。手机文案明确指向"复制到浏览器" |
+> | 迁移库内插件 | 单条失败静默跳过 | 未改（低频、迁移已一次性完成；留作 P2） |
+>
+> 测试：`tests/plugin-roots.test.ts` 3 条（成功 / 读目录失败 / 解析根失败）、
+> `tests/builtin-plugins.test.ts` 3 条（全成功 / 全失败带条目 / 部分失败只记失败项）。
+
+> ## 📌 rev173.40（2026-10-19 · 搜索索引增量 + 内核事件派发）
+>
+> 两个「文档说做了、代码没做」的缺口，这次真的接线：
+>
+> | 缺口 | 之前 | 现在 |
+> |---|---|---|
+> | 搜索索引不增量 | 面板只在**首次打开**时 `rebuild()`，注释说"之后靠 upsert/remove"但全仓无调用 ⇒ 本次启动后新写/改过的笔记搜不到 | 内核组装点把 `fs` 写路径包一层（`fs-events.ts`）：`writeText` / `createNote` / `rename` / `move` / `delete` / `restoreTrash` 成功后即时 `index.upsert/remove`；外部改动由 App 的 `fs.watch` 调 `applyExternalChange` 跟随 |
+> | 内核事件没派发 | 契约 §1.4 声明 9 种事件，代码只发 `service:available/gone` | `note:saved/created/renamed/deleted/changed` + `index:rebuilt`（`IndexDeps.onRebuilt`）+ `app:ready` / `vault:open`（`usePluginHost` 加载完这一代后发） |
+>
+> **为什么包装放在 `createKernel` 组装点**：插件拿到的 `ctx.fs` 是 `kernel.fs` 的 scoped
+> 视图，宿主也调 `kernel.fs` —— 只有在这里换一次，所有写入路径才都经过它（app / hooks / 插件）。
+>
+> **语义边界**（写进契约 §1.4 表）：`note:saved` = 应用写了盘；`note:changed` = 磁盘内容变了
+> （外部程序改文件，**也会**是本机保存的 watch 回响）。插件应做幂等处理。
+>
+> 顺带修：搜索面板查询态不再显示 `stat.count` —— 索引增量维护后它是上次 rebuild 的快照，删/建几篇就过时。
+>
+> 实测（CDP · dev 23:23）：新建笔记输入「增量验证标记-7f3a-世界」→ 自动保存 → 打开搜索查 `7f3a`
+> **命中 1 条**（索引 4 篇，修复前应为 3 篇的旧快照）；彻底删除该笔记后同一查询 **0 条**。
+> 测试新增 `tests/kernel-fs-events.test.ts` 9 条。
 
 > ## 📌 rev173.39（2026-10-19 · 内嵌 HTML 白名单渲染 + 设置开关）
 >

@@ -27,6 +27,7 @@ import { createCommandApi, type CommandRegistry } from './command'
 import { createScopedEditorApi, editorMarkEntries, releaseEditorMarks } from './editor-marks'
 import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
+import { withFsEvents } from './fs-events'
 import { createIndexApi } from './index-api'
 import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
@@ -168,7 +169,7 @@ export type Kernel = {
 }
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
-  const fs = createFsApi(vault)
+  const rawFs = createFsApi(vault)
   const event = createEventApi((topic, err) =>
     hooks.onLog(`事件处理器异常 topic=${topic}：${String(err)}`, 'warn'),
   )
@@ -336,8 +337,24 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
   }
 
-  /** index 原语：内存全文索引（多关键词 AND + 中文子串），实现见 index-api.ts */
-  const index: IndexApi = createIndexApi({ fs })
+  /**
+   * index 原语：内存全文索引（多关键词 AND + 中文子串），实现见 index-api.ts。
+   *
+   * `onRebuilt` → `index:rebuilt` 事件（契约 §1.4）：插件不必轮询"重建完了没"。
+   * 注意它用 `rawFs`：重建只需要 `listNotes` / `readText`，不该走下面那层写包装。
+   */
+  const index: IndexApi = createIndexApi({
+    fs: rawFs,
+    onRebuilt: (stats) => event.emit('index:rebuilt', stats),
+  })
+
+  /**
+   * 对外的 fs = rawFs + 索引跟随 + 事件派发（rev173.40，见 fs-events.ts）。
+   *
+   * 为什么包装必须发生在**内核组装点**：插件拿到的 `ctx.fs` 是 `kernel.fs` 的 scoped 视图，
+   * 宿主（App / hooks）也调 `kernel.fs` —— 只有在这里换一次，所有写入路径才都经过它。
+   */
+  const fs: FsApi = withFsEvents(rawFs, index, event, (msg) => hooks.onLog(msg, 'warn'))
 
   /**
    * 服务注册表（**「前置插件」的载体**）。登记表一变就转成
