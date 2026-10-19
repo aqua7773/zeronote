@@ -105,6 +105,7 @@ pwsh -File scripts\verify.ps1
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
 | 同步 / AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
+| 手机端搜索入口 | ⚠️ **既有缺口**（rev173.47 顺手发现，未修）：☰ 只切文件树，`openOverlay('search')` 在手机上**没有触发点**（搜索面板与 rev173.47 的筛选行只出现在桌面）。要补就加个手机入口 |
 | 沙箱 | ⏸ 搁置（用户裁决） |
 
 ## 待办：与同类应用对比补齐（2026-10-20 · 用户指定）
