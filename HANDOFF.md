@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.14
-更新时间: 2026-10-19（rev173.14 设置文案精简 + 插件能力不再展示；两端 dev HMR 断连需刷新）
+revision: 173.15
+更新时间: 2026-10-19（rev173.15 记账插件调研：竞品 / 通知捕获 / 自动分类 / 契合度；下一步待拍板是否动原生层）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.15 | 2026-10-19 · **记账插件调研**：开源移动端竞品（Ivy 已归档 / Cashew / MyExpenses / MMEX-A / Oinkoin 均无通知捕获）· 自动记账专项（AutoAccounting / WhereIsMyMoney 源码）· `NotificationListenerService` 机制与坑 · **结论：唯一硬缺口是原生通知监听插件** → `docs/记账插件-调研-2026-10-19.md` |
 | rev173.14 | 2026-10-19 · **设置文案精简**（当前库 / 自动保存 / 外观 / 关于各一句）+ **插件能力不再展示**（插件行能力列表与「网络与进程（自述）」整块删除）· 测试 **249** |
 | rev173.13 | 2026-10-19 · **插件页**：说明只显示 **15 字**（`clampText`，全文进悬停 title）+ **分类可折叠**（点组标题收起/展开，状态记 localStorage）· 测试 **249**；顺手修回手机 dev（`gen/android` 残留 `.probe` identifier 导致构建失败） |
 | rev173.12 | 2026-10-18 · **交接**：rev173.11 收口——手机导图点击已修（`data-zn-line` + 手机整窗接管）；WebView2 起不来**真根因 = 项目目录 Low IL**（exe 继承后写不了 `%LOCALAPPDATA%`），`icacls src-tauri /setintegritylevel (OI)(CI)Medium` 修复；dev 恢复运行、库 = `_tmp-vault-tb` |
@@ -159,6 +160,24 @@ revision: 173.14
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.15（2026-10-19 · 记账插件调研：竞品 / 通知捕获 / 自动分类 / 契合度）
+>
+> 用户：「对现有开源的记账类项目进行调研，分析功能，技术，还有与 zeronote 的契合度，只需要移动端，最终目标是一个记账插件，要求能捕获支付通知，形成一条记录，提供自动分类，还有其他记账功能」。
+>
+> ### 1 交付
+>
+> - 文档：`docs/记账插件-调研-2026-10-19.md`（已进 `docs/README.md` 权威矩阵）。
+> - 竞品（移动端）：Ivy Wallet（**已归档**）/ Cashew / MyExpenses / Money Manager Ex Android / Oinkoin —— **都没有通知捕获**。
+> - 自动记账专项：AutoAccounting（Xposed/OCR/通知，采集器不存账）、WhereIsMyMoney（通知监听 + 自带账本，**源码逐段核对**）。
+> - 技术：`NotificationListenerService` 是免 Root 唯一通道；解析链路 = 7 字段合并 → 关键词判定 → 金额正则 → 收支判断 → 商户正则 → 去重（hash/交易号）→ 无金额用通知栏 `RemoteInput` 补录。
+> - 契合度：UI / store / fs / 规则引擎现成（高）；**唯一硬缺口 = 原生通知监听插件**（模板：`tauri-plugin-statusbar` / `tauri-plugin-androidperm`）。
+> - 建议架构：原生「捕获 + 原文缓存 + `drain()`」→ JS「解析 + 去重 + 分类 + 落库」→ store（主存）+ Markdown 月报（导出）。
+>
+> ### 2 未决（待用户拍板）
+>
+> 是否做原生插件 `tauri-plugin-notification-capture` —— 这是 ZeroNote 第一个后台服务型插件（要动 `gen/android`）；
+> 若暂不动原生层，可先做「手动记账 + CSV 导入」的纯 JS 版。
+>
 > ## 📌 rev173.14（2026-10-19 · 设置文案精简 + 插件能力不再展示）
 >
 > 用户：「设置里面其他说明的地方也同理，还有插件声明的能力不用显示出来」。
