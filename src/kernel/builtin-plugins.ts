@@ -23,9 +23,7 @@ import docReaderManifest from '../../examples/doc-reader/manifest.json?raw'
 // import-export（导入导出）
 import importExportIndex from '../../examples/import-export/index.js?raw'
 import importExportManifest from '../../examples/import-export/manifest.json?raw'
-// inspiration-flow（灵感流）
-import inspirationIndex from '../../examples/inspiration-flow/index.js?raw'
-import inspirationManifest from '../../examples/inspiration-flow/manifest.json?raw'
+// inspiration-flow（灵感流）—— **已搁置**（rev173.35 · 2026-10-19 用户要求）：源码留在 examples/，不再预装
 // theme-sepia（米色主题，纯 CSS）
 import sepiaManifest from '../../examples/theme-sepia/manifest.json?raw'
 import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
@@ -48,10 +46,6 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'import-export',
     files: { 'index.js': importExportIndex, 'manifest.json': importExportManifest },
-  },
-  {
-    id: 'inspiration-flow',
-    files: { 'index.js': inspirationIndex, 'manifest.json': inspirationManifest },
   },
   { id: 'theme-sepia', files: { 'manifest.json': sepiaManifest, 'theme.css': sepiaCss } },
   {

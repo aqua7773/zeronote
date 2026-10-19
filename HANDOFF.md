@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.34
-更新时间: 2026-10-19（rev173.34 全局自绘滚动条：统一 / 无轨道 / 沉浸式滑块）
+revision: 173.35
+更新时间: 2026-10-19（rev173.35 灵感流插件搁置：退出预装与全局目录）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.35 | 2026-10-19 · **灵感流插件搁置**：`inspiration-flow` 移出 `BUILTIN_PLUGINS`（预装 6→**5**）· 桌面 + 手机全局目录删除 · 源码留 `examples/` · 手册预装列表更新 · 测试 **315** |
 | rev173.34 | 2026-10-19 · **全局自绘滚动条**：所有滚动容器统一 · 无轨道 · 6px 半透明滑块（长度封顶 120px）· 滚动出现静止淡出 · 可拖 · 编辑器 / 卡片流 / 文件树 / 面板全覆盖 · 测试 **315** |
 | rev173.33 | 2026-10-19 · **桌面「时间流」面板**：侧栏与编辑区之间常驻一栏（默认 300px，可拖 160–560）· 复用 `MobileNoteCards variant="panel"`（同一套卡片、无 ＋ 按钮、无长按）· 打开派发同文件树 · 顺带修非 note 卡片「…」与卡片流暗色滚动条 · 测试 **315** |
 | rev173.32 | 2026-10-19 · **暗色滚动条跟随主题**：`EDITOR_CSS` 加 `:root[data-theme='dark'] .zn-editor .cm-scroller { color-scheme: dark }`（UA 级开关）· 只挂编辑器子树、亮色用默认值 · CDP 实测暗/亮切换 + 源码模式 · 测试 **314** |
@@ -179,6 +180,25 @@ revision: 173.34
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.35（2026-10-19 · 灵感流插件搁置：退出预装与全局目录）
+>
+> 用户要求：「灵感流插件先删除，搁置起来」。
+>
+> | 项 | 处理 |
+> |---|---|
+> | `BUILTIN_PLUGINS` | 移出 `inspiration-flow`（import + 数组项）→ 预装 **6 → 5**（outline-map / doc-reader / import-export / theme-sepia / accounting） |
+> | 全局目录 | 桌面 `%APPDATA%\com.aqua.zeronote\.zn\plugins\inspiration-flow` 删除（目录里只有 index.js + manifest.json，无 store / 用户数据）；手机 dev 包 `.zn/plugins/inspiration-flow` 同步删除 |
+> | 源码 | **保留** `examples/inspiration-flow/` —— 「搁置」= 随时可装回（复制进全局目录 + 重扫即可） |
+> | 文档 | `docs/使用手册-移动端.md` 预装列表 9 → 5 |
+>
+> 全局现在 **6 个**：accounting / doc-reader / import-export / outline-map / theme-green（用户自装，不在预装表）/ theme-sepia。
+>
+> ⚠️ 踩坑：两次 edit 之间 vite HMR 捕获了「import 已删、数组项还在」的中间态并缓存，
+> 页面白屏（`ReferenceError: inspirationIndex is not defined`）；`Page.reload({ ignoreCache: true })` 后恢复。
+> 改 `builtin-plugins.ts` 这种被多处 import 的模块，**一次 edit 改完**最稳。
+>
+> 测试 **315**（无新增）。
 
 > ## 📌 rev173.34（2026-10-19 · 全局自绘滚动条：统一 / 无轨道 / 沉浸式滑块）
 >
