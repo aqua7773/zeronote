@@ -197,6 +197,10 @@ revision: 173.37
 > | 首版 | **0.2.0**（tag `v0.2.0`） |
 > | 文档 | `CHANGELOG.md` 新增「应用版本」区段（与契约版本分开） |
 >
+> ⚠️ 两个坑：
+> 1. **vitest 不经过 vite define** ⇒ 单测会 `ReferenceError: __APP_VERSION__ is not defined`（app-smoke 实测）→ `vitest.config.ts` 里也注入同一个值；
+> 2. **vite.config.ts 的改动要重启 dev server 才生效** ⇒ 旧进程里 `__APP_VERSION__` 未定义 → `kernel.ts` 加运行时兜底 `typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'`。
+>
 > 发版流程（脚本头注释里也有）：
 > 1. `node scripts/release.mjs 0.3.0`
 > 2. 更新 `CHANGELOG.md`
