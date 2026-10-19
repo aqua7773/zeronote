@@ -169,10 +169,20 @@ export type SearchHit = { path: string; title: string; excerpt: string; score: n
 /** 3. index —— 可删可重建的索引（v0.2 实现） */
 export interface IndexApi {
   /**
-   * 多关键词 **AND** 检索。`opts.tag` 是**字段过滤**：只返回带该标签的笔记
-   * （标签来自 frontmatter 的 `tags`/`标签`，以及正文里的 `#标签`）。
+   * 多关键词 **AND** 检索。字段过滤（可与关键词组合）：
+   *  · `opts.tag` —— 只返回带该标签的笔记（标签来自 frontmatter 的 `tags`/`标签`，
+   *    以及正文里的 `#标签`）；
+   *  · `opts.dir` —— 只返回该目录（含子目录）下的笔记；
+   *  · `opts.regex` —— `q` 整个当作**正则表达式**（不切词、忽略大小写、`^`/`$` 按行匹配）；
+   *    语法错误时返回空表，**不抛错**（由 UI 提示「正则无效」）。
+   *
+   * `q` 为空时，带 `tag` / `dir` 也算合法查询（"列出这个标签下的全部笔记"）；
+   * 什么条件都没给才返回空表。
    */
-  query(q: string, opts?: { limit?: number; dir?: string; tag?: string }): Promise<SearchHit[]>
+  query(
+    q: string,
+    opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean },
+  ): Promise<SearchHit[]>
   upsert(path: string, text: string): Promise<void>
   remove(path: string): Promise<void>
   rebuild(): Promise<{ count: number; ms: number }>

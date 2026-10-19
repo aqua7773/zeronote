@@ -324,6 +324,66 @@ function scoreEntry(entry: Entry, tokens: string[]): number {
   return score
 }
 
+/**
+ * 正则模式的摘要：以**第一个命中**为锚点取窗口，窗口内所有命中都标哨兵
+ * （与关键词模式同一套口径 —— UI 的 `splitExcerpt` 高亮不用分叉）。
+ *
+ * 零宽匹配（`^` / `\b` / `(?=x)`）没有可高亮的文本 —— 跳过但要推进 `lastIndex`，
+ * 否则 `exec` 循环会原地打转。
+ */
+function buildRegexExcerpt(entry: Entry, re: RegExp): string {
+  const text = entry.text
+  const head = re.exec(text)
+  const from = head ? Math.max(0, head.index - EXCERPT_BEFORE) : 0
+  const to = head
+    ? Math.min(text.length, head.index + head[0].length + EXCERPT_AFTER)
+    : Math.min(text.length, EXCERPT_HEAD)
+
+  const spans: Span[] = []
+  const scanRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
+  for (let m = scanRe.exec(text); m && m.index < to; m = scanRe.exec(text)) {
+    if (m[0].length === 0) {
+      scanRe.lastIndex += 1
+      continue
+    }
+    const start = Math.max(m.index, from)
+    const end = Math.min(m.index + m[0].length, to)
+    if (end > start) spans.push({ start, end })
+  }
+
+  let out = from > 0 ? '…' : ''
+  let pos = from
+  for (const s of mergeSpans(spans)) {
+    if (s.start > pos) out += text.slice(pos, s.start)
+    out += HIT_START + text.slice(s.start, s.end) + HIT_END
+    pos = s.end
+  }
+  out += text.slice(pos, to)
+  if (to < text.length) out += '…'
+  // 与 buildExcerpt 一样压平空白，避免摘要里出现一串换行
+  return out.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ')
+}
+
+/** 正则打分（与 `scoreEntry` 同口径：标题 ×8 / 正文 ×2 / 标题命中 +4 / 越靠前 +1..4） */
+function scoreRegex(entry: Entry, re: RegExp): number {
+  const count = (hay: string, limit = 200): number => {
+    const scanRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
+    let n = 0
+    for (let m = scanRe.exec(hay); m && n < limit; m = scanRe.exec(hay)) {
+      if (m[0].length === 0) scanRe.lastIndex += 1
+      else n += 1
+    }
+    return n
+  }
+  const t = count(entry.titleLower)
+  const b = count(entry.text)
+  let score = t * 8 + b * 2
+  if (t > 0) score += 4
+  const first = entry.text.search(re)
+  if (first !== -1) score += Math.max(1, 4 - Math.floor(first / POSITION_BUCKET))
+  return score
+}
+
 /* ───────────────── 实现 ───────────────── */
 
 /** 一个分区的内部状态 —— 每个分区一份，彼此看不见 */
@@ -433,12 +493,15 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
     }
 
     return {
-      /** 多关键词 **AND** + 中文子串。任何输入都不抛错；只有 fs 故障才会 reject。 */
+      /**
+       * 多关键词 **AND** + 中文子串。`opts.regex` 为真时 `q` 整个当作**正则表达式**
+       * （不切词、大小写不敏感）—— 语法错误时返回空表而不抛错
+       * （查询契约：任何输入都不抛错；由 UI 负责提示「正则无效」）。
+       */
       async query(
         q: string,
-        opts?: { limit?: number; dir?: string; tag?: string },
+        opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean },
       ): Promise<SearchHit[]> {
-        const tokens = tokenizeQuery(q)
         if (part.docs.size === 0) return []
 
         const dirPrefix = normalizeDir(opts?.dir)
@@ -446,12 +509,23 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         // 字段过滤：按标签精确命中（大小写不敏感，与正文搜索的语义保持一致）
         const wantTag = opts?.tag?.trim().toLowerCase()
 
+        // 正则模式：整串当表达式（`i` 忽略大小写、`m` 让 ^ / $ 按行匹配、`u` 正确处理中文）
+        let re: RegExp | null = null
+        if (opts?.regex === true && typeof q === 'string' && q.trim() !== '') {
+          try {
+            re = new RegExp(q, 'imu')
+          } catch {
+            return []
+          }
+        }
+        const tokens = re ? [] : tokenizeQuery(q)
+
         /**
-         * 空关键词**只在有 tag 过滤时才算合法** —— "列出这个标签下的全部笔记"
-         * 正是 `query('', { tag })` 的用法（真实踩到：之前这里直接 return []
-         * 导致按标签筛选永远 0 篇）。两个都空才是真的没给条件。
+         * 空关键词**只在有筛选条件时才算合法** —— "列出这个标签 / 目录下的全部笔记"
+         * 正是 `query('', { tag })` / `query('', { dir })` 的用法（真实踩到：之前这里
+         * 直接 return [] 导致按标签筛选永远 0 篇）。什么条件都没给才是真的空查询。
          */
-        if (tokens.length === 0 && !wantTag) return []
+        if (!re && tokens.length === 0 && !wantTag && !dirPrefix) return []
 
         const scored: { entry: Entry; score: number }[] = []
 
@@ -459,7 +533,14 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
           if (dirPrefix && !inDir(entry.path, dirPrefix)) continue
           if (wantTag && !entry.tags.some((t) => t.toLowerCase() === wantTag)) continue
 
-          // 纯标签筛选：没有关键词可匹配，不打分也不做命中摘要
+          // 正则模式：正文或标题命中即算（`re` 不带 `g`，`test` 不改变匹配状态）
+          if (re) {
+            if (!re.test(entry.text) && !re.test(entry.titleLower)) continue
+            scored.push({ entry, score: scoreRegex(entry, re) })
+            continue
+          }
+
+          // 纯标签 / 纯目录筛选：没有关键词可匹配，不打分也不做命中摘要
           if (tokens.length === 0) {
             scored.push({ entry, score: 0 })
             continue
@@ -486,9 +567,10 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         return scored.slice(0, limit).map(({ entry, score }) => ({
           path: entry.path,
           title: entry.title,
-          // 无关键词时没有"命中窗口"可给 ⇒ 退回正文开头
-          excerpt:
-            tokens.length > 0
+          // 无关键词时没有"命中窗口"可给 ⇒ 退回正文开头（正则模式见 buildRegexExcerpt）
+          excerpt: re
+            ? buildRegexExcerpt(entry, re)
+            : tokens.length > 0
               ? buildExcerpt(entry, tokens)
               : entry.text.slice(0, 120).replace(/\s+/g, ' ').trim(),
           score,

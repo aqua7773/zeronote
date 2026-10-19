@@ -64,6 +64,17 @@ export function SearchPanel({
   const [cursor, setCursor] = useState(0)
   const [stat, setStat] = useState<{ count: number; ms: number } | null>(null)
   const [rebuildTick, setRebuildTick] = useState(0)
+  /**
+   * 筛选行（rev173.47 · 用户待办 #4「搜索筛选：正则 / 标签 / 目录」）。
+   *
+   * 三者都交给内核 `index.query` 的字段过滤参数，**面板自己不做匹配** ——
+   * 这样筛选与关键词可以任意组合，语义也只在一处定义（契约 §2.3）。
+   */
+  const [tagFilter, setTagFilter] = useState('')
+  const [dirFilter, setDirFilter] = useState('')
+  const [regexOn, setRegexOn] = useState(false)
+  /** 标签统计（来自 `index.tags()`）—— 下拉的选项与篇数 */
+  const [tagStats, setTagStats] = useState<{ tag: string; count: number }[]>([])
   /** 递增序号：异步结果回来时若已过期就丢掉（防止慢查询覆盖新查询） */
   const seqRef = useRef(0)
   /** 已经为哪个 index 建过库 —— 切库（kernel 重建）后会再建一次 */
@@ -103,16 +114,65 @@ export function SearchPanel({
     void rebuild()
   }, [open, index, rebuild])
 
+  /**
+   * 标签下拉的选项：重建后再拉一次（`index.tags()` 读的是内存索引，
+   * 建库之前是空的）。`rebuildTick` 让「重建索引」按钮也能刷新它。
+   */
+  useEffect(() => {
+    if (!open || !index) return
+    let alive = true
+    index
+      .tags()
+      .then((t) => {
+        if (alive) setTagStats(t)
+      })
+      .catch(() => {
+        /* 索引没建好就先不给选项；不打断搜索本身 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [open, index, rebuildTick])
+
+  /** 目录下拉选项：从笔记路径推**所有层级前缀**（`a/b/c.md` → `a`、`a/b`） */
+  const dirOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const n of notes) {
+      const parts = n.path.replace(/\\/g, '/').split('/')
+      parts.pop() // 去掉文件名
+      let acc = ''
+      for (const seg of parts) {
+        acc = acc ? `${acc}/${seg}` : seg
+        if (acc) set.add(acc)
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
+  }, [notes])
+
+  /** 正则语法预检 —— 内核那边语法错误会静默返回空表，这里给用户一句能看懂的话 */
+  const regexError = useMemo(() => {
+    if (!regexOn || !q.trim()) return null
+    try {
+      new RegExp(q, 'imu')
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+  }, [regexOn, q])
+
   /* 查询：防抖 + 竞态保护。空查询的清理放在输入事件里（effect 里同步 setState 会触发额外渲染） */
   useEffect(() => {
     if (!open || !index) return
     const text = q.trim()
+    const tag = tagFilter || undefined
+    const dir = dirFilter || undefined
     const seq = ++seqRef.current
-    if (!text) return
+    // 关键词 / 标签 / 目录全空 ⇒ 真没条件（只开正则开关不算条件）
+    if (!text && !tag && !dir) return
     const timer = window.setTimeout(() => {
       setBusy(true)
       index
-        .query(text, { limit: RESULT_LIMIT })
+        .query(text, { limit: RESULT_LIMIT, tag, dir, regex: regexOn })
         .then((r) => {
           if (seqRef.current !== seq) return
           setHits(r)
@@ -128,7 +188,7 @@ export function SearchPanel({
         })
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [open, index, q, rebuildTick])
+  }, [open, index, q, rebuildTick, tagFilter, dirFilter, regexOn])
 
   /** 记一条最近搜索词（去重 + 封顶）；存不下也不影响搜索本身 */
   const rememberQuery = useCallback((text: string) => {
@@ -189,13 +249,15 @@ export function SearchPanel({
 
   if (!open) return null
 
-  const hasQuery = q.trim().length > 0
+  const hasQuery = q.trim().length > 0 || Boolean(tagFilter) || Boolean(dirFilter)
 
   let body: ReactNode
   if (!index) {
     body = <Empty>索引未接入 —— 把内核的 index 原语传给这个面板（kernel.index）</Empty>
   } else if (error) {
     body = <Empty className="text-destructive">索引出错：{error}</Empty>
+  } else if (regexError) {
+    body = <Empty className="text-destructive">正则无效：{regexError}</Empty>
   } else if (!hasQuery) {
     // 有历史就先给历史（点一下即复用），没有才讲用法
     body =
@@ -204,6 +266,8 @@ export function SearchPanel({
           输入关键词开始搜索。
           <br />
           空格分隔多个关键词 —— 全部命中才算结果（AND），中文按子串匹配。
+          <br />
+          下面的筛选行可以按标签 / 目录浏览，「正则」把查询当表达式。
         </Empty>
       ) : (
         <div className="px-1 py-1">
@@ -221,7 +285,12 @@ export function SearchPanel({
         </div>
       )
   } else if (sorted.length === 0) {
-    body = <Empty>{busy ? '搜索中…' : `没有匹配「${q.trim()}」的笔记`}</Empty>
+    const kw = q.trim()
+    body = (
+      <Empty>
+        {busy ? '搜索中…' : kw ? `没有匹配「${kw}」的笔记` : '没有符合筛选条件的笔记'}
+      </Empty>
+    )
   } else {
     body = sorted.map((hit, i) => (
       <button
@@ -286,8 +355,8 @@ export function SearchPanel({
             onChange={(e) => {
               const next = e.target.value
               setQ(next)
-              if (!next.trim()) {
-                // 清空输入 → 立刻回空态（不等防抖）
+              // 清空关键词且**没有筛选条件**时立刻回空态；有筛选就让查询自己跑
+              if (!next.trim() && !tagFilter && !dirFilter) {
                 setHits([])
                 setError(null)
                 setBusy(false)
@@ -343,6 +412,66 @@ export function SearchPanel({
           <Button size="sm" variant="ghost" onClick={onClose}>
             关闭
           </Button>
+        </div>
+
+        {/* 筛选行（rev173.47 · 待办 #4）：标签 / 目录 / 正则 —— 三项都交给内核字段过滤 */}
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-1.5">
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            aria-label="按标签筛选"
+            title="只显示带这个标签的笔记（标签来自 frontmatter 与正文 #标签）"
+            className="h-6 max-w-[9rem] rounded-ui-sm border border-border bg-transparent px-1 text-xs text-foreground focus:outline-none"
+          >
+            <option value="">全部标签</option>
+            {tagStats.map((t) => (
+              <option key={t.tag} value={t.tag}>
+                {t.tag}（{t.count}）
+              </option>
+            ))}
+          </select>
+          <select
+            value={dirFilter}
+            onChange={(e) => setDirFilter(e.target.value)}
+            aria-label="按目录筛选"
+            title="只显示该目录（含子目录）下的笔记"
+            disabled={dirOptions.length === 0}
+            className="h-6 max-w-[10rem] rounded-ui-sm border border-border bg-transparent px-1 text-xs text-foreground focus:outline-none disabled:opacity-50"
+          >
+            <option value="">全部目录</option>
+            {dirOptions.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setRegexOn((v) => !v)}
+            aria-pressed={regexOn}
+            title="把查询当作正则表达式（忽略大小写，例如 ^# .*清单$）"
+            className={cn(
+              'rounded-ui-sm border px-1.5 py-0.5 text-xs transition-colors duration-100',
+              regexOn
+                ? 'border-primary bg-primary zn-on-accent'
+                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            .* 正则
+          </button>
+          {(tagFilter || dirFilter || regexOn) && (
+            <button
+              type="button"
+              onClick={() => {
+                setTagFilter('')
+                setDirFilter('')
+                setRegexOn(false)
+              }}
+              className="rounded-ui-sm px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground"
+            >
+              清除筛选
+            </button>
+          )}
         </div>
 
         <div className="min-h-0 max-h-[55vh] flex-1 overflow-y-auto p-1">{body}</div>
