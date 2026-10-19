@@ -56,6 +56,57 @@ class EmojiWidget extends WidgetType {
   }
 }
 
+/** 脚注引用 `[^1]` → 上标编号（点击跳转到定义，事件由 domEventHandlers 统一处理） */
+class FootnoteRefWidget extends WidgetType {
+  num: string
+  constructor(num: string) {
+    super()
+    this.num = num
+  }
+  override eq(other: FootnoteRefWidget) {
+    return other.num === this.num
+  }
+  override toDOM() {
+    const sup = document.createElement('sup')
+    sup.className = 'zn-footnote-ref'
+    sup.dataset.num = this.num
+    sup.textContent = this.num
+    return sup
+  }
+  // 不吞事件：让 domEventHandlers 收到 mousedown（跳转）
+  override ignoreEvent() {
+    return false
+  }
+}
+
+/** 脚注定义行 `[^1]: 内容` —— 整行接管（否则 atomic 会把正文当链接渲染） */
+class FootnoteDefWidget extends WidgetType {
+  num: string
+  body: string
+  constructor(num: string, body: string) {
+    super()
+    this.num = num
+    this.body = body
+  }
+  override eq(other: FootnoteDefWidget) {
+    return other.num === this.num && other.body === this.body
+  }
+  override toDOM() {
+    const wrap = document.createElement('span')
+    const sup = document.createElement('sup')
+    sup.className = 'zn-footnote-defnum'
+    sup.textContent = this.num
+    const body = document.createElement('span')
+    body.className = 'zn-footnote-def'
+    body.textContent = this.body
+    wrap.append(sup, body)
+    return wrap
+  }
+  override ignoreEvent() {
+    return true
+  }
+}
+
 /** 行内数学：KaTeX 渲染成行内 span（源码 `$…$` 被隐藏） */
 class MathInlineWidget extends WidgetType {
   tex: string
@@ -78,6 +129,46 @@ class MathInlineWidget extends WidgetType {
   }
   override ignoreEvent() {
     return true
+  }
+}
+
+/** Mermaid 图表块：```mermaid … ```（源码先显示，渲染成功后替换成 SVG） */
+let mermaidSeq = 0
+class MermaidWidget extends WidgetType {
+  code: string
+  constructor(code: string) {
+    super()
+    this.code = code
+  }
+  override eq(other: MermaidWidget) {
+    return other.code === this.code
+  }
+  override toDOM() {
+    const div = document.createElement('div')
+    div.className = 'zn-mermaid'
+    // 先放源码（渲染失败时用户还能看到内容），成功后换成图
+    const pre = document.createElement('pre')
+    pre.className = 'zn-mermaid-src'
+    pre.textContent = this.code
+    div.appendChild(pre)
+    const id = `zn-mermaid-${++mermaidSeq}`
+    const dark = document.documentElement.dataset.theme === 'dark'
+    void import('mermaid')
+      .then(async ({ default: mermaid }) => {
+        mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'strict' })
+        const { svg } = await mermaid.render(id, this.code)
+        if (!div.isConnected) return
+        div.innerHTML = svg
+        div.classList.add('is-rendered')
+      })
+      .catch(() => {
+        /* 保持源码 */
+      })
+    return div
+  }
+  // 不吞点击：让编辑器把点击映射回文档（光标进入块 → 显示源码可编辑）
+  override ignoreEvent() {
+    return false
   }
 }
 
@@ -215,6 +306,7 @@ export type InlineMatch =
   | { kind: 'sup' | 'sub'; from: number; to: number; innerFrom: number; innerTo: number }
   | { kind: 'emoji'; from: number; to: number; ch: string }
   | { kind: 'math'; from: number; to: number; tex: string }
+  | { kind: 'footref'; from: number; to: number; num: string }
 
 /** 行内代码区间（`` `…` ``）—— 里面的语法一律不动 */
 function codeRanges(text: string): Array<[number, number]> {
@@ -273,6 +365,13 @@ export function parseInline(text: string): InlineMatch[] {
     out.push({ kind: 'emoji', from: m.index, to: m.index + m[0].length, ch })
   }
 
+  // 脚注引用 [^1]（定义行 `[^1]:` 由 buildInlineDecorations 单独处理，不进这里）
+  const footRe = /\[\^([^\]\n]+)\]/g
+  while ((m = footRe.exec(text))) {
+    if (inCode(m.index) || inMath(m.index)) continue
+    out.push({ kind: 'footref', from: m.index, to: m.index + m[0].length, num: m[1] })
+  }
+
   return out
 }
 
@@ -292,6 +391,15 @@ function lineDecorations(from: number, text: string): Range<Decoration>[] {
     if (hit.kind === 'math') {
       out.push(
         Decoration.replace({ widget: new MathInlineWidget(hit.tex) }).range(
+          from + hit.from,
+          from + hit.to,
+        ),
+      )
+      continue
+    }
+    if (hit.kind === 'footref') {
+      out.push(
+        Decoration.replace({ widget: new FootnoteRefWidget(hit.num) }).range(
           from + hit.from,
           from + hit.to,
         ),
@@ -333,21 +441,47 @@ export function findMathBlocks(doc: Text): MathBlock[] {
   return out
 }
 
+/** 块级 Mermaid：```mermaid … ``` 围栏（开闭栅栏各自独立成行） */
+export function findMermaidBlocks(doc: Text): MathBlock[] {
+  const out: MathBlock[] = []
+  let open: { from: number; after: number } | null = null
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i)
+    const t = line.text.trim()
+    if (!open) {
+      if (/^```mermaid\s*$/.test(t)) open = { from: line.from, after: line.to }
+      continue
+    }
+    if (t === '```') {
+      out.push({ from: open.from, to: line.to, tex: doc.sliceString(open.after, line.from).trim() })
+      open = null
+    }
+  }
+  return out
+}
+
 /**
  * 块级数学的装饰器。
  *
  * ⚠️ **必须由 StateField 提供**：CM6 禁止插件（ViewPlugin）提供 block 装饰器 ——
  * 实测会抛 `RangeError: Block decorations may not be specified via plugins` 并整页白屏。
  */
-function mathBlockDecorations(state: EditorState): DecorationSet {
+function blockDecorations(state: EditorState): DecorationSet {
   const decos: Range<Decoration>[] = []
   const doc = state.doc
+  const touched = (b: { from: number; to: number }) =>
+    state.selection.ranges.some((r) => r.from <= b.to && r.to >= b.from)
+
   for (const b of findMathBlocks(doc)) {
-    // 光标落在块内 → 显示源码（方便编辑）
-    const touched = state.selection.ranges.some((r) => r.from <= b.to && r.to >= b.from)
-    if (touched) continue
+    if (touched(b)) continue
     decos.push(
       Decoration.replace({ block: true, widget: new MathBlockWidget(b.tex) }).range(b.from, b.to),
+    )
+  }
+  for (const b of findMermaidBlocks(doc)) {
+    if (touched(b)) continue
+    decos.push(
+      Decoration.replace({ block: true, widget: new MermaidWidget(b.tex) }).range(b.from, b.to),
     )
   }
   return Decoration.set(decos, true)
@@ -381,7 +515,34 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
       }
       const inMath = mathRanges.some(([a, b]) => line.from >= a && line.to <= b)
       if (!inFence && !inMath && !cursorLines.has(line.number)) {
+        // 脚注定义行 `[^1]: 内容` —— **整行**替换成 widget（否则 atomic 会把正文当链接渲染）
+        const def = /^\[\^([^\]]+)\]:\s*/.exec(line.text)
+        if (def) {
+          decos.push(
+            Decoration.replace({
+              widget: new FootnoteDefWidget(def[1], line.text.slice(def[0].length)),
+            }).range(line.from, line.to),
+          )
+          pos = line.to + 1
+          continue
+        }
         decos.push(...lineDecorations(line.from, line.text))
+        // 定义列表（rev173.38）：术语行 + 下一行缩进解释
+        //   术语
+        //     解释（2+ 空格或 Tab 缩进）
+        if (line.number < doc.lines) {
+          const next = doc.line(line.number + 1)
+          const cleanTerm = line.text.trim()
+          if (
+            cleanTerm &&
+            !/^[#>*\-+|]/.test(cleanTerm) &&
+            !/^( {2,}|\t)/.test(line.text) &&
+            /^( {2,}|\t)\S/.test(next.text)
+          ) {
+            decos.push(Decoration.line({ class: 'zn-deflist-term' }).range(line.from))
+            decos.push(Decoration.line({ class: 'zn-deflist-desc' }).range(next.from))
+          }
+        }
       }
       pos = line.to + 1
     }
@@ -389,14 +550,14 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
   return Decoration.set(decos, true)
 }
 
-/** 块级数学字段（StateField 才能提供 block 装饰器） */
-const mathBlockField = StateField.define<DecorationSet>({
+/** 块级装饰字段（数学 + Mermaid；StateField 才能提供 block 装饰器） */
+const syntaxBlockField = StateField.define<DecorationSet>({
   create(state) {
-    return mathBlockDecorations(state)
+    return blockDecorations(state)
   },
   update(value, tr) {
     // 选区变化也要重算（光标进入/离开块时切换「渲染 ↔ 源码」）
-    if (tr.docChanged || tr.selection) return mathBlockDecorations(tr.state)
+    if (tr.docChanged || tr.selection) return blockDecorations(tr.state)
     return value
   },
   provide: (f) => EditorView.decorations.from(f),
@@ -405,7 +566,7 @@ const mathBlockField = StateField.define<DecorationSet>({
 /** 接入 `MarkdownEditor` 的 extensions 数组 */
 export function editorSyntaxExtensions(): Extension {
   return [
-    mathBlockField,
+    syntaxBlockField,
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet
@@ -420,5 +581,18 @@ export function editorSyntaxExtensions(): Extension {
       },
       { decorations: (v) => v.decorations },
     ),
+    // 脚注引用点击 → 跳到对应定义行（`[^1]` 的「块内跳转」）
+    EditorView.domEventHandlers({
+      mousedown(event, view) {
+        const el = (event.target as HTMLElement | null)?.closest?.('.zn-footnote-ref')
+        if (!el) return false
+        event.preventDefault()
+        const num = (el as HTMLElement).dataset.num ?? ''
+        const escaped = num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const m = new RegExp(`^\\[\\^${escaped}\\]:`, 'm').exec(view.state.doc.toString())
+        if (m) view.dispatch({ selection: { anchor: m.index }, scrollIntoView: true })
+        return true
+      },
+    }),
   ]
 }

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { Text } from '@codemirror/state'
-import { findMathBlocks, parseInline } from '../src/kernel/editor-syntax'
+import { findMathBlocks, findMermaidBlocks, parseInline } from '../src/kernel/editor-syntax'
 
 describe('parseInline · 上标', () => {
   it('识别 ^x^ 并给出内容区间', () => {
@@ -98,6 +98,38 @@ describe('findMathBlocks · 块级数学', () => {
 
   it('未闭合的 $$ 不产生块', () => {
     expect(findMathBlocks(docOf('$$\nx\n'))).toHaveLength(0)
+  })
+})
+
+describe('findMermaidBlocks · 图表', () => {
+  const docOf = (s: string) => Text.of(s.split('\n'))
+
+  it('识别 ```mermaid 围栏块', () => {
+    const blocks = findMermaidBlocks(docOf('前言\n```mermaid\ngraph TD\nA-->B\n```\n后记'))
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].tex).toBe('graph TD\nA-->B')
+  })
+
+  it('未闭合的 mermaid 围栏不产生块', () => {
+    expect(findMermaidBlocks(docOf('```mermaid\ngraph TD\n'))).toHaveLength(0)
+  })
+})
+
+describe('parseInline · 脚注引用', () => {
+  it('识别 [^1] 并带出编号', () => {
+    const hits = parseInline('这是一个脚注示例[^1]。')
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ kind: 'footref', num: '1' })
+  })
+
+  it('代码里的 [^1] 不解析', () => {
+    expect(parseInline('`[^1]`')).toHaveLength(0)
+  })
+
+  it('数学里的 [^1] 不产生脚注引用', () => {
+    const hits = parseInline('$x[^1]$')
+    expect(hits.filter((h) => h.kind === 'footref')).toHaveLength(0)
+    expect(hits.some((h) => h.kind === 'math')).toBe(true)
   })
 })
 

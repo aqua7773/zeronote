@@ -617,6 +617,48 @@ body.is-resizing * {
   font-size: 1.05em;
   line-height: 1;
 }
+/* 脚注（rev173.38）：引用 = 上标编号（可点，跳到定义行）；定义 = 编号 + 弱化正文 */
+.zn-footnote-ref {
+  color: var(--zn-accent);
+  font-size: 0.72em;
+  vertical-align: super;
+  cursor: pointer;
+  user-select: none;
+}
+.zn-footnote-def {
+  color: var(--zn-fg-muted);
+  font-size: 0.9em;
+}
+.zn-footnote-defnum {
+  color: var(--zn-accent);
+  font-size: 0.72em;
+  vertical-align: super;
+  margin-right: 2px;
+}
+/* 定义列表（rev173.38）：术语加粗、解释弱化 */
+.zn-deflist-term {
+  font-weight: 600;
+}
+.zn-deflist-desc {
+  color: var(--zn-fg-muted);
+  font-size: 0.94em;
+}
+/* Mermaid（rev173.38）：渲染成功后是 SVG 块；失败时保留源码 */
+.zn-mermaid {
+  padding: 8px 0;
+  overflow-x: auto;
+}
+.zn-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.zn-mermaid-src {
+  font-family: var(--zn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.86em;
+  color: var(--zn-fg-muted);
+  white-space: pre-wrap;
+  margin: 0;
+}
 
 /* 编辑页面容器：给右上角那个「关闭这篇笔记」一个定位基准 */
 .zn-editor-wrap {

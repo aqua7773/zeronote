@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.37
-更新时间: 2026-10-19（rev173.37 版本管理：应用版本 0.1.0 → 0.2.0 + 发版脚本）
+revision: 173.38
+更新时间: 2026-10-19（rev173.38 Markdown 语法增强第二批：脚注 / Mermaid / 定义列表）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.38 | 2026-10-19 · **Markdown 语法增强第二批**：脚注 `[^1]`（上标引用 + 点击跳转定义 + 定义行整行接管）· Mermaid ```mermaid 块（异步渲染 SVG，失败保留源码）· 定义列表（术语加粗 + 解释弱化）· 测试 **337** |
 | rev173.37 | 2026-10-19 · **版本管理**：单一来源 `package.json` · 关于页改读 vite 注入 `__APP_VERSION__` · `scripts/release.mjs` 同步三处 + `--tag` · 首版 **0.2.0**（tag `v0.2.0`）· CHANGELOG 增「应用版本」段 |
 | rev173.36 | 2026-10-19 · **Markdown 语法增强第一批**：`src/kernel/editor-syntax.ts`（内核扩展，插件 API 做不了 widget）· 上标 `^x^` · 下标 `~x~` · Emoji `:name:` · 行内/块级数学（KaTeX）· 光标行显示源码 · 测试 **17** |
 | rev173.35 | 2026-10-19 · **灵感流插件搁置**：`inspiration-flow` 移出 `BUILTIN_PLUGINS`（预装 6→**5**）· 桌面 + 手机全局目录删除 · 源码留 `examples/` · 手册预装列表更新 · 测试 **315** |
@@ -182,6 +183,21 @@ revision: 173.37
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.38（2026-10-19 · Markdown 语法增强第二批：脚注 / Mermaid / 定义列表）
+>
+> 接 rev173.36，补齐用户列的剩下三项。
+>
+> | 语法 | 实现 |
+> |---|---|
+> | 脚注 `[^1]` | 引用 → 上标编号 widget；**点击跳到定义行**（`EditorView.domEventHandlers` + `scrollIntoView`）；定义行 `[^1]: …` **整行接管**成 widget（编号 + 弱化正文）—— 不接管的话 atomic 会把正文当链接渲染（实测踩过） |
+> | Mermaid | ```mermaid 围栏 → block widget，**动态 `import('mermaid')`** 异步渲染 SVG；失败保留源码；光标进块显示源码 |
+> | 定义列表 | 术语行 + 下一行 2+ 空格/Tab 缩进 → 术语加粗（`.zn-deflist-term`）、解释弱化（`.zn-deflist-desc`） |
+>
+> 依赖：`mermaid`（动态导入，不阻塞首屏；约 2 MB 的依赖树）。
+> 测试 **337**：`tests/editor-syntax.test.ts` 22 条（含新增 `findMermaidBlocks` 围栏识别 / 未闭合、脚注引用识别）。
+>
+> **待做（第三批，可选）**：内嵌 HTML 渲染（有安全面，暂不做）。
 
 > ## 📌 rev173.37（2026-10-19 · 版本管理：应用版本 0.1.0 → 0.2.0 + 发版脚本）
 >
