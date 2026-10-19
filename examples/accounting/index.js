@@ -15,7 +15,11 @@
 
 const PANEL_ID = 'accounting.ledger'
 const STORE_KEY = 'transactions'
+/** 用户改分类后学到的「商户 → 分类」（与内置规则分开存，便于以后清空重学） */
+const CATEGORY_KEY = 'categoryMap'
 const MAX_TX = 500
+/** 手动改分类时可选的分类 */
+const CATEGORIES = ['餐饮', '交通', '购物', '通讯', '居住', '医疗', '娱乐', '收入', '其他']
 
 /* ───────────────────────── 纯函数（可单测） ───────────────────────── */
 
@@ -188,9 +192,13 @@ export function extractMerchant(title, text, app) {
   return app || '未知商户'
 }
 
-/** 自动分类：商户映射 → 关键词 → 「其他」 */
-export function classify(merchant, text) {
+/** 自动分类：用户改过的映射 → 商户表 → 关键词 → 「其他」 */
+export function classify(merchant, text, userMap = {}) {
   const m = merchant || ''
+  // 学习层：用户在面板里改过一次分类 ⇒ 下次同商户直接命中
+  for (const [k, cat] of Object.entries(userMap || {})) {
+    if (k && m.includes(k)) return cat
+  }
   for (const [k, cat] of Object.entries(MERCHANT_MAP)) {
     if (m.includes(k) || (text || '').includes(k)) return cat
   }
@@ -202,9 +210,10 @@ export function classify(merchant, text) {
 
 /**
  * 通知原文 → 交易记录（不像交易就返回 null）。
- * `n` = `{ pkg, app, title, text, time }`（原生缓存的结构）。
+ * `n` = `{ pkg, app, title, text, time }`（原生缓存的结构）；
+ * `userMap` = 用户改分类后学到的 `商户 → 分类`（可省略）。
  */
-export function parseNotification(n) {
+export function parseNotification(n, userMap = {}) {
   if (!n || !n.text) return null
   const title = n.title || ''
   const text = n.text || ''
@@ -218,7 +227,7 @@ export function parseNotification(n) {
     amount,
     type,
     merchant,
-    category: classify(merchant, text),
+    category: classify(merchant, text, userMap),
     source: n.app || n.pkg || '通知',
     pkg: n.pkg || '',
     time,
@@ -276,6 +285,15 @@ export default {
     } catch {
       txs = []
     }
+    /** 用户改分类学到的「商户 → 分类」（classify 的最优先层） */
+    let userMap = {}
+    try {
+      userMap = (await store.get(CATEGORY_KEY, {})) || {}
+    } catch {
+      userMap = {}
+    }
+    /** 正在改分类的交易 id（null = 列表视图） */
+    let editingId = null
     let status = { enabled: false, note: '正在检查通知权限…' }
 
     const refresh = () => {
@@ -340,7 +358,7 @@ export default {
       }
       let added = 0
       for (const n of notices) {
-        const tx = parseNotification(n)
+        const tx = parseNotification(n, userMap)
         if (!tx) continue
         if (txs.some((x) => x.id === tx.id)) continue
         txs.push(tx)
@@ -364,6 +382,30 @@ export default {
       } catch (e) {
         host.notify(`打开设置失败：${String(e)}`, 'error')
       }
+    }
+
+    /**
+     * 改一笔的分类，并**记住这个商户**（学习）：下次同商户的通知直接归到该类。
+     * 「手动记账 / 未知商户」不学 —— 那不是商户名，学了会污染映射。
+     */
+    async function pickCategory(id, category) {
+      if (!id || !category) return
+      const tx = txs.find((t) => t.id === id)
+      if (!tx) return
+      tx.category = category
+      const m = (tx.merchant || '').trim()
+      if (m && !['手动记账', '未知商户', '未知'].includes(m)) {
+        userMap[m] = category
+        try {
+          await store.set(CATEGORY_KEY, userMap)
+        } catch {
+          /* 学习失败不影响本条修改 */
+        }
+      }
+      await persist()
+      editingId = null
+      refresh()
+      host.notify(`已归到「${category}」${m && !['手动记账', '未知商户'].includes(m) ? `；以后「${m}」自动归类` : ''}`)
     }
 
     async function addManual(payload) {
@@ -392,6 +434,46 @@ export default {
     }
 
     function render() {
+      // 改分类视图：只显示这笔 + 分类按钮列表
+      if (editingId) {
+        const tx = txs.find((t) => t.id === editingId)
+        if (tx) {
+          return {
+            type: 'stack',
+            gap: 'md',
+            children: [
+              {
+                type: 'row',
+                align: 'center',
+                wrap: true,
+                gap: 'sm',
+                children: [
+                  { type: 'button', label: '返回', onClick: 'accounting.cancelEdit', variant: 'ghost' },
+                  {
+                    type: 'text',
+                    value: `给「${tx.merchant} ¥${tx.amount.toFixed(2)}」选分类`,
+                    variant: 'title',
+                  },
+                ],
+              },
+              {
+                type: 'list',
+                items: CATEGORIES.map((c) => ({
+                  key: c,
+                  node: {
+                    type: 'button',
+                    label: c,
+                    onClick: 'accounting.pickCategory',
+                    payload: { id: tx.id, category: c },
+                  },
+                })),
+              },
+            ],
+          }
+        }
+        editingId = null
+      }
+
       const key = monthKey(Date.now())
       const inMonth = txs.filter((t) => monthKey(t.time) === key)
       const spend = inMonth
@@ -447,11 +529,18 @@ export default {
                   {
                     type: 'badge',
                     text: t.category || '其他',
-                    tone: t.type === 'income' ? 'success' : 'default',
+                    tone: t.type === 'income' ? 'success' : t.category === '其他' ? 'warn' : 'default',
                   },
                   ...(t.status === 'pending'
                     ? [{ type: 'badge', text: '金额待补', tone: 'warn' }]
                     : []),
+                  {
+                    type: 'button',
+                    label: '改分类',
+                    onClick: 'accounting.editCategory',
+                    payload: { id: t.id },
+                    variant: 'ghost',
+                  },
                 ],
               },
             })),
@@ -509,6 +598,27 @@ export default {
         id: 'accounting.addIncome',
         title: '记账：记一笔收入（用金额输入框）',
         run: (p) => addManual({ value: p && p.value, type: 'income' }),
+      }),
+      command.register({
+        id: 'accounting.editCategory',
+        title: '记账：改这笔的分类',
+        run: (p) => {
+          editingId = (p && p.id) || null
+          refresh()
+        },
+      }),
+      command.register({
+        id: 'accounting.pickCategory',
+        title: '记账：选定分类',
+        run: (p) => pickCategory(p && p.id, p && p.category),
+      }),
+      command.register({
+        id: 'accounting.cancelEdit',
+        title: '记账：取消改分类',
+        run: () => {
+          editingId = null
+          refresh()
+        },
       }),
       view.registerPanel({
         id: PANEL_ID,

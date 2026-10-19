@@ -16,7 +16,10 @@
       { "id": "accounting.check", "title": "记账：检查通知权限" },
       { "id": "accounting.openSettings", "title": "记账：打开通知使用权设置" },
       { "id": "accounting.addExpense", "title": "记账：记一笔支出" },
-      { "id": "accounting.addIncome", "title": "记账：记一笔收入" }
+      { "id": "accounting.addIncome", "title": "记账：记一笔收入" },
+      { "id": "accounting.editCategory", "title": "记账：改这笔的分类" },
+      { "id": "accounting.pickCategory", "title": "记账：选定分类" },
+      { "id": "accounting.cancelEdit", "title": "记账：取消改分类" }
     ],
     "panels": [{ "id": "accounting.ledger", "title": "记账", "location": "main" }]
   }

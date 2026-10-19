@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.16）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.17）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -30,14 +30,14 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.16 · 记账插件 v0.1）
+## 最近一轮（rev173.17 · 记账插件 + 分类可改）
 
-- 用户：调研开源记账项目后拍板「允许改动，开工」。
-- **原生**：新插件 `tauri-plugin-notification-capture` —— Kotlin `NotificationListenerService`（白名单 / 7 字段合并 / MD5 去重 / 200 条环形缓存）+ 5 个 Rust 命令（`is_enabled` / `open_settings` / `drain` / `set_whitelist` / `get_whitelist`）。
-- **JS**：`examples/accounting`（进内置预装）—— 同步通知、解析金额/收支/商户、自动分类、跨来源去重、手动记账、手机端面板。
-- **验收**：tsc 0 · lint 3 warnings · vitest **272**（+23）· `cargo check` 过 · Android debug APK 构建 ✓。
-- **真机端到端**：授权通知使用权 → 模拟支付通知 → 「同步通知」→ 自动出现「美团外卖 ¥23.50 · 餐饮」；手动记账与月度统计同页可用。
-- 入口：手机「长按标题栏 ☰ → 菜单 → 记账」（菜单本身已有面板项）。
+- 用户：调研后拍板「允许改动，开工」；接着问「不在分类的开支通知怎么处理」→「归到其他之后能修改吗」。
+- **原生**：`tauri-plugin-notification-capture` —— Kotlin `NotificationListenerService`（白名单 / 7 字段合并 / MD5 去重 / 200 条环形缓存）+ 5 个 Rust 命令。
+- **JS**：`examples/accounting`（内置预装）—— 同步通知、解析、自动分类、跨来源去重、手动记账、**改分类 + 学习商户映射**（`categoryMap`）、手机端面板。
+- **验收**：tsc 0 · lint 3 warnings · vitest **274** · cargo 32 · check-docs · Android debug APK ✓。
+- **真机**：模拟支付通知 → 同步 →「美团外卖 ¥23.50 · 餐饮」；「其他」记录点「改分类」改完即更新，下次同商户自动命中。
+- 入口：手机「长按标题栏 ☰ → 菜单 → 记账」。
 
 ## 未决 / 下一步
 
@@ -61,7 +61,7 @@ pwsh -File scripts\verify.ps1
 | 插件签名 / 分发 | ⚠️ rev119 已做 A+B：完整性 sha256 + `.znp` 安装 + 未签名提示；**真签名（公私钥）/ 市场 / 更新通道未做** |
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
-| 记账插件 | ✅ **rev173.16 v0.1**：原生通知捕获 + JS 解析/分类/去重/手动记账/面板；真机（shell 模拟通知）端到端通过。待办：真实微信/支付宝付款文案校准、统计图表、预算、CSV 导入导出（见 HANDOFF rev173.16 §4） |
+| 记账插件 | ✅ **rev173.16 v0.1 / rev173.17 分类可改 + 学习**：原生捕获 + 解析/分类/去重/手动记账/改分类；真机端到端通过。待办：真实微信/支付宝文案校准、统计图表、预算、CSV 导入导出、AI 分类（可选） |
 | 同步 / AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 沙箱 | ⏸ 搁置（用户裁决） |

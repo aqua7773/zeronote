@@ -102,6 +102,27 @@ describe('classify 自动分类', () => {
   })
 })
 
+describe('classify 学习映射', () => {
+  it('userMap 优先于内置商户表', () => {
+    expect(classify('美团外卖', '', { 美团外卖: '娱乐' })).toBe('娱乐')
+  })
+
+  it('parseNotification 接受 userMap（下次同商户自动命中）', () => {
+    const tx = parseNotification(
+      {
+        pkg: 'com.tencent.mm',
+        app: '微信',
+        title: '微信支付',
+        text: '商户：美团外卖 付款成功 ¥23.50',
+        time: 1729312345000,
+      },
+      { 美团外卖: '娱乐' },
+    )
+    expect(tx).not.toBeNull()
+    expect(tx.category).toBe('娱乐')
+  })
+})
+
 describe('parseNotification 完整解析', () => {
   it('微信支付通知 → 一条支出记录', () => {
     const tx = parseNotification({
