@@ -25,6 +25,8 @@ tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-statusbar = { path = "plugins/tauri-plugin-statusbar" }
+# 通知捕获（rev173.16）：Android NotificationListenerService → 缓存 → 记账插件解析
+tauri-plugin-notification-capture = { path = "plugins/tauri-plugin-notification-capture" }
 # 请求 Android「所有文件访问」权限（库放公共存储时必需；系统不弹窗，只能手动开）
 tauri-plugin-androidperm = { path = "plugins/tauri-plugin-androidperm" }
 # 读 Android SAF 的 content:// URI（系统「打开方式」递来的文件；std::fs 读不了它）

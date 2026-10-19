@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 1,
+  "id": "accounting",
+  "name": "记账",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "通知自动记账与手动记账",
+  "category": "tool",
+  "capabilities": ["store", "command", "view:main"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "accounting.sync", "title": "记账：同步支付通知" },
+      { "id": "accounting.check", "title": "记账：检查通知权限" },
+      { "id": "accounting.openSettings", "title": "记账：打开通知使用权设置" },
+      { "id": "accounting.addExpense", "title": "记账：记一笔支出" },
+      { "id": "accounting.addIncome", "title": "记账：记一笔收入" }
+    ],
+    "panels": [{ "id": "accounting.ledger", "title": "记账", "location": "main" }]
+  }
+}

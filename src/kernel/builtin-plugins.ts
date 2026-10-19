@@ -38,6 +38,9 @@ import marksManifest from '../../examples/editor-marks/manifest.json?raw'
 // theme-sepia（米色主题，纯 CSS）
 import sepiaManifest from '../../examples/theme-sepia/manifest.json?raw'
 import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
+// accounting（记账：通知捕获 + 自动分类，2026-10-19 rev173.16）
+import accountingIndex from '../../examples/accounting/index.js?raw'
+import accountingManifest from '../../examples/accounting/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -63,6 +66,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   { id: 'tag-demo', files: { 'index.js': tagIndex, 'manifest.json': tagManifest } },
   { id: 'editor-marks', files: { 'index.js': marksIndex, 'manifest.json': marksManifest } },
   { id: 'theme-sepia', files: { 'manifest.json': sepiaManifest, 'theme.css': sepiaCss } },
+  {
+    id: 'accounting',
+    files: { 'index.js': accountingIndex, 'manifest.json': accountingManifest },
+  },
 ]
 
 /**

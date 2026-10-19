@@ -1,6 +1,6 @@
 # ZeroNote 文档索引
 
-> 状态：**active** ｜最后核对：2026-10-18 ｜权威范围：文档地图 + 权威矩阵（"谁说了算"）
+> 状态：**active** ｜最后核对：2026-10-19 ｜权威范围：文档地图 + 权威矩阵（"谁说了算"）
 
 **规则：同一主题只有一个 `active` 权威文档；其余文档必须写明被谁取代。**
 
@@ -18,7 +18,7 @@
 | 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
 | 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（rev 索引在文首） | **active** | — |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
-| 记账插件（竞品 / 通知捕获 / 契合度） | `docs/记账插件-调研-2026-10-19.md` | **active** | `_research/accounting/*`（竞品 README 与源码原文，historical） |
+| 记账插件（竞品 / 通知捕获 / 契合度 / v0.1 落地） | `docs/记账插件-调研-2026-10-19.md` | **active** | `_research/accounting/*`（竞品 README 与源码原文，historical） |
 | 卡死兜底（看门狗 + 启动自愈） | `docs/卡死兜底方案-2026-10-13.md` | **active** | — |
 | UI / 交互规范 | `docs/UI规划-v0.1.md` | **active**（P0-6 已按 HANDOFF 校正为 `ef3bf13`） | `_research/成熟产品布局规范.md` / `交互规范.md`（historical 调研） |
 | Android 安装（用户向） | `docs/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |

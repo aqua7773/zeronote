@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.15
-更新时间: 2026-10-19（rev173.15 记账插件调研：竞品 / 通知捕获 / 自动分类 / 契合度；下一步待拍板是否动原生层）
+revision: 173.16
+更新时间: 2026-10-19（rev173.16 记账插件 v0.1：原生通知捕获插件 + JS 记账插件 + 23 条解析单测）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.16 | 2026-10-19 · **记账插件 v0.1**：新增原生 `tauri-plugin-notification-capture`（Kotlin `NotificationListenerService` + 5 个 Rust 命令）+ `examples/accounting` JS 插件（解析/自动分类/跨来源去重/手动记账/面板，进内置预装）· 测试 **272**（+23） |
 | rev173.15 | 2026-10-19 · **记账插件调研**：开源移动端竞品（Ivy 已归档 / Cashew / MyExpenses / MMEX-A / Oinkoin 均无通知捕获）· 自动记账专项（AutoAccounting / WhereIsMyMoney 源码）· `NotificationListenerService` 机制与坑 · **结论：唯一硬缺口是原生通知监听插件** → `docs/记账插件-调研-2026-10-19.md` |
 | rev173.14 | 2026-10-19 · **设置文案精简**（当前库 / 自动保存 / 外观 / 关于各一句）+ **插件能力不再展示**（插件行能力列表与「网络与进程（自述）」整块删除）· 测试 **249** |
 | rev173.13 | 2026-10-19 · **插件页**：说明只显示 **15 字**（`clampText`，全文进悬停 title）+ **分类可折叠**（点组标题收起/展开，状态记 localStorage）· 测试 **249**；顺手修回手机 dev（`gen/android` 残留 `.probe` identifier 导致构建失败） |
@@ -160,6 +161,38 @@ revision: 173.15
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.16（2026-10-19 · 记账插件 v0.1：原生通知捕获 + 自动分类）
+>
+> 调研（rev173.15）后用户拍板「允许改动，开工」。
+>
+> ### 1 原生插件（新增）
+>
+> `src-tauri/plugins/tauri-plugin-notification-capture/`：
+> - Kotlin `NotificationCaptureService`：白名单包名（默认微信 / 支付宝 / 云闪付 / 短信）、合并 7 个文本字段、MD5 去重、SharedPreferences 环形缓存（200 条）、断连 `requestRebind`。
+> - Kotlin `NotificationCapturePlugin`：`isEnabled` / `openSettings` / `drain`（取走缓存并清空）/ `setWhitelist` / `getWhitelist`。
+> - Rust：5 个命令桥接；桌面全部 no-op（`false` / `"[]"` / `Ok`）。
+> - 集成：`src-tauri/Cargo.toml` path 依赖 + `lib.rs` 的 `.plugin(...)` + `capabilities/default.json` 的 `notification-capture:default`。
+>
+> ### 2 JS 记账插件（新增，内置预装）
+>
+> `examples/accounting/`（进 `BUILTIN_PLUGINS`，启动写全局插件根）：
+> - 纯函数：`extractAmount` / `isPaymentNotice` / `detectType` / `extractMerchant` / `classify` / `dedupeTransactions` / `parseNotification`。
+> - 面板：本月收支、账单列表、同步通知、检查权限、打开授权页、手动记支出/收入。
+> - 数据：插件 `store.transactions`（上限 500 条）；自动分类 = 商户表 → 关键词 → 其他。
+>
+> ### 3 验收
+>
+> - `tests/accounting-parse.test.ts` **23 条**全过；全量 tsc 0 · oxlint 3 warnings · vitest **272**（29 文件）· `cargo check --lib` 通过。
+> - Android debug APK：✅ `pnpm tauri android build --debug --apk` → `gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`（4m15s）。
+> - 真机（ARIA 24069RA21C · MIUI）端到端：授权「通知使用权」→ 发一条含金额的支付通知（`cmd notification post` 模拟）
+>   → 点「同步通知」→ 自动出现「美团外卖 ¥23.50 · 餐饮」；手动记账、本月收支统计同页可用（截图 `_shots/accounting-*.png`）。
+> - 真机两个坑：① MIUI 的「危险」确认框要勾选「我已知晓」；② 这台机器上 `adb input tap` 的坐标会被缩放（用 `input touchscreen swipe x y x y 120` 代替）。
+>
+> ### 4 下一步
+>
+> 真实微信/支付宝各付 1 笔（真机通知文案）→ 校准 `IGNORE` / `PAY_PHRASES` / `dedupeTransactions`；
+> 面板入口在手机端靠「长按标题栏 ☰ → 菜单 → 记账」（内核菜单已有面板项，不需要新视觉元素）。
+>
 > ## 📌 rev173.15（2026-10-19 · 记账插件调研：竞品 / 通知捕获 / 自动分类 / 契合度）
 >
 > 用户：「对现有开源的记账类项目进行调研，分析功能，技术，还有与 zeronote 的契合度，只需要移动端，最终目标是一个记账插件，要求能捕获支付通知，形成一条记录，提供自动分类，还有其他记账功能」。

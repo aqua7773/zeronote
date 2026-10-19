@@ -10,6 +10,7 @@
     "core:default",
     "dialog:default",
     "statusbar:default",
+    "notification-capture:default",
     "androidperm:default",
     "uri-reader:default",
     "core:app:allow-exit",

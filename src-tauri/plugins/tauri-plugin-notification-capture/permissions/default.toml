@@ -1,0 +1,11 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """ZeroNote 通知捕获插件：读取系统通知（微信/支付宝/银行短信等），缓存原文给记账插件解析。"""
+permissions = [
+  "allow-is-enabled",
+  "allow-open-settings",
+  "allow-drain",
+  "allow-set-whitelist",
+  "allow-get-whitelist",
+]
