@@ -6,7 +6,7 @@
  *
  * 桌面端不渲染（仍用 AppEmptyState 的起始页）。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
@@ -14,12 +14,18 @@ type Props = {
   notes: NoteMeta[]
   onOpen: (path: string) => void
   onNewNote: () => void
+  /** 长按 ＋ = 打开环形快捷入口（rev173.20）；短按仍走 onNewNote */
+  onQuickLaunch: () => void
   readText: (path: string) => Promise<string>
   onDelete: (path: string) => void
   onPurge: (path: string) => void
   /** 重命名（同目录）：组件给完整新路径 */
   onRename: (from: string, to: string) => void
 }
+
+/** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_PX = 10
 
 /** mtime（毫秒）→ `2026-10-18 14:08:32`（2026-10-18 用户要求：精确到秒） */
 const fmtTime = (ms: number) => {
@@ -46,6 +52,7 @@ export function MobileNoteCards({
   notes,
   onOpen,
   onNewNote,
+  onQuickLaunch,
   readText,
   onDelete,
   onPurge,
@@ -55,6 +62,54 @@ export function MobileNoteCards({
   const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
   const [contents, setContents] = useState<Record<string, string>>({})
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+
+  /* ── 长按 ＋（rev173.20）──
+   * 短按 = 新建笔记（不变）；按住 500ms = 打开环形快捷入口。
+   * 三个 ref 分工：定时器、按下起点（判滑动）、「长按已触发」标记（吃掉松手后补发的 click）。 */
+  const pressTimer = useRef<number | null>(null)
+  const pressStart = useRef<{ x: number; y: number } | null>(null)
+  const suppressClick = useRef(false)
+
+  const cancelPress = useCallback(() => {
+    if (pressTimer.current !== null) {
+      window.clearTimeout(pressTimer.current)
+      pressTimer.current = null
+    }
+    pressStart.current = null
+  }, [])
+
+  // 卸载时清掉挂起的定时器，别让它在组件没了之后调 onQuickLaunch
+  useEffect(() => cancelPress, [cancelPress])
+
+  const onComposePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    // 每一次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
+    suppressClick.current = false
+    cancelPress()
+    pressStart.current = { x: e.clientX, y: e.clientY }
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null
+      pressStart.current = null
+      suppressClick.current = true
+      onQuickLaunch()
+    }, LONG_PRESS_MS)
+  }
+
+  const onComposePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const start = pressStart.current
+    if (!start) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) cancelPress()
+  }
+
+  /** 短按才新建；长按那一下松手会补发 click，必须吃掉 */
+  const onComposeClick = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
+    onNewNote()
+  }
 
   useEffect(() => {
     let alive = true
@@ -151,9 +206,14 @@ export function MobileNoteCards({
       <button
         type="button"
         className="zn-mobile-compose"
-        onClick={onNewNote}
-        aria-label="新建一条"
-        title="新建一条"
+        onClick={onComposeClick}
+        onPointerDown={onComposePointerDown}
+        onPointerMove={onComposePointerMove}
+        onPointerUp={cancelPress}
+        onPointerLeave={cancelPress}
+        onPointerCancel={cancelPress}
+        aria-label="新建一条（长按打开快捷入口）"
+        title="点击新建 · 长按快捷入口"
       >
         <span className="zn-mobile-compose-plus">＋</span>
       </button>

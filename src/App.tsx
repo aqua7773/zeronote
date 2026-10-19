@@ -39,6 +39,7 @@ import { AppSidebar } from './components/AppSidebar'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
 import { MobileNoteCards } from './components/MobileNoteCards'
+import { QuickLaunch, type QuickEntry } from './components/QuickLaunch'
 import { AppResizer } from './components/AppResizer'
 import { AppStatusBar } from './components/AppStatusBar'
 import {
@@ -255,6 +256,11 @@ export default function App() {
    * 于是右侧栏取消，主区变成页面容器（编辑器 / 插件管理 / 插件面板 / 弹窗仍走 Dialog）。
    */
   const [mainView, setMainView] = useState<string>('editor')
+  /**
+   * 起始页「长按 ＋」的环形快捷入口开着没有（rev173.20）。
+   * 与菜单 / 命令面板不同，它**不是浮层互斥组**的一员（只从手机上开，且自带遮罩）。
+   */
+  const [quickOpen, setQuickOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /** 左上角菜单栏的弹出位置；null = 关闭 */
@@ -1501,6 +1507,25 @@ export default function App() {
   }, [imagePreview])
 
   /**
+   * 起始页快捷入口（rev173.20）：也压进返回键层栈 —— 遮罩开着时按 Android 返回
+   * 应当是「关遮罩」，而不是被判成"起始页没得关"直接退 App（rev68 踩过同类缺口）。
+   * Esc 由 QuickLaunch 组件自己处理，这里不重复。
+   */
+  useEffect(() => {
+    if (!quickOpen) return
+    const stack = layerExitsRef.current
+    const close = () => {
+      setQuickOpen(false)
+      return true
+    }
+    stack.push(close)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [quickOpen])
+
+  /**
    * 插入附件（rev173.3 · 用户「插入附件也放在编辑区右键菜单」，rev173.4 起**唯一入口**：
    * 「取消插入图片的入口，统一放附件，但是图片的渲染不变」）。
    *
@@ -2027,6 +2052,22 @@ export default function App() {
      那时 media query 就不准了（Android 上侧栏会突然变成常驻并占掉半个屏幕）。 */
   const showSidebar = mainView === 'editor' && (isDesktop ? sidebarVisible : sidebarOpen)
 
+  /**
+   * 起始页长按 ＋ 的环形快捷入口（rev173.20，调研见 `docs/快捷入口-调研-2026-10-19.md`）。
+   * 入口**按面板 title 找 id**，不硬编码插件 id —— 插件换名 / 多面板时由内核的面板表决定；
+   * 还没装就灰化占位（标「未安装」），不报错。空位由 QuickLaunch 自己补到 5 个。
+   */
+  const accountingPanel = panels.find((p) => p.title === '记账') ?? null
+  const quickEntries: QuickEntry[] = [
+    {
+      key: 'accounting',
+      label: '记账',
+      disabled: !accountingPanel,
+      hint: '未安装',
+      onClick: accountingPanel ? () => setMainView(accountingPanel.id) : undefined,
+    },
+  ]
+
   const saveLabel =
     saveState === 'saving'
       ? '保存中…'
@@ -2383,6 +2424,7 @@ export default function App() {
             notes={notes}
             onOpen={(p) => void openNote(p)}
             onNewNote={() => void runCore('core.newNote')}
+            onQuickLaunch={() => setQuickOpen(true)}
             readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
             onDelete={(p) => void deleteNotes([p])}
             onPurge={(p) => void purgeNotes([p])}
@@ -2447,6 +2489,10 @@ export default function App() {
           items={menuItems}
         />
       )}
+
+      {/* 手机起始页长按 ＋ 的环形快捷入口（rev173.20）；桌面端留 v0.2。
+          自带全屏遮罩，所以挂在这一层、与菜单同一个层级即可（内部 createPortal 到 body）。 */}
+      <QuickLaunch open={quickOpen} onClose={() => setQuickOpen(false)} entries={quickEntries} />
 
       {/* location: 'modal' 的面板以弹窗呈现（复用设置页同一个 Dialog 原语） */}
       <Dialog
