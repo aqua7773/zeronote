@@ -358,8 +358,9 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
 
   const host: HostApi = {
     apiVersion: API_VERSION,
-    // 应用版本号：来自 package.json（vite 注入，rev173.37）—— 不再硬编码
-    appVersion: __APP_VERSION__,
+    // 应用版本号：来自 package.json（vite 注入，rev173.37）—— 不再硬编码。
+    // 兜底：旧 dev server（config 未重启）没有 define 时退成 '0.0.0'，而不是整页崩掉。
+    appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
     platform: /Android/i.test(navigator.userAgent) ? 'android' : 'windows',
     log(level, msg) {
       hooks.onLog(`[${level}] ${msg}`, level)
