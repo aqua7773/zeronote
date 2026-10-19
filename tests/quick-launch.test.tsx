@@ -98,6 +98,12 @@ describe('MobileNoteCards · 长按 ＋', () => {
     })
     expect(props.onQuickLaunch).not.toHaveBeenCalled()
   })
+
+  it('面板形态（桌面时间流）不渲染 ＋ 按钮（用户 2026-10-19 要求）', () => {
+    render(<MobileNoteCards {...cardsProps({ variant: 'panel' })} />)
+    expect(document.querySelector('.zn-mobile-home--panel')).toBeTruthy()
+    expect(document.querySelector('.zn-mobile-compose')).toBeNull()
+  })
 })
 
 describe('QuickLaunch 环', () => {

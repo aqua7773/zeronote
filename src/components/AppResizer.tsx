@@ -9,15 +9,17 @@ export type AppResizerProps = {
   width: number
   /** 拖动中回调（160–560 已在此组件内夹好） */
   onResize: (width: number) => void
+  /** 无障碍标签；默认是笔记库栏（时间流面板传自己的） */
+  label?: string
 }
 
-export function AppResizer({ width, onResize }: AppResizerProps) {
+export function AppResizer({ width, onResize, label }: AppResizerProps) {
   return (
     <div
       className="zn-resizer"
       role="separator"
       aria-orientation="vertical"
-      aria-label="拖动调整笔记库栏宽度"
+      aria-label={label ?? '拖动调整笔记库栏宽度'}
       onPointerDown={(e) => {
         // 用 Pointer Events 而不是 mouse 系列：鼠标、触摸、触控笔一套搞定，
         // Android 上没有 mousedown，用 mouse 事件这条分隔线在手机上根本拖不动。

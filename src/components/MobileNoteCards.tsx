@@ -14,13 +14,21 @@ type Props = {
   notes: NoteMeta[]
   onOpen: (path: string) => void
   onNewNote: () => void
-  /** 长按 ＋ = 打开环形快捷入口（rev173.20）；短按仍走 onNewNote */
-  onQuickLaunch: () => void
+  /** 长按 ＋ = 打开环形快捷入口（rev173.20）；短按仍走 onNewNote。
+   *  桌面时间流面板（`variant="panel"`）不传 = 没有长按。 */
+  onQuickLaunch?: () => void
   readText: (path: string) => Promise<string>
   onDelete: (path: string) => void
   onPurge: (path: string) => void
   /** 重命名（同目录）：组件给完整新路径 */
   onRename: (from: string, to: string) => void
+  /**
+   * 渲染形态（rev173.33）：
+   * · `mobile`（默认）= 手机起始页，底部**浮动**的 ＋（fixed）；
+   * · `panel` = 桌面「时间流」面板，＋ 还原成流内按钮（面板宽度由外层容器给）。
+   * 卡片本身两种形态完全一样。
+   */
+  variant?: 'mobile' | 'panel'
 }
 
 /** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
@@ -57,6 +65,7 @@ export function MobileNoteCards({
   onDelete,
   onPurge,
   onRename,
+  variant = 'mobile',
 }: Props) {
   /** 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件） */
   const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
@@ -85,6 +94,8 @@ export function MobileNoteCards({
     // 每一次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
     suppressClick.current = false
     cancelPress()
+    // 桌面时间流面板没有环形快捷入口（那是手机起始页的能力）—— 不注册长按
+    if (!onQuickLaunch) return
     pressStart.current = { x: e.clientX, y: e.clientY }
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null
@@ -161,62 +172,62 @@ export function MobileNoteCards({
     : []
 
   return (
-    <div className="zn-mobile-home">
+    <div className={variant === 'panel' ? 'zn-mobile-home zn-mobile-home--panel' : 'zn-mobile-home'}>
       <div className="zn-mobile-cards">
         {sorted.length === 0 && (
           <div className="zn-mobile-empty">还没有笔记 —— 点下面的输入框记一条。</div>
         )}
-        {sorted.map((n) => (
-          <article
-            key={n.path}
-            className="zn-mobile-card"
-            onClick={() => onOpen(n.path)}
-            onContextMenu={(e) => {
-              // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单
-              e.preventDefault()
-              setMenu({ path: n.path, x: e.clientX, y: e.clientY })
-            }}
-          >
-            <div className="zn-mobile-card-time">
-              <span>{fmtTime(n.mtime)}</span>
-              <button
-                type="button"
-                className="zn-mobile-card-more"
-                aria-label="更多"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setMenu({ path: n.path, x: e.clientX, y: e.clientY })
-                }}
-              >
-                ⋯
-              </button>
-            </div>
-            <div className="zn-mobile-card-body">
-              {contents[n.path] === undefined
-                ? '…'
-                : contents[n.path]
-                  ? contents[n.path]
-                  : n.kind === 'note'
-                    ? '（空笔记）'
-                    : n.title}
-            </div>
-          </article>
-        ))}
+        {sorted.map((n) => {
+          // 非 note（文档/附件）不读正文，直接拿标题 —— 否则永远停在「…」（2026-10-19 面板里看到）
+          const c = contents[n.path]
+          const body = n.kind !== 'note' ? n.title : c === undefined ? '…' : c || '（空笔记）'
+          return (
+            <article
+              key={n.path}
+              className="zn-mobile-card"
+              onClick={() => onOpen(n.path)}
+              onContextMenu={(e) => {
+                // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单
+                e.preventDefault()
+                setMenu({ path: n.path, x: e.clientX, y: e.clientY })
+              }}
+            >
+              <div className="zn-mobile-card-time">
+                <span>{fmtTime(n.mtime)}</span>
+                <button
+                  type="button"
+                  className="zn-mobile-card-more"
+                  aria-label="更多"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenu({ path: n.path, x: e.clientX, y: e.clientY })
+                  }}
+                >
+                  ⋯
+                </button>
+              </div>
+              <div className="zn-mobile-card-body">{body}</div>
+            </article>
+          )
+        })}
       </div>
-      <button
-        type="button"
-        className="zn-mobile-compose"
-        onClick={onComposeClick}
-        onPointerDown={onComposePointerDown}
-        onPointerMove={onComposePointerMove}
-        onPointerUp={cancelPress}
-        onPointerLeave={cancelPress}
-        onPointerCancel={cancelPress}
-        aria-label="新建一条（长按打开快捷入口）"
-        title="点击新建 · 长按快捷入口"
-      >
-        <span className="zn-mobile-compose-plus">＋</span>
-      </button>
+      {/* ＋ 按钮只属于手机起始页（rev173.33：桌面时间流面板不要加号——用户要求） */}
+      {variant !== 'panel' && (
+        <button
+          type="button"
+          className="zn-mobile-compose"
+          onClick={onComposeClick}
+          onPointerDown={onComposePointerDown}
+          onPointerMove={onComposePointerMove}
+          onPointerUp={cancelPress}
+          onPointerLeave={cancelPress}
+          onPointerCancel={cancelPress}
+          aria-label="新建一条（长按打开快捷入口）"
+          title="点击新建 · 长按快捷入口"
+        >
+          <span className="zn-mobile-compose-plus">＋</span>
+        </button>
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   )

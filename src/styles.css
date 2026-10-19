@@ -1568,6 +1568,10 @@ body.is-resizing * {
   flex-direction: column;
   background: var(--zn-bg-subtle);
 }
+/* 卡片流的滚动条跟随暗色主题（与编辑器同一个 UA 开关；桌面时间流面板也走这里） */
+:root[data-theme='dark'] .zn-mobile-home {
+  color-scheme: dark;
+}
 
 .zn-mobile-cards {
   flex: 1;
@@ -1645,6 +1649,24 @@ body.is-resizing * {
   font-size: 30px;
   line-height: 1;
   z-index: 5;
+}
+
+/* ───────── 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）─────────
+   侧栏与编辑区之间常驻一栏，内容 = 移动端起始页那套卡片（MobileNoteCards variant="panel"）。
+   宽度由 App.tsx 的 timelineWidth 内联给出；卡片样式直接复用 .zn-mobile-card。 */
+.zn-timeline {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--zn-bg-subtle);
+  border-right: 1px solid var(--zn-border);
+  overflow: hidden;
+}
+/* 面板里没有手机那颗浮动 ＋（rev173.33 用户要求：时间流不要加号按钮）——
+   卡片流底部只留 12px 空白；手机版给浮动按钮留的 96px 只在 mobile 形态出现。 */
+.zn-mobile-home--panel .zn-mobile-cards {
+  padding-bottom: 12px;
 }
 
 .zn-mobile-compose-plus { font-size: 30px; line-height: 1; }

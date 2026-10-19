@@ -366,6 +366,14 @@ export default function App() {
     return Number.isFinite(v) && v >= 160 && v <= 560 ? v : 260
   })
   /**
+   * 桌面「时间流」面板宽度（rev173.33 · 2026-10-19 用户要求：
+   * 侧栏与编辑区之间常驻一栏，放和移动端起始页一样的时间流卡片）。拖分隔线可调，持久化。
+   */
+  const [timelineWidth, setTimelineWidth] = useState<number>(() => {
+    const v = Number(window.localStorage.getItem('zeronote.timeline.w'))
+    return Number.isFinite(v) && v >= 200 && v <= 560 ? v : 300
+  })
+  /**
    * 主区右键菜单 —— 原生菜单已被禁用，编辑操作得自己提供。
    * `items` 一并存在 state 里：菜单项要按"有没有选区 / 有没有打开笔记"现算，而这些信息
    * 来自 `editorRef`。在**事件处理时**构建（而不是渲染期读 ref）既过得了 lint，
@@ -380,6 +388,10 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
   }, [sidebarWidth])
+
+  useEffect(() => {
+    window.localStorage.setItem('zeronote.timeline.w', String(timelineWidth))
+  }, [timelineWidth])
 
   /**
    * 移动端：侧栏（抽屉）打开时隐藏状态栏、收起（首页）时显示。
@@ -2053,6 +2065,13 @@ export default function App() {
   const showSidebar = mainView === 'editor' && (isDesktop ? sidebarVisible : sidebarOpen)
 
   /**
+   * 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）：
+   * 常驻在侧栏与编辑区之间（打开笔记时也在）；移动端没有这一栏，插件页/回收站也不显示。
+   * 侧栏用 ☰ 收起时它**还在** —— 它是独立的一栏，不跟着侧栏开关走。
+   */
+  const showTimeline = isDesktop && mainView === 'editor'
+
+  /**
    * 起始页长按 ＋ 的环形快捷入口（rev173.20，调研见 `docs/快捷入口-调研-2026-10-19.md`）。
    * 入口**按面板 title 找 id**，不硬编码插件 id —— 插件换名 / 多面板时由内核的面板表决定；
    * 还没装就灰化占位（标「未安装」），不报错。空位由 QuickLaunch 自己补到 5 个。
@@ -2265,6 +2284,38 @@ export default function App() {
       {showSidebar && isDesktop && (
         /* 分隔线：拖它调左右占比（实现见 AppResizer，含 document 级事件与夹限） */
         <AppResizer width={sidebarWidth} onResize={setSidebarWidth} />
+      )}
+
+      {showTimeline && (
+        <>
+          {/* 时间流面板（rev173.33 · 2026-10-19 用户要求）：
+              侧栏与编辑区之间常驻，卡片与移动端起始页同一套（MobileNoteCards variant="panel"）；
+              打开笔记/文档/图片都走与文件树相同的派发（doc 不能 readText）。 */}
+          <div className="zn-timeline" style={{ width: timelineWidth }}>
+            <MobileNoteCards
+              variant="panel"
+              notes={notes}
+              onOpen={(p) => {
+                const meta = notes.find((n) => n.path === p)
+                if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
+                else if (meta?.kind === 'image') openImagePreview(p)
+                else void openNote(p)
+              }}
+              onNewNote={() => void runCore('core.newNote')}
+              readText={(p) =>
+                kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪'))
+              }
+              onDelete={(p) => void deleteNotes([p])}
+              onPurge={(p) => void purgeNotes([p])}
+              onRename={(from, to) => void renameNote(from, to, false)}
+            />
+          </div>
+          <AppResizer
+            width={timelineWidth}
+            onResize={setTimelineWidth}
+            label="拖动调整时间流宽度"
+          />
+        </>
       )}
 
       <main className="zn-main">
