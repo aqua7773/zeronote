@@ -240,11 +240,70 @@ const EDITOR_CSS = `
     max-height: 23vh;
   }
 }
-/* CM6 的查找/替换面板本来是「两行块流」（中间用 <br> 分隔），
-   而 atomic 给它的 form 设了不换行的 flex —— 结果替换行与后面的按钮被挤出可视区
-   （实测只剩 查找框 + ↑ ↓ ✕）。恢复块流即可拿回完整的查找+替换面板。 */
-.zn-editor .atomic-editor-search-panel form { display: block; }
-.zn-editor .atomic-editor-search-panel .cm-textfield { width: min(20rem, 55%); }
+/* 查找面板：从「编辑器顶部通栏」改成**悬挂窗**（rev173.43 · 用户要求「像命令输入框这样的悬挂窗口」）。
+ *
+ * CM6 把面板渲染在 .cm-panels.cm-panels-top（sticky、占文档流、横跨全宽），
+ * atomic 又在里面塞了 input + 计数 + 上/下/关闭。这里只动 CSS：
+ *   · 容器 → fixed 全屏遮罩层（与 .zn-palette-mask 同参数：rgba(0,0,0,.35) + 12vh）
+ *   · 面板 → 居中卡片（与 .zn-palette 同参数：560px / --zn-radius-lg / 同阴影）
+ *   · 输入框 → 去掉原子边框、占满左侧；按钮改无边框图标
+ * 点遮罩关闭在组件里做（.zn-editor 的 onPointerDown，见下）。 */
+.zn-editor .cm-panels.cm-panels-top {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  padding-top: 12vh !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 0 !important;
+}
+.zn-editor .cm-panels.cm-panels-top .cm-panel.cm-search {
+  width: min(560px, 92vw) !important;
+  padding: 0 !important;
+  background: var(--zn-bg) !important;
+  border: 1px solid var(--zn-border-strong) !important;
+  border-radius: var(--zn-radius-lg) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25) !important;
+  overflow: hidden !important;
+}
+.zn-editor .cm-search form { display: flex !important; align-items: center !important; gap: 2px !important; }
+.zn-editor .cm-search .cm-atomic-search-input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 12px 16px !important;
+  font: inherit !important;
+  font-size: 14px !important;
+  color: var(--zn-fg) !important;
+  outline: none !important;
+}
+.zn-editor .cm-search .cm-atomic-search-input::placeholder { color: var(--zn-fg-subtle) !important; }
+/* atomic 的 input focus 用 box-shadow 描边（绿色），在卡片里像一道外框 —— 去掉，只保留光标 */
+.zn-editor .cm-search .cm-atomic-search-input:focus { box-shadow: none !important; }
+.zn-editor .cm-search .cm-atomic-search-count {
+  font-size: var(--zn-text-sm) !important;
+  color: var(--zn-fg-subtle) !important;
+  white-space: nowrap !important;
+}
+.zn-editor .cm-search .cm-atomic-search-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--zn-fg-muted) !important;
+  border-radius: var(--zn-radius-sm) !important;
+  padding: 6px !important;
+  cursor: pointer !important;
+}
+.zn-editor .cm-search .cm-atomic-search-btn:hover {
+  background: var(--zn-bg-subtle) !important;
+  color: var(--zn-fg) !important;
+}
+.zn-editor .cm-search .cm-atomic-search-btn svg { width: 16px !important; height: 16px !important; }
 
 /* 自带替换栏 —— atomic 的查找面板没有替换行（见下方 extensions 的说明）。
    它渲染在 .zn-editor 之外、.zn-editor-wrap（flex column）之内，
@@ -749,6 +808,17 @@ export function MarkdownEditor({
       <div
         className="zn-editor"
         onPointerDown={(e) => {
+          /**
+           * 查找面板的遮罩（rev173.43）：点卡片外 = 关闭，与命令面板（`.zn-palette-mask`）一致。
+           * 面板是 CM6 自己创建的 DOM，没有 React 回调可接 —— 只能在这里做事件委托，
+           * 再点它自带的「关闭」按钮（`aria-label="Close"`，atomic 的 makeIconButton 固定带）。
+           */
+          const target = e.target as HTMLElement
+          const panels = target.closest?.('.cm-panels-top') as HTMLElement | null
+          if (panels && !target.closest('.cm-search')) {
+            panels.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click()
+            return
+          }
           // 点击表格 widget → 算出表格信息（工具条浮在表格左上角）；
           // 点别处 → null（隐藏）。注意用 viewRef 而不是 state：事件里读 ref 才拿得到最新 view。
           const view = viewRef.current

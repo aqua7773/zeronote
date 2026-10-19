@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.42
-更新时间: 2026-10-19（rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.43
+更新时间: 2026-10-19（rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.43 | 2026-10-19 · **查找面板改成悬挂窗**：`.cm-panels-top` → fixed 遮罩层 + 居中卡片（对齐 `.zn-palette`：560px / 12vh / 同阴影）· 点遮罩关闭 · 面板不再推正文 · 实测截图 `_shots/search-float-final.png` |
 | rev173.42 | 2026-10-19 · **Ctrl+F 修回编辑器查找**：WebView2 原生查找栏（右上角、`2/2`）禁用 —— `with_webview` + `ICoreWebView2Settings3::SetAreBrowserAcceleratorKeysEnabled(false)`（读回确认）· 真实按键实测 · cargo 依赖 `webview2-com 0.39` / `windows-core 0.62` |
 | rev173.41 | 2026-10-19 · **插件失败可见 + 外链提示**：`collectPluginDirs(onError)` 读目录失败上报 · `ensureBuiltinPlugins` 返回失败清单 → toast + 插件页错误 · 编辑器 `onNotify`（外链失败用户可见，手机提示复制到浏览器）· 测试 **358** |
 | rev173.40 | 2026-10-19 · **搜索索引增量 + 内核事件派发**：新增 `src/kernel/fs-events.ts` 包装 fs 写路径（save/create/rename/move/delete/restore）→ `index.upsert/remove` + `note:*` 事件 · `index:rebuilt` · `app:ready` / `vault:open` · 外部改动经 `fs.watch` 跟随 · 查询态不再显示过时索引数 · 测试 **349** |
@@ -187,6 +188,26 @@ revision: 173.42
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.43（2026-10-19 · 查找面板改成悬挂窗）
+>
+> 用户：「搜索栏做成像命令输入框这样的悬挂窗口」。
+>
+> | 项 | 处理 |
+> |---|---|
+> | 容器 | `.cm-panels.cm-panels-top` → `position: fixed` 全屏遮罩层（与 `.zn-palette-mask` 同参数：`rgba(0,0,0,.35)` + `12vh` + 居中） |
+> | 卡片 | `.cm-panel.cm-search` → `min(560px, 92vw)` · `--zn-radius-lg` · 与命令面板同阴影（`0 12px 40px rgba(0,0,0,.25)`）· `--zn-bg` |
+> | 输入框 | 去原子边框/底色，占满左侧，14px，placeholder 用 `--zn-fg-subtle` |
+> | 按钮 | 无边框图标按钮（hover 底色），SVG 16px |
+> | 点遮罩关闭 | `.zn-editor` 的 `onPointerDown` 事件委托：目标在 `.cm-panels-top` 但不在 `.cm-search` ⇒ 点 atomic 自带的 `button[aria-label="Close"]` |
+> | 附带效果 | 面板脱离文档流 ⇒ 打开时正文**不再被往下推**（旧版 sticky 通栏会占 55px） |
+>
+> 实测（CDP · 1100×720 窗口）：面板 rect `x=270 y=86 w=560 h=53`（水平居中）；点遮罩关闭 ✓；
+> 点卡片内部不关 ✓；输入 `oo` → `1 match`；输入框 focus 的绿色 box-shadow 已去掉。
+> 截图 `_shots/search-float-final3.png`。
+>
+> ⚠️ 遮罩是 `.cm-panels-top` 的全屏 fixed 层，点击遮罩时那一次点击**不穿透**到编辑器
+> （与命令面板同一语义：点外面 = 关闭）。
 
 > ## 📌 rev173.42（2026-10-19 · Ctrl+F 修回编辑器查找：关掉 WebView2 原生查找栏）
 >
