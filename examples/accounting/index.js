@@ -17,6 +17,8 @@ const PANEL_ID = 'accounting.ledger'
 const STORE_KEY = 'transactions'
 /** 用户改分类后学到的「商户 → 分类」（与内置规则分开存，便于以后清空重学） */
 const CATEGORY_KEY = 'categoryMap'
+/** 用户自定义的分类列表（未设置时用内置 CATEGORIES） */
+const CATEGORY_LIST_KEY = 'categories'
 const MAX_TX = 500
 /** 手动改分类时可选的分类 */
 const CATEGORIES = ['餐饮', '交通', '购物', '通讯', '居住', '医疗', '娱乐', '收入', '其他']
@@ -292,6 +294,14 @@ export default {
     } catch {
       userMap = {}
     }
+    /** 分类列表（用户可自定义；默认内置 9 个） */
+    let categories = CATEGORIES
+    try {
+      const saved = await store.get(CATEGORY_LIST_KEY, null)
+      if (Array.isArray(saved) && saved.length) categories = saved
+    } catch {
+      categories = CATEGORIES
+    }
     /** 正在改分类的交易 id（null = 列表视图） */
     let editingId = null
     let status = { enabled: false, note: '正在检查通知权限…' }
@@ -408,6 +418,27 @@ export default {
       host.notify(`已归到「${category}」${m && !['手动记账', '未知商户'].includes(m) ? `；以后「${m}」自动归类` : ''}`)
     }
 
+    /** 新增一个自定义分类（只增不删；删了会留下孤立的分类名，后续做管理页） */
+    async function addCategory(payload) {
+      const name = String((payload && payload.value) || '').trim()
+      if (!name) {
+        host.notify('先输入分类名', 'warn')
+        return
+      }
+      if (categories.includes(name)) {
+        host.notify('已经有这个分类了', 'warn')
+        return
+      }
+      categories = [...categories, name]
+      try {
+        await store.set(CATEGORY_LIST_KEY, categories)
+      } catch {
+        /* 存不下不影响本次使用 */
+      }
+      refresh()
+      host.notify(`已新增分类「${name}」，点它给这笔归类`)
+    }
+
     async function addManual(payload) {
       const raw = payload && payload.value
       const amount = Number(raw)
@@ -458,7 +489,7 @@ export default {
               },
               {
                 type: 'list',
-                items: CATEGORIES.map((c) => ({
+                items: categories.map((c) => ({
                   key: c,
                   node: {
                     type: 'button',
@@ -467,6 +498,21 @@ export default {
                     payload: { id: tx.id, category: c },
                   },
                 })),
+              },
+              {
+                type: 'row',
+                align: 'center',
+                wrap: true,
+                gap: 'sm',
+                children: [
+                  { type: 'input', bind: 'acc-newcat', placeholder: '自定义分类，如「宠物」' },
+                  {
+                    type: 'button',
+                    label: '新增分类',
+                    onClick: 'accounting.addCategory',
+                    send: 'acc-newcat',
+                  },
+                ],
               },
             ],
           }
@@ -527,20 +573,20 @@ export default {
                     value: `${fmtTime(t.time)} · ${t.merchant} ¥${t.amount.toFixed(2)}`,
                   },
                   {
-                    type: 'badge',
-                    text: t.category || '其他',
-                    tone: t.type === 'income' ? 'success' : t.category === '其他' ? 'warn' : 'default',
-                  },
-                  ...(t.status === 'pending'
-                    ? [{ type: 'badge', text: '金额待补', tone: 'warn' }]
-                    : []),
-                  {
                     type: 'button',
-                    label: '改分类',
+                    label:
+                      t.category === '其他'
+                        ? t.type === 'income'
+                          ? '收入'
+                          : '其他 · 待分类'
+                        : t.category || '其他',
                     onClick: 'accounting.editCategory',
                     payload: { id: t.id },
                     variant: 'ghost',
                   },
+                  ...(t.status === 'pending'
+                    ? [{ type: 'badge', text: '金额待补', tone: 'warn' }]
+                    : []),
                 ],
               },
             })),
@@ -619,6 +665,11 @@ export default {
           editingId = null
           refresh()
         },
+      }),
+      command.register({
+        id: 'accounting.addCategory',
+        title: '记账：新增自定义分类',
+        run: (p) => addCategory(p),
       }),
       view.registerPanel({
         id: PANEL_ID,

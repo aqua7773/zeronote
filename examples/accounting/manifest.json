@@ -19,7 +19,8 @@
       { "id": "accounting.addIncome", "title": "记账：记一笔收入" },
       { "id": "accounting.editCategory", "title": "记账：改这笔的分类" },
       { "id": "accounting.pickCategory", "title": "记账：选定分类" },
-      { "id": "accounting.cancelEdit", "title": "记账：取消改分类" }
+      { "id": "accounting.cancelEdit", "title": "记账：取消改分类" },
+      { "id": "accounting.addCategory", "title": "记账：新增自定义分类" }
     ],
     "panels": [{ "id": "accounting.ledger", "title": "记账", "location": "main" }]
   }
