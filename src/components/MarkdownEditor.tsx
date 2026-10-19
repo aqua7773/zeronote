@@ -9,6 +9,7 @@ import { AtomicCodeMirrorEditor } from '@atomic-editor/editor'
 import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
 import { editorMarkExtensions } from '../kernel/editor-marks'
+import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
 import { SourceModeView } from './SourceModeView'
@@ -580,6 +581,8 @@ export function MarkdownEditor({
     // 直接闭包捕获 onCommand：数组每次 render 现场构造，而 atomic 只在 mount / 切换
     // 笔记时读它，那时捕获到的就是当次渲染的回调，不需要 ref 中转。
     ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
+    // Markdown 语法增强（rev173.36）：上标 ^x^ / 下标 ~x~ / Emoji :name:
+    editorSyntaxExtensions(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
     imageAssetPlugin(vault, path),
   ]

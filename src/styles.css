@@ -599,6 +599,25 @@ body.is-resizing * {
 :root[data-theme='dark'] .zn-scroll-layer .zn-sb-thumb { background: rgba(186, 186, 198, 0.3); }
 :root[data-theme='dark'] .zn-scroll-layer .zn-sb-thumb:hover { background: rgba(186, 186, 198, 0.65); }
 
+/* ───────── Markdown 语法增强（rev173.36 · 2026-10-19 用户要求）─────────
+   装饰器由 `src/kernel/editor-syntax.ts` 生成：上标 ^x^ / 下标 ~x~ / Emoji :name:。
+   标记符（^ ~ :name:）在渲染时被隐藏；光标所在行显示源码（与 Live Preview 一致）。 */
+.zn-sup {
+  vertical-align: super;
+  font-size: 0.72em;
+  line-height: 0;
+}
+.zn-sub {
+  vertical-align: sub;
+  font-size: 0.72em;
+  line-height: 0;
+}
+.zn-emoji {
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 1.05em;
+  line-height: 1;
+}
+
 /* 编辑页面容器：给右上角那个「关闭这篇笔记」一个定位基准 */
 .zn-editor-wrap {
   position: relative;

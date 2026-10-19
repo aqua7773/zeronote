@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.35
-更新时间: 2026-10-19（rev173.35 灵感流插件搁置：退出预装与全局目录）
+revision: 173.36
+更新时间: 2026-10-19（rev173.36 Markdown 语法增强第一批：上标/下标/Emoji/数学公式）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.36 | 2026-10-19 · **Markdown 语法增强第一批**：`src/kernel/editor-syntax.ts`（内核扩展，插件 API 做不了 widget）· 上标 `^x^` · 下标 `~x~` · Emoji `:name:` · 行内/块级数学（KaTeX）· 光标行显示源码 · 测试 **17** |
 | rev173.35 | 2026-10-19 · **灵感流插件搁置**：`inspiration-flow` 移出 `BUILTIN_PLUGINS`（预装 6→**5**）· 桌面 + 手机全局目录删除 · 源码留 `examples/` · 手册预装列表更新 · 测试 **315** |
 | rev173.34 | 2026-10-19 · **全局自绘滚动条**：所有滚动容器统一 · 无轨道 · 6px 半透明滑块（长度封顶 120px）· 滚动出现静止淡出 · 可拖 · 编辑器 / 卡片流 / 文件树 / 面板全覆盖 · 测试 **315** |
 | rev173.33 | 2026-10-19 · **桌面「时间流」面板**：侧栏与编辑区之间常驻一栏（默认 300px，可拖 160–560）· 复用 `MobileNoteCards variant="panel"`（同一套卡片、无 ＋ 按钮、无长按）· 打开派发同文件树 · 顺带修非 note 卡片「…」与卡片流暗色滚动条 · 测试 **315** |
@@ -180,6 +181,34 @@ revision: 173.35
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.36（2026-10-19 · Markdown 语法增强第一批：上标 / 下标 / Emoji / 数学公式）
+>
+> 用户：「做一个 Markdown 补全插件，把这些样式补齐」（7 项，分多轮）。
+> **关键事实**：插件 API 只收「正则 → 5 个语义档位」的声明式规则，**加不了 widget、也改不了文本**
+> ⇒ 这批全部落在内核 `src/kernel/editor-syntax.ts`（与 `editor-marks.ts` 同层）。
+>
+> | 语法 | 实现 |
+> |---|---|
+> | 上标 `^x^` | 装饰器：隐藏 `^` + `vertical-align: super` |
+> | 下标 `~x~` | 同上（`~~删除线~~` 不误伤 —— 前后紧贴 `~` 不匹配） |
+> | Emoji `:name:` | `Decoration.replace` → EmojiWidget（内置约 100 个常用短码） |
+> | 行内数学 `$…$` | KaTeX widget（`displayMode: false`） |
+> | 块级数学 `$$…$$` | KaTeX block widget（StateField 提供；**点击块进入源码编辑，点别处恢复渲染**） |
+>
+> 规则：光标所在行不渲染（显示源码）；行内代码 / 围栏代码块 / 数学区间内不重复解析；
+> 数学**先扫**再扫上标 —— 否则 `$a^2 + b^2$` 里的 `^` 会被上标规则抢走（实测踩过）。
+>
+> ⚠️ 大坑：CM6 **禁止 ViewPlugin 提供 block 装饰器**
+> （`RangeError: Block decorations may not be specified via plugins`，整页白屏）→ 块级数学改由 `StateField` 提供。
+>
+> 依赖：`katex`（npm）+ `katex/dist/katex.min.css`（字体走 Vite 打包）。
+> 测试 **17**：`tests/editor-syntax.test.ts`（`parseInline` / `findMathBlocks` 纯函数）。
+>
+> 实测（CDP · dev 22:1x）：上标 x² / 下标 H₂O / Emoji 😄🚀👍 / 行内式 a²+b²=c² / 块级 ∫₀¹x²dx=1/3；
+> 点块 → 显示 `$$…$$` 源码可编辑，点别处 → 恢复渲染。截图 `_shots/md-syntax-07.png` / `_shots/md-syntax-09-edit.png`。
+>
+> **第二批待做**：脚注（编号 + 跳转）· Mermaid 渲染 · 定义列表。
 
 > ## 📌 rev173.35（2026-10-19 · 灵感流插件搁置：退出预装与全局目录）
 >
