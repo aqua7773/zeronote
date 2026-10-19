@@ -44,7 +44,7 @@ describe('categorizePlugin', () => {
   })
 
   it('猜不出来归工具（不新增「其它」组）', () => {
-    expect(categorizePlugin({ id: 'daily-note', entry: 'index.js' })).toBe('tool')
+    expect(categorizePlugin({ id: 'my-custom-tool', entry: 'index.js' })).toBe('tool')
     expect(categorizePlugin({ id: 'import-export', entry: 'index.js' })).toBe('tool')
   })
 })

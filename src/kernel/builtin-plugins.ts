@@ -17,9 +17,6 @@ import { invoke } from '@tauri-apps/api/core'
 import outlineMapIndex from '../../examples/outline-map/index.js?raw'
 import outlineMapManifest from '../../examples/outline-map/manifest.json?raw'
 import outlineMapCss from '../../examples/outline-map/outline.css?raw'
-// daily-note（当天目录新建）
-import dailyNoteIndex from '../../examples/daily-note/index.js?raw'
-import dailyNoteManifest from '../../examples/daily-note/manifest.json?raw'
 // doc-reader（文档阅读器）
 import docReaderIndex from '../../examples/doc-reader/index.js?raw'
 import docReaderManifest from '../../examples/doc-reader/manifest.json?raw'
@@ -53,7 +50,6 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
       'outline.css': outlineMapCss,
     },
   },
-  { id: 'daily-note', files: { 'index.js': dailyNoteIndex, 'manifest.json': dailyNoteManifest } },
   { id: 'doc-reader', files: { 'index.js': docReaderIndex, 'manifest.json': docReaderManifest } },
   {
     id: 'import-export',

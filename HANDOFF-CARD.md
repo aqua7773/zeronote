@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-19（rev173.28.2）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-19（rev173.29）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 ## 是什么
@@ -9,7 +9,7 @@
 一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— **唯一位置**（跨库共用；rev173.5 起取消库内插件）；装卸＝放/删一个文件夹。
 内核 10 原语 + 21 种 UINode + 6 个挂载位 + 真窗口 / 整窗接管。
 内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换。
-**插件预装**：新版 APK 内置 9 个常用插件（rev110 起 8 个；rev173.16 加「记账」）。
+**插件预装**：新版 APK 内置 8 个常用插件（rev110 起 8 个；rev173.16 加「记账」；2026-10-19 移除「当天目录新建」`daily-note`）。
 
 ## 验收基线（以输出为准，不写死数字）
 
@@ -30,13 +30,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 最近一轮（rev173.28.1 · 记账：原始通知诊断）
+## 最近一轮（rev173.29 · 移除测试插件 daily-note）
 
-- **诊断视图**：面板「诊断」→ 最近一次同步的 **20 条原文**（含未识别）+ `已记账/未识别` 徽标 + 原因
-  （命中忽略规则 / 没支付短语 / 有短语没金额）。只存本机 store，不导出。
-- 用途：遇到「付了钱没进账」时自己看原因，把原文发给 AI 补规则。
-- verify 基线：vitest **314** · oxlint 3 warnings · cargo 32。
-- 证据：`_shots/acc-63-diag.png`。
+- 删 `examples/daily-note`（当天目录新建）＋ 内置预装条目（9 → **8**）＋ 全局/手机副本；新建笔记回到内核默认命名。
+- **立硬约束 8**：测试/验收产生的插件不留在「功能」里（不预装、不进用户列表、验收完即删）。
+- 测试基线：vitest **314**；证据：无（删除类改动，以「reload 后目录不再出现」为判据）。
 
 ### 本轮踩坑（内置插件开发必读）
 
@@ -67,6 +65,7 @@ pwsh -File scripts\verify.ps1
 | capability 安装确认 | ✅ rev119 安装 `.znp` 时弹出自述能力清单（内核仍不拦截） |
 | iframe ↔ 宿主能力通道 | ❌ 未做（v0.2） |
 | 记账插件 | ✅ **v0.2 完成**（rev173.16 原生捕获 / rev173.17 分类学习 / rev173.18 点分类即改+自定义分类 / rev173.28 统计图表 + CSV 导入导出 / **rev173.28.1 原始通知诊断**）。待办：**真实文案校准**（诊断视图已就绪：遇到漏记看原文+原因，发来补规则）· 预算 · 分类删除/排序 · AI 分类（可选） |
+| 暗色模式滚动条 | ❌ **待处理**（2026-10-19 用户报）：编辑器右侧内容滚动条没跟随暗色主题，仍是默认浅色。修法候选：`color-scheme: dark`（WebView2 支持）或 `::-webkit-scrollbar` 用 `--zn-*` 上色 |
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
@@ -94,7 +93,7 @@ pwsh -File scripts\verify.ps1
 - **手机白屏（HMR 失败）**：vite 报 `Failed to reload /src/App.tsx` 后页面不回滚 ⇒ 白屏
   （先看 logcat 是不是 `tauri::protocol::tauri: Failed to request …: error sending request`）；
   `adb shell am force-stop com.aqua.zeronote.debug` 重开即恢复（2026-10-19 实测）。
-- **测试库 `_tmp-vault-tb/`**：1 篇笔记（`新笔记-18-09-36.md`）+ 3 个只读文档；`.zn/plugins` 有 10 个插件目录（daily-note / editor-marks / inspiration-flow / tag-demo / theme-sepia / asset-probe / doc-reader / import-export / net-demo / outline-map）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
+- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（11 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
 - **安全区**：三处各吃 `env(safe-area-inset-*)` —— `.zn-app` / `.zn-plugin-window` / `.zn-shell-host > .zn-shell-mount`。
 - **手机库插件会与仓库漂移**：与 `examples/<id>/index.js` **比大小**；同步只能手动 `adb push`（推到明确文件路径）。
   实测路径（dev 版）：`adb push <本地文件> /data/local/tmp/x.js` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x.js .zn/plugins/<id>/index.js`（`run-as` 的 cwd = `/data/user/0/com.aqua.zeronote.debug`），再页面 reload。
@@ -125,6 +124,11 @@ pwsh -File scripts\verify.ps1
    - 改前端（`.tsx/.ts/.css`）→ 页面 `location.reload()` 就生效；白屏也先 reload 一次
    - 只有改了 **Rust（`src-tauri/src`）/ 原生插件** 才需要重装 APK
    - **测试机不装 release 包**（`com.aqua.zeronote` 是分发包：内置 dist、不接 1420、与 dev 数据目录不同）
+8. **测试 / 验收产生的插件不留在「功能」里**（2026-10-19 用户定）：探针、夹具、演示插件只放 `examples/` 或临时目录，验收完即删；
+   **不写进 `BUILTIN_PLUGINS`、不进预装、不留在用户插件列表**。功能插件必须来自用户的明确需求（规格条目或原话），
+   不接受「顺手做的」「演示用的」「为了验证某个 API 而建的」混进功能清单。
+9. **改 `examples/` 后必须让页面 reload 再重扫**：`ensureBuiltinPlugins` 用 vite `?raw` 打包的内容**覆盖**全局目录；
+   只点「重新扫描」或用旧 raw 的页面 reload 都会把刚删/刚改的插件写回旧版。
 
 ## 授权边界（给 AI）
 

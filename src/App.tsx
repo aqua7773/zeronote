@@ -1172,8 +1172,8 @@ export default function App() {
          * **这条命令是可以被插件接管的** —— 插件在 `apply()` 里
          * `command.bind('core.newNote', …)` 就会覆盖掉上面这个 `run`
          * （`bind` 对已存在的 id 只换实现、不动元数据）。
-         * 规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」正是靠这个接管点实现，
-         * 见 `examples/daily-note/`。
+         * 规格 §2.2 的「'笔记'目录下只能在当天时间目录新建」正是靠这个接管点实现
+         * （示例插件 `daily-note` 2026-10-19 已按「测试插件不留在功能」移除，接管点本身不变）。
          */
         run: (payload) => {
           const p = (payload ?? {}) as { name?: string }
