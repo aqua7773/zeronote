@@ -506,6 +506,7 @@ export function FileTree({
   onDeleteMany,
   onPurgeMany,
   layers,
+  onOpenTimeline,
 }: {
   notes: NoteMeta[]
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
@@ -547,6 +548,11 @@ export function FileTree({
    * 不传也能用 —— 返回键只在 Android 存在，桌面端不需要。
    */
   layers?: RefObject<Array<() => boolean>>
+  /**
+   * 桌面「时间流」的入口（rev173.48 · 用户要求「文件树右键菜单加打开时间流」）。
+   * 只有桌面由 App 传；手机端没有时间流 ⇒ 不传，菜单里就不出现这一项。
+   */
+  onOpenTimeline?: () => void
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   /**
@@ -1132,6 +1138,18 @@ export function FileTree({
               },
             })
           }
+        }
+        // ── 打开时间流（rev173.48 · 用户要求「文件树右键菜单加打开时间流」）──
+        // 放在最后：它是"视图开关"，不是文件操作。空白处右键（menu.path === null）也能用。
+        if (onOpenTimeline) {
+          list.push({
+            label: '打开时间流',
+            divider: true,
+            onClick: () => {
+              setMenu(null)
+              onOpenTimeline()
+            },
+          })
         }
         return list
       })()

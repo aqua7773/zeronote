@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { WindowControls } from './WindowControls'
 
@@ -75,6 +76,35 @@ export function TitleBar({
     transition: `margin-top 450ms ${EASE}, opacity 450ms ${EASE}`,
   }
 
+  /**
+   * 长按 ☰ = 打开菜单（rev173.48 · 用户要求「手机搜索入口：长按 ☰ 触发桌面右键动作」）。
+   *
+   * 背景：桌面右键 ☰ 一直是菜单入口；手机没有右键，而 ☰ 的短按被侧栏开关占用
+   * （2026-10-18 用户要求），于是手机上**没有任何菜单入口** —— 搜索 / 插件管理 / 设置
+   * 在手机上全是死角。长按复用同一个 `onMenu`（宿主弹的是同一份 menuItems）。
+   *
+   * 时长与卡片长按同一量级（500ms）；松手补发的 click 必须吃掉，否则会顺带切一次侧栏。
+   */
+  const HOLD_MS = 500
+  const holdTimer = useRef<number | null>(null)
+  const suppressClick = useRef(false)
+  const cancelHold = () => {
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current)
+      holdTimer.current = null
+    }
+  }
+  const onHoldStart = () => {
+    // 每次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
+    suppressClick.current = false
+    cancelHold()
+    holdTimer.current = window.setTimeout(() => {
+      holdTimer.current = null
+      suppressClick.current = true
+      onMenu({ x: 0, y: 32 })
+    }, HOLD_MS)
+  }
+
   return (
     <header
       className="zn-titlebar"
@@ -86,8 +116,17 @@ export function TitleBar({
       <button
         type="button"
         className="zn-icon-btn"
+        onPointerDown={onHoldStart}
+        onPointerUp={cancelHold}
+        onPointerLeave={cancelHold}
+        onPointerCancel={cancelHold}
         onClick={() => {
-          // 桌面：左键 = 文件树栏开关（2026-10-18 用户要求）；菜单让给右键。
+          // 长按那一下松手会补发 click —— 吃掉它，别顺带切一次侧栏
+          if (suppressClick.current) {
+            suppressClick.current = false
+            return
+          }
+          // 桌面：左键 = 文件树栏开关（2026-10-18 用户要求）；菜单让给右键与长按。
           // 移动端：没有 onToggleSidebar ⇒ 保持原行为（左键弹菜单，抽屉从菜单进）。
           if (onToggleSidebar) {
             onToggleSidebar()
@@ -104,7 +143,7 @@ export function TitleBar({
           e.preventDefault()
           onMenu({ x: 0, y: 32 })
         }}
-        title={onToggleSidebar ? '切换文件树栏（右键打开菜单）' : '菜单'}
+        title={onToggleSidebar ? '切换文件树栏（右键或长按打开菜单）' : '菜单'}
         aria-label={onToggleSidebar ? '切换文件树栏' : '菜单'}
         aria-haspopup={onToggleSidebar ? undefined : 'menu'}
       >

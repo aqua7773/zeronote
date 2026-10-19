@@ -59,4 +59,38 @@ describe('TitleBar ☰ / ⋯', () => {
     expect(onMenu).toHaveBeenCalledWith({ x: 0, y: 32 })
     expect(screen.queryByRole('button', { name: '切换文件树栏' })).toBeNull()
   })
+
+  /**
+   * 长按 ☰ = 菜单（rev173.48 · 用户要求「手机搜索入口：长按 ☰ 触发桌面右键动作」）。
+   * 手机没有右键，而短按被侧栏开关占用 —— 长按是手机上唯一的菜单入口。
+   */
+  it('长按 ☰ 500ms 弹菜单；松手补发的 click 被吃掉，不再切侧栏', () => {
+    vi.useFakeTimers()
+    try {
+      const { onMenu, onToggleSidebar } = renderBar({ toggle: true })
+      const btn = screen.getByRole('button', { name: '切换文件树栏' })
+
+      fireEvent.pointerDown(btn)
+      vi.advanceTimersByTime(499)
+      expect(onMenu).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(onMenu).toHaveBeenCalledWith({ x: 0, y: 32 })
+
+      fireEvent.pointerUp(btn)
+      fireEvent.click(btn)
+      expect(onToggleSidebar).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('短按 ☰ 仍切侧栏（长按逻辑不干扰，定时器被取消）', () => {
+    const { onMenu, onToggleSidebar } = renderBar({ toggle: true })
+    const btn = screen.getByRole('button', { name: '切换文件树栏' })
+    fireEvent.pointerDown(btn)
+    fireEvent.pointerUp(btn)
+    fireEvent.click(btn)
+    expect(onToggleSidebar).toHaveBeenCalledTimes(1)
+    expect(onMenu).not.toHaveBeenCalled()
+  })
 })

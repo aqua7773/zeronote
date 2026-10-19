@@ -36,6 +36,8 @@ export type AppSidebarProps = {
   onOpenVaultMenu: (x: number, y: number) => void
   /** 打开设置（2026-10-18 用户要求：侧栏头部放一个设置图标，不必再进 ☰ 菜单） */
   onOpenSettings: () => void
+  /** 桌面「时间流」入口（rev173.48）—— 文件树右键菜单用；手机端不传 */
+  onOpenTimeline?: () => void
 }
 
 export function AppSidebar({
@@ -60,6 +62,7 @@ export function AppSidebar({
   onOpenTrash,
   onOpenVaultMenu,
   onOpenSettings,
+  onOpenTimeline,
 }: AppSidebarProps) {
   return (
     <aside className={`zn-sidebar${open ? ' is-open' : ''}`} style={{ width }}>
@@ -101,6 +104,7 @@ export function AppSidebar({
           onPaste={onPaste}
           onDuplicate={onDuplicate}
           layers={layers}
+          onOpenTimeline={onOpenTimeline}
         />
       ) : (
         <div

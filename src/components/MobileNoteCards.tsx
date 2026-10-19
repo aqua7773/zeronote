@@ -29,6 +29,11 @@ type Props = {
    * 卡片本身两种形态完全一样。
    */
   variant?: 'mobile' | 'panel'
+  /**
+   * 桌面时间流面板的「关闭时间流」（rev173.48 · 用户要求）。
+   * 只由 App 在 `variant="panel"` 时传；手机起始页不传 ⇒ 卡片菜单里不出现这一项。
+   */
+  onCloseTimeline?: () => void
 }
 
 /** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
@@ -66,6 +71,7 @@ export function MobileNoteCards({
   onPurge,
   onRename,
   variant = 'mobile',
+  onCloseTimeline,
 }: Props) {
   /** 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件） */
   const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
@@ -168,6 +174,19 @@ export function MobileNoteCards({
             if (window.confirm('彻底删除？不进回收站，永久抹掉 —— 撤不回来。')) onPurge(menu.path)
           },
         },
+        // 桌面时间流：卡片菜单也能关掉这一栏（rev173.48 · 用户要求「时间流右键菜单加关闭时间流」）
+        ...(onCloseTimeline
+          ? [
+              {
+                label: '关闭时间流',
+                divider: true,
+                onClick: () => {
+                  setMenu(null)
+                  onCloseTimeline()
+                },
+              } satisfies MenuItem,
+            ]
+          : []),
       ]
     : []
 

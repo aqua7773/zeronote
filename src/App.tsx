@@ -394,6 +394,20 @@ export default function App() {
     return Number.isFinite(v) && v >= 200 && v <= 560 ? v : 300
   })
   /**
+   * 桌面「时间流」面板的**开关**（rev173.48 · 用户要求「时间流右键菜单里加关闭时间流」）。
+   *
+   * 之前它是个纯派生值（桌面 + 编辑器视图就一直显示），没有关掉的办法。
+   * 持久化到 localStorage —— 用户关掉之后，重开应用不该又自己弹回来。
+   * 默认开（与 rev173.33 的行为一致）。
+   */
+  const [timelineOpen, setTimelineOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('zeronote.timeline.open') !== '0'
+    } catch {
+      return true
+    }
+  })
+  /**
    * 主区右键菜单 —— 原生菜单已被禁用，编辑操作得自己提供。
    * `items` 一并存在 state 里：菜单项要按"有没有选区 / 有没有打开笔记"现算，而这些信息
    * 来自 `editorRef`。在**事件处理时**构建（而不是渲染期读 ref）既过得了 lint，
@@ -412,6 +426,14 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('zeronote.timeline.w', String(timelineWidth))
   }, [timelineWidth])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('zeronote.timeline.open', timelineOpen ? '1' : '0')
+    } catch {
+      /* 存不下（隐私模式 / 配额）就只在本次会话生效 */
+    }
+  }, [timelineOpen])
 
   /**
    * 移动端：侧栏（抽屉）打开时隐藏状态栏、收起（首页）时显示。
@@ -2059,6 +2081,17 @@ export default function App() {
       )
     }
 
+    // ── 时间流（桌面）：打开 / 关闭（rev173.48 · 用户要求「时间流右键菜单加关闭时间流」）──
+    // 时间流区域右键也走这个菜单 ⇒ 打开着的时候这里就是「关闭时间流」；
+    // 关掉之后在文件树 / 编辑器 / 起始页右键，同一项变成「打开时间流」。
+    if (isDesktop && mainView === 'editor') {
+      items.push({
+        label: timelineOpen ? '关闭时间流' : '打开时间流',
+        divider: true,
+        onClick: () => setTimelineOpen((v) => !v),
+      })
+    }
+
     // ── 设置 ──
     items.push({
       label: '设置',
@@ -2152,8 +2185,9 @@ export default function App() {
    * 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）：
    * 常驻在侧栏与编辑区之间（打开笔记时也在）；移动端没有这一栏，插件页/回收站也不显示。
    * 侧栏用 ☰ 收起时它**还在** —— 它是独立的一栏，不跟着侧栏开关走。
+   * rev173.48 起多了**开关**：右键它（或主区菜单）可以关掉，右键文件树/编辑器可以再打开。
    */
-  const showTimeline = isDesktop && mainView === 'editor'
+  const showTimeline = isDesktop && mainView === 'editor' && timelineOpen
 
   /**
    * 起始页长按 ＋ 的环形快捷入口（rev173.20，调研见 `docs/快捷入口-调研-2026-10-19.md`）。
@@ -2324,6 +2358,26 @@ export default function App() {
           // 树项自带「重命名 / 删除」菜单，别抢它
           const el = e.target
           if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
+          /**
+           * 时间流面板（桌面 · rev173.48）：空白处右键给「关闭时间流」。
+           * 卡片上右键/长按有自己的菜单（重命名/删除/关闭时间流），**不抢**；
+           * 面板里其余地方原本会被下面 `.zn-mobile-home` 那条排除掉（结果什么都不弹）。
+           */
+          if (
+            el instanceof HTMLElement &&
+            el.closest('.zn-timeline') &&
+            !el.closest('.zn-mobile-card')
+          ) {
+            setMainMenu({
+              x: e.clientX,
+              y: e.clientY,
+              items: [
+                { label: '关闭时间流', onClick: () => setTimelineOpen(false) },
+                { label: '设置', divider: true, onClick: () => openOverlay('settings') },
+              ],
+            })
+            return
+          }
           // 移动端卡片流自带长按菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」），别抢它
           if (el instanceof HTMLElement && el.closest('.zn-mobile-home')) return
           // 文件列表区域的**空白处**也归文件树 —— 它要在库根「新建文件 / 新建文件夹」。
@@ -2362,6 +2416,8 @@ export default function App() {
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
           onOpenSettings={() => openOverlay('settings')}
+          /* 时间流是桌面能力：手机端不传 ⇒ 文件树菜单里不出现这一项（rev173.48） */
+          onOpenTimeline={isDesktop ? () => setTimelineOpen(true) : undefined}
         />
       )}
 
@@ -2392,6 +2448,7 @@ export default function App() {
               onDelete={(p) => void deleteNotes([p])}
               onPurge={(p) => void purgeNotes([p])}
               onRename={(from, to) => void renameNote(from, to, false)}
+              onCloseTimeline={() => setTimelineOpen(false)}
             />
           </div>
           <AppResizer
