@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.45
-更新时间: 2026-10-20（rev173.45 交接：下个会话开工粘贴图片；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.46
+更新时间: 2026-10-20（rev173.46 粘贴图片落地；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.46 | 2026-10-20 · **编辑器粘贴图片**（待办 #1）：新增 Rust `import_attachment_b64`（字节直接落笔记同目录，与 `import_attachment` 共用校验/撞名逻辑）· `src/lib/paste-image.ts`（MIME→扩展名 / 分块 base64 / 10 MB 上限）· CM6 `paste` handler（**只有带图片才接管**，文字粘贴照常）· `App.insertPastedImage` + `__znPasteImage` 出口 · 桌面真实 Ctrl+V 实测（图片落盘 + 正文插图 + 文字粘贴回归）· 测试 **367** |
 | rev173.45 | 2026-10-20 · **交接**：本会话 173.40–173.44 收口 · 交接时状态 · **下个会话开工 #1 粘贴图片的执行路径**（新增 Rust `import_attachment_b64` + CM6 paste handler）· #4/#3/#2 起点 |
 | rev173.44 | 2026-10-20 · **待办登记（用户指定 4 项）**：粘贴图片 / 搜索筛选（正则·标签·属性）/ 全局替换 / 多标签页·分屏 —— 明细与验收口径进 `HANDOFF-CARD.md`「待办」段；建议顺序 1→4→3→2 |
 | rev173.43 | 2026-10-19 · **查找面板改成悬挂窗**：`.cm-panels-top` → fixed 遮罩层 + 居中卡片（对齐 `.zn-palette`：560px / 12vh / 同阴影）· 点遮罩关闭 · 面板不再推正文 · 实测截图 `_shots/search-float-final.png` |
@@ -190,6 +191,50 @@ revision: 173.45
 | rev31 | 同日 13:00 · 文件关联落地：双击 .md 用 ZeroNote 打开 |
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
+
+> ## 📌 rev173.46（2026-10-20 · 编辑器粘贴图片：截图 Ctrl+V → 落笔记同目录 → 插入 `![](相对路径)`）
+>
+> 用户 2026-10-20 指定待办 #1（顺序 1→4→3→2 的第一项）。
+>
+> ### 做了什么
+>
+> | 层 | 改动 |
+> |---|---|
+> | Rust | 新增 `import_attachment_b64(vault, note_path, stem, ext, base64)`（`src-tauri/src/lib.rs`）：内存字节直接写进笔记所在目录。与 `import_attachment` **共用**新抽出的 `attachment_plan` / `unique_attachment_path` / `attachment_rel` / `attachment_ext`（扩展名小写 + `BLOCKED_EXTS` + stem 白名单 + 撞名递增 + `resolve` 目录校验）· 服务端 32 MB 兜底 |
+> | 前端逻辑 | 新增 `src/lib/paste-image.ts`（纯逻辑可单测）：`pickPastedImage` / `pasteImageExt`（MIME → 文件名 → png，后缀必须在 `IMAGE_EXTS` 白名单）· `bytesToBase64`（32 KB 分块，防大图爆栈）· `MAX_PASTE_IMAGE_BYTES = 10 MB` |
+> | 编辑器 | `MarkdownEditor` 增 `onPasteImage` prop；extensions 里 `Prec.high(EditorView.domEventHandlers({ paste }))`：**只有剪贴板确实带 `image/*` 才接管**，否则 `return false` 放行默认粘贴 |
+> | App | `insertAttachmentSyntax`（落盘后写正文，两条入口共用）· `insertPastedImage`（invoke → `pathFromNote` → `imageInsertion` → toast）· 脚本出口 `window.__znPasteImage(base64, ext)` |
+> | 测试 | Rust **+2**（写字节 / 撞名 · 黑名单 / 穿越 / 非法 base64 / 空内容）· 前端 `tests/paste-image.test.ts` **9 条** |
+>
+> ### 实测（桌面 · 2026-10-20 00:50）
+>
+> - 系统剪贴板放一张 1920×1080 PNG → 编辑器 Ctrl+V → toast `已插入图片 image-20261020-005027.png`
+> - 落盘 `_tmp-vault-tb/image-20261020-005027.png`（103966 B，与剪贴板一致）→ 正文出现 `![](image-20261020-005027.png)`，编辑器内图片正常渲染（截图 `_shots/paste-02-inserted.png`）
+> - **回归**：剪贴板为纯文本时 Ctrl+V 正常插入文字（未被 paste handler 吞掉）
+> - 两次 Ctrl+Z 撤回到原内容 `Qoozz`；测试图片已从测试库删除（库恢复 3 md + 3 文档 + 2 附件）
+>
+> ### 踩坑
+>
+> - **atomic 在 mount / 切笔记时捕获 `extensions`**：改完 paste handler 后必须 `location.reload()` 才生效 —— HMR 后仍挂在旧 view 上，首次 Ctrl+V 无反应（本轮真踩到）
+> - **Chromium 剪贴板图片在 `clipboardData.files` 里**（`type: image/png` / `name: image.png`），不在 `items` 的字符串里 —— 从 `files` 取即可
+> - 系统级 Ctrl+V 要窗口在前台：先 `SetForegroundWindow` 再 `gentle_keys`（脚本 `_tmp-test/focus-window.ps1`，测试件不入库）
+>
+> ### 手机状态（2026-10-20 01:00 实测）
+>
+> - 新增 **Rust** 命令 ⇒ dev APK 必须重装（只改前端才 reload 即生效）；已按硬约束 7 的例外走一次 `pnpm tauri android dev`。
+> - **`__znPasteImage` 链路在 Android 通过**：canvas 生成 PNG → `import_attachment_b64` → 落 `/storage/emulated/0/Documents/ZeroNote/image-20261020-010016.png`（622 B）→ 正文 `![](...)` + 图片渲染正常（截图 `_shots/phone-paste-17346.png`）。测试数据已清理（笔记写回 0 字节、图片删除）。
+> - **真实「长按粘贴」仍未验证**：没法从 adb 可靠地把图片放进 Android 剪贴板 —— 页面内 `execCommand('copy')` 返回 false，`navigator.clipboard.write` 报 `NotAllowedError: Write permission denied`（WebView 未授权）。
+>   下次真机验证路径：手机截图 → 相册/浏览器长按「复制图片」→ 编辑器长按「粘贴」；若 `clipboardData.files` 为空 ⇒ 降级「仅桌面」并在 UI 明确提示（rev173.45 的兜底）。
+>
+> ### 验收基线
+>
+> `scripts\verify.ps1` 全过：tsc 0 / oxlint **3 warnings** / cargo test **34 passed** / check-docs / vitest **367 passed**（2026-10-20 01:06）。
+>
+> ### 下一步
+>
+> - 待办 #4 搜索筛选（`index.query` 已支持 `tag`/`dir`，UI 未接；正则要动 `index-api.ts` 的匹配层）
+> - 之后 #3 全局替换 → #2 多标签页 · 分屏
+> - 顺手项：手机真机验一次「长按粘贴图片」（见上「手机状态」）
 
 > ## 📌 rev173.45（2026-10-20 · 交接：下个会话从「粘贴图片」开工）
 >

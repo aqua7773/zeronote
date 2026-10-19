@@ -12,6 +12,12 @@ import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
+import {
+  MAX_PASTE_IMAGE_BYTES,
+  bytesToBase64,
+  pasteImageExt,
+  pickPastedImage,
+} from '../lib/paste-image'
 import { SourceModeView } from './SourceModeView'
 import { TableToolbar, type TableInfo } from './TableToolbar'
 
@@ -173,6 +179,16 @@ type Props = {
    * 宿主传 `setToast` 进来；不传则仍退回 console（浏览器预览 / 单测）。
    */
   onNotify?: (msg: string) => void
+  /**
+   * 粘贴图片（rev173.46 · 用户要求「截图后 Ctrl+V 直接进正文」）。
+   *
+   * 剪贴板里的图片只有内存字节、没有磁盘路径，所以编辑器**不自己落盘**：
+   * 它只负责读出字节、推断扩展名，交给宿主（App）调 `import_attachment_b64`
+   * 写进笔记所在目录并插入 `![](...)`。
+   *
+   * 不传则**不接管粘贴**（放行浏览器默认行为），避免把事件吞掉。
+   */
+  onPasteImage?: (img: { base64: string; ext: string }) => void | Promise<void>
   /**
    * 内嵌 HTML 是否渲染（rev173.39 · 设置页开关；默认开）。
    * 关闭时 HTML 语法原样显示（源码），打开时按白名单渲染（属性剔除）。
@@ -407,6 +423,7 @@ export function MarkdownEditor({
   onWikiLinkOpen,
   onLocalLinkOpen,
   onNotify,
+  onPasteImage,
   layers,
   renderHtml = true,
 }: Props) {
@@ -620,6 +637,38 @@ export function MarkdownEditor({
   // （它的 mount effect 只依赖 documentId）。因此不需要 useRef/useState 缓存 ——
   // 也顺带避免了在 render 期读 `*.current`（oxlint 的 react(refs) 会报）。
   const extensions: Extension[] = [
+    // 粘贴图片（rev173.46 · 用户「截图后 Ctrl+V 直接进正文」）。
+    //
+    // 两条硬规矩：
+    //  1. **只有剪贴板确实带图片时才接管**（`pickPastedImage` 返回 null 就 `return false`）。
+    //     否则会把从网页 / Excel 复制的文字也吞掉 —— 那是最常见的粘贴场景。
+    //  2. 先 `preventDefault` 再异步读字节：WebView 里 `File` 只在事件回调期间有效，
+    //     晚一步读就是空。
+    // `Prec.high`：万一 atomic 将来自己加 paste 处理器，这一层也要先跑。
+    //
+    // 回调**直接闭包捕获 prop**（与上面的 `onCommand` 同款）：atomic 在 mount /
+    // 切笔记时重建 view 并重新捕获 extensions，那时拿到的就是当次渲染的回调；
+    // 走 ref 反而会在 render 期读 `*.current`（oxlint 的 react(refs) 会报）。
+    Prec.high(
+      EditorView.domEventHandlers({
+        paste: (e) => {
+          const file = pickPastedImage(e.clipboardData?.files)
+          if (!file || !onPasteImage) return false
+          e.preventDefault()
+          if (file.size > MAX_PASTE_IMAGE_BYTES) {
+            const mb = (n: number) => (n / 1024 / 1024).toFixed(1)
+            onNotify?.(`图片太大（${mb(file.size)} MB），上限 ${mb(MAX_PASTE_IMAGE_BYTES)} MB`)
+            return true
+          }
+          const ext = pasteImageExt(file)
+          void file
+            .arrayBuffer()
+            .then((buf) => onPasteImage({ base64: bytesToBase64(new Uint8Array(buf)), ext }))
+            .catch((err) => onNotify?.(`读取剪贴板图片失败：${String(err)}`))
+          return true
+        },
+      }),
+    ),
     // Tab / Shift-Tab：列表行手动缩进（见 `kernel/editor-indent.ts`）。
     // `Prec.high` 保证排在 atomic 自带的 `indentWithTab` 之前。
     Prec.high(

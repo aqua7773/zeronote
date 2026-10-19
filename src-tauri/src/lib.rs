@@ -995,34 +995,20 @@ const BLOCKED_EXTS: &[&str] = &[
 /// 命名：`<stem>.<ext>`，重名依次 `<stem>-1.<ext>`、`<stem>-2.<ext>`……**不覆盖**任何已有文件。
 /// `stem` 由前端生成（`image-20261018-203055`），这里再过一遍白名单：
 /// 只留 ASCII 字母数字与 `-`，限 64 字符，防止它变成路径或超长名。
-#[tauri::command]
-fn import_attachment(
-  vault: String,
-  note_path: String,
-  src: String,
-  stem: String,
-) -> Result<String, String> {
-  let note_abs = resolve(&vault, &note_path)?;
+///
+/// 附件落点（两条 `import_attachment*` 共用）：算出**笔记所在目录**与清洗后的文件名主干。
+/// 返回 `(绝对目录, 库内相对目录, 主干)`。`note_path` 走 `resolve` 白名单，
+/// 所以相对目录里不会出现 `..`。
+fn attachment_plan(
+  vault: &str,
+  note_path: &str,
+  stem: &str,
+) -> Result<(PathBuf, String, String), String> {
+  let note_abs = resolve(vault, note_path)?;
   let dir = note_abs
     .parent()
-    .ok_or_else(|| "笔记路径无效（没有所在目录）".to_string())?;
-  let src_path = PathBuf::from(&src);
-  if !src_path.is_file() {
-    return Err(format!("找不到图片：{src}"));
-  }
-  let ext = src_path
-    .extension()
-    .and_then(|e| e.to_str())
-    .map(|e| e.to_ascii_lowercase())
-    .unwrap_or_default();
-  // rev173.3：图片之外也允许任意**普通文件**（「插入附件」用）；
-  // 只挡可执行 / 脚本 —— 附件目录里出现能双击运行的东西只可能是误操作。
-  if ext.is_empty() {
-    return Err(format!("文件没有扩展名，无法判断类型：{src}"));
-  }
-  if BLOCKED_EXTS.contains(&ext.as_str()) {
-    return Err(format!("不允许插入可执行 / 脚本文件（.{ext}）：{src}"));
-  }
+    .ok_or_else(|| "笔记路径无效（没有所在目录）".to_string())?
+    .to_path_buf();
   // stem 白名单：保留 Unicode 字母数字（中文文件名要能留住）、`-`、`_`；空格转 `-`。
   // 路径分隔符与其它符号一律丢掉 —— 不能让 stem 变成路径。
   let clean: String = stem
@@ -1036,9 +1022,17 @@ fn import_attachment(
   } else {
     clean
   };
-  // 库内相对目录（`note_path` 已由 resolve 保证只含 Normal 组件，不会带 `..`）
   let note_rel = note_path.trim().replace('\\', "/");
-  let dir_rel = note_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+  let dir_rel = note_rel
+    .rsplit_once('/')
+    .map(|(d, _)| d)
+    .unwrap_or("")
+    .to_string();
+  Ok((dir, dir_rel, base))
+}
+
+/// 在目录里找一个**不撞名**的落点：`base.ext` → `base-1.ext` → …（1000 次上限）。
+fn unique_attachment_path(dir: &Path, base: &str, ext: &str) -> Result<(PathBuf, String), String> {
   for n in 0..1000u32 {
     let name = if n == 0 {
       format!("{base}.{ext}")
@@ -1049,14 +1043,96 @@ fn import_attachment(
     if dst.exists() {
       continue;
     }
-    fs::copy(&src_path, &dst).map_err(|e| format!("复制图片失败：{e}"))?;
-    return Ok(if dir_rel.is_empty() {
-      name
-    } else {
-      format!("{dir_rel}/{name}")
-    });
+    return Ok((dst, name));
   }
   Err("同名文件过多，放弃".to_string())
+}
+
+/// 库内相对路径：`dir_rel` 为空（库根笔记）时只回文件名。
+fn attachment_rel(dir_rel: &str, name: &str) -> String {
+  if dir_rel.is_empty() {
+    name.to_string()
+  } else {
+    format!("{dir_rel}/{name}")
+  }
+}
+
+/// 附件扩展名规范化：去前导点、去空白、转小写。
+fn attachment_ext(ext: &str) -> String {
+  ext.trim().trim_start_matches('.').to_ascii_lowercase()
+}
+
+#[tauri::command]
+fn import_attachment(
+  vault: String,
+  note_path: String,
+  src: String,
+  stem: String,
+) -> Result<String, String> {
+  let src_path = PathBuf::from(&src);
+  if !src_path.is_file() {
+    return Err(format!("找不到图片：{src}"));
+  }
+  // 扩展名统一小写；`.PNG` 与 `.png` 视为同一种
+  let ext = attachment_ext(
+    src_path
+      .extension()
+      .and_then(|e| e.to_str())
+      .unwrap_or_default(),
+  );
+  // rev173.3：图片之外也允许任意**普通文件**（「插入附件」用）；
+  // 只挡可执行 / 脚本 —— 附件目录里出现能双击运行的东西只可能是误操作。
+  if ext.is_empty() {
+    return Err(format!("文件没有扩展名，无法判断类型：{src}"));
+  }
+  if BLOCKED_EXTS.contains(&ext.as_str()) {
+    return Err(format!("不允许插入可执行 / 脚本文件（.{ext}）：{src}"));
+  }
+  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
+  let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
+  fs::copy(&src_path, &dst).map_err(|e| format!("复制图片失败：{e}"))?;
+  Ok(attachment_rel(&dir_rel, &name))
+}
+
+/// 单张图片的服务端上限（前端 10 MB 时就会提示；这里兜底，防绕过前端塞超大 payload）。
+const MAX_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024;
+
+/// 把**内存里的字节**写进笔记所在目录（粘贴图片用，rev173.46）。
+///
+/// 为什么需要它：剪贴板里的图片在 WebView 里只是一个内存 `File`，没有磁盘路径，
+/// 走不了 `import_attachment(vault, note_path, src, stem)` —— 那条要求 `src` 是真实文件。
+/// 除「源」改为字节外，其余规则与它完全一致：扩展名小写 + `BLOCKED_EXTS` 黑名单 +
+/// stem 白名单 + 撞名递增 + 按 `resolve` 保证的目录落盘。
+#[tauri::command]
+fn import_attachment_b64(
+  vault: String,
+  note_path: String,
+  stem: String,
+  ext: String,
+  base64: String,
+) -> Result<String, String> {
+  let ext = attachment_ext(&ext);
+  if ext.is_empty() {
+    return Err("缺少扩展名，无法判断文件类型".to_string());
+  }
+  if BLOCKED_EXTS.contains(&ext.as_str()) {
+    return Err(format!("不允许插入可执行 / 脚本文件（.{ext}）"));
+  }
+  let bytes = b64_decode(&base64)?;
+  if bytes.is_empty() {
+    return Err("图片内容为空".to_string());
+  }
+  if bytes.len() > MAX_ATTACHMENT_BYTES {
+    return Err(format!(
+      "图片太大（{} MB，上限 {} MB）",
+      bytes.len() / (1024 * 1024),
+      MAX_ATTACHMENT_BYTES / (1024 * 1024)
+    ));
+  }
+  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
+  let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
+  fs::write(&dst, &bytes).map_err(|e| format!("写入图片失败：{e}"))?;
+  Ok(attachment_rel(&dir_rel, &name))
 }
 
 /// 校验「导出落盘」的目标路径，并给出**能看懂**的错误。
@@ -1882,6 +1958,7 @@ pub fn run() {
       move_entry,
       copy_entry,
       import_attachment,
+      import_attachment_b64,
       write_absolute,
       write_absolute_b64,
       list_plugins,
@@ -2681,5 +2758,73 @@ mod tests {
     assert!(import_attachment(v.clone(), "a.md".into(), missing, "image".into()).is_err());
     // 越界 note_path 也拒绝（复用 resolve）
     assert!(import_attachment(v, "../evil.md".into(), png_s, "image".into()).is_err());
+  }
+
+  /// 粘贴图片（rev173.46）：字节直接落盘；扩展名规范化；重名不覆盖。
+  #[test]
+  fn import_attachment_b64_writes_bytes_without_overwrite() {
+    let d = tmpdir("attach-b64");
+    let vault = d.join("vault");
+    fs::create_dir_all(vault.join("sub")).unwrap();
+    fs::write(vault.join("sub").join("a.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+
+    let rel = import_attachment_b64(
+      v.clone(),
+      "sub/a.md".into(),
+      "image-20261020-093000".into(),
+      "png".into(),
+      "UE5HMQ==".into(), // "PNG1"
+    )
+    .unwrap();
+    assert_eq!(rel, "sub/image-20261020-093000.png");
+    assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
+
+    let rel2 = import_attachment_b64(
+      v,
+      "sub/a.md".into(),
+      "image-20261020-093000".into(),
+      ".PNG".into(), // 前导点 + 大写都要规范化
+      "UE5HMg==".into(), // "PNG2"
+    )
+    .unwrap();
+    assert_eq!(rel2, "sub/image-20261020-093000-1.png");
+    assert_eq!(fs::read(vault.join(&rel2)).unwrap(), b"PNG2");
+  }
+
+  /// 粘贴图片的拒绝面：可执行扩展名 / 越界笔记路径 / 非法 base64 / 空内容。
+  #[test]
+  fn import_attachment_b64_rejects_bad_input() {
+    let d = tmpdir("attach-b64-bad");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("a.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+
+    assert!(import_attachment_b64(
+      v.clone(),
+      "a.md".into(),
+      "x".into(),
+      "bat".into(),
+      "UE5HMQ==".into()
+    )
+    .is_err());
+    assert!(import_attachment_b64(
+      v.clone(),
+      "../evil.md".into(),
+      "x".into(),
+      "png".into(),
+      "UE5HMQ==".into()
+    )
+    .is_err());
+    assert!(import_attachment_b64(
+      v.clone(),
+      "a.md".into(),
+      "x".into(),
+      "png".into(),
+      "***".into()
+    )
+    .is_err());
+    assert!(import_attachment_b64(v, "a.md".into(), "x".into(), "png".into(), "".into()).is_err());
   }
 }

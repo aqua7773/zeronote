@@ -1585,17 +1585,15 @@ export default function App() {
    *  · 其它文件 → `[原名.ext](相对路径)`，点开由宿主分流。
    * 图片用时间戳名、其它文件保留原名主干 —— 图片常是截图（原名无意义、还容易撞名）。
    */
-  const insertFileFromPath = useCallback(
-    async (src: string) => {
+  /**
+   * 把**已经落进库里**的附件写进正文（光标处）—— 两条入口共用：
+   *  · `insertFileFromPath`：右键「插入附件…」→ 从磁盘复制进库；
+   *  · `insertPastedImage`：Ctrl+V 粘贴剪贴板图片 → 从字节写进库（rev173.46）。
+   */
+  const insertAttachmentSyntax = useCallback(
+    (rel: string, asImage: boolean) => {
       const view = editorRef.current
-      if (!view || !activePath || !vault) return
-      const asImage = isImageFileName(src)
-      const rel = await invoke<string>('import_attachment', {
-        vault,
-        notePath: activePath,
-        src,
-        stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
-      })
+      if (!view || !activePath) return
       const target = pathFromNote(activePath, rel)
       const label = rel.split('/').pop() ?? target
       const sel = view.state.selection.main
@@ -1611,7 +1609,48 @@ export default function App() {
       view.focus()
       setToast(asImage ? `已插入图片 ${label}` : `已插入附件 ${label}`)
     },
-    [activePath, vault],
+    [activePath],
+  )
+
+  const insertFileFromPath = useCallback(
+    async (src: string) => {
+      if (!editorRef.current || !activePath || !vault) return
+      const asImage = isImageFileName(src)
+      const rel = await invoke<string>('import_attachment', {
+        vault,
+        notePath: activePath,
+        src,
+        stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
+      })
+      insertAttachmentSyntax(rel, asImage)
+    },
+    [activePath, vault, insertAttachmentSyntax],
+  )
+
+  /**
+   * 粘贴图片（rev173.46 · 用户要求「截图后 Ctrl+V 直接进正文」）。
+   *
+   * 剪贴板里的图片在 WebView 里只是内存 `File`、没有磁盘路径，
+   * 所以不能走 `import_attachment(src)`；`import_attachment_b64` 直接收字节写库。
+   * 其余链路与「插入附件」完全一致（落笔记同目录 → `![](相对路径)` → toast）。
+   */
+  const insertPastedImage = useCallback(
+    async (img: { base64: string; ext: string }) => {
+      if (!editorRef.current || !activePath || !vault) return
+      try {
+        const rel = await invoke<string>('import_attachment_b64', {
+          vault,
+          notePath: activePath,
+          stem: attachmentStem(new Date()),
+          ext: img.ext,
+          base64: img.base64,
+        })
+        insertAttachmentSyntax(rel, true)
+      } catch (e) {
+        setToast(`粘贴图片失败：${String(e)}`)
+      }
+    },
+    [activePath, vault, insertAttachmentSyntax],
   )
 
   const insertAttachment = useCallback(async () => {
@@ -1674,15 +1713,21 @@ export default function App() {
   useEffect(() => {
     const w = window as unknown as {
       __znInsertFile?: (src: string) => Promise<void>
+      __znPasteImage?: (base64: string, ext: string) => Promise<void>
       __znOpenLocalLink?: (rel: string) => void
     }
     w.__znInsertFile = (src) => insertFileFromPath(src)
+    /* 粘贴图片的脚本出口（rev173.46）：剪贴板事件本身没法从 CDP 伪造
+       （Chrome 只给 trusted 事件填 `clipboardData`），这个口直接喂字节，
+       走的是与 Ctrl+V **相同**的「写库 + 插入」链路，用于真机验证落盘。 */
+    w.__znPasteImage = (base64, ext) => insertPastedImage({ base64, ext })
     w.__znOpenLocalLink = (rel) => openLocalLink(rel)
     return () => {
       delete w.__znInsertFile
+      delete w.__znPasteImage
       delete w.__znOpenLocalLink
     }
-  }, [insertFileFromPath, openLocalLink])
+  }, [insertFileFromPath, insertPastedImage, openLocalLink])
 
   /**
    * 卡死兜底：**前端心跳**（判超时的一方在 Rust 的原生看门狗线程里，见 `src-tauri/src/lib.rs`
@@ -2468,6 +2513,7 @@ export default function App() {
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onLocalLinkOpen={openLocalLink}
+              onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
             />
