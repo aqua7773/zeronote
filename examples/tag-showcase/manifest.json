@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 1,
+  "id": "tag-showcase",
+  "name": "标签画廊",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "展示案例：把「编辑器里看得见」和「索引里查得到」连起来——点 #标签 列出同标签的全部笔记",
+  "category": "demo",
+  "capabilities": ["editor", "index", "command", "view:main", "doc", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "tag-showcase.open-tag", "title": "标签画廊：查看同标签笔记" },
+      { "id": "tag-showcase.open-note", "title": "标签画廊：打开一篇笔记" },
+      { "id": "tag-showcase.refresh", "title": "标签画廊：刷新标签统计" }
+    ],
+    "panels": [
+      { "id": "tag-showcase.gallery", "title": "标签画廊", "location": "main" }
+    ]
+  }
+}
