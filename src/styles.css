@@ -1625,12 +1625,12 @@ body.is-resizing * {
   overflow: hidden;
 }
 
-/* 底部常驻圆形按钮（**水平居中**，上移 20px；safe-area 让开系统手势条） */
+/* 底部常驻圆形按钮（**水平居中**；rev173.21 用户圈了位置 ⇒ 由 32px 上移到 120px） */
 .zn-mobile-compose {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   width: 56px;
   height: 56px;
   display: flex;
@@ -1656,51 +1656,51 @@ body.is-resizing * {
   -webkit-touch-callout: none;
 }
 
-/* ───────── 起始页长按 ＋ 的环形快捷入口（rev173.20）─────────
-   形态：全屏半透明遮罩 + 5 个圆绕中心（从正上方起每 72°）。
-   环形定位用「整层旋转 + 条目反旋」：.zn-quick-slot 绕中心转 θ（--a），
-   条目在槽顶端再反向转 -θ ⇒ 文字始终正立，半径跟着容器尺寸走、不需要量尺寸。 */
+/* ───────── 起始页长按 ＋ 的环形快捷入口（rev173.20 / rev173.21）─────────
+   2026-10-19 用户拿锁屏截图当样子重做：**圆心 = ＋ 按钮**，角度「上三下二」
+   ＝ 0° / ±40° / ±140°（不是 72° 均分）。
+   定位：.zn-quick-ring 是 0×0 的原点（bottom 与 .zn-mobile-compose 同一套），
+   槽 `rotate(θ) translateY(-R)` 把条目甩到 θ 方向，条目再反向转 -θ 保持文字正立。 */
 .zn-quick-overlay {
   position: fixed;
   inset: 0;
   /* 压过 .zn-menu-scrim(69) 与右键菜单(70)；底部状态栏自然也盖住 */
   z-index: 71;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
   background: rgba(0, 0, 0, 0.58);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   animation: zn-quick-in 140ms ease-out;
-  /* 遮罩上不触发滚动/缩放，长按松手后的合成 click 也不会穿透到下面的卡片 */
+  /* 遮罩上不触发滚动/缩放；点空白在 JS 里 preventDefault，别让 click 穿透到卡片 */
   touch-action: none;
 }
 
+/* 0×0 的环形原点 = ＋ 按钮中心：bottom 120 + 按钮高 56/2 = 148 */
 .zn-quick-ring {
-  position: relative;
-  width: min(74vw, 320px);
-  aspect-ratio: 1 / 1;
+  position: fixed;
+  left: 50%;
+  bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+  width: 0;
+  height: 0;
 }
 
 .zn-quick-slot {
   position: absolute;
-  inset: 0;
-  transform: rotate(var(--a, 0deg));
-  /* 槽是整块旋转层、只负责定角度 —— 必须让点击穿过去。
-     否则后渲染的槽会盖住前一个槽里的圆（rev173.20 真机实测：点「记账」打不开面板）。 */
+  left: 0;
+  top: 0;
+  transform: rotate(var(--a, 0deg)) translateY(-112px);
+  /* 槽只是定角度的旋转层；必须让点击穿过，否则会盖住别的槽里的圆
+     （rev173.20 真机实测：点「记账」打不开面板）。 */
   pointer-events: none;
 }
 
-/* 条目：钉在槽顶端（top 16% ⇒ 半径 = 容器 34%），再用 margin 把它自己居中到那个点 */
+/* 条目：以槽原点为中心（margin 负半格），再反旋 —— 文字不跟着转 */
 .zn-quick-item {
   position: absolute;
-  left: 50%;
-  top: 16%;
-  width: 64px;
-  height: 64px;
-  margin: -32px 0 0 -32px;
+  left: 0;
+  top: 0;
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1711,7 +1711,7 @@ body.is-resizing * {
   border-radius: 50%;
   background: var(--zn-success);
   color: #fff;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
   font-size: 15px;
   line-height: 1.1;
   /* 反向旋转：抵消槽的 θ，文字保持正立 */
@@ -1738,38 +1738,53 @@ body.is-resizing * {
   cursor: default;
 }
 
+/* 遮罩开着时藏掉原 ＋ 按钮：中心那个 × 圆就是它的替身。
+   不藏的话按钮的绿色会从半透明遮罩下透出来，在中心圆边缘留一圈绿边
+   （2026-10-19 真机截图看出来的；portal 挂在 body 上，所以用 body:has 选）。 */
+body:has(.zn-quick-overlay) .zn-mobile-compose {
+  visibility: hidden;
+}
+
+/* 中心圆：**与 ＋ 按钮重合**（同一套 bottom/尺寸），点它 = 关闭。
+   背景必须**不透明**：原 ＋ 按钮就在下面，半透明会让那圈绿色透出来。 */
 .zn-quick-center {
-  position: absolute;
+  position: fixed;
   left: 50%;
-  top: 50%;
-  width: 52px;
-  height: 52px;
-  margin: -26px 0 0 -26px;
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  margin-left: -28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 50%;
-  background: rgba(28, 28, 32, 0.86);
+  background: #2b2b31;
   color: #fff;
-  font-size: 24px;
+  font-size: 26px;
   line-height: 1;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
+/* 提示贴屏幕底（避开 ±140° 那两个圆） */
 .zn-quick-hint {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
   letter-spacing: 0.02em;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
   user-select: none;
 }
 
 @keyframes zn-quick-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 右键/长按菜单的全屏透明遮罩：只负责「点外面关菜单」——

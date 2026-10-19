@@ -117,10 +117,30 @@ describe('QuickLaunch 环', () => {
     expect(document.querySelectorAll('.zn-quick-item.is-empty')).toHaveLength(4)
   })
 
-  it('点空白关闭（pointerdown，避免长按松手的 click 误关）', () => {
+  it('点空白关闭（用 click：遮罩在 click 里卸载，卡片拿不到这次点击）', () => {
     const onClose = vi.fn()
     render(<QuickLaunch open onClose={onClose} entries={[entry()]} />)
-    fireEvent.pointerDown(document.querySelector('.zn-quick-overlay') as Element)
+    fireEvent.click(document.querySelector('.zn-quick-overlay') as Element)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('关闭挂在 click 上，pointerdown 只 preventDefault', () => {
+    // 真机「点空白直接打开后面的笔记」的修复点：pointerdown 里就关会让遮罩先卸载，
+    // 浏览器随后补发的 click 落到卡片上。这里锁死「pointerdown 不关、click 才关」。
+    const onClose = vi.fn()
+    render(<QuickLaunch open onClose={onClose} entries={[entry()]} />)
+    const overlay = document.querySelector('.zn-quick-overlay') as Element
+    // fireEvent 返回 dispatchEvent 的结果：false = 事件被 preventDefault 掉了
+    expect(fireEvent.pointerDown(overlay)).toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(overlay)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('点中心 × 关闭', () => {
+    const onClose = vi.fn()
+    render(<QuickLaunch open onClose={onClose} entries={[entry()]} />)
+    fireEvent.click(screen.getByRole('button', { name: '关闭快捷入口' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
