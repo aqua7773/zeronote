@@ -1767,7 +1767,18 @@ export default function App() {
         id: 'core.search',
         title: '搜索笔记',
         keybinding: 'Mod+Shift+F',
-        run: () => openOverlay('search'),
+        /**
+         * 笔记独立窗口（`?note=`）只画编辑器，`SearchPanel` 的挂载点只在主窗口分支里（rev173.74）。
+         * 命令仍照常注册（键位表 / 命令面板口径一致），但这里必须**明说**：
+         * 执行了却什么都不发生 = 静默失效（硬约束 4）。
+         */
+        run: () => {
+          if (noteWindowPath) {
+            setToast('全库搜索请在主窗口使用')
+            return
+          }
+          openOverlay('search')
+        },
       }),
       kernel.commands.api.register({
         id: 'core.replace',
@@ -1885,7 +1896,18 @@ export default function App() {
       ...registerMarkdownMarks(kernel.commands, docApi),
     ]
     return () => subs.forEach((s) => s.dispose())
-  }, [kernel, docApi, newNote, pickVault, closeCurrentView, cycleTab, openInWindow, openOverlay])
+  }, [
+    kernel,
+    docApi,
+    newNote,
+    pickVault,
+    closeCurrentView,
+    cycleTab,
+    openInWindow,
+    openOverlay,
+    // rev173.74：core.search 要按窗口形态分叉（note 窗口里给提示，不开面板）
+    noteWindowPath,
+  ])
 
   /**
    * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
@@ -2951,6 +2973,13 @@ export default function App() {
             </div>
           )}
         </div>
+        {/* toast（rev173.74）：这个窗口以前没有 toast 渲染处 —— 任何 `setToast` 都落空，
+            于是 `core.search` 之类的提示「执行了但看不见」。样式与主窗口同一份。 */}
+        {toast ? (
+          <div className="zn-toast" onClick={() => setToast(null)} role="status">
+            {toast}
+          </div>
+        ) : null}
       </div>
     )
   }
