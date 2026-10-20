@@ -9,14 +9,16 @@
  * 不 mock kernel / fs：真实 `createKernel` + `createFsApi` 走 `invoke`，mock 的 invoke
  * 按命令返回假数据 —— 这样测的是「App 真实接线」，不是「假 kernel」。
  */
-import { act, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   open: vi.fn(async () => null),
   confirm: vi.fn(async () => true),
   listen: vi.fn(async () => () => {}),
+  /** 跨窗口事件（`zn:note-return` 用）—— rev173.68 断言「关闭 = 交回主窗口」 */
+  emit: vi.fn(async () => {}),
   appDataDir: vi.fn(async () => '/appdata'),
   onCloseRequested: vi.fn(async () => () => {}),
   destroy: vi.fn(async () => {}),
@@ -29,7 +31,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (p: string) => p,
 }))
 vi.mock('@tauri-apps/api/path', () => ({ appDataDir: mocks.appDataDir }))
-vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }))
+vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen, emit: mocks.emit }))
 vi.mock('@tauri-apps/api/app', () => ({ exit: mocks.exit, onBackButtonPress: mocks.onBackButtonPress }))
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({ onCloseRequested: mocks.onCloseRequested, destroy: mocks.destroy }),
@@ -86,6 +88,10 @@ beforeEach(() => {
   setupInvoke()
 })
 
+/* 每轮卸载上一个 App：不带 cleanup 时 DOM 会累积（实测 4 个 `.zn-app` 同时挂着），
+   后一个测试的点按会命中别的实例。 */
+afterEach(cleanup)
+
 describe('App 集成冒烟', () => {
   it('没有库 ⇒ 空态显示「ZeroNote」与「选择笔记库」', async () => {
     render(<App />)
@@ -109,21 +115,48 @@ describe('App 集成冒烟', () => {
     expect(screen.getByText('a.md')).toBeTruthy()
   })
 
-  it('笔记独立窗口（?note=）：整条标题栏可按 deep 拖窗口，文档名标 false，无收回按钮', async () => {
+  it('笔记独立窗口（?note=）：整条标题栏可拖窗口；点关闭 = 交回主窗口', async () => {
     window.history.replaceState({}, '', '/?note=a.md&vault=/vault')
     try {
       render(<App />)
       await settle()
-      const bar = document.querySelector('.zn-note-window .zn-plugin-window-bar')
-      // Tauri 2.12 的 drag.js：裸属性只认直接点中自己，`deep` 才传给子树 ⇒ 整条标题栏可拖
-      expect(bar?.getAttribute('data-tauri-drag-region')).toBe('deep')
-      const title = document.querySelector('.zn-note-window .zn-plugin-window-title')
-      // 文档名是「拖出窗口 = 收回主窗口」的手势把手：必须阻止系统拖动接管
-      expect(title?.getAttribute('data-tauri-drag-region')).toBe('false')
-      // rev173.67：取消左侧「收回主窗口」按钮（改由拖文档名出界收回）
+      const bar = document.querySelector('.zn-note-window .zn-plugin-window-bar') as HTMLElement
+      // 标题栏是系统拖动区：`deep` 才传给子树（标题 / 状态文字也能拖窗口）；三键是 button 自动排除
+      expect(bar.getAttribute('data-tauri-drag-region')).toBe('deep')
+      // rev173.68：拖拽收回的手势类 / 提示已移除（用户「不需要拖拽放回」）
+      expect(document.querySelector('.zn-note-window-handle')).toBeNull()
+      expect(document.querySelector('.zn-note-window-hint')).toBeNull()
       expect(document.querySelector('.zn-note-window-return')).toBeNull()
+
+      // 点关闭 = 交回主窗口（保存 → emit → 关窗），而不是直接 close 把这篇留在窗口外
+      fireEvent.click(screen.getByLabelText('关闭窗口'))
+      await settle()
+      expect(mocks.emit).toHaveBeenCalledWith('zn:note-return', { path: 'a.md' })
     } finally {
       window.history.replaceState({}, '', '/')
+    }
+  })
+
+  it('移动端（Android UA）不渲染多标签页（没有 TabBar）', async () => {
+    const ua = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0',
+      configurable: true,
+    })
+    try {
+      expect(navigator.userAgent).toContain('Android') // 诊断：确认 UA 改写生效
+      localStorage.setItem('zeronote.vault', '/vault')
+      setupInvoke([{ path: 'a.md', title: '第一篇', id: 'n1' }])
+      render(<App />)
+      await settle()
+      // 手机起始页 = 卡片流 ⇒ 此时已是手机布局（isDesktop 为 false）
+      expect(document.querySelector('.zn-mobile-cards')).not.toBeNull()
+      // 点卡片打开笔记 ⇒ 桌面才有的标签条不应出现
+      fireEvent.click(document.querySelector('.zn-mobile-card') as HTMLElement)
+      await settle()
+      expect(document.querySelector('.zn-tabs')).toBeNull()
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
     }
   })
 })

@@ -2194,7 +2194,8 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
    与插件窗口同一套骨架（标题条 + 内容区），区别只在内容区是编辑器。
    标题条直接复用 `.zn-plugin-window-bar`（拖动区 / 三键 / 截断都在那儿）。
    rev173.67（用户 2026-10-20 截图）：标题条整条可拖窗口（App 里 `data-tauri-drag-region="deep"`）、
-   文档名居中 —— 居中后左右两侧的空白正是可拖窗口的区域；收回手势仍在文档名上（拖出界）。 */
+   文档名居中 —— 居中后左右两侧的空白正是可拖窗口的区域。
+   rev173.68（用户）：收回不再靠拖拽手势 —— 关闭按钮 = 交回主窗口；标题条只作拖动区。 */
 .zn-note-window {
   display: flex;
   flex-direction: column;
@@ -2214,12 +2215,6 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   max-width: calc(100% - 220px); /* 给右侧状态 / 三键留位置，窄窗口截断 */
   justify-content: center;
 }
-/* 拖出界提示：绝对定位在三键左侧，出现时**不挤动**右侧状态与三键 */
-.zn-note-window .zn-note-window-hint {
-  position: absolute;
-  right: 150px;
-  pointer-events: none;
-}
 .zn-note-window-body {
   flex: 1;
   min-height: 0;
@@ -2233,24 +2228,9 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   min-height: 0;
 }
 
-/* 标题条上的**可拖把手**（rev173.54）：拖出窗口边界松手 = 收回主窗口。
-   手型光标明确告诉用户这里能拖；拖到边缘外时变色 + 右边给提示。 */
-.zn-note-window-handle {
-  cursor: grab;
-  user-select: none;
-}
-.zn-note-window-handle.is-dragging {
-  cursor: grabbing;
-}
-.zn-note-window-handle.is-outside {
-  color: var(--zn-accent);
-}
-.zn-note-window-hint {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--zn-accent);
-  white-space: nowrap;
-}
+/* ── rev173.68：标题条不再有「拖出 = 收回」手势（用户改为点关闭交回主窗口），
+   所以 .zn-note-window-handle / .zn-note-window-hint 两条样式已删除；
+   标题条只作系统拖动区（整条 `data-tauri-drag-region="deep"`）。 */
 .zn-plugin-window-hint {
   margin-top: var(--zn-space-2);
   font-size: 11px;

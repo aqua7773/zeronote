@@ -98,8 +98,6 @@ import {
 } from './lib/note-window-ledger'
 /* rev173.65：会话恢复（hot exit）—— 崩溃 / 整页重载后把最后一段手改捞回来 */
 import { clearDraft, loadDraft, type DraftSnapshot } from './lib/draft-snapshot'
-/* rev173.54：独立窗口标题条的「拖出 = 收回」手势复用同一套越界判定 */
-import { dragStarted, isOutsideWindow } from './lib/tab-drag'
 import { indentLine } from './kernel/editor-indent'
 import {
   bootAutoDisabled,
@@ -1027,8 +1025,9 @@ export default function App() {
     setError,
     setToast,
     setSidebarOpen,
-    /* 打开成功 ⇒ 登记成标签页（唯一入口是 openNote，见 hook 里的注释） */
-    onOpened: (p) => setTabs((prev) => addTab(prev, p)),
+    /* 打开成功 ⇒ 登记成标签页（唯一入口是 openNote，见 hook 里的注释）。
+       手机不做多标签页（rev173.68 · 用户「移动端不用做多标签页」）⇒ 不登记。 */
+    onOpened: platform === 'android' ? undefined : (p) => setTabs((prev) => addTab(prev, p)),
     /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
     canOpen: canOpenNote,
   })
@@ -1123,9 +1122,18 @@ export default function App() {
    */
   const closeCurrentView = useCallback(() => {
     const p = activeRef.current
-    if (p) closeTabOf(p)
-    else void closeNote()
-  }, [closeTabOf, closeNote])
+    if (!p) return
+    /**
+     * 手机不做多标签页（rev173.68）：关 = 回起始页，**不查标签条**。
+     * 若不提前返回，`closeTabOf` 会因为「不在标签条里」直接 return（见它的注释），
+     * 返回键 / 菜单里的关闭就变成"点了没反应"。
+     */
+    if (platform === 'android') {
+      void closeNote()
+      return
+    }
+    closeTabOf(p)
+  }, [platform, closeTabOf, closeNote])
 
   /**
    * 上一个 / 下一个标签页（Ctrl+Tab / Ctrl+Shift+Tab）。
@@ -1276,51 +1284,10 @@ export default function App() {
   )
 
   /**
-   * 独立窗口标题条上的**可拖把手**（rev173.54 · 用户选 B：拖标题条出界 = 收回）。
-   *
-   * 与主窗口「拖标签出界 = 拆出」是**互为镜像**的两个手势，都走 `lib/tab-drag` 的同一套判定：
-   *  · 位移过 8 px 才算拖拽（手抖不动手）；
-   *  · 指针越出本窗口边界（含 6 px 热区）= 意图是"交给另一个容器"。
-   * 拖拽期间页面**持有指针捕获**，所以越界后仍收得到 pointerup —— 这正是浏览器的做法。
-   *
-   * ⚠️ 把手是标题条里的文档名（已去掉 `data-tauri-drag-region`）：标题条其余空白
-   * 仍然是系统拖动区（拖窗口），两者互不抢。
+   * （rev173.68）标题条的「拖出窗口 = 收回」手势已**移除**：用户改为「点关闭时交回主窗口」。
+   * 标题条不再参与收回手势，恢复成系统拖动区（`data-tauri-drag-region="deep"`，整条可拖窗口）。
+   * 旧的 `noteWinDragRef` / `noteWinDrag` 状态与 pointer 监听一并删除（见下方笔记窗口的注释）。
    */
-  const noteWinDragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
-  const [noteWinDrag, setNoteWinDrag] = useState<{ dragging: boolean; outside: boolean }>({
-    dragging: false,
-    outside: false,
-  })
-  useEffect(() => {
-    if (!noteWindowPath || pluginWindowId) return
-    const onMove = (e: PointerEvent) => {
-      const d = noteWinDragRef.current
-      if (!d) return
-      if (!d.moved && !dragStarted({ x: d.x, y: d.y }, { x: e.clientX, y: e.clientY })) return
-      d.moved = true
-      setNoteWinDrag({
-        dragging: true,
-        outside: isOutsideWindow(e.clientX, e.clientY, window.innerWidth, window.innerHeight),
-      })
-    }
-    const onUp = (e: PointerEvent) => {
-      const d = noteWinDragRef.current
-      noteWinDragRef.current = null
-      setNoteWinDrag({ dragging: false, outside: false })
-      if (!d || !d.moved) return
-      if (!isOutsideWindow(e.clientX, e.clientY, window.innerWidth, window.innerHeight)) return
-      const p = activeRef.current
-      if (p) void returnToMain(p)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-  }, [noteWindowPath, pluginWindowId, returnToMain])
 
   /**
    * 主窗口接收「独立窗口交回笔记」（rev173.52 · 拖入放回）。
@@ -2919,45 +2886,21 @@ export default function App() {
    *
    * 用户 2026-10-20 定：「拖出来的窗口只要编辑窗口就行了」—— 于是这里**不画标签条**、
    * 不画侧栏 / 状态栏；标题条只留窗口必需的拖动区与三键。
-   *  · 关闭走 `close()` 而不是 `destroy()` —— `useDocIO` 的「关窗前落盘」拦截器靠
-   *    `close-requested` 事件工作（`pluginWindowId` 为空 ⇒ 那一层拦截是生效的）；
-   *  · 收回 = `returnToMain`：先落盘、再通知主窗口、最后关窗。手势是**把文档名拖出窗口边界**
-   *    （rev173.54）；rev173.67 起取消标题条左侧那颗 `⤺` 按钮，拖拽区扩到整条标题栏。
+   *  · 关闭 = **交回主窗口**（rev173.68 · 用户「点关闭的时候窗口返回就行了」）：
+   *    `returnToMain` 先落盘、再 emit，主窗口把标签加回来并打开；最后关窗。
+   *    没有打开笔记（极端情况）才退化成直接 `close()`。
+   *  · 「拖出窗口 = 收回」手势已按用户要求移除（rev173.68）；标题条恢复为系统拖动区。
    */
   if (noteWindowPath && !pluginWindowId) {
     return (
       <div className="zn-note-window">
         {/*
-         * 标题条（rev173.67 · 用户 2026-10-20 截图要求）：
-         *  · **整条都是拖动区** —— `data-tauri-drag-region="deep"` = 子树里任意位置按下都能拖窗口
-         *    （Tauri 2.12 的语义：只有 `deep` 会传给子元素，裸属性只认直接点中它自己；
-         *    源码见 `tauri/src/window/scripts/drag.js` 的 `isDragRegion`）。状态文字也能拖，
-         *    三键是 button 会被自动排除。
-         *  · **文档名不是系统拖动区** —— 它标 `false` 阻止系统接管，因为它是「拖出窗口 = 收回主窗口」
-         *    的手势把手（rev173.54）：系统一接管，页面就收不到 pointer 事件、判不了越界。
+         * 标题条（rev173.68）：**整条可拖窗口** —— `data-tauri-drag-region="deep"` 是 Tauri 2.12
+         * 的子树语义（裸属性只认直接点中自己，`deep` 才传给标题 / 状态文字；三键是 button 会自动排除）。
+         * 不再挂 pointer 手势：收回改为关闭按钮（见下）。
          */}
         <div className="zn-plugin-window-bar" data-tauri-drag-region="deep">
-          <span
-            className={[
-              'zn-plugin-window-title',
-              'zn-note-window-handle',
-              noteWinDrag.dragging ? 'is-dragging' : '',
-              noteWinDrag.outside ? 'is-outside' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            data-tauri-drag-region="false"
-            onPointerDown={(e) => {
-              if (e.button !== 0) return
-              noteWinDragRef.current = { x: e.clientX, y: e.clientY, moved: false }
-            }}
-            title="拖出窗口 → 收回主窗口"
-          >
-            {titleText}
-          </span>
-          {noteWinDrag.outside ? (
-            <span className="zn-note-window-hint">松手 → 收回主窗口</span>
-          ) : null}
+          <span className="zn-plugin-window-title">{titleText}</span>
           <span
             className={
               saveState === 'error' ? 'zn-save-state is-error' : dirty ? 'zn-save-state is-dirty' : 'zn-save-state'
@@ -2965,7 +2908,15 @@ export default function App() {
           >
             {saveLabel}
           </span>
-          <WindowControls onClose={() => void getCurrentWindow().close()} />
+          <WindowControls
+            onClose={() => {
+              // 用户 2026-10-20：独立窗口点关闭 = 把这篇**交回主窗口**（保存 → 通知 → 关窗），
+              // 而不是把窗口关掉、主窗口里也没有这篇（标签在拆出时已移除）。
+              const p = activeRef.current
+              if (p) void returnToMain(p)
+              else void getCurrentWindow().close()
+            }}
+          />
         </div>
         <div className="zn-note-window-body">
           {activePath ? (
@@ -3211,18 +3162,20 @@ export default function App() {
           </div>
         ) : activePath ? (
           <div className="zn-editor-wrap">
-            {/* 多标签页（rev173.50）：只有一条也显示 —— 它是「当前打开的是哪篇」的锚点，
-                手机上更是唯一的切换入口（没有 Ctrl+Tab）。 */}
-            <TabBar
-              tabs={tabItems}
-              activePath={activePath}
-              onSelect={(p) => void openNote(p)}
-              onClose={closeTabOf}
-              /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
-              onContextMenu={openTabMenu}
-              /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52 · 用户「做拖出独立」）；手机不挂手势 */
-              onDragEnd={platform === 'android' ? undefined : handleTabDragEnd}
-            />
+            {/* 多标签页（rev173.50）：只有一条也显示 —— 它是「当前打开的是哪篇」的锚点。
+                桌面专属：手机不做多标签页（rev173.68 · 用户「移动端不用做多标签页」）⇒ 不渲染标签条。 */}
+            {isDesktop && (
+              <TabBar
+                tabs={tabItems}
+                activePath={activePath}
+                onSelect={(p) => void openNote(p)}
+                onClose={closeTabOf}
+                /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
+                onContextMenu={openTabMenu}
+                /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52 · 用户「做拖出独立」） */
+                onDragEnd={handleTabDragEnd}
+              />
+            )}
             {/*
               编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
               内核自己**不往这儿放任何内容**（用户 2026-10-12 定：桌面端只有右键菜单的「标记」）。
