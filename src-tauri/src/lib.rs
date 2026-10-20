@@ -2171,6 +2171,32 @@ pub fn run() {
       // 第二个实例：把命令行参数转发给已在运行的窗口（Windows「双击 .md」走的就是这里）
       forward_open_targets(app, &argv);
     }));
+
+    /*
+     * 窗口位置 / 大小记忆（rev173.61 · 用户裁决「重启后只恢复主窗口」）。
+     *
+     * 官方插件 `tauri-plugin-window-state`（README 标注 Android / iOS 不支持 ⇒ 依赖只挂桌面段）。
+     *
+     * **`with_filter` 只放行 `main`**：插件对**每个**窗口的 `on_window_ready` 都会恢复状态 ——
+     * `note-*` / `plugin-*` 不过滤的话，新开的窗口会跳到上一次同 label 的位置；过滤后它们
+     * 每次都用构造时的默认尺寸（900×700）打开。
+     *
+     * `StateFlags` 只取 POSITION | SIZE | MAXIMIZED：
+     *  · 不取 VISIBLE —— 旧状态若记成「隐藏」，恢复逻辑会尝试保持隐藏（重启后看不见窗口）；
+     *  · 不取 DECORATIONS —— 内核是无边框自绘（`tauri.conf.json` `decorations:false`），
+     *    不该让历史状态覆盖；
+     *  · 不取 FULLSCREEN —— 用不到。
+     */
+    builder = builder.plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_filter(|label| label == "main")
+        .with_state_flags(
+          tauri_plugin_window_state::StateFlags::POSITION
+            | tauri_plugin_window_state::StateFlags::SIZE
+            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+        )
+        .build(),
+    );
   }
 
   builder

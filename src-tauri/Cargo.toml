@@ -45,6 +45,9 @@ tauri-plugin-single-instance = "2"
 # ⚠️ 移动端**不装**：Android 的 /storage/emulated/0 是 FUSE 挂载，inotify 漏报是常态，
 #    前端在手机上退回 3 秒轮询（见 lib.rs `watch_vault` 的返回）。
 notify = "8"
+# 窗口位置 / 大小记忆（rev173.61）：只跟踪主窗口（lib.rs 的 `with_filter`）。
+# 官方 README 标注 Android / iOS 不支持 ⇒ 同样只挂桌面段。
+tauri-plugin-window-state = "2"
 
 # WebView2 设置（仅 Windows）：关闭**浏览器加速键**（Ctrl+F 原生查找栏 / Ctrl+R / F5…）
 # —— 见 lib.rs 的 `disable_browser_accelerator_keys`。Android 没有 WebView2，整段 cfg 掉。
