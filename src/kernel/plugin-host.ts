@@ -11,6 +11,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { API_VERSION } from './contract'
 import { tagCommandImpl } from './command'
+import { createWebviewBridge, type WebviewBridgeHandler } from './webview-bridge'
 import {
   cachePluginStyle,
   dropBootPluginStyles,
@@ -111,6 +112,11 @@ export type LoadedPlugin = {
   instance: Plugin
   /** 插件登记的全部资源（卸载时逐个 dispose） */
   subs: Disposable[]
+  /**
+   * WebView 面板的**能力通道执行器**（rev173.76 · 契约 §7.9）。
+   * 面板渲染时由宿主按 `pluginId` 找到它，把 iframe 发来的 `zn:call` 翻译成插件自己的 API 调用。
+   */
+  webviewBridge: WebviewBridgeHandler
 }
 
 export type PluginHostDeps = {
@@ -295,14 +301,26 @@ function collect<T extends Disposable>(subs: Disposable[], d: T): T {
  * 契约里虽然写着「所有资源必须登记」，但宿主**有能力**兜住的事就不该留给插件作者去记。
  * （`service` / `editor` 早就是宿主强制回收，命令与面板现在跟上。）
  */
-function scopedCommand(cmd: CommandApi, pluginId: string, subs: Disposable[]): CommandApi {
+function scopedCommand(
+  cmd: CommandApi,
+  pluginId: string,
+  subs: Disposable[],
+  /**
+   * 这个插件**注册过**的命令 id（rev173.76）。
+   * 用途只有一个：WebView 通道的 `command.execute` 白名单 —— 页面只能执行
+   * "它自己那个插件"注册的命令，碰不到内核命令和其它插件的命令。
+   */
+  owned?: Set<string>,
+): CommandApi {
   const tag = `plugin:${pluginId}`
   return {
     ...cmd,
     // 顺带给实现打归属标记：审计快照靠它判断「这条命令现在是谁在实现」
     // （`core.newNote` 被接管后，命令表本身完全看不出区别）
-    register: (spec) =>
-      collect(subs, cmd.register({ ...spec, run: tagCommandImpl(spec.run, tag) })),
+    register: (spec) => {
+      owned?.add(spec.id)
+      return collect(subs, cmd.register({ ...spec, run: tagCommandImpl(spec.run, tag) }))
+    },
     bind: (id, run) => collect(subs, cmd.bind(id, tagCommandImpl(run, tag))),
   }
 }
@@ -622,7 +640,18 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
       throw e
     }
     deps.onLog(`插件已加载（纯样式）：${manifest.name}（${manifest.id}）`, 'info')
-    return { dir, root, source: entry.source, manifest, instance: { apply: () => {} }, subs }
+    return {
+      dir,
+      root,
+      source: entry.source,
+      manifest,
+      instance: { apply: () => {} },
+      subs,
+      // 纯样式插件没有 JS，也就没有能力通道 —— 明确报错优于静默返回 undefined
+      webviewBridge: async () => {
+        throw new Error(`插件 ${manifest.id} 是纯样式插件，没有 WebView 能力通道`)
+      },
+    }
   }
 
   // ── 有 JS 入口：先嗅探形态，再组装成 ESM 交给 import ──
@@ -691,6 +720,8 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     throw new Error(`插件 ${manifest.id} 的 manifest.styles 读取失败：${String(e)}`)
   }
 
+  /** 这个插件注册过的命令 id（WebView 通道 `command.execute` 的白名单来源） */
+  const ownedCommands = new Set<string>()
   const ctx: PluginContext = {
     // 2026-10-13 拆门：不再按 capability 裁剪 —— 插件拿到的就是内核那一份。
     // 这里的包装**只做"返回值自动登记"**（接管协议第一、二条规矩），别的一律透传。
@@ -698,7 +729,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     doc: scopedDoc(deps.doc, subs),
     index: deps.index,
     event: scopedEvent(deps.event, subs),
-    command: scopedCommand(deps.command, manifest.id, subs),
+    command: scopedCommand(deps.command, manifest.id, subs, ownedCommands),
     view: scopedView(deps.view, manifest.id, subs),
     // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。
@@ -717,9 +748,21 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     throw e
   }
 
+  /**
+   * WebView 能力通道（rev173.76 · 契约 §7.9）：`apply()` 之后建，
+   * 这样 `ownedCommands` 已经被 `command.register` 填过一轮（引用同一个 Set，执行时再查）。
+   */
+  const webviewBridge = createWebviewBridge({
+    pluginId: manifest.id,
+    store: ctx.store,
+    host: ctx.host,
+    command: deps.command,
+    ownedCommands,
+  })
+
   const fileNote = manifest.files?.length ? `，${manifest.files.length + 1} 个文件` : ''
   deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info')
-  return { dir, root, source: entry.source, manifest, instance, subs }
+  return { dir, root, source: entry.source, manifest, instance, subs, webviewBridge }
 }
 
 /** 卸载即净：先 dispose 插件自己登记的，再兜底 dispose 全部 subs */

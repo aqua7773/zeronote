@@ -1935,7 +1935,7 @@ export default function App() {
   }, [kernel, panels])
 
   /* ── 插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）（rev128 · L3 第六刀）—— 见 hooks/usePluginHost.ts ── */
-  const { installZnp } = usePluginHost({
+  const { installZnp, getWebviewBridge } = usePluginHost({
     kernel,
     vault,
     /**
@@ -2859,7 +2859,12 @@ export default function App() {
           ) : winPanel ? (
             <PanelBoundary key={winPanel.id}>
               {winPanel.webview ? (
-                <WebViewFrame url={winPanel.webview.url} title={winPanel.title} />
+                <WebViewFrame
+                url={winPanel.webview.url}
+                title={winPanel.title}
+                pluginId={winPanel.pluginId}
+                bridge={winPanel.pluginId ? getWebviewBridge(winPanel.pluginId) : undefined}
+              />
               ) : (
                 <UIRenderer
                   node={renderPanelSafe(winPanel, panelState)}
@@ -3170,7 +3175,12 @@ export default function App() {
                 <PanelBoundary key={pagePanel.id}>
                   {pagePanel.webview ? (
                     /* WebView 逃生口（契约 §2.2）：sandbox iframe + postMessage 送主题令牌 */
-                    <WebViewFrame url={pagePanel.webview.url} title={pagePanel.title} />
+                    <WebViewFrame
+                url={pagePanel.webview.url}
+                title={pagePanel.title}
+                pluginId={pagePanel.pluginId}
+                bridge={pagePanel.pluginId ? getWebviewBridge(pagePanel.pluginId) : undefined}
+              />
                   ) : (
                     <UIRenderer
                       node={renderPanelSafe(pagePanel, panelState)}
@@ -3394,7 +3404,12 @@ export default function App() {
         <DialogBody>
           {modalPanel && (
             modalPanel.webview ? (
-              <WebViewFrame url={modalPanel.webview.url} title={modalPanel.title} />
+              <WebViewFrame
+              url={modalPanel.webview.url}
+              title={modalPanel.title}
+              pluginId={modalPanel.pluginId}
+              bridge={modalPanel.pluginId ? getWebviewBridge(modalPanel.pluginId) : undefined}
+            />
             ) : (
               <UIRenderer
                 node={renderPanelSafe(modalPanel, panelState)}

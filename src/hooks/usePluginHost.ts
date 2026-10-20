@@ -21,6 +21,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { confirm, open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import type { Kernel } from '../kernel/kernel'
+import type { WebviewBridgeHandler } from '../kernel/webview-bridge'
 import {
   listPluginDirs,
   loadPlugin,
@@ -71,6 +72,11 @@ export type PluginHost = {
   installZnpFromPath: (picked: string, confirmFirst?: boolean) => Promise<string | null>
   /** 插件管理页按钮：选文件 → 走完整流程 */
   installZnp: () => Promise<void>
+  /**
+   * 按插件 id 取 **WebView 能力通道**（rev173.76 · 契约 §7.9）。
+   * 没这个插件 / 纯样式插件 ⇒ `undefined`（通道关闭，页面照常显示）。
+   */
+  getWebviewBridge: (pluginId: string) => WebviewBridgeHandler | undefined
 }
 
 export function usePluginHost({
@@ -519,5 +525,17 @@ export function usePluginHost({
     }
   }, [installZnpFromPath, migrateVaultPlugins])
 
-  return { installZnpFromPath, installZnp }
+  /**
+   * 按插件 id 取 **WebView 能力通道**（rev173.76 · 契约 §7.9）。
+   *
+   * 面板渲染时按 `panel.pluginId` 查；找不到（插件已卸载 / 纯样式 / 还没加载完）
+   * 就返回 undefined —— 页面照常显示，只是 `zn:call` 一律得到错误应答，
+   * 不会出现「静默调不通」。
+   */
+  const getWebviewBridge = useCallback(
+    (pluginId: string) => loadedPluginsRef.current.find((l) => l.manifest.id === pluginId)?.webviewBridge,
+    [],
+  )
+
+  return { installZnpFromPath, installZnp, getWebviewBridge }
 }

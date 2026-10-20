@@ -11,26 +11,88 @@
     transition: background .25s, color .25s;
   }
   .box { border: 1px solid currentColor; border-radius: 8px; padding: 10px 14px; opacity: .85 }
-  code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center }
+  button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer }
+  code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; word-break: break-all; max-width: 80vw }
 </style>
 </head>
 <body>
   <div style="font-size:15px;font-weight:600">我是插件自己的页面（asset 版）</div>
   <div class="box" id="status">等待宿主主题令牌…</div>
+  <div class="box" id="bridge">能力通道：等待握手…</div>
+  <div class="row">
+    <button id="btnInfo">host.info</button>
+    <button id="btnSet">store.set</button>
+    <button id="btnGet">store.get</button>
+  </div>
+  <div><code id="out"></code></div>
   <div><code id="sample"></code></div>
   <div><code id="origin"></code></div>
 
   <script>
-    // 这里能跑脚本，是因为本页来自 asset 协议（独立 origin）——
+    // 这里能跑脚本，是因为本页来自独立 origin 的资源（http(s)）——
     // data: / srcdoc 那种会继承宿主 CSP 的 iframe 里，内联脚本会被拦掉（真机实测）。
     let received = 0
+
+    /** 能力通道（契约 §7.9 · rev173.76）：宿主 `zn:hello` 下发令牌后才能调 */
+    let token = ''
+    let seq = 0
+    const pending = new Map()
+    const out = document.getElementById('out')
+    const bridgeEl = document.getElementById('bridge')
+
+    function call(api, args) {
+      return new Promise((resolve) => {
+        if (!token) {
+          resolve({ ok: false, error: '还没握手（没收到 zn:hello）' })
+          return
+        }
+        const id = 'r' + ++seq
+        pending.set(id, resolve)
+        // opaque origin 下 targetOrigin 只能是 '*'
+        parent.postMessage({ zn: 1, type: 'zn:call', token, id, api, args }, '*')
+      })
+    }
+
+    const show = (label, r) => {
+      out.textContent = label + ' → ' + JSON.stringify(r.ok ? r.value : { error: r.error })
+    }
+
+    document.getElementById('btnInfo').onclick = () => call('host.info', []).then((r) => show('host.info', r))
+    document.getElementById('btnSet').onclick = () =>
+      call('store.set', ['bridgeDemo', { from: 'iframe', at: new Date().toISOString() }]).then((r) =>
+        show('store.set', r),
+      )
+    document.getElementById('btnGet').onclick = () => call('store.get', ['bridgeDemo']).then((r) => show('store.get', r))
 
     document.getElementById('origin').textContent =
       '我的 origin：' + location.origin + '（与宿主不同源）'
 
     window.addEventListener('message', (e) => {
       const d = e.data
-      if (!d || d.type !== 'zn:theme') return
+      if (!d) return
+
+      // ① 握手：拿到令牌与可用 api 列表
+      if (d.type === 'zn:hello') {
+        token = d.token
+        bridgeEl.textContent = '已握手 · 插件 ' + (d.pluginId || '?') + ' · 可用 api ' + (d.apis || []).length + ' 条'
+        // 自动演示一次：证明通道真的能来回
+        call('host.info', []).then((r) => show('自动 host.info', r))
+        return
+      }
+
+      // ② 应答：按 id 兑现
+      if (d.type === 'zn:reply') {
+        const done = pending.get(d.id)
+        if (done) {
+          pending.delete(d.id)
+          done(d)
+        }
+        return
+      }
+
+      // ③ 主题令牌
+      if (d.type !== 'zn:theme') return
       received++
 
       const tokens = d.tokens || {}

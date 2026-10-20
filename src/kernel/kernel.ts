@@ -226,6 +226,11 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         location: spec.location,
         render: () => ({ type: 'text', value: '' }),
         webview: { url: spec.url },
+        /**
+         * rev173.76：归属要留住 —— 能力通道按 `panel.pluginId` 找执行器
+         * （`plugin-host` 的 scopedView 注入，宿主渲染 WebViewFrame 时用）。
+         */
+        pluginId: (spec as { pluginId?: string }).pluginId,
       }
       panelMap.set(spec.id, self)
       hooks.onPanelsChange([...panelMap.values()])

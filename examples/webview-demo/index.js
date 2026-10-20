@@ -37,7 +37,7 @@ export default {
      *   node -e "require('http').createServer((q,s)=>…).listen(8791,'0.0.0.0')"
      * 真实插件把页面放在自己的服务上，或直接指向 `http(s)://` 远程页面即可。
      */
-    const url = 'http://192.168.1.20:8791/page.html'
+    const url = 'http://192.168.1.5:8791/page.html'
 
     // 主区挂一个「自己的页面」
     subscriptions.push(

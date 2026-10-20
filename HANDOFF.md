@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.75
-更新时间: 2026-10-21（rev173.75 记账：完成态短语（支付成功/已支付）无金额也入账进「待补」+ 列表每行单笔删除（先确认，不可恢复）；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默：命令给 toast 提示「全库搜索请在主窗口使用」，`note-*` 窗口补上 toast 渲染处；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.76
+更新时间: 2026-10-21（rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.76 | 2026-10-21 · **iframe ↔ 宿主能力通道（契约 §7.9 补齐）**：`webview-bridge.ts` 定协议（`zn:hello` / `zn:call` / `zn:reply`）· 白名单 7 条（store.get/set/delete/all · host.info · host.notify · command.execute 限本插件）· 令牌 + `event.source` 双重校验 · 限流 20/s · 应答 256 KB · `WebViewFrame` 收发 + `plugin-host` 按插件建执行器 · 单测 18 条（含执行器）· 桌面 CDP 端到端（webview-demo：hello / host.info / store 读写落盘）+ 负面（坏令牌被拒 / 白名单外忽略） |
 | rev173.75 | 2026-10-21 · **记账：完成态无金额也认 + 单笔删除**：`DONE_PHRASES`（支付成功 / 已支付…）破了「必须有金额才算交易」的门 ⇒ 进「金额待补」· 列表每行「删除」→ 确认页（显示原文、不可恢复）· 命令 3 条 · vitest 489 → **493** · 桌面 CDP + 手机 33b676f6 实测（`cmd notification post` 造「支付成功 美团外卖」→ 待补 → 删除） |
 | rev173.74 | 2026-10-21 · **独立笔记窗口 Ctrl+Shift+F 不再静默**（rev173.73 实测发现 ①）：`core.search` 在 `?note=` 窗口里给 toast「全库搜索请在主窗口使用」，主窗口照旧开面板 · `?note=` 分支补 toast 渲染处（这个窗口以前**没有 toast 落点**，任何 `setToast` 都落空）· 命令注册 effect 依赖加 `noteWindowPath` · 桌面 CDP 真实按键实测 + 主窗口回归 · 无新增单测（无纯函数）· ② 补金额入口偏窄仍待决（放宽会进 pending 噪声，列表暂无单笔删除） |
 | rev173.73 | 2026-10-21 · **记账收尾**：每月分类预算（`budgetStatus` + 统计视图「预算执行」）· 分类管理（↑↓ 排序 / 删除前显示影响笔数并归入「其他」）· 无金额补录（列表「补金额」）· **启动自动静默同步**（App 没开时收到的通知，打开即入库）· `tests/accounting-budget.test.ts` 4 条 · 桌面实测四项 |
@@ -221,6 +222,49 @@ revision: 173.75
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.76（2026-10-21 · iframe ↔ 宿主能力通道）（契约 §7.9 那条「仍未做」）
+>
+> 用户「先补齐主线缺口」。上一状态：WebView 面板的页面只能**收**主题令牌，调不到 `ctx.*`
+> —— 逃生口能用，但页面里的一切交互都得靠宿主单向推。
+>
+> ### 协议（`src/kernel/webview-bridge.ts`）
+> ```
+> 宿主 → 页面  { zn:1, type:'zn:hello', token, pluginId, apis }   // iframe 每次 load 发新令牌
+> 页面 → 宿主  { zn:1, type:'zn:call', token, id, api, args }
+> 宿主 → 页面  { zn:1, type:'zn:reply', id, ok, value?, error? }
+> ```
+> - **白名单 7 条**：`store.get/set/delete/all` · `host.info` · `host.notify` ·
+>   `command.execute`（**只限本插件注册的命令** —— `scopedCommand` 现在记一份 owned id 集合）
+> - **`fs` / `doc` 不开放**：要路径与编辑器上下文，放进来会把同一个插件切成两种信任级
+> - **鉴权**：`event.source === contentWindow`（opaque origin 下唯一可靠身份）+ 握手令牌；
+>   令牌每次 load 换新 ⇒ iframe 导航去别的页面后旧令牌作废
+> - **限流** 20 次/秒（每个 iframe 一份令牌桶）· 应答上限 256 KB（按 UTF-8 字节）
+> - 参数一律当不可信输入逐条校验（key 非空 ≤200 字符、值须可序列化、notify ≤500 字）
+>
+> ### 实现
+> - `kernel/webview-bridge.ts`：协议类型 / 白名单 / 令牌 / 令牌桶 / 归一化 / 体积判定（纯逻辑，可单测）
+> - `kernel/plugin-host.ts`：`createWebviewBridge` 按插件实例建执行器；`LoadedPlugin.webviewBridge`
+> - `components/WebViewFrame.tsx`：load 时发 hello + 主题；监听 message → 校验 → 代跑 → 应答
+> - `App.tsx` 三处 WebViewFrame 传 `pluginId` + `bridge`；`usePluginHost` 暴露 `getWebviewBridge`
+> - `kernel.registerWebView` 以前把 `pluginId` 丢了 ⇒ 补上（通道靠它找执行器）
+>
+> ### 验证
+> - 单测 `tests/webview-bridge.test.ts` 13 条（白名单 / 归一化 / 限流 / 令牌 / 体积）
+> - **端到端（桌面 CDP 9222）**：`examples/webview-demo` 装进全局（验收后已删）→ 面板
+>   `http://192.168.1.5:8791/page.html`（本机 IP 变了，示例里的 URL 一起更新）
+>   · 页面显示「令牌 39 个 · 模式 dark」「已握手 · 插件 webview-demo · 可用 api 7 条」
+>   · 自动 `host.info` → `{"pluginId":"webview-demo","platform":"windows","appVersion":"0.2.0","apiVersion":"0.2.0"}`
+>   · 点 store.set / store.get → 页面回显 `{"from":"iframe","at":"…"}`；`store.json` 真落盘 `bridgeDemo`
+> - **负面**（iframe 在 WebView2 里是独立 CDP target，直接连它 eval）：
+>   · 坏令牌 → `ok:false, error:"令牌无效或已过期（页面重新加载后要等 zn:hello）"`
+>   · 白名单外 `fs.read` → **无应答**（直接忽略，连错误都不回）
+> - 截图：`_shots/rev17376-webview-bridge.png` / `-store.png`
+>
+> ### 没做
+> - `doc` / `fs` 通道（按上面理由，要再议边界）
+> - **Worker / 子进程插件宿主**（契约 §6 v0.2 的另一半）—— 另立，成本远高于本条
+> - 插件签名 / 市场 / 更新通道（契约 §7.4 仍部分）
+>
 > ## 📌 rev173.75（2026-10-21 · 记账：完成态无金额也认 + 单笔删除）
 >
 > rev173.73 留的 ② 「补金额入口偏窄」的处理方式，用户当面选：**放宽 + 加单笔删除**。
