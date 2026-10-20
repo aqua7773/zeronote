@@ -113,7 +113,6 @@ const block = [
   '| 事实 | 当前值 |',
   '|---|---|',
   `| rev / 版本 | rev${handoffRev} · ${pkg.version ?? '?'} · ${handoffDate} |`,
-  `| HEAD | ${head} · ${branch} |`,
   `| 测试基线 | ${baselineLine} |`,
   `| 插件 | 内置 ${builtins.length} · 示例 ${examples.length} |`,
   `| 文档 | README 现状 ${readmeDate}${stale ? '（落后）' : ''} · CHANGELOG ${appVersion} |`,
