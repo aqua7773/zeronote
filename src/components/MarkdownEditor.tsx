@@ -12,6 +12,7 @@ import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
+import { ensureReplaceEntry } from '../lib/find-replace-entry'
 import {
   MAX_PASTE_IMAGE_BYTES,
   bytesToBase64,
@@ -152,6 +153,13 @@ type Props = {
   /** 顶部替换栏是否展开（由宿主的 Ctrl+H 命令控制） */
   replaceOpen?: boolean
   onCloseReplace?: () => void
+  /**
+   * 查找面板里点了「替换」→ 请宿主打开替换栏（rev173.71）。
+   *
+   * 为什么不让编辑器自己开：替换栏的开关是**宿主的状态**（`replaceOpen`，App 里由
+   * `core.replace` 命令控制）—— 编辑器只把「用户想替换、关键词是这个」交回去。
+   */
+  onRequestReplace?: () => void
   /**
    * 插件登记的编辑器标记被点击时，把命令 id 交回宿主执行。
    * 编辑器本身**不认识任何插件** —— 它只知道"这段文本要执行这个命令"。
@@ -419,6 +427,7 @@ export function MarkdownEditor({
   onReady,
   replaceOpen = false,
   onCloseReplace,
+  onRequestReplace,
   onCommand,
   onWikiLinkOpen,
   onLocalLinkOpen,
@@ -428,6 +437,8 @@ export function MarkdownEditor({
   renderHtml = true,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
+  /** 编辑器 DOM 根：观察 CM6 查找面板出现，往里补「替换」入口（rev173.71） */
+  const editorRootRef = useRef<HTMLDivElement>(null)
   /**
    * 源码模式开关（2026-10-17 用户：「增加切换源码模式」）。
    * 持久化在 localStorage —— 关掉应用再开，仍停在用户上次选的模式。
@@ -767,6 +778,30 @@ export function MarkdownEditor({
   const [replaceText, setReplaceText] = useState('')
   const [replaceMsg, setReplaceMsg] = useState('')
 
+  /**
+   * 查找面板里的「替换」入口（rev173.71）。
+   *
+   * 面板是 CM6 现插的 DOM（没有 React 回调），所以只能订阅子树变化、出现就补按钮；
+   * 点它 = 关掉查找面板 + 把关键词带进替换栏（宿主打开）。
+   */
+  useEffect(() => {
+    const root = editorRootRef.current
+    if (!root || !onRequestReplace) return
+    const scan = () => {
+      const panel = root.querySelector<HTMLElement>('.cm-search.atomic-editor-search-panel')
+      if (!panel) return
+      ensureReplaceEntry(panel, (keyword) => {
+        if (keyword) setFindText(keyword)
+        setReplaceMsg('')
+        onRequestReplace()
+      })
+    }
+    const mo = new MutationObserver(scan)
+    mo.observe(root, { childList: true, subtree: true })
+    scan()
+    return () => mo.disconnect()
+  }, [onRequestReplace])
+
   const replaceNext = useCallback(() => {
     const view = viewRef.current
     if (!view || !findText) return
@@ -856,6 +891,7 @@ export function MarkdownEditor({
 
       <div
         className="zn-editor"
+        ref={editorRootRef}
         onPointerDown={(e) => {
           /**
            * 查找面板的遮罩（rev173.43）：点卡片外 = 关闭，与命令面板（`.zn-palette-mask`）一致。

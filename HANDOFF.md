@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.70
-更新时间: 2026-10-20（rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.71
+更新时间: 2026-10-20（rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.71 | 2026-10-20 · **查找面板补「替换」入口**：Ctrl+F 的 atomic 面板里新增「替换」按钮（`src/lib/find-replace-entry.ts` + `MarkdownEditor` 的 MutationObserver 注入）· 点击 = 关面板 + 把关键词带进 `.zn-replace-bar` · 不碰 atomic 源码/patch · vitest 485 |
 | rev173.70 | 2026-10-20 · **0.3.0 发版 + 独立窗口 Ctrl+F + 迁移失败可见**：`note-*` / `plugin-*` 窗口补关 WebView2 浏览器加速键（新命令 `disable_accelerator_keys_for(label)` + `src/lib/accelerator.ts`，等 `tauri://created` 再调、800ms 兜底）· 库内插件迁移失败不再静默（`setPluginError` + toast）· 推送 34 个提交（`8e67a8f..c873c95`）· 版本 0.2.0 → **0.3.0** + tag `v0.3.0` |
 | rev173.69 | 2026-10-20 · **标签条细节**（用户截图两处）：第一条标签贴编辑区左缘（`.zn-tabs` 左 padding 0，红框）· 取消活动标签顶部的 inset 缓存线（黄框「上面的阴影」；当前标签只靠底色区分）· 桌面实测：`padding=0px 6px 0px 0px` / active `box-shadow=none` / 首标签 gap 0 |
 | rev173.68 | 2026-10-20 · **独立窗口关闭 = 交回主窗口**：移除 rev173.54 的「拖出窗口 = 收回」手势（state / pointer 监听 / 样式 / 提示全删）· 关闭按钮改 `returnToMain`（保存 → emit → 关窗；主窗口把标签加回来并打开）· 标题条恢复 `deep` 系统拖动区（标题居中保持）· 顺手补 `afterEach(cleanup)`（app-smoke 的 DOM 会累积）· vitest +1（473 → **474**）· 桌面实测：点关闭 ⇒ note 窗口消失 + 主窗口标签回来且打开该篇 |
@@ -216,6 +217,28 @@ revision: 173.70
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.71（2026-10-20 · 查找面板补「替换」入口）
+>
+> 用户先问「Ctrl+F / Ctrl+Shift+F 是不是重复」，再要求「加个替换入口」。
+> 真正的重复点不是功能分层，而是：atomic 的查找面板**没有替换行**（上游注释原话 "No replace"），
+> 当前笔记替换要换一个键（Ctrl+H）、换一块 UI（`.zn-replace-bar`）——同一个动作两套面板。
+>
+> ### 做法
+> - `src/lib/find-replace-entry.ts`：`ensureReplaceEntry(panel, onOpen)` —— 往 `.cm-search` 里补一个
+>   `.cm-atomic-search-btn` 样式的「替换」按钮（`data-zn-replace-entry` 判重，MutationObserver 反复扫不会重复插）；
+>   点击时先取 `.cm-atomic-search-input` 的值，再点面板自带的 `button[aria-label="Close"]`（与 rev173.43 点遮罩同一出口），
+>   最后把关键词交回编辑器。
+> - `MarkdownEditor`：新增 prop `onRequestReplace`；`.zn-editor` 加 ref + MutationObserver，面板出现就补按钮；
+>   关键词写进内部 `findText`，替换栏一打开就带着。
+> - `App`：两处 `MarkdownEditor` 传 `onRequestReplace={() => setReplaceOpen(true)}`。
+> - **不碰 atomic**：不改 node_modules、不加 patch —— 升级不用重打。
+>
+> ### 测试与实测
+> - `tests/find-replace-entry.test.ts` 4 条：插入 + 幂等 / 点击带词并关面板 / 空关键词 / 面板无关闭按钮
+> - vitest 481 → **485**；`verify.ps1` 全过（数字见当次输出）
+> - dev 实测（CDP）：Ctrl+F 面板出现「替换」按钮 → 输入「笔记」→ 点它 ⇒ `.zn-replace-bar` 出现、
+>   查找框值 = `笔记`、查找面板已关、焦点落在替换栏「查找」输入框（截图 `_shots/find-replace-entry-20261020.png`）
+>
 > ## 📌 rev173.70（2026-10-20 · 0.3.0 发版：独立窗口 Ctrl+F + 迁移失败可见）
 >
 > 用户「逐项完成 A」（上一轮的 A 组四项：推送 / 发版 / Ctrl+F 独立窗口 / 迁移静默）。

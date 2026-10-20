@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.70）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.71）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.70 · 0.3.0 · 2026-10-20 |
-| 测试基线 | vitest 481 · cargo 36 · oxlint 3 warnings（2026-10-20） |
+| rev / 版本 | rev173.71 · 0.3.0 · 2026-10-20 |
+| 测试基线 | vitest 485 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
@@ -50,10 +50,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.70 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.71 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.71 | **查找面板补「替换」入口**：Ctrl+F 的 atomic 面板里加「替换」按钮（`find-replace-entry.ts` + MutationObserver 注入）· 点击 = 关面板 + 关键词带进替换栏 · 不碰 atomic 源码 · vitest 485 |
 | 173.70 | **0.3.0 发版 + 两个 P2 收口**（用户「逐项完成 A」）：推送 34 个提交（`8e67a8f..c873c95`）· 版本 0.2.0 → **0.3.0**（tag `v0.3.0`）· 独立窗口 Ctrl+F 归编辑器（新命令 `disable_accelerator_keys_for` + `src/lib/accelerator.ts`，等 `tauri://created`、800ms 兜底）· 库内插件迁移失败不再静默（`setPluginError` + toast） |
 | 173.69 | **标签条细节**（用户截图）：第一条标签贴编辑区左缘（`.zn-tabs` 左 padding 0）· 取消活动标签顶部 inset 阴影线（当前标签只靠底色区分）· 桌面实测：`padding=0px 6px 0px 0px` / active `box-shadow=none` / 首标签 gap 0 |
 | 173.68 | **独立窗口关闭 = 交回主窗口**：移除「拖出窗口 = 收回」手势（state / pointer 监听 / 样式 / 提示全删）· 关闭按钮改 `returnToMain`（保存 → emit → 关窗；主窗口标签回来并打开）· 标题条恢复 `deep` 拖动区（标题居中保持）· vitest **474** · 桌面实测：点关闭 ⇒ 窗口消失 + 主窗口收回并打开该篇 |

@@ -2936,6 +2936,7 @@ export default function App() {
               }}
               replaceOpen={replaceOpen}
               onCloseReplace={() => setReplaceOpen(false)}
+              onRequestReplace={() => setReplaceOpen(true)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onLocalLinkOpen={openLocalLink}
@@ -3215,6 +3216,7 @@ export default function App() {
               }}
               replaceOpen={replaceOpen}
               onCloseReplace={() => setReplaceOpen(false)}
+              onRequestReplace={() => setReplaceOpen(true)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onLocalLinkOpen={openLocalLink}
