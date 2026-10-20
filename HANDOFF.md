@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.58
-更新时间: 2026-10-20（rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.59
+更新时间: 2026-10-20（rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.59 | 2026-10-20 · **文件监听补齐（P0，对标 v2 §2.5）**：Rust `notify 8.2`（桌面 target 专属）+ `watch_vault` / `unwatch_vault`（每库一个 watcher，窗口按引用计数共享）· 只报库内 `.md`/`.markdown`（`.zn`/`.vaults`/`SKIP_DIRS` 不进事件流）· 120ms 合并窗口 + 1500ms 自写抑制 · 前端改成 `watch_vault` 成功才停轮询，失败保留 3 秒兜底 · 移动端主动退轮询 · Rust +2 / vitest +2（cargo 36 · vitest 447）· 桌面 CDP 四场景实测 |
 | rev173.58 | 2026-10-20 · **交接**：质量基建（facts / 5 道质量门 / decisions / templates）· 文档补强（UI 规范 / 数据字典 / 键位表 / 系统总览）· 全功能对标 v2（修正 9 处 + 补 6 域 + 官方插件逐项）· HEAD cc3bce7 · 测试 445 · **唯一下一步：修 fs.watch emitter** |
 | rev173.57 | 2026-10-20 · **系统总览**：`docs/系统总览.md`（运行时拓扑 / 启动序列 / 保存链 / 插件生命周期 / 窗口收回 / 事件表 / 模块地图 / 排障入口）· 权威矩阵与阅读路径同步 · 质量门 5/5 · 测试 445 |
 | rev173.56 | 2026-10-20 · **文档补强**：`docs/UI交互规范.md`（现行布局/浮层/手势/主题）· `docs/数据与存储.md`（库布局/localeStorage 键表/写入语义/迁移）· `scripts/gen-keys.mjs` 生成 `docs/键位表.md`（9+9 条）· 质量门 5/5 · 测试 445 |
@@ -204,6 +205,38 @@ revision: 173.58
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.59（2026-10-20 · 文件监听补齐：桌面 watcher + 自写抑制）
+>
+> 修的是 rev173.58 交接里的**唯一下一步 / P0**（对标 v2 §2.5）：前端 `listen('zn://fs-change')`
+> 对任何事件名都会订阅成功、Rust 侧却从来没有 emitter ⇒ 外部改动完全不刷新，轮询兜底还被
+> `stopPoll()` 关掉。用户拍板走 ①「Rust 补 notify」。
+>
+> - **Rust**（`notify 8.2.0`，只挂在 `[target.'cfg(not(any(android, ios)))'.dependencies]`）：
+>   `watch_vault` / `unwatch_vault` 命令 + `FsWatchState`（每库一个 watcher，**引用计数**按窗口共享）·
+>   事件映射 create / modify / delete（rename 拆成 delete(旧) + create(新)，因为 `FsChange` 只带一个 path）·
+>   **只报库内 `.md` / `.markdown`**（`.zn` 回收站 / `.vaults` / `SKIP_DIRS` 不进事件流 —— 前端
+>   `useDocIO` 的 watch 回调不看 path，任何事件都会跑一次全库 `list_notes`）· **120ms 合并窗口**
+>   （同步盘落几十个文件时压成一批）· **1500ms 自写抑制**（`atomic_write` 登记目标路径，
+>   自动保存的回响不再触发全库扫描）。
+> - **前端**（`src/kernel/fs.ts`）：`listen` 成功**不再直接** `stopPoll()`，改为
+>   `await invoke('watch_vault')` 成功才停；失败（移动端 / watcher 起不来）保留 3 秒轮询兜底。
+>   dispose 调 `unwatch_vault`（引用计数 -1）。
+> - **移动端**：`/storage/emulated/0` 是 FUSE 挂载，inotify 漏报是常态 ⇒ `watch_vault` 在
+>   Android / iOS 上**主动返回 Err**，前端退回轮询；notify 依赖也整体不进移动端构建。
+> - **测试**：Rust +2（事件过滤 / 自写窗口），vitest +2（`tests/kernel-fs-watch.test.ts`：
+>   成功停轮询 / 失败留轮询）。基线 cargo 34 → **36** · vitest 445 → **447**。
+> - **实测**（桌面 CDP 9222 · 库 `_tmp-vault-tb`）：
+>   ① 外部新建 → 2 秒内搜索计数 4 → 5；
+>   ② 外部改**当前**笔记 → 编辑器出现新行 + `__znReloadLog` 记 `reloaded`；
+>   ③ 外部删除 → `read-fail`（编辑器不被清空）+ 计数回 4；
+>   ④ **应用内输入并保存 → 零回响**（自写抑制生效，`__znReloadLog` 无新增）。
+>
+> 坑：`FsWatchEntry.watcher` 字段从不读（只靠 Drop 停监听）⇒ 需要 `#[allow(dead_code)]`。
+>
+> 已知边界（未做，遇到再改）：窗口被销毁时 JS 不保证执行 `dispose` ⇒ watcher 引用计数可能泄漏；
+> 同一库幂等所以影响有限，但**换库时旧库 watcher 若没释放，会把旧库事件写给当前库的索引**。
+> 根治方向：Rust 用 `emit_to(window.label())` 按发起窗口投递，而不是全局广播。
+>
 > ## 📌 rev173.58（2026-10-20 · 交接：质量基建 + 文档补强 + 对标 v2）
 >
 > 本会话从「审查全功能对标 v1」开始，落到一套机器门 + 6 份文档。两次提交：

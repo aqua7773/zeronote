@@ -40,6 +40,11 @@ tauri-plugin-uri-reader = { path = "plugins/tauri-plugin-uri-reader" }
 # Android 上整个 crate 是空的（引用它的 `init()` 会编译失败）。
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+# 文件监听（rev173.59）：桌面走系统级 watcher（Windows ReadDirectoryChangesW /
+# macOS FSEvents / Linux inotify），改盘即发 `zn://fs-change`。
+# ⚠️ 移动端**不装**：Android 的 /storage/emulated/0 是 FUSE 挂载，inotify 漏报是常态，
+#    前端在手机上退回 3 秒轮询（见 lib.rs `watch_vault` 的返回）。
+notify = "8"
 
 # WebView2 设置（仅 Windows）：关闭**浏览器加速键**（Ctrl+F 原生查找栏 / Ctrl+R / F5…）
 # —— 见 lib.rs 的 `disable_browser_accelerator_keys`。Android 没有 WebView2，整段 cfg 掉。

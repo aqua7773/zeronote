@@ -343,7 +343,11 @@ fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
     f.sync_all().map_err(|e| format!("落盘失败：{e}"))?;
   }
   match fs::rename(&tmp, abs) {
-    Ok(()) => Ok(()),
+    Ok(()) => {
+      // 本进程写的：watcher 回响不当"外部改动"（rev173.59，见 SELF_WRITE_SILENCE_MS）
+      mark_self_write(abs);
+      Ok(())
+    }
     Err(_) => {
       // 覆盖失败（多为目标被占用）：旧文件先挪到 .bak，新文件上位后再删 .bak
       let bak = abs.with_extension("zn-bak");
@@ -353,6 +357,7 @@ fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
           if had_old {
             let _ = fs::remove_file(&bak);
           }
+          mark_self_write(abs);
           Ok(())
         }
         Err(e) => {
@@ -477,6 +482,282 @@ fn rewrite_links(
     }
   }
   Ok(changed)
+}
+
+/* ───────────── 文件监听（rev173.59） ───────────── */
+
+/*
+ * 动机（P0 · 对标 v2 §2.5）：前端 `src/kernel/fs.ts` 一直在 `listen('zn://fs-change')`，
+ * 但 Rust 侧从来没有发过这个事件；listen 一成功就把 3 秒轮询关掉 ⇒ 外部程序改文件
+ * （别的编辑器 / 网盘同步）**完全不刷新**，而且轮询兜底也被关掉了。
+ *
+ * 这里补上真正的 emitter（桌面）：watcher 把文件系统事件映射成契约里的 `FsChange`
+ * （库内相对路径）广播给所有窗口。设计上三条约束：
+ *
+ * 1. **只报 `.md` / `.markdown`**。前端 `useDocIO` 的 watch 回调不看 path，**任何事件
+ *    都会跑一次全库 `list_notes` + `list_dirs`**；回收站、ID 表、附件写入如果也报，
+ *    一次删除 = 几十次全库扫描。
+ * 2. **自己写盘的要吞掉**（{@link SELF_WRITE_SILENCE_MS}）。自动保存每 800ms 就可能
+ *    落一次盘，回响会让「保存 → 全库扫一遍」跟输入频率一起涨。
+ * 3. **合并通知风暴**（{@link FS_WATCH_DEBOUNCE_MS}）。同步盘一次落几十个文件时，
+ *    逐条 emit 会让前端做几十次全库扫描。
+ *
+ * 手机端**主动报错**、让前端退回轮询（见 `watch_vault`）—— 比"监听成功但永远没事件"
+ * 的静默失效安全（硬约束 4）。
+ */
+
+/// 自己写盘的**短暂屏蔽窗口**（毫秒）。
+///
+/// 代价：外部程序恰好在窗口内改同一篇会被吞一次；概率低，且下一次改动仍会触发。
+const SELF_WRITE_SILENCE_MS: u64 = 1500;
+
+/// 通知合并窗口（毫秒）：先把一批事件压成"每个路径一条"，再逐条上报。
+const FS_WATCH_DEBOUNCE_MS: u64 = 120;
+
+/// 自己写过的路径 → 登记时刻（毫秒）。键见 [`watch_key`]。
+static SELF_WRITES: std::sync::LazyLock<Mutex<BTreeMap<String, u64>>> =
+  std::sync::LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+/// 路径比较键：Windows 大小写不敏感（watcher 报的路径与 `resolve()` 拼的写法可能不同）。
+fn watch_key(p: &Path) -> String {
+  let s = p.to_string_lossy().replace('\\', "/");
+  if cfg!(windows) {
+    s.to_lowercase()
+  } else {
+    s
+  }
+}
+
+fn mark_self_write(abs: &Path) {
+  if let Ok(mut m) = SELF_WRITES.lock() {
+    let now = now_ms();
+    m.retain(|_, t| now.saturating_sub(*t) < SELF_WRITE_SILENCE_MS);
+    m.insert(watch_key(abs), now);
+  }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn is_self_write(abs: &Path) -> bool {
+  let Ok(mut m) = SELF_WRITES.lock() else {
+    return false;
+  };
+  let now = now_ms();
+  m.retain(|_, t| now.saturating_sub(*t) < SELF_WRITE_SILENCE_MS);
+  m.contains_key(&watch_key(abs))
+}
+
+/// 发往 WebView 的一条变更（契约 `FsChange`，**库内相对路径**）。
+#[derive(Clone, serde::Serialize)]
+struct FsChangePayload {
+  /// create | modify | delete —— rename 拆成 delete(旧) + create(新)：
+  /// `FsChange` 只带一个 path，前端的 `applyExternalChange` 也只按这两种处理。
+  kind: &'static str,
+  path: String,
+}
+
+/// 绝对路径 → 库内相对路径；不关心的路径返回 `None`。
+///
+/// 跳过所有 `.` 开头的路径段（`.zn` 回收站 / `.vaults` 多库容器 / `.git`）与
+/// `SKIP_DIRS`；只放行 `.md` / `.markdown`。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn fs_change_rel(root: &Path, abs: &Path) -> Option<String> {
+  let rel = abs.strip_prefix(root).ok()?;
+  for c in rel.components() {
+    let name = c.as_os_str().to_string_lossy().to_string();
+    if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+      return None;
+    }
+  }
+  let rel = rel.to_string_lossy().replace('\\', "/");
+  if !is_markdown(&rel) {
+    return None;
+  }
+  Some(rel)
+}
+
+/// `notify::Event` → 契约事件。一个系统事件可能对应多条（rename 的旧/新路径）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn changes_of(root: &Path, ev: &notify::Event) -> Vec<FsChangePayload> {
+  use notify::event::{ModifyKind, RenameMode};
+  use notify::EventKind;
+
+  fn add(out: &mut Vec<FsChangePayload>, root: &Path, kind: &'static str, abs: &Path) {
+    if let Some(path) = fs_change_rel(root, abs) {
+      out.push(FsChangePayload { kind, path });
+    }
+  }
+
+  let mut out = Vec::new();
+  match &ev.kind {
+    EventKind::Create(_) => ev.paths.iter().for_each(|p| add(&mut out, root, "create", p)),
+    EventKind::Remove(_) => ev.paths.iter().for_each(|p| add(&mut out, root, "delete", p)),
+    EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+      if let Some(p) = ev.paths.first() {
+        add(&mut out, root, "delete", p);
+      }
+      if let Some(p) = ev.paths.get(1) {
+        add(&mut out, root, "create", p);
+      }
+    }
+    EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+      if let Some(p) = ev.paths.first() {
+        add(&mut out, root, "delete", p);
+      }
+    }
+    EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
+      if let Some(p) = ev.paths.first() {
+        add(&mut out, root, "create", p);
+      }
+    }
+    EventKind::Modify(_) => ev.paths.iter().for_each(|p| add(&mut out, root, "modify", p)),
+    // Access（读）不该触发任何刷新；Other/Any 噪音大且无确定语义。
+    _ => {}
+  }
+  out
+}
+
+/// 一个库的监听句柄。`refs` = 当前订阅它的 WebView 数（主窗口 + `note-*` 窗口共享同库）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+struct FsWatchEntry {
+  /// drop 即停：watcher 一释放，底层监听与合并线程（见 `watch_vault`）一起退出。
+  /// 字段本身从不读 —— 它存在的意义就是 Drop，`allow(dead_code)` 是有意的。
+  #[allow(dead_code)]
+  watcher: notify::RecommendedWatcher,
+  refs: usize,
+}
+
+/// 监听表：库根绝对路径（`watch_key` 归一）→ 句柄。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[derive(Default)]
+struct FsWatchState {
+  inner: Mutex<BTreeMap<String, FsWatchEntry>>,
+}
+
+/// 移动端占位：`watch_vault` 直接返回错误，**没有 watcher 可管**。
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[derive(Default)]
+struct FsWatchState {}
+
+/// 开始监听一个库（幂等：同一库再调一次只加引用计数）。
+///
+/// 返回 `Err` 表示**事件通道没起来** —— 前端据此保留 3 秒轮询（不会静默失效）。
+#[tauri::command]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(unused_variables))]
+fn watch_vault(
+  app: tauri::AppHandle,
+  state: tauri::State<'_, FsWatchState>,
+  vault: String,
+) -> Result<(), String> {
+  #[cfg(any(target_os = "android", target_os = "ios"))]
+  {
+    // Android 的 /storage/emulated/0 是 FUSE 挂载，inotify 事件不全（漏报是常态）。
+    // 如实报错 ⇒ 前端退回轮询；「监听成功但永远没事件」才是最危险的静默失效。
+    return Err("移动端不使用系统文件监听，改用 3 秒轮询兜底".to_string());
+  }
+
+  #[cfg(not(any(target_os = "android", target_os = "ios")))]
+  {
+    use notify::Watcher as _;
+
+    let root = PathBuf::from(&vault);
+    if !root.is_dir() {
+      return Err(format!("库目录不存在：{vault}"));
+    }
+
+    let key = watch_key(&root);
+    {
+      let mut map = state.inner.lock().map_err(|_| "监听表被污染".to_string())?;
+      if let Some(entry) = map.get_mut(&key) {
+        entry.refs += 1;
+        return Ok(());
+      }
+    }
+
+    let (tx, rx) = std::sync::mpsc::channel::<FsChangePayload>();
+    let cb_root = root.clone();
+    let mut watcher = notify::recommended_watcher(
+      move |res: notify::Result<notify::Event>| match res {
+        Ok(ev) => {
+          for c in changes_of(&cb_root, &ev) {
+            if tx.send(c).is_err() {
+              break;
+            }
+          }
+        }
+        Err(e) => log::warn!("[fs-watch] 监听出错：{e}"),
+      },
+    )
+    .map_err(|e| format!("无法创建文件监听：{e}"))?;
+    watcher
+      .watch(&root, notify::RecursiveMode::Recursive)
+      .map_err(|e| format!("无法监听 {}：{e}", root.display()))?;
+
+    let emit_app = app.clone();
+    let emit_root = root.clone();
+    std::thread::spawn(move || {
+      use std::sync::mpsc::RecvTimeoutError;
+      // 一批事件 = 每个路径只留最后一次变更，然后逐条 emit。
+      let flush = |batch: BTreeMap<String, &'static str>| {
+        for (path, kind) in batch {
+          // 自己刚写过的路径：不当"外部改动"（见 SELF_WRITE_SILENCE_MS）
+          if is_self_write(&emit_root.join(&path)) {
+            continue;
+          }
+          let _ = emit_app.emit("zn://fs-change", FsChangePayload { kind, path });
+        }
+      };
+      loop {
+        // 通道断开（watcher 被 drop）⇒ 线程退出
+        let Ok(first) = rx.recv() else { break };
+        let mut batch: BTreeMap<String, &'static str> = BTreeMap::new();
+        batch.insert(first.path, first.kind);
+        loop {
+          match rx.recv_timeout(std::time::Duration::from_millis(FS_WATCH_DEBOUNCE_MS)) {
+            Ok(c) => {
+              batch.insert(c.path, c.kind);
+            }
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => {
+              flush(batch);
+              return;
+            }
+          }
+        }
+        flush(batch);
+      }
+    });
+
+    let mut map = state.inner.lock().map_err(|_| "监听表被污染".to_string())?;
+    map.insert(key, FsWatchEntry { watcher, refs: 1 });
+    Ok(())
+  }
+}
+
+/// 停一个库的监听（引用计数到 0 才真的 drop watcher）。未知库直接当成功。
+#[tauri::command]
+fn unwatch_vault(state: tauri::State<'_, FsWatchState>, vault: String) -> Result<(), String> {
+  #[cfg(any(target_os = "android", target_os = "ios"))]
+  {
+    let _ = (state, vault);
+    return Ok(());
+  }
+
+  #[cfg(not(any(target_os = "android", target_os = "ios")))]
+  {
+    let key = watch_key(Path::new(&vault));
+    let mut map = state.inner.lock().map_err(|_| "监听表被污染".to_string())?;
+    let drop_entry = match map.get_mut(&key) {
+      Some(entry) => {
+        entry.refs = entry.refs.saturating_sub(1);
+        entry.refs == 0
+      }
+      None => false,
+    };
+    if drop_entry {
+      map.remove(&key);
+    }
+    Ok(())
+  }
 }
 
 /* ───────────── 命令 ───────────── */
@@ -1900,6 +2181,8 @@ pub fn run() {
     .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
       app.manage(OpenedUrls::default());
+      // 文件监听表（rev173.59）：每库一个 watcher，引用计数按窗口共享
+      app.manage(FsWatchState::default());
       if cfg!(debug_assertions) {
         /*
          * ⚠️ **dev 日志只进 stdout，不写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`**（rev173.11）。
@@ -1957,6 +2240,8 @@ pub fn run() {
       create_dir,
       move_entry,
       copy_entry,
+      watch_vault,
+      unwatch_vault,
       import_attachment,
       import_attachment_b64,
       write_absolute,
@@ -2826,5 +3111,38 @@ mod tests {
     )
     .is_err());
     assert!(import_attachment_b64(v, "a.md".into(), "x".into(), "png".into(), "".into()).is_err());
+  }
+
+  /// 文件监听的事件过滤（rev173.59）：只放行库内 `.md` / `.markdown`；
+  /// `.zn`（回收站 / ID 表）、`.vaults`（多库容器）、`SKIP_DIRS`、附件一律不报 ——
+  /// 因为前端 `useDocIO` 的 watch 回调不区分 path，任何事件都会跑一次全库 list。
+  #[cfg(not(any(target_os = "android", target_os = "ios")))]
+  #[test]
+  fn fs_change_rel_filters_private_and_non_markdown() {
+    let root = Path::new("C:/vault");
+    let rel = |p: &str| fs_change_rel(root, &root.join(p));
+    assert_eq!(rel("a.md").as_deref(), Some("a.md"));
+    assert_eq!(rel("sub/b.markdown").as_deref(), Some("sub/b.markdown"));
+    // 非 markdown：附件 / 原子写的临时文件与备份
+    assert!(rel("pic.png").is_none());
+    assert!(rel("a.zn-tmp").is_none());
+    assert!(rel("a.zn-bak").is_none());
+    // 私有目录与隐藏目录
+    assert!(rel(".zn/trash/1/a.md").is_none());
+    assert!(rel(".vaults/other/a.md").is_none());
+    assert!(rel("node_modules/pkg/a.md").is_none());
+    // 库外路径（strip_prefix 失败）
+    assert!(fs_change_rel(root, Path::new("C:/other/a.md")).is_none());
+  }
+
+  /// 自己写盘的屏蔽窗口（rev173.59）：登记过的路径判 true，没登记的不受影响。
+  #[cfg(not(any(target_os = "android", target_os = "ios")))]
+  #[test]
+  fn self_write_window_marks_only_written_paths() {
+    let a = Path::new("C:/vault/_watch-selftest-a.md");
+    let b = Path::new("C:/vault/_watch-selftest-b.md");
+    mark_self_write(a);
+    assert!(is_self_write(a));
+    assert!(!is_self_write(b));
   }
 }

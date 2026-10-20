@@ -83,20 +83,44 @@ export function createFsApi(
         }
       }
 
+      let watched = false
+
       listen<FsChange>('zn://fs-change', (ev) => {
         if (!disposed) safeCb(ev.payload)
       })
-        .then((fn) => {
-          if (disposed) fn()
-          else {
-            unlisten = fn
-            // P2-5：事件通道可用 ⇒ 关掉轮询。轮询只是"监听不可用"的兜底，
-            // 而它每个订阅者一条、3 秒一次全库 list_notes（内核 + N 个插件 = N+1 次 IPC）。
+        .then(async (fn) => {
+          if (disposed) {
+            fn()
+            return
+          }
+          unlisten = fn
+          /*
+           * rev173.59：**事件通道可用 ≠ 有人在发事件**。
+           * `listen` 对任何事件名都会订阅成功；此前这里一成功就 `stopPoll()`，而 Rust 侧
+           * 根本没人发 `zn://fs-change` ⇒ 事件永远不来、轮询又被关掉，外部改动完全不刷新（P0）。
+           * 现在改成「让 Rust 真把 watcher 起起来」才算数：
+           *   · 起成功 ⇒ 停轮询（桌面：接到真实事件后几乎立刻刷新）；
+           *   · 起失败（移动端 / 库不存在 / 系统 watcher 不可用）⇒ 保留 3 秒轮询兜底。
+           */
+          try {
+            await invoke<void>('watch_vault', { vault })
+            watched = true
+            if (disposed) {
+              // 等 IPC 期间订阅被销毁 ⇒ 立刻退订，别把 watcher 留给一个没人听的库
+              watched = false
+              void invoke('unwatch_vault', { vault }).catch(() => {})
+              return
+            }
+            // P2-5：事件通道真的可用 ⇒ 关掉轮询（它每个订阅者一条、3 秒一次全库 list_notes）
             stopPoll()
+          } catch (e) {
+            if (onWatchError) onWatchError(e)
+            else console.warn('[zn] 系统文件监听不可用，改用 3 秒轮询兜底', e)
+            if (!disposed) startPoll()
           }
         })
         .catch(() => {
-          // 事件通道不可用 ⇒ 轮询兜底
+          // Tauri 事件系统本身不可用（非预期）⇒ 轮询兜底
           startPoll()
         })
 
@@ -138,6 +162,12 @@ export function createFsApi(
           disposed = true
           stopPoll()
           unlisten?.()
+          // 引用计数 -1（主窗口 + note-* 窗口可能共享同一个库的 watcher）；
+          // 失败无声：进程退出时 Rust 侧状态一并释放
+          if (watched) {
+            watched = false
+            void invoke('unwatch_vault', { vault }).catch(() => {})
+          }
         },
       }
     },
