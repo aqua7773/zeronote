@@ -49,6 +49,9 @@ examples/*/store.json
 # 本地日志（Android dev 等）
 .self-logs/
 
+# 本机 verify 基线（scripts/facts.mjs 读取；不入库）
+scripts/.verify-baseline.json
+
 # Tauri Android 构建缓存（`gen/android/` 本身入库，但它的 Kotlin/Gradle 中间产物不入库）
 src-tauri/gen/android/.kotlin/
 

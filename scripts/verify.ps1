@@ -9,19 +9,19 @@ $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 $fail = 0
 
-Write-Host '=== 1/5 前端类型检查（tsc -b）===' -ForegroundColor Cyan
+Write-Host '=== 1/6 前端类型检查（tsc -b）===' -ForegroundColor Cyan
 pnpm exec tsc -b
 if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ tsc 失败' -ForegroundColor Red }
 else { Write-Host '✅ tsc：0 错误' -ForegroundColor Green }
 
-Write-Host '=== 2/5 前端 lint（oxlint src）===' -ForegroundColor Cyan
+Write-Host '=== 2/6 前端 lint（oxlint src）===' -ForegroundColor Cyan
 $lintOut = (pnpm exec oxlint src 2>&1 | Out-String)
 $warn = [regex]::Match($lintOut, 'Found\s+(\d+)\s+warnings?').Groups[1].Value
 if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ oxlint 失败（有 error）' -ForegroundColor Red }
 elseif (-not $warn) { $fail++; Write-Host '❌ oxlint 输出里找不到 warning 数（解析规则要跟着输出格式改）' -ForegroundColor Yellow }
 else { Write-Host "✅ oxlint：0 error · $warn warnings" -ForegroundColor Green }
 
-Write-Host '=== 3/5 内核单元测试（cargo test --lib）===' -ForegroundColor Cyan
+Write-Host '=== 3/6 内核单元测试（cargo test --lib）===' -ForegroundColor Cyan
 # 本机铁律：Rust 产物必须在工作区之外
 $env:CARGO_TARGET_DIR = "$env:USERPROFILE\cargo-targets\zeronote"
 Push-Location src-tauri
@@ -33,11 +33,11 @@ elseif (-not $passed) { $fail++; Write-Host '❌ 输出里找不到 passed 数�
 else { Write-Host "✅ cargo test --lib：$passed passed" -ForegroundColor Green }
 Pop-Location
 
-Write-Host '=== 4/5 文档一致性（check-docs）===' -ForegroundColor Cyan
+Write-Host '=== 4/6 文档一致性（check-docs）===' -ForegroundColor Cyan
 node scripts/check-docs.mjs
 if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ 文档一致性失败（见上方问题清单）' -ForegroundColor Red }
 
-Write-Host '=== 5/5 前端单元测试（vitest）===' -ForegroundColor Cyan
+Write-Host '=== 5/6 前端单元测试（vitest）===' -ForegroundColor Cyan
 # 只跑一次（vitest run），不挂 watch；测试文件在 tests/，不受 tsc -b 与 oxlint src 影响
 $unitOut = (pnpm exec vitest run 2>&1 | Out-String)
 $unit = [regex]::Match($unitOut, 'Tests\s+(\d+)\s+passed').Groups[1].Value
@@ -51,6 +51,17 @@ Write-Host ''
 $w = if ($warn) { $warn } else { '?' }
 $p2 = if ($passed) { $passed } else { '?' }
 $u = if ($unit) { $unit } else { '?' }
+
+# 6/6 质量门：先用本轮数字刷新事实块，再跑门
+if ($fail -eq 0) {
+  $baselineJson = @{ at = (Get-Date).ToString('yyyy-MM-dd'); head = (git rev-parse --short HEAD); vitest = "$u"; cargo = "$p2"; oxlint = "$w" } | ConvertTo-Json -Compress
+  $baselinePath = Join-Path $root 'scripts\.verify-baseline.json'
+  [System.IO.File]::WriteAllText($baselinePath, $baselineJson, (New-Object System.Text.UTF8Encoding($false)))
+  node scripts/facts.mjs --write | Out-Null
+}
+Write-Host '=== 6/6 质量门（facts / 依赖方向 / 本地链接 / 功能目录 / 键位表）===' -ForegroundColor Cyan
+node scripts/check-gates.mjs
+if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ 质量门失败（见上方清单）' -ForegroundColor Red }
 Write-Host "基线：tsc 0 错误 · oxlint $w warnings · cargo test --lib $p2 passed · vitest $u passed" -ForegroundColor Cyan
 if ($fail -gt 0) {
   Write-Host "❌ $fail 项失败（$((Get-Date).ToString('HH:mm:ss'))）" -ForegroundColor Red

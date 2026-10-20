@@ -44,6 +44,18 @@ jobs:
       - name: Docs consistency (check-docs)
         run: node scripts/check-docs.mjs
 
+      - name: Arch direction (check-arch)
+        run: node scripts/check-arch.mjs
+
+      - name: Local links (check-links)
+        run: node scripts/check-links.mjs
+
+      - name: Catalog freshness (gen-catalog --check)
+        run: node scripts/gen-catalog.mjs --check
+
+      - name: Keymap freshness (gen-keys --check)
+        run: node scripts/gen-keys.mjs --check
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

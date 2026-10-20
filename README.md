@@ -3,8 +3,8 @@
 > 一句话：**内核只做四件事**（`.md` 读写 / 编辑 / 本地存储 / 插件宿主），其余功能全是插件，可独立装卸升级。
 > **数据就是你文件夹里的 `.md`** —— 没有数据库、没有服务器、没有账号。
 
-**现状（2026-10-17）**：桌面（Windows）＋ Android 双端跑通；插件系统 v0.1（10 原语 / 21 种 UINode / 真窗口 / 整窗接管）；
-29 个示例插件；文档阅读器、导入导出、回收站、层级文件夹已落地。详细证据见 `HANDOFF.md`，当前状态见 `HANDOFF-CARD.md`。
+**现状（2026-10-20 · rev173.54 · 0.2.0）**：桌面（Windows）＋ Android 双端跑通；插件系统 v0.2（10 原语 / 21 种 UINode / 真窗口 / 整窗接管 / 懒激活）；
+29 个示例插件、内置预装 5 个；文档阅读器、导入导出、回收站、层级文件夹、多标签页 + 标签拆独立窗口、搜索筛选、全局替换、粘贴图片、桌面时间流已落地。详细证据见 `HANDOFF.md`，当前事实（HEAD / 测试 / 插件数）见 `HANDOFF-CARD.md` 顶部自动生成块。
 
 ---
 
@@ -58,7 +58,7 @@ android-dev.cmd
 
 1. **`vite.config.ts` 的 `server.host: true`** —— 真机经局域网 IP 访问 dev server
 2. **`gradle-wrapper.properties` 指向腾讯镜像** —— 官方源在本机实测 5 分钟 0 字节
-3. **Android 默认库 = 应用数据目录**（`<appDataDir>/vault`）；要放公共存储就必须手动开「所有文件访问」（系统不弹窗）
+3. **Android 默认库 = 公共存储 `Documents/ZeroNote`**（`/storage/emulated/0/Documents/ZeroNote`）；必须手动开「所有文件访问」（系统不弹窗）
 
 安装与权限步骤见 `docs/Android安装说明.md`。
 
@@ -106,12 +106,19 @@ ZeroNote\
 | 想知道 | 读 |
 |---|---|
 | 文档全家桶谁说了算 | `docs/README.md`（索引 + 权威矩阵） |
+| 系统怎么运转（拓扑 / 主流程 / 模块地图） | `docs/系统总览.md` |
 | 为什么这样设计（最高权威） | `docs/架构原则-2026-10-13.md` |
 | 插件能调什么接口 | `docs/内核契约-v0.2.md`（与 `src/kernel/contract.ts` 一一对应） |
 | 项目现在到哪了 | `HANDOFF-CARD.md` |
 | 某个功能怎么做的、踩过什么坑 | `HANDOFF.md`（按 rev 查） |
+| 有哪些插件、各自声明了什么 | `docs/功能目录.md`（自动生成，勿手改） |
+| 界面布局 / 键位 / 手势 | `docs/UI交互规范.md`（键位表自动生成） |
+| 数据存到哪、`.zn` 里有什么 | `docs/数据与存储.md` |
+| 为什么不做某件事（否决清单） | `docs/decisions/README.md` |
+| 任务卡 / 决策记录怎么写 | `docs/templates/TASK.md` · `docs/templates/ADR.md` |
 | 需求存档（暂不采用） | `docs/requirements/current.md`（draft） |
 | 文档怎么写 | `docs/文档编写规范.md` |
+| 当前事实（HEAD / 测试 / 插件数） | `HANDOFF-CARD.md` 顶部 FACTS 块（`node scripts/facts.mjs --write` 生成） |
 
 ## 铁律
 

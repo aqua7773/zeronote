@@ -1,7 +1,17 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.54）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.57）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
+
+<!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
+| 事实 | 当前值 |
+|---|---|
+| rev / 版本 | rev173.57 · 0.2.0 · 2026-10-20 |
+| HEAD | 93104a5 · main |
+| 测试基线 | vitest 445 · cargo 34 · oxlint 3 warnings（2026-10-20） |
+| 插件 | 内置 5 · 示例 29 |
+| 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
+<!-- FACTS:END -->
 
 ## 是什么
 
@@ -38,10 +48,13 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.51 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.57 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.57 | **系统总览**：`docs/系统总览.md`（拓扑 / 启动序列 / 保存链 / 插件生命周期 / 窗口收回 / 事件表 / 模块地图 / 排障）· 权威矩阵与阅读路径同步 · 质量门 5/5 |
+| 173.56 | **文档补强**：`docs/UI交互规范.md`（现行布局/浮层/手势/主题）· `docs/数据与存储.md`（库布局 / localStorage 键表 / 写入语义 / 迁移）· `scripts/gen-keys.mjs` 生成 `docs/键位表.md`（9+9）· 质量门 5/5 |
+| 173.55 | **质量基建**：`scripts/facts.mjs`（事实块自动生成 + 新鲜度门）· `check-arch` / `check-links` / `gen-catalog` 进 verify 第 6 步 · `docs/decisions/` 6 条否决记录 · `docs/templates/` 任务卡 + ADR · README / CHANGELOG / 需求权威 / VS Code PR 误读一并修正 · 测试 **445** |
 | 173.54 | **标题条拖出 = 收回 + 多窗口调研补课**：标题条文档名变成拖拽把手（越界松手 ⇒ 保存→通知→关窗，复用 `lib/tab-drag.ts`）· 补 `docs/标签窗口拖拽-调研-2026-10-20.md`（Obsidian/Chrome/VS Code 做法 + 多窗口架构对比）· `docs/开发约定.md` §0.6「系统能力类改动先查同类产品」· 测试 **445** |
 | 173.53 | **独立窗口收成纯编辑窗口**（用户「拖出来的窗口只要编辑窗口就行了」）：去掉独立窗口里的标签条 · 收回改成标题条左侧 `⤺` 按钮（同一条 `returnToMain`：保存→通知→关窗）· 主窗口拖出手势不变 · 测试 **445** |
 | 173.52 | **拖出独立 / 拖入放回 + 同一篇互斥**：`src/lib/tab-drag.ts`（8px 阈值 / 越界热区）· `TabBar` 指针拖拽手势（拖完吃掉补发的 click）· 主窗口拖出 = 拆窗口 · 独立窗口拖出 = `saveNow → emit → close` 交回主窗口（标签自动回来）· `noteWindowsRef` + `useDocSession.canOpen` 守卫（点被拆出的那篇 ⇒ 聚焦 + 提示）· 测试 **445** |
