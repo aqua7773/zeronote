@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.68）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.69）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.68 · 0.2.0 · 2026-10-20 |
+| rev / 版本 | rev173.69 · 0.2.0 · 2026-10-20 |
 | 测试基线 | vitest 474 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
@@ -45,10 +45,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.68 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.69 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.69 | **标签条细节**（用户截图）：第一条标签贴编辑区左缘（`.zn-tabs` 左 padding 0）· 取消活动标签顶部 inset 阴影线（当前标签只靠底色区分）· 桌面实测：`padding=0px 6px 0px 0px` / active `box-shadow=none` / 首标签 gap 0 |
 | 173.68 | **独立窗口关闭 = 交回主窗口**：移除「拖出窗口 = 收回」手势（state / pointer 监听 / 样式 / 提示全删）· 关闭按钮改 `returnToMain`（保存 → emit → 关窗；主窗口标签回来并打开）· 标题条恢复 `deep` 拖动区（标题居中保持）· vitest **474** · 桌面实测：点关闭 ⇒ 窗口消失 + 主窗口收回并打开该篇 |
 | 173.67 | **笔记独立窗口标题条**（用户截图）：去掉 `⤺` 收回按钮 · 整条标题栏可拖窗口（`data-tauri-drag-region="deep"`）· 文档名居中、保留「拖出窗口 = 收回」手势（标 `false` 阻止系统接管）· vitest **473** · 桌面实测：标题中心 = 条中心 + 手势回归 |
 | 173.66 | **手机卡片菜单进返回键层栈**：`MobileNoteCards` 加 `layers`（App 的 `layerExitsRef`，与 `FileTree` 同一约定）· 菜单打开压栈 / 关闭移除 · App 两处（手机起始页 + 桌面时间流）都传 · vitest **472** · 手机 33b676f6 实测：返回键先关菜单、不退 App |

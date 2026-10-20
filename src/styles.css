@@ -681,7 +681,9 @@ body.is-resizing * {
   align-items: stretch;
   gap: 2px;
   height: var(--zn-tabbar-h);
-  padding: 0 6px;
+  /* rev173.69：左侧不留间隔 —— 第一条标签贴编辑区左缘（用户截图红框）；
+     右侧留 6px 给滚动 / 拖拽提示。 */
+  padding: 0 6px 0 0;
   overflow-x: auto;
   overflow-y: hidden;
   background: var(--zn-bg-subtle);
@@ -703,7 +705,8 @@ body.is-resizing * {
 .zn-tab.is-active {
   background: var(--zn-bg);
   color: var(--zn-fg);
-  box-shadow: inset 0 1px 0 var(--zn-border-strong);
+  /* rev173.69：取消活动标签顶部的 inset 阴影线（用户截图黄框「上面的阴影」）——
+     当前标签只靠底色区分，不再描边。 */
 }
 .zn-tab-label {
   display: flex;
