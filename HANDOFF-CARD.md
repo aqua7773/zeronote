@@ -131,14 +131,18 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态**：`dev.cmd` 起的（**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。**别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
+- **交接时 dev 状态（2026-10-20 12:2x）**：桌面窗口 pid 11784（`dev.cmd` 起的，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。
+  ⚠️ **vite 有两个**：`1420` 是本会话为救白屏临时 `pnpm dev` 起的（托管在后台 job，**job 被回收后 1420 会断**）/ `1421` 是 `pnpm tauri dev` 自己起的。
+  下个会话 1420 不通 ⇒ 项目根跑一次 `pnpm dev` 即可（桌面与手机会自己重连），或整个重开 `dev.cmd`。
+  **别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
 - **GitHub**：账号 `aqua7773`（gh 已登录，keyring）；**github.com 直连超时，必须走本地代理 `http://127.0.0.1:26561`**（`HTTPS_PROXY`）。gh 不在当前 PATH，用 `C:\Program Files\GitHub CLI\gh.exe`。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374 STATUS_HEAP_CORRUPTION`，重启即恢复（rev117 / rev118 各踩一次）。
 - **手机 `33b676f6`（ARIA 24069RA21C）= 测试机，只跑已装的 dev 包**（`com.aqua.zeronote.debug`，连电脑 1420）：
-  启动 `adb shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`；前端改动 reload 即生效。
+  启动 `adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`；前端改动 reload 即生效。
+  ⚠️ adb 里还有两个**离线残留**（`emulator-5554` / `localhost:5555`）⇒ 所有 adb 命令都带 `-s 33b676f6`，否则报 "more than one device"。
   **别为测试重编 APK**（硬约束 7）；判据：logcat 出现 `node_modules/.vite/deps/…`。**不装 release**。
 - **防火墙**：1420 已放行（TCP，仅 `192.168.1.0/24`；网络被识别为 Public、手机 2.4G / 电脑 5G 跨 SSID）。
 - **手机 CDP**（默认手机断言手段）：`adb forward tcp:93xx localabstract:webview_devtools_remote_<pid>` → `ZN_CDP=http://127.0.0.1:93xx node tools/cdp.mjs …`。

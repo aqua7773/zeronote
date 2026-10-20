@@ -230,6 +230,17 @@ revision: 173.49
 >
 > `scripts\verify.ps1` 全过：tsc 0 / oxlint **3 warnings** / cargo test **34 passed** / check-docs / vitest **400 passed**（2026-10-20 12:11）。
 >
+> ### 交接时状态（2026-10-20 12:2x）
+>
+> - **git**：工作区干净，HEAD = `fcd2ea1`；本会话四个 rev（173.46 / 173.47 / 173.48 / 173.49）都已提交。
+> - **dev 在跑**：桌面窗口 pid 11784（`dev.cmd` 起的，**CDP 9222 可用**，`node tools/cdp.mjs` 直接能连）；库 `_tmp-vault-tb`。
+> - **vite 有两个**：`1420`（本会话为救白屏临时 `pnpm dev` 起的，**托管在后台 job**）/ `1421`（`pnpm tauri dev` 自己起的）。
+>   下个会话若 1420 不通（job 被回收）⇒ 在项目根跑一次 `pnpm dev`，桌面与手机会自己重连；或整个重开 `dev.cmd`。
+> - **手机**：dev 包已装、**当前没在跑**（前台是 MIUI 桌面）。启动：
+>   `adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`
+>   ⚠️ adb 里还有两个**离线残留**（`emulator-5554` / `localhost:5555`）⇒ 所有 adb 命令都要带 `-s 33b676f6`。
+> - **待办**：4 项只剩 **#2（多标签页 · 分屏）**，起点见 `HANDOFF-CARD.md`「下个会话第一件事」。
+>
 > ### 下一步
 >
 > - 待办 #2 多标签页 · 分屏（最后一项，会碰 `App.tsx` 的文档会话，成本最高）
