@@ -247,7 +247,13 @@ revision: 173.73
 >   · 分类：交通 ↔ 餐饮 上移下移成功；删「通讯」直接确认；删「购物」确认页显示「2 笔记录」→ 取消
 >   · 补金额：store 造一条 pending → 列表出现「金额待补 / 补金额」→ 补 ¥99 → 本月支出 ¥130 → ¥229
 >   · 启动静默：reload 后桌面没有「只在 Android 可用」提示（`sync({silent:true})` 生效）
-> - 未实测：手机上的启动自动同步（本会话手机 CDP 9333 不可用）——与桌面走同一条 `sync()`
+> - 手机实测（33b676f6，dev 包连 1420；CDP 9333）：
+>   · 通知捕获链路：`cmd notification post`（`com.android.shell` 临时加白名单）→ 面板出现「Shell ¥88.88 · 餐饮」
+>   · **启动自动同步**：app 在后台收到 ¥77.77 → `force-stop` → 启动（**不点同步**）⇒ 面板自动出现该笔，
+>     本月支出 ¥192.08 → ¥269.85
+>   · 边界（实测）：`force-stop` 期间产生的通知收不到 —— force-stop 会解绑 listener，系统不重建；
+>     `am kill` 杀不掉进程（listener 绑定保活）。结论：**进程活着（含后台）就能收；被系统强停期间会漏**
+>   · 另：force-stop 后若 listener 不再自动绑定，`adb shell cmd notification allow_listener <组件>` 可重新触发
 >
 > ## 📌 rev173.72（2026-10-20 · 决策：不做分屏）
 >
