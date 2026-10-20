@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.57）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.58）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.57 · 0.2.0 · 2026-10-20 |
+| rev / 版本 | rev173.58 · 0.2.0 · 2026-10-20 |
 | 测试基线 | vitest 445 · cargo 34 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
@@ -24,22 +24,24 @@
 
 ```powershell
 pwsh -File scripts\verify.ps1
-# 五步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过
+# 六步：tsc 0 错误 · oxlint src 0 error · cargo test --lib 全过 · check-docs 全过 · vitest 全过 · 质量门 5 项（facts / 依赖方向 / 本地链接 / 功能目录 / 键位表）
 ```
 
 ## 下个会话第一件事
 
-1. **多窗口架构的三处修正**（来自 rev173.54 的调研，有据）：
-   - 笔记窗口**跳过插件加载**（`usePluginHost` 加条件）—— 现在每个窗口都跑 `ensureBuiltinPlugins` + 全量插件，副作用成倍；
-   - 占用账本 `noteWindowsRef` 搬到 **localStorage / Rust state**（主窗口 reload 就丢）；
-   - 「拖标题条出界」是自创手势，要贴近 Obsidian 就换回「把手标签 + 落点判断」（`docs/标签窗口拖拽-调研-2026-10-20.md` 方案 A）。
-2. **标签页延伸（可选）**：`Ctrl+1..9` 直达 · 标签右键「关闭其它 / 关闭右侧」· 拖拽排序 · 重启后会话恢复。
-   **分屏**：要两个编辑器实例共用一份 `docApi`，先定「两边同时改同一篇」的语义再动手。
-   （✅ #1 粘贴图片 rev173.46 · #4 搜索筛选 rev173.47 · #3 全局替换 rev173.49 · #2 多标签页 rev173.50 · 独立窗口 rev173.51–54 —— 都已实测。）
-3. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
-4. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
+1. **P0 修文件监听（对标 v2 §2.5 · 先问用户选方案）**：`src-tauri` 里没有 `zn://fs-change` 的 emitter，而 `src/kernel/fs.ts:95` 在 `listen` 成功后就 `stopPoll()` ⇒ 外部改文件可能**完全不刷新**。二选一：① Rust 补 `notify` crate + `emit('zn://fs-change')`；② 前端改成「先轮询，收到首条真实事件再停」。涉及新依赖，先拍板。
+2. **P1 多窗口三件事（对标 v2 §2.1–2.3）**：
+   - 笔记窗口**跳过插件加载**（`usePluginHost` 加条件）—— 现在每个窗口都跑 `ensureBuiltinPlugins`，内置插件（4 个无 `activationEvents`）立即执行；
+   - `window-state` **只接桌面**（官方不支持 Android，要 `cfg` 分流；`note-*` 恢复策略先定）；
+   - 占用账本 `noteWindowsRef` 搬到 **localStorage / Rust state**（主窗口 reload 就丢）。
+3. **P2 会话恢复（hot exit）**：localStorage dirty 快照 + 恢复提示（对标 v2 §2.4）。
+4. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
+5. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
 
 可选小项：卡片长按菜单没进返回键层栈（菜单开着按返回 → 直接退 App），要补就顺手。
+
+> 本会话（rev173.55–58）产出：`docs/系统总览.md` · `docs/数据与存储.md` · `docs/UI交互规范.md` · `docs/键位表.md`（生成）· `docs/功能目录.md`（生成）· `docs/decisions/`（6 条）· `docs/templates/`（任务卡 + ADR）· 质量门脚本 6 个。
+> 没做：性能基线（用户暂缓）· 用户运维手册（只有一个使用者，决定不写）。
 
 ### 本会话踩过的三个坑（务必避开）
 
@@ -47,10 +49,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.57 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.58 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.58 | **交接**：质量基建（facts / 5 门 / decisions / templates）+ 6 份文档 + 对标 v2 · 两次提交 `b6a1cdc` / `cc3bce7` · 唯一下一步 = 修 `zn://fs-change` emitter · 测试 445 |
 | 173.57 | **系统总览**：`docs/系统总览.md`（拓扑 / 启动序列 / 保存链 / 插件生命周期 / 窗口收回 / 事件表 / 模块地图 / 排障）· 权威矩阵与阅读路径同步 · 质量门 5/5 |
 | 173.56 | **文档补强**：`docs/UI交互规范.md`（现行布局/浮层/手势/主题）· `docs/数据与存储.md`（库布局 / localStorage 键表 / 写入语义 / 迁移）· `scripts/gen-keys.mjs` 生成 `docs/键位表.md`（9+9）· 质量门 5/5 |
 | 173.55 | **质量基建**：`scripts/facts.mjs`（事实块自动生成 + 新鲜度门）· `check-arch` / `check-links` / `gen-catalog` 进 verify 第 6 步 · `docs/decisions/` 6 条否决记录 · `docs/templates/` 任务卡 + ADR · README / CHANGELOG / 需求权威 / VS Code PR 误读一并修正 · 测试 **445** |
