@@ -112,6 +112,19 @@ describe('usePluginHost', () => {
     expect(args.setLoadedIds).toHaveBeenCalledWith(['p1'])
   })
 
+  it('enabled=false（笔记独立窗口）：预装 / 扫描 / 加载整段都不跑', async () => {
+    mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'p1', source: 'vault' }])
+    const args = makeArgs({ enabled: false })
+    renderHook(() => usePluginHost(args))
+    await settle()
+    // 不预装内置插件（每个 note 窗口都写一遍全局目录是无谓 IO，还会和主窗口并发写）
+    expect(mocks.ensureBuiltinPlugins).not.toHaveBeenCalled()
+    expect(mocks.collectPluginDirs).not.toHaveBeenCalled()
+    expect(mocks.loadPlugin).not.toHaveBeenCalled()
+    expect(args.setManifests).not.toHaveBeenCalled()
+    expect(args.setLoadedIds).not.toHaveBeenCalled()
+  })
+
   it('懒激活：只静态声明命令；activate 时才加载', async () => {
     mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'p2', source: 'vault' }])
     mocks.readManifest.mockResolvedValue(

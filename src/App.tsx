@@ -1800,6 +1800,12 @@ export default function App() {
   const { installZnp } = usePluginHost({
     kernel,
     vault,
+    /**
+     * rev173.60：笔记独立窗口只画编辑器 ⇒ **不加载任何插件**。
+     * 之前每个 `note-*` 窗口都跑一遍内置预装 + 扫描 + 加载（拆 3 个标签 = 3 份额外启动成本，
+     * 还会和主窗口并发写同一批内置插件文件）。
+     */
+    enabled: !noteWindowPath,
     reloadToken,
     disabledRef,
     setManifests,

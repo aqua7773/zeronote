@@ -42,6 +42,15 @@ import { dropBootPluginStyles } from '../lib/boot-plugin-styles'
 export type UsePluginHostArgs = {
   kernel: Kernel | null
   vault: string | null
+  /**
+   * **笔记独立窗口**（`?note=`，rev173.51）不需要插件 —— 它只画编辑器（rev173.53），
+   * 面板 / 侧栏 / 时间流全都不渲染。false ⇒ 整个加载链不跑（rev173.60）。
+   *
+   * 为什么值得单独一个开关：每个 `note-*` 窗口都曾跑一遍 `ensureBuiltinPlugins` +
+   * 扫描 + 加载 4 个立即执行的插件 —— 拆三个标签就是三份额外启动成本，还会与主窗口
+   * 并发写同一批内置插件文件。默认 `true`，只有笔记窗口传 false。
+   */
+  enabled?: boolean
   /** 重扫信号：安装 / 删除 / 手动重扫时 +1 */
   reloadToken: number
   /** 已禁用插件 id（同步 ref —— 加载 effect 里要读最新值） */
@@ -68,6 +77,8 @@ export function usePluginHost({
   kernel,
   vault,
   reloadToken,
+  // 默认开：主窗口 / 插件窗口行为不变；只有笔记独立窗口（`?note=`）传 false
+  enabled = true,
   disabledRef,
   setManifests,
   setPluginEntries,
@@ -112,7 +123,8 @@ export function usePluginHost({
 
   useEffect(() => {
     const k = kernel
-    if (!k || !vault) return
+    // rev173.60：笔记独立窗口不需要插件（只画编辑器）⇒ 预装 / 扫描 / 加载整段跳过
+    if (!k || !vault || !enabled) return
     let cancelled = false
     // 用 ref 里那份（跨 effect 可见）：中途被打断时 cleanup 也能清到正在加载的插件
     const loaded = loadedPluginsRef.current
@@ -346,11 +358,11 @@ export function usePluginHost({
       // 这样"卸完"与"开始加载新代"之间不会插进别的任务，也不再有
       // "cleanup 里 fire-and-forget 卸载 → 新代已经在注册命令"的窗口。
     }
-    // 依赖只列真正该触发重载的三个：kernel / vault / reloadToken。
+    // 依赖只列真正该触发重载的：kernel / vault / reloadToken / enabled。
     // setters 都是稳定引用；disabledRef 是 ref（读 .current 最新值）—— 启用/禁用由调用方
     // bump reloadToken 触发重载，语义与迁出前一致。写成 .current 会随 Set 变化重建整代。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kernel, vault, reloadToken])
+  }, [kernel, vault, reloadToken, enabled])
 
   /**
    * 安装 `.znp` 插件包（2026-10-18 rev119）—— **从路径**安装的核心实现。
