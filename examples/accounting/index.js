@@ -20,6 +20,8 @@ const CATEGORY_KEY = 'categoryMap'
 /** 用户自定义的分类列表（未设置时用内置 CATEGORIES） */
 const CATEGORY_LIST_KEY = 'categories'
 const MAX_TX = 500
+/** 每月分类预算（rev173.73）：`{ 分类: 金额 }` —— 金额跨月沿用，消耗每月重算 */
+const BUDGET_KEY = 'budgets'
 /** 手动改分类时可选的分类 */
 const CATEGORIES = ['餐饮', '交通', '购物', '通讯', '居住', '医疗', '娱乐', '收入', '其他']
 
@@ -312,6 +314,38 @@ export function summarizeByCategory(txs, year, month) {
   }
   const rows = [...map.values()].sort((a, b) => b.amount - a.amount)
   return { total, rows: rows.map((r) => ({ ...r, pct: total > 0 ? r.amount / total : 0 })) }
+}
+
+/**
+ * 预算执行情况（rev173.73）：本月每个**设了预算**的分类花了多少、剩多少、超没超。
+ *
+ * `budgets` = `{ 分类: 金额 }`；只统计 `type === 'expense'` 且落在该月的记录。
+ * 顺序：超支的排前面，再按使用率降序（统计视图直接按这个顺序画）。
+ */
+export function budgetStatus(txs, budgets, year, month) {
+  const key = `${year}-${pad(month)}`
+  const spent = new Map()
+  for (const t of txs || []) {
+    if (!t || t.type !== 'expense') continue
+    if (monthKey(t.time) !== key) continue
+    const c = t.category || '其他'
+    spent.set(c, (spent.get(c) || 0) + Number(t.amount || 0))
+  }
+  const rows = []
+  for (const [category, raw] of Object.entries(budgets || {})) {
+    const budget = Number(raw)
+    if (!(budget > 0)) continue
+    const used = spent.get(category) || 0
+    rows.push({
+      category,
+      budget,
+      spent: used,
+      left: budget - used,
+      over: used > budget,
+      pct: Math.min(1, used / budget),
+    })
+  }
+  return rows.sort((a, b) => Number(b.over) - Number(a.over) || b.pct - a.pct)
 }
 
 /** 近 n 个月（含本月）的支出/收入，按月升序；没有记录的月份补 0 */
@@ -618,9 +652,21 @@ export default {
     } catch {
       raws = []
     }
+    /** 每月分类预算（rev173.73）：`{ 分类: 金额 }`，跨月沿用 */
+    let budgets = {}
+    try {
+      const saved = await store.get(BUDGET_KEY, {})
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) budgets = saved
+    } catch {
+      budgets = {}
+    }
     /** 正在改分类的交易 id（null = 列表视图） */
     let editingId = null
-    /** 面板视图：账单列表 / 统计（rev173.28） */
+    /** 正在补金额的交易 id（rev173.75） */
+    let amountEditId = null
+    /** 待确认删除的分类名（rev173.74；null = 不在确认态） */
+    let catDelete = null
+    /** 面板视图：账单列表 / 统计 / 预算 / 分类管理 / 诊断 */
     let mode = 'list'
     let status = { enabled: false, note: '正在检查通知权限…' }
 
@@ -665,17 +711,24 @@ export default {
       return status
     }
 
-    async function sync() {
+    /**
+     * 拉取通知缓存并入库。
+     *
+     * `silent`：启动自动同步用（rev173.76）——没有新账单、也没权限时不打扰用户，
+     * 只有真的补上了才提示一次。
+     */
+    async function sync(opts) {
+      const silent = !!(opts && opts.silent)
       const t = ipc()
       if (!t) {
-        host.notify('通知捕获只在 Android 上可用', 'warn')
+        if (!silent) host.notify('通知捕获只在 Android 上可用', 'warn')
         return
       }
       let raw = '[]'
       try {
         raw = await t.invoke('plugin:notification-capture|drain')
       } catch (e) {
-        host.notify(`同步失败：${String(e)}`, 'error')
+        if (!silent) host.notify(`同步失败：${String(e)}`, 'error')
         return
       }
       let notices = []
@@ -714,7 +767,9 @@ export default {
           /* 诊断数据存不下不影响记账 */
         }
       }
-      host.notify(added > 0 ? `同步完成：新增 ${added} 条账单` : '同步完成：没有新账单')
+      if (!silent || added > 0) {
+        host.notify(added > 0 ? `同步完成：新增 ${added} 条账单` : '同步完成：没有新账单')
+      }
       refresh()
     }
 
@@ -774,6 +829,155 @@ export default {
       }
       refresh()
       host.notify(`已新增分类「${name}」，点它给这笔归类`)
+    }
+
+    /* ───────── 预算（rev173.73）· 分类管理（rev173.74）· 补金额（rev173.75） ───────── */
+
+    async function persistBudgets() {
+      try {
+        await store.set(BUDGET_KEY, budgets)
+      } catch {
+        /* 存不下不影响本次显示 */
+      }
+    }
+
+    /** 设/清一个分类的每月预算（`value` 来自输入框；0 或空 = 清除） */
+    function setBudget(payload) {
+      const category = String((payload && payload.category) || '').trim()
+      if (!category) return
+      const raw = payload && payload.value
+      const amount = Number(raw)
+      if (raw === '' || raw == null || Number.isNaN(amount)) {
+        host.notify('先输入金额（填 0 = 清除该分类预算）', 'warn')
+        return
+      }
+      if (amount > 0) {
+        budgets = { ...budgets, [category]: amount }
+      } else {
+        const next = { ...budgets }
+        delete next[category]
+        budgets = next
+      }
+      void persistBudgets()
+      refresh()
+      host.notify(
+        amount > 0 ? `「${category}」每月预算 ¥${amount}` : `已清除「${category}」的预算`,
+      )
+    }
+
+    /** 分类上移 / 下移（顺序就是选分类时的按钮顺序） */
+    function moveCategory(payload) {
+      const category = String((payload && payload.category) || '')
+      const dir = payload && payload.dir === 'up' ? -1 : 1
+      const i = categories.indexOf(category)
+      if (i < 0) return
+      const j = i + dir
+      if (j < 0 || j >= categories.length) return
+      const next = categories.slice()
+      const tmp = next[i]
+      next[i] = next[j]
+      next[j] = tmp
+      categories = next
+      void (async () => {
+        try {
+          await store.set(CATEGORY_LIST_KEY, categories)
+        } catch {
+          /* 存不下不影响本次排序 */
+        }
+      })()
+      refresh()
+    }
+
+    /** 删除分类前先看影响面：这个分类下有 N 笔 ⇒ 提示会归入「其他」 */
+    function askDeleteCategory(payload) {
+      const category = String((payload && payload.category) || '')
+      if (!category || category === '其他') {
+        host.notify('「其他」是兜底分类，不能删', 'warn')
+        return
+      }
+      if (categories.length <= 2) {
+        host.notify('至少保留两个分类（含「其他」）', 'warn')
+        return
+      }
+      catDelete = category
+      refresh()
+    }
+
+    async function deleteCategory() {
+      const category = catDelete
+      if (!category) return
+      catDelete = null
+      const affected = txs.filter((t) => t.category === category)
+      for (const t of affected) t.category = '其他'
+      categories = categories.filter((c) => c !== category)
+      const nextBudgets = { ...budgets }
+      delete nextBudgets[category]
+      budgets = nextBudgets
+      if (affected.length) await persist()
+      try {
+        await store.set(CATEGORY_LIST_KEY, categories)
+      } catch {
+        /* 存不下不影响本次删除 */
+      }
+      await persistBudgets()
+      // 学习映射里指向该分类的商户一并清掉，否则下次又归到已删的分类
+      let learned = 0
+      for (const merchant of Object.keys(userMap)) {
+        if (userMap[merchant] === category) {
+          delete userMap[merchant]
+          learned++
+        }
+      }
+      if (learned) {
+        try {
+          await store.set(CATEGORY_KEY, userMap)
+        } catch {
+          /* 学习映射清理失败不影响主流程 */
+        }
+      }
+      mode = 'cats'
+      refresh()
+      host.notify(
+        affected.length
+          ? `已删除「${category}」；${affected.length} 笔归入「其他」`
+          : `已删除「${category}」`,
+      )
+    }
+
+    function cancelCatDelete() {
+      catDelete = null
+      refresh()
+    }
+
+    /** 金额待补的交易：打开补录视图 / 保存 / 取消 */
+    function fillAmount(payload) {
+      amountEditId = (payload && payload.id) || null
+      refresh()
+    }
+
+    async function saveAmount(payload) {
+      const tx = txs.find((t) => t.id === amountEditId)
+      const amount = Number(payload && payload.value)
+      if (!tx) {
+        amountEditId = null
+        refresh()
+        return
+      }
+      if (!(amount > 0)) {
+        host.notify('金额要大于 0', 'warn')
+        return
+      }
+      tx.amount = amount
+      tx.status = 'confirmed'
+      amountEditId = null
+      await persist()
+      refresh()
+      host.notify(`已补金额 ¥${amount}（${tx.merchant}）`)
+    }
+
+    function cancelAmountEdit() {
+      amountEditId = null
+      refresh()
     }
 
     async function addManual(payload) {
@@ -879,6 +1083,9 @@ export default {
     function render() {
       if (mode === 'stats') return renderStats()
       if (mode === 'diag') return renderDiag()
+      if (mode === 'budget') return renderBudget()
+      if (mode === 'cats') return renderCats()
+      if (amountEditId) return renderAmount()
 
       // 改分类视图：只显示这笔 + 分类按钮列表
       if (editingId) {
@@ -958,6 +1165,8 @@ export default {
               { type: 'text', value: '记账', variant: 'title' },
               { type: 'button', label: '同步通知', onClick: 'accounting.sync' },
               { type: 'button', label: '统计', onClick: 'accounting.stats', variant: 'ghost' },
+              { type: 'button', label: '预算', onClick: 'accounting.budget', variant: 'ghost' },
+              { type: 'button', label: '分类', onClick: 'accounting.cats', variant: 'ghost' },
               { type: 'button', label: '导出 CSV', onClick: 'accounting.exportCsv', variant: 'ghost' },
               { type: 'button', label: '导入 CSV', onClick: 'accounting.importCsv', variant: 'ghost' },
               { type: 'button', label: '诊断', onClick: 'accounting.diag', variant: 'ghost' },
@@ -1004,7 +1213,16 @@ export default {
                     variant: 'ghost',
                   },
                   ...(t.status === 'pending'
-                    ? [{ type: 'badge', text: '金额待补', tone: 'warn' }]
+                    ? [
+                        { type: 'badge', text: '金额待补', tone: 'warn' },
+                        {
+                          type: 'button',
+                          label: '补金额',
+                          onClick: 'accounting.fillAmount',
+                          payload: { id: t.id },
+                          variant: 'ghost',
+                        },
+                      ]
                     : []),
                 ],
               },
@@ -1038,6 +1256,197 @@ export default {
       }
     }
 
+    /** 预算视图（rev173.73）：每个分类一行「分类 · 当前预算 · 输入 · 存」 */
+    function renderBudget() {
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              { type: 'button', label: '返回账单', onClick: 'accounting.backToList', variant: 'ghost' },
+              { type: 'text', value: '每月预算', variant: 'title' },
+            ],
+          },
+          {
+            type: 'text',
+            value: '预算按「分类 + 每月」算；填 0 再点存 = 取消该分类预算。',
+            variant: 'caption',
+            tone: 'muted',
+          },
+          {
+            type: 'list',
+            items: categories.map((c) => ({
+              key: c,
+              node: {
+                type: 'row',
+                align: 'center',
+                wrap: true,
+                gap: 'sm',
+                children: [
+                  { type: 'text', value: c },
+                  {
+                    type: 'text',
+                    value: `当前 ¥${Number(budgets[c] || 0).toFixed(2)}`,
+                    variant: 'caption',
+                    tone: 'muted',
+                  },
+                  { type: 'input', bind: `acc-budget-${c}`, placeholder: '每月金额' },
+                  {
+                    type: 'button',
+                    label: '存',
+                    onClick: 'accounting.setBudget',
+                    payload: { category: c },
+                    send: `acc-budget-${c}`,
+                  },
+                ],
+              },
+            })),
+          },
+        ],
+      }
+    }
+
+    /** 分类管理（rev173.74）：排序 + 删除（删除前先看影响面） */
+    function renderCats() {
+      if (catDelete) {
+        const n = txs.filter((t) => t.category === catDelete).length
+        return {
+          type: 'stack',
+          gap: 'md',
+          children: [
+            { type: 'text', value: `删除分类「${catDelete}」？`, variant: 'title' },
+            {
+              type: 'text',
+              value: n
+                ? `该分类下有 ${n} 笔记录，删除后归入「其他」；它的预算与学习映射也会一并清掉。`
+                : '该分类下没有记录。',
+              tone: 'warn',
+            },
+            {
+              type: 'row',
+              align: 'center',
+              wrap: true,
+              gap: 'sm',
+              children: [
+                { type: 'button', label: '确认删除', onClick: 'accounting.deleteCategory' },
+                // eslint-disable-next-line -- 文案里的命令 id 是契约
+                { type: 'button', label: '取消', onClick: 'accounting.cancelCatDelete', variant: 'ghost' },
+              ],
+            },
+          ],
+        }
+      }
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              { type: 'button', label: '返回账单', onClick: 'accounting.backToList', variant: 'ghost' },
+              { type: 'text', value: '分类管理', variant: 'title' },
+            ],
+          },
+          {
+            type: 'text',
+            value: '顺序就是选分类时的按钮顺序；「其他」是兜底分类，不能删。',
+            variant: 'caption',
+            tone: 'muted',
+          },
+          {
+            type: 'list',
+            items: categories.map((c, i) => ({
+              key: c,
+              node: {
+                type: 'row',
+                align: 'center',
+                wrap: true,
+                gap: 'sm',
+                children: [
+                  { type: 'text', value: `${i + 1}. ${c}` },
+                  {
+                    type: 'button',
+                    label: '↑',
+                    onClick: 'accounting.moveCategory',
+                    payload: { category: c, dir: 'up' },
+                    variant: 'ghost',
+                  },
+                  {
+                    type: 'button',
+                    label: '↓',
+                    onClick: 'accounting.moveCategory',
+                    payload: { category: c, dir: 'down' },
+                    variant: 'ghost',
+                  },
+                  ...(c === '其他'
+                    ? []
+                    : [
+                        {
+                          type: 'button',
+                          label: '删除',
+                          onClick: 'accounting.askDeleteCategory',
+                          payload: { category: c },
+                          variant: 'ghost',
+                        },
+                      ]),
+                ],
+              },
+            })),
+          },
+        ],
+      }
+    }
+
+    /** 补金额（rev173.75）：通知里没识别到金额、但确实是支付的记录 */
+    function renderAmount() {
+      const tx = txs.find((t) => t.id === amountEditId)
+      if (!tx) {
+        amountEditId = null
+        return render()
+      }
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              { type: 'button', label: '返回', onClick: 'accounting.cancelAmount', variant: 'ghost' },
+              { type: 'text', value: '补金额', variant: 'title' },
+            ],
+          },
+          { type: 'text', value: `${fmtTime(tx.time)} · ${tx.merchant}` },
+          { type: 'text', value: `原文：${tx.raw || '（无）'}`, variant: 'caption', tone: 'muted' },
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              { type: 'input', bind: 'acc-amount-fill', placeholder: '金额，如 23.5' },
+              {
+                type: 'button',
+                label: '保存金额',
+                onClick: 'accounting.saveAmount',
+                send: 'acc-amount-fill',
+              },
+            ],
+          },
+        ],
+      }
+    }
+
     /** 统计视图（rev173.28）：本月分类占比 + 近 6 个月支出柱状图 */
     function renderStats() {
       const now = new Date()
@@ -1050,6 +1459,7 @@ export default {
         .filter((t) => t.type === 'income')
         .reduce((s, t) => s + t.amount, 0)
       const sum = summarizeByCategory(txs, now.getFullYear(), now.getMonth() + 1)
+      const budgetsNow = budgetStatus(txs, budgets, now.getFullYear(), now.getMonth() + 1)
       const trend = monthlyTrend(txs, 6)
 
       return {
@@ -1069,6 +1479,7 @@ export default {
                 variant: 'ghost',
               },
               { type: 'text', value: '统计', variant: 'title' },
+              { type: 'button', label: '预算', onClick: 'accounting.budget', variant: 'ghost' },
             ],
           },
           {
@@ -1093,6 +1504,18 @@ export default {
                 }),
               ]
             : [{ type: 'text', value: '本月还没有支出记录', tone: 'muted' }]),
+          { type: 'divider' },
+          { type: 'text', value: '预算执行（本月）', variant: 'caption', tone: 'muted' },
+          ...(budgetsNow.length
+            ? budgetsNow.map((b) => ({
+                type: 'progress',
+                value: b.spent,
+                max: b.budget,
+                label: `${b.category} ¥${b.spent.toFixed(2)} / ¥${b.budget.toFixed(2)} · ${
+                  b.over ? `超 ¥${(b.spent - b.budget).toFixed(2)}` : `剩 ¥${b.left.toFixed(2)}`
+                }`,
+              }))
+            : [{ type: 'text', value: '还没有设置预算（点上面「预算」）', tone: 'muted' }]),
           { type: 'divider' },
           { type: 'text', value: '近 6 个月支出', variant: 'caption', tone: 'muted' },
           { type: 'html', value: trendSvg(trend) },
@@ -1259,6 +1682,64 @@ export default {
         title: '记账：新增自定义分类',
         run: (p) => addCategory(p),
       }),
+      /* ── 预算 / 分类管理 / 补金额（rev173.73–173.75）── */
+      command.register({
+        id: 'accounting.budget',
+        title: '记账：设置每月预算',
+        run: () => {
+          mode = 'budget'
+          refresh()
+        },
+      }),
+      command.register({
+        id: 'accounting.setBudget',
+        title: '记账：保存某个分类的预算',
+        run: (p) => setBudget(p),
+      }),
+      command.register({
+        id: 'accounting.cats',
+        title: '记账：分类管理（排序 / 删除）',
+        run: () => {
+          mode = 'cats'
+          catDelete = null
+          refresh()
+        },
+      }),
+      command.register({
+        id: 'accounting.moveCategory',
+        title: '记账：移动分类',
+        run: (p) => moveCategory(p),
+      }),
+      command.register({
+        id: 'accounting.askDeleteCategory',
+        title: '记账：删除分类（先确认）',
+        run: (p) => askDeleteCategory(p),
+      }),
+      command.register({
+        id: 'accounting.deleteCategory',
+        title: '记账：确认删除分类',
+        run: () => deleteCategory(),
+      }),
+      command.register({
+        id: 'accounting.cancelCatDelete',
+        title: '记账：取消删除分类',
+        run: () => cancelCatDelete(),
+      }),
+      command.register({
+        id: 'accounting.fillAmount',
+        title: '记账：补金额',
+        run: (p) => fillAmount(p),
+      }),
+      command.register({
+        id: 'accounting.saveAmount',
+        title: '记账：保存补录金额',
+        run: (p) => saveAmount(p),
+      }),
+      command.register({
+        id: 'accounting.cancelAmount',
+        title: '记账：取消补金额',
+        run: () => cancelAmountEdit(),
+      }),
       view.registerPanel({
         id: PANEL_ID,
         title: '记账',
@@ -1269,5 +1750,12 @@ export default {
 
     // 启动即检查一次权限（不阻塞插件加载）
     void checkPermission()
+    /**
+     * rev173.76：启动自动拉一次通知缓存（静默）。
+     *
+     * 为什么：App 没开时收到的支付通知只进原生缓存，原来必须用户手动点「同步通知」才入库；
+     * 忘了点就一直躺着（最多压 200 条）。启动静默 drain 一次，没有新账单就不打扰。
+     */
+    void sync({ silent: true })
   },
 }
