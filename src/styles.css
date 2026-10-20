@@ -2122,6 +2122,30 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   user-select: none;
 }
 
+/*
+ * rev173.62：独立窗口（插件窗口 / 笔记窗口）的三键与主窗口对齐。
+ *
+ * 现象（用户 2026-10-20 对比截图）：主窗口三键的 hover 背景占满整条标题栏，
+ * 独立窗口只占按钮自己那一块 —— 上下各缺 8px。
+ * 根因：`.zn-window-controls` 靠 `align-self: stretch` 撑高，而主窗口 `.zn-titlebar`
+ * 高 32px、无上下 padding ⇒ 按钮正好 32px；独立窗口 `.zn-plugin-window-bar` 有
+ * `padding: 8px 12px` ⇒ 按钮只撑到**内容区**（32px），外面还有 16px padding，
+ * 视觉上 hover 块就"缩"在中间。
+ *
+ * 桌面（有真实指针）把上下 padding 归零、高度锁 32px（Windows 11 三键规范），
+ * 并抵消右侧 padding 让三键贴窗口边；**触屏保留原样** —— 32px 的点击目标在手机上偏小。
+ */
+@media (hover: hover) and (pointer: fine) {
+  .zn-plugin-window-bar {
+    min-height: 32px;
+    padding-block: 0;
+  }
+
+  .zn-plugin-window-bar .zn-window-controls {
+    margin-right: calc(-1 * var(--zn-space-3));
+  }
+}
+
 .zn-plugin-window-title {
   display: flex;
   align-items: center;

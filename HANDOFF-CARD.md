@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.61）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.62）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.61 · 0.2.0 · 2026-10-20 |
+| rev / 版本 | rev173.62 · 0.2.0 · 2026-10-20 |
 | 测试基线 | vitest 448 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
@@ -48,10 +48,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.61 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.62 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.62 | **独立窗口三键与主窗口对齐**：`.zn-plugin-window-bar` 在桌面去上下 padding、锁 32px，三键负右边距贴边 ⇒ hover 背景与主窗口一样占满整条 · 触屏保留原样 · 实测笔记窗口 / 导图窗口都是 bar 32 / btn 31 / 46px |
 | 173.61 | **主窗口位置/大小记忆（P1-b）**：官方 `tauri-plugin-window-state 2.5.0`（桌面 target 专属）· `with_filter` 只跟踪 `main`（note-* / plugin-* 不恢复不保存）· StateFlags = POSITION/SIZE/MAXIMIZED · 实测两次重启都回到 (120,160) 960×640，状态文件只含 main |
 | 173.60 | **笔记独立窗口跳过插件加载（P1-a）**：`usePluginHost` 加 `enabled`（默认 true），`?note=` 窗口传 false ⇒ 内置预装 / 扫描 / 加载整段不跑 · 实测主窗口 61 命令 + 2 面板 + 2 样式 vs note 窗口 30 条纯内核命令 + 0 面板 + 0 样式 · note 窗口编辑照常落盘 · vitest 448 |
 | 173.59 | **文件监听补齐（P0）**：Rust `notify 8.2` + `watch_vault`/`unwatch_vault`（桌面 target 专属，每库一个 watcher + 窗口引用计数）· 只报库内 `.md`（`.zn`/`.vaults` 不进事件流）· 120ms 合并 + 1500ms 自写抑制 · 前端「watch_vault 成功才停轮询」，失败保留 3 秒兜底 · 移动端主动退轮询 · cargo 36 / vitest 447 · 桌面四场景实测 |
