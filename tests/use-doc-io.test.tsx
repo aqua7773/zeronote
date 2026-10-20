@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDocIO } from '../src/hooks/useDocIO'
+import { DRAFT_LS_KEY, loadDraft, saveDraft } from '../src/lib/draft-snapshot'
 
 function makeKernel() {
   return {
@@ -48,6 +49,11 @@ function makeArgs(kernel: ReturnType<typeof makeKernel>, over: Record<string, un
 }
 
 describe('useDocIO', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useRealTimers()
+  })
+
   it('refresh：拉笔记与目录，并写入 notesRef', async () => {
     const k = makeKernel()
     const args = makeArgs(k)
@@ -156,5 +162,92 @@ describe('useDocIO', () => {
       await result.current.reloadActiveFromDisk()
     })
     expect(args.setContent).not.toHaveBeenCalled()
+  })
+
+  /* ── 会话恢复（hot exit · rev173.65）── */
+
+  it('onEditorChange：~500ms 后把未落盘内容写进草稿', () => {
+    vi.useFakeTimers()
+    const k = makeKernel()
+    const args = makeArgs(k)
+    const { result } = renderHook(() => useDocIO(args))
+    act(() => result.current.onEditorChange('next'))
+    args.refs.contentRef.current = 'next' // App 的 effect 会同步（这里手动模拟）
+    expect(localStorage.getItem(DRAFT_LS_KEY)).toBeNull()
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(loadDraft()).toMatchObject({ path: 'a.md', content: 'next' })
+  })
+
+  it('草稿定时器触发时已切篇 ⇒ 不写（不把旧内容挂到新篇名下）', () => {
+    vi.useFakeTimers()
+    const k = makeKernel()
+    const args = makeArgs(k)
+    const { result } = renderHook(() => useDocIO(args))
+    act(() => result.current.onEditorChange('next'))
+    args.refs.activeRef.current = 'b.md'
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(localStorage.getItem(DRAFT_LS_KEY)).toBeNull()
+  })
+
+  it('草稿定时器触发时已不脏（saveNow 先成功）⇒ 不写', () => {
+    vi.useFakeTimers()
+    const k = makeKernel()
+    const args = makeArgs(k)
+    const { result } = renderHook(() => useDocIO(args))
+    act(() => result.current.onEditorChange('next'))
+    args.refs.dirtyRef.current = false
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(localStorage.getItem(DRAFT_LS_KEY)).toBeNull()
+  })
+
+  it('saveNow 成功 ⇒ 清掉本篇草稿（「正常退出不弹恢复」的唯一保证）', async () => {
+    const k = makeKernel()
+    const args = makeArgs(k)
+    saveDraft('a.md', 'stale', 1)
+    const { result } = renderHook(() => useDocIO(args))
+    await act(async () => {
+      await result.current.saveNow()
+    })
+    expect(localStorage.getItem(DRAFT_LS_KEY)).toBeNull()
+  })
+
+  it('saveNow 成功：只清本篇，别篇草稿留着', async () => {
+    const k = makeKernel()
+    const args = makeArgs(k)
+    saveDraft('b.md', 'other', 1)
+    const { result } = renderHook(() => useDocIO(args))
+    await act(async () => {
+      await result.current.saveNow()
+    })
+    expect(loadDraft(1)).toMatchObject({ path: 'b.md', content: 'other' })
+  })
+
+  it('saveNow 失败 ⇒ 草稿保留（下次启动还能恢复）', async () => {
+    const k = makeKernel()
+    k.fs.writeText.mockRejectedValueOnce(new Error('disk full'))
+    const args = makeArgs(k)
+    saveDraft('a.md', 'stale', 1)
+    const { result } = renderHook(() => useDocIO(args))
+    await act(async () => {
+      await result.current.saveNow()
+    })
+    expect(loadDraft(1)).toMatchObject({ path: 'a.md', content: 'stale' })
+  })
+
+  it('beforeunload：脏内容同步写草稿（HMR 整页重载的兜底）', () => {
+    const k = makeKernel()
+    const args = makeArgs(k)
+    renderHook(() => useDocIO(args))
+    args.refs.contentRef.current = 'unsaved'
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    expect(loadDraft()).toMatchObject({ path: 'a.md', content: 'unsaved' })
   })
 })

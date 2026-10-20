@@ -96,6 +96,8 @@ import {
   saveLedgerStorage,
   type NoteWindowLedger,
 } from './lib/note-window-ledger'
+/* rev173.65：会话恢复（hot exit）—— 崩溃 / 整页重载后把最后一段手改捞回来 */
+import { clearDraft, loadDraft, type DraftSnapshot } from './lib/draft-snapshot'
 /* rev173.54：独立窗口标题条的「拖出 = 收回」手势复用同一套越界判定 */
 import { dragStarted, isOutsideWindow } from './lib/tab-drag'
 import { indentLine } from './kernel/editor-indent'
@@ -210,6 +212,16 @@ export default function App() {
   /* 卡死兜底 C 段：启动自愈若认出了"上次卡死的插件"，**第一眼就告诉用户**（不许静默）。
      初值直接取模块级结论 —— 不写 effect，免得踩 `set-state-in-effect`（本仓库 lint 基线是恰好 4 条） */
   const [toast, setToast] = useState<string | null>(bootAutoDisabledNotice)
+  /**
+   * 会话恢复（hot exit · rev173.65）：「上次异常退出时还没落盘」的那一篇草稿。
+   *
+   * 只在**主窗口**提示 —— `note-*` 与插件窗口各跑一份 App，但恢复属于宿主。
+   * 初值直接读 localStorage（不写 effect），与 `bootAutoDisabledNotice` 同理；
+   * 正常退出时 `saveNow` 成功会清键，所以这里读到东西 = 上次没正常退出。
+   */
+  const [draft, setDraft] = useState<DraftSnapshot | null>(() =>
+    pluginWindowId || noteWindowPath ? null : loadDraft(),
+  )
   /**
    * 图片附件预览地址（rev173.3「附件的入口」）。
    * 文件树「附件」分组里点一张图 → 全屏看原图；null = 没开。
@@ -1020,6 +1032,48 @@ export default function App() {
     /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
     canOpen: canOpenNote,
   })
+
+  /**
+   * 会话恢复（rev173.65 · P2 hot exit）：把崩溃前的草稿写回编辑器。
+   *
+   * 顺序（三个坑都在这里）：
+   *  1. **先 `openNote`** —— 它读盘，并把 `baseRef` 设成**磁盘那份**；
+   *  2. 再像用户输入一样走 `onEditorChange`：标脏 + 800ms 自动保存 + 广播 `change`；
+   *  3. 恢复时**不许**把 `baseRef` 改成草稿内容 —— 否则下次 `saveNow` 的三方合并
+   *     会把磁盘那份判成「外部改动」再并进来，恢复内容反而被改脏（坑③）。
+   *
+   * 打不开（文件删了 / 正被独立窗口占着）⇒ 提示并**保留草稿**，等用户处理完再点。
+   */
+  const restoreDraft = useCallback(async () => {
+    const d = draft
+    if (!d || !kernel) return
+    if (activeRef.current !== d.path) {
+      if (!canOpenNote(d.path)) return // 独立窗口占着：canOpenNote 已聚焦 + 提示
+      try {
+        await kernel.fs.readText(d.path) // 文件还在吗（openNote 会把读失败吞成 setError）
+      } catch {
+        setToast(`「${baseName(d.path)}」已不存在，草稿无法恢复`)
+        clearDraft()
+        setDraft(null)
+        return
+      }
+      await openNote(d.path)
+      /**
+       * openNote 的 `setActivePath` 要等下一次提交才会同步到 `activeRef`；这里先手动对齐
+       * （ref 本来就是"事件里读最新值"的那份）。否则紧接着的 `onEditorChange` 会把
+       * `doc.on('change')` 广播到**上一篇**名下，插件收到错路径。
+       */
+      activeRef.current = d.path
+    }
+    setDraft(null)
+    onEditorChange(d.content)
+  }, [draft, kernel, openNote, onEditorChange, canOpenNote, setToast])
+
+  /** 丢弃草稿：只删 localStorage 键，磁盘一个字都不动 */
+  const discardDraft = useCallback(() => {
+    clearDraft()
+    setDraft(null)
+  }, [])
 
   /**
    * 删掉的笔记 / 目录从标签页里剔除（rev173.50 · `useFileOps` 的 `onPathsRemoved` / `onCurrentGone`）。
@@ -3449,6 +3503,17 @@ export default function App() {
           <span>{undoDelete.length > 1 ? `${undoDelete.length} 篇已移入回收站` : '已移入回收站'}</span>
           <button type="button" className="zn-undo-btn" onClick={() => void undoDeleteNote()}>
             撤销
+          </button>
+        </div>
+      ) : draft ? (
+        /* 会话恢复（rev173.65）：复用删除撤销条的样式 —— 同属「给一次后悔的机会」 */
+        <div className="zn-undo" role="status">
+          <span>「{baseName(draft.path)}」有未保存的修改（上次异常退出）</span>
+          <button type="button" className="zn-undo-btn" onClick={() => void restoreDraft()}>
+            恢复
+          </button>
+          <button type="button" className="zn-undo-btn" onClick={discardDraft}>
+            丢弃
           </button>
         </div>
       ) : toast ? (

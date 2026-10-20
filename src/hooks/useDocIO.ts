@@ -3,7 +3,8 @@
  *
  * 覆盖：`refresh`（列表+目录）· `mergeWithDisk`（rev62 三方合并）· `mergeIntoEditor`（watch 回灌）·
  * `reloadActiveFromDisk`（整篇跟进）· `saveNow`（写盘前合并 + 原子写）· `onEditorChange`（800ms 自动保存
- * + `doc.on('change')` 去抖广播）· 三个兜底 flush effect（失焦/隐藏、关窗前落盘）。
+ * + 500ms 草稿快照 + `doc.on('change')` 去抖广播）· 四个兜底 flush effect（失焦/隐藏、关窗前落盘、
+ * 页面卸载写草稿）。草稿（hot exit）见 `lib/draft-snapshot.ts` 与 `docs/数据与存储.md` §5。
  *
  * ⚠️ 行为必须与迁出前**逐字一致**：
  *  - 写盘顺序：先合并再写；落盘成功才广播 `save`；失败绝不显示「已保存」；
@@ -17,7 +18,16 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { DocEvent, NoteMeta } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
 import { failMsg, type SaveState } from '../lib/fail-msg'
+import { clearDraftFor, saveDraft } from '../lib/draft-snapshot'
 import { mergeLines } from '../lib/merge3'
+
+/**
+ * 草稿快照的节流窗口（rev173.65 · 会话恢复 / hot exit）。
+ *
+ * 为什么是 500ms：自动保存是停笔 800ms，取它的一半多一点 —— 崩溃正好卡在
+ * 「已经敲了但还没到自动保存」那段，草稿能覆盖住；同时也避免每个按键都写 localStorage。
+ */
+const DRAFT_DEBOUNCE_MS = 500
 
 /** `doc.on` 的广播入口（App 的 fireDoc —— 读 `docSubsRef`，插件回调逐个隔离） */
 type FireDoc = (ev: DocEvent, path: string | null, content: string, dirty: boolean) => void
@@ -89,6 +99,13 @@ export function useDocIO({
     docPendingRef,
     externalReloadRef,
   } = refs
+
+  /**
+   * 草稿快照的节流定时器（rev173.65 · 会话恢复）。
+   * 放 hook 内部：它只是「500ms 后再写一次 localStorage」的技术细节，
+   * 不参与渲染，也不该让 App 多背一个 ref。
+   */
+  const draftTimerRef = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     if (!kernel) return
@@ -252,11 +269,24 @@ export function useDocIO({
       setError(null)
       // 落盘成功才广播 —— 失败时插件不该以为内容安全了（与"失败绝不显示已保存"同一原则）
       fireDoc('save', path, text, false)
+      /**
+       * 会话恢复（rev173.65）：这篇已经真正落盘 ⇒ 清掉它的草稿，并撤掉还挂着的
+       * 500ms 写入（Ctrl+S / 关窗 / 切篇可能在节流窗口内先到）。
+       *
+       * 这是「正常退出不弹恢复」的**唯一保证**：saveNow 成功过一次，就不再是"未保存内容"；
+       * 关窗前 flush 走的也是这里，所以正常关窗同样覆盖。失败分支**不清** ——
+       * 草稿留着，下次启动还能恢复（与"失败绝不显示已保存"同一原则）。
+       */
+      if (draftTimerRef.current !== null) {
+        window.clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+      clearDraftFor(path)
     } catch (e) {
       setSaveState('error')
       setError(failMsg('write', e))
     }
-  }, [kernel, fireDoc, mergeWithDisk, activeRef, contentRef, baseRef, externalReloadRef, setSaveState, setDirty, setError, setContent, setToast])
+  }, [kernel, fireDoc, mergeWithDisk, activeRef, contentRef, baseRef, externalReloadRef, setSaveState, setDirty, setError, setContent, setToast, draftTimerRef])
 
   useEffect(() => {
     saveNowRef.current = saveNow
@@ -310,12 +340,29 @@ export function useDocIO({
           } catch {
             /* 无所谓 */
           }
-          if (closingRef.current || !dirtyRef.current) return // 放行
+          if (closingRef.current) return // 上一次关闭请求已经处理过：放行
+          /**
+           * 从这里开始 = **正常退出**。先立标记：
+           *  · 紧接着 saveNow 成功后 `close()` 会再发一次 close-requested，靠它直接放行；
+           *  · `beforeunload` 的草稿 flush 看到它就不再写 —— 否则 saveNow 清键之后
+           *    又被写回一份，下次启动会误弹「恢复」（rev173.65 会话恢复的坑①）。
+           */
+          closingRef.current = true
+          if (!dirtyRef.current) {
+            // 已经落盘：顺手清掉可能还属于这篇的草稿（正常退出不留恢复提示）
+            clearDraftFor(activeRef.current)
+            return // 放行
+          }
           e.preventDefault()
+          /**
+           * 关窗前先同步落一份草稿：saveNow 成功会清掉（正常退出不留），
+           * 失败则它就是最后一次保护 —— 否则「Ctrl+S 之后写盘失败再关窗」会两头落空。
+           */
+          const p = activeRef.current
+          if (p) saveDraft(p, contentRef.current)
           try {
             await saveNowRef.current()
           } finally {
-            closingRef.current = true
             await win.close()
           }
         })
@@ -329,7 +376,33 @@ export function useDocIO({
       disposed = true
       unlisten?.()
     }
-  }, [pluginWindowId, dirtyRef, saveNowRef, closingRef])
+  }, [pluginWindowId, dirtyRef, activeRef, contentRef, saveNowRef, closingRef])
+
+  /**
+   * 会话恢复（hot exit）兜底：**页面卸载前**把最后一次未落盘内容写进草稿（rev173.65）。
+   *
+   * 500ms 节流可能刚好被 HMR 整页重载撞上（reload 不触发 blur / visibilitychange，
+   * 800ms 自动保存还没到）—— 这里同步写 localStorage，来不及 await。
+   * `closingRef` 为真表示这是**正常关窗**（saveNow 已经跑过 / 正在跑）：不再写，
+   * 否则会在清键之后又写回一份，导致下次启动误弹恢复（坑①）。
+   */
+  useEffect(() => {
+    const flush = () => {
+      if (closingRef.current || !dirtyRef.current) return
+      const p = activeRef.current
+      if (p) saveDraft(p, contentRef.current)
+    }
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+      if (draftTimerRef.current !== null) {
+        window.clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+    }
+  }, [closingRef, dirtyRef, activeRef, contentRef, draftTimerRef])
 
   const onEditorChange = useCallback(
     (next: string) => {
@@ -344,6 +417,20 @@ export function useDocIO({
       setSaveState('idle')
       if (timerRef.current) window.clearTimeout(timerRef.current)
       timerRef.current = window.setTimeout(() => void saveNowRef.current(), autosaveMs)
+      /**
+       * 会话恢复（rev173.65）：~500ms 后把「还没落盘的手改」写进 localStorage 草稿。
+       *
+       * 只留最新一篇（后一次覆盖前一次）。定时器触发时**再校验一次**：
+       * 这段里可能已经切篇（`activeRef` 变了 —— 不校验就会把旧内容挂到新篇名下）、
+       * 关笔记，或 saveNow 先成功了（后者会清键并撤掉定时器）。
+       */
+      const editPath = activeRef.current
+      if (draftTimerRef.current !== null) window.clearTimeout(draftTimerRef.current)
+      draftTimerRef.current = window.setTimeout(() => {
+        draftTimerRef.current = null
+        if (!editPath || activeRef.current !== editPath || !dirtyRef.current) return
+        saveDraft(editPath, contentRef.current)
+      }, DRAFT_DEBOUNCE_MS)
       /**
        * `doc.on('change')` 广播（U3b）—— trailing 去抖，与上面 800ms 的自动保存**互相独立**：
        * change 先到（插件看到新内容）、save 后到（内容已落盘），顺序稳定。
@@ -368,6 +455,9 @@ export function useDocIO({
       saveNowRef,
       autosaveMs,
       activeRef,
+      dirtyRef,
+      contentRef,
+      draftTimerRef,
       docPendingRef,
       docChangeTimerRef,
       flushDocChange,
