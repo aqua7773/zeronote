@@ -88,6 +88,8 @@ import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
 import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
+/* rev173.54：独立窗口标题条的「拖出 = 收回」手势复用同一套越界判定 */
+import { dragStarted, isOutsideWindow } from './lib/tab-drag'
 import { indentLine } from './kernel/editor-indent'
 import {
   bootAutoDisabled,
@@ -1129,6 +1131,53 @@ export default function App() {
     },
     [saveNow],
   )
+
+  /**
+   * 独立窗口标题条上的**可拖把手**（rev173.54 · 用户选 B：拖标题条出界 = 收回）。
+   *
+   * 与主窗口「拖标签出界 = 拆出」是**互为镜像**的两个手势，都走 `lib/tab-drag` 的同一套判定：
+   *  · 位移过 8 px 才算拖拽（手抖不动手）；
+   *  · 指针越出本窗口边界（含 6 px 热区）= 意图是"交给另一个容器"。
+   * 拖拽期间页面**持有指针捕获**，所以越界后仍收得到 pointerup —— 这正是浏览器的做法。
+   *
+   * ⚠️ 把手是标题条里的文档名（已去掉 `data-tauri-drag-region`）：标题条其余空白
+   * 仍然是系统拖动区（拖窗口），两者互不抢。
+   */
+  const noteWinDragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const [noteWinDrag, setNoteWinDrag] = useState<{ dragging: boolean; outside: boolean }>({
+    dragging: false,
+    outside: false,
+  })
+  useEffect(() => {
+    if (!noteWindowPath || pluginWindowId) return
+    const onMove = (e: PointerEvent) => {
+      const d = noteWinDragRef.current
+      if (!d) return
+      if (!d.moved && !dragStarted({ x: d.x, y: d.y }, { x: e.clientX, y: e.clientY })) return
+      d.moved = true
+      setNoteWinDrag({
+        dragging: true,
+        outside: isOutsideWindow(e.clientX, e.clientY, window.innerWidth, window.innerHeight),
+      })
+    }
+    const onUp = (e: PointerEvent) => {
+      const d = noteWinDragRef.current
+      noteWinDragRef.current = null
+      setNoteWinDrag({ dragging: false, outside: false })
+      if (!d || !d.moved) return
+      if (!isOutsideWindow(e.clientX, e.clientY, window.innerWidth, window.innerHeight)) return
+      const p = activeRef.current
+      if (p) void returnToMain(p)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [noteWindowPath, pluginWindowId, returnToMain])
 
   /**
    * 主窗口接收「独立窗口交回笔记」（rev173.52 · 拖入放回）。
@@ -2739,9 +2788,29 @@ export default function App() {
           >
             ⤺
           </button>
-          <span className="zn-plugin-window-title" data-tauri-drag-region>
+          {/* 文档名 = 可拖把手：拖出本窗口边界松手 ⇒ 收回主窗口（rev173.54）。
+              这里刻意**不标** `data-tauri-drag-region` —— 标了就被系统接管成"拖窗口"，
+              页面收不到指针、也就没法判越界。标题条其余空白仍是拖动区。 */}
+          <span
+            className={[
+              'zn-plugin-window-title',
+              'zn-note-window-handle',
+              noteWinDrag.dragging ? 'is-dragging' : '',
+              noteWinDrag.outside ? 'is-outside' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              noteWinDragRef.current = { x: e.clientX, y: e.clientY, moved: false }
+            }}
+            title="拖出窗口 → 收回主窗口"
+          >
             {titleText}
           </span>
+          {noteWinDrag.outside ? (
+            <span className="zn-note-window-hint">松手 → 收回主窗口</span>
+          ) : null}
           <span
             className={
               saveState === 'error' ? 'zn-save-state is-error' : dirty ? 'zn-save-state is-dirty' : 'zn-save-state'

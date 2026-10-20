@@ -2189,6 +2189,25 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   flex: 1;
   min-height: 0;
 }
+
+/* 标题条上的**可拖把手**（rev173.54）：拖出窗口边界松手 = 收回主窗口。
+   手型光标明确告诉用户这里能拖；拖到边缘外时变色 + 右边给提示。 */
+.zn-note-window-handle {
+  cursor: grab;
+  user-select: none;
+}
+.zn-note-window-handle.is-dragging {
+  cursor: grabbing;
+}
+.zn-note-window-handle.is-outside {
+  color: var(--zn-accent);
+}
+.zn-note-window-hint {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--zn-accent);
+  white-space: nowrap;
+}
 .zn-plugin-window-hint {
   margin-top: var(--zn-space-2);
   font-size: 11px;
