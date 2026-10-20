@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.69
-更新时间: 2026-10-20（rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.70
+更新时间: 2026-10-20（rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.70 | 2026-10-20 · **0.3.0 发版 + 独立窗口 Ctrl+F + 迁移失败可见**：`note-*` / `plugin-*` 窗口补关 WebView2 浏览器加速键（新命令 `disable_accelerator_keys_for(label)` + `src/lib/accelerator.ts`，等 `tauri://created` 再调、800ms 兜底）· 库内插件迁移失败不再静默（`setPluginError` + toast）· 推送 34 个提交（`8e67a8f..c873c95`）· 版本 0.2.0 → **0.3.0** + tag `v0.3.0` |
 | rev173.69 | 2026-10-20 · **标签条细节**（用户截图两处）：第一条标签贴编辑区左缘（`.zn-tabs` 左 padding 0，红框）· 取消活动标签顶部的 inset 缓存线（黄框「上面的阴影」；当前标签只靠底色区分）· 桌面实测：`padding=0px 6px 0px 0px` / active `box-shadow=none` / 首标签 gap 0 |
 | rev173.68 | 2026-10-20 · **独立窗口关闭 = 交回主窗口**：移除 rev173.54 的「拖出窗口 = 收回」手势（state / pointer 监听 / 样式 / 提示全删）· 关闭按钮改 `returnToMain`（保存 → emit → 关窗；主窗口把标签加回来并打开）· 标题条恢复 `deep` 系统拖动区（标题居中保持）· 顺手补 `afterEach(cleanup)`（app-smoke 的 DOM 会累积）· vitest +1（473 → **474**）· 桌面实测：点关闭 ⇒ note 窗口消失 + 主窗口标签回来且打开该篇 |
 | rev173.67 | 2026-10-20 · **笔记独立窗口标题条**（用户截图三条）：去掉 `⤺` 收回按钮 · 整条标题栏可拖窗口（`data-tauri-drag-region="deep"`，Tauri 2.12 语义）· 文档名居中且保留「拖出窗口 = 收回」手势（标 `false` 阻止系统接管）· vitest +1（472 → **473**）· 桌面实测：DOM 属性 / 标题中心 = 条中心 / 手势回归 |
@@ -215,6 +216,39 @@ revision: 173.69
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.70（2026-10-20 · 0.3.0 发版：独立窗口 Ctrl+F + 迁移失败可见）
+>
+> 用户「逐项完成 A」（上一轮的 A 组四项：推送 / 发版 / Ctrl+F 独立窗口 / 迁移静默）。
+>
+> ### A① 推送
+> 本地 34 个提交（rev173.40–173.69）推上 origin：`8e67a8f..c873c95`（走代理 `127.0.0.1:26561`）。
+>
+> ### A③ 独立窗口的 Ctrl+F（rev173.42 只修了主窗口）
+> **现象**：`note-*` / `plugin-*` 窗口里按 Ctrl+F 仍弹 WebView2 原生查找栏（窗口右上角、页面样式之外）。
+> **根因**：`AreBrowserAcceleratorKeysEnabled` 是**每个 webview 各自**的开关；`setup` 里只对 `main` 调过。
+> **做法**：
+> - Rust 新增 `disable_accelerator_keys_for(label)`：取窗口 → 设 → **读回**返回 `true/false`；窗口未注册时返回错误（前端兜底重试）。`disable_browser_accelerator_keys` 改成返回 `bool`。
+> - 前端 `src/lib/accelerator.ts`：`watchAcceleratorKeys(win)` 等 `tauri://created` 再调（构造后立刻调会撞「窗口不存在」）；800 ms 兜底一次；`destroyed` 清 timer，避免对已关窗口打 warn。
+> - 接入两处：`App.openInWindow`（标签拆出的笔记窗口）、`kernel.openWindow`（插件独立窗口）。
+>
+> ### A④ 库内插件迁移失败可见
+> **现象**：`migrateVaultPlugins` 用 `catch {}` 吞掉所有失败 ⇒ 插件损坏 / 权限不足时用户看到"什么都没发生"。
+> **做法**：单个插件失败收集 `{id, reason}`，最后 `setPluginError`（插件页）+ toast；`listPluginDirs` 失败不再伪装成「没有旧插件」；`__znMigratePlugins` 返回值带 `failed`。
+>
+> ### A② 0.3.0 发版
+> - `node scripts/release.mjs 0.3.0` → `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`。
+> - CHANGELOG：`[Unreleased]`（rev173.28–）并入 `[0.3.0] - 2026-10-20`，Fixed 补两条。
+> - tag `v0.3.0`（打在本次提交上）。
+>
+> ### 测试与实测
+> - vitest：474 → **481**（accelerator +4 · 迁移 +3）· cargo 36 · oxlint 3 warnings
+> - `verify.ps1` 六步全过（tsc 0 · cargo 36 passed · check-docs 全过 · vitest 481 · 质量门 5/5；`23:41:15`）
+> - 实测（dev，pid 10208，22:39 起）：
+>   · 命令链路：`invoke('disable_accelerator_keys_for', {label:'main'})` → **true**（Rust 读回 `enabled=false`）
+>   · 自动补设置：拆出 `note-1` 窗口后 Rust 日志出现第三条「浏览器加速键已关闭（读回 enabled=false）」—— App 的 `watchAcceleratorKeys` 在 `tauri://created` 后自发调用，不是手工触发
+>   · Ctrl+F 行为：`note-1` 窗口点编辑器 → Ctrl+F ⇒ `DIV.cm-search.atomic-editor-search-panel` 出现、焦点落在 `INPUT.cm-atomic-search-input`（截图 `_shots/ctrl-f-note-window-20261020.png`）；主窗口同一操作同样出面板（对照）
+> - 未单独造插件窗口：`plugin-*` 走同一个 `watchAcceleratorKeys`（`kernel.openWindow`），路径与 note 窗口相同
+>
 > ## 📌 rev173.69（2026-10-20 · 标签条细节：第一条贴左缘 / 取消活动标签顶部阴影）
 >
 > 用户截图两处：

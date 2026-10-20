@@ -2076,11 +2076,17 @@ fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
 /// 副作用（可接受）：Ctrl+R / F5 / Ctrl+P（打印）等浏览器快捷键一并失效 ——
 /// 对桌面笔记应用是好事（避免误刷新丢编辑状态）；dev 仍靠 vite HMR，不依赖 F5。
 #[cfg(windows)]
-fn disable_browser_accelerator_keys(webview: &tauri::WebviewWindow) {
+fn disable_browser_accelerator_keys(webview: &tauri::WebviewWindow) -> bool {
+  use std::sync::atomic::{AtomicBool, Ordering};
+  use std::sync::Arc;
   use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
   use windows_core::Interface;
 
-  let result = webview.with_webview(|wv| unsafe {
+  // 读回值要能带出闭包（rev173.70：命令要把它返回给页面，验收不靠猜）
+  let disabled = Arc::new(AtomicBool::new(false));
+  let flag = disabled.clone();
+
+  let result = webview.with_webview(move |wv| unsafe {
     let controller = wv.controller();
     let Ok(core) = controller.CoreWebView2() else {
       return;
@@ -2100,6 +2106,7 @@ fn disable_browser_accelerator_keys(webview: &tauri::WebviewWindow) {
       .AreBrowserAcceleratorKeysEnabled(&mut enabled)
       .is_ok()
     {
+      flag.store(!enabled.as_bool(), Ordering::SeqCst);
       log::info!(
         "[webview2] 浏览器加速键已关闭（读回 enabled={}）—— Ctrl+F 交给编辑器查找面板",
         enabled.as_bool()
@@ -2109,6 +2116,31 @@ fn disable_browser_accelerator_keys(webview: &tauri::WebviewWindow) {
   if let Err(e) = result {
     log::warn!("[webview2] with_webview 调用失败：{e}");
   }
+  disabled.load(Ordering::SeqCst)
+}
+
+/// 对**运行时新建的窗口**补做同样的设置（rev173.70）。
+///
+/// 为什么需要单独一条命令：主窗口在 `setup` 里设一次就够了，但 `note-*` / `plugin-*`
+/// 是页面用 `WebviewWindow` 现建的 —— WebView2 的浏览器加速键是**每个 webview 各自的**
+/// 开关，不补这一下，独立窗口里的 Ctrl+F 仍会弹出原生查找栏（位置在窗口右上角，
+/// 编辑器查找面板永远打不开）。
+///
+/// 返回读回值（`true` = 已确认关闭），供验收拿证据；窗口还没注册时返回错误，前端重试。
+#[cfg(windows)]
+#[tauri::command]
+fn disable_accelerator_keys_for(app: tauri::AppHandle, label: String) -> Result<bool, String> {
+  let webview = app
+    .get_webview_window(&label)
+    .ok_or_else(|| format!("窗口不存在：{label}"))?;
+  Ok(disable_browser_accelerator_keys(&webview))
+}
+
+/// 非 Windows 平台没有 WebView2 加速键这回事（WKWebView / Android WebView 不弹原生查找栏）。
+#[cfg(not(windows))]
+#[tauri::command]
+fn disable_accelerator_keys_for(_app: tauri::AppHandle, _label: String) -> Result<bool, String> {
+  Ok(true)
 }
 
 /// 起看门狗线程（`run()` 的 `setup` 里调用）。
@@ -2270,6 +2302,7 @@ pub fn run() {
       unwatch_vault,
       import_attachment,
       import_attachment_b64,
+      disable_accelerator_keys_for,
       write_absolute,
       write_absolute_b64,
       list_plugins,

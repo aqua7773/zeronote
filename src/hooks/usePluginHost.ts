@@ -456,9 +456,21 @@ export function usePluginHost({
    */
   const migrateVaultPlugins = useCallback(async () => {
     const moved: string[] = []
-    if (!vault) return { moved }
+    const failed: { id: string; reason: string }[] = []
+    if (!vault) return { moved, failed }
+    const reasonOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
     const globalRoot = await globalPluginRoot()
-    const ids = await listPluginDirs(vault).catch(() => [] as string[])
+    /**
+     * 读目录失败也要说 —— 原来 `.catch(() => [])` 把「库不可读」伪装成「没有旧插件」，
+     * 用户看到的是"什么都没发生"（硬约束 4：静默失效比报错危险）。
+     */
+    let ids: string[] = []
+    try {
+      ids = await listPluginDirs(vault)
+    } catch (e) {
+      setPluginError(`读取库内插件目录失败：${reasonOf(e)}`)
+      return { moved, failed }
+    }
     for (const id of ids) {
       try {
         await invoke<number>('copy_plugin_dir', {
@@ -467,13 +479,21 @@ export function usePluginHost({
           pluginId: id,
         })
         moved.push(id)
-      } catch {
-        /* 读失败（损坏 / 权限）⇒ 跳过这个插件 */
+      } catch (e) {
+        // 单个插件失败（损坏 / 权限 / 撞名）⇒ 记下来，最后一次性报给用户
+        failed.push({ id, reason: reasonOf(e) })
       }
     }
+    if (failed.length > 0) {
+      setPluginError(
+        `有 ${failed.length} 个库内插件没搬到全局目录：` +
+          failed.map((f) => `${f.id}（${f.reason}）`).join('；'),
+      )
+      setToast(`插件迁移：${failed.length} 个失败，详见插件页`)
+    }
     setReloadToken((t) => t + 1)
-    return { moved }
-  }, [vault, setReloadToken])
+    return { moved, failed }
+  }, [vault, setReloadToken, setPluginError, setToast])
 
   /**
    * `.znp` 安装的**诊断出口**（2026-10-18 rev119）。
@@ -485,7 +505,10 @@ export function usePluginHost({
   useEffect(() => {
     const w = window as unknown as {
       __znInstallZnp?: (path: string, confirmFirst?: boolean) => Promise<string | null>
-      __znMigratePlugins?: () => Promise<{ moved: string[] }>
+      __znMigratePlugins?: () => Promise<{
+        moved: string[]
+        failed: { id: string; reason: string }[]
+      }>
     }
     w.__znInstallZnp = (path, confirmFirst) => installZnpFromPath(path, confirmFirst ?? true)
     // rev173.5：库内 → 全局的迁移口（真机上 UI 点不到「复制目录」，这条让脚本能跑同一段逻辑）

@@ -7,6 +7,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { watchAcceleratorKeys } from '../lib/accelerator'
 import { API_VERSION } from './contract'
 import type {
   Disposable,
@@ -283,6 +284,8 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         /* 事件系统不可用（浏览器预览）—— 忽略，下面 close() 一样会失败 */
       }
       windowMap.set(label, win)
+      // rev173.70：插件独立窗口同样要关掉 WebView2 原生查找栏（Ctrl+F 归编辑器）
+      watchAcceleratorKeys(win)
       let disposed = false
       return {
         dispose: () => {

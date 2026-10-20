@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   platformOf: vi.fn(() => 'desktop'),
   supportsPlatform: vi.fn(() => true),
   collectPluginDirs: vi.fn(),
+  listPluginDirs: vi.fn(),
   tryGlobalPluginRoot: vi.fn(async () => null),
   // rev173.5：插件只装全局根 —— 安装/迁移都要拿它（测试里固定一个路径）
   globalPluginRoot: vi.fn(async () => '/appdata'),
@@ -24,6 +25,7 @@ vi.mock('../src/kernel/plugin-host', () => ({
   readManifest: mocks.readManifest,
   platformOf: mocks.platformOf,
   supportsPlatform: mocks.supportsPlatform,
+  listPluginDirs: mocks.listPluginDirs,
   PlatformMismatch: class PlatformMismatch extends Error {},
 }))
 vi.mock('../src/kernel/plugin-roots', () => ({
@@ -97,6 +99,7 @@ beforeEach(() => {
   mocks.loadPlugin.mockImplementation(async (entry: { dir: string }) => ({
     manifest: { id: entry.dir },
   }))
+  mocks.listPluginDirs.mockResolvedValue([])
   localStorage.clear()
 })
 
@@ -272,5 +275,67 @@ describe('usePluginHost', () => {
     expect(typeof w.__znInstallZnp).toBe('function')
     unmount()
     expect(w.__znInstallZnp).toBeUndefined()
+  })
+
+  /**
+   * rev173.70：库内 → 全局的迁移口原来把失败全部吞掉（`catch {}`），
+   * 用户看到的是"什么都没发生"。现在失败要能在插件页看到、并有 toast。
+   */
+  it('库内插件迁移：单个失败不再静默', async () => {
+    mocks.listPluginDirs.mockResolvedValue(['ok', 'bad'])
+    mocks.invoke.mockImplementation(async (cmd: string, payload: { pluginId?: string }) => {
+      if (cmd === 'copy_plugin_dir' && payload.pluginId === 'bad') throw new Error('拒绝访问')
+      return 1
+    })
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    const w = window as unknown as {
+      __znMigratePlugins?: () => Promise<{
+        moved: string[]
+        failed: { id: string; reason: string }[]
+      }>
+    }
+    let out: { moved: string[]; failed: { id: string; reason: string }[] } | undefined
+    await act(async () => {
+      out = await w.__znMigratePlugins!()
+    })
+    expect(out?.moved).toEqual(['ok'])
+    expect(out?.failed).toEqual([{ id: 'bad', reason: '拒绝访问' }])
+    expect(args.setPluginError).toHaveBeenCalledWith(expect.stringContaining('bad'))
+    expect(args.setPluginError).toHaveBeenCalledWith(expect.stringContaining('拒绝访问'))
+    expect(args.setToast).toHaveBeenCalledWith(expect.stringContaining('1 个失败'))
+  })
+
+  it('库内插件迁移：全部成功不打扰用户', async () => {
+    mocks.listPluginDirs.mockResolvedValue(['a', 'b'])
+    mocks.invoke.mockResolvedValue(1)
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    // 加载链自己可能报过别的错（本测试只关心迁移那段）
+    args.setPluginError.mockClear()
+    args.setToast.mockClear()
+    const w = window as unknown as { __znMigratePlugins?: () => Promise<{ moved: string[] }> }
+    let out: { moved: string[] } | undefined
+    await act(async () => {
+      out = await w.__znMigratePlugins!()
+    })
+    expect(out?.moved).toEqual(['a', 'b'])
+    expect(args.setPluginError).not.toHaveBeenCalled()
+    expect(args.setToast).not.toHaveBeenCalled()
+  })
+
+  it('库内插件迁移：读目录失败要报出来（不伪装成「没有旧插件」）', async () => {
+    mocks.listPluginDirs.mockRejectedValue(new Error('权限不足'))
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    const w = window as unknown as { __znMigratePlugins?: () => Promise<{ moved: string[] }> }
+    await act(async () => {
+      await w.__znMigratePlugins!()
+    })
+    expect(args.setPluginError).toHaveBeenCalledWith(expect.stringContaining('权限不足'))
+    expect(mocks.invoke).not.toHaveBeenCalledWith('copy_plugin_dir', expect.anything())
   })
 })

@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.69）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.70）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.69 · 0.2.0 · 2026-10-20 |
-| 测试基线 | vitest 474 · cargo 36 · oxlint 3 warnings（2026-10-20） |
+| rev / 版本 | rev173.70 · 0.3.0 · 2026-10-20 |
+| 测试基线 | vitest 481 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
-| 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
+| 文档 | README 现状 2026-10-20 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -29,6 +29,7 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
+0. ✅ **0.3.0 已发版（rev173.70）**：版本三处已同步、CHANGELOG 已收口、tag `v0.3.0`。
 1. ~~P2 会话恢复（hot exit）~~ ✅ **rev173.65 已完成**（做法 / 三个坑 / 实测见 `HANDOFF.md` 该段；下一步接第 2 条）。
 2. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
 3. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
@@ -49,10 +50,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.69 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.70 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.70 | **0.3.0 发版 + 两个 P2 收口**（用户「逐项完成 A」）：推送 34 个提交（`8e67a8f..c873c95`）· 版本 0.2.0 → **0.3.0**（tag `v0.3.0`）· 独立窗口 Ctrl+F 归编辑器（新命令 `disable_accelerator_keys_for` + `src/lib/accelerator.ts`，等 `tauri://created`、800ms 兜底）· 库内插件迁移失败不再静默（`setPluginError` + toast） |
 | 173.69 | **标签条细节**（用户截图）：第一条标签贴编辑区左缘（`.zn-tabs` 左 padding 0）· 取消活动标签顶部 inset 阴影线（当前标签只靠底色区分）· 桌面实测：`padding=0px 6px 0px 0px` / active `box-shadow=none` / 首标签 gap 0 |
 | 173.68 | **独立窗口关闭 = 交回主窗口**：移除「拖出窗口 = 收回」手势（state / pointer 监听 / 样式 / 提示全删）· 关闭按钮改 `returnToMain`（保存 → emit → 关窗；主窗口标签回来并打开）· 标题条恢复 `deep` 拖动区（标题居中保持）· vitest **474** · 桌面实测：点关闭 ⇒ 窗口消失 + 主窗口收回并打开该篇 |
 | 173.67 | **笔记独立窗口标题条**（用户截图）：去掉 `⤺` 收回按钮 · 整条标题栏可拖窗口（`data-tauri-drag-region="deep"`）· 文档名居中、保留「拖出窗口 = 收回」手势（标 `false` 阻止系统接管）· vitest **473** · 桌面实测：标题中心 = 条中心 + 手势回归 |
@@ -137,8 +139,8 @@ pwsh -File scripts\verify.ps1
 | 桌面时间流面板 | ✅ **rev173.33**：侧栏与编辑区之间常驻（默认 300px，可拖 160–560）· 卡片复用手机起始页 `MobileNoteCards variant="panel"`（无 ＋ / 无长按）· 点卡片按 kind 派发（doc / image / note）· 插件页 / 回收站不显示 · **rev173.48 可关闭**（时间流右键 / 卡片右键「关闭时间流」；文件树·编辑器·起始页右键「打开时间流」；状态记 localStorage） |
 | 滚动条 | ✅ **rev173.34**：全局自绘（`GlobalScrollbars`）—— 所有滚动容器统一 · 无轨道 · 6px 半透明滑块（封顶 120px）· 滚动出现静止淡出 · 可拖 · 原生滚动条全部藏掉 |
 | 搜索 / 事件总线 | ✅ **rev173.40**：索引真增量（写路径 + 外部改动）· `note:*` / `index:rebuilt` / `app:ready` / `vault:open` 派发 · 契约 §1.4 补 payload 表 |
-| Ctrl+F 原生查找栏 | ✅ **rev173.42**：WebView2 浏览器加速键关闭（编辑器面板在顶部）· ⚠️ 插件独立窗口未处理（P2） |
-| 插件 / 外链失败静默 | ✅ **rev173.41**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast · 外链失败 → toast（手机提示复制到浏览器）；迁移库内插件仍静默（P2） |
+| Ctrl+F 原生查找栏 | ✅ **rev173.42 + rev173.70**：主窗口在 `setup` 里关掉 WebView2 浏览器加速键；`note-*` / `plugin-*` 窗口由 `watchAcceleratorKeys` 在 `tauri://created` 后调 `disable_accelerator_keys_for` 补上（每个 webview 各自一份开关）· 读回值可断言 |
+| 插件 / 外链失败静默 | ✅ **rev173.41 + rev173.70**：插件目录读取失败 → `pluginError` · 内置插件写入失败 → toast · 外链失败 → toast（手机提示复制到浏览器）· **库内插件迁移失败也不再静默**（逐个记 `{id, reason}`，插件页 + toast） |
 | 灵感流插件 | ⏸ **rev173.35 搁置**：移出预装 + 桌面/手机全局目录删除 · 源码留 `examples/inspiration-flow/`（要用：复制进全局目录 + 重扫） |
 | Markdown 语法增强 | ✅ **rev173.36 + 173.38 + 173.39 三批完成**：上标 / 下标 / Emoji / 数学（行内 + 块级）· 脚注（编号 + 跳转）· Mermaid 图表 · 定义列表 · **内嵌 HTML 白名单渲染**（设置可关）· 内核 `src/kernel/editor-syntax.ts` |
 | 版本管理 | ✅ **rev173.37**：单一来源 `package.json` · 关于页 vite 注入 · `scripts/release.mjs <x.y.z> [--tag]` · 首版 **0.2.0**（tag `v0.2.0`）· 发版流程见 HANDOFF |
@@ -173,7 +175,7 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态（2026-10-20 23:30）**：`dev.cmd` 起的桌面窗口 pid **9988**（22:36 起，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。
+- **交接时 dev 状态（2026-10-20 23:47）**：`dev.cmd` 起的桌面窗口 pid **10208**（23:39 起，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。`note-1` 窗口开着（`?note=新笔记-15-16-04.md`）。
   **只有一个 vite = 1420**（dev.cmd 自起；1421 未监听，旧的 android dev 链 vite 已清）。
   **别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
 - **交接时手机状态（2026-10-20 23:30）**：dev 包 pid **13190**（force-stop 重开过），在前台、起始页（26 张卡片）；

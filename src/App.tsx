@@ -88,6 +88,7 @@ import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
 import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
+import { watchAcceleratorKeys } from './lib/accelerator'
 /* rev173.63：独立窗口占用账本 —— 主窗口 reload 后仍记得「哪篇在哪个窗口」 */
 import {
   loadLedgerStorage,
@@ -1182,6 +1183,8 @@ export default function App() {
          */
         // rev173.63：登记进账本（内存 + localStorage + 销毁销账）
         trackNoteWindow(path, label, win)
+        // rev173.70：独立窗口也要关掉 WebView2 原生查找栏（主窗口由 Rust setup 处理）
+        watchAcceleratorKeys(win)
       } catch (e) {
         setToast(`窗口创建失败：${String(e)}`)
         return
