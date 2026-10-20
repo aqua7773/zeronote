@@ -12,6 +12,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { API_VERSION } from './contract'
 import { tagCommandImpl } from './command'
 import { createWebviewBridge, type WebviewBridgeHandler } from './webview-bridge'
+import { UsageRecorder } from './plugin-usage'
 import {
   PLUGIN_SIGNATURE_FILE,
   parsePluginSignature,
@@ -148,6 +149,11 @@ export type PluginHostDeps = {
   service: (pluginId: string) => ServiceApi
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
+  /**
+   * 能力使用审计（rev173.78，可选）—— 只记录"用了哪个 API"，不记参数与内容。
+   * 不传则完全不记录（单测 / 无宿主环境）。
+   */
+  usage?: UsageRecorder
   onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
   /* 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定）。
    * 同日清尾：`.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission`
@@ -465,8 +471,41 @@ function scopedHost(host: HostApi, pluginId: string, subs: Disposable[]): HostAp
   }
 }
 
-/* ───────── 入口形态兼容层 ─────────
+/**
+ * 给一个原语套「使用审计」代理（rev173.78）。
  *
+ * 只记 **API 名**（`fs.read` / `store.get`），不碰参数、不碰返回值 —— 调用时把 `this`
+ * 绑回原对象，行为与未包装时完全一致。没注入 recorder 时原样返回（零开销）。
+ *
+ * 为什么用 Proxy 而不是逐方法手写：10 个原语几十个方法，手写清单必然漏新方法；
+ * Proxy 只拦截"取属性"，新方法自动被覆盖。
+ */
+function audited<T extends object>(
+  pluginId: string,
+  apiName: string,
+  usage: UsageRecorder | undefined,
+  target: T,
+): T {
+  if (!usage) return target
+  return new Proxy(target, {
+    get(t, prop, receiver) {
+      const value = Reflect.get(t, prop, receiver)
+      if (typeof prop !== 'string') return value
+      if (typeof value !== 'function') {
+        // 读属性（`host.platform` / `apiVersion`）也算"用到了这一项"
+        if (!prop.startsWith('_')) usage.record(pluginId, `${apiName}.${prop}`)
+        return value
+      }
+      // 只有**真正调用**才记账：只取引用不调用不算使用
+      return (...args: unknown[]) => {
+        usage.record(pluginId, `${apiName}.${prop}`)
+        return (value as (...a: unknown[]) => unknown).apply(t, args)
+      }
+    },
+  })
+}
+
+/* ───────── 入口形态兼容层 ───────── *
  * 背景：v0.1 原先只有「读单文件 → Blob → 动态 import」，等于把成熟生态里
  * 最常见的几种写法全挡在门外（依据 `_research\插件API对比.md` §8）：
  *   · CommonJS —— Lumina-Note：`module.exports = function(api, plugin){}`
@@ -794,24 +833,30 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
 
   /** 这个插件注册过的命令 id（WebView 通道 `command.execute` 的白名单来源） */
   const ownedCommands = new Set<string>()
+  /** 使用审计包装（rev173.78）：没注入 recorder 时这些调用是零开销的直通 */
+  const audit = <T extends object>(api: string, target: T): T =>
+    audited(manifest.id, api, deps.usage, target)
+
   const ctx: PluginContext = {
     // 2026-10-13 拆门：不再按 capability 裁剪 —— 插件拿到的就是内核那一份。
     // 这里的包装**只做"返回值自动登记"**（接管协议第一、二条规矩），别的一律透传。
-    fs: scopedFs(deps.fs, subs),
-    doc: scopedDoc(deps.doc, subs),
-    index: deps.index,
-    event: scopedEvent(deps.event, subs),
-    command: scopedCommand(deps.command, manifest.id, subs, ownedCommands),
-    view: scopedView(deps.view, manifest.id, subs),
+    fs: audit('fs', scopedFs(deps.fs, subs)),
+    doc: audit('doc', scopedDoc(deps.doc, subs)),
+    index: audit('index', deps.index),
+    event: audit('event', scopedEvent(deps.event, subs)),
+    command: audit('command', scopedCommand(deps.command, manifest.id, subs, ownedCommands)),
+    view: audit('view', scopedView(deps.view, manifest.id, subs)),
     // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。
-    store: deps.store(manifest.id, root),
-    host: scopedHost(deps.host, manifest.id, subs),
-    service: deps.service(manifest.id),
-    editor: deps.editor(manifest.id),
+    store: audit('store', deps.store(manifest.id, root)),
+    host: audit('host', scopedHost(deps.host, manifest.id, subs)),
+    service: audit('service', deps.service(manifest.id)),
+    editor: audit('editor', deps.editor(manifest.id)),
     pluginId: manifest.id,
     subscriptions: subs,
   }
+
+  deps.usage?.markLoaded(manifest.id)
 
   try {
     await instance.apply(ctx)
@@ -839,6 +884,8 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
 
 /** 卸载即净：先 dispose 插件自己登记的，再兜底 dispose 全部 subs */
 export async function unloadPlugin(loaded: LoadedPlugin, deps: PluginHostDeps): Promise<void> {
+  // 审计先记一笔「不在跑了」；历史 API 记录保留（审计要的是历史）
+  deps.usage?.markUnloaded(loaded.manifest.id)
   try {
     await loaded.instance.dispose?.()
   } catch (e) {

@@ -1902,6 +1902,31 @@ fn verify_plugin_signature(
     .map_err(|e| format!("插件签名无效（keyId={key_id}）：{e}"))
 }
 
+/// **插件能力使用审计**（rev173.78）的读入口：`<vault>/.zn/plugin-usage.json`。
+///
+/// 为什么不复用 `write_absolute` / 加通用 `read_absolute`：那两条是"用户随手指定的路径"
+/// 通道，给插件留一个任意绝对路径读写口子不值当。审计文件位置固定，
+/// 内容**只有 API 名与调用次数**（不含参数 / 路径 / 笔记内容），泄露也不含隐私。
+#[tauri::command]
+fn read_plugin_usage(vault: String) -> Result<String, String> {
+  let path = private_root(&vault)
+    .join(PRIVATE_DIR)
+    .join("plugin-usage.json");
+  if !path.is_file() {
+    return Ok(String::new());
+  }
+  fs::read_to_string(&path).map_err(|e| format!("读取插件使用审计失败：{e}"))
+}
+
+/// 写入口（与 `read_plugin_usage` 同路径）
+#[tauri::command]
+fn write_plugin_usage(vault: String, content: String) -> Result<(), String> {
+  let path = private_root(&vault)
+    .join(PRIVATE_DIR)
+    .join("plugin-usage.json");
+  fs::write(&path, content).map_err(|e| format!("写入插件使用审计失败：{e}"))
+}
+
 #[tauri::command]
 fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
   if !path.exists() {
@@ -2401,6 +2426,8 @@ pub fn run() {
       read_plugin_file,
       write_plugin_file,
       verify_plugin_signature,
+      read_plugin_usage,
+      write_plugin_usage,
       plugin_store_read,
       plugin_store_write,
       vault_exists,

@@ -22,6 +22,7 @@ import { confirm, open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import type { Kernel } from '../kernel/kernel'
 import type { WebviewBridgeHandler } from '../kernel/webview-bridge'
+import type { UsageRecorder } from '../kernel/plugin-usage'
 import {
   listPluginDirs,
   loadPlugin,
@@ -52,6 +53,11 @@ export type UsePluginHostArgs = {
    * 并发写同一批内置插件文件。默认 `true`，只有笔记窗口传 false。
    */
   enabled?: boolean
+  /**
+   * 能力使用审计（rev173.78）：记录"每个插件实际调用了哪些 API"。
+   * 不传 ⇒ 完全不记录（笔记窗口 / 测试）。
+   */
+  usage?: UsageRecorder
   /** 重扫信号：安装 / 删除 / 手动重扫时 +1 */
   reloadToken: number
   /** 已禁用插件 id（同步 ref —— 加载 effect 里要读最新值） */
@@ -87,6 +93,7 @@ export function usePluginHost({
   reloadToken,
   // 默认开：主窗口 / 插件窗口行为不变；只有笔记独立窗口（`?note=`）传 false
   enabled = true,
+  usage,
   disabledRef,
   setManifests,
   setPluginEntries,
@@ -157,6 +164,8 @@ export function usePluginHost({
       host: k.host,
       service: k.service,
       editor: k.editor,
+      // 能力使用审计（rev173.78）：App 侧传进来，没传就不记录
+      usage,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
       // 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定）
     }

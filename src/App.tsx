@@ -89,6 +89,9 @@ import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/ta
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
 import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
 import { watchAcceleratorKeys } from './lib/accelerator'
+/* rev173.78：插件能力使用审计（只记 API 名，不含参数与内容） */
+import { UsageRecorder } from './kernel/plugin-usage'
+import { globalPluginRoot } from './kernel/plugin-roots'
 /* rev173.63：独立窗口占用账本 —— 主窗口 reload 后仍记得「哪篇在哪个窗口」 */
 import {
   loadLedgerStorage,
@@ -1934,6 +1937,58 @@ export default function App() {
     }
   }, [kernel, panels])
 
+  /**
+   * 插件**能力使用审计**（rev173.78）。
+   *
+   * 记录"每个插件实际调用了哪些 API"（只记 API 名与次数，不含参数 / 路径 / 内容）——
+   * 将来把 capability 收紧成白名单 / 沙箱时，这是唯一可靠的数据依据。
+   * 落盘 `<应用数据目录>/.zn/plugin-usage.json`（Rust 专用命令，路径固定）；
+   * 节流 5 秒由 recorder 自己管，写失败不影响任何功能。
+   */
+  const [pluginUsage] = useState(
+    () =>
+      new UsageRecorder({
+        sink: (book) => {
+          void (async () => {
+            try {
+              const root = await globalPluginRoot()
+              await invoke<void>('write_plugin_usage', { vault: root, content: JSON.stringify(book) })
+            } catch {
+              /* 审计不是功能：写不进去就下次再试 */
+            }
+          })()
+        },
+      }),
+  )
+
+  /* 启动时把上一次的审计读回来（读不到 = 首次运行，从空开始） */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const root = await globalPluginRoot()
+        const raw = await invoke<string>('read_plugin_usage', { vault: root })
+        if (cancelled || !raw) return
+        pluginUsage.restore(JSON.parse(raw))
+      } catch {
+        /* 文件坏 / 首次运行：忽略 */
+      }
+    })()
+    return () => {
+      cancelled = true
+      pluginUsage.flush()
+    }
+  }, [pluginUsage])
+
+  /* 诊断出口：CDP 里 `__znPluginUsage()` 直接看当前审计（与 `__znKernelAudit` 同类） */
+  useEffect(() => {
+    const w = window as unknown as { __znPluginUsage?: () => unknown }
+    w.__znPluginUsage = () => pluginUsage.snapshot()
+    return () => {
+      delete w.__znPluginUsage
+    }
+  }, [pluginUsage])
+
   /* ── 插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）（rev128 · L3 第六刀）—— 见 hooks/usePluginHost.ts ── */
   const { installZnp, getWebviewBridge, getSignature } = usePluginHost({
     kernel,
@@ -1944,6 +1999,7 @@ export default function App() {
      * 还会和主窗口并发写同一批内置插件文件）。
      */
     enabled: !noteWindowPath,
+    usage: pluginUsage,
     reloadToken,
     disabledRef,
     setManifests,

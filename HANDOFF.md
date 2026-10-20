@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.77
-更新时间: 2026-10-21（rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.78
+更新时间: 2026-10-21（rev173.78 插件能力使用审计：只记 API 名与次数（不含参数/内容）、Proxy 包 10 原语、落盘 `.zn/plugin-usage.json`、诊断出口 `__znPluginUsage()`；rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.78 | 2026-10-21 · **插件能力使用审计**：只记 API 名 + 次数 + 首末时间（**不含参数 / 路径 / 内容**）· `Proxy` 包装 10 个原语（新方法自动覆盖）· 落盘 `<应用数据目录>/.zn/plugin-usage.json`（Rust 专用 `read_plugin_usage` / `write_plugin_usage`）· 节流 5 秒 + 启动 restore（历史累计）· 诊断出口 `__znPluginUsage()` · 单测 14 条 · 实测 4 个插件的真实 API 清单（accounting 用到 store/command/view/host，outline-map 用到 doc/editor/fs） |
 | rev173.77 | 2026-10-21 · **插件真签名（Ed25519）**：`signature.json` + payload `zn-plugin-v1\|id\|version\|入口sha256`（宿主重算）· 信任根 `.zn/trusted-keys.json` · Rust `verify_plugin_signature`（ed25519-dalek）· 有签名必须验过否则**拒载** · `scripts/keygen.mjs` / `sign.mjs` · 插件页三态「已签名 / 已校验 / 未签名」· 单测 8 条 · 桌面实测（正常加载 / 篡改拒载 / 信任根缺失拒载） |
 | rev173.76 | 2026-10-21 · **iframe ↔ 宿主能力通道（契约 §7.9 补齐）**：`webview-bridge.ts` 定协议（`zn:hello` / `zn:call` / `zn:reply`）· 白名单 7 条（store.get/set/delete/all · host.info · host.notify · command.execute 限本插件）· 令牌 + `event.source` 双重校验 · 限流 20/s · 应答 256 KB · `WebViewFrame` 收发 + `plugin-host` 按插件建执行器 · 单测 18 条（含执行器）· 桌面 CDP 端到端（webview-demo：hello / host.info / store 读写落盘）+ 负面（坏令牌被拒 / 白名单外忽略） |
 | rev173.75 | 2026-10-21 · **记账：完成态无金额也认 + 单笔删除**：`DONE_PHRASES`（支付成功 / 已支付…）破了「必须有金额才算交易」的门 ⇒ 进「金额待补」· 列表每行「删除」→ 确认页（显示原文、不可恢复）· 命令 3 条 · vitest 489 → **493** · 桌面 CDP + 手机 33b676f6 实测（`cmd notification post` 造「支付成功 美团外卖」→ 待补 → 删除） |
@@ -223,6 +224,48 @@ revision: 173.77
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.78（2026-10-21 · 插件能力使用审计）
+>
+> 用户「先做能力审计」。目的**不是限制**，是攒数据：将来要把 capability 收紧成白名单 / 沙箱时，
+> 需要的是"每个插件**实际**用了什么"，而不是作者在 manifest 里声称什么。
+>
+> ### 三条边界（决定它不会变成负担）
+> 1. **只记 API 名 + 次数 + 首末时间** —— 不记参数、不记路径、不记内容 ⇒ 审计文件泄露也不含隐私
+> 2. **落盘由宿主做**：`<应用数据目录>/.zn/plugin-usage.json`，Rust 专用命令
+>    `read_plugin_usage` / `write_plugin_usage`（路径固定，不新增"任意绝对路径读写"口子）
+> 3. **节流 5 秒** + 启动时 restore（历史累计，不是覆盖）
+>
+> ### 实现
+> - `src/kernel/plugin-usage.ts`：`UsageRecorder`（计数 / 加载卸载标记 / 节流 / restore / 深拷贝快照）—— 纯逻辑、可单测
+> - `src/kernel/plugin-host.ts`：`audited()` 用 **Proxy** 包 10 个原语，只拦「取属性 → 调用」，
+>   新方法自动被覆盖（不用维护方法清单）；没注入 recorder 时直接透传、零开销
+> - `App.tsx`：单例 recorder + sink（`write_plugin_usage`）+ 启动 restore + `__znPluginUsage()` 诊断出口
+>
+> ### 实测（首次跑，4 个预装插件）
+> | 插件 | 实际用到的 API |
+> |---|---|
+> | accounting | `store.get` 15 · `command.register` 81 · `view.registerPanel` · `view.refresh` · `store.set` · `host.platform` |
+> | doc-reader | `command.bind` · `command.register` · `host.log` |
+> | import-export | `command.register` 18 · `view.registerPanel` · `host.onRollback` · `host.log` |
+> | outline-map | `store.get` · `doc.active` · `fs.readText` · `doc.on` 6 · `editor.addLineAction` / `addLineClass` / `addFold` · `command.register` 18 |
+>
+> 观察到的第一个信号：`command.register` 次数远大于其它（插件在 apply 里批量注册命令）——
+> 这正是将来做白名单时最该看的分布。
+>
+> ### 验证
+> - 单测 `tests/plugin-usage.test.ts` 14 条：计数合并 / 加载卸载标记 / 节流 / restore 坏数据容错 / 深拷贝
+> - 桌面实测：`__znPluginUsage()` 返回快照 · 文件 1814 字节落盘 ·
+>   **3 次 reload 后计数累计**（证明 restore 生效，不是每次从零算）
+>
+> ### ⚠️ 手机端
+> `read_plugin_usage` / `write_plugin_usage` 是新的 Rust 命令，旧 dev APK 里没有。
+> 两边 invoke 都被 `catch` 了 ⇒ **审计不落盘，功能零影响**；要手机上也有数据，重编一次 APK。
+>
+> ### 没做（按用户要求留到公开时）
+> - 插件页展示「该插件用了哪些能力」
+> - 「声明 vs 实际」对比（做白名单时再加）
+> - 免责声明 + 审查材料生成器（等开源公开时一起做）
+>
 > ## 📌 rev173.77（2026-10-21 · 插件真签名：Ed25519）
 >
 > 契约 §7.4 的「真正的签名（公私钥验签）仍未做」补齐。用户「做签名」。
