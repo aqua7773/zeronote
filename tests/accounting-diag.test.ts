@@ -35,10 +35,18 @@ describe('describeNotice 诊断原因', () => {
     expect(r.reason).toContain('没有支付短语')
   })
 
-  it('有支付短语但没有金额（「已支付」不含收款/付款/转账/红包）', () => {
-    const r = describeNotice(n('通知', '已支付'))
+  it('有支付短语但没有金额（「消费」不算完成态）', () => {
+    // rev173.75 放宽后，「支付成功 / 已支付」这类完成态即使没金额也会入账（进待补）；
+    // 仍会被挡的是**非完成态**的方向词 / 提醒类短语。
+    const r = describeNotice(n('银行', '消费提醒'))
     expect(r.ok).toBe(false)
     expect(r.reason).toContain('没找到金额')
+  })
+
+  it('完成态无金额 ⇒ 认（进待补，rev173.75 放宽）', () => {
+    const r = describeNotice(n('通知', '已支付'))
+    expect(r.ok).toBe(true)
+    expect(r.reason).toBe('')
   })
 
   it('空通知', () => {

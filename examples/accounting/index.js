@@ -60,6 +60,18 @@ const PAY_PHRASES = [
   '扣款',
 ]
 
+/**
+ * 「已完成支付」短语（项目 rev173.75 / 记账子项 173.77）：**没金额也认**。
+ *
+ * 为什么：`isPaymentNotice` 以前要求「有金额，或含 收款/付款/转账/红包」，
+ * 于是「微信支付｜支付成功 美团外卖」这类**不重复写金额**的完成通知被直接丢掉
+ * （rev173.73 实测发现 ②）。用户 2026-10-21 选「放宽 + 加单笔删除」：
+ * 这类通知进「金额待补」，误记了可以在列表里删掉。
+ *
+ * 只收**完成态**：`付款 / 收款 / 转账` 这类方向词无金额时多半是提醒或营销文案，不全放。
+ */
+const DONE_PHRASES = ['支付成功', '付款成功', '已支付', '已付款', '扣款成功', '消费成功']
+
 const INCOME_WORDS = [
   '到账',
   '收入',
@@ -174,8 +186,13 @@ export function isPaymentNotice(title, text) {
   if (IGNORE.some((re) => re.test(s))) return false
   const hasPhrase = PAY_PHRASES.some((p) => s.includes(p))
   if (!hasPhrase) return false
-  // 有金额，或明确收款/付款/转账/红包 ⇒ 认；只有"红包已领取"这类会被 IGNORE 挡掉
-  return extractAmount(s) !== null || /收款|付款|转账|红包/.test(s)
+  // 有金额 ⇒ 认；明确收付/转账/红包 ⇒ 认（金额可后补）；
+  // 完成态短语（支付成功…）⇒ 也认，进「金额待补」（rev173.75）
+  return (
+    extractAmount(s) !== null ||
+    /收款|付款|转账|红包/.test(s) ||
+    DONE_PHRASES.some((p) => s.includes(p))
+  )
 }
 
 /** 收入 / 支出（收入关键词优先，默认支出） */
@@ -666,6 +683,8 @@ export default {
     let amountEditId = null
     /** 待确认删除的分类名（rev173.74；null = 不在确认态） */
     let catDelete = null
+    /** 待确认删除的交易 id（rev173.75；null = 不在确认态） */
+    let txDeleteId = null
     /** 面板视图：账单列表 / 统计 / 预算 / 分类管理 / 诊断 */
     let mode = 'list'
     let status = { enabled: false, note: '正在检查通知权限…' }
@@ -980,6 +999,36 @@ export default {
       refresh()
     }
 
+    /**
+     * 单笔删除（项目 rev173.75 / 记账子项 173.77）。
+     *
+     * 为什么要它：放宽识别后，完成态但没金额的通知会先进「金额待补」；
+     * 误识别（营销文案里带「支付成功」）也得能清掉 —— 以前只有改分类，删不掉。
+     * 先确认再删：**没有回收站、不可恢复**（与分类删除同一套确认页做法）。
+     */
+    function askRemoveTx(payload) {
+      const id = String((payload && payload.id) || '')
+      if (!id) return
+      txDeleteId = id
+      refresh()
+    }
+
+    async function removeTx() {
+      const id = txDeleteId
+      if (!id) return
+      txDeleteId = null
+      const tx = txs.find((t) => t.id === id)
+      txs = txs.filter((t) => t.id !== id)
+      await persist()
+      refresh()
+      host.notify(tx ? `已删除 ${tx.merchant} ¥${tx.amount.toFixed(2)}` : '已删除这条记录')
+    }
+
+    function cancelRemoveTx() {
+      txDeleteId = null
+      refresh()
+    }
+
     async function addManual(payload) {
       const raw = payload && payload.value
       const amount = Number(raw)
@@ -1081,6 +1130,7 @@ export default {
     }
 
     function render() {
+      if (txDeleteId) return renderRemoveTx()
       if (mode === 'stats') return renderStats()
       if (mode === 'diag') return renderDiag()
       if (mode === 'budget') return renderBudget()
@@ -1224,6 +1274,14 @@ export default {
                         },
                       ]
                     : []),
+                  // 单笔删除（项目 rev173.75）：误识别的通知也能清掉，先确认再删
+                  {
+                    type: 'button',
+                    label: '删除',
+                    onClick: 'accounting.askRemoveTx',
+                    payload: { id: t.id },
+                    variant: 'ghost',
+                  },
                 ],
               },
             })),
@@ -1400,6 +1458,41 @@ export default {
                 ],
               },
             })),
+          },
+        ],
+      }
+    }
+
+    /**
+     * 删除单笔确认页（项目 rev173.75）：**没有回收站**，所以先把这笔的原文摆出来。
+     */
+    function renderRemoveTx() {
+      const tx = txs.find((t) => t.id === txDeleteId)
+      if (!tx) {
+        txDeleteId = null
+        return render()
+      }
+      return {
+        type: 'stack',
+        gap: 'md',
+        children: [
+          { type: 'text', value: '删除这笔记录？', variant: 'title' },
+          {
+            type: 'text',
+            value: `${fmtTime(tx.time)} · ${tx.merchant} ¥${tx.amount.toFixed(2)}${tx.status === 'pending' ? '（金额待补）' : ''}`,
+            tone: 'warn',
+          },
+          { type: 'text', value: `原文：${tx.raw || '（无）'}`, variant: 'caption', tone: 'muted' },
+          { type: 'text', value: '删除后无法恢复（不进回收站）。', variant: 'caption', tone: 'muted' },
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              { type: 'button', label: '确认删除', onClick: 'accounting.removeTx' },
+              { type: 'button', label: '取消', onClick: 'accounting.cancelRemoveTx', variant: 'ghost' },
+            ],
           },
         ],
       }
@@ -1739,6 +1832,22 @@ export default {
         id: 'accounting.cancelAmount',
         title: '记账：取消补金额',
         run: () => cancelAmountEdit(),
+      }),
+      /* ── 单笔删除（项目 rev173.75）── */
+      command.register({
+        id: 'accounting.askRemoveTx',
+        title: '记账：删除这笔（先确认）',
+        run: (p) => askRemoveTx(p),
+      }),
+      command.register({
+        id: 'accounting.removeTx',
+        title: '记账：确认删除这笔',
+        run: () => removeTx(),
+      }),
+      command.register({
+        id: 'accounting.cancelRemoveTx',
+        title: '记账：取消删除这笔',
+        run: () => cancelRemoveTx(),
       }),
       view.registerPanel({
         id: PANEL_ID,

@@ -54,6 +54,25 @@ describe('isPaymentNotice 交易通知判定', () => {
   it('无支付短语的消息不算', () => {
     expect(isPaymentNotice('微信', '晚上一起吃饭吗')).toBe(false)
   })
+
+  /**
+   * rev173.75（用户 2026-10-21 选「放宽 + 加单笔删除」）：
+   * 微信支付这类完成通知**不一定重复写金额**，以前会被直接丢掉（rev173.73 实测发现 ②）。
+   */
+  it('完成态短语但没金额也算交易（进待补，不是丢弃）', () => {
+    // 旧逻辑要求「有金额 或 含 收款/付款/转账/红包」，这两条都会被直接丢掉
+    expect(isPaymentNotice('微信支付', '支付成功 美团外卖')).toBe(true)
+    expect(isPaymentNotice('云闪付', '已支付')).toBe(true)
+    // 这条旧逻辑已认（含「付款」），留着防放宽后语义漂移
+    expect(isPaymentNotice('支付宝', '付款成功，感谢使用')).toBe(true)
+  })
+
+  it('放宽只覆盖完成态 —— 营销 / 非交易文案仍被挡', () => {
+    expect(isPaymentNotice('银行', '本月账单已出，请及时还款')).toBe(false)
+    // IGNORE 优先：即使带「支付成功」，积分 / 余额类也杀掉
+    expect(isPaymentNotice('微信', '支付成功，积分已到账')).toBe(false)
+    expect(isPaymentNotice('支付宝', '周末愉快')).toBe(false)
+  })
 })
 
 describe('detectType 收支方向', () => {
@@ -159,6 +178,21 @@ describe('parseNotification 完整解析', () => {
     expect(tx.amount).toBe(0)
     expect(tx.status).toBe('pending')
     expect(tx.type).toBe('income')
+  })
+
+  it('完成态无金额也进 pending（rev173.75 放宽）', () => {
+    const tx = parseNotification({
+      pkg: 'com.tencent.mm',
+      app: '微信',
+      title: '微信支付',
+      text: '支付成功 美团外卖',
+      time: 1729312345000,
+    })
+    expect(tx).not.toBeNull()
+    expect(tx.amount).toBe(0)
+    expect(tx.status).toBe('pending')
+    expect(tx.type).toBe('expense')
+    expect(tx.category).toBe('餐饮')
   })
 })
 
