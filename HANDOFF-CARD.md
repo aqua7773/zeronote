@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.65）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.66）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.65 · 0.2.0 · 2026-10-20 |
-| 测试基线 | vitest 469 · cargo 36 · oxlint 3 warnings（2026-10-20） |
+| rev / 版本 | rev173.66 · 0.2.0 · 2026-10-20 |
+| 测试基线 | vitest 472 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
 <!-- FACTS:END -->
@@ -34,7 +34,7 @@ pwsh -File scripts\verify.ps1
 3. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
 4. **环境清理（顺手）**：✅ 本会话已清掉 1420 上的旧 vite（杀掉旧 android dev 链的 vite 进程，再重启 `dev.cmd`）；现在唯一的 vite 是 dev.cmd 自起的 1420（1421 未监听）。
 
-可选小项：卡片长按菜单没进返回键层栈（菜单开着按返回 → 直接退 App），要补就顺手。
+可选小项：✅ **rev173.66 已补** —— 卡片长按菜单进了返回键层栈（菜单开着按返回先关菜单，不再直接退 App；手机实测 + 单测 3 条）。
 
 > 本会话（rev173.55–58）产出：`docs/系统总览.md` · `docs/数据与存储.md` · `docs/UI交互规范.md` · `docs/键位表.md`（生成）· `docs/功能目录.md`（生成）· `docs/decisions/`（6 条）· `docs/templates/`（任务卡 + ADR）· 质量门脚本 6 个。
 > 没做：性能基线（用户暂缓）· 用户运维手册（只有一个使用者，决定不写）。
@@ -45,10 +45,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.65 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.66 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.66 | **手机卡片菜单进返回键层栈**：`MobileNoteCards` 加 `layers`（App 的 `layerExitsRef`，与 `FileTree` 同一约定）· 菜单打开压栈 / 关闭移除 · App 两处（手机起始页 + 桌面时间流）都传 · vitest **472** · 手机 33b676f6 实测：返回键先关菜单、不退 App |
 | 173.65 | **会话恢复（hot exit）**：新增 `src/lib/draft-snapshot.ts`（`{path,content,at}` · 8 KB 上限 · 7 天过期 · 只留 1 篇）· `useDocIO` 500ms 节流写草稿 + `saveNow` 成功清键 + 关窗 / 卸载 flush · 主窗口启动提示「恢复 / 丢弃」（复用 `.zn-undo`）· 恢复以磁盘内容为 `baseRef` · vitest **469** · 实测：页面 reload / `taskkill` 强杀重启 / 正常退出不提示 / note 窗口不弹 |
 | 173.64 | **交接**：173.59–173.63 收口（文件监听 / 笔记窗口不加载插件 / 主窗口记忆 / 三键对齐 / 占用账本）· 唯一下一步 = P2 会话恢复（hot exit，执行路径见上）· 测试 453 |
 | 173.63 | **独立窗口占用账本持久化（P1-c）**：新增 `src/lib/note-window-ledger.ts`（路径 → `note-N` 存 localStorage，坏数据退回空账本）· 拆窗 / 恢复 / 兜底统一走 `trackNoteWindow`（内存 + 账本 + destroyed 销账）· 启动用 `getAllWebviewWindows()` 存活过滤（reload 保留 / 重启清空）· vitest 453 · 实测：reload 后点该篇不开第二份 + toast、关窗清空、残留自动 prune |
@@ -102,6 +103,7 @@ pwsh -File scripts\verify.ps1
 | 项 | 状态 |
 |---|---|
 | 会话恢复（hot exit） | ✅ **rev173.65**：崩溃 / HMR 整页重载后主窗口启动提示「恢复 / 丢弃」· 草稿只留 1 篇 / ≤ 8 KB / 7 天过期 · 恢复以磁盘内容为 `baseRef` · `taskkill` 进程级强杀实测通过 |
+| 手机卡片菜单返回键 | ✅ **rev173.66**：`MobileNoteCards.layers` 接 App 的 `layerExitsRef`（与 `FileTree` 同一约定）· 菜单开着按返回先关菜单；只有全都没得关才退 App · 手机 33b676f6 实测 |
 | 窗口位置 / 大小记忆 | ✅ **rev173.61**：官方 `tauri-plugin-window-state 2.5.0`（桌面 target 段）· `with_filter` 只跟踪 `main` · StateFlags = POSITION/SIZE/MAXIMIZED（不碰 VISIBLE/DECORATIONS/FULLSCREEN）· 实测两次重启都回到 (120,160) 960×640；开过 note 窗口后状态文件仍只含 main |
 | 文件监听（外部改动） | ✅ **rev173.59**：桌面 Rust `notify 8.2` watcher → `zn://fs-change`（只报库内 `.md` · 120ms 合并 · 1500ms 自写抑制）· 前端 `watch_vault` 成功才停轮询 · 移动端（FUSE 漏报）主动退 3 秒轮询 · 桌面 CDP 四场景实测（新建 / 改当前笔记 / 删除 / 自写无回响） |
 | 导图点击偶发不生效（手机） | ✅ **rev173.11**：行号改为 `data-zn-line`（不再靠 `posAtDOM` 反查）+ 手机端补整窗接管；真机 3 轮验证 |

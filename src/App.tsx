@@ -3118,6 +3118,7 @@ export default function App() {
           <div className="zn-timeline" style={{ width: timelineWidth }}>
             <MobileNoteCards
               variant="panel"
+              layers={layerExitsRef}
               notes={notes}
               onOpen={(p) => {
                 const meta = notes.find((n) => n.path === p)
@@ -3316,6 +3317,7 @@ export default function App() {
           /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
           <MobileNoteCards
             notes={notes}
+            layers={layerExitsRef}
             onOpen={(p) => void openNote(p)}
             onNewNote={() => void runCore('core.newNote')}
             onQuickLaunch={() => setQuickOpen(true)}

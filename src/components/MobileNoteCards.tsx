@@ -6,7 +6,7 @@
  *
  * 桌面端不渲染（仍用 AppEmptyState 的起始页）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
@@ -34,6 +34,12 @@ type Props = {
    * 只由 App 在 `variant="panel"` 时传；手机起始页不传 ⇒ 卡片菜单里不出现这一项。
    */
   onCloseTimeline?: () => void
+  /**
+   * Android 返回键的「层出口」栈（App 的 `layerExitsRef`，与 `FileTree` 同一约定）：
+   * 卡片菜单打开时把关闭函数压进去，返回键**先关菜单**，而不是直接退 App（rev173.66）。
+   * 桌面 / 没有返回键的环境不传也能用。
+   */
+  layers?: RefObject<Array<() => boolean>>
 }
 
 /** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
@@ -72,11 +78,33 @@ export function MobileNoteCards({
   onRename,
   variant = 'mobile',
   onCloseTimeline,
+  layers,
 }: Props) {
   /** 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件） */
   const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
   const [contents, setContents] = useState<Record<string, string>>({})
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+
+  /**
+   * 卡片菜单压进 Android 返回键的层出口栈（rev173.66）。
+   *
+   * 为什么：菜单状态在本组件里，App 的 `backRef` 看不到 —— 菜单开着按返回会被判成
+   * "都没得关" ⇒ 直接 `exit(0)`，**应用退出而菜单还开着**（与 rev68 修过的 ☰ 菜单同一缺口）。
+   * 与 `FileTree` 同一套约定：拿 App 的 `layerExitsRef`，打开时 push、关闭 / 卸载时 remove。
+   */
+  useEffect(() => {
+    const stack = layers?.current
+    if (!menu || !stack) return
+    const close = () => {
+      setMenu(null)
+      return true
+    }
+    stack.push(close)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [menu, layers])
 
   /* ── 长按 ＋（rev173.20）──
    * 短按 = 新建笔记（不变）；按住 500ms = 打开环形快捷入口。
