@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { exit, onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 /* rev173.51：把标签页「拿出来单独放」= 新建一个真正的 webview 窗口承载这篇笔记 */
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { WebviewWindow, getAllWebviewWindows } from '@tauri-apps/api/webviewWindow'
 /**
  * Android 的库路径（方案 D）—— 公共存储。
  * 好处：文件管理器能进、插件能直接拷进 `.zn/plugins/`、卸载不丢数据。
@@ -88,6 +88,14 @@ import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
 import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
+/* rev173.63：独立窗口占用账本 —— 主窗口 reload 后仍记得「哪篇在哪个窗口」 */
+import {
+  loadLedgerStorage,
+  maxWindowSeq,
+  pruneLedger,
+  saveLedgerStorage,
+  type NoteWindowLedger,
+} from './lib/note-window-ledger'
 /* rev173.54：独立窗口标题条的「拖出 = 收回」手势复用同一套越界判定 */
 import { dragStarted, isOutsideWindow } from './lib/tab-drag'
 import { indentLine } from './kernel/editor-indent'
@@ -541,6 +549,15 @@ export default function App() {
    * 而不是再开一份。账在**主窗口**：独立窗口创建与销毁都经过这里。
    */
   const noteWindowsRef = useRef<Map<string, WebviewWindow>>(new Map())
+  /**
+   * **占用账本的持久化副本**（rev173.63 · P1-c）：`库内路径 → 窗口 label`。
+   *
+   * `noteWindowsRef` 存的是"窗口对象"（聚焦要用），它只活在主窗口这一次页面生命周期里 ——
+   * 主窗口一 reload 就空了，于是「同一篇不能开两份」的守卫失效。这份账本同步写
+   * localStorage，reload 后按**存活窗口集合**过滤一遍再把对象映射重建回来
+   * （见下面的恢复 effect）。
+   */
+  const noteLedgerRef = useRef<NoteWindowLedger>({})
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
   const editorRef = useRef<EditorView | null>(null)
@@ -893,13 +910,87 @@ export default function App() {
    * 把那个窗口提到前面 + 说一句，动作与结果对得上。手机上 `noteWindowsRef` 恒空，
    * 直接放行。
    */
+  /**
+   * 登记一个「已拆出去的笔记窗口」（rev173.63）：内存映射 + localStorage 账本 + 销毁销账。
+   *
+   * **三个入口都必须走它**（首次拆出 / 主窗口 reload 后恢复 / canOpen 兜底找回）：
+   * 只写账本不挂 `destroyed` 监听，窗口关掉后账本会一直留着 —— 那篇就再也打不开了。
+   */
+  const trackNoteWindow = useCallback((path: string, label: string, win: WebviewWindow) => {
+    noteWindowsRef.current.set(path, win)
+    noteLedgerRef.current[path] = label
+    saveLedgerStorage(noteLedgerRef.current)
+    win.once('tauri://destroyed', () => {
+      if (noteWindowsRef.current.get(path) === win) {
+        noteWindowsRef.current.delete(path)
+        delete noteLedgerRef.current[path]
+        saveLedgerStorage(noteLedgerRef.current)
+      }
+    })
+  }, [])
+
   const canOpenNote = useCallback((p: string) => {
     const w = noteWindowsRef.current.get(p)
-    if (!w) return true
-    void w.setFocus().catch(() => {})
+    if (w) {
+      void w.setFocus().catch(() => {})
+      setToast(`「${baseName(p)}」已在独立窗口里打开`)
+      return false
+    }
+    const label = noteLedgerRef.current[p]
+    if (!label) return true
+    /**
+     * 走到这里 = 账本说它在、但内存里没有窗口对象 —— 一般是**主窗口刚 reload**。
+     * 按 label 把对象找回来（下一次点击就走上面那条快路径）；
+     * 找不到 = 窗口其实早关了（reload 期间那个 destroyed 事件没人收到）⇒ 当场销账放行。
+     */
+    void WebviewWindow.getByLabel(label)
+      .then((win) => {
+        if (win) {
+          trackNoteWindow(p, label, win)
+          void win.setFocus().catch(() => {})
+        } else {
+          delete noteLedgerRef.current[p]
+          saveLedgerStorage(noteLedgerRef.current)
+        }
+      })
+      .catch(() => {})
     setToast(`「${baseName(p)}」已在独立窗口里打开`)
     return false
-  }, [])
+  }, [trackNoteWindow])
+
+  /**
+   * 启动时恢复占用账本（rev173.63 · P1-c）。
+   *
+   * 只认**仍然存活**的窗口 label（`getAllWebviewWindows`）：
+   *  · 主窗口 reload（dev HMR / 用户刷新）⇒ `note-*` 窗口还在 ⇒ 账本原样恢复；
+   *  · 整个 app 重启 ⇒ `note-*` 都没了 ⇒ 过滤成空，下次打开正常（不会误拦）。
+   * 恢复是异步的（IPC），所以在它回来之前账本是空的 —— 这几十毫秒内点笔记最多多开一次，
+   * 比"永远不知道"好。
+   */
+  useEffect(() => {
+    if (pluginWindowId || noteWindowPath) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const wins = await getAllWebviewWindows()
+        if (cancelled) return
+        const pruned = pruneLedger(loadLedgerStorage(), new Set(wins.map((w) => w.label)))
+        noteLedgerRef.current = pruned
+        for (const [path, label] of Object.entries(pruned)) {
+          const win = wins.find((w) => w.label === label)
+          // 重新登记（而不是只放进 Map）：**销毁监听必须补挂** —— reload 后旧监听已随页面消失
+          if (win) trackNoteWindow(path, label, win)
+        }
+        noteWinSeqRef.current = Math.max(noteWinSeqRef.current, maxWindowSeq(pruned))
+        saveLedgerStorage(pruned)
+      } catch {
+        /* 浏览器预览没有窗口 API —— 账本保持空 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [pluginWindowId, noteWindowPath, trackNoteWindow])
 
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
   const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({
@@ -1027,17 +1118,15 @@ export default function App() {
          * 互斥的账：开出来就登记；用户自己关掉也要销账（`destroyed` 是"已经没了"）。
          * 销账要认窗口对象 —— 同一篇可能拆了又关、再拆，别让旧窗口的销毁把新账删了。
          */
-        noteWindowsRef.current.set(path, win)
-        win.once('tauri://destroyed', () => {
-          if (noteWindowsRef.current.get(path) === win) noteWindowsRef.current.delete(path)
-        })
+        // rev173.63：登记进账本（内存 + localStorage + 销毁销账）
+        trackNoteWindow(path, label, win)
       } catch (e) {
         setToast(`窗口创建失败：${String(e)}`)
         return
       }
       closeTabOf(path)
     },
-    [platform, vault, closeTabOf, setToast],
+    [platform, vault, closeTabOf, setToast, trackNoteWindow],
   )
 
   /**
@@ -1197,6 +1286,9 @@ export default function App() {
           const p = e.payload?.path
           if (!p) return
           noteWindowsRef.current.delete(p) // 先销账：openNote 的守卫会查这张表
+          // rev173.63：账本一起销（否则主窗口 reload 后会把"已交回"的那篇误判成仍在独立窗口）
+          delete noteLedgerRef.current[p]
+          saveLedgerStorage(noteLedgerRef.current)
           setTabs((prev) => addTab(prev, p))
           void openNoteRef.current(p)
         })

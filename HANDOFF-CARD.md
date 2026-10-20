@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.62）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.63）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.62 · 0.2.0 · 2026-10-20 |
-| 测试基线 | vitest 448 · cargo 36 · oxlint 3 warnings（2026-10-20） |
+| rev / 版本 | rev173.63 · 0.2.0 · 2026-10-20 |
+| 测试基线 | vitest 453 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
 <!-- FACTS:END -->
@@ -29,12 +29,10 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-1. **P1-c 占用账本持久化**：`noteWindowsRef`（哪篇在哪个 `note-*` 窗口）搬到 **localStorage / Rust state**
-   —— 主窗口 reload 就丢，现在点被拆出的那篇会误开第二份。
-2. **P2 会话恢复（hot exit）**：localStorage dirty 快照 + 恢复提示（对标 v2 §2.4）。
-3. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
-4. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
-5. **环境清理（顺手）**：1420 上挂着旧 `tauri android dev` 链的 vite（本机新 dev 因此落到 1421）；
+1. **P2 会话恢复（hot exit）**：localStorage dirty 快照 + 恢复提示（对标 v2 §2.4）。
+2. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
+3. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
+4. **环境清理（顺手）**：1420 上挂着旧 `tauri android dev` 链的 vite（本机新 dev 因此落到 1421）；
    干净重启前先结束旧的 android dev 链，只留一个 vite。
 
 可选小项：卡片长按菜单没进返回键层栈（菜单开着按返回 → 直接退 App），要补就顺手。
@@ -48,10 +46,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.62 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.63 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.63 | **独立窗口占用账本持久化（P1-c）**：新增 `src/lib/note-window-ledger.ts`（路径 → `note-N` 存 localStorage，坏数据退回空账本）· 拆窗 / 恢复 / 兜底统一走 `trackNoteWindow`（内存 + 账本 + destroyed 销账）· 启动用 `getAllWebviewWindows()` 存活过滤（reload 保留 / 重启清空）· vitest 453 · 实测：reload 后点该篇不开第二份 + toast、关窗清空、残留自动 prune |
 | 173.62 | **独立窗口三键与主窗口对齐**：`.zn-plugin-window-bar` 在桌面去上下 padding、锁 32px，三键负右边距贴边 ⇒ hover 背景与主窗口一样占满整条 · 触屏保留原样 · 实测笔记窗口 / 导图窗口都是 bar 32 / btn 31 / 46px |
 | 173.61 | **主窗口位置/大小记忆（P1-b）**：官方 `tauri-plugin-window-state 2.5.0`（桌面 target 专属）· `with_filter` 只跟踪 `main`（note-* / plugin-* 不恢复不保存）· StateFlags = POSITION/SIZE/MAXIMIZED · 实测两次重启都回到 (120,160) 960×640，状态文件只含 main |
 | 173.60 | **笔记独立窗口跳过插件加载（P1-a）**：`usePluginHost` 加 `enabled`（默认 true），`?note=` 窗口传 false ⇒ 内置预装 / 扫描 / 加载整段不跑 · 实测主窗口 61 命令 + 2 面板 + 2 样式 vs note 窗口 30 条纯内核命令 + 0 面板 + 0 样式 · note 窗口编辑照常落盘 · vitest 448 |
