@@ -1809,9 +1809,101 @@ fn write_plugin_file(
   fs::write(&path, content).map_err(|e| format!("写插件文件失败 {}：{e}", path.display()))
 }
 
+/// **插件签名验证**（rev173.77 · 契约 §7.4）。
+///
+/// 输入 `payload` 由**前端重算**（`zn-plugin-v1|<id>|<version>|<入口 sha256>`，
+/// 见 `src/lib/plugin-signing.ts`）—— 宿主不信任 `signature.json` 里可能夹带的任何其它字段。
+///
+/// 返回：
+///  · `Ok("unsigned")` —— 没有 `signature.json`，照常加载（与 rev119 的"未签名提示"一致）
+///  · `Ok("signed")`   —— 验签通过
+///  · `Err(...)`       —— 有签名但**验不过**（无信任根 / keyId 不在信任根 / 签名不符 / 文件坏），
+///    调用方据此**拒绝加载** —— 签名既然是承诺，破了就不能跑。
+///
+/// 信任根：`<vault>/.zn/trusted-keys.json`，形状 `{ "keys": [{ "keyId", "publicKey" }] }`，
+/// `publicKey` = base64(32 字节 raw Ed25519 公钥)，由 `scripts/keygen.mjs` 生成。
 #[tauri::command]
-fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {
-  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
+fn verify_plugin_signature(
+  vault: String,
+  plugin_id: String,
+  payload: String,
+) -> Result<String, String> {
+  use base64::{engine::general_purpose::STANDARD, Engine as _};
+  use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+  let sig_path = plugin_dir(&vault, &plugin_id)?.join("signature.json");
+  if !sig_path.is_file() {
+    return Ok("unsigned".to_string());
+  }
+  let sig_raw = fs::read_to_string(&sig_path)
+    .map_err(|e| format!("读取 {} 失败：{e}", sig_path.display()))?;
+  let sig_json: serde_json::Value =
+    serde_json::from_str(&sig_raw).map_err(|e| format!("signature.json 不是合法 JSON：{e}"))?;
+  let alg = sig_json.get("alg").and_then(|v| v.as_str()).unwrap_or("");
+  if alg != "ed25519" {
+    return Err(format!("不支持的签名算法：{alg}（当前只认 ed25519）"));
+  }
+  let key_id = sig_json.get("keyId").and_then(|v| v.as_str()).unwrap_or("");
+  let sig_b64 = sig_json.get("sig").and_then(|v| v.as_str()).unwrap_or("");
+  if key_id.is_empty() || sig_b64.is_empty() {
+    return Err("signature.json 缺 keyId 或 sig".to_string());
+  }
+
+  let keys_path = private_root(&vault)
+    .join(PRIVATE_DIR)
+    .join("trusted-keys.json");
+  let keys_raw = fs::read_to_string(&keys_path).map_err(|e| {
+    format!(
+      "插件已签名（keyId={key_id}），但信任根不存在：{}（{e}）。请把公钥加进这个文件",
+      keys_path.display()
+    )
+  })?;
+  let keys_json: serde_json::Value =
+    serde_json::from_str(&keys_raw).map_err(|e| format!("trusted-keys.json 不是合法 JSON：{e}"))?;
+  let key_b64 = keys_json
+    .get("keys")
+    .and_then(|v| v.as_array())
+    .and_then(|arr| {
+      arr.iter().find_map(|k| {
+        let id = k.get("keyId").and_then(|v| v.as_str())?;
+        if id != key_id {
+          return None;
+        }
+        k.get("publicKey").and_then(|v| v.as_str())
+      })
+    })
+    .ok_or_else(|| {
+      format!(
+        "信任根里没有 keyId={key_id} 的公钥（{}）",
+        keys_path.display()
+      )
+    })?;
+
+  let key_bytes = STANDARD
+    .decode(key_b64.trim())
+    .map_err(|e| format!("公钥不是合法 base64：{e}"))?;
+  let key_len = key_bytes.len();
+  let key_arr: [u8; 32] = key_bytes
+    .try_into()
+    .map_err(|_| format!("公钥长度应为 32 字节（实际 {key_len}）"))?;
+  let vk = VerifyingKey::from_bytes(&key_arr).map_err(|e| format!("公钥无效：{e}"))?;
+
+  let sig_bytes = STANDARD
+    .decode(sig_b64.trim())
+    .map_err(|e| format!("签名不是合法 base64：{e}"))?;
+  let sig_len = sig_bytes.len();
+  let sig_arr: [u8; 64] = sig_bytes
+    .try_into()
+    .map_err(|_| format!("签名长度应为 64 字节（实际 {sig_len}）"))?;
+  let signature = Signature::from_bytes(&sig_arr);
+
+  vk.verify(payload.as_bytes(), &signature)
+    .map(|_| "signed".to_string())
+    .map_err(|e| format!("插件签名无效（keyId={key_id}）：{e}"))
+}
+
+#[tauri::command]
+fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
   if !path.exists() {
     return Ok(serde_json::json!({}));
   }
@@ -2308,6 +2400,7 @@ pub fn run() {
       list_plugins,
       read_plugin_file,
       write_plugin_file,
+      verify_plugin_signature,
       plugin_store_read,
       plugin_store_write,
       vault_exists,

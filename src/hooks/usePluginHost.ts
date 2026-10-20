@@ -77,6 +77,8 @@ export type PluginHost = {
    * 没这个插件 / 纯样式插件 ⇒ `undefined`（通道关闭，页面照常显示）。
    */
   getWebviewBridge: (pluginId: string) => WebviewBridgeHandler | undefined
+  /** 签名状态（rev173.77）：未加载的插件返回 undefined */
+  getSignature: (pluginId: string) => 'signed' | 'unsigned' | undefined
 }
 
 export function usePluginHost({
@@ -409,9 +411,16 @@ export function usePluginHost({
         const m = preview.manifest
         if (confirmFirst) {
           const caps = (m.capabilities ?? []).join('、') || '（未声明）'
-          const sign = m.sha256
-            ? '✓ 带完整性校验（sha256）'
-            : '⚠ 未签名：没有 sha256，安装后它会以你的权限执行任意代码'
+          /**
+           * rev173.77：`.znp` 里的 `signature.json` 会随文件一起装进插件目录，
+           * 加载时由宿主验签 —— 所以这里把"真有签名"与"只有 sha256"分开说。
+           */
+          const hasSig = preview.files.includes('signature.json')
+          const sign = hasSig
+            ? '✓ 带签名（signature.json）：安装后会验签，通过才加载'
+            : m.sha256
+              ? '✓ 带完整性校验（sha256，只证明文件没坏）'
+              : '⚠ 未签名：没有 sha256 / signature.json，安装后它会以你的权限执行任意代码'
           const ok = await confirm(
             `安装插件「${m.name}」v${m.version}？\n\n自称需要：${caps}\n文件：${preview.files.length} 个\n\n${sign}`,
             { title: '安装插件包', kind: 'warning' },
@@ -537,5 +546,16 @@ export function usePluginHost({
     [],
   )
 
-  return { installZnpFromPath, installZnp, getWebviewBridge }
+  /**
+   * 按插件 id 查**签名状态**（rev173.77 · 契约 §7.4）：
+   * `signed` = 有 `signature.json` 且验签通过；`unsigned` = 没签名文件；
+   * `undefined` = 这个插件没加载（禁用 / 平台不符 / 纯样式）。
+   */
+  const getSignature = useCallback(
+    (pluginId: string): 'signed' | 'unsigned' | undefined =>
+      loadedPluginsRef.current.find((l) => l.manifest.id === pluginId)?.signature,
+    [],
+  )
+
+  return { installZnpFromPath, installZnp, getWebviewBridge, getSignature }
 }

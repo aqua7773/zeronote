@@ -13,6 +13,11 @@ import { API_VERSION } from './contract'
 import { tagCommandImpl } from './command'
 import { createWebviewBridge, type WebviewBridgeHandler } from './webview-bridge'
 import {
+  PLUGIN_SIGNATURE_FILE,
+  parsePluginSignature,
+  signingPayload,
+} from '../lib/plugin-signing'
+import {
   cachePluginStyle,
   dropBootPluginStyles,
   uncachePluginStyle,
@@ -117,6 +122,11 @@ export type LoadedPlugin = {
    * 面板渲染时由宿主按 `pluginId` 找到它，把 iframe 发来的 `zn:call` 翻译成插件自己的 API 调用。
    */
   webviewBridge: WebviewBridgeHandler
+  /**
+   * 签名状态（rev173.77 · 契约 §7.4）：`signed` = 有 `signature.json` 且验签通过；
+   * `unsigned` = 没签名文件。**签名无效的插件到不了这一步**（加载时直接拒绝）。
+   */
+  signature: 'signed' | 'unsigned'
 }
 
 export type PluginHostDeps = {
@@ -238,6 +248,51 @@ async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+/**
+ * 插件签名验证（rev173.77 · 契约 §7.4）。
+ *
+ * 有 `signature.json` ⇒ 必须验过；没有 ⇒ `unsigned` 照常加载。
+ * payload 由这里**重算**（`zn-plugin-v1|<id>|<version>|<入口 sha256>`），
+ * 不信签名文件里可能夹带的其它字段 —— 校验与 `scripts/sign.mjs` 用同一份格式常量
+ * （`src/lib/plugin-signing.ts`）。
+ *
+ * 验签本身在 Rust（`verify_plugin_signature`）：旧 Android WebView 不一定有
+ * Web Crypto 的 Ed25519，宿主端做才能保证两个平台结论一致。
+ */
+async function verifyPluginSignature(opts: {
+  root: string
+  dir: string
+  manifest: PluginManifest
+  entryContent: string
+}): Promise<'signed' | 'unsigned'> {
+  let raw: string
+  try {
+    raw = await invoke<string>('read_plugin_file', {
+      vault: opts.root,
+      pluginId: opts.dir,
+      rel: PLUGIN_SIGNATURE_FILE,
+    })
+  } catch {
+    // 读不到 = 没有签名文件（这是**正常状态**：本地自用插件不签）
+    return 'unsigned'
+  }
+  const sig = parsePluginSignature(raw)
+  if (!sig) {
+    throw new Error(
+      `插件 ${opts.manifest.id} 的 ${PLUGIN_SIGNATURE_FILE} 格式不对（应为 { alg:'ed25519', keyId, sig }）—— 拒绝加载`,
+    )
+  }
+  const entrySha = await sha256Hex(opts.entryContent)
+  const payload = signingPayload(opts.manifest.id, opts.manifest.version, entrySha)
+  const status = await invoke<string>('verify_plugin_signature', {
+    vault: opts.root,
+    pluginId: opts.dir,
+    payload,
+  })
+  return status === 'signed' ? 'signed' : 'unsigned'
+}
+
 
 function assertApiVersion(range: string, pluginId: string): void {
   const wantMajor = range.replace(/^[\^~>=<\s]*/, '').split('.')[0]
@@ -651,6 +706,8 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
       webviewBridge: async () => {
         throw new Error(`插件 ${manifest.id} 是纯样式插件，没有 WebView 能力通道`)
       },
+      // 纯样式插件没有 entry，签名 payload 无从算起 ⇒ 恒为未签名
+      signature: 'unsigned',
     }
   }
 
@@ -670,6 +727,21 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
       )
     }
   }
+
+  /**
+   * **签名验证**（rev173.77 · 契约 §7.4）：有 `signature.json` 就必须验过，否则**拒绝加载**。
+   *
+   * 与上面的 sha256 是两件事：
+   *  · sha256 只证明"文件没被改坏"，谁都算得出来；
+   *  · 签名证明"**是谁**发布的这一版"—— 换了人 / 改了 id / 改了版本号都会失效。
+   * 没有签名文件 ⇒ `unsigned`，照常加载（本地自用插件不必签）。
+   */
+  const signature = await verifyPluginSignature({
+    root,
+    dir,
+    manifest,
+    entryContent: entrySrc,
+  })
   const kind = sniffEntryKind(entrySrc)
 
   let code: string
@@ -762,7 +834,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
 
   const fileNote = manifest.files?.length ? `，${manifest.files.length + 1} 个文件` : ''
   deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info')
-  return { dir, root, source: entry.source, manifest, instance, subs, webviewBridge }
+  return { dir, root, source: entry.source, manifest, instance, subs, webviewBridge, signature }
 }
 
 /** 卸载即净：先 dispose 插件自己登记的，再兜底 dispose 全部 subs */

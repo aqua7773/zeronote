@@ -1935,7 +1935,7 @@ export default function App() {
   }, [kernel, panels])
 
   /* ── 插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）（rev128 · L3 第六刀）—— 见 hooks/usePluginHost.ts ── */
-  const { installZnp, getWebviewBridge } = usePluginHost({
+  const { installZnp, getWebviewBridge, getSignature } = usePluginHost({
     kernel,
     vault,
     /**
@@ -2466,8 +2466,8 @@ export default function App() {
       : undefined,
     // 卡死兜底 C 段：被启动自愈关掉的插件 —— 明确标注，别让它静默消失
     autoDisabledNote: autoDisabled.has(m.id) ? '因上次加载未完成已自动禁用' : undefined,
-    // rev119：入口带 sha256 ⇒ 已校验；没有 ⇒ 未校验（安装 .znp 时也会提示未签名）
-    integrity: m.sha256 ? 'verified' : 'none',
+    // rev173.77：有签名且验过 ⇒ `signed`（谁发布的）；退化到 rev119 的 sha256 完整性
+    integrity: getSignature(m.id) === 'signed' ? 'signed' : m.sha256 ? 'verified' : 'none',
   }))
 
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */

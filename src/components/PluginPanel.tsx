@@ -36,11 +36,12 @@ export type PluginRow = {
    */
   source?: 'global' | 'vault'
   /**
-   * 入口完整性（2026-10-18 rev119）：
-   * · `verified` —— manifest 带 `sha256`，加载时已比对通过；
-   * · `none`     —— 没有 `sha256`（未校验 / 未签名，安装时也会提示）。
+   * 入口完整性 / 签名（2026-10-18 rev119 · 2026-10-21 rev173.77）：
+   * · `signed`   —— 有 `signature.json`，Ed25519 验签通过（**谁发布的**这一版）；
+   * · `verified` —— manifest 带 `sha256` 且已比对通过（只证明**文件没坏**，谁都能算）；
+   * · `none`     —— 既没签名也没 sha256（未校验，安装时也会提示）。
    */
-  integrity?: 'verified' | 'none'
+  integrity?: 'signed' | 'verified' | 'none'
   /**
    * 平台不适用时的说明（如「不适用 · 仅桌面端」）。
    *
@@ -213,19 +214,26 @@ export function PluginPanel({
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
                   )}
-                  {p.integrity === 'verified' ? (
+                  {p.integrity === 'signed' ? (
                     <span
                       className="zn-plugin-source"
-                      title="manifest 带 sha256，加载时已比对入口文件"
+                      title="有 signature.json 且 Ed25519 验签通过（证明这一版是谁发布的）"
+                    >
+                      已签名
+                    </span>
+                  ) : p.integrity === 'verified' ? (
+                    <span
+                      className="zn-plugin-source"
+                      title="manifest 带 sha256，加载时已比对入口文件（只证明文件没坏，不是签名）"
                     >
                       已校验
                     </span>
                   ) : (
                     <span
                       className="zn-plugin-ver"
-                      title="manifest 没有 sha256：内核不校验入口文件（未签名）"
+                      title="既没有签名也没有 sha256：内核不校验入口文件（本地自用可以，分发请签名）"
                     >
-                      未校验
+                      未签名
                     </span>
                   )}
                   {/* 卡死兜底 C 段：被启动自愈关掉的 —— 用醒目色，别让它看起来像普通备注 */}
