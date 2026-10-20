@@ -39,7 +39,11 @@ pwsh -File scripts\verify.ps1
 > 本会话（rev173.55–58）产出：`docs/系统总览.md` · `docs/数据与存储.md` · `docs/UI交互规范.md` · `docs/键位表.md`（生成）· `docs/功能目录.md`（生成）· `docs/decisions/`（6 条）· `docs/templates/`（任务卡 + ADR）· 质量门脚本 6 个。
 > 没做：性能基线（用户暂缓）· 用户运维手册（只有一个使用者，决定不写）。
 
-### 本会话踩过的三个坑（务必避开）
+### 本会话踩过的坑（务必避开）
+
+- **组件测试缺 cleanup**：`app-smoke.test.tsx` 之前没写 `afterEach(cleanup)`，DOM 会累积（实测同时挂 **4 个 `.zn-app`**），
+  后一个测试的点按命中别的实例、断言看错元素（rev173.68 排查多绕一轮）。
+- **CSS 改了页面不一定变**：dev 下 CSS HMR 偶发不生效（尤其长时间没 reload 的窗口）—— 先 `location.reload()` 再判断样式改动是否生效（rev173.69）。
 
 - **按行号脚本删段**：先把最终行号定死再动手；中途再 edit 会让行号整体偏移（rev122 因此误删过 `DOC_CHANGE_DEBOUNCE_MS`，tsc `TS1128`）。
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
@@ -169,11 +173,12 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态（2026-10-20 12:4x）**：桌面窗口 pid 11784（`dev.cmd` 起的，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。
-  ⚠️ **vite 有两个**：`1420` 是本会话为救白屏临时 `pnpm dev` 起的（托管在后台 job，**job 被回收后 1420 会断**）/ `1421` 是 `pnpm tauri dev` 自己起的。
-  下个会话 1420 不通 ⇒ 项目根跑一次 `pnpm dev` 即可（桌面与手机会自己重连），或整个重开 `dev.cmd`。
+- **交接时 dev 状态（2026-10-20 23:30）**：`dev.cmd` 起的桌面窗口 pid **9988**（22:36 起，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。
+  **只有一个 vite = 1420**（dev.cmd 自起；1421 未监听，旧的 android dev 链 vite 已清）。
   **别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
-- **交接时手机状态（2026-10-20 12:4x）**：dev 包在**前台**（`am start` 起的），手机 CDP 转发仍在 `tcp:9333`（`ZN_CDP=http://127.0.0.1:9333 node tools/cdp.mjs …`）；换进程后 pid 变，要 `adb forward --remove tcp:9333` 再按新 pid 重建。
+- **交接时手机状态（2026-10-20 23:30）**：dev 包 pid **13190**（force-stop 重开过），在前台、起始页（26 张卡片）；
+  手机 CDP 转发已指向它：`tcp:9333 → webview_devtools_remote_13190`
+  （`ZN_CDP=http://127.0.0.1:9333 node tools/cdp.mjs …`）；换进程后先 `forward --remove tcp:9333` 再按新 pid 重建。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
@@ -189,7 +194,9 @@ pwsh -File scripts\verify.ps1
 - **手机白屏（HMR 失败）**：vite 报 `Failed to reload /src/App.tsx` 后页面不回滚 ⇒ 白屏
   （先看 logcat 是不是 `tauri::protocol::tauri: Failed to request …: error sending request`）；
   `adb shell am force-stop com.aqua.zeronote.debug` 重开即恢复（2026-10-19 实测）。
-- **测试库 `_tmp-vault-tb/`**：3 篇笔记（`新笔记-15/18/19`）+ 3 个只读文档；**插件都在全局根**（7 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
+  桌面的 note-* 窗口同样会白屏（HMR 全量重载后）—— `location.reload()` 即恢复（2026-10-20 实测）。
+- **测试库 `_tmp-vault-tb/`**：4 篇笔记（`新笔记-15-16-04` / `-19-46-58` / `-23-37-07` / `Markdown标签测试`）+ 3 个只读文档 + 2 个附件；
+  **插件都在全局根**（7 个目录；rev173.5 起库内不放插件）。验收夹具**按需挂、用完即删**（rev117 的夹具已清）。
 - **测试插件只在 `examples/`，不预装**（2026-10-19 用户定，硬约束 8）：
   要用时 `Copy-Item examples\<id> $env:APPDATA\com.aqua.zeronote\.zn\plugins\ -Recurse` → 重扫；用完删。
   已清出全局：`asset-probe` / `net-demo` / `daily-note` / `tag-showcase` / `editor-marks` / `tag-demo`。
