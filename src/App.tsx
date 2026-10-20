@@ -2918,31 +2918,25 @@ export default function App() {
    * **笔记独立窗口**（rev173.51 · rev173.53 收成纯编辑窗口）：`?note=<路径>` —— **只有编辑器**。
    *
    * 用户 2026-10-20 定：「拖出来的窗口只要编辑窗口就行了」—— 于是这里**不画标签条**、
-   * 不画侧栏 / 状态栏；标题条只留窗口必需的拖动区与三键，外加一颗「收回主窗口」。
+   * 不画侧栏 / 状态栏；标题条只留窗口必需的拖动区与三键。
    *  · 关闭走 `close()` 而不是 `destroy()` —— `useDocIO` 的「关窗前落盘」拦截器靠
    *    `close-requested` 事件工作（`pluginWindowId` 为空 ⇒ 那一层拦截是生效的）；
-   *  · 收回 = `returnToMain`：先落盘、再通知主窗口、最后关窗（动作在标题条左侧那颗按钮上）。
+   *  · 收回 = `returnToMain`：先落盘、再通知主窗口、最后关窗。手势是**把文档名拖出窗口边界**
+   *    （rev173.54）；rev173.67 起取消标题条左侧那颗 `⤺` 按钮，拖拽区扩到整条标题栏。
    */
   if (noteWindowPath && !pluginWindowId) {
     return (
       <div className="zn-note-window">
-        <div className="zn-plugin-window-bar" data-tauri-drag-region>
-          {/* 收回主窗口：独立窗口里没有标签条可拖，收回就做成标题条上的一颗按钮 */}
-          <button
-            type="button"
-            className="zn-icon-btn zn-note-window-return"
-            onClick={() => {
-              if (activePath) void returnToMain(activePath)
-            }}
-            disabled={!activePath}
-            title="收回主窗口的标签条"
-            aria-label="收回主窗口"
-          >
-            ⤺
-          </button>
-          {/* 文档名 = 可拖把手：拖出本窗口边界松手 ⇒ 收回主窗口（rev173.54）。
-              这里刻意**不标** `data-tauri-drag-region` —— 标了就被系统接管成"拖窗口"，
-              页面收不到指针、也就没法判越界。标题条其余空白仍是拖动区。 */}
+        {/*
+         * 标题条（rev173.67 · 用户 2026-10-20 截图要求）：
+         *  · **整条都是拖动区** —— `data-tauri-drag-region="deep"` = 子树里任意位置按下都能拖窗口
+         *    （Tauri 2.12 的语义：只有 `deep` 会传给子元素，裸属性只认直接点中它自己；
+         *    源码见 `tauri/src/window/scripts/drag.js` 的 `isDragRegion`）。状态文字也能拖，
+         *    三键是 button 会被自动排除。
+         *  · **文档名不是系统拖动区** —— 它标 `false` 阻止系统接管，因为它是「拖出窗口 = 收回主窗口」
+         *    的手势把手（rev173.54）：系统一接管，页面就收不到 pointer 事件、判不了越界。
+         */}
+        <div className="zn-plugin-window-bar" data-tauri-drag-region="deep">
           <span
             className={[
               'zn-plugin-window-title',
@@ -2952,6 +2946,7 @@ export default function App() {
             ]
               .filter(Boolean)
               .join(' ')}
+            data-tauri-drag-region="false"
             onPointerDown={(e) => {
               if (e.button !== 0) return
               noteWinDragRef.current = { x: e.clientX, y: e.clientY, moved: false }

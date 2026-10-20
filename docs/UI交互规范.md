@@ -69,7 +69,7 @@
 | 手势 | 结果 | 代码锚点 |
 |---|---|---|
 | 标签拖出窗口 | 拆成独立窗口（8px 阈值 / 越界热区） | `src/lib/tab-drag.ts` · `TabBar.tsx` |
-| 标题条拖出窗口 | 收回主窗口（保存 → 通知 → 关窗） | `TitleBar.tsx` · `App.tsx` |
+| 标题条拖出窗口 | 收回主窗口（保存 → 通知 → 关窗；独立笔记窗口里手势在**文档名**上，标题条其余部分是拖窗口区） | `App.tsx` |
 | 同一篇 | 同时只在一个窗口；主窗口再点 ⇒ 聚焦并提示 | `noteWindowsRef` + `useDocSession.canOpen` |
 | 手机左/右滑 | 抽屉开关（输入状态禁用打开方向） | `swipe.ts` |
 | 长按 ＋ / ☰ | 环形快捷入口 / 菜单 | `QuickLaunch.tsx` · `TitleBar.tsx` |
@@ -77,7 +77,7 @@
 ## 6 窗口
 
 - 主窗口尺寸取 `src-tauri/tauri.conf.json` 默认值；**位置/尺寸不持久化**（见 [`D-006`](decisions/D-006-暂不接window-state.md)）。
-- 独立笔记窗口：900×700、**只有编辑器**（无标签条）、标题条三键 + `⤺` 收回。
+- 独立笔记窗口：900×700、**只有编辑器**（无标签条）· 标题条三键照旧 · **整条标题栏可拖窗口**（`data-tauri-drag-region="deep"`，按钮自动排除）· 文档名**居中**，且是「拖出窗口 = 收回主窗口」的手势把手（rev173.67 去掉 `⤺` 按钮）。
 - 插件窗口用 `plugin-*` label，能力与主窗口同级（`src-tauri/capabilities/default.json`）。
 
 ## 7 主题与视觉

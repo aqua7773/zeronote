@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   appDataDir: vi.fn(async () => '/appdata'),
   onCloseRequested: vi.fn(async () => () => {}),
   destroy: vi.fn(async () => {}),
-  onBackButtonPress: vi.fn(async () => () => {}),
+  onBackButtonPress: vi.fn(async () => ({ unregister: vi.fn() })),
   exit: vi.fn(),
 }))
 
@@ -56,6 +56,9 @@ function setupInvoke(notes: Note[] = []) {
     switch (cmd) {
       case 'list_notes':
         return notes
+      case 'read_note':
+        // note 窗口（?note=）挂载后会真读盘：给个字符串，别让 null 进 content（字数统计会崩）
+        return '正文'
       case 'list_dirs':
         return []
       case 'list_plugins':
@@ -104,5 +107,23 @@ describe('App 集成冒烟', () => {
     render(<App />)
     await settle()
     expect(screen.getByText('a.md')).toBeTruthy()
+  })
+
+  it('笔记独立窗口（?note=）：整条标题栏可按 deep 拖窗口，文档名标 false，无收回按钮', async () => {
+    window.history.replaceState({}, '', '/?note=a.md&vault=/vault')
+    try {
+      render(<App />)
+      await settle()
+      const bar = document.querySelector('.zn-note-window .zn-plugin-window-bar')
+      // Tauri 2.12 的 drag.js：裸属性只认直接点中自己，`deep` 才传给子树 ⇒ 整条标题栏可拖
+      expect(bar?.getAttribute('data-tauri-drag-region')).toBe('deep')
+      const title = document.querySelector('.zn-note-window .zn-plugin-window-title')
+      // 文档名是「拖出窗口 = 收回主窗口」的手势把手：必须阻止系统拖动接管
+      expect(title?.getAttribute('data-tauri-drag-region')).toBe('false')
+      // rev173.67：取消左侧「收回主窗口」按钮（改由拖文档名出界收回）
+      expect(document.querySelector('.zn-note-window-return')).toBeNull()
+    } finally {
+      window.history.replaceState({}, '', '/')
+    }
   })
 })

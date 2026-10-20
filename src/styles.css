@@ -2192,7 +2192,9 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
 
 /* ── 笔记独立窗口（rev173.51）：标签页「拿出来单独放」──
    与插件窗口同一套骨架（标题条 + 内容区），区别只在内容区是编辑器。
-   标题条直接复用 `.zn-plugin-window-bar`（拖动区 / 三键 / 截断都在那儿）。 */
+   标题条直接复用 `.zn-plugin-window-bar`（拖动区 / 三键 / 截断都在那儿）。
+   rev173.67（用户 2026-10-20 截图）：标题条整条可拖窗口（App 里 `data-tauri-drag-region="deep"`）、
+   文档名居中 —— 居中后左右两侧的空白正是可拖窗口的区域；收回手势仍在文档名上（拖出界）。 */
 .zn-note-window {
   display: flex;
   flex-direction: column;
@@ -2200,6 +2202,23 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   box-sizing: border-box;
   background: var(--zn-bg);
   color: var(--zn-fg);
+}
+.zn-note-window .zn-plugin-window-bar {
+  position: relative;
+  justify-content: flex-end; /* 右侧只留保存状态 + 三键 */
+}
+.zn-note-window .zn-plugin-window-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 220px); /* 给右侧状态 / 三键留位置，窄窗口截断 */
+  justify-content: center;
+}
+/* 拖出界提示：绝对定位在三键左侧，出现时**不挤动**右侧状态与三键 */
+.zn-note-window .zn-note-window-hint {
+  position: absolute;
+  right: 150px;
+  pointer-events: none;
 }
 .zn-note-window-body {
   flex: 1;
