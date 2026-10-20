@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { IndexApi, SearchHit } from '@/kernel/contract'
 import { splitExcerpt, tokenizeQuery } from '@/kernel/index-api'
+import { dirPrefixesOf } from '@/lib/note-dirs'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -135,19 +136,7 @@ export function SearchPanel({
   }, [open, index, rebuildTick])
 
   /** 目录下拉选项：从笔记路径推**所有层级前缀**（`a/b/c.md` → `a`、`a/b`） */
-  const dirOptions = useMemo(() => {
-    const set = new Set<string>()
-    for (const n of notes) {
-      const parts = n.path.replace(/\\/g, '/').split('/')
-      parts.pop() // 去掉文件名
-      let acc = ''
-      for (const seg of parts) {
-        acc = acc ? `${acc}/${seg}` : seg
-        if (acc) set.add(acc)
-      }
-    }
-    return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
-  }, [notes])
+  const dirOptions = useMemo(() => dirPrefixesOf(notes), [notes])
 
   /** 正则语法预检 —— 内核那边语法错误会静默返回空表，这里给用户一句能看懂的话 */
   const regexError = useMemo(() => {

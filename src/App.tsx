@@ -94,6 +94,7 @@ import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
 import { SearchPanel } from './components/SearchPanel'
+import { ReplacePanel } from './components/ReplacePanel'
 import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
 import {
@@ -221,6 +222,8 @@ export default function App() {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   /** 编辑器顶部的替换栏（Ctrl+H）—— 它不是浮层，所以不参与 openOverlay 的互斥 */
   const [replaceOpen, setReplaceOpen] = useState(false)
+  /** 全局替换面板（Ctrl+Shift+H · rev173.49）—— 跨笔记批量替换，独立浮层 */
+  const [replaceAllOpen, setReplaceAllOpen] = useState(false)
   /** 最近执行过的命令 id（命令面板置顶用；持久化在 localStorage） */
   const [recentCmds, setRecentCmds] = useState<string[]>(loadRecentCommands)
   /** 最近打开过的库（侧栏底部「切换笔记库」菜单的数据源；持久化在 localStorage） */
@@ -1293,6 +1296,16 @@ export default function App() {
         keybinding: 'Mod+H',
         run: () => setReplaceOpen(true),
       }),
+      /**
+       * 全局替换（跨笔记 · rev173.49 · 用户待办 #3）：
+       * 先试运行出命中清单，确认后才写盘，每篇改前把原文件移进回收站。
+       */
+      kernel.commands.api.register({
+        id: 'core.replaceAll',
+        title: '全局替换（跨笔记）…',
+        keybinding: 'Mod+Shift+H',
+        run: () => setReplaceAllOpen(true),
+      }),
       kernel.commands.api.register({
         id: 'core.closeNote',
         title: '关闭当前笔记',
@@ -1935,6 +1948,7 @@ export default function App() {
           },
         ]),
     { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => openOverlay('search') },
+    { label: '全局替换…', hint: 'Ctrl+Shift+H', onClick: () => setReplaceAllOpen(true) },
     { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
     { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
     // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
@@ -2777,6 +2791,19 @@ export default function App() {
         onOpenNote={(p) => void openNote(p)}
         index={kernel?.index ?? null}
         notes={notes}
+      />
+
+      <ReplacePanel
+        open={replaceAllOpen}
+        onClose={() => setReplaceAllOpen(false)}
+        fs={kernel?.fs ?? null}
+        notes={notes}
+        onApplied={(paths, replaced) => {
+          void refresh()
+          // 被替换的正好是当前打开的笔记 ⇒ 立刻从磁盘重载，免得编辑器里还是旧内容
+          if (activePath && paths.includes(activePath)) void reloadActiveFromDisk()
+          setToast(`已替换 ${replaced} 处 · ${paths.length} 篇（原文件已进回收站）`)
+        }}
       />
 
       {undoDelete ? (
