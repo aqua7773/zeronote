@@ -197,4 +197,32 @@ describe('useDocSession', () => {
     expect(args.setContent).toHaveBeenCalledWith('')
     expect(args.fireDoc).toHaveBeenCalledWith('close', 'a.md', 'body', false)
   })
+
+  /**
+   * 互斥（rev173.52）：这篇已经在独立窗口里开着 ⇒ 主窗口不打开、也不读盘。
+   * 提示与聚焦由宿主做，hook 只负责「别打开」。
+   */
+  it('canOpen 返回 false ⇒ 不读盘、不打开', async () => {
+    const k = makeKernel()
+    const canOpen = vi.fn(() => false)
+    const args = makeArgs(k, { canOpen })
+    const { result } = renderHook(() => useDocSession(args))
+    await act(async () => {
+      await result.current.openNote('a.md')
+    })
+    expect(canOpen).toHaveBeenCalledWith('a.md')
+    expect(k.fs.readText).not.toHaveBeenCalled()
+    expect(args.setActivePath).not.toHaveBeenCalled()
+  })
+
+  it('canOpen 返回 true ⇒ 正常打开', async () => {
+    const k = makeKernel()
+    const canOpen = vi.fn(() => true)
+    const args = makeArgs(k, { canOpen })
+    const { result } = renderHook(() => useDocSession(args))
+    await act(async () => {
+      await result.current.openNote('a.md')
+    })
+    expect(args.setActivePath).toHaveBeenCalledWith('a.md')
+  })
 })

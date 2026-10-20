@@ -77,4 +77,69 @@ describe('TabBar', () => {
       fireEvent.contextMenu(label.parentElement as HTMLElement, { clientX: 1, clientY: 2 }),
     ).not.toThrow()
   })
+
+  /**
+   * 拖出窗口（rev173.52）：位移过阈值 + 松手贴边 ⇒ `onDragEnd` 带 `outside: true`，
+   * 并且随后补发的那记 click 被吃掉（不能顺带切一次标签）。
+   */
+  it('拖到窗口边缘松手 ⇒ onDragEnd(outside=true)，且不触发切换', () => {
+    const onDragEnd = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <TabBar
+        tabs={tabs}
+        activePath="a.md"
+        onSelect={onSelect}
+        onClose={() => {}}
+        onDragEnd={onDragEnd}
+      />,
+    )
+    const label = screen.getByTitle('dir/b.md')
+    fireEvent.pointerDown(label, { button: 0, clientX: 100, clientY: 20 })
+    fireEvent.pointerMove(window, { clientX: 400, clientY: 20 })
+    fireEvent.pointerUp(window, { clientX: window.innerWidth, clientY: 20 })
+
+    expect(onDragEnd).toHaveBeenCalledTimes(1)
+    const [path, at] = onDragEnd.mock.calls[0] as [string, { outside: boolean }]
+    expect(path).toBe('dir/b.md')
+    expect(at.outside).toBe(true)
+
+    fireEvent.click(label) // 松手后浏览器补的那记 click
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('手抖（位移不到阈值）松手 ⇒ 不算拖拽，正常当点击', () => {
+    const onDragEnd = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <TabBar
+        tabs={tabs}
+        activePath="a.md"
+        onSelect={onSelect}
+        onClose={() => {}}
+        onDragEnd={onDragEnd}
+      />,
+    )
+    const label = screen.getByTitle('dir/b.md')
+    fireEvent.pointerDown(label, { button: 0, clientX: 100, clientY: 20 })
+    fireEvent.pointerMove(window, { clientX: 103, clientY: 20 })
+    fireEvent.pointerUp(window, { clientX: 105, clientY: 20 })
+    expect(onDragEnd).not.toHaveBeenCalled()
+
+    fireEvent.click(label)
+    expect(onSelect).toHaveBeenCalledWith('dir/b.md')
+  })
+
+  it('拖到窗口中间松手 ⇒ onDragEnd(outside=false)（不拆窗口）', () => {
+    const onDragEnd = vi.fn()
+    render(
+      <TabBar tabs={tabs} activePath="a.md" onSelect={() => {}} onClose={() => {}} onDragEnd={onDragEnd} />,
+    )
+    const label = screen.getByTitle('dir/b.md')
+    fireEvent.pointerDown(label, { button: 0, clientX: 100, clientY: 20 })
+    fireEvent.pointerMove(window, { clientX: 300, clientY: 300 })
+    fireEvent.pointerUp(window, { clientX: 300, clientY: 300 })
+    const [, at] = onDragEnd.mock.calls[0] as [string, { outside: boolean }]
+    expect(at.outside).toBe(false)
+  })
 })

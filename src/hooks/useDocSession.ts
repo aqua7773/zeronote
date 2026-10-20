@@ -47,6 +47,13 @@ export type UseDocSessionArgs = {
    * （文件树 / 起始页 / `[[链接]]` / 外部文件 / 命令全走它），在这里登记最全。
    */
   onOpened?: (path: string) => void
+  /**
+   * 打开前守卫（rev173.52）：返回 false 表示这篇**被别处占着**（已经在独立窗口里打开了）。
+   *
+   * 为什么不在这里直接报错/提示：hook 不认识窗口，也不该认识 ——
+   * 宿主拿这个回调自己决定「聚焦那个窗口 + 说一句」，hook 只管"别打开"。
+   */
+  canOpen?: (path: string) => boolean
 }
 
 export type DocSession = {
@@ -71,6 +78,7 @@ export function useDocSession({
   setToast,
   setSidebarOpen,
   onOpened,
+  canOpen,
 }: UseDocSessionArgs): DocSession {
   const { activeRef, contentRef, dirtyRef, baseRef, frontmatterRef, notesRef, saveNowRef, openNoteRef } =
     refs
@@ -79,6 +87,8 @@ export function useDocSession({
     async (path: string) => {
       const k = kernel
       if (!k || path === activeRef.current) return
+      // 互斥（rev173.52）：这篇正在独立窗口里开着 ⇒ 不在这里再开一份
+      if (canOpen && !canOpen(path)) return
       flushDocChange() // 上一篇挂起的 change 先兑现，别让它落在 open(new) 之后（会乱序）
       if (dirtyRef.current) await saveNowRef.current()
       try {
@@ -116,6 +126,7 @@ export function useDocSession({
       setError,
       setSidebarOpen,
       onOpened,
+      canOpen,
     ],
   )
 

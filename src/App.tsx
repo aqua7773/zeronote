@@ -531,6 +531,14 @@ export default function App() {
   const tabsRef = useRef<string[]>(tabs)
   /** 笔记独立窗口的序号（label 必须唯一：`note-1` / `note-2` …） */
   const noteWinSeqRef = useRef(0)
+  /**
+   * **已拆出去的笔记 → 那个窗口**（rev173.52 · 互斥的账）。
+   *
+   * 同一篇同一时刻只能呆在一个容器里：主窗口任何「打开」入口（文件树 / 起始页 /
+   * `[[链接]]` / 命令）都会先过 `canOpenNote`，命中就把那个窗口提到前面 + 说一句，
+   * 而不是再开一份。账在**主窗口**：独立窗口创建与销毁都经过这里。
+   */
+  const noteWindowsRef = useRef<Map<string, WebviewWindow>>(new Map())
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
   const editorRef = useRef<EditorView | null>(null)
@@ -876,6 +884,21 @@ export default function App() {
     return () => unlisten?.()
   }, [pluginWindowId])
 
+  /**
+   * 互斥守卫（rev173.52）：这篇已经在独立窗口里开着 ⇒ **不在这里再开一份**。
+   *
+   * 为什么不静默拦：点文件树却没反应，用户只会以为坏了。
+   * 把那个窗口提到前面 + 说一句，动作与结果对得上。手机上 `noteWindowsRef` 恒空，
+   * 直接放行。
+   */
+  const canOpenNote = useCallback((p: string) => {
+    const w = noteWindowsRef.current.get(p)
+    if (!w) return true
+    void w.setFocus().catch(() => {})
+    setToast(`「${baseName(p)}」已在独立窗口里打开`)
+    return false
+  }, [])
+
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
   const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({
     kernel,
@@ -901,6 +924,8 @@ export default function App() {
     setSidebarOpen,
     /* 打开成功 ⇒ 登记成标签页（唯一入口是 openNote，见 hook 里的注释） */
     onOpened: (p) => setTabs((prev) => addTab(prev, p)),
+    /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
+    canOpen: canOpenNote,
   })
 
   /**
@@ -996,6 +1021,14 @@ export default function App() {
           const payload = (e as { payload?: unknown } | null)?.payload
           setToast(`窗口创建失败：${String(payload ?? e)}`)
         })
+        /**
+         * 互斥的账：开出来就登记；用户自己关掉也要销账（`destroyed` 是"已经没了"）。
+         * 销账要认窗口对象 —— 同一篇可能拆了又关、再拆，别让旧窗口的销毁把新账删了。
+         */
+        noteWindowsRef.current.set(path, win)
+        win.once('tauri://destroyed', () => {
+          if (noteWindowsRef.current.get(path) === win) noteWindowsRef.current.delete(path)
+        })
       } catch (e) {
         setToast(`窗口创建失败：${String(e)}`)
         return
@@ -1003,6 +1036,21 @@ export default function App() {
       closeTabOf(path)
     },
     [platform, vault, closeTabOf, setToast],
+  )
+
+  /**
+   * 拖拽松手（rev173.52）：主窗口里「拖出边界」= 拆成独立窗口。
+   *
+   * 用 `useCallback` 而不是内联箭头：`TabBar` 会拿它当 `useEffect` 依赖去挂 window 级
+   * 指针监听 —— 每次渲染都换引用就等于每次输入都重挂一遍监听。
+   * **手机不挂**：手指滑标签条会被判成拖拽（屏幕边缘也在 6 px 热区里），
+   * 而手机本来就没有独立窗口。
+   */
+  const handleTabDragEnd = useCallback(
+    (p: string, at: { outside: boolean }) => {
+      if (at.outside) openInWindow(p)
+    },
+    [openInWindow],
   )
 
   /**
@@ -1056,6 +1104,72 @@ export default function App() {
     if (!noteWindowPath || pluginWindowId || !kernel) return
     void openNoteRef.current(noteWindowPath)
   }, [noteWindowPath, pluginWindowId, kernel])
+
+  /**
+   * **把独立窗口里的笔记交回主窗口**（rev173.52 · 拖入放回）。
+   *
+   * 顺序是这套动作的全部要害：先 `saveNow`（主窗口收到事件会**立刻**读盘）→ emit → close。
+   * 反过来的话主窗口先读到旧内容，再叠一次 fs.watch 重载，用户会看到正文闪一下又回去。
+   * `close()` 走 `close-requested`，即使上面落了盘，那一层「关窗前落盘」也仍然是兜底。
+   */
+  const returnToMain = useCallback(
+    async (path: string) => {
+      await saveNow()
+      try {
+        const { emit } = await import('@tauri-apps/api/event')
+        await emit('zn:note-return', { path })
+      } catch {
+        /* 浏览器预览 / 该权限缺失：不影响关窗 */
+      }
+      try {
+        await getCurrentWindow().close()
+      } catch {
+        /* 同上 */
+      }
+    },
+    [saveNow],
+  )
+
+  /** 独立窗口的拖拽松手：拖出边界 = 交回主窗口（稳定引用，理由同 `handleTabDragEnd`） */
+  const handleReturnDragEnd = useCallback(
+    (p: string, at: { outside: boolean }) => {
+      if (at.outside) void returnToMain(p)
+    },
+    [returnToMain],
+  )
+
+  /**
+   * 主窗口接收「独立窗口交回笔记」（rev173.52 · 拖入放回）。
+   * 只在主窗口监听 —— 插件窗口 / 笔记窗口不接这件事。
+   *
+   * 为什么事件而不是共享存储：`localStorage` 跨 webview 读得到、但 `storage` 事件
+   * 在多个 webview 之间不保证派发；Tauri 的 `emit` 是官方的跨窗口通道。
+   */
+  useEffect(() => {
+    if (pluginWindowId || noteWindowPath) return
+    let un: (() => void) | undefined
+    let disposed = false
+    void (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        const off = await listen<{ path?: string }>('zn:note-return', (e) => {
+          const p = e.payload?.path
+          if (!p) return
+          noteWindowsRef.current.delete(p) // 先销账：openNote 的守卫会查这张表
+          setTabs((prev) => addTab(prev, p))
+          void openNoteRef.current(p)
+        })
+        if (disposed) off()
+        else un = off
+      } catch {
+        /* 浏览器预览没有事件系统 —— 忽略 */
+      }
+    })()
+    return () => {
+      disposed = true
+      un?.()
+    }
+  }, [pluginWindowId, noteWindowPath])
 
 
   /**
@@ -2634,7 +2748,21 @@ export default function App() {
         </div>
         <div className="zn-note-window-body">
           {activePath ? (
-            <MarkdownEditor
+            <>
+              {/*
+                独立窗口里也留一条标签（rev173.52）：它是「拖回主窗口」的手柄 ——
+                把标签拖出本窗口边界松手，`returnToMain` 先落盘、再通知主窗口、最后关窗。
+                只有这一条，切换 / 关闭的语义都退化成同一个动作（关窗 = 关闭，内容已落盘）。
+              */}
+              <TabBar
+                tabs={[{ path: activePath, title: titleText, dirty }]}
+                activePath={activePath}
+                onSelect={() => {}}
+                onClose={() => void getCurrentWindow().close()}
+                dragHint="拖出窗口 → 收回主窗口"
+                onDragEnd={handleReturnDragEnd}
+              />
+              <MarkdownEditor
               key={renderHtml ? 'html-on' : 'html-off'}
               renderHtml={renderHtml}
               path={activePath}
@@ -2654,6 +2782,7 @@ export default function App() {
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
             />
+            </>
           ) : (
             <div className="zn-plugin-window-empty">
               正在打开 <code>{noteWindowPath}</code>…
@@ -2884,6 +3013,8 @@ export default function App() {
               onClose={closeTabOf}
               /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
               onContextMenu={openTabMenu}
+              /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52 · 用户「做拖出独立」）；手机不挂手势 */
+              onDragEnd={platform === 'android' ? undefined : handleTabDragEnd}
             />
             {/*
               编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。

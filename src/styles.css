@@ -753,6 +753,26 @@ body.is-resizing * {
   color: var(--zn-fg);
 }
 
+/* 拖拽中（rev173.52）：被拖的那条半透明，整条给一点点光标提示 */
+.zn-tabs.is-dragging {
+  cursor: grabbing;
+}
+.zn-tab.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+/* 「拖出窗口 → 独立窗口 / 收回主窗口」的小提示：贴右，不抢标签的位置 */
+.zn-tabs-hint {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: auto;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--zn-fg-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* 「关闭这篇笔记」—— 属于编辑页面，浮在右上角；平时淡，hover 才显眼 */
 .zn-editor-close {
   position: absolute;
