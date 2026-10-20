@@ -24,9 +24,14 @@ export interface TabBarProps {
   activePath: string | null
   onSelect: (path: string) => void
   onClose: (path: string) => void
+  /**
+   * 右键某个标签（rev173.51 · 桌面入口：在新窗口打开 / 关闭）。
+   * 手机上不传 —— 手机没有右键，独立窗口也不成立。
+   */
+  onContextMenu?: (path: string, at: { x: number; y: number }) => void
 }
 
-export function TabBar({ tabs, activePath, onSelect, onClose }: TabBarProps) {
+export function TabBar({ tabs, activePath, onSelect, onClose, onContextMenu }: TabBarProps) {
   /**
    * 标签开得多了会横向溢出 —— 切换后把当前那个滚进视野（否则用户按 Ctrl+Tab
    * 切到了看不见的标签，界面上像"没反应"）。`scrollIntoView` 在 happy-dom 里是
@@ -50,6 +55,11 @@ export function TabBar({ tabs, activePath, onSelect, onClose }: TabBarProps) {
             className={cn('zn-tab', active && 'is-active', t.dirty && 'is-dirty')}
             role="tab"
             aria-selected={active}
+            onContextMenu={(e) => {
+              if (!onContextMenu) return
+              e.preventDefault()
+              onContextMenu(t.path, { x: e.clientX, y: e.clientY })
+            }}
           >
             {/* 标签主体：点击切换。文字溢出用 CSS 省略号，title 给全路径 */}
             <button

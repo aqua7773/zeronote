@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "ZeroNote 全部窗口的能力（2026-10-13 rev50 用户裁决：**完全放行**，不做按窗口分级的窄权限 —— 内核不设防，权限由插件自己控制）。windows 用 glob `plugin-*` 覆盖插件独立窗口（内核 openWindow 生成的 label 一律以此开头）。",
+  "description": "ZeroNote 全部窗口的能力（2026-10-13 rev50 用户裁决：**完全放行**，不做按窗口分级的窄权限 —— 内核不设防，权限由插件自己控制）。windows 用 glob `plugin-*` 覆盖插件独立窗口（内核 openWindow 生成的 label 一律以此开头）；`note-*` 是 rev173.51 的笔记独立窗口（标签页拆出来单独放）。",
   "windows": [
     "main",
-    "plugin-*"
+    "plugin-*",
+    "note-*"
   ],
   "permissions": [
     "core:default",

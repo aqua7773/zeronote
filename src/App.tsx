@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { exit, onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+/* rev173.51：把标签页「拿出来单独放」= 新建一个真正的 webview 窗口承载这篇笔记 */
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 /**
  * Android 的库路径（方案 D）—— 公共存储。
  * 好处：文件管理器能进、插件能直接拷进 `.zn/plugins/`、卸载不丢数据。
@@ -84,6 +86,8 @@ import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
+/* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
+import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
 import { indentLine } from './kernel/editor-indent'
 import {
   bootAutoDisabled,
@@ -160,6 +164,16 @@ export default function App() {
     () => new URLSearchParams(location.search).get('pluginWindow'),
     [],
   )
+
+  /**
+   * **笔记独立窗口模式**（rev173.51 · 用户「标签页做成窗口级的，可以拿出来单独放」）：
+   * URL 带 `?note=<库内路径>`。
+   *
+   * 与插件窗口同一个套路：新的 webview 重新跑一遍完整 App（内核 / 插件 / 库解析），
+   * 只是渲染时**只画这篇笔记的编辑器**（没有侧栏 / 标签条 / 菜单）。
+   * 它带自己的 `vault` 参数（见 `lib/note-window.ts`）—— 不靠 localStorage 猜库。
+   */
+  const noteWindowPath = useMemo(() => new URLSearchParams(location.search).get('note'), [])
 
   /**
    * 「这个窗口已经被关掉了」—— **只在"用同一个 webview 承载窗口"的平台上用到**（Android）。
@@ -242,6 +256,15 @@ export default function App() {
   const [recentVaults, setRecentVaults] = useState<string[]>(loadRecentVaults)
   /** 「切换笔记库」菜单的弹出位置与条目（null = 关着）；条目在事件处理里现算，与 mainMenu 同一套做法 */
   const [vaultMenu, setVaultMenu] = useState<{
+    x: number
+    y: number
+    items: MenuItem[]
+  } | null>(null)
+  /**
+   * 标签页右键菜单（rev173.51）：`null` = 关着。条目在打开时现算（与 mainMenu 同一套做法）——
+   * 因为要按「是不是当前标签」「是不是桌面」变化。
+   */
+  const [tabMenu, setTabMenu] = useState<{
     x: number
     y: number
     items: MenuItem[]
@@ -506,6 +529,8 @@ export default function App() {
   const activeRef = useRef(activePath)
   /** `tabs` 的最新值 —— 关闭 / 循环切换都在事件回调里读，拿不到渲染期的 state */
   const tabsRef = useRef<string[]>(tabs)
+  /** 笔记独立窗口的序号（label 必须唯一：`note-1` / `note-2` …） */
+  const noteWinSeqRef = useRef(0)
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
   const editorRef = useRef<EditorView | null>(null)
@@ -940,6 +965,71 @@ export default function App() {
   }, [])
 
   /**
+   * **把一篇笔记拿出来单独放**（rev173.51 · 用户「标签页做成窗口级的，可以拿出来单独放」）。
+   *
+   * 做的是真的新窗口（`WebviewWindow`）：新 webview 重新跑一遍 App，URL 带 `?note=<路径>`，
+   * 于是它以「笔记窗口模式」只渲染这篇的编辑器。三个要点：
+   *  · 开出来后**主窗口把这条标签拿掉** —— 用户要的是"拿出来"，不是"两边同时开"，
+   *    否则两边各存一次、靠三方合并去猜，体验和心智都是错的；
+   *  · 窗口失败**异步**报（capability 没放行 / 平台不支持），不挂它就成了"点了没反应"
+   *    （与 `kernel.openWindow` 同一条教训）；
+   *  · 手机上不做：Android 没有独立窗口这回事，给一句话而不是一个坏按钮。
+   */
+  const openInWindow = useCallback(
+    (path: string) => {
+      if (platform === 'android') {
+        setToast('手机不支持独立窗口 —— 可以用系统自带的分屏')
+        return
+      }
+      const label = noteWindowLabel(++noteWinSeqRef.current)
+      try {
+        const win = new WebviewWindow(label, {
+          url: noteWindowUrl(location.href, path, vault),
+          title: (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, ''),
+          width: 900,
+          height: 700,
+          // 与主窗口一致：无系统边框，拖动靠页面里的 `data-tauri-drag-region`
+          decorations: false,
+          resizable: true,
+        })
+        win.once('tauri://error', (e: unknown) => {
+          const payload = (e as { payload?: unknown } | null)?.payload
+          setToast(`窗口创建失败：${String(payload ?? e)}`)
+        })
+      } catch (e) {
+        setToast(`窗口创建失败：${String(e)}`)
+        return
+      }
+      closeTabOf(path)
+    },
+    [platform, vault, closeTabOf, setToast],
+  )
+
+  /**
+   * 标签页右键菜单（rev173.51）：条目在打开时现算（与 ☰ 菜单同一套做法）。
+   * 手机上只有「关闭标签页」—— 独立窗口不成立（见 `openInWindow`）。
+   */
+  const openTabMenu = useCallback(
+    (path: string, at: { x: number; y: number }) => {
+      const items: MenuItem[] = []
+      if (platform !== 'android') {
+        items.push({
+          label: '在新窗口打开',
+          hint: '拆成独立窗口',
+          onClick: () => openInWindow(path),
+        })
+      }
+      items.push({
+        label: '关闭标签页',
+        divider: platform !== 'android',
+        onClick: () => closeTabOf(path),
+      })
+      setTabMenu({ x: at.x, y: at.y, items })
+    },
+    [platform, openInWindow, closeTabOf],
+  )
+
+  /**
    * **当前打开的笔记被删掉了**（rev173.50 · `useFileOps` 的 `onCurrentGone`）。
    *
    * 删的正好是当前那篇时：从标签条剔除 → 还有标签就切过去，一篇都没了才回空态。
@@ -954,6 +1044,18 @@ export default function App() {
     },
     [dropTabsFor, discardNote],
   )
+
+  /**
+   * **笔记窗口（`?note=`）挂载后打开那篇**（rev173.51）。
+   *
+   * 顺序依赖：必须排在 `useDocSession` 内「`openNoteRef` 同步」那个 effect **之后**
+   * （同一轮 commit 里 effect 按声明顺序跑），否则拿到的还是空实现。
+   * 换库 / 内核重建时 `kernel` 变，会重新打开一次 —— 与外部文件的「待打开」同一个套路。
+   */
+  useEffect(() => {
+    if (!noteWindowPath || pluginWindowId || !kernel) return
+    void openNoteRef.current(noteWindowPath)
+  }, [noteWindowPath, pluginWindowId, kernel])
 
 
   /**
@@ -1434,6 +1536,15 @@ export default function App() {
         title: '上一个标签页',
         run: () => cycleTab(-1),
       }),
+      /* 把当前笔记拆到独立窗口（rev173.51 · 桌面上标签右键也有同一入口） */
+      kernel.commands.api.register({
+        id: 'core.openInNewWindow',
+        title: '在新窗口打开当前笔记',
+        run: () => {
+          const p = activeRef.current
+          if (p) openInWindow(p)
+        },
+      }),
       /**
        * 「打开只读文档」的**派发点**（2026-10-13 加，配合文档阅读器插件）。
        *
@@ -1503,7 +1614,7 @@ export default function App() {
       ...registerMarkdownMarks(kernel.commands, docApi),
     ]
     return () => subs.forEach((s) => s.dispose())
-  }, [kernel, docApi, newNote, pickVault, closeCurrentView, cycleTab, openOverlay])
+  }, [kernel, docApi, newNote, pickVault, closeCurrentView, cycleTab, openInWindow, openOverlay])
 
   /**
    * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
@@ -1662,9 +1773,11 @@ export default function App() {
       ? () => setMainMenu(null)
       : vaultMenu
         ? () => setVaultMenu(null)
-        : menuAt
-          ? () => setMenuAt(null)
-          : null
+        : tabMenu
+          ? () => setTabMenu(null)
+          : menuAt
+            ? () => setMenuAt(null)
+            : null
     if (!close) return
     const fn = () => {
       close()
@@ -1675,7 +1788,7 @@ export default function App() {
       const i = stack.indexOf(fn)
       if (i >= 0) stack.splice(i, 1)
     }
-  }, [mainMenu, vaultMenu, menuAt])
+  }, [mainMenu, vaultMenu, tabMenu, menuAt])
 
   /* 诊断出口（与 `__znKernelAudit` / `__znReloadLog` 同一套路，只读、生产留着无害）：
      Android 上返回键的触发源是 `onBackButtonPress`，桌面跑不了真机 ——
@@ -2494,6 +2607,64 @@ export default function App() {
     )
   }
 
+  /**
+   * **笔记独立窗口**（rev173.51）：`?note=<路径>` —— 只画这篇的编辑器。
+   *
+   * 与插件窗口同一套路（新 webview 跑完整 App）；区别是这里承载的是**编辑器**，所以：
+   *  · 关闭走 `close()` 而不是 `destroy()` —— `useDocIO` 的「关窗前落盘」拦截器靠
+   *    `close-requested` 事件工作（`pluginWindowId` 为空 ⇒ 那一层拦截是生效的）；
+   *  · 标题条保留三键：窗口得能拖、能最小化、能关。
+   */
+  if (noteWindowPath && !pluginWindowId) {
+    return (
+      <div className="zn-note-window">
+        <div className="zn-plugin-window-bar" data-tauri-drag-region>
+          <span className="zn-plugin-window-title" data-tauri-drag-region>
+            {titleText}
+            <span className="zn-plugin-window-src">独立窗口</span>
+          </span>
+          <span
+            className={
+              saveState === 'error' ? 'zn-save-state is-error' : dirty ? 'zn-save-state is-dirty' : 'zn-save-state'
+            }
+          >
+            {saveLabel}
+          </span>
+          <WindowControls onClose={() => void getCurrentWindow().close()} />
+        </div>
+        <div className="zn-note-window-body">
+          {activePath ? (
+            <MarkdownEditor
+              key={renderHtml ? 'html-on' : 'html-off'}
+              renderHtml={renderHtml}
+              path={activePath}
+              vault={vault}
+              value={content}
+              onChange={onEditorChange}
+              onSave={() => void saveNow()}
+              onReady={(v) => {
+                editorRef.current = v
+              }}
+              replaceOpen={replaceOpen}
+              onCloseReplace={() => setReplaceOpen(false)}
+              onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+              onWikiLinkOpen={openWikiLink}
+              onLocalLinkOpen={openLocalLink}
+              onPasteImage={insertPastedImage}
+              onNotify={(msg) => setToast(msg)}
+              layers={layerExitsRef}
+            />
+          ) : (
+            <div className="zn-plugin-window-empty">
+              正在打开 <code>{noteWindowPath}</code>…
+              {error ? <p className="zn-plugin-window-hint">{error}</p> : null}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   // 编辑界面（打开了笔记）时顶栏标题居中 —— 移动端样式挂在 `.zn-app.is-editing` 上
   //（2026-10-18 用户要求：「编辑框笔记标题（笔记1）居中」；起始页的 ZeroNote 仍靠右）。
   return (
@@ -2547,6 +2718,12 @@ export default function App() {
           }
           // 移动端卡片流自带长按菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」），别抢它
           if (el instanceof HTMLElement && el.closest('.zn-mobile-home')) return
+          /**
+           * 标签条有**自己的**右键菜单（rev173.51：在新窗口打开 / 关闭标签页）。
+           * 必须在**捕获阶段**就排除：TabBar 的 `onContextMenu` 只能阻止默认与冒泡，
+           * 而这里是 capture —— 不排除的话两层菜单会同时弹出来（实测两批菜单项叠在一起）。
+           */
+          if (el instanceof HTMLElement && el.closest('.zn-tabs')) return
           // 文件列表区域的**空白处**也归文件树 —— 它要在库根「新建文件 / 新建文件夹」。
           // 侧栏其余空白（头部、底部库名那行）仍走这个应用级菜单（切库入口在那儿）。
           if (el instanceof HTMLElement && el.closest('.zn-filetree')) return
@@ -2705,6 +2882,8 @@ export default function App() {
               activePath={activePath}
               onSelect={(p) => void openNote(p)}
               onClose={closeTabOf}
+              /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
+              onContextMenu={openTabMenu}
             />
             {/*
               编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
@@ -2851,6 +3030,16 @@ export default function App() {
           y={vaultMenu.y}
           items={vaultMenu.items}
           onClose={() => setVaultMenu(null)}
+        />
+      )}
+
+      {/* 标签页右键（rev173.51）：在新窗口打开 / 关闭标签页 */}
+      {tabMenu && (
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          items={tabMenu.items}
+          onClose={() => setTabMenu(null)}
         />
       )}
 

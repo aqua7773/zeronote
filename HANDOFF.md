@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.50
-更新时间: 2026-10-20（rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.51
+更新时间: 2026-10-20（rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.51 | 2026-10-20 · **标签页拆成独立窗口**（用户「做成窗口级的，可以拿出来单独放」）：新增 `src/lib/note-window.ts`（URL / label）· `?note=` 笔记窗口模式（只画编辑器，`close()` 关窗保落盘）· 标签右键「在新窗口打开」拆出后主窗口移除该标签 · capabilities 加 `note-*` · 测试 **433** |
 | rev173.50 | 2026-10-20 · **多标签页**（待办 #2 完成，**分屏未做**）：新增 `src/lib/tabs.ts`（打开/关闭选谁/循环/改名重映射）+ `TabBar` 组件 · `useDocSession.onOpened` 登记 · 四个「关闭」入口统一为关当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` · 删当前笔记走 `discardNote`（不落盘，免得把删掉的文件写回来）· 测试 **426** |
 | rev173.49 | 2026-10-20 · **全局替换（跨笔记）**（待办 #3）：新增 `src/lib/global-replace.ts`（字面量/正则匹配、行号上下文、`$` 字面量 vs `$1` 反向引用）+ `ReplacePanel`（**先试运行 → 确认后写盘**）· 每篇改前 `fs.delete` 移入回收站备份 · `core.replaceAll` = `Ctrl+Shift+H` · 测试 **400** |
 | rev173.48 | 2026-10-20 · **时间流开关 + 手机长按 ☰ 出菜单**：`TitleBar` 长按 500ms 弹菜单（松手 click 被吞）· `App.timelineOpen`（localStorage，默认开）· 时间流空白/卡片右键「关闭时间流」· 文件树/编辑器/起始页右键「打开时间流」（按状态切换）· 测试 **383** |
@@ -196,6 +197,55 @@ revision: 173.50
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.51（2026-10-20 · 标签页拆成独立窗口）
+>
+> 用户原话：「标签页做成窗口级的，可以拿出来单独放」。做法：把某条标签**拆成一个真窗口**（新 webview），
+> 主窗口不再保留它 —— "拿出来"就是不再两边各开一份，免得两边同时写同一篇、靠三方合并去猜。
+>
+> ### 做了什么
+>
+> | 层 | 改动 |
+> |---|---|
+> | 纯逻辑 `src/lib/note-window.ts` | `noteWindowLabel`（`note-1` / `note-2` …，capabilities 的 glob 靠这个前缀）· `noteWindowUrl`（`?note=<库内路径>&vault=<库>`；**不继承主窗口原有 query**，vault 显式带） |
+> | 笔记窗口模式 `App.tsx` | URL 带 `?note=` ⇒ 只渲染这篇的编辑器（标题条复用 `.zn-plugin-window-bar` + `WindowControls` 三键）· 挂载后 `openNote(noteWindowPath)`（effect 排在 `openNoteRef` 同步之后）· 关闭走 **`close()`** 而不是 `destroy()` |
+> | 拆窗口 `App.openInWindow` | `new WebviewWindow('note-N', { url, 900×700, decorations:false })` · 创建失败**异步** toast（同 `kernel.openWindow` 的教训）· 开成功后就 `closeTabOf(path)` · 手机给一句话（Android 没有独立窗口） |
+> | 入口 | 标签**右键**菜单「在新窗口打开 / 关闭标签页」（桌面）· 命令 `core.openInNewWindow`（命令面板可搜） |
+> | 右键冲突 | `App` 的 `onContextMenuCapture` 在**捕获阶段**按 `.zn-tabs` 排除 —— 否则标签菜单与主区菜单同时弹出（实测两批菜单项叠在一起） |
+> | 权限 | `src-tauri/capabilities/default.json` 的 `windows` 加 `"note-*"`（glob 与 label 前缀对齐） |
+> | 工具 | `tools/cdp.mjs` 的 `pickTarget` 同时排除 `pluginWindow=` 与 `note=` —— 否则验收脚本会连到独立窗口 |
+> | 样式 | `.zn-note-window` / `.zn-note-window-body`（窗口模式没有 `.zn-app` 那层 flex，编辑器要自己撑满） |
+> | 测试 | `tests/note-window.test.ts` **5**（编码 / 不继承 query / 空 vault / `tauri://` 协议 / label 前缀）· `tab-bar` **+2**（右键回调坐标 / 不传时不报错） |
+>
+> ### 实测（桌面 CDP · 2026-10-20 12:5x）
+>
+> - 两标签同开 → 右键第二个 → 菜单只有两项（`_shots/tab-menu-01.png`）
+> - 点「在新窗口打开」⇒ CDP 页面列表多一个 `?note=Markdown标签测试.md&vault=…`；主窗口标签剩 1 条（拆出去的那条被移除）
+> - 新窗口里：标题「Markdown标签测试 · 独立窗口」、编辑器内容正确、无侧栏 / 无标签条（`_shots/note-window-01.png`）
+> - **窗口内输入后 100 ms 就点关闭** ⇒ 磁盘已写入该内容（`close()` → `close-requested` → 「关窗前落盘」拦截器生效），页面数回到 1
+> - 测试写入的字符已清理（`Markdown标签测试.md` 恢复原样）
+>
+> ### 坑
+>
+> - **两层右键菜单**：`onContextMenuCapture` 是捕获阶段，`TabBar` 的 `onContextMenu` 在冒泡阶段 —— 只 `preventDefault` 拦不住，必须在捕获阶段按 `.zn-tabs` 排除。
+> - **`new URL('tauri://localhost/index.html').origin` 是字符串 `"null"`**（非特殊协议）：拼 URL 必须用 URL 对象改 `search`，不能手工拼 `${origin}${pathname}`。
+> - **有编辑器的窗口必须 `close()`**：`destroy()` 不触发 `close-requested` ⇒ 未保存内容直接丢（插件窗口没有编辑器，所以它用 `destroy()` 是对的）。
+> - **capabilities 是编译期 ACL**：改 `capabilities/default.json` 后 `tauri dev` 会自动重跑（本次 `verify.ps1` 的 cargo 那步因此重编，整轮明显变慢）。
+>   实测「改完不重启 dev 进程也能开出新窗口」（dev 下 ACL 有热加载），但**生产包必须重编**才生效 —— 发布时别漏这一步。
+>
+> ### 已知取舍
+>
+> 拆出去之后，**主窗口仍可以从文件树再打开同一篇**（现在不是互斥的）：两个窗口同时编辑时靠 `fs.watch` + 三方合并兜底，
+> 不是"禁止打开"。真要禁止得在窗口之间通信（Tauri event），本轮没做。
+>
+> ### 验收基线
+>
+> `scripts\verify.ps1` 全过：tsc 0 / oxlint **3 warnings** / cargo test **34 passed** / check-docs / vitest **433 passed**（2026-10-20 12:59）。
+>
+> ### 下一步
+>
+> - **收回**：独立窗口里的文档「收回主窗口」（现在只能关掉、再去文件树打开一遍）。
+> - **跨窗口**：把标签拖到另一个窗口 / 窗口之间共享标签条（要做就必须先定同一篇的多窗口语义）。
+>
 > ## 📌 rev173.50（2026-10-20 · 多标签页：待办 #2）
 >
 > 待办 #2（顺序 1→4→3→2 的最后一项）。**分屏没做** —— 卡片原文「分屏可后置（先标签页）」，这里只做标签页。

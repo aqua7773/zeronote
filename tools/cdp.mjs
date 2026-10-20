@@ -51,9 +51,13 @@ async function pickTarget() {
    * **默认优先主窗口**：插件独立窗口与主窗口的 URL 是同一个前缀（只多 `?pluginWindow=`），
    * 只按 `includes` 挑会随机挑到插件窗口 —— 于是"以为在主窗口里执行"其实跑在插件窗口里
    * （2026-10-13 排查"插件窗口关不掉"时真踩到）。要连插件窗口请显式设 `ZN_TARGET=pluginWindow=`。
+   *
+   * rev173.51 同理：笔记独立窗口的 URL 只多 `?note=`，也必须排除。
    */
   return (
-    matched.find((t) => !t.url.includes('pluginWindow=')) ?? matched[0] ?? pages[0]
+    matched.find((t) => !t.url.includes('pluginWindow=') && !t.url.includes('note=')) ??
+    matched[0] ??
+    pages[0]
   )
 }
 

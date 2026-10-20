@@ -49,4 +49,32 @@ describe('TabBar', () => {
     )
     expect(container.querySelector('.zn-tabs')).toBeNull()
   })
+
+  /**
+   * 右键标签（rev173.51）：「在新窗口打开 / 关闭标签页」由宿主弹菜单。
+   * 组件只负责把「哪条、什么坐标」交回去。
+   */
+  it('右键标签 → onContextMenu(路径, 坐标)', () => {
+    const onContextMenu = vi.fn()
+    render(
+      <TabBar
+        tabs={tabs}
+        activePath="a.md"
+        onSelect={() => {}}
+        onClose={() => {}}
+        onContextMenu={onContextMenu}
+      />,
+    )
+    const label = screen.getByTitle('dir/b.md')
+    fireEvent.contextMenu(label.parentElement as HTMLElement, { clientX: 30, clientY: 40 })
+    expect(onContextMenu).toHaveBeenCalledWith('dir/b.md', { x: 30, y: 40 })
+  })
+
+  it('不传 onContextMenu 时右键不报错（手机 / 旧调用方）', () => {
+    render(<TabBar tabs={tabs} activePath="a.md" onSelect={() => {}} onClose={() => {}} />)
+    const label = screen.getByTitle('dir/b.md')
+    expect(() =>
+      fireEvent.contextMenu(label.parentElement as HTMLElement, { clientX: 1, clientY: 2 }),
+    ).not.toThrow()
+  })
 })
