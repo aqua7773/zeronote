@@ -1130,14 +1130,6 @@ export default function App() {
     [saveNow],
   )
 
-  /** 独立窗口的拖拽松手：拖出边界 = 交回主窗口（稳定引用，理由同 `handleTabDragEnd`） */
-  const handleReturnDragEnd = useCallback(
-    (p: string, at: { outside: boolean }) => {
-      if (at.outside) void returnToMain(p)
-    },
-    [returnToMain],
-  )
-
   /**
    * 主窗口接收「独立窗口交回笔记」（rev173.52 · 拖入放回）。
    * 只在主窗口监听 —— 插件窗口 / 笔记窗口不接这件事。
@@ -2722,20 +2714,33 @@ export default function App() {
   }
 
   /**
-   * **笔记独立窗口**（rev173.51）：`?note=<路径>` —— 只画这篇的编辑器。
+   * **笔记独立窗口**（rev173.51 · rev173.53 收成纯编辑窗口）：`?note=<路径>` —— **只有编辑器**。
    *
-   * 与插件窗口同一套路（新 webview 跑完整 App）；区别是这里承载的是**编辑器**，所以：
+   * 用户 2026-10-20 定：「拖出来的窗口只要编辑窗口就行了」—— 于是这里**不画标签条**、
+   * 不画侧栏 / 状态栏；标题条只留窗口必需的拖动区与三键，外加一颗「收回主窗口」。
    *  · 关闭走 `close()` 而不是 `destroy()` —— `useDocIO` 的「关窗前落盘」拦截器靠
    *    `close-requested` 事件工作（`pluginWindowId` 为空 ⇒ 那一层拦截是生效的）；
-   *  · 标题条保留三键：窗口得能拖、能最小化、能关。
+   *  · 收回 = `returnToMain`：先落盘、再通知主窗口、最后关窗（动作在标题条左侧那颗按钮上）。
    */
   if (noteWindowPath && !pluginWindowId) {
     return (
       <div className="zn-note-window">
         <div className="zn-plugin-window-bar" data-tauri-drag-region>
+          {/* 收回主窗口：独立窗口里没有标签条可拖，收回就做成标题条上的一颗按钮 */}
+          <button
+            type="button"
+            className="zn-icon-btn zn-note-window-return"
+            onClick={() => {
+              if (activePath) void returnToMain(activePath)
+            }}
+            disabled={!activePath}
+            title="收回主窗口的标签条"
+            aria-label="收回主窗口"
+          >
+            ⤺
+          </button>
           <span className="zn-plugin-window-title" data-tauri-drag-region>
             {titleText}
-            <span className="zn-plugin-window-src">独立窗口</span>
           </span>
           <span
             className={
@@ -2748,21 +2753,7 @@ export default function App() {
         </div>
         <div className="zn-note-window-body">
           {activePath ? (
-            <>
-              {/*
-                独立窗口里也留一条标签（rev173.52）：它是「拖回主窗口」的手柄 ——
-                把标签拖出本窗口边界松手，`returnToMain` 先落盘、再通知主窗口、最后关窗。
-                只有这一条，切换 / 关闭的语义都退化成同一个动作（关窗 = 关闭，内容已落盘）。
-              */}
-              <TabBar
-                tabs={[{ path: activePath, title: titleText, dirty }]}
-                activePath={activePath}
-                onSelect={() => {}}
-                onClose={() => void getCurrentWindow().close()}
-                dragHint="拖出窗口 → 收回主窗口"
-                onDragEnd={handleReturnDragEnd}
-              />
-              <MarkdownEditor
+            <MarkdownEditor
               key={renderHtml ? 'html-on' : 'html-off'}
               renderHtml={renderHtml}
               path={activePath}
@@ -2782,7 +2773,6 @@ export default function App() {
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
             />
-            </>
           ) : (
             <div className="zn-plugin-window-empty">
               正在打开 <code>{noteWindowPath}</code>…
