@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-20（rev173.63）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-20（rev173.64）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.63 · 0.2.0 · 2026-10-20 |
+| rev / 版本 | rev173.64 · 0.2.0 · 2026-10-20 |
 | 测试基线 | vitest 453 · cargo 36 · oxlint 3 warnings（2026-10-20） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-20 · CHANGELOG 0.2.0 |
@@ -29,7 +29,12 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-1. **P2 会话恢复（hot exit）**：localStorage dirty 快照 + 恢复提示（对标 v2 §2.4）。
+1. **P2 会话恢复（hot exit · 对标 v2 §2.4 · 用户指定下个会话做 · ~2 小时）**：
+   - **修什么**：自动保存 = 停笔 800ms + 失焦 / 关窗 flush；**崩溃或 HMR 全量重载**会丢最后一次未落盘输入。
+   - **方案**：`localStorage` 存 dirty 快照 `{ path, content, at }`（只留 1 篇 / ≤ 8 KB），启动时提示「恢复 / 丢弃」。
+   - **锚点**：`src/hooks/useDocIO.ts:334` `onEditorChange`（节流 ~500ms 写快照）· `:230` `saveNow` 成功**必须清键** · `:293` 关窗前 flush 同一条路；提示 UI 可复用 App 的 `.zn-undo` 条。
+   - **三个坑**：① 正常退出不能弹恢复（saveNow 成功就清键）；② `note-*` / 插件窗口不弹（只在主窗口处理）；③ 恢复后 `baseRef` 保持磁盘那份，否则 merge3 会把恢复内容判成"外部改动"。
+   - **验收**：`taskkill /IM zeronote.exe` 强杀（不走关窗）→ 重启有提示；点恢复 → 内容回来且 800ms 内落盘；点丢弃 → 磁盘不变；正常关窗重启 → **不**提示。
 2. **记账文案校准**：等真实漏识别样本（「诊断」视图已就绪）。
 3. **主线（更远）：iframe ↔ 宿主能力通道（v0.2）** —— 契约 §7.9 要 `postMessage` 请求/应答协议 + 宿主侧鉴权。
 4. **环境清理（顺手）**：1420 上挂着旧 `tauri android dev` 链的 vite（本机新 dev 因此落到 1421）；
@@ -46,10 +51,11 @@ pwsh -File scripts\verify.ps1
 - **hook 内 `useState` 顺序**：state 必须声明在所有引用它的 `useCallback` **之前**（rev123 的 `undoDelete` 踩过，产生 `react(immutability)` warning）。
 - **改 HANDOFF**：不要把 `> ## 📌 revN（…）` 标题行整行替换掉，否则 `check-docs` 报「索引有 revN 但正文无对应段」；新段插在旧标题**之前**，旧标题保留。
 
-## 本会话（rev173.28 – 173.63 · 2026-10-19 ~ 20）
+## 本会话（rev173.28 – 173.64 · 2026-10-19 ~ 20）
 
 | rev | 内容 |
 |---|---|
+| 173.64 | **交接**：173.59–173.63 收口（文件监听 / 笔记窗口不加载插件 / 主窗口记忆 / 三键对齐 / 占用账本）· 唯一下一步 = P2 会话恢复（hot exit，执行路径见上）· 测试 453 |
 | 173.63 | **独立窗口占用账本持久化（P1-c）**：新增 `src/lib/note-window-ledger.ts`（路径 → `note-N` 存 localStorage，坏数据退回空账本）· 拆窗 / 恢复 / 兜底统一走 `trackNoteWindow`（内存 + 账本 + destroyed 销账）· 启动用 `getAllWebviewWindows()` 存活过滤（reload 保留 / 重启清空）· vitest 453 · 实测：reload 后点该篇不开第二份 + toast、关窗清空、残留自动 prune |
 | 173.62 | **独立窗口三键与主窗口对齐**：`.zn-plugin-window-bar` 在桌面去上下 padding、锁 32px，三键负右边距贴边 ⇒ hover 背景与主窗口一样占满整条 · 触屏保留原样 · 实测笔记窗口 / 导图窗口都是 bar 32 / btn 31 / 46px |
 | 173.61 | **主窗口位置/大小记忆（P1-b）**：官方 `tauri-plugin-window-state 2.5.0`（桌面 target 专属）· `with_filter` 只跟踪 `main`（note-* / plugin-* 不恢复不保存）· StateFlags = POSITION/SIZE/MAXIMIZED · 实测两次重启都回到 (120,160) 960×640，状态文件只含 main |

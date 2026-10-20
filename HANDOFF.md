@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.63
-更新时间: 2026-10-20（rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.64
+更新时间: 2026-10-20（rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.64 | 2026-10-20 · **交接**：本会话 173.59–173.63 收口（文件监听 P0 / 笔记窗口不加载插件 P1-a / 主窗口记忆 P1-b / 三键对齐 / 占用账本 P1-c）· verify 全绿 · vitest 453 · **唯一下一步：P2 会话恢复（hot exit）**，执行路径见段内 |
 | rev173.63 | 2026-10-20 · **独立窗口占用账本持久化（P1-c）**：新增 `src/lib/note-window-ledger.ts`（`{路径: note-N}` 存 localStorage，坏数据退回空账本）· 拆窗 / 恢复 / 兜底统一走 `trackNoteWindow`（内存映射 + 账本 + destroyed 销账）· 启动用 `getAllWebviewWindows()` 按存活过滤（reload 保留 / 重启清空）· vitest +5（448 → 453）· 实测：拆窗写账本 / reload 后点该篇不开第二份 + toast / 关窗清空 / 残留自动 prune |
 | rev173.62 | 2026-10-20 · **独立窗口三键与主窗口对齐**：`.zn-plugin-window-bar` 在桌面（hover:hover）下去掉上下 padding、锁 32px，三键负右边距贴窗口边 ⇒ hover 背景与主窗口一样占满整条 · 触屏保留原样 · 实测笔记窗口 / 导图窗口（pluginWindow）都是 bar 32 / btn 31 / 46px，与主窗口一致 |
 | rev173.61 | 2026-10-20 · **主窗口位置/大小记忆（P1-b）**：官方 `tauri-plugin-window-state 2.5.0`（桌面 target 专属）· `with_filter(\|label\| label == "main")` **只跟踪主窗口**（note-* / plugin-* 不恢复不保存）· StateFlags 只取 POSITION/SIZE/MAXIMIZED · 实测：状态文件只含 main；移到 (120,160) 960×640 后重启两次都恢复；开过 note 窗口再关 → 文件仍只含 main |
@@ -209,6 +210,45 @@ revision: 173.63
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.64（2026-10-20 · 交接：多窗口三件事收口，下个会话做 hot exit）
+>
+> 本会话从「文件监听 P0」接到「多窗口三件事」，全部收口：
+>
+> | rev | 内容 |
+> |---|---|
+> | 173.59 | 文件监听补齐：桌面 `notify` watcher → `zn://fs-change`（只报 `.md`、120ms 合并、1.5s 自写抑制）+ 前端「`watch_vault` 成功才停轮询」+ 移动端退轮询 |
+> | 173.60 | 笔记独立窗口跳过插件加载（P1-a）：`usePluginHost.enabled` |
+> | 173.61 | 主窗口位置 / 大小 / 最大化记忆（P1-b）：`tauri-plugin-window-state`，`with_filter` 只跟踪 `main` |
+> | 173.62 | 独立窗口三键 hover 与主窗口对齐（用户截图报告：标题条 8px 上下 padding 导致 hover 块缩小） |
+> | 173.63 | 独立窗口占用账本持久化（P1-c）：localStorage + `trackNoteWindow` + 存活过滤 |
+>
+> 现状：交接前 HEAD `23264b7`（交接提交见 `git log`）· 工作区干净 · verify 六步全绿（22:09）·
+> vitest **453** / cargo **36** / 质量门 5/5。
+>
+> **唯一下一步：P2 会话恢复（hot exit）**（v2 §2.4；用户 2026-10-20 指定"交接下个会话做"）。
+> 执行路径（按顺序）：
+>
+> 1. 新增纯函数模块（建议 `src/lib/draft-snapshot.ts`）：`{ path, content, at }` 的序列化 /
+>    解析容错 / 8 KB 上限 / 过期判断（建议 7 天）—— 与 `note-window-ledger.ts` 同一风格，可单测。
+> 2. `src/hooks/useDocIO.ts:334` `onEditorChange`：节流 ~500ms 写 `localStorage`
+>    （键建议 `zeronote.draft`）；写之前先判 `activeRef.current` 非空。
+> 3. `saveNow` 成功后（`:230-259`，写盘成功那一支）**清掉快照键** —— 这是"正常退出不弹恢复"的唯一保证；
+>    关窗前 flush（`:293`）走的就是 `saveNow`，同样覆盖。
+> 4. App 启动（主窗口；`!pluginWindowId && !noteWindowPath`）读快照：内容与磁盘不同才提示，
+>    复用 `.zn-undo` 条样式做「恢复 / 丢弃」两个按钮。
+> 5. 恢复 = `openNote(path)` 后 `setContent(snapshot.content)` + `setDirty(true)`
+>    （**`baseRef` 保持 openNote 读到的磁盘内容** —— 否则三方合并会把恢复内容当外部改动）；
+>    丢弃 = 删键。
+> 6. 测试：`tests/draft-snapshot.test.ts`（解析 / 上限 / 过期）+ 如需再补 useDocIO 行为断言。
+> 7. 验收：`taskkill /IM zeronote.exe` 强杀（不走关窗、来不及 flush）→ 重启 → 有提示 →
+>    点恢复 → 内容回来且 800ms 内落盘；点丢弃 → 磁盘保持原样；正常关窗重启 → **不**提示；
+>    `note-*` 窗口不弹提示。
+>
+> 已知边界（本轮没动，遇到再处理）：① 1420 上挂着旧 `tauri android dev` 链的 vite
+> （本机新 dev 因此落到 1421，同一份源码，功能正常）；② dev 下 HMR 全量更新偶发白屏，
+> `location.reload()` 即恢复；③ 文件监听只报 `.md`（空目录 / 附件变化不进事件流）；
+> ④ watcher 引用计数在"窗口被系统销毁"时可能泄漏（已记 rev173.59 段）。
+>
 > ## 📌 rev173.63（2026-10-20 · 独立窗口占用账本持久化）
 >
 > 对标 v2 §2.3（P1-c）。修的是：`noteWindowsRef` 只活在主窗口**一次页面生命周期**里 ——
