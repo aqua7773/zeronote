@@ -34,6 +34,8 @@ import { WindowControls } from './components/WindowControls'
 import { Settings } from './components/Settings'
 import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
+/* rev173.50：多标签页（用户待办 #2）—— 标签条只渲染，规则在 lib/tabs.ts（纯函数、有单测） */
+import { TabBar } from './components/TabBar'
 /* rev122 拆分 L2：侧栏 / 回收站 / 空态 / 状态栏 —— 原样迁到 components/ */
 import { AppSidebar } from './components/AppSidebar'
 import { AppTrashView } from './components/AppTrashView'
@@ -81,6 +83,7 @@ import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { categorizePlugin } from './lib/plugin-category'
+import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
 import { indentLine } from './kernel/editor-indent'
 import {
   bootAutoDisabled,
@@ -132,6 +135,15 @@ export default function App() {
   /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
   const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
+  /**
+   * 打开过的**标签页**（rev173.50 · 用户待办 #2「多标签页」）。
+   *
+   * 只存路径，顺序 = 打开顺序（位置固定，见 `lib/tabs.ts` 的 `addTab`）。
+   * 每篇文档的内容 / undo 历史 / 滚动位置**不在这里**：它们由编辑器按 path 缓存
+   * （`MarkdownEditor` 的 `stateCacheRef` / `scrollCacheRef`），切换时自动接上。
+   * 关闭标签的那一步必须先把当前文档落盘 —— 见下面 `closeTabOf` 的注释。
+   */
+  const [tabs, setTabs] = useState<string[]>([])
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
 
@@ -492,6 +504,8 @@ export default function App() {
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
+  /** `tabs` 的最新值 —— 关闭 / 循环切换都在事件回调里读，拿不到渲染期的 state */
+  const tabsRef = useRef<string[]>(tabs)
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
   const editorRef = useRef<EditorView | null>(null)
@@ -554,6 +568,9 @@ export default function App() {
   useEffect(() => {
     activeRef.current = activePath
   }, [activePath])
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
   useEffect(() => {
     dirtyRef.current = dirty
   }, [dirty])
@@ -835,7 +852,7 @@ export default function App() {
   }, [pluginWindowId])
 
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
-  const { openNote, openWikiLink, closeNote } = useDocSession({
+  const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({
     kernel,
     notes,
     fireDoc,
@@ -857,7 +874,86 @@ export default function App() {
     setError,
     setToast,
     setSidebarOpen,
+    /* 打开成功 ⇒ 登记成标签页（唯一入口是 openNote，见 hook 里的注释） */
+    onOpened: (p) => setTabs((prev) => addTab(prev, p)),
   })
+
+  /**
+   * 删掉的笔记 / 目录从标签页里剔除（rev173.50 · `useFileOps` 的 `onPathsRemoved` / `onCurrentGone`）。
+   *
+   * 为什么要专门一条：`useFileOps` 只把**当前打开的那篇**清空（`setActivePath(null)`），
+   * 别的标签页它不知道 —— 不剔除就会留下点开是空白的死路径。
+   * 返回剔除后的标签（`onCurrentGone` 要靠它决定接下来开哪篇）。
+   */
+  const dropTabsFor = useCallback((paths: string[]): string[] => {
+    const prev = tabsRef.current
+    const next = prev.filter((p) => !paths.some((x) => p === x || p.startsWith(`${x}/`)))
+    if (next.length === prev.length) return prev
+    tabsRef.current = next
+    setTabs(next)
+    return next
+  }, [])
+
+  /**
+   * 关掉一个标签页（rev173.50 · 多标签页）。
+   *
+   * 三条语义都在这儿：
+   *  1. 关的**不是**当前标签 ⇒ 只从条上移除，编辑器不动；
+   *  2. 关的是当前标签 ⇒ 切到邻居（规则见 `lib/tabs.ts` · `closeTab`：优先右边）；
+   *  3. 没有邻居了 ⇒ `closeNote()` 回起始页。
+   *
+   * ⚠️ 切换前必须落盘：`openNote` 与 `closeNote` 内部本来就会 `saveNow`（dirty 时），
+   * 这一层不再重复保存 —— 重复保存会让状态栏闪一次。
+   */
+  const closeTabOf = useCallback(
+    (path: string) => {
+      const { tabs: nextTabs, next } = closeTabInList(tabsRef.current, path)
+      if (nextTabs === tabsRef.current) return // 不在标签条里：什么都不做
+      tabsRef.current = nextTabs
+      setTabs(nextTabs)
+      if (path !== activeRef.current) return
+      if (next) void openNoteRef.current(next)
+      else void closeNote()
+    },
+    [closeNote],
+  )
+
+  /**
+   * 「关闭当前笔记」的**统一入口**（Ctrl+W / ☰ 菜单 / 编辑器底部「关闭」/ Android 返回键）。
+   *
+   * 有标签页之后它的语义变成「关掉当前标签页」：还有别的标签就切过去，最后一个才回起始页。
+   * 这样这四个入口的行为与用户点标签上的 × 完全一致。
+   */
+  const closeCurrentView = useCallback(() => {
+    const p = activeRef.current
+    if (p) closeTabOf(p)
+    else void closeNote()
+  }, [closeTabOf, closeNote])
+
+  /**
+   * 上一个 / 下一个标签页（Ctrl+Tab / Ctrl+Shift+Tab）。
+   * 只有一篇时 `stepTab` 返回它自己 —— 这里判掉，免得白读一次盘。
+   */
+  const cycleTab = useCallback((step: 1 | -1) => {
+    const next = stepTab(tabsRef.current, activeRef.current, step)
+    if (next && next !== activeRef.current) void openNoteRef.current(next)
+  }, [])
+
+  /**
+   * **当前打开的笔记被删掉了**（rev173.50 · `useFileOps` 的 `onCurrentGone`）。
+   *
+   * 删的正好是当前那篇时：从标签条剔除 → 还有标签就切过去，一篇都没了才回空态。
+   * ⚠️ 回空态必须用 `discardNote`（不落盘）：文件已经进回收站，
+   * 照常 `closeNote` 的 `saveNow` 会把刚删掉的文件重新写出来。
+   */
+  const handleCurrentGone = useCallback(
+    (removed: string[]) => {
+      const rest = dropTabsFor(removed)
+      if (rest.length) void openNoteRef.current(rest[0])
+      else void discardNote()
+    },
+    [dropTabsFor, discardNote],
+  )
 
 
   /**
@@ -866,8 +962,7 @@ export default function App() {
    * 场景：库目录已经被删除 / 换了盘 —— 此前这条记录会一直留在菜单里，
    * 点它只会得到「库目录不存在」，而用户**没有任何清掉它的入口**。
    */
-  const forgetVault = useCallback((dir: string) => {
-    setRecentVaults((prev) => {
+  const forgetVault = useCallback((dir: string) => {    setRecentVaults((prev) => {
       const next = prev.filter((p) => vaultKey(p) !== vaultKey(dir))
       if (next.length === prev.length) return prev
       persistRecentVaults(next)
@@ -904,6 +999,8 @@ export default function App() {
       setContent('')
       setDirty(false)
       setSaveState('idle')
+      setTabs([]) // 换库了，旧库的标签页一条都不能留（rev173.50）
+      tabsRef.current = []
       setVault(dir)
       return true
     },
@@ -1105,6 +1202,13 @@ export default function App() {
         if (cur === from) setActivePath(to)
         else if (isDir && cur?.startsWith(`${from}/`))
           setActivePath(`${to}${cur.slice(from.length)}`)
+        // 标签页里的路径跟着改名 / 移目录（rev173.50）—— 否则标签还指着一条不存在的路径
+        setTabs((prev) => {
+          const next = remapTabs(prev, from, to, isDir)
+          if (next === prev) return prev
+          tabsRef.current = next
+          return next
+        })
         await refresh()
         setError(null)
         // 不再弹「已重命名：<路径>」—— 列表里那一行已经变了，路径又长又挡视线（用户 2026-10-17 要求）
@@ -1211,6 +1315,8 @@ export default function App() {
     setError,
     setToast,
     setMainView,
+    onPathsRemoved: dropTabsFor,
+    onCurrentGone: handleCurrentGone,
   })
 
   /**
@@ -1306,11 +1412,27 @@ export default function App() {
         keybinding: 'Mod+Shift+H',
         run: () => setReplaceAllOpen(true),
       }),
+      /**
+       * 关闭当前标签页（rev173.50 把语义从"关闭这篇笔记"扩成标签页）。
+       * 还有别的标签 ⇒ 切过去；最后一个 ⇒ 回起始页。四个入口共用 `closeCurrentView`。
+       */
       kernel.commands.api.register({
         id: 'core.closeNote',
-        title: '关闭当前笔记',
+        title: '关闭当前标签页',
         keybinding: 'Mod+W',
-        run: () => void closeNote(),
+        run: () => closeCurrentView(),
+      }),
+      /* 标签页循环切换（Ctrl+Tab / Ctrl+Shift+Tab 由下面那个 keydown effect 直接处理，
+         这里两条是为了命令面板可搜、以及将来可自定义键位） */
+      kernel.commands.api.register({
+        id: 'core.nextTab',
+        title: '下一个标签页',
+        run: () => cycleTab(1),
+      }),
+      kernel.commands.api.register({
+        id: 'core.prevTab',
+        title: '上一个标签页',
+        run: () => cycleTab(-1),
       }),
       /**
        * 「打开只读文档」的**派发点**（2026-10-13 加，配合文档阅读器插件）。
@@ -1381,7 +1503,7 @@ export default function App() {
       ...registerMarkdownMarks(kernel.commands, docApi),
     ]
     return () => subs.forEach((s) => s.dispose())
-  }, [kernel, docApi, newNote, pickVault, closeNote, openOverlay])
+  }, [kernel, docApi, newNote, pickVault, closeCurrentView, cycleTab, openOverlay])
 
   /**
    * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
@@ -1433,6 +1555,24 @@ export default function App() {
     if (!kernel) return
     return bindCommandKeybindings(kernel.commands)
   }, [kernel, loadedIds])
+
+  /**
+   * `Ctrl+Tab` / `Ctrl+Shift+Tab` 循环切换标签页（rev173.50）。
+   *
+   * 为什么不写进命令表的 `keybinding`：那里按 `Mod+<字母>` 解析，`Tab` 这种
+   * 带语义的键（浏览器 / WebView 可能自己先吃掉）用捕获阶段的 keydown 更直接，
+   * 且必须 `preventDefault` 拦掉宿主默认行为。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey) return
+      if (e.key !== 'Tab') return
+      e.preventDefault()
+      cycleTab(e.shiftKey ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [cycleTab])
 
   /**
    * Escape 兜底：**一次只吃一层**（调研结论：Esc 应从内到外逐层退出）。
@@ -1507,12 +1647,12 @@ export default function App() {
         return true
       }
       if (activeRef.current) {
-        void closeNote()
+        void closeCurrentView() // 返回键 = 关当前标签页（还有别的就切过去）
         return true
       }
       return false
     }
-  }, [settingsOpen, searchOpen, switcherOpen, paletteOpen, sidebarOpen, mainView, closeNote])
+  }, [settingsOpen, searchOpen, switcherOpen, paletteOpen, sidebarOpen, mainView, closeCurrentView])
 
   /* App 自己持有的三个菜单（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单）也压进层出口栈 ——
      它们既是"返回键该先关掉的一层"，也是 rev68 补掉的那个缺口。 */
@@ -1924,6 +2064,19 @@ export default function App() {
     : vault
       ? (vault.split(/[\\/]/).pop() ?? 'ZeroNote')
       : 'ZeroNote'
+  /**
+   * 标签条的渲染数据（rev173.50）：路径 → 显示名 + 未保存标记。
+   * 未保存标记只可能落在**当前**标签上 —— 别的标签在切走时都已落盘。
+   */
+  const tabItems = useMemo(
+    () =>
+      tabs.map((p) => ({
+        path: p,
+        title: (p.split(/[\\/]/).pop() ?? p).replace(/\.md$/i, ''),
+        dirty: p === activePath && dirty,
+      })),
+    [tabs, activePath, dirty],
+  )
   /** 桌面端才画窗口控制按钮（移动端没有窗口装饰这回事） */
   const isDesktop = kernel?.host.platform !== 'android'
 
@@ -1969,10 +2122,10 @@ export default function App() {
     ...(activePath
       ? [
           {
-            label: '关闭当前笔记',
+            label: '关闭当前标签页',
             hint: 'Ctrl+W',
             divider: true,
-            onClick: () => void closeNote(),
+            onClick: () => closeCurrentView(),
           },
         ]
       : []),
@@ -2545,6 +2698,14 @@ export default function App() {
           </div>
         ) : activePath ? (
           <div className="zn-editor-wrap">
+            {/* 多标签页（rev173.50）：只有一条也显示 —— 它是「当前打开的是哪篇」的锚点，
+                手机上更是唯一的切换入口（没有 Ctrl+Tab）。 */}
+            <TabBar
+              tabs={tabItems}
+              activePath={activePath}
+              onSelect={(p) => void openNote(p)}
+              onClose={closeTabOf}
+            />
             {/*
               编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
               内核自己**不往这儿放任何内容**（用户 2026-10-12 定：桌面端只有右键菜单的「标记」）。
@@ -2615,16 +2776,16 @@ export default function App() {
                 ))}
               </MarkToolbar>
             ) : null}
-            {/* 「关闭这篇笔记」属于编辑页面，就放在编辑页面里 ——
-                不放标题栏，免得跟窗口那个 × 挨着分不清。
+            {/* 「关闭当前标签页」属于编辑页面，就放在编辑页面里 ——
+                不放标题栏，免得跟窗口那个 × 挨着分不清（rev173.50：还有别的标签就切过去）。
                 移动端不渲染：返回键就是关闭（2026-10-18 用户要求「编辑界面没必要放关闭按钮」）。 */}
             {isDesktop && (
               <button
                 type="button"
                 className="zn-editor-close"
-                onClick={() => void closeNote()}
-                title="关闭这篇笔记（Ctrl+W）"
-                aria-label="关闭当前笔记"
+                onClick={() => closeCurrentView()}
+                title="关闭当前标签页（Ctrl+W）"
+                aria-label="关闭当前标签页"
               >
                 关闭
               </button>

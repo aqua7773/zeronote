@@ -131,8 +131,41 @@ describe('useFileOps', () => {
     expect(setSaveState).toHaveBeenCalledWith('idle')
   })
 
-  it('撤销删除：按 .zn/trash/<id>/ 取 id 调 restoreTrash', async () => {
+  /**
+   * 多标签页（rev173.50）：宿主传了 `onCurrentGone` 就由它接管「接下来打开哪篇」——
+   * 这里不能再清空 activePath（会覆盖宿主刚切过去的那篇）。
+   */
+  it('删除打开着的笔记：有 onCurrentGone ⇒ 交宿主处理，不自行清空', async () => {
     const k = makeKernel()
+    const activeRef = { current: 'a.md' }
+    const onCurrentGone = vi.fn()
+    const setActivePath = vi.fn()
+    const { result } = renderHook(() =>
+      useFileOps(makeArgs(k, { activeRef, onCurrentGone, setActivePath })),
+    )
+    await act(async () => {
+      await result.current.deleteNotes(['a.md'])
+    })
+    expect(onCurrentGone).toHaveBeenCalledWith(['a.md'])
+    expect(setActivePath).not.toHaveBeenCalled()
+  })
+
+  it('删除非当前笔记：不触发 onCurrentGone，但剔除标签（onPathsRemoved）', async () => {
+    const k = makeKernel()
+    const activeRef = { current: 'keep.md' }
+    const onCurrentGone = vi.fn()
+    const onPathsRemoved = vi.fn()
+    const { result } = renderHook(() =>
+      useFileOps(makeArgs(k, { activeRef, onCurrentGone, onPathsRemoved })),
+    )
+    await act(async () => {
+      await result.current.deleteNotes(['gone.md'])
+    })
+    expect(onCurrentGone).not.toHaveBeenCalled()
+    expect(onPathsRemoved).toHaveBeenCalledWith(['gone.md'])
+  })
+
+  it('撤销删除：按 .zn/trash/<id>/ 取 id 调 restoreTrash', async () => {    const k = makeKernel()
     const { result } = renderHook(() => useFileOps(makeArgs(k)))
     await act(async () => {
       await result.current.deleteNotes(['a.md'])

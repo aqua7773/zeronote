@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.49
-更新时间: 2026-10-20（rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.50
+更新时间: 2026-10-20（rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.50 | 2026-10-20 · **多标签页**（待办 #2 完成，**分屏未做**）：新增 `src/lib/tabs.ts`（打开/关闭选谁/循环/改名重映射）+ `TabBar` 组件 · `useDocSession.onOpened` 登记 · 四个「关闭」入口统一为关当前标签 · `Ctrl+Tab` / `Ctrl+Shift+Tab` · 删当前笔记走 `discardNote`（不落盘，免得把删掉的文件写回来）· 测试 **426** |
 | rev173.49 | 2026-10-20 · **全局替换（跨笔记）**（待办 #3）：新增 `src/lib/global-replace.ts`（字面量/正则匹配、行号上下文、`$` 字面量 vs `$1` 反向引用）+ `ReplacePanel`（**先试运行 → 确认后写盘**）· 每篇改前 `fs.delete` 移入回收站备份 · `core.replaceAll` = `Ctrl+Shift+H` · 测试 **400** |
 | rev173.48 | 2026-10-20 · **时间流开关 + 手机长按 ☰ 出菜单**：`TitleBar` 长按 500ms 弹菜单（松手 click 被吞）· `App.timelineOpen`（localStorage，默认开）· 时间流空白/卡片右键「关闭时间流」· 文件树/编辑器/起始页右键「打开时间流」（按状态切换）· 测试 **383** |
 | rev173.47 | 2026-10-20 · **搜索筛选**（待办 #4）：`index.query` 补 `regex`（整串正则 `imu` / 语法错误返空不抛错 / 正则摘要与打分）+ 空关键词支持 `dir` · SearchPanel 加筛选行（标签下拉 `index.tags()` · 目录下拉 · 正则开关 · 清除筛选）· 契约 §1.3 同步 · 测试 **378** |
@@ -195,6 +196,57 @@ revision: 173.49
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.50（2026-10-20 · 多标签页：待办 #2）
+>
+> 待办 #2（顺序 1→4→3→2 的最后一项）。**分屏没做** —— 卡片原文「分屏可后置（先标签页）」，这里只做标签页。
+>
+> ### 做了什么
+>
+> | 层 | 改动 |
+> |---|---|
+> | 纯逻辑 `src/lib/tabs.ts` | `addTab`（已打开的**位置不动**；上限 12，超出丢最旧）· `closeTab`（关中间 → 激活右边 / 关末尾 → 左边 / 唯一一篇 → null）· `stepTab`（循环前后）· `remapTabs`（文件改名、目录前缀整棵子树、撞名去重） |
+> | 组件 `src/components/TabBar.tsx` | 横向滚动标签条：标题 + 未保存圆点 + ×；点主体切换、点 × 关闭；切换后把当前标签滚进视野（否则 `Ctrl+Tab` 切到屏幕外的标签像"没反应"） |
+> | 接线 `App.tsx` | `tabs` state（路径数组 = 打开顺序）+ `tabsRef` · `useDocSession` 新增 **`onOpened`**（`openNote` 成功才登记 —— 它是打开文档的唯一入口）· `closeTabOf`（关当前 → 切邻居；没邻居 → 回起始页）· `closeCurrentView` 统一 **Ctrl+W / ☰ 菜单 / 编辑器「关闭」/ Android 返回键** 四个入口 · `cycleTab` + `Ctrl+Tab` / `Ctrl+Shift+Tab`（捕获阶段 keydown，必须 preventDefault 拦宿主默认行为）· 命令 `core.closeNote`（语义扩成标签页）+ 新增 `core.nextTab` / `core.prevTab`（命令面板可搜） |
+> | 生命周期同步 | 改名 → `remapTabs` · 删除 → `useFileOps` 新回调 `onPathsRemoved`（剔除死路径）/ `onCurrentGone`（宿主管"接下来开哪篇"）· 切库 → 清空 · 删的正好是当前那篇 → `discardNote`（**不落盘**） |
+> | 样式 `styles.css` | `.zn-tabs` / `.zn-tab` / `.zn-tab-label` / `.zn-tab-dot` / `.zn-tab-close` · `.zn-editor-wrap` 新增 `--zn-tabbar-h: 34px`，`.zn-editor-close`（top 8→42）与 `.zn-editor-modebar`（40→74）按它下移，免得压在标签上 |
+> | 测试 | `tests/tabs.test.ts` **18**（打开 / 关闭选谁 / 循环 / 重映射）· `tests/tab-bar.test.tsx` **4** · `use-doc-session` +2（`onOpened` 只在成功时回调 / `discardNote` 不落盘）· `use-file-ops` +2（`onCurrentGone` 交宿主接管 / 删非当前只剔除标签） |
+>
+> ### 实测（桌面 CDP + 手机真机 · 2026-10-20 12:3x）
+>
+> - 三篇同开 → 标签条 3 条、`is-active` 跟着当前文档（`_shots/tabs-01-three.png`）
+> - **切换不丢最后一次编辑**：在 A 输入 `TABTEST-甲` 后 **150 ms**（800 ms 自动保存还没到）点另一个标签 ⇒ 磁盘 `新笔记-19-46-58.md` 已是 `TABTEST-甲# 新笔记`（`openNote` 里的 `saveNow` 生效）；切回来内容还在
+> - **undo 历史跟着标签走**：切回后 Ctrl+Z 撤掉了切走前那次输入（编辑器按 path 缓存的 EditorState 生效）
+> - `Ctrl+Tab` / `Ctrl+Shift+Tab` 循环切换（合成 keydown，捕获阶段）
+> - 关闭三种情形：非当前（编辑器不动）/ 当前（切右边邻居）/ 唯一（回起始页，标签条整条消失）
+> - **删当前那篇** ⇒ 标签剔除 + 自动切到左边 + 文件进回收站 + 撤销条；恢复后文件回树
+> - **重命名当前那篇** ⇒ 标签标题跟着变（`Markdown标签测试` ↔ `重命名测试`），重映射后点开内容仍正确
+> - 未保存圆点：输入后 `.zn-tab.is-dirty` = 1，1.5 s 自动保存后归 0
+> - 手机（`33b676f6` · CDP 9333）：两篇同开 → 点标签切换、点 × 关闭、返回键关当前标签（`_shots/phone-tabs-04.png`）
+> - 测试库无残留：临时重命名 / 删除 / 多敲的一个字符都已还原
+>
+> ### 坑
+>
+> - **标签位置必须固定**：第一版 `addTab` 把重复打开的挪到末尾（MRU），推演发现 `Ctrl+Tab` 会在两篇之间来回跳（切到 B 后列表变 `[A,C,B]`，再按一次又回到 A）→ 改成「已在里面不动、只有新打开才追加」。
+> - **删除当前笔记会撞上 `saveNow`**：`closeNote` 的语义是"有未保存先落盘"，而文件已经进回收站 —— 走它会把刚删掉的文件**重新建出来**。新增 `discardNote`（不落盘）+ `onCurrentGone` 交宿主切标签；`useFileOps` 在 `gone` 分支里**先**调回调、不再自行 `setActivePath(null)`（回调放 `refresh()` 之后会拿不到"刚才是哪篇"）。
+> - **`dropTabsFor` 的声明顺序**：`handleCurrentGone` 的依赖数组用到它，必须定义在更前面 —— 否则 TS2448 + 渲染期 `Cannot access 'dropTabsFor' before initialization`，`app-smoke` 三条全红。
+> - **不新增 lint warning**：`set-state-in-effect` 是红线（基线恰好 3），所以标签登记走 `onOpened` 回调，而不是 effect 盯 `activePath`。
+>
+> ### 验收基线
+>
+> `scripts\verify.ps1` 全过：tsc 0 / oxlint **3 warnings** / cargo test **34 passed** / check-docs / vitest **426 passed**（2026-10-20 12:43）。
+>
+> ### 交接时状态（2026-10-20 12:4x）
+>
+> - **git**：本 rev 提交后工作区干净，HEAD = 本提交。
+> - **dev 在跑**：桌面 pid 11784（CDP 9222）/ vite 1420（后台 job）/ 1421；库 `_tmp-vault-tb`。
+> - **手机**：dev 包在前台（本会话 `am start` 起的），CDP 转发 `9333` 仍在（换 pid 后要重做 `adb forward`）。
+> - **待办**：4 项全清 —— #1 ✅ 173.46 / #4 ✅ 173.47 / #3 ✅ 173.49 / #2 ✅ 173.50；**分屏仍未做**。
+>
+> ### 下一步
+>
+> - 标签页可继续补（都没做）：`Ctrl+1..9` 直达、标签右键（关闭其它 / 关闭右侧）、重启后会话恢复。
+> - 分屏：要两个编辑器实例共用一份 docApi，先定「两边同时改同一篇」的语义再动手。
+>
 > ## 📌 rev173.49（2026-10-20 · 全局替换：跨笔记批量替换）
 >
 > 待办 #3（顺序 1→4→3→2 的第三项）。入口：`Ctrl+Shift+H` / ☰ 菜单「全局替换…」（手机长按 ☰ 也能进）。

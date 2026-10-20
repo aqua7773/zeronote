@@ -156,4 +156,45 @@ describe('useDocSession', () => {
     })
     expect(k.fs.readText).toHaveBeenCalledWith('x.md')
   })
+
+  /**
+   * 多标签页（rev173.50）：打开成功后通知宿主登记标签页。
+   * 没开成功（读盘失败）时**不能**登记 —— 否则标签条上多一条点开是空白的路径。
+   */
+  it('openNote 成功 ⇒ onOpened 回调（标签页登记）；失败 ⇒ 不回调', async () => {
+    const k = makeKernel()
+    const onOpened = vi.fn()
+    const args = makeArgs(k, { onOpened })
+    const { result } = renderHook(() => useDocSession(args))
+    await act(async () => {
+      await result.current.openNote('a.md')
+    })
+    expect(onOpened).toHaveBeenCalledWith('a.md')
+
+    k.fs.readText.mockRejectedValueOnce(new Error('gone'))
+    await act(async () => {
+      await result.current.openNote('b.md')
+    })
+    expect(onOpened).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * `discardNote`（rev173.50）：文件已经被删进回收站时的关闭 ——
+   * 再落盘会把刚删掉的文件重新建出来，所以哪怕 dirty 也**不**保存。
+   */
+  it('discardNote：不落盘，但照样清空状态并广播 close', async () => {
+    const k = makeKernel()
+    const args = makeArgs(k)
+    args.refs.activeRef.current = 'a.md'
+    args.refs.contentRef.current = 'body'
+    args.refs.dirtyRef.current = true
+    const { result } = renderHook(() => useDocSession(args))
+    await act(async () => {
+      await result.current.discardNote()
+    })
+    expect(args.refs.saveNowRef.current).not.toHaveBeenCalled()
+    expect(args.setActivePath).toHaveBeenCalledWith(null)
+    expect(args.setContent).toHaveBeenCalledWith('')
+    expect(args.fireDoc).toHaveBeenCalledWith('close', 'a.md', 'body', false)
+  })
 })

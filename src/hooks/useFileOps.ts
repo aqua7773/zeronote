@@ -30,6 +30,19 @@ export type UseFileOpsArgs = {
   setError: (msg: string | null) => void
   setToast: (msg: string | null) => void
   setMainView: (view: string) => void
+  /**
+   * 文件被删掉之后同步宿主的「打开过的标签页」（rev173.50）。
+   * 只传**删成功的**库内路径 —— 删失败的不该让标签凭空消失。
+   */
+  onPathsRemoved?: (paths: string[]) => void
+  /**
+   * **当前打开的那篇**被删掉了（rev173.50）。
+   *
+   * 传了它就由宿主决定接下来打开哪篇（多标签页：切到剩下的标签；一篇都没有才回空态）；
+   * 不传则退回旧行为：清空编辑器。宿主必须在回调里**不落盘** —— 文件已经进回收站了，
+   * 再写一次会把刚删掉的文件重新建出来。
+   */
+  onCurrentGone?: (removed: string[]) => void
 }
 
 export type FileOps = {
@@ -67,6 +80,8 @@ export function useFileOps({
   setError,
   setToast,
   setMainView,
+  onPathsRemoved,
+  onCurrentGone,
 }: UseFileOpsArgs): FileOps {
   /* ── 文件树的剪贴板：剪切 / 复制 / 粘贴 / 创建副本 ──
      状态放**应用级**而不是文件树内部：粘贴后要 refresh，剪切态在树重渲染之间要保持。 */
@@ -267,7 +282,10 @@ export function useFileOps({
         // 否则界面还留着一篇"磁盘上已经没有了"的笔记，下一次自动保存直接报错
         const cur = activeRef.current
         const gone = !!cur && paths.some((p) => cur === p || cur.startsWith(`${p}/`))
-        if (gone) {
+        if (gone && onCurrentGone) {
+          // 多标签页：由宿主切到剩下的标签；**这里不落盘**（文件已进回收站）
+          onCurrentGone(done.map((d) => d.path))
+        } else if (gone) {
           setActivePath(null)
           setContent('')
           setDirty(false)
@@ -277,6 +295,8 @@ export function useFileOps({
         setError(null)
         setUndoDelete(done)
         setToast(null)
+        // 标签页同步（rev173.50）：删掉的笔记不该在标签条里留一条死路径
+        if (done.length) onPathsRemoved?.(done.map((d) => d.path))
       } catch (e) {
         // 中途失败：前面几篇已经进回收站了，仍然把撤销条挂上，别让它们找不回来
         await refresh()
@@ -284,7 +304,7 @@ export function useFileOps({
         setError(failMsg('delete', e))
       }
     },
-    [kernel, refresh, activeRef, dirtyRef, saveNowRef, setActivePath, setContent, setDirty, setSaveState, setError, setToast],
+    [kernel, refresh, activeRef, dirtyRef, saveNowRef, setActivePath, setContent, setDirty, setSaveState, setError, setToast, onPathsRemoved, onCurrentGone],
   )
 
   /**
@@ -315,14 +335,18 @@ export function useFileOps({
         }
         const cur = activeRef.current
         if (cur && paths.some((p) => cur === p || cur.startsWith(`${p}/`))) {
-          setActivePath(null)
-          setContent('')
-          setDirty(false)
-          setSaveState('idle')
+          if (onCurrentGone) onCurrentGone(paths)
+          else {
+            setActivePath(null)
+            setContent('')
+            setDirty(false)
+            setSaveState('idle')
+          }
         }
         await refresh()
         setError(null)
         setUndoDelete(null) // 彻底删除**不给撤销条**（挂上会误导成"还能恢复"）
+        onPathsRemoved?.(paths) // 标签页同步（rev173.50）
         const msg =
           purged === paths.length
             ? purged > 1
@@ -335,7 +359,7 @@ export function useFileOps({
         setError(failMsg('delete', e))
       }
     },
-    [kernel, refresh, activeRef, dirtyRef, saveNowRef, setActivePath, setContent, setDirty, setSaveState, setError, setToast],
+    [kernel, refresh, activeRef, dirtyRef, saveNowRef, setActivePath, setContent, setDirty, setSaveState, setError, setToast, onPathsRemoved, onCurrentGone],
   )
 
   /** 撤销删除：把回收站里的东西逐个恢复回原位 */
