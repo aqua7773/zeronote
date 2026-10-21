@@ -37,6 +37,11 @@ export function renderPanelSafe(
   panel: Pick<PanelRegistration, 'pluginId' | 'render'>,
   state: Record<string, unknown>,
 ): UINode {
+  // rev173.81：`mount` 面板没有 render —— 走到这里说明宿主用错了渲染分支，
+  // 给一句能定位的提示，而不是 `undefined is not a function`（那会整树崩）。
+  if (typeof panel.render !== 'function') {
+    return errorNode(`面板 ${panel.pluginId || '(未知)'} 用 DOM 直挂（mount）渲染，不该走 UIRenderer`)
+  }
   try {
     return panel.render({ pluginId: panel.pluginId ?? '', state })
   } catch (e) {

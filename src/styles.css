@@ -1262,6 +1262,20 @@ body.is-resizing * {
   padding: 12px 16px;
 }
 
+/**
+ * DOM 直挂面板的容器（rev173.81 · `view.registerPanel({ mount })`）。
+ *
+ * 插件在这里自己画（PDF 的 canvas、导图的画布），内核只保证两件事：
+ * ① 撑满父容器 —— `height: 100%` 依赖 `.zn-main-panel-body` / `.zn-plugin-window-body`
+ *    的 `flex: 1` 给出确定高度（两者都是），② 这一层**不加 padding**，免得给画布算错可用尺寸；
+ * 内容溢出由插件自己决定滚动还是裁剪（`overflow: auto` 只是兜底）。
+ */
+.zn-panel-mount {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
 /* WebView 逃生口（契约 §2.2）：插件自己的页面跑在 sandbox iframe 里。
    撑满所在容器、去掉默认边框。主题令牌没法"灌"进来（CSS 变量不跨文档边界），
    由 WebViewFrame 用 postMessage 送 —— 页面自己 `setProperty` 应用。 */

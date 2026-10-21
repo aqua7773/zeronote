@@ -53,7 +53,16 @@ export type PanelRegistration = {
   title: string
   icon?: string
   location: PanelLocation
-  render: (ctx: ViewCtx) => UINode
+  /**
+   * 声明式渲染。与 `mount` **二选一**（rev173.81 起都可缺省，但必须有一个）。
+   * 宿主渲染优先级：`webview` > `mount` > `render`。
+   */
+  render?: (ctx: ViewCtx) => UINode
+  /**
+   * DOM 直挂（rev173.81）：插件自己画真 DOM，宿主只给容器。
+   * 用于 PDF / 思维导图这类「UINode 表达不了」的界面 —— 见契约 `ViewApi.registerPanel`。
+   */
+  mount?: (el: HTMLElement, ctx: ViewCtx) => void | Disposable
   /** 由插件宿主注入（面板归属哪个插件，UI 上用于标注来源） */
   pluginId?: string
   /**
@@ -197,6 +206,28 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
   const notifyShell = () => hooks.onShellChange?.(shellTakeover ? { ...shellTakeover } : null)
   const view: ViewApi = {
     registerPanel(spec): Disposable {
+      /**
+       * 三种渲染方式**互斥**（rev173.81）：`webview` > `mount` > `render`。
+       *
+       * 为什么必须抛错而不是"挑一个用"：面板画不出来时，插件作者看到的会是
+       * 一片空白 / 上一个面板的残影，排查方向完全错（静默失效最贵）。
+       */
+      if (spec.render && spec.mount) {
+        throw new Error(
+          `view.registerPanel：面板 ${spec.id} 同时给了 render 和 mount —— 只能二选一（要画 DOM 就只给 mount）`,
+        )
+      }
+      if (!spec.render && !spec.mount) {
+        throw new Error(
+          `view.registerPanel：面板 ${spec.id} 既没有 render 也没有 mount —— 至少给一个（声明式 UI 用 render，真 DOM 用 mount）`,
+        )
+      }
+      if (spec.mount && spec.location !== 'main' && spec.location !== 'sidebar') {
+        throw new Error(
+          `view.registerPanel：面板 ${spec.id} 的 mount 只支持 location 'main' / 'sidebar'（当前 '${spec.location}'）—— ` +
+            `状态栏 / 工具栏 / 弹窗这些窄位置只接受声明式 render`,
+        )
+      }
       // 幂等：同 id 重新注册 = 替换（dev 热重载 / 插件重复加载都靠它兜底）
       const self = spec as PanelRegistration
       panelMap.set(spec.id, self)

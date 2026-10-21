@@ -30,6 +30,7 @@ import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
 import { UIRenderer } from './components/UIRenderer'
+import { PanelMount } from './components/PanelMount'
 import { PanelBoundary } from './components/PanelBoundary'
 import { ShellMount } from './components/ShellMount'
 import { WindowControls } from './components/WindowControls'
@@ -2921,6 +2922,9 @@ export default function App() {
                 pluginId={winPanel.pluginId}
                 bridge={winPanel.pluginId ? getWebviewBridge(winPanel.pluginId) : undefined}
               />
+              ) : winPanel.mount ? (
+                /* rev173.81：DOM 直挂 —— 插件自己画（PDF / 导图），内核只给容器 */
+                <PanelMount panel={winPanel} state={panelState} />
               ) : (
                 <UIRenderer
                   node={renderPanelSafe(winPanel, panelState)}
@@ -3237,6 +3241,9 @@ export default function App() {
                 pluginId={pagePanel.pluginId}
                 bridge={pagePanel.pluginId ? getWebviewBridge(pagePanel.pluginId) : undefined}
               />
+                  ) : pagePanel.mount ? (
+                    /* rev173.81：DOM 直挂（同上）—— 主区与独立窗口共用这一条分支 */
+                    <PanelMount panel={pagePanel} state={panelState} />
                   ) : (
                     <UIRenderer
                       node={renderPanelSafe(pagePanel, panelState)}

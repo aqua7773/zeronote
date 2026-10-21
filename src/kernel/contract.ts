@@ -421,7 +421,24 @@ export interface ViewApi {
     title: string
     icon?: string
     location: PanelLocation
-    render: (ctx: ViewCtx) => UINode
+    /** 声明式渲染（UINode）。与 `mount` **二选一**。 */
+    render?: (ctx: ViewCtx) => UINode
+    /**
+     * **DOM 直挂**（rev173.81）。与 `render` **二选一**（都给会抛错）。
+     *
+     * 为什么需要它：`render` 只能返回 21 种 UINode，`html` 节点只做 `innerHTML`、
+     * **不执行脚本** ⇒ PDF（pdf.js + canvas）、思维导图（mind-elixir）这类界面
+     * 塞不进去，只能走整窗接管 `overrideShell`（把内核 UI 全请下场）。
+     * 有了 `mount`，同一个面板就能在**主区**或**独立窗口**里画真 DOM，内核保留顶栏与返回键。
+     *
+     * 语义（与 `ShellMount` 相同，别在校验时退化）：
+     * · `mount(el, ctx)` **只调用一次** —— 面板切走再切回会重新调用；`view.refresh()` **不会**重挂
+     *   （否则插件自己的滚动位置 / 焦点 / 画布会被毁掉）。
+     * · 释放时**先调**返回的 `Disposable`，**再清空容器**。
+     * · `ctx.state` 用 getter 读**最新**面板状态（`view.setState` 仍然生效），但改状态**不会**触发重挂。
+     * · `mount` 抛错不白屏：错误文本写进容器，其余界面照常（与 `render` 的第一层容错对齐）。
+     */
+    mount?: (el: HTMLElement, ctx: ViewCtx) => void | Disposable
   }): Disposable
   /**
    * 挂一个**插件自己的页面**（WebView 逃生口）—— 画布、视频、地图这类
