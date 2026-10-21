@@ -115,6 +115,18 @@ describe('openWindow：手机降级（rev173.82）', () => {
     w.dispose()
     d.dispose()
   })
+
+  it('宿主的 openPanelWindow（标签拖出）桌面返回 true、Android 返回 false', () => {
+    const opened: string[] = []
+    const desk = makeKernel({ platform: 'windows' })
+    desk.view.registerPanel({ id: 'reader', title: '阅读器', location: 'main', mount: () => {} })
+    expect(desk.openPanelWindow('reader', '阅读器')).toBe(true)
+
+    const phone = makeKernel({ platform: 'android', onOpenPanelInMain: (id) => opened.push(id) })
+    phone.view.registerPanel({ id: 'reader', title: '阅读器', location: 'main', mount: () => {} })
+    expect(phone.openPanelWindow('reader', '阅读器')).toBe(false)
+    expect(opened).toEqual(['reader'])
+  })
 })
 
 describe('PanelMount：挂载与释放', () => {

@@ -166,8 +166,18 @@ export type Kernel = {
   releaseServices: (pluginId: string) => void
   /** 编辑器标记规则注册表（`[[引用]]` 这类渲染靠它） */
   editor: (pluginId: string) => EditorApi
-  /** 插件卸载时强制回收它登记的编辑器规则 */
+  /**
+   * 插件卸载时强制回收它登记的编辑器规则
+   */
   releaseEditorMarks: (pluginId: string) => void
+  /**
+   * **宿主侧**的「把面板开成独立窗口」（rev173.83）—— 标签拖出 / 右键「在新窗口打开」用。
+   *
+   * 复用 `view.openWindow` 的全套语义（面板未注册要报错 / Android 自动降级为主区 /
+   * 窗口账本 / 卸载即净），宿主不重复实现一遍。
+   * 返回 `false` = 没有真的开出窗口（手机上走的是降级路径）。
+   */
+  openPanelWindow: (panelId: string, title?: string) => boolean
   /**
    * 审计快照：命令表 / 订阅表 / 面板 / 服务 / 编辑器规则 / 插件样式。
    * 宿主把它挂到 `window.__znKernelAudit` 供 CDP 自动验收（见 `KernelAudit`）。
@@ -553,6 +563,21 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     releaseServices: (pluginId: string) => services.release(pluginId),
     editor: (pluginId: string) => createScopedEditorApi(pluginId),
     releaseEditorMarks: (pluginId: string) => releaseEditorMarks(pluginId),
+    /**
+     * 宿主侧开面板窗口（rev173.83）：标签拖出 / 右键「在新窗口打开」。
+     * 直接把 `view.openWindow` 借过来 —— 面板未注册的报错、Android 降级、
+     * 窗口账本、卸载即净全在同一处，宿主不复制一份。
+     */
+    openPanelWindow: (panelId: string, title?: string) => {
+      try {
+        view.openWindow({ panel: panelId, title })
+      } catch (e) {
+        hooks.onLog(`openPanelWindow 失败：${String(e)}`, 'warn')
+        return false
+      }
+      // Android 上 `openWindow` 走的是「主区打开」降级 —— 没有真窗口
+      return hooks.platform !== 'android'
+    },
     audit: () => ({
       commands: commands
         .all()

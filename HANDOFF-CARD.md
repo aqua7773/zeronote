@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-21（rev173.82）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-21（rev173.83）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.82 · 0.3.0 · 2026-10-21 |
-| 测试基线 | vitest 543 · cargo 36 · oxlint 3 warnings（2026-10-21） |
+| rev / 版本 | rev173.83 · 0.3.0 · 2026-10-21 |
+| 测试基线 | vitest 547 · cargo 36 · oxlint 3 warnings（2026-10-21） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-21 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
@@ -36,7 +36,7 @@ pwsh -File scripts\verify.ps1
 4. **环境清理（顺手）**：✅ 本会话已清掉 1420 上的旧 vite（杀掉旧 android dev 链的 vite 进程，再重启 `dev.cmd`）；现在唯一的 vite 是 dev.cmd 自起的 1420（1421 未监听）。
 5. **两个已知问题（rev173.73 实测发现）已全修**：① ✅ **rev173.74** —— `note-*` 窗口 Ctrl+Shift+F 给 toast「全库搜索请在主窗口使用」（该窗口补上了 toast 渲染处），主窗口照常开面板；② ✅ **rev173.75** —— 完成态短语（支付成功 / 已支付…）无金额也入账进「金额待补」，列表每行「删除」+ 确认页（显示原文、不可恢复）。两条都桌面 + 手机实测过。
 6. **A 档 4 个插件（下一步的正题）**：✅ 调研（rev173.80）→ ✅ **内核地基**：rev173.81 面板可画 DOM（`registerPanel({ mount })`）· rev173.82 手机上 `openWindow` 自动降级为主区面板。**用户定的最终形态（2026-10-21）**：**主区标签页与独立窗口，自由选择** —— 阅读器 / 导图默认作为**主区标签**打开，也能（右键 / 拖出）开成**独立窗口**；手机只有主区（没有真多窗口）。**下一步按顺序**：
-   ① **标签页支持「面板标签」**（约 1 d）：`tabs.ts` 加 `panel:` 前缀的 2 个纯函数 · `TabBar` 两种行 · `Ctrl+W` / `Ctrl+Tab` / 换库三处分支（面板标签不参与 `saveNow` / `remapTabs`）
+   ① ✅ **标签页支持「面板标签」（rev173.83 已完成）**：`panel:<id>` 前缀 · 默认主区标签 · **拖出 = 独立窗口**（复用 rev173.52 手势）· `Ctrl+Tab` 穿过 · 关标签不存盘 · 换库清空 · 内核 `openPanelWindow`
    ② **doc-reader 迁到 `registerPanel({ mount })`**（0.5 d）：默认主区标签；右键「在新窗口打开」走 `openWindow`（同一个面板，窗口里重新 apply 后从 store 读路径）
    ③ outline-map 同样迁移，删掉 `host.platform === 'android'` 分支（1 d）
    ④ 标签列表视图（原 A1）也做成标签；之后才是 A0 探针（`[[ ]]` 点击归属）→ 双链 → 历史版本 → 提醒打卡。

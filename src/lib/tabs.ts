@@ -14,6 +14,30 @@
 export const MAX_TABS = 12
 
 /**
+ * **面板标签**（rev173.83）—— 标签条里除了笔记，还能放插件面板（阅读器 / 导图 / 标签列表）。
+ *
+ * 为什么用前缀而不是把 `tabs` 改成联合类型：本文件四个函数（`addTab` / `closeTab` /
+ * `stepTab` / `remapTabs`）全部只认字符串。加个前缀，它们**一行都不用改**；
+ * 只有宿主那一层需要知道"这条是面板还是笔记"。
+ */
+export const PANEL_TAB_PREFIX = 'panel:'
+
+/** 面板 id → 标签条里的 key（`doc-reader.view` → `panel:doc-reader.view`） */
+export function panelTabId(panelId: string): string {
+  return `${PANEL_TAB_PREFIX}${panelId}`
+}
+
+/** 这条标签是不是面板（笔记标签永远不带这个前缀 —— 笔记路径是库内相对路径） */
+export function isPanelTab(tab: string): boolean {
+  return tab.startsWith(PANEL_TAB_PREFIX)
+}
+
+/** 面板标签 → 面板 id；笔记标签返回 `null` */
+export function panelIdOfTab(tab: string): string | null {
+  return isPanelTab(tab) ? tab.slice(PANEL_TAB_PREFIX.length) : null
+}
+
+/**
  * 打开一篇笔记：不在里面就追加到末尾；**已在里面则位置不动**（原样返回）。
  *
  * 为什么不做 MRU 挪位：标签位置固定，`Ctrl+Tab` / `Ctrl+Shift+Tab` 的循环顺序才稳定。

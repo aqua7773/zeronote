@@ -86,7 +86,7 @@ import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { categorizePlugin } from './lib/plugin-category'
-import { addTab, closeTab as closeTabInList, remapTabs, stepTab } from './lib/tabs'
+import { addTab, closeTab as closeTabInList, isPanelTab, panelIdOfTab, panelTabId, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
 import { noteWindowLabel, noteWindowUrl } from './lib/note-window'
 import { watchAcceleratorKeys } from './lib/accelerator'
@@ -163,6 +163,14 @@ export default function App() {
    * 关闭标签的那一步必须先把当前文档落盘 —— 见下面 `closeTabOf` 的注释。
    */
   const [tabs, setTabs] = useState<string[]>([])
+  /**
+   * **面板标签**（rev173.83）：阅读器 / 导图 / 标签列表也能进标签条。
+   *
+   * 与笔记标签分两个 state 而不是混进 `tabs`：笔记标签参与 `saveNow` / `remapTabs` / 改名重映射，
+   * 面板标签一律不参与 —— 分开存，那些逻辑一行都不用改（`lib/tabs.ts` 只按字符串处理）。
+   * 渲染时合并成一个 `TabItem[]`，靠 `panel:` 前缀区分（见 `lib/tabs.ts` 的注释）。
+   */
+  const [panelTabs, setPanelTabs] = useState<string[]>([])
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
 
@@ -1112,8 +1120,34 @@ export default function App() {
    * ⚠️ 切换前必须落盘：`openNote` 与 `closeNote` 内部本来就会 `saveNow`（dirty 时），
    * 这一层不再重复保存 —— 重复保存会让状态栏闪一次。
    */
+  /** 标签条点击（rev173.83）：面板标签切主区，笔记标签打开文档 */
+  const selectTab = useCallback((key: string) => {
+    const pid = panelIdOfTab(key)
+    if (pid) {
+      setMainView(pid)
+      return
+    }
+    void openNoteRef.current(key)
+  }, [])
+
+  /** 打开一个面板并把它放进标签条（`core.panel.<id>` 命令、☰ 菜单都走这里） */
+  const openPanelInTab = useCallback((panelId: string) => {
+    setPanelTabs((prev) => addTab(prev, panelTabId(panelId)))
+    setMainView(panelId)
+  }, [])
+
   const closeTabOf = useCallback(
     (path: string) => {
+      /**
+       * 面板标签（rev173.83）：只从标签条移除，**不存盘、不打开任何文档**。
+       * 正看着它 ⇒ 回编辑器；看着别的 ⇒ 什么都不动（关后台标签不影响当前视图）。
+       */
+      const pid = panelIdOfTab(path)
+      if (pid) {
+        setPanelTabs((prev) => prev.filter((t) => t !== path))
+        setMainView((v) => (v === pid ? 'editor' : v))
+        return
+      }
       const { tabs: nextTabs, next } = closeTabInList(tabsRef.current, path)
       if (nextTabs === tabsRef.current) return // 不在标签条里：什么都不做
       tabsRef.current = nextTabs
@@ -1150,10 +1184,19 @@ export default function App() {
    * 上一个 / 下一个标签页（Ctrl+Tab / Ctrl+Shift+Tab）。
    * 只有一篇时 `stepTab` 返回它自己 —— 这里判掉，免得白读一次盘。
    */
-  const cycleTab = useCallback((step: 1 | -1) => {
-    const next = stepTab(tabsRef.current, activeRef.current, step)
-    if (next && next !== activeRef.current) void openNoteRef.current(next)
-  }, [])
+  const cycleTab = useCallback(
+    (step: 1 | -1) => {
+      /* rev173.83：循环要把面板标签一起算上（否则 Ctrl+Tab 永远跳不到阅读器） */
+      const all = [...tabsRef.current, ...panelTabs]
+      const cur =
+        mainView !== 'editor' && panels.some((p) => p.id === mainView)
+          ? panelTabId(mainView)
+          : activeRef.current
+      const next = stepTab(all, cur, step)
+      if (next && next !== cur) selectTab(next)
+    },
+    [panelTabs, mainView, panels, selectTab],
+  )
 
   /**
    * **把一篇笔记拿出来单独放**（rev173.51 · 用户「标签页做成窗口级的，可以拿出来单独放」）。
@@ -1214,9 +1257,25 @@ export default function App() {
    */
   const handleTabDragEnd = useCallback(
     (p: string, at: { outside: boolean }) => {
-      if (at.outside) openInWindow(p)
+      if (!at.outside) return
+      /**
+       * 面板标签拖出（rev173.83）：走内核的 `openPanelWindow`（`?pluginWindow=` 窗口）。
+       * 与笔记标签的 `openInWindow`（`?note=` 窗口）是两条不同的窗口模式，不能混用。
+       * 手机上 `openPanelWindow` 返回 false（降级成主区）—— 标签留着，别让人以为拖丢了。
+       */
+      const pid = panelIdOfTab(p)
+      if (pid) {
+        const title = panels.find((x) => x.id === pid)?.title
+        if (kernel?.openPanelWindow(pid, title)) {
+          setPanelTabs((prev) => prev.filter((t) => t !== p))
+        } else {
+          setToast('手机不支持独立窗口 —— 这个面板留在主区')
+        }
+        return
+      }
+      openInWindow(p)
     },
-    [openInWindow],
+    [kernel, panels, openInWindow, setToast],
   )
 
   /**
@@ -1226,11 +1285,13 @@ export default function App() {
   const openTabMenu = useCallback(
     (path: string, at: { x: number; y: number }) => {
       const items: MenuItem[] = []
+      const isPanel = isPanelTab(path)
       if (platform !== 'android') {
         items.push({
           label: '在新窗口打开',
-          hint: '拆成独立窗口',
-          onClick: () => openInWindow(path),
+          hint: isPanel ? '面板窗口' : '拆成独立窗口',
+          onClick: () =>
+            isPanel ? handleTabDragEnd(path, { outside: true }) : openInWindow(path),
         })
       }
       items.push({
@@ -1240,7 +1301,7 @@ export default function App() {
       })
       setTabMenu({ x: at.x, y: at.y, items })
     },
-    [platform, openInWindow, closeTabOf],
+    [platform, openInWindow, closeTabOf, handleTabDragEnd],
   )
 
   /**
@@ -1384,6 +1445,7 @@ export default function App() {
       setSaveState('idle')
       setTabs([]) // 换库了，旧库的标签页一条都不能留（rev173.50）
       tabsRef.current = []
+      setPanelTabs([]) // 面板标签同理：旧库的面板可能根本不再存在（rev173.83）
       setVault(dir)
       return true
     },
@@ -1936,13 +1998,14 @@ export default function App() {
       kernel.commands.api.register({
         id: `core.panel.${p.id}`,
         title: `打开面板：${p.title}`,
-        run: () => setMainView(p.id),
+        // rev173.83：打开面板同时进标签条（桌面），手机上标签条不渲染、只是切主区
+        run: () => openPanelInTab(p.id),
       }),
     )
     return () => {
       for (const off of offs) off.dispose()
     }
-  }, [kernel, panels])
+  }, [kernel, panels, openPanelInTab])
 
   /**
    * 插件**能力使用审计**（rev173.78）。
@@ -2544,14 +2607,29 @@ export default function App() {
    * 未保存标记只可能落在**当前**标签上 —— 别的标签在切走时都已落盘。
    */
   const tabItems = useMemo(
-    () =>
-      tabs.map((p) => ({
+    () => [
+      ...tabs.map((p) => ({
         path: p,
         title: (p.split(/[\\/]/).pop() ?? p).replace(/\.md$/i, ''),
         dirty: p === activePath && dirty,
       })),
-    [tabs, activePath, dirty],
+      /* rev173.83：面板标签排在笔记后面。标题取面板注册时的 title（插件换了标题也跟着变） */
+      ...panelTabs.map((pt) => {
+        const pid = panelIdOfTab(pt) ?? pt
+        const panel = panels.find((x) => x.id === pid)
+        return { path: pt, title: panel?.title ?? pid, dirty: false }
+      }),
+    ],
+    [tabs, panelTabs, panels, activePath, dirty],
   )
+  /**
+   * 标签条上的「当前标签」（rev173.83）：主区正显示某个面板时是 `panel:<id>`，否则是当前笔记。
+   * `mainView` 的 `'plugins'` / `'trash'` 这类内核页不算面板标签（它们不进标签条）。
+   */
+  const activeTabKey =
+    mainView !== 'editor' && panels.some((p) => p.id === mainView)
+      ? panelTabId(mainView)
+      : activePath
   /** 桌面端才画窗口控制按钮（移动端没有窗口装饰这回事） */
   const isDesktop = kernel?.host.platform !== 'android'
 
@@ -3279,8 +3357,8 @@ export default function App() {
             {isDesktop && (
               <TabBar
                 tabs={tabItems}
-                activePath={activePath}
-                onSelect={(p) => void openNote(p)}
+                activePath={activeTabKey}
+                onSelect={selectTab}
                 onClose={closeTabOf}
                 /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
                 onContextMenu={openTabMenu}

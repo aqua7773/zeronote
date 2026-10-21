@@ -6,7 +6,17 @@
  * 「目录改名带前缀」这两条，错了用户会直接点开一条不存在的路径。
  */
 import { describe, expect, it } from 'vitest'
-import { addTab, closeTab, MAX_TABS, remapTabs, removeTab, stepTab } from '../src/lib/tabs'
+import {
+  addTab,
+  closeTab,
+  isPanelTab,
+  MAX_TABS,
+  panelIdOfTab,
+  panelTabId,
+  remapTabs,
+  removeTab,
+  stepTab,
+} from '../src/lib/tabs'
 
 describe('addTab', () => {
   it('新路径追加到末尾', () => {
@@ -105,5 +115,30 @@ describe('remapTabs', () => {
 
   it('改名撞上已打开的路径：去重（否则 React key 重复）', () => {
     expect(remapTabs(['a.md', 'b.md'], 'a.md', 'b.md')).toEqual(['b.md'])
+  })
+})
+
+/**
+ * 面板标签（rev173.83）：阅读器 / 导图也能进标签条。
+ * 用前缀而不是改类型 —— 上面那四个纯函数因此一行都不用改。
+ */
+describe('面板标签', () => {
+  it('panelTabId / isPanelTab / panelIdOfTab 成对', () => {
+    const key = panelTabId('doc-reader.view')
+    expect(key).toBe('panel:doc-reader.view')
+    expect(isPanelTab(key)).toBe(true)
+    expect(panelIdOfTab(key)).toBe('doc-reader.view')
+  })
+
+  it('笔记路径不会被误判成面板', () => {
+    expect(isPanelTab('notes/panel:demo.md')).toBe(false)
+    expect(panelIdOfTab('notes/a.md')).toBeNull()
+  })
+
+  it('现有四个函数照常吃面板标签（add/close/step 都能用）', () => {
+    const tabs = addTab(['a.md'], panelTabId('doc-reader.view'))
+    expect(tabs).toEqual(['a.md', 'panel:doc-reader.view'])
+    expect(stepTab(tabs, 'a.md', 1)).toBe('panel:doc-reader.view')
+    expect(closeTab(tabs, 'panel:doc-reader.view')).toEqual({ tabs: ['a.md'], next: 'a.md' })
   })
 })
