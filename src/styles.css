@@ -423,6 +423,9 @@ body.is-resizing * {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* 标签条挂在 `.zn-main` 下（rev173.88：主区只渲染一次，三个分支共用）
+     —— 高度变量必须在这一层可见，`.zn-tabs` 的 height 直接取它 */
+  --zn-tabbar-h: 34px;
 }
 
 /*

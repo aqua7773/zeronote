@@ -3329,6 +3329,25 @@ export default function App() {
       )}
 
       <main className="zn-main">
+        {/*
+          多标签条：**主区只在这里渲染一次**（rev173.88 · 用户「关闭当前打开的文档，会把所有
+          文档一起关掉」）。以前三个分支各渲染一份 —— 关掉当前文档标签后 `mainView` 回 editor，
+          而编辑器分支只在 `activePath` 存在时才画标签条 ⇒ 没有打开的笔记时直接落到起始页，
+          起始页**没有标签条** ⇒ 剩下那几个文档标签全都看不见了（看起来像"一起关掉"）。
+          提到 `<main>` 顶部后，标签条与"下面显示什么"解耦：只要有标签就一直在。
+        */}
+        {isDesktop && tabItems.length > 0 && (
+          <TabBar
+            tabs={tabItems}
+            activePath={activeTabKey}
+            onSelect={selectTab}
+            onClose={closeTabOf}
+            /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
+            onContextMenu={openTabMenu}
+            /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52）/ 面板标签 ⇒ 面板窗口（rev173.83） */
+            onDragEnd={handleTabDragEnd}
+          />
+        )}
         {mainView === 'trash' ? (
           <AppTrashView
             trash={trash}
@@ -3345,16 +3364,6 @@ export default function App() {
         ) : mainView === 'plugins' ? (
           /* 插件管理 —— 内核页（不是标签内容），保留「重新扫描 / 返回编辑器」那条 bar */
           <div className="zn-main-panel">
-            {isDesktop && (
-              <TabBar
-                tabs={tabItems}
-                activePath={activeTabKey}
-                onSelect={selectTab}
-                onClose={closeTabOf}
-                onContextMenu={openTabMenu}
-                onDragEnd={handleTabDragEnd}
-              />
-            )}
             <div className="zn-main-panel-bar">
               <span>插件管理</span>
               <div className="zn-main-panel-actions">
@@ -3399,16 +3408,6 @@ export default function App() {
            * 退出路径 = 点别的标签 / 关标签 × / Android 返回键（`mainView !== 'editor'` 时回编辑器）。
            */
           <div className="zn-editor-wrap">
-            {isDesktop && (
-              <TabBar
-                tabs={tabItems}
-                activePath={activeTabKey}
-                onSelect={selectTab}
-                onClose={closeTabOf}
-                onContextMenu={openTabMenu}
-                onDragEnd={handleTabDragEnd}
-              />
-            )}
             <PanelBoundary key={pagePanel.id}>
               {pagePanel.webview ? (
                 /* WebView 逃生口（契约 §2.2）：sandbox iframe + postMessage 送主题令牌 */
@@ -3436,20 +3435,6 @@ export default function App() {
           </div>
         ) : activePath ? (
           <div className="zn-editor-wrap">
-            {/* 多标签页（rev173.50）：只有一条也显示 —— 它是「当前打开的是哪篇」的锚点。
-                桌面专属：手机不做多标签页（rev173.68 · 用户「移动端不用做多标签页」）⇒ 不渲染标签条。 */}
-            {isDesktop && (
-              <TabBar
-                tabs={tabItems}
-                activePath={activeTabKey}
-                onSelect={selectTab}
-                onClose={closeTabOf}
-                /* 右键 = 「在新窗口打开 / 关闭标签页」（rev173.51） */
-                onContextMenu={openTabMenu}
-                /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52 · 用户「做拖出独立」） */
-                onDragEnd={handleTabDragEnd}
-              />
-            )}
             {/*
               编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
               内核自己**不往这儿放任何内容**（用户 2026-10-12 定：桌面端只有右键菜单的「标记」）。
