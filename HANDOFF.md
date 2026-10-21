@@ -1,13 +1,14 @@
 # 项目交接
 
-revision: 173.81
-更新时间: 2026-10-21（rev173.81 内核：**面板支持 DOM 直挂**（`view.registerPanel({ mount })`）—— 给 pdf.js 的 canvas / mind-elixir 的画布这类真 DOM 界面用；主区与独立窗口共用同一条渲染分支，内核保留顶栏与返回键；注册期校验 render/mount 互斥、至少一个、mount 只限 main/sidebar；新增 `src/components/PanelMount.tsx` + 单测 8 条。下一步：把 doc-reader（然后 outline-map）从整窗接管迁到面板 mount；rev173.80 A 档 4 个插件的调研与方案（只调研、不写代码）：新增 `docs/待做插件-调研与方案-2026-10-21.md` —— ① 现状核实（4 个插件要用的原语全在：`index.tags()` / `index.query(tag)` / `doc.on` / `store` / `view` / `host.notify`）+ 4 条硬约束（无独立侧栏 / ViewCtx 无 activePath / 无定时器原语 / `core.panel.<id>` 不能传参）② 同类做法（VS Code Local History 1.66 一手：保存即条目、50 条/篇、256 KB、10 s 合并窗口；Obsidian 标签页与反链页为 SPA 未取正文，已注明）③ 4 份方案（标签面板 4 h · 双链 1 d · 历史版本 1.5 d · 提醒打卡 2.5 d）④ 5 张卡 + 4 个待拍板决定 ⑤ **先跑 A0 探针**：`[[ ]]` 点击归 atomic 还是插件（editor-marks 注释自认点不到）；rev173.79 决策：插件宿主隔离**明确放弃** / 插件市场**降级不排期**（用户裁决）—— 新增 `docs/decisions/D-008-暂不做插件市场与更新通道.md`（pending）· 宿主隔离按既有 D-001 不做，契约 §6 的 v0.2 行标注降级 · `内核契约-v0.2.md` §4 末 / §6 / §7 第 4 条同步 · CARD「下个会话第一件事」主线清零；rev173.78 插件能力使用审计：只记 API 名与次数（不含参数/内容）、Proxy 包 10 原语、落盘 `.zn/plugin-usage.json`、诊断出口 `__znPluginUsage()`；rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.82
+更新时间: 2026-10-21（rev173.82 内核：**openWindow 在 Android 自动降级为主区面板** —— Tauri 2 移动端没有多 webview（`unstable` 未开），真建窗只会落到 `tauri://error` 日志、表现为"点了没反应"；降级后 UI 真的出现、返回键能回来，插件**不用再写 `platform === 'android'` 分支**；rev173.81 内核：**面板支持 DOM 直挂**（`view.registerPanel({ mount })`）—— 给 pdf.js 的 canvas / mind-elixir 的画布这类真 DOM 界面用；主区与独立窗口共用同一条渲染分支，内核保留顶栏与返回键；注册期校验 render/mount 互斥、至少一个、mount 只限 main/sidebar；新增 `src/components/PanelMount.tsx` + 单测 8 条。下一步：把 doc-reader（然后 outline-map）从整窗接管迁到面板 mount；rev173.80 A 档 4 个插件的调研与方案（只调研、不写代码）：新增 `docs/待做插件-调研与方案-2026-10-21.md` —— ① 现状核实（4 个插件要用的原语全在：`index.tags()` / `index.query(tag)` / `doc.on` / `store` / `view` / `host.notify`）+ 4 条硬约束（无独立侧栏 / ViewCtx 无 activePath / 无定时器原语 / `core.panel.<id>` 不能传参）② 同类做法（VS Code Local History 1.66 一手：保存即条目、50 条/篇、256 KB、10 s 合并窗口；Obsidian 标签页与反链页为 SPA 未取正文，已注明）③ 4 份方案（标签面板 4 h · 双链 1 d · 历史版本 1.5 d · 提醒打卡 2.5 d）④ 5 张卡 + 4 个待拍板决定 ⑤ **先跑 A0 探针**：`[[ ]]` 点击归 atomic 还是插件（editor-marks 注释自认点不到）；rev173.79 决策：插件宿主隔离**明确放弃** / 插件市场**降级不排期**（用户裁决）—— 新增 `docs/decisions/D-008-暂不做插件市场与更新通道.md`（pending）· 宿主隔离按既有 D-001 不做，契约 §6 的 v0.2 行标注降级 · `内核契约-v0.2.md` §4 末 / §6 / §7 第 4 条同步 · CARD「下个会话第一件事」主线清零；rev173.78 插件能力使用审计：只记 API 名与次数（不含参数/内容）、Proxy 包 10 原语、落盘 `.zn/plugin-usage.json`、诊断出口 `__znPluginUsage()`；rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
+| rev173.82 | 2026-10-21 · **openWindow 的 Android 降级**：手机没有多 webview（Tauri 2 `unstable` 多窗口未开），真建窗只会 `tauri://error` ⇒ 用户看到"点了没反应"（outline-map rev173.11 这么踩过）。改为**主区打开那个面板**（`KernelHooks.platform` + `onOpenPanelInMain`），UI 真的出现、返回键能回来 · 插件不用再写平台分支 · 契约 §2.2 的「平台」行同步 · 单测 +2（桌面照常建窗口 / Android 不建窗口且主区打开） |
 | rev173.81 | 2026-10-21 · **面板支持 DOM 直挂**（`view.registerPanel({ mount })`）：给 pdf.js / mind-elixir 这类「UINode 表达不了」的界面用，主区与独立窗口共用一条渲染分支（内核保留顶栏与返回键，对比整窗接管要把内核 UI 请下场）· 注册期三条校验（render/mount 二选一、至少一个、mount 只限 main/sidebar）· 新增 `src/components/PanelMount.tsx`（mount 只调一次 / dispose 先于清空 / `ctx.state` getter / 抛错不白屏）· `App.tsx` 两处分支 · `styles.css` `.zn-panel-mount` · **单测 8 条** · 契约 §2.2 同步 |
 | rev173.80 | 2026-10-21 · **A 档 4 个插件的调研与方案**（只调研，零代码）：新增 `docs/待做插件-调研与方案-2026-10-21.md` · 现状核实（原语齐全 + 4 条硬约束：无独立侧栏 / ViewCtx 无 activePath / 无定时器原语 / `core.panel.<id>` 不传参）· 同类做法（VS Code Local History 1.66 一手数据）· 4 份方案 + 5 张卡（合计约 5.5 天）· **A0 探针先跑**（`[[ ]]` 点击归 atomic 还是插件）· `docs/README.md` 矩阵加一行 · CARD 下一步第 6 条 + 未决表 · 无代码改动（测试基线不变） |
 | rev173.79 | 2026-10-21 · **决策：插件宿主隔离明确放弃 / 插件市场降级不排期**（用户原话「降级，插件市场也降级」+「明确放弃」）· 新建 `decisions/D-008-暂不做插件市场与更新通道.md`（pending + 重议条件）· 宿主侧按 `D-001` 关死（契约 §6 v0.2 行原只写「未做」，看起来像欠账）· `内核契约-v0.2.md` §4 末 / §6 / §7 第 4 条同步 · 决策索引加 D-008 · CARD「下个会话第一件事」主线清零 + 未决表记「明确放弃」· **无代码改动**（测试基线不变） |
@@ -227,6 +228,28 @@ revision: 173.81
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.82（2026-10-21 · 内核：openWindow 在手机降级为主区）
+>
+> 由来：outline-map 的注释（`index.js:1590`）写着"Tauri 2 的 Android 没有多 webview，
+> 内核 openWindow 的创建失败只落到 `tauri://error` 日志 ⇒ 表现为'点了没反应'"。
+> 那个插件只好自己写 `platform === 'android'` 分支改走整窗接管 —— 每个插件都要抄一遍。
+>
+> ### 改了什么
+> - `KernelHooks` 加 `platform` 与 `onOpenPanelInMain`（`src/kernel/kernel.ts`）
+> - `view.openWindow` 在 Android 上**不建窗**，改调 `onOpenPanelInMain(panel)` 并把意图写进日志
+> - `App.tsx` 建 kernel 时传 `platform` 与 `onOpenPanelInMain: (id) => setMainView(id)`
+> - 契约 §2.2 的「平台」行改写（原写"Android 多窗口未实测，自己兜住失败"）
+> - 单测 +2：Android 不建窗口且主区打开 · 桌面照常建窗口（`audit().windows` 有 label）
+>
+> ### 一处测试坑（记下来）
+> kernel 的 `dispose` 调 `win.destroy().catch(...)` ⇒ mock 的 `WebviewWindow` 类
+> **必须带 `once()` 与 `destroy()`**，否则失败点在 `dispose()` 那一行、看起来像断言错了
+> （第一次排查就以为是 `audit().windows` 不对）。已写进 `tests/panel-mount.test.tsx` 的 mock。
+>
+> ### 结果
+> 内核两侧能力齐了：面板能画 DOM（rev173.81）+ 手机上 openWindow 有等价物（rev173.82）。
+> 下一步：doc-reader / outline-map 迁移，并把「主区标签页 / 独立窗口」做成用户可选。
+>
 > ## 📌 rev173.81（2026-10-21 · 内核：面板支持 DOM 直挂）
 >
 > 用户要的是方案 B（把导图 / 文档阅读从整窗接管改成"面板"）。落地时换成 **B'**：

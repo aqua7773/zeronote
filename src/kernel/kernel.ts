@@ -86,6 +86,19 @@ export type KernelHooks = {
    * 宿主据此决定"渲染内核 UI"还是"渲染接管容器"（DOM 挂载由宿主做，见 `App.tsx` 的 `ShellMount`）。
    */
   onShellChange?: (owner: { pluginId: string; spec: ShellSpec } | null) => void
+  /**
+   * 当前平台（rev173.82）。只用于 `view.openWindow` 的**手机降级**：
+   * Tauri 2 在 Android 上没有多 webview（`unstable` 未开），真建窗只会落到
+   * `tauri://error` 日志 ⇒ 用户看到的是"点了没反应"。降级出口见 `onOpenPanelInMain`。
+   */
+  platform?: 'windows' | 'android' | 'other'
+  /**
+   * **手机上的 openWindow 等价物**：把那个面板放进主区（宿主 `setMainView(panelId)`）。
+   *
+   * 为什么不是"什么都不做"：插件的意图是"把这块 UI 打开给人看"，
+   * 手机上没有窗口，最接近的语义就是主区——用户按返回键回来。
+   */
+  onOpenPanelInMain?: (panelId: string) => void
 }
 
 /**
@@ -288,6 +301,17 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       if (!panelMap.has(spec.panel)) {
         // 明确报错 > 开一个永远空白的窗口（静默失效最贵）
         throw new Error(`view.openWindow：面板 ${spec.panel} 还没注册（请先 registerPanel）`)
+      }
+      /**
+       * **手机降级**（rev173.82）：Android 上没有多 webview 窗口（Tauri 2 的 `unstable`
+       * 多窗口未开），`new WebviewWindow` 会失败，而失败只落到 `tauri://error` 日志
+       * ⇒ 插件和用户看到的都是"点了没反应"（outline-map rev173.11 就是这么踩的）。
+       * 等价语义 = **主区打开这个面板**：UI 真的出现，返回键能回来。
+       */
+      if (hooks.platform === 'android') {
+        hooks.onOpenPanelInMain?.(spec.panel)
+        hooks.onLog?.(`openWindow 在 Android 上降级为主区面板：${spec.panel}`, 'info')
+        return { dispose: () => {} }
       }
       const label = `${PLUGIN_WINDOW_PREFIX}${sanitizeLabelPart(spec.panel)}-${++windowSeq}`
       const params = new URLSearchParams({ pluginWindow: spec.panel, vault })

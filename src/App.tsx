@@ -752,6 +752,12 @@ export default function App() {
           onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
           // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
           onShellChange: () => setShellTick((t) => t + 1),
+          /**
+           * rev173.82：手机没有多 webview 窗口 ⇒ `view.openWindow` 降级为主区面板。
+           * 插件不用写平台分支（outline-map 的那条 `platform === 'android'` 可以删了）。
+           */
+          platform: platform === 'android' ? 'android' : 'windows',
+          onOpenPanelInMain: (id) => setMainView(id),
         })
       : null
 

@@ -26,18 +26,29 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (p: string) => p,
 }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }))
-vi.mock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: class {} }))
+/** 窗口 mock 要带 `once` / `destroy`：内核开窗后会挂事件、dispose 时会 destroy */
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  WebviewWindow: class {
+    once() {}
+    destroy() {
+      return Promise.resolve()
+    }
+  },
+}))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }))
+/** 窗口加速键开关会碰 mock 窗口的 `once()` —— 本文件不测它，直接短路 */
+vi.mock('../src/lib/accelerator', () => ({ watchAcceleratorKeys: vi.fn() }))
 
-import { createKernel, type PanelRegistration } from '../src/kernel/kernel'
+import { createKernel, type KernelHooks, type PanelRegistration } from '../src/kernel/kernel'
 import { PanelMount } from '../src/components/PanelMount'
 
-function makeKernel() {
+function makeKernel(over: Partial<KernelHooks> = {}) {
   return createKernel('/vault', {} as never, {
     onPanelsChange: () => {},
     onNotify: () => {},
     onLog: () => {},
     onPanelStateChange: () => {},
+    ...over,
   })
 }
 
@@ -79,6 +90,30 @@ describe('registerPanel：三种渲染方式的校验', () => {
     expect(k.audit().panels.map((p) => p.id)).toContain('dom-panel')
     d.dispose()
     expect(k.audit().panels.map((p) => p.id)).not.toContain('dom-panel')
+  })
+})
+
+describe('openWindow：手机降级（rev173.82）', () => {
+  it('Android：不发 WebviewWindow，改调 onOpenPanelInMain', () => {
+    const opened: string[] = []
+    const k = makeKernel({ platform: 'android', onOpenPanelInMain: (id) => opened.push(id) })
+    const d = k.view.registerPanel({ id: 'dom', title: 't', location: 'main', mount: () => {} })
+    const w = k.view.openWindow({ panel: 'dom' })
+    expect(opened).toEqual(['dom'])
+    // 没有真窗口可管
+    expect(k.audit().windows).toEqual([])
+    w.dispose()
+    d.dispose()
+  })
+
+  it('桌面：照常建窗口（账本里有 label）', () => {
+    const k = makeKernel({ platform: 'windows' })
+    const d = k.view.registerPanel({ id: 'dom2', title: 't', location: 'main', mount: () => {} })
+    const w = k.view.openWindow({ panel: 'dom2' })
+    expect(k.audit().windows.length).toBe(1)
+    expect(k.audit().windows[0]).toMatch(/^plugin-/)
+    w.dispose()
+    d.dispose()
   })
 })
 
