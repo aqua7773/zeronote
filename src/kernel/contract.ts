@@ -439,6 +439,14 @@ export interface ViewApi {
      * · `mount` 抛错不白屏：错误文本写进容器，其余界面照常（与 `render` 的第一层容错对齐）。
      */
     mount?: (el: HTMLElement, ctx: ViewCtx) => void | Disposable
+    /**
+     * **不进「☰ 菜单」/ 起始页快捷入口**（rev173.86）—— 给"动态实例面板"用。
+     *
+     * 典型：文档阅读器每个文档注册一个面板（`doc-reader.view.<hash>`），它们是一次性的
+     * 实例、不是功能入口；全列进菜单会把菜单撑爆（打开 10 份文档 ⇒ 10 项）。
+     * 标签条、`core.panel.<id>` 命令、拖出成窗口**照常可用** —— 只是不主动出现在菜单里。
+     */
+    hidden?: boolean
   }): Disposable
   /**
    * 挂一个**插件自己的页面**（WebView 逃生口）—— 画布、视频、地图这类

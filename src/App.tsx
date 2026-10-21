@@ -2696,6 +2696,8 @@ export default function App() {
     ...panels
       .filter(
         (p) =>
+          /* rev173.86：动态实例面板（文档阅读器每份文档一个）不进菜单 —— 否则打开 10 份文档就多 10 项 */
+          !p.hidden &&
           p.location !== 'statusbar' &&
           p.location !== 'modal' &&
           // 工具栏 / 顶部提示条是"贴着编辑器"的辅助条，不该在菜单里单开一个页面

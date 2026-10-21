@@ -66,6 +66,12 @@ export type PanelRegistration = {
   /** 由插件宿主注入（面板归属哪个插件，UI 上用于标注来源） */
   pluginId?: string
   /**
+   * 不进「☰ 菜单」（rev173.86）—— 动态实例面板用：文档阅读器**每个文档一个面板**
+   * （`doc-reader.view.<hash>`），它们是"打开的那份文档"，不是功能入口。
+   * 标签条 / `core.panel.<id>` 命令 / 拖出成窗口照常可用，只是不主动列进菜单。
+   */
+  hidden?: boolean
+  /**
    * 非空 = 这个面板是「WebView 逃生口」（契约 §2.2 / §7.9）：
    * 宿主用 `<iframe sandbox="allow-scripts">` 承载它，**不调用** `render`。
    * 主题令牌靠 postMessage 送达 —— CSS 自定义属性不跨文档边界（见 WebViewFrame）。
