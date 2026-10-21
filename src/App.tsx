@@ -1045,8 +1045,14 @@ export default function App() {
     setToast,
     setSidebarOpen,
     /* 打开成功 ⇒ 登记成标签页（唯一入口是 openNote，见 hook 里的注释）。
-       手机不做多标签页（rev173.68 · 用户「移动端不用做多标签页」）⇒ 不登记。 */
-    onOpened: platform === 'android' ? undefined : (p) => setTabs((prev) => addTab(prev, p)),
+       手机不做多标签页（rev173.68 · 用户「移动端不用做多标签页」）⇒ 不登记。
+       rev173.85：**无论如何都把主区切回编辑器** —— 从面板视图（阅读器 / 导图 / 记账）里
+       点一篇笔记时，`mainView` 还是面板 id，渲染分支根本不看 `activePath` ⇒ 笔记打开了、
+       屏幕上还是那个面板（手机更明显：没有标签条，等于点了没反应）。 */
+    onOpened: (p) => {
+      if (platform !== 'android') setTabs((prev) => addTab(prev, p))
+      setMainView('editor')
+    },
     /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
     canOpen: canOpenNote,
   })
@@ -2927,7 +2933,15 @@ export default function App() {
       · 移动端 —— 只看抽屉开没开。
      用「是不是桌面」而不是媒体查询的宽度来判断：手机横屏、平板都会超过窄屏断点，
      那时 media query 就不准了（Android 上侧栏会突然变成常驻并占掉半个屏幕）。 */
-  const showSidebar = mainView === 'editor' && (isDesktop ? sidebarVisible : sidebarOpen)
+  /**
+   * 侧栏（文件树）什么时候出现。
+   *
+   * rev173.85：**面板视图也保留侧栏** —— 用户把阅读器当"编辑区的内容"用（「pdf 等文档直接打开
+   * 在编辑区同样的位置」），那侧栏就不该跟着消失：不然在读 PDF 时想换一篇笔记，得先点标签回
+   * 编辑器、再从文件树点另一篇，绕一圈。面板页的侧栏点笔记 = `openNote`（会 `setMainView('editor')`）。
+   * 插件管理 / 回收站仍不显示侧栏：那是内侧页，不是"编辑区的内容"。
+   */
+  const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
 
   /**
    * 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）：
@@ -3240,9 +3254,17 @@ export default function App() {
             /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
                走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
             const meta = notes.find((n) => n.path === p)
-            if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
-            else if (meta?.kind === 'image') openImagePreview(p)
-            else void openNote(p)
+            if (meta?.kind === 'doc') {
+              /* rev173.85：手机上侧栏是抽屉，点文档后要收起来，否则抽屉盖在阅读器上
+                 （笔记那条走 `openNote`，它内部已经 `setSidebarOpen(false)`；文档不走它） */
+              setSidebarOpen(false)
+              runCore('core.openDocument', { path: p })
+            } else if (meta?.kind === 'image') openImagePreview(p)
+            else {
+              // rev173.85：已经在面板视图 / 点的是当前这篇（openNote 会早退）时也要回编辑器
+              setMainView('editor')
+              void openNote(p)
+            }
           }}
           onNewFile={newNoteIn}
           onNewDir={newDirIn}
@@ -3280,7 +3302,11 @@ export default function App() {
                 const meta = notes.find((n) => n.path === p)
                 if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
                 else if (meta?.kind === 'image') openImagePreview(p)
-                else void openNote(p)
+                else {
+                  // rev173.85：手机没有标签条，从面板视图点卡片必须显式切回编辑器
+                  setMainView('editor')
+                  void openNote(p)
+                }
               }}
               onNewNote={() => void runCore('core.newNote')}
               readText={(p) =>
@@ -3314,14 +3340,9 @@ export default function App() {
             onBack={() => setMainView('editor')}
             fmtSize={fmtSize}
           />
-        ) : pagePanel || mainView === 'plugins' ? (
-          /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
+        ) : mainView === 'plugins' ? (
+          /* 插件管理 —— 内核页（不是标签内容），保留「重新扫描 / 返回编辑器」那条 bar */
           <div className="zn-main-panel">
-            {/*
-              rev173.84：面板页也要露出标签条 —— 面板标签是在**这里**被拖出 / 右键「在新窗口打开」
-              的。rev173.83 只把标签条放在编辑区分支里，于是"点开面板 → 标签条消失 → 拖不出去"，
-              要回编辑器才能看见那条标签（与"默认主区标签"的意图不符）。
-            */}
             {isDesktop && (
               <TabBar
                 tabs={tabItems}
@@ -3333,19 +3354,16 @@ export default function App() {
               />
             )}
             <div className="zn-main-panel-bar">
-              <span>{pagePanel ? pagePanel.title : '插件管理'}</span>
+              <span>插件管理</span>
               <div className="zn-main-panel-actions">
-                {/* 「重新扫描」原本在插件面板的标题栏里，用户要求挪到这条顶栏上 */}
-                {!pagePanel && (
-                  <button
-                    type="button"
-                    className="zn-plain-btn"
-                    onClick={() => setReloadToken((t) => t + 1)}
-                    title="重新扫描插件目录"
-                  >
-                    重新扫描
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="zn-plain-btn"
+                  onClick={() => setReloadToken((t) => t + 1)}
+                  title="重新扫描插件目录"
+                >
+                  重新扫描
+                </button>
                 {/* 与编辑页那个「关闭」同款：纯净文字按钮 */}
                 <button
                   type="button"
@@ -3358,40 +3376,61 @@ export default function App() {
               </div>
             </div>
             <div className="zn-main-panel-body">
-              {pagePanel ? (
-                <PanelBoundary key={pagePanel.id}>
-                  {pagePanel.webview ? (
-                    /* WebView 逃生口（契约 §2.2）：sandbox iframe + postMessage 送主题令牌 */
-                    <WebViewFrame
-                url={pagePanel.webview.url}
-                title={pagePanel.title}
-                pluginId={pagePanel.pluginId}
-                bridge={pagePanel.pluginId ? getWebviewBridge(pagePanel.pluginId) : undefined}
+              <PluginPanel
+                plugins={rows}
+                error={pluginError}
+                log={panelLog}
+                globalRoot={globalRoot}
+                onToggle={togglePlugin}
+                onDelete={(id) => void deletePlugin(id)}
+                onInstall={() => void installZnp()}
               />
-                  ) : pagePanel.mount ? (
-                    /* rev173.81：DOM 直挂（同上）—— 主区与独立窗口共用这一条分支 */
-                    <PanelMount panel={pagePanel} state={panelState} />
-                  ) : (
-                    <UIRenderer
-                      node={renderPanelSafe(pagePanel, panelState)}
-                      state={panelState}
-                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                      onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-                    />
-                  )}
-                </PanelBoundary>
-              ) : (
-                <PluginPanel
-                  plugins={rows}
-                  error={pluginError}
-                  log={panelLog}
-                  globalRoot={globalRoot}
-                  onToggle={togglePlugin}
-                  onDelete={(id) => void deletePlugin(id)}
-                  onInstall={() => void installZnp()}
-                />
-              )}
             </div>
+          </div>
+        ) : pagePanel ? (
+          /*
+           * 插件面板 —— 与编辑器**共用同一个外壳**（rev173.85 · 用户「pdf 等文档直接打开在
+           * 编辑区同样的位置」）：顶部标签条 + 下面一整块内容区，内容区直接画面板。
+           *
+           * 不再套「主区页面」那层标题 bar：它会把阅读器挤到 bar 下面、还带一圈 padding +
+           * 灰底，与编辑器不在同一个位置（用户要的正是"同一个位置"）。
+           * 退出路径 = 点别的标签 / 关标签 × / Android 返回键（`mainView !== 'editor'` 时回编辑器）。
+           */
+          <div className="zn-editor-wrap">
+            {isDesktop && (
+              <TabBar
+                tabs={tabItems}
+                activePath={activeTabKey}
+                onSelect={selectTab}
+                onClose={closeTabOf}
+                onContextMenu={openTabMenu}
+                onDragEnd={handleTabDragEnd}
+              />
+            )}
+            <PanelBoundary key={pagePanel.id}>
+              {pagePanel.webview ? (
+                /* WebView 逃生口（契约 §2.2）：sandbox iframe + postMessage 送主题令牌 */
+                <WebViewFrame
+                  url={pagePanel.webview.url}
+                  title={pagePanel.title}
+                  pluginId={pagePanel.pluginId}
+                  bridge={pagePanel.pluginId ? getWebviewBridge(pagePanel.pluginId) : undefined}
+                />
+              ) : pagePanel.mount ? (
+                /* rev173.81：DOM 直挂 —— 主区与独立窗口共用这一条分支 */
+                <PanelMount panel={pagePanel} state={panelState} />
+              ) : (
+                /* 声明式面板：原来靠 `.zn-main-panel-body` 给 padding / 滚动，现在自己带一层 */
+                <div className="zn-panel-render">
+                  <UIRenderer
+                    node={renderPanelSafe(pagePanel, panelState)}
+                    state={panelState}
+                    onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                    onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+                  />
+                </div>
+              )}
+            </PanelBoundary>
           </div>
         ) : activePath ? (
           <div className="zn-editor-wrap">

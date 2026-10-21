@@ -1276,6 +1276,28 @@ body.is-resizing * {
   overflow: auto;
 }
 
+/**
+ * 面板放进**编辑区外壳**（rev173.85 · 用户「pdf 等文档直接打开在编辑区同样的位置」）。
+ *
+ * `.zn-editor-wrap` 是 flex 列（标签条 + 内容区），里面 `height: 100%` 会把标签条那 34px
+ * 也算进去 ⇒ 内容区撑出容器、底部被裁。改成 flex 子项：吃掉标签条剩下的高度。
+ * （窗口模式 `.zn-plugin-window-body` 那边仍是 height:100% 的容器，不受影响。）
+ */
+.zn-editor-wrap > .zn-panel-mount,
+.zn-editor-wrap > .zn-webview-frame {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+/* 声明式（UINode）面板在主区：原来靠 `.zn-main-panel-body` 给 padding / 滚动，现在自己带一层 */
+.zn-panel-render {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
 /* WebView 逃生口（契约 §2.2）：插件自己的页面跑在 sandbox iframe 里。
    撑满所在容器、去掉默认边框。主题令牌没法"灌"进来（CSS 变量不跨文档边界），
    由 WebViewFrame 用 postMessage 送 —— 页面自己 `setProperty` 应用。 */

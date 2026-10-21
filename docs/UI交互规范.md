@@ -10,7 +10,7 @@
 │ ☰ 菜单 │ 文档名（拖出=收回〕│ 时间流开关 │ 最小化 最大化 关闭 │
 ├ 侧栏 ─┬ 时间流 ─┬ 编辑区 ────────────────────────────────┤
 │ 文件树 │ 卡片流   │ 标签条（TabBar）                        │
-│ 插件   │ 300px   │ 编辑器                                  │
+│ 插件   │ 300px   │ 编辑器 / 插件面板（同一块内容区，rev173.85）│
 │ 回收站 │ 可关    │ 状态栏（未保存 / 字数 / 位置）           │
 └───────┴─────────┴────────────────────────────────────────┘
 ```
@@ -21,6 +21,7 @@
 | 侧栏 | 宽度可拖，记忆 `zeronote.sidebar.w` | `src/App.tsx` |
 | 时间流 | 侧栏与编辑区之间，默认 300px（160–560），可关，状态存 localStorage | `src/components/MobileNoteCards.tsx`（`variant="panel"`） |
 | 标签条 | 编辑器顶部；标题 + 未保存圆点 + ×；拖出=拆窗 | `src/components/TabBar.tsx` · `src/lib/tabs.ts` |
+| 插件面板 | **和编辑器同一块内容区**（标签条之下）——PDF / 导图默认开成主区标签（`panel:<id>`），拖出 / 右键 = 独立窗口；面板视图**侧栏照常显示**（rev173.85） | `src/components/PanelMount.tsx` · `view.registerPanel({ mount })` |
 | 浮层 | 命令面板 / 搜索 / 设置 / 替换均为遮罩浮层，**不推正文** | `CommandPalette.tsx` · `SearchPanel.tsx` · `ReplacePanel.tsx` |
 
 ## 2 手机布局

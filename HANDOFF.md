@@ -1,14 +1,15 @@
 # 项目交接
 
-revision: 173.84
-更新时间: 2026-10-21（rev173.84 **doc-reader 迁到面板**：整窗接管 `overrideShell` → `registerPanel({ mount })`（面板 `doc-reader.view`）—— 打开文档后**默认主区标签**（执行宿主注册的 `core.panel.<id>`，命令不存在时重试 5 次兜住冷启动竞态）；标签拖出 / 右键「在新窗口打开」= `?pluginWindow=doc-reader.view` 独立窗口；**换文档**走模块级 `currentDoc` + 实例 `show()` 回调（面板 mount 只跑一次），**窗口**里重新 apply 后从 `store`（键 `last`）读路径；面板里不再画「✕ 关闭」（退出归内核：返回编辑器 / 关标签 / 窗口三键）· 顺手补 rev173.83 的缺口：**面板标签拖出后主区复位编辑器**（此前会同一面板两份）。未做桌面 / 真机实测（见段内诚实标注）。rev173.83 面板标签：阅读器 / 导图 / 标签列表也能进**编辑区标签条**（`panel:<id>` 前缀）—— 默认主区标签，**拖出标签 = 独立窗口**（复用 rev173.52 的手势，`?pluginWindow=` 窗口）；关标签不存盘、`Ctrl+Tab` 循环穿过面板标签、换库清空；`Kernel.openPanelWindow` 把「宿主开面板窗口」与插件 API 收在一处；rev173.82 内核：**openWindow 在 Android 自动降级为主区面板** —— Tauri 2 移动端没有多 webview（`unstable` 未开），真建窗只会落到 `tauri://error` 日志、表现为"点了没反应"；降级后 UI 真的出现、返回键能回来，插件**不用再写 `platform === 'android'` 分支**；rev173.81 内核：**面板支持 DOM 直挂**（`view.registerPanel({ mount })`）—— 给 pdf.js 的 canvas / mind-elixir 的画布这类真 DOM 界面用；主区与独立窗口共用同一条渲染分支，内核保留顶栏与返回键；注册期校验 render/mount 互斥、至少一个、mount 只限 main/sidebar；新增 `src/components/PanelMount.tsx` + 单测 8 条。下一步：把 doc-reader（然后 outline-map）从整窗接管迁到面板 mount；rev173.80 A 档 4 个插件的调研与方案（只调研、不写代码）：新增 `docs/待做插件-调研与方案-2026-10-21.md` —— ① 现状核实（4 个插件要用的原语全在：`index.tags()` / `index.query(tag)` / `doc.on` / `store` / `view` / `host.notify`）+ 4 条硬约束（无独立侧栏 / ViewCtx 无 activePath / 无定时器原语 / `core.panel.<id>` 不能传参）② 同类做法（VS Code Local History 1.66 一手：保存即条目、50 条/篇、256 KB、10 s 合并窗口；Obsidian 标签页与反链页为 SPA 未取正文，已注明）③ 4 份方案（标签面板 4 h · 双链 1 d · 历史版本 1.5 d · 提醒打卡 2.5 d）④ 5 张卡 + 4 个待拍板决定 ⑤ **先跑 A0 探针**：`[[ ]]` 点击归 atomic 还是插件（editor-marks 注释自认点不到）；rev173.79 决策：插件宿主隔离**明确放弃** / 插件市场**降级不排期**（用户裁决）—— 新增 `docs/decisions/D-008-暂不做插件市场与更新通道.md`（pending）· 宿主隔离按既有 D-001 不做，契约 §6 的 v0.2 行标注降级 · `内核契约-v0.2.md` §4 末 / §6 / §7 第 4 条同步 · CARD「下个会话第一件事」主线清零；rev173.78 插件能力使用审计：只记 API 名与次数（不含参数/内容）、Proxy 包 10 原语、落盘 `.zn/plugin-usage.json`、诊断出口 `__znPluginUsage()`；rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
+revision: 173.85
+更新时间: 2026-10-21（rev173.85 **面板就画在编辑区**：用户「pdf 等文档直接打开在编辑区同样的位置」—— rev173.84 迁移后点 PDF 会把整个主区换成"面板页"（标题 bar + 灰底 + padding），侧栏也跟着消失。现在面板与编辑器**共用 `zn-editor-wrap` 外壳**（顶部标签条 + 下面一整块内容区），面板内容直接画在编辑区那块；**侧栏常驻**（读 PDF 时也能直接换笔记）；从面板视图点笔记一律 `setMainView('editor')`（含 `openNote` 的「已经是这篇」早退路径；手机也走）。桌面 CDP 实测：标签条双标签来回切、`.cm-editor` / `.dn-root` 互斥、侧栏在面板页可见；手机端真机 33b676f6 实测通过（面板在编辑区、无标签条、点文档自动收抽屉、返回键回起始页）。rev173.84 **doc-reader 迁到面板**：整窗接管 `overrideShell` → `registerPanel({ mount })`（面板 `doc-reader.view`）—— 打开文档后**默认主区标签**（执行宿主注册的 `core.panel.<id>`，命令不存在时重试 5 次兜住冷启动竞态）；标签拖出 / 右键「在新窗口打开」= `?pluginWindow=doc-reader.view` 独立窗口；**换文档**走模块级 `currentDoc` + 实例 `show()` 回调（面板 mount 只跑一次），**窗口**里重新 apply 后从 `store`（键 `last`）读路径；面板里不再画「✕ 关闭」（退出归内核：返回编辑器 / 关标签 / 窗口三键）· 顺手补 rev173.83 的缺口：**面板标签拖出后主区复位编辑器**（此前会同一面板两份）· 另修两个内核缺口：`core.openDocument` 被大 effect 重注册覆盖（插件接管失效）、面板页没有标签条。rev173.83 面板标签：阅读器 / 导图 / 标签列表也能进**编辑区标签条**（`panel:<id>` 前缀）—— 默认主区标签，**拖出标签 = 独立窗口**（复用 rev173.52 的手势，`?pluginWindow=` 窗口）；关标签不存盘、`Ctrl+Tab` 循环穿过面板标签、换库清空；`Kernel.openPanelWindow` 把「宿主开面板窗口」与插件 API 收在一处；rev173.82 内核：**openWindow 在 Android 自动降级为主区面板** —— Tauri 2 移动端没有多 webview（`unstable` 未开），真建窗只会落到 `tauri://error` 日志、表现为"点了没反应"；降级后 UI 真的出现、返回键能回来，插件**不用再写 `platform === 'android'` 分支**；rev173.81 内核：**面板支持 DOM 直挂**（`view.registerPanel({ mount })`）—— 给 pdf.js 的 canvas / mind-elixir 的画布这类真 DOM 界面用；主区与独立窗口共用同一条渲染分支，内核保留顶栏与返回键；注册期校验 render/mount 互斥、至少一个、mount 只限 main/sidebar；新增 `src/components/PanelMount.tsx` + 单测 8 条。下一步：把 doc-reader（然后 outline-map）从整窗接管迁到面板 mount；rev173.80 A 档 4 个插件的调研与方案（只调研、不写代码）：新增 `docs/待做插件-调研与方案-2026-10-21.md` —— ① 现状核实（4 个插件要用的原语全在：`index.tags()` / `index.query(tag)` / `doc.on` / `store` / `view` / `host.notify`）+ 4 条硬约束（无独立侧栏 / ViewCtx 无 activePath / 无定时器原语 / `core.panel.<id>` 不能传参）② 同类做法（VS Code Local History 1.66 一手：保存即条目、50 条/篇、256 KB、10 s 合并窗口；Obsidian 标签页与反链页为 SPA 未取正文，已注明）③ 4 份方案（标签面板 4 h · 双链 1 d · 历史版本 1.5 d · 提醒打卡 2.5 d）④ 5 张卡 + 4 个待拍板决定 ⑤ **先跑 A0 探针**：`[[ ]]` 点击归 atomic 还是插件（editor-marks 注释自认点不到）；rev173.79 决策：插件宿主隔离**明确放弃** / 插件市场**降级不排期**（用户裁决）—— 新增 `docs/decisions/D-008-暂不做插件市场与更新通道.md`（pending）· 宿主隔离按既有 D-001 不做，契约 §6 的 v0.2 行标注降级 · `内核契约-v0.2.md` §4 末 / §6 / §7 第 4 条同步 · CARD「下个会话第一件事」主线清零；rev173.78 插件能力使用审计：只记 API 名与次数（不含参数/内容）、Proxy 包 10 原语、落盘 `.zn/plugin-usage.json`、诊断出口 `__znPluginUsage()`；rev173.77 插件真签名：Ed25519 签名工具 + 加载时强制验签（有签名必须验过，否则拒载）+ 插件页三态 + 信任根 `.zn/trusted-keys.json`；rev173.76 iframe ↔ 宿主能力通道：postMessage 请求/应答 + 令牌鉴权 + 7 条白名单（store / host.info / host.notify / 本插件命令）；rev173.75 记账：完成态短语无金额也入账 + 单笔删除；rev173.74 独立笔记窗口 Ctrl+Shift+F 不再静默；rev173.73 记账收尾：每月预算 / 分类管理（排序·删除）/ 无金额补录 / 启动自动静默同步；rev173.72 决策：不做分屏（D-007，Windows 原生并排够用）；rev173.71 查找面板补「替换」入口（Ctrl+F 面板里直接进替换栏，关键词带过去）；rev173.70 0.3.0 发版：独立窗口 Ctrl+F 归编辑器（note-* / plugin-* 补关 WebView2 浏览器加速键）+ 库内插件迁移失败可见 + 推送 34 个提交 + tag v0.3.0；rev173.69 标签条：第一条贴左缘 / 取消活动标签顶部阴影；rev173.68 独立窗口关闭 = 交回主窗口（移除拖拽收回手势）；rev173.67 笔记独立窗口标题条：整条可拖 / 标题居中 / 去掉「收回」按钮；rev173.66 手机卡片菜单进返回键层栈；rev173.65 会话恢复（hot exit）：崩溃 / 整页重载后启动提示「恢复 / 丢弃」；rev173.64 交接：多窗口三件事收口，下个会话做 hot exit；rev173.63 独立窗口占用账本持久化（P1-c）；rev173.62 独立窗口三键与主窗口对齐（标题条 padding）；rev173.61 主窗口位置/大小记忆（P1-b，只恢复 main）；rev173.60 笔记独立窗口跳过插件加载（P1-a）；rev173.59 文件监听补齐（桌面 notify watcher + 自写抑制，P0 收口）；rev173.58 交接：质量基建 + 文档补强 + 对标 v2；rev173.57 系统总览（拓扑 / 三条主流程 / 模块地图）；rev173.56 UI 规范 + 数据字典（键位表自动生成）；rev173.55 质量基建（facts / 质量门 / 决策记录，测试 445）；rev173.54 标题条拖出=收回 + 多窗口调研补课；rev173.53 独立窗口收成纯编辑窗口；rev173.52 标签拖出/拖回 + 同一篇互斥；rev173.51 标签页拆独立窗口；rev173.50 多标签页；rev173.49 全局替换；rev173.48 时间流开关 + 手机长按 ☰ 出菜单；rev173.47 搜索筛选；rev173.46 粘贴图片；rev173.45 交接；rev173.44 待办登记；rev173.43 查找面板悬挂窗；rev173.42 Ctrl+F 修回编辑器查找；rev173.41 插件失败可见 + 外链提示；rev173.40 搜索索引增量 + 内核事件派发）
 项目: ZeroNote
 
 ## rev 索引（最新在前 · 按 rev 号搜本文件即可跳转）
 
 | rev | 内容 |
 |---|---|
-| rev173.84 | 2026-10-21 · **doc-reader 迁到面板（`registerPanel({ mount })`）**：不再整窗接管 —— PDF / EPUB / TXT 现在画在**主区标签**里（`doc-reader.view`），拖出 = 独立窗口（复用 rev173.83 手势）· 换文档走模块级 `currentDoc` + 实例 `show()`（mount 只跑一次）；窗口（新 webview）从 `store` 键 `last` 读路径 · `core.panel.<id>` 重试 5 次兜冷启动竞态 · 阅读器不再画「关闭」· 顺手修 rev173.83 缺口：面板标签拖出后主区回编辑器 · 换库比对 `store.last.vault`（不用 `vault:open`，它每代都发会误清） · 未做桌面 / 真机实测 |
+| rev173.85 | 2026-10-21 · **面板就画在编辑区**（用户「pdf 等文档直接打开在编辑区同样的位置」）：面板与编辑器共用 `zn-editor-wrap` 外壳（标签条 + 一整块内容区），不再套「主区页面」的标题 bar / padding · **侧栏常驻**（读 PDF 时能直接点别的笔记）· 从面板视图点笔记一律 `setMainView('editor')`（含 `openNote` 早退路径，手机也走）· CSS：`.zn-editor-wrap > .zn-panel-mount / .zn-webview-frame` 改 flex 子项（`height:100%` 会把标签条算进去撑出滚动）· 桌面 CDP 实测双标签来回切 |
+| rev173.84 | 2026-10-21 · **doc-reader 迁到面板（`registerPanel({ mount })`）**：不再整窗接管 —— PDF / EPUB / TXT 现在画在**主区标签**里（`doc-reader.view`），拖出 = 独立窗口（复用 rev173.83 手势）· 换文档走模块级 `currentDoc` + 实例 `show()`（mount 只跑一次）；窗口（新 webview）从 `store` 键 `last` 读路径 · `core.panel.<id>` 重试 5 次兜冷启动竞态 · 阅读器不再画「关闭」· 顺手修 rev173.83 缺口：面板标签拖出后主区回编辑器 · 换库比对 `store.last.vault`（不用 `vault:open`，它每代都发会误清） · 另修 `core.openDocument` 被大 effect 重注册覆盖（插件接管失效）+ 面板页没有标签条 · 桌面 CDP 实测 |
 | rev173.83 | 2026-10-21 · **面板标签（编辑区标签条）**：插件面板也能进标签条（`panel:<id>` 前缀，`lib/tabs.ts` 加 `panelTabId` / `isPanelTab` / `panelIdOfTab`）—— 默认**主区标签**，**拖出标签 = 独立窗口**（复用 rev173.52 手势，开 `?pluginWindow=` 窗口）；关标签不存盘 · `Ctrl+Tab` 循环穿过面板标签 · `Ctrl+W` 关当前（面板标签回编辑器）· 右键「在新窗口打开」分叉 · 换库清空 · `Kernel.openPanelWindow` 把宿主开窗与插件 API 收在一处 · 单测 +4（tabs 3 / kernel 1） |
 | rev173.82 | 2026-10-21 · **openWindow 的 Android 降级**：手机没有多 webview（Tauri 2 `unstable` 多窗口未开），真建窗只会 `tauri://error` ⇒ 用户看到「点了没反应」（outline-map rev173.11 这么踩过）。改为**主区打开那个面板**（`KernelHooks.platform` + `onOpenPanelInMain`），UI 真的出现、返回键能回来 · 插件不用再写平台分支 · 契约 §2.2 的「平台」行同步 · 单测 +2（桌面照常建窗口 / Android 不建窗口且主区打开） |
 | rev173.81 | 2026-10-21 · **面板支持 DOM 直挂**（`view.registerPanel({ mount })`）：给 pdf.js / mind-elixir 这类「UINode 表达不了」的界面用，主区与独立窗口共用一条渲染分支（内核保留顶栏与返回键，对比整窗接管要把内核 UI 请下场）· 注册期三条校验（render/mount 二选一、至少一个、mount 只限 main/sidebar）· 新增 `src/components/PanelMount.tsx`（mount 只调一次 / dispose 先于清空 / `ctx.state` getter / 抛错不白屏）· `App.tsx` 两处分支 · `styles.css` `.zn-panel-mount` · **单测 8 条** · 契约 §2.2 同步 |
@@ -230,6 +231,51 @@ revision: 173.84
 | rev30.1 | 同日 12:30 · CSP 放宽 + 一处**结论纠正** + 插件能力盘点 |
 | rev30 | 一次看懂（2026-10-12 下午） |
 
+> ## 📌 rev173.85（2026-10-21 · 面板就画在编辑区：同一块地方，标签切换内容）
+>
+> 用户原话：「跑双端的dev，我的意思是 pdf 等文档直接打开在编辑区同样的位置」。
+> rev173.84 迁完后，点 PDF 会把**整个主区**换成「面板页」（一条标题 bar + 灰底 + padding），
+> 编辑器被挤走、侧栏也消失 —— 那不是"标签切换内容"，那是"换了一个页面"。
+>
+> ### 改了什么
+>
+> | 文件 | 改动 |
+> |---|---|
+> | `src/App.tsx` | 渲染拆成三条：**插件管理**（内核页，保留原 bar）/ **插件面板**（与编辑器**共用 `zn-editor-wrap`**：只有标签条 + 一整块内容区，没有面板标题 bar）/ 编辑器 |
+> | 同上 | `showSidebar = (mainView === 'editor' \|\| !!pagePanel) && …` —— 面板视图**保留文件树**（读 PDF 时想换一篇笔记，不必先点标签回编辑器） |
+> | 同上 | `onOpened` 无条件 `setMainView('editor')`（手机也走）；侧栏 / 手机卡片点笔记的 else 分支各补一次（覆盖 `openNote` 的「已经是这篇」早退路径 —— 那条路径不走 `onOpened`） |
+> | `src/styles.css` | `.zn-editor-wrap > .zn-panel-mount / .zn-webview-frame { flex:1; min-height:0; height:auto }` —— 在 flex 列里 `height:100%` 会把 34px 标签条一起算进去、撑出滚动 · 新增 `.zn-panel-render`（声明式面板自己带 padding / 滚动） |
+>
+> ### 为什么"侧栏 + 视图切换"是必须一起改的
+> 面板页以前没有侧栏（`showSidebar` 只认 `mainView === 'editor'`），所以"点笔记切过去"这条路
+> **本来不存在**。一旦把侧栏放到面板页，`openNote` 打开笔记、`mainView` 却还是面板 id ⇒
+> 内容打开了、屏幕没变（手机没有标签条，等于点了没反应）。三处 `setMainView('editor')` 是配套的。
+>
+> ### 实测（桌面 CDP · 2026-10-21）
+>
+> | 项 | 读数 |
+> |---|---|
+> | 位置 | 打开 probe.pdf：标签条在顶部 → 阅读器顶栏（删除 / 文件名 / 页码）→ PDF 铺满余下高度；**没有**面板标题 bar（`bar=false`）· 侧栏 `tree=true` |
+> | 双标签切换 | 标签条 `["新笔记-23-37-07 ×","文档阅读器 ×"]`；点笔记 ⇒ `.cm-editor` ✓ / `.dn-root` ✗ / active=笔记；点阅读器 ⇒ 反过来 ✓ |
+> | 面板页点笔记 | 侧栏点「新笔记-23-37-07.md」⇒ 视图切到编辑器（修之前只加标签、屏幕还停在 PDF） |
+> · 截图：`_shots/rev17385-doc-reader-inline-sidebar.png`
+> · 手机（Android dev · 真机 33b676f6 · CDP 9333）实测：
+>   `.zn-editor-wrap` ✓ / 旧 `.zn-main-panel` ✗ / 无标签条（手机不做）✓ / 面板高度 758（视口 868，差距是顶栏 + 状态栏）·
+>   点「说明.txt」→ 阅读器「15 字符」且**抽屉自动收起**（`drawer=false`；这一条是手机实测后补的修：文档分支
+>   不走 `openNote`，所以它内部的 `setSidebarOpen(false)` 不会执行）· 返回键 `__znBackPress()=true` → 回起始页 ✓
+> · 截图：`_shots/rev17385-doc-reader-inline-sidebar.png`（桌面）· `_shots/rev17385-phone-reader-txt.png`（手机）
+> · HMR 踩坑：连续改 `App.tsx` 后手机页面一度**整页白屏**（`#root` 空、`.zn-app` 不存在）——
+>   `location.reload()` 即恢复。判断依据：桌面同一份代码正常、手机 reload 后也正常 ⇒ 长时间 dev
+>   session 的模块图损坏，不是代码问题。**别把它当回归查**。
+>
+> ### 一并记一笔：空白死窗口（我这轮测试造的，不是产品 bug）
+>
+> 我用 CDP 在插件窗口里执行了 `window.close()` —— WebView2 只销毁了**页面**，Tauri 的窗口壳还在；
+> 而插件窗口 `decorations:false`、关闭按钮画在页面里 ⇒ 页面没了就**没有任何关闭入口**（关不掉）。
+> 清理：主窗口 `getAllWebviewWindows()` 找到 `plugin-doc-reader-view-1` → `destroy()`。
+> **规矩：关 Tauri 窗口一律 `getCurrentWindow().destroy()`，不要用 `window.close()`。**
+> 产品侧的真实隐患：插件窗口若整页白屏（JS 全挂），窗口同样关不掉 —— 未做兜底，记在 CARD 未决。
+>
 > ## 📌 rev173.84（2026-10-21 · doc-reader 迁到面板：主区标签 / 独立窗口，一个面板两种壳）
 >
 > CARD 第 6 条 ②（0.5 d）：把文档阅读器从**整窗接管**迁到 `registerPanel({ mount })`。

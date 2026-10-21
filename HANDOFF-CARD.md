@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-21（rev173.84）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-21（rev173.85）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.84 · 0.3.0 · 2026-10-21 |
+| rev / 版本 | rev173.85 · 0.3.0 · 2026-10-21 |
 | 测试基线 | vitest 547 · cargo 36 · oxlint 3 warnings（2026-10-21） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-21 · CHANGELOG 0.3.0 |
@@ -38,6 +38,7 @@ pwsh -File scripts\verify.ps1
 6. **A 档 4 个插件（下一步的正题）**：✅ 调研（rev173.80）→ ✅ **内核地基**：rev173.81 面板可画 DOM（`registerPanel({ mount })`）· rev173.82 手机上 `openWindow` 自动降级为主区面板。**用户定的最终形态（2026-10-21）**：**主区标签页与独立窗口，自由选择** —— 阅读器 / 导图默认作为**主区标签**打开，也能（右键 / 拖出）开成**独立窗口**；手机只有主区（没有真多窗口）。**下一步按顺序**：
    ① ✅ **标签页支持「面板标签」（rev173.83 已完成）**：`panel:<id>` 前缀 · 默认主区标签 · **拖出 = 独立窗口**（复用 rev173.52 手势）· `Ctrl+Tab` 穿过 · 关标签不存盘 · 换库清空 · 内核 `openPanelWindow`
    ② ✅ **doc-reader 迁到 `registerPanel({ mount })`（rev173.84 已完成）**：面板 `doc-reader.view` · 打开文档 = 主区标签（执行 `core.panel.<id>`，命令不存在重试 5 次兜冷启动）· 拖出 / 右键「在新窗口打开」= 独立窗口（窗口里从 `store.last` 读路径）· 换文档走模块级 `currentDoc` + 实例回调（mount 只跑一次）· 不再画「关闭」（退出归内核）· **桌面 CDP 实测通过**（主区标签 / 独立窗口同一份 / 拖出后主区复位），**手机未测** · 顺手修两个内核缺口：面板页没有标签条（拖不出去）· `core.openDocument` 被内核大 effect 重注册覆盖（插件接管失效，点 PDF 永远弹「没装插件」）
+   ②-b ✅ **面板就画在编辑区（rev173.85 已完成）**：用户「pdf 等文档直接打开在编辑区同样的位置」—— 面板与编辑器共用 `zn-editor-wrap` 外壳（标签条 + 一整块内容区），不再套面板标题 bar · **侧栏常驻**（读 PDF 时直接点别的笔记）· 从面板视图点笔记一律 `setMainView('editor')`（含 `openNote` 早退路径，手机也走）· 桌面 CDP 实测双标签来回切 · **手机真机 33b676f6 实测**：无标签条 ✓ · 点「说明.txt」→ 阅读器「15 字符」+ 抽屉自动收起 ✓ · 返回键回起始页 ✓
    ③ outline-map 同样迁移，删掉 `host.platform === 'android'` 分支（1 d）
    ④ 标签列表视图（原 A1）也做成标签；之后才是 A0 探针（`[[ ]]` 点击归属）→ 双链 → 历史版本 → 提醒打卡。
 
@@ -138,7 +139,8 @@ pwsh -File scripts\verify.ps1
 | merge3 同点插入语义 | ✅ rev121：判冲突、mine 赢（theirs 那段丢弃） |
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
 | 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项（工程债已 rev131 清） |
-| 文档阅读器（面板化） | ✅ **rev173.84**：`view.overrideShell` → `view.registerPanel({ mount })`（面板 `doc-reader.view`）—— PDF / EPUB / TXT 画在**主区标签**里，拖出 / 右键 = 独立窗口；换文档走模块级 `currentDoc` + 实例回调（mount 只跑一次），窗口（新 webview）从 `store.last` 读路径；阅读器不再画「关闭」；换库比对 `store.last.vault`（不用 `vault:open` —— 每代都发，会误清冷启动刚打开的文档）。**桌面 CDP 实测**：打开 probe.pdf → 主区标签「文档阅读器」+ 第 1/1 页 · 右键 → 独立窗口同一份（从 store 读路径）· 拖出后主区复位。**手机未测**（主区 + 返回键请实点一次）· 另修两个内核缺口：面板页没标签条（拖不出去）· `core.openDocument` 被大 effect 重注册覆盖（接管失效） |
+| 文档阅读器（面板化） | ✅ **rev173.84**：`view.overrideShell` → `view.registerPanel({ mount })`（面板 `doc-reader.view`）—— PDF / EPUB / TXT 画在**主区标签**里，拖出 / 右键 = 独立窗口；换文档走模块级 `currentDoc` + 实例回调（mount 只跑一次），窗口（新 webview）从 `store.last` 读路径；阅读器不再画「关闭」；换库比对 `store.last.vault`（不用 `vault:open` —— 每代都发，会误清冷启动刚打开的文档）。**桌面 CDP 实测**：打开 probe.pdf → 主区标签「文档阅读器」+ 第 1/1 页 · 右键 → 独立窗口同一份（从 store 读路径）· 拖出后主区复位。**手机真机 33b676f6 实测**（rev173.85 补）：点「说明.txt」→ 阅读器出内容、抽屉自动收起、返回键回起始页 · 另修两个内核缺口：面板页没标签条（拖不出去）· `core.openDocument` 被大 effect 重注册覆盖（接管失效）。✅ **rev173.85 换到"编辑区同一位置"**：面板与编辑器共用外壳（标签条 + 内容区），侧栏常驻，面板视图点笔记切回编辑器 · 桌面 + 手机实测 |
+| 插件窗口整页白屏 ⇒ 关不掉 | ⚠️ **已知隐患（未做兜底）**：独立窗口 `decorations:false`，关闭按钮画在页面里（`App.tsx` 的 `zn-plugin-window-bar`）。若页面整页挂掉（JS 全挂 / 白屏），标题条一起没了 ⇒ **没有任何关闭入口**。实测成因：在窗口里执行 `window.close()` 只销毁页面、窗口壳还在（`plugin-doc-reader-view-1` 因此卡死，最后从主窗口 `getAllWebviewWindows()` + `destroy()` 清掉）。**规矩：关窗口用 `getCurrentWindow().destroy()`，别用 `window.close()`**。兜底方案候选：主窗口启动时扫孤儿窗口 / 窗口加 Rust 侧关闭快捷键 / 给窗口留系统装饰兜底 |
 | A 档 4 个插件（标签 / 双链 / 历史 / 提醒打卡） | ⏳ **调研完成（rev173.80）**：`docs/待做插件-调研与方案-2026-10-21.md`（现状核实 + 同类做法 + 4 份方案 + 5 张卡）· 总成本约 **5.5 天** · **先跑 A0 探针**（`[[ ]]` 点击归 atomic 还是插件，0.5 h，决定双链怎么落地）· 开工前需拍板方案 §5 的 4 个决定 |
 | Worker / 子进程插件宿主 | ✅ **明确放弃（2026-10-21 用户裁决）**：按 `D-001` 不做，不再排期、不再讨论 · 依据：自用不装第三方插件 · 兜底已落地（看门狗 5 s 心跳超时 ⇒ `exit(101)` ⇒ 下次启动禁用该插件 ⇒ 一键恢复；渲染崩溃另有 `PanelBoundary`）· 真要重开必须先推翻 `D-001` |
 | 插件签名 / 分发 | ✅ **签名已做（rev173.77）**：Ed25519 `signature.json` + 信任根 `.zn/trusted-keys.json` · 有签名必须验过否则拒载 · `scripts/keygen.mjs` / `sign.mjs` · 插件页三态（已签名 / 已校验 / 未签名）。**插件市场 / 更新通道 ⏸ `D-008` 降级不排期（2026-10-21）**（签名只解决"是谁发布的"）· 多文件 `manifest.files` 未纳入签名 |
@@ -187,12 +189,15 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **交接时 dev 状态（2026-10-20 23:47）**：`dev.cmd` 起的桌面窗口 pid **10208**（23:39 起，**CDP 9222 在**，`node tools/cdp.mjs` 直接可用）；库 `_tmp-vault-tb`。`note-1` 窗口开着（`?note=新笔记-15-16-04.md`）。
-  **只有一个 vite = 1420**（dev.cmd 自起；1421 未监听，旧的 android dev 链 vite 已清）。
+- **交接时 dev 状态（2026-10-21 13:45）**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · cargo/zeronote 起于 02:15）；**Android dev 本轮已起**（真机 `33b676f6`/ARIA，`android-dev.cmd` → `.self-logs/android-dev.log`）。
+  ⚠️ **起 android dev 前先清残留**：昨天（10-20 00:54）的 `pnpm tauri android dev`（pid 624/23272）一直持有 Android 构建锁，
+  新实例只打一行「Blocking waiting for file lock on Android」然后干等 —— 本轮清掉后才开始编译。库 `_tmp-vault-tb`。
   **别用后台 job 托管 GUI 进程**（job 结束会连带杀进程树）；`dev.cmd` 自带 `ZN_WATCHDOG=off`。
-- **手机状态（2026-10-21 01:16 更新）**：dev 包 pid **30063**（force-stop 重开过），在前台、记账验完已退回编辑器；
-  手机 CDP 转发已按新 pid 重建：`tcp:9333 → webview_devtools_remote_30063`
-  （`ZN_CDP=http://127.0.0.1:9333 node tools/cdp.mjs …`）；换进程后先 `forward --remove tcp:9333` 再按新 pid 重建。
+- **手机状态（2026-10-21 13:50 更新）**：Android dev 本轮重新构建并**装到真机**（`com.aqua.zeronote.debug`，App 进程 pid **32688**，前台）；
+  手机 CDP 转发已按新 pid 重建：`tcp:9333 → webview_devtools_remote_32688`
+  （`ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost node tools/cdp.mjs …` —— 手机的页面 URL 是 `http://tauri.localhost/`，
+  不设 `ZN_TARGET` 会挑不到）；换进程后先 `forward --remove tcp:9333` 再按新 pid 重建。
+  手机库里有 2 个文档（`测试书籍.epub` / `说明.txt`），没有 PDF —— 要验 PDF 需先推一份。
 - **别用管理员跑 dev**：管理员实例会污染默认的 WebView2 用户数据目录（普通权限再跑 = `0x800700AA`；
   注意这只是**多因之一**，不是最初那次报错的原因）—— 已污染就用 `scripts\dev.ps1` 绕开（项目内目录，普通权限稳定）。
 - **dev 日志只进 stdout**（rev173.11 起）：`tauri-plugin-log` 去掉了 `LogDir` target，不再写 `%LOCALAPPDATA%\com.aqua.zeronote\logs`（那里被管理员实例写过后，普通权限会 `os error 5` 直接 panic）。
