@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-21（rev173.86）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-21（rev173.87）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.86 · 0.3.0 · 2026-10-21 |
+| rev / 版本 | rev173.87 · 0.3.0 · 2026-10-21 |
 | 测试基线 | vitest 547 · cargo 36 · oxlint 3 warnings（2026-10-21） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-21 · CHANGELOG 0.3.0 |
@@ -40,6 +40,7 @@ pwsh -File scripts\verify.ps1
    ② ✅ **doc-reader 迁到 `registerPanel({ mount })`（rev173.84 已完成）**：面板 `doc-reader.view` · 打开文档 = 主区标签（执行 `core.panel.<id>`，命令不存在重试 5 次兜冷启动）· 拖出 / 右键「在新窗口打开」= 独立窗口（窗口里从 `store.last` 读路径）· 换文档走模块级 `currentDoc` + 实例回调（mount 只跑一次）· 不再画「关闭」（退出归内核）· **桌面 CDP 实测通过**（主区标签 / 独立窗口同一份 / 拖出后主区复位），**手机未测** · 顺手修两个内核缺口：面板页没有标签条（拖不出去）· `core.openDocument` 被内核大 effect 重注册覆盖（插件接管失效，点 PDF 永远弹「没装插件」）
    ②-b ✅ **面板就画在编辑区（rev173.85 已完成）**：用户「pdf 等文档直接打开在编辑区同样的位置」—— 面板与编辑器共用 `zn-editor-wrap` 外壳（标签条 + 一整块内容区），不再套面板标题 bar · **侧栏常驻**（读 PDF 时直接点别的笔记）· 从面板视图点笔记一律 `setMainView('editor')`（含 `openNote` 早退路径，手机也走）· 桌面 CDP 实测双标签来回切 · **手机真机 33b676f6 实测**：无标签条 ✓ · 点「说明.txt」→ 阅读器「15 字符」+ 抽屉自动收起 ✓ · 返回键回起始页 ✓
    ②-c ✅ **文档也能多标签（rev173.86 已完成）**：用户「跟编辑器的 md 一样，非 md 只需要能阅读」—— **每份文档一个面板**（`doc-reader.view.<hash32(文档键)>`，title = 文件名）· `hidden: true` 不进 ☰ 菜单（内核 `registerPanel` 新增）· 面板即文档（`doc` 闭包常量，删 `currentDoc`/`liveInstances`）· `store.docs` 供独立窗口反查 · `readerState` 记住页码/缩放（切回回原页）· 桌面实测三标签混排、点切、关标签 ✓ · **手机不做多标签**（用户明确）
+   ②-d ✅ **阅读器去顶栏 + 连续滚动 + 深色（rev173.87 已完成）**：用户「绿框不需要」「深色模式还用深色字体」「翻页做成滚轮无限下滑」「pdf 放大缩小 ctrl+滚轮」—— 删 `.dn-bar`（删除只剩右键菜单）· PDF **连续滚动 + 按需渲染**（占位 canvas 全建，IntersectionObserver ±1.5 屏，离开释放位图——A4 一页 dpr2 ≈ 8MB）· **Ctrl+滚轮缩放**（non-passive + preventDefault 拦 WebView2 整页缩放；带锚点不跳）· EPUB 深色：`renderer.setStyles()` 注入 `--zn-fg/-bg` 计算值 + `!important`，MutationObserver 跟主题 · 实测 4 页 PDF 滚动/释放/缩放 + 深色 EPUB ✓
    ③ outline-map 同样迁移，删掉 `host.platform === 'android'` 分支（1 d）
    ④ 标签列表视图（原 A1）也做成标签；之后才是 A0 探针（`[[ ]]` 点击归属）→ 双链 → 历史版本 → 提醒打卡。
 

@@ -156,18 +156,15 @@ const el = (tag, cls, text) => {
 /**
  * 阅读器外观。注入到**面板容器内部** ⇒ 面板 dispose 时随容器一起消失，不污染内核样式。
  * 颜色一律走 `--zn-*` 令牌 ⇒ 深浅色主题自动跟随。
+ *
+ * rev173.87：**去掉顶栏**（用户「绿框不需要」—— 标签条已经写着文件名，再压一条工具栏
+ * 等于把阅读区又挤小一截）。翻页改成**滚轮 / 键盘**（PDF），删除走**右键菜单**。
  */
 const CSS = `
 .dn-root{position:relative;display:flex;flex-direction:column;width:100%;height:100%;background:var(--zn-bg,#fff);color:var(--zn-fg,#111)}
-.dn-bar{display:flex;align-items:center;gap:8px;flex:none;padding:6px 10px;font-size:13px;border-bottom:1px solid var(--zn-border,#e4e4e7);background:var(--zn-bg-subtle,#f7f7f8)}
-.dn-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.dn-meta{flex:none;color:var(--zn-fg-subtle,#71717a)}
-/* 顶栏按钮：**触控目标 ≥30px**（手机实测：更小的点不中，还会被系统当图片长按）。
-   注意：这段在模板字符串里，**不能出现反引号**（会提前结束字符串 —— 真踩过）。
-   尺寸也别太大：顶栏元素多，手机上会把最右的「⋮」挤出屏幕（也真踩过）。 */
+/* 弹层里的按钮：**触控目标 ≥30px**（手机实测：更小的点不中，还会被系统当图片长按） */
 .dn-btn{flex:none;min-height:30px;padding:4px 9px;font-size:12.5px;border:1px solid var(--zn-border,#d4d4d8);border-radius:6px;background:transparent;color:inherit;cursor:pointer}
-.dn-bar-btn:disabled{opacity:.4;cursor:default}
-/* 只读区：撑满剩余高度，自己滚（面板容器那条 overflow:auto 只是兜底） */
+/* 只读区：撑满整个面板，自己滚（面板容器那条 overflow:auto 只是兜底） */
 .dn-body{flex:1;min-height:0;overflow:auto;background:var(--zn-bg-subtle,#f7f7f8)}
 /* 原尺寸显示（用户 2026-10-15：「PDF 显示会强制缩放，取消掉，做原格式查看」）：
    原先这行是 max-width:100% 加 height:auto —— 它把 A4（595px 宽）压到屏宽，
@@ -176,7 +173,11 @@ const CSS = `
    现在：块级 + auto margin ⇒ 宽度 > 容器时 auto 归 0，靠 .dn-body 横向滚动看全。
    （不能用 flex 居中：内容超宽时左边会被裁掉且滚不过去；EPUB / TXT 渲染器自己会把
    display 覆盖成 block，见各自 mount 里的 body.style.display 赋值）。 */
-.dn-page{display:block;margin:10px auto;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
+/* 连续滚动（rev173.87 · 用户「翻页做成滚轮无限下滑」）：所有页竖排、滚轮往下就是下一页；
+   .dn-pages 只负责排布，每页的尺寸由 JS 按 viewport × 缩放写进 style。
+   超宽页（原尺寸查看）靠 margin:0 auto 在容器内居中；比容器还宽时 auto 归 0 ⇒ 可横向滚。 */
+.dn-pages{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:10px 0}
+.dn-page{display:block;margin:0 auto;box-shadow:0 1px 8px rgba(0,0,0,.28);background:#fff}
 .dn-text{flex:1;margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;font:14px/1.7 ui-monospace,Consolas,monospace}
 .dn-msg{padding:26px;font-size:13px;line-height:1.7;color:var(--zn-fg-subtle,#71717a);max-width:44em}
 .dn-menu{position:absolute;z-index:20;min-width:190px;padding:4px;border:1px solid var(--zn-border,#d4d4d8);border-radius:8px;background:var(--zn-bg,#fff);box-shadow:0 6px 20px rgba(0,0,0,.18)}
@@ -189,11 +190,12 @@ const CSS = `
 `
 
 /* ───────────── 三种渲染器 ───────────── */
-/* 统一接口：返回 { next?, prev?, zoom?, destroy? }；进度通过 onMeta 文本回调推给顶栏。
-   `state` = **阅读位置缓存**（rev173.86，每个面板一份）：切到别的标签再切回来，面板会重新
-   mount（`PanelMount` 的语义），PDF 要重新加载 —— 但不会回到第 1 页。 */
+/* 统一接口：返回 { next?, prev?, zoom?, destroy? }。rev173.87 起没有顶栏 —— 渲染器不回调进度，
+   翻页 / 缩放全在文档区域自己处理（滚轮 / Ctrl+滚轮 / ←→）。
+   `state` = **阅读位置缓存**（每个面板一份）：切到别的标签再切回来，面板会重新 mount，
+   PDF 要重新加载 —— 但会滚回上次看的那一页。 */
 
-async function mountPdf(body, { url, onMeta, state }) {
+async function mountPdf(body, { url, state }) {
   const pdfjs = await loadPdfjs()
   // worker **同源**即可（CSP 无需额外放行：无 worker-src 时回退链是 child-src → script-src →
   // default-src，而 script-src 含 'self'；blob worker 则被 script-src 的 blob: 放行 —— 实测）
@@ -208,68 +210,180 @@ async function mountPdf(body, { url, onMeta, state }) {
     isEvalSupported: false, // CVE-2024-4367 缓解：PDF 内嵌 JS 不走 eval
   }).promise
 
-  const canvas = el('canvas', 'dn-page')
-  body.append(canvas)
-
-  /** 阅读位置缓存（rev173.86）：`state` 由 mountReader 按 panelId 交给渲染器 */
+  /** 阅读位置 / 缩放缓存（`state` 由 mountReader 按 panelId 交进来，切标签回来接着看） */
   const saved = state && typeof state === 'object' ? state : {}
-  let page = Math.min(Math.max(1, Number(saved.page) || 1), doc.numPages)
   let scale = Math.min(4, Math.max(0.25, Number(saved.scale) || 1))
-  let rendering = false
-  let pending = null
 
-  const remember = () => {
-    saved.page = page
-    saved.scale = scale
+  /** 页宽高（scale=1）：未知的先用第一页占位，真渲染时用真实尺寸修正（混排 PDF 也稳） */
+  const firstVp = (await doc.getPage(1)).getViewport({ scale: 1 })
+  const sizes = new Map()
+  const sizeOf = (n) => sizes.get(n) || { width: firstVp.width, height: firstVp.height }
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const wrap = el('div', 'dn-pages')
+  body.append(wrap)
+
+  /**
+   * n → `{ canvas, done }`。**先把所有页建成占位**（空 canvas，尺寸由 CSS 撑），滚到才渲染。
+   * 为什么不全画：A4 一页 dpr2 的位图 ≈ 8 MB，一本 100 页的书就是 800 MB —— 必然崩。
+   * 主流阅读器（含 pdf.js 自带 viewer）都是这套"占位 + 按需渲染"。
+   */
+  const slots = new Map()
+  for (let n = 1; n <= doc.numPages; n++) {
+    const canvas = el('canvas', 'dn-page')
+    canvas.dataset.page = String(n)
+    const size = sizeOf(n)
+    canvas.style.width = `${Math.round(size.width * scale)}px`
+    canvas.style.height = `${Math.round(size.height * scale)}px`
+    wrap.append(canvas)
+    slots.set(n, { canvas, done: false })
   }
 
-  const draw = async (n) => {
-    if (rendering) {
-      pending = n
-      return
-    }
-    rendering = true
+  const renderPage = async (n) => {
+    const s = slots.get(n)
+    if (!s || s.done) return
+    s.done = true
     try {
       const p = await doc.getPage(n)
       const vp = p.getViewport({ scale })
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      canvas.width = Math.floor(vp.width * dpr)
-      canvas.height = Math.floor(vp.height * dpr)
-      canvas.style.width = `${Math.floor(vp.width)}px`
-      canvas.style.height = `${Math.floor(vp.height)}px`
-      const ctx = canvas.getContext('2d')
+      // 记下真实尺寸（scale=1），缩放 / 占位都用它
+      sizes.set(n, { width: vp.width / scale, height: vp.height / scale })
+      s.canvas.width = Math.floor(vp.width * dpr)
+      s.canvas.height = Math.floor(vp.height * dpr)
+      s.canvas.style.width = `${Math.floor(vp.width)}px`
+      s.canvas.style.height = `${Math.floor(vp.height)}px`
+      const ctx = s.canvas.getContext('2d')
       await p.render({
         canvasContext: ctx,
         viewport: vp,
         transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
       }).promise
-      page = n
-      remember()
-      onMeta(`第 ${n} / ${doc.numPages} 页 · ${Math.round(scale * 100)}%`)
-    } finally {
-      rendering = false
-      if (pending != null && pending !== page) {
-        const q = pending
-        pending = null
-        void draw(q)
-      }
+    } catch {
+      s.done = false // 下次进入视口再试
     }
   }
 
-  await draw(page)
+  /** 离开视口的页释放位图、只留占位高度（回来时重画） */
+  const releasePage = (n) => {
+    const s = slots.get(n)
+    if (!s || !s.done) return
+    s.done = false
+    s.canvas.width = 0
+    s.canvas.height = 0
+  }
+
+  /** 只渲染"看得见 + 上下各一屏半"的页 —— 滚轮一直往下滑 = 一直有下一页 */
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        const n = Number(e.target.dataset.page)
+        if (!n) continue
+        if (e.isIntersecting) void renderPage(n)
+        else releasePage(n)
+      }
+    },
+    { root: body, rootMargin: '150% 0px' },
+  )
+  for (const s of slots.values()) io.observe(s.canvas)
+
+  /** 可见页立刻渲染（缩放后 IntersectionObserver 不会再次回调已相交的元素，得手动推一把） */
+  const renderVisible = () => {
+    const top = body.scrollTop
+    const bottom = top + body.clientHeight
+    for (const [n, s] of slots) {
+      const off = s.canvas.offsetTop
+      const h = s.canvas.offsetHeight
+      if (off + h >= top && off <= bottom) void renderPage(n)
+    }
+  }
+
+  /** 缩放锚点：记下"视口顶端落在哪一页、页内百分之几"，缩放后滚回同一处（视觉不跳） */
+  const anchor = () => {
+    const top = body.scrollTop
+    for (const [n, s] of slots) {
+      const off = s.canvas.offsetTop
+      const h = s.canvas.offsetHeight
+      if (off <= top && top < off + h) return { n, ratio: (top - off) / Math.max(1, h) }
+    }
+    return { n: 1, ratio: 0 }
+  }
+  const restoreAnchor = (a) => {
+    const s = slots.get(a.n)
+    if (s) body.scrollTop = s.canvas.offsetTop + s.canvas.offsetHeight * a.ratio
+  }
+
+  const zoom = (d) => {
+    const a = anchor()
+    scale = Math.min(4, Math.max(0.25, +(scale + d).toFixed(2)))
+    saved.scale = scale
+    for (const [n, s] of slots) {
+      const size = sizeOf(n)
+      s.canvas.style.width = `${Math.round(size.width * scale)}px`
+      s.canvas.style.height = `${Math.round(size.height * scale)}px`
+      s.done = false
+      s.canvas.width = 0
+      s.canvas.height = 0
+    }
+    restoreAnchor(a)
+    renderVisible()
+  }
+
+  /**
+   * **Ctrl + 滚轮 = 缩放**（用户 2026-10-21 指定）；普通滚轮保持原生滚动。
+   *
+   * ⚠️ 必须 non-passive + preventDefault：WebView2 的默认行为是「Ctrl+滚轮缩放整个页面」
+   * ——不拦的话缩放的是内核 UI（标签条 / 侧栏一起变大），而不是 PDF 页。
+   */
+  const onWheel = (e) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    zoom(e.deltaY > 0 ? -0.2 : 0.2)
+  }
+  body.addEventListener('wheel', onWheel, { passive: false })
+
+  /** 恢复阅读位置（切标签回来 / 同一文档重开）：滚到上次看的那页顶部 */
+  const restore = () => {
+    const n = Math.min(Math.max(1, Number(saved.page) || 1), doc.numPages)
+    if (n <= 1) return
+    const s = slots.get(n)
+    if (s) body.scrollTop = Math.max(0, s.canvas.offsetTop - 8)
+  }
+  requestAnimationFrame(restore)
+
+  /** 记住"看到第几页"：滚动停下 120ms 后按 scrollTop 反查（连续滚动没有"当前页"） */
+  let scrollTimer = 0
+  const remember = () => {
+    const probe = body.scrollTop + body.clientHeight * 0.25
+    let cur = 1
+    for (const [n, s] of slots) if (s.canvas.offsetTop <= probe) cur = n
+    saved.page = cur
+  }
+  const onScroll = () => {
+    clearTimeout(scrollTimer)
+    scrollTimer = setTimeout(remember, 120)
+  }
+  body.addEventListener('scroll', onScroll, { passive: true })
+
   return {
+    /** 键盘 / PageDown：连续模式里"翻一页"就是滚一屏 */
     next: () => {
-      if (page < doc.numPages) void draw(page + 1)
+      body.scrollTop += Math.max(200, body.clientHeight * 0.9)
     },
     prev: () => {
-      if (page > 1) void draw(page - 1)
+      body.scrollTop -= Math.max(200, body.clientHeight * 0.9)
     },
-    zoom: (d) => {
-      scale = Math.min(4, Math.max(0.25, +(scale + d).toFixed(2)))
-      remember()
-      void draw(page)
-    },
+    zoom,
     destroy: () => {
+      io.disconnect()
+      body.removeEventListener('scroll', onScroll)
+      body.removeEventListener('wheel', onWheel)
+      clearTimeout(scrollTimer)
+      for (const s of slots.values()) {
+        s.canvas.width = 0
+        s.canvas.height = 0
+      }
+      slots.clear()
+      wrap.remove()
       try {
         void doc.destroy()
       } catch {
@@ -279,7 +393,7 @@ async function mountPdf(body, { url, onMeta, state }) {
   }
 }
 
-async function mountFoliate(body, { url, name, onMeta }) {
+async function mountFoliate(body, { url, name }) {
   await loadFoliate() // 注册 <foliate-view> 自定义元素
   const view = document.createElement('foliate-view')
   view.style.cssText = 'width:100%;height:100%;display:block'
@@ -291,21 +405,46 @@ async function mountFoliate(body, { url, name, onMeta }) {
   // foliate 按 `type` / 文件名判格式 ⇒ 必须是 File（Blob 没有 name）
   const file = new File([await res.blob()], name)
 
-  view.addEventListener('relocate', (e) => {
-    const d = e.detail ?? {}
-    const pct = d.fraction != null ? ` · ${Math.round(d.fraction * 100)}%` : ''
-    onMeta(`${d.tocItem?.label ?? name}${pct}`)
-  })
+  /**
+   * **深色适配**（rev173.87 · 用户「深色模式还用深色字体」）。
+   *
+   * EPUB 的正文跑在 foliate 自己的 iframe 里：**父文档的 `--zn-*` 变量不会继承过去**，
+   * 而电子书自带的 CSS 常常写死 `color: #2f4f4f` 之类 ⇒ 深色主题下就是"深字配深底"。
+   * 用 foliate paginator 的 `setStyles(css)` 把当前主题的**计算值**注入进去（每个 section 的
+   * `<style>`），并用 `!important` 压过书里的 CSS。主题切换时重新注入。
+   */
+  const injectTheme = () => {
+    const cs = getComputedStyle(document.documentElement)
+    const fg = cs.getPropertyValue('--zn-fg').trim() || '#18181b'
+    const bg = cs.getPropertyValue('--zn-bg').trim() || '#ffffff'
+    const accent = cs.getPropertyValue('--zn-accent').trim() || fg
+    try {
+      view.renderer?.setStyles?.(
+        `html,body{color:${fg} !important;background:${bg} !important}
+         a{color:${accent} !important}
+         img,video,svg{background:transparent !important}`,
+      )
+    } catch {
+      /* 老版 foliate 没有 setStyles —— 宁可回到默认，也别把书打不开 */
+    }
+  }
+  const onLoad = () => injectTheme()
+  view.addEventListener('load', onLoad)
+  const themeObserver = new MutationObserver(injectTheme)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
   await view.open(file)
   // 官方 reader.js 也是 open 之后手动推第一屏
   view.renderer?.setAttribute?.('flow', 'scrolled')
   view.renderer?.next?.()
+  injectTheme()
 
   return {
     next: () => view.goRight?.(),
     prev: () => view.goLeft?.(),
     destroy: () => {
+      themeObserver.disconnect()
+      view.removeEventListener('load', onLoad)
       try {
         view.close?.()
       } catch {
@@ -315,14 +454,13 @@ async function mountFoliate(body, { url, name, onMeta }) {
   }
 }
 
-async function mountText(body, { url, onMeta }) {
+async function mountText(body, { url }) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`读取失败：HTTP ${res.status}`)
   const text = await res.text()
   body.style.display = 'block'
   const pre = el('pre', 'dn-text', text)
   body.append(pre)
-  onMeta(`${text.length} 字符`)
   return {}
 }
 
@@ -370,31 +508,15 @@ const readerState = new Map()
 /**
  * 一份文档的阅读器界面（模块级函数：每个面板各调一次，`doc` 是**闭包常量**）。
  * 所以这一版不再需要"当前文档"那种模块级可变状态 —— 面板即文档。
+ *
+ * rev173.87：**没有自己的顶栏**（用户「绿框不需要」）。阅读区 = 整个面板，
+ * 翻页 = 滚轮 / ←→（PDF）、滚动（EPUB），删除 = 右键菜单。
  */
 function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
   root.classList.add('dn-root')
   const style = document.createElement('style')
   style.textContent = CSS
   root.append(style)
-
-  /* ── 顶栏：删除 / 文件名 / 进度 / 缩放 / 翻页 ──
-     「关闭」不在这里：主区有标签条的 ×，窗口有标题条 ✕。 */
-  const bar = el('div', 'dn-bar')
-  const title = el('span', 'dn-title', doc.name)
-  title.title = doc.abs || doc.path
-  const meta = el('span', 'dn-meta', '载入中…')
-  const btnOut = el('button', 'dn-btn', '−')
-  const btnIn = el('button', 'dn-btn', '＋')
-  const btnPrev = el('button', 'dn-btn', '‹')
-  const btnNext = el('button', 'dn-btn', '›')
-  // 删除入口：**触屏与 EPUB 都得靠它** —— 手机上长按虽然会派发 `contextmenu`，
-  // 但 EPUB 的章节跑在 foliate 自己的 iframe 里，那里的右键不会冒泡到我们的容器。
-  // 用**文字**「删除」而不是 `⋮` 符号：真机实测符号按钮点不中。
-  const btnMore = el('button', 'dn-btn', '删除')
-  btnMore.title = '删除这个文档…'
-  btnMore.style.color = 'var(--zn-danger,#dc2626)'
-  bar.append(btnMore, title, meta, btnOut, btnIn, btnPrev, btnNext)
-  root.append(bar)
 
   let body = el('div', 'dn-body')
   root.append(body)
@@ -426,22 +548,11 @@ function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
     body = next
   }
 
-  const setMeta = (t) => {
-    if (!dead) meta.textContent = t
-  }
-
   const showEmpty = (msg) => {
     empty = true
     gen += 1
     teardown()
     freshBody()
-    title.textContent = doc.name
-    setMeta('')
-    btnMore.hidden = true
-    btnIn.hidden = true
-    btnOut.hidden = true
-    btnPrev.hidden = true
-    btnNext.hidden = true
     body.append(el('div', 'dn-msg', msg))
   }
 
@@ -451,19 +562,6 @@ function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
     teardown()
     freshBody()
 
-    title.textContent = doc.name
-    title.title = doc.abs || doc.path
-    setMeta('载入中…')
-    // 库外文件（Android「打开方式」→ 原生插件复制到缓存的副本）**不给删除入口**：
-    // 它不在库里，内核的删除是"库内相对路径"，对它没有意义；缓存由系统自己回收。
-    btnMore.hidden = doc.mode === 'abs'
-    // 缩放只有 PDF 有意义（foliate 自己管排版）；手机上让位给更重要的按钮
-    const zoomable = doc.kind === 'pdf' && host.platform !== 'android'
-    btnIn.hidden = !zoomable
-    btnOut.hidden = !zoomable
-    btnPrev.hidden = false
-    btnNext.hidden = false
-
     const saved = readerState.get(panelId) ?? { page: 1, scale: 1 }
     readerState.set(panelId, saved)
 
@@ -472,7 +570,6 @@ function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
         const a = await MOUNTERS[doc.kind](body, {
           url: doc.url,
           name: doc.name,
-          onMeta: setMeta,
           state: saved,
         })
         if (dead || my !== gen) {
@@ -493,18 +590,13 @@ function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
           m.textContent += '\n\n若是从 . 开头的目录里打开的（如 .zn/…），Android 端读不了 —— 把文档放到普通目录再试。'
         }
         body.append(m)
-        setMeta('失败')
       }
     })()
   }
 
-  /* ── 翻页 / 缩放：绑定一次，闭包里的 `api` 随渲染器更新 ── */
-  btnPrev.addEventListener('click', () => api?.prev?.())
-  btnNext.addEventListener('click', () => api?.next?.())
-  btnOut.addEventListener('click', () => api?.zoom?.(-0.25))
-  btnIn.addEventListener('click', () => api?.zoom?.(0.25))
-
-  /* ── 删除：顶栏「删除」或**右键**唤出，两个入口 —— 逻辑删除 / 物理删除 ── */
+  /* ── 删除：**右键菜单**（rev173.87 去掉顶栏后唯一的入口）──
+     逻辑删除 / 物理删除两个选项；键盘用户在文档区域右键即可（桌面），
+     手机长按文件树里的文档也能到同一个菜单（那是文件树的菜单，不是这里）。 */
   let menuEl = null
   let confirmEl = null
   const closeMenu = () => {
@@ -603,19 +695,14 @@ function mountReader(root, { doc, panelId, fs, host, dropDoc }) {
     place(menuEl, x, y)
   }
 
-  btnMore.addEventListener('click', (e) => {
-    e.stopPropagation()
-    const r = btnMore.getBoundingClientRect()
-    openMenu(r.left, r.bottom + 4)
-  })
-  // 桌面右键唤出同一菜单（EPUB 章节在 iframe 里，那种情况用顶栏「删除」）
+  // 右键唤出删除菜单（rev173.87 去掉顶栏后这是**唯一**入口）
   root.addEventListener('contextmenu', (e) => {
     if (doc.mode !== 'vault' || empty) return
     e.preventDefault()
     openMenu(e.clientX, e.clientY)
   })
   const onDocDown = (e) => {
-    if (menuEl && !menuEl.contains(e.target) && e.target !== btnMore) closeMenu()
+    if (menuEl && !menuEl.contains(e.target)) closeMenu()
     if (confirmEl && !confirmEl.contains(e.target)) closeConfirm()
   }
   document.addEventListener('mousedown', onDocDown)
