@@ -1268,6 +1268,12 @@ export default function App() {
         const title = panels.find((x) => x.id === pid)?.title
         if (kernel?.openPanelWindow(pid, title)) {
           setPanelTabs((prev) => prev.filter((t) => t !== p))
+          /**
+           * rev173.84：拿出去的是**一份**界面 —— 主区别同时留着同一个面板。
+           * 与笔记标签的 `openInWindow` 同一语义（那边 `closeTabOf` 会把主区切走）；
+           * 面板标签此前只移出标签条，主区会继续渲染它 ⇒ 同一面板两份、操作互不相干。
+           */
+          setMainView((v) => (v === pid ? 'editor' : v))
         } else {
           setToast('手机不支持独立窗口 —— 这个面板留在主区')
         }
@@ -1900,24 +1906,13 @@ export default function App() {
         },
       }),
       /**
-       * 「打开只读文档」的**派发点**（2026-10-13 加，配合文档阅读器插件）。
-       *
-       * 内核只认识"这是一份只读文档"（`NoteMeta.kind === 'doc'`），**不认识 pdf/epub**：
-       * 怎么渲染是插件的事。所以这里只放一个**默认实现**（如实告诉用户"没有插件能开"），
-       * 插件用 `command.bind('core.openDocument', …)` 接管 —— 与 `core.newNote` 同一套机制
-       * （`bind` 只换实现、不动元数据；**卸载时自动还原**，见契约 §2.1.1）。
-       *
-       * payload：`{ path: string }`（库内相对路径）
+       * ⚠️ `core.openDocument` **不在这里**（rev173.84 挪出去了）：它是一条会被插件
+       * `bind` 接管的命令，而本 effect 的依赖含 `cycleTab`（`panels` 一变就变）——
+       * 插件注册面板 ⇒ panels 变 ⇒ 本 effect 重跑 ⇒ 内核把默认实现**重新压到插件之上**
+       * （`command.register` 对已有 id 是"后来者接管"，`command.ts:160`）
+       * ⇒ 点文档永远弹「没有能打开 .pdf 的插件」。它现在有一个只依赖 `kernel` 的独立 effect，
+       * 见下方 `core.openDocument` 那段。
        */
-      kernel.commands.api.register({
-        id: 'core.openDocument',
-        title: '打开文档（PDF / EPUB 等）',
-        run: (payload) => {
-          const p = (payload ?? {}) as { path?: string }
-          const ext = p.path ? p.path.slice(p.path.lastIndexOf('.') + 1).toLowerCase() : '该'
-          setToast(`没有能打开 .${ext} 的插件 —— 到「插件管理」装一个文档阅读器`)
-        },
-      }),
       /**
        * 缩进 / 取消缩进（rev173.8 · 用户「手机端键盘上的快捷列表加个缩进和取消缩进按键」）。
        *
@@ -1980,6 +1975,39 @@ export default function App() {
     // rev173.74：core.search 要按窗口形态分叉（note 窗口里给提示，不开面板）
     noteWindowPath,
   ])
+
+  /**
+   * 「打开只读文档」的**派发点**（2026-10-13 加，配合文档阅读器插件）。
+   *
+   * 内核只认识"这是一份只读文档"（`NoteMeta.kind === 'doc'`），**不认识 pdf/epub**：
+   * 怎么渲染是插件的事。所以这里只放一个**默认实现**（如实告诉用户"没有插件能开"），
+   * 插件用 `command.bind('core.openDocument', …)` 接管 —— 与 `core.newNote` 同一套机制
+   * （`bind` 只换实现、不动元数据；**卸载时自动还原**，见契约 §2.1.1）。
+   *
+   * payload：`{ path: string }`（库内相对路径）
+   *
+   * ⚠️ **必须单独一个 effect，依赖只有 `kernel`**（rev173.84 修的真实 bug）：
+   * `command.register` 对已有 id 是**压层 = 后来者接管**（`command.ts:160`）。原先这段写在
+   * 上面那个"注册全部内核命令"的大 effect 里，而它的依赖含 `cycleTab`（依赖 `panels`）——
+   * 插件加载时注册面板 ⇒ `panels` 变 ⇒ 大 effect 重跑 ⇒ **内核默认实现重新压到插件之上**。
+   * 症状：插件装好、面板也在，但点 PDF 永远弹「没有能打开 .pdf 的插件」。
+   * 实测读数（rev173.84 排查）：重扫插件后 `__znKernelAudit().commands` 里
+   * `core.openDocument` 的 `impl` 从 `plugin:doc-reader` 变回 `core`。
+   * 占位实现只需要在「内核建好 / 换库重建」时登记一次；插件接管由层栈负责。
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const sub = kernel.commands.api.register({
+      id: 'core.openDocument',
+      title: '打开文档（PDF / EPUB 等）',
+      run: (payload) => {
+        const p = (payload ?? {}) as { path?: string }
+        const ext = p.path ? p.path.slice(p.path.lastIndexOf('.') + 1).toLowerCase() : '该'
+        setToast(`没有能打开 .${ext} 的插件 —— 到「插件管理」装一个文档阅读器`)
+      },
+    })
+    return () => sub.dispose()
+  }, [kernel])
 
   /**
    * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
@@ -3289,6 +3317,21 @@ export default function App() {
         ) : pagePanel || mainView === 'plugins' ? (
           /* 主区页面：插件管理 或 插件面板，顶部一条「返回编辑器」横条 */
           <div className="zn-main-panel">
+            {/*
+              rev173.84：面板页也要露出标签条 —— 面板标签是在**这里**被拖出 / 右键「在新窗口打开」
+              的。rev173.83 只把标签条放在编辑区分支里，于是"点开面板 → 标签条消失 → 拖不出去"，
+              要回编辑器才能看见那条标签（与"默认主区标签"的意图不符）。
+            */}
+            {isDesktop && (
+              <TabBar
+                tabs={tabItems}
+                activePath={activeTabKey}
+                onSelect={selectTab}
+                onClose={closeTabOf}
+                onContextMenu={openTabMenu}
+                onDragEnd={handleTabDragEnd}
+              />
+            )}
             <div className="zn-main-panel-bar">
               <span>{pagePanel ? pagePanel.title : '插件管理'}</span>
               <div className="zn-main-panel-actions">
