@@ -71,6 +71,13 @@ export interface FsApi {
    * ⇒ 文件树要显示空目录（"新建文件夹"看得见）必须用这条。
    */
   listDirs(): Promise<string[]>
+  /**
+   * 某个子目录下的**文件清单**（库内相对路径、`/` 分隔、已排序、**不递归**）。
+   *
+   * 与 `listNotes` / `listDirs` 的关键差别：**不跳过 `.zn`** —— 调用方显式给了目录，
+   * 就是要看它（历史版本快照在 `<库>/.zn/history/`）。目录不存在 ⇒ 空表，不报错。
+   */
+  listFiles(dir?: string): Promise<string[]>
   readText(path: string): Promise<string>
   writeText(path: string, content: string): Promise<void>
   createNote(path: string, content?: string): Promise<void>
@@ -102,6 +109,14 @@ export interface FsApi {
   purgeTrash(id: string): Promise<void>
   /** 清空回收站，返回清掉的条目数 */
   emptyTrash(): Promise<number>
+  /**
+   * **真删除**（不进回收站），且**只允许 `.zn/` 下的路径**。
+   *
+   * 为什么不让它删用户笔记：历史版本的「四档精简」要淘汰旧快照，`delete` 会把它们
+   * 全塞进回收站（垃圾场）。真删除必须有边界 —— 越界路径在 Rust 侧直接拒绝。
+   * 幂等：目标不存在也算成功。
+   */
+  purgePrivate(path: string): Promise<void>
   watch(cb: (e: FsChange) => void): Disposable
 }
 

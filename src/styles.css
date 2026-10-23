@@ -2458,6 +2458,31 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   display: none;
 }
 
+/* 历史版本差异（rev173.99）—— 插件的 `html` 节点输出这些行。
+   颜色用 `color-mix` 混在前景色上，明暗主题都不用额外维护（与行内代码同一套做法）。 */
+.zn-diff-row {
+  display: flex;
+  gap: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--zn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.zn-diff-add {
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+}
+.zn-diff-del {
+  background: color-mix(in srgb, #ef4444 16%, transparent);
+}
+.zn-diff-sign {
+  flex: none;
+  width: 1em;
+  opacity: 0.65;
+}
+
 .zn-line-action {
   position: absolute;
   /* 右边缘落在行盒左边界左侧 4px 处（= 297-4 = 293），所有行同一条竖线 */

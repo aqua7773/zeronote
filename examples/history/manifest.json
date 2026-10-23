@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 1,
+  "id": "history",
+  "name": "历史版本",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "关闭笔记时自动存版本",
+  "category": "tool",
+  "capabilities": ["fs:read", "fs:write", "doc:read", "doc:write", "command", "view:modal", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "history.show-for-current", "title": "历史版本：看当前笔记的历史" },
+      { "id": "history.refresh", "title": "历史版本：刷新列表" },
+      { "id": "history.pick", "title": "历史版本：与当前对比" },
+      { "id": "history.rollback", "title": "历史版本：回滚到这一版" }
+    ],
+    "panels": [{ "id": "history.board", "title": "历史版本", "location": "modal" }]
+  }
+}

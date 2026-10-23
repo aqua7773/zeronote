@@ -19,6 +19,17 @@ export function createFsApi(
     /** 目录清单（含空目录）—— 文件树显示空文件夹的依据 */
     listDirs: () => invoke<string[]>('list_dirs', { vault }),
 
+    /**
+     * 某个子目录下的**文件清单**（库内相对路径、不递归）。
+     * 与 `listDirs` / `listNotes` 不同：**不跳过 `.zn`** —— 历史版本快照就在 `<库>/.zn/history/`。
+     */
+    listFiles: (dir?: string) =>
+      invoke<string[]>('list_files', { vault, dir: dir ?? null }),
+
+    /** **真删除**（不进回收站），只允许 `.zn/` 下的路径 —— 历史版本精简旧快照用 */
+    purgePrivate: (path: string) =>
+      invoke<void>('purge_private', { vault, path }),
+
     readText: (path: string) =>
       invoke<string>('read_note', { vault, path }),
 

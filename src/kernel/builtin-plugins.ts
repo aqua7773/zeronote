@@ -36,6 +36,9 @@ import tagPanelManifest from '../../examples/tag-panel/manifest.json?raw'
 // backlinks（反向链接，2026-10-23 rev173.95）
 import backlinksIndex from '../../examples/backlinks/index.js?raw'
 import backlinksManifest from '../../examples/backlinks/manifest.json?raw'
+// history（历史版本，2026-10-23 rev173.99）
+import historyIndex from '../../examples/history/index.js?raw'
+import historyManifest from '../../examples/history/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -65,6 +68,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'backlinks',
     files: { 'index.js': backlinksIndex, 'manifest.json': backlinksManifest },
+  },
+  {
+    id: 'history',
+    files: { 'index.js': historyIndex, 'manifest.json': historyManifest },
   },
 ]
 

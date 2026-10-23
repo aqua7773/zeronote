@@ -323,6 +323,77 @@ fn list_dirs(vault: String) -> Result<Vec<String>, String> {
   Ok(out)
 }
 
+/// 列出库内**某个子目录**下的文件名（返回库内相对路径、`/` 分隔、已排序、**不递归**）。
+///
+/// 为什么需要它（rev173.99）：`list_notes` 只上报 `.md` 且跳过 `.zn`，
+/// 插件做「历史版本」时**读不出自己写的快照清单**（`<库>/.zn/history/<key>/*.md`）。
+/// 历史面板要列时间线，就必须能枚举私有目录。
+///
+/// 与另外两条列举的差别：
+/// · **不跳过 `.zn`** —— 调用方显式给了目录，就是要它（这是唯一需要看私有目录的场景）；
+/// · 不过滤扩展名；只跳过 `.` 开头的**文件**与子目录；
+/// · 目录还不存在 ⇒ 返回空表（第一次存历史，不该报错）。
+///
+/// 安全：`dir` 走 `resolve()`，绝对路径 / `..` 一律拒。
+#[tauri::command]
+fn list_files(vault: String, dir: Option<String>) -> Result<Vec<String>, String> {
+  let rel = dir.unwrap_or_default();
+  let root = PathBuf::from(&vault);
+  let abs = if rel.trim().is_empty() {
+    root.clone()
+  } else {
+    resolve(&vault, &rel)?
+  };
+  if !abs.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut out = Vec::new();
+  for entry in fs::read_dir(&abs).map_err(|e| format!("读取目录失败 {}：{e}", abs.display()))? {
+    let entry = entry.map_err(|e| e.to_string())?;
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with('.') {
+      continue;
+    }
+    if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+      continue;
+    }
+    let full = entry.path();
+    let rel = full
+      .strip_prefix(&root)
+      .map_err(|e| e.to_string())?
+      .to_string_lossy()
+      .replace('\\', "/");
+    out.push(rel);
+  }
+  out.sort();
+  Ok(out)
+}
+
+/// **真删除**（不进回收站），且**只允许 `.zn/` 下的路径**（rev173.99）。
+///
+/// 为什么需要：历史版本的「四档精简」要淘汰旧快照，而 `delete_note` 是"移入回收站"——
+/// 几百份快照堆进回收站等于垃圾场。真删除必须有边界：插件**不能用它删用户笔记**。
+///
+/// 语义：文件直接删；空目录删；非空目录拒绝（不做递归删除，避免误伤）。
+/// 幂等：目标不存在 ⇒ Ok。
+#[tauri::command]
+fn purge_private(vault: String, path: String) -> Result<(), String> {
+  let rel = path.trim().replace('\\', "/");
+  if rel != ".zn" && !rel.starts_with(".zn/") {
+    return Err(format!("拒绝删除：只允许 .zn/ 下的私有文件（{rel}）"));
+  }
+  let abs = resolve(&vault, &rel)?;
+  let meta = match fs::symlink_metadata(&abs) {
+    Ok(m) => m,
+    Err(_) => return Ok(()),
+  };
+  if meta.is_dir() {
+    fs::remove_dir(&abs).map_err(|e| format!("删除目录失败 {}：{e}", abs.display()))
+  } else {
+    fs::remove_file(&abs).map_err(|e| format!("删除文件失败 {}：{e}", abs.display()))
+  }
+}
+
 /// 原子写：同目录临时文件 → sync → rename 覆盖。
 ///
 /// **先写临时文件、再换名**：任何一步失败，原文件都还在。
@@ -2403,6 +2474,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       list_notes,
       list_dirs,
+      list_files,
+      purge_private,
       read_note,
       write_note,
       create_note,
@@ -2685,6 +2758,49 @@ mod tests {
     assert!(resolve("C:/vault", "").is_err());
     assert!(resolve("C:/vault", "notes/a.md").is_ok());
     assert!(resolve("C:/vault", "日记/2026-10-11.md").is_ok());
+  }
+
+  /// rev173.99：`purge_private` **只允许 `.zn/` 下** —— 插件不能拿它删用户笔记
+  #[test]
+  fn purge_private_rejects_outside_zn() {
+    let d = tmpdir("purge");
+    let vault = d.to_string_lossy().to_string();
+    let note = d.join("笔记.md");
+    fs::write(&note, "正文").unwrap();
+    assert!(purge_private(vault.clone(), "笔记.md".into()).is_err());
+    assert!(note.exists(), "越界路径必须原封不动");
+    // `.zn/` 下的可以删；不存在也 Ok（幂等）
+    let snap = d.join(".zn/history/x/1.md");
+    fs::create_dir_all(snap.parent().unwrap()).unwrap();
+    fs::write(&snap, "v1").unwrap();
+    purge_private(vault.clone(), ".zn/history/x/1.md".into()).unwrap();
+    assert!(!snap.exists());
+    purge_private(vault, ".zn/history/x/2.md".into()).unwrap();
+  }
+
+  /// rev173.99：`list_files` 读得出私有目录（历史快照），且不递归、按路径排序
+  #[test]
+  fn list_files_lists_private_dir_files() {
+    let d = tmpdir("listfiles");
+    let vault = d.to_string_lossy().to_string();
+    let dir = d.join(".zn/history/abcd");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("2026-10-24T00-00-00-000.md"), "x").unwrap();
+    fs::write(dir.join("2026-10-23T00-00-00-000.md"), "y").unwrap();
+    fs::create_dir_all(dir.join("子目录")).unwrap();
+    let got = list_files(vault.clone(), Some(".zn/history/abcd".into())).unwrap();
+    assert_eq!(
+      got,
+      vec![
+        ".zn/history/abcd/2026-10-23T00-00-00-000.md",
+        ".zn/history/abcd/2026-10-24T00-00-00-000.md"
+      ],
+      "只列文件、按路径排序（子目录与隐藏文件都不进来）"
+    );
+    // 目录还不存在（第一次存历史）⇒ 空表，不报错
+    assert!(list_files(vault, Some(".zn/history/zzzz".into()))
+      .unwrap()
+      .is_empty());
   }
 
   #[test]
