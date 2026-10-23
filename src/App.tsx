@@ -119,6 +119,7 @@ import { SearchPanel } from './components/SearchPanel'
 import { ReplacePanel } from './components/ReplacePanel'
 import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
+import { MobileEditBar } from './components/MobileEditBar'
 import {
   ContextMenu,
   Dialog,
@@ -489,6 +490,12 @@ export default function App() {
     y: number
     items: MenuItem[]
   } | null>(null)
+
+  /**
+   * 手机编辑区长按的横向四键条（rev173.90）。`null` = 没弹。
+   * 与 `mainMenu` 分开：那个是桌面竖排菜单，触摸屏上点不准（见 MobileEditBar 的注释）。
+   */
+  const [mobileEditBar, setMobileEditBar] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
@@ -2194,6 +2201,24 @@ export default function App() {
    * 栈还能自动保证"后开的先关"。
    */
   const layerExitsRef = useRef<Array<() => boolean>>([])
+
+  /**
+   * 手机四键条开着时进返回键层栈（rev173.90）—— 与卡片长按菜单同一约定：
+   * 打开 push、关闭 / 卸载 remove；按返回先关条，而不是直接退 App。
+   */
+  useEffect(() => {
+    if (!mobileEditBar) return
+    const stack = layerExitsRef.current
+    const close = () => {
+      setMobileEditBar(null)
+      return true
+    }
+    stack.push(close)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [mobileEditBar])
   useEffect(() => {
     backRef.current = () => {
       // ① 最先：自持浮层（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单 / 文件树多选）
@@ -2730,6 +2755,10 @@ export default function App() {
   /**
    * 禁用 WebView 的原生右键菜单（那个「返回 / 刷新 / 打印 / 检查」）。
    * 用**捕获阶段**：树项的 onContextMenu 里有 stopPropagation，挂在冒泡阶段会漏掉它。
+   *
+   * ⚠️ **手机编辑区例外（rev173.90）**：Android 的长按菜单就是系统给的
+   * 「全选 / 复制 / 粘贴 / 剪切」——比自绘的桌面式菜单更适合触摸（用户 2026-10-23：
+   * 「如果有原生的，手机可以不做长按菜单」）。所以这里不拦，交给 WebView 原生处理。
    */
   useEffect(() => {
     const onCtx = (e: MouseEvent) => e.preventDefault()
@@ -2767,8 +2796,56 @@ export default function App() {
     return text
   }
 
-  /** 打开主区右键菜单（在事件处理里现算菜单项，按上下文决定给哪些） */
-  const openMainMenu = (clientX: number, clientY: number) => {
+  /** 手机四键条：剪切（写剪贴板成功才删选区，失败不丢内容） */
+  const cutSelection = async (): Promise<void> => {
+    const view = editorRef.current
+    if (!view) return
+    const sel = view.state.selection.main
+    if (sel.empty) return
+    const text = view.state.sliceDoc(sel.from, sel.to)
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      setToast('剪贴板写入失败，内容没有删除')
+      return
+    }
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: '' },
+      selection: { anchor: sel.from },
+    })
+    view.focus()
+  }
+
+  /** 手机四键条：粘贴到光标处（有选区则替换） */
+  const pasteClipboard = async (): Promise<void> => {
+    const view = editorRef.current
+    if (!view) return
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text) {
+        setToast('剪贴板是空的')
+        return
+      }
+      const sel = view.state.selection.main
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      })
+      view.focus()
+    } catch {
+      setToast('读不到剪贴板 —— 用系统键盘上的「粘贴」')
+    }
+  }
+
+  /** 手机四键条：全选 */
+  const selectAllText = (): void => {
+    const view = editorRef.current
+    if (!view) return
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })
+    view.focus()
+  }
+
+  /** 打开主区右键菜单（在事件处理里现算菜单项，按上下文决定给哪些） */  const openMainMenu = (clientX: number, clientY: number) => {
     const view = editorRef.current
     const items: MenuItem[] = []
 
@@ -3208,12 +3285,26 @@ export default function App() {
       <div
         className="zn-body"
         onContextMenuCapture={(e) => {
+          /**
+           * 手机编辑区：**换成横向四键条**（复制 / 剪切 / 粘贴 / 全选）。
+           * 原生给的是「复制 / 分享 / 全选 / 网页搜索」（没有粘贴与剪切，且分享/搜索无意义），
+           * 桌面那套竖排菜单更不适合触摸 ⇒ 四个动作自己给（rev173.90 · 用户 2026-10-23）。
+           */
+          const el = e.target
+          if (
+            platform === 'android' &&
+            el instanceof HTMLElement &&
+            el.closest('.zn-editor .cm-editor')
+          ) {
+            e.preventDefault()
+            setMobileEditBar({ x: e.clientX, y: e.clientY })
+            return
+          }
           // 侧栏与主区统一走自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
           // 用 **Capture** 版是必需的：CodeMirror 会处理 contentDOM 上的 contextmenu，
           // 挂在冒泡阶段的话在编辑器正文里右键根本收不到。
           e.preventDefault()
           // 树项自带「重命名 / 删除」菜单，别抢它
-          const el = e.target
           if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
           /**
            * 时间流面板（桌面 · rev173.48）：空白处右键给「关闭时间流」。
@@ -3579,6 +3670,19 @@ export default function App() {
           y={mainMenu.y}
           items={mainMenu.items}
           onClose={() => setMainMenu(null)}
+        />
+      )}
+
+      {/* 手机编辑区长按：横向四键（复制 / 剪切 / 粘贴 / 全选）—— rev173.90 */}
+      {mobileEditBar && (
+        <MobileEditBar
+          x={mobileEditBar.x}
+          y={mobileEditBar.y}
+          onCopy={() => void copySelection()}
+          onCut={() => void cutSelection()}
+          onPaste={() => void pasteClipboard()}
+          onSelectAll={selectAllText}
+          onClose={() => setMobileEditBar(null)}
         />
       )}
 
