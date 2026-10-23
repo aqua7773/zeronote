@@ -10,6 +10,8 @@
   "permissions": [
     "core:default",
     "dialog:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "statusbar:default",
     "notification-capture:default",
     "androidperm:default",

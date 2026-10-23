@@ -28,6 +28,9 @@ base64 = "0.22"
 tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
+# 原生剪贴板（rev173.92）：WebView 的 `clipboard-read` 固定 denied（实测），
+# 「从别的 App 复制 → 粘贴进 ZeroNote」只能走原生命令（Android 用 ClipboardManager）。
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-statusbar = { path = "plugins/tauri-plugin-statusbar" }
 # 通知捕获（rev173.16）：Android NotificationListenerService → 缓存 → 记账插件解析
 tauri-plugin-notification-capture = { path = "plugins/tauri-plugin-notification-capture" }

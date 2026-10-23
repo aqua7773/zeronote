@@ -121,6 +121,10 @@ import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
 import { MobileEditBar } from './components/MobileEditBar'
 import {
+  readText as nativeClipboardReadText,
+  writeText as nativeClipboardWriteText,
+} from '@tauri-apps/plugin-clipboard-manager'
+import {
   ContextMenu,
   Dialog,
   DialogBody,
@@ -2820,6 +2824,40 @@ export default function App() {
     return ''
   }
 
+  /**
+   * 原生剪贴板（rev173.92）：Android WebView 把 `clipboard-read` 固定成 denied，
+   * 网页 API 读不到系统剪贴板 ⇒ 走 `tauri-plugin-clipboard-manager`（Android = ClipboardManager，
+   * 桌面 = arboard）。网页 API 保留作回退（桌面 / 插件异常时）。
+   */
+  const platformClipboardWrite = async (text: string): Promise<boolean> => {
+    try {
+      await nativeClipboardWriteText(text)
+      return true
+    } catch {
+      /* 插件不可用（非 Tauri 环境 / 权限未编译进去）：回退网页 API */
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const platformClipboardRead = async (): Promise<string> => {
+    try {
+      const text = await nativeClipboardReadText()
+      if (text) return text
+    } catch {
+      /* 同上：回退网页 API（手机上会是 NotAllowedError，交给内部缓存） */
+    }
+    try {
+      return await navigator.clipboard.readText()
+    } catch {
+      return ''
+    }
+  }
+
   /** 复制选区并返回文本（剪切复用它，只有真复制成功才删选区，免得剪贴板失败把内容吃掉） */
   const copySelection = async (): Promise<string> => {
     const view = editorRef.current
@@ -2834,12 +2872,8 @@ export default function App() {
       ? String(window.getSelection() ?? '')
       : view.state.sliceDoc(sel.from, sel.to)
     if (!text) return ''
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      /* 剪贴板不可写时忽略；系统快捷键仍然可用 */
-    }
-    rememberCopied(text) // writeText 失败也要记：内部粘贴靠它
+    await platformClipboardWrite(text)
+    rememberCopied(text) // 写失败也要记：内部粘贴靠它
     return text
   }
 
@@ -2850,9 +2884,8 @@ export default function App() {
     const sel = view.state.selection.main
     if (sel.empty) return
     const text = view.state.sliceDoc(sel.from, sel.to)
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
+    const ok = await platformClipboardWrite(text)
+    if (!ok) {
       setToast('剪贴板写入失败，内容没有删除')
       return
     }
@@ -2870,12 +2903,8 @@ export default function App() {
     if (!view) return
     let text = ''
     let fromSystem = false
-    try {
-      text = await navigator.clipboard.readText()
-      fromSystem = Boolean(text)
-    } catch {
-      /* WebView 的 clipboard-read 固定 denied（实测）—— 走内部缓存 */
-    }
+    text = await platformClipboardRead()
+    fromSystem = Boolean(text)
     if (!text) text = readInternalClip()
     if (!text) {
       setToast('读不到剪贴板 —— 从别的 App 复制的内容请用键盘上的剪贴板按钮')

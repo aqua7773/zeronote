@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-23（rev173.91）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-23（rev173.92）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.91 · 0.3.0 · 2026-10-23 |
+| rev / 版本 | rev173.92 · 0.3.0 · 2026-10-23 |
 | 测试基线 | vitest 547 · cargo 36 · oxlint 3 warnings（2026-10-23） |
 | 插件 | 内置 5 · 示例 29 |
 | 文档 | README 现状 2026-10-23 · CHANGELOG 0.3.0 |
@@ -167,7 +167,7 @@ pwsh -File scripts\verify.ps1
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |
 | 时间流开关 | ✅ **rev173.48**：时间流空白或卡片右键「关闭时间流」· 文件树 / 编辑器 / 起始页右键「打开时间流」· localStorage 记忆（默认开） |
-| 手机编辑区长按菜单 | ✅ **rev173.90–91**：横向四键「复制 / 剪切 / 粘贴 / 全选」（`MobileEditBar`，长按点上方 56px）· 不再弹桌面竖排菜单 · 全选实测通过 · **粘贴 rev173.91 修好**：WebView `clipboard-read` 固定 denied ⇒ 复制/剪切写入内部缓存（`localStorage['zeronote.clipboard']`，10 分钟有效），粘贴系统读不到就用它 · 真机实测复制→粘贴成功 · **跨 App 复制仍读不到**（要原生剪贴板命令 = 改 Rust + 重装 APK，需用户点头） |
+| 手机编辑区长按菜单 | ✅ **rev173.90–92**：横向四键「复制 / 剪切 / 粘贴 / 全选」（`MobileEditBar`，长按点上方 56px）· 不再弹桌面竖排菜单 · **粘贴走原生剪贴板**（rev173.92：`tauri-plugin-clipboard-manager`，用户同意重装 APK）——跨 App 复制也能粘 · 真机实测插件 write→read 往返 + 页面粘贴插入 `ZN-NATIVE-CLIP` · 内部缓存保留兜底 |
 | 多标签页 | ✅ **rev173.50**：编辑器顶部标签条（标题 + 未保存圆点 + ×）· `Ctrl+Tab` / `Ctrl+Shift+Tab` 循环 · `Ctrl+W` 关当前（还有别的标签就切过去）· 关闭 / 改名 / 删除 / 切库四处生命周期都同步 · **分屏不做**（D-007：标签拖出成独立窗口 + Windows 原生窗口并排够用） |
 | 标签拆独立窗口 | ✅ **rev173.51–54**：标签**拖出**窗口 = 拆成独立窗口（`note-*`，900×700，自绘标题条三键）· 窗口里**只有编辑器**（无标签条）· 收回两条路：标题条 `⤺` 按钮 / **拖标题条出界**（越界 6px 热区松手，与主窗口「拖标签出界=拆出」对称）· 右键菜单同效 · **同一篇同时只在一个窗口里** · 关窗走 `close()` 先落盘 · 手机提示不支持 · ✅ 主窗口 reload 不再丢占用表（rev173.63：localStorage 账本 + `getAllWebviewWindows` 存活过滤） |
 | 沙箱 | ⏸ 搁置（用户裁决） |
@@ -195,8 +195,8 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
 - **2026-10-23 环境**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · `zeronote.exe` 2026-10-23 20:26 起）；
   **旧残留已清**（10-21 的 `android-dev.cmd` 树 cmd 31684 / node 23140 / 2920、8791 的 webview-demo server pid 25768 —— 全部 taskkill /T 干净，桌面 dev 未受影响）。
-- **手机状态（2026-10-23 21:00）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug` 进程 pid **9201**（旧包 10-21 13:49 装，前端实时取 1420）；
-  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_9201`（换进程后先 `forward --remove` 再按新 pid 重建）。
+- **手机状态（2026-10-23 21:42）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug` **已重装**（21:42:17，含原生剪贴板插件；pid **8839**，前端实时取 1420）；
+  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_8839`（换进程后先 `forward --remove` 再按新 pid 重建）。
 - **交接时 dev 状态（2026-10-21 13:45）**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · cargo/zeronote 起于 02:15）；**Android dev 本轮已起**（真机 `33b676f6`/ARIA，`android-dev.cmd` → `.self-logs/android-dev.log`）。
   ⚠️ **起 android dev 前先清残留**：昨天（10-20 00:54）的 `pnpm tauri android dev`（pid 624/23272）一直持有 Android 构建锁，
   新实例只打一行「Blocking waiting for file lock on Android」然后干等 —— 本轮清掉后才开始编译。库 `_tmp-vault-tb`。

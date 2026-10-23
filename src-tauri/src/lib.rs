@@ -2350,6 +2350,7 @@ pub fn run() {
 
   builder
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_clipboard_manager::init())
     .plugin(tauri_plugin_statusbar::init())
     .plugin(tauri_plugin_notification_capture::init())
     .plugin(tauri_plugin_uri_reader::init())
