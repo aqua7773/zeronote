@@ -39,6 +39,9 @@ import backlinksManifest from '../../examples/backlinks/manifest.json?raw'
 // history（历史版本，2026-10-23 rev173.99）
 import historyIndex from '../../examples/history/index.js?raw'
 import historyManifest from '../../examples/history/manifest.json?raw'
+// habit（打卡，2026-10-24 rev173.103）
+import habitIndex from '../../examples/habit/index.js?raw'
+import habitManifest from '../../examples/habit/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -72,6 +75,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'history',
     files: { 'index.js': historyIndex, 'manifest.json': historyManifest },
+  },
+  {
+    id: 'habit',
+    files: { 'index.js': habitIndex, 'manifest.json': habitManifest },
   },
 ]
 

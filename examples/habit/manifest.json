@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "id": "habit",
+  "name": "打卡",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "计划打卡、日历与连续天数（不做提醒）",
+  "category": "tool",
+  "capabilities": ["store", "command", "view:main", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "habit.create-plan", "title": "打卡：新建计划" },
+      { "id": "habit.check", "title": "打卡：打卡" },
+      { "id": "habit.save-plan", "title": "打卡：保存计划" },
+      { "id": "habit.edit", "title": "打卡：编辑计划" },
+      { "id": "habit.delete-plan", "title": "打卡：删除计划" },
+      { "id": "habit.backfill", "title": "打卡：补打卡" },
+      { "id": "habit.clear-day", "title": "打卡：清除某天的记录" }
+    ],
+    "panels": [{ "id": "habit.board", "title": "打卡", "location": "main" }]
+  }
+}
