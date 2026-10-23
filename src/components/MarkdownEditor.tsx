@@ -13,6 +13,7 @@ import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
+import { isPlainBracketLink, isPlainBracketSource } from '../lib/atomic-link'
 import {
   MAX_PASTE_IMAGE_BYTES,
   bytesToBase64,
@@ -511,6 +512,12 @@ export function MarkdownEditor({
       if (!content || !content.contains(el)) return
       const target = el.textContent?.trim()
       if (!target) return
+      /**
+       * rev173.97：**只有 `[[…]]` 才算 wikilink**（用户口径「wikilink 就是 wikilink」）。
+       * atomic 会把 frontmatter 的 `tags: [工作, 周报]`（未定义引用的方括号）也渲染成
+       * `.cm-atomic-link` —— 点它去"找一篇叫 `[工作, 周报]` 的笔记"毫无意义。
+       */
+      if (!/^\[\[[\s\S]*\]\]$/.test(target)) return
       ev.preventDefault()
       ev.stopPropagation()
       onWikiLinkOpen(target)
@@ -518,6 +525,80 @@ export function MarkdownEditor({
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
   }, [onWikiLinkOpen])
+
+  /**
+   * 非 wikilink 的 `.cm-atomic-link` 去掉链接外观（rev173.97 · 用户「取消这个标签形式，
+   * wikilink 就是 wikilink」）。
+   *
+   * frontmatter 的 `tags: [工作, 周报]` 被 markdown 解析成 Link 节点 ⇒ atomic 给
+   * `.cm-atomic-link`（绿色 + 外链图标），但它既不是 `[[…]]` 也不是 `[文字](url)`。
+   * 判据抽在 `lib/atomic-link.ts`（纯函数，可单测）；这里只加/去 `zn-plain-link`，
+   * 样式覆盖在 `styles.css`。
+   *
+   * 为什么用 MutationObserver：编辑器每次重绘（输入 / 换行 / 滚动）都会重建这些 span，
+   * 一次性标记会被冲掉 —— 与图片 asset 修复（`imageAssetPlugin`）同一个套路。
+   */
+  useEffect(() => {
+    let disposed = false
+    let mo: MutationObserver | null = null
+    let raf = 0
+    let tries = 0
+
+    const mark = (root: HTMLElement) => {
+      // 首选**整行源码**判据（活跃行会藏方括号，可见文本不可靠）
+      const view = viewRef.current ?? EditorView.findFromDOM(root)
+      for (const el of root.querySelectorAll<HTMLElement>('.cm-atomic-link')) {
+        const text = el.textContent ?? ''
+        let plain = false
+        let decided = false
+        if (view) {
+          try {
+            const from = view.posAtDOM(el, 0)
+            /**
+             * ⚠️ `posAtDOM` 只覆盖**文本**：方括号在 atomic 里可能是独立 widget
+             * （实测 rev173.97：frontmatter 的 `[工作, 周报]` 取到的源码只是 `工作, 周报`）。
+             * 所以拿整行反查形态：行里有 `[[文本]]` ⇒ wikilink；否则有 `[文本]` ⇒ 普通方括号。
+             * 顺序不能反 —— `[[X]]` 里也含 `[X]`。
+             */
+            const line = view.state.doc.lineAt(from).text
+            const src = line.includes(`[[${text}]]`)
+              ? `[[${text}]]`
+              : line.includes(`[${text}]`)
+                ? `[${text}]`
+                : ''
+            if (src) {
+              plain = isPlainBracketSource(src)
+              decided = true
+            }
+          } catch {
+            /* 位置拿不到（widget / 未渲染）：退回可见文本判据 */
+          }
+        }
+        if (!decided) plain = isPlainBracketLink(text)
+        el.classList.toggle('zn-plain-link', plain)
+      }
+    }
+
+    const attach = () => {
+      if (disposed) return
+      const content = handleRef.current?.getContentDOM()
+      if (!content) {
+        // atomic 的 handle 要等它 ready（通常一两帧）；30 帧还拿不到就算了（不阻塞编辑）
+        if (tries++ < 30) raf = window.requestAnimationFrame(attach)
+        return
+      }
+      mark(content)
+      mo = new MutationObserver(() => mark(content))
+      mo.observe(content, { childList: true, subtree: true, characterData: true })
+    }
+
+    attach()
+    return () => {
+      disposed = true
+      window.cancelAnimationFrame(raf)
+      mo?.disconnect()
+    }
+  }, [path])
 
   /**
    * 点正文图片 → 全屏预览（rev173.1 · 用户反馈「显示得太大了」）。

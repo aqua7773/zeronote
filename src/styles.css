@@ -2435,6 +2435,22 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   border-top-color: var(--zn-border-strong, var(--zn-border));
 }
 
+/* 「不是 wikilink 的方括号」回到普通文本（rev173.97 · 用户「取消这个标签形式，
+   wikilink 就是 wikilink」）——
+   frontmatter 的 `tags: [工作, 周报]` 被 markdown 解析成 Link，atomic 给了
+   `.cm-atomic-link`（绿色 + 外链图标 + pointer）。`MarkdownEditor` 会给这类元素
+   加 `zn-plain-link`（判据见 `src/lib/atomic-link.ts`），这里只负责**去掉外观**：
+   颜色跟随正文、无下划线、无图标、光标是文本。真链接与 `[[…]]` 不受影响。 */
+.zn-editor .cm-atomic-link.zn-plain-link,
+.zn-editor .cm-atomic-link.zn-plain-link * {
+  color: inherit !important;
+  text-decoration: none !important;
+  cursor: text !important;
+}
+.zn-editor .cm-atomic-link.zn-plain-link::after {
+  content: none !important;
+}
+
 .zn-line-action {
   position: absolute;
   /* 右边缘落在行盒左边界左侧 4px 处（= 297-4 = 293），所有行同一条竖线 */
