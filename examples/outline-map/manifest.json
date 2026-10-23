@@ -13,8 +13,8 @@
   "contributes": {
     "commands": [
       { "id": "outline-map.reload", "title": "大纲：重新读盘并解析" },
-      { "id": "outline-map.open-map", "title": "大纲：把某组导图开成独立窗口（按组号）" },
-      { "id": "outline-map.open-map-at-line", "title": "大纲：把该标题下的导图开成独立窗口" },
+      { "id": "outline-map.open-map", "title": "大纲：把某组导图打开（按组号）" },
+      { "id": "outline-map.open-map-at-line", "title": "大纲：把该标题下的导图打开" },
       { "id": "outline-map.add-child", "title": "大纲：在该节点下插入子主题" },
       { "id": "outline-map.remove-node", "title": "大纲：删除该节点连同它的子项" },
       { "id": "outline-map.insert-mermaid", "title": "大纲：把某组导图插入笔记（Mermaid mindmap）" }

@@ -1,44 +1,57 @@
 /**
- * 大纲 · 导图 v0.2（2026-10-13 rev52）—— 第一个功能插件，重做成"**导图在独立窗口**"。
+ * 大纲 · 导图 v0.3（rev173.89）—— **主区标签 / 独立窗口共用同一个 mind-elixir 画布**。
  *
- * ## 分工（一次架构纠偏：不再指望"与编辑器同屏"）
+ * ## 形态（用户 2026-10-21 定的最终样子）
  *
  * ```
- *   主区「大纲 · 导图」面板                        独立窗口（U1）
- *   ┌──────────────────────────────┐             ┌──────────────────────────────┐
- *   │ 项目计划   3 项      ❖ 导图  │  ──点击──▶  │ 项目计划        3 项          │
- *   │  • 调研                      │             │  ┌── 静态 SVG（只读大图）──┐  │
- *   │  • 设计                      │             │  └────────────────────────┘  │
- *   │ 另一组     2 项      ❖ 导图  │             │  • 调研          ＋  ✕       │
- *   │  • 排期                      │             │    • 竞品        ＋  ✕       │
- *   └──────────────────────────────┘             │    • 用户        ＋  ✕       │
- *                                                └──────────────────────────────┘
+ * 标题左侧「❖」/ 命令  ──▶  主区标签「导图 · 项目计划」（mind-elixir 真画布）
+ *                               │  拖出标签 / 右键「在新窗口打开」
+ *                               └──▶ 独立窗口（同一份画布、同一套写回）
  * ```
+ *
+ * 桌面上默认进主区标签（`registerPanel({ mount })`），手机上也是主区面板（Android 没有真多窗口）；
+ * 手机上**不再**走 `overrideShell` 整窗接管 —— 返回键与标签条交给内核，插件只画内容区。
  *
  * **关键取舍：编辑走 `fs` 写库文件，不走 `doc.replaceRange`。**
  *
- * 一开始想把大纲放侧栏（"与编辑器同屏"才有编辑器可改），但实测发现内核里
- * **`location: 'sidebar'` 的面板其实渲染在主区**（右侧栏早已取消，见 `App.tsx` 的注释）——
- * 主区被面板占满时编辑器卸载，`doc.replaceRange` 会静默 no-op。
- *
- * 而导图本来就在**独立窗口**里，那个 webview 里**没有编辑器**可言。
- * ⇒ 那就别绕：插件直接 `fs.readText` 读、改完 `fs.writeText` 写回（内核的原子写、库内路径校验都还在）。
- * 好处是**两边（主区面板 / 独立窗口）用同一套编辑逻辑**，不依赖编辑器是否挂载。
+ * 导图可能在主区（编辑器被标签顶下去）也可能在独立窗口（那个 webview 里没有编辑器），
+ * 所以两边统一 `fs.readText` 读、改完 `fs.writeText` 写回（内核的原子写、库内路径校验都还在）。
  *
  * ⚠️ **已知边界（诚实写下来）**：如果这篇笔记正开在编辑器里且**有未保存的手改**，
  * 插件写盘的东西可能被稍后的自动保存覆盖（用户手写优先——这个方向是对的）。
  * 反向也成立：插件写盘后，编辑器里显示的还是旧内容，切走再回来才会重读。
  *
- * ## 其它取舍（v0.1 沿用）
- * · 自算布局 + **静态 SVG**：`html` 节点是静态注入、跑不了脚本（生产 CSP 会拦内联脚本），
- *   所以 SVG 里放不了按钮 —— 编辑按钮一律用**声明式 UINode**，与图并列放在窗口下半部。
- * · 颜色全用 `var(--zn-*)`：SVG 内联进宿主 DOM，换主题自动跟随。
- * · `render` 是同步纯函数 ⇒ 数据放在**闭包缓存**里（读盘是异步的，只在 open/change/编辑后刷新）。
+ * ## 为什么不再是静态 SVG
+ * v0.1 的声明式 `render` 只能发 21 种 UINode，SVG 是静态注入、跑不了脚本 ⇒ 拖拽 / 双击改名
+ * 全做不了，只能另开窗口用 `overrideShell`。rev173.81 的面板 `mount` 能直接画 DOM，
+ * 于是「主区」与「窗口」共用同一个挂载器，内核的顶栏 / 返回键 / 标签条全部保留。
+ *
+ * · 颜色全用 `var(--zn-*)`：画布挂进宿主 DOM，换主题自动跟随。
+ * · `mount` 只调一次 ⇒ 数据放在**闭包缓存**里；编辑器改动 / 换笔记由 `rebind()` 重画（不重建实例）。
  */
-/** 独立窗口的面板 id 前缀：`outline-map.map-<组序号>` */
+/**
+ * 导图面板 id 前缀：`outline-map.map-<hash32(笔记|起始行|标题)>`。
+ *
+ * 为什么按"笔记 + 组"哈希、不按组序号：组序号会随换笔记重排，同一 id 会在两篇笔记之间
+ * 互相顶掉标签；哈希让"某篇笔记的某一组"始终是一个稳定身份（窗口 URL、store、标签键都用它）。
+ */
 const MAP_PREFIX = 'outline-map.map-'
 /** 窗口与主区面板共用的"当前笔记"键（窗口是独立上下文，只能靠 store 交换这点信息） */
 const STORE_LAST = 'lastNote'
+
+/** 32 位 FNV-1a（与 doc-reader 同一份实现） */
+const hash32 = (s) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
+}
+
+/** 一组导图的稳定面板 id（笔记路径 + 起始行 + 标题） */
+const mapPanelId = (note, block) =>
+  `${MAP_PREFIX}${hash32(`${note}|${block.startLine}|${block.title}`)}`
 
 /* ───────────────── ① 解析：Markdown → 树 ───────────────── */
 
@@ -662,8 +675,8 @@ function meDataToLines(data, baseIndent = 0) {
   return out
 }
 
-/** 挂载器：`overrideShell` 的 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
-function makeMindMapMount({ locateBlock, saveBack, host, tag }) {
+/** 挂载器：面板 `mount`（**同步、只调一次**）—— 先占位，再把库异步拉起来 */
+function makeMindMapMount({ note, locateBlock, saveBack, host, tag }) {
   return (el) => {
     el.replaceChildren()
     // 只补 overflow：`position/inset` 交给 `.zn-shell-mount` 的 CSS（它在窗口模式下铺满内容区）
@@ -888,6 +901,13 @@ function makeMindMapMount({ locateBlock, saveBack, host, tag }) {
     void rebind()
 
     return {
+      /** 实例属于哪篇笔记（主窗口刷新时只让这篇的实例跟上） */
+      note,
+      /**
+       * 数据变了重画（编辑器改动 / 切回这篇）。**不重建实例** —— 保住撤销历史与画布位置；
+       * `mount` 只调一次（PanelMount 的约定），所以刷新只能走这里，不能再指望 `view.refresh()`。
+       */
+      rebind,
       dispose() {
         ready = false
         themeWatch?.disconnect()
@@ -974,8 +994,6 @@ const MM_LOCALE = {
 
 /* ───────────────── 面板 / 窗口 ───────────────── */
 
-const INDENT = '　' // 全角空格：UINode 没有缩进字段，用它做视觉层级
-
 export default {
   async apply(ctx) {
     const { doc, command, view, host, fs, store, subscriptions, editor } = ctx
@@ -986,6 +1004,13 @@ export default {
      * ③ 本插件的编辑命令（改完盘再读一次）—— 窗口那边的数据也走同一套。
      */
     let cache = { path: null, content: '', blocks: [] }
+
+    /** 活着的导图实例：编辑器改这篇时让它们跟上（`rebind`，不重建） */
+    const liveMaps = new Set()
+    /** 编辑器里改的是这篇 ⇒ 该篇的导图跟上（别的实例保持原样，避免误伤） */
+    const refreshMaps = (path) => {
+      for (const m of liveMaps) if (m.note === path) void m.rebind()
+    }
 
     async function reload(path) {
       if (!path) {
@@ -1040,32 +1065,18 @@ export default {
     const isMapWindow = Boolean(winId && winId.startsWith(MAP_PREFIX))
 
     if (isMapWindow) {
-      const idx = Number(winId.slice(MAP_PREFIX.length))
-      /** 实际渲染哪一组 —— 用 store 里的定位信息校正过的索引（见下） */
-      let groupIndex = idx
-      let title = '导图'
       /** 诊断出口（CDP / 排查用）：窗口里到底拿到了什么 */
-      const diag = { winId, idx, target: null, err: null, path: null, blocks: 0, group: null }
+      const diag = { winId, target: null, err: null, path: null, blocks: 0, group: null }
       window.__omWin = diag
 
+      let target = null
       try {
-        const target = await store.get(`open:${winId}`, null)
+        target = await store.get(`open:${winId}`, null)
         diag.target = target
         if (target?.note) {
           diag.path = target.note
           await reload(target.note)
           diag.blocks = cache.blocks.length
-          // 先按 startLine 认（内容可能被改过），退而按标题，再退按索引
-          const byLine =
-            Number.isFinite(Number(target.startLine)) &&
-            cache.blocks.find((b) => b.startLine === Number(target.startLine))
-          const byTitle = target.title ? cache.blocks.find((b) => b.title === target.title) : null
-          const block = byLine || byTitle || cache.blocks[idx] || null
-          diag.group = block ? { title: block.title, startLine: block.startLine } : null
-          if (block) {
-            groupIndex = cache.blocks.indexOf(block)
-            title = `导图 · ${block.title}`
-          }
         } else {
           diag.err = 'store 里没有这个面板的打开记录'
         }
@@ -1074,102 +1085,19 @@ export default {
         host.log('warn', `导图窗口初始化失败：${String(e)}`)
       }
 
-      /** 窗口渲染：上半 SVG（只读大图）+ 下半可编辑节点列表（按钮是声明式 UINode——SVG 里放不了） */
-      const renderWindow = () => {
-        const block = cache.blocks[groupIndex]
-        if (!block) {
-          return {
-            type: 'stack',
-            gap: 'md',
-            children: [
-              { type: 'text', value: '这一组没了', variant: 'title' },
-              {
-                type: 'text',
-                value: '笔记内容变了（组数或顺序对不上）。关掉窗口，回主窗口重新点「❖ 导图」。',
-                variant: 'caption',
-              },
-            ],
-          }
-        }
-        const rows = flatNodes(block.nodes)
-        const baseIndent = rows[0]?.indent ?? 0
-        return {
-          type: 'stack',
-          gap: 'md',
-          children: [
-            {
-              type: 'row',
-              gap: 'sm',
-              align: 'center',
-              wrap: true,
-              children: [
-                { type: 'text', value: block.title, variant: 'title' },
-                { type: 'badge', text: `${rows.length} 项`, tone: 'muted' },
-                { type: 'button', label: '重新读盘', variant: 'ghost', onClick: 'outline-map.reload' },
-              ],
-            },
-            { type: 'text', value: cache.path ?? '', variant: 'caption' },
-            { type: 'html', value: toSvg(blockToTree(block)) },
-            { type: 'divider' },
-            { type: 'text', value: '编辑（直接写回库文件；＋ 插子主题 / ✕ 删该节点连同子项）', variant: 'caption' },
-            {
-              type: 'list',
-              empty: '（空组）',
-              items: rows.map((n, i) => ({
-                key: `n${i}`,
-                node: {
-                  type: 'row',
-                  gap: 'xs',
-                  align: 'center',
-                  wrap: true,
-                  children: [
-                    {
-                      type: 'text',
-                      value: `${INDENT.repeat(Math.max(0, Math.round((n.indent - baseIndent) / INDENT_UNIT)))}• ${n.text}`,
-                      variant: 'caption',
-                    },
-                    {
-                      type: 'button',
-                      label: '＋',
-                      variant: 'ghost',
-                      payload: { line: n.line, endLine: n.endLine, indent: n.indent },
-                      onClick: 'outline-map.add-child',
-                    },
-                    {
-                      type: 'button',
-                      label: '✕',
-                      variant: 'ghost',
-                      payload: { line: n.line, endLine: n.endLine },
-                      onClick: 'outline-map.remove-node',
-                    },
-                  ],
-                },
-              })),
-            },
-          ],
-        }
-      }
-
-      // 编辑命令：窗口里同样注册（改的是同一个库文件）
-      registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
-
-      view.registerPanel({ id: winId, title, location: 'main', render: renderWindow })
-
-      /* ── 真导图（rev57）：接管这个窗口的**内容区**，在里面跑 mind-elixir ──
-       *
-       * 面板注册照旧保留：它是"身份"（`openWindow` 的校验、标题条上的名字都靠它）。
-       * 真正画图的是 `overrideShell` —— 契约 §2.8 写明**窗口模式下接管的是内容区**，
-       * 标题条与关闭按钮由内核保留（所以接管了自己也关得掉）。
-       * 声明式 UINode 表达不了"画布 + 拖拽"这类界面：这正是 U2 存在的理由。 */
-
-      /** 按 store 里记的定位信息找回"同一组"：先 startLine（内容改过也能认），再标题，最后索引 */
+      /** 按 store 里记的定位信息找回"同一组"：先 startLine（内容改过也能认），再标题 */
       const locateBlock = () => {
-        const t = diag.target
-        const byLine =
-          Number.isFinite(Number(t?.startLine)) && cache.blocks.find((b) => b.startLine === Number(t.startLine))
-        const byTitle = t?.title ? cache.blocks.find((b) => b.title === t.title) : null
-        return byLine || byTitle || cache.blocks[groupIndex] || null
+        const t = target
+        return (
+          (Number.isFinite(Number(t?.startLine)) &&
+            cache.blocks.find((b) => b.startLine === Number(t.startLine))) ||
+          (t?.title ? cache.blocks.find((b) => b.title === t.title) : null) ||
+          null
+        )
       }
+
+      const head = locateBlock()
+      diag.group = head ? { title: head.title, startLine: head.startLine } : null
 
       /**
        * 写回：导图数据 ⇒ 这一组的 `- ` 行 ⇒ 整篇写盘。
@@ -1179,22 +1107,34 @@ export default {
        * 定位不上就抛错退出，**绝不"猜一个位置写下去"**。
        */
       const saveBack = async (data) => {
-        if (!cache.path) throw new Error('没有笔记路径')
-        await reload(cache.path)
-        const block = locateBlock()
+        if (!target?.note) throw new Error('窗口里没有笔记路径')
+        const content = await fs.readText(target.note)
+        const blocks = parseBlocks(content).blocks
+        const block =
+          (Number.isFinite(Number(target.startLine)) &&
+            blocks.find((b) => b.startLine === Number(target.startLine))) ||
+          (target.title ? blocks.find((b) => b.title === target.title) : null) ||
+          null
         if (!block) throw new Error('这一组已不在笔记里（标题或列表被改过）')
         const flat = flatNodes(block.nodes)
         const base = flat.length ? Math.min(...flat.map((n) => n.indent)) : 0
-        const fresh = meDataToLines(data, base)
-        return editLines((lines) => {
-          lines.splice(block.startLine, block.endLine - block.startLine + 1, ...fresh)
-        })
+        const lines = content.split(/\r?\n/)
+        lines.splice(block.startLine, block.endLine - block.startLine + 1, ...meDataToLines(data, base))
+        await fs.writeText(target.note, lines.join('\n'))
+        await reload(target.note)
+        return true
       }
 
-
-      const mountMindMap = makeMindMapMount({ locateBlock, saveBack, host, tag: winId })
-      subscriptions.push(view.overrideShell({ mount: mountMindMap }))
-      host.log('info', `导图窗口就绪（内容区由 mind-elixir ${LIB_VERSION} 接管）：${winId}`)
+      /* 窗口里只有这一块内容区：注册面板 → 内核用 PanelMount 画（与主区同一份挂载器）。
+         不再 overrideShell —— 顶栏 / 关闭按钮 / 返回键都留给内核，插件只管画布。 */
+      view.registerPanel({
+        id: winId,
+        title: head ? `导图 · ${head.title}` : '导图',
+        location: 'main',
+        mount: (el) =>
+          makeMindMapMount({ note: target?.note, locateBlock, saveBack, host, tag: winId })(el),
+      })
+      host.log('info', `导图窗口就绪（mind-elixir ${LIB_VERSION}）：${winId}`)
       return
     }
 
@@ -1243,7 +1183,11 @@ export default {
          * 症状是"切回笔记后折叠全没了 / 折错行"（2026-10-14 实测踩到）。
          */
         cache = { ...cache, path: d.path }
-        void reload(d.path).then(() => view.refresh())
+        void reload(d.path).then(() => {
+          view.refresh()
+          // 切回这篇（或刚打开）⇒ 已开着的导图按新内容重画（面板 `mount` 不重挂，只能走 rebind）
+          refreshMaps(d.path)
+        })
         // 读盘比编辑器挂载慢 ⇒ 读完再让内核按 initialFolded 恢复一次（rev81 起不再需要 refresh）
         void foldLoad().then(() => editor.restoreFolds())
       }),
@@ -1251,6 +1195,7 @@ export default {
         // change 带来的是**编辑器里的最新内容**：直接用它算分组，不必再读盘
         cache = { path: d.path, content: d.content, blocks: parseBlocks(d.content).blocks }
         view.refresh()
+        refreshMaps(d.path)
       }),
     )
 
@@ -1307,7 +1252,7 @@ export default {
         pattern: '^(?:#{1,6}[^\\S\\n]|[^\\S\\n]*(?:[-*+]|\\d+[.)])[^\\S\\n])',
         flags: 'm',
         label: '❖',
-        title: '把这一组开成导图窗口',
+        title: '把这一组打开成导图',
         /**
          * 判据 = `mapButtonTargets`（纯函数，与解析同源）：
          * · **容器标题不给按钮**（2026-10-14 用户实测：`# 绪论` 下面接子标题，它只是结构的根）；
@@ -1547,36 +1492,103 @@ export default {
     })
 
     /**
-     * 主窗口（手机整窗接管）里写回第 `bi` 组 —— 与窗口分支的 `saveBack` 同一套纪律：
-     * **先重读盘**（导图是异步交互，这中间编辑器可能改了同一篇）再定位行号，定位不上就抛错。
+     * 写回一组 —— **先重读盘、再定位行号**：导图是异步交互，这中间编辑器可能改了同一篇，
+     * 拿旧行号去 splice 会写坏别处。定位不上就抛错，**绝不"猜一个位置写下去"**。
+     *
+     * 主窗口与独立窗口共用。`note` 用面板自己记的那篇（不读 `cache.path`）——
+     * 用户切到别的笔记后，导图仍在，这时写回不能写到新笔记上。
      */
-    const saveGroupLines = async (bi, data) => {
-      if (!cache.path) throw new Error('没有笔记路径')
-      const want = cache.blocks[bi]
-      await reload(cache.path)
+    const writeGroup = async (note, target, data) => {
+      const content = await fs.readText(note)
+      const blocks = parseBlocks(content).blocks
       const block =
-        (want && cache.blocks.find((b) => b.startLine === want.startLine)) ||
-        (want && cache.blocks.find((b) => b.title === want.title)) ||
-        cache.blocks[bi] ||
+        (Number.isFinite(Number(target.startLine)) &&
+          blocks.find((b) => b.startLine === Number(target.startLine))) ||
+        (target.title ? blocks.find((b) => b.title === target.title) : null) ||
         null
       if (!block) throw new Error('这一组已不在笔记里（标题或列表被改过）')
       const flat = flatNodes(block.nodes)
       const base = flat.length ? Math.min(...flat.map((n) => n.indent)) : 0
-      const fresh = meDataToLines(data, base)
-      return editLines((lines) => {
-        lines.splice(block.startLine, block.endLine - block.startLine + 1, ...fresh)
-      })
+      const lines = content.split(/\r?\n/)
+      lines.splice(block.startLine, block.endLine - block.startLine + 1, ...meDataToLines(data, base))
+      await fs.writeText(note, lines.join('\n'))
+      if (cache.path === note) await reload(note) // 只更新"当前打开这篇"的缓存
+      view.refresh()
+      return true
     }
 
-    /** 手机端整窗接管的释放器（连点「❖」时先释放上一次，见 `openMapByIndex`） */
-    let mobileShell = null
+    /** 已注册的导图面板句柄：同一组再次打开时先放掉旧的（否则面板表里留着一份旧闭包） */
+    const mapPanels = new Map()
+
+    /** 给"某篇笔记的某一组"注册一个面板（主区标签 / 可拖出成窗口），返回面板 id */
+    const ensureMapPanel = (note, block) => {
+      const id = mapPanelId(note, block)
+      try {
+        mapPanels.get(id)?.dispose()
+      } catch {
+        /* 已经释放过就算了 */
+      }
+      const target = { note, startLine: block.startLine, title: block.title }
+      /** 定位：只认"面板打开时那一组"；编辑器切到别的笔记时返回 null（面板保持原样，不误伤） */
+      const locateBlock = () =>
+        cache.path !== note
+          ? null
+          : cache.blocks.find((b) => b.startLine === target.startLine) ||
+            cache.blocks.find((b) => b.title === target.title) ||
+            null
+      const saveBack = (data) => writeGroup(note, target, data)
+      mapPanels.set(
+        id,
+        view.registerPanel({
+          id,
+          title: `导图 · ${block.title}`,
+          location: 'main',
+          // 不进 ☰ 菜单：这是"打开的那一组"，不是功能入口（否则每组多一项）
+          hidden: true,
+          mount: (el) => {
+            const inst = makeMindMapMount({ note, locateBlock, saveBack, host, tag: id })(el)
+            liveMaps.add(inst)
+            return {
+              dispose: () => {
+                liveMaps.delete(inst)
+                inst.dispose()
+              },
+            }
+          },
+        }),
+      )
+      return id
+    }
 
     /**
-     * 把第 `bi` 组开成独立导图窗口 —— 两个入口共用：
+     * 把面板开到主区并进标签条（宿主为每个面板注册的 `core.panel.<id>`）。
+     *
+     * ⚠️ **重试**：那条命令由宿主在 `onPanelsChange` 之后注册 —— 刚 `registerPanel` 时可能还不存在；
+     * 命令不存在时 `execute` 会抛错（不是静默 no-op），所以重试既安全又必要（同 doc-reader）。
+     */
+    const openPanel = async (panelId) => {
+      for (let i = 0; i < 5; i++) {
+        try {
+          await command.execute(`core.panel.${panelId}`)
+          return true
+        } catch (e) {
+          if (i === 4) {
+            host.log('warn', `导图面板打不开：${String(e)}`)
+            host.notify('导图面板还没就绪 —— 从命令面板再打开一次', 'warn')
+            return false
+          }
+          await new Promise((r) => setTimeout(r, 120))
+        }
+      }
+      return false
+    }
+
+    /**
+     * 把第 `bi` 组打开成**主区标签**（拖出标签 = 独立窗口）—— 两个入口共用：
      * · 命令面板 `outline-map.open-map`（按组号）
      * · **标题左侧的「❖」按钮** `outline-map.open-map-at-line`（按行号反查组号）
      *
-     * rev173.11：**手机端改走整窗接管**（Tauri Android 只有单 webview，`openWindow` 会静默失败）。
+     * 手机上同样是主区面板（Android 没有真多窗口），返回键交给内核 —— 不再整窗接管。
      */
     const openMapByIndex = async (bi) => {
       const block = cache.blocks[bi]
@@ -1584,31 +1596,8 @@ export default {
         host.notify('先打开一篇带列表的笔记', 'warn')
         return
       }
-      /**
-       * **手机：主窗口整窗接管**（rev173.11 真机实测后的修复）。
-       *
-       * 为什么不能 `openWindow`：Tauri 2 的 Android 没有多 webview 窗口（`unstable` 未开），
-       * 内核 `openWindow` 的创建失败只落到 `tauri://error` 日志 ⇒ 表现为"点了没反应"
-       * （2026-10-18 实测：notify 说已打开、`windows` 恒为 0、`shell` 恒为 null）。
-       * 这里走契约 §2.8 的整窗接管，与桌面导图窗口**共用同一套画布挂载器**。
-       * 连点「❖」= 先释放上一次接管（否则内核会拒绝"整窗已被自己接管"）。
-       */
-      if (host.platform === 'android') {
-        mobileShell?.dispose()
-        mobileShell = null
-        const mount = makeMindMapMount({
-          locateBlock: () => cache.blocks[bi] ?? null,
-          saveBack: (data) => saveGroupLines(bi, data),
-          host,
-          tag: `mobile-${bi}`,
-        })
-        mobileShell = view.overrideShell({ mount })
-        subscriptions.push(mobileShell)
-        host.notify(`已打开导图「${block.title}」—— 右下角「释放接管」返回`)
-        return
-      }
-      const panelId = `${MAP_PREFIX}${bi}`
-      // 窗口是独立上下文：把"哪篇笔记的哪一组"写进 store，供那边的 apply 读。
+      const panelId = ensureMapPanel(cache.path, block)
+      // 窗口是独立上下文：把"哪篇笔记的哪一组"写进 store，供那边的 apply / 拖出后的窗口读。
       // 除索引外还写 `startLine` / `title` —— 那边优先按它们找回同一组（内容被改过也不会错位）。
       await store.set(`open:${panelId}`, {
         note: cache.path,
@@ -1616,28 +1605,8 @@ export default {
         startLine: block.startLine,
         title: block.title,
       })
-      /**
-       * 先把面板注册上再开窗 —— 内核的 `openWindow` 会校验"面板已注册"（明确报错优于开一个白窗）。
-       * 那边（新 webview）会**自己再注册一次**同 id 的面板，内容是它从 store 读盘后算的；
-       * 这里这份只服务"主窗口里也能直接看这一组"。
-       */
-      view.registerPanel({
-        id: panelId,
-        title: `导图 · ${block.title}`,
-        location: 'main',
-        render: () => ({
-          type: 'stack',
-          gap: 'md',
-          children: [
-            { type: 'text', value: block.title, variant: 'title' },
-            { type: 'text', value: cache.path ?? '', variant: 'caption' },
-            { type: 'divider' },
-            { type: 'html', value: toSvg(blockToTree(block)) },
-          ],
-        }),
-      })
-      view.openWindow({ panel: panelId, title: `导图 · ${block.title}`, width: 940, height: 700 })
-      host.notify(`已在新窗口打开「${block.title}」（可多开；窗口里能编辑）`)
+      await openPanel(panelId)
+      host.notify(`已打开导图「${block.title}」（拖出标签可成独立窗口）`)
     }
 
     registerEditing(subscriptions, command, { insertAfter, deleteRange, host })
@@ -1649,6 +1618,7 @@ export default {
         run: async () => {
           await reload(cache.path)
           view.refresh()
+          refreshMaps(cache.path) // 面板走 mount：refresh() 不重挂，得让已开的导图重画
           host.notify('已重新读盘')
         },
       }),
@@ -1667,12 +1637,13 @@ export default {
           await fs.writeText(cache.path, `${cache.content}${tail}\n\`\`\`mermaid\n${md}\n\`\`\`\n`)
           await reload(cache.path)
           view.refresh()
+          refreshMaps(cache.path)
           host.notify('已把 Mermaid mindmap 追加到笔记末尾')
         },
       }),
       command.register({
         id: 'outline-map.open-map',
-        title: '大纲：把某组导图开成独立窗口（按组号）',
+        title: '大纲：把某组导图打开（按组号）',
         run: async (payload) => {
           const bi = Number((payload ?? {}).block)
           await openMapByIndex(Number.isFinite(bi) ? bi : 0)
@@ -1680,7 +1651,7 @@ export default {
       }),
       command.register({
         id: 'outline-map.open-map-at-line',
-        title: '大纲：把该标题下的导图开成独立窗口（标题左侧按钮用）',
+        title: '大纲：把该标题下的导图打开（标题左侧按钮用）',
         run: async (payload) => {
           const line = Number((payload ?? {}).line)
           if (!Number.isFinite(line) || line < 0) {

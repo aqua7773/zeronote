@@ -20,13 +20,14 @@
 | 决策记录 / 否决清单（为什么不做） | `docs/decisions/README.md` | **active** | 论证过程在 `docs/*-调研-*.md` |
 | 任务卡 / 决策记录模板 | `docs/templates/TASK.md` · `docs/templates/ADR.md` | **active** | — |
 | 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
+| 接下来做什么（顺序 / 成本 / 验收） | `docs/ROADMAP.md` | **active** | `docs/待做插件-调研与方案-2026-10-21.md`（各插件做法论证） |
 | 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（rev 索引在文首） | **active** | — |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
 | 记账插件（竞品 / 通知捕获 / 契合度 / v0.1 落地） | `docs/记账插件-调研-2026-10-19.md` | **active** | `_research/accounting/*`（竞品 README 与源码原文，historical） |
 | 起始页快捷入口（长按 ＋ 环形菜单） | `docs/快捷入口-调研-2026-10-19.md` | **active（待实现）** | — |
 | 标签 / 窗口拖回吸附（怎么做、选哪条） | `docs/标签窗口拖拽-调研-2026-10-20.md` | **active（待用户选方案）** | — |
 | 全功能对标（还有没有「该用没用」） | `docs/全功能对标调研-方案-2026-10-20.md` | **active（v2 待评审，未开工）** | v1 的 9 处错误见文末更正清单 |
-| A 档待做插件（标签 / 双链 / 历史 / 打卡）怎么做 | `docs/待做插件-调研与方案-2026-10-21.md` | **active（proposed · 4 个决定待拍板）** | — |
+| A 档待做插件（标签 / 双链 / 历史 / 打卡）怎么做 | `docs/待做插件-调研与方案-2026-10-21.md` | **active（方案已定 · 决定已拍板，见 ROADMAP）** | — |
 | 卡死兜底（看门狗 + 启动自愈） | `docs/卡死兜底方案-2026-10-13.md` | **active** | — |
 | UI / 交互规范（现行） | `docs/UI交互规范.md` | **active** | `docs/UI规划-v0.1.md`（2026-10-11 规划史，部分被本文取代） |
 | 键位表（自动生成） | `docs/键位表.md` | **generated**（`node scripts/gen-keys.mjs --write`） | — |

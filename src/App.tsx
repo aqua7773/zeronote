@@ -1133,6 +1133,13 @@ export default function App() {
       setMainView(pid)
       return
     }
+    /**
+     * ⚠️ **先切回编辑器再 openNote**（rev173.89 实测）：`openNote` 对"已经是当前笔记"
+     * 直接早退（`useDocSession` 第 89 行），而主区当时可能还停在面板视图上 ——
+     * 于是点笔记标签「没反应」，屏幕仍是导图/阅读器。
+     * 早退路径也必须把 `mainView` 掰回 `editor`（与 rev173.85 的 `onOpened` 对齐）。
+     */
+    setMainView('editor')
     void openNoteRef.current(key)
   }, [])
 
