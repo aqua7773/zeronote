@@ -12,6 +12,8 @@ import plugin, {
   cleanExcerpt,
   filterTags,
   panelNode,
+  peekNode,
+  resolveTagAt,
   sortTags,
   toNoteRows,
 } from '../examples/tag-panel/index.js'
@@ -192,11 +194,15 @@ type PanelSpec = {
   render: (ctx: { pluginId: string; state: Record<string, unknown> }) => Node
 }
 
-function fakeApi(tags: { tag: string; count: number }[] = [{ tag: '工作', count: 2 }]) {
+function fakeApi(
+  tags: { tag: string; count: number }[] = [{ tag: '工作', count: 2 }],
+  opts: { doc?: { path: string; content: string } | null; platform?: string } = {},
+) {
   const commands = new Map<string, { id: string; run: (p?: unknown) => unknown }>()
   const panels: PanelSpec[] = []
   const events = new Map<string, (p: unknown) => void>()
   const executed: { id: string; payload: unknown }[] = []
+  const marks: { id: string; pattern: string; onClick?: string; className?: string }[] = []
 
   const api = {
     subscriptions: [] as { dispose: () => void }[],
@@ -231,9 +237,16 @@ function fakeApi(tags: { tag: string; count: number }[] = [{ tag: '工作', coun
       }),
       list: () => [],
     },
-    host: { notify: vi.fn() },
+    host: { notify: vi.fn(), platform: opts.platform ?? 'windows' },
+    doc: { active: vi.fn(() => opts.doc ?? null) },
+    editor: {
+      addMark: vi.fn((spec: { id: string; pattern: string; onClick?: string; className?: string }) => {
+        marks.push(spec)
+        return { dispose: vi.fn() }
+      }),
+    },
   }
-  return { api, commands, panels, events, executed }
+  return { api, commands, panels, events, executed, marks }
 }
 
 afterEach(() => {
@@ -241,13 +254,13 @@ afterEach(() => {
 })
 
 describe('apply：注册与命令接线', () => {
-  it('面板注册在主区；6 条命令与 5 个事件都登记了', () => {
-    const { api, commands, panels, events } = fakeApi()
+  it('面板：主区浏览 + 浮层两个；7 条命令与 5 个事件都登记了', () => {
+    const { api, commands, panels, events, marks } = fakeApi()
     plugin.apply(api as never)
 
-    expect(panels).toHaveLength(1)
-    expect(panels[0].id).toBe('tag-panel.board')
+    expect(panels.map((p) => p.id)).toEqual(['tag-panel.board', 'tag-panel.peek'])
     expect(panels[0].location).toBe('main')
+    expect(panels[1].location).toBe('modal')
     expect(typeof panels[0].render).toBe('function')
 
     for (const id of [
@@ -256,6 +269,8 @@ describe('apply：注册与命令接线', () => {
       'tag-panel.clear',
       'tag-panel.rebuild',
       'tag-panel.openNote',
+      'tag-panel.show-for-tag',
+      'tag-panel.openInWindow',
     ]) {
       expect(commands.has(id)).toBe(true)
     }
@@ -268,6 +283,11 @@ describe('apply：注册与命令接线', () => {
     ]) {
       expect(events.has(topic)).toBe(true)
     }
+
+    // 正文 `#标签` 的 mark 注册（点它开浮层）
+    expect(marks).toHaveLength(1)
+    expect(marks[0].onClick).toBe('tag-panel.show-for-tag')
+    expect(marks[0].className).toBe('tag')
   })
 
   it('select 用 query("", { tag }) 拉该标签下的笔记', async () => {
@@ -341,5 +361,90 @@ describe('apply：注册与命令接线', () => {
     const node = panels[0].render({ pluginId: 'tag-panel', state: {} })
     expect(listNodes(node)).toHaveLength(1)
     expect(links(node).some((l) => l.onClick === 'tag-panel.openNote')).toBe(false)
+  })
+})
+
+/* ───────────────────────── rev173.96：点正文标签 → 浮层 → 独立窗口 ───────────────────────── */
+
+describe('resolveTagAt：从光标偏移认出 #标签', () => {
+  const text = '开头 #工作 中间 #生活。结尾'
+
+  it('点在 # 上、标签中间、标签末尾都认', () => {
+    const at = text.indexOf('#工作')
+    expect(resolveTagAt(text, at)).toBe('工作')
+    expect(resolveTagAt(text, at + 1)).toBe('工作')
+    expect(resolveTagAt(text, at + 3)).toBe('工作')
+  })
+
+  it('前面是标点（不是空白/行首）就不认 —— 与内核 tagsOf 口径一致', () => {
+    const t = '一本书。#生活 后'
+    expect(resolveTagAt(t, t.indexOf('#生活'))).toBe('')
+  })
+
+  it('落在普通文字 / 越界 / 空正文都安全返回空', () => {
+    expect(resolveTagAt(text, 0)).toBe('')
+    expect(resolveTagAt(text, 999)).toBe('')
+    expect(resolveTagAt('', 0)).toBe('')
+  })
+})
+
+describe('peekNode：点标签弹出的浮层', () => {
+  it('标题是 #标签，点一篇走 openInWindow（独立窗口）', () => {
+    const node = peekNode({
+      tag: '工作',
+      notes: [{ path: 'notes/a.md', title: 'A', excerpt: '' }],
+    }) as Node
+    const all = walk(node)
+    expect(all.some((n) => n.type === 'text' && n.value === '#工作')).toBe(true)
+    const link = links(node).find((l) => l.onClick === 'tag-panel.openInWindow')
+    expect(link?.payload).toEqual({ path: 'notes/a.md' })
+  })
+
+  it('空列表给「还没有笔记用这个标签」', () => {
+    const node = peekNode({ tag: '生活', notes: [] }) as Node
+    const empty = walk(node).find((n) => n.type === 'list')?.empty
+    expect(empty).toContain('还没有')
+  })
+})
+
+describe('show-for-tag / openInWindow 接线', () => {
+  it('点标签 → 打开浮层（core.panel.tag-panel.peek）并查该标签', async () => {
+    const { api, commands, executed } = fakeApi()
+    plugin.apply(api as never)
+
+    await commands.get('tag-panel.show-for-tag')!.run({ text: '#工作' })
+
+    expect(executed.some((e) => e.id === 'core.panel.tag-panel.peek')).toBe(true)
+    expect(api.index.query).toHaveBeenCalledWith('', { tag: '工作' })
+  })
+
+  it('text 缺失时用 from + 正文兜底解析', async () => {
+    const content = '前文 #生活 后文'
+    const { api, commands } = fakeApi(undefined, { doc: { path: 'a.md', content } })
+    plugin.apply(api as never)
+
+    await commands.get('tag-panel.show-for-tag')!.run({ from: content.indexOf('#生活') + 1 })
+
+    expect(api.index.query).toHaveBeenCalledWith('', { tag: '生活' })
+  })
+
+  it('桌面：在独立窗口打开，并收掉浮层', async () => {
+    const { api, commands, executed } = fakeApi()
+    plugin.apply(api as never)
+
+    await commands.get('tag-panel.openInWindow')!.run({ path: 'notes/a.md' })
+
+    expect(executed).toContainEqual({ id: 'core.openInNewWindow', payload: { path: 'notes/a.md' } })
+    expect(executed.some((e) => e.id === 'core.closePanel')).toBe(true)
+  })
+
+  it('手机：降级为主区打开，并明确提示（不静默）', async () => {
+    const { api, commands, executed } = fakeApi(undefined, { platform: 'android' })
+    plugin.apply(api as never)
+
+    await commands.get('tag-panel.openInWindow')!.run({ path: 'a.md' })
+
+    expect(executed).toContainEqual({ id: 'core.openNote', payload: { path: 'a.md' } })
+    expect(api.host.notify).toHaveBeenCalled()
   })
 })

@@ -1920,12 +1920,14 @@ export default function App() {
         title: '上一个标签页',
         run: () => cycleTab(-1),
       }),
-      /* 把当前笔记拆到独立窗口（rev173.51 · 桌面上标签右键也有同一入口） */
+      /* 把笔记拆到独立窗口（rev173.51 · 桌面上标签右键也有同一入口）
+       * rev173.96：接受 `{ path }` —— 插件（标签浮层 / 反链）要按**路径**开窗口；
+       * 不传 path 时仍开当前笔记，老调用方行为不变。 */
       kernel.commands.api.register({
         id: 'core.openInNewWindow',
-        title: '在新窗口打开当前笔记',
-        run: () => {
-          const p = activeRef.current
+        title: '在新窗口打开笔记',
+        run: (payload) => {
+          const p = (payload as { path?: string } | undefined)?.path?.trim() || activeRef.current
           if (p) openInWindow(p)
         },
       }),
@@ -2050,22 +2052,36 @@ export default function App() {
    */
   useEffect(() => {
     if (!kernel) return
-    const sub = kernel.commands.api.register({
-      id: 'core.openNote',
-      title: '打开笔记',
-      run: (payload) => {
-        const p = (payload ?? {}) as { path?: string }
-        const path = typeof p.path === 'string' ? p.path.trim() : ''
-        if (!path) {
-          // 静默 no-op 比报错危险（硬约束 4）：插件传错参数时要能看见
-          setToast('打开笔记：缺少路径')
-          return
-        }
-        setMainView('editor')
-        return openNoteRef.current(path)
-      },
-    })
-    return () => sub.dispose()
+    const subs = [
+      kernel.commands.api.register({
+        id: 'core.openNote',
+        title: '打开笔记',
+        run: (payload) => {
+          const p = (payload ?? {}) as { path?: string }
+          const path = typeof p.path === 'string' ? p.path.trim() : ''
+          if (!path) {
+            // 静默 no-op 比报错危险（硬约束 4）：插件传错参数时要能看见
+            setToast('打开笔记：缺少路径')
+            return
+          }
+          setMainView('editor')
+          return openNoteRef.current(path)
+        },
+      }),
+      /**
+       * 关闭当前面板视图（rev173.96）—— `modal` 面板里的动作做完（例如标签浮层里点了
+       * "在独立窗口打开"）需要把浮层收掉；`setMainView('editor')` 正是 Dialog 的关闭语义。
+       * 插件此前**没有任何办法**自己关掉一个面板（只能等用户点 X）。
+       */
+      kernel.commands.api.register({
+        id: 'core.closePanel',
+        title: '关闭当前面板',
+        run: () => setMainView('editor'),
+      }),
+    ]
+    return () => {
+      for (const s of subs) s.dispose()
+    }
   }, [kernel, setMainView, setToast])
 
   /**
