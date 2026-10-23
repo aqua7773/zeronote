@@ -325,7 +325,28 @@ export default {
       await rescan(false, notes)
     }
 
-    const render = () => noteNode(view)
+    const render = () => {
+      /**
+       * 从 ☰ 菜单直接打开（rev173.100 新开的入口）时还没有 target ——
+       * 自动绑定当前笔记并扫一遍，否则面板会停在「引用「」的笔记 0 条」。
+       */
+      if (!view.target) {
+        const doc = api.doc.active()
+        if (doc) {
+          const guess = baseName(doc.path)
+          view = {
+            ...view,
+            target: guess,
+            names: [guess],
+            selfPath: doc.path,
+            scanning: true,
+            summary: '正在扫描引用…',
+          }
+          setTimeout(() => void rescan(false), 0)
+        }
+      }
+      return noteNode(view)
+    }
 
     api.subscriptions.push(
       api.view.registerPanel({

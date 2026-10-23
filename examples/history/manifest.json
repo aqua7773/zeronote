@@ -14,9 +14,13 @@
     "commands": [
       { "id": "history.show-for-current", "title": "历史版本：看当前笔记的历史" },
       { "id": "history.refresh", "title": "历史版本：刷新列表" },
+      { "id": "history.snapshot-now", "title": "历史版本：现在存一版" },
       { "id": "history.pick", "title": "历史版本：与当前对比" },
       { "id": "history.rollback", "title": "历史版本：回滚到这一版" }
     ],
-    "panels": [{ "id": "history.board", "title": "历史版本", "location": "modal" }]
+    "panels": [
+      { "id": "history.board", "title": "历史版本", "location": "modal" },
+      { "id": "history.status", "title": "历史版本", "location": "statusbar" }
+    ]
   }
 }

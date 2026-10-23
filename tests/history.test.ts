@@ -188,10 +188,18 @@ function walk(node: Node, out: Node[] = []): Node[] {
 }
 
 describe('historyNode', () => {
-  it('没有历史时给引导文案', () => {
+  it('没有目标笔记（直接开面板）→ 引导态 + 按钮，而不是「「」的历史 0 版」', () => {
+    const node = historyNode({ title: '', entries: [] }) as Node
+    const btn = walk(node).find((n) => n.type === 'button') as unknown as { onClick: string }
+    expect(btn.onClick).toBe('history.show-for-current')
+    expect(walk(node).some((n) => n.value?.includes('当前笔记'))).toBe(true)
+  })
+
+  it('有目标但没历史时给触发说明', () => {
     const node = historyNode({ title: '周报', entries: [] }) as Node
     const empty = walk(node).find((n) => n.type === 'list')?.empty
-    expect(empty).toContain('还没有历史版本')
+    expect(empty).toContain('关闭或切到别的笔记')
+    expect(empty).toContain('现在存一版')
   })
 
   it('列出条目，点一条走 history.pick', () => {
@@ -273,14 +281,16 @@ function fakeApi() {
 }
 
 describe('apply：面板 / 命令 / 触发', () => {
-  it('面板在 modal 位；4 条命令；订阅 change/close/save 三个事件', () => {
+  it('面板：历史浮层 + 状态栏入口；5 条命令；订阅四个事件', () => {
     const { api, commands, panels, handlers } = fakeApi()
     plugin.apply(api as never)
-    expect(panels[0].id).toBe('history.board')
-    expect(panels[0].location).toBe('modal')
+    expect(panels.map((p) => p.id)).toEqual(['history.status', 'history.board'])
+    expect(panels[0].location).toBe('statusbar')
+    expect(panels[1].location).toBe('modal')
     for (const id of [
       'history.show-for-current',
       'history.refresh',
+      'history.snapshot-now',
       'history.pick',
       'history.rollback',
     ]) {

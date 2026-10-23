@@ -229,6 +229,27 @@ export function diffHtml(ops, maxRows = DIFF_MAX_ROWS) {
 /** 面板视图（纯数据 UINode） */
 export function historyNode(view) {
   const { title = '', entries = [], selected = '', diff = '', summary = '', status = '' } = view ?? {}
+  /**
+   * 直接打开面板（命令面板里的「打开面板：历史版本」—— 内核给**每个**面板自动注册的那条）
+   * 时插件还没拿到"哪篇笔记"，标题会是空。以前这里会渲染成「「」的历史 0 版」，像是坏了。
+   * 现在给引导态 + 一个能直达正确命令的按钮。
+   */
+  if (!title) {
+    return {
+      type: 'stack',
+      gap: 'md',
+      children: [
+        { type: 'text', value: '历史版本', variant: 'title' },
+        {
+          type: 'text',
+          value: '这个面板需要一个"当前笔记"。点下面的按钮，或在命令面板搜「历史版本：看当前笔记的历史」。',
+          variant: 'caption',
+          tone: 'muted',
+        },
+        { type: 'button', label: '看当前笔记的历史', onClick: 'history.show-for-current' },
+      ],
+    }
+  }
   const children = [
     {
       type: 'row',
@@ -239,13 +260,14 @@ export function historyNode(view) {
         { type: 'text', value: `「${title}」的历史`, variant: 'title' },
         { type: 'badge', text: `${entries.length} 版` },
         { type: 'button', label: '刷新', onClick: 'history.refresh', variant: 'ghost' },
+        { type: 'button', label: '现在存一版', onClick: 'history.snapshot-now', variant: 'ghost' },
       ],
     },
   ]
   if (status) children.push({ type: 'text', value: status, variant: 'caption', tone: 'muted' })
   children.push({
     type: 'list',
-    empty: '还没有历史版本。改动并关闭这篇笔记后会自动存一份。',
+    empty: '这篇还没生成过历史版本 —— 改动后关闭或切到别的笔记会自动存一版（也可以点上面的「现在存一版」）。',
     items: entries.map((e) => ({
       key: e.file,
       node: {
@@ -317,6 +339,9 @@ export default {
     }
 
     const dirOf = (path) => `${DIR}/${hash32(path)}`
+
+    /** 库内路径 → 展示用标题（面板标题栏 / 空态文案） */
+    const titleOf = (path) => String(path ?? '').split('/').pop()?.replace(/\.md$/i, '') ?? String(path ?? '')
 
     async function listEntries(path) {
       const dir = dirOf(path)
@@ -446,7 +471,7 @@ export default {
         api.host.notify('先打开一篇笔记，再看它的历史版本', 'warn')
         return
       }
-      target = { path: doc.path, title: doc.path.split('/').pop()?.replace(/\.md$/i, '') ?? doc.path }
+      target = { path: doc.path, title: titleOf(doc.path) }
       selected = ''
       diff = ''
       summary = ''
@@ -507,13 +532,42 @@ export default {
       }
     }
 
+    /**
+     * 状态栏入口（rev173.100）—— 用户：「历史版本没有入口啊，只能命令面板进入」。
+     * 状态栏在编辑器 / 起始页都在，比只留命令面板强；按钮极轻，不占版面。
+     */
+    api.subscriptions.push(
+      api.view.registerPanel({
+        id: 'history.status',
+        title: '历史版本',
+        location: 'statusbar',
+        render: () => ({
+          type: 'button',
+          label: '历史版本',
+          onClick: 'history.show-for-current',
+          variant: 'ghost',
+        }),
+      }),
+    )
+
     api.subscriptions.push(
       api.view.registerPanel({
         id: PANEL_ID,
         title: '历史版本',
         location: 'modal',
-        render: () =>
-          historyNode({
+        render: () => {
+          /**
+           * 从 ☰ 菜单直接打开（rev173.100 新开的入口）时插件还不知道"哪篇笔记"——
+           * 这里自动绑定当前打开的那篇。异步列快照放 next tick（render 期间不能同步 refresh）。
+           */
+          if (!target.path) {
+            const doc = api.doc.active()
+            if (doc) {
+              target = { path: doc.path, title: titleOf(doc.path) }
+              setTimeout(() => void reloadEntries(), 0)
+            }
+          }
+          return historyNode({
             title: target.title,
             entries: entries.map((e) => ({
               file: e.file,
@@ -524,7 +578,8 @@ export default {
             diff,
             summary,
             status,
-          }),
+          })
+        },
       }),
     )
 
@@ -541,6 +596,25 @@ export default {
         id: 'history.refresh',
         title: '历史版本：刷新列表',
         run: () => reloadEntries(),
+      }),
+    )
+
+    /** 手动存一版（用户不想等"关闭"时用；存完清脏标记，免得 close 再存一份相同的） */
+    api.subscriptions.push(
+      api.command.register({
+        id: 'history.snapshot-now',
+        title: '历史版本：现在存一版',
+        run: async () => {
+          const doc = api.doc.active()
+          if (!doc) {
+            api.host.notify('先打开一篇笔记', 'warn')
+            return
+          }
+          await snapshot(doc.path, doc.content, 'manual')
+          dirtyPaths.delete(doc.path)
+          if (target.path === doc.path) await reloadEntries()
+          api.host.notify('已存一版')
+        },
       }),
     )
 
