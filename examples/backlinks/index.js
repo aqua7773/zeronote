@@ -19,6 +19,8 @@
  */
 
 const PANEL_ID = 'backlinks.board'
+/** 状态栏入口：显示「被 N 篇引用」（2026-10-24 用户要求） */
+const STATUS_ID = 'backlinks.status'
 /** 缓存键：`{ [path]: { mtime, refs: [{ name, line }] } }` */
 const CACHE_KEY = 'refs.v1'
 /** 只扫最近这么多天改过的笔记（方案 §4.2 的折中） */
@@ -356,6 +358,74 @@ export default {
         render,
       }),
     )
+
+    /* ───────── 状态栏：被 N 篇引用（2026-10-24 用户：「给底部状态栏加一条」） ───────── */
+
+    /** 当前笔记被多少**篇**引用（去重后）、以及它的展示名 */
+    let refCount = 0
+    let refTarget = ''
+    let countSeq = 0
+
+    /**
+     * 重算状态栏计数。
+     *
+     * 用 `scan(false)`（带 path+mtime 缓存）—— 切一篇笔记只重读"改过的那几篇"，
+     * 不是每次全库读盘。算完只 `refresh(STATUS_ID)`，不动面板。
+     */
+    async function updateCount(path) {
+      const seq = ++countSeq
+      try {
+        const notes = await api.fs.listNotes()
+        const meta = notes.find((n) => n.path === path)
+        const names = [...new Set([meta?.title, baseName(path)].filter(Boolean))]
+        const { entries } = await scan(false)
+        if (seq !== countSeq) return // 期间又切了笔记，丢弃旧结果
+        const hits = matchRefs(entries, names, path)
+        refTarget = meta?.title || baseName(path)
+        // 「篇数」而不是「条数」：同一篇里引用两次只算一篇（与标签面板的口径一致）
+        refCount = new Set(hits.map((h) => h.path)).size
+      } catch {
+        if (seq !== countSeq) return
+        refTarget = baseName(path)
+        refCount = 0
+      }
+      api.view.refresh(STATUS_ID)
+    }
+
+    api.subscriptions.push(
+      api.view.registerPanel({
+        id: STATUS_ID,
+        title: '反向链接',
+        location: 'statusbar',
+        render: () => ({
+          type: 'button',
+          // 没有打开的笔记时给中性文字（点它会给"先打开一篇笔记"的提示）
+          label: refTarget ? `被 ${refCount} 篇引用` : '被引用',
+          onClick: 'backlinks.show-for-current',
+          variant: 'ghost',
+        }),
+      }),
+    )
+
+    /* 切笔记 / 当前笔记内容变化 / 库里别的笔记增删，都可能改变"被引用数" */
+    api.subscriptions.push(
+      api.doc.on('open', (d) => {
+        if (d?.path) void updateCount(d.path)
+      }),
+    )
+    for (const topic of ['note:saved', 'note:changed', 'note:deleted', 'note:renamed']) {
+      api.subscriptions.push(
+        api.event.on(topic, () => {
+          const doc = api.doc.active()
+          if (doc?.path) void updateCount(doc.path)
+        }),
+      )
+    }
+    // 插件加载时可能已经有打开的笔记（热重载 / 切换插件）：先算一次
+    {
+      const doc = api.doc.active()
+      if (doc?.path) void updateCount(doc.path)
+    }
 
     api.subscriptions.push(
       api.command.register({

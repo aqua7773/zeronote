@@ -16,6 +16,9 @@
       { "id": "backlinks.rescan", "title": "反向链接：重新扫描" },
       { "id": "backlinks.open", "title": "反向链接：打开这条引用的来源笔记" }
     ],
-    "panels": [{ "id": "backlinks.board", "title": "反向链接", "location": "modal" }]
+    "panels": [
+      { "id": "backlinks.board", "title": "反向链接", "location": "modal" },
+      { "id": "backlinks.status", "title": "反向链接", "location": "statusbar" }
+    ]
   }
 }

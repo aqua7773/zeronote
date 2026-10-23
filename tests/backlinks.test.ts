@@ -198,10 +198,24 @@ function fakeApi(opts: { doc?: { path: string } | null; notes?: unknown[] } = {}
   }
 
   const readText = vi.fn(async (path: string) => texts[path] ?? '')
+  const docHandlers = new Map<string, (d: unknown) => void>()
+  const events = new Map<string, (p: unknown) => void>()
 
   const api = {
     subscriptions: [] as unknown[],
-    doc: { active: vi.fn(() => opts.doc ?? null) },
+    doc: {
+      active: vi.fn(() => opts.doc ?? null),
+      on: vi.fn((ev: string, cb: (d: unknown) => void) => {
+        docHandlers.set(ev, cb)
+        return { dispose: vi.fn() }
+      }),
+    },
+    event: {
+      on: vi.fn((topic: string, cb: (p: unknown) => void) => {
+        events.set(topic, cb)
+        return { dispose: vi.fn() }
+      }),
+    },
     fs: {
       listNotes: vi.fn(async () => notes),
       readText,
@@ -230,14 +244,15 @@ function fakeApi(opts: { doc?: { path: string } | null; notes?: unknown[] } = {}
     },
     host: { notify: vi.fn() },
   }
-  return { api, commands, panels, executed, readText }
+  return { api, commands, panels, executed, readText, docHandlers, events }
 }
 
 describe('apply：注册与接线', () => {
-  it('面板在 modal 位；3 条命令都登记', () => {
+  it('面板：浮层 + 状态栏；3 条命令都登记', () => {
     const { api, panels, commands } = fakeApi()
     plugin.apply(api as never)
-    expect(panels[0].id).toBe('backlinks.board')
+    expect(panels.map((p) => p.id)).toEqual(['backlinks.board', 'backlinks.status'])
+    expect(panels[1].location).toBe('statusbar')
     expect(panels[0].location).toBe('modal')
     for (const id of ['backlinks.show-for-current', 'backlinks.rescan', 'backlinks.open']) {
       expect(commands.has(id)).toBe(true)
@@ -295,5 +310,36 @@ describe('apply：注册与接线', () => {
     await commands.get('backlinks.rescan')!.run()
 
     expect(readText.mock.calls.length).toBeGreaterThan(first)
+  })
+
+  it('打开笔记 → 状态栏显示「被 N 篇引用」（按篇去重）', async () => {
+    const { api, panels, docHandlers } = fakeApi()
+    plugin.apply(api as never)
+
+    // 打开「标签验收-周报」：它被「双链验收」引用一次（正文里还有一处 [[本周进展]]，
+    // 同一篇 ⇒ 只算 1 篇）
+    docHandlers.get('open')!({ path: '标签验收-周报.md', content: '' })
+    await new Promise((r) => setTimeout(r, 50))
+
+    const status = panels.find((p) => p.id === 'backlinks.status')!
+    const node = status.render() as unknown as { label: string; onClick: string }
+    expect(node.label).toBe('被 1 篇引用')
+    expect(node.onClick).toBe('backlinks.show-for-current')
+    expect(api.fs.readText).toHaveBeenCalledWith('双链验收.md')
+  })
+
+  it('没有打开的笔记 → 状态栏是中性文字，点了给提示', async () => {
+    const { api, panels } = fakeApi({ doc: null })
+    plugin.apply(api as never)
+    const status = panels.find((p) => p.id === 'backlinks.status')!
+    expect((status.render() as unknown as { label: string }).label).toBe('被引用')
+  })
+
+  it('点状态栏按钮 = 走同一条 show-for-current 命令', async () => {
+    const { api, panels } = fakeApi()
+    plugin.apply(api as never)
+    const status = panels.find((p) => p.id === 'backlinks.status')!
+    const node = status.render() as unknown as { onClick: string }
+    expect(node.onClick).toBe('backlinks.show-for-current')
   })
 })

@@ -2797,21 +2797,14 @@ export default function App() {
           /* rev173.86：动态实例面板（文档阅读器每份文档一个）不进菜单 —— 否则打开 10 份文档就多 10 项 */
           !p.hidden &&
           p.location !== 'statusbar' &&
+          /* 浮层面板（反链 / 历史）**不进菜单**（2026-10-24 用户：「菜单栏不用有」）——
+             它们的入口是状态栏按钮 / 命令面板；放菜单里会让菜单变长且语义含混 */
+          p.location !== 'modal' &&
           // 工具栏 / 顶部提示条是"贴着编辑器"的辅助条，不该在菜单里单开一个页面
           p.location !== 'editor-toolbar' &&
           p.location !== 'editor-topbar',
       )
-      .map((p) => ({
-        label: p.title,
-        /**
-         * rev173.100：**浮层类面板（modal）也要能从菜单进**。
-         * 以前这里把 modal 过滤掉，于是反链 / 历史版本在 UI 上**没有任何入口** ——
-         * 只能到命令面板搜（用户：「历史版本没有入口啊，只能命令面板进入」）。
-         * 弹窗由 `modalPanel` 渲染，这里只需要把 `mainView` 切过去。
-         * 面板自己负责"没有目标笔记时自动绑定当前这篇"（见两个插件的 render）。
-         */
-        onClick: () => setMainView(p.id),
-      })),
+      .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
     ...(mainView === 'editor'
       ? []
       : [{ label: '返回编辑器', divider: true, onClick: () => setMainView('editor') }]),
