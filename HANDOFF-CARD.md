@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.103）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-24（rev173.104）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.103 · 0.3.0 · 2026-10-24 |
-| 测试基线 | vitest 684 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| rev / 版本 | rev173.104 · 0.3.0 · 2026-10-24 |
+| 测试基线 | vitest 703 · cargo 38 · oxlint 3 warnings（2026-10-24） |
 | 插件 | 内置 9 · 示例 33 |
 | 文档 | README 现状 2026-10-24 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
@@ -51,7 +51,7 @@ pwsh -File scripts\verify.ps1
    ⑨ ✅ **frontmatter 隐藏（rev173.98 已完成）** —— 用户「frontmatter 隐藏」：预览态不显示开头的 `--- … ---`（`src/kernel/editor-frontmatter.ts` 加 line decoration `zn-fm-hidden` + CSS `display:none`）。**没用 `Decoration.replace`**（atomic 已有装饰，同范围重叠会抛错 = 编辑器崩）· 编辑走**源码模式** · 未闭合的 frontmatter 不藏 · 只改外观、文档一字未动 · 单测 6 条 · 桌面实测（预览隐藏 / 源码可见 / 切笔记稳定）。
    ⑩ ✅ **历史版本 `history`（rev173.99 已完成 + rev173.100 补入口）** —— 需求 §11：**关闭且有改动才生成**（切换笔记用 `change` 缓存的正文补存 —— `openNote` 不发 close）· 存 `<库>/.zn/history/<hash32(path)>/` · **四档精简**（7 天全留 / 8–30 天每天 / 31–365 天每周 / >1 年每月）· `modal` 面板「历史 vs 当前」LCS diff（HTML 转义）+ 回滚（先存当前版再写回）· **内核补 `fs.listFiles` / `fs.purgePrivate`**（后者只允许 `.zn/` 下真删）· 预装 7 → **8** · 单测 28 条 · 桌面实测（快照 / 面板 / diff / 回滚）。**入口（rev173.100）**：状态栏「历史版本」按钮 · ☰ 菜单不再过滤 modal 面板 · 面板被直接打开时自动绑定当前笔记（无笔记给引导态）· 新增「现在存一版」。
    ⑪ ✅ **提醒打卡 `habit`（rev173.103 已完成）** —— 需求 §7.1–§7.3 **除提醒**（到点提醒不做 —— 用户 2026-10-23 裁决：无定时器原语 / 无前台服务）：主区面板 `habit.board`（计划列表 + 今日次数 + 打卡 + 月历 + 连续/累计）· 四种频率（每天 / 每周几 / 每月几号 / 每隔 N 天）· 一天多次、**上限用户自定 1–99** · **连续按应打卡日**（非打卡日跳过 · 今天没打不算断）· 累计按有记录的天数 · 补打卡 / 清除**只允许最近 7 天** · 数据落 `store`（`plans` + `checks`）· 预装 8 → **9** · 单测 **32** 条 · 桌面 CDP 全流程实测 · **手机真机 33b676f6 实测**（顺手修了手机日历溢出：格子改竖排）。
-    接下来：ROADMAP 的 6 项**全部完成**；剩余是记账文案校准（等真实漏识别样本）与插件窗口白屏兜底（0.5 天，待选方案）。总排期见 `docs/ROADMAP.md`。
+    接下来：ROADMAP 的 6 项**全部完成**；白屏兜底也已在 **rev173.104** 收口；剩余只有记账文案校准（等真实漏识别样本）。总排期见 `docs/ROADMAP.md`。
 
 可选小项：✅ **rev173.66 已补** —— 卡片长按菜单进了返回键层栈（菜单开着按返回先关菜单，不再直接退 App；手机实测 + 单测 3 条）。
 
@@ -153,8 +153,8 @@ pwsh -File scripts\verify.ps1
 | command 还原链残留 | ✅ rev121：接管改层栈，A 先卸后 B 卸落回内核 |
 | 测试报告（2026-10-17 · 16 项） | ✅ rev117：7 项已修；P2-3 作废（用户实测 png 可导出，**无 zip 导出**）；剩 P2-7 观察项（工程债已 rev131 清） |
 | 文档阅读器（面板化） | ✅ **rev173.84**：`view.overrideShell` → `view.registerPanel({ mount })`（面板 `doc-reader.view`）—— PDF / EPUB / TXT 画在**主区标签**里，拖出 / 右键 = 独立窗口；换文档走模块级 `currentDoc` + 实例回调（mount 只跑一次），窗口（新 webview）从 `store.last` 读路径；阅读器不再画「关闭」；换库比对 `store.last.vault`（不用 `vault:open` —— 每代都发，会误清冷启动刚打开的文档）。**桌面 CDP 实测**：打开 probe.pdf → 主区标签「文档阅读器」+ 第 1/1 页 · 右键 → 独立窗口同一份（从 store 读路径）· 拖出后主区复位。**手机真机 33b676f6 实测**（rev173.85 补）：点「说明.txt」→ 阅读器出内容、抽屉自动收起、返回键回起始页 · 另修两个内核缺口：面板页没标签条（拖不出去）· `core.openDocument` 被大 effect 重注册覆盖（接管失效）。✅ **rev173.85 换到"编辑区同一位置"**：面板与编辑器共用外壳（标签条 + 内容区），侧栏常驻，面板视图点笔记切回编辑器 · 桌面 + 手机实测。✅ **rev173.86 多标签**：每份文档一个面板（`doc-reader.view.<hash32(路径)>`，title = 文件名）· `hidden: true` 不进 ☰ 菜单 · `doc` 闭包常量（删 `currentDoc`/`liveInstances`）· `store.docs` 供窗口反查 · `readerState` 记住页码/缩放 · 桌面实测三标签混排 / 点切 / 关标签 · **手机不做多标签**（用户明确） |
-| 插件窗口整页白屏 ⇒ 关不掉 | ⚠️ **已知隐患（未做兜底）**：独立窗口 `decorations:false`，关闭按钮画在页面里（`App.tsx` 的 `zn-plugin-window-bar`）。若页面整页挂掉（JS 全挂 / 白屏），标题条一起没了 ⇒ **没有任何关闭入口**。实测成因：在窗口里执行 `window.close()` 只销毁页面、窗口壳还在（`plugin-doc-reader-view-1` 因此卡死，最后从主窗口 `getAllWebviewWindows()` + `destroy()` 清掉）。**规矩：关窗口用 `getCurrentWindow().destroy()`，别用 `window.close()`**。兜底方案候选：主窗口启动时扫孤儿窗口 / 窗口加 Rust 侧关闭快捷键 / 给窗口留系统装饰兜底 |
-| A 档 4 个插件（标签 / 双链 / 历史 / 打卡） | 🔄 **只剩打卡**：✅ 调研（rev173.80）· ✅ 面板地基（rev173.81–88）· ✅ outline-map 迁移（rev173.89）· ✅ **标签面板 `tag-panel`（rev173.93）**（主区面板 / 标签降序 / 点笔记打开 = 新增 `core.openNote` / 预装 6 / 桌面+手机实测）· ✅ **A0 探针（rev173.94）→ 结果 B**（`[[ ]]` 链接文字归内核，正向不重复做）· ✅ **反向链接 `backlinks`（rev173.95）**（`fs` 扫 + mtime 缓存 / modal 浮层 / 点来源打开 / 单测 26 / 桌面 + 手机实测；**rev173.101 状态栏「被 N 篇引用」**）· ✅ **标签浮层（rev173.96）**（点 `#标签` → 浮层 → 点一篇**独立窗口**；内核补 `core.openInNewWindow {path}` + `core.closePanel`；单测 33）· ✅ **历史版本 `history`（rev173.99 + 入口 rev173.100）**（`.zn/history` + 四档精简 + diff + 回滚；状态栏按钮入口）· ⏭ **下一步只剩打卡 `habit`（无到点提醒）** · 决定已拍板（主区标签 / 库内历史 / store 打卡 / 到点提醒不做）· 排期见 `docs/ROADMAP.md` |
+| 插件窗口整页白屏 ⇒ 关不掉 | ✅ **rev173.104 已兜底**：窗口每 3 s `emitTo('main')` 报活（带根节点自检），主窗口每 5 s 扫 `getAllWebviewWindows()`，**从没心跳**（>20 s 宽限）/ **心跳断 12 s** / **自报白屏 3 次** ⇒ `destroy()` + toast「已关闭无响应的窗口」。清理链路**不依赖目标窗口里的 JS**。实测：正常窗口 45 s 不误杀 / 无心跳窗口 20 s 关 / 隐藏根节点 10–15 s 关。**规矩不变：关窗口用 `destroy()`，别用 `window.close()`**。⚠️ 当前版本实测 `Page.crash` 与 `window.close()` 都会让窗口壳一起消失（与 rev173.84 当时不同），兜底主要覆盖「页面没起来 / JS 停了」 |
+| A 档 4 个插件（标签 / 双链 / 历史 / 打卡） | ✅ **全部完成**：✅ 调研（rev173.80）· ✅ 面板地基（rev173.81–88）· ✅ outline-map 迁移（rev173.89）· ✅ **标签面板 `tag-panel`（rev173.93）**（主区面板 / 标签降序 / 点笔记打开 = 新增 `core.openNote` / 预装 6 / 桌面+手机实测）· ✅ **A0 探针（rev173.94）→ 结果 B**（`[[ ]]` 链接文字归内核，正向不重复做）· ✅ **反向链接 `backlinks`（rev173.95）**（`fs` 扫 + mtime 缓存 / modal 浮层 / 点来源打开 / 单测 26 / 桌面 + 手机实测；**rev173.101 状态栏「被 N 篇引用」**）· ✅ **标签浮层（rev173.96）**（点 `#标签` → 浮层 → 点一篇**独立窗口**；内核补 `core.openInNewWindow {path}` + `core.closePanel`；单测 33）· ✅ **历史版本 `history`（rev173.99 + 入口 rev173.100）**（`.zn/history` + 四档精简 + diff + 回滚；状态栏按钮入口）· ✅ **打卡 `habit`（rev173.103）** · 决定已拍板（主区标签 / 库内历史 / store 打卡 / 到点提醒不做）· 排期见 `docs/ROADMAP.md` |
 | Worker / 子进程插件宿主 | ✅ **明确放弃（2026-10-21 用户裁决）**：按 `D-001` 不做，不再排期、不再讨论 · 依据：自用不装第三方插件 · 兜底已落地（看门狗 5 s 心跳超时 ⇒ `exit(101)` ⇒ 下次启动禁用该插件 ⇒ 一键恢复；渲染崩溃另有 `PanelBoundary`）· 真要重开必须先推翻 `D-001` |
 | 插件签名 / 分发 | ✅ **签名已做（rev173.77）**：Ed25519 `signature.json` + 信任根 `.zn/trusted-keys.json` · 有签名必须验过否则拒载 · `scripts/keygen.mjs` / `sign.mjs` · 插件页三态（已签名 / 已校验 / 未签名）。**插件市场 / 更新通道 ⏸ `D-008` 降级不排期（2026-10-21）**（签名只解决"是谁发布的"）· 多文件 `manifest.files` 未纳入签名 |
 | 插件能力使用审计 | ✅ **rev173.78**：只记 API 名 + 次数（不含参数 / 路径 / 内容）· `Proxy` 包 10 原语 · 落盘 `.zn/plugin-usage.json` · 节流 5 秒 + 启动 restore · 诊断出口 `__znPluginUsage()` · 单测 14 条 · 实测 4 个预装插件（accounting `command.register` 81 次；outline-map 用到 doc / editor / fs）。**用途**：将来收紧 capability 白名单的数据依据。没做：插件页展示 / 声明-vs-实际对比（留到公开时） |

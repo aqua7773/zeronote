@@ -68,6 +68,8 @@ import { useDocApi } from './hooks/useDocApi'
 import { useExternalFile } from './hooks/useExternalFile'
 /* rev128 拆分 L3：插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）抽成 hook */
 import { usePluginHost } from './hooks/usePluginHost'
+/* rev173.104 白屏兜底：窗口报活 + 主窗口清扫卡死窗口（见 lib/window-guard.ts 文件头） */
+import { useStuckWindowReaper, useWindowHeartbeat } from './hooks/useWindowGuard'
 /* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
 import {
   baseName,
@@ -1031,6 +1033,19 @@ export default function App() {
       cancelled = true
     }
   }, [pluginWindowId, noteWindowPath, trackNoteWindow])
+
+  /**
+   * **白屏兜底**（rev173.104 · 见 `lib/window-guard.ts` 文件头）：
+   * 独立窗口（插件 / 笔记）每 3 秒向主窗口报活；主窗口每 5 秒扫一遍窗口列表，
+   * 把「没心跳 / 心跳断了 / 自报白屏」的窗口 `destroy()` 掉 —— 那条通道不依赖窗口里的 JS，
+   * 页面整页挂掉（自绘标题条一起消失、屏幕上没有关闭入口）时仍然有效。
+   */
+  const standaloneWindow = !!(pluginWindowId || noteWindowPath)
+  useWindowHeartbeat(standaloneWindow)
+  const onWindowReaped = useCallback((label: string) => {
+    setToast(`已关闭无响应的窗口「${label}」`)
+  }, [])
+  useStuckWindowReaper(!standaloneWindow, onWindowReaped)
 
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
   const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({
