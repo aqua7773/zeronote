@@ -2781,18 +2781,65 @@ export default function App() {
     }
   }
 
+  /**
+   * 手机内部剪贴板缓存（rev173.91）。
+   *
+   * 为什么需要：Android WebView 把 `clipboard-read` 权限固定成 **denied**
+   * （`navigator.permissions.query({name:'clipboard-read'})` 实测），
+   * 所以 `navigator.clipboard.readText()` 必失败；`writeText` 却可用。
+   * ⇒ 在 ZeroNote 内复制 / 剪切过的文本先记一份，粘贴时**系统读不到就退回这份**。
+   * 只信 10 分钟内的 —— 跨 App 复制后，旧缓存不能顶替（那会粘错内容）。
+   *
+   * ⚠️ 时间戳只在**事件处理**里读（`rememberCopied` / `readInternalClip`）——
+   * 在 `useRef` 初始值里调 `Date.now()` 会踩 lint 的 `react(purity)`（渲染期不许调不纯函数）。
+   */
+  const internalClipRef = useRef<{ text: string; at: number } | null>(null)
+  const CLIP_TTL_MS = 10 * 60_000
+
+  const rememberCopied = (text: string) => {
+    internalClipRef.current = { text, at: Date.now() }
+    try {
+      window.localStorage.setItem('zeronote.clipboard', JSON.stringify({ text, at: Date.now() }))
+    } catch {
+      /* 配额满 / 隐私模式：内存那份照样能用 */
+    }
+  }
+
+  /** 读内部缓存（内存优先，localStorage 兜底；超过 10 分钟视为没有） */
+  const readInternalClip = (): string => {
+    const mem = internalClipRef.current
+    if (mem && Date.now() - mem.at < CLIP_TTL_MS) return mem.text
+    try {
+      const raw = window.localStorage.getItem('zeronote.clipboard')
+      if (!raw) return ''
+      const v = JSON.parse(raw) as { text?: string; at?: number }
+      if (typeof v.text === 'string' && Date.now() - Number(v.at) < CLIP_TTL_MS) return v.text
+    } catch {
+      /* 坏数据 / 隐私模式：当作没有 */
+    }
+    return ''
+  }
+
   /** 复制选区并返回文本（剪切复用它，只有真复制成功才删选区，免得剪贴板失败把内容吃掉） */
   const copySelection = async (): Promise<string> => {
     const view = editorRef.current
     if (!view) return ''
     const sel = view.state.selection.main
-    if (sel.empty) return ''
-    const text = view.state.sliceDoc(sel.from, sel.to)
+    /**
+     * ⚠️ 手机长按的选区**可能只在 DOM selection 里**（CM6 的 `state.selection` 还是光标）——
+     * rev173.91 真机实测：`sel.empty === true` 但 `getSelection()` 有内容。
+     * 所以 state 为空时退回 DOM selection，否则「复制」按钮在手机上会变成空操作。
+     */
+    const text = sel.empty
+      ? String(window.getSelection() ?? '')
+      : view.state.sliceDoc(sel.from, sel.to)
+    if (!text) return ''
     try {
       await navigator.clipboard.writeText(text)
     } catch {
       /* 剪贴板不可写时忽略；系统快捷键仍然可用 */
     }
+    rememberCopied(text) // writeText 失败也要记：内部粘贴靠它
     return text
   }
 
@@ -2813,28 +2860,35 @@ export default function App() {
       changes: { from: sel.from, to: sel.to, insert: '' },
       selection: { anchor: sel.from },
     })
+    rememberCopied(text)
     view.focus()
   }
 
-  /** 手机四键条：粘贴到光标处（有选区则替换） */
+  /** 手机四键条：粘贴到光标处（有选区则替换）—— 系统读不到时退回内部缓存 */
   const pasteClipboard = async (): Promise<void> => {
     const view = editorRef.current
     if (!view) return
+    let text = ''
+    let fromSystem = false
     try {
-      const text = await navigator.clipboard.readText()
-      if (!text) {
-        setToast('剪贴板是空的')
-        return
-      }
-      const sel = view.state.selection.main
-      view.dispatch({
-        changes: { from: sel.from, to: sel.to, insert: text },
-        selection: { anchor: sel.from + text.length },
-      })
-      view.focus()
+      text = await navigator.clipboard.readText()
+      fromSystem = Boolean(text)
     } catch {
-      setToast('读不到剪贴板 —— 用系统键盘上的「粘贴」')
+      /* WebView 的 clipboard-read 固定 denied（实测）—— 走内部缓存 */
     }
+    if (!text) text = readInternalClip()
+    if (!text) {
+      setToast('读不到剪贴板 —— 从别的 App 复制的内容请用键盘上的剪贴板按钮')
+      return
+    }
+    const sel = view.state.selection.main
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: text },
+      selection: { anchor: sel.from + text.length },
+    })
+    view.focus()
+    // 让人知道粘的是哪来的（系统读不到时用的是 ZeroNote 内复制的那份）
+    if (!fromSystem) setToast('已粘贴 ZeroNote 内复制的内容')
   }
 
   /** 手机四键条：全选 */
