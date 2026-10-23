@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "id": "backlinks",
+  "name": "反向链接",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "看谁引用了这篇笔记",
+  "category": "tool",
+  "capabilities": ["fs:read", "doc:read", "store", "command", "view:modal"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "backlinks.show-for-current", "title": "反向链接：看谁引用了当前笔记" },
+      { "id": "backlinks.rescan", "title": "反向链接：重新扫描" },
+      { "id": "backlinks.open", "title": "反向链接：打开这条引用的来源笔记" }
+    ],
+    "panels": [{ "id": "backlinks.board", "title": "反向链接", "location": "modal" }]
+  }
+}

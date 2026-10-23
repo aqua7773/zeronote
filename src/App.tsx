@@ -2086,13 +2086,24 @@ export default function App() {
         id: `core.panel.${p.id}`,
         title: `打开面板：${p.title}`,
         // rev173.83：打开面板同时进标签条（桌面），手机上标签条不渲染、只是切主区
-        run: () => openPanelInTab(p.id),
+        /**
+         * ⚠️ rev173.95：`location: 'modal'` 的面板**不进标签条** —— 它是浮层（Dialog），
+         * 关掉就是关掉；进标签条会留下一个「关不掉的空壳」，点它又弹一次（真实体验问题）。
+         * 反链是第一个 modal 面板，这条以前没人踩到。
+         */
+        run: () => {
+          if (p.location === 'modal') {
+            setMainView(p.id)
+            return
+          }
+          openPanelInTab(p.id)
+        },
       }),
     )
     return () => {
       for (const off of offs) off.dispose()
     }
-  }, [kernel, panels, openPanelInTab])
+  }, [kernel, panels, openPanelInTab, setMainView])
 
   /**
    * 插件**能力使用审计**（rev173.78）。
