@@ -40,3 +40,33 @@ export function isPlainBracketSource(source: string): boolean {
   if (s.includes('](')) return false
   return true
 }
+
+/**
+ * 点击判据：这个 `.cm-atomic-link` 是 `[[…]]` 吗？是则返回**归一化后的目标名**，
+ * 否则返回 `null`（rev173.98 修「链接无法跳转」）。
+ *
+ * **为什么不能看可见文本的形态**（rev173.97 的错）：
+ *   · 光标所在行（活跃行）：atomic 把方括号换成 `contenteditable=false` 的 widget，
+ *     `textContent` 只有目标名 —— `[[标签验收-周报]]` 取出 `标签验收-周报`；
+ *   · 普通行：方括号是 `<span>`（视觉隐藏），`textContent` 变成 `[标签验收-周报]`。
+ * 两种形态取决于光标位置 ⇒ 拿可见文本做 `^\[\[…\]\]$` 判定必然漏一半
+ * （rev173.97 因此把所有点击都丢弃了，用户 2026-10-24 报「链接无法跳转」）。
+ *
+ * 改看**源码行**（与 `MarkdownEditor.mark()` 的外观判据同一套，保证「绿色 = 可点」）：
+ * 行里有 `[[目标]]` ⇒ 返回 `目标`。
+ *
+ *   line `这里引用：[[标签验收-周报]]`, text `标签验收-周报`   → 标签验收-周报
+ *   line `这里引用：[[标签验收-周报]]`, text `[标签验收-周报]`  → 标签验收-周报
+ *   line `[[本周进展|周报]]`,           text `[本周进展|周报]`  → 本周进展|周报
+ *   line `tags: [工作, 周报]`,          text `[工作, 周报]`    → null（普通方括号）
+ *   line `[文字](https://x.y)`,         text `文字`            → null（外部链接）
+ */
+export function wikiLinkTarget(line: string, visibleText: string): string | null {
+  const t = String(visibleText ?? '')
+    .trim()
+    .replace(/^\[+/, '')
+    .replace(/\]+$/, '')
+    .trim()
+  if (!t) return null
+  return String(line ?? '').includes(`[[${t}]]`) ? t : null
+}

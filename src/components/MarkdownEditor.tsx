@@ -14,7 +14,7 @@ import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
-import { isPlainBracketLink, isPlainBracketSource } from '../lib/atomic-link'
+import { isPlainBracketLink, isPlainBracketSource, wikiLinkTarget } from '../lib/atomic-link'
 import {
   MAX_PASTE_IMAGE_BYTES,
   bytesToBase64,
@@ -507,18 +507,28 @@ export function MarkdownEditor({
   useEffect(() => {
     if (!onWikiLinkOpen) return
     const onClick = (ev: MouseEvent) => {
-      const el = (ev.target as HTMLElement | null)?.closest?.('.cm-atomic-link')
+      const el = (ev.target as HTMLElement | null)?.closest?.<HTMLElement>('.cm-atomic-link')
       if (!el) return
       const content = handleRef.current?.getContentDOM()
       if (!content || !content.contains(el)) return
-      const target = el.textContent?.trim()
-      if (!target) return
       /**
-       * rev173.97：**只有 `[[…]]` 才算 wikilink**（用户口径「wikilink 就是 wikilink」）。
-       * atomic 会把 frontmatter 的 `tags: [工作, 周报]`（未定义引用的方括号）也渲染成
-       * `.cm-atomic-link` —— 点它去"找一篇叫 `[工作, 周报]` 的笔记"毫无意义。
+       * ⚠️ 可见文本的形态**随光标位置变**：活跃行里方括号是 widget（`textContent` 只剩
+       * 目标名），普通行里方括号是隐藏的 `<span>`（`textContent` 变成 `[目标]`）。
+       * rev173.97 曾用 `^\[\[…\]\]$` 判 wikilink ⇒ 一半形态永远不匹配
+       * ⇒ 点击全被丢弃（用户 2026-10-24 报「链接无法跳转」）。
+       * 判据改看**源码行**，与下面 `mark()` 的外观判据同一套（绿色 = 可点）。
        */
-      if (!/^\[\[[\s\S]*\]\]$/.test(target)) return
+      const view = viewRef.current ?? EditorView.findFromDOM(el)
+      if (!view) return
+      let target: string | null = null
+      try {
+        const from = view.posAtDOM(el, 0)
+        target = wikiLinkTarget(view.state.doc.lineAt(from).text, el.textContent ?? '')
+      } catch {
+        // 位置拿不到（widget / 未渲染）：不拦，别把普通链接当成 wikilink
+        return
+      }
+      if (!target) return
       ev.preventDefault()
       ev.stopPropagation()
       onWikiLinkOpen(target)

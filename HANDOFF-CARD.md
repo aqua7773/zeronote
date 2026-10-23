@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.101）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-24（rev173.102）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.101 · 0.3.0 · 2026-10-24 |
-| 测试基线 | vitest 644 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| rev / 版本 | rev173.102 · 0.3.0 · 2026-10-24 |
+| 测试基线 | vitest 652 · cargo 38 · oxlint 3 warnings（2026-10-24） |
 | 插件 | 内置 8 · 示例 32 |
 | 文档 | README 现状 2026-10-24 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
@@ -47,7 +47,7 @@ pwsh -File scripts\verify.ps1
    ⑤ ✅ **A0 探针（rev173.94）→ 结果 B**：`[[ ]]` **链接文字**的点击归**内核**（`MarkdownEditor` document 捕获 → `openWikiLink`，2026-10-18 已有），插件 `open-ref` 没被调用；`[` 方括号能到插件但 `payload.text` 只有**单方括号**；`#标签` 归插件；**删插件后链接仍可点** ⇒ 双链的正向不重复实现（需求 §2.2 未偏离）。
    ⑥ ✅ **反向链接 `backlinks`（rev173.95 已完成）**：`fs` 扫 `[[…]]`（索引会切词，不能用）· 只扫最近 30 天 · `store` 按 path+mtime 缓存（第二次打开零读盘）· **`modal` 浮层**（不顶编辑器）· 点来源 → `core.openNote` · 每篇最多 5 条 + 整行上下文 · **内核补：modal 面板不再进标签条** · 预装 6 → **7** · 单测 23 条 · **桌面 CDP + 手机真机实测**（命中 / 空态 / 重新扫描 / 点来源）。✅ **rev173.101 上状态栏**：底部显示「被 N 篇引用」（按篇去重，path+mtime 缓存），点它弹同一个浮层；切笔记 / 保存 / 删除后自动重算。
    ⑦ ✅ **标签浮层（rev173.96 已完成）** —— 用户口径：**笔记里点 `#标签` → 悬浮面板 → 列出该标签下笔记 → 点一篇直接在独立窗口打开**。`tag-panel` 0.2.0：`editor.addMark`（正则与内核 `tagsOf` 逐字一致）+ `modal` 面板 `tag-panel.peek`；**内核** `core.openInNewWindow` 接受 `{ path }` + 新增 `core.closePanel`（插件能自己收浮层）；手机降级主区并提示；单测 24 → **33 条**；桌面（独立窗口真开出 `?note=`）+ 手机实测。
-   ⑧ ✅ **「wikilink 就是 wikilink」（rev173.97 已完成）** —— 用户截图 `tags: 工作, 周报`：该行被 markdown 解析成未定义引用的 Link、atomic 渲染成绿色链接。新增 `src/lib/atomic-link.ts` 判据 + `MarkdownEditor` MutationObserver 打 `zn-plain-link` + CSS 去色/去图标；**点击拦截只认 `[[…]]`**；只改外观不动 atomic 解析；单测 7 条；桌面实测（tags 变正文色、`[[…]]` 仍绿可点）。
+   ⑧ ✅ **「wikilink 就是 wikilink」（rev173.97 外观 + rev173.102 修点击）** —— 用户截图 `tags: 工作, 周报`：该行被 markdown 解析成未定义引用的 Link、atomic 渲染成绿色链接。新增 `src/lib/atomic-link.ts` 判据 + `MarkdownEditor` MutationObserver 打 `zn-plain-link` + CSS 去色/去图标；只改外观不动 atomic 解析；单测 7 条。⚠️ **rev173.102 更正**：rev173.97 的「点击拦截只认 `[[…]]`」是拿**可见文本**判的，而 atomic 的可见文本永远不含双方括号 ⇒ **点击全被丢弃**（用户 2026-10-24 报「链接无法跳转」）；现已改成取**源码行**判（`wikiLinkTarget`，与外观判据同一套「绿色 = 可点」）+ 支持 `[[目标\|别名]]`，单测 12 条，桌面 CDP 实测跳转通过。
    ⑨ ✅ **frontmatter 隐藏（rev173.98 已完成）** —— 用户「frontmatter 隐藏」：预览态不显示开头的 `--- … ---`（`src/kernel/editor-frontmatter.ts` 加 line decoration `zn-fm-hidden` + CSS `display:none`）。**没用 `Decoration.replace`**（atomic 已有装饰，同范围重叠会抛错 = 编辑器崩）· 编辑走**源码模式** · 未闭合的 frontmatter 不藏 · 只改外观、文档一字未动 · 单测 6 条 · 桌面实测（预览隐藏 / 源码可见 / 切笔记稳定）。
    ⑩ ✅ **历史版本 `history`（rev173.99 已完成 + rev173.100 补入口）** —— 需求 §11：**关闭且有改动才生成**（切换笔记用 `change` 缓存的正文补存 —— `openNote` 不发 close）· 存 `<库>/.zn/history/<hash32(path)>/` · **四档精简**（7 天全留 / 8–30 天每天 / 31–365 天每周 / >1 年每月）· `modal` 面板「历史 vs 当前」LCS diff（HTML 转义）+ 回滚（先存当前版再写回）· **内核补 `fs.listFiles` / `fs.purgePrivate`**（后者只允许 `.zn/` 下真删）· 预装 7 → **8** · 单测 28 条 · 桌面实测（快照 / 面板 / diff / 回滚）。**入口（rev173.100）**：状态栏「历史版本」按钮 · ☰ 菜单不再过滤 modal 面板 · 面板被直接打开时自动绑定当前笔记（无笔记给引导态）· 新增「现在存一版」。
    接下来：**提醒打卡**（**只做记录 / 日历 / 连续天数，到点提醒不做** —— 用户 2026-10-23 裁决）。总排期见 `docs/ROADMAP.md`。
@@ -129,6 +129,7 @@ pwsh -File scripts\verify.ps1
 
 | 项 | 状态 |
 |---|---|
+| 链接无法跳转 | ✅ **rev173.102**：根因 = rev173.97 的点击判据拿 `.cm-atomic-link` 的**可见文本**判 `^\[\[…\]\]$`，而 atomic 的可见文本永远不含双方括号（活跃行是 widget、普通行是隐藏 span）⇒ 正则永不匹配、点击全被丢弃 · 改看**源码行**（`posAtDOM` + `wikiLinkTarget`，与外观判据同一套「绿色 = 可点」）· `[[目标\|别名]]` 支持 · 单测 12 条 · 桌面 CDP 实测（wikilink / 别名跳转、普通方括号不跳）· ⚠️ 验这条必须 `location.reload()`（HMR 保留旧 effect 闭包） |
 | 会话恢复（hot exit） | ✅ **rev173.65**：崩溃 / HMR 整页重载后主窗口启动提示「恢复 / 丢弃」· 草稿只留 1 篇 / ≤ 8 KB / 7 天过期 · 恢复以磁盘内容为 `baseRef` · `taskkill` 进程级强杀实测通过 |
 | 手机卡片菜单返回键 | ✅ **rev173.66**：`MobileNoteCards.layers` 接 App 的 `layerExitsRef`（与 `FileTree` 同一约定）· 菜单开着按返回先关菜单；只有全都没得关才退 App · 手机 33b676f6 实测 |
 | 笔记独立窗口标题条 | ✅ **rev173.67–68**：整条标题栏可拖窗口（`data-tauri-drag-region="deep"`）· 文档名居中 · 去掉 `⤺` 按钮 · **关闭按钮 = 交回主窗口**（保存 → emit → 关窗，主窗口标签回来并打开）；拖拽收回手势已移除 · 实测点关闭后主窗口标签回来且 active |

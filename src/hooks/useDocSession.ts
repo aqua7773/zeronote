@@ -141,7 +141,13 @@ export function useDocSession({
    * 找不到就提示 —— 静默无反应正是这条问题原来的样子（用户点了没动静，以为功能坏了）。
    */
   const openWikiLink = useCallback(
-    (target: string) => {
+    (raw: string) => {
+      /**
+       * `[[目标|别名]]`：atomic 的可见文本是**整段**（`目标|别名`），
+       * 跳转只认 `|` 前面的目标（别名是显示名，2026-10-24 实测）。
+       */
+      const target = raw.split('|')[0].trim()
+      if (!target) return
       const norm = (s: string) => s.replace(/\\/g, '/').replace(/\.md$/i, '').trim()
       const want = norm(target)
       const hit =
