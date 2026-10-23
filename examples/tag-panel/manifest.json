@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 1,
+  "id": "tag-panel",
+  "name": "标签",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "按标签浏览全库笔记",
+  "category": "tool",
+  "capabilities": ["index:query", "view:main", "command"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "tag-panel.open", "title": "标签：打开标签面板" },
+      { "id": "tag-panel.select", "title": "标签：筛选这个标签" },
+      { "id": "tag-panel.clear", "title": "标签：取消筛选" },
+      { "id": "tag-panel.rebuild", "title": "标签：重建索引" },
+      { "id": "tag-panel.openNote", "title": "标签：打开该笔记" }
+    ],
+    "panels": [{ "id": "tag-panel.board", "title": "标签", "location": "main" }]
+  }
+}

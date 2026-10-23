@@ -30,6 +30,9 @@ import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
 // accounting（记账：通知捕获 + 自动分类，2026-10-19 rev173.16）
 import accountingIndex from '../../examples/accounting/index.js?raw'
 import accountingManifest from '../../examples/accounting/manifest.json?raw'
+// tag-panel（标签面板，2026-10-23 rev173.93）
+import tagPanelIndex from '../../examples/tag-panel/index.js?raw'
+import tagPanelManifest from '../../examples/tag-panel/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -51,6 +54,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'accounting',
     files: { 'index.js': accountingIndex, 'manifest.json': accountingManifest },
+  },
+  {
+    id: 'tag-panel',
+    files: { 'index.js': tagPanelIndex, 'manifest.json': tagPanelManifest },
   },
 ]
 

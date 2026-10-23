@@ -2034,6 +2034,41 @@ export default function App() {
   }, [kernel])
 
   /**
+   * 「按路径打开一篇笔记」的内核命令（rev173.93）。
+   *
+   * 为什么要有：插件能从 `index.query(…)` / `fs.listNotes()` 拿到笔记路径，却**没有一条
+   * 命令能把那篇打开** —— `core.openDocument` 专管只读文档（PDF / EPUB），
+   * `core.palette` / `core.quickOpen` 是浮层、不是"按路径打开"。
+   * 标签面板（`examples/tag-panel`）点笔记标题要它；之后的反链 / 历史 / 打卡会复用。
+   *
+   * 语义与点文件树（`selectFile`）对齐：**先 `setMainView('editor')`** —— 面板占着主区时
+   * `openNote` 只改 `activePath`、不切视图（rev173.89 同类修复：不切的话用户点了像没反应）。
+   * 落盘 / 读盘 / 标签页登记都在 `openNote`（`useDocSession`）里，这里不重复。
+   *
+   * 与 `core.openDocument` 一样**单独一个 effect**：并进上面那批内核命令会让
+   * `panels` 变化（插件注册面板）时重注册整批命令（见下方 `core.openDocument` 的教训）。
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const sub = kernel.commands.api.register({
+      id: 'core.openNote',
+      title: '打开笔记',
+      run: (payload) => {
+        const p = (payload ?? {}) as { path?: string }
+        const path = typeof p.path === 'string' ? p.path.trim() : ''
+        if (!path) {
+          // 静默 no-op 比报错危险（硬约束 4）：插件传错参数时要能看见
+          setToast('打开笔记：缺少路径')
+          return
+        }
+        setMainView('editor')
+        return openNoteRef.current(path)
+      },
+    })
+    return () => sub.dispose()
+  }, [kernel, setMainView, setToast])
+
+  /**
    * 为**每个插件面板**注册一条命令：`core.panel.<面板 id>` ⇒ 打开它。
    *
    * 为什么要有：面板此前**只能从 ☰ 菜单进**，而那个按钮贴在窗口最上面 20px
