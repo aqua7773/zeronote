@@ -10,6 +10,7 @@ import type { AtomicCodeMirrorEditorHandle } from '@atomic-editor/editor'
 import '@atomic-editor/editor/styles.css'
 import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
+import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
@@ -796,6 +797,8 @@ export function MarkdownEditor({
     ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
     // Markdown 语法增强（rev173.36）：上标 ^x^ / 下标 ~x~ / Emoji :name:
     editorSyntaxExtensions(renderHtml),
+    // frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）—— 见 kernel/editor-frontmatter.ts
+    frontmatterHide(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
     imageAssetPlugin(vault, path),
   ]

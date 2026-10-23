@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-23（rev173.97）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-23（rev173.98）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.97 · 0.3.0 · 2026-10-23 |
-| 测试基线 | vitest 610 · cargo 36 · oxlint 3 warnings（2026-10-23） |
+| rev / 版本 | rev173.98 · 0.3.0 · 2026-10-23 |
+| 测试基线 | vitest 616 · cargo 36 · oxlint 3 warnings（2026-10-23） |
 | 插件 | 内置 7 · 示例 31 |
 | 文档 | README 现状 2026-10-23 · CHANGELOG 0.3.0 |
 <!-- FACTS:END -->
@@ -48,6 +48,7 @@ pwsh -File scripts\verify.ps1
    ⑥ ✅ **反向链接 `backlinks`（rev173.95 已完成）**：`fs` 扫 `[[…]]`（索引会切词，不能用）· 只扫最近 30 天 · `store` 按 path+mtime 缓存（第二次打开零读盘）· **`modal` 浮层**（不顶编辑器）· 点来源 → `core.openNote` · 每篇最多 5 条 + 整行上下文 · **内核补：modal 面板不再进标签条** · 预装 6 → **7** · 单测 23 条 · **桌面 CDP + 手机真机实测**（命中 / 空态 / 重新扫描 / 点来源）。
    ⑦ ✅ **标签浮层（rev173.96 已完成）** —— 用户口径：**笔记里点 `#标签` → 悬浮面板 → 列出该标签下笔记 → 点一篇直接在独立窗口打开**。`tag-panel` 0.2.0：`editor.addMark`（正则与内核 `tagsOf` 逐字一致）+ `modal` 面板 `tag-panel.peek`；**内核** `core.openInNewWindow` 接受 `{ path }` + 新增 `core.closePanel`（插件能自己收浮层）；手机降级主区并提示；单测 24 → **33 条**；桌面（独立窗口真开出 `?note=`）+ 手机实测。
    ⑧ ✅ **「wikilink 就是 wikilink」（rev173.97 已完成）** —— 用户截图 `tags: 工作, 周报`：该行被 markdown 解析成未定义引用的 Link、atomic 渲染成绿色链接。新增 `src/lib/atomic-link.ts` 判据 + `MarkdownEditor` MutationObserver 打 `zn-plain-link` + CSS 去色/去图标；**点击拦截只认 `[[…]]`**；只改外观不动 atomic 解析；单测 7 条；桌面实测（tags 变正文色、`[[…]]` 仍绿可点）。
+   ⑨ ✅ **frontmatter 隐藏（rev173.98 已完成）** —— 用户「frontmatter 隐藏」：预览态不显示开头的 `--- … ---`（`src/kernel/editor-frontmatter.ts` 加 line decoration `zn-fm-hidden` + CSS `display:none`）。**没用 `Decoration.replace`**（atomic 已有装饰，同范围重叠会抛错 = 编辑器崩）· 编辑走**源码模式** · 未闭合的 frontmatter 不藏 · 只改外观、文档一字未动 · 单测 6 条 · 桌面实测（预览隐藏 / 源码可见 / 切笔记稳定）。
    接下来：**历史版本** → 提醒打卡（**打卡只做记录 / 日历 / 连续天数，到点提醒不做** —— 用户 2026-10-23 裁决）。总排期见 `docs/ROADMAP.md`。
 
 可选小项：✅ **rev173.66 已补** —— 卡片长按菜单进了返回键层栈（菜单开着按返回先关菜单，不再直接退 App；手机实测 + 单测 3 条）。

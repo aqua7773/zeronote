@@ -2451,6 +2451,13 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   content: none !important;
 }
 
+/* frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）——
+   行 class 由 `src/kernel/editor-frontmatter.ts` 的 line decoration 打上。
+   只藏外观，不动文档：源码模式（右上角「源码」）里照样看得见、改得了。 */
+.zn-editor .cm-line.zn-fm-hidden {
+  display: none;
+}
+
 .zn-line-action {
   position: absolute;
   /* 右边缘落在行盒左边界左侧 4px 处（= 297-4 = 293），所有行同一条竖线 */
