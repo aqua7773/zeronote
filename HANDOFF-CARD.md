@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.129）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.130）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.129 · 0.4.0 · 2026-10-25 |
+| rev / 版本 | rev173.130 · 0.4.0 · 2026-10-25 |
 | 测试基线 | vitest 914 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
@@ -148,9 +148,14 @@ pwsh -File scripts\verify.ps1
 > 带该头的 PUT 通过验签 · 坑：`--auth-key` 的 accessKey 太短（`k`）⇒ 403 InvalidAccessKeyId ·
 > 新增 5 条单测（客户端 2 + 端到端 3，含 strict / reject / ignore 三种服务端）· 单测 909 → **914** · verify 6/6。
 >
-> **下一步可选**：S3/Git 手机端实测（要真机装新 znp）·
-> Gitee 分支实测（没账号令牌）·
-> 坚果云附件回归（开 dev 时顺手：桌面改图 → 手机看得到）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
+> ✅ **坚果云附件真机回归（rev173.130）**：**桌面 ↔ 云端 ↔ 手机 双向都通** ·
+> 桌面放 27,507 B png + 52 B txt → 同步上传 → **删本地再同步 ⇒ pulled=2、字节数原样回来** ·
+> 手机（33b676f6 · dev 包 pid 14629）开 full ⇒ pulled=3 / pushed=3，手机里出现两个「附件回归」文件 ·
+> 桌面再同步 ⇒ 收到手机推的 `image-20261020-011045.jpg`（89 KB）· 两端附件模式已恢复 off ·
+> 坑：手机 `pidof` 要等几秒、CDP forward 必须按当前 pid 重建 · **无代码改动**。
+>
+> **下一步可选**：S3/Git 手机端实测（要真机装新 znp；S3 还要手机侧配凭据）·
+> Gitee 分支实测（没账号令牌）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
 > CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。
@@ -305,6 +310,7 @@ pwsh -File scripts\verify.ps1
 | 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ⚠️ 观察项：`note:saved` 与 `note:changed` 有竞争（冷启动首次可能丢 pending）· **未做**：history 防抖触发（合并不需要）/ 内核级「插件写盘不触发 note:saved」（另议） |
 | 同步 · 基线丢失 | ✅ **rev173.128**：`!base && remoteFp != null` 不再一律 `pull-new` —— 两边指纹相同 ⇒ `noop`、不同 ⇒ `conflict`（本机版先留副本再取远端）· 三个网络后端一起改，`sync-folder` 不涉及 · store 被清 / 换设备后本地改动不再被静默覆盖 · 新增 2 条端到端用例 + 反向验证 · 单测 **909** |
 | 同步 · S3 条件写 | ✅ **rev173.129**：笔记 PUT 带 `If-Match`（远端已有这篇 + manifest 记了 etag 时）· 412 ⇒ 冲突处理 + **刷新 manifest 条目**（否则下一轮重复撞）· 409 ⇒ 取新 ETag 重试一次 · 400 ⇒ 自动降级重试 · `push-new` 不带条件 · **真机 rclone 忽略该头 ⇒ 退化为旧行为**（带头的 PUT 通过验签）· 单测 **914** |
+| 同步 · 附件真机 | ✅ **rev173.130**：坚果云附件**双向**通 —— 桌面 27KB png + 52B txt 上传 → 删本地再同步 pulled=2 原样回来；手机开 full ⇒ pulled=3 / pushed=3 且手机出现两文件；桌面再同步收到手机推的 89KB jpg · 两端附件模式已恢复 off · 无代码改动 |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |
