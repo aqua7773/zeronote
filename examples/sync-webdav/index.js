@@ -301,7 +301,12 @@ export function createDavClient(cfg) {
         }
       }
       if (res.status === 207 || res.status === 200) {
-        return { ok: true, status: res.status, hint: created ? '连接正常（已自动创建同步目录）' : '连接正常' }
+        const hint = created
+          ? '连接正常（已自动创建同步目录）'
+          : root
+            ? '连接正常'
+            : '连接正常，但「同步目录」为空 —— 坚果云这类服务的 WebDAV 根不可直接写，建议填一个子目录（如 ZeroNote）'
+        return { ok: true, status: res.status, hint }
       }
       if (res.status === 401) return { ok: false, status: 401, hint: '账号或密码不对（401）' }
       if (res.status === 403) return { ok: false, status: 403, hint: '没有权限（403）' }
@@ -323,10 +328,16 @@ export function createDavClient(cfg) {
       return parsePropfind(res.text(), { rootPrefix }).filter((e) => e.path !== '')
     },
 
-    /** 读一个文件；不存在返回 `null`（不抛） */
+    /**
+     * 读一个文件；**不存在返回 `null`**（不抛）。
+     *
+     * ⚠️ `409` 也要当"不存在"（rev173.108 实测坚果云）：对**父目录不存在**的资源
+     * 它回 `409 Conflict` 而不是规范的 `404` —— 首次同步读 `_zn/manifest.json`
+     * 就会撞上（`_zn/` 还没建）。把 409 当错误抛的话，第一次同步永远失败。
+     */
     async get(rel) {
       const res = await request('GET', rel)
-      if (res.status === 404) return null
+      if (res.status === 404 || res.status === 409) return null
       if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${rel}`)
       return res.text()
     },
@@ -498,14 +509,30 @@ export default {
             continue
           }
           if (verdict === 'push' || verdict === 'push-new') {
-            await client.mkdir(n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : '')
-            const res = await client.put(n.path, localText, undefined)
+            const parent = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : ''
+            await client.mkdir(parent)
+            let res = await client.put(n.path, localText, undefined)
+            /**
+             * `404` = 父集合不存在。除了"目录没建"，**坚果云的根 `/dav/` 本身不可写**
+             * （只列得出 `我的坚果云/` 这类子目录）—— 同步目录留空就会撞上。
+             * 再建一次再试一次，仍失败就把话说清楚（不是笼统的"上传失败"）。
+             */
+            if (res.status === 404) {
+              await client.mkdir(settings.root || parent).catch(() => {})
+              res = await client.put(n.path, localText, undefined)
+            }
             if (res.status === 412) {
               await keepConflict(n.path, '远端在同步期间又变了')
               summary.conflicts += 1
               continue
             }
-            if (!res.ok) throw new Error(`上传失败（${res.status}）：${n.path}`)
+            if (!res.ok) {
+              throw new Error(
+                res.status === 404
+                  ? `上传失败（404）：${n.path} —— 远端父目录不存在；坚果云的 WebDAV 根不可直接写，请在「同步目录」里填一个子目录（如 ZeroNote）`
+                  : `上传失败（${res.status}）：${n.path}`,
+              )
+            }
             baseline[n.path] = { fp: localFp, etag: res.etag ?? undefined }
             nextFiles[n.path] = { fp: localFp, etag: res.etag ?? undefined, at: Date.now() }
             summary.pushed += 1
@@ -552,6 +579,17 @@ export default {
         summary.hint = summary.hint || `${reason}同步完成`
       } catch (e) {
         summary.hint = `同步失败：${String(e)}`
+        /**
+         * 认证类错误（401 / 403）⇒ **立刻停自动同步**。
+         *
+         * 真实理由：坚果云等对连续认证失败有限流/锁号风险，而自动同步是每 5 秒一次 ——
+         * 密码填错时会在几分钟内把账号打进风控（rev173.108 实测踩到：401 之后自动重试）。
+         * 停下来让用户改凭据，改完保存设置会重新 startAuto。
+         */
+        if (/401|403|unauthorized|forbidden/i.test(String(e))) {
+          stopAuto()
+          summary.hint += '（认证失败，已暂停自动同步）'
+        }
         if (!silent) api.host.notify(summary.hint, 'error')
         else api.host.log('warn', summary.hint)
       } finally {
@@ -611,11 +649,12 @@ export default {
     function render(ctx) {
       const state = (ctx && ctx.state) || {}
       // 宿主把用户输入写进 state；已保存的值当兜底（这样重开面板能看到上次配的地址）
+      // ⚠️ 用 `||` 不是 `??`：宿主会把 bind 初始化成**空字符串**，`??` 认空串为有值 ⇒ 预填失效
       form = {
-        baseUrl: String(state['sync.baseUrl'] ?? settings.baseUrl ?? ''),
-        username: String(state['sync.username'] ?? settings.username ?? ''),
-        password: String(state['sync.password'] ?? ''),
-        root: String(state['sync.root'] ?? settings.root ?? ''),
+        baseUrl: String(state['sync.baseUrl'] || settings.baseUrl || ''),
+        username: String(state['sync.username'] || settings.username || ''),
+        password: String(state['sync.password'] || ''),
+        root: String(state['sync.root'] || settings.root || ''),
       }
       const configured = !!settings.baseUrl
       const children = [
@@ -627,6 +666,15 @@ export default {
         },
         { type: 'divider' },
         { type: 'text', value: configured ? '已配置' : '还没配置', variant: 'title' },
+        ...(configured
+          ? [
+              {
+                type: 'text',
+                value: `当前：${settings.baseUrl}${settings.root ? ` · 目录 ${settings.root}` : ' · **目录为空**（坚果云等不可写根目录）'} · 账号 ${settings.username || '（空）'}`,
+                variant: 'caption',
+              },
+            ]
+          : []),
         {
           type: 'field',
           label: 'WebDAV 地址',
@@ -651,8 +699,8 @@ export default {
         {
           type: 'field',
           label: '同步目录',
-          hint: '远端放笔记的子目录，留空 = 地址根',
-          children: { type: 'input', bind: 'sync.root', placeholder: 'ZeroNote' },
+          hint: '远端放笔记的子目录。**坚果云的 WebDAV 根不可写，必须填**（如 ZeroNote）',
+          children: { type: 'input', bind: 'sync.root', placeholder: settings.root || 'ZeroNote' },
         },
         {
           type: 'row',
@@ -786,13 +834,21 @@ export default {
     register('sync-webdav.open', '同步：打开 WebDAV 设置与状态', () => openPanel())
     register('sync-webdav.save', '同步：保存 WebDAV 设置', () => saveSettings())
     register('sync-webdav.test', '同步：测试连接', async () => {
+      // 先停自动同步：否则 5 秒内那一轮会把「测试结果」从面板上覆盖掉（实测踩到）
+      stopAuto()
+      let ok = false
       try {
         const client = createDavClient({ ...settings, password: await password(), net: api.net })
         const r = await client.test()
+        ok = r.ok
         api.host.notify(r.ok ? `连接正常（${r.status}）` : r.hint, r.ok ? 'info' : 'error')
         lastResult = { pulled: 0, pushed: 0, conflicts: 0, hint: r.hint, at: Date.now() }
       } catch (e) {
         api.host.notify(`连接测试失败：${String(e)}`, 'error')
+        lastResult = { pulled: 0, pushed: 0, conflicts: 0, hint: `连接测试失败：${String(e)}`, at: Date.now() }
+      } finally {
+        // 测试通过才恢复自动同步（失败时保持停着，避免打远端锁号）
+        if (ok && settings.baseUrl && settings.auto !== false) startAuto()
       }
       api.view.refresh()
     })

@@ -288,6 +288,12 @@ describe('createDavClient', () => {
     await expect(client.get('a.md')).resolves.toBeNull()
   })
 
+  it('get：409 也当"不存在"（坚果云对父目录不存在的资源回 409）', async () => {
+    const { net } = davNet([{ status: 409 }])
+    const client = createDavClient({ ...cfg, net })
+    await expect(client.get('_zn/manifest.json')).resolves.toBeNull()
+  })
+
   it('put：412 原样返回（调用方按冲突处理）', async () => {
     const { net } = davNet([{ status: 412 }])
     const client = createDavClient({ ...cfg, net })
