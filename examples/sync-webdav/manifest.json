@@ -16,6 +16,7 @@
       { "id": "sync-webdav.test", "title": "同步：测试连接" },
       { "id": "sync-webdav.sync", "title": "同步：立即同步一次" },
       { "id": "sync-webdav.toggle-auto", "title": "同步：开关自动同步（前台每 5 秒）" },
+      { "id": "sync-webdav.set-attachments", "title": "同步：设置附件同步方式（不同步 / 中转 / 永久）" },
       { "id": "sync-webdav.save", "title": "同步：保存 WebDAV 设置" },
       { "id": "sync-webdav.disconnect", "title": "同步：断开并清除凭据" }
     ],

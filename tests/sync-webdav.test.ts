@@ -16,11 +16,16 @@ import plugin, {
   conflictFileName,
   createDavClient,
   decideSync,
+  dirOf,
   encodeDavPath,
+  extOf,
   fingerprint,
+  fingerprintBytes,
+  isAttachment,
   joinUrl,
   normalizeManifest,
   parsePropfind,
+  relayName,
 } from '../examples/sync-webdav/index.js'
 import { fingerprint as syncFolderFingerprint } from '../examples/sync-folder/index.js'
 
@@ -215,6 +220,72 @@ describe('conflictFileName', () => {
   })
 })
 
+describe('附件同步的纯函数（rev173.109）', () => {
+  it('fingerprintBytes 按字节算，与文本指纹严格区分', () => {
+    const bytes = new Uint8Array([0xff, 0x00, 0x10])
+    expect(fingerprintBytes(bytes)).toBe(fingerprintBytes(new Uint8Array([0xff, 0x00, 0x10])))
+    expect(fingerprintBytes(bytes)).not.toBe(fingerprintBytes(new Uint8Array([0xff, 0x00, 0x11])))
+    // 同一串文本的 "字符指纹" 与 "UTF-8 字节指纹" 不应相等（这就是为什么另写一个）
+    expect(fingerprintBytes(new TextEncoder().encode('中文'))).not.toBe(fingerprint('中文'))
+  })
+
+  it('fingerprintBytes 空输入不崩', () => {
+    expect(fingerprintBytes(new Uint8Array())).toMatch(/^0:/)
+    expect(fingerprintBytes(null as unknown as Uint8Array)).toMatch(/^0:/)
+  })
+
+  it('extOf：取小写扩展名，没有则空串', () => {
+    expect(extOf('attachments/A.PNG')).toBe('.png')
+    expect(extOf('说明.txt')).toBe('.txt')
+    expect(extOf('无扩展名')).toBe('')
+    expect(extOf('')).toBe('')
+  })
+
+  it('dirOf：父目录，顶层返回空串', () => {
+    expect(dirOf('a/b/c.png')).toBe('a/b')
+    expect(dirOf('c.png')).toBe('')
+  })
+
+  it('isAttachment：非 md 且不在 .zn 里', () => {
+    expect(isAttachment('attachments/a.png')).toBe(true)
+    expect(isAttachment('doc.pdf')).toBe(true)
+    expect(isAttachment('note.md')).toBe(false)
+    expect(isAttachment('x.markdown')).toBe(false)
+    expect(isAttachment('.zn/conflicts/windows/a.md')).toBe(false)
+    expect(isAttachment('.zn/relay/abc.png')).toBe(false)
+    expect(isAttachment('')).toBe(false)
+  })
+
+  it('relayName：把指纹里的冒号换掉（Windows 会当成 NTFS 数据流）', () => {
+    // 实测踩到：`8tj:1te3kiy.png` 在 Windows 上只建出 0 字节的 `8tj`
+    expect(relayName('8tj:1te3kiy', '.png')).toBe('8tj-1te3kiy.png')
+    expect(relayName('8tj:1te3kiy', '')).toBe('8tj-1te3kiy')
+    expect(relayName('a/b:c', '.pdf')).toBe('a-b-c.pdf')
+    expect(relayName(null as unknown as string, '.png')).toBe('.png')
+  })
+
+  it('normalizeManifest 保留 attachments 段与 cleaned 标记', () => {
+    const m = normalizeManifest(
+      JSON.stringify({
+        files: {},
+        attachments: {
+          'a.png': { fp: '5:1', ext: '.png', at: 7 },
+          'b.pdf': { fp: '9:2', ext: '.pdf', at: 8, cleaned: true },
+          'bad.png': { ext: '.png' },
+        },
+      }),
+    )
+    expect(m.attachments['a.png']).toEqual({ fp: '5:1', ext: '.png', at: 7 })
+    expect(m.attachments['b.pdf']).toEqual({ fp: '9:2', ext: '.pdf', at: 8, cleaned: true })
+    expect(m.attachments['bad.png']).toBeUndefined()
+  })
+
+  it('normalizeManifest 坏数据 ⇒ 空的 attachments 段', () => {
+    expect(normalizeManifest('nope').attachments).toEqual({})
+    expect(normalizeManifest('{"files":{}}').attachments).toEqual({})
+  })
+})
+
 describe('normalizeManifest', () => {
   it('正常形状原样保留', () => {
     const m = normalizeManifest('{"version":1,"files":{"a.md":{"fp":"1:x","etag":"\\"e\\"","at":5}}}')
@@ -364,6 +435,7 @@ describe('插件接线', () => {
       'sync-webdav.disconnect',
       'sync-webdav.open',
       'sync-webdav.save',
+      'sync-webdav.set-attachments',
       'sync-webdav.sync',
       'sync-webdav.test',
       'sync-webdav.toggle-auto',

@@ -38,6 +38,7 @@ const PANEL_ID = 'sync-webdav.status'
 const KEY_SETTINGS = 'settings.v1'
 const KEY_BASELINE = 'baseline.v1'
 const KEY_CONFLICTS = 'conflicts.v1'
+const KEY_DEVICE = 'device.v1'
 const SECRET_KEY = 'sync.webdav.password'
 
 const CONFLICT_ROOT = '.zn/conflicts'
@@ -225,10 +226,74 @@ export function normalizeManifest(raw) {
       if (typeof v.fp !== 'string') continue
       out[path] = { fp: v.fp, etag: typeof v.etag === 'string' ? v.etag : undefined, at: Number(v.at) || 0 }
     }
-    return { version: 1, files: out }
+    // 附件段（rev173.109）：`cleaned` = 中转模式下云端副本已删（本地还留着）
+    const atts = j && typeof j === 'object' && j.attachments && typeof j.attachments === 'object' ? j.attachments : {}
+    const attachments = {}
+    for (const [path, v] of Object.entries(atts)) {
+      if (!v || typeof v !== 'object') continue
+      if (typeof v.fp !== 'string') continue
+      attachments[path] = {
+        fp: v.fp,
+        ext: typeof v.ext === 'string' ? v.ext : '',
+        at: Number(v.at) || 0,
+        ...(v.cleaned ? { cleaned: true } : {}),
+      }
+    }
+    return { version: 1, files: out, attachments }
   } catch {
-    return { version: 1, files: {} }
+    return { version: 1, files: {}, attachments: {} }
   }
+}
+
+/**
+ * 二进制指纹：长度 + FNV-1a（逐字节）。
+ *
+ * 为什么单独一个：文本那份按 `charCodeAt` 走，UTF-16 码元与 UTF-8 字节对不上 ——
+ * 拿它给图片算指纹，两端算出来的值会不同（同一张 PNG 在不同编码路径上指纹不一致），
+ * 于是每次同步都以为"变了"。
+ */
+export function fingerprintBytes(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? [])
+  let h = 0x811c9dc5
+  for (let i = 0; i < u8.length; i += 1) {
+    h ^= u8[i]
+    h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0
+  }
+  return `${u8.length.toString(36)}:${h.toString(36)}`
+}
+
+/** 附件扩展名（含点，小写）；没有就空串 */
+export function extOf(path) {
+  const name = String(path ?? '').split('/').pop() ?? ''
+  const i = name.lastIndexOf('.')
+  return i > 0 ? name.slice(i).toLowerCase() : ''
+}
+
+/** 父目录（库内相对路径，无父目录时返回空串） */
+export function dirOf(path) {
+  const s = String(path ?? '')
+  const i = s.lastIndexOf('/')
+  return i > 0 ? s.slice(0, i) : ''
+}
+
+/** 这条路径算不算「附件」（图片 / PDF / 任意非 Markdown 文件，且不在 `.zn/` 里） */
+export function isAttachment(path) {
+  const s = String(path ?? '')
+  if (!s) return false
+  if (s.startsWith('.zn/') || s.split('/').includes('.zn')) return false
+  return !/\.(md|markdown)$/i.test(s)
+}
+
+/**
+ * 中转文件 / ack 标记的**远端文件名**。
+ *
+ * ⚠️ **必须把指纹里的 `:` 换掉**（rev173.109 实测）：`fingerprint` 的格式是 `<长度>:<散列>`，
+ * 直接拿来当文件名时，Windows 会把它当 **NTFS 备用数据流** —— `fs.writeFile('8tj:1te3kiy.png')`
+ * 只建出一个 0 字节的 `8tj`（内容进了流里），远端看到的就是空文件。
+ * 顺带也避开 `/` `\` 这些在各家 DAV 实现里含义不一的字符。
+ */
+export function relayName(fp, ext) {
+  return `${String(fp ?? '').replace(/[:/\\]/g, '-')}${ext || ''}`
 }
 
 /* ───────────────────────── WebDAV 客户端 ───────────────────────── */
@@ -374,12 +439,47 @@ export function createDavClient(cfg) {
       return normalizeManifest(text ?? '{"version":1,"files":{}}')
     },
 
-    /** 写远端 manifest（先确保 `_zn/` 存在） */
+    /** 写远端 manifest（先确保 `_zn/` 存在；`attachments` 段原样带上） */
     async writeManifest(manifest) {
       await this.mkdir('_zn')
-      const body = JSON.stringify({ version: 1, files: manifest.files })
+      const body = JSON.stringify({
+        version: 1,
+        files: manifest.files ?? {},
+        attachments: manifest.attachments ?? {},
+      })
       // 不做 If-Match：manifest 是"尽力而为"的索引，真冲突靠每篇文件的 etag 兜
       return this.put(MANIFEST_REL, body)
+    },
+
+    /* ── 二进制（附件同步用）：字节进出，不做任何编码假设 ── */
+
+    /** 读二进制；不存在返回 `null` */
+    async getBytes(rel) {
+      const res = await request('GET', rel)
+      if (res.status === 404 || res.status === 409) return null
+      if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${rel}`)
+      return res.bytes()
+    },
+
+    /** 写二进制。返回 `{ ok, status }` */
+    async putBytes(rel, bytes) {
+      const res = await request('PUT', rel, {
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      })
+      return { ok: [200, 201, 204].includes(res.status), status: res.status }
+    },
+
+    /** 删一个文件（不存在也算成功 —— apply 幂等） */
+    async remove(rel) {
+      const res = await request('DELETE', rel)
+      return { ok: [200, 202, 204, 404, 409].includes(res.status), status: res.status }
+    },
+
+    /** 远端有没有这个资源（PROPFIND Depth 0） */
+    async exists(rel) {
+      const res = await request('PROPFIND', rel, { headers: { Depth: '0' } })
+      return res.status === 207 || res.status === 200
     },
   }
 }
@@ -390,7 +490,7 @@ export default {
   apply(api) {
     const platform = api.host.platform === 'android' ? 'android' : 'windows'
 
-    let settings = { baseUrl: '', username: '', root: '', enabled: false, auto: true }
+    let settings = { baseUrl: '', username: '', root: '', enabled: false, auto: true, attachments: 'off' }
     let baseline = {}
     let conflicts = []
     let ready = false
@@ -577,8 +677,13 @@ export default {
           summary.pulled += 1
         }
 
-        // manifest 回写（把本轮上传的条目并进去）
-        if (summary.pushed > 0) await client.writeManifest({ files: nextFiles })
+        // 附件（在 .md 循环之后：`summary.pushed` 里也含附件计数）
+        const att = await syncAttachments(client, remote, summary)
+
+        // manifest 回写（本轮有 .md 或附件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
+        if (summary.pushed > 0 || att.changed) {
+          await client.writeManifest({ files: nextFiles, attachments: att.attachments })
+        }
         await api.store.set(KEY_BASELINE, baseline)
         summary.hint = summary.hint || `${reason}同步完成`
       } catch (e) {
@@ -606,6 +711,122 @@ export default {
         if (!silent || changed) api.view.refresh()
       }
       return summary
+    }
+
+    /* ── 附件同步（rev173.109 · 用户 2026-10-24 要的两种模式） ── */
+
+    /** 设备 id（中转 ack 用；每台设备一个，存 store） */
+    async function deviceId() {
+      let id = ''
+      try {
+        id = String((await api.store.get(KEY_DEVICE, '')) || '')
+      } catch {
+        /* 读不到就当没有 */
+      }
+      if (!id) {
+        id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+        void api.store.set(KEY_DEVICE, id).catch(() => {})
+      }
+      return id
+    }
+
+    /**
+     * 附件同步。两种模式（用户 2026-10-24 拍板：「添加一个选项」）：
+     *
+     * · `full`  —— 附件与文档一样**永久**存在云端（占空间，但任何设备随时能取）
+     * · `relay` —— **同步中转**：只在上传方与下载方之间过一道，对端 ack 之后云端副本就删掉
+     *              （云端省空间；代价是第三台设备事后取不到这份）
+     *
+     * `relay` 的协议：
+     *   上传：`PUT _zn/relay/<fp><ext>`，`manifest.attachments[path] = { fp, ext, at }`
+     *   下载：`GET _zn/relay/<fp><ext>` 写本地 ⇒ `PUT _zn/relay-ack/<fp>`（内容 = 设备 id）
+     *   清理：任何一端看到 ack 就删 relay 文件，并在 manifest 里标 `cleaned: true`
+     *          —— **条目保留**：别的设备看到 cleaned 就知道「曾经有、别等了」，不会反复重试。
+     *
+     * @returns {{ attachments: Record<string, object>, changed: boolean }}
+     */
+    async function syncAttachments(client, manifest, summary) {
+      const mode = settings.attachments || 'off'
+      const remoteAtt = manifest.attachments || {}
+      if (mode === 'off') return { attachments: remoteAtt, changed: false }
+
+      const nextAtt = { ...remoteAtt }
+      const notes = await api.fs.listNotes()
+      const locals = notes.filter((n) => isAttachment(n.path))
+      const localPaths = new Set(locals.map((n) => n.path))
+      const me = await deviceId()
+      let changed = false
+
+      // ① 本地 → 远端
+      for (const n of locals) {
+        const entry = nextAtt[n.path]
+        let bytes
+        try {
+          bytes = await api.fs.readBytes(n.path)
+        } catch {
+          continue // 读不到就下一轮
+        }
+        const fp = fingerprintBytes(bytes)
+        /**
+         * 远端已有同一份就跳过 —— **但 `cleaned` 的不算**：那是中转模式清理过的
+         * （云端副本已删），切到「永久同步」后必须重新传一份上去
+         * （rev173.109 实测踩到：从 relay 切 full，附件一直不出现）。
+         */
+        if (entry && entry.fp === fp && !entry.cleaned) continue
+        const ext = extOf(n.path)
+        if (mode === 'full') {
+          await client.mkdir(dirOf(n.path))
+          const r = await client.putBytes(n.path, bytes)
+          if (!r.ok) throw new Error(`上传附件失败（${r.status}）：${n.path}`)
+        } else {
+          await client.mkdir('_zn/relay')
+          const r = await client.putBytes(`_zn/relay/${relayName(fp, ext)}`, bytes)
+          if (!r.ok) throw new Error(`上传附件失败（${r.status}）：${n.path}`)
+        }
+        nextAtt[n.path] = { fp, ext, at: Date.now() }
+        changed = true
+        summary.pushed += 1
+      }
+
+      // ② 远端 → 本地（本地还没有这份）
+      for (const [path, entry] of Object.entries(remoteAtt)) {
+        if (!entry || entry.cleaned) continue
+        if (localPaths.has(path)) continue
+        if (!isAttachment(path)) continue
+        const src = mode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
+        let data = null
+        try {
+          data = await client.getBytes(src)
+        } catch (e) {
+          api.host.log('warn', `下载附件失败 ${path}：${String(e)}`)
+        }
+        if (!data) continue
+        try {
+          await api.fs.writeBytes(path, data)
+        } catch (e) {
+          api.host.log('warn', `写入附件失败 ${path}：${String(e)}`)
+          continue
+        }
+        summary.pulled += 1
+        if (mode === 'relay') {
+          await client.mkdir('_zn/relay-ack')
+          await client.putBytes(`_zn/relay-ack/${relayName(entry.fp, '')}`, new TextEncoder().encode(me))
+        }
+      }
+
+      // ③ relay 清理：有 ack 就删云端副本（任何端都能做，幂等）
+      if (mode === 'relay') {
+        for (const [path, entry] of Object.entries(nextAtt)) {
+          if (!entry || entry.cleaned) continue
+          const acked = await client.exists(`_zn/relay-ack/${relayName(entry.fp, '')}`)
+          if (!acked) continue
+          await client.remove(`_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`)
+          nextAtt[path] = { ...entry, cleaned: true }
+          changed = true
+        }
+      }
+
+      return { attachments: nextAtt, changed }
     }
 
     /* ── 自动同步（「无感」就是这一段） ── */
@@ -707,6 +928,21 @@ export default {
           label: '同步目录',
           hint: '远端放笔记的子目录。**坚果云的 WebDAV 根不可写，必须填**（如 ZeroNote）',
           children: { type: 'input', bind: 'sync.root', placeholder: settings.root || 'ZeroNote' },
+        },
+        {
+          type: 'field',
+          label: '附件（图片 / PDF）',
+          hint: '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
+          children: {
+            type: 'select',
+            bind: 'sync.attachmentsMode',
+            options: [
+              { value: 'off', label: '不同步（默认）' },
+              { value: 'relay', label: '同步中转（云端不常留）' },
+              { value: 'full', label: '与文档一样永久同步' },
+            ],
+            onSubmit: 'sync-webdav.set-attachments',
+          },
         },
         {
           type: 'row',
@@ -859,6 +1095,19 @@ export default {
       api.view.refresh()
     })
     register('sync-webdav.sync', '同步：立即同步一次', () => runSync('手动'))
+    register('sync-webdav.set-attachments', '同步：设置附件同步方式', (payload) => {
+      const v = String(payload?.value ?? 'off')
+      settings.attachments = ['off', 'relay', 'full'].includes(v) ? v : 'off'
+      markDirty()
+      const label =
+        settings.attachments === 'off'
+          ? '不同步（只同步 .md）'
+          : settings.attachments === 'relay'
+            ? '同步中转（对端收到后云端删掉）'
+            : '与文档一样永久同步'
+      api.host.notify(`附件同步：${label}`)
+      api.view.refresh()
+    })
     register('sync-webdav.toggle-auto', '同步：开关自动同步（前台每 5 秒）', async () => {
       settings.auto = settings.auto === false
       if (settings.auto) startAuto()

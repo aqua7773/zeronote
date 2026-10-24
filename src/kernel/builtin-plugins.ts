@@ -47,6 +47,10 @@ import habitManifest from '../../examples/habit/manifest.json?raw'
 // 判定与冲突副本全在插件里，内核只提供事件与 fs。
 import syncFolderIndex from '../../examples/sync-folder/index.js?raw'
 import syncFolderManifest from '../../examples/sync-folder/manifest.json?raw'
+// sync-webdav（同步 · WebDAV，2026-10-24 rev173.108）
+// 用户拍板「进预装」（10 → 11）：坚果云 / Nextcloud / 群晖直连，新手机不用手动装插件。
+import syncWebdavIndex from '../../examples/sync-webdav/index.js?raw'
+import syncWebdavManifest from '../../examples/sync-webdav/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -88,6 +92,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'sync-folder',
     files: { 'index.js': syncFolderIndex, 'manifest.json': syncFolderManifest },
+  },
+  {
+    id: 'sync-webdav',
+    files: { 'index.js': syncWebdavIndex, 'manifest.json': syncWebdavManifest },
   },
 ]
 
