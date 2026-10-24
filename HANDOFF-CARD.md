@@ -56,6 +56,7 @@ pwsh -File scripts\verify.ps1
 > 推回远端，有真冲突仍留副本。单测 813 → **825** · verify 6/6 · 实测（本地 DAV）：改不同行 ⇒ 自动合上、
 > 两端一致、冲突记录不增；改同一行 ⇒ 副本 = 本机版。⚠️ 边界：两边都在**末尾追加**会判冲突（行级 diff）。
 > **未做**：`sync-folder` 后端接入 · history 防抖触发（合并不需要）。
+> ⚠️ **`2b31bd9` 未推送**：直连 GitHub 被 reset，本地代理 26561 未监听；网络恢复后 `git push origin main`。
 >
 > **下一步可选（二期方向，未排期）**：`sync-folder` 也接三方合并（要先处理"自己写盘触发 note:saved"自环）·
 > S3 后端 · Git 类后端（GitHub/Gitee）· 附件也走 304 · 同步耗时统计。方案见

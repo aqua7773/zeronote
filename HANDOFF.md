@@ -315,6 +315,9 @@ revision: 173.115
 >   「自己写盘触发 `note:saved` ⇒ pending 自环」，留到下一 rev。
 > - `history` 的**触发没改防抖**：仍按需求 §11「关闭 / 切换时存」。三方合并只需要同步点，不需要更细的
 >   历史粒度；改成「保存后 5 秒防抖」会让快照量涨一个数量级（7 天内全留）。
+> - **推送未成**（23:54）：本地已提交 `2b31bd9`，直连 `github.com` ⇒ `Recv failure: Connection was reset`
+>   （重试一次仍失败）；本地代理 `http://127.0.0.1:26561` 未监听（`Could not connect to server`）。
+>   `main` 比 `origin/main` 领先 1 个提交，等网络恢复后 `git push origin main` 即可。
 > - 浏览器里**看不到「合并 N」徽章**（只验证了数据层与磁盘/远端结果）—— 面板要打开 WebDAV 面板才显示，
 >   本轮没做 UI 端实拍。>
 > ### 本 rev 踩的坑
