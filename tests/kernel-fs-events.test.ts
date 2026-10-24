@@ -158,6 +158,50 @@ describe('fs 写路径 → 索引 + 事件', () => {
     expect(seen).toEqual([])
   })
 
+  /* rev173.120 · 插件写盘的内核口子 */
+
+  it('writeText({ origin: "plugin" })：更新索引，但**不发 note:saved**，改发 note:changed', async () => {
+    const k = makeKernel()
+    const saved: unknown[] = []
+    const changed: unknown[] = []
+    k.event.on('note:saved', (p) => saved.push(p))
+    k.event.on('note:changed', (p) => changed.push(p))
+
+    await k.fs.writeText('p.md', '插件程序写进来的内容', { origin: 'plugin' })
+
+    // 关键：同步插件靠 note:saved 记 pending —— 插件自己写盘绝不能触发它
+    expect(saved).toEqual([])
+    expect(changed).toEqual([{ path: 'p.md', kind: 'modify', origin: 'plugin' }])
+    // 但索引必须照常更新：插件写的内容也要搜得到
+    expect((await k.index.query('插件程序')).map((h) => h.path)).toEqual(['p.md'])
+  })
+
+  it('writeText 不传 origin ⇒ 仍是用户语义（note:saved）', async () => {
+    const k = makeKernel()
+    const saved: unknown[] = []
+    const changed: unknown[] = []
+    k.event.on('note:saved', (p) => saved.push(p))
+    k.event.on('note:changed', (p) => changed.push(p))
+
+    await k.fs.writeText('u.md', '用户保存的内容')
+
+    expect(saved).toEqual([{ path: 'u.md' }])
+    expect(changed).toEqual([])
+  })
+
+  it('插件写 `.zn/` 下的快照不发任何笔记事件（口径不变）', async () => {
+    const k = makeKernel()
+    const saved: unknown[] = []
+    const changed: unknown[] = []
+    k.event.on('note:saved', (p) => saved.push(p))
+    k.event.on('note:changed', (p) => changed.push(p))
+
+    await k.fs.writeText('.zn/sync/last/x.md', '影子副本', { origin: 'plugin' })
+
+    expect(saved).toEqual([])
+    expect(changed).toEqual([])
+  })
+
   it('rebuild：完成后发 index:rebuilt（带 partition）', async () => {
     notes = [
       { path: 'n1.md', title: 'n1' },

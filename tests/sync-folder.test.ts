@@ -412,6 +412,46 @@ describe('冲突端到端（双端都改同一篇）', () => {
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
+  /* rev173.120 · 内核口子：插件写盘带 origin: 'plugin' */
+
+  it('`note:changed` 带 origin:"plugin"（插件自己写盘）⇒ 完全忽略，不判冲突', async () => {
+    const h = harness({ 'c.md': '基线版' })
+    await settle()
+    h.handlers['note:created']({ path: 'c.md' })
+    await settle()
+    const writesBefore = h.mem.writes.length
+
+    // 模拟插件（三方合并 / 导入）落盘：磁盘内容变了，内核发带 origin 的 changed
+    h.mem.files.set('c.md', '插件写进来的新内容')
+    h.handlers['note:changed']({ path: 'c.md', kind: 'modify', origin: 'plugin' })
+    await settle()
+
+    // 不该留冲突副本、也不该动任何东西（基线 / pending 归发起方对齐）
+    expect(h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts'))).toHaveLength(0)
+    expect(h.mem.writes.length).toBe(writesBefore)
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('插件写盘不再触发 note:saved ⇒ 不留僵尸 pending（rev173.120 根治）', async () => {
+    const h = harness({ 'd.md': '基线版' })
+    await settle()
+    h.handlers['note:created']({ path: 'd.md' })
+    await settle()
+
+    /**
+     * 真内核在插件写盘时只发 `note:changed(origin:'plugin')`，**不发 note:saved**。
+     * 这里直接模拟那个口径：只发 changed ⇒ pending 必须保持为空
+     * （以前要靠 `selfWrites` 抑制表才挡得住，现在内核层面就不发错事件）。
+     */
+    h.mem.files.set('d.md', '插件合并结果')
+    h.handlers['note:changed']({ path: 'd.md', kind: 'modify', origin: 'plugin' })
+    await settle()
+
+    const pending = (h.store.get('pending.v1') ?? {}) as Record<string, unknown>
+    expect(Object.keys(pending)).toHaveLength(0)
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
   it('外部删除 + 本地改过 ⇒ 本地版进冲突目录', async () => {
     const h = harness({ 'b.md': '本机改过' })
     await settle()

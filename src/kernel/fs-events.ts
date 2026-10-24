@@ -54,11 +54,26 @@ export function withFsEvents(
   return {
     ...raw,
 
-    async writeText(path, content) {
+    async writeText(path, content, opts) {
       await raw.writeText(path, content)
       if (!isNotePath(path)) return
       // 内容已在手上，不必再 readText 一遍（省一次 IPC）
       void index.upsert(path, content)
+      /**
+       * **插件写盘不发 `note:saved`**（rev173.120 · 用户 2026-10-25 要的「内核口子」）。
+       *
+       * `note:saved` 的语义是「用户改了这篇」：同步插件据此记 pending（本机改过、还没传出去）。
+       * 插件自己写盘（合并结果 / 导入 / 批量整理）如果也发它，就会被当成用户编辑 ——
+       * 留下清不掉的 pending，之后任何外部改动都被误判成冲突。rev173.116 的 `selfWrites`
+       * 抑制表就是在绕这个，靠"写盘前登记、事后清理"的时序，冷启动时会被 watcher 抢跑。
+       *
+       * 现在改发 `note:changed` 并带上 `origin: 'plugin'`：订阅方按来源决定要不要当真。
+       * 索引照常更新（插件写的内容也必须能搜到）。
+       */
+      if (opts?.origin === 'plugin') {
+        event.emit('note:changed', { path, kind: 'modify', origin: 'plugin' })
+        return
+      }
       event.emit('note:saved', { path })
     },
 

@@ -428,7 +428,18 @@ function scopedEvent(event: EventApi, subs: Disposable[]): EventApi {
 }
 
 function scopedFs(fs: FsApi, subs: Disposable[]): FsApi {
-  return { ...fs, watch: (cb) => collect(subs, fs.watch(cb)) }
+  return {
+    ...fs,
+    watch: (cb) => collect(subs, fs.watch(cb)),
+    /**
+     * **插件写盘一律标 `origin: 'plugin'`**（rev173.120）。
+     *
+     * 内核知道自己正在代替谁写盘，所以这件事不该留给插件作者去记 —— 忘记传的后果
+     * 很隐蔽（`note:saved` 被当成用户编辑 ⇒ 同步插件留下僵尸 pending）。
+     * 插件即便传了 `origin: 'user'` 也按 `'plugin'` 处理：来源由调用栈决定，不由自称决定。
+     */
+    writeText: (path, content, opts) => fs.writeText(path, content, { ...opts, origin: 'plugin' }),
+  }
 }
 
 function scopedDoc(doc: DocApi, subs: Disposable[]): DocApi {

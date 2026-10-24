@@ -112,6 +112,20 @@
 
 ### Fixed
 
+- **插件写盘不再伪装成「用户保存」**（rev173.120 · 用户 2026-10-25 要的「内核口子」）：
+  `fs.writeText` 新增 `opts.origin`：`'user'`（默认）发 `note:saved`；`'plugin'` **不发**
+  `note:saved`，改发 `note:changed`（带 `origin: 'plugin'`），索引照常更新。
+  - 插件口 `ctx.fs.writeText` 由宿主**强制**标 `'plugin'`（插件传 `'user'` 也无效 ——
+    来源由调用栈决定）。插件作者不用记得传，忘记传的后果很隐蔽。
+  - **替代 `sync-folder` 的 `selfWrites` 抑制表**（rev173.116 的补丁）：那张表靠
+    「写盘前登记、事后清理」的时序，冷启动时会被 Rust watcher 抢跑；现在内核层面就不发错事件，
+    表已删除。`sync-folder` 另外对 `origin: 'plugin'` 的 `note:changed` 直接忽略。
+  - 单测 +5：内核三条（插件口径不发 saved / 默认仍是 user / `.zn/` 下插件写盘不发任何事件）·
+    sync-folder 两条（origin:plugin 的 changed 被忽略 / 插件写盘不留僵尸 pending）。
+  - 实测（dev 桌面 · 真实坚果云）：编辑器输入保存后同步「上传 1」—— **用户保存链路完好**，
+    没有被这次改动波及；面板同时读到「用时 2.6 秒 / 最近 3 次：平均 1.2 秒 · 最慢 2.6 秒」。
+  - 契约 §2.1 `FsApi.writeText` 与 §1.4 事件表同步；`sync-folder` 0.2.0 → **0.3.0**。
+
 - **`test()` 的「404 自动建目录」会多建一层**（rev173.118）：`mkdirPath(root)` 传的是「相对同步根」
   的路径，而 `request()` 又经 `urlFor()` 再拼一次 `root` ⇒ 实际 MKCOL `<根>/<root>/<root>`。
   连接测试在「同步目录第一次不存在」时会顺手在远端建出一个空的 `ZeroNote/ZeroNote` 子目录

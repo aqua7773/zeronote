@@ -241,12 +241,6 @@ export default {
     let lastScanMs = 0
     /** 扫描中（防重入） */
     let scanning = false
-    /**
-     * 自己写盘的抑制表（rev173.116）：path → 期望的指纹。
-     * 三方合并的结果要写回磁盘，而写盘会触发内核 `note:saved`；不挡住的话这次写会被当成
-     * "本机又改了一次" ⇒ 留下永远清不掉的 pending（之后任何外部改动都会被误判成冲突）。
-     */
-    const selfWrites = new Map()
     /** 本进程自动合并成功的次数（面板显示） */
     let mergedCount = 0
 
@@ -408,15 +402,16 @@ export default {
 
     /**
      * 把合并结果写回磁盘并把基线对齐它（调用方已确认 0 处真冲突）。
+     *
+     * rev173.120：不再需要 `selfWrites` 抑制表 —— 内核现在能区分「用户保存」与
+     * 「插件写盘」（`fs.writeText` 的 `origin`），插件写盘根本不发 `note:saved`。
      * @returns {Promise<boolean>} 是否成功（失败 ⇒ 调用方退回留副本）
      */
     async function applyMerged(path, text) {
       const fp = fingerprint(text)
-      selfWrites.set(path, fp)
       try {
         await api.fs.writeText(path, text)
       } catch (e) {
-        selfWrites.delete(path)
         api.host.log('warn', `合并结果落盘失败（${path}）：${String(e)}`)
         return false
       }
@@ -431,7 +426,7 @@ export default {
       return true
     }
 
-    /** 本机保存：记 pending + 存影子副本，**不动 baseline** */
+    /** 本机保存（用户编辑）：记 pending + 存影子副本，**不动 baseline** */
     api.event.on('note:saved', (payload) => {
       void (async () => {
         const path = String(payload?.path ?? '')
@@ -443,12 +438,6 @@ export default {
           return
         }
         const fp = fingerprint(text)
-        // 合并结果自己的落盘不算"本机保存"（rev173.116，见 selfWrites）
-        const expect = selfWrites.get(path)
-        if (expect && expect === fp) {
-          selfWrites.delete(path)
-          return
-        }
         if (baseline[path]?.fp === fp) return // 保存了但内容没变
         pending[path] = { fp, at: Date.now() }
         try {
@@ -512,6 +501,15 @@ export default {
       void (async () => {
         const path = String(payload?.path ?? '')
         const kind = String(payload?.kind ?? 'modify')
+        /**
+         * **插件自己写盘不算外部改动**（rev173.120）：内核给插件口发 `note:changed` 时带
+         * `origin: 'plugin'`（合并结果落盘就是这条）。这类写入的基线 / pending 已由
+         * 发起方对齐过，再走一遍判定只会制造假冲突。
+         *
+         * Rust watcher 那条 `note:changed` 不带 origin —— 它是"磁盘真变了"，
+         * 仍然照常判定（此时基线已对齐 ⇒ 走 `noop` 分支静默返回）。
+         */
+        if (payload?.origin === 'plugin') return
         if (!isSyncable(path)) return
 
         if (kind === 'delete') {

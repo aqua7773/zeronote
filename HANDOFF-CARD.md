@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.119）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.120）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.119 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 849 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.120 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 854 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -81,8 +81,13 @@ pwsh -File scripts\verify.ps1
 > `最近 N 次：平均 / 最慢` + 字符 sparkline `▁▂▃▄▅▆▇█`（最后 24 条，全相等用 `▄`）·
 > **趋势行画在 `lastResult` 之外** ⇒ 重开 App 也能看到 · 单测 844 → **849** · `sync-webdav` 0.3.0。
 >
-> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）·
-> 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
+> ✅ **内核口子：插件写盘不再伪装成「用户保存」（rev173.120）**：`fs.writeText(path, content, { origin })`
+> —— `'user'`（默认）发 `note:saved`；`'plugin'` 不发、改发 `note:changed`（带 `origin:'plugin'`），
+> 索引照常更新 · 插件口 `ctx.fs.writeText` **由宿主强制标 `'plugin'`**（插件传 user 也无效）·
+> **删掉 `sync-folder` 的 `selfWrites` 抑制表**（时序补丁，冷启动会被 watcher 抢跑）·
+> 单测 849 → **854** · `sync-folder` 0.3.0 · ⚠️ sync-folder 真同步目录的合并冲突未端到端验。
+>
+> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）。方案见
 > `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B / §6.2。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；

@@ -61,6 +61,20 @@ export type TrashEntry = {
   size: number
 }
 
+/**
+ * `fs.writeText` 的来源标记（rev173.120）。
+ *
+ * · `'user'`（不传即此）—— 用户保存 ⇒ 发 `note:saved`
+ * · `'plugin'` —— 插件程序写 ⇒ 只更新索引，发 `note:changed`（`origin: 'plugin'`）
+ */
+export type FsWriteOrigin = 'user' | 'plugin'
+
+/** `fs.writeText` 的可选项 */
+export interface FsWriteOptions {
+  /** 谁在写。见 {@link FsWriteOrigin} */
+  origin?: FsWriteOrigin
+}
+
 /** 1. fs —— 文件读写。所有写入必须原子（临时文件 + rename）。 */
 export interface FsApi {
   vaultPath(): string
@@ -79,7 +93,22 @@ export interface FsApi {
    */
   listFiles(dir?: string): Promise<string[]>
   readText(path: string): Promise<string>
-  writeText(path: string, content: string): Promise<void>
+  /**
+   * 写一篇笔记。
+   *
+   * `opts.origin`（rev173.120）区分**谁在写**：
+   * · `'user'`（默认）—— 用户保存（编辑器 / 全局替换）。写盘后发 `note:saved`。
+   * · `'plugin'` —— **插件程序写的**（合并结果、导入、批量整理…）。内核仍会更新搜索索引，
+   *   但**不发 `note:saved`**，改发 `note:changed`（带 `origin: 'plugin'`）。
+   *
+   * 为什么要分：`note:saved` 的语义是「用户改了这篇」——同步插件据此记 pending
+   * （本机改过、还没同步出去）。插件自己写盘如果也发 `note:saved`，就会被当成用户编辑，
+   * 留下永远清不掉的 pending，之后任何外部改动都被误判成冲突（rev173.116 用 `selfWrites`
+   * 抑制表绕过的正是这个，那是补丁不是根治）。
+   *
+   * 插件侧不用记得传：`ctx.fs.writeText` 由宿主强制标 `origin: 'plugin'`。
+   */
+  writeText(path: string, content: string, opts?: FsWriteOptions): Promise<void>
   createNote(path: string, content?: string): Promise<void>
   rename(from: string, to: string): Promise<void>
   /**
