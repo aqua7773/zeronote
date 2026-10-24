@@ -231,10 +231,11 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **2026-10-24 环境**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · `zeronote.exe` pid 9240 起于 21:41）；
-  **旧残留已清**（10-21 的 `android-dev.cmd` 树 cmd 31684 / node 23140 / 2920、8791 的 webview-demo server pid 25768 —— 全部 taskkill /T 干净，桌面 dev 未受影响）。
-- **手机状态（2026-10-24 22:40）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug`（dev 包，含原生剪贴板插件；pid **12024**，前端实时取 1420）；
-  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_12024`（换进程后先 `forward --remove` 再按新 pid 重建）。
+- **2026-10-24 23:24 环境**：桌面 `dev.cmd` **重启过**（旧树整棵 taskkill 后重起；`zeronote.exe` pid **23640** 起于 23:24 · vite pid 24648 · CDP 9222 正常）——
+  起因是 Vite `?raw` 模块图缓存坏掉导致白屏（overlay：`Failed to resolve import …index.js from …index.js?raw`），reload 无效。
+  **旧残留已清**（10-21 的 `android-dev.cmd` 树 cmd 31684 / node 23140 / 2920、8791 的 webview-demo server pid 25768 —— 全部 taskkill /T 干净）。
+- **手机状态（2026-10-24 23:33）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug`（dev 包；pid **13448**，前端实时取 1420；已确认启动不崩、页面无 overlay）；
+  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_13448`（换进程后先 `forward --remove` 再按新 pid 重建）。
   ⚠️ **手机菜单入口**：☰ **短按 = 抽屉**、**长按 600ms = 菜单**（「同步 · WebDAV」/「命令面板」都在菜单里）；
   CDP 的 `click` 只能短按，弹菜单要用 `adb shell input motionevent DOWN 69 154` → 等 600ms → `UP 69 154`（物理坐标）。
 - **交接时 dev 状态（2026-10-21 13:45）**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · cargo/zeronote 起于 02:15）；**Android dev 本轮已起**（真机 `33b676f6`/ARIA，`android-dev.cmd` → `.self-logs/android-dev.log`）。
