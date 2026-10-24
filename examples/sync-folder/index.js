@@ -135,6 +135,35 @@ export function conflictFileName({ path, at }, taken = () => false) {
   return name
 }
 
+/**
+ * 冲突时尝试**三方合并**（rev173.116）。
+ *
+ * 与 `sync-webdav.tryAutoMerge` 同一条判据（两个插件各自一份 —— 插件之间不能互相 import）。
+ * 输入三方：`base` = 上次两端一致时的内容（history 同步点）· `mine` = 本机版（影子副本）·
+ * `theirs` = 磁盘上的外部版。**只有完全合上（0 处真冲突）才返回文本** —— 有真冲突时自动选边
+ * 会让用户以为已经合好了；那种情况交给「留副本」。
+ *
+ * @param {{ base?: string|null, mine?: string|null, theirs?: string|null, mergeLines?: Function }} args
+ * @returns {{ text: string } | null}
+ */
+export function tryAutoMerge({ base, mine, theirs, mergeLines }) {
+  if (typeof base !== 'string' || typeof mine !== 'string' || typeof theirs !== 'string') return null
+  if (typeof mergeLines !== 'function') return null
+  // 只有一边变过 ⇒ 不是"双端都改"，交给 classifyChange 的普通分支
+  if (base === mine || base === theirs) return null
+  let r
+  try {
+    r = mergeLines(base, mine, theirs)
+  } catch {
+    return null // 合并实现抛错 ⇒ 退回「留副本」，不丢字
+  }
+  if (!r || !Number.isFinite(r.conflicts) || r.conflicts > 0) return null
+  if (typeof r.text !== 'string') return null
+  // 合出来还是外部版 ⇒ 本机改动在外部已存在，没必要多写一次盘（写盘还会触发 note:saved）
+  if (r.text === theirs) return null
+  return { text: r.text }
+}
+
 /** 影子副本路径（`<库>/.zn/sync/last/<hash32>.md`） */
 export function snapshotPath(path) {
   return `${SNAPSHOT_DIR}/${shortHash(path)}.md`
@@ -205,6 +234,14 @@ export default {
     let lastScanAt = 0
     /** 扫描中（防重入） */
     let scanning = false
+    /**
+     * 自己写盘的抑制表（rev173.116）：path → 期望的指纹。
+     * 三方合并的结果要写回磁盘，而写盘会触发内核 `note:saved`；不挡住的话这次写会被当成
+     * "本机又改了一次" ⇒ 留下永远清不掉的 pending（之后任何外部改动都会被误判成冲突）。
+     */
+    const selfWrites = new Map()
+    /** 本进程自动合并成功的次数（面板显示） */
+    let mergedCount = 0
 
     /* ── 落盘 ── */
 
@@ -315,6 +352,78 @@ export default {
 
     /* ── 事件处理 ── */
 
+    /**
+     * 让 history 打一个**同步点**（rev173.116 三方合并的 base）。
+     *
+     * 时机：基线对齐外部版 / 本机新建时 —— 那一刻磁盘内容就是「两端一致」的版本。
+     * 软依赖：history 被禁用 / 没装 ⇒ 静默跳过（合并退化成「留副本」，不丢数据）。
+     */
+    async function markBase(path, text) {
+      try {
+        const hist = await api.service.consume('history')
+        if (hist?.snapshot) await hist.snapshot(path, text, { tag: 'sync:folder' })
+      } catch (e) {
+        api.host.log('debug', `同步点跳过 ${path}：${String(e)}`)
+      }
+    }
+
+    /** 读本机版（影子副本）—— 冲突时 `mine` 的来源 */
+    async function readShadow(path) {
+      try {
+        return await api.fs.readText(snapshotPath(path))
+      } catch {
+        return null
+      }
+    }
+
+    /**
+     * 冲突时试着合：base = history 同步点，mine = 影子副本，theirs = 磁盘外部版。
+     * 任何一环缺失都返回 `null`（退回原「留副本」流程）。
+     */
+    async function autoMerge(path, theirs) {
+      try {
+        const [hist, merger] = await Promise.all([
+          api.service.consume('history'),
+          api.service.consume('kernel.merge'),
+        ])
+        if (!hist?.findBase || !merger?.mergeLines) return null
+        const [mine, base] = await Promise.all([
+          readShadow(path),
+          hist.findBase(path, { tag: 'sync:folder' }),
+        ])
+        if (typeof mine !== 'string' || typeof base !== 'string') return null
+        return tryAutoMerge({ base, mine, theirs, mergeLines: merger.mergeLines })
+      } catch (e) {
+        api.host.log('warn', `自动合并失败（${path}）：${String(e)}`)
+        return null
+      }
+    }
+
+    /**
+     * 把合并结果写回磁盘并把基线对齐它（调用方已确认 0 处真冲突）。
+     * @returns {Promise<boolean>} 是否成功（失败 ⇒ 调用方退回留副本）
+     */
+    async function applyMerged(path, text) {
+      const fp = fingerprint(text)
+      selfWrites.set(path, fp)
+      try {
+        await api.fs.writeText(path, text)
+      } catch (e) {
+        selfWrites.delete(path)
+        api.host.log('warn', `合并结果落盘失败（${path}）：${String(e)}`)
+        return false
+      }
+      baseline[path] = { fp, at: Date.now() }
+      delete pending[path]
+      void api.fs.purgePrivate(snapshotPath(path)).catch(() => {})
+      markDirty()
+      await markBase(path, text)
+      mergedCount += 1
+      api.host.notify(`已自动合并：${path}`, 'info')
+      api.view.refresh()
+      return true
+    }
+
     /** 本机保存：记 pending + 存影子副本，**不动 baseline** */
     api.event.on('note:saved', (payload) => {
       void (async () => {
@@ -327,6 +436,12 @@ export default {
           return
         }
         const fp = fingerprint(text)
+        // 合并结果自己的落盘不算"本机保存"（rev173.116，见 selfWrites）
+        const expect = selfWrites.get(path)
+        if (expect && expect === fp) {
+          selfWrites.delete(path)
+          return
+        }
         if (baseline[path]?.fp === fp) return // 保存了但内容没变
         pending[path] = { fp, at: Date.now() }
         try {
@@ -351,6 +466,8 @@ export default {
           if (!baseline[path]) {
             baseline[path] = { fp: fingerprint(text), at: Date.now() }
             markDirty()
+            // 新建即"两端一致"（外部还没有这篇），同步点可以马上种下
+            void markBase(path, text)
             api.view.refresh()
           }
         } catch {
@@ -427,6 +544,13 @@ export default {
           return
         }
         if (verdict === 'conflict') {
+          /**
+           * 先试**三方合并**（rev173.116）：base = history 同步点，mine = 影子副本，
+           * theirs = 磁盘外部版。合上（0 处真冲突）⇒ 磁盘写合并结果、基线对齐它，本机版不丢。
+           * 合不上 / 没 base ⇒ 原流程：本机版留副本、基线对齐外部版。
+           */
+          const merged = await autoMerge(path, text)
+          if (merged && (await applyMerged(path, merged.text))) return
           await keepConflict(path, now, '双端修改')
         }
         // new / remote / conflict / local-pending：磁盘上是外部版，基线对齐它
@@ -434,6 +558,8 @@ export default {
           baseline[path] = { fp: remoteFp, at: now }
           delete pending[path]
           markDirty()
+          // 对齐之后两端一致 ⇒ 这是下次冲突要用的「共同祖先」
+          void markBase(path, text)
         }
         api.view.refresh()
       })()
@@ -444,7 +570,7 @@ export default {
     async function scan(reason = '手动检查') {
       if (scanning) return { skipped: true }
       scanning = true
-      const result = { updated: 0, removed: 0, conflicts: 0 }
+      const result = { updated: 0, removed: 0, conflicts: 0, merged: 0 }
       try {
         const notes = await api.fs.listNotes()
         const seen = new Set()
@@ -463,18 +589,35 @@ export default {
 
           if (!base && !p) {
             baseline[n.path] = { fp, at: Date.now() }
+            // 首次见到 ⇒ 种一个同步点，下次真冲突才有 base 可用
+            void markBase(n.path, text)
             result.updated += 1
             continue
           }
-          if (base && base.fp === fp) continue
+          if (base && base.fp === fp) {
+            /**
+             * 基线没变 ⇒ 顺便保证**同步点存在**（rev173.116）：老用户升级前没有 base，
+             * 第一次真冲突会退化成「留两份」。`markBase` 内部先比对内容，没变不会写盘。
+             */
+            void markBase(n.path, text)
+            continue
+          }
           // 磁盘与基线不符：可能是外部更新，也可能是双端都改
           const verdict = classifyChange({ base, pending: p, remoteFp: fp })
           if (verdict === 'conflict') {
+            // rev173.116：先试三方合并；合上就不进冲突统计
+            const merged = await autoMerge(n.path, text)
+            if (merged && (await applyMerged(n.path, merged.text))) {
+              result.merged += 1
+              result.updated += 1
+              continue
+            }
             await keepConflict(n.path, Date.now(), reason)
             result.conflicts += 1
           }
           baseline[n.path] = { fp, at: Date.now() }
           delete pending[n.path]
+          void markBase(n.path, text)
           result.updated += 1
         }
 
@@ -572,6 +715,10 @@ export default {
               text: `冲突 ${conflictCount}`,
               tone: conflictCount > 0 ? 'danger' : 'success',
             },
+            // rev173.116：双端改同一篇时自动合上的次数（本进程）
+            ...(mergedCount > 0
+              ? [{ type: 'badge', text: `合并 ${mergedCount}`, tone: 'success' }]
+              : []),
           ],
         },
         { type: 'spacer', size: 'sm' },

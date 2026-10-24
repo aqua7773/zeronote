@@ -388,6 +388,26 @@ describe('同步点：basePath / history 服务', () => {
     expect(parseSnapshotName('base.sync.md')).toBe(0)
   })
 
+  it('按同步后端分开（rev173.116）：webdav / folder 各一份，不会互相覆盖', () => {
+    expect(basePath('a.md', 'sync:webdav')).toMatch(/\.zn\/history\/[0-9a-f]{8}\/base\.webdav\.sync\.md$/)
+    expect(basePath('a.md', 'sync:folder')).toMatch(/\.zn\/history\/[0-9a-f]{8}\/base\.folder\.sync\.md$/)
+    expect(basePath('a.md', 'sync')).toMatch(/\.zn\/history\/[0-9a-f]{8}\/base\.sync\.md$/)
+    expect(basePath('a.md')).toBe(basePath('a.md', 'sync'))
+    // tag 里的路径字符不会漏进文件名
+    expect(basePath('a.md', 'sync:../evil')).toMatch(/\/base\.evil\.sync\.md$/)
+  })
+
+  it('service：tag 落到各自的文件（两个后端写东西不串）', async () => {
+    const { api, services, writes } = fakeApi()
+    plugin.apply(api as never)
+    const svc = (await services.get('history')!()) as { snapshot: Function }
+    await svc.snapshot('a.md', 'w', { tag: 'sync:webdav' })
+    await svc.snapshot('a.md', 'f', { tag: 'sync:folder' })
+    const paths = writes.map((w) => w.path)
+    expect(paths.some((p) => p.endsWith('/base.webdav.sync.md'))).toBe(true)
+    expect(paths.some((p) => p.endsWith('/base.folder.sync.md'))).toBe(true)
+  })
+
   it('插件 provide 了 history 服务；snapshot({tag:sync}) 写固定名，不产生历史条目', async () => {
     const { api, services, writes } = fakeApi()
     plugin.apply(api as never)

@@ -31,8 +31,22 @@ const DIR = '.zn/history'
  *
  * 为什么用固定名而不是 `<时间戳>.sync.md`：固定名 ⇒ 只有一份 ⇒ 不需要分层精简例外、
  * 不会把历史列表灌满（`parseSnapshotName` 不认它，`listEntries()` 自然跳过）。
+ *
+ * rev173.116：**按同步后端分开**（`base.<后端>.sync.md`）—— 两个同步插件同时启用时
+ * 各写各的 base，不会互相覆盖（它们对"两端一致"的时刻判断不同）。
  */
 const BASE_FILE = 'base.sync.md'
+
+/**
+ * 同步点文件名：`sync`（没指定后端）⇒ `base.sync.md`；`sync:webdav` ⇒ `base.webdav.sync.md`。
+ * 只保留字母数字与 `-`，防止 tag 里混进 `..` / `/` 这类路径字符。
+ */
+function baseName(tag) {
+  const raw = String(tag ?? 'sync').toLowerCase()
+  const short = raw.startsWith('sync:') ? raw.slice(5) : raw === 'sync' ? '' : raw
+  const clean = short.replace(/[^a-z0-9-]/g, '')
+  return clean ? `base.${clean}.sync.md` : BASE_FILE
+}
 /** save 兜底的间隔（需求没规定，VS Code 用 10 分钟窗口，这里取"如果有改动且隔了这么久就存一份"） */
 const SAVE_GAP_MS = 10 * 60 * 1000
 /** 一天 / 一周的毫秒数（分层精简用） */
@@ -56,9 +70,9 @@ export function hash32(input) {
 
 const pad = (n, w = 2) => String(n).padStart(w, '0')
 
-/** 同步点（base）文件路径：`<库>/.zn/history/<hash32>/base.sync.md`（每个笔记一份，覆盖写） */
-export function basePath(path) {
-  return `${DIR}/${hash32(path)}/${BASE_FILE}`
+/** 同步点（base）文件路径：`<库>/.zn/history/<hash32>/base[.后端].sync.md`（每个笔记一份，覆盖写） */
+export function basePath(path, tag) {
+  return `${DIR}/${hash32(path)}/${baseName(tag)}`
 }
 
 /** 时间戳 → 快照文件名（本地时间，冒号换成 `-`：Windows 文件名不允许冒号） */
@@ -358,12 +372,13 @@ export default {
 
     /**
      * 读同步点（base）—— 三方合并的"共同祖先"。没有就回 `null`（调用方退回「留两份」）。
+     * `tag` 区分同步后端（`sync:webdav` / `sync:folder`），不传就是共用的 `base.sync.md`。
      * 不抛错：一个笔记没有同步点是最常见的情况（没开同步 / 首次同步）。
      */
-    async function readBase(path) {
+    async function readBase(path, tag) {
       if (!path) return null
       try {
-        return await api.fs.readText(basePath(path))
+        return await api.fs.readText(basePath(path, tag))
       } catch {
         return null
       }
@@ -373,11 +388,11 @@ export default {
      * 写同步点。**内容没变就不写** —— 同步每 5 秒一轮，不判重会把磁盘写穿。
      * @returns {Promise<boolean>} 是否真的写了
      */
-    async function writeBase(path, content) {
+    async function writeBase(path, content, tag) {
       if (!path || typeof content !== 'string') return false
-      const file = basePath(path)
+      const file = basePath(path, tag)
       try {
-        const prev = await readBase(path)
+        const prev = await readBase(path, tag)
         if (prev === content) return false
         await api.fs.mkdir(dirOf(path))
         await api.fs.writeText(file, content)
@@ -414,13 +429,14 @@ export default {
      * 存一份快照并做分层精简（需求 §11）。
      * `reason` 只用于日志，不进 UI。
      *
-     * `tag === 'sync'` ⇒ 不生成历史条目，只覆盖写同步点（rev173.115）：
+     * `tag` 以 `sync` 开头 ⇒ 不生成历史条目，只覆盖写同步点（rev173.115）：
      * 同步点不是"给用户看的版本"，是三方合并的 base；写进列表会与真正的历史混在一起。
+     * 后缀区分后端（`sync:webdav` / `sync:folder`），见 `baseName()`。
      */
     async function snapshot(path, content, reason, tag) {
       if (!path || typeof content !== 'string') return
-      if (tag === 'sync') {
-        await writeBase(path, content)
+      if (typeof tag === 'string' && tag.startsWith('sync')) {
+        await writeBase(path, content, tag)
         return
       }
       const dir = dirOf(path)
@@ -462,11 +478,14 @@ export default {
       api.service.provide(
         'history',
         () => ({
-          /** 打一个同步点（`{ tag: 'sync' }`）；返回是否真的写了（内容没变则不写） */
+          /**
+           * 打一个同步点：`opts.tag` = `sync`（共用）或 `sync:webdav` / `sync:folder`（按后端分开）。
+           * 返回是否真的写了（内容没变则不写）。
+           */
           snapshot: (path, content, opts) =>
             snapshot(String(path ?? ''), content, 'service', opts?.tag ?? 'sync'),
-          /** 读同步点：上次成功同步时的内容；没有则 `null` */
-          findBase: (path) => readBase(String(path ?? '')),
+          /** 读同步点：上次成功同步时的内容；没有则 `null`。`opts.tag` 与写时对应 */
+          findBase: (path, opts) => readBase(String(path ?? ''), opts?.tag ?? 'sync'),
         }),
         { version: '1' },
       ),

@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.115）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.116）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.115 · 0.4.0 · 2026-10-24 |
-| 测试基线 | vitest 825 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| rev / 版本 | rev173.116 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 833 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 11 · 示例 35 |
-| 文档 | README 现状 2026-10-24 · CHANGELOG 0.4.0 |
+| 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -55,11 +55,17 @@ pwsh -File scripts\verify.ps1
 > 合并实现只留一份）· `sync-webdav` 0.2.0 冲突先 `tryAutoMerge`，**只合 0 处真冲突**；合上就写盘 +
 > 推回远端，有真冲突仍留副本。单测 813 → **825** · verify 6/6 · 实测（本地 DAV）：改不同行 ⇒ 自动合上、
 > 两端一致、冲突记录不增；改同一行 ⇒ 副本 = 本机版。⚠️ 边界：两边都在**末尾追加**会判冲突（行级 diff）。
-> **未做**：`sync-folder` 后端接入 · history 防抖触发（合并不需要）。
-> ⚠️ **`2b31bd9` 未推送**：直连 GitHub 被 reset，本地代理 26561 未监听；网络恢复后 `git push origin main`。
 >
-> **下一步可选（二期方向，未排期）**：`sync-folder` 也接三方合并（要先处理"自己写盘触发 note:saved"自环）·
-> S3 后端 · Git 类后端（GitHub/Gitee）· 附件也走 304 · 同步耗时统计。方案见
+> ✅ **`sync-folder` 也接三方合并 + 同步点按后端分开（rev173.116）**：冲突时 base = history 同步点 ·
+> mine = **影子副本** · theirs = 磁盘外部版；合上就写盘 + 基线对齐 + 清 pending/影子副本。
+> **`selfWrites` 抑制表**挡住「合并落盘 ⇒ note:saved ⇒ 假 pending」（不挡会留永久 pending，之后任何外部改动
+> 都被误判成冲突）。同步点文件改成 `base.<后端>.sync.md`（`sync:webdav` / `sync:folder` 互不覆盖，实测各 30 篇并存）。
+> 单测 825 → **833** · verify 6/6 · 实测（dev 真环境）：本机 pending + 外部改第一行 ⇒ 自动合上、冲突记录不增；
+> 两边改同一行 ⇒ 回副本（= 本机版）。⚠️ 观察项：`note:saved` 与 Rust watcher 的 `note:changed` 有竞争
+> （冷启动首次可能 changed 先到 ⇒ 本机版没进影子副本），根治要改内核写盘语义，另议。
+>
+> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）· 附件也走 304 ·
+> 同步耗时统计 · 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
 > `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B / §6.2。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
@@ -211,7 +217,7 @@ pwsh -File scripts\verify.ps1
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
 | 同步插件 | ✅ **完成（rev173.106–114）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾四项也已完成（rev173.111–114）**：manifest 304 短路径 · `sync-folder` 自动检查开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
-| 同步 · 三方合并 | ✅ **rev173.115（`sync-webdav` 后端）**：`history` 0.2.0 打**同步点** `<库>/.zn/history/<hash32>/base.sync.md`（固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag:'sync'})` / `findBase`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· `sync-webdav` 冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（写盘 + `PUT` 回远端 + 刷新 base/manifest），有真冲突仍留副本 + 取远端版 · 单测 825 · 实测本地 DAV（改不同行自动合上、两端一致、冲突记录不增 / 改同一行副本 = 本机版）· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· **未做**：`sync-folder` 后端接入（先处理"自己写盘触发 note:saved"自环）· history 防抖触发（合并不需要） |
+| 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ⚠️ 观察项：`note:saved` 与 `note:changed` 有竞争（冷启动首次可能丢 pending）· **未做**：history 防抖触发（合并不需要）/ 内核级「插件写盘不触发 note:saved」（另议） |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |

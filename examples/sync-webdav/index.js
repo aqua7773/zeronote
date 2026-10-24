@@ -635,7 +635,7 @@ export default {
     async function markBase(path, text) {
       try {
         const hist = await api.service.consume('history')
-        if (hist?.snapshot) await hist.snapshot(path, text, { tag: 'sync' })
+        if (hist?.snapshot) await hist.snapshot(path, text, { tag: 'sync:webdav' })
       } catch (e) {
         api.host.log('debug', `同步点跳过 ${path}：${String(e)}`)
       }
@@ -652,7 +652,7 @@ export default {
           api.service.consume('kernel.merge'),
         ])
         if (!hist?.findBase || !merger?.mergeLines) return null
-        const base = await hist.findBase(path)
+        const base = await hist.findBase(path, { tag: 'sync:webdav' })
         if (typeof base !== 'string') return null
         const theirs = await client.get(path)
         if (theirs == null) return null

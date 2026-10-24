@@ -17,7 +17,9 @@ import plugin, {
   looksLikeSyncConflict,
   shortHash,
   snapshotPath,
+  tryAutoMerge,
 } from '../examples/sync-folder/index.js'
+import { mergeLines } from '../src/lib/merge3'
 
 /* ───────────────────────── 1. 指纹 ───────────────────────── */
 
@@ -199,7 +201,12 @@ function fakeHost() {
   }
 }
 
-function harness(initialFiles: Record<string, string> = {}, initialStore: Record<string, unknown> = {}) {
+function harness(
+  initialFiles: Record<string, string> = {},
+  initialStore: Record<string, unknown> = {},
+  /** 注入的服务（`history` / `kernel.merge`）—— 不注就是"没装"，插件走降级 */
+  services: Record<string, unknown> = {},
+) {
   const mem = memoryFs(initialFiles)
   const host = fakeHost()
   const handlers: Record<string, (p?: unknown) => void> = {}
@@ -229,6 +236,11 @@ function harness(initialFiles: Record<string, string> = {}, initialStore: Record
         return { dispose: () => {} }
       },
       emit: () => {},
+    },
+    // rev173.116：三方合并要 consume `history` 与 `kernel.merge`（都是软依赖）
+    service: {
+      consume: async (name: string) => services[name] ?? null,
+      provide: () => ({ dispose: () => {} }),
     },
     command: {
       register: (c: { id: string; run: () => unknown }) => {
@@ -456,5 +468,113 @@ describe('冲突端到端（双端都改同一篇）', () => {
     expect(conflictWrites[0].content).toBe('v2')
 
     h.api.subscriptions.forEach((s) => s.dispose())
+  })
+})
+
+/**
+ * rev173.116 三方合并：本机保存 + 外部改同一篇的不同段落 ⇒ 自动合上，两边都不丢。
+ *
+ * 关键时序（与真实一致）：基线来自一次外部事件（`note:changed` 判 `new`），
+ * 本机保存时写影子副本（`mine`），外部再改一次时 `theirs` 是磁盘内容 —— 三个快照齐了才能合。
+ */
+describe('三方合并（rev173.116）', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+  })
+
+  const base = '# 周报\n第一段\n第二段\n'
+  const mergedServices = (b: string) => ({
+    history: { findBase: async () => b, snapshot: async () => true },
+    'kernel.merge': { mergeLines },
+  })
+
+  it('两边改不同段 ⇒ 自动合上，无冲突副本、两边改动都在', async () => {
+    const h = harness({ '周报.md': base }, {}, mergedServices(base))
+    await settle()
+
+    // ① 首次外部事件 ⇒ 基线 = base（同时种同步点）
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    // ② 本机保存：改标题（影子副本 = 本机版）
+    const mine = '# 周报（本机改的标题）\n第一段\n第二段\n'
+    h.mem.files.set('周报.md', mine)
+    h.handlers['note:saved']({ path: '周报.md' })
+    await settle()
+
+    // ③ 外部改成另一版：改第三行
+    const theirs = '# 周报\n第一段\n第二段（外部改的）\n'
+    h.mem.files.set('周报.md', theirs)
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    const merged = h.mem.files.get('周报.md') as string
+    expect(merged).toContain('本机改的标题')
+    expect(merged).toContain('外部改的')
+    expect(h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts'))).toHaveLength(0)
+    expect(h.host.notes.some((n) => n.msg.includes('已自动合并'))).toBe(true)
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('两边改同一行 ⇒ 不合（退回留副本，副本 = 本机版）', async () => {
+    const h = harness({ '周报.md': base }, {}, mergedServices(base))
+    await settle()
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    h.mem.files.set('周报.md', '# 周报\n本机版\n第二段\n')
+    h.handlers['note:saved']({ path: '周报.md' })
+    await settle()
+
+    h.mem.files.set('周报.md', '# 周报\n外部版\n第二段\n')
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    const conflictWrites = h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts/windows/'))
+    expect(conflictWrites).toHaveLength(1)
+    expect(conflictWrites[0].content).toContain('本机版')
+    expect(h.mem.files.get('周报.md')).toBe('# 周报\n外部版\n第二段\n')
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('没有 history 同步点 ⇒ 退回留副本（降级不丢字）', async () => {
+    // 只给合并实现、不给 base：autoMerge 拿不到 base 直接返回 null
+    const h = harness({ '周报.md': base }, {}, { 'kernel.merge': { mergeLines } })
+    await settle()
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    h.mem.files.set('周报.md', '# 周报\n本机版\n第二段\n')
+    h.handlers['note:saved']({ path: '周报.md' })
+    await settle()
+
+    h.mem.files.set('周报.md', '# 周报\n外部版\n第二段\n')
+    h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
+    await settle()
+
+    expect(h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts/windows/'))).toHaveLength(1)
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+})
+
+describe('tryAutoMerge（与 sync-webdav 同一判据）', () => {
+  const base = 'A\nB\nC\n'
+
+  it('两边改不同行 ⇒ 合上', () => {
+    const r = tryAutoMerge({ base, mine: 'A1\nB\nC\n', theirs: 'A\nB\nC1\n', mergeLines })
+    expect(r?.text).toBe('A1\nB\nC1\n')
+  })
+
+  it('同一行 ⇒ null；缺 base / 缺实现 ⇒ null', () => {
+    expect(tryAutoMerge({ base, mine: 'A\nB1\nC\n', theirs: 'A\nB2\nC\n', mergeLines })).toBeNull()
+    expect(tryAutoMerge({ base: null, mine: 'x', theirs: 'y', mergeLines })).toBeNull()
+    expect(tryAutoMerge({ base, mine: 'x', theirs: 'y' })).toBeNull()
+  })
+
+  it('两边改成同一内容 ⇒ null（不写盘，也不自触发 note:saved）', () => {
+    expect(tryAutoMerge({ base, mine: 'A1\nB\nC\n', theirs: 'A1\nB\nC\n', mergeLines })).toBeNull()
   })
 })
