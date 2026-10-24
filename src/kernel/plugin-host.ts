@@ -38,6 +38,7 @@ import type {
   EditorApi,
   PluginManifest,
   PluginPlatform,
+  NetApi,
   StoreApi,
   ViewApi,
 } from './contract'
@@ -145,6 +146,8 @@ export type PluginHostDeps = {
   view: ViewApi
   store: (pluginId: string, root?: string) => StoreApi
   host: HostApi
+  /** HTTP 请求（rev173.106）—— 与内核同一份实现，只是包了一层审计 */
+  net: NetApi
   /** 服务注册表（按插件 id 视图化）—— 「前置插件」靠它互调 */
   service: (pluginId: string) => ServiceApi
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
@@ -850,6 +853,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。
     store: audit('store', deps.store(manifest.id, root)),
     host: audit('host', scopedHost(deps.host, manifest.id, subs)),
+    net: audit('net', deps.net),
     service: audit('service', deps.service(manifest.id)),
     editor: audit('editor', deps.editor(manifest.id)),
     pluginId: manifest.id,

@@ -16,8 +16,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine as _;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+
+/// 网络 / 凭据原语（rev173.106）—— `net_request` + `secret_*`。
+/// 单独成模块是为了让「内核只做文件」这句话有个明确的反例清单：
+/// 这两组是**管道**不是功能，协议语义全在同步插件里。
+mod net;
 
 /// 库内私有目录：不进文件树、不进 git
 const PRIVATE_DIR: &str = ".zn";
@@ -404,12 +410,20 @@ fn purge_private(vault: String, path: String) -> Result<(), String> {
 /// 中途任何一步失败都能把旧文件还原回去，**不会出现"旧内容已删、新内容未就位"的窗口**
 /// （P1-3 · 2026-10-18；旧实现的注释「Windows 的 rename 不覆盖已存在文件」是错的）。
 fn atomic_write(abs: &Path, content: &str) -> Result<(), String> {
+  atomic_write_bytes(abs, content.as_bytes())
+}
+
+/// 二进制版原子写（rev173.106 · 同步插件下载附件用）。
+///
+/// 与 `atomic_write` **同一套语义**（临时文件 + rename；覆盖失败走 `.zn-bak` 三步），
+/// 只是取字节而不是 `&str` —— 文本那条直接转调这里，避免两份逻辑各自漂移。
+fn atomic_write_bytes(abs: &Path, content: &[u8]) -> Result<(), String> {
   let dir = abs.parent().ok_or_else(|| "无法确定父目录".to_string())?;
   fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
   let tmp = abs.with_extension("zn-tmp");
   {
     let mut f = fs::File::create(&tmp).map_err(|e| format!("创建临时文件失败：{e}"))?;
-    f.write_all(content.as_bytes())
+    f.write_all(content)
       .map_err(|e| format!("写入临时文件失败：{e}"))?;
     f.sync_all().map_err(|e| format!("落盘失败：{e}"))?;
   }
@@ -878,6 +892,27 @@ fn read_note(vault: String, path: String) -> Result<String, String> {
 fn write_note(vault: String, path: String, content: String) -> Result<(), String> {
   let abs = resolve(&vault, &path)?;
   atomic_write(&abs, &content)
+}
+
+/// 读**二进制**（rev173.106 · 同步插件上传附件用）：base64 过桥。
+///
+/// 与 `read_note` 的区别只在编解码 —— 同样过 `resolve` 的库内路径校验，
+/// 所以 `fs.readBytes` 读不到库外文件（同步只搬库里的东西）。
+#[tauri::command]
+fn read_note_bytes(vault: String, path: String) -> Result<String, String> {
+  let abs = resolve(&vault, &path)?;
+  let bytes = fs::read(&abs).map_err(|e| format!("读取 {path} 失败：{e}"))?;
+  Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+/// 写**二进制**（rev173.106 · 同步插件下载附件用）：原子写，与 `write_note` 同一套。
+#[tauri::command]
+fn write_note_bytes(vault: String, path: String, base64: String) -> Result<(), String> {
+  let abs = resolve(&vault, &path)?;
+  let bytes = base64::engine::general_purpose::STANDARD
+    .decode(base64.as_bytes())
+    .map_err(|e| format!("内容不是合法 base64：{e}"))?;
+  atomic_write_bytes(&abs, &bytes)
 }
 
 #[tauri::command]
@@ -2478,6 +2513,8 @@ pub fn run() {
       purge_private,
       read_note,
       write_note,
+      read_note_bytes,
+      write_note_bytes,
       create_note,
       rename_note,
       delete_note,
@@ -2516,7 +2553,12 @@ pub fn run() {
       zn_heartbeat,
       zn_watchdog_pause,
       zn_watchdog_resume,
-      zn_watchdog_status
+      zn_watchdog_status,
+      // rev173.106：网络 / 凭据（同步插件的地基）
+      net::net_request,
+      net::secret_get,
+      net::secret_set,
+      net::secret_delete
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

@@ -16,6 +16,7 @@ import type {
   FsApi,
   HostApi,
   IndexApi,
+  NetApi,
   PanelLocation,
   ServiceApi,
   ShellSpec,
@@ -30,6 +31,7 @@ import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { withFsEvents } from './fs-events'
 import { createIndexApi } from './index-api'
+import { createNetApi } from './net'
 import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
 
@@ -162,6 +164,8 @@ export type Kernel = {
    */
   store: (pluginId: string, root?: string) => StoreApi
   host: HostApi
+  /** HTTP 请求（Rust 侧发出，不受 CORS）—— rev173.106，同步插件的地基 */
+  net: NetApi
   /** 「前置插件」用的服务注册表（按插件 id 视图化，卸载即回收） */
   service: (pluginId: string) => ServiceApi
   /**
@@ -553,6 +557,18 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       hooks.onLog('裸 host.onRollback 没有订阅账可挂（插件请用 ctx.host）', 'warn')
       return { dispose: () => {} }
     },
+    /**
+     * 系统凭据库（rev173.106 · 2026-10-24 用户裁决「一开始就走钥匙串」）。
+     *
+     * 三条命令直接落到 Rust 侧的 `keyring`（Windows 凭据管理器 / Android Keystore），
+     * **不落库内 JSON** —— 所以换库不会换凭据，凭据也不会被同步插件读到 `.zn/` 里。
+     */
+    secrets: {
+      get: (account: string) => invoke<string | null>('secret_get', { account }),
+      set: (account: string, secret: string) =>
+        invoke<void>('secret_set', { account, secret }),
+      delete: (account: string) => invoke<void>('secret_delete', { account }),
+    },
   }
 
   return {
@@ -564,6 +580,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     commands,
     view,
     host,
+    net: createNetApi(),
     store: (pluginId: string, root?: string) => createStoreApi(root ?? vault, pluginId),
     service: (pluginId: string) => services.scoped(pluginId),
     releaseServices: (pluginId: string) => services.release(pluginId),

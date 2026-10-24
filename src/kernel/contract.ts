@@ -117,6 +117,19 @@ export interface FsApi {
    * 幂等：目标不存在也算成功。
    */
   purgePrivate(path: string): Promise<void>
+  /**
+   * 读**二进制**（图片 / PDF / 附件）—— rev173.106 加。
+   *
+   * `readText` 只吃 UTF-8，读一张 PNG 只会得到乱码；这条经 base64 过桥，字节原样返回。
+   * 同步插件上传附件靠它（文本笔记仍走 `readText` —— 那条才有 frontmatter / 换行语义）。
+   */
+  readBytes(path: string): Promise<Uint8Array>
+  /**
+   * 写**二进制**（原子写，与 `writeText` 同一套：临时文件 + rename）。
+   *
+   * 同步下载附件靠它。传 `Uint8Array`；字符串会按 UTF-8 编码写入，能跑但没必要。
+   */
+  writeBytes(path: string, data: Uint8Array): Promise<void>
   watch(cb: (e: FsChange) => void): Disposable
 }
 
@@ -681,6 +694,22 @@ export interface HostApi {
    * 它只是把"卸载即净"从"内核记账的资源"扩展到"插件愿意申报的资源"。
    */
   onRollback(fn: () => void): Disposable
+  /**
+   * **系统凭据库**（rev173.106 · 2026-10-24 用户裁决「一开始就走钥匙串」）。
+   *
+   * 落点：Windows Credential Manager · Android Keystore + SharedPreferences ·
+   * macOS 登录钥匙串 —— **不是** `.zn/` 下的明文 JSON。
+   *
+   * 用途：同步插件的 WebDAV 账号密码 / S3 密钥这类**不该进笔记库**的东西。
+   * 只存**字符串**（结构化数据自己 `JSON.stringify`）。同名覆盖，读不到返回 `null`。
+   *
+   * ⚠️ 它在**系统**作用域，不随库切换 —— 换库不会换凭据。
+   */
+  secrets: {
+    get(account: string): Promise<string | null>
+    set(account: string, secret: string): Promise<void>
+    delete(account: string): Promise<void>
+  }
 }
 
 /**
@@ -931,6 +960,49 @@ export interface EditorApi {
 }
 
 /**
+ * 11. net —— HTTP 请求（rev173.106 加 · 2026-10-24）。
+ *
+ * **为什么由内核发、而不是插件自己 `fetch`**：WebDAV 用自定义方法
+ * （`PROPFIND` / `MKCOL` / `MOVE`）与非简单头，浏览器必然先发 CORS preflight；
+ * 服务器不回 CORS 头时插件只能看到 `TypeError: Failed to fetch`，分不清
+ * 「CORS 被拒 / 断网 / 401」。这条原语把请求交给 Rust（`reqwest`），没有 CORS，
+ * 拿得到真实状态码与响应头。依据 `docs/同步插件-调研与方案-2026-10-24.md` §3。
+ *
+ * 内核**不认识 WebDAV** —— 方法与协议语义全在插件里。
+ */
+export type NetHeaders = Record<string, string>
+
+export type NetRequestSpec = {
+  /** 绝对 URL（`http:` / `https:`） */
+  url: string
+  /** 默认 `GET`。WebDAV 的 `PROPFIND` / `MKCOL` / `MOVE` / `PROPPATCH` 都从这里传 */
+  method?: string
+  headers?: NetHeaders
+  /** 请求体：字符串按 UTF-8，`Uint8Array` 原样发送 */
+  body?: string | Uint8Array
+  /** 超时毫秒（默认 30000，夹在 1000–120000） */
+  timeoutMs?: number
+}
+
+export type NetResponse = {
+  /**
+   * HTTP 状态码。**4xx / 5xx 不抛错** —— 内核只负责把服务端的话原样带回来：
+   * 401 该重试、404 该跳过、409/412 该判定冲突，都由调用方按业务决定。
+   */
+  status: number
+  /** 响应头，键已小写。重复头按出现顺序用 `, ` 合并 */
+  headers: NetHeaders
+  /** 响应体按 UTF-8 解码（**不猜编码**；非 UTF-8 响应请用 `bytes()`） */
+  text(): string
+  /** 响应体原始字节 */
+  bytes(): Uint8Array
+}
+
+export interface NetApi {
+  fetch(spec: NetRequestSpec): Promise<NetResponse>
+}
+
+/**
  * 内核契约版本（2026-10-18 rev118：0.1.0 → **0.2.0**）。
  *
  * 为什么升：契约文档 2026-10-17 已写成 v0.2（补 3 capability + host 3 方法 + editor 6 方法 +
@@ -984,6 +1056,8 @@ export interface PluginContext {
   host: HostApi
   service: ServiceApi
   editor: EditorApi
+  /** HTTP 请求（Rust 侧发出，不受 CORS 限制）—— 同步插件靠它，见上面 `NetApi` */
+  net: NetApi
   pluginId: string
   /**
    * 插件自己的资源账。**大部分情况下你不需要主动 push**：

@@ -5,6 +5,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { Disposable, FsApi, FsChange, NoteMeta, TrashEntry } from './contract'
+import { base64ToBytes, bytesToBase64 } from './base64-codec'
 
 export function createFsApi(
   vault: string,
@@ -36,6 +37,16 @@ export function createFsApi(
     /** 原子写：Rust 侧写临时文件再 rename，失败不动原文件 */
     writeText: (path: string, content: string) =>
       invoke<void>('write_note', { vault, path, content }),
+
+    /** 读二进制（附件 / 图片 / PDF）—— base64 过桥，rev173.106 */
+    readBytes: async (path: string): Promise<Uint8Array> => {
+      const b64 = await invoke<string>('read_note_bytes', { vault, path })
+      return base64ToBytes(b64)
+    },
+
+    /** 写二进制（原子写，与 writeText 同一套）—— rev173.106 */
+    writeBytes: (path: string, data: Uint8Array) =>
+      invoke<void>('write_note_bytes', { vault, path, base64: bytesToBase64(data) }),
 
     createNote: (path: string, content = '') =>
       invoke<void>('create_note', { vault, path, content }),

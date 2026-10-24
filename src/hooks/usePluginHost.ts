@@ -162,6 +162,7 @@ export function usePluginHost({
       view: k.view,
       store: k.store,
       host: k.host,
+      net: k.net,
       service: k.service,
       editor: k.editor,
       // 能力使用审计（rev173.78）：App 侧传进来，没传就不记录

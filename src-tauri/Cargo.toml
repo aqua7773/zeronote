@@ -38,6 +38,10 @@ tauri-plugin-notification-capture = { path = "plugins/tauri-plugin-notification-
 tauri-plugin-androidperm = { path = "plugins/tauri-plugin-androidperm" }
 # 读 Android SAF 的 content:// URI（系统「打开方式」递来的文件；std::fs 读不了它）
 tauri-plugin-uri-reader = { path = "plugins/tauri-plugin-uri-reader" }
+# 系统凭据库（同步插件凭据 · 2026-10-24 用户裁决「一开始就走钥匙串」）：
+# Windows Credential Manager / Android Keystore + SharedPreferences / macOS Keychain。
+# 关掉 crypto feature —— 内核只要「存 / 取一段字符串」，不要它的 SLIP10/BIP39/Ed25519。
+tauri-plugin-keyring-store = { version = "0.2", default-features = false }
 
 # 文件关联（桌面）：Windows 上「双击 .md」第二次启动的进程要把参数**转发**给已在运行的实例
 # —— 见 lib.rs 的 `forward_open_targets`。
@@ -63,3 +67,24 @@ tauri-plugin-window-state = "2"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows-core = "0.62"
+
+# HTTP 原语（`net` · rev173.106）：WebDAV 同步靠它，必须**在 Rust 侧发请求**——
+# WebView 里直连会被 CORS 拦死（PROPFIND/PUT 必然触发 preflight，见方案文档 §3 缺口 1）。
+#
+# TLS 后端按平台分：桌面走系统栈（Windows schannel / macOS Security.framework），
+# 零额外编译依赖、自动用系统证书；Android 没有系统 TLS 的 Rust 绑定，改走
+# rustls + ring（纯 Rust，NDK 能编，不碰 OpenSSL/NDK 里的 openssl-sys）。
+[target.'cfg(not(target_os = "android"))'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = [
+  "native-tls",
+  "http2",
+  "charset",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls-no-provider",
+  "http2",
+  "charset",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

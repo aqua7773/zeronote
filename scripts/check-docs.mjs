@@ -24,7 +24,7 @@ const contractPath = 'docs/内核契约-v0.2.md'
 const contract = exists(contractPath) ? read(contractPath) : ''
 for (const c of caps) if (!contract.includes(c)) problems.push('契约 §4 缺 capability: ' + c)
 
-const apiNames = ['FsApi', 'DocApi', 'IndexApi', 'EventApi', 'CommandApi', 'ViewApi', 'StoreApi', 'HostApi', 'ServiceApi', 'EditorApi']
+const apiNames = ['FsApi', 'DocApi', 'IndexApi', 'EventApi', 'CommandApi', 'ViewApi', 'StoreApi', 'HostApi', 'ServiceApi', 'EditorApi', 'NetApi']
 for (const name of apiNames) {
   const m = new RegExp('export interface ' + name + ' \\{([\\s\\S]*?)\\n\\}').exec(ct)
   if (!m) continue
@@ -70,4 +70,4 @@ if (problems.length) {
   for (const p of problems.slice(0, 40)) console.error('  - ' + p)
   process.exit(1)
 }
-console.log('✅ 文档一致性：capability ' + caps.length + ' 项 / API 接口 10 组 / 状态头 / 索引 / 引用 全通过')
+console.log('✅ 文档一致性：capability ' + caps.length + ' 项 / API 接口 ' + apiNames.length + ' 组 / 状态头 / 索引 / 引用 全通过')
