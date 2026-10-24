@@ -46,6 +46,8 @@ const PANEL_ID = 'sync-folder.status'
 const KEY_BASELINE = 'baseline.v1'
 const KEY_PENDING = 'pending.v1'
 const KEY_CONFLICTS = 'conflicts.v1'
+/** 插件设置（rev173.112：目前只有 enabled —— 停用后不再自动扫描，事件照常记账） */
+const KEY_SETTINGS = 'settings.v1'
 
 /** 本机版本影子副本（冲突时的那份"我的"） */
 const SNAPSHOT_DIR = '.zn/sync/last'
@@ -154,6 +156,27 @@ export function isSyncable(path) {
   return !s.split('/').includes('.zn')
 }
 
+/**
+ * 文件名像不像「外部同步工具自己造的冲突副本」？—— `.zn/` **没被排除**的痕迹（rev173.114）。
+ *
+ * 插件管不到 Syncthing / OneDrive / 坚果云的排除配置，但可以在私有目录里找它们留下的指纹：
+ * · Syncthing：`<名>.sync-conflict-20261024-123456-ABCDEF.md`
+ * · OneDrive / Windows：`<名>-主机名.md`、`<名> (conflicted copy).md`
+ * · 坚果云 / 中文客户端：`<名> (冲突副本).md`
+ *
+ * 注意：**不能**把 `2026-10-24 2053-双链验收.md` 这种自己的冲突副本当命中（没有「副本 / 冲突」关键词）。
+ */
+export function looksLikeSyncConflict(name) {
+  const s = String(name ?? '')
+  if (!s) return false
+  return (
+    /\.sync-conflict-/i.test(s) ||
+    /conflicted copy/i.test(s) ||
+    /\(冲突/.test(s) ||
+    /冲突副本/.test(s)
+  )
+}
+
 /* ───────────────────────── 插件本体 ───────────────────────── */
 
 export default {
@@ -164,6 +187,17 @@ export default {
     let baseline = {}
     let pending = {}
     let conflicts = []
+    /**
+     * 插件设置（rev173.112）。`enabled: false` = 停止**自动**扫描：
+     * 定时检查 / 启动检查 / 回到前台检查都不跑，事件监听仍然照常记账
+     * （停用期间的本地改动不能丢，否则重新启用会把它当成外部改动）。
+     * 手动「立即检查」「把当前设为基线」不受影响。
+     */
+    let settings = { enabled: true }
+    /** `.zn/` 被外部同步工具碰过的痕迹（rev173.114）：命中的文件路径 */
+    let znHits = []
+    /** 最近一次 `.zn/` 检查时间（0 = 还没查过） */
+    let znCheckedAt = 0
     let ready = false
     /** 脏标记：有变化才写 store（5 秒节拍里大多数轮次什么都不干） */
     let dirty = false
@@ -192,6 +226,38 @@ export default {
     /* ── 冲突副本 ── */
 
     const conflictDir = `${CONFLICT_ROOT}/${platform}`
+
+    /**
+     * 扫 `.zn/` 的两个已知目录，看有没有**外部同步工具**留下的冲突副本（rev173.114）。
+     *
+     * 为什么只查这两处：影子副本（`SNAPSHOT_DIR`）与冲突副本（`conflictDir`）是会频繁写入的
+     * 私有目录，同步工具没排除 `.zn/` 时最容易在这里"打架"。`listFiles` 不递归、目录不存在
+     * 返回空表，所以调用方不用先判存在。
+     */
+    async function znSyncTrace() {
+      const dirs = [SNAPSHOT_DIR, conflictDir]
+      const hits = []
+      for (const d of dirs) {
+        let files = []
+        try {
+          files = await api.fs.listFiles(d)
+        } catch {
+          continue
+        }
+        for (const f of files) {
+          const base = f.slice(f.lastIndexOf('/') + 1)
+          if (looksLikeSyncConflict(base)) hits.push(f)
+        }
+      }
+      return hits
+    }
+
+    async function refreshZnTrace() {
+      znHits = await znSyncTrace()
+      znCheckedAt = Date.now()
+      api.view.refresh()
+      return znHits
+    }
 
     /** 已存在的冲突名（同分钟内同名笔记可能撞） */
     const takenNames = new Set(conflicts.filter((c) => c.platform === platform).map((c) => c.file))
@@ -473,12 +539,28 @@ export default {
           variant: 'caption',
           tone: 'muted',
         },
+        {
+          type: 'text',
+          // rev173.114：`.zn/` 排除检查（插件读不到同步工具的配置，只能看它留下的痕迹）
+          value: znHits.length
+            ? `⚠ .zn/ 疑似被同步工具处理过：找到 ${znHits.length} 个冲突副本（${znHits[0]}）—— 请在同步工具里把 .zn/ 排除掉`
+            : znCheckedAt
+              ? `.zn/ 没发现同步冲突痕迹（${new Date(znCheckedAt).toLocaleTimeString()} 查过）—— 仍请确认同步工具的排除列表里有 .zn/`
+              : '请确认同步工具的排除列表里有 .zn/：历史版本、影子副本、冲突副本都放在里面，不该被搬来搬去。',
+          variant: 'caption',
+          tone: znHits.length ? 'danger' : 'muted',
+        },
         { type: 'spacer', size: 'sm' },
         {
           type: 'row',
           gap: 'sm',
           wrap: true,
           children: [
+            {
+              type: 'badge',
+              text: settings.enabled ? '自动检查：开' : '自动检查：关',
+              tone: settings.enabled ? 'success' : 'warn',
+            },
             { type: 'badge', text: `基线 ${baseCount} 篇`, tone: 'default' },
             {
               type: 'badge',
@@ -500,6 +582,18 @@ export default {
           children: [
             { type: 'button', label: '立即检查', onClick: 'sync-folder.scan' },
             { type: 'button', label: '把当前设为基线', onClick: 'sync-folder.mark-synced', variant: 'ghost' },
+            {
+              type: 'button',
+              label: settings.enabled ? '停用自动检查' : '启用自动检查',
+              onClick: 'sync-folder.toggle',
+              variant: 'ghost',
+            },
+            {
+              type: 'button',
+              label: '检查 .zn/',
+              onClick: 'sync-folder.check-zn',
+              variant: 'ghost',
+            },
           ],
         },
         {
@@ -535,6 +629,18 @@ export default {
             children: [
               { type: 'text', value: `${when} · ${c.path}` },
               { type: 'text', value: `${c.reason} · ${where}`, variant: 'caption', tone: 'muted' },
+              // rev173.113：有副本就给一个按钮，省得自己去文件管理器里找
+              ...(c.file
+                ? [
+                    {
+                      type: 'button',
+                      label: '打开冲突副本',
+                      onClick: 'sync-folder.open-conflict',
+                      payload: { file: c.file, platform: c.platform },
+                      variant: 'ghost',
+                    },
+                  ]
+                : []),
             ],
           }
         }),
@@ -613,27 +719,76 @@ export default {
     })
     register('sync-folder.mark-synced', '同步：把当前状态设为基线', () => markSynced())
 
+    /** 开关自动检查（rev173.112）：停用只关自动扫描，事件记账与手动命令照常 */
+    async function toggleAuto() {
+      settings.enabled = !settings.enabled
+      try {
+        await api.store.set(KEY_SETTINGS, settings)
+      } catch (e) {
+        api.host.log('warn', `同步设置写入失败：${String(e)}`)
+      }
+      api.host.notify(
+        settings.enabled
+          ? '自动检查已开启（每 5 秒结算一次；启动 / 回前台各补扫一次）'
+          : '自动检查已关闭（「立即检查」仍可用；停用期间的改动照常记账，重新启用时一起处理）',
+      )
+      api.view.refresh()
+      if (settings.enabled) void scan('启用后检查')
+    }
+    register('sync-folder.toggle', '同步：开关自动检查（本地文件夹）', () => toggleAuto())
+    register('sync-folder.check-zn', '同步：检查 .zn 是否被同步（本地文件夹）', async () => {
+      const hits = await refreshZnTrace()
+      api.host.notify(
+        hits.length
+          ? `⚠ .zn/ 里有 ${hits.length} 个同步冲突副本（例如 ${hits[0]}）—— 同步工具没有排除它`
+          : '.zn/ 没发现同步冲突痕迹（仍请确认同步工具的排除列表里有 .zn/）',
+        hits.length ? 'warn' : 'info',
+      )
+    })
+    register('sync-folder.open-conflict', '同步：打开冲突副本（本地文件夹）', async (payload) => {
+      const file = String(payload?.file ?? '')
+      const plat = String(payload?.platform || platform)
+      if (!file) {
+        api.host.notify('没有可打开的冲突副本', 'warn')
+        return
+      }
+      try {
+        await api.command.execute('core.openNote', { path: `${CONFLICT_ROOT}/${plat}/${file}` })
+      } catch (e) {
+        api.host.notify(`打不开冲突副本：${String(e)}`, 'error')
+      }
+    })
+
     void (async () => {
       try {
         baseline = (await api.store.get(KEY_BASELINE, {})) ?? {}
         pending = (await api.store.get(KEY_PENDING, {})) ?? {}
         conflicts = (await api.store.get(KEY_CONFLICTS, [])) ?? []
+        // rev173.112：用户可能在上次会话里停用了自动检查
+        settings = { enabled: true, ...((await api.store.get(KEY_SETTINGS, {})) ?? {}) }
       } catch (e) {
         api.host.log('warn', `同步状态读取失败：${String(e)}`)
       }
       ready = true
       api.view.refresh()
 
+      // rev173.114：启动就看一眼 `.zn/` 有没有被外部同步工具碰过（与自动检查开关无关）
+      void refreshZnTrace()
+
       const timer = window.setInterval(() => {
-        settle()
+        // 停用只停「结算」；事件照常记账，所以这里仍然要落盘
+        if (settings.enabled) settle()
         if (dirty) void persist()
       }, TICK_MS)
       api.subscriptions.push({ dispose: () => window.clearInterval(timer) })
 
       // 启动后先扫一遍：App 关着的时候同步工具可能已经改过文件（事件收不到）
-      setTimeout(() => void scan('启动检查'), 1500)
+      setTimeout(() => {
+        if (settings.enabled) void scan('启动检查')
+      }, 1500)
       // 切回前台再补一次（手机后台定时器会被挂起）
       const onVisible = () => {
+        if (!settings.enabled) return
         if (document.visibilityState === 'visible') void scan('回到前台')
       }
       document.addEventListener('visibilitychange', onVisible)
@@ -643,7 +798,7 @@ export default {
 
       api.host.log(
         'info',
-        `同步插件就绪（${platform}）：基线 ${Object.keys(baseline).length} 篇（ready=${ready}）`,
+        `同步插件就绪（${platform}，自动=${settings.enabled}）：基线 ${Object.keys(baseline).length} 篇（ready=${ready}）`,
       )
     })()
   },

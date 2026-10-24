@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.110）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-24（rev173.114）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.110 · 0.4.0 · 2026-10-24 |
-| 测试基线 | vitest 804 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| rev / 版本 | rev173.114 · 0.4.0 · 2026-10-24 |
+| 测试基线 | vitest 813 · cargo 38 · oxlint 3 warnings（2026-10-24） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-24 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -43,11 +43,14 @@ pwsh -File scripts\verify.ps1
 > 503 停掉自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false（限流分支 / 测试连接失败），
 > `saveSettings` 也不再整体覆盖（会冲掉 `auto` / `attachments`）。单测 +1 · vitest 804 · verify 6/6。
 > ✅ **已推送**（`0e05ea7..7f05d79`，9 个提交；**git 直连即可，不要设 `HTTPS_PROXY`** —— 2026-10-24 用户实测更正）
-> · ⚠️ **rev173.110 的提交 `1f55ed7` 还在本地没推**（要推就 `git push origin main`，直连）
+> · rev173.110/111/112/113/114 的提交见 `git log`（2026-10-24 已推送）
 >
-> **下一步候选（同步插件收尾项，均非阻塞）**：`If-None-Match` 304 短路径（每轮拉 manifest 是完整几 KB）·
-> `sync-folder` 面板的「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
-> 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B。
+> ✅ **同步插件收尾四项全部完成（rev173.111–114）**：`If-None-Match` 304 短路径（实测命中）·
+> `sync-folder` 自动检查开关（落盘 + 启用即扫）· 冲突副本一键打开（真副本能开 / 缺失明确报错）·
+> `.zn/` 排除检查提醒（看同步工具留下的冲突副本痕迹）。verify 6/6 · vitest 813。
+>
+> **下一步可选（二期方向，未排期）**：S3 后端 / Git 类后端（方案 §5）· history × sync 三方合并 ·
+> 附件也走 304 · 同步耗时统计。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
 > CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。
@@ -197,7 +200,7 @@ pwsh -File scripts\verify.ps1
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
-| 同步插件 | ✅ **完成（rev173.106–110）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾项（非阻塞）**：`If-None-Match` 304 短路径 · `sync-folder` 启用 / 停用开关 · 冲突副本一键打开 · `.zn/` 排除提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
+| 同步插件 | ✅ **完成（rev173.106–114）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾四项也已完成（rev173.111–114）**：manifest 304 短路径 · `sync-folder` 自动检查开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |

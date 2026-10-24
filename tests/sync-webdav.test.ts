@@ -401,6 +401,44 @@ describe('createDavClient', () => {
     const client = createDavClient({ ...cfg, net })
     expect((await client.readManifest()).files['a.md'].fp).toBe('1:p')
   })
+
+  /* rev173.111 · 304 短路径 */
+
+  it('readManifest：带 If-None-Match，304 ⇒ notModified 且不含表', async () => {
+    const { net, calls } = davNet([{ status: 304 }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.readManifest('"v3"')
+    expect(r.notModified).toBe(true)
+    expect(r.files).toBeNull()
+    expect(r.attachments).toBeNull()
+    expect(calls[0].headers['If-None-Match']).toBe('"v3"')
+  })
+
+  it('readManifest：200 带回 ETag（下一轮 304 用）；没给 ETag 时返回 null', async () => {
+    const body = JSON.stringify({ version: 1, files: { 'a.md': { fp: '1:p' } } })
+    const { net, calls } = davNet([{ status: 200, body, headers: { etag: '"v7"' } }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.readManifest('"v6"')
+    expect(r.notModified).toBe(false)
+    expect(r.etag).toBe('"v7"')
+    expect(r.files['a.md'].fp).toBe('1:p')
+    expect(calls[0].headers['If-None-Match']).toBe('"v6"')
+
+    const { net: net2 } = davNet([{ status: 200, body }])
+    expect((await createDavClient({ ...cfg, net: net2 }).readManifest()).etag).toBeNull()
+  })
+
+  it('readManifest：409（父目录不存在）也算空表，不抛', async () => {
+    const { net } = davNet([{ status: 409 }])
+    const client = createDavClient({ ...cfg, net })
+    expect(await client.readManifest()).toMatchObject({ files: {}, notModified: false })
+  })
+
+  it('readManifest：503 仍然抛错（限流判定靠这段文本）', async () => {
+    const { net } = davNet([{ status: 503 }])
+    const client = createDavClient({ ...cfg, net })
+    await expect(client.readManifest()).rejects.toThrow('下载失败（503）')
+  })
 })
 
 describe('插件接线', () => {
@@ -434,6 +472,7 @@ describe('插件接线', () => {
     expect(commands.sort()).toEqual([
       'sync-webdav.disconnect',
       'sync-webdav.open',
+      'sync-webdav.open-conflict',
       'sync-webdav.save',
       'sync-webdav.set-attachments',
       'sync-webdav.sync',

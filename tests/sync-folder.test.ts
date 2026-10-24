@@ -14,6 +14,7 @@ import plugin, {
   classifyChange,
   conflictFileName,
   fingerprint,
+  looksLikeSyncConflict,
   shortHash,
   snapshotPath,
 } from '../examples/sync-folder/index.js'
@@ -151,6 +152,13 @@ function memoryFs(initial: Record<string, string> = {}) {
         [...files.keys()]
           .filter((p) => p.endsWith('.md') && !p.startsWith('.zn/'))
           .map((path) => ({ path })),
+      /** rev173.114：`.zn/` 排除检查要枚举私有目录（不递归，与内核 listFiles 同语义） */
+      listFiles: async (dir: string) => {
+        const prefix = `${dir}/`
+        return [...files.keys()].filter(
+          (p) => p.startsWith(prefix) && !p.slice(prefix.length).includes('/'),
+        )
+      },
       readText: async (path: string) => {
         if (!files.has(path)) throw new Error(`ENOENT ${path}`)
         return files.get(path) as string
@@ -191,14 +199,16 @@ function fakeHost() {
   }
 }
 
-function harness(initialFiles: Record<string, string> = {}) {
+function harness(initialFiles: Record<string, string> = {}, initialStore: Record<string, unknown> = {}) {
   const mem = memoryFs(initialFiles)
   const host = fakeHost()
   const handlers: Record<string, (p?: unknown) => void> = {}
   const commands: string[] = []
+  /** id → run（rev173.112 起要直接驱动命令，比如 toggle） */
+  const runs = new Map<string, () => unknown>()
   const panels: Array<{ id: string; location: string }> = []
   let refreshCount = 0
-  const store = new Map<string, unknown>()
+  const store = new Map<string, unknown>(Object.entries(initialStore))
 
   const api = {
     fs: mem.api,
@@ -221,8 +231,9 @@ function harness(initialFiles: Record<string, string> = {}) {
       emit: () => {},
     },
     command: {
-      register: (c: { id: string }) => {
+      register: (c: { id: string; run: () => unknown }) => {
         commands.push(c.id)
+        runs.set(c.id, c.run)
         return { dispose: () => {} }
       },
       execute: async () => {},
@@ -240,7 +251,7 @@ function harness(initialFiles: Record<string, string> = {}) {
   }
 
   plugin.apply(api as never)
-  return { mem, host, handlers, commands, panels, api, store, refresh: () => refreshCount }
+  return { mem, host, handlers, commands, runs, panels, api, store, refresh: () => refreshCount }
 }
 
 /** 让 fire-and-forget 的 async handler 跑完 */
@@ -253,13 +264,16 @@ describe('接线', () => {
     vi.useRealTimers()
   })
 
-  it('注册主区面板 + 三条命令', () => {
+  it('注册主区面板 + 六条命令', () => {
     const h = harness()
     expect(h.panels).toEqual([{ id: 'sync-folder.status', location: 'main' }])
     expect(h.commands.sort()).toEqual([
+      'sync-folder.check-zn',
       'sync-folder.mark-synced',
       'sync-folder.open',
+      'sync-folder.open-conflict',
       'sync-folder.scan',
+      'sync-folder.toggle',
     ])
     h.api.subscriptions.forEach((s) => s.dispose())
   })
@@ -273,6 +287,68 @@ describe('接线', () => {
       'note:renamed',
       'note:saved',
     ])
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  /* rev173.112 · 启用 / 停用开关 */
+
+  it('toggle：写 settings.v1，来回切都落盘', async () => {
+    const h = harness()
+    await settle()
+    const toggle = h.runs.get('sync-folder.toggle')!
+    expect(toggle).toBeTypeOf('function')
+
+    await toggle()
+    expect(h.store.get('settings.v1')).toEqual({ enabled: false })
+    expect(h.host.notes.some((n) => n.msg.includes('自动检查已关闭'))).toBe(true)
+
+    await toggle()
+    expect(h.store.get('settings.v1')).toEqual({ enabled: true })
+    expect(h.host.notes.some((n) => n.msg.includes('自动检查已开启'))).toBe(true)
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('store 里 enabled:false ⇒ 启动读到「已停用」（toggle 一次就变 true）', async () => {
+    const h = harness({}, { 'settings.v1': { enabled: false } })
+    await settle()
+    await h.runs.get('sync-folder.toggle')!()
+    expect(h.store.get('settings.v1')).toEqual({ enabled: true })
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  /* rev173.114 · `.zn/` 排除检查 */
+
+  it('looksLikeSyncConflict：认得各家的冲突副本，不误伤自己的副本', () => {
+    // Syncthing / OneDrive / 中文客户端
+    expect(looksLikeSyncConflict('周报.sync-conflict-20261024-123456-ABC123.md')).toBe(true)
+    expect(looksLikeSyncConflict('周报 (conflicted copy).md')).toBe(true)
+    expect(looksLikeSyncConflict('周报 (冲突副本).md')).toBe(true)
+    // 自己的冲突副本命名（`<时间>-<文件名>.md`）不能算命中
+    expect(looksLikeSyncConflict('2026-10-24 2053-双链验收.md')).toBe(false)
+    expect(looksLikeSyncConflict('')).toBe(false)
+  })
+
+  it('check-zn：`.zn/` 里有同步冲突副本 ⇒ 报警并带出文件名', async () => {
+    const h = harness({
+      '.zn/sync/last/周报.sync-conflict-20261024-123456-ABCDEF.md': 'x',
+    })
+    await settle()
+    await h.runs.get('sync-folder.check-zn')!()
+    await settle()
+    const warn = h.host.notes.find((n) => n.level === 'warn' && n.msg.includes('.zn/'))
+    expect(warn?.msg).toContain('sync-conflict')
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('check-zn：没痕迹时给「没发现」而不是沉默', async () => {
+    const h = harness({ '.zn/sync/last/abc123.md': 'x' })
+    await settle()
+    await h.runs.get('sync-folder.check-zn')!()
+    await settle()
+    expect(
+      h.host.notes.some((n) => n.msg.includes('没发现同步冲突痕迹')),
+    ).toBe(true)
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 })

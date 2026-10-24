@@ -433,13 +433,36 @@ export function createDavClient(cfg) {
      */
     mkdir: mkdirPath,
 
-    /** 读远端 manifest；没有返回空表 */
-    async readManifest() {
-      const text = await this.get(MANIFEST_REL)
-      return normalizeManifest(text ?? '{"version":1,"files":{}}')
+    /**
+     * 读远端 manifest；没有返回空表。
+     *
+     * **`If-None-Match` 304 短路径（rev173.111）**：自动同步每 5 秒一轮，manifest 大多数时候
+     * 没变 —— 把上轮的 etag 传上去，远端回 304 就不用再拉一遍几 KB 的 JSON。
+     * 调用方拿到 `notModified: true` 时用自己缓存的表。
+     *
+     * @param {string|null} [ifNoneMatch] 上一轮拿到的 etag
+     * @returns {Promise<{files: object|null, attachments: object|null, etag: string|null, notModified: boolean}>}
+     */
+    async readManifest(ifNoneMatch) {
+      const res = await request('GET', MANIFEST_REL, {
+        headers: ifNoneMatch ? { 'If-None-Match': ifNoneMatch } : {},
+      })
+      if (res.status === 304) {
+        return { files: null, attachments: null, etag: ifNoneMatch ?? null, notModified: true }
+      }
+      /**
+       * `404` / `409` = 还没有 manifest（坚果云对**父目录不存在**的 GET 回 409）⇒ 空表。
+       * 这里不再走 `get()`：它把 404/409 吞成 null，拿不到响应的 ETag。
+       */
+      if (res.status === 404 || res.status === 409) {
+        return { files: {}, attachments: {}, etag: null, notModified: false }
+      }
+      if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${MANIFEST_REL}`)
+      const m = normalizeManifest(res.text())
+      return { ...m, etag: res.headers?.etag ?? null, notModified: false }
     },
 
-    /** 写远端 manifest（先确保 `_zn/` 存在；`attachments` 段原样带上） */
+    /** 写远端 manifest（先确保 `_zn/` 存在；`attachments` 段原样带上）。返回 PUT 结果（带新 etag） */
     async writeManifest(manifest) {
       await this.mkdir('_zn')
       const body = JSON.stringify({
@@ -492,6 +515,11 @@ export default {
 
     let settings = { baseUrl: '', username: '', root: '', enabled: false, auto: true, attachments: 'off' }
     let baseline = {}
+    /**
+     * 上一轮远端 manifest 的缓存（rev173.111 · 304 短路径）。
+     * `{ files, attachments, etag }`；etag 为空 = 远端没给 ETag ⇒ 下一轮照旧全量拉。
+     */
+    let manifestCache = null
     let conflicts = []
     let ready = false
     let busy = false
@@ -574,10 +602,28 @@ export default {
       if (!settings.baseUrl) return { error: '还没配置 WebDAV 地址' }
       busy = true
       if (!silent) api.view.refresh()
-      const summary = { pulled: 0, pushed: 0, conflicts: 0, removed: 0, hint: '' }
+      const summary = { pulled: 0, pushed: 0, conflicts: 0, removed: 0, hint: '', manifest304: false }
       try {
         const client = createDavClient({ ...settings, password: await password(), net: api.net })
-        const remote = await client.readManifest()
+        /**
+         * manifest：有 etag 就带 `If-None-Match` 走 304 短路径（rev173.111）。
+         * 304 ⇒ 用上轮缓存的 files / attachments；200 ⇒ 刷新缓存。
+         */
+        let remote
+        if (manifestCache?.etag) {
+          const got = await client.readManifest(manifestCache.etag)
+          if (got.notModified) {
+            remote = { files: manifestCache.files, attachments: manifestCache.attachments }
+            summary.manifest304 = true
+          } else {
+            remote = { files: got.files, attachments: got.attachments }
+            manifestCache = { files: got.files, attachments: got.attachments, etag: got.etag }
+          }
+        } else {
+          const got = await client.readManifest()
+          remote = { files: got.files, attachments: got.attachments }
+          manifestCache = { files: got.files, attachments: got.attachments, etag: got.etag }
+        }
         const notes = await api.fs.listNotes()
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
@@ -682,10 +728,12 @@ export default {
 
         // manifest 回写（本轮有 .md 或附件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
         if (summary.pushed > 0 || att.changed) {
-          await client.writeManifest({ files: nextFiles, attachments: att.attachments })
+          const w = await client.writeManifest({ files: nextFiles, attachments: att.attachments })
+          // 写盘后远端 etag 变了 ⇒ 缓存跟着换，下一轮照样能走 304
+          manifestCache = { files: nextFiles, attachments: att.attachments, etag: w?.etag ?? null }
         }
         await api.store.set(KEY_BASELINE, baseline)
-        summary.hint = summary.hint || `${reason}同步完成`
+        summary.hint = summary.hint || `${reason}同步完成${summary.manifest304 ? '（manifest 304）' : ''}`
       } catch (e) {
         summary.hint = `同步失败：${String(e)}`
         /**
@@ -1018,12 +1066,32 @@ export default {
         children.push({ type: 'text', value: '冲突记录', variant: 'title' })
         children.push({
           type: 'list',
-          items: conflicts.slice(0, 8).map((c) => ({
-            type: 'text',
-            value: c.file
-              ? `${new Date(c.at).toLocaleString()} · ${c.path} → .zn/conflicts/${c.platform}/${c.file}`
-              : `${new Date(c.at).toLocaleString()} · ${c.path}（本机版未留存）`,
-          })),
+          items: conflicts.slice(0, 8).map((c) => {
+            const where = c.file ? `${CONFLICT_ROOT}/${c.platform}/${c.file}` : null
+            return {
+              type: 'stack',
+              gap: 'sm',
+              children: [
+                {
+                  type: 'text',
+                  value: `${new Date(c.at).toLocaleString()} · ${c.path}${where ? '' : '（本机版未留存）'}`,
+                },
+                ...(where
+                  ? [
+                      { type: 'text', value: where, variant: 'caption', tone: 'muted' },
+                      // rev173.113：一键打开副本（以前只有一行字，得自己去文件管理器找）
+                      {
+                        type: 'button',
+                        label: '打开冲突副本',
+                        onClick: 'sync-webdav.open-conflict',
+                        payload: { file: c.file, platform: c.platform },
+                        variant: 'ghost',
+                      },
+                    ]
+                  : []),
+              ],
+            }
+          }),
         })
       }
 
@@ -1137,6 +1205,19 @@ export default {
       )
       api.view.refresh()
     })
+    register('sync-webdav.open-conflict', '同步：打开冲突副本', async (payload) => {
+      const file = String(payload?.file ?? '')
+      const plat = String(payload?.platform || platform)
+      if (!file) {
+        api.host.notify('没有可打开的冲突副本', 'warn')
+        return
+      }
+      try {
+        await api.command.execute('core.openNote', { path: `${CONFLICT_ROOT}/${plat}/${file}` })
+      } catch (e) {
+        api.host.notify(`打不开冲突副本：${String(e)}`, 'error')
+      }
+    })
     register('sync-webdav.disconnect', '同步：断开并清除凭据', async () => {
       try {
         await api.host.secrets.delete(SECRET_KEY)
@@ -1146,6 +1227,7 @@ export default {
       savedPasswords.clear()
       settings = { baseUrl: '', username: '', root: '', enabled: false }
       baseline = {}
+      manifestCache = null
       markDirty()
       void api.store.set(KEY_BASELINE, {}).catch(() => {})
       api.host.notify('已断开 WebDAV 并清除密码')
