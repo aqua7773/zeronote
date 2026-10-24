@@ -18,6 +18,20 @@
 
 ### Added
 
+- **同步插件 `sync-folder`**（rev173.107）：库放在用户自己的同步目录（Syncthing / OneDrive /
+  坚果云客户端）里时，**不搬文件**，只做同步工具不做的那三件事 —— 发现外部改动、判定
+  「双端都改」、冲突留副本到 `.zn/conflicts/<平台>/`。判定模型用 `baseline` + `pending`
+  两份状态 + 20 秒静默期（本机保存后一段时间内没有外部改动才认为已同步）；本机版本另存影子
+  副本在 `.zn/sync/last/`，冲突时把它复制出去，**两边都不丢**。主区面板显示基线 / 待同步 /
+  冲突数与最近冲突列表。单测 28 条；实测：本机存 v2 → 外部覆盖 v3 ⇒
+  `.zn/conflicts/windows/2026-10-24 2037-sync-e2e.md` 内容 = v2、磁盘 = v3、toast 提示。
+
+### Fixed
+
+- **写 `.zn/` 下的 `.md` 不再发 `note:saved`、也不进搜索索引**（rev173.107）：历史快照与同步
+  影子副本都是 `.md`，此前会被当成"用户保存了笔记"—— 同步插件立刻踩到：每写一份影子副本又
+  触发一次保存，几秒内 1900 多次 `writeText`（自我递归），索引里还会多出幽灵版本。
+  `fs-events.ts` 的 `isNotePath` 现在排掉 `.zn/` 与越界路径，单测 1 条覆盖。
 - **`net` 原语**（rev173.106）：`ctx.net.fetch({ url, method, headers, body, timeoutMs })` —— 请求由
   **Rust 侧**（`reqwest`）发出，**不受 CORS 约束**。WebDAV 的 `PROPFIND` / `MKCOL` / `MOVE` 这类
   自定义方法在 WebView 里必然触发 preflight，服务器不回 CORS 头就只能看到 `TypeError: Failed to fetch`，

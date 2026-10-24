@@ -19,7 +19,23 @@
 import type { EventBus } from './event'
 import type { FsApi, IndexApi } from './contract'
 
-const isNotePath = (p: string): boolean => /\.md$/i.test(p)
+/**
+ * 这条相对路径算不算「笔记」（要进索引、要发 `note:saved` 那套事件）。
+ *
+ * 除了 `.md` 后缀，还要排掉**私有目录 `.zn/`**（rev173.107 修）—— 它下面是回收站、
+ * 历史版本快照、同步插件的影子副本，都不是用户的笔记：
+ *   · 写它们不该发 `note:saved` —— 否则"保存后做点什么"的插件会对自己刚写的副本再触发一次
+ *     （同步插件实测踩到：每篇笔记的影子副本又生成一份影子副本，无限套娃）；
+ *   · 它们也不该进搜索索引（`listNotes` 本来就跳过 `.zn`，索引里却会有，等于搜得到幽灵版本）。
+ */
+const isNotePath = (p: string): boolean => {
+  const s = String(p ?? '')
+  if (!/\.md$/i.test(s)) return false
+  if (s.startsWith('.zn/') || s === '.zn') return false
+  // 库根之外的位置（绝对路径 / `../` 越界）一律不算笔记
+  if (s.startsWith('/') || s.includes('..')) return false
+  return !s.split('/').includes('.zn')
+}
 
 export function withFsEvents(
   raw: FsApi,

@@ -102,6 +102,23 @@ describe('fs 写路径 → 索引 + 事件', () => {
     expect((await k.index.query('全新')).map((h) => h.path)).toEqual(['b.md'])
   })
 
+  it('写 `.zn/` 下的 .md（历史快照 / 同步影子副本）**不发** note:saved，也不进索引', async () => {
+    const k = makeKernel()
+    const saved: unknown[] = []
+    k.event.on('note:saved', (p) => saved.push(p))
+
+    await k.fs.writeText('.zn/history/abc/1.md', '历史快照内容')
+    await k.fs.writeText('.zn/sync/last/xyz.md', '影子副本内容')
+
+    expect(saved).toEqual([])
+    expect((await k.index.query('历史快照')).map((h) => h.path)).toEqual([])
+    expect((await k.index.query('影子副本')).map((h) => h.path)).toEqual([])
+
+    // 普通笔记不受影响（免得把修复做成"全都不发了"）
+    await k.fs.writeText('正常.md', '正常笔记')
+    expect(saved).toEqual([{ path: '正常.md' }])
+  })
+
   it('delete：发 note:deleted（带 trashId），索引里移除', async () => {
     const k = makeKernel()
     await k.fs.writeText('c.md', '待删除的内容')

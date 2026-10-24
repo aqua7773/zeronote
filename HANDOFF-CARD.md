@@ -1,14 +1,14 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.106）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-24（rev173.107）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.106 · 0.4.0 · 2026-10-24 |
-| 测试基线 | vitest 725 · cargo 38 · oxlint 3 warnings（2026-10-24） |
-| 插件 | 内置 9 · 示例 33 |
+| rev / 版本 | rev173.107 · 0.4.0 · 2026-10-24 |
+| 测试基线 | vitest 754 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| 插件 | 内置 9 · 示例 34 |
 | 文档 | README 现状 2026-10-24 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
 
@@ -29,11 +29,13 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-> **当前主线 = 同步插件**（2026-10-24 方向已定）。**内核地基已完成（rev173.106）**：
-> `net` 原语（Rust 发请求，绕 CORS）· `fs.readBytes/writeBytes`（二进制）· `host.secrets`（系统钥匙串）。
-> 两件已拍板：**① 凭据走系统钥匙串**（不是 `.zn/` 明文）· **② 手机接受「前台近实时 + 切回追平」**（不加前台服务）。
-> 下一步：**写同步插件本体 `sync-webdav`** —— manifest 扫描 → `PROPFIND` → 差异 → `PUT`/`GET` →
-> 冲突副本 `.zn/conflicts/<平台>/`。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B。
+> **当前主线 = 同步插件**（2026-10-24 方向已定）。两件已拍板：**① 凭据走系统钥匙串**（不是 `.zn/`
+> 明文）· **② 手机接受「前台近实时 + 切回追平」**（不加前台服务）。
+> ✅ **内核地基（rev173.106）**：`net` 原语（Rust 发请求，绕 CORS）· `fs.readBytes/writeBytes` · `host.secrets`。
+> ✅ **第一个后端（rev173.107）**：`sync-folder`（本地文件夹，**不搬文件** —— 库放同步目录，插件只做
+> 「发现外部改动 / 判定双端都改 / 冲突留副本」，判定 = baseline + pending + 20 秒静默期）。
+> **待拍板**：① `sync-folder` 进不进内置预装（9 → 10）② 是否继续做 **WebDAV 后端**（`net` 已就位，
+> 只差 manifest + `If-Match` 冲突流程，约 1.5 天）。方案见 `docs/同步插件-调研与方案-2026-10-24.md`。
 
 0. ✅ **0.4.0 已发版（2026-10-24）**：版本三处（package.json / tauri.conf.json / Cargo.toml）已同步 0.4.0 ·
    CHANGELOG 收口（0.3.0 之后 40 个提交）· README 现状行已更新 · tag `v0.4.0`。
