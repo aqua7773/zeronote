@@ -38,11 +38,21 @@ pwsh -File scripts\verify.ps1
 > 为权威索引，`PUT` 带 `If-Match`，**前台每 5 秒自动同步**）· **附件三种模式**
 > （不同步 / **中转** —— 对端收到后云端删掉 / 永久）· 两个同步插件都进了内置预装（11 个）。
 > 实测：改远端 / 改本地都是 **9 秒内**自动互通；中转模式下云端副本在对端 ack 后即消失。
-> **现在待办**：
-> ① **推送 6 个本地提交到 GitHub**（代理没开，`git push` 失败 —— 开了代理说一声即可）
-> ② 手机端补测：附件中转在真机上的完整往返（坚果云 22:20 解封后）
-> ③ 可选：`If-None-Match` 304 短路径（每轮拉 manifest 现在是完整的几 KB）。
-> ⏳ 其它小项：`sync-folder` 面板的「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
+> ✅ **已推送**（`0e05ea7..7f05d79`，9 个提交；**git 直连即可，不要设 `HTTPS_PROXY`** —— 2026-10-24 用户实测更正）
+>
+> **当前唯一未完成项 = 真机双向同步的收尾验证**（被坚果云限流打断，非代码问题）：
+> 1. 真机已确认的部分：APK 能编能装 · 启动不崩（rustls provider）· HTTPS 通（内置根证书）·
+>    Android Keystore 存取正常 · 手机 test 返回 **207** · **手机 24 篇已上传到 `ZeroNote/`**
+> 2. 卡在哪：清理远端时连发 DELETE 触发坚果云 503（22:22），两端自动同步已关，需等 10–30 分钟
+> 3. 恢复后怎么做（**每次请求间隔 ≥10 秒**，别连发）：
+>    ① 单次 PROPFIND `https://dav.jianguoyun.com/dav/ZeroNote/` 看 207
+>    ② 桌面 `sync-webdav.toggle-auto` → 手机同样（先 `adb forward tcp:9333 localabstract:webview_devtools_remote_<当前pid>`）
+>    ③ 桌面改 `_tmp-vault-tb/导图验收.md` → 等 12s → 远端 GET 确认 → 手机 sync → 看手机上出现该文件
+>    ④ 结果写进 HANDOFF
+> 4. 两端 dev 都是**测试数据**（用户 2026-10-24 明确），不需要担心互相污染
+>
+> 其它待办：`If-None-Match` 304 短路径（每轮拉 manifest 是完整几 KB）· `sync-folder` 面板的
+> 「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
 > 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B。
 
 0. ✅ **0.4.0 已发版（2026-10-24）**：版本三处（package.json / tauri.conf.json / Cargo.toml）已同步 0.4.0 ·
