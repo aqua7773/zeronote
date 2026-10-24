@@ -199,6 +199,36 @@ export function decideSync({ base, localFp, remoteFp }) {
   return localFp === remoteFp ? 'noop' : 'conflict'
 }
 
+/**
+ * 冲突时尝试**三方合并**（rev173.115）。
+ *
+ * 输入是三方：`base` = 上次成功同步时的内容（history 插件打的同步点）、
+ * `mine` = 本机当前、`theirs` = 远端当前。只有**完全合上**（没有一处真冲突）才返回文本 ——
+ * 有冲突段时两边都要人看，自动选一边会让用户以为"已经合好了"。
+ *
+ * 返回 `null` = 不合并，调用方走原来的「留两份 + 取远端」流程。
+ *
+ * @param {{ base?: string|null, mine?: string|null, theirs?: string|null, mergeLines?: Function }} args
+ * @returns {{ text: string } | null}
+ */
+export function tryAutoMerge({ base, mine, theirs, mergeLines }) {
+  if (typeof base !== 'string' || typeof mine !== 'string' || typeof theirs !== 'string') return null
+  if (typeof mergeLines !== 'function') return null
+  // 只有一边变过 ⇒ 不是"双端都改"，交给 decideSync 的普通分支（这里合并没有意义）
+  if (base === mine || base === theirs) return null
+  let r
+  try {
+    r = mergeLines(base, mine, theirs)
+  } catch {
+    return null // 合并实现抛错 ⇒ 退回「留两份」，不丢字
+  }
+  if (!r || !Number.isFinite(r.conflicts) || r.conflicts > 0) return null
+  if (typeof r.text !== 'string') return null
+  // 合出来还是远端版 ⇒ 本机改动在远端已存在，没必要多写一次盘 + 一次 PUT
+  if (r.text === theirs) return null
+  return { text: r.text }
+}
+
 /** 冲突副本文件名（`.zn/conflicts/<平台>/<YYYY-MM-DD HHmm>-<名>.md`，与 sync-folder 同一套规则） */
 export function conflictFileName(path, at, taken = () => false) {
   const d = new Date(at)
@@ -521,6 +551,11 @@ export default {
      */
     let manifestCache = null
     let conflicts = []
+    /**
+     * 进程内已确认存在「同步点」的路径（rev173.115）。
+     * 只放内存：丢了只是下一轮多写一次 base，不影响正确性。
+     */
+    const baseMarked = new Set()
     let ready = false
     let busy = false
     /** 上一次同步的摘要（面板展示） */
@@ -592,6 +627,43 @@ export default {
     }
 
     /**
+     * 让 history 打一个**同步点**（rev173.115 三方合并的 base）。
+     *
+     * 时机：每次成功推 / 拉之后，两端内容一致 —— 这就是下次冲突时要用的「共同祖先」。
+     * 软依赖：history 被禁用 / 没装 ⇒ 静默跳过（合并退化成「留两份」，不丢数据）。
+     */
+    async function markBase(path, text) {
+      try {
+        const hist = await api.service.consume('history')
+        if (hist?.snapshot) await hist.snapshot(path, text, { tag: 'sync' })
+      } catch (e) {
+        api.host.log('debug', `同步点跳过 ${path}：${String(e)}`)
+      }
+    }
+
+    /**
+     * 冲突时的三方合并：base 取自 history 同步点，mine = 本机，theirs = 远端。
+     * 任何一环拿不到都返回 `null`（调用方走原「留两份」）。
+     */
+    async function autoMerge(client, path, localText) {
+      try {
+        const [hist, merger] = await Promise.all([
+          api.service.consume('history'),
+          api.service.consume('kernel.merge'),
+        ])
+        if (!hist?.findBase || !merger?.mergeLines) return null
+        const base = await hist.findBase(path)
+        if (typeof base !== 'string') return null
+        const theirs = await client.get(path)
+        if (theirs == null) return null
+        return tryAutoMerge({ base, mine: localText, theirs, mergeLines: merger.mergeLines })
+      } catch (e) {
+        api.host.log('warn', `自动合并失败（${path}）：${String(e)}`)
+        return null
+      }
+    }
+
+    /**
      * 一次完整同步。返回摘要，不抛（错误转成 hint）。
      *
      * `silent`（自动轮询用）：不弹错误 toast、无变化时不刷面板 —— 否则每 5 秒一次重渲染，
@@ -602,7 +674,15 @@ export default {
       if (!settings.baseUrl) return { error: '还没配置 WebDAV 地址' }
       busy = true
       if (!silent) api.view.refresh()
-      const summary = { pulled: 0, pushed: 0, conflicts: 0, removed: 0, hint: '', manifest304: false }
+      const summary = {
+        pulled: 0,
+        pushed: 0,
+        merged: 0,
+        conflicts: 0,
+        removed: 0,
+        hint: '',
+        manifest304: false,
+      }
       try {
         const client = createDavClient({ ...settings, password: await password(), net: api.net })
         /**
@@ -647,6 +727,15 @@ export default {
 
           if (verdict === 'noop') {
             baseline[n.path] = { fp: localFp, etag: remoteEntry?.etag }
+            /**
+             * 首轮见到这篇时补一个同步点（rev173.115）：老用户升级后 base 是空的，
+             * 第一次真冲突会退化成「留两份」；这里顺手种一个，下一次就能三方合并。
+             * `baseMarked` 挡住"每 5 秒一轮重写"。
+             */
+            if (!baseMarked.has(n.path)) {
+              baseMarked.add(n.path)
+              await markBase(n.path, localText)
+            }
             continue
           }
           if (verdict === 'pull' || verdict === 'pull-new') {
@@ -655,6 +744,8 @@ export default {
             await api.fs.writeText(n.path, text)
             const fp = fingerprint(text)
             baseline[n.path] = { fp, etag: remoteEntry?.etag }
+            baseMarked.add(n.path)
+            await markBase(n.path, text)
             summary.pulled += 1
             continue
           }
@@ -685,10 +776,47 @@ export default {
             }
             baseline[n.path] = { fp: localFp, etag: res.etag ?? undefined }
             nextFiles[n.path] = { fp: localFp, etag: res.etag ?? undefined, at: Date.now() }
+            baseMarked.add(n.path)
+            await markBase(n.path, localText)
             summary.pushed += 1
             continue
           }
           if (verdict === 'conflict') {
+            /**
+             * 先试**三方合并**（rev173.115）—— base 来自 history 的同步点。
+             * 合上了 ⇒ 本机写合并结果 + 推回远端 ⇒ 两端都是合并结果，这一轮不算冲突。
+             * 合不上（有真冲突段 / 没 base / 没 history）⇒ 原流程：本机版留副本、取远端版。
+             */
+            const merged = await autoMerge(client, n.path, localText)
+            if (merged) {
+              let wrote = false
+              try {
+                await api.fs.writeText(n.path, merged.text)
+                wrote = true
+              } catch (e) {
+                api.host.log('warn', `合并结果落盘失败（${n.path}）：${String(e)}`)
+              }
+              if (wrote) {
+                const res2 = await client.put(n.path, merged.text, remoteEntry?.etag)
+                if (res2.ok) {
+                  const fp = fingerprint(merged.text)
+                  baseline[n.path] = { fp, etag: res2.etag ?? undefined }
+                  nextFiles[n.path] = { fp, etag: res2.etag ?? undefined, at: Date.now() }
+                  baseMarked.add(n.path)
+                  await markBase(n.path, merged.text)
+                  summary.merged += 1
+                  api.host.notify(`已自动合并：${n.path}`, 'info')
+                  continue
+                }
+                /**
+                 * 推送失败（412 = 远端又变了 / 网络）：**本机保留合并结果**，别再用远端版
+                 * 盖掉它；base 不动，下一轮拿同一份 base 再合一次。
+                 */
+                summary.hint = `合并结果未能上传（${res2.status}）：${n.path}`
+              }
+              summary.conflicts += 1
+              continue
+            }
             await keepConflict(n.path, '双端修改')
             summary.conflicts += 1
             // 取远端版（本机版已经进冲突目录）
@@ -697,6 +825,8 @@ export default {
               await api.fs.writeText(n.path, text)
               const fp = fingerprint(text)
               baseline[n.path] = { fp, etag: remoteEntry?.etag }
+              baseMarked.add(n.path)
+              await markBase(n.path, text)
               summary.pulled += 1
             }
             continue
@@ -720,6 +850,8 @@ export default {
             continue
           }
           baseline[path] = { fp: fingerprint(text), etag: entry.etag }
+          baseMarked.add(path)
+          await markBase(path, text)
           summary.pulled += 1
         }
 
@@ -763,7 +895,7 @@ export default {
         else api.host.log('warn', summary.hint)
       } finally {
         busy = false
-        const changed = summary.pulled + summary.pushed + summary.conflicts + summary.removed > 0
+        const changed = summary.pulled + summary.pushed + summary.merged + summary.conflicts + summary.removed > 0
         lastResult = { ...summary, at: Date.now() }
         // 自动轮询下「什么都没变」不刷面板（每 5 秒重渲染会把用户正在填的表单刷掉）
         if (!silent || changed) api.view.refresh()
@@ -1046,6 +1178,10 @@ export default {
           children: [
             { type: 'badge', text: `下载 ${lastResult.pulled}`, tone: 'default' },
             { type: 'badge', text: `上传 ${lastResult.pushed}`, tone: 'default' },
+            // rev173.115：三方合并成功数（有真冲突段时仍进「冲突」）
+            ...(lastResult.merged > 0
+              ? [{ type: 'badge', text: `合并 ${lastResult.merged}`, tone: 'success' }]
+              : []),
             {
               type: 'badge',
               text: `冲突 ${lastResult.conflicts}`,
@@ -1165,10 +1301,10 @@ export default {
         const r = await client.test()
         ok = r.ok
         api.host.notify(r.ok ? `连接正常（${r.status}）` : r.hint, r.ok ? 'info' : 'error')
-        lastResult = { pulled: 0, pushed: 0, conflicts: 0, hint: r.hint, at: Date.now() }
+        lastResult = { pulled: 0, pushed: 0, merged: 0, conflicts: 0, hint: r.hint, at: Date.now() }
       } catch (e) {
         api.host.notify(`连接测试失败：${String(e)}`, 'error')
-        lastResult = { pulled: 0, pushed: 0, conflicts: 0, hint: `连接测试失败：${String(e)}`, at: Date.now() }
+        lastResult = { pulled: 0, pushed: 0, merged: 0, conflicts: 0, hint: `连接测试失败：${String(e)}`, at: Date.now() }
       } finally {
         // 测试通过才恢复自动同步（失败时保持停着，避免打远端锁号）
         if (ok && settings.baseUrl && settings.auto !== false) startAuto()

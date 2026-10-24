@@ -26,7 +26,9 @@ import plugin, {
   normalizeManifest,
   parsePropfind,
   relayName,
+  tryAutoMerge,
 } from '../examples/sync-webdav/index.js'
+import { mergeLines } from '../src/lib/merge3'
 import { fingerprint as syncFolderFingerprint } from '../examples/sync-folder/index.js'
 
 /* ───────────────────────── 1. 指纹 ───────────────────────── */
@@ -202,6 +204,58 @@ describe('decideSync', () => {
 
   it('远端有、本地没基线 ⇒ pull-new', () => {
     expect(decideSync({ base: null, localFp: 'x', remoteFp: 'y' })).toBe('pull-new')
+  })
+})
+
+/**
+ * rev173.115 三方合并：双端改同一篇时，先试「自动合掉不重叠的改动」。
+ *
+ * 判据刻意保守 —— **只有完全合上（conflicts === 0）**才自动合；有一处真冲突就退回
+ * 「留两份 + 取远端」的原流程，让用户自己看。自动选一边最危险：用户会以为已经合好了。
+ */
+describe('tryAutoMerge（rev173.115）', () => {
+  const base = '# 周报\n第一段\n第二段\n'
+
+  it('两边改不同段 ⇒ 合上，两边改动都在', () => {
+    const mine = '# 周报\n第一段（本机改）\n第二段\n'
+    const theirs = '# 周报\n第一段\n第二段（远端改）\n'
+    const r = tryAutoMerge({ base, mine, theirs, mergeLines })
+    expect(r).not.toBeNull()
+    expect(r!.text).toContain('第一段（本机改）')
+    expect(r!.text).toContain('第二段（远端改）')
+  })
+
+  it('两边改同一行 ⇒ null（真冲突，交给用户）', () => {
+    const mine = '# 周报\n本机版\n'
+    const theirs = '# 周报\n远端版\n'
+    expect(tryAutoMerge({ base, mine, theirs, mergeLines })).toBeNull()
+  })
+
+  it('缺 base / 缺合并实现 ⇒ null（没 history 或没内核服务时的降级）', () => {
+    expect(tryAutoMerge({ base: null, mine: 'a', theirs: 'b', mergeLines })).toBeNull()
+    expect(tryAutoMerge({ base: 'a', mine: 'b', theirs: 'c', mergeLines: null })).toBeNull()
+    expect(tryAutoMerge({ base: 'a', mine: 'b', theirs: 'c' })).toBeNull()
+  })
+
+  it('只有一边变过 ⇒ null（不是"双端都改"，不该走合并）', () => {
+    expect(tryAutoMerge({ base, mine: base, theirs: `${base}新增\n`, mergeLines })).toBeNull()
+    expect(tryAutoMerge({ base, mine: `${base}新增\n`, theirs: base, mergeLines })).toBeNull()
+  })
+
+  it('合出来等于远端版 ⇒ null（本机改动已在远端，省一次写盘 + PUT）', () => {
+    // base=第二段，mine 与 base 相同不可能走到这里（上面已挡），这里造"本机改动是远端子集"的场景
+    const b = 'A\nB\n'
+    const m = 'A1\nB\n'
+    const t = 'A1\nB\nC\n'
+    expect(tryAutoMerge({ base: b, mine: m, theirs: t, mergeLines })).toBeNull()
+  })
+
+  it('合并实现抛错 ⇒ null（不把异常甩给同步流程）', () => {
+    const boom = () => {
+      throw new Error('merge 炸了')
+    }
+    expect(() => tryAutoMerge({ base, mine: 'x', theirs: 'y', mergeLines: boom })).not.toThrow()
+    expect(tryAutoMerge({ base, mine: 'x', theirs: 'y', mergeLines: boom })).toBeNull()
   })
 })
 

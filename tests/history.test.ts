@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import plugin, {
+  basePath,
   diffHtml,
   diffSummary,
   escapeHtml,
@@ -239,9 +240,21 @@ function fakeApi() {
   const handlers = new Map<string, (d: unknown) => void>()
   const executed: { id: string; payload: unknown }[] = []
   const writes: { path: string; content: string }[] = []
+  /** 本插件 `provide` 出去的服务（名字 → 懒工厂）—— rev173.115 给同步插件用 */
+  const services = new Map<string, () => unknown>()
 
   const api = {
     subscriptions: [] as unknown[],
+    service: {
+      provide: vi.fn((name: string, factory: () => unknown) => {
+        services.set(name, factory)
+        return { dispose: vi.fn() }
+      }),
+      consume: vi.fn(async (name: string) => {
+        const f = services.get(name)
+        return f ? await f() : null
+      }),
+    },
     fs: {
       listFiles: vi.fn(async () => [] as string[]),
       mkdir: vi.fn(async () => {}),
@@ -277,7 +290,7 @@ function fakeApi() {
     },
     host: { log: vi.fn(), notify: vi.fn() },
   }
-  return { api, commands, panels, handlers, executed, writes }
+  return { api, commands, panels, handlers, executed, writes, services }
 }
 
 describe('apply：面板 / 命令 / 触发', () => {
@@ -358,5 +371,69 @@ describe('apply：面板 / 命令 / 触发', () => {
     expect(writes).toHaveLength(2)
     expect(writes[0].content).toBe('now')
     expect(writes[1].content).toBe('old')
+  })
+})
+
+/* ───────────────────────── 同步点（rev173.115 三方合并的 base） ───────────────────────── */
+
+describe('同步点：basePath / history 服务', () => {
+  it('固定文件名 + 按路径分目录（同名文件不会串）', () => {
+    const a = basePath('笔记/周报.md')
+    expect(a).toBe(`.zn/history/${hash32('笔记/周报.md')}/base.sync.md`)
+    expect(basePath('笔记/月报.md')).not.toBe(a)
+    expect(basePath('x.md')).toMatch(/^\.zn\/history\/[0-9a-f]{8}\/base\.sync\.md$/)
+  })
+
+  it('base.sync.md 不会被当成历史条目（parseSnapshotName 不认）', () => {
+    expect(parseSnapshotName('base.sync.md')).toBe(0)
+  })
+
+  it('插件 provide 了 history 服务；snapshot({tag:sync}) 写固定名，不产生历史条目', async () => {
+    const { api, services, writes } = fakeApi()
+    plugin.apply(api as never)
+    const factory = services.get('history')
+    expect(typeof factory).toBe('function')
+    const svc = (await factory!()) as { snapshot: Function; findBase: Function }
+
+    await svc.snapshot('笔记/周报.md', 'v1', { tag: 'sync' })
+
+    const base = writes.filter((w) => w.path.endsWith('/base.sync.md'))
+    expect(base).toHaveLength(1)
+    expect(base[0].content).toBe('v1')
+    // 普通快照名带 `T时-分-秒-毫秒`；同步点不该写这种
+    expect(writes.filter((w) => /T\d{2}-\d{2}-\d{2}-\d{3}\.md$/.test(w.path))).toHaveLength(0)
+  })
+
+  it('内容没变不重复写（同步每 5 秒一轮，不判重会写穿磁盘）', async () => {
+    const { api, services, writes } = fakeApi()
+    api.fs.readText.mockResolvedValue('same')
+    plugin.apply(api as never)
+    const svc = (await services.get('history')!()) as { snapshot: Function }
+    await svc.snapshot('a.md', 'same', { tag: 'sync' })
+    expect(writes.filter((w) => w.path.endsWith('/base.sync.md'))).toHaveLength(0)
+  })
+
+  it('findBase 读回同步点；没有时返回 null（不抛）', async () => {
+    const { api, services } = fakeApi()
+    plugin.apply(api as never)
+    const svc = (await services.get('history')!()) as { findBase: Function }
+
+    api.fs.readText.mockResolvedValue('上次同步的内容')
+    expect(await svc.findBase('a.md')).toBe('上次同步的内容')
+
+    api.fs.readText.mockRejectedValue(new Error('ENOENT'))
+    expect(await svc.findBase('b.md')).toBeNull()
+  })
+
+  it('普通快照不走同步点路径（close 仍写带时间戳的历史版本）', async () => {
+    const { api, handlers, writes } = fakeApi()
+    plugin.apply(api as never)
+    handlers.get('change')!({ path: 'a.md', content: 'v2' })
+    handlers.get('close')!({ path: 'a.md', content: 'v2' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0].path).not.toContain('base.sync.md')
+    expect(writes[0].path).toMatch(/\.zn\/history\/[0-9a-f]{8}\/\d{4}-\d{2}-\d{2}T/)
   })
 })

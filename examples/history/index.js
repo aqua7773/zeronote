@@ -22,6 +22,17 @@
 
 const PANEL_ID = 'history.board'
 const DIR = '.zn/history'
+/**
+ * 同步点（base）文件名 —— **固定名**，每个笔记只保留最近一次「两端一致」时的内容。
+ *
+ * 为什么要有它（rev173.115 三方合并）：合并需要 base = 两边的**共同祖先**。
+ * 而 history 自己的快照只在"关闭 / 切换"时生成，拿不到"上次同步那一刻"；
+ * 所以由同步插件在每次成功推 / 拉之后覆盖写这一份。
+ *
+ * 为什么用固定名而不是 `<时间戳>.sync.md`：固定名 ⇒ 只有一份 ⇒ 不需要分层精简例外、
+ * 不会把历史列表灌满（`parseSnapshotName` 不认它，`listEntries()` 自然跳过）。
+ */
+const BASE_FILE = 'base.sync.md'
 /** save 兜底的间隔（需求没规定，VS Code 用 10 分钟窗口，这里取"如果有改动且隔了这么久就存一份"） */
 const SAVE_GAP_MS = 10 * 60 * 1000
 /** 一天 / 一周的毫秒数（分层精简用） */
@@ -44,6 +55,11 @@ export function hash32(input) {
 }
 
 const pad = (n, w = 2) => String(n).padStart(w, '0')
+
+/** 同步点（base）文件路径：`<库>/.zn/history/<hash32>/base.sync.md`（每个笔记一份，覆盖写） */
+export function basePath(path) {
+  return `${DIR}/${hash32(path)}/${BASE_FILE}`
+}
 
 /** 时间戳 → 快照文件名（本地时间，冒号换成 `-`：Windows 文件名不允许冒号） */
 export function snapshotName(ts) {
@@ -340,6 +356,39 @@ export default {
 
     const dirOf = (path) => `${DIR}/${hash32(path)}`
 
+    /**
+     * 读同步点（base）—— 三方合并的"共同祖先"。没有就回 `null`（调用方退回「留两份」）。
+     * 不抛错：一个笔记没有同步点是最常见的情况（没开同步 / 首次同步）。
+     */
+    async function readBase(path) {
+      if (!path) return null
+      try {
+        return await api.fs.readText(basePath(path))
+      } catch {
+        return null
+      }
+    }
+
+    /**
+     * 写同步点。**内容没变就不写** —— 同步每 5 秒一轮，不判重会把磁盘写穿。
+     * @returns {Promise<boolean>} 是否真的写了
+     */
+    async function writeBase(path, content) {
+      if (!path || typeof content !== 'string') return false
+      const file = basePath(path)
+      try {
+        const prev = await readBase(path)
+        if (prev === content) return false
+        await api.fs.mkdir(dirOf(path))
+        await api.fs.writeText(file, content)
+        return true
+      } catch (e) {
+        // 同步点写不出来只影响"下次冲突能不能自动合"，不该打断同步本身
+        api.host.log('warn', `同步点写入失败（${path}）：${String(e)}`)
+        return false
+      }
+    }
+
     /** 库内路径 → 展示用标题（面板标题栏 / 空态文案） */
     const titleOf = (path) => String(path ?? '').split('/').pop()?.replace(/\.md$/i, '') ?? String(path ?? '')
 
@@ -364,9 +413,16 @@ export default {
     /**
      * 存一份快照并做分层精简（需求 §11）。
      * `reason` 只用于日志，不进 UI。
+     *
+     * `tag === 'sync'` ⇒ 不生成历史条目，只覆盖写同步点（rev173.115）：
+     * 同步点不是"给用户看的版本"，是三方合并的 base；写进列表会与真正的历史混在一起。
      */
-    async function snapshot(path, content, reason) {
+    async function snapshot(path, content, reason, tag) {
       if (!path || typeof content !== 'string') return
+      if (tag === 'sync') {
+        await writeBase(path, content)
+        return
+      }
       const dir = dirOf(path)
       try {
         await api.fs.mkdir(dir)
@@ -392,6 +448,29 @@ export default {
         }
       }
     }
+
+    /**
+     * 服务：`history`（rev173.115）—— 给同步插件用的「同步点」读写。
+     *
+     * 为什么走 service 而不是让 sync 直接写文件：`.zn/history/<hash32>/` 是 history 的私有
+     * 布局（hash32 算法 + 文件名），别的插件自己拼路径必然漂移；service 把格式关在插件里。
+     *
+     * 软依赖：history 被禁用 / 没装时 `consume` 拿到 null ⇒ 同步插件退回「冲突留两份」，
+     * 只是体验差，不丢数据（与 `service` 原语的设计一致）。
+     */
+    api.subscriptions.push(
+      api.service.provide(
+        'history',
+        () => ({
+          /** 打一个同步点（`{ tag: 'sync' }`）；返回是否真的写了（内容没变则不写） */
+          snapshot: (path, content, opts) =>
+            snapshot(String(path ?? ''), content, 'service', opts?.tag ?? 'sync'),
+          /** 读同步点：上次成功同步时的内容；没有则 `null` */
+          findBase: (path) => readBase(String(path ?? '')),
+        }),
+        { version: '1' },
+      ),
+    )
 
     /* 事件：change 置脏；close 存快照；save 兜底 */
     api.subscriptions.push(

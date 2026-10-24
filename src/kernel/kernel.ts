@@ -8,6 +8,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { watchAcceleratorKeys } from '../lib/accelerator'
+import { mergeLines } from '../lib/merge3'
 import { API_VERSION } from './contract'
 import type {
   Disposable,
@@ -455,6 +456,17 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
     onLog: (msg, level) => hooks.onLog(msg, level),
   })
+
+  /**
+   * 内核内置服务：行级三方合并（`src/lib/merge3.ts`，rev173.115）。
+   *
+   * 为什么内核要提供它：插件宿主只给 10 个原语，插件**不能 import `src/lib`**。
+   * 而同步插件在「双端都改」时要拿 base 做三方合并，语义必须与内核写盘前那次合并
+   * （`mergeWithDisk`）**逐字一致** —— 两份实现迟早漂移，所以只留一份、经 service 借出。
+   *
+   * 名字带 `kernel.` 前缀：插件自己起的名字都在插件命名空间里，避免撞名。
+   */
+  services.scoped('kernel').provide('kernel.merge', () => ({ mergeLines }), { version: '1' })
 
   const host: HostApi = {
     apiVersion: API_VERSION,
