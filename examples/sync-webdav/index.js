@@ -310,6 +310,10 @@ export function createDavClient(cfg) {
       }
       if (res.status === 401) return { ok: false, status: 401, hint: '账号或密码不对（401）' }
       if (res.status === 403) return { ok: false, status: 403, hint: '没有权限（403）' }
+      if (res.status === 429 || res.status === 503) {
+        // 坚果云高频请求 / 连续失败后会回 503 + `<s:exception>BlockedTemporarily</s:exception>`
+        return { ok: false, status: res.status, hint: '远端临时限流 / 封禁（503）—— 等 10–30 分钟再试' }
+      }
       if (res.status === 404) return { ok: false, status: 404, hint: '远端目录不存在（404）——检查「同步目录」' }
       if (res.status === 405) return { ok: false, status: 405, hint: '这个地址不支持 WebDAV（405）' }
       return { ok: false, status: res.status, hint: `意外状态 ${res.status}` }
@@ -580,15 +584,17 @@ export default {
       } catch (e) {
         summary.hint = `同步失败：${String(e)}`
         /**
-         * 认证类错误（401 / 403）⇒ **立刻停自动同步**。
+         * 认证类错误（401 / 403）与**限流 / 临时封禁**（429 / 503 / `BlockedTemporarily`）
+         * ⇒ **立刻停自动同步**。
          *
-         * 真实理由：坚果云等对连续认证失败有限流/锁号风险，而自动同步是每 5 秒一次 ——
-         * 密码填错时会在几分钟内把账号打进风控（rev173.108 实测踩到：401 之后自动重试）。
-         * 停下来让用户改凭据，改完保存设置会重新 startAuto。
+         * 真实理由：坚果云对连续失败与高频请求会「临时封号」（响应体里
+         * `<s:exception>BlockedTemporarily</s:exception>`，HTTP 503）。自动同步每 5 秒一次，
+         * 一旦被限流还继续打，封禁只会一次比一次久（2026-10-24 实测：401 重试十几分钟后
+         * 桌面 + 手机全被 503 挡了半小时）。停下来让用户等一会再手动试。
          */
-        if (/401|403|unauthorized|forbidden/i.test(String(e))) {
+        if (/401|403|429|503|unauthorized|forbidden|blocked/i.test(String(e))) {
           stopAuto()
-          summary.hint += '（认证失败，已暂停自动同步）'
+          summary.hint += '（认证失败或远端限流，已暂停自动同步；稍等 10–30 分钟再手动试）'
         }
         if (!silent) api.host.notify(summary.hint, 'error')
         else api.host.log('warn', summary.hint)

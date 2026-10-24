@@ -48,10 +48,37 @@ pub struct NetResponse {
   body_b64: String,
 }
 
+/// 装上 rustls 的 crypto provider —— **仅 Android 需要**，但少了它整个 App 起不来。
+///
+/// 为什么：`Cargo.toml` 在 Android 上给 reqwest 选的是 `rustls-no-provider`（要避开 OpenSSL），
+/// 而 rustls 0.23 起默认**不带** provider —— 不装就直接在 `Client::builder().build()` 里
+/// `panic!("No rustls crypto provider is configured")`（2026-10-24 真机实测：SIGABRT，
+/// 崩溃点还在 `onFirstActivityCreate`，看上去像启动就挂）。
+///
+/// **必须在 `run()` 的最开头调**（不是等第一次 `net_request`）：启动阶段有可能已经有
+/// 别的东西建 Client，那时再装就晚了 —— 实测只在命令里装，App 仍然启动即崩。
+///
+/// 桌面走 native-tls，`cfg` 掉，不会把 rustls 拉进桌面依赖。
+pub fn ensure_tls_provider() {
+  #[cfg(target_os = "android")]
+  {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+      // 重复装会返回 Err，忽略即可（进程内只成功一次）
+      match rustls::crypto::ring::default_provider().install_default() {
+        Ok(()) => println!("[net] rustls ring provider installed"),
+        Err(_) => println!("[net] rustls provider already configured"),
+      }
+    });
+  }
+}
+
 /// 发一次 HTTP 请求。成功与否只看「请求有没有发出去」，HTTP 错误码（401/404/500）
 /// 一律走 `Ok(status)` —— 调用方要能读到 `WWW-Authenticate` 这类头来判断怎么重试。
 #[tauri::command]
 pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
+  ensure_tls_provider();
   let method_name = req.method.unwrap_or_else(|| "GET".to_string());
   let method = reqwest::Method::from_bytes(method_name.as_bytes())
     .map_err(|e| format!("HTTP 方法不合法（{method_name}）：{e}"))?;
@@ -61,12 +88,34 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
     .unwrap_or(DEFAULT_TIMEOUT_MS)
     .clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
-  let client = reqwest::Client::builder()
+  // 桌面上 `mut` 用不到（只有 Android 的 cfg 段会改它），但去掉会让 Android 编译不过
+  #[allow(unused_mut)]
+  let mut cb = reqwest::Client::builder()
     .timeout(Duration::from_millis(timeout))
     // 有些 WebDAV 服务端（如旧版 Nextcloud 反代）会拒空 UA。
-    .user_agent(concat!("ZeroNote/", env!("CARGO_PKG_VERSION")))
-    .build()
-    .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
+    .user_agent(concat!("ZeroNote/", env!("CARGO_PKG_VERSION")));
+
+  /**
+   * **Android 上必须自己给根证书**（rev173.108 真机实测）。
+   *
+   * `rustls-no-provider` 默认的证书验证器是 `rustls-platform-verifier`，它要经 JNI 调
+   * Android 的 TrustManager；Tauri 没替我们初始化它 ⇒ **HTTPS 请求永远 pending**
+   * （实测：`http://www.baidu.com` 200，`https://www.baidu.com` 挂死，连 `timeout` 都不触发）。
+   *
+   * 改用内置的 Mozilla 根证书（`webpki-roots`）：不依赖平台验证器，两端行为一致。
+   * 代价是系统自定义的根证书（企业代理 / 抓包工具）不会被信任 —— 对自用笔记应用可接受。
+   */
+  #[cfg(target_os = "android")]
+  {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let tls = rustls::ClientConfig::builder()
+      .with_root_certificates(roots)
+      .with_no_client_auth();
+    cb = cb.use_preconfigured_tls(tls);
+  }
+
+  let client = cb.build().map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
 
   let url = req.url;
   let mut rb = client.request(method, &url);

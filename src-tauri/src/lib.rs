@@ -2415,6 +2415,11 @@ fn spawn_watchdog() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // 第一件事：装上 TLS crypto provider（Android 的 reqwest 走 `rustls-no-provider`）。
+  // 放在这里而不是等第一次 `net_request` —— 启动阶段可能已有别处建 Client，晚一步就崩
+  // （2026-10-24 真机实测：SIGABRT 在 onFirstActivityCreate）。桌面是空函数。
+  net::ensure_tls_provider();
+
   // ⚠️ single-instance 必须是**第一个**注册的插件（官方要求）：它要在其它插件初始化之前
   // 就抢到单实例锁，否则第二个进程会先跑完一遍初始化才退出。
   // 这也是它必须 cfg 掉的原因 —— 该 crate 在 Android/iOS 上整体为空（见 Cargo.toml）。

@@ -307,6 +307,19 @@ revision: 173.108
 > **最终验证（真坚果云）**：连接测试自动建 `ZeroNote/` ⇒ 首同步上传 4 篇 + manifest ⇒
 > 本地改 **10 秒内**远端变 ⇒ 远端改 **11 秒内**本地变。
 >
+> ### Android 真机（2026-10-24 21:17–21:45 · 用户「用真机测」）
+>
+> 真机 `33b676f6`（`com.aqua.zeronote.debug`）上**两个只有真机才暴露的问题**，桌面 / 单测都发现不了：
+>
+> | 现象 | 根因 | 修法 |
+> |---|---|---|
+> | 装完 APK 一启动就 **SIGABRT**（栈在 `onFirstActivityCreate` → `stop_unwind`） | Android 上 reqwest 配的是 `rustls-no-provider`，而 **rustls 0.23 默认不带 crypto provider** → 第一次建 Client 就 `panic!("No rustls crypto provider is configured")` | `net::ensure_tls_provider()` 在 **`run()` 最开头**装 `ring` provider（不是等第一次 `net_request` —— 实测只在命令里装仍然崩） |
+> | 修完启动后 **HTTPS 请求永远 pending**（`http://www.baidu.com` 200，`https://www.baidu.com` 挂死，`timeout` 都不触发） | `rustls-no-provider` 默认验证器是 `rustls-platform-verifier`，它要经 **JNI 调 Android TrustManager**；Tauri 没替它初始化 ⇒ 验证阶段无限等 | 改用**内置 Mozilla 根证书**（`webpki-roots`）+ `use_preconfigured_tls`，绕开平台验证器；代价是企业代理 / 抓包工具的自定义根证书不再被信任（自用可接受） |
+>
+> 另外记两条操作坑：
+> · 手机装插件**必须走 `__znInstallZnp(path)`**（它知道全局插件根）—— 手写 `install_znp(vault=appData/files)` 会装到一个**没人在用的目录**（内置插件不落 `files/.zn/plugins`）。
+> · `adb shell pidof` 前后两次可以拿到不同 pid（`tauri android dev` 会因源文件变化重启）；CDP 转发要**每次按当前 pid 重建**，且 PowerShell 里别用 `$pid`（只读自动变量）。
+>
 > ### 没做的（照实写）
 >
 > · 凭据目前只存**密码**（`host.secrets` 的 `sync.webdav.password`）；用户名与地址在 `store`

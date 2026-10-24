@@ -87,4 +87,9 @@ reqwest = { version = "0.13", default-features = false, features = [
   "http2",
   "charset",
 ] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# 内置 Mozilla 根证书（rev173.108 真机实测加的）：`rustls-no-provider` 默认的验证器是
+# `rustls-platform-verifier`，它要经 JNI 调 Android TrustManager —— 没人初始化它时
+# **HTTPS 请求会永远 pending**（实测：http 200 / https 挂死，连超时都不触发）。
+# 换成内置根证书后不依赖平台验证器，也顺带让行为在两端一致。
+webpki-roots = "1"
