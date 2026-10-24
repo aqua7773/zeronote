@@ -350,7 +350,11 @@ export default {
       }
     }
 
-    async function autoMerge(client, path, localText) {
+    /**
+     * 三方合并：base 来自 history 的同步点，`theirs` 由调用方**先读好**传进来
+     * （rev173.122 实测调整：冲突处理需要远端的最新 sha 才能重推，读一次就够，不要读两遍）。
+     */
+    async function autoMerge(path, localText, remoteText) {
       try {
         const history = await api.service.consume('history')
         const merger = await api.service.consume('kernel.merge')
@@ -358,9 +362,7 @@ export default {
         if (!merger || typeof merger.mergeLines !== 'function') return null
         const base = await history.findBase(path, 'sync:git')
         if (!base) return null
-        const remote = await client.read(path)
-        if (!remote || typeof remote.text !== 'string') return null
-        return tryAutoMerge({ base, mine: localText, theirs: remote.text, mergeLines: merger.mergeLines })
+        return tryAutoMerge({ base, mine: localText, theirs: remoteText, mergeLines: merger.mergeLines })
       } catch (e) {
         api.host.log('warn', `自动合并失败（${path}）：${String(e)}`)
         return null
@@ -428,6 +430,62 @@ export default {
         let processed = 0
         let remoteChanged = false
 
+        /**
+         * 冲突处理（rev173.122 实测）。**先重读远端**再决定 —— 两个入口共用：
+         *   ① `decideSync === 'conflict'`（manifest 已显示双端都改）
+         *   ② `PUT` 返回冲突（manifest 的 sha 过期 ⇒ 远端被"绕过 manifest"改过）
+         * 两者都要先把 manifest 里这篇的 fp / sha 刷成远端最新，否则会一直拿过期 sha 重试。
+         */
+        const resolveConflict = async (n, localText, remoteEntry) => {
+          const fresh = await client.read(n.path)
+          const remoteText = fresh && typeof fresh.text === 'string' ? fresh.text : null
+          const remoteSha = fresh?.sha ?? remoteEntry?.sha ?? null
+          if (remoteSha && remoteText !== null) {
+            const freshFp = fingerprint(remoteText)
+            if (remoteEntry?.fp !== freshFp || remoteEntry?.sha !== remoteSha) {
+              nextFiles[n.path] = { fp: freshFp, sha: remoteSha, at: Date.now() }
+              remoteChanged = true
+            }
+          }
+          if (remoteText === null) {
+            summary.hint = `远端已删除：${n.path}`
+            summary.conflicts += 1
+            return
+          }
+          const merged = await autoMerge(n.path, localText, remoteText)
+          if (merged) {
+            try {
+              await api.fs.writeText(n.path, merged.text, { origin: 'plugin' })
+            } catch (e) {
+              api.host.log('warn', `合并结果落盘失败（${n.path}）：${String(e)}`)
+            }
+            const res2 = await client.write(n.path, merged.text, { sha: remoteSha })
+            if (res2.ok) {
+              const fp = fingerprint(merged.text)
+              baseline[n.path] = { fp, sha: res2.sha ?? undefined }
+              nextFiles[n.path] = { fp, sha: res2.sha ?? undefined, at: Date.now() }
+              baseMarked.add(n.path)
+              await markBase(n.path, merged.text)
+              summary.merged += 1
+              remoteChanged = true
+              api.host.notify(`已自动合并：${n.path}`, 'info')
+              return
+            }
+            // 又撞上（极端并发）⇒ 本机保留合并结果，base 不动，下一轮拿同一份 base 再合
+            summary.hint = `合并结果未能上传（${res2.status}）：${n.path}`
+            summary.conflicts += 1
+            return
+          }
+          await keepConflict(n.path, '双端修改')
+          summary.conflicts += 1
+          await api.fs.writeText(n.path, remoteText, { origin: 'plugin' })
+          const fp = fingerprint(remoteText)
+          baseline[n.path] = { fp, sha: remoteSha }
+          baseMarked.add(n.path)
+          await markBase(n.path, remoteText)
+          summary.pulled += 1
+        }
+
         for (const n of notes) {
           if (!/\.md$/i.test(n.path)) continue
           if (processed >= MAX_FILES_PER_RUN) break
@@ -466,9 +524,15 @@ export default {
           if (verdict === 'push' || verdict === 'push-new') {
             const res = await client.write(n.path, localText, { sha: remoteEntry?.sha ?? null })
             if (!res.ok) {
+              /**
+               * **乐观锁失效**（rev173.122 实测修）：manifest 里记的 sha 过期了 ——
+               * 说明远端被"绕过 manifest"改过（网页直接编辑 / 另一台设备崩在半路）。
+               * 以前这里只留一句 hint 就 continue ⇒ **下一轮还会重试同一个过期 sha，
+               * 永远 409、永远推不上去**。现在当作冲突处理：重读远端 → 刷新 manifest 条目
+               * → 能合就合、合不上就留副本并取远端版，本轮收口。
+               */
               if (res.conflict) {
-                // sha 失效（远端在我们读 manifest 之后又变了）⇒ 留给下一轮判冲突
-                summary.hint = `远端在同步期间又变了：${n.path}`
+                await resolveConflict(n, localText, remoteEntry)
                 continue
               }
               throw new Error(`上传失败（${res.status}）：${n.path}`)
@@ -482,44 +546,7 @@ export default {
             continue
           }
           if (verdict === 'conflict') {
-            const merged = await autoMerge(client, n.path, localText)
-            if (merged) {
-              let wrote = false
-              try {
-                await api.fs.writeText(n.path, merged.text, { origin: 'plugin' })
-                wrote = true
-              } catch (e) {
-                api.host.log('warn', `合并结果落盘失败（${n.path}）：${String(e)}`)
-              }
-              if (wrote) {
-                const res2 = await client.write(n.path, merged.text, { sha: remoteEntry?.sha ?? null })
-                if (res2.ok) {
-                  const fp = fingerprint(merged.text)
-                  baseline[n.path] = { fp, sha: res2.sha ?? undefined }
-                  nextFiles[n.path] = { fp, sha: res2.sha ?? undefined, at: Date.now() }
-                  baseMarked.add(n.path)
-                  await markBase(n.path, merged.text)
-                  summary.merged += 1
-                  remoteChanged = true
-                  api.host.notify(`已自动合并：${n.path}`, 'info')
-                  continue
-                }
-                summary.hint = `合并结果未能上传（${res2.status}）：${n.path}`
-              }
-              summary.conflicts += 1
-              continue
-            }
-            await keepConflict(n.path, '双端修改')
-            summary.conflicts += 1
-            const r = await client.read(n.path)
-            if (r && typeof r.text === 'string') {
-              await api.fs.writeText(n.path, r.text, { origin: 'plugin' })
-              const fp = fingerprint(r.text)
-              baseline[n.path] = { fp, sha: r.sha }
-              baseMarked.add(n.path)
-              await markBase(n.path, r.text)
-              summary.pulled += 1
-            }
+            await resolveConflict(n, localText, remoteEntry)
             continue
           }
           if (verdict === 'remote-deleted') {

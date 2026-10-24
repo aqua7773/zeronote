@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.122）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.123）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.122 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 894 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.123 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 895 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -97,11 +97,18 @@ pwsh -File scripts\verify.ps1
 > （一个文件一次 GET/PUT，**sha 当乐观锁**）· `PROVIDERS` 三平台差异（Gitee 走 POST + token 头，**未实测**）·
 > base64 两坑（中文不能 `btoa` 直编 / 大文件 base64 带换行）· `parseContents` 照**真实 GitHub 响应**写 ·
 > 判定与其它三个同步插件逐字一致，同步点 `sync:git` · 进预装 12 → **13** · 单测 875 → **894** ·
-> ⚠️ 写路径（PUT/POST/DELETE）没令牌，只到 mock。
+> ⚠️ 写路径（PUT/POST/DELETE）没令牌，只到 mock（→ rev173.123 已补真机）。
 >
-> **下一步可选**：四个同步后端已齐（本地文件夹 / WebDAV / S3 / Git）。可做：S3 与 Git 的两个
-> 端到端验收（需要 S3 凭据 + 一个有写权限的测试仓库）、S3/Git 的附件同步、`!base` 判据的
-> 「store 丢失会覆盖本地」隐患（要四个插件一起改）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
+> ✅ **Git 后端真机验收 + 修 409 死循环（rev173.123）**：真实 GitHub 私有仓库实测 ——
+> API 层 8 项 + 同步引擎 16 项全过（首推 2 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并、
+> 两端一致 / 双端改同一行 ⇒ 副本 = 本机版 / 面板耗时 / 清理干净）· **当场抓到并修掉**：
+> 远端被绕过 manifest 改过 ⇒ sha 过期 ⇒ `PUT` 409，修前只留 hint、下一轮用同一个过期 sha
+> 重试 ⇒ **永远推不上去**；现在 409 走统一冲突处理（重读远端 → 刷新 manifest 条目 → 能合就合）·
+> 单测 894 → **895**。
+>
+> **下一步可选**：S3 端到端（需要 S3 endpoint，本机 MinIO 即可）· Gitee 分支实测 ·
+> S3/Git 的附件同步 · `!base` 判据的「store 丢失会覆盖本地」隐患（要四个插件一起改）。
+> 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
 > CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。

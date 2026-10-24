@@ -273,3 +273,138 @@ describe('插件接线', () => {
     ])
   })
 })
+
+/**
+ * rev173.123 · **乐观锁失效的自愈**（本轮真机实测发现的 bug）。
+ *
+ * 场景：远端被"绕过 manifest"改过（网页里手改 / 另一台设备崩在半路）⇒ 插件手里的 sha 过期
+ * ⇒ `PUT` 409。修之前这里只留一句 hint 就 continue，下一轮还拿同一个过期 sha 重试 —
+ * **永远 409、永远推不上去**。修之后本轮重读远端、刷新 manifest 条目、该合就合。
+ */
+describe('乐观锁失效的自愈（rev173.123）', () => {
+  it('PUT 409 ⇒ 本轮重读远端并合并，下一轮不再重复冲突', async () => {
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    const localWrites: Array<{ path: string; text: string }> = []
+
+    const BASE = 'L1\nL2\nL3\n'
+    const localText = 'L1（本机）\nL2\nL3\n'
+    /** 远端状态：一开始等于 base；后来被别人"绕过 manifest"改成第三行 */
+    const remote = { text: 'L1\nL2\nL3（网页手改）\n', sha: 'sha-page-edit' }
+    const manifestState = {
+      version: 1 as const,
+      files: { 'a.md': { fp: fingerprint(BASE), sha: 'sha-old', at: 1 } } as Record<string, unknown>,
+      attachments: {},
+    }
+    let manifestSha = 'sha-m'
+    let putCalls = 0
+
+    store.set('settings.v1', {
+      provider: 'github',
+      apiBase: '',
+      owner: 'me',
+      repo: 'notes',
+      branch: 'main',
+      prefix: '',
+      enabled: true,
+      auto: false,
+    })
+    store.set('baseline.v1', { 'a.md': { fp: fingerprint(BASE), sha: 'sha-old' } })
+
+    const net = {
+      fetch: async (spec: { url: string; method: string; body?: string }) => {
+        const isManifest = spec.url.includes('_zn%2Fmanifest.json') || spec.url.includes('_zn/manifest.json')
+        const isFile = spec.url.includes('/contents/a.md')
+        if (spec.method === 'GET' && isManifest) {
+          // 平台上 manifest 也是一个「文件」⇒ 走 Contents 包装（sha + base64 content）
+          const body = JSON.stringify({ sha: manifestSha, encoding: 'base64', content: b64encode(JSON.stringify(manifestState)) })
+          return { status: 200, headers: {}, text: () => body, bytes: () => new TextEncoder().encode(body) }
+        }
+        if (spec.method === 'GET' && isFile) {
+          const body = JSON.stringify({ sha: remote.sha, encoding: 'base64', content: b64encode(remote.text) })
+          return { status: 200, headers: {}, text: () => body, bytes: () => new TextEncoder().encode(body) }
+        }
+        if (spec.method === 'PUT' && isFile) {
+          putCalls += 1
+          // 第一次 = 拿过期 sha 推 ⇒ 平台拒绝
+          if (putCalls === 1) return { status: 409, headers: {}, text: () => '{"message":"sha mismatch"}', bytes: () => new Uint8Array() }
+          // 第二次 = resolveConflict 里用远端最新 sha 推合并结果
+          const body = JSON.parse(String(spec.body))
+          remote.text = b64decode(body.content)
+          remote.sha = 'sha-merged'
+          const out = JSON.stringify({ content: { sha: remote.sha } })
+          return { status: 200, headers: {}, text: () => out, bytes: () => new TextEncoder().encode(out) }
+        }
+        if (spec.method === 'PUT' && isManifest) {
+          const body = JSON.parse(String(spec.body))
+          manifestState.files = JSON.parse(b64decode(body.content)).files
+          manifestSha = 'sha-m2'
+          const out = JSON.stringify({ content: { sha: manifestSha } })
+          return { status: 200, headers: {}, text: () => out, bytes: () => new TextEncoder().encode(out) }
+        }
+        return { status: 500, headers: {}, text: () => '', bytes: () => new Uint8Array() }
+      },
+    }
+
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'T', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [{ path: 'a.md', id: 'a', title: 'a', mtime: 1, size: 9, frontmatter: {}, kind: 'note' }],
+        readText: async () => localText,
+        writeText: async (p: string, t: string) => {
+          localWrites.push({ path: p, text: t })
+        },
+        mkdir: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: { registerPanel: () => ({ dispose: () => {} }), refresh: () => {} },
+      service: {
+        consume: async (name: string) =>
+          name === 'history'
+            ? { snapshot: async () => {}, findBase: async () => BASE }
+            : name === 'kernel.merge'
+              ? { mergeLines }
+              : null,
+        provide: () => ({ dispose: () => {} }),
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 20))
+
+    const s1 = (await commands.get('sync-git.sync')!()) as { merged?: number; conflicts?: number; pushed?: number }
+    expect(putCalls).toBe(2) // 第一次 409 + 第二次推合并结果
+    expect(s1.merged).toBe(1)
+    expect(s1.conflicts ?? 0).toBe(0)
+    // 合并结果落盘：两边改动都在
+    expect(localWrites.at(-1)?.text).toBe('L1（本机）\nL2\nL3（网页手改）\n')
+    expect(remote.text).toBe('L1（本机）\nL2\nL3（网页手改）\n')
+
+    // 再跑一轮：不该再冲突 / 再合并（收口了）
+    const s2 = (await commands.get('sync-git.sync')!()) as { merged?: number; conflicts?: number; pushed?: number }
+    expect(s2.merged ?? 0).toBe(0)
+    expect(s2.conflicts ?? 0).toBe(0)
+
+    for (const s of api.subscriptions) s.dispose?.()
+  })
+})
