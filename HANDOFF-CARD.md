@@ -43,6 +43,7 @@ pwsh -File scripts\verify.ps1
 > 503 停掉自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false（限流分支 / 测试连接失败），
 > `saveSettings` 也不再整体覆盖（会冲掉 `auto` / `attachments`）。单测 +1 · vitest 804 · verify 6/6。
 > ✅ **已推送**（`0e05ea7..7f05d79`，9 个提交；**git 直连即可，不要设 `HTTPS_PROXY`** —— 2026-10-24 用户实测更正）
+> · ⚠️ **rev173.110 的提交 `1f55ed7` 还在本地没推**（要推就 `git push origin main`，直连）
 >
 > **下一步候选（同步插件收尾项，均非阻塞）**：`If-None-Match` 304 短路径（每轮拉 manifest 是完整几 KB）·
 > `sync-folder` 面板的「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
