@@ -168,7 +168,8 @@ export function relayName(fp, ext) {
 
 /**
  * 七种判定 —— 决定会不会丢字。**与 `sync-webdav` / `sync-s3` 逐字一致**。
- * ⚠️ 同样的已知隐患：`!base && remoteFp != null` 一律 `pull-new`（store 被清过时会被远端覆盖）。
+ * 没有基线时（换设备 / store 被清）不再一律 `pull-new`（rev173.128）：
+ * 两边相同 ⇒ `noop`，两边不同 ⇒ `conflict`（本机版先留副本，不静默覆盖）。
  */
 export function decideSync({ base, localFp, remoteFp }) {
   const hasBase = !!base
@@ -176,7 +177,7 @@ export function decideSync({ base, localFp, remoteFp }) {
     if (!hasBase) return 'push-new'
     return base.fp === localFp ? 'remote-deleted' : 'conflict'
   }
-  if (!hasBase) return 'pull-new'
+  if (!hasBase) return localFp === remoteFp ? 'noop' : 'conflict'
   const localChanged = localFp !== base.fp
   const remoteChanged = remoteFp !== base.fp
   if (!localChanged && !remoteChanged) return 'noop'

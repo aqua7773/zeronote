@@ -196,8 +196,15 @@ export function decideSync({ base, localFp, remoteFp }) {
     return base.fp === localFp ? 'remote-deleted' : 'conflict' // 远端删了、本地改过 ⇒ 冲突
   }
   if (!hasBase) {
-    // 远端有、本地没有基线：本地没有这篇 ⇒ 拉；本地有且内容相同 ⇒ noop
-    return localFp === remoteFp ? 'pull-new' : 'pull-new'
+    /**
+     * 远端有、本地没有基线（换了设备 / store 被清 / 首次见这篇）：
+     * - 两边内容相同 ⇒ 直接对齐基线，不必白拉一次
+     * - 两边不同 ⇒ **不能假定远端更权威**：本机可能改过。以前一律 `pull-new`，
+     *   store 丢过就会静默用远端盖掉本地（丢字）。现在判冲突 ⇒ 本机版先留副本
+     *   再取远端版；history 同步点还在时会先试三方合并，合得上就两端一致。
+     */
+    if (localFp === remoteFp) return 'noop'
+    return 'conflict'
   }
   const localChanged = localFp !== base.fp
   const remoteChanged = remoteFp !== base.fp

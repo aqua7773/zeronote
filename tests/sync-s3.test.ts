@@ -144,10 +144,10 @@ describe('decideSync（与 sync-webdav 同一判据）', () => {
     expect(decideSync({ base: b('a'), localFp: 'b', remoteFp: null })).toBe('conflict')
   })
 
-  it('本机没有基线', () => {
-    // 与 sync-webdav 逐字一致：没有基线 ⇒ 一律拉远端（已知隐患，见实现里的注释）
-    expect(decideSync({ base: null, localFp: 'a', remoteFp: 'a' })).toBe('pull-new')
-    expect(decideSync({ base: null, localFp: 'a', remoteFp: 'b' })).toBe('pull-new')
+  it('本机没有基线（换设备 / store 被清）', () => {
+    // rev173.128：与 sync-webdav 逐字一致 —— 相同 ⇒ noop、不同 ⇒ conflict（不再静默覆盖本地）
+    expect(decideSync({ base: null, localFp: 'a', remoteFp: 'a' })).toBe('noop')
+    expect(decideSync({ base: null, localFp: 'a', remoteFp: 'b' })).toBe('conflict')
   })
 
   it('有基线：四种组合', () => {

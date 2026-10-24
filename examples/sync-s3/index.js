@@ -234,9 +234,8 @@ export async function signRequest(req) {
  * `remoteFp` 是 manifest 里记的远端指纹（没有这篇 ⇒ null）。
  *
  * **判据与 `sync-webdav` 逐字一致**（同一套七种组合，跨后端语义必须相同）。
- * ⚠️ 已知隐患（两端都继承了这个行为）：`!base && remoteFp != null` 一律 `pull-new` ——
- * 如果本机 store 被清过（换库 / 清缓存）而本地文件改过，会被远端版覆盖。
- * 只在"本机没有基线"这一种情况下发生，改判定要先改 `sync-webdav`，另议。
+ * 没有基线时（换设备 / store 被清）不再一律拉远端（rev173.128）：两边相同 ⇒ `noop`，
+ * 两边不同 ⇒ `conflict` —— 本机版先留副本，不静默覆盖。
  */
 export function decideSync({ base, localFp, remoteFp }) {
   const hasBase = !!base
@@ -244,7 +243,7 @@ export function decideSync({ base, localFp, remoteFp }) {
     if (!hasBase) return 'push-new'
     return base.fp === localFp ? 'remote-deleted' : 'conflict'
   }
-  if (!hasBase) return 'pull-new'
+  if (!hasBase) return localFp === remoteFp ? 'noop' : 'conflict'
   const localChanged = localFp !== base.fp
   const remoteChanged = remoteFp !== base.fp
   if (!localChanged && !remoteChanged) return 'noop'

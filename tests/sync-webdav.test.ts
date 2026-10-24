@@ -207,8 +207,9 @@ describe('decideSync', () => {
     expect(decideSync({ base, localFp: 'same', remoteFp: 'same' })).toBe('noop')
   })
 
-  it('远端有、本地没基线 ⇒ pull-new', () => {
-    expect(decideSync({ base: null, localFp: 'x', remoteFp: 'y' })).toBe('pull-new')
+  it('远端有、本地没基线 ⇒ 相同 noop / 不同 conflict（rev173.128：不再静默覆盖本地）', () => {
+    expect(decideSync({ base: null, localFp: 'same', remoteFp: 'same' })).toBe('noop')
+    expect(decideSync({ base: null, localFp: 'x', remoteFp: 'y' })).toBe('conflict')
   })
 })
 
@@ -1066,6 +1067,227 @@ describe('双设备：附件方向（rev173.127）', () => {
 
     A.dispose()
     B.dispose()
+  })
+})
+
+/**
+ * rev173.128 · 没有基线时不能「远端永远赢」。
+ *
+ * 场景：设备 A 同步过 v1 后 store 被清（换设备 / 清缓存 / 重装）⇒ 本机 baseline 为空；
+ * 本机把这篇改过，远端又是另一台设备改出来的 v2。
+ * 修前：`!base && remoteFp != null` ⇒ 一律 `pull-new` ⇒ 本地改动被远端盖掉，**一个副本都不留**。
+ * 修后：判 `conflict` ⇒ 本机版进 `.zn/conflicts/<平台>/`，再取远端版。
+ */
+describe('没有基线：不静默覆盖本地（rev173.128）', () => {
+  const enc = (s: string) => new TextEncoder().encode(s)
+  const dec = (b: Uint8Array) => new TextDecoder().decode(b)
+
+  /** 极简 DAV：文件表（manifest 也是表里一个文件），够跑完整同步循环 */
+  function makeDav() {
+    const files = new Map<string, { bytes: Uint8Array; etag: string }>()
+    /** 请求流水（断言「noop 轮有没有白拉」） */
+    const requests: string[] = []
+    let ver = 0
+    const emptyText = () => ''
+    const emptyBytes = () => new Uint8Array()
+    const net = {
+      fetch: async (spec: {
+        url: string
+        method: string
+        headers?: Record<string, string>
+        body?: unknown
+      }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
+        requests.push(`${method} ${p}`)
+        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'MKCOL') return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'DELETE') {
+          files.delete(p)
+          return { status: 204, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
+        if (method === 'GET') {
+          const f = files.get(p)
+          if (!f) return { status: 404, headers: {}, text: emptyText, bytes: emptyBytes }
+          return { status: 200, headers: { etag: f.etag }, text: () => dec(f.bytes), bytes: () => f.bytes }
+        }
+        if (method === 'PUT') {
+          ver += 1
+          const body = typeof spec.body === 'string' ? enc(spec.body) : (spec.body as Uint8Array)
+          files.set(p, { bytes: body, etag: `"e${ver}"` })
+          return { status: 201, headers: { etag: `"e${ver}"` }, text: emptyText, bytes: emptyBytes }
+        }
+        return { status: 500, headers: {}, text: emptyText, bytes: emptyBytes }
+      },
+    }
+    return { files, net, requests }
+  }
+
+  /**
+   * 一台设备 = 一份磁盘（`local` / `mtimes` 由调用方共享）+ 一份**独立 store**。
+   * 设备重启 / store 丢失 = 拿同一份磁盘再建一个实例。
+   */
+  function makeDevice(
+    net: unknown,
+    local: Map<string, Uint8Array>,
+    mtimes: Map<string, number>,
+    platform: string,
+  ) {
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    const notices: string[] = []
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform,
+        log: () => {},
+        notify: (m: string) => {
+          notices.push(m)
+        },
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () =>
+          [...local.keys()].map((p) => ({
+            path: p,
+            id: p,
+            title: p,
+            mtime: mtimes.get(p) ?? 0,
+            size: local.get(p)?.length ?? 0,
+            frontmatter: {},
+            kind: 'doc',
+          })),
+        readText: async (p: string) => dec(local.get(p) ?? new Uint8Array()),
+        writeText: async (p: string, text: string) => {
+          local.set(p, enc(String(text)))
+          mtimes.set(p, Date.now())
+        },
+        readBytes: async (p: string) => local.get(p) ?? new Uint8Array(),
+        writeBytes: async (p: string, b: Uint8Array) => {
+          local.set(p, b)
+          mtimes.set(p, Date.now())
+        },
+        mkdir: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    return {
+      commands,
+      notices,
+      render: () => render,
+      dispose: () => {
+        for (const s of api.subscriptions) s.dispose?.()
+      },
+    }
+  }
+
+  async function configure(dev: ReturnType<typeof makeDevice>) {
+    await new Promise((r) => setTimeout(r, 0))
+    dev.render()!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+        'sync.attachmentsMode': 'off',
+      },
+    })
+    await dev.commands.get('sync-webdav.save')!()
+  }
+
+  it('本地改过 + store 丢了 + 远端也改过 ⇒ 本机版进冲突目录，本地取远端版', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+
+    // 设备 A 第一次：本机 v1 ⇒ 推上去（这一轮会落 baseline.v1）
+    local.set('n.md', enc('v1\n'))
+    mtimes.set('n.md', Date.now() - 60_000)
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get('n.md')!.bytes)).toBe('v1\n')
+    A.dispose()
+
+    // 另一台设备把远端改成 v2（走真实流程：拉 v1 → 改 → 推）
+    const other = new Map<string, Uint8Array>()
+    const otherMtimes = new Map<string, number>()
+    const B = makeDevice(net, other, otherMtimes, 'mac')
+    await configure(B)
+    await B.commands.get('sync-webdav.sync')!({}) // 空库 ⇒ 拉 v1
+    expect(dec(other.get('n.md')!)).toBe('v1\n')
+    other.set('n.md', enc('remote-v2\n'))
+    otherMtimes.set('n.md', Date.now() + 60_000)
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get('n.md')!.bytes)).toBe('remote-v2\n')
+    B.dispose()
+
+    // 设备 A「store 丢了」：baseline 没了；磁盘上用户改成 local-mine
+    local.set('n.md', enc('local-mine\n'))
+    mtimes.set('n.md', Date.now() + 120_000)
+    const A2 = makeDevice(net, local, mtimes, 'windows') // 新实例 = 空 store
+    await configure(A2)
+
+    await A2.commands.get('sync-webdav.sync')!({})
+
+    // 远端版回到本机 —— 这是原流程，不变
+    expect(dec(local.get('n.md')!)).toBe('remote-v2\n')
+    // 走的是「冲突」而不是「静默拉取」：这一轮真的读了远端
+    expect(requests.some((r) => r === 'GET n.md')).toBe(true)
+    // 但本机改动**没有丢**：进了冲突目录（修前这里是 0 个文件）
+    const conflictKeys = [...local.keys()].filter((k) => k.startsWith('.zn/conflicts/windows/'))
+    expect(conflictKeys).toHaveLength(1)
+    expect(dec(local.get(conflictKeys[0])!)).toBe('local-mine\n')
+    expect(A2.notices.some((m) => m.includes('同步冲突'))).toBe(true)
+
+    A2.dispose()
+  })
+
+  it('store 丢了但两边内容相同 ⇒ noop，不白拉一次、也不报冲突', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+
+    local.set('same.md', enc('same\n'))
+    mtimes.set('same.md', Date.now() - 60_000)
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get('same.md')!.bytes)).toBe('same\n')
+    A.dispose()
+
+    const A2 = makeDevice(net, local, mtimes, 'windows') // store 丢了，内容没变
+    await configure(A2)
+    const before = requests.length
+    await A2.commands.get('sync-webdav.sync')!({})
+
+    // noop = 连正文都不该拉（修前是 pull-new：白下载一次同一份内容）
+    expect(requests.slice(before).some((r) => r === 'GET same.md')).toBe(false)
+    expect(A2.notices.some((m) => m.includes('同步冲突'))).toBe(false)
+    expect([...local.keys()].some((k) => k.startsWith('.zn/conflicts/'))).toBe(false)
+    A2.dispose()
   })
 })
 
