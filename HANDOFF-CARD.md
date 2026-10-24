@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-24（rev173.109）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-24（rev173.110）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.109 · 0.4.0 · 2026-10-24 |
-| 测试基线 | vitest 803 · cargo 38 · oxlint 3 warnings（2026-10-24） |
+| rev / 版本 | rev173.110 · 0.4.0 · 2026-10-24 |
+| 测试基线 | vitest 804 · cargo 38 · oxlint 3 warnings（2026-10-24） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-24 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -18,7 +18,7 @@
 一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— **唯一位置**（跨库共用；rev173.5 起取消库内插件）；装卸＝放/删一个文件夹。
 内核 11 原语 + 21 种 UINode + 6 个挂载位 + 真窗口 / 整窗接管。
 内核自带：12 条 Markdown 标记命令（`core.mark.*`，桌面右键「标记」/ 手机键盘上方快捷栏）· 层级文件树（空目录 / 框选 / 拖拽 / 引导线）· 回收站 · 搜索 · 命令面板 · 快速切换 · **桌面「时间流」面板**（rev173.33：侧栏与编辑区之间常驻，卡片与手机起始页同一套）· **增量搜索索引 + 内核事件总线**（rev173.40：`note:saved` 等 9 种事件真派发）· **粘贴图片**（rev173.46：截图 Ctrl+V → 落笔记同目录 → 插入 `![]()`）· **搜索筛选**（rev173.47：标签 / 目录 / 正则，与关键词任意组合）· **全局替换**（rev173.49：`Ctrl+Shift+H`，先试运行再写盘，改前进回收站）· **多标签页**（rev173.50：编辑器顶部标签条，`Ctrl+Tab` 循环 / `Ctrl+W` 关当前；**分屏仍未做**）· **标签拆独立窗口**（rev173.51–54 · rev173.67–68 标题条收尾：标签**拖出**窗口 = 独立窗口，窗口里**只有编辑器**；整条标题栏可拖窗口、文档名居中；**关闭按钮 = 把这篇交回主窗口**（保存 → 通知 → 关窗），拖拽收回手势已按用户要求移除；右键菜单同效；**同一篇同时只在一个窗口里**，主窗口再点会聚焦那个窗口并提示）· **笔记窗口不加载插件**（rev173.60：窗口里跑 30 条内核命令、0 面板、0 插件样式）· **桌面文件监听**（rev173.59：别的程序改盘 → 桌面 1 秒内刷新、手机 3 秒轮询；自己保存不触发回响）· **主窗口记忆**（rev173.61：位置 / 大小 / 最大化在重启后恢复；独立笔记窗口不记忆）· **会话恢复**（rev173.65：崩溃 / HMR 整页重载后启动提示「恢复 / 丢弃」，只留 1 篇 / ≤ 8 KB）。
-**插件预装**：新版 APK 内置 **9** 个常用插件（大纲·导图 / 文档阅读器 / 导入导出 / 米色主题 / 记账 / 标签（rev173.93）/ 反向链接（rev173.95）/ 历史版本（rev173.99）/ **打卡（rev173.103）**；2026-10-19 rev173.29–31 移出 `daily-note` / `editor-marks` / `tag-demo`，**rev173.35 移出 `inspiration-flow`（灵感流，搁置）**）。
+**插件预装**：新版 APK 内置 **11** 个常用插件（大纲·导图 / 文档阅读器 / 导入导出 / 米色主题 / 记账 / 标签（rev173.93）/ 反向链接（rev173.95）/ 历史版本（rev173.99）/ 打卡（rev173.103）/ **同步 · 本地文件夹 + 同步 · WebDAV（rev173.107–109）**；2026-10-19 rev173.29–31 移出 `daily-note` / `editor-marks` / `tag-demo`，**rev173.35 移出 `inspiration-flow`（灵感流，搁置）**）。
 
 ## 验收基线（以输出为准，不写死数字）
 
@@ -29,31 +29,27 @@ pwsh -File scripts\verify.ps1
 
 ## 下个会话第一件事
 
-> **当前主线 = 同步插件**（2026-10-24 方向已定）。两件已拍板：**① 凭据走系统钥匙串**（不是 `.zn/`
-> 明文）· **② 手机接受「前台近实时 + 切回追平」**（不加前台服务）。
+> **同步插件主线已完成（rev173.106–110）**，含真机双向验证。两件已拍板：**① 凭据走系统钥匙串** ·
+> **② 手机接受「前台近实时 + 切回追平」**（不加前台服务）。
 > ✅ **内核地基（rev173.106）**：`net` 原语（Rust 发请求，绕 CORS）· `fs.readBytes/writeBytes` · `host.secrets`。
 > ✅ **第一个后端（rev173.107）**：`sync-folder`（本地文件夹，**不搬文件** —— 库放同步目录，插件只做
 > 「发现外部改动 / 判定双端都改 / 冲突留副本」，判定 = baseline + pending + 20 秒静默期）。
 > ✅ **第二、三个能力（rev173.108–109）**：`sync-webdav`（直连自己的 WebDAV，`_zn/manifest.json`
 > 为权威索引，`PUT` 带 `If-Match`，**前台每 5 秒自动同步**）· **附件三种模式**
 > （不同步 / **中转** —— 对端收到后云端删掉 / 永久）· 两个同步插件都进了内置预装（11 个）。
-> 实测：改远端 / 改本地都是 **9 秒内**自动互通；中转模式下云端副本在对端 ack 后即消失。
+> ✅ **真机双向验证完成（rev173.110 · 2026-10-24）**：坚果云 22:46 恢复（test **207**）→ 桌面改文件
+> **22:47:44 上传 1** → 手机 22:50:25 **下载 4**（手机上出现该篇）→ 手机新建 **23:02 上传 1** → 桌面
+> **23:02:14 落盘** → **全自动 9 秒**（23:06:21 手机新建 → 23:06:30 桌面收到）。同轮修一个静默缺陷：
+> 503 停掉自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false（限流分支 / 测试连接失败），
+> `saveSettings` 也不再整体覆盖（会冲掉 `auto` / `attachments`）。单测 +1 · vitest 804 · verify 6/6。
 > ✅ **已推送**（`0e05ea7..7f05d79`，9 个提交；**git 直连即可，不要设 `HTTPS_PROXY`** —— 2026-10-24 用户实测更正）
 >
-> **当前唯一未完成项 = 真机双向同步的收尾验证**（被坚果云限流打断，非代码问题）：
-> 1. 真机已确认的部分：APK 能编能装 · 启动不崩（rustls provider）· HTTPS 通（内置根证书）·
->    Android Keystore 存取正常 · 手机 test 返回 **207** · **手机 24 篇已上传到 `ZeroNote/`**
-> 2. 卡在哪：清理远端时连发 DELETE 触发坚果云 503（22:22），两端自动同步已关，需等 10–30 分钟
-> 3. 恢复后怎么做（**每次请求间隔 ≥10 秒**，别连发）：
->    ① 单次 PROPFIND `https://dav.jianguoyun.com/dav/ZeroNote/` 看 207
->    ② 桌面 `sync-webdav.toggle-auto` → 手机同样（先 `adb forward tcp:9333 localabstract:webview_devtools_remote_<当前pid>`）
->    ③ 桌面改 `_tmp-vault-tb/导图验收.md` → 等 12s → 远端 GET 确认 → 手机 sync → 看手机上出现该文件
->    ④ 结果写进 HANDOFF
-> 4. 两端 dev 都是**测试数据**（用户 2026-10-24 明确），不需要担心互相污染
->
-> 其它待办：`If-None-Match` 304 短路径（每轮拉 manifest 是完整几 KB）· `sync-folder` 面板的
-> 「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
+> **下一步候选（同步插件收尾项，均非阻塞）**：`If-None-Match` 304 短路径（每轮拉 manifest 是完整几 KB）·
+> `sync-folder` 面板的「启用 / 停用」开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。
 > 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B。
+>
+> 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
+> CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。
 
 0. ✅ **0.4.0 已发版（2026-10-24）**：版本三处（package.json / tauri.conf.json / Cargo.toml）已同步 0.4.0 ·
    CHANGELOG 收口（0.3.0 之后 40 个提交）· README 现状行已更新 · tag `v0.4.0`。
@@ -200,7 +196,7 @@ pwsh -File scripts\verify.ps1
 | 起始页快捷入口（长按 ＋） | ✅ **rev173.20–22**：长按 500ms → **以 ＋ 为圆心**的半圆环（记账 + 4 空位，`0°/±48°/±96°`），短按仍新建；入口按面板 title 找 id；返回键先关遮罩；点空白 click 关闭不穿透。真机 dev 版验收 · 桌面端 v0.2 |
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
-| 同步插件 | 🚧 **内核地基已完成（rev173.106），插件本体待写**：`docs/同步插件-调研与方案-2026-10-24.md` · 目标 = **无感同步**（前台 2–7 秒）· 走 **方案 B**（App 内直连，库放本地普通目录）· **多后端**仿 NoteGen（一期 WebDAV + 本地文件夹 / 二期 S3 / 三期 Git 类，GitHub 走 REST API 且 SHA 自带乐观锁）· 冲突副本 `.zn/conflicts/` · **history 与 sync 合并**（history 存 base，sync 打 `.sync` 标记，二期三方合并）· ✅ **内核三件已就位**：`net`（Rust 发请求，绕 CORS）· `fs.readBytes/writeBytes` · `host.secrets`（系统钥匙串）· ✅ 两件已拍板：**凭据走钥匙串** / **手机接受「前台近实时 + 切回追平」**（不加前台服务）· **下一步 = 写 `sync-webdav` 本体** |
+| 同步插件 | ✅ **完成（rev173.106–110）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾项（非阻塞）**：`If-None-Match` 304 短路径 · `sync-folder` 启用 / 停用开关 · 冲突副本一键打开 · `.zn/` 排除提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |
@@ -231,10 +227,12 @@ pwsh -File scripts\verify.ps1
 ## 环境现状（活信息）
 
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
-- **2026-10-23 环境**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · `zeronote.exe` 2026-10-23 20:26 起）；
+- **2026-10-24 环境**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · `zeronote.exe` pid 9240 起于 21:41）；
   **旧残留已清**（10-21 的 `android-dev.cmd` 树 cmd 31684 / node 23140 / 2920、8791 的 webview-demo server pid 25768 —— 全部 taskkill /T 干净，桌面 dev 未受影响）。
-- **手机状态（2026-10-23 21:42）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug` **已重装**（21:42:17，含原生剪贴板插件；pid **8839**，前端实时取 1420）；
-  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_8839`（换进程后先 `forward --remove` 再按新 pid 重建）。
+- **手机状态（2026-10-24 22:40）**：真机 `33b676f6` 连着，`com.aqua.zeronote.debug`（dev 包，含原生剪贴板插件；pid **12024**，前端实时取 1420）；
+  手机 CDP 转发：`adb forward tcp:9333 localabstract:webview_devtools_remote_12024`（换进程后先 `forward --remove` 再按新 pid 重建）。
+  ⚠️ **手机菜单入口**：☰ **短按 = 抽屉**、**长按 600ms = 菜单**（「同步 · WebDAV」/「命令面板」都在菜单里）；
+  CDP 的 `click` 只能短按，弹菜单要用 `adb shell input motionevent DOWN 69 154` → 等 600ms → `UP 69 154`（物理坐标）。
 - **交接时 dev 状态（2026-10-21 13:45）**：桌面 `dev.cmd` 在跑（vite 1420 · CDP 9222 · cargo/zeronote 起于 02:15）；**Android dev 本轮已起**（真机 `33b676f6`/ARIA，`android-dev.cmd` → `.self-logs/android-dev.log`）。
   ⚠️ **起 android dev 前先清残留**：昨天（10-20 00:54）的 `pnpm tauri android dev`（pid 624/23272）一直持有 Android 构建锁，
   新实例只打一行「Blocking waiting for file lock on Android」然后干等 —— 本轮清掉后才开始编译。库 `_tmp-vault-tb`。

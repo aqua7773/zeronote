@@ -442,3 +442,80 @@ describe('插件接线', () => {
     ])
   })
 })
+
+/**
+ * rev173.110 回归：**限流停自动同步后，开关必须跟实际一致。**
+ *
+ * 真实事故（2026-10-24 真机）：22:27 手机被坚果云 503 打断 ⇒ `stopAuto()` 只清定时器，
+ * `settings.auto` 仍是 true ⇒ 面板一直显示「关闭自动同步 / 自动 · 前台每 5 秒」，
+ * 用户以为还在自动同步，实际已经停了 —— 手机上写的笔记 20 分钟没上传。
+ */
+describe('限流后开关与实际一致（rev173.110）', () => {
+  it('503 停掉自动同步 ⇒ settings.auto 落盘为 false', async () => {
+    const store = new Map<string, unknown>()
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const commands = new Map<string, (payload?: unknown) => unknown>()
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [],
+        readText: async () => '',
+        writeText: async () => {},
+        mkdir: async () => {},
+      },
+      net: {
+        fetch: async () => ({
+          status: 503,
+          headers: {},
+          text: async () => '<s:exception>BlockedTemporarily</s:exception>',
+          bytes: async () => new Uint8Array(),
+        }),
+      },
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 0))
+
+    render!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+      },
+    })
+    await commands.get('sync-webdav.save')!()
+    expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(true)
+
+    await commands.get('sync-webdav.sync')!()
+    expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(false)
+
+    // apply 里 startAuto 挂的 interval 已经由 stopAuto 摘掉；保险起见全清
+    for (const s of api.subscriptions) s.dispose?.()
+  })
+})

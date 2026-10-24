@@ -699,6 +699,16 @@ export default {
          */
         if (/401|403|429|503|unauthorized|forbidden|blocked/i.test(String(e))) {
           stopAuto()
+          /**
+           * 开关显示必须与**实际**一致：`stopAuto()` 只清定时器、不动 `settings.auto`，
+           * 不补这一行面板会一直显示「关闭自动同步 / 自动 · 前台每 5 秒」——
+           * 用户以为还在自动同步，实际已经停了（2026-10-24 真机实测踩到：
+           * 22:27 被 503 停掉后，手机上写的笔记一直没上传）。
+           */
+          if (settings.auto !== false) {
+            settings.auto = false
+            markDirty()
+          }
           summary.hint += '（认证失败或远端限流，已暂停自动同步；稍等 10–30 分钟再手动试）'
         }
         if (!silent) api.host.notify(summary.hint, 'error')
@@ -1049,6 +1059,9 @@ export default {
         return
       }
       settings = {
+        // 保留既有字段：以前整体覆盖会把 `auto` / `attachments` 冲掉 ——
+        // 保存一次设置，附件模式回到「不同步」、自动同步开关也跟着错位（2026-10-24 修）。
+        ...settings,
         baseUrl,
         username: String(form.username ?? '').trim(),
         root: String(form.root ?? '').trim().replace(/^\/+|\/+$/g, ''),
@@ -1091,6 +1104,12 @@ export default {
       } finally {
         // 测试通过才恢复自动同步（失败时保持停着，避免打远端锁号）
         if (ok && settings.baseUrl && settings.auto !== false) startAuto()
+        // 失败 = 自动同步已被上面的 stopAuto() 停掉 ⇒ settings.auto 同步置 false，
+        // 否则面板仍显示「关闭自动同步」（实际停了），用户不会知道要去手动重开。
+        else if (!ok && settings.auto !== false) {
+          settings.auto = false
+          markDirty()
+        }
       }
       api.view.refresh()
     })
