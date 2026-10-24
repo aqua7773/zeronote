@@ -42,6 +42,11 @@ import historyManifest from '../../examples/history/manifest.json?raw'
 // habit（打卡，2026-10-24 rev173.103）
 import habitIndex from '../../examples/habit/index.js?raw'
 import habitManifest from '../../examples/habit/manifest.json?raw'
+// sync-folder（同步 · 本地文件夹，2026-10-24 rev173.107）
+// 用户拍板「加入内置预装」（9 → 10）：库放同步目录的人开箱就能用，
+// 判定与冲突副本全在插件里，内核只提供事件与 fs。
+import syncFolderIndex from '../../examples/sync-folder/index.js?raw'
+import syncFolderManifest from '../../examples/sync-folder/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -79,6 +84,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'habit',
     files: { 'index.js': habitIndex, 'manifest.json': habitManifest },
+  },
+  {
+    id: 'sync-folder',
+    files: { 'index.js': syncFolderIndex, 'manifest.json': syncFolderManifest },
   },
 ]
 

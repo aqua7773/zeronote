@@ -1,0 +1,24 @@
+{
+  "manifestVersion": 1,
+  "id": "sync-webdav",
+  "name": "同步 · WebDAV",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "直连自己的 WebDAV（坚果云 / Nextcloud / 群晖），前台近实时双向同步",
+  "category": "tool",
+  "capabilities": ["fs:read", "fs:write", "doc:read", "store", "event", "command", "view:main", "host", "net"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "sync-webdav.open", "title": "同步：打开 WebDAV 设置与状态" },
+      { "id": "sync-webdav.test", "title": "同步：测试连接" },
+      { "id": "sync-webdav.sync", "title": "同步：立即同步一次" },
+      { "id": "sync-webdav.toggle-auto", "title": "同步：开关自动同步（前台每 5 秒）" },
+      { "id": "sync-webdav.save", "title": "同步：保存 WebDAV 设置" },
+      { "id": "sync-webdav.disconnect", "title": "同步：断开并清除凭据" }
+    ],
+    "panels": [{ "id": "sync-webdav.status", "title": "同步 · WebDAV", "location": "main" }]
+  }
+}

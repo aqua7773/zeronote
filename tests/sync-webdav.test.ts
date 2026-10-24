@@ -1,0 +1,366 @@
+// @vitest-environment happy-dom
+/**
+ * 同步 · WebDAV（`examples/sync-webdav`）—— rev173.108
+ *
+ * 六层：
+ *  1. 指纹（与 sync-folder 同一套判据）
+ *  2. URL 编码 / 拼接（中文、空格、多余斜杠）
+ *  3. Basic 认证头（**中文账号不能靠 btoa 硬编**）
+ *  4. `PROPFIND` XML 解析（命名空间 / 无前缀 / 目录 / 编码过的 href / 坏 XML）
+ *  5. `decideSync` 七种组合（决定了会不会丢字）
+ *  6. 客户端接线（mock `net`：401 提示、412 乐观锁、manifest 读写）
+ */
+import { describe, expect, it, vi } from 'vitest'
+import plugin, {
+  basicAuth,
+  conflictFileName,
+  createDavClient,
+  decideSync,
+  encodeDavPath,
+  fingerprint,
+  joinUrl,
+  normalizeManifest,
+  parsePropfind,
+} from '../examples/sync-webdav/index.js'
+import { fingerprint as syncFolderFingerprint } from '../examples/sync-folder/index.js'
+
+/* ───────────────────────── 1. 指纹 ───────────────────────── */
+
+describe('fingerprint', () => {
+  it('同内容同指纹、变一字就变', () => {
+    expect(fingerprint('a')).toBe(fingerprint('a'))
+    expect(fingerprint('a')).not.toBe(fingerprint('b'))
+  })
+
+  it('与 sync-folder 用同一套算法（两边互认）', () => {
+    // 直接对比两个插件的实现：任一边改了算法这条就红
+    expect(fingerprint('abc')).toBe(syncFolderFingerprint('abc'))
+    expect(fingerprint('# 标题\n中文内容')).toBe(syncFolderFingerprint('# 标题\n中文内容'))
+  })
+})
+
+/* ───────────────────────── 2. URL ───────────────────────── */
+
+describe('encodeDavPath', () => {
+  it('逐段编码，保留 /', () => {
+    expect(encodeDavPath('日记/2026 年 10 月.md')).toBe(
+      '%E6%97%A5%E8%AE%B0/2026%20%E5%B9%B4%2010%20%E6%9C%88.md',
+    )
+  })
+
+  it('去掉空段与前后斜杠', () => {
+    expect(encodeDavPath('/a//b/')).toBe('a/b')
+    expect(encodeDavPath('')).toBe('')
+  })
+})
+
+describe('joinUrl', () => {
+  it('拼地址 + 同步目录 + 相对路径', () => {
+    expect(joinUrl('https://dav.example.com/dav/', 'ZeroNote', 'a.md')).toBe(
+      'https://dav.example.com/dav/ZeroNote/a.md',
+    )
+  })
+
+  it('同步目录为空时不出现双斜杠', () => {
+    expect(joinUrl('https://dav.example.com/dav', '', 'a.md')).toBe('https://dav.example.com/dav/a.md')
+  })
+
+  it('保留协议里的 //', () => {
+    expect(joinUrl('https://x.com', '', '')).toBe('https://x.com')
+  })
+})
+
+/* ───────────────────────── 3. Basic 认证 ───────────────────────── */
+
+describe('basicAuth', () => {
+  it('纯 ASCII：标准 base64', () => {
+    expect(basicAuth('user', 'pass')).toBe(`Basic ${btoa('user:pass')}`)
+  })
+
+  it('中文账号不抛错（btoa 直编会 InvalidCharacterError）', () => {
+    const header = basicAuth('张三', '密码')
+    expect(header.startsWith('Basic ')).toBe(true)
+    // 解回来应当是 UTF-8 的「张三:密码」
+    const bin = atob(header.slice(6))
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
+    expect(new TextDecoder().decode(bytes)).toBe('张三:密码')
+  })
+
+  it('空值也不炸', () => {
+    expect(basicAuth('', '')).toBe(`Basic ${btoa(':')}`)
+  })
+})
+
+/* ───────────────────────── 4. PROPFIND 解析 ───────────────────────── */
+
+const XML_NS = `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/ZeroNote/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/ZeroNote/a.md</d:href>
+    <d:propstat><d:prop>
+      <d:resourcetype/>
+      <d:getetag>"abc123"</d:getetag>
+      <d:getcontentlength>42</d:getcontentlength>
+    </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/ZeroNote/%E6%97%A5%E8%AE%B0/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
+  </d:response>
+</d:multistatus>`
+
+describe('parsePropfind', () => {
+  it('剥掉同步根前缀，返回相对路径（根自身留空串，由 list() 过滤）', () => {
+    const list = parsePropfind(XML_NS, { rootPrefix: '/dav/ZeroNote/' })
+    const paths = list.map((e) => e.path)
+    expect(paths).toContain('a.md')
+    expect(paths).toContain('日记')
+    expect(list.find((e) => e.path === '')?.isDir).toBe(true) // 根
+  })
+
+  it('etag 原样保留（带引号，If-Match 要用同一串）', () => {
+    const list = parsePropfind(XML_NS, { rootPrefix: '/dav/ZeroNote/' })
+    expect(list.find((e) => e.path === 'a.md')?.etag).toBe('"abc123"')
+  })
+
+  it('目录靠 resourcetype 判（不靠 href 结尾的 /）', () => {
+    const list = parsePropfind(XML_NS, { rootPrefix: '/dav/ZeroNote/' })
+    expect(list.find((e) => e.path === '日记')?.isDir).toBe(true)
+    expect(list.find((e) => e.path === 'a.md')?.isDir).toBe(false)
+  })
+
+  it('href 里的中文被解码', () => {
+    const xml = `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/r/%E4%B8%AD%E6%96%87.md</d:href>
+      <d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response></d:multistatus>`
+    expect(parsePropfind(xml, { rootPrefix: '/r/' })[0].path).toBe('中文.md')
+  })
+
+  it('没有命名空间前缀也能解析', () => {
+    const xml = `<multistatus><response><href>/r/b.md</href>
+      <propstat><prop><resourcetype/><getetag>W/"1"</getetag></prop></propstat></response></multistatus>`
+    const list = parsePropfind(xml, { rootPrefix: '/r/' })
+    expect(list[0].path).toBe('b.md')
+    expect(list[0].etag).toBe('W/"1"')
+  })
+
+  it('坏 XML ⇒ 空表（不抛）', () => {
+    expect(parsePropfind('<multistatus><response>', { rootPrefix: '/r/' })).toEqual([])
+    expect(parsePropfind('', {})).toEqual([])
+  })
+
+  it('大小写不同的前缀（D:）也认', () => {
+    const xml = XML_NS.replace(/d:/g, 'D:').replace('xmlns:D', 'xmlns:D')
+    expect(parsePropfind(xml, { rootPrefix: '/dav/ZeroNote/' })).toHaveLength(3)
+  })
+})
+
+/* ───────────────────────── 5. 判定 ───────────────────────── */
+
+describe('decideSync', () => {
+  const base = { fp: 'base' }
+
+  it('远端没有、本地新增 ⇒ push-new', () => {
+    expect(decideSync({ base: null, localFp: 'a', remoteFp: null })).toBe('push-new')
+  })
+
+  it('远端删了、本地没改 ⇒ remote-deleted（跟着删基线）', () => {
+    expect(decideSync({ base, localFp: 'base', remoteFp: null })).toBe('remote-deleted')
+  })
+
+  it('远端删了、本地改过 ⇒ conflict', () => {
+    expect(decideSync({ base, localFp: 'mine', remoteFp: null })).toBe('conflict')
+  })
+
+  it('都没变 ⇒ noop', () => {
+    expect(decideSync({ base, localFp: 'base', remoteFp: 'base' })).toBe('noop')
+  })
+
+  it('只有远端变 ⇒ pull', () => {
+    expect(decideSync({ base, localFp: 'base', remoteFp: 'theirs' })).toBe('pull')
+  })
+
+  it('只有本地变 ⇒ push', () => {
+    expect(decideSync({ base, localFp: 'mine', remoteFp: 'base' })).toBe('push')
+  })
+
+  it('两边都变且不同 ⇒ conflict', () => {
+    expect(decideSync({ base, localFp: 'mine', remoteFp: 'theirs' })).toBe('conflict')
+  })
+
+  it('两边变成同一个内容 ⇒ noop（同一改动各自应用过，不该报冲突）', () => {
+    expect(decideSync({ base, localFp: 'same', remoteFp: 'same' })).toBe('noop')
+  })
+
+  it('远端有、本地没基线 ⇒ pull-new', () => {
+    expect(decideSync({ base: null, localFp: 'x', remoteFp: 'y' })).toBe('pull-new')
+  })
+})
+
+/* ───────────────────────── 6. 冲突名 / manifest ───────────────────────── */
+
+describe('conflictFileName', () => {
+  const at = new Date(2026, 9, 24, 21, 5).getTime()
+
+  it('格式与 sync-folder 一致', () => {
+    expect(conflictFileName('日记/周报.md', at)).toBe('2026-10-24 2105-周报.md')
+  })
+
+  it('同名递增', () => {
+    const taken = new Set(['2026-10-24 2105-周报.md'])
+    expect(conflictFileName('周报.md', at, (n) => taken.has(n))).toBe('2026-10-24 2105-周报-2.md')
+  })
+})
+
+describe('normalizeManifest', () => {
+  it('正常形状原样保留', () => {
+    const m = normalizeManifest('{"version":1,"files":{"a.md":{"fp":"1:x","etag":"\\"e\\"","at":5}}}')
+    expect(m.files['a.md']).toEqual({ fp: '1:x', etag: '"e"', at: 5 })
+  })
+
+  it('坏 JSON / 空 / 缺字段 ⇒ 空表，不抛', () => {
+    expect(normalizeManifest('not json').files).toEqual({})
+    expect(normalizeManifest('').files).toEqual({})
+    expect(normalizeManifest('{"files":{"a.md":{}}}').files).toEqual({})
+    expect(normalizeManifest(null).files).toEqual({})
+  })
+
+  it('丢弃没有 fp 的条目（远端坏数据不污染本地基线）', () => {
+    const m = normalizeManifest({ files: { 'a.md': { etag: 'x' }, 'b.md': { fp: 'f' } } })
+    expect(Object.keys(m.files)).toEqual(['b.md'])
+  })
+})
+
+/* ───────────────────────── 7. 客户端接线 ───────────────────────── */
+
+function davNet(responses: Array<{ status: number; headers?: Record<string, string>; body?: string }>) {
+  const calls: Array<{ url: string; method: string; headers: Record<string, string> }> = []
+  const queue = [...responses]
+  const net = {
+    fetch: vi.fn(async (spec: { url: string; method: string; headers: Record<string, string> }) => {
+      calls.push({ url: spec.url, method: spec.method, headers: spec.headers })
+      const next = queue.shift() ?? { status: 500 }
+      return {
+        status: next.status,
+        headers: next.headers ?? {},
+        text: () => next.body ?? '',
+        bytes: () => new TextEncoder().encode(next.body ?? ''),
+      }
+    }),
+  }
+  return { net, calls }
+}
+
+describe('createDavClient', () => {
+  const cfg = {
+    baseUrl: 'https://dav.example.com/dav/',
+    username: 'me',
+    password: 'secret',
+    root: 'ZeroNote',
+  }
+
+  it('test：207 ⇒ ok；401 ⇒ 明确提示', async () => {
+    const ok = davNet([{ status: 207 }])
+    const client = createDavClient({ ...cfg, net: ok.net })
+    expect((await client.test()).ok).toBe(true)
+
+    const denied = davNet([{ status: 401 }])
+    const r = await createDavClient({ ...cfg, net: denied.net }).test()
+    expect(r.ok).toBe(false)
+    expect(r.hint).toContain('401')
+  })
+
+  it('请求带 Authorization，URL 拼上同步目录', async () => {
+    const { net, calls } = davNet([{ status: 207 }])
+    const client = createDavClient({ ...cfg, net })
+    await client.test()
+    expect(calls[0].url).toBe('https://dav.example.com/dav/ZeroNote')
+    expect(calls[0].headers.Authorization).toBe(basicAuth('me', 'secret'))
+    expect(calls[0].headers.Depth).toBe('0')
+  })
+
+  it('get：404 ⇒ null（不抛）', async () => {
+    const { net } = davNet([{ status: 404 }])
+    const client = createDavClient({ ...cfg, net })
+    await expect(client.get('a.md')).resolves.toBeNull()
+  })
+
+  it('put：412 原样返回（调用方按冲突处理）', async () => {
+    const { net } = davNet([{ status: 412 }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.put('a.md', 'x', '"old"')
+    expect(r.ok).toBe(false)
+    expect(r.status).toBe(412)
+  })
+
+  it('put 成功后带回新 etag', async () => {
+    const { net, calls } = davNet([{ status: 201, headers: { etag: '"new"' } }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.put('a.md', 'x')
+    expect(r).toEqual({ ok: true, status: 201, etag: '"new"' })
+    expect(calls[0].method).toBe('PUT')
+  })
+
+  it('mkdir：逐级 MKCOL，405（已存在）算成功', async () => {
+    const { net, calls } = davNet([{ status: 201 }, { status: 405 }])
+    const client = createDavClient({ ...cfg, net })
+    await client.mkdir('日记/2026')
+    expect(calls.map((c) => c.method)).toEqual(['MKCOL', 'MKCOL'])
+    expect(calls[1].url).toContain('ZeroNote/%E6%97%A5%E8%AE%B0/2026')
+  })
+
+  it('readManifest：远端没有 ⇒ 空表', async () => {
+    const { net } = davNet([{ status: 404 }])
+    const client = createDavClient({ ...cfg, net })
+    expect((await client.readManifest()).files).toEqual({})
+  })
+
+  it('readManifest：有内容就解析', async () => {
+    const body = JSON.stringify({ version: 1, files: { 'a.md': { fp: '1:p', etag: '"e"' } } })
+    const { net } = davNet([{ status: 200, body }])
+    const client = createDavClient({ ...cfg, net })
+    expect((await client.readManifest()).files['a.md'].fp).toBe('1:p')
+  })
+})
+
+describe('插件接线', () => {
+  it('注册主区面板与五条命令', () => {
+    const panels: string[] = []
+    const commands: string[] = []
+    const api = {
+      host: { platform: 'windows', log: () => {}, notify: () => {} },
+      fs: {},
+      net: { fetch: async () => ({ status: 200, headers: {}, text: () => '', bytes: () => new Uint8Array() }) },
+      store: { get: async (_k: string, d: unknown) => d, set: async () => {} },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string }) => {
+          commands.push(c.id)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { id: string }) => {
+          panels.push(s.id)
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [],
+    }
+    plugin.apply(api as never)
+    expect(panels).toEqual(['sync-webdav.status'])
+    expect(commands.sort()).toEqual([
+      'sync-webdav.disconnect',
+      'sync-webdav.open',
+      'sync-webdav.save',
+      'sync-webdav.sync',
+      'sync-webdav.test',
+      'sync-webdav.toggle-auto',
+    ])
+  })
+})
