@@ -55,6 +55,10 @@ import syncWebdavManifest from '../../examples/sync-webdav/manifest.json?raw'
 // 用户「逐项进行」里的第三个后端：AWS S3 / MinIO / R2 / B2 直连。与另两个同步插件并列预装（11 → 12）。
 import syncS3Index from '../../examples/sync-s3/index.js?raw'
 import syncS3Manifest from '../../examples/sync-s3/manifest.json?raw'
+// sync-git（同步 · Git 类，2026-10-25 rev173.122）
+// 第四个后端：GitHub / Gitea / Gitee 的 Contents API（sha 当乐观锁）。12 → 13。
+import syncGitIndex from '../../examples/sync-git/index.js?raw'
+import syncGitManifest from '../../examples/sync-git/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -104,6 +108,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'sync-s3',
     files: { 'index.js': syncS3Index, 'manifest.json': syncS3Manifest },
+  },
+  {
+    id: 'sync-git',
+    files: { 'index.js': syncGitIndex, 'manifest.json': syncGitManifest },
   },
 ]
 

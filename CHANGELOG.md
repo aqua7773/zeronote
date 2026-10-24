@@ -18,6 +18,20 @@
 
 ### Added
 
+- **同步 · Git 类后端 `sync-git`**（rev173.122 · 同步二期第四个、也是最后一个后端）：
+  GitHub / Gitea / Gitee 的 **REST Contents API**（不是 git 协议，不是 push），
+  一个文件一次 GET/PUT，**`sha` 就是乐观锁**（远端变过 ⇒ 平台拒绝 ⇒ 按冲突走三方合并）。
+  - 三个平台的差异收在 `PROVIDERS` 表里：GitHub / Gitea 走 `PUT` + `Bearer`；
+    Gitee 走 `POST` + `token` 头（**Gitee 未实测**，面板上如实标注）。
+  - **base64 两个坑都踩过并测了**：① `btoa(text)` 直编中文会抛 `InvalidCharacterError`
+    ⇒ 走 `TextEncoder` → 手工 base64；② 平台返回的大文件 base64 **每 60 字符插换行**
+    ⇒ 解码前剥掉所有空白（`b64decode` 单测覆盖）。
+  - `parseContents` 的形状**照真实 GitHub 响应写**（2026-10-25 实测
+    `GET /repos/octocat/Hello-World/contents/README` ⇒ `sha: '980a0d5f…'`、`content: 'SGVsbG8gV29ybGQhCg=='`）。
+  - 判定与另外三个同步插件**逐字一致**，同步点 tag = `sync:git`（四个后端各写各的 base）。
+  - 进内置预装（12 → **13**）；示例插件 37 个。单测 +19。
+  - ⚠️ **没实测写路径**：手头没有仓库写权限的令牌，`PUT` / `POST` / `DELETE` 只到 mock 层。
+
 - **同步 · S3 兼容后端 `sync-s3`**（rev173.121 · 同步二期第三个后端）：AWS S3 / MinIO /
   Cloudflare R2 / B2 直连，**自实现 AWS SigV4**（不引 SDK —— 插件的 `net` 原语只发请求）。
   - **签名正确性用 AWS 官方 SDK 的测试向量验证**（`aws-sdk-js/test/signers/v4.spec.js` 的
