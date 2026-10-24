@@ -100,6 +100,14 @@
 
 ### Fixed
 
+- **`test()` 的「404 自动建目录」会多建一层**（rev173.118）：`mkdirPath(root)` 传的是「相对同步根」
+  的路径，而 `request()` 又经 `urlFor()` 再拼一次 `root` ⇒ 实际 MKCOL `<根>/<root>/<root>`。
+  连接测试在「同步目录第一次不存在」时会顺手在远端建出一个空的 `ZeroNote/ZeroNote` 子目录
+  （rev173.117 实测发现）。新增 `mkdirRoot()`（用不含 root 的 URL 逐级 MKCOL），
+  单测 +3（单层 / 多级 `a/b` / 405 已存在）。实测（本地 DAV 桩）请求序列：
+  `PROPFIND /dav/ZeroNote` → **`MKCOL /dav/ZeroNote`** → `PROPFIND /dav/ZeroNote`。
+  `sync-webdav` 0.2.1 → **0.2.2**。
+
 - **写 `.zn/` 下的 `.md` 不再发 `note:saved`、也不进搜索索引**（rev173.107）：历史快照与同步
   影子副本都是 `.md`，此前会被当成"用户保存了笔记"—— 同步插件立刻踩到：每写一份影子副本又
   触发一次保存，几秒内 1900 多次 `writeText`（自我递归），索引里还会多出幽灵版本。

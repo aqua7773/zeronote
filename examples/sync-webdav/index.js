@@ -385,7 +385,7 @@ export function createDavClient(cfg) {
       timeoutMs,
     })
 
-  /** 建目录（逐级）；405 = 已存在算成功。`test()` 的 404 自动创建与 sync 里上传前都靠它 */
+  /** 建目录（逐级）；405 = 已存在算成功。sync 里上传前靠它建 `<根>/<父目录>` */
   const mkdirPath = async (rel) => {
     const parts = String(rel ?? '')
       .split('/')
@@ -394,6 +394,31 @@ export function createDavClient(cfg) {
     for (const part of parts) {
       acc = acc ? `${acc}/${part}` : part
       const res = await request('MKCOL', acc)
+      if (![200, 201, 204, 405].includes(res.status)) {
+        throw new Error(`建目录失败（${res.status}）：${acc}`)
+      }
+    }
+  }
+
+  /**
+   * 建**同步根本身**（逐级 MKCOL；405 = 已存在算成功）。
+   *
+   * ⚠️ **不能复用 `mkdirPath`**（rev173.118 修）：它收的是「相对同步根」的路径，而
+   * `request()` 又会经 `urlFor()` 再拼一次 `root` —— `mkdirPath(root)` 实际会去建
+   * `<根>/<root>/<root>`，实测在远端多出一个空的 `ZeroNote/` 子目录（rev173.117 实测发现）。
+   * 这里直接用「不含 root」的 URL 拼法。
+   */
+  const mkdirRoot = async () => {
+    const parts = root.split('/').filter(Boolean)
+    let acc = ''
+    for (const part of parts) {
+      acc = acc ? `${acc}/${part}` : part
+      const res = await cfg.net.fetch({
+        url: joinUrl(baseUrl, '', acc),
+        method: 'MKCOL',
+        headers: { Authorization: auth },
+        timeoutMs: 30000,
+      })
       if (![200, 201, 204, 405].includes(res.status)) {
         throw new Error(`建目录失败（${res.status}）：${acc}`)
       }
@@ -423,7 +448,7 @@ export function createDavClient(cfg) {
       let created = false
       if (res.status === 404 && root) {
         try {
-          await mkdirPath(root)
+          await mkdirRoot()
           res = await probe()
           created = res.status === 207 || res.status === 200
         } catch {

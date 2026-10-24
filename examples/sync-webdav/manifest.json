@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "sync-webdav",
   "name": "同步 · WebDAV",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

@@ -649,6 +649,37 @@ describe('附件也走 304（rev173.117）', () => {
     expect(r.etag).toBe('"e2"')
   })
 
+  /* rev173.118 · test() 自动建目录不能多拼一层 */
+
+  it('test：404 自动建目录建的是「同步根」本身，不再多出一层', async () => {
+    const { net, calls } = davNet([{ status: 404 }, { status: 201 }, { status: 207 }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.test()
+    expect(r).toMatchObject({ ok: true, status: 207 })
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'PROPFIND https://dav.example.com/dav/ZeroNote',
+      // 修复前这里是 …/ZeroNote/ZeroNote（实测会在远端多出一个空目录）
+      'MKCOL https://dav.example.com/dav/ZeroNote',
+      'PROPFIND https://dav.example.com/dav/ZeroNote',
+    ])
+  })
+
+  it('test：多级同步目录逐级建（a/b ⇒ 两次 MKCOL）', async () => {
+    const { net, calls } = davNet([{ status: 404 }, { status: 201 }, { status: 201 }, { status: 207 }])
+    await createDavClient({ ...cfg, root: 'a/b', net }).test()
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'PROPFIND https://dav.example.com/dav/a/b',
+      'MKCOL https://dav.example.com/dav/a',
+      'MKCOL https://dav.example.com/dav/a/b',
+      'PROPFIND https://dav.example.com/dav/a/b',
+    ])
+  })
+
+  it('test：目录已存在（405）也算建成功路径走通', async () => {
+    const { net } = davNet([{ status: 404 }, { status: 405 }, { status: 207 }])
+    expect((await createDavClient({ ...cfg, net }).test()).ok).toBe(true)
+  })
+
   it('needsAttachmentPull：远端没有 / 一致 / 换过 / 已清理', () => {
     // 本地没有 ⇒ 拉
     expect(needsAttachmentPull(null, { fp: 'a' })).toBe(true)

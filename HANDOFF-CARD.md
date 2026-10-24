@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.117）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.118）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.117 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 841 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.118 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 844 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -70,6 +70,11 @@ pwsh -File scripts\verify.ps1
 > 「本地被改坏、远端没动」，此时**不覆盖本地文件**）· ③ **本地指纹缓存**（`mtime`+`size` 未变不重读，
 > 以前每 5 秒把全部图片读一遍）· ④ 面板「用时 + manifest / 笔记 / 附件」三段，`sync-folder` 的
 > 「上次检查」也带用时 · 单测 833 → **841** · `sync-webdav` 0.2.1。
+>
+> ✅ **修 `test()` 自动建目录多拼一层（rev173.118）**：`mkdirPath(root)` 又经 `urlFor()` 拼一次 root
+> ⇒ 实际 MKCOL `<根>/ZeroNote/ZeroNote`（逐级建让第一级把目标建出来了，`test()` 仍返回 ok，问题静默）。
+> 新增 `mkdirRoot()`（`joinUrl(baseUrl,'',acc)` 逐级），实测请求序列 `PROPFIND /dav/ZeroNote` →
+> `MKCOL /dav/ZeroNote` → `PROPFIND /dav/ZeroNote` · 单测 841 → **844** · `sync-webdav` 0.2.2。
 >
 > **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）· 同步耗时也记历史（画趋势）·
 > 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
