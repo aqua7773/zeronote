@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.118）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.119）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.118 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 844 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.119 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 849 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -76,7 +76,12 @@ pwsh -File scripts\verify.ps1
 > 新增 `mkdirRoot()`（`joinUrl(baseUrl,'',acc)` 逐级），实测请求序列 `PROPFIND /dav/ZeroNote` →
 > `MKCOL /dav/ZeroNote` → `PROPFIND /dav/ZeroNote` · 单测 841 → **844** · `sync-webdav` 0.2.2。
 >
-> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）· 同步耗时也记历史（画趋势）·
+> ✅ **同步耗时历史与趋势（rev173.119）**：`timing.v1` 落 store（最多 50 条，重启后还在）·
+> **只记「有变化」的轮次与手动同步**（静默空转轮不记，否则趋势全是噪声）· 面板
+> `最近 N 次：平均 / 最慢` + 字符 sparkline `▁▂▃▄▅▆▇█`（最后 24 条，全相等用 `▄`）·
+> **趋势行画在 `lastResult` 之外** ⇒ 重开 App 也能看到 · 单测 844 → **849** · `sync-webdav` 0.3.0。
+>
+> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）·
 > 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
 > `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B / §6.2。
 >

@@ -39,6 +39,8 @@ const KEY_SETTINGS = 'settings.v1'
 const KEY_BASELINE = 'baseline.v1'
 const KEY_CONFLICTS = 'conflicts.v1'
 const KEY_DEVICE = 'device.v1'
+/** 最近若干次同步的耗时（rev173.119，画趋势用） */
+const KEY_TIMING = 'timing.v1'
 const SECRET_KEY = 'sync.webdav.password'
 
 const CONFLICT_ROOT = '.zn/conflicts'
@@ -50,6 +52,13 @@ const MAX_FILES_PER_RUN = 200
 const AUTO_MS = 5000
 /** 冲突记录上限 */
 const MAX_CONFLICTS = 100
+/**
+ * 耗时历史上限（rev173.119）。
+ *
+ * 只记「有变化」的轮次与手动同步 —— 静默的空转轮 5 秒一条，会把趋势冲成一条平线，
+ * 而用户真正想看的是"有活干那几轮要多久"。
+ */
+const MAX_TIMING = 50
 
 /* ───────────────────────── 纯函数（tests/sync-webdav.test.ts 单测） ───────────────────────── */
 
@@ -350,6 +359,62 @@ export function fmtMs(ms) {
 }
 
 /**
+ * 追加一条耗时记录（rev173.119）。
+ *
+ * `limit` 之外的旧记录丢掉 —— 面板只需要看最近的趋势，不是审计日志。
+ * 非数组 / 坏条目一律容错成空表起步（store 里的数据可能是上一版写的）。
+ */
+export function pushTiming(history, entry, limit = MAX_TIMING) {
+  const list = Array.isArray(history) ? history.filter((e) => e && typeof e === 'object') : []
+  const next = [...list, entry]
+  return next.length > limit ? next.slice(next.length - limit) : next
+}
+
+/**
+ * 最近若干次的耗时摘要（rev173.119）：`{ count, avg, max }`。
+ * 没有可用记录返回 `null`（面板据此决定画不画这一行）。
+ */
+export function timingSummary(history) {
+  const list = (Array.isArray(history) ? history : []).filter((e) => e && Number.isFinite(e.total))
+  if (!list.length) return null
+  let sum = 0
+  let max = 0
+  for (const e of list) {
+    sum += e.total
+    if (e.total > max) max = e.total
+  }
+  return { count: list.length, avg: Math.round(sum / list.length), max: Math.round(max) }
+}
+
+/** sparkline 的八档字符（低 → 高） */
+const SPARK = '▁▂▃▄▅▆▇█'
+
+/**
+ * 字符 sparkline（rev173.119）：把一组耗时映射成 `▁▂▃▄▅▆▇█` 的走势。
+ *
+ * 三条约定（都对应一个"画出来会误导人"的坑）：
+ * · 只取**最后 `width` 个** —— 趋势看最近的，早期的慢轮不该压扁现在的波形；
+ * · 全部相等时用中间档（`▄`）—— `min === max` 除零会得到 `NaN` 索引、直接崩；
+ * · 最大值 ≤ 0（异常数据）时全用最低档，不抛错。
+ */
+export function sparkline(values, width = 24) {
+  const nums = (Array.isArray(values) ? values : []).filter((v) => Number.isFinite(v))
+  if (!nums.length) return ''
+  const tail = nums.slice(-Math.max(1, width))
+  const min = Math.min(...tail)
+  const max = Math.max(...tail)
+  if (max <= 0) return SPARK[0].repeat(tail.length)
+  const span = max - min
+  return tail
+    .map((v) => {
+      if (span === 0) return SPARK[3]
+      const i = Math.round(((v - min) / span) * (SPARK.length - 1))
+      return SPARK[Math.max(0, Math.min(SPARK.length - 1, i))]
+    })
+    .join('')
+}
+
+/**
  * 中转文件 / ack 标记的**远端文件名**。
  *
  * ⚠️ **必须把指纹里的 `:` 换掉**（rev173.109 实测）：`fingerprint` 的格式是 `<长度>:<散列>`，
@@ -633,6 +698,11 @@ export default {
      * 下载时带 `If-None-Match`，远端没变就 304（省一次完整传输）。
      */
     const attEtag = new Map()
+    /**
+     * 最近若干次同步的耗时（rev173.119）：`{ at, total, manifest, notes, attachments }[]`。
+     * 落 store，重启后趋势还在（面板画 sparkline + 平均 / 最慢）。
+     */
+    let timingHistory = []
     let conflicts = []
     /**
      * 进程内已确认存在「同步点」的路径（rev173.115）。
@@ -1000,6 +1070,15 @@ export default {
         // 失败也记耗时（面板要能看出"卡在哪个阶段"）
         summary.ms = { ...timing, total: Date.now() - t0 }
         const changed = summary.pulled + summary.pushed + summary.merged + summary.conflicts + summary.removed > 0
+        /**
+         * 耗时历史（rev173.119）：只记**有变化**的轮次与手动同步。
+         * 静默的空转轮每 5 秒一条，50 条只够覆盖 4 分钟，而且全是"没活干"的噪声 ——
+         * 那样的趋势图看不出任何东西。
+         */
+        if (changed || !silent) {
+          timingHistory = pushTiming(timingHistory, { at: Date.now(), ...summary.ms })
+          void api.store.set(KEY_TIMING, timingHistory).catch((e) => api.host.log('warn', `耗时历史写入失败：${String(e)}`))
+        }
         lastResult = { ...summary, at: Date.now() }
         // 自动轮询下「什么都没变」不刷面板（每 5 秒重渲染会把用户正在填的表单刷掉）
         if (!silent || changed) api.view.refresh()
@@ -1382,6 +1461,26 @@ export default {
         }
       }
 
+      /**
+       * 耗时趋势（rev173.119）：最近若干次的平均 / 最慢 + 一条 sparkline。
+       *
+       * **刻意放在 `lastResult` 之外**：历史是落 store 的，重启 / 重开面板后
+       * `lastResult`（本进程的内存值）是空的 —— 挂在里面就等于"每次开 App 都看不到趋势"。
+       * 只有 1 条记录时不画（单点没有"趋势"可言）。
+       */
+      const trend = timingSummary(timingHistory)
+      if (trend && trend.count > 1) {
+        if (!lastResult) children.push({ type: 'divider' })
+        children.push({
+          type: 'text',
+          value: `最近 ${trend.count} 次：平均 ${fmtMs(trend.avg)} · 最慢 ${fmtMs(trend.max)}`,
+          variant: 'caption',
+          tone: 'muted',
+        })
+        const line = sparkline(timingHistory.map((e) => e.total))
+        if (line) children.push({ type: 'code', value: line })
+      }
+
       if (conflicts.length > 0) {
         children.push({ type: 'divider' })
         children.push({ type: 'text', value: '冲突记录', variant: 'title' })
@@ -1560,6 +1659,7 @@ export default {
         settings = { ...settings, ...((await api.store.get(KEY_SETTINGS, {})) ?? {}) }
         baseline = (await api.store.get(KEY_BASELINE, {})) ?? {}
         conflicts = (await api.store.get(KEY_CONFLICTS, [])) ?? []
+        timingHistory = (await api.store.get(KEY_TIMING, [])) ?? []
       } catch (e) {
         api.host.log('warn', `同步设置读取失败：${String(e)}`)
       }

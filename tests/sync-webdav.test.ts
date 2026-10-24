@@ -27,7 +27,10 @@ import plugin, {
   needsAttachmentPull,
   normalizeManifest,
   parsePropfind,
+  pushTiming,
   relayName,
+  sparkline,
+  timingSummary,
   tryAutoMerge,
 } from '../examples/sync-webdav/index.js'
 import { mergeLines } from '../src/lib/merge3'
@@ -703,6 +706,44 @@ describe('附件也走 304（rev173.117）', () => {
   })
 })
 
+/* ─────────────── rev173.119 · 耗时历史与趋势 ─────────────── */
+
+describe('耗时历史与趋势（rev173.119）', () => {
+  it('pushTiming：追加；超过上限丢最早的', () => {
+    let h: Array<{ total: number }> = []
+    h = pushTiming(h, { total: 1 }, 3)
+    h = pushTiming(h, { total: 2 }, 3)
+    expect(h.map((e) => e.total)).toEqual([1, 2])
+
+    const limited = [1, 2, 3, 4].reduce<Array<{ total: number }>>((acc, n) => pushTiming(acc, { total: n }, 3), [])
+    expect(limited.map((e) => e.total)).toEqual([2, 3, 4])
+  })
+
+  it('pushTiming：坏数据（非数组 / null 条目）不炸', () => {
+    expect(pushTiming(null, { total: 5 }, 3).map((e) => e.total)).toEqual([5])
+    expect(pushTiming([null, { total: 1 }], { total: 2 }, 3).map((e) => e.total)).toEqual([1, 2])
+  })
+
+  it('timingSummary：空 ⇒ null；有记录 ⇒ 平均与最慢；坏条目忽略', () => {
+    expect(timingSummary([])).toBeNull()
+    expect(timingSummary(null)).toBeNull()
+    expect(timingSummary([{ total: 100 }, { total: 300 }])).toEqual({ count: 2, avg: 200, max: 300 })
+    expect(timingSummary([{ total: 100 }, { total: 'x' }, null])).toEqual({ count: 1, avg: 100, max: 100 })
+  })
+
+  it('sparkline：条数 = 数值个数；全相等用中间档；空 ⇒ 空串', () => {
+    expect([...sparkline([100, 200, 300])].length).toBe(3)
+    expect(sparkline([5, 5, 5])).toBe('▄▄▄')
+    expect(sparkline([])).toBe('')
+  })
+
+  it('sparkline：只取最后 width 个（早期慢轮不该压扁当前的波形）', () => {
+    expect([...sparkline([999, 1, 2, 3], 3)].length).toBe(3)
+    // 异常数据（全 0 / 负数）也不抛
+    expect(sparkline([0, 0])).toBe('▁▁')
+  })
+})
+
 /** 递归收集 UINode 树里所有 badge 的文本（断言面板真的画了耗时） */
 function collectBadges(node: unknown, out: string[] = []): string[] {
   if (!node || typeof node !== 'object') return out
@@ -712,12 +753,23 @@ function collectBadges(node: unknown, out: string[] = []): string[] {
   return out
 }
 
+/** 递归收集 UINode 树里的字符串内容（text.value / code.value） */
+function collectTexts(node: unknown, out: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return out
+  const n = node as { value?: unknown; children?: unknown[] }
+  if (typeof n.value === 'string') out.push(n.value)
+  if (Array.isArray(n.children)) for (const c of n.children) collectTexts(c, out)
+  return out
+}
+
 describe('同步的实际行为（rev173.117）', () => {
   it('第二轮不重读没变过的附件，面板给出耗时拆分', async () => {
     const store = new Map<string, unknown>()
     const commands = new Map<string, (payload?: unknown) => unknown>()
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
     const readBytesCalls: string[] = []
+    /** 本地附件的当前状态（第三轮改它，模拟「用户换了同一路径的图」） */
+    const local = { mtime: 1, size: 3, bytes: new Uint8Array([1, 2, 3]) }
     /** 远端 manifest 的持久状态（PUT 写、GET 读；带 ETag 让第二轮能走 304） */
     let manifestBody = ''
     let manifestVersion = 0
@@ -754,10 +806,12 @@ describe('同步的实际行为（rev173.117）', () => {
         secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
       },
       fs: {
-        listNotes: async () => [{ path: 'a.png', id: 'a', title: 'a', mtime: 1, size: 3, frontmatter: {}, kind: 'doc' }],
+        listNotes: async () => [
+          { path: 'a.png', id: 'a', title: 'a', mtime: local.mtime, size: local.size, frontmatter: {}, kind: 'doc' },
+        ],
         readBytes: async (p: string) => {
           readBytesCalls.push(p)
-          return new Uint8Array([1, 2, 3])
+          return local.bytes
         },
         writeBytes: async () => {},
         readText: async () => '',
@@ -808,10 +862,20 @@ describe('同步的实际行为（rev173.117）', () => {
     await commands.get('sync-webdav.sync')!()
     expect(readBytesCalls).toEqual(['a.png'])
 
-    // 面板画了耗时（总 + 阶段）
-    const badges = collectBadges(render!({ state }))
+    // 第三轮：本地换图（mtime 变）⇒ 有变化 ⇒ 这一轮也会被记进耗时历史
+    local.mtime = 2
+    local.bytes = new Uint8Array([9, 9, 9])
+    await commands.get('sync-webdav.sync')!()
+    expect(readBytesCalls).toEqual(['a.png', 'a.png'])
+
+    // 面板画了耗时（总 + 阶段），并且画出了「最近 2 次」的趋势
+    const ui = render!({ state })
+    const badges = collectBadges(ui)
     expect(badges.some((t) => t.startsWith('用时 '))).toBe(true)
     expect(badges.some((t) => t.startsWith('manifest '))).toBe(true)
+    // 三轮都是手动同步 ⇒ 手动轮一律进历史（无变化的静默轮才跳过）
+    const texts = collectTexts(ui)
+    expect(texts.some((t) => t.startsWith('最近 3 次'))).toBe(true)
 
     for (const s of api.subscriptions) s.dispose?.()
   })
