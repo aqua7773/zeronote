@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.124）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.125）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.124 · 0.4.0 · 2026-10-25 |
+| rev / 版本 | rev173.125 · 0.4.0 · 2026-10-25 |
 | 测试基线 | vitest 895 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
