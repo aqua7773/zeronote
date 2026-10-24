@@ -112,9 +112,16 @@ pwsh -File scripts\verify.ps1
 > 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 耗时 19ms / 清理干净 ·
 > **无代码改动** · 未覆盖：真实 AWS/R2、S3 版无 `If-Match`（远端被绕过 manifest 改过会静默覆盖）。
 >
-> **下一步可选**：真实 S3 服务（AWS / R2 / 阿里云 OSS，需要凭据）· Gitee 分支实测 ·
-> S3 的 `If-Match` 条件写 · S3/Git 的附件同步 · `!base` 判据的「store 丢失会覆盖本地」隐患
-> （要四个插件一起改）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
+> ✅ **S3 真机验收完成（rev173.125 · 真实 `rclone serve s3`）**：MinIO 二进制 410、R2 要绑卡
+> ⇒ 装 **rclone 1.75.1** 当本机 S3 服务（`--auth-key` 自带 SigV4 验签，桶名 = 数据目录子目录）·
+> 下载走 `downloads.rclone.org`（384 KB/s；GitHub 仅 61 KB/s、ghfast 超时）· 装在
+> `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与软件清单（114 → **115** 项）·
+> 13 项全过（真 fs + 真 HTTP + 真 mergeLines）· 坑：**桶目录必须先存在**、`--dir-cache-time 0s` ·
+> **无代码改动** · 服务未常驻（用户明确「测试完成就行」，启动命令见 HANDOFF 该段）。
+>
+> **下一步可选**：Gitee 分支实测（没账号令牌）· S3 的 `If-Match` 条件写 · S3/Git 的附件同步 ·
+> `!base` 判据的「store 丢失会覆盖本地」（要四个插件一起改）· S3/Git 手机端实测（要真机装新 znp）。
+> 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
 > CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。
