@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.128）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.129）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.128 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 909 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.129 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 914 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -139,7 +139,16 @@ pwsh -File scripts\verify.ps1
 > （store 丢失 + 本地改过 ⇒ 副本 = local-mine；store 丢失但内容相同 ⇒ 不 GET 正文）· 反向验证：
 > 改回 `pull-new` 两条立即红 · 单测 907 → **909** · verify 6/6。
 >
-> **下一步可选**：S3 的 `If-Match` 条件写 · S3/Git 手机端实测（要真机装新 znp）·
+> ✅ **S3 条件写 `If-Match`（rev173.129）**：笔记 PUT 在「远端已有这篇 + manifest 记了 etag」时带
+> `If-Match` —— 远端被绕过 manifest 改过（网页手改 / 另一台崩在半路）⇒ **412** ⇒ 统一冲突处理
+> （**重读远端 → 刷新 manifest 条目** → 能合就合 / 合不上留副本取远端），不再静默覆盖 ·
+> 409 ⇒ 取新 ETag 重试一次 · 服务端把该头当坏请求（400）⇒ 自动降级重试不带条件 + hint ·
+> 顺带修 manifest 回写条件（补 `manifestChanged`，否则 412 刷新后不回写、下一轮重复撞）·
+> **真机（rclone 1.75.1）**：rclone **忽略** `If-Match`（过期 etag 照写 200）⇒ 退化为旧行为、不会坏；
+> 带该头的 PUT 通过验签 · 坑：`--auth-key` 的 accessKey 太短（`k`）⇒ 403 InvalidAccessKeyId ·
+> 新增 5 条单测（客户端 2 + 端到端 3，含 strict / reject / ignore 三种服务端）· 单测 909 → **914** · verify 6/6。
+>
+> **下一步可选**：S3/Git 手机端实测（要真机装新 znp）·
 > Gitee 分支实测（没账号令牌）·
 > 坚果云附件回归（开 dev 时顺手：桌面改图 → 手机看得到）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
 >
@@ -295,6 +304,7 @@ pwsh -File scripts\verify.ps1
 | 同步 · 附件（S3 / Git / WebDAV） | ✅ **rev173.126–127**：三个后端都是 off / relay / full（同一协议）· 内容级判定 + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0 · **真机：S3 15/15（rclone）· Git 13/13（真实 GitHub 私有仓库）** · 5 个静默 bug 已修（前缀路径 / list key / Git manifest 丢 attachments / GitHub `content` 二进制有损 / 先推后拉互相覆盖）· **rev173.127**：`sync-webdav` 也改成先拉后推 + 方向判定 + 条目 `mode`，另修「`{fp,bytes}` 对象当指纹」· 单测 **907** · ⚠️ webdav 只有单测证据（没真机） |
 | 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ⚠️ 观察项：`note:saved` 与 `note:changed` 有竞争（冷启动首次可能丢 pending）· **未做**：history 防抖触发（合并不需要）/ 内核级「插件写盘不触发 note:saved」（另议） |
 | 同步 · 基线丢失 | ✅ **rev173.128**：`!base && remoteFp != null` 不再一律 `pull-new` —— 两边指纹相同 ⇒ `noop`、不同 ⇒ `conflict`（本机版先留副本再取远端）· 三个网络后端一起改，`sync-folder` 不涉及 · store 被清 / 换设备后本地改动不再被静默覆盖 · 新增 2 条端到端用例 + 反向验证 · 单测 **909** |
+| 同步 · S3 条件写 | ✅ **rev173.129**：笔记 PUT 带 `If-Match`（远端已有这篇 + manifest 记了 etag 时）· 412 ⇒ 冲突处理 + **刷新 manifest 条目**（否则下一轮重复撞）· 409 ⇒ 取新 ETag 重试一次 · 400 ⇒ 自动降级重试 · `push-new` 不带条件 · **真机 rclone 忽略该头 ⇒ 退化为旧行为**（带头的 PUT 通过验签）· 单测 **914** |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |

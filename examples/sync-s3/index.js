@@ -21,6 +21,9 @@
  *    但很多 S3 兼容实现不支持。所以这里**默认不用 `If-Match`**，
  *    冲突判定完全靠 manifest 的指纹（与 WebDAV 版同一个判据），
  *    服务端支持时靠 manifest 的 `etag` 兜一层 —— 见 `decideSync` 的注释。
+ *    **rev173.129**：笔记 PUT 在「远端已有这篇且 manifest 记了 etag」时带 `If-Match`
+ *    （412 ⇒ 走冲突处理并刷新 manifest；409 ⇒ 取新 ETag 重试一次）。
+ *    不支持该头的实现会忽略它 ⇒ 行为与以前一致；`push-new` 仍不带条件。
  *
  * ## 签名
  *
@@ -553,14 +556,30 @@ export function createS3Client(cfg, opts = {}) {
       return { data: res.bytes(), etag: res.headers?.etag ?? null }
     },
 
-    /** 写文本；返回 `{ ok, status, etag }`（4xx 不抛，调用方判断） */
+    /**
+     * 写文本；返回 `{ ok, status, etag, precondition, conflict409 }`（4xx 不抛，调用方判断）。
+     *
+     * `opts.ifMatch`（rev173.129）= 条件写：只有远端对象的 ETag 与它相等才写，否则 **412**。
+     * 头参与 SigV4 签名（`request()` 把所有传入头都签）—— AWS 允许签额外头，值必须一致。
+     */
     async put(key, text, opts = {}) {
+      const extraHeaders = {}
+      if (opts.ifMatch) extraHeaders['if-match'] = String(opts.ifMatch)
       const res = await request('PUT', key, {
         body: typeof text === 'string' ? text : String(text ?? ''),
         contentType: opts.contentType ?? 'text/markdown; charset=utf-8',
+        extraHeaders,
       })
       const ok = res.status === 200 || res.status === 201 || res.status === 204
-      return { ok, status: res.status, etag: res.headers?.etag ?? null }
+      return {
+        ok,
+        status: res.status,
+        etag: res.headers?.etag ?? null,
+        /** 412 = ETag 不匹配（远端被绕过 manifest 改过 / 另一台刚写过） */
+        precondition: res.status === 412,
+        /** 409 ConditionalRequestConflict = 同一对象并发写撞车（AWS 要求取新 ETag 重试） */
+        conflict409: res.status === 409,
+      }
     },
 
     async putBytes(key, bytes) {
@@ -928,7 +947,75 @@ export default {
         const notes = await api.fs.listNotes()
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
+        /** manifest 条目被刷新过（412 / 绕过 manifest 的远端改动）⇒ 本轮必须回写 */
+        let manifestChanged = false
         let processed = 0
+
+        /**
+         * 冲突处理（rev173.129）。两个入口共用：
+         *   ① `decideSync === 'conflict'`（manifest 已显示双端都改）
+         *   ② `PUT` 返回 **412**（manifest 的 etag 过期 ⇒ 远端被"绕过 manifest"改过，
+         *      比如网页控制台手改 / 另一台设备崩在半路）
+         *
+         * 先**重读远端**把 manifest 条目刷成最新，再决定合并 / 留副本 ——
+         * 不刷新的话下一轮还会拿同一个过期 etag 去撞 412（Git 后端 rev173.123 踩过同款死循环）。
+         */
+        const resolveConflict = async (n, localText, remoteEntry) => {
+          let fresh = null
+          try {
+            fresh = await client.get(n.path)
+          } catch {
+            fresh = null
+          }
+          const remoteText = fresh && typeof fresh.text === 'string' ? fresh.text : null
+          const remoteEtag = fresh?.etag ?? remoteEntry?.etag ?? null
+          if (remoteText === null) {
+            summary.hint = `远端已删除：${n.path}`
+            summary.conflicts += 1
+            return
+          }
+          const freshFp = fingerprint(remoteText)
+          if (remoteEntry?.fp !== freshFp || remoteEntry?.etag !== remoteEtag) {
+            nextFiles[n.path] = { fp: freshFp, etag: remoteEtag ?? undefined, at: Date.now() }
+            manifestChanged = true
+          }
+          const merged = await autoMerge(client, n.path, localText)
+          if (merged) {
+            let wrote = false
+            try {
+              await api.fs.writeText(n.path, merged.text, { origin: 'plugin' })
+              wrote = true
+            } catch (e) {
+              api.host.log('warn', `合并结果落盘失败（${n.path}）：${String(e)}`)
+            }
+            if (wrote) {
+              // 合并结果回推也带条件：远端这期间若又被改，412 ⇒ 本轮留 hint，下一轮再合
+              const res2 = await client.put(n.path, merged.text, { ifMatch: remoteEtag })
+              if (res2.ok) {
+                const fp = fingerprint(merged.text)
+                baseline[n.path] = { fp, etag: res2.etag }
+                nextFiles[n.path] = { fp, etag: res2.etag ?? undefined, at: Date.now() }
+                manifestChanged = true
+                baseMarked.add(n.path)
+                await markBase(n.path, merged.text)
+                summary.merged += 1
+                api.host.notify(`已自动合并：${n.path}`, 'info')
+                return
+              }
+              summary.hint = `合并结果未能上传（${res2.status}）：${n.path}`
+            }
+            summary.conflicts += 1
+            return
+          }
+          await keepConflict(n.path, '双端修改')
+          summary.conflicts += 1
+          await api.fs.writeText(n.path, remoteText, { origin: 'plugin' })
+          const fp = fingerprint(remoteText)
+          baseline[n.path] = { fp, etag: remoteEtag }
+          baseMarked.add(n.path)
+          await markBase(n.path, remoteText)
+          summary.pulled += 1
+        }
 
         for (const n of notes) {
           if (!/\.md$/i.test(n.path)) continue
@@ -966,7 +1053,36 @@ export default {
             continue
           }
           if (verdict === 'push' || verdict === 'push-new') {
-            const res = await client.put(n.path, localText)
+            /**
+             * 条件写（rev173.129）：只有「远端已有这篇 + manifest 记了 etag」才带 `If-Match`。
+             * - 服务端支持 ⇒ 远端被绕过 manifest 改过时回 412，**不会静默覆盖**；
+             * - 服务端忽略该头 ⇒ 行为与以前完全一致（不会变坏）。
+             * `push-new` 不带条件：`If-None-Match: *` 在 S3 兼容实现上的支持面更窄。
+             */
+            const ifMatch = verdict === 'push' && remoteEntry?.etag ? remoteEntry.etag : null
+            let res = await client.put(n.path, localText, { ifMatch })
+            if (res.conflict409) {
+              // 并发写撞车：AWS 要求取对象新 ETag 再试一次（只重试一次，避免死循环）
+              let fresh = null
+              try {
+                fresh = await client.get(n.path)
+              } catch {
+                fresh = null
+              }
+              res = await client.put(n.path, localText, { ifMatch: fresh?.etag ?? null })
+            }
+            if (res.precondition) {
+              await resolveConflict(n, localText, remoteEntry)
+              continue
+            }
+            if (!res.ok && ifMatch && res.status === 400) {
+              /**
+               * 兜底：个别 S3 兼容实现把不认识的 `If-Match` 当**坏请求**（400）而不是忽略。
+               * 重试一次不带条件（本轮退化成旧行为），并给出明确 hint —— 不让升级后同步全挂。
+               */
+              res = await client.put(n.path, localText)
+              if (res.ok) summary.hint = `服务端不支持 If-Match（400），本轮已降级为无条件写：${n.path}`
+            }
             if (!res.ok) throw new Error(`上传失败（${res.status}）：${n.path}`)
             baseline[n.path] = { fp: localFp, etag: res.etag }
             nextFiles[n.path] = { fp: localFp, etag: res.etag ?? undefined, at: Date.now() }
@@ -976,43 +1092,7 @@ export default {
             continue
           }
           if (verdict === 'conflict') {
-            const merged = await autoMerge(client, n.path, localText)
-            if (merged) {
-              let wrote = false
-              try {
-                await api.fs.writeText(n.path, merged.text, { origin: 'plugin' })
-                wrote = true
-              } catch (e) {
-                api.host.log('warn', `合并结果落盘失败（${n.path}）：${String(e)}`)
-              }
-              if (wrote) {
-                const res2 = await client.put(n.path, merged.text)
-                if (res2.ok) {
-                  const fp = fingerprint(merged.text)
-                  baseline[n.path] = { fp, etag: res2.etag }
-                  nextFiles[n.path] = { fp, etag: res2.etag ?? undefined, at: Date.now() }
-                  baseMarked.add(n.path)
-                  await markBase(n.path, merged.text)
-                  summary.merged += 1
-                  api.host.notify(`已自动合并：${n.path}`, 'info')
-                  continue
-                }
-                summary.hint = `合并结果未能上传（${res2.status}）：${n.path}`
-              }
-              summary.conflicts += 1
-              continue
-            }
-            await keepConflict(n.path, '双端修改')
-            summary.conflicts += 1
-            const r = await client.get(n.path)
-            if (r) {
-              await api.fs.writeText(n.path, r.text, { origin: 'plugin' })
-              const fp = fingerprint(r.text)
-              baseline[n.path] = { fp, etag: r.etag }
-              baseMarked.add(n.path)
-              await markBase(n.path, r.text)
-              summary.pulled += 1
-            }
+            await resolveConflict(n, localText, remoteEntry)
             continue
           }
           if (verdict === 'remote-deleted') {
@@ -1045,7 +1125,7 @@ export default {
         timing.attachments = lap()
 
         // ⑤ manifest 回写（有变动才写 —— 5 秒一轮，没变化不该反复 PUT）
-        if (summary.pushed > 0 || summary.removed > 0 || att.changed) {
+        if (summary.pushed > 0 || summary.removed > 0 || att.changed || manifestChanged) {
           const w = await client.put(
             MANIFEST_KEY,
             JSON.stringify({ version: 1, files: nextFiles, attachments: att.attachments }),
