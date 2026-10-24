@@ -51,6 +51,10 @@ import syncFolderManifest from '../../examples/sync-folder/manifest.json?raw'
 // 用户拍板「进预装」（10 → 11）：坚果云 / Nextcloud / 群晖直连，新手机不用手动装插件。
 import syncWebdavIndex from '../../examples/sync-webdav/index.js?raw'
 import syncWebdavManifest from '../../examples/sync-webdav/manifest.json?raw'
+// sync-s3（同步 · S3 兼容，2026-10-25 rev173.121）
+// 用户「逐项进行」里的第三个后端：AWS S3 / MinIO / R2 / B2 直连。与另两个同步插件并列预装（11 → 12）。
+import syncS3Index from '../../examples/sync-s3/index.js?raw'
+import syncS3Manifest from '../../examples/sync-s3/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
@@ -96,6 +100,10 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'sync-webdav',
     files: { 'index.js': syncWebdavIndex, 'manifest.json': syncWebdavManifest },
+  },
+  {
+    id: 'sync-s3',
+    files: { 'index.js': syncS3Index, 'manifest.json': syncS3Manifest },
   },
 ]
 

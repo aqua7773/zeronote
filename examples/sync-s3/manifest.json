@@ -1,0 +1,24 @@
+{
+  "manifestVersion": 1,
+  "id": "sync-s3",
+  "name": "同步 · S3",
+  "version": "0.3.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "直连 S3 兼容存储（AWS S3 / MinIO / R2 / B2），前台近实时双向同步，双端改同一篇能自动合",
+  "category": "tool",
+  "capabilities": ["fs:read", "fs:write", "doc:read", "store", "event", "command", "view:main", "host", "net", "service"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "sync-s3.open", "title": "同步：打开 S3 设置与状态" },
+      { "id": "sync-s3.test", "title": "同步：测试 S3 连接" },
+      { "id": "sync-s3.sync", "title": "同步：立即同步一次（S3）" },
+      { "id": "sync-s3.toggle-auto", "title": "同步：开关自动同步（S3）" },
+      { "id": "sync-s3.save", "title": "同步：保存 S3 设置" },
+      { "id": "sync-s3.disconnect", "title": "同步：断开 S3 并清除密钥" }
+    ],
+    "panels": [{ "id": "sync-s3.status", "title": "同步 · S3", "location": "main" }]
+  }
+}
