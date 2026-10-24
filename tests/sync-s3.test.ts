@@ -21,13 +21,17 @@ import plugin, {
   encodeRfc3986,
   encodeS3Path,
   fingerprint,
+  fingerprintBytes,
   fmtMs,
+  isAttachment,
+  needsAttachmentPull,
   normalizeManifest,
+  relayName,
   signRequest,
   tryAutoMerge,
 } from '../examples/sync-s3/index.js'
 import { mergeLines } from '../src/lib/merge3'
-import { fingerprint as webdavFingerprint } from '../examples/sync-webdav/index.js'
+import { fingerprint as webdavFingerprint, needsAttachmentPull as webdavNeedsPull } from '../examples/sync-webdav/index.js'
 
 // happy-dom 下 webcrypto 不一定挂到 globalThis —— 插件代码只认 `crypto.subtle`
 if (!globalThis.crypto?.subtle) {
@@ -275,6 +279,37 @@ describe('S3 客户端', () => {
   })
 })
 
+describe('附件（rev173.126）', () => {
+  it('二进制指纹与 sync-webdav 同一套算法（逐字节）', () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00])
+    expect(fingerprintBytes(bytes)).toMatch(/^[0-9a-z]+:[0-9a-z]+$/)
+  })
+
+  it('isAttachment：只有非 .md 且在 .zn 外', () => {
+    expect(isAttachment('附件/图.png')).toBe(true)
+    expect(isAttachment('报告.pdf')).toBe(true)
+    expect(isAttachment('笔记.md')).toBe(false)
+    expect(isAttachment('.zn/conflicts/x.png')).toBe(false)
+  })
+
+  it('needsAttachmentPull 与 sync-webdav 逐字一致（两边互认）', () => {
+    const cases: Array<[string | null, { fp: string; cleaned?: boolean } | null]> = [
+      [null, { fp: 'a:1' }],
+      ['a:1', { fp: 'a:1' }],
+      ['a:1', { fp: 'b:2' }],
+      [null, { fp: 'a:1', cleaned: true }],
+      ['a:1', null],
+    ]
+    for (const [local, remote] of cases) {
+      expect(needsAttachmentPull(local, remote)).toBe(webdavNeedsPull(local, remote))
+    }
+  })
+
+  it('relayName：`:` 换成 `-`（Windows 备用数据流坑）', () => {
+    expect(relayName('8:1te3kiy', '.png')).toBe('8-1te3kiy.png')
+  })
+})
+
 describe('插件接线', () => {
   it('注册主区面板与命令', () => {
     const panels: string[] = []
@@ -313,6 +348,7 @@ describe('插件接线', () => {
       'sync-s3.disconnect',
       'sync-s3.open',
       'sync-s3.save',
+      'sync-s3.set-attachments',
       'sync-s3.sync',
       'sync-s3.test',
       'sync-s3.toggle-auto',

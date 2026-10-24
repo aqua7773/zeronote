@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.125）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.126）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.125 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 895 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.126 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 906 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -119,9 +119,16 @@ pwsh -File scripts\verify.ps1
 > 13 项全过（真 fs + 真 HTTP + 真 mergeLines）· 坑：**桶目录必须先存在**、`--dir-cache-time 0s` ·
 > **无代码改动** · 服务未常驻（用户明确「测试完成就行」，启动命令见 HANDOFF 该段）。
 >
-> **下一步可选**：Gitee 分支实测（没账号令牌）· S3 的 `If-Match` 条件写 · S3/Git 的附件同步 ·
-> `!base` 判据的「store 丢失会覆盖本地」（要四个插件一起改）· S3/Git 手机端实测（要真机装新 znp）。
-> 方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
+> ✅ **S3 / Git 补附件同步（rev173.126）**：两个后端各加 `syncAttachments`（off / relay / full，
+> 与 WebDAV 同协议同语义）· 真机验收 **S3 15/15（rclone）· Git 13/13（真实 GitHub 私有仓库）** ·
+> 同轮修 5 个静默 bug：S3 有前缀时 `test`/`list` 打错路径 404 · S3 `list` 返含前缀 key（清理拼两次）·
+> Git `normalizeManifest` 恒丢 `attachments`（图永远不过去）· GitHub Contents 的 `content` 对二进制有损
+> （8 字节读回 12 字节）⇒ 改 raw 媒体类型 · 附件先推后拉 ⇒ 双端互相覆盖 ⇒ 先拉后推 + `mtime/at` 方向判定 +
+> 条目记 `mode` · 单测 906。
+>
+> **下一步可选**：`sync-webdav` 同款第 ⑤ 条（顺序 + mode；另外两个后端已修好，webdav 还是旧顺序）·
+> S3 的 `If-Match` 条件写 · S3/Git 手机端实测（要真机装新 znp）· Gitee 分支实测（没账号令牌）·
+> `!base` 判据的「store 丢失会覆盖本地」（要四个插件一起改）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；
 > CDP `click` 点不动长按，得用 `adb shell input motionevent DOWN/UP`。两端 dev 都是测试数据（用户明确）。
@@ -272,6 +279,7 @@ pwsh -File scripts\verify.ps1
 | 手机版用户使用手册 | ✅ **rev173.23**：`docs/使用手册-移动端.md` + 12 张真机截图（`docs/images/manual-mobile/`）· 面向普通用户、带入口速查表 · **rev173.24 导出 PDF**（29 页，`docs/ZeroNote-手机版使用手册.pdf`） |
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
 | 同步插件 | ✅ **完成（rev173.106–114）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾四项也已完成（rev173.111–114）**：manifest 304 短路径 · `sync-folder` 自动检查开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
+| 同步 · 附件（S3 / Git） | ✅ **rev173.126**：两个后端各加 `syncAttachments`（off / relay / full，与 WebDAV 同协议）· 内容级判定 + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0 · **真机：S3 15/15（rclone）· Git 13/13（真实 GitHub 私有仓库）** · 同轮修 5 个静默 bug（前缀路径 / list key / Git manifest 丢 attachments / GitHub `content` 二进制有损 / 先推后拉互相覆盖）· 单测 **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款（顺序 + mode） |
 | 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ⚠️ 观察项：`note:saved` 与 `note:changed` 有竞争（冷启动首次可能丢 pending）· **未做**：history 防抖触发（合并不需要）/ 内核级「插件写盘不触发 note:saved」（另议） |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |

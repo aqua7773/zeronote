@@ -309,6 +309,31 @@ export function isAttachment(path) {
 }
 
 /**
+ * 远端这条附件要不要拉到本地（rev173.126，与 `sync-webdav` 同一判据）。
+ *
+ * 只看「本地有没有这个路径」不够 —— 远端把**同一路径的图换掉**时本地会永远停在旧版本。
+ * 现在按 manifest 的 `fp` 判：远端 `cleaned` 不拉 / 本地没有要拉 / 指纹不同要拉。
+ *
+ * @param {string|null} localFp 本地现有文件的指纹；没有这份就传 null
+ * @param {{fp?: string, cleaned?: boolean}|null} remoteEntry
+ */
+export function needsAttachmentPull(localFp, remoteEntry) {
+  if (!remoteEntry || remoteEntry.cleaned) return false
+  if (!localFp) return true
+  return localFp !== remoteEntry.fp
+}
+
+/**
+ * 中转文件 / ack 标记的对象键（S3 的键是平的，这里仍按 `_zn/relay/…` 组织，与 WebDAV 版同构）。
+ *
+ * 指纹格式是 `<长度>:<散列>`，`:` 在 Windows 上会被当成 NTFS 备用数据流，一律换成 `-`；
+ * 顺带避开 `/` `\` 这些在对象键里有路径含义的字符。
+ */
+export function relayName(fp, ext) {
+  return `${String(fp ?? '').replace(/[:/\\]/g, '-')}${ext || ''}`
+}
+
+/**
  * 解析 manifest（与 WebDAV 版同一格式）。
  *
  * `{ version: 1, files: { [path]: { fp, etag?, at } }, attachments: { … } }`
@@ -345,6 +370,8 @@ export function normalizeManifest(raw) {
       ext: typeof v.ext === 'string' ? v.ext : extOf(path),
       at: Number(v.at) || 0,
       ...(v.cleaned ? { cleaned: true } : {}),
+      // `mode` 决定云端那份放在原路径还是 `_zn/relay/`（rev173.126）—— 丢了会让 relay 端找不到文件
+      ...(v.mode === 'full' || v.mode === 'relay' ? { mode: v.mode } : {}),
     }
   }
   return { version: 1, files, attachments }
@@ -423,10 +450,16 @@ export function createS3Client(cfg, opts = {}) {
   /** 对象键（含 prefix，不含 bucket） */
   const fullKey = (key) => [prefix, key].filter(Boolean).join('/')
 
-  const urlFor = (key, query) => {
-    const path = [bucket, fullKey(key)].filter(Boolean).join('/')
+  /**
+   * 拼 URL。`p` 是**不含前导 `/` 的完整路径段串**（`bucket/…`），逐段编码。
+   *
+   * rev173.126 起不再在这里拼 prefix —— 以前 `list()` / `test()` 传空 key，
+   * 而 `fullKey('')` 会带上**对象前缀** ⇒ 请求打到 `/桶/<前缀>` 上，
+   * 前缀非空时连接测试与列对象直接 **404**（rev173.125 验收时前缀是空的，没暴露）。
+   */
+  const urlFor = (p, query) => {
     const qs = query && Object.keys(query).length ? `?${canonicalQuery(query)}` : ''
-    return `${endpoint}/${path
+    return `${endpoint}/${p
       .split('/')
       .map((seg) => encodeRfc3986(seg))
       .join('/')}${qs}`
@@ -438,8 +471,9 @@ export function createS3Client(cfg, opts = {}) {
    * **host 头参与签名但不显式发送**：HTTP 层会按 URL 自动带同一个值，
    * 而浏览器 / reqwest 都不允许手工设 Host。
    */
-  async function request(method, key, { body, query, contentType, extraHeaders } = {}) {
-    const path = `/${[bucket, fullKey(key)].filter(Boolean).join('/')}`
+  async function request(method, key, { body, query, contentType, extraHeaders, bareBucket = false } = {}) {
+    // `bareBucket`：桶根请求（连接测试 / 列对象）—— prefix 只进 query 的 `prefix` 参数，不进路径
+    const path = bareBucket ? `/${bucket}` : `/${[bucket, fullKey(key)].filter(Boolean).join('/')}`
     const payloadHash =
       body === undefined || body === null
         ? EMPTY_SHA256
@@ -463,7 +497,12 @@ export function createS3Client(cfg, opts = {}) {
     })
     const sendHeaders = { ...signed.headers }
     delete sendHeaders.host
-    const res = await cfg.net.fetch({ url: urlFor(key, query), method, headers: sendHeaders, body })
+    const res = await cfg.net.fetch({
+      url: urlFor(path.replace(/^\//, ''), query),
+      method,
+      headers: sendHeaders,
+      body,
+    })
     return res
   }
 
@@ -476,7 +515,7 @@ export function createS3Client(cfg, opts = {}) {
     async test() {
       let res
       try {
-        res = await request('GET', '', { query: { 'list-type': '2', 'max-keys': '1' } })
+        res = await request('GET', '', { query: { 'list-type': '2', 'max-keys': '1' }, bareBucket: true })
       } catch (e) {
         return { ok: false, status: 0, hint: `连不上：${String(e).slice(0, 120)}` }
       }
@@ -541,21 +580,48 @@ export function createS3Client(cfg, opts = {}) {
     },
 
     /**
-     * 列对象（自动翻页）。`prefix` 是**对象键前缀**（不是目录）。
+     * 对象是否存在（rev173.126 中转 ack 用）。
+     *
+     * 正常走 `HEAD`（不传内容）。个别 S3 兼容实现不实现 HEAD（405/501）⇒ 回退 GET；
+     * 只判存在性，别的状态一律当「不存在」（下一轮会再试，不会误删）。
+     */
+    async exists(key) {
+      const res = await request('HEAD', key)
+      if (res.status === 200) return true
+      if (res.status === 404) return false
+      if (res.status === 405 || res.status === 501) {
+        const g = await request('GET', key)
+        return g.status === 200
+      }
+      return false
+    },
+
+    /**
+     * 列对象（自动翻页）。
+     *
+     * `listPrefix` 是**相对对象前缀**（相对插件的 `prefix` 设置）；返回的 `key` 也**剥掉了**
+     * 插件的 `prefix`（rev173.126）—— 否则 `list()` 的结果喂回 `get/put/remove` 会被再拼一次前缀，
+     * 实际打到 `<prefix>/<prefix>/…` 上（验收时表现为「清理跑完远端还剩对象」）。
+     *
      * @returns {Promise<{ key: string, size: number, etag: string|null }[]>}
      */
     async list(listPrefix = '') {
       const all = []
       let token = null
+      const rel = (k) => {
+        if (!prefix) return k
+        if (k === prefix) return ''
+        return k.startsWith(`${prefix}/`) ? k.slice(prefix.length + 1) : k
+      }
       for (let page = 0; page < 50; page += 1) {
         const query = { 'list-type': '2', 'max-keys': '1000' }
         const p = [prefix, listPrefix].filter(Boolean).join('/')
         if (p) query.prefix = p
         if (token) query['continuation-token'] = token
-        const res = await request('GET', '', { query })
+        const res = await request('GET', '', { query, bareBucket: true })
         if (res.status !== 200) throw new Error(`列对象失败（${res.status}）`)
         const parsed = parseListObjects(res.text())
-        all.push(...parsed.items)
+        all.push(...parsed.items.map((it) => ({ ...it, key: rel(it.key) })))
         if (!parsed.truncated || !parsed.token) break
         token = parsed.token
       }
@@ -578,6 +644,8 @@ export default {
       prefix: '',
       enabled: false,
       auto: true,
+      /** 附件同步：off / relay / full（rev173.126；与 sync-webdav 同名同义） */
+      attachments: 'off',
     }
     let baseline = {}
     /** 上一轮 manifest（带 etag；S3 不支持 304，这层只用于「本轮远端没改」的比对） */
@@ -592,6 +660,12 @@ export default {
     let form = { endpoint: '', region: '', bucket: '', accessKey: '', password: '', prefix: '' }
     /** 进程内已确认存在「同步点」的路径（同 webdav：只放内存，丢了只是多写一次） */
     const baseMarked = new Set()
+    /**
+     * 附件指纹缓存（rev173.126）：`mtime` + `size` 没变就复用上次的散列。
+     * 自动同步每 5 秒一轮，附件多的时候每轮把所有图片重新读一遍 + 重算散列是纯浪费。
+     * 只放内存；刚写完的文件会被删掉，下一轮重算。
+     */
+    const attFpCache = new Map()
     let savedSecret = null
 
     const markDirty = () => {
@@ -661,6 +735,156 @@ export default {
       api.host.notify(`同步冲突：${path}（本机版已留副本）`, 'warn')
     }
 
+    /** 设备 id（中转 ack 用；每台设备一个，存 store） */
+    async function deviceId() {
+      let id = ''
+      try {
+        id = String((await api.store.get(KEY_DEVICE, '')) || '')
+      } catch {
+        /* 读不到就当没有 */
+      }
+      if (!id) {
+        id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+        void api.store.set(KEY_DEVICE, id).catch(() => {})
+      }
+      return id
+    }
+
+    /**
+     * 附件同步（rev173.126）。与 `sync-webdav` **同一套协议与三种模式**：
+     *
+     * · `off`   —— 只同步 `.md`（默认）
+     * · `full`  —— 附件与文档一样**永久**存在云端，对象键 = 笔记相对路径
+     * · `relay` —— **同步中转**：上传 `_zn/relay/<fp><ext>`，对端下载后写 `_zn/relay-ack/<fp>`，
+     *              任何一端看到 ack 就删云端副本并在 manifest 里标 `cleaned: true`
+     *
+     * 与 WebDAV 版的差别只有存储层：S3 没有 mkdir / 没有 304 条件 GET，
+     * 所以这里不建目录、不带 `If-None-Match`（是否需要下载本来就由指纹判，不会每轮重拉）。
+     *
+     * @returns {{ attachments: Record<string, object>, changed: boolean }}
+     */
+    async function syncAttachments(client, manifest, summary) {
+      const mode = settings.attachments || 'off'
+      const remoteAtt = manifest.attachments || {}
+      if (mode === 'off') return { attachments: remoteAtt, changed: false }
+
+      const nextAtt = { ...remoteAtt }
+      const notes = await api.fs.listNotes()
+      const locals = notes.filter((n) => isAttachment(n.path))
+      const localByPath = new Map(locals.map((n) => [n.path, n]))
+      const me = await deviceId()
+      let changed = false
+
+      /** 本地附件指纹：`mtime` + `size` 没变就复用缓存；返回的 `bytes` 只在这次真读了盘时有值 */
+      async function localFpOf(meta) {
+        const hit = attFpCache.get(meta.path)
+        if (hit && hit.mtime === meta.mtime && hit.size === meta.size) return { fp: hit.fp, bytes: null }
+        const bytes = await api.fs.readBytes(meta.path)
+        const fp = fingerprintBytes(bytes)
+        attFpCache.set(meta.path, { mtime: meta.mtime, size: meta.size, fp })
+        return { fp, bytes }
+      }
+
+      /** 本地是否比远端条目更新（本地 mtime 晚于远端上传时间；两端都取本机 Date.now() 系） */
+      const localIsNewer = (meta, entry) => Number(meta?.mtime ?? 0) > Number(entry?.at ?? 0)
+
+      // ① 远端 → 本地（本地没有，**或者远端确实更新**）—— 必须在上传之前，否则本机会先盖掉远端新版
+      for (const [path, entry] of Object.entries(remoteAtt)) {
+        if (!entry || entry.cleaned) continue
+        if (!isAttachment(path)) continue
+        const local = localByPath.get(path) ?? null
+        let localFp = null
+        if (local) {
+          try {
+            localFp = (await localFpOf(local)).fp
+          } catch {
+            localFp = null
+          }
+        }
+        if (!needsAttachmentPull(localFp, entry)) continue
+        /**
+         * 版本不同的**单向**：本地 mtime 更新 ⇒ 本机改过，留给上传；否则远端更新 ⇒ 拉。
+         * 没有这一道，两台设备会互相覆盖（后同步的那台永远把自己那版推上去）——
+         * rev173.126 验收实测：B 上传了新图，A 同步时先推自己的旧图再拉回来，永远拿不到新版。
+         */
+        if (local && localIsNewer(local, entry)) continue
+        /**
+         * 云端那份放在哪，由**上传方当时的模式**决定（条目里的 `mode`），不是本机设置 ——
+         * 一台 full、一台 relay 时，relay 那台若按本机模式去 `_zn/relay/` 找，必然找不到
+         * （rev173.126 验收实测）。老条目没有 `mode` ⇒ 退回按本机设置。
+         */
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        const src = remoteMode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
+        let got = null
+        try {
+          got = await client.getBytes(src)
+        } catch (e) {
+          api.host.log('warn', `下载附件失败 ${path}：${String(e)}`)
+          continue
+        }
+        if (!got?.data) continue
+        try {
+          await api.fs.writeBytes(path, got.data)
+        } catch (e) {
+          api.host.log('warn', `写入附件失败 ${path}：${String(e)}`)
+          continue
+        }
+        // 刚写完，`listNotes` 的 mtime / size 变了 ⇒ 丢掉旧指纹，下一轮重新算
+        attFpCache.delete(path)
+        summary.pulled += 1
+        if (remoteMode === 'relay') {
+          await client.putBytes(`_zn/relay-ack/${relayName(entry.fp, '')}`, new TextEncoder().encode(me))
+        }
+      }
+
+      // ② 本地 → 远端（远端没有 / 本地更新 / cleaned 需重传）
+      for (const n of locals) {
+        const entry = nextAtt[n.path]
+        let fp = ''
+        let bytes = null
+        try {
+          const got = await localFpOf(n)
+          fp = got.fp
+          bytes = got.bytes
+        } catch {
+          continue // 读不到就下一轮
+        }
+        // 远端已有同一份就跳过；`cleaned` 的不算（中转清理过，切「永久」后要重传）
+        if (entry && entry.fp === fp && !entry.cleaned) continue
+        // 版本不同且本地不更新 ⇒ 远端更新，等下一轮下载，不要拿旧版覆盖
+        if (entry && !entry.cleaned && !localIsNewer(n, entry)) continue
+        if (!bytes) {
+          try {
+            bytes = await api.fs.readBytes(n.path)
+          } catch {
+            continue
+          }
+        }
+        const ext = extOf(n.path)
+        const key = mode === 'full' ? n.path : `_zn/relay/${relayName(fp, ext)}`
+        const r = await client.putBytes(key, bytes)
+        if (!r.ok) throw new Error(`上传附件失败（${r.status}）：${n.path}`)
+        nextAtt[n.path] = { fp, ext, at: Date.now(), mode }
+        changed = true
+        summary.pushed += 1
+      }
+
+      // ③ relay 清理：有 ack 就删云端副本（任何端都能做，幂等）
+      for (const [path, entry] of Object.entries(nextAtt)) {
+        if (!entry || entry.cleaned) continue
+        // 只有「云端那份确实在 relay 路径上」的条目才有 ack 可等（full 条目永不清理）
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        if (remoteMode !== 'relay') continue
+        const acked = await client.exists(`_zn/relay-ack/${relayName(entry.fp, '')}`)
+        if (!acked) continue
+        await client.remove(`_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`)
+        nextAtt[path] = { ...entry, mode: 'relay', cleaned: true }
+        changed = true
+      }
+
+      return { attachments: nextAtt, changed }
+    }
+
     /**
      * 一次完整同步。返回摘要，不抛（错误转成 hint）。
      *
@@ -673,7 +897,7 @@ export default {
       if (!silent) api.view.refresh()
       const t0 = Date.now()
       let tMark = t0
-      const timing = { manifest: 0, notes: 0, write: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, write: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -817,15 +1041,19 @@ export default {
         }
         timing.notes = lap()
 
-        // ④ manifest 回写（有变动才写 —— 5 秒一轮，没变化不该反复 PUT）
-        if (summary.pushed > 0 || summary.removed > 0) {
+        // ④ 附件（rev173.126）—— 在 .md 循环之后；`summary.pushed / pulled` 里也含附件计数
+        const att = await syncAttachments(client, remote, summary)
+        timing.attachments = lap()
+
+        // ⑤ manifest 回写（有变动才写 —— 5 秒一轮，没变化不该反复 PUT）
+        if (summary.pushed > 0 || summary.removed > 0 || att.changed) {
           const w = await client.put(
             MANIFEST_KEY,
-            JSON.stringify({ version: 1, files: nextFiles, attachments: remote.attachments ?? {} }),
+            JSON.stringify({ version: 1, files: nextFiles, attachments: att.attachments }),
             { contentType: 'application/json; charset=utf-8' },
           )
           if (w.ok) {
-            manifestCache = { files: nextFiles, attachments: remote.attachments ?? {}, etag: w.etag }
+            manifestCache = { files: nextFiles, attachments: att.attachments, etag: w.etag }
           }
         }
         timing.write = lap()
@@ -944,6 +1172,21 @@ export default {
           children: { type: 'input', bind: 's3.password', placeholder: '不改就留空' },
         },
         {
+          type: 'field',
+          label: '附件（图片 / PDF）',
+          hint: '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
+          children: {
+            type: 'select',
+            bind: 's3.attachmentsMode',
+            options: [
+              { value: 'off', label: '不同步（默认）' },
+              { value: 'relay', label: '同步中转（云端不常留）' },
+              { value: 'full', label: '与文档一样永久同步' },
+            ],
+            onSubmit: 'sync-s3.set-attachments',
+          },
+        },
+        {
           type: 'row',
           gap: 'sm',
           wrap: true,
@@ -1013,6 +1256,9 @@ export default {
               { type: 'badge', text: `用时 ${fmtMs(ms.total)}`, tone: 'muted' },
               { type: 'badge', text: `manifest ${fmtMs(ms.manifest)}`, tone: 'muted' },
               { type: 'badge', text: `笔记 ${fmtMs(ms.notes)}`, tone: 'muted' },
+              ...(ms.attachments > 0
+                ? [{ type: 'badge', text: `附件 ${fmtMs(ms.attachments)}`, tone: 'muted' }]
+                : []),
             ],
           })
         }
@@ -1131,6 +1377,19 @@ export default {
       api.view.refresh()
     })
     register('sync-s3.sync', '同步：立即同步一次', () => runSync('手动'))
+    register('sync-s3.set-attachments', '同步：设置附件同步方式', (payload) => {
+      const v = String(payload?.value ?? 'off')
+      settings.attachments = ['off', 'relay', 'full'].includes(v) ? v : 'off'
+      markDirty()
+      const label =
+        settings.attachments === 'off'
+          ? '不同步（只同步 .md）'
+          : settings.attachments === 'relay'
+            ? '同步中转（对端收到后云端删掉）'
+            : '与文档一样永久同步'
+      api.host.notify(`附件同步：${label}`)
+      api.view.refresh()
+    })
     register('sync-s3.toggle-auto', '同步：开关自动同步（S3）', () => {
       settings.auto = settings.auto === false
       markDirty()

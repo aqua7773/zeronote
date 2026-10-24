@@ -30,6 +30,8 @@ const KEY_SETTINGS = 'settings.v1'
 const KEY_BASELINE = 'baseline.v1'
 const KEY_CONFLICTS = 'conflicts.v1'
 const KEY_TIMING = 'timing.v1'
+/** 设备 id（rev173.126 中转 ack 用；与另两个后端同一个键名、同一套格式） */
+const KEY_DEVICE = 'device.v1'
 const SECRET_KEY = 'sync.git.token'
 const MANIFEST_PATH = '_zn/manifest.json'
 const CONFLICT_ROOT = '.zn/conflicts'
@@ -58,6 +60,17 @@ export function fingerprint(text) {
   return `${s.length.toString(36)}:${h.toString(36)}`
 }
 
+/** 二进制指纹（附件用；逐字节，不能拿 UTF-16 码元那份用 —— 与 sync-webdav / sync-s3 同一套） */
+export function fingerprintBytes(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? [])
+  let h = 0x811c9dc5
+  for (let i = 0; i < u8.length; i += 1) {
+    h ^= u8[i]
+    h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0
+  }
+  return `${u8.length.toString(36)}:${h.toString(36)}`
+}
+
 /**
  * UTF-8 → base64。
  *
@@ -84,6 +97,29 @@ export function b64decode(b64) {
   return new TextDecoder().decode(bytes)
 }
 
+/**
+ * 字节 → base64（附件用，rev173.126）。
+ *
+ * `b64encode` 只吃字符串；图片 / PDF 是二进制，按 UTF-8 编会毁字节，
+ * 所以这里逐字节 `String.fromCharCode` 拼出来再 `btoa`。
+ */
+export function b64encodeBytes(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? [])
+  let bin = ''
+  const CHUNK = 0x8000 // 一次性拼太长的字符串在部分 WebView 上会爆栈
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + CHUNK)))
+  }
+  return btoa(bin)
+}
+
+/** base64 → 字节（先剥空白：平台返回的大文件 base64 每 60 字符一个 `\n`） */
+export function b64decodeBytes(b64) {
+  const clean = String(b64 ?? '').replace(/\s+/g, '')
+  const bin = atob(clean)
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
+}
+
 /** 库内相对路径 → URL 段（逐段编码，保留 `/`） */
 export function encodeGitPath(path) {
   return String(path ?? '')
@@ -91,6 +127,43 @@ export function encodeGitPath(path) {
     .filter((s) => s && s !== '.')
     .map((s) => encodeURIComponent(s))
     .join('/')
+}
+
+/** 附件扩展名（含点，小写）；没有就空串 */
+export function extOf(path) {
+  const name = String(path ?? '').split('/').pop() ?? ''
+  const i = name.lastIndexOf('.')
+  return i > 0 ? name.slice(i).toLowerCase() : ''
+}
+
+/** 父目录（无父目录返回空串） */
+export function dirOf(path) {
+  const s = String(path ?? '')
+  const i = s.lastIndexOf('/')
+  return i > 0 ? s.slice(0, i) : ''
+}
+
+/** 算不算附件（非 Markdown、且不在 `.zn/` 里） */
+export function isAttachment(path) {
+  const s = String(path ?? '')
+  if (!s) return false
+  if (s.startsWith('.zn/') || s.split('/').includes('.zn')) return false
+  return !/\.(md|markdown)$/i.test(s)
+}
+
+/**
+ * 远端这条附件要不要拉到本地（rev173.126，与 sync-webdav / sync-s3 同一判据）。
+ * 只看「本地有没有这个路径」不够 —— 远端换掉同一路径的图时本地会停在旧版本。
+ */
+export function needsAttachmentPull(localFp, remoteEntry) {
+  if (!remoteEntry || remoteEntry.cleaned) return false
+  if (!localFp) return true
+  return localFp !== remoteEntry.fp
+}
+
+/** 中转文件 / ack 标记的仓库内文件名（`:` 换成 `-`，与另两个后端同构） */
+export function relayName(fp, ext) {
+  return `${String(fp ?? '').replace(/[:/\\]/g, '-')}${ext || ''}`
 }
 
 /**
@@ -138,7 +211,12 @@ export function conflictFileName(when, path) {
   return `${stamp}-${name}`
 }
 
-/** 解析 manifest（与其它三个同步插件同一格式） */
+/**
+ * 解析 manifest（与其它三个同步插件同一格式）。
+ *
+ * **`attachments` 段必须原样解析**（rev173.126）：以前这里恒返回 `{}`，
+ * 于是附件同步读到"远端没有附件" —— 下载循环直接空转，表现是不报错但图永远不过去。
+ */
 export function normalizeManifest(raw) {
   let j = raw
   if (typeof raw === 'string') {
@@ -155,7 +233,21 @@ export function normalizeManifest(raw) {
     if (!v || typeof v !== 'object' || typeof v.fp !== 'string' || !v.fp) continue
     files[path] = { fp: v.fp, sha: typeof v.sha === 'string' ? v.sha : undefined, at: Number(v.at) || 0 }
   }
-  return { version: 1, files, attachments: {} }
+  const attachments = {}
+  const srcAtt = j.attachments && typeof j.attachments === 'object' ? j.attachments : {}
+  for (const [path, v] of Object.entries(srcAtt)) {
+    if (!v || typeof v !== 'object' || typeof v.fp !== 'string' || !v.fp) continue
+    attachments[path] = {
+      fp: v.fp,
+      ext: typeof v.ext === 'string' ? v.ext : extOf(path),
+      at: Number(v.at) || 0,
+      ...(typeof v.sha === 'string' ? { sha: v.sha } : {}),
+      ...(v.cleaned ? { cleaned: true } : {}),
+      // `mode` 决定远端那份放在原路径还是 `_zn/relay/`（rev173.126）—— 丢了会让 relay 端找不到文件
+      ...(v.mode === 'full' || v.mode === 'relay' ? { mode: v.mode } : {}),
+    }
+  }
+  return { version: 1, files, attachments }
 }
 
 /** 耗时给人看（与另外三个同步插件同一套写法） */
@@ -252,6 +344,73 @@ export function createGitClient(cfg) {
     return { ok, status: res.status, sha: newSha, conflict }
   }
 
+  /**
+   * 读一个文件的原始字节（附件用，rev173.126）。
+   *
+   * ⚠️ **不能只靠 Contents API 的 `content`**：GitHub 的 `GET /contents` 会把文件当 UTF-8 文本
+   * 再 base64 —— 实测 8 字节、含 `0x89` 的 png：`size` 仍是 8，但返回的 `content` 解码后是
+   * 12 字节（`0x89` 变 `EF BF BD`，即 U+FFFD 替换字符）。图片 / PDF 一定不是合法 UTF-8，
+   * 走 JSON 必被改写。所以先要 **raw 媒体类型**拿原始字节；平台不认 raw（回的是 JSON）时
+   * 才回退解析，大文件再走 `download_url`。
+   *
+   * @returns {Promise<{ data: Uint8Array, sha: string|null } | null>} 不存在 ⇒ null
+   */
+  async function readBytes(path) {
+    const p = encodeGitPath(repoPath(path))
+    const url = `${api}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${p}?ref=${encodeURIComponent(branch)}`
+    const raw = await cfg.net.fetch({
+      url,
+      method: 'GET',
+      headers: headers({ Accept: 'application/vnd.github.raw' }),
+    })
+    if (raw.status === 404) return null
+    if (raw.status === 401 || raw.status === 403) {
+      throw new Error(`认证失败或限流（${raw.status}）`)
+    }
+    if (raw.status >= 400) throw new Error(`读取失败（${raw.status}）：${path}`)
+    const buf = raw.bytes ? raw.bytes() : new Uint8Array()
+    // 不认 raw 的实现会回 JSON：首字节是 `{` 且能解析出 content / download_url 才算
+    if (buf[0] !== 0x7b) return { data: buf, sha: null }
+    let j = null
+    try {
+      j = JSON.parse(new TextDecoder().decode(buf))
+    } catch {
+      j = null
+    }
+    if (!j || (!j.content && !j.download_url)) return { data: buf, sha: null }
+    if (typeof j.content === 'string' && j.content) {
+      return { data: b64decodeBytes(j.content), sha: typeof j.sha === 'string' ? j.sha : null }
+    }
+    if (!j.download_url) throw new Error(`远端文件读不到内容（大文件且平台不给 download_url）：${path}`)
+    const r2 = await cfg.net.fetch({ url: j.download_url, method: 'GET', headers: headers() })
+    if (r2.status >= 400) throw new Error(`下载失败（${r2.status}）：${path}`)
+    return { data: r2.bytes ? r2.bytes() : new Uint8Array(), sha: typeof j.sha === 'string' ? j.sha : null }
+  }
+
+  /** 写二进制（附件用）：base64 进 Contents API。冲突语义与 `write` 一致 */
+  async function writeBytes(path, bytes, { sha = null, message = 'ZeroNote 同步：附件' } = {}) {
+    const p = encodeGitPath(repoPath(path))
+    const url = `${api}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${p}`
+    const body = { message, content: b64encodeBytes(bytes), branch, ...(sha ? { sha } : {}) }
+    const res = await cfg.net.fetch({
+      url,
+      method: preset.write,
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    })
+    const ok = res.status === 200 || res.status === 201
+    let newSha = null
+    if (ok) {
+      try {
+        newSha = JSON.parse(res.text())?.content?.sha ?? null
+      } catch {
+        /* 有些实现不返回 body，下次读回来即可 */
+      }
+    }
+    const conflict = !ok && (res.status === 409 || res.status === 422 || res.status === 400)
+    return { ok, status: res.status, sha: newSha, conflict }
+  }
+
   async function remove(path, sha, message = 'ZeroNote 同步：删除') {
     const p = encodeGitPath(repoPath(path))
     const url = `${api}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${p}`
@@ -292,6 +451,8 @@ export function createGitClient(cfg) {
 
     read,
     write,
+    readBytes,
+    writeBytes,
     remove,
   }
 }
@@ -311,6 +472,8 @@ export default {
       prefix: '',
       enabled: false,
       auto: true,
+      /** 附件同步：off / relay / full（rev173.126；与另两个后端同名同义） */
+      attachments: 'off',
     }
     let baseline = {}
     /** manifest 的 sha（乐观锁；写 manifest 时要带） */
@@ -323,6 +486,8 @@ export default {
     let busy = false
     let form = { provider: 'github', owner: '', repo: '', branch: '', prefix: '', token: '' }
     const baseMarked = new Set()
+    /** 附件指纹缓存（rev173.126）：`mtime` + `size` 没变就复用上次的散列（只放内存） */
+    const attFpCache = new Map()
     let savedToken = null
 
     const markDirty = () => {
@@ -337,6 +502,21 @@ export default {
         savedToken = ''
       }
       return savedToken
+    }
+
+    /** 设备 id（中转 ack 用；每台设备一个，存 store） */
+    async function deviceId() {
+      let id = ''
+      try {
+        id = String((await api.store.get(KEY_DEVICE, '')) || '')
+      } catch {
+        /* 读不到就当没有 */
+      }
+      if (!id) {
+        id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+        void api.store.set(KEY_DEVICE, id).catch(() => {})
+      }
+      return id
     }
 
     const markBase = async (path, text) => {
@@ -393,6 +573,171 @@ export default {
       api.host.notify(`同步冲突：${path}（本机版已留副本）`, 'warn')
     }
 
+    /**
+     * 附件同步（rev173.126）。协议与 `sync-webdav` / `sync-s3` **同一套**：
+     *
+     * · `off`   —— 只同步 `.md`（默认）
+     * · `full`  —— 附件与文档一样永久存在仓库（路径 = 笔记相对路径）
+     * · `relay` —— 中转：`_zn/relay/<fp><ext>` ↔ `_zn/relay-ack/<fp>`，对端 ack 后删远端副本
+     *
+     * Git 的差别：一次 PUT 一个文件、`sha` 是乐观锁（冲突 409/422/400）；
+     * 清理要带 sha 才能 DELETE，所以先 `read` 拿 sha。
+     *
+     * @returns {{ attachments: Record<string, object>, changed: boolean }}
+     */
+    async function syncAttachments(client, manifest, summary) {
+      const mode = settings.attachments || 'off'
+      const remoteAtt = manifest.attachments || {}
+      if (mode === 'off') return { attachments: remoteAtt, changed: false }
+
+      const nextAtt = { ...remoteAtt }
+      const notes = await api.fs.listNotes()
+      const locals = notes.filter((n) => isAttachment(n.path))
+      const localByPath = new Map(locals.map((n) => [n.path, n]))
+      const me = await deviceId()
+      let changed = false
+
+      /** 本地附件指纹：`mtime` + `size` 没变就复用缓存；`bytes` 只在这次真读了盘时有值 */
+      async function localFpOf(meta) {
+        const hit = attFpCache.get(meta.path)
+        if (hit && hit.mtime === meta.mtime && hit.size === meta.size) return { fp: hit.fp, bytes: null }
+        const bytes = await api.fs.readBytes(meta.path)
+        const fp = fingerprintBytes(bytes)
+        attFpCache.set(meta.path, { mtime: meta.mtime, size: meta.size, fp })
+        return { fp, bytes }
+      }
+
+      /** 本地是否比远端条目更新（本地 mtime 晚于远端上传时间；两端都取本机 Date.now() 系） */
+      const localIsNewer = (meta, entry) => Number(meta?.mtime ?? 0) > Number(entry?.at ?? 0)
+
+      // ① 远端 → 本地（本地没有，**或者远端确实更新**）—— 必须在上传之前，否则本机会先盖掉远端新版
+      for (const [path, entry] of Object.entries(remoteAtt)) {
+        if (!entry || entry.cleaned) continue
+        if (!isAttachment(path)) continue
+        const local = localByPath.get(path) ?? null
+        let localFp = null
+        if (local) {
+          try {
+            localFp = (await localFpOf(local)).fp
+          } catch {
+            localFp = null
+          }
+        }
+        if (!needsAttachmentPull(localFp, entry)) continue
+        /**
+         * 版本不同的**单向**：本地 mtime 更新 ⇒ 本机改过，留给上传；否则远端更新 ⇒ 拉。
+         * 没有这一道，两台设备会互相覆盖（后同步的那台永远把自己那版推上去）——
+         * rev173.126 验收实测：B 上传了新图，A 同步时先推自己的旧图再拉回来，永远拿不到新版。
+         */
+        if (local && localIsNewer(local, entry)) continue
+        /**
+         * 云端那份放在哪，由**上传方当时的模式**决定（条目里的 `mode`），不是本机设置 ——
+         * 一台 full、一台 relay 时，relay 那台若按本机模式去 `_zn/relay/` 找，必然找不到
+         * （rev173.126 验收实测）。老条目没有 `mode` ⇒ 退回按本机设置。
+         */
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        const src = remoteMode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
+        let got = null
+        try {
+          got = await client.readBytes(src)
+        } catch (e) {
+          api.host.log('warn', `下载附件失败 ${path}：${String(e)}`)
+          continue
+        }
+        if (!got?.data) continue
+        try {
+          await api.fs.writeBytes(path, got.data)
+        } catch (e) {
+          api.host.log('warn', `写入附件失败 ${path}：${String(e)}`)
+          continue
+        }
+        // 刚写完，`listNotes` 的 mtime / size 变了 ⇒ 丢掉旧指纹，下一轮重新算
+        attFpCache.delete(path)
+        summary.pulled += 1
+        if (remoteMode === 'relay') {
+          await client.writeBytes(`_zn/relay-ack/${relayName(entry.fp, '')}`, new TextEncoder().encode(me))
+        }
+      }
+
+      // ② 本地 → 远端（远端没有 / 本地更新 / cleaned 需重传）
+      for (const n of locals) {
+        const entry = nextAtt[n.path]
+        let fp = ''
+        let bytes = null
+        try {
+          const got = await localFpOf(n)
+          fp = got.fp
+          bytes = got.bytes
+        } catch {
+          continue // 读不到就下一轮
+        }
+        // 远端已有同一份就跳过；`cleaned` 的不算（中转清理过，切「永久」后要重传）
+        if (entry && entry.fp === fp && !entry.cleaned) continue
+        // 版本不同且本地不更新 ⇒ 远端更新，等下一轮下载，不要拿旧版覆盖
+        if (entry && !entry.cleaned && !localIsNewer(n, entry)) continue
+        if (!bytes) {
+          try {
+            bytes = await api.fs.readBytes(n.path)
+          } catch {
+            continue
+          }
+        }
+        const ext = extOf(n.path)
+        const key = mode === 'full' ? n.path : `_zn/relay/${relayName(fp, ext)}`
+        /** full 模式用 manifest 里的 sha 当乐观锁；relay 的键与条目不是一对一，先读一次拿真实 sha */
+        let sha = entry?.sha ?? null
+        if (mode !== 'full') {
+          try {
+            sha = (await client.read(key))?.sha ?? null
+          } catch {
+            sha = null
+          }
+        }
+        let r = await client.writeBytes(key, bytes, { sha })
+        // 乐观锁失效（远端被绕过 manifest 改过）⇒ 重读 sha 再写一次，附件不做三方合并
+        if (!r.ok && r.conflict) {
+          let fresh = null
+          try {
+            fresh = await client.read(key)
+          } catch {
+            fresh = null
+          }
+          r = await client.writeBytes(key, bytes, { sha: fresh?.sha ?? null })
+        }
+        if (!r.ok) throw new Error(`上传附件失败（${r.status}）：${n.path}`)
+        nextAtt[n.path] = { fp, ext, sha: r.sha ?? entry?.sha, at: Date.now(), mode }
+        changed = true
+        summary.pushed += 1
+      }
+
+      // ③ relay 清理：有 ack 就删远端副本（任何端都能做，幂等）
+      for (const [path, entry] of Object.entries(nextAtt)) {
+        if (!entry || entry.cleaned) continue
+        // 只有「云端那份确实在 relay 路径上」的条目才有 ack 可等（full 条目永不清理）
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        if (remoteMode !== 'relay') continue
+        const ackPath = `_zn/relay-ack/${relayName(entry.fp, '')}`
+        let acked = null
+        try {
+          acked = await client.read(ackPath)
+        } catch {
+          acked = null
+        }
+        if (!acked) continue
+        const relayPath = `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
+        try {
+          const cur = await client.read(relayPath)
+          if (cur?.sha) await client.remove(relayPath, cur.sha)
+        } catch (e) {
+          api.host.log('warn', `清理中转附件失败 ${path}：${String(e)}`)
+        }
+        nextAtt[path] = { ...entry, mode: 'relay', cleaned: true }
+        changed = true
+      }
+
+      return { attachments: nextAtt, changed }
+    }
+
     async function runSync(reason = '手动', { silent = false } = {}) {
       if (busy) return { skipped: true }
       if (!settings.owner || !settings.repo) return { error: '还没配置 owner / repo' }
@@ -400,7 +745,7 @@ export default {
       if (!silent) api.view.refresh()
       const t0 = Date.now()
       let tMark = t0
-      const timing = { manifest: 0, notes: 0, write: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, write: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -575,11 +920,15 @@ export default {
         }
         timing.notes = lap()
 
-        // ④ manifest 回写（有变动才写）
-        if (remoteChanged || summary.pushed > 0) {
+        // ④ 附件（rev173.126）—— 在 .md 循环之后；`summary.pushed / pulled` 里也含附件计数
+        const att = await syncAttachments(client, remote, summary)
+        timing.attachments = lap()
+
+        // ⑤ manifest 回写（有变动才写）
+        if (remoteChanged || summary.pushed > 0 || att.changed) {
           const w = await client.write(
             MANIFEST_PATH,
-            JSON.stringify({ version: 1, files: nextFiles, attachments: {} }),
+            JSON.stringify({ version: 1, files: nextFiles, attachments: att.attachments }),
             { sha: manifestSha, message: 'ZeroNote 同步：更新 manifest' },
           )
           if (w.ok) manifestSha = w.sha ?? null
@@ -689,6 +1038,21 @@ export default {
           children: { type: 'input', bind: 'git.token', placeholder: '不改就留空' },
         },
         {
+          type: 'field',
+          label: '附件（图片 / PDF）',
+          hint: '不同步 = 只同步 .md；中转 = 对端收到后仓库里删掉（省空间）；永久 = 与文档一样',
+          children: {
+            type: 'select',
+            bind: 'git.attachmentsMode',
+            options: [
+              { value: 'off', label: '不同步（默认）' },
+              { value: 'relay', label: '同步中转（仓库不常留）' },
+              { value: 'full', label: '与文档一样永久同步' },
+            ],
+            onSubmit: 'sync-git.set-attachments',
+          },
+        },
+        {
           type: 'row',
           gap: 'sm',
           wrap: true,
@@ -752,6 +1116,9 @@ export default {
               { type: 'badge', text: `用时 ${fmtMs(ms.total)}`, tone: 'muted' },
               { type: 'badge', text: `manifest ${fmtMs(ms.manifest)}`, tone: 'muted' },
               { type: 'badge', text: `笔记 ${fmtMs(ms.notes)}`, tone: 'muted' },
+              ...(ms.attachments > 0
+                ? [{ type: 'badge', text: `附件 ${fmtMs(ms.attachments)}`, tone: 'muted' }]
+                : []),
             ],
           })
         }
@@ -870,6 +1237,19 @@ export default {
       api.view.refresh()
     })
     register('sync-git.sync', '同步：立即同步一次（Git）', () => runSync('手动'))
+    register('sync-git.set-attachments', '同步：设置附件同步方式（Git）', (payload) => {
+      const v = String(payload?.value ?? 'off')
+      settings.attachments = ['off', 'relay', 'full'].includes(v) ? v : 'off'
+      markDirty()
+      const label =
+        settings.attachments === 'off'
+          ? '不同步（只同步 .md）'
+          : settings.attachments === 'relay'
+            ? '同步中转（对端收到后仓库删掉）'
+            : '与文档一样永久同步'
+      api.host.notify(`附件同步：${label}`)
+      api.view.refresh()
+    })
     register('sync-git.toggle-auto', '同步：开关自动同步（Git）', () => {
       settings.auto = settings.auto === false
       markDirty()

@@ -18,6 +18,13 @@
 
 ### Added
 
+- **同步 · S3 / Git 补附件同步**（rev173.126）：这两个后端此前**只同步 `.md`** —— 桌面粘的图、
+  推的 PDF 在 S3 / Git 后端下手机看不到，而且不报错。现在与 `sync-webdav` 同一套协议：
+  `off` / `relay`（中转：对端 ack 后删云端副本）/ `full`（永久），附件条目写进
+  `_zn/manifest.json`，内容级判定（指纹不同才传），`mtime` + `size` 未变不重读盘。
+  面板加「附件」耗时 badge 与模式下拉，新命令 `sync-s3.set-attachments` / `sync-git.set-attachments`；
+  `sync-s3` 0.3.0 → **0.4.0**、`sync-git` 0.4.0 → **0.5.0**。
+  真机验收：**S3（`rclone serve s3`）15/15 · Git（真实 GitHub 私有仓库）13/13**。
 - **同步 · Git 类后端 `sync-git`**（rev173.122 · 同步二期第四个、也是最后一个后端）：
   GitHub / Gitea / Gitee 的 **REST Contents API**（不是 git 协议，不是 push），
   一个文件一次 GET/PUT，**`sha` 就是乐观锁**（远端变过 ⇒ 平台拒绝 ⇒ 按冲突走三方合并）。
@@ -141,6 +148,18 @@
 
 ### Fixed
 
+- **附件同步五个静默 bug**（rev173.126 · 真机验收同一轮跑出）：
+  ① S3 前缀非空时 `test()` / `list()` 把**对象前缀**拼进路径 ⇒ 请求打到 `/桶/<前缀>`，404
+  （rev173.125 验收时前缀为空，没暴露）；
+  ② S3 `list()` 返回的 key 含前缀，喂回 `remove()` 会再拼一次 ⇒ 清理跑完远端还剩对象；
+  ③ Git `normalizeManifest` 恒丢弃 `attachments` ⇒ 下载循环空转、**零日志**（图永远不过去）；
+  ④ **GitHub Contents API 的 `content` 对二进制有损**：8 字节 PNG 的 `size` 仍是 8，但返回的
+  `content` 解码后是 **12 字节**（`0x89` → `EF BF BD`）⇒ `readBytes` 改走
+  `Accept: application/vnd.github.raw` 拿原始字节，不认 raw 的平台才回退解析 JSON；
+  ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步的那台赢：A 上传旧图、B 上传新图后 A 再同步，
+  A 会先把自己的旧图推回去）⇒ 改**先拉后推** + `mtime(本地) > at(远端)` 方向判定；
+  条目再记 `mode`（上传方当时的模式），一台 full、一台 relay 时才找得到文件。
+  单测 895 → **906**。⚠️ `sync-webdav` 仍是旧顺序（第 ⑤ 条同款），本轮未改。
 - **Git 后端：乐观锁失效会卡死（永远 409）**（rev173.123 · 真机实测发现）：
   `PUT` 带 manifest 里记的 sha，如果远端被"绕过 manifest"改过（网页里直接编辑 / 另一台设备
   崩在半路），这个 sha 就过期了 ⇒ 平台返回 409。修之前只留一句 hint 就 `continue`，

@@ -13,19 +13,25 @@ import { describe, expect, it, vi } from 'vitest'
 import plugin, {
   PROVIDERS,
   b64decode,
+  b64decodeBytes,
   b64encode,
+  b64encodeBytes,
   conflictFileName,
   createGitClient,
   decideSync,
   encodeGitPath,
   fingerprint,
+  fingerprintBytes,
   fmtMs,
+  isAttachment,
+  needsAttachmentPull,
   normalizeManifest,
   parseContents,
+  relayName,
   tryAutoMerge,
 } from '../examples/sync-git/index.js'
 import { mergeLines } from '../src/lib/merge3'
-import { fingerprint as s3Fingerprint } from '../examples/sync-s3/index.js'
+import { fingerprint as s3Fingerprint, fingerprintBytes as s3FingerprintBytes } from '../examples/sync-s3/index.js'
 import { fingerprint as webdavFingerprint } from '../examples/sync-webdav/index.js'
 
 describe('base64（UTF-8 安全）', () => {
@@ -42,6 +48,62 @@ describe('base64（UTF-8 安全）', () => {
 
   it('空串往返', () => {
     expect(b64decode(b64encode(''))).toBe('')
+  })
+})
+
+/**
+ * rev173.126 · 附件（二进制）相关的纯函数。
+ *
+ * 附件与 `.md` 走同一套 manifest 指纹，但**字节级**：拿 UTF-16 码元算的 `fingerprint` 会
+ * 把两张不同的图算成同一个指纹（PNG 里大量非 ASCII 字节），所以必须逐字节。
+ */
+describe('附件（rev173.126）', () => {
+  it('字节 base64 往返：任意二进制不被 UTF-8 改写', () => {
+    const bytes = Uint8Array.from([0, 1, 2, 0xff, 0x80, 0x7f, 0x0a, 0x0d, 0xc3, 0x28])
+    expect(Array.from(b64decodeBytes(b64encodeBytes(bytes)))).toEqual(Array.from(bytes))
+  })
+
+  it('字节 base64：中文 UTF-8 字节串与文本编码结果一致', () => {
+    const text = '图片存档 📷'
+    const bytes = new TextEncoder().encode(text)
+    expect(b64encodeBytes(bytes)).toBe(b64encode(text))
+    expect(b64decodeBytes(b64encodeBytes(bytes)).length).toBe(bytes.length)
+  })
+
+  it('decode 前剥空白（平台返回的大文件 base64 每 60 字符插 \\n）', () => {
+    const raw = b64encodeBytes(new Uint8Array([1, 2, 3, 4, 5]))
+    const wrapped = `${raw.slice(0, 3)}\n${raw.slice(3)}\n`
+    expect(Array.from(b64decodeBytes(wrapped))).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('二进制指纹逐字节；与另两个插件同一套算法', async () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    expect(fingerprintBytes(bytes)).toMatch(/^[0-9a-z]+:[0-9a-z]+$/)
+    // 三边必须互认（任一边改了字节算法都会红）
+    expect(fingerprintBytes(bytes)).toBe(s3FingerprintBytes(bytes))
+    // 含高位字节：文本指纹（UTF-16 码元）与字节指纹不是同一回事
+    expect(fingerprintBytes(bytes)).not.toBe(fingerprint(new TextDecoder().decode(bytes)))
+  })
+
+  it('isAttachment：.md 不算、.zn 不算、图片 / PDF 算', () => {
+    expect(isAttachment('附件/图.png')).toBe(true)
+    expect(isAttachment('说明.pdf')).toBe(true)
+    expect(isAttachment('笔记.md')).toBe(false)
+    expect(isAttachment('.zn/conflicts/x.png')).toBe(false)
+    expect(isAttachment('')).toBe(false)
+  })
+
+  it('needsAttachmentPull：本地没有 / 指纹不同才拉；cleaned 不拉', () => {
+    expect(needsAttachmentPull(null, { fp: 'a:1' })).toBe(true)
+    expect(needsAttachmentPull('a:1', { fp: 'a:1' })).toBe(false)
+    expect(needsAttachmentPull('a:1', { fp: 'b:2' })).toBe(true)
+    expect(needsAttachmentPull(null, { fp: 'a:1', cleaned: true })).toBe(false)
+    expect(needsAttachmentPull('a:1', null)).toBe(false)
+  })
+
+  it('relayName：指纹里的 `:` 换掉（Windows 备用数据流坑）', () => {
+    expect(relayName('8:1te3kiy', '.png')).toBe('8-1te3kiy.png')
+    expect(relayName('a/b\\c', '')).toBe('a-b-c')
   })
 })
 
@@ -266,6 +328,7 @@ describe('插件接线', () => {
       'sync-git.disconnect',
       'sync-git.open',
       'sync-git.save',
+      'sync-git.set-attachments',
       'sync-git.set-provider',
       'sync-git.sync',
       'sync-git.test',
