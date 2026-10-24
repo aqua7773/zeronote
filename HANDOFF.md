@@ -281,10 +281,12 @@ revision: 173.109
 > 实测（本地 DAV 服务器 · 用完即删）：中转上传 11431B → 手工 PUT ack → 再同步 ⇒ 云端副本消失、
 > manifest 变 `cleaned: true` → 切 `full` ⇒ 附件出现在 `ZNT/image-20261024-002541.png`（11431B）。
 >
-> ### 推送没做成
+> ### 推送（22:16 已完成）
 >
-> `git push` 失败：`127.0.0.1:26561` 代理没开（直连 GitHub 被 reset）。**本地 6 个提交待推**，
-> 用户开代理后再推。
+> 用户 2026-10-24 实测更正：**git 不走 Windows 系统代理，直连即可**（`github.com` 200 / 0.5s，
+> `raw.githubusercontent.com` 200 / 1.8s；走 26561 反而 raw 超时 15s）。早前「push 要设
+> `HTTPS_PROXY`」是 2026-10-20 的情况。去掉代理环境变量后 `git push origin main` **一次成功**
+> （`0e05ea7..1bc67fe`，6 个提交）。
 
 > ## 📌 rev173.108（2026-10-24 · 同步插件第二个后端：`sync-webdav`（直连 WebDAV + 前台近实时））
 >
