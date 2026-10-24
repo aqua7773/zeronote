@@ -13,6 +13,7 @@ import {
   dayRecords,
   daysBetween,
   defaultPlan,
+  extendStartDate,
   freqLabel,
   habitNode,
   isDueDay,
@@ -122,6 +123,37 @@ describe('streakOf / streakOfPlan：连续天数按应打卡日', () => {
     expect(streakOfPlan(daily, {}, today)).toBe(0)
     expect(streakOf(daily, {}, '')).toBe(0)
     expect(streakOf(undefined as never, {}, today)).toBe(0)
+  })
+})
+
+describe('extendStartDate：补打卡早于开始日 ⇒ 开始日前移', () => {
+  const today = '2026-10-24'
+  const plan = defaultPlan(today, 'p1')
+
+  it('补昨天 ⇒ 开始日改成昨天', () => {
+    const next = extendStartDate(plan, '2026-10-23')
+    expect(next.startDate).toBe('2026-10-23')
+    expect(next).not.toBe(plan)
+  })
+
+  it('补今天 / 未来 ⇒ 原样返回（同一对象，调用方据此跳过写盘）', () => {
+    expect(extendStartDate(plan, today)).toBe(plan)
+    expect(extendStartDate(plan, '2026-10-25')).toBe(plan)
+  })
+
+  it('坏日期 / 没开始日 ⇒ 原样', () => {
+    expect(extendStartDate(plan, '')).toBe(plan)
+    expect(extendStartDate(plan, '2026-1-1')).toBe(plan)
+    const noStart = { ...plan, startDate: '' }
+    expect(extendStartDate(noStart, '2026-10-23')).toBe(noStart)
+  })
+
+  it('开始日前移之后，连续天数认补的那天（手机实测的复现）', () => {
+    const shifted = extendStartDate(plan, '2026-10-23')
+    const checks = { '2026-10-23': ['08:00'], '2026-10-24': ['08:00'] }
+    // 修前：startDate 还是 10-24 ⇒ 23 不算应打卡日 ⇒ 连续 1；修后应为 2
+    expect(streakOfPlan(plan, checks, today)).toBe(1)
+    expect(streakOfPlan(shifted, checks, today)).toBe(2)
   })
 })
 

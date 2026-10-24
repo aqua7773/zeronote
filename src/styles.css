@@ -1080,6 +1080,13 @@ body.is-resizing * {
   font-size: var(--zn-text-sm);
 }
 .zn-btn:hover { background: var(--zn-bg-hover); }
+/* 禁用态（手机实测 2026-10-24：打卡到上限后按钮文案变「再打一次」却没有任何视觉差别，
+   点了没反应还以为是卡了）—— 全局 UINode 按钮共用这一条 */
+.zn-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.zn-btn:disabled:hover { background: var(--zn-bg); }
 .zn-btn.is-primary {
   background: var(--zn-accent);
   border-color: var(--zn-accent);

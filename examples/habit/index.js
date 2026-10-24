@@ -63,6 +63,22 @@ export function daysBetween(fromKey, toKey) {
   return Math.round((b.getTime() - a.getTime()) / DAY)
 }
 
+/**
+ * 补打卡的日子**早于计划开始日** ⇒ 把开始日前移到那天。
+ *
+ * 为什么（手机实测 2026-10-24 发现）：新建计划时 `startDate` = 创建日；
+ * 用户立刻补打昨天，`canBackfill` 允许（最近 7 天），记录也落盘了，
+ * 但 `isDueDay` 认为"早于 startDate 不算应打卡日" ⇒ **连续天数不涨、累计天数涨**，
+ * 同一份数据两个口径打架。用户主动补的那天，就是计划实际生效的那天。
+ */
+export function extendStartDate(plan, date) {
+  const target = dayDate(date)
+  const start = dayDate(plan?.startDate)
+  if (!target || !start) return plan
+  if (target.getTime() >= start.getTime()) return plan
+  return { ...plan, startDate: dayKey(target) }
+}
+
 /** 星期几 → 1..7（周一 = 1，周日 = 7）。需求里"每周固定星期几"用这套序号 */
 export function isoWeekday(d) {
   const t = d instanceof Date ? d : new Date(d)
@@ -714,6 +730,12 @@ export default {
         api.host.notify(`那天已经够 ${targetOf(plan)} 次了`, 'warn')
         return
       }
+      // 补的是计划开始日之前的日子 ⇒ 开始日前移（否则连续天数不认这天，见 extendStartDate）
+      const nextPlan = extendStartDate(plan, date)
+      if (nextPlan !== plan) {
+        plans = plans.map((p) => (p.id === planId ? nextPlan : p))
+        await persistPlans()
+      }
       checks = { ...checks, [planId]: { ...(checks[planId] ?? {}), [date]: [...recs, timeOf(Date.now())] } }
       await persistChecks()
       api.host.notify(`已补打卡 ${date}`)
@@ -763,6 +785,9 @@ export default {
     function shiftMonth(delta) {
       const d = new Date(month.y, month.m + delta, 1)
       month = { y: d.getFullYear(), m: d.getMonth() }
+      // 切月清掉选中日（手机实测 2026-10-24 发现）：不清的话 9 月的日历底下
+      // 还挂着「2026-10-24 · 0 次」，补打卡按钮照旧可点 —— 用户以为在改 9 月的某天。
+      selectedDay = ''
       refresh()
     }
 
