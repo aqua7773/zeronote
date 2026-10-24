@@ -315,6 +315,41 @@ export function isAttachment(path) {
 }
 
 /**
+ * 远端这条附件要不要拉到本地（rev173.117）。
+ *
+ * 以前只看「本地有没有这个路径」（`localPaths.has(path)`）—— 远端把 **同一路径的图换掉**
+ * （改图 / 重新截图 / 别的设备覆盖）时，本地永远停在旧版本，同步看起来"没事"。
+ * 现在按 manifest 的 `fp` 判：
+ *
+ * · 远端 `cleaned`（中转模式已清理）⇒ 不拉
+ * · 本地没有 ⇒ 拉
+ * · 本地指纹与远端不同 ⇒ 拉（远端更新过）
+ * · 相同 ⇒ 不拉
+ *
+ * @param {string|null} localFp 本地现有文件的指纹；没有这份就传 null
+ * @param {{fp?: string, cleaned?: boolean}|null} remoteEntry
+ */
+export function needsAttachmentPull(localFp, remoteEntry) {
+  if (!remoteEntry || remoteEntry.cleaned) return false
+  if (!localFp) return true
+  return localFp !== remoteEntry.fp
+}
+
+/**
+ * 耗时给人看的写法（rev173.117 同步耗时统计）。
+ *
+ * 小于 1 秒说毫秒（"320 毫秒"比"0.3 秒"更少歧义），1 秒以上保留一位小数；
+ * 10 秒以上不带小数（"12 秒"），避免面板宽度抖动。
+ */
+export function fmtMs(ms) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  if (n < 1000) return `${Math.round(n)} 毫秒`
+  if (n < 10000) return `${(n / 1000).toFixed(1)} 秒`
+  return `${Math.round(n / 1000)} 秒`
+}
+
+/**
  * 中转文件 / ack 标记的**远端文件名**。
  *
  * ⚠️ **必须把指纹里的 `:` 换掉**（rev173.109 实测）：`fingerprint` 的格式是 `<长度>:<散列>`，
@@ -506,12 +541,25 @@ export function createDavClient(cfg) {
 
     /* ── 二进制（附件同步用）：字节进出，不做任何编码假设 ── */
 
-    /** 读二进制；不存在返回 `null` */
-    async getBytes(rel) {
-      const res = await request('GET', rel)
-      if (res.status === 404 || res.status === 409) return null
+    /**
+     * 读二进制。返回 `{ data, notModified, etag }`：
+     *
+     * · `data: Uint8Array`               ⇒ 正常内容
+     * · `data: null, notModified: false` ⇒ 远端没有这份（404 / 409）
+     * · `data: null, notModified: true`  ⇒ **带了 `If-None-Match`，远端没变**（304）
+     *
+     * 304 短路径（rev173.117）：与 manifest 同一套做法 —— 附件这种几 MB 的东西，
+     * 远端没变就不该再拉一遍字节。调用方拿到 `notModified` 时自己决定用本机已有的副本。
+     */
+    async getBytes(rel, ifNoneMatch) {
+      const res = await request('GET', rel, {
+        headers: ifNoneMatch ? { 'If-None-Match': ifNoneMatch } : {},
+      })
+      const etag = res.headers?.etag ?? null
+      if (res.status === 304) return { data: null, notModified: true, etag: ifNoneMatch ?? etag }
+      if (res.status === 404 || res.status === 409) return { data: null, notModified: false, etag }
       if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${rel}`)
-      return res.bytes()
+      return { data: res.bytes(), notModified: false, etag }
     },
 
     /** 写二进制。返回 `{ ok, status }` */
@@ -550,6 +598,16 @@ export default {
      * `{ files, attachments, etag }`；etag 为空 = 远端没给 ETag ⇒ 下一轮照旧全量拉。
      */
     let manifestCache = null
+    /**
+     * 本地附件指纹缓存（rev173.117）：`path → { mtime, size, fp }`。
+     * 5 秒一轮的自动同步靠它跳过没变过的附件（见 `syncAttachments.localFpOf`）。
+     */
+    const attFpCache = new Map()
+    /**
+     * 远端附件的 ETag 缓存（rev173.117）：`远端路径 → etag`。
+     * 下载时带 `If-None-Match`，远端没变就 304（省一次完整传输）。
+     */
+    const attEtag = new Map()
     let conflicts = []
     /**
      * 进程内已确认存在「同步点」的路径（rev173.115）。
@@ -674,6 +732,21 @@ export default {
       if (!settings.baseUrl) return { error: '还没配置 WebDAV 地址' }
       busy = true
       if (!silent) api.view.refresh()
+      const t0 = Date.now()
+      let tMark = t0
+      /**
+       * 各阶段耗时（rev173.117）：`{ manifest, notes, attachments, total }`。
+       *
+       * 为什么要这个：自动同步每 5 秒一轮，用户能感觉到"卡"的时候第一句一定是
+       * 「是不是同步拖的」—— 面板上直接给出哪个阶段慢，比猜快。
+       */
+      const timing = { manifest: 0, notes: 0, attachments: 0 }
+      const lap = () => {
+        const now = Date.now()
+        const d = now - tMark
+        tMark = now
+        return d
+      }
       const summary = {
         pulled: 0,
         pushed: 0,
@@ -704,6 +777,7 @@ export default {
           remote = { files: got.files, attachments: got.attachments }
           manifestCache = { files: got.files, attachments: got.attachments, etag: got.etag }
         }
+        timing.manifest = lap()
         const notes = await api.fs.listNotes()
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
@@ -855,8 +929,11 @@ export default {
           summary.pulled += 1
         }
 
+        timing.notes = lap()
+
         // 附件（在 .md 循环之后：`summary.pushed` 里也含附件计数）
         const att = await syncAttachments(client, remote, summary)
+        timing.attachments = lap()
 
         // manifest 回写（本轮有 .md 或附件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
         if (summary.pushed > 0 || att.changed) {
@@ -895,6 +972,8 @@ export default {
         else api.host.log('warn', summary.hint)
       } finally {
         busy = false
+        // 失败也记耗时（面板要能看出"卡在哪个阶段"）
+        summary.ms = { ...timing, total: Date.now() - t0 }
         const changed = summary.pulled + summary.pushed + summary.merged + summary.conflicts + summary.removed > 0
         lastResult = { ...summary, at: Date.now() }
         // 自动轮询下「什么都没变」不刷面板（每 5 秒重渲染会把用户正在填的表单刷掉）
@@ -943,26 +1022,55 @@ export default {
       const nextAtt = { ...remoteAtt }
       const notes = await api.fs.listNotes()
       const locals = notes.filter((n) => isAttachment(n.path))
-      const localPaths = new Set(locals.map((n) => n.path))
+      const localByPath = new Map(locals.map((n) => [n.path, n]))
       const me = await deviceId()
       let changed = false
+
+      /**
+       * 本地附件的指纹：**`mtime` + `size` 没变就复用上次的结果**（rev173.117）。
+       *
+       * 自动同步每 5 秒一轮，附件多的时候每轮把所有图片重新读一遍 + 重算散列是纯浪费
+       * （100 张图 ≈ 每轮几百 MB 读盘）。`listNotes` 本来就带 `mtime` / `size`，
+       * 这两个都没变就没有理由再读内容。缓存只放内存，进程重启多读一次而已。
+       *
+       * 返回 `{ fp, bytes }`：`bytes` 只在**这次真读了盘**时才有值 —— 调用方直接拿它上传，
+       * 免得同一轮为了算指纹和为了上传各读一遍（字节不留在缓存里，图片可能很大）。
+       */
+      async function localFpOf(meta) {
+        const hit = attFpCache.get(meta.path)
+        if (hit && hit.mtime === meta.mtime && hit.size === meta.size) return { fp: hit.fp, bytes: null }
+        const bytes = await api.fs.readBytes(meta.path)
+        const fp = fingerprintBytes(bytes)
+        attFpCache.set(meta.path, { mtime: meta.mtime, size: meta.size, fp })
+        return { fp, bytes }
+      }
 
       // ① 本地 → 远端
       for (const n of locals) {
         const entry = nextAtt[n.path]
-        let bytes
+        let fp = ''
+        let bytes = null
         try {
-          bytes = await api.fs.readBytes(n.path)
+          const got = await localFpOf(n)
+          fp = got.fp
+          bytes = got.bytes
         } catch {
           continue // 读不到就下一轮
         }
-        const fp = fingerprintBytes(bytes)
         /**
          * 远端已有同一份就跳过 —— **但 `cleaned` 的不算**：那是中转模式清理过的
          * （云端副本已删），切到「永久同步」后必须重新传一份上去
          * （rev173.109 实测踩到：从 relay 切 full，附件一直不出现）。
          */
         if (entry && entry.fp === fp && !entry.cleaned) continue
+        // 指纹缓存命中时上一行没读过字节 ⇒ 上传前补读一次
+        if (!bytes) {
+          try {
+            bytes = await api.fs.readBytes(n.path)
+          } catch {
+            continue
+          }
+        }
         const ext = extOf(n.path)
         if (mode === 'full') {
           await client.mkdir(dirOf(n.path))
@@ -978,25 +1086,57 @@ export default {
         summary.pushed += 1
       }
 
-      // ② 远端 → 本地（本地还没有这份）
+      // ② 远端 → 本地（本地没有这份，**或者远端换过内容**）
       for (const [path, entry] of Object.entries(remoteAtt)) {
         if (!entry || entry.cleaned) continue
-        if (localPaths.has(path)) continue
         if (!isAttachment(path)) continue
+        const local = localByPath.get(path) ?? null
+        /**
+         * 内容级判定（rev173.117）：以前是 `localPaths.has(path)` —— 只要本地有这个文件名
+         * 就永远不再看，远端把同一路径的图换掉时两端会长期不一致。现在比指纹。
+         */
+        let localFp = null
+        if (local) {
+          try {
+            localFp = await localFpOf(local)
+          } catch {
+            localFp = null
+          }
+        }
+        if (!needsAttachmentPull(localFp, entry)) continue
         const src = mode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
-        let data = null
+        let got = null
         try {
-          data = await client.getBytes(src)
+          // 带上次的 ETag：远端没变 ⇒ 304，不用再传一遍字节（rev173.117）
+          got = await client.getBytes(src, attEtag.get(src) ?? null)
         } catch (e) {
           api.host.log('warn', `下载附件失败 ${path}：${String(e)}`)
+          continue
         }
-        if (!data) continue
+        if (got?.notModified) {
+          /**
+           * 304 = 远端这份与我们**上次取到**的一样。本地文件如果就是那份（指纹对得上），
+           * 说明是本地被改动过、而远端没动 —— 不覆盖用户的本地文件；否则我们手上没有
+           * 可用的字节，只能补一次完整下载。
+           */
+          if (localFp && localFp === entry.fp) continue
+          try {
+            got = await client.getBytes(src)
+          } catch (e) {
+            api.host.log('warn', `下载附件失败 ${path}：${String(e)}`)
+            continue
+          }
+        }
+        if (!got?.data) continue
         try {
-          await api.fs.writeBytes(path, data)
+          await api.fs.writeBytes(path, got.data)
         } catch (e) {
           api.host.log('warn', `写入附件失败 ${path}：${String(e)}`)
           continue
         }
+        if (got.etag) attEtag.set(src, got.etag)
+        // 刚写完，`listNotes` 的 mtime / size 变了 ⇒ 丢掉旧指纹，下一轮重新算一次
+        attFpCache.delete(path)
         summary.pulled += 1
         if (mode === 'relay') {
           await client.mkdir('_zn/relay-ack')
@@ -1195,6 +1335,26 @@ export default {
           variant: 'caption',
           tone: 'muted',
         })
+        /**
+         * 耗时（rev173.117）：总时长 + 三个阶段的拆分。
+         * 附件阶段为 0（模式 = 不同步 / 没有附件）时不显示，免得平白多两个 0。
+         */
+        if (lastResult.ms) {
+          const ms = lastResult.ms
+          children.push({
+            type: 'row',
+            gap: 'sm',
+            wrap: true,
+            children: [
+              { type: 'badge', text: `用时 ${fmtMs(ms.total)}`, tone: 'muted' },
+              { type: 'badge', text: `manifest ${fmtMs(ms.manifest)}`, tone: 'muted' },
+              { type: 'badge', text: `笔记 ${fmtMs(ms.notes)}`, tone: 'muted' },
+              ...(ms.attachments > 0
+                ? [{ type: 'badge', text: `附件 ${fmtMs(ms.attachments)}`, tone: 'muted' }]
+                : []),
+            ],
+          })
+        }
       }
 
       if (conflicts.length > 0) {

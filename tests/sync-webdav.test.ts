@@ -21,8 +21,10 @@ import plugin, {
   extOf,
   fingerprint,
   fingerprintBytes,
+  fmtMs,
   isAttachment,
   joinUrl,
+  needsAttachmentPull,
   normalizeManifest,
   parsePropfind,
   relayName,
@@ -609,6 +611,177 @@ describe('限流后开关与实际一致（rev173.110）', () => {
     expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(false)
 
     // apply 里 startAuto 挂的 interval 已经由 stopAuto 摘掉；保险起见全清
+    for (const s of api.subscriptions) s.dispose?.()
+  })
+})
+
+/* ─────────────── rev173.117 · 附件 304 / 指纹缓存 / 耗时 ─────────────── */
+
+describe('附件也走 304（rev173.117）', () => {
+  const cfg = {
+    baseUrl: 'https://dav.example.com/dav/',
+    username: 'me',
+    password: 'secret',
+    root: 'ZeroNote',
+  }
+
+  it('getBytes：带 If-None-Match，304 ⇒ notModified 且不返回字节', async () => {
+    const { net, calls } = davNet([{ status: 304 }])
+    const client = createDavClient({ ...cfg, net })
+    const r = await client.getBytes('_zn/relay/x.png', '"v1"')
+    expect(r).toEqual({ data: null, notModified: true, etag: '"v1"' })
+    expect(calls[0].headers['If-None-Match']).toBe('"v1"')
+  })
+
+  it('getBytes：404 / 409 ⇒ 没有这份（不抛）', async () => {
+    for (const status of [404, 409]) {
+      const { net } = davNet([{ status }])
+      const r = await createDavClient({ ...cfg, net }).getBytes('a.png')
+      expect(r).toMatchObject({ data: null, notModified: false })
+    }
+  })
+
+  it('getBytes：200 带回字节与 etag（下一轮 304 用）', async () => {
+    const { net } = davNet([{ status: 200, body: 'PNGDATA', headers: { etag: '"e2"' } }])
+    const r = await createDavClient({ ...cfg, net }).getBytes('a.png')
+    expect(r.notModified).toBe(false)
+    expect(new TextDecoder().decode(r.data!)).toBe('PNGDATA')
+    expect(r.etag).toBe('"e2"')
+  })
+
+  it('needsAttachmentPull：远端没有 / 一致 / 换过 / 已清理', () => {
+    // 本地没有 ⇒ 拉
+    expect(needsAttachmentPull(null, { fp: 'a' })).toBe(true)
+    // 指纹一致 ⇒ 不拉
+    expect(needsAttachmentPull('a', { fp: 'a' })).toBe(false)
+    // **远端换过同一路径的内容 ⇒ 拉**（旧代码只看文件在不在，这里会漏）
+    expect(needsAttachmentPull('a', { fp: 'b' })).toBe(true)
+    // 中转模式已清理 ⇒ 不拉
+    expect(needsAttachmentPull('a', { fp: 'b', cleaned: true })).toBe(false)
+    expect(needsAttachmentPull('a', null)).toBe(false)
+  })
+
+  it('fmtMs：毫秒与秒的分界写法', () => {
+    expect(fmtMs(0)).toBe('0 毫秒')
+    expect(fmtMs(320)).toBe('320 毫秒')
+    expect(fmtMs(999)).toBe('999 毫秒')
+    expect(fmtMs(1200)).toBe('1.2 秒')
+    expect(fmtMs(12345)).toBe('12 秒')
+    expect(fmtMs(NaN)).toBe('—')
+    expect(fmtMs(-1)).toBe('—')
+  })
+})
+
+/** 递归收集 UINode 树里所有 badge 的文本（断言面板真的画了耗时） */
+function collectBadges(node: unknown, out: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return out
+  const n = node as { type?: string; text?: string; children?: unknown[] }
+  if (n.type === 'badge' && typeof n.text === 'string') out.push(n.text)
+  if (Array.isArray(n.children)) for (const c of n.children) collectBadges(c, out)
+  return out
+}
+
+describe('同步的实际行为（rev173.117）', () => {
+  it('第二轮不重读没变过的附件，面板给出耗时拆分', async () => {
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (payload?: unknown) => unknown>()
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const readBytesCalls: string[] = []
+    /** 远端 manifest 的持久状态（PUT 写、GET 读；带 ETag 让第二轮能走 304） */
+    let manifestBody = ''
+    let manifestVersion = 0
+    const net = {
+      fetch: async (spec: { url: string; method: string; headers?: Record<string, string>; body?: unknown }) => {
+        if (spec.method === 'GET' && spec.url.endsWith('_zn/manifest.json')) {
+          if (!manifestBody) {
+            return { status: 404, headers: {}, text: async () => '', bytes: async () => new Uint8Array() }
+          }
+          if (spec.headers?.['If-None-Match'] === `"m${manifestVersion}"`) {
+            return { status: 304, headers: { etag: `"m${manifestVersion}"` }, text: async () => '', bytes: async () => new Uint8Array() }
+          }
+          return {
+            status: 200,
+            headers: { etag: `"m${manifestVersion}"` },
+            text: async () => manifestBody,
+            bytes: async () => new TextEncoder().encode(manifestBody),
+          }
+        }
+        if (spec.method === 'PUT' && spec.url.endsWith('_zn/manifest.json')) {
+          manifestBody = String(spec.body ?? '')
+          manifestVersion += 1
+          return { status: 201, headers: { etag: `"m${manifestVersion}"` }, text: async () => '', bytes: async () => new Uint8Array() }
+        }
+        // MKCOL / PUT relay 文件 / PROPFIND：一律 201
+        return { status: 201, headers: {}, text: async () => '', bytes: async () => new Uint8Array() }
+      },
+    }
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [{ path: 'a.png', id: 'a', title: 'a', mtime: 1, size: 3, frontmatter: {}, kind: 'doc' }],
+        readBytes: async (p: string) => {
+          readBytesCalls.push(p)
+          return new Uint8Array([1, 2, 3])
+        },
+        writeBytes: async () => {},
+        readText: async () => '',
+        writeText: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const state = {
+      'sync.baseUrl': 'https://dav.example/dav/',
+      'sync.username': 'u',
+      'sync.root': 'ZeroNote',
+      'sync.attachmentsMode': 'relay',
+    }
+    render!({ state })
+    await commands.get('sync-webdav.save')!()
+    await commands.get('sync-webdav.set-attachments')!({ value: 'relay' })
+
+    // 第一轮：附件要上传 ⇒ 读一次字节
+    await commands.get('sync-webdav.sync')!()
+    expect(readBytesCalls).toEqual(['a.png'])
+
+    // 第二轮：manifest 304 + 附件指纹命中 ⇒ 一次都不再读盘
+    await commands.get('sync-webdav.sync')!()
+    expect(readBytesCalls).toEqual(['a.png'])
+
+    // 面板画了耗时（总 + 阶段）
+    const badges = collectBadges(render!({ state }))
+    expect(badges.some((t) => t.startsWith('用时 '))).toBe(true)
+    expect(badges.some((t) => t.startsWith('manifest '))).toBe(true)
+
     for (const s of api.subscriptions) s.dispose?.()
   })
 })

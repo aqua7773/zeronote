@@ -232,6 +232,13 @@ export default {
     let dirty = false
     /** 面板上"最近一次检查"的时间戳 */
     let lastScanAt = 0
+    /**
+     * 上一次全库扫描花了多久（rev173.117 同步耗时统计）。
+     *
+     * 本地文件夹后端没有网络往返，但库大的时候「读全部笔记算指纹」一样会卡 ——
+     * 面板上给出这个数，用户能判断慢是同步还是别处。
+     */
+    let lastScanMs = 0
     /** 扫描中（防重入） */
     let scanning = false
     /**
@@ -570,6 +577,7 @@ export default {
     async function scan(reason = '手动检查') {
       if (scanning) return { skipped: true }
       scanning = true
+      const t0 = Date.now()
       const result = { updated: 0, removed: 0, conflicts: 0, merged: 0 }
       try {
         const notes = await api.fs.listNotes()
@@ -635,6 +643,7 @@ export default {
         }
 
         lastScanAt = Date.now()
+        lastScanMs = Date.now() - t0
         markDirty()
         return result
       } finally {
@@ -668,6 +677,18 @@ export default {
     }
 
     /* ── 面板 ── */
+
+    /**
+     * 耗时给人看（rev173.117）—— 与 `sync-webdav` 的 `fmtMs` 同一套写法。
+     * 插件之间不能 import，各留一份；两边改了要一起改（单测各有一条覆盖）。
+     */
+    function fmtMs(ms) {
+      const n = Number(ms)
+      if (!Number.isFinite(n) || n < 0) return '—'
+      if (n < 1000) return `${Math.round(n)} 毫秒`
+      if (n < 10000) return `${(n / 1000).toFixed(1)} 秒`
+      return `${Math.round(n / 1000)} 秒`
+    }
 
     function render() {
       const baseCount = Object.keys(baseline).length
@@ -746,7 +767,7 @@ export default {
         {
           type: 'text',
           value: lastScanAt
-            ? `上次检查：${new Date(lastScanAt).toLocaleTimeString()}`
+            ? `上次检查：${new Date(lastScanAt).toLocaleTimeString()}（用时 ${fmtMs(lastScanMs)}）`
             : '上次检查：还没检查过',
           variant: 'caption',
           tone: 'muted',

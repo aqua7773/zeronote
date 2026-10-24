@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.116）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.117）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.116 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 833 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.117 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 841 · cargo 38 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 11 · 示例 35 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -64,8 +64,15 @@ pwsh -File scripts\verify.ps1
 > 两边改同一行 ⇒ 回副本（= 本机版）。⚠️ 观察项：`note:saved` 与 Rust watcher 的 `note:changed` 有竞争
 > （冷启动首次可能 changed 先到 ⇒ 本机版没进影子副本），根治要改内核写盘语义，另议。
 >
-> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）· 附件也走 304 ·
-> 同步耗时统计 · 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
+> ✅ **附件同步补齐 + 耗时上版面（rev173.117，二期小项收尾）**：① 附件不再只看「本地有没有这个文件名」
+> —— 远端换掉同一路径的图以前永远同步不下来，现在按 manifest 的 `fp` 判（`needsAttachmentPull`）·
+> ② 下载带 `If-None-Match`（`getBytes` 返回 `{data, notModified, etag}`，304 不传字节；命中场景是
+> 「本地被改坏、远端没动」，此时**不覆盖本地文件**）· ③ **本地指纹缓存**（`mtime`+`size` 未变不重读，
+> 以前每 5 秒把全部图片读一遍）· ④ 面板「用时 + manifest / 笔记 / 附件」三段，`sync-folder` 的
+> 「上次检查」也带用时 · 单测 833 → **841** · `sync-webdav` 0.2.1。
+>
+> **下一步可选（二期方向，未排期）**：S3 后端 · Git 类后端（GitHub/Gitee）· 同步耗时也记历史（画趋势）·
+> 「插件写盘不触发 note:saved」的内核口子（根治僵尸 pending）。方案见
 > `docs/同步插件-调研与方案-2026-10-24.md` §5 方案 B / §6.2。
 >
 > 手机操作备忘：这台真机的 **☰ 短按 = 抽屉、长按 600ms = 菜单**（「同步 · WebDAV」在菜单里）；

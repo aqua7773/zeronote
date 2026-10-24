@@ -214,6 +214,8 @@ function harness(
   /** id → run（rev173.112 起要直接驱动命令，比如 toggle） */
   const runs = new Map<string, () => unknown>()
   const panels: Array<{ id: string; location: string }> = []
+  /** id → render（rev173.117：要断言面板文案，比如「上次检查 … 用时」） */
+  const renders = new Map<string, (ctx?: unknown) => unknown>()
   let refreshCount = 0
   const store = new Map<string, unknown>(Object.entries(initialStore))
 
@@ -251,8 +253,9 @@ function harness(
       execute: async () => {},
     },
     view: {
-      registerPanel: (spec: { id: string; location: string }) => {
+      registerPanel: (spec: { id: string; location: string; render?: (ctx?: unknown) => unknown }) => {
         panels.push({ id: spec.id, location: spec.location })
+        if (spec.render) renders.set(spec.id, spec.render)
         return { dispose: () => {} }
       },
       refresh: () => {
@@ -263,7 +266,7 @@ function harness(
   }
 
   plugin.apply(api as never)
-  return { mem, host, handlers, commands, runs, panels, api, store, refresh: () => refreshCount }
+  return { mem, host, handlers, commands, runs, panels, api, store, renders, refresh: () => refreshCount }
 }
 
 /** 让 fire-and-forget 的 async handler 跑完 */
@@ -576,5 +579,34 @@ describe('tryAutoMerge（与 sync-webdav 同一判据）', () => {
 
   it('两边改成同一内容 ⇒ null（不写盘，也不自触发 note:saved）', () => {
     expect(tryAutoMerge({ base, mine: 'A1\nB\nC\n', theirs: 'A1\nB\nC\n', mergeLines })).toBeNull()
+  })
+})
+
+/** 递归收集 UINode 树里的文本（text 值 / badge 文案） */
+function collectTexts(node: unknown, out: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return out
+  const n = node as { type?: string; value?: string; text?: string; children?: unknown[] }
+  if (typeof n.value === 'string') out.push(n.value)
+  if (typeof n.text === 'string') out.push(n.text)
+  if (Array.isArray(n.children)) for (const c of n.children) collectTexts(c, out)
+  return out
+}
+
+describe('扫描耗时（rev173.117）', () => {
+  it('扫描后面板给「上次检查：HH:MM:SS（用时 …）」', async () => {
+    const h = harness({ 'a.md': '# 一\n' })
+    await h.runs.get('sync-folder.scan')!()
+    const render = h.renders.get('sync-folder.status')!
+    const texts = collectTexts(render({ state: {} }))
+    const line = texts.find((t) => t.startsWith('上次检查：'))
+    expect(line).toBeTruthy()
+    // 第一次扫就有耗时（毫秒级也算），不能只有时间没有用时
+    expect(line).toContain('用时')
+  })
+
+  it('没扫过时说「还没检查过」', () => {
+    const h = harness({ 'a.md': '# 一\n' })
+    const texts = collectTexts(h.renders.get('sync-folder.status')!({ state: {} }))
+    expect(texts).toContain('上次检查：还没检查过')
   })
 })
