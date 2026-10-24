@@ -247,6 +247,18 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
+- **2026-10-25 00:12 交接时环境**：桌面 dev 仍在跑（`zeronote.exe` pid **23640** 起于 23:24 · vite pid **24648**（1420）·
+  CDP 9222 正常）。本会话**没有重启 dev**，只在页面里 `location.reload()` 过多次（插件代码从 `?raw` 重新写盘）。
+  - **全局插件目录已是新版本**：`history` 0.2.0（含 `base.*.sync.md`）/ `sync-folder` 0.2.0 / `sync-webdav` 0.2.0。
+  - **同步点文件**：`_tmp-vault-tb/.zn/history/` 下 `base.webdav.sync.md` / `base.folder.sync.md` **各 30 篇**；
+    旧的共用 `base.sync.md` 30 篇还在（读取按 tag，不影响；要清可整目录清）。
+  - **测试库两篇笔记被合并验收改写过**（`_tmp-vault-tb`，不入库）：
+    `根笔记.md` = `# 根笔记 + 这是库根目录下的笔记。 + # # + 本机补充-116-测试合并`；
+    `新笔记-22-52-34.md` = `标题行（外部改）` / `第二行` / `本机补的`。
+  - **sync-webdav 配置已恢复**：指向坚果云（`https://dav.jianguoyun.com/dav/` · 目录 `ZeroNote` · auto=**true**）；
+    验收期间临时指过本地 DAV（`127.0.0.1:8899`），测试服务器与 `_tmp-dav-root` 已删。
+  - **本地 DAV 测试服务器**（`_tmp-dav-server.mjs`）只在 rev173.115 临时用过，**已删除**；要再验 WebDAV 得重写一份。
+  - 残留：`_tmp-verify-rev173.116c.log`（最终 verify 证据）。
 - **桌面 dev**：直接 `pnpm tauri dev`（vite 1420）即可——IL 已修，默认 UDF 正常；`scripts\dev.ps1` 是备用启动（UDF 放项目内 `_tmp-ebwebview`），两种都行。日志 `.self-logs/desktop-dev.log`；**android-dev** 另起（WMI，日志 `.self-logs/android-dev.log`）。
 - **2026-10-24 23:24 环境**：桌面 `dev.cmd` **重启过**（旧树整棵 taskkill 后重起；`zeronote.exe` pid **23640** 起于 23:24 · vite pid 24648 · CDP 9222 正常）——
   起因是 Vite `?raw` 模块图缓存坏掉导致白屏（overlay：`Failed to resolve import …index.js from …index.js?raw`），reload 无效。
