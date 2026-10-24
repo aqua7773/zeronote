@@ -276,6 +276,9 @@ export function normalizeManifest(raw) {
         ext: typeof v.ext === 'string' ? v.ext : '',
         at: Number(v.at) || 0,
         ...(v.cleaned ? { cleaned: true } : {}),
+        // `mode` 记录**上传方**当时的模式（rev173.126）：取文件时按它决定去原路径还是 `_zn/relay/`，
+        // 否则一台 full、一台 relay 时 relay 那台永远找不到文件
+        ...(v.mode === 'full' || v.mode === 'relay' ? { mode: v.mode } : {}),
       }
     }
     return { version: 1, files: out, attachments }
@@ -1149,6 +1152,20 @@ export default {
         return { fp, bytes }
       }
 
+      /**
+       * 本轮「算指纹时顺带读到的字节」。
+       *
+       * 先拉后推之后，同一份附件在一轮里要**看两次**（下载循环判方向 + 上传循环取内容）——
+       * 不复用的话，本地改过的那张图会被读两遍（100 张图就是两倍 IO）。
+       * 只在**这次真读了盘**时才有条目；下载覆盖本地后会删掉，避免拿旧字节又推回去。
+       */
+      const preloaded = new Map()
+
+      /**
+       * 本地 → 远端。**在拉取之后调用**（rev173.126）：顺序反了会先拿本机旧版盖掉远端新版，
+       * 两台设备互相覆盖、谁后同步谁赢，另一台永远拿不到新版。
+       */
+      async function pushLocal() {
       // ① 本地 → 远端
       for (const n of locals) {
         const entry = nextAtt[n.path]
@@ -1157,7 +1174,7 @@ export default {
         try {
           const got = await localFpOf(n)
           fp = got.fp
-          bytes = got.bytes
+          bytes = got.bytes ?? preloaded.get(n.path) ?? null
         } catch {
           continue // 读不到就下一轮
         }
@@ -1167,6 +1184,8 @@ export default {
          * （rev173.109 实测踩到：从 relay 切 full，附件一直不出现）。
          */
         if (entry && entry.fp === fp && !entry.cleaned) continue
+        // 版本不同且本地不更新 ⇒ 远端更新，等下一轮/上一轮下载，不要拿旧版覆盖
+        if (entry && !entry.cleaned && Number(n.mtime ?? 0) <= Number(entry.at ?? 0)) continue
         // 指纹缓存命中时上一行没读过字节 ⇒ 上传前补读一次
         if (!bytes) {
           try {
@@ -1185,9 +1204,10 @@ export default {
           const r = await client.putBytes(`_zn/relay/${relayName(fp, ext)}`, bytes)
           if (!r.ok) throw new Error(`上传附件失败（${r.status}）：${n.path}`)
         }
-        nextAtt[n.path] = { fp, ext, at: Date.now() }
+        nextAtt[n.path] = { fp, ext, at: Date.now(), mode }
         changed = true
         summary.pushed += 1
+      }
       }
 
       // ② 远端 → 本地（本地没有这份，**或者远端换过内容**）
@@ -1202,13 +1222,22 @@ export default {
         let localFp = null
         if (local) {
           try {
-            localFp = await localFpOf(local)
+            // `localFpOf` 返回 `{ fp, bytes }`；以前把**对象**当指纹用，与字符串永远不等 ⇒
+            // 本地同版也会每轮拉一次（rev173.126 修）
+            const got = await localFpOf(local)
+            localFp = got.fp
+            // 这一轮真要上传的话，直接复用刚读到的字节，别再读一遍盘
+            if (got.bytes) preloaded.set(path, got.bytes)
           } catch {
             localFp = null
           }
         }
         if (!needsAttachmentPull(localFp, entry)) continue
-        const src = mode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
+        // 版本不同且本地更新 ⇒ 本机改过、留给 pushLocal；否则远端更新 ⇒ 拉
+        if (local && Number(local.mtime ?? 0) > Number(entry.at ?? 0)) continue
+        // 云端那份放在哪由**上传方的模式**决定（条目里的 `mode`），不是本机设置
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        const src = remoteMode === 'full' ? path : `_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`
         let got = null
         try {
           // 带上次的 ETag：远端没变 ⇒ 304，不用再传一遍字节（rev173.117）
@@ -1241,23 +1270,28 @@ export default {
         if (got.etag) attEtag.set(src, got.etag)
         // 刚写完，`listNotes` 的 mtime / size 变了 ⇒ 丢掉旧指纹，下一轮重新算一次
         attFpCache.delete(path)
+        // 本地已被远端版覆盖 ⇒ 丢弃「算指纹时读到的旧字节」，否则下一句上传会拿旧内容推回去
+        preloaded.delete(path)
         summary.pulled += 1
-        if (mode === 'relay') {
+        if (remoteMode === 'relay') {
           await client.mkdir('_zn/relay-ack')
           await client.putBytes(`_zn/relay-ack/${relayName(entry.fp, '')}`, new TextEncoder().encode(me))
         }
       }
 
+      await pushLocal()
+
       // ③ relay 清理：有 ack 就删云端副本（任何端都能做，幂等）
-      if (mode === 'relay') {
-        for (const [path, entry] of Object.entries(nextAtt)) {
-          if (!entry || entry.cleaned) continue
-          const acked = await client.exists(`_zn/relay-ack/${relayName(entry.fp, '')}`)
-          if (!acked) continue
-          await client.remove(`_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`)
-          nextAtt[path] = { ...entry, cleaned: true }
-          changed = true
-        }
+      for (const [path, entry] of Object.entries(nextAtt)) {
+        if (!entry || entry.cleaned) continue
+        // 只有「云端那份确实在 relay 路径上」的条目才有 ack 可等（full 条目永不清理）
+        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
+        if (remoteMode !== 'relay') continue
+        const acked = await client.exists(`_zn/relay-ack/${relayName(entry.fp, '')}`)
+        if (!acked) continue
+        await client.remove(`_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`)
+        nextAtt[path] = { ...entry, mode: 'relay', cleaned: true }
+        changed = true
       }
 
       return { attachments: nextAtt, changed }

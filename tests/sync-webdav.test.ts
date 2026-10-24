@@ -769,7 +769,7 @@ describe('同步的实际行为（rev173.117）', () => {
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
     const readBytesCalls: string[] = []
     /** 本地附件的当前状态（第三轮改它，模拟「用户换了同一路径的图」） */
-    const local = { mtime: 1, size: 3, bytes: new Uint8Array([1, 2, 3]) }
+    const local = { mtime: Date.now() - 60_000, size: 3, bytes: new Uint8Array([1, 2, 3]) }
     /** 远端 manifest 的持久状态（PUT 写、GET 读；带 ETag 让第二轮能走 304） */
     let manifestBody = ''
     let manifestVersion = 0
@@ -862,10 +862,11 @@ describe('同步的实际行为（rev173.117）', () => {
     await commands.get('sync-webdav.sync')!()
     expect(readBytesCalls).toEqual(['a.png'])
 
-    // 第三轮：本地换图（mtime 变）⇒ 有变化 ⇒ 这一轮也会被记进耗时历史
-    local.mtime = 2
+    // 第三轮：本地换图（mtime 变新，且**晚于**远端条目的上传时间）⇒ 本机算「改过」⇒ 上传 + 记耗时
+    local.mtime = Date.now() + 60_000
     local.bytes = new Uint8Array([9, 9, 9])
     await commands.get('sync-webdav.sync')!()
+    // 只读一次：算指纹时读到的字节被上传复用（先拉后推也不能多读一遍）
     expect(readBytesCalls).toEqual(['a.png', 'a.png'])
 
     // 面板画了耗时（总 + 阶段），并且画出了「最近 2 次」的趋势
@@ -880,3 +881,195 @@ describe('同步的实际行为（rev173.117）', () => {
     for (const s of api.subscriptions) s.dispose?.()
   })
 })
+
+
+
+/**
+ * rev173.127 · 双设备：附件方向判定。
+ *
+ * 场景：A 上传 v1 → B 拉下来后换图成 v2 并上传 → A 再同步。
+ * 修前（先推后拉）：A 会先把自己的 v1 推回远端、再拉回来，永远停在 v1（谁后同步谁赢）。
+ * 修后（先拉后推 + mtime/at 方向判定）：A 认「远端条目比本地新」⇒ 直接拉 v2。
+ */
+describe('双设备：附件方向（rev173.127）', () => {
+  function makeDav() {
+    const files = new Map<string, { bytes: Uint8Array; etag: string }>()
+    /** 请求流水（断言「A 有没有把旧图推回去」时用） */
+    const requests: string[] = []
+    let ver = 0
+    const asBytes = (body: unknown): Uint8Array => {
+      if (typeof body === 'string') return new TextEncoder().encode(body)
+      if (body instanceof Uint8Array) return body
+      return new Uint8Array()
+    }
+    // 内核 `net.fetch` 的响应体是**同步**方法（体已预读好）—— mock 也必须同步，
+    // 否则 `normalizeManifest(res.text())` 拿到的是 Promise（解析成空表，且不报错）
+    const emptyText = () => ''
+    const emptyBytes = () => new Uint8Array()
+    const net = {
+      fetch: async (spec: { url: string; method: string; headers?: Record<string, string>; body?: unknown }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
+        requests.push(`${method} ${p}`)
+        const hdr = (etag: string) => ({ etag })
+        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'MKCOL') return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'DELETE') {
+          files.delete(p)
+          return { status: 204, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
+        if (method === 'GET') {
+          const f = files.get(p)
+          if (!f) return { status: 404, headers: {}, text: emptyText, bytes: emptyBytes }
+          if (spec.headers?.['If-None-Match'] && spec.headers['If-None-Match'] === f.etag) {
+            return { status: 304, headers: hdr(f.etag), text: emptyText, bytes: emptyBytes }
+          }
+          return {
+            status: 200,
+            headers: hdr(f.etag),
+            text: () => new TextDecoder().decode(f.bytes),
+            bytes: () => f.bytes,
+          }
+        }
+        if (method === 'PUT') {
+          ver += 1
+          files.set(p, { bytes: asBytes(spec.body), etag: `"e${ver}"` })
+          return { status: 201, headers: hdr(`"e${ver}"`), text: emptyText, bytes: emptyBytes }
+        }
+        return { status: 500, headers: {}, text: emptyText, bytes: emptyBytes }
+      },
+    }
+    return { files, net, requests }
+  }
+
+  function makeDevice(net: unknown, platform: string) {
+    const files = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    const notices: string[] = []
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform,
+        log: () => {},
+        notify: (m: string) => { notices.push(m) },
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () =>
+          [...files.keys()].map((p) => ({
+            path: p,
+            id: p,
+            title: p,
+            mtime: mtimes.get(p) ?? 0,
+            size: files.get(p)?.length ?? 0,
+            frontmatter: {},
+            kind: 'doc',
+          })),
+        readBytes: async (p: string) => files.get(p) ?? new Uint8Array(),
+        writeBytes: async (p: string, b: Uint8Array) => {
+          files.set(p, b)
+          mtimes.set(p, Date.now())
+        },
+        readText: async () => '',
+        writeText: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    return {
+      files,
+      commands,
+      notices,
+      render: () => render,
+      setLocal: (p: string, bytes: Uint8Array, mtime: number) => {
+        files.set(p, bytes)
+        mtimes.set(p, mtime)
+      },
+      dispose: () => {
+        for (const s of api.subscriptions) s.dispose?.()
+      },
+    }
+  }
+
+  async function configure(dev: ReturnType<typeof makeDevice>) {
+    // 等启动 IIFE 读完 store，再走真实的「保存设置 / 设置附件模式」命令
+    await new Promise((r) => setTimeout(r, 0))
+    dev.render()!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+        'sync.attachmentsMode': 'full',
+      },
+    })
+    await dev.commands.get('sync-webdav.save')!()
+    await dev.commands.get('sync-webdav.set-attachments')!({ value: 'full' })
+  }
+
+  it('对端换图 ⇒ 本机拉新图，而不是把旧图推回去', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const A = makeDevice(net, 'windows')
+    const B = makeDevice(net, 'mac')
+    await configure(A)
+    await configure(B)
+
+    const v1 = new Uint8Array([1, 1, 1])
+    const v2 = new Uint8Array([2, 2, 2])
+
+    // A 有图（一分钟前）⇒ 推上去
+    A.setLocal('图.png', v1, Date.now() - 60_000)
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dav.get('图.png')?.bytes).toEqual(v1)
+
+    // B 空库 ⇒ 拉下来
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(B.files.get('图.png')).toEqual(v1)
+
+    // B 换图（比远端条目新）⇒ 推上去
+    B.setLocal('图.png', v2, Date.now() + 60_000)
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(dav.get('图.png')?.bytes).toEqual(v2)
+
+    // A 再同步：应当拉 v2，且**没有**把 v1 推回远端
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(A.files.get('图.png')).toEqual(v2)
+    expect(dav.get('图.png')?.bytes).toEqual(v2)
+    const round = requests.slice(before)
+    expect(round.some((r) => r.startsWith('GET 图.png'))).toBe(true)
+    // 关键：这一轮不能有「PUT 图.png」（旧版推回去就是这条）
+    expect(round.some((r) => r.startsWith('PUT 图.png'))).toBe(false)
+
+    A.dispose()
+    B.dispose()
+  })
+})
+
+
+
+
+
