@@ -495,6 +495,98 @@ fn stem_of(rel: &str) -> String {
     .to_string()
 }
 
+/// 只在「正文区」做替换：跳过 **fenced code**（` ``` ` / `~~~`）与**行内代码**（`` `…` ``）。
+///
+/// 为什么需要这一层（rev173.138 · 用户要求）：`rename` 改的是**用户的笔记正文**，而且是批量。
+/// 笔记里经常贴着自己的语法示例 —— 比如在代码块里写「用法是 `[[某篇]]`」。
+/// 纯 `String::replace` 会把示例一起改掉，等于**改坏别人的文档**（改对的目标在正文，改错的地方在示例）。
+///
+/// 扫描方式刻意是**状态机而不是正则**：正则要处理嵌套、跨行、未闭合反引号，越写越容易误伤
+/// （原注释的「正则替换更糟」指的就是这个）。这里只有三件事：切换 fenced、切换行内、其余照常。
+fn replace_outside_code(text: &str, f: &dyn Fn(&str) -> String) -> String {
+  let mut out = String::with_capacity(text.len());
+  let mut in_fence = false;
+  for line in text.split_inclusive('\n') {
+    let t = line.trim_start();
+    if t.starts_with("```") || t.starts_with("~~~") {
+      in_fence = !in_fence;
+      out.push_str(line);
+      continue;
+    }
+    if in_fence {
+      out.push_str(line);
+      continue;
+    }
+    // 正文行：按反引号切段，奇数段是行内代码（原样保留）
+    let mut rest = line;
+    let mut in_code = false;
+    loop {
+      match rest.find('`') {
+        Some(i) => {
+          let (seg, tail) = rest.split_at(i);
+          if in_code {
+            out.push_str(seg);
+          } else {
+            out.push_str(&f(seg));
+          }
+          let n = tail.bytes().take_while(|b| *b == b'`').count();
+          out.push_str(&tail[..n]);
+          in_code = !in_code;
+          rest = &tail[n..];
+        }
+        None => {
+          if in_code {
+            out.push_str(rest);
+          } else {
+            out.push_str(&f(rest));
+          }
+          break;
+        }
+      }
+    }
+  }
+  out
+}
+
+/// 改名改正文**之前**把原文备份到 `<库>/.zn/link-rewrite/<毫秒>/<原相对路径>`。
+///
+/// 为什么必须备份：改的是用户正文，而且一次可能改十几篇。
+/// `history` 插件只在**关闭笔记**时存快照，救不了「刚改完就发现改错了」这个场景。
+/// 备份失败不阻断改名（文件已经改好名了，不回头），只在日志里留痕。
+fn backup_before_rewrite(root: &Path, rel: &str, content: &str) {
+  let dir = root.join(".zn").join("link-rewrite").join(now_ms().to_string());
+  let dest = dir.join(rel.replace('\\', "/"));
+  if let Some(p) = dest.parent() {
+    if let Err(e) = fs::create_dir_all(p) {
+      log::warn!("rename: 备份目录创建失败（仍继续改引用）：{e}");
+      return;
+    }
+  }
+  if let Err(e) = fs::write(&dest, content) {
+    log::warn!("rename: 备份 {rel} 失败（仍继续改引用）：{e}");
+  }
+}
+
+/// 只保留最近 `keep` 次改名的备份（目录名是毫秒时间戳，字典序 = 时间序的反面，故按数值排）。
+fn prune_rewrite_backups(root: &Path, keep: usize) {
+  let base = root.join(".zn").join("link-rewrite");
+  let Ok(rd) = fs::read_dir(&base) else { return };
+  let mut dirs: Vec<(u64, PathBuf)> = rd
+    .flatten()
+    .filter_map(|e| {
+      let ms: u64 = e.file_name().to_string_lossy().parse().ok()?;
+      Some((ms, e.path()))
+    })
+    .collect();
+  if dirs.len() <= keep {
+    return;
+  }
+  dirs.sort_by_key(|(ms, _)| *ms);
+  for (_, p) in dirs.drain(..dirs.len() - keep) {
+    let _ = fs::remove_dir_all(p);
+  }
+}
+
 /// `rename` 之后重写全库引用：`[[旧名]]` / `[[旧名|显示]]` / `[[旧标题]]` / `](旧路径)`。
 ///
 /// 返回改动的文件数；跳过 `.zn` 等私有目录、`.md` 之外的文件、以及 >4MB 的文件。
@@ -546,26 +638,40 @@ fn rewrite_links(
       let Ok(text) = fs::read_to_string(&path) else {
         continue;
       };
-      let mut next = text.clone();
+      // 预先算好「找什么 / 换成什么」：`replace_outside_code` 会按段回调，逐段 format 太浪费
+      let mut pairs: Vec<(String, String)> = Vec::new();
       if !old_stem.is_empty() && old_stem != new_stem {
-        next = next.replace(&format!("[[{old_stem}]]"), &format!("[[{new_stem}]]"));
-        next = next.replace(&format!("[[{old_stem}|"), &format!("[[{new_stem}|"));
+        pairs.push((format!("[[{old_stem}]]"), format!("[[{new_stem}]]")));
+        pairs.push((format!("[[{old_stem}|"), format!("[[{new_stem}|")));
       }
       if let Some(t) = old_title {
         if !t.is_empty() && t != old_stem && t != new_stem {
-          next = next.replace(&format!("[[{t}]]"), &format!("[[{new_stem}]]"));
-          next = next.replace(&format!("[[{t}|"), &format!("[[{new_stem}|"));
+          pairs.push((format!("[[{t}]]"), format!("[[{new_stem}]]")));
+          pairs.push((format!("[[{t}|"), format!("[[{new_stem}|")));
         }
       }
       if old_rel != new_rel {
-        next = next.replace(&format!("]({old_rel})"), &format!("]({new_rel})"));
+        pairs.push((format!("]({old_rel})"), format!("]({new_rel})")));
       }
+      let map = |seg: &str| {
+        let mut s = seg.to_string();
+        for (from, to) in &pairs {
+          if s.contains(from.as_str()) {
+            s = s.replace(from.as_str(), to.as_str());
+          }
+        }
+        s
+      };
+      let next = replace_outside_code(&text, &map);
       if next != text {
+        // 改之前先把原文留一份 —— 这是唯一能救「改错了」的东西
+        backup_before_rewrite(root, &rel, &text);
         atomic_write(&path, &next)?;
         changed += 1;
       }
     }
   }
+  prune_rewrite_backups(root, 20);
   Ok(changed)
 }
 
@@ -2630,6 +2736,51 @@ mod tests {
     assert!(!watchdog_should_fire(1_000, 6_000, 5_000, false));
     // 超过阈值 ⇒ 判
     assert!(watchdog_should_fire(1_000, 6_001, 5_000, false));
+  }
+
+  /// 改名改引用的两个防护（rev173.138）：代码块/行内代码不动；改之前留原文备份。
+  ///
+  /// 前身是 2026-10-17 的纯字面替换 —— 笔记里贴 `[[旧名]]` 示例（讲怎么用）也会被一起改掉，
+  /// 而改错的地方是**别人的文档正文**，没有备份就找不回来。
+  #[test]
+  fn rewrite_skips_code_and_keeps_backup() {
+    // ① 纯函数：fenced 与行内代码原样，正文替换
+    let src = "正文 [[旧名]] 与 [[旧名|别名]]\n```\n[[旧名]] 是示例\n```\n行内 `[[旧名]]` 也不动";
+    let out = replace_outside_code(src, &|seg: &str| {
+      seg.replace("[[旧名]]", "[[新名]]").replace("[[旧名|", "[[新名|")
+    });
+    assert_eq!(
+      out,
+      "正文 [[新名]] 与 [[新名|别名]]\n```\n[[旧名]] 是示例\n```\n行内 `[[旧名]]` 也不动"
+    );
+
+    // ② 端到端：真建库、真改名、真备份
+    let dir = tmpdir("rewrite-backup");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("a.md"), "见 [[笔记1|周报]] 与 `[[笔记1]]`\n").unwrap();
+    fs::write(dir.join("笔记1.md"), "# 笔记1\n").unwrap();
+
+    let n = rewrite_links(&dir, "笔记1.md", "周报.md", Some("笔记1")).unwrap();
+    assert_eq!(n, 1);
+    let after = fs::read_to_string(dir.join("a.md")).unwrap();
+    assert!(after.contains("[[周报|周报]]"), "目标换新名、别名保留：{after}");
+    assert!(after.contains("`[[笔记1]]`"), "行内代码不动：{after}");
+
+    // 备份：`.zn/link-rewrite/<ms>/a.md` 内容 = 改之前那份
+    let base = dir.join(".zn").join("link-rewrite");
+    let mut found: Option<PathBuf> = None;
+    if let Ok(rd) = fs::read_dir(&base) {
+      for e in rd.flatten() {
+        let p = e.path().join("a.md");
+        if p.exists() {
+          found = Some(p);
+        }
+      }
+    }
+    let p = found.expect("应该留下改前备份");
+    let backed = fs::read_to_string(&p).unwrap();
+    assert!(backed.contains("[[笔记1|周报]]"), "备份的是改前原文：{backed}");
   }
 
   /// 测试临时目录。**刻意不用 `std::env::temp_dir()`（`%TEMP%`）**：
