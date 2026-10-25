@@ -17,6 +17,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **开源（MIT）+ 插件包入库走 raw 分发**（rev173.149 / rev173.150）：
+  仓库已 public（`gh repo edit --visibility public`），补了 `LICENSE`（MIT —— `Cargo.toml` 早就声明
+  `license = "MIT"`，缺文件）与 README 顶部免责（插件与内核**同权限运行**、内核无沙箱，
+  「装谁的插件」就是全部安全边界；数据自行备份）。公开前做了泄漏审计：全量扫 801 个跟踪文件 +
+  **全部历史**，无私钥 / token / `ghp_` 模式；历史里只有两个无害测试探针。
+  **开源当天实测发现的市场致命问题**：`raw.githubusercontent.com` 直连可用（693 ms），
+  但 `github.com:443`（Release 下载域名）直连**连不上** ⇒ 索引能拉、包下不来 =「能看不能装」。
+  处置：13 个包（573 KB）放进 `market/packs/` **入库**，索引 url 改走 raw（索引与包同一域名）。
+  `gen-market.mjs` 新增校验：**包必须在 `market/packs/` 且 sha256 与条目一致**；
+  `pack-plugin.mjs` 默认输出改 `market/packs/` + raw url；`verify-trust.mjs` 默认验入库那份（12/12 签名包通过）。
+
 ### Added
 
 - **插件市场阶段 1：应用内「发现」tab**（rev173.148 · 能装、能升、装不坏）：插件管理页的第二个 tab，

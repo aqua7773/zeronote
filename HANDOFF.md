@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.148
-更新时间: 2026-10-25 · 最新 rev173.148
+revision: 173.150
+更新时间: 2026-10-25 · 最新 rev173.150
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,8 @@ revision: 173.148
 
 | rev | 内容 |
 |---|---|
+| rev173.150 | 2026-10-25 · **插件包入库、走 raw 分发**（开源当天实测发现的关键问题）：`raw.githubusercontent.com` 直连 **693ms 可用**，但 `github.com:443`（Release 下载域名）**直连连不上** ⇒ 索引能拉、包下不来，市场「能看不能装」· 13 个包（**573 KB**）放进 `market/packs/` 并入库，索引 url 改走 raw ⇒ 索引与包同一域名 · `gen-market.mjs` 新增校验：**包必须在 `market/packs/` 且 sha256 与条目一致**（防「改了包忘重建索引」与「忘了入库」）· `pack-plugin.mjs` 默认输出改 `market/packs/` + raw url（不再依赖 Release）· `verify-trust.mjs` 默认验**入库那份**（12/12 签名包通过）· 实测：公网匿名拉索引 + 逐包下载核 sha256 + 用内置公钥验签 |
+| rev173.149 | 2026-10-25 · **开源（MIT）**：`gh repo edit --visibility public` 前置审计 —— 全量扫 801 个跟踪文件 + **全部历史**：无私钥 / 无 token / 无 `ghp_` 模式；历史里只出现过两个测试探针（`_tmp-vault-*/probe.md`，内容是「标题行 / 正文内容」，无害）；`gradle.properties` 干净；author email = `self@local` · 新增 `LICENSE`（MIT —— Cargo.toml 早声明 `license = "MIT"` 但缺文件）· README 顶部加**开源声明 + 免责**：插件与内核**同权限运行**、内核不提供沙箱，「装谁的插件」就是全部安全边界；数据自行备份 · README 现状行 rev173.137 → rev173.148（补插件市场）· 公开后确认匿名可拉 `market/index.json`（693 ms） |
 | rev173.148 | 2026-10-25 · **插件市场阶段 1：应用内「发现」tab（能装、能升、装不坏）**：插件管理页第二个 tab，列表来自静态 `market/index.json` · 装一条 = 下载 → **整包 sha256** → 解包，三步在 Rust `install_znp_from_url` 里**一次完成**（校验的字节 = 落盘的字节），任一失败**不落盘** · 索引地址可改（默认本仓库 raw；private 仓库明确报「匿名拉不到」而不是空市场），存 localStorage · 坏条目**跳过并列原因** · **不静默升级**（启动不查、后台不下）· 新增 `src/kernel/market.ts` + `src/components/MarketPane.tsx` · 内核命令 33 → **34** · `sha2` 新依赖（已在依赖树里）· Rust 49 → **52**（URL 白名单含 `http://127.0.0.1.evil.com` 混淆 / 正常安装 / sha 不符不落盘）· vitest 932 → **949** · **实测**：14 条渲染 → 装 demo 0.1.0（磁盘落地）→ 索引升 0.1.1 ⇒「↑ 更新 0.1.1」→ 更新成功 → **把索引 sha256 改成 0 ⇒ 报「校验失败…不安装」，磁盘仍是 0.1.1** · 手机端未实测 |
 | rev173.147 | 2026-10-25 · **`ensureBuiltinPlugins` 不再覆盖市场版本（阶段 1 前置二）**：旧逻辑「内容不同就写」有两个坑 —— ① 从市场装的官方插件新版，重启后被应用内置快照盖回去；② 覆盖后目录里残留的 `signature.json` 与新内容对不上 ⇒ 插件从「旧版能跑」变成**拒载**（不是回退，是坏掉）· 新规则（**先比内容，一致时零额外 invoke**）：有 `signature.json` ⇒ 一个字节都不写 · 已装 `manifest.version` 比内置新 ⇒ 跳过 · 其余（首装 / 内置更新 / 同版本内容不同）照旧覆盖 · 返回加 `skipped[{pluginId, reason}]` · 新增 `compareVersions`（`1.10.0 > 1.9.0`，字符串比较会判反）· vitest 926 → **932**（4 条不覆盖 + 2 条版本比较）· 反向验证：`> 0` 改 `>= 0` ⇒ 「同版本内容不同」那条立即红，恢复即绿 |
 | rev173.146 | 2026-10-25 · **公钥内置进应用（别人装得上、验得过）**：`verify_plugin_signature` 信任根 = 内置 `BUILTIN_TRUSTED_KEYS`（`aqua-2026`）**∪** 用户 `trusted-keys.json` —— 旧行为在新装机器 / 换电脑上那个文件不存在 ⇒ 12 个签名插件**全部拒载** · 合并规则：文件缺失回落内置（**正常态**）· 同 keyId 用户那条**覆盖**内置（轮换 / 撤销）· 其它追加（外部作者）· 坏 JSON / 缺字段**报错不静默跳过** · Rust 测试 43 → **49**（6 条：内置常量合法性 / 验签三判据 / 缺失回落 / 追加 / 覆盖 / 坏 JSON 三形状）· 新增 `scripts/verify-trust.mjs`：**从 lib.rs 解析**常量，私钥导出公钥逐字节对账 + 用内置公钥验 `dist/` 里 **12/12** 签名包 · Android 编译通过并已装手机 · 桌面 app 内实测留给下次 dev（不在 android-dev 窗口里再抢 target）· 坑：`cargo test` 与 android-dev 共用 `CARGO_TARGET_DIR` ⇒ `--no-default-features` 差异会触发依赖重编 |
@@ -43,6 +45,80 @@ revision: 173.148
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.150（2026-10-25 · 插件包入库 —— 开源当天就发现「能看不能装」）
+
+> 用户：「开源」。翻转可见性 + 审计之后立刻做了一件事：**用普通用户的视角从公网拉一遍市场**。
+> 结果抓到一个会让市场白做的坑。
+>
+> ### 实测：索引通，包不通
+>
+> | 地址 | 直连结果 |
+> |---|---|
+> | `raw.githubusercontent.com/…/market/index.json` | ✅ **200 · 693 ms** |
+> | `api.github.com/repos/…/contents/…` | ✅ 200 · 535 ms |
+> | `cdn.jsdelivr.net/gh/…` | ❌ TLS 连不上 |
+> | `github.com/…/releases/download/…/tag-panel-0.2.0.znp` | ❌ **`github.com:443` 连不上**（21 s 后失败） |
+>
+> 也就是说：**列表能拉出来，点安装全部失败**。在国内直连（不走代理）就是这个状态。
+>
+> ### 处置：包入库，索引与包同一个域名
+>
+> - 13 个包（**573 KB**）复制进 `market/packs/` 并**入库**（原来只在 `dist/`，而 `dist/` 不入库、只挂 Release）
+> - 索引里每条 `url` 改成 `https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/<file>.znp`
+> - `pack-plugin.mjs`：默认输出 `market/packs/`、默认 url 走 raw（`--out` / `--url-base` 还能改回去）
+> - `gen-market.mjs` 新增校验 ④：**包必须在 `market/packs/`，且文件 sha256 与条目一致** ——
+>   挡两种「本地看着没事、用户装不上」的漂移：改了包忘重建索引 / 忘了入库
+> - `verify-trust.mjs` 默认验**入库的那份**（市场真正分发的字节），`--packs` 可指别处
+>
+> ### 证据
+>
+> 1. `node scripts/gen-market.mjs --write` ✅ 13 条，且新校验通过（包在、sha 对）
+> 2. `node scripts/verify-trust.mjs` ✅ **12/12 签名包**用内置公钥验过（1 个纯样式无签名）
+> 3. 公网匿名验证（`fetch` 不走系统代理 = 普通用户视角）：拉索引 + 逐包下载 + 核 sha256 + 重算 payload 验签
+>
+> ### 边界
+>
+> 1. **raw 有速率限制**（未登录按 IP 限流）。13 个包一次装一遍没问题；真放大到几十个插件时，
+>    该考虑 CDN 或自建源（`install_znp_from_url` 已经允许填自己的索引地址）。
+> 2. Release 上那 13 个包还在（`plugins-v0.5.0`），只是索引不再指向它 —— 留着当镜像，不删。
+
+> ## 📌 rev173.149（2026-10-25 · 开源：审计 → MIT → 可见性翻转）
+
+> 用户：「开源」。公开是不可逆的，所以顺序是 **审计 → 补必要的文件 → 提交推送 → 再翻转可见性**
+> （这样公开的那一瞬间，仓库里已经是「带 LICENSE 和免责」的版本）。
+>
+> ### 审计（公开前必须做的）
+>
+> | 查什么 | 结果 |
+> |---|---|
+> | 密钥类文件（`.pem` / `.jks` / `.env` / keystore / credential） | 只有 `gradle.properties`（干净）与 `tests/kernel-secrets.test.ts`（测试夹具） |
+> | 当前树内容（`ghp_` / `github_pat_` / `sk-` / `AKIA` / `BEGIN … PRIVATE KEY`） | **零命中**（`git grep` 全树） |
+> | **全部历史**（`git log -S` 私钥 / `ghp_`） | **零命中** |
+> | 历史上出现过的敏感文件名 | 只有 `_tmp-vault-*/probe.md` 两个测试探针，内容就是「标题行 / 正文内容」 |
+> | 提交者身份 | `self@local`（不暴露邮箱） |
+> | 内网地址 / 测试账号 | `192.168.1.x` × 若干、`aqua7773/zeronote-sync-test`（私有）、`minioadmin`（rclone 本地测试假账号）—— 都无凭据价值 |
+>
+> 私钥本来就在仓库外（`%USERPROFILE%\.zeronote-keys\`），公钥是公开的，没问题。
+>
+> ### 补了什么
+>
+> 1. **`LICENSE`**：MIT（`Cargo.toml` 早就写 `license = "MIT"`，但一直缺文件 —— 开源时才发现）
+> 2. **README 顶部免责**：插件与内核**同权限运行**、内核**不提供沙箱**，「装谁的插件」就是全部安全边界；
+>    优先用带签名且你信任作者的；数据自行备份。这不是免责套话 —— 架构原则 §2 就是这么定的（拆掉 capability 裁剪）
+> 3. README 现状行 rev173.137 → rev173.148，补插件市场
+>
+> ### 结果
+>
+> `gh repo edit aqua7773/zeronote --visibility public` → `{"isPrivate":false,"visibility":"PUBLIC"}`。
+> 公开后立刻验证：匿名（不带 token）拉 `market/index.json` = **200 · 693 ms · 8219 B**。
+>
+> ### 边界 / 提醒
+>
+> 1. **历史不可改写**：公开后 `_logs` 之外的开发记录、内网地址、测试仓库名都在历史里。要彻底清得 rewrite 历史，
+>    那会破坏全部 rev 记录 —— 不值得，也没做。
+> 2. 仓库公开 ≠ 市场能给别人用：Release 下载域名在国内连不上，才有了 rev173.150 的「包入库」。
+> 3. 没有 CI，也没有 issue 模板 / CONTRIBUTING —— 真要收外部 PR 时再补。
 
 > ## 📌 rev173.148（2026-10-25 · 插件市场阶段 1：应用内「发现」tab）
 
