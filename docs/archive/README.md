@@ -11,3 +11,4 @@
 | `插件UI承载能力-2026-10-13.md` | U1/U2 设计史 | `HANDOFF.md` rev50/51 · 契约 §2.2/§2.8 |
 | `插件能力盘点-2026-10-12.md` | rev30 插件能力快照 | `HANDOFF-CARD.md` · 契约 §4 |
 | `能力对照-规格2.1-2.8.md` | rev2 能力对照快照 | `HANDOFF.md` 相关 rev |
+| `handoff/0.2.md` · `handoff/0.3.md` · `handoff/0.4.md` | `HANDOFF.md` 的旧 rev 正文（rev30 – rev173.124，261 段） | `HANDOFF.md` 只保留当前版本周期；查旧记录用 `git grep -n "rev号" -- docs/archive/handoff/` |

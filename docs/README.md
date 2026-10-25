@@ -21,7 +21,7 @@
 | 任务卡 / 决策记录模板 | `docs/templates/TASK.md` · `docs/templates/ADR.md` | **active** | — |
 | 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
 | 接下来做什么（顺序 / 成本 / 验收） | `docs/ROADMAP.md` | **active** | `docs/待做插件-调研与方案-2026-10-21.md`（各插件做法论证） |
-| 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（rev 索引在文首） | **active** | — |
+| 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（最近 14 个 rev，索引在文首） | **active** | `docs/archive/handoff/0.2.md` · `0.3.md` · `0.4.md`（更早的 rev 正文；rev173.139 分卷 890 KB → 63 KB） |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
 | 记账插件（竞品 / 通知捕获 / 契合度 / v0.1 落地） | `docs/记账插件-调研-2026-10-19.md` | **active** | `_research/accounting/*`（竞品 README 与源码原文，historical） |
 | 起始页快捷入口（长按 ＋ 环形菜单） | `docs/快捷入口-调研-2026-10-19.md` | **implemented（rev173.20–22）** | — |
@@ -44,7 +44,7 @@
 | 场景 | 顺序 |
 |---|---|
 | 第一次来 | `README.md` → `docs/系统总览.md` → 架构原则 §1 → 契约 §0–§2 |
-| 接手项目 | `HANDOFF-CARD.md`（一屏）→ `HANDOFF.md` 文首 rev 索引 → 最新 rev 段 |
+| 接手项目 | `HANDOFF-CARD.md`（一屏）→ `HANDOFF.md` 文首 rev 索引（最近 14 个）→ 最新 rev 段；更早的 rev 用 `git grep -n "rev号" -- docs/archive/handoff/` |
 | 改代码前 | 架构原则 + 契约对应章节 + 该领域的"未核实"清单 |
 | 写新插件 | 契约 §2（十一个原语）+ §3（manifest）+ `examples/` 里最接近的那个 |
 

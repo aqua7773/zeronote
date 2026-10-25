@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.138）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.139）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留最近 14 个 rev；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.138 · 0.5.0 · 2026-10-25 |
+| rev / 版本 | rev173.139 · 0.5.0 · 2026-10-25 |
 | 测试基线 | vitest 923 · cargo 41 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
@@ -331,6 +331,7 @@ pwsh -File scripts\verify.ps1
 
 | 项 | 状态 |
 |---|---|
+| HANDOFF 分卷 + ROADMAP 收口（rev173.139） | ✅ **主文件 890 KB → 66 KB（-92.6%）· 275 段 → 15 段**：新增 `scripts/handoff-archive.mjs`（可复用 / 幂等 / `--dry-run`）—— 主文件只留 0.5.0 周期（`KEEP_FROM = rev173.125`），`0.4.md` 54 段 / `0.3.md` 44 段 / `0.2.md` 163 段 → `docs/archive/handoff/`（**校验：段名集合 275 全中，丢失 0 / 重复 0**）· 索引与正文同时切 ⇒ check-docs ③ 通过 · 顶部加指路表 + `git grep -n "rev号" -- docs/archive/handoff/` · 原「更新时间」25,989 字符累积摘要 → 一行 · **副产物**：归档进 `docs/` 后被 check-links 扫到（它**不扫 `HANDOFF.md` 本身**），暴露一处 `[App.tsx](<src/App.tsx>)` 伪链接（已修）⇒ 以前 HANDOFF 里的链接一直在门禁之外 · **ROADMAP** 重写为「上一阶段留档 → 已拍板决定 → 候选池（卡外部输入 / 等输入 / 要用户拍板 / 小债）→ 固定收口 → 暂缓不做」；`D-008` 重议条件「插件数 > 10」已满足（预装 13）⇒ 待用户拍板 · verify 6/6 |
 | 改名改引用（rev173.138） | ✅ **两个缺陷已补**：`rewrite_links` 原是纯字面替换 ⇒ 笔记里贴的 `[[旧名]]`（写在代码块 / 行内代码里）会被一起改坏 → 新增 `replace_outside_code`（状态机，fenced / 行内原样）；改完没有副本 → 新增 `backup_before_rewrite`（原文 → `.zn/link-rewrite/<毫秒>/`，只留最近 20 次）。cargo 40 → **41** · ⚠️ **同轮两次「只 grep `src/`」误判，已全部回滚**：改名改引用 2026-10-17 就在 Rust、待办 checkbox 是 atomic 0.6.2 内置 · 教训写进 `docs/开发约定.md` §0.5（三层都查）+ §8 |
 | 文档状态债 + 发版 0.5.0 | ✅ **rev173.137**：`docs/README.md` 权威矩阵 4 行 + 4 份文档状态头按代码/提交复核（快捷入口 = 已实现 · 标签拖拽 = 已裁决 · 全功能对标 §6 五项全完成 · 同步方案 = 已落地）· **`D-002`「不做云同步」原先仍标 accepted**，而同步四后端早已真机验收 ⇒ 新增 **`D-009` 做同步但自带后端**（不做账号 / 服务端 / E2E）取代之 · `D-006` → superseded（rev173.61 已接 window-state）· **发版 0.5.0**（`v0.4.0` 之后 44 个提交；0.4.0 的详细条目从未归档 ⇒ `[Unreleased]` 改名 0.5.0 + 段首标注 + 补 `[0.4.0]` 段）· verify 六步 + tag `v0.5.0` |
 | `note:created` payload | ✅ **rev173.135**：`createNote` 带 `text`（= content 参数）；`restoreTrash` 读盘后带（失败不带）；`sync-folder` 有 text 就同步种基线 / 同步点 · 契约 §1.4 同步 · 单测 923 · 反向验证红 |
