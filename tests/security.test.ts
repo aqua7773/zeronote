@@ -17,6 +17,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { hmac } from '@noble/hashes/hmac.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import {
+  DEFAULT_RINGS,
   changePassword,
   createRing,
   createVault,
@@ -68,6 +69,23 @@ describe('base64url 编解码', () => {
 })
 
 describe('密钥环：建立 / 解锁', () => {
+  /**
+   * rev173.165 · 期 2a：默认 KDF 档 = RFC 9106 推荐档（t=3 / m=64 MiB），**定死不动**。
+   *
+   * 手机真机实测三档后才敢定：t=2/19MiB 165 ms · **t=3/64MiB 812 ms** · t=1/128MiB 574 ms
+   * （三档各 3 次取中位数；手机比桌面 Node 还快约 0.8×，推翻了「手机 1–4× 慢」的估算）。
+   * 方案原本留的降档条件是「手机 > 5 s」，实测 0.81 s ⇒ 不降。
+   *
+   * 这条用例是**锁**：以后谁把默认档调小（比如为了跑得快），这里立刻红 ——
+   * 降档等于削弱抗离线爆破强度，必须是显式决策而不是顺手改。
+   */
+  it('默认 KDF 档是 RFC 9106 推荐档（rev173.165 手机实测后定死）', () => {
+    expect(DEFAULT_RINGS.notes.kdf).toEqual({ t: 3, m: 65536, p: 1 })
+    expect(DEFAULT_RINGS.secrets.kdf).toEqual({ t: 3, m: 65536, p: 1 })
+    // 反向：两个环的 kdf 是**各自的对象**，改一个不能串到另一个
+    expect(DEFAULT_RINGS.notes.kdf).not.toBe(DEFAULT_RINGS.secrets.kdf)
+  })
+
   it('首次建立后能用同一把密码解出同一把 DEK', () => {
     const { ring, dek } = createRing(libs, 'notes', '主密码-A', { kdf: FAST })
     const got = unlockRing(libs, ring, '主密码-A')

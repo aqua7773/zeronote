@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.164）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.165）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.164 · 0.5.0 · 2026-10-26 |
-| 测试基线 | vitest 1045 · cargo 52 · oxlint 3 warnings（2026-10-26） |
+| rev / 版本 | rev173.165 · 0.5.0 · 2026-10-26 |
+| 测试基线 | vitest 1046 · cargo 52 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 13 · 示例 39 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
@@ -31,6 +31,10 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **期 2a 完成（rev173.165）**：手机真机实测三档 KDF —— t=2/19MiB **165 ms** · t=3/64MiB **812 ms** ·
+> t=1/128MiB **574 ms**（**手机比桌面还快约 0.8×**，推翻方案里「1–4× 慢」的估算）⇒ **默认档保持 t=3/64MiB**。
+> vendor 首载 114 ms、XChaCha 1 MiB 加解密 29/7 ms ⇒ 手机解锁 ≈ 0.93 s（首次）/ 0.81 s。
+> 代码零改动 + 一条锁测试（`DEFAULT_RINGS` 两环 kdf 必须是 RFC 推荐档）。⚠️ 手机端到端解锁仍未走查（手机上没装 security/secrets）。
 > **期 1c 完成（rev173.164）**：三个网络后端（webdav / s3 / git）各加 `syncPrivate` 阶段，按固定清单搬
 > `secrets.zn` + `vault.json`（**后者少了另一台解不开**）；`sync-folder` 改成放行规则 + **密码库冲突单独报警**
 > （`.stignore`：`.zn/*` 后加 `!.zn/secrets` `!.zn/security`）。15 条新单测 + 反向验证 + CDP 实测。
@@ -45,8 +49,8 @@ pwsh -File scripts\verify.ps1
 > **上一个会话（rev173.154–158）**：CI 从「每个 run 都红」修到全绿（`localeCompare` 不传 locale）· 开源配套
 > （issue/PR 模板 + `CONTRIBUTING.md`）· 市场第二批 UX（详情页 / 更新角标 / 24h 检查）· CI Rust 缓存 · 审查材料生成器。
 > **下一步**：
-> ① **期 2a 手机实测三档 KDF 真实耗时**（定死默认档；热更新即可，不用重装）·
-> ② **期 2b 生物识别**（Android Keystore，要重编 APK 重装；Windows 官方不支持 ⇒ 降级主密码或自写 `UserConsentVerifier`）·
+> ① **期 2b 生物识别**（Android Keystore，要重编 APK 重装；Windows 官方不支持 ⇒ 降级主密码或自写 `UserConsentVerifier`）·
+> ② **期 1b 遗留：手机端走查密码库**（手机上**没装** `security` / `secrets` —— 装 + 建环 + 解锁 + 复制一条龙）·
 > ③ 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
 > ④ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
 > ⑤ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
