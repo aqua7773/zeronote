@@ -10,6 +10,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动重跑（rev173.157 加）：加缓存后要跑两次才看得出「命中 vs 未命中」的差别
+  workflow_dispatch:
 
 concurrency:
   group: verify-${{ github.ref }}
@@ -54,6 +56,19 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      # Rust 编译缓存（rev173.157）：缓存 ~/.cargo（registry + git）与 src-tauri/target。
+      #
+      # 为什么只加这一处：pnpm 那边 setup-node@v5 **默认就会缓存**（`package-manager-cache`
+      # 默认 true，按 package.json 的 `packageManager: pnpm@…` 自动识别）—— 不用再写 `cache: pnpm`。
+      # 耗时大头是「在干净 runner 上重新编译整个 Tauri 依赖树」，约占总时长的 3/4。
+      #
+      # ⚠️ `workspaces` 的语法是 `$workspace -> $target`，target 相对 workspace（官方 README）。
+      # 缓存键跟着 Cargo.lock 与 rustc 版本走：改依赖 ⇒ 自动失效重编，不会拿旧产物骗人。
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
 
       - name: Cargo test (src-tauri)
         working-directory: src-tauri
