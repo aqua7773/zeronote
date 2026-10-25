@@ -19,6 +19,14 @@
 
 ### Changed
 
+- **插件页统一：设置里也能进市场**（rev173.152）：设置 → 插件 与 菜单 → 插件管理 **复用同一个
+  `PluginPanel`** —— 之前设置页那段只是漏传了市场通道，所以看不到「发现」tab。现在把
+  `onMarketInstall` 透传下去，两处的 tab、列表、安装确认框、坏条目提示全是一份代码。
+  **修了一个加 tab 后暴露的布局问题**：设置 Dialog 里的插件区没有高度约束 ⇒ 13 条市场列表把
+  窗口撑到屏幕外、底部看不到（实测 dialog 1080 px、列表 1037 px 且不内滚）。
+  给插件区 `h-[min(62vh,520px)]` + 内部 `min-h-0 flex-1` 后，Dialog 回到正常尺寸、列表在自己区域里滚。
+  vitest 949 → **951**（新增 2 条：不传通道不显示 tab / 传了显示「已安装 N · 发现」）。
+
 - **开源（MIT）+ 插件包入库走 raw 分发**（rev173.149 / rev173.150）：
   仓库已 public（`gh repo edit --visibility public`），补了 `LICENSE`（MIT —— `Cargo.toml` 早就声明
   `license = "MIT"`，缺文件）与 README 顶部免责（插件与内核**同权限运行**、内核无沙箱，

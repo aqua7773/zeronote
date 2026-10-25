@@ -100,3 +100,32 @@ describe('插件分类折叠', () => {
     expect(localStorage.getItem('zn-plugin-groups-collapsed')).toBeNull()
   })
 })
+
+/**
+ * 「已安装 / 发现」两个 tab 的**唯一条件**是传了 `onMarketInstall`（rev173.152）。
+ *
+ * 这条是「设置页与菜单主区统一」的锁：两处都只是把同一条通道透传进同一个 `PluginPanel`，
+ * 所以「设置里没市场」只可能是漏传 —— 而不是另写了一套 UI 慢慢漂移。
+ */
+describe('插件页 tab（市场通道透传才有）', () => {
+  it('不传 onMarketInstall ⇒ 不显示 tab（独立窗口 / 测试环境）', () => {
+    const { container } = renderPanel([row({ id: 'a' })])
+    expect(container.querySelector('.zn-plugins-tabs')).toBeNull()
+  })
+
+  it('传了 ⇒ 出现「已安装 N / 发现」两个 tab，默认在已安装', () => {
+    const { container } = render(
+      <PluginPanel
+        plugins={[row({ id: 'a' }), row({ id: 'b' })]}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        onMarketInstall={vi.fn().mockResolvedValue(null)}
+      />,
+    )
+    const tabs = [...container.querySelectorAll('.zn-plugins-tab')].map((b) =>
+      (b.textContent || '').trim(),
+    )
+    expect(tabs).toEqual(['已安装 2', '发现'])
+    expect(container.querySelector('.zn-plugins-tab.is-active')?.textContent).toContain('已安装')
+  })
+})

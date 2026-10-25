@@ -3953,6 +3953,8 @@ export default function App() {
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
         // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
         onInstall={() => void installZnp()}
+        // 同一个 PluginPanel ⇒ 透传市场通道后，设置页自动多出「发现」tab（rev173.152）
+        onMarketInstall={installZnpFromUrl}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

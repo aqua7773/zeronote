@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { PluginPanel, type PluginRow } from './PluginPanel'
+import type { MarketEntry } from '../kernel/market'
 
 /**
  * 设置弹窗。
@@ -94,6 +95,12 @@ export interface SettingsProps {
    * 表现为「点击无法唤醒文件管理」）。由 App 传 `installZnp`。
    */
   onInstall: () => void
+  /**
+   * 从市场安装 / 更新（rev173.152）—— 与主区插件页**同一个** `PluginPanel`：
+   * 只要把这条通道透传进去，设置页的插件段就自动多出「发现」tab，不需要第二套 UI。
+   * 不传 ⇒ 该处不显示「发现」（测试 / 独立窗口）。
+   */
+  onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
 }
 
 export function Settings({
@@ -115,6 +122,7 @@ export function Settings({
   onDeletePlugin,
   onReloadPlugins,
   onInstall,
+  onMarketInstall,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
 
@@ -212,7 +220,15 @@ export function Settings({
             ) : null}
 
             {tab === 'plugins' ? (
-              <div className="space-y-2">
+              /**
+               * **固定高度 + 内部滚动**（rev173.152）。
+               *
+               * `PluginPanel` 自己是 `height:100%` 的 flex 列（列表 / 市场列表靠 `flex:1` 内滚），
+               * 而这一格外层是 `overflow-y-auto` —— 没有高度约束时它会被内容整个撑开，
+               * 表现是「设置窗口长到屏幕外、底下的插件看不到」（加市场 tab 后尤其明显：13 条全展开 1000+ px）。
+               * 给它一个跟视口挂钩的高度，Dialog 就回到正常尺寸，列表在自己的区域里滚。
+               */
+              <div className="flex h-[min(62vh,520px)] flex-col gap-2">
                 {/* 扫描按钮原本在 PluginPanel 的标题栏里，那边已按用户要求去掉标题与横线，
                     这里补一个同款文字按钮，免得设置页里没法重新扫描 */}
                 <div className="flex justify-end">
@@ -220,14 +236,17 @@ export function Settings({
                     重新扫描
                   </button>
                 </div>
-                <PluginPanel
-                  plugins={plugins}
-                  error={pluginError}
-                  log={pluginLog}
-                  onToggle={onTogglePlugin}
-                  onDelete={onDeletePlugin}
-                  onInstall={onInstall}
-                />
+                <div className="min-h-0 flex-1">
+                  <PluginPanel
+                    plugins={plugins}
+                    error={pluginError}
+                    log={pluginLog}
+                    onToggle={onTogglePlugin}
+                    onDelete={onDeletePlugin}
+                    onInstall={onInstall}
+                    onMarketInstall={onMarketInstall}
+                  />
+                </div>
               </div>
             ) : null}
 
