@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.161
-更新时间: 2026-10-25 · 最新 rev173.161
+revision: 173.162
+更新时间: 2026-10-25 · 最新 rev173.162
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.161
 
 | rev | 内容 |
 |---|---|
+| rev173.162 | 2026-10-25 · **交接**（用户「交接」）：本会话 rev173.160–161 总览（安全插件：调研 → 方案 → 实现 → 实测 → 发市场 14 条 → 推送，全部 CI 绿）+ 交接时实测状态（工作树干净 · 六步全绿 vitest **1002** · HEAD `981b114` · dev pid 11660 · 测试库 `_tmp-vault-tb` 里有临时两环）+ 下个会话入口（**期 1b `secrets` 密码库插件** / 期 1c 同步放行 `.zn/secrets/`）+ 四条已定结论（**预装与市场不互替**但安全类走市场 · **JS 里无法"完全封起来"** · 双环靠 AAD 硬隔离 · 两把密码无任何派生）+ 三个环境坑（僵尸 http.server / IWR 走代理 / curl 拉 raw 失败但 WebView 通） |
 | rev173.161 | 2026-10-25 · **安全插件发到市场（不预装）**（用户拍板：「有插件市场后应该不用做预装插件了吧」→ 同意 security 走市场）：`pack-plugin security --key … --key-id aqua-2026` → 整包 sha256 `42ff0e…`（47.4 KB，2 文件）→ `gen-market --write` 索引 **13 → 14 条** · **端到端实测**（本地 8932 静态服务 + 真包）：① 负向 —— 把期望 sha256 改成全 0 ⇒ **「插件包校验失败…」拒绝安装、不落盘** ② 正向 —— `install_znp_from_url` 装真包 ⇒ 磁盘出现 `signature.json`、reload 后插件页显示「安全 v0.1.0 **已签名**」③ 索引恢复 GitHub raw、测试服务全停 · 未登记 `BUILTIN_PLUGINS`（用户决定：安全类插件应由用户主动从市场装） · ✅ **已推送 `f99d9b9`**（直连成功，`git ls-remote` 核对一致）· CI run `40209288687` **15 步全绿** · 应用里从 GitHub raw 实测拉到 **14 条**，security 显示「47.4 KB · 已安装」· 坑两条：① 8931 上还留着上次会话的 `python -m http.server`（cwd 不对 ⇒ 请求恒 404，害我以为是新服务坏了）⇒ 已清 ② `Invoke-WebRequest` 走系统代理，连 `127.0.0.1` 也会 404；判本地服务死活要用 `node http.get` |
 | rev173.160 | 2026-10-25 · **安全插件 v0.1（期 1a）**（用户「做安全插件」→「先调查写方案」→「开工」）：新增 `examples/security/`（单文件 1172 行，纯函数全部命名导出）—— **双密钥环** `notes`/`secrets` 各一把主密码、各一个 salt、各一把 DEK，**互不派生**（用户拍板：账户密码要"绝对安全"）· XChaCha20-Poly1305 + Argon2id（noble **本地副本** `public/vendor/noble/` 13 文件 202 KB，`scripts/vendor-noble.mjs` 按 import 图精确复制）· **AAD 绑定** `环\|容器\|用途`（跨环 / 跨容器 / 跨用途的密文一律解不开，有反向测试）· **不存 password verifier**（解锁 = 解包裹，AEAD 认证通过即密码对）· 换密码与恢复**只重包裹 DEK**，数据密文一个字节不动 · vault 文件损坏 ⇒ 拒写不覆盖 · 对外 `service.provide('crypto')` **只给操作不给密钥** · 单测 **25 条全过**（错密码 / 改一字节 / 跨环 / 恢复答案错 / 只设恢复码 / 两条都不设要报错）· `tsc -b` 0 · ⚠️ **未做**：桌面 CDP 走查（面板还没在真机上点过）、`secrets` 插件、同步放行 `.zn/secrets/` · 踩坑两条：① **插件 ESM 相对 import 不可用**（契约 §3 只解析 CJS require）⇒ crypto 核心内联进 index.js ② `vendor-noble.mjs` 第一版在 Windows 下被 `path.join` 的反斜杠坑掉去重（同一模块复制两次、清单重复）⇒ `normalizeRel` 先统一 `/` |
 | rev173.159 | 2026-10-25 · **交接**（用户「交接」）：本会话 rev173.154–158 总览表 + 交接时实测状态（工作树干净 · 六步全绿 vitest 977 / 质量门 7/7 · CI 最近三次 success 2m24s–2m39s · dev pid 11660 · 手机 0.5.0）+ 下个会话入口（读 CARD → 卡点表；**候选池已无「可立即做」项**）+ 本会话踩到并已修的三个真问题（localeCompare 不传 locale / 0.2.1 包漏 --key-id / 24h 检查 effect 依赖数组引用） |
@@ -56,6 +57,53 @@ revision: 173.161
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.162（2026-10-25 · 交接：安全插件上线 + 下个会话入口）
+
+> 用户：「交接」。本会话从「做安全插件」一句话开始，走完 **调研 → 写方案 → 用户拍板 → 实现 → 实测 → 发市场 → 推送**，
+> 全部已推送、CI 全绿、工作树干净。
+>
+> | rev | 做了什么 | 验证 |
+> |---|---|---|
+> | 160 | `examples/security/` 插件：**双密钥环**（私密笔记 / 账号密码各一把主密码）+ Argon2id + XChaCha20-Poly1305 + `crypto` 服务 | 单测 **25** 条 |
+> | 161 | 签名打包 → 市场 **13 → 14 条** → 端到端实测 → 推送 | 真包 + 应用内 14 条 |
+>
+> 每件的细节与踩坑在各自 rev 段；**架构取舍、诚实边界、分期**在 [`docs/安全插件-方案-2026-10-25.md`](docs/安全插件-方案-2026-10-25.md)（**accepted**）。
+>
+> ### 交接时实测状态
+>
+> - 工作树**干净** · `main...origin/main` 无 ahead/behind ⇒ 全部已推送，HEAD `981b114`
+> - `verify.ps1` 六步：tsc 0 · oxlint **3 warnings** · cargo **52** · check-docs · vitest **1002** · 质量门 **7/7**
+> - CI：`40209288687`（feat）**2m10s 全绿** · `40209522408`（docs）交接时在跑（同类 run 实测 2–3 分钟）
+> - **dev 开着**（pid 11660 · vite 1420 · CDP 9222）；测试库 `_tmp-vault-tb/` 的 `.zn/security/vault.json` 里有
+>   **两把临时主密码**（`notes` / `secrets`，实测时设的，随时可删；不影响库内笔记）
+> - 全局插件根里的 security 是**市场版（已签名）**：`%APPDATA%\com.aqua.zeronote\.zn\plugins\security`（含 `signature.json`）
+>
+> ### 下个会话从哪开始
+>
+> 1. 读 `HANDOFF-CARD.md`（一屏）+ 本段 ② 看 `docs/ROADMAP.md` §3（候选池）
+> 2. **期 1b：`secrets` 密码库插件**（估 3 天）—— 消费 `crypto` 服务；`.zn/secrets/` 整库加密（**单文件、非一条一文件**，
+>    方案 §4.5 已定）；剪贴板复制后 60 s 清空；7 天回收站（`deletedAt` 软删除）；平台/账号两级列表 + 密码生成器；
+>    `consume('crypto')` 拿 `null` 时提示「先去市场装安全插件」（软依赖标准做法）
+> 3. **期 1c：四个同步插件放行 `.zn/secrets/`**（估 0.5 天）—— 现在 `.zn/` 整段被排除（`sync-folder:184`），
+>    密码库**同步不出去**；四处都要加白名单 + 冲突两份保留
+> 4. 可选：市场里给官方包加「官方 / 已签名」徽标（包内 `signature.json` 的 `keyId=aqua-2026` 就能判断）
+>
+> ### 本会话已定的结论（别重新讨论）
+>
+> 1. **预装与市场不互相替代**：预装 = 离线/首启可用 + 版本确定；市场 = 扩展/更新。但**安全类插件走市场**
+>    （用户决定：涉及隐私的功能应由用户主动选择，不暗示"默认已加密"）
+> 2. **"把自己完全封起来"在 JS 插件里不成立**：插件与宿主同上下文（D-001），密钥总得有人保管。
+>    再往上只有两条路 —— **Rust 下沉**（密钥不进 JS）或 **OS 密钥库**（连 App 都拿不到原始字节），
+>    两者都要重编重装 APK，已写进方案 §7/§8
+> 3. **双密钥环的硬隔离靠 AAD**：`环|容器|用途` 分域 + 各自 salt/DEK ⇒ 跨环、跨容器、跨用途一律解不开（有反向测试）
+> 4. 用户原话：「**私密文件夹只是一些非公开个人笔记，账户密码要保证绝对安全**」⇒ 两把主密码**不做任何派生关系**
+>
+> ### 环境坑（下次别踩）
+>
+> 1. **测试服务用完必须停**：上次会话留了 `python -m http.server 8931`（cwd 不是仓库根），我对着 404 绕了两轮
+> 2. **`Invoke-WebRequest` 走系统代理**，连 `127.0.0.1` 也返回 404 ⇒ 判本地服务死活用 `node -e "http.get(…)"`
+> 3. 本机 `curl` 走代理拉 raw：`ECONNRESET` / schannel 吊销检查失败；但 **WebView 的 fetch 能通**（应用内实测 14 条）
 
 > ## 📌 rev173.161（2026-10-25 · 安全插件发市场 · 不预装）
 

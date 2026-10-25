@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.161）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.162）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.161 · 0.5.0 · 2026-10-25 |
+| rev / 版本 | rev173.162 · 0.5.0 · 2026-10-25 |
 | 测试基线 | vitest 1002 · cargo 52 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 38 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
@@ -31,18 +31,14 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **安全插件（rev173.160–161）已完成并发布**：`examples/security/` **双密钥环**（私密笔记 / 账号密码**各一把主密码**，
-> 互不派生）· XChaCha20-Poly1305 + Argon2id · noble **本地副本** `public/vendor/noble/`（202 KB）·
-> `crypto` 服务**只给操作不给密钥** · 25 条单测 + CDP 实测九项（建两环 / 换密码 / 锁 / 恢复码 / 空闲自动锁）·
-> **已签名发到市场（14 条）**、**不预装**（用户决定：安全类插件应由用户主动从市场装）。
-> ✅ 已推送 `f99d9b9`（CI 15 步全绿）· 应用里从 GitHub raw 实测拉到 14 条。方案见 `docs/安全插件-方案-2026-10-25.md`。
-> **本会话（2026-10-25 · rev173.154–158）已完成**：CI 从「每个 run 都红」修到全绿（根因 `localeCompare`
-> 不传 locale，rev173.154）· issue/PR 模板 + `CONTRIBUTING.md` · 插件市场第二批 UX（详情页含能力自述 /
-> 更新角标 / 启动 24h 检查 + 设置开关，rev173.156）· CI Rust 缓存（rev173.157：Cargo 2m32s → 41s）·
-> 插件审查材料生成器（rev173.158：`scripts/review-plugin.mjs`）。
+> **安全插件（rev173.160–162）已完成并上线**：`examples/security/` **双密钥环**（私密笔记 / 账号密码**各一把主密码**，
+> 互不派生）· XChaCha20-Poly1305 + Argon2id · `crypto` 服务**只给操作不给密钥** · 25 条单测 + CDP 实测九项 ·
+> **已签名发到市场（14 条）、不预装**（用户决定）· 已推送 `981b114`、CI 全绿。方案见 `docs/安全插件-方案-2026-10-25.md`。
+> **上一个会话（rev173.154–158）**：CI 从「每个 run 都红」修到全绿（`localeCompare` 不传 locale）· 开源配套
+> （issue/PR 模板 + `CONTRIBUTING.md`）· 市场第二批 UX（详情页 / 更新角标 / 24h 检查）· CI Rust 缓存 · 审查材料生成器。
 > **下一步**：
 > ① **期 1b `secrets` 密码库插件**（`.zn/secrets/` 整库加密 + 剪贴板 60 s + 回收站）→
->   期 1c 同步放行 `.zn/secrets/`（安全插件**走市场、不预装**，已推送）·
+>   期 1c 同步放行 `.zn/secrets/`（现在 `.zn/` 整段被排除 ⇒ 密码库同步不出去）·
 > ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
 > ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
 > ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
