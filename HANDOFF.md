@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.145
-更新时间: 2026-10-25 · 最新 rev173.145
+revision: 173.146
+更新时间: 2026-10-25 · 最新 rev173.146
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.145
 
 | rev | 内容 |
 |---|---|
+| rev173.146 | 2026-10-25 · **公钥内置进应用（别人装得上、验得过）**：`verify_plugin_signature` 信任根 = 内置 `BUILTIN_TRUSTED_KEYS`（`aqua-2026`）**∪** 用户 `trusted-keys.json` —— 旧行为在新装机器 / 换电脑上那个文件不存在 ⇒ 12 个签名插件**全部拒载** · 合并规则：文件缺失回落内置（**正常态**）· 同 keyId 用户那条**覆盖**内置（轮换 / 撤销）· 其它追加（外部作者）· 坏 JSON / 缺字段**报错不静默跳过** · Rust 测试 43 → **49**（6 条：内置常量合法性 / 验签三判据 / 缺失回落 / 追加 / 覆盖 / 坏 JSON 三形状）· 新增 `scripts/verify-trust.mjs`：**从 lib.rs 解析**常量，私钥导出公钥逐字节对账 + 用内置公钥验 `dist/` 里 **12/12** 签名包 · Android 编译通过并已装手机 · 桌面 app 内实测留给下次 dev（不在 android-dev 窗口里再抢 target）· 坑：`cargo test` 与 android-dev 共用 `CARGO_TARGET_DIR` ⇒ `--no-default-features` 差异会触发依赖重编 |
 | rev173.145 | 2026-10-25 · **13 个插件包已上传 GitHub Release（索引链路打通）**：`plugins-v0.5.0` · 13 个 asset（`gh release view` 核对）· **端到端校验**：从 Release 下载 `tag-panel-0.2.0.znp` 与 `market/entries/tag-panel.json` 对比 —— sha256 `63b77ad6…` **完全一致**、大小 24391 B 一致 ⇒ 索引 → Release → 下载 → 校验 这条链路真通，不是「文件传上去了」· 剩下：客户端下载安装 UI（阶段 1）+ 公钥内置进应用 |
 | rev173.144 | 2026-10-25 · **正式签名密钥 + 13 个官方插件打包入市**：生成 Ed25519 密钥 `aqua-2026`（私钥在 **仓库外** `%USERPROFILE%\.zeronote-keys\`；公钥写进本机信任根 `.zn/trusted-keys.json`）· **13 个插件全部打包**（12 签名 + 1 纯样式 `theme-sepia` —— 无 entry 的插件宿主恒为 unsigned，打包时跳过签名）· **端到端验签 12/12 通过**（按宿主算法重算 payload + 公钥验签 + 入口 sha 一致）· **打包规则改了**：从「收整个目录」改成「只收 manifest 声明的 entry / files / styles」——`outline-map` 目录里有 `selftest*.mjs` / `store.json` / 遗留 `vendor/`，以前会被打进包 · 索引 13 条已生成 · **未做**：包还没传到 GitHub Release（索引里的 url 现在是死链）、公钥还没内置进应用 |
 | rev173.143 | 2026-10-25 · **插件市场阶段 0：打包 / 索引 / 原子安装**（用户拍板「做 + 外部作者开放 + 索引放本仓库」）：`scripts/lib/signing.mjs`（签名单一实现，`sign.mjs` 与打包共用）· `pack-plugin.mjs`（目录 → `.znp` + 签名 + 整包 sha256 + 市场条目）· `gen-market.mjs`（合并 `market/entries/*.json` 与 `external.json` → `index.json`，**已进质量门**：条目版本与 `examples/<id>/manifest.json` 不一致就红）· `market/`（README 投稿说明 / external.json / entries/ / index.json）· **`install_znp` 改原子**：先写 `.zn/tmp/install-<id>-<ms>` 再整目录交换，失败回滚（rev119 的「逐文件覆盖写 + 不删旧文件」已废）· Rust 测试 41 → **43**（坏包回滚 / 整目录替换） |
@@ -40,6 +41,58 @@ revision: 173.145
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.146（2026-10-25 · 公钥内置进应用 —— 别人装得上、验得过）
+
+> 用户：「继续 ZeroNote 插件市场」⇒ 按 CARD 写的「下一步唯一动作」（阶段 1 的前置）先补公钥内置。
+>
+> ### 改了什么
+>
+> `verify_plugin_signature`（Rust）的信任根从「**只读** `<应用数据目录>/.zn/trusted-keys.json`」
+> 变成 **内置 `BUILTIN_TRUSTED_KEYS`（`aqua-2026`）∪ 用户那份文件**。
+>
+> 旧行为的后果（rev173.145 段「边界」第 2 条写的那件事）：新装机器 / 换电脑上那个文件不存在
+> ⇒ `verify_plugin_signature` 直接 Err ⇒ **12 个签名插件全部拒载**。
+>
+> 合并规则（`load_trusted_keys`）：
+>
+> | 情况 | 结果 |
+> |---|---|
+> | 用户文件不存在 | 只有内置 —— **新装机器的正常状态**（旧版在这里报错） |
+> | 同 `keyId` | 用户那条**覆盖**内置（轮换 / 撤销走这条；只剩一条，不按顺序碰运气） |
+> | 其它 `keyId` | 追加（外部作者公钥） |
+> | 文件存在但坏 JSON / 缺字段 | **报错不静默跳过**（硬约束 4：用户以为加上了却没生效最危险） |
+>
+> ### 证据
+>
+> 1. **Rust 测试 43 → 49**（新增 6 条）：内置常量能解成合法 32 字节 Ed25519 公钥 ·
+>    验签三条判据（好签名过 / 改载荷不过 / keyId 不在信任根时文案点名「没有公钥」而不是含糊的「签名无效」）·
+>    文件缺失回落内置 · 追加第三方不挤掉内置 · 同 keyId 覆盖后只剩一条 · 坏 JSON / 缺字段 / 缺 keys 三种形状都报错。
+> 2. **`scripts/verify-trust.mjs`**（新增，发版前手工跑，**刻意不进质量门**：私钥与 `dist/` 都只在本机）：
+>    从 `lib.rs` **解析**常量（不另抄一份 —— 抄一份就多一个会漂移的副本；常量改名时它会直接报错，不会静默跳过）：
+>    - 私钥导出的公钥与内置值**逐字节相同**
+>    - 自签 payload 用内置公钥验过
+>    - `dist/` 里 13 个 `.znp`：**12 个签名包全部用内置公钥验过**；1 个纯样式无签名（无 entry ⇒ 宿主恒 unsigned，打包时也拒签）
+>    ⇒ 「新装机器的宿主能不能加载这 13 个包」不用装 app 也答了。
+> 3. **Android 侧编译通过并已装到手机**（android-dev 在场，改动被自动重编：`Finished dev profile`，4 个既有 warning）。
+>
+> ### 同步的文档
+>
+> 契约 §3（信任根 = 内置 ∪ 用户文件）· `contract.ts` 的 `manifest.sha256` 注释 ·
+> `plugin-signing.ts` 的 `TRUSTED_KEYS_REL` 注释 · ROADMAP §3.3 · `docs/README.md` 权威矩阵（插件市场 draft → active）·
+> `market/README.md`（公钥那节改成「内置为主，本机文件用于覆盖 / 追加」）· CHANGELOG `[Unreleased]` · CARD。
+>
+> ### 边界
+>
+> 1. **桌面端没做 app 内实测**：本轮 android-dev 一直在编（用户在手机上干活），`cargo test` 与它共用
+>    `CARGO_TARGET_DIR`，`--no-default-features` 差异还触发了一轮依赖重编 —— 不在这个窗口再起桌面 dev 添乱。
+>    直接证据是：同一段 Rust 在 android target 编过 + node 侧用**同一算法**（Ed25519 + 内置公钥）验过 12/12 包
+>    + 6 条单测覆盖合并规则。下次桌面 dev 起来时 reload 一次即可（预期：删掉 `trusted-keys.json` 也照常加载）。
+> 2. **`ensureBuiltinPlugins` 覆盖冲突还没修**（阶段 1 必须一起）。本轮把判据看清楚了：现在「内容不同就覆盖」
+>    ⇒ 从市场装的官方插件新版重启后被内置版盖回去；更糟的是**覆盖后目录里残留的 `signature.json` 与新内容对不上
+>    ⇒ 插件变「拒载」**，不是简单回退。改法方向：读现有 `manifest.version` 与内置版本比较，内置更新才覆盖；
+>    「签名目录动不动」要动手前定（覆盖就得先删签名 = 绕过签名渠道，不是小事）。
+> 3. 公钥内置 = **持私钥者可向所有用户推任意代码**。已写进 `market/README.md` 与调研 §6，不藏着。
 
 > ## 📌 rev173.145（2026-10-25 · 13 个插件包已上传 GitHub Release）
 

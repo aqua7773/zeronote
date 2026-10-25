@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.145）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.146）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.145 · 0.5.0 · 2026-10-25 |
-| 测试基线 | vitest 926 · cargo 43 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.146 · 0.5.0 · 2026-10-25 |
+| 测试基线 | vitest 926 · cargo 49 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
@@ -31,10 +31,11 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下一步唯一动作（插件市场）**：补「**公钥内置进应用**」（~1 h，改 Rust 端信任根加载：内置一份 + 用户那份叠加）
-> ⇒ 然后做**阶段 1**：插件管理页加「发现」tab（列表 / 详情 / 安装确认 / 下载校验 / 自动重扫）。
-> **顺序不能反** —— 先做 UI 会做出一个别人装不上的市场。
-> 第三件（阶段 1 必须一起）：修 `ensureBuiltinPlugins` 启动覆盖全局目录 ⇒ 从市场装的官方插件新版重启后被回退。
+> **下一步唯一动作（插件市场）**：**阶段 1 —— 插件管理页加「发现」tab**（列表 / 详情 / 安装确认 / 下载校验 / 自动重扫）。
+> 前置「公钥内置进应用」已在 rev173.146 完成 ⇒ **顺序没反**（别人装得上、验得过）。
+> **必须一起做**：修 `ensureBuiltinPlugins` 启动覆盖全局目录 ⇒ 从市场装的官方插件新版重启后被回退。
+> 判据线索：现有实现「内容不同就覆盖」，且覆盖后若目录里还留着 `signature.json` ⇒ **新版变拒载**（内容变了签名对不上）。
+> 改法方向：读现有 manifest.version 与内置版本比较，**内置更新才覆盖**；签名目录不动或先删签名再覆盖（二选一，动手前定）。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
 
@@ -45,7 +46,7 @@ pwsh -File scripts\verify.ps1
 | 记账文案校准 | 等真实漏识别样本（「诊断」视图已就绪） |
 | 性能基线 | 用户暂缓（2026-10-19 裁决） |
 | AI 标签 / 密级 | 需求 2 暂不采用，方向待定 |
-| 插件市场（rev173.142 起） | **已拍板**：① 做 ② 外部作者开放 ③ 索引放本仓库 `market/index.json` ④ 签名扩到多文件（✅ **rev173.142 已完成：payload v2 覆盖 `manifest.files`**，单测 9→11、反向验证红）· **阶段 0 已完成（rev173.143）**：`pack-plugin.mjs` 打包签名 → `gen-market.mjs` 合并索引（进质量门）→ `market/` 目录 + 投稿说明；`install_znp` 改**原子**（先写 `.zn/tmp` 再整目录交换，失败回滚）· **rev173.144：正式密钥 `aqua-2026` + 13 个插件已打包签名（12 签 / 1 纯样式），端到端验签 12/12 通过，索引 13 条已生成** · **rev173.145：13 个包已上传 Release `plugins-v0.5.0`，下载校验 sha256 与索引完全一致（链路打通）** · ⚠️ 应用内还没有市场入口（阶段 1）、公钥还没内置进应用（别人装会验签失败） · 下一步：阶段 1 应用内「发现」tab（+1.5 天）· 方案见 `docs/插件市场-调研-2026-10-25.md` |
+| 插件市场（rev173.142 起） | **已拍板**：① 做 ② 外部作者开放 ③ 索引放本仓库 `market/index.json` ④ 签名扩到多文件（✅ **rev173.142：payload v2 覆盖 `manifest.files`**）· **阶段 0 已完成（rev173.143）**：`pack-plugin.mjs` 打包签名 → `gen-market.mjs` 合并索引（进质量门）→ `market/` 目录；`install_znp` 改**原子** · **rev173.144：正式密钥 `aqua-2026` + 13 个插件打包签名（12 签 / 1 纯样式），端到端验签 12/12** · **rev173.145：13 个包已上传 Release `plugins-v0.5.0`，sha256 与索引一致** · **rev173.146：公钥已内置进应用**（`BUILTIN_TRUSTED_KEYS` + 用户文件叠加；新装机器不再因缺 `trusted-keys.json` 拒载；`scripts/verify-trust.mjs` 用内置公钥验过 12/12 包）· ⚠️ 应用内还没有市场入口（阶段 1）· 下一步：阶段 1「发现」tab（+1.5 天）+ 修 `ensureBuiltinPlugins` 覆盖 · 方案见 `docs/插件市场-调研-2026-10-25.md` |
 | `D-008` 插件市场 / 更新通道 | 重议条件**已满足**（预装 13 > 10）⇒ **调研 + 形态设计已做**：`docs/插件市场-调研-2026-10-25.md`（**§4.4 形态**：市场 = 插件管理页第二个 tab，入口沿用现有三个，安装 4 步含「验签失败不落盘」，**不做静默升级**；**§4.5 开发者**：官方插件零手工、外部作者索引不存版本号只存 `entry`）· **不需要服务端** · 阶段 0 = 纯脚本 **2 h** / 零内核改动 / 随时可停 · 待拍板 4 点：做不做/哪层 · 外部作者现在开放吗 · 索引托管在哪 · **签名扩不扩**（已给建议：**现在扩** —— 0 个插件签过名、1.5 h；分发后再扩 = 已签名包全部失效、用户侧表现为插件加载失败） |
 | M3 收尾④ 真机「编辑→保存」人工确认 | 旧悬置（实机早已能保存，可忽略） |
 
@@ -64,7 +65,7 @@ pwsh -File scripts\verify.ps1
 - **Git**：GitHub `aqua7773`（gh 已登录、keyring）· `git push` **先直连，被 reset 再挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`**。
 - **Rust**：`CARGO_TARGET_DIR` 必须在工作区外（本机铁律）；Rust 测试临时目录 `<repo>/_tmp-test/`。
 - **补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`），升级必须重打 · `.gitignore` 排除 `_shots/` `_tmp-*/` `examples/*/store.json`。
-- **插件签名密钥（2026-10-25 生成）**：keyId **`aqua-2026`** · 私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`（**仓库外，绝不入库**）· 公钥已写进本机 `<APPDATA>\com.aqua.zeronote\.zn\trusted-keys.json`（不写则本机装签名插件被拒载）· 公钥值 `iOIIUrkdKmP0w+pwpgqGiqSsLJYfl9Pa5VeUCBCjh6E=`
+- **插件签名密钥（2026-10-25 生成）**：keyId **`aqua-2026`** · 私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`（**仓库外，绝不入库**）· **公钥已内置进应用**（rev173.146，`src-tauri/src/lib.rs` 的 `BUILTIN_TRUSTED_KEYS`；改它要跑 `node scripts/verify-trust.mjs`）· 本机那份 `<APPDATA>\com.aqua.zeronote\.zn\trusted-keys.json` **不再是必需**（同 keyId 只会覆盖内置值），留着无害 · 公钥值 `iOIIUrkdKmP0w+pwpgqGiqSsLJYfl9Pa5VeUCBCjh6E=`
 - **插件包与市场**：`dist/*.znp` 是构建产物（不入库）；13 个包已上传 Release **`plugins-v0.5.0`**；索引 `market/index.json` 13 条（`node scripts/gen-market.mjs --write` 重建，已进质量门）；打包用 `node scripts/pack-plugin.mjs <id> --key <私钥> --tag plugins-v0.5.0`
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374`，重启即恢复 · **别用 `plugin:window|destroy` 关窗口**（会连主窗口一起没）。
 

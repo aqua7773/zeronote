@@ -2092,17 +2092,15 @@ fn write_plugin_file(
 ///  · `Err(...)`       —— 有签名但**验不过**（无信任根 / keyId 不在信任根 / 签名不符 / 文件坏），
 ///    调用方据此**拒绝加载** —— 签名既然是承诺，破了就不能跑。
 ///
-/// 信任根：`<vault>/.zn/trusted-keys.json`，形状 `{ "keys": [{ "keyId", "publicKey" }] }`，
-/// `publicKey` = base64(32 字节 raw Ed25519 公钥)，由 `scripts/keygen.mjs` 生成。
+/// 信任根：**内置官方密钥**（`BUILTIN_TRUSTED_KEYS`）+ `<root>/.zn/trusted-keys.json`
+/// （形状 `{ "keys": [{ "keyId", "publicKey" }] }`，`publicKey` = base64(32 字节 raw Ed25519 公钥)，
+/// 由 `scripts/keygen.mjs` 生成）。合并规则见 `load_trusted_keys`。
 #[tauri::command]
 fn verify_plugin_signature(
   vault: String,
   plugin_id: String,
   payload: String,
 ) -> Result<String, String> {
-  use base64::{engine::general_purpose::STANDARD, Engine as _};
-  use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-
   let sig_path = plugin_dir(&vault, &plugin_id)?.join("signature.json");
   if !sig_path.is_file() {
     return Ok("unsigned".to_string());
@@ -2121,33 +2119,118 @@ fn verify_plugin_signature(
     return Err("signature.json 缺 keyId 或 sig".to_string());
   }
 
-  let keys_path = private_root(&vault)
+  let keys = load_trusted_keys(&vault)?;
+  verify_with_trusted_keys(&keys, key_id, &payload, sig_b64)?;
+  Ok("signed".to_string())
+}
+
+/// **一条信任根条目**：`keyId` + base64(raw 32 字节 Ed25519 公钥)。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TrustedKey {
+  key_id: String,
+  public_key: String,
+}
+
+/// **内置官方信任根**（rev173.146 · 契约 §7.4）。
+///
+/// 为什么必须内置：`trusted-keys.json` 是**用户机器上的文件** —— 新装一份应用或换台电脑，
+/// 这个文件不存在 ⇒ 所有签名插件验签失败 ⇒ 从市场装的官方插件一个都跑不起来。
+/// 「这台机器出厂就信任谁」是应用自身的事实，不能指望用户手工补文件。
+///
+/// 内置的是**公钥**（本来就可以公开）；私钥在仓库外 `%USERPROFILE%\.zeronote-keys\`，
+/// 由 `scripts/keygen.mjs` 生成、`scripts/sign.mjs` 签名。
+///
+/// ⚠️ 加新 keyId = 多信任一个发布者，不影响任何已有签名。
+/// 轮换时**旧条目不要删** —— 删了之后用户已装的旧版插件会立刻拒载。
+const BUILTIN_TRUSTED_KEYS: &[(&str, &str)] = &[(
+  "aqua-2026",
+  "iOIIUrkdKmP0w+pwpgqGiqSsLJYfl9Pa5VeUCBCjh6E=",
+)];
+
+fn builtin_trusted_keys() -> Vec<TrustedKey> {
+  BUILTIN_TRUSTED_KEYS
+    .iter()
+    .map(|(id, pk)| TrustedKey {
+      key_id: (*id).to_string(),
+      public_key: (*pk).to_string(),
+    })
+    .collect()
+}
+
+/// **有效信任根** = 内置官方密钥 ∪ `<root>/.zn/trusted-keys.json`。
+///
+/// 合并规则（rev173.146）：
+///  · 文件不存在 ⇒ 只有内置 —— 这是**新装机器的正常状态**，不是错误（旧版在这里直接报错）
+///  · 同 `keyId` ⇒ 用户那条**覆盖**内置（显式写同一个 id 就是明确要换：轮换 / 撤销走这条）
+///  · 其它 ⇒ 追加（外部作者的公钥走这条）
+///  · 文件存在但读不懂 / 缺字段 ⇒ **报错，不静默跳过**：用户以为加上了却没生效，
+///    比一条明确的错误信息危险得多（硬约束 4）。
+fn load_trusted_keys(vault: &str) -> Result<Vec<TrustedKey>, String> {
+  let mut keys = builtin_trusted_keys();
+  let keys_path = private_root(vault)
     .join(PRIVATE_DIR)
     .join("trusted-keys.json");
-  let keys_raw = fs::read_to_string(&keys_path).map_err(|e| {
+  let raw = match fs::read_to_string(&keys_path) {
+    Ok(r) => r,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(keys),
+    Err(e) => {
+      return Err(format!(
+        "读取信任根失败 {}：{e}（内置官方密钥仍然生效；修好或删掉这个文件即可）",
+        keys_path.display()
+      ))
+    }
+  };
+  let json: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
     format!(
-      "插件已签名（keyId={key_id}），但信任根不存在：{}（{e}）。请把公钥加进这个文件",
+      "trusted-keys.json 不是合法 JSON（{}）：{e}",
       keys_path.display()
     )
   })?;
-  let keys_json: serde_json::Value =
-    serde_json::from_str(&keys_raw).map_err(|e| format!("trusted-keys.json 不是合法 JSON：{e}"))?;
-  let key_b64 = keys_json
-    .get("keys")
-    .and_then(|v| v.as_array())
-    .and_then(|arr| {
-      arr.iter().find_map(|k| {
-        let id = k.get("keyId").and_then(|v| v.as_str())?;
-        if id != key_id {
-          return None;
-        }
-        k.get("publicKey").and_then(|v| v.as_str())
-      })
-    })
+  let list = json.get("keys").and_then(|v| v.as_array()).ok_or_else(|| {
+    format!(
+      "trusted-keys.json 缺 keys 数组（{}），形状应为 {{ \"keys\": [{{ \"keyId\", \"publicKey\" }}] }}",
+      keys_path.display()
+    )
+  })?;
+  for (i, item) in list.iter().enumerate() {
+    let id = item.get("keyId").and_then(|v| v.as_str()).unwrap_or("");
+    let pk = item.get("publicKey").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() || pk.is_empty() {
+      return Err(format!(
+        "trusted-keys.json 第 {} 条缺 keyId 或 publicKey（{}）",
+        i + 1,
+        keys_path.display()
+      ));
+    }
+    match keys.iter_mut().find(|k| k.key_id == id) {
+      Some(slot) => slot.public_key = pk.to_string(),
+      None => keys.push(TrustedKey {
+        key_id: id.to_string(),
+        public_key: pk.to_string(),
+      }),
+    }
+  }
+  Ok(keys)
+}
+
+/// 用给定信任根校验一段 Ed25519 签名。拆出来是为了能单测（内置常量本身没法用私钥验）。
+fn verify_with_trusted_keys(
+  keys: &[TrustedKey],
+  key_id: &str,
+  payload: &str,
+  sig_b64: &str,
+) -> Result<(), String> {
+  use base64::{engine::general_purpose::STANDARD, Engine as _};
+  use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+  let key_b64 = keys
+    .iter()
+    .find(|k| k.key_id == key_id)
+    .map(|k| k.public_key.as_str())
     .ok_or_else(|| {
       format!(
-        "信任根里没有 keyId={key_id} 的公钥（{}）",
-        keys_path.display()
+        "信任根里没有 keyId={key_id} 的公钥（内置官方密钥 + <应用数据目录>/.zn/trusted-keys.json，共 {} 条）",
+        keys.len()
       )
     })?;
 
@@ -2170,7 +2253,6 @@ fn verify_plugin_signature(
   let signature = Signature::from_bytes(&sig_arr);
 
   vk.verify(payload.as_bytes(), &signature)
-    .map(|_| "signed".to_string())
     .map_err(|e| format!("插件签名无效（keyId={key_id}）：{e}"))
 }
 
@@ -3768,5 +3850,165 @@ mod tests {
     mark_self_write(a);
     assert!(is_self_write(a));
     assert!(!is_self_write(b));
+  }
+
+  /* ───────── 插件签名信任根（rev173.146：内置官方公钥） ─────────
+   *
+   * 这组用例守的是「新装机器上，官方签名插件能不能验过」：
+   * 旧版只读用户文件，文件不存在 ⇒ 直接报错 ⇒ 市场里装的官方插件一个都跑不起来。
+   */
+
+  /// 造一对一次性密钥并签一段 payload，返回 `(公钥 b64, 签名 b64)`。
+  /// 固定种子 ⇒ 每个种子对应唯一密钥，不需要随机数生成器。
+  fn signed_by(seed: u8, payload: &str) -> (String, String) {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ed25519_dalek::{Signer, SigningKey};
+    let sk = SigningKey::from_bytes(&[seed; 32]);
+    let pk = STANDARD.encode(sk.verifying_key().to_bytes());
+    let sig = STANDARD.encode(sk.sign(payload.as_bytes()).to_bytes());
+    (pk, sig)
+  }
+
+  fn write_trusted_keys(root: &Path, json: &str) {
+    let dir = root.join(PRIVATE_DIR);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("trusted-keys.json"), json).unwrap();
+  }
+
+  /// 内置常量本身要能解成合法的 32 字节 Ed25519 公钥 ——
+  /// 抄错一个字符的表现是「所有官方插件在**新机器**上验签失败」，而那台机器上没法调试。
+  #[test]
+  fn builtin_trusted_keys_are_valid_32_byte_public_keys() {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ed25519_dalek::VerifyingKey;
+    assert!(!BUILTIN_TRUSTED_KEYS.is_empty(), "必须至少内置一把官方公钥");
+    for (id, pk) in BUILTIN_TRUSTED_KEYS {
+      assert!(!id.is_empty(), "内置公钥必须有 keyId");
+      let bytes = STANDARD.decode(pk.trim()).expect("内置公钥应是合法 base64");
+      let len = bytes.len();
+      let arr: [u8; 32] = bytes
+        .try_into()
+        .unwrap_or_else(|_| panic!("内置公钥 {id} 长度应为 32 字节（实际 {len}）"));
+      VerifyingKey::from_bytes(&arr).unwrap_or_else(|e| panic!("内置公钥 {id} 无效：{e}"));
+    }
+  }
+
+  #[test]
+  fn verify_with_trusted_keys_checks_payload_keyid_and_signature() {
+    let payload = "zn-plugin-v2|demo|1.0.0|deadbeef|a.js:1234";
+    let (pk, sig) = signed_by(7, payload);
+    let keys = vec![TrustedKey {
+      key_id: "test-author".to_string(),
+      public_key: pk,
+    }];
+
+    assert_eq!(
+      verify_with_trusted_keys(&keys, "test-author", payload, &sig),
+      Ok(()),
+      "同一段 payload + 同一把公钥必须验过"
+    );
+
+    // 改载荷（等价于入口 / manifest.files 里的文件被换掉）⇒ 必须失败
+    let tampered = "zn-plugin-v2|demo|1.0.0|deadbeef|a.js:9999";
+    assert!(
+      verify_with_trusted_keys(&keys, "test-author", tampered, &sig).is_err(),
+      "载荷被改还验过 = 签名形同虚设"
+    );
+
+    // keyId 不在信任根 ⇒ 报「没有公钥」，而不是含糊的「签名无效」
+    let err = verify_with_trusted_keys(&keys, "someone-else", payload, &sig).unwrap_err();
+    assert!(
+      err.contains("信任根里没有 keyId=someone-else"),
+      "应指出是信任根缺公钥：{err}"
+    );
+  }
+
+  /// 新装机器 / 换电脑：`trusted-keys.json` 不存在时必须仍信任内置官方公钥。
+  /// （旧版行为：直接 Err ⇒ 13 个官方插件全部拒载。）
+  #[test]
+  fn trusted_keys_fall_back_to_builtin_when_user_file_missing() {
+    let d = tmpdir("sign-trust-missing");
+    let root = d.to_string_lossy().to_string();
+    assert!(!d.join(PRIVATE_DIR).join("trusted-keys.json").exists());
+
+    let keys = load_trusted_keys(&root).expect("用户文件不存在不是错误");
+    assert_eq!(keys.len(), BUILTIN_TRUSTED_KEYS.len());
+    assert!(
+      keys.iter().any(|k| k.key_id == "aqua-2026"),
+      "内置官方密钥必须在有效信任根里：{keys:?}"
+    );
+  }
+
+  /// 用户文件里的**第三方**公钥追加进来，且不挤掉内置那条。
+  #[test]
+  fn trusted_keys_extend_with_user_key() {
+    let d = tmpdir("sign-trust-extend");
+    let root = d.to_string_lossy().to_string();
+    let (pk, _) = signed_by(9, "x");
+    write_trusted_keys(
+      &d,
+      &format!(r#"{{ "keys": [{{ "keyId": "friend-2026", "publicKey": "{pk}" }}] }}"#),
+    );
+
+    let keys = load_trusted_keys(&root).unwrap();
+    assert_eq!(keys.len(), BUILTIN_TRUSTED_KEYS.len() + 1);
+    assert!(
+      keys.iter().any(|k| k.key_id == "friend-2026" && k.public_key == pk),
+      "外部作者公钥应被追加：{keys:?}"
+    );
+    assert!(
+      keys.iter().any(|k| k.key_id == "aqua-2026"),
+      "追加不能挤掉内置密钥：{keys:?}"
+    );
+  }
+
+  /// 用户显式写同一个 keyId ⇒ 覆盖内置（轮换 / 撤销走这条），且只有一条。
+  #[test]
+  fn trusted_keys_user_entry_overrides_builtin_same_id() {
+    let d = tmpdir("sign-trust-override");
+    let root = d.to_string_lossy().to_string();
+    let (pk, _) = signed_by(11, "x");
+    write_trusted_keys(
+      &d,
+      &format!(r#"{{ "keys": [{{ "keyId": "aqua-2026", "publicKey": "{pk}" }}] }}"#),
+    );
+
+    let keys = load_trusted_keys(&root).unwrap();
+    assert_eq!(
+      keys.iter().filter(|k| k.key_id == "aqua-2026").count(),
+      1,
+      "同一个 keyId 不能出现两条（否则查哪条取决于顺序）"
+    );
+    assert_eq!(
+      keys.iter()
+        .find(|k| k.key_id == "aqua-2026")
+        .unwrap()
+        .public_key,
+      pk,
+      "用户显式写的公钥应覆盖内置"
+    );
+  }
+
+  /// 文件存在但读不懂 ⇒ 明确报错，不静默跳过。
+  /// 理由：用户以为公钥加上了、实际没生效，比一条错误信息危险得多（硬约束 4）。
+  #[test]
+  fn trusted_keys_invalid_user_file_is_loud_error() {
+    let d = tmpdir("sign-trust-badjson");
+    let root = d.to_string_lossy().to_string();
+
+    write_trusted_keys(&d, "{ not json");
+    let err = load_trusted_keys(&root).unwrap_err();
+    assert!(err.contains("不是合法 JSON"), "应指出 JSON 坏了：{err}");
+
+    write_trusted_keys(&d, r#"{ "keys": [ { "keyId": "x" } ] }"#);
+    let err = load_trusted_keys(&root).unwrap_err();
+    assert!(
+      err.contains("缺 keyId 或 publicKey"),
+      "缺字段应点名第几条：{err}"
+    );
+
+    write_trusted_keys(&d, r#"{ "pubkeys": [] }"#);
+    let err = load_trusted_keys(&root).unwrap_err();
+    assert!(err.contains("缺 keys 数组"), "形状不对要说清：{err}");
   }
 }

@@ -1178,9 +1178,11 @@ export type PluginManifest = {
    * ⚠️ 只覆盖入口**一个文件**（多文件插件的 `files` 不校验），所以它是
    * 「完整性提示」而不是「签名」—— 谁都算得出同一个 hash。
    *
-   * **真签名**：插件目录里的 `signature.json`（Ed25519，2026-10-21 rev173.77），
-   * 载荷 = `zn-plugin-v1|<id>|<version>|<入口 sha256>`，信任根在
-   * `<应用数据目录>/.zn/trusted-keys.json`。有签名文件就必须验过才加载（见契约 §3）。
+   * **真签名**：插件目录里的 `signature.json`（Ed25519，2026-10-21 rev173.77；
+   * 载荷 2026-10-25 rev173.142 升到 v2 = 入口 + `manifest.files` 全量摘要），
+   * 信任根 = **内置官方公钥**（Rust `BUILTIN_TRUSTED_KEYS`，rev173.146）
+   * ∪ `<应用数据目录>/.zn/trusted-keys.json`（同 keyId 用户那条覆盖内置）。
+   * 有签名文件就必须验过才加载（见契约 §3）。
    */
   sha256?: string
   /**

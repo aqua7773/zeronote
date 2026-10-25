@@ -24,7 +24,13 @@ export const PLUGIN_SIGNATURE_ALG = 'ed25519' as const
 export const PLUGIN_SIGNATURE_PREFIX = 'zn-plugin-v2'
 /** signature.json 的文件名（插件目录根） */
 export const PLUGIN_SIGNATURE_FILE = 'signature.json'
-/** 信任根：`<全局插件根>/.zn/trusted-keys.json` */
+/**
+ * 信任根文件：`<全局插件根>/.zn/trusted-keys.json`。
+ *
+ * ⚠️ 它**不再是唯一信任根**（rev173.146）：官方公钥已内置在 Rust
+ * （`BUILTIN_TRUSTED_KEYS`），这个文件只用于**追加**外部作者公钥，
+ * 或用同一个 `keyId` 覆盖内置那条（轮换 / 撤销）。验签在 Rust，这里只留形状常量。
+ */
 export const TRUSTED_KEYS_REL = '.zn/trusted-keys.json'
 
 /** 参与签名的一个文件（`path` 用 POSIX 相对路径，与 manifest.files 写法一致） */
