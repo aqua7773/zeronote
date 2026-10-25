@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.154
-更新时间: 2026-10-25 · 最新 rev173.154
+revision: 173.155
+更新时间: 2026-10-25 · 最新 rev173.155
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.154
 
 | rev | 内容 |
 |---|---|
+| rev173.155 | 2026-10-25 · **CI 首绿实证**（rev173.154 的后续，无测试数字变化）：推送后第一次真跑 **15 步全 success**，4 分 45 秒（12:14:20 → 12:19:05 UTC）· 关键在 step 8「Unit tests (vitest)」—— 此前每个 run 都挂这里，`sortTags` 传 `'zh'` 后 951 全过；step 10「Quality gates」也是**第一次跑到**（排 vitest 之后，以前从没走到）· 证据链三条：`gh run list` 修复前 8 连 failure → 本次 success；新包公网实测 raw 下载 `http=200 · 24513 B` 且 sha256 与 `market/entries/tag-panel.json` 逐字一致；全局插件目录里 `tag-panel` / `backlinks` 均已是 0.2.1 · workflow 头注释改为与六步对齐（原写「五步」且漏质量门）· ⚠️ 一条 CI 自身小债：`pnpm/action-setup@v4` 声明 Node 20 被强制跑在 Node 24，每次 run 一条 deprecation annotation，等上游发版再升 |
 | rev173.154 | 2026-10-25 · **开源配套：CI 从「一直是红的」修到能跑 + 投稿入口补齐**：CI workflow 早在 rev173.130 就有，但 `gh run list` 显示最近每个 run 都 failure —— 根因是 `localeCompare` **不传 locale**（3 处：`src/kernel/index-api.ts` 的 `tags()`、`examples/tag-panel` 的 `sortTags`、`examples/backlinks` 的 `matchRefs`）：本机 zh-CN 排出「工作 · 会议 · 项目」，GitHub runner en-US 按 code point 排成「会议 · 工作 · 项目」⇒ `tests/tag-panel.test.ts` 必然红 · 修法是三处显式传 `'zh'`（与 `FileTree` / `QuickSwitcher` 早就用的写法一致），两个插件各升 **0.2.1** 并重新打包签名、`gen-market --write` 重建索引（13 条）· CI 里逐条 gate 改成 `node scripts/check-gates.mjs`（此前 CI **漏了** facts 与 market 两项门）· `facts.mjs --check` 修一个 CI 死结：测试基线只存在本机（baseline JSON / `_verify-*.log` 都不入库）⇒ 无基线时忽略该行比较，有基线时照旧整块比 · 新增 `CONTRIBUTING.md` + `.github/ISSUE_TEMPLATE/`（bug / 功能建议 / 插件投稿 + config）+ `pull_request_template.md`，`check-links` 把 CONTRIBUTING 纳入扫描 · 本地 verify 六步全绿 |
 | rev173.153 | 2026-10-25 · **交接卡「环境现状」跟上现实**（本轮收尾，无代码改动）：① 桌面 dev 补「AI 自己起用 `Start-Process cmd /c dev.cmd`（独立进程，等价双击）」+ 记「当前 dev 开着」 ② **插件包与市场整段重写**（旧文写「包在 Release、用 `--tag` 打包」已过时：现在包入库 `market/packs/`、走 raw、`pack-plugin` 默认就写那儿、gen-market 校验包存在 + sha） ③ 手机装机版本记成 **0.5.0**（0.4.0 没有 `install_znp_from_url`）+ 补「改前端 reload 即生效 / 改 Rust 必须重装」 ④ 补一行「仓库已开源 + 地址」· CARD 83 行（目标 ≤120）· check-docs / 质量门 6/6 |
 | rev173.152 | 2026-10-25 · **插件页统一：设置里也能进市场**（用户「统一设置和菜单的插件页」）：两处本来就复用同一个 `PluginPanel`，设置页只是**漏传** `onMarketInstall` ⇒ 补一条透传（Settings props + `<PluginPanel onMarketInstall>` + App 传 `installZnpFromUrl`），tab / 列表 / 确认框 / 坏条目提示全是一份代码 · **顺带修布局**：设置 Dialog 里的插件区无高度约束 ⇒ 市场 13 条把窗口撑到 1080 px、列表 1037 px 且不内滚（截图实证）→ 插件区 `h-[min(62vh,520px)]` + `min-h-0 flex-1`，Dialog 回到 640×~570、列表内滚 · vitest 949 → **951**（2 条锁「不传通道不显示 tab / 传了显示『已安装 N · 发现』」）· 实测：设置 → 插件 → 发现 **13 条**、`listScrollable=true`；菜单 → 插件管理 **13 条**，两处一致 |
@@ -49,6 +50,32 @@ revision: 173.154
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.155（2026-10-25 · CI 首绿实证）
+
+> rev173.154 推送后第一次真跑：**15 步全 success**，4 分 45 秒（12:14:20 → 12:19:05 UTC）。
+>
+> 关键在 step 8「Unit tests (vitest)」—— 此前**每个 run 都挂在这一步**，`sortTags` 显式传 `'zh'` 后
+> 951 条全过。step 10「Quality gates」也是**第一次真正被跑到**：它排在 vitest 之后，
+> 之前一直是 vitest 先红，这一门等于从没在 CI 上执行过。
+>
+> ### 三条证据（不是「看它变绿了」）
+>
+> | 证据 | 值 |
+> |---|---|
+> | 修复前八个 run | `gh run list` → 全部 `failure`（10:07 – 12:05） |
+> | 本次 run `40192229548` | `success` · 15/15 步 · 4m45s |
+> | 新包公网链路 | raw 下载 `http=200 · 24513 B` · sha256 `01ab6106…` 与 `market/entries/tag-panel.json` **逐字一致** |
+> | 内置插件落地 | 全局目录里 `tag-panel` / `backlinks` 均已是 **0.2.1**（dev 热更新后 `ensureBuiltinPlugins` 写入） |
+>
+> ### 顺手修
+>
+> workflow 头注释原本写「五步验收」，实际六步（漏了质量门）⇒ 改成与 `verify.ps1` 逐项对齐，并留一句
+> 「本地绿不代表 CI 绿，先想这个断言是否依赖环境」，免得下一个人再走一遍这条弯路。
+>
+> ⚠️ 一条 CI 自身的小债（**不阻塞、现在别改**）：`pnpm/action-setup@v4` 声明跑在 Node 20，GitHub 已强制
+> 改用 Node 24，所以每次 run 会有一条 deprecation annotation。等 action 上游发新版再升 ——
+> 为消一条黄字去动 CI 配置，风险大于收益。
 
 > ## 📌 rev173.154（2026-10-25 · 开源配套：CI 修绿 + 投稿入口）
 

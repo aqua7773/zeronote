@@ -1,8 +1,10 @@
 name: verify
 
-# P3-3 落地：把本机的五步验收搬进 CI —— 每次 push / PR 都跑，不靠人记得。
-# 与 scripts/verify.ps1 对齐：tsc 0 错误 · oxlint 0 error · cargo test --lib · check-docs · vitest 全过。
+# P3-3 落地：把本机的验收搬进 CI —— 每次 push / PR 都跑，不靠人记得。
+# 与 scripts/verify.ps1 对齐（六步）：tsc · oxlint src · vitest · check-docs · 质量门（check-gates.mjs）· cargo test --lib。
 # 用 windows-latest：本机是 Windows / MSVC，cargo test --lib 在这里最贴近真实编译环境。
+# ⚠️ rev173.154 之前**每个 run 都是红的**：测试里 localeCompare 不传 locale ⇒ 本机 zh-CN 按拼音、
+#    runner en-US 按 code point，同一条中文排序断言两边相反。本地绿不代表 CI 绿，先想"这个断言依赖环境吗"。
 
 on:
   push:
