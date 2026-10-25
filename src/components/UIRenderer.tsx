@@ -221,10 +221,11 @@ function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.J
       return (
         <input
           key={key}
-          type="text"
+          type={node.secret ? 'password' : 'text'}
           className="zn-ui-input"
           value={asText(ctx.state[node.bind])}
           placeholder={node.placeholder}
+          autoComplete={node.secret ? 'off' : undefined}
           onChange={(e) => ctx.onStateChange(node.bind, e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && submitId) {

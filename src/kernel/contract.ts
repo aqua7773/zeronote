@@ -416,7 +416,21 @@ export type UINode =
       variant?: 'default' | 'ghost' | 'danger'
       disabled?: boolean
     }
-  | { type: 'input'; bind: string; placeholder?: string; onSubmit?: string }
+  | {
+      type: 'input'
+      bind: string
+      placeholder?: string
+      onSubmit?: string
+      /**
+       * 渲染成密码框（`type="password"`，输入回显为圆点）。rev173.163 加，为 `secrets` 密码库用。
+       *
+       * 为什么在**节点上**而不是让插件自己画：插件拿不到样式与 DOM，只有声明式节点；
+       * 而"密码默认隐藏"是需求 §8.6 的硬要求 —— 明文 input 会把密码摊在屏幕上。
+       * 注意这只是**显示层**的遮掩：`state[bind]` 里仍是明文（受控输入），
+       * 所以它防的是肩窥，不是"内存里没有明文"（那件事本方案做不到，见安全插件方案 §6）。
+       */
+      secret?: boolean
+    }
   | { type: 'textarea'; bind: string; placeholder?: string; rows?: number; onSubmit?: string }
   | { type: 'select'; bind: string; options: { value: string; label: string }[]; onSubmit?: string }
   | { type: 'checkbox'; bind: string; label?: string; onSubmit?: string }
