@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.166
-更新时间: 2026-10-26 · 最新 rev173.166
+revision: 173.167
+更新时间: 2026-10-26 · 最新 rev173.167
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.166
 
 | rev | 内容 |
 |---|---|
+| rev173.167 | 2026-10-26 · **Windows Hello 可行性验证（期 2c 前置）**：用户指出「windows 不是有 hello 吗」，纠了方案 §8 的旧说法。真机实测（PowerShell 5.1 直调 WinRT，同一台机）：`IsSupportedAsync()` = **True**（PIN 已设）· `RequestCreateAsync` = **Success**（**非打包进程 + 无 HWND 也能建凭据**）· `RequestSignAsync` = **90 秒无返回（挂死）⇒ 签名必须有窗口**。⇒ 门槛收敛成一条：Rust 侧要用 `IKeyCredentialManagerInterop` 传 HWND。**两个概念更正**：① 「不支持」只是 Tauri 插件层面，平台有完整 API ② **PIN 与生物识别是同一套 API**（弹什么由 Windows 决定）⇒「先做 PIN」不是降级，用户以后加指纹代码零改动 ③ `UserConsentVerifier` **不给密钥材料**，只能当二次确认，方案里那条路不够，得用 `KeyCredentialManager`（签名 PKCS#1 v1.5 确定性 ⇒ HKDF 出 KEK 包裹 DEK）。方案 §8 已加 ⚠️ 更正块 + 新增 §8.5 具体设计（第三条包裹路径 / 三个 Rust 命令 / 失败语义 / 安全边界 + Bitwarden CVE-2023-27706 的教训）；§9 期 2b/2c 拆开。**测试凭据已删净**（`OpenAsync` 复核 NotFound），临时探针目录已删 |
 | rev173.166 | 2026-10-26 · **期 1b 手机走查（安全 / 密码库）**：手机 `33b676f6` 原来**没装** `security` / `secrets`（插件列表里没有）⇒ 手动装开发版（`adb push /data/local/tmp` + `run-as cp`）→ reload → 两个插件都加载。**10 项全过**：建环（Argon2 812 ms + 恢复码）· 解锁 · 新建平台 / 账号 · 16 位生成器 · 密码框真 `type=password` · 显示明文（`mpTeZ7FKv6VXdLg9`）· **复制到 Android 原生剪贴板（读到 16 字符）** · **60 秒后自动清空（`CLIP_LEN=0`）** · **空闲 60 秒自动锁定（「空闲 60 秒，已自动锁定」）** · reload 后解出「手机测试站 · 1 个账号」· 回收站（剩 7 天 / 恢复 / 彻底删除）。**踩坑**：① 手机插件根是 **`/data/user/0/<pkg>/.zn/plugins/`**，`files/.zn/` 不存在（`run-as ls files/` 只有 `profileInstalled`）② reload 后 app **偶发退出一次**（重启即恢复，原因未定位；怀疑频繁 reload + dev 双端 HMR）③ PowerShell 里 `$pid` 是只读变量，别拿来存 app pid。测试数据已从手机主库清空（`secrets` 环保留，主密码 `PhoneTest123`） |
 | rev173.165 | 2026-10-26 · **期 2a：手机实测三档 KDF，定死默认档**：真机 `33b676f6`（Redmi peridot · 0.5.0 dev 包 · Android WebView V8）在页面里直接 `import('/vendor/noble/hashes/argon2.js')` 跑三档、各 3 次取中位数 —— **t=2/19MiB 165 ms** · **t=3/64MiB 812 ms** · **t=1/128MiB 574 ms**。**手机比桌面 Node 还快约 0.8×**（桌面分别 212 / 993 / 682 ms），**推翻了方案 §3「手机 1–4× 慢、t=3 要 2–4 s」的估算**（已在原文处标 ⚠️ 更正）。配套：vendor 六模块首载 **114 ms**、XChaCha 1 MiB 加密 **29 ms** / 解密 7 ms ⇒ 手机首次解锁 ≈ **0.93 s**、之后 ≈ **0.81 s**。方案留的降档条件是「手机 > 5 s」，实测不成立 ⇒ **默认档保持 t=3 / m=64 MiB 不降**。代码零改动，但新增一条**锁测试**（`DEFAULT_RINGS` 两个环的 kdf 必须是 `t=3, m=65536, p=1`，且两个环的 kdf 不能是同一个对象）+ 反向验证（把 m 改成 19456 ⇒ 立刻红）；方案 §3 / §9 期 2a 已标完成；顺带记下手机插件根目录是 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`（不是 `files/.zn/`） |
 | rev173.164 | 2026-10-26 · **期 1c：四个同步插件放行密码库**：`.zn/secrets/` 以前整段被排除 ⇒ 密码库**同步不出去**（"云端零明文"做到了，"换设备能解开"没做到）。三个网络后端（webdav / s3 / git）各加一个 `syncPrivate` 阶段 —— 按**固定清单**搬两个文件：`secrets.zn`（数据密文）+ `vault.json`（KDF salt 与被主密码包裹的 DEK，**少了它另一台拿到密文也解不开**），方向靠 baseline 判断、双端都变就留副本（密文没法自动合并）、任一步失败只写 hint 不抛（不拖累笔记同步）；manifest 加 `private` 段（304 短路径照走）。`sync-folder` 性质不同（自己不搬文件），改成：新增 `SECRET_DIRS` 放行规则 + **把「密码库冲突副本」与「`.zn/` 没排除」分开报**（前者是用户按提示放行后才可能的现象，含义是两端都改过密码库）。新单测 **15 条**（四套各自的私有文件用例 + 反向验证：去掉"只有远端变"这条分支 ⇒ A 永远停在旧版，测试立刻红）· vitest 1030 → **1045** · CDP 实测：面板报警「⚠ 密码库有 1 份同步冲突副本（…）」+ toast 双语区分 |
@@ -61,6 +62,43 @@ revision: 173.166
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.167（2026-10-26 · Windows Hello 可行性验证）
+
+> 用户一句「windows 不是有 hello 吗」纠了方案 §8 —— 我上一轮说「Windows 官方不支持」说窄了，
+> 那句只对 **Tauri 插件**成立。这轮把平台能力实测清楚。
+>
+> ### 实测（PowerShell 5.1 直调 WinRT，同一台机 · 零编译）
+>
+> | 调用 | 结果 | 含义 |
+> |---|---|---|
+> | `KeyCredentialManager.IsSupportedAsync()` | **True** | 本机 PIN 已设，Hello 可用 |
+> | `RequestCreateAsync(accountId, ReplaceExisting)` | **Success** | **非打包进程 + 无 HWND 也能建凭据** |
+> | `RequestSignAsync(buf)` | **90 秒无返回（挂死）** | **签名必须有窗口** ⇒ 要 `IKeyCredentialManagerInterop` 传 HWND |
+>
+> 测试凭据 `ZeroNote:probe:20261026` 已删净（`OpenAsync` 复核 = `NotFound`），临时探针目录已删。
+>
+> ### 三个概念更正（都比"能不能做"更重要）
+>
+> 1. **「官方不支持」≠ 平台没有**。Tauri 的 biometric 插件不支持 Windows，但 Windows 自己有 API。
+> 2. **PIN 与生物识别是同一套**：`KeyCredentialManager` 只知道「Hello 凭据」，弹 PIN 还是指纹由 Windows
+>    按用户设置决定 ⇒ **「先做 PIN」不是降级，就是完整实现**；以后加指纹代码零改动。
+> 3. **`UserConsentVerifier` 不给密钥材料**（只回 Verified/NotVerified）⇒ 方案 §8 原来写的这条路
+>    **不够**，能派生出稳定密钥的只有 `KeyCredentialManager`（RSA-PKCS1 v1.5 签名是确定性的 ⇒ HKDF → KEK）。
+>
+> ### 落进方案
+>
+> - §8 加了整块 ⚠️ 更正（含实测表格）
+> - 新增 **§8.5 Windows Hello 的具体设计**：第三条包裹路径（DEK ← Hello-KEK）、三个 Rust 命令
+>   （`hello_available` / `hello_enroll` / `hello_sign`，都 `cfg(windows)`）、失败语义
+>   （`NotFound` = PIN 被重置 ⇒ 该路径失效，回退主密码）、安全边界（防离线 / 防物理，**不防同用户恶意进程**）
+> - §9 分期把 2b / 2c 拆开，2c = Windows Hello
+>
+> ### 为什么坚持 KeyCredentialManager 而不是 DPAPI
+>
+> Bitwarden 2023 年就栽在 DPAPI 上：DPAPI 只绑定 Windows 账户、**不绑定生物识别**，同用户任意进程
+> `CredEnumerateW` 就能把解锁密钥掏走，**连 PIN 提示都没有**；域控拿 backup key 还能远程解
+> （CVE-2023-27706）。他们后来改用 `KeyCredentialManager` 才修好。我们一开始就走对的那条。
 
 > ## 📌 rev173.166（2026-10-26 · 期 1b 手机走查：安全 / 密码库）
 

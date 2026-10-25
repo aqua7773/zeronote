@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.166）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.167）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.166 · 0.5.0 · 2026-10-26 |
+| rev / 版本 | rev173.167 · 0.5.0 · 2026-10-26 |
 | 测试基线 | vitest 1046 · cargo 52 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 13 · 示例 39 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.5.0 |
@@ -31,18 +31,20 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **安全线进度（rev173.160–166，逐 rev 细节全在 HANDOFF）**：
+> **安全线进度（rev173.160–167，逐 rev 细节全在 HANDOFF）**：
 > `security` 双密钥环 + `crypto` 服务（160–162）→ `secrets` 密码库（163：整库加密 / 平台账号 / 生成器 /
 > 复制 60 s 清剪贴板 / 回收站 7 天 / 空闲 60 s 锁，内核加 `input.secret`）→ 同步放行 `.zn/secrets/`（164：
 > 三后端 `syncPrivate` 搬 `secrets.zn`+`vault.json`，sync-folder 给放行规则）→ KDF 定档（165：**t=3/64MiB**，
-> 手机实测 812 ms，比桌面快 0.8×）→ 手机走查（166：**10 项全过**，含 Android 剪贴板 60 s 清空与自动锁定）。
+> 手机实测 812 ms，比桌面快 0.8×）→ 手机走查（166：**10 项全过**）→ **Windows Hello 可行性验证（167）**。
 > 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
-> ⚠️ 两条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）。
+> ⚠️ 三条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）·
+> **Windows Hello 签名必须有窗口**（无 HWND 会挂死，要 `IKeyCredentialManagerInterop`）。
 > **下一步**：
-> ① **期 2b 生物识别**（Android Keystore，要重编 APK 重装；Windows 官方不支持 ⇒ 降级主密码或自写 `UserConsentVerifier`）·
-> ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
-> ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
-> ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
+> ① **期 2c Windows Hello 解锁**（PIN / 指纹同一套；可行性已验证，剩 Rust + interop + 第三条包裹，见方案 §8.5）·
+> ② **期 2b Android 生物识别**（要重编 APK 重装）·
+> ③ 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
+> ④ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
+> ⑤ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
 > 公开仓库配套**已齐**：topics 14 个、CI 缓存、`CONTRIBUTING.md`、issue/PR 模板、审查材料生成器。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
