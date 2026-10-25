@@ -9,16 +9,22 @@
  * 选项：
  *   --key <私钥.pem>        签名（不给则不签；对外分发的包必须签）
  *   --key-id <id>           signature.json 里的 keyId（默认 manifest.sigKeyId 或 default）
- *   --out <目录>            `.znp` 落点（默认 `dist`）
+ *   --out <目录>            `.znp` 落点（默认 `market/packs` —— **入库**，见下）
  *   --entries <目录>        市场条目落点（默认 `market/entries`；传空串则不写）
  *   --repo <owner/repo>     用于拼下载 URL（默认 `aqua7773/zeronote`）
- *   --tag <tag>             Release tag（默认 `plugins-v<version>`）
+ *   --url-base <前缀>        下载 URL 前缀（默认 `<repo> 的 raw /market/packs`）
+ *   --tag <tag>             Release tag（只在用 `--url-base` 指回 Release 时才需要）
  *   --author <名字>         条目里的作者（默认 `aqua7773`）
  *   --check                 只打印将产出什么，不写文件
  *
  * 产物：
  *   <out>/<id>-<version>.znp       插件包（内含 manifest + files [+ signature.json]）
  *   <entries>/<id>.json            市场条目（展示字段 + 下载地址 + 整个包的 sha256）
+ *
+ * **为什么包入库而不是挂 Release**（rev173.150，开源当天实测）：
+ * `github.com`（Release 下载域名）在国内直连经常连不上，而 `raw.githubusercontent.com` 通 ——
+ * 索引能拉、包下不来，市场就成了「能看不能装」。包放进仓库走 raw，索引和包同一个域名，
+ * 一条链路通就全通。13 个包合计约 600 KB，代价可接受。
  *
  * 为什么条目里存的是**整包 sha256**而不是入口的：市场下载完要能一眼校验「这个文件没被动过」，
  * 入口 sha256 只能证明入口没改（见 docs/插件市场-调研 §5 三条路径）。
@@ -44,7 +50,7 @@ if (!target || target.startsWith('--')) {
 }
 
 const dir = target.includes('/') || target.includes('\\') || target === '.' ? resolve(repo, target) : join(repo, 'examples', target)
-const outDir = resolve(repo, arg('out', 'dist'))
+const outDir = resolve(repo, arg('out', 'market/packs'))
 const entriesArg = arg('entries', 'market/entries')
 const entriesDir = entriesArg ? resolve(repo, entriesArg) : null
 const keyPath = arg('key') ? resolve(repo, arg('key')) : null
@@ -58,7 +64,9 @@ if (!id || !version) {
   console.error('manifest 缺 id 或 version')
   process.exit(1)
 }
-const tag = arg('tag', `plugins-v${version}`)
+
+/** 下载 URL 前缀：默认走仓库内 `market/packs/` 的 raw（索引与包同一域名，一条链路通就全通） */
+const urlBase = arg('url-base', `https://raw.githubusercontent.com/${repoSlug}/main/market/packs`)
 
 // ── 1. 收文件（排除 manifest.json / signature.json，它们单独处理） ──
 const files = collectPluginFiles(dir, manifest)
@@ -84,7 +92,7 @@ const packObj = { znp: 1, manifest: manifestOut, files }
 const packText = JSON.stringify(packObj, null, 2) + '\n'
 const packSha = sha256(Buffer.from(packText, 'utf8'))
 const packName = `${id}-${version}.znp`
-const url = `https://github.com/${repoSlug}/releases/download/${tag}/${packName}`
+const url = `${urlBase}/${packName}`
 
 // ── 5. 市场条目 ──
 const entry = {
@@ -121,5 +129,5 @@ if (entriesDir) {
   mkdirSync(entriesDir, { recursive: true })
   writeFileSync(join(entriesDir, `${id}.json`), JSON.stringify(entry, null, 2) + '\n', 'utf8')
   console.log(`✅ 条目：${join(entriesDir, `${id}.json`)}`)
-  console.log(`\n下一步：把 ${packName} 传到 Release「${tag}」，再跑 node scripts/gen-market.mjs --write`)
+  console.log(`\n下一步：node scripts/gen-market.mjs --write 重建索引，然后提交 market/（包已入库，不需要上传 Release）`)
 }

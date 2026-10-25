@@ -1,0 +1,23 @@
+{
+  "znp": 1,
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "theme-sepia",
+    "name": "米色主题（纯 CSS）",
+    "version": "0.1.0",
+    "apiVersion": "^0.2.0",
+    "styles": [
+      "theme.css"
+    ],
+    "description": "米色配色，只换外观",
+    "platforms": [
+      "desktop",
+      "android"
+    ],
+    "category": "theme",
+    "capabilities": []
+  },
+  "files": {
+    "theme.css": "/* 形态 4：纯样式插件。宿主把这份 CSS 注入 <head>，卸载时整块移除。\n   改的是内核早就有的 --zn-* token，所以不用碰任何组件。 */\n:root {\n  --zn-bg: #fbf7ef;\n  --zn-bg-subtle: #f5efe2;\n  --zn-bg-hover: #ece4d4;\n  --zn-border: #e2d9c6;\n  --zn-border-strong: #d3c7ae;\n}"
+  }
+}

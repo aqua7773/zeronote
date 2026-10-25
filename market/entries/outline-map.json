@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.1.0",
   "version": "0.2.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/outline-map-0.2.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/outline-map-0.2.0.znp",
   "sha256": "2075a5067106a98e2a121ab7bb6fe968a5e73bb6ad3dd7274bf2829a094bddeb",
   "size": 81201,
   "files": [

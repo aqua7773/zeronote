@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.2.0",
   "version": "0.5.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-git-0.5.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.0.znp",
   "sha256": "1495c0d690d42f50d7bc5bbb295671f9187bbecb4748c98c739e084b17a3df82",
   "size": 58118,
   "files": [

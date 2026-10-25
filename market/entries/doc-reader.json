@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.1.0",
   "version": "0.1.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/doc-reader-0.1.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/doc-reader-0.1.0.znp",
   "sha256": "4a48853814171bd97f6e5bfa53a9dfb13dee78cd480e454ca76b11b98c4b96ba",
   "size": 41924,
   "files": [

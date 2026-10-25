@@ -10,19 +10,19 @@
  *   2. 格式：base64 → 32 字节 → 合法 Ed25519 公钥
  *   3. （有私钥时）**从私钥导出公钥，与内置值逐字节比对** ⇒ 证明内置的确实是官方私钥那半
  *   4. （有私钥时）用内置公钥验一段自签 payload ⇒ 证明验签路径本身通
- *   5. （有 `dist/` 时）对每个 `.znp`：按宿主同一算法重算 payload，用**内置公钥**验签
- *      ⇒ 等价于「新装机器的宿主能不能加载这 13 个包」，不用装 app 也能证
+ *   5. （有包目录时）对每个 `.znp`：按宿主同一算法重算 payload，用**内置公钥**验签
+ *      ⇒ 等价于「新装机器的宿主能不能加载这些包」，不用装 app 也能证
  *
  * 用法：
  *   node scripts/verify-trust.mjs                 # 默认找 %USERPROFILE%\.zeronote-keys\<keyId>.key.pem
  *   node scripts/verify-trust.mjs --key <pem>     # 指定私钥
- *   node scripts/verify-trust.mjs --dist <目录>    # 指定包目录（默认 dist）
+ *   node scripts/verify-trust.mjs --packs <目录>   # 指定包目录（默认 market/packs，回落到 dist）
  *   node scripts/verify-trust.mjs --no-key        # 只验格式与包（无私钥的机器 / CI 用）
  *
  * 退出码：0 全过（含「无可验证对象」的跳过），1 有失败。
  *
- * ⚠️ **不要加进 verify.ps1 质量门**：私钥和 `dist/*.znp` 都在仓库外 / 构建产物，
- * CI 上两者都没有。它是「发版前手工跑一次」的检查。
+ * ⚠️ **不要加进 verify.ps1 质量门**：私钥在仓库外（`%USERPROFILE%\.zeronote-keys\`），
+ * CI 上没有。它是「发版前手工跑一次」的检查。
  */
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -86,7 +86,12 @@ function check(ok, label, detail = '') {
 }
 
 const libPath = arg('lib', join(repo, 'src-tauri', 'src', 'lib.rs'))
-const distDir = resolve(repo, arg('dist', 'dist'))
+/** 默认验**入库的那份**（`market/packs/`，市场真正分发的字节）；没有就退回 `dist/`（本地构建产物） */
+const packsArg = arg('packs')
+const distDir = resolve(
+  repo,
+  packsArg ?? (existsSync(join(repo, 'market', 'packs')) ? 'market/packs' : 'dist'),
+)
 const explicitKey = arg('key')
 const noKey = process.argv.includes('--no-key')
 

@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.2.0",
   "version": "0.2.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/history-0.2.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.0.znp",
   "sha256": "24aa63104e48e0492b66f27894b80f0d6b836f0ae972fff08f4c118e88021ad7",
   "size": 29179,
   "files": [

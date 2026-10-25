@@ -14,7 +14,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.1.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/accounting-0.1.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/accounting-0.1.0.znp",
       "sha256": "2f4d4f53771474212a630c38fdba37516ec2f778bc19dbc4a88b68e959e52325",
       "size": 67541,
       "files": [
@@ -34,7 +34,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.2.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/backlinks-0.2.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.0.znp",
       "sha256": "0c57813ccc52c139340d4db4ae7f98cd954d35dcee6c2f55f767a739be885b43",
       "size": 24299,
       "files": [
@@ -54,7 +54,7 @@
       ],
       "apiVersion": "^0.1.0",
       "version": "0.1.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/doc-reader-0.1.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/doc-reader-0.1.0.znp",
       "sha256": "4a48853814171bd97f6e5bfa53a9dfb13dee78cd480e454ca76b11b98c4b96ba",
       "size": 41924,
       "files": [
@@ -74,7 +74,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.1.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/habit-0.1.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/habit-0.1.0.znp",
       "sha256": "60f8251e56e358d16c60082ccb615eb78d0c51e2cb6a9f0c6180560d2e208698",
       "size": 34339,
       "files": [
@@ -94,7 +94,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.2.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/history-0.2.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.0.znp",
       "sha256": "24aa63104e48e0492b66f27894b80f0d6b836f0ae972fff08f4c118e88021ad7",
       "size": 29179,
       "files": [
@@ -114,7 +114,7 @@
       ],
       "apiVersion": "^0.1.0",
       "version": "0.1.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/import-export-0.1.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.1.0.znp",
       "sha256": "293182ee56049bb8d4170b44d482bd3ac621245a2734ab1093511d922cfe6ef8",
       "size": 36139,
       "files": [
@@ -134,7 +134,7 @@
       ],
       "apiVersion": "^0.1.0",
       "version": "0.2.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/outline-map-0.2.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/outline-map-0.2.0.znp",
       "sha256": "2075a5067106a98e2a121ab7bb6fe968a5e73bb6ad3dd7274bf2829a094bddeb",
       "size": 81201,
       "files": [
@@ -155,7 +155,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.3.2",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-folder-0.3.2.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-folder-0.3.2.znp",
       "sha256": "402e60af1d67af7f14232981b53ff85b28bf2146c37fb6d01f18f69d422e72d6",
       "size": 43565,
       "files": [
@@ -175,7 +175,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.5.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-git-0.5.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.0.znp",
       "sha256": "1495c0d690d42f50d7bc5bbb295671f9187bbecb4748c98c739e084b17a3df82",
       "size": 58118,
       "files": [
@@ -195,7 +195,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.4.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-s3-0.4.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-s3-0.4.0.znp",
       "sha256": "b69aea2fbfa6e1b24e5b47ff035a3bd35b2b767a2b58bc50b80f035cdc0fb137",
       "size": 66555,
       "files": [
@@ -215,7 +215,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.3.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-webdav-0.3.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.0.znp",
       "sha256": "adb0297d9d7b4fa1ba4dc04d535fdd72f0d42dee7ac43a840474f5f30f50f667",
       "size": 78908,
       "files": [
@@ -235,7 +235,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.2.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/tag-panel-0.2.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/tag-panel-0.2.0.znp",
       "sha256": "63b77ad6146e31440bc969bb550cf7e3ec3fe3c90a815f467efc559c16d748dc",
       "size": 24391,
       "files": [
@@ -255,7 +255,7 @@
       ],
       "apiVersion": "^0.2.0",
       "version": "0.1.0",
-      "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/theme-sepia-0.1.0.znp",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/theme-sepia-0.1.0.znp",
       "sha256": "ca712d5d34c699375057882fd8a5391c6b88bf2e411896bac8703f0f687c19a3",
       "size": 734,
       "files": [

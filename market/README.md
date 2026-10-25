@@ -10,22 +10,26 @@
 |---|---|---|
 | `index.json` | **脚本生成，别手改** | `node scripts/gen-market.mjs --write` 产出；合并官方条目与外部条目 |
 | `entries/<id>.json` | `pack-plugin.mjs` 生成，别手改 | 官方插件条目：展示字段 + 下载地址 + **整包 sha256** |
+| `packs/<id>-<version>.znp` | `pack-plugin.mjs` 生成，**入库** | 插件包本体。走 raw 分发（见下） |
 | `external.json` | 手工维护 | 外部作者条目，PR 改这里；只放展示字段 + `entry` 地址 |
 
 ## 官方插件怎么发版
 
 ```bash
 # 1. 签名并打包（私钥自己保管，不要入库）
+#    默认写进 market/packs/ 与 market/entries/，url 指回本仓库的 raw
 node scripts/pack-plugin.mjs <id> --key <私钥.pem> --key-id <你的 keyId>
 
-# 2. 把 dist/<id>-<version>.znp 传到 GitHub Release，tag = plugins-v<version>
-#    （pack-plugin 会打印预期地址）
-
-# 3. 重建索引
+# 2. 重建索引（会校验「包在不在、sha256 对不对」）
 node scripts/gen-market.mjs --write
 
-# 4. 提交 market/
+# 3. 提交 market/ 并推送
 ```
+
+**为什么包入库、不走 Release**（rev173.150，开源当天实测）：`github.com`（Release 下载域名）
+在国内经常直连连不上，而 `raw.githubusercontent.com` 通 —— 索引能拉、包下不来，市场就成了
+「能看不能装」。包放进仓库走 raw，索引和包同一个域名，一条链路通就全通；13 个包合计约 600 KB。
+`gen-market.mjs` 现在会校验「包存在 + sha256 与条目一致」，忘了重建或忘了入库都会红。
 
 ## 本仓库的正式签名密钥（2026-10-25 生成 · rev173.144）
 

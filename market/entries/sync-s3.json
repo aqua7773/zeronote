@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.2.0",
   "version": "0.4.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-s3-0.4.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-s3-0.4.0.znp",
   "sha256": "b69aea2fbfa6e1b24e5b47ff035a3bd35b2b767a2b58bc50b80f035cdc0fb137",
   "size": 66555,
   "files": [

@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.2.0",
   "version": "0.1.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/habit-0.1.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/habit-0.1.0.znp",
   "sha256": "60f8251e56e358d16c60082ccb615eb78d0c51e2cb6a9f0c6180560d2e208698",
   "size": 34339,
   "files": [

@@ -10,7 +10,7 @@
   ],
   "apiVersion": "^0.2.0",
   "version": "0.1.0",
-  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/theme-sepia-0.1.0.znp",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/theme-sepia-0.1.0.znp",
   "sha256": "ca712d5d34c699375057882fd8a5391c6b88bf2e411896bac8703f0f687c19a3",
   "size": 734,
   "files": [

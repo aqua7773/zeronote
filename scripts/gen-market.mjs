@@ -11,7 +11,7 @@
  *   market/external.json    外部作者条目 —— 手工维护，PR 加一行（只有展示字段 + `entry` 地址）
  *
  * 形状差别（有意的，见 docs/插件市场-调研 §4.5）：
- *   · 官方条目**直接带** version / url / sha256 —— 因为包就在本仓库的 Release 里，索引能直接给全
+ *   · 官方条目**直接带** version / url / sha256 —— 因为包就在本仓库的 `market/packs/` 里
  *   · 外部条目**不带** version，只带 `entry`（指向作者仓库的 market-entry.json）
  *     ⇒ 作者发版不用改我们的索引，也就不会出现「索引说 0.3、实际 0.4」的漂移
  *
@@ -19,7 +19,10 @@
  *   ① 每个官方条目的 version 与 `examples/<id>/manifest.json` 一致（改了插件忘重新打包 = 红）
  *   ② 条目里的 id 不重复、必填字段齐全
  *   ③ 外部条目的 `entry` 必须是 http(s)
+ *   ④ **包真的在 `market/packs/`，且 sha256 与条目一致**（rev173.150）——
+ *      包被改过却没重建条目、或包忘了入库，都在这里红
  */
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -59,6 +62,25 @@ if (existsSync(entriesDir)) {
         problems.push(`${name} 版本 ${e.version} 与 examples/${e.id}/manifest.json 的 ${m.version} 不一致（重新打包）`)
       }
       if (m.id !== e.id) problems.push(`${name} 的 id ${e.id} 与 manifest 的 ${m.id} 不一致`)
+    }
+    /**
+     * ④ 包必须真的在 `market/packs/` 且内容与条目记的 sha256 一致（rev173.150）。
+     *
+     * 这条挡的是两种「市场装坏了但本地看不出来」的漂移：
+     *  · 包改了却忘了重跑 pack-plugin / gen-market ⇒ 用户下载到的 sha256 与索引不符 ⇒ 装不上
+     *  · 包忘了入库（只存在于 dist/，而 dist 不入库）⇒ 索引里的 raw 地址 404
+     */
+    const packFile = String(e.url ?? '').split('/').pop()
+    const packPath = join(marketDir, 'packs', packFile)
+    if (!packFile || !existsSync(packPath)) {
+      problems.push(`${name} 的包不在 market/packs/${packFile || '?'}（先跑 pack-plugin.mjs）`)
+    } else if (e.sha256) {
+      const got = createHash('sha256').update(readFileSync(packPath)).digest('hex')
+      if (got !== e.sha256) {
+        problems.push(
+          `${name} 的包 sha256 与条目不一致（包 ${got.slice(0, 12)}… ≠ 条目 ${String(e.sha256).slice(0, 12)}…）`,
+        )
+      }
     }
     official.push(e)
   }
