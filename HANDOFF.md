@@ -74,7 +74,8 @@ revision: 173.162
 >
 > - 工作树**干净** · `main...origin/main` 无 ahead/behind ⇒ 全部已推送，HEAD `981b114`
 > - `verify.ps1` 六步：tsc 0 · oxlint **3 warnings** · cargo **52** · check-docs · vitest **1002** · 质量门 **7/7**
-> - CI：`40209288687`（feat）**2m10s 全绿** · `40209522408`（docs）交接时在跑（同类 run 实测 2–3 分钟）
+> - CI：**连续三次全绿** —— `40209288687`（feat，2m10s）· `40209522408` + `40209671929`（docs，各 ~2 分钟）
+>   （本段文档自身的提交会再触发一次 docs run，属正常）
 > - **dev 开着**（pid 11660 · vite 1420 · CDP 9222）；测试库 `_tmp-vault-tb/` 的 `.zn/security/vault.json` 里有
 >   **两把临时主密码**（`notes` / `secrets`，实测时设的，随时可删；不影响库内笔记）
 > - 全局插件根里的 security 是**市场版（已签名）**：`%APPDATA%\com.aqua.zeronote\.zn\plugins\security`（含 `signature.json`）
