@@ -670,4 +670,106 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
 
     A.dispose()
   })
+
+  /**
+   * rev173.164 · 期 1c：**私有文件同步**（密码库）。
+   *
+   * `.zn/` 下的密文不是 `.md`，`listNotes` 看不到 ⇒ 以前密码库**同步不出去**，
+   * 换设备就是空库（"云端零明文"做到了，"换设备能解开"没做到）。
+   */
+  it('密码库：A 建库 ⇒ 两个文件都进远端；B 空库 ⇒ 都拉下来', async () => {
+    const { objects, net } = makeS3('strict')
+    const SECRETS = '.zn/secrets/secrets.zn'
+    const VAULT = '.zn/security/vault.json'
+    const localA = new Map<string, Uint8Array>()
+    const mtimesA = new Map<string, number>()
+    const localB = new Map<string, Uint8Array>()
+    const mtimesB = new Map<string, number>()
+
+    localA.set(SECRETS, enc('zn1.AAAA.BBBB'))
+    localA.set(VAULT, enc('{"v":1,"rings":{"secrets":{"wrapped":{"secrets":"zn1.X.Y"}}}}'))
+    const A = makeDevice(net, localA, mtimesA)
+    const B = makeDevice(net, localB, mtimesB)
+    await configure(A)
+    await configure(B)
+
+    await A.commands.get('sync-s3.sync')!({})
+    expect(objects.get(SECRETS)?.body).toBe('zn1.AAAA.BBBB')
+    expect(objects.get(VAULT)?.body).toContain('wrapped')
+
+    await B.commands.get('sync-s3.sync')!({})
+    expect(dec(localB.get(SECRETS)!)).toBe('zn1.AAAA.BBBB')
+    expect(dec(localB.get(VAULT)!)).toContain('wrapped')
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('密码库：只有远端变 ⇒ 本机拉下来（不能既不拉也不推）', async () => {
+    const { objects, net, requests } = makeS3('strict')
+    const SECRETS = '.zn/secrets/secrets.zn'
+    const localA = new Map<string, Uint8Array>()
+    const mtimesA = new Map<string, number>()
+    const localB = new Map<string, Uint8Array>()
+    const mtimesB = new Map<string, number>()
+
+    localA.set(SECRETS, enc('zn1.v1'))
+    const A = makeDevice(net, localA, mtimesA)
+    const B = makeDevice(net, localB, mtimesB)
+    await configure(A)
+    await configure(B)
+
+    await A.commands.get('sync-s3.sync')!({})
+    await B.commands.get('sync-s3.sync')!({})
+    expect(dec(localB.get(SECRETS)!)).toBe('zn1.v1')
+
+    // B 改 ⇒ 推
+    localB.set(SECRETS, enc('zn1.v2'))
+    await B.commands.get('sync-s3.sync')!({})
+    expect(objects.get(SECRETS)?.body).toBe('zn1.v2')
+
+    // A 再同步：必须拉 v2，且不能把 v1 推回去
+    const before = requests.length
+    await A.commands.get('sync-s3.sync')!({})
+    expect(dec(localA.get(SECRETS)!)).toBe('zn1.v2')
+    const round = requests.slice(before).filter((r) => r.key === SECRETS)
+    expect(round.some((r) => r.method === 'GET')).toBe(true)
+    expect(round.some((r) => r.method === 'PUT')).toBe(false)
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('密码库：双端都改 ⇒ 冲突留副本，本地取远端版', async () => {
+    const { objects, net } = makeS3('strict')
+    const SECRETS = '.zn/secrets/secrets.zn'
+    const localA = new Map<string, Uint8Array>()
+    const mtimesA = new Map<string, number>()
+    const localB = new Map<string, Uint8Array>()
+    const mtimesB = new Map<string, number>()
+
+    localA.set(SECRETS, enc('zn1.v1'))
+    const A = makeDevice(net, localA, mtimesA)
+    const B = makeDevice(net, localB, mtimesB)
+    await configure(A)
+    await configure(B)
+
+    await A.commands.get('sync-s3.sync')!({})
+    await B.commands.get('sync-s3.sync')!({})
+
+    localA.set(SECRETS, enc('zn1.v2'))
+    await A.commands.get('sync-s3.sync')!({})
+
+    localB.set(SECRETS, enc('zn1.v3'))
+    await B.commands.get('sync-s3.sync')!({})
+
+    const copies = [...localB.keys()].filter((k) => k.startsWith('.zn/conflicts/'))
+    expect(copies).toHaveLength(1)
+    expect(dec(localB.get(copies[0])!)).toBe('zn1.v3')
+    expect(dec(localB.get(SECRETS)!)).toBe('zn1.v2')
+    expect(objects.get(SECRETS)?.body).toBe('zn1.v2')
+
+    A.dispose()
+    B.dispose()
+  })
 })

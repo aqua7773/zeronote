@@ -1291,6 +1291,244 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
   })
 })
 
+/**
+ * rev173.164 · 期 1c：**私有文件同步**（密码库密文 + 密钥元数据）。
+ *
+ * 修的是：`.zn/` 下的东西不是 `.md`、`listNotes` 看不到 ⇒ 以前密码库**同步不出去**，
+ * 换设备就是空库 —— 「云端零明文」做到了，但「换设备能解开」没做到。
+ *
+ * 这里用一个**完整的** mock（文本 + 字节都通）跑真插件，覆盖四条主路径：
+ * 首推 / 新设备拉 / 反向拉 / 双端改冲突留副本。
+ */
+describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
+  const enc = (s: string) => new TextEncoder().encode(s)
+  const dec = (b: Uint8Array | undefined) => (b ? new TextDecoder().decode(b) : '')
+  const SECRETS = '.zn/secrets/secrets.zn'
+  const VAULT = '.zn/security/vault.json'
+
+  function makeDav() {
+    const files = new Map<string, { bytes: Uint8Array; etag: string }>()
+    const requests: string[] = []
+    let ver = 0
+    const emptyText = () => ''
+    const emptyBytes = () => new Uint8Array()
+    const net = {
+      fetch: async (spec: { url: string; method: string; headers?: Record<string, string>; body?: unknown }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
+        requests.push(`${method} ${p}`)
+        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'MKCOL') return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'DELETE') {
+          files.delete(p)
+          return { status: 204, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
+        if (method === 'GET') {
+          const f = files.get(p)
+          if (!f) return { status: 404, headers: {}, text: emptyText, bytes: emptyBytes }
+          return { status: 200, headers: { etag: f.etag }, text: () => dec(f.bytes), bytes: () => f.bytes }
+        }
+        if (method === 'PUT') {
+          ver += 1
+          const body = typeof spec.body === 'string' ? enc(spec.body) : (spec.body as Uint8Array)
+          files.set(p, { bytes: body, etag: `"e${ver}"` })
+          return { status: 201, headers: { etag: `"e${ver}"` }, text: emptyText, bytes: emptyBytes }
+        }
+        return { status: 500, headers: {}, text: emptyText, bytes: emptyBytes }
+      },
+    }
+    return { files, net, requests }
+  }
+
+  function makeDevice(net: unknown, local: Map<string, Uint8Array>, platform: string) {
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    const notices: string[] = []
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform,
+        log: () => {},
+        notify: (m: string) => {
+          notices.push(m)
+        },
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [],
+        readText: async (p: string) => dec(local.get(p)),
+        writeText: async (p: string, text: string) => {
+          local.set(p, enc(String(text)))
+        },
+        readBytes: async (p: string) => local.get(p) ?? new Uint8Array(),
+        writeBytes: async (p: string, b: Uint8Array) => {
+          local.set(p, b)
+        },
+        mkdir: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    return {
+      commands,
+      notices,
+      render,
+      dispose: () => {
+        for (const s of api.subscriptions) s.dispose?.()
+      },
+    }
+  }
+
+  async function configure(dev: ReturnType<typeof makeDevice>) {
+    await new Promise((r) => setTimeout(r, 0))
+    dev.render!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+      },
+    })
+    await dev.commands.get('sync-webdav.save')!()
+  }
+
+  it('A 建了密码库 ⇒ 两个文件都进远端；B 空库 ⇒ 都拉下来且内容一致', async () => {
+    const { files: dav, net } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await configure(A)
+    await configure(B)
+
+    // A 的密码库：密文 + 密钥元数据（vault.json 里只有公开参数与密文块）
+    localA.set(SECRETS, enc('zn1.AAAA.BBBB'))
+    localA.set(VAULT, enc('{"v":1,"rings":{"secrets":{"wrapped":{"secrets":"zn1.X.Y"}}}}'))
+
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get(SECRETS)?.bytes)).toBe('zn1.AAAA.BBBB')
+    expect(dec(dav.get(VAULT)?.bytes)).toContain('wrapped')
+
+    // B 空库同步 ⇒ 拉下来
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(dec(localB.get(SECRETS))).toBe('zn1.AAAA.BBBB')
+    expect(dec(localB.get(VAULT))).toContain('wrapped')
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('B 改了密码库 ⇒ 推上去；A 再同步拉回新版（不把旧版推回去）', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await configure(A)
+    await configure(B)
+
+    localA.set(SECRETS, enc('zn1.v1'))
+    await A.commands.get('sync-webdav.sync')!({})
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(dec(localB.get(SECRETS))).toBe('zn1.v1')
+
+    // B 改了（v2）⇒ 推
+    localB.set(SECRETS, enc('zn1.v2'))
+    await B.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get(SECRETS)?.bytes)).toBe('zn1.v2')
+
+    // A 再同步：应当拉 v2，**不能**把 v1 推回去
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dec(localA.get(SECRETS))).toBe('zn1.v2')
+    const round = requests.slice(before)
+    expect(round).toContain(`GET ${SECRETS}`)
+    expect(round).not.toContain(`PUT ${SECRETS}`)
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('双端都改 ⇒ 冲突：本机版进 .zn/conflicts/，本地变远端版', async () => {
+    const { files: dav, net } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await configure(A)
+    await configure(B)
+
+    // 先对齐一版（两端 baseline 都 = v1）
+    localA.set(SECRETS, enc('zn1.v1'))
+    await A.commands.get('sync-webdav.sync')!({})
+    await B.commands.get('sync-webdav.sync')!({})
+
+    // A 改 v2 推上去（B 的 baseline 还留在 v1）
+    localA.set(SECRETS, enc('zn1.v2'))
+    await A.commands.get('sync-webdav.sync')!({})
+
+    // B 本地也改 v3，再同步 ⇒ B 看到「本地也变、远端也变」= 冲突
+    localB.set(SECRETS, enc('zn1.v3'))
+    await B.commands.get('sync-webdav.sync')!({})
+    // 本机版被留成副本
+    const copies = [...localB.keys()].filter((k) => k.startsWith('.zn/conflicts/'))
+    expect(copies.length).toBe(1)
+    expect(dec(localB.get(copies[0]))).toBe('zn1.v3')
+    // 本地内容取远端版
+    expect(dec(localB.get(SECRETS))).toBe('zn1.v2')
+    expect(B.notices.some((m) => m.includes('同步冲突'))).toBe(true)
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('两端都没有密码库 ⇒ 一个私有文件的请求都不发（不白拉）', async () => {
+    const { net, requests } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    await configure(A)
+
+    await A.commands.get('sync-webdav.sync')!({})
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    const round = requests.slice(before)
+    expect(round.some((r) => r.includes('.zn/'))).toBe(false)
+
+    A.dispose()
+  })
+
+  it('远端 manifest 的 private 段坏了 ⇒ 当空表，不让同步停摆', () => {
+    expect(normalizeManifest('{"version":1,"files":{},"private":"不是对象"}').private).toEqual({})
+    expect(normalizeManifest('{"version":1,"files":{},"private":{"a":null}}').private).toEqual({})
+    expect(normalizeManifest('坏 JSON').private).toEqual({})
+    const ok = normalizeManifest(
+      '{"version":1,"files":{},"private":{".zn/secrets/secrets.zn":{"fp":"abc","at":7}}}',
+    )
+    expect(ok.private['.zn/secrets/secrets.zn']).toEqual({ fp: 'abc', at: 7 })
+  })
+})
+
 
 
 

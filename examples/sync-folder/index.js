@@ -51,6 +51,22 @@ const KEY_SETTINGS = 'settings.v1'
 
 /** 本机版本影子副本（冲突时的那份"我的"） */
 const SNAPSHOT_DIR = '.zn/sync/last'
+
+/**
+ * **密码库私有目录**（rev173.164 · 期 1c）。
+ *
+ * 要跨设备同步密码库，外部工具必须**放行**这两个目录（`.zn/` 其余部分继续排除）：
+ *  · `.zn/secrets/`   —— 整库密文
+ *  · `.zn/security/`  —— KDF salt + 被主密码包裹的 DEK（少了它另一台解不开）
+ *
+ * Syncthing 的 `.stignore` 写法（把 `.zn/*` 排除后，用 `!` 逐条放回）：
+ * ```
+ * .zn/*
+ * !.zn/secrets
+ * !.zn/security
+ * ```
+ */
+export const SECRET_DIRS = ['.zn/secrets', '.zn/security']
 /** 冲突副本根（方案 §6.1：按平台分文件夹） */
 const CONFLICT_ROOT = '.zn/conflicts'
 
@@ -225,6 +241,8 @@ export default {
     let settings = { enabled: true }
     /** `.zn/` 被外部同步工具碰过的痕迹（rev173.114）：命中的文件路径 */
     let znHits = []
+    /** 密码库私有目录里的冲突副本（rev173.164 · 期 1c）：说明两端都改过密码库 */
+    let secretHits = []
     /** 最近一次 `.zn/` 检查时间（0 = 还没查过） */
     let znCheckedAt = 0
     let ready = false
@@ -292,9 +310,37 @@ export default {
 
     async function refreshZnTrace() {
       znHits = await znSyncTrace()
+      secretHits = await znSecretConflictHits()
       znCheckedAt = Date.now()
       api.view.refresh()
       return znHits
+    }
+
+    /**
+     * **密码库私有目录的冲突副本**（rev173.164 · 期 1c）。
+     *
+     * sync-folder 自己不搬文件 —— 是不是"同步得出去"完全看外部工具（Syncthing 等）的排除列表。
+     * 所以这里能做的只有两件事：① 给出放行规则 ② 一旦发现密码库出现冲突副本就**明确报警**
+     * （那意味着两端都改过密码库，用户必须自己挑一份 —— 密码库没法三方合并）。
+     *
+     * ⚠️ 这两个目录里出现冲突副本，**不是**「同步工具没排除 `.zn/`」那个错 ——
+     * 恰恰相反，它是用户**按提示放行**之后才可能的正常现象，只是说明碰上双端改。
+     */
+    async function znSecretConflictHits() {
+      const hits = []
+      for (const d of SECRET_DIRS) {
+        let files = []
+        try {
+          files = await api.fs.listFiles(d)
+        } catch {
+          continue
+        }
+        for (const f of files) {
+          const base = f.slice(f.lastIndexOf('/') + 1)
+          if (looksLikeSyncConflict(base)) hits.push(f)
+        }
+      }
+      return hits
     }
 
     /** 已存在的冲突名（同分钟内同名笔记可能撞） */
@@ -777,6 +823,21 @@ export default {
           variant: 'caption',
           tone: znHits.length ? 'danger' : 'muted',
         },
+        /**
+         * 密码库冲突（rev173.164 · 期 1c）：**与上面那条相反** —— 出现冲突副本说明
+         * 用户已经按提示放行了 `.zn/secrets/`，只是两端都改过密码库。密文没法自动合并，
+         * 必须人挑一份，所以这里单独报警（danger），不能混进"没排除 .zn/"那条。
+         */
+        ...(secretHits.length
+          ? [
+              {
+                type: 'text',
+                value: `⚠ 密码库有 ${secretHits.length} 份同步冲突副本（${secretHits[0]}）—— 两端都改过密码库，请手动挑一份用（密文没法自动合并）`,
+                variant: 'caption',
+                tone: 'danger',
+              },
+            ]
+          : []),
         { type: 'spacer', size: 'sm' },
         {
           type: 'row',
@@ -969,10 +1030,23 @@ export default {
     register('sync-folder.toggle', '同步：开关自动检查（本地文件夹）', () => toggleAuto())
     register('sync-folder.check-zn', '同步：检查 .zn 是否被同步（本地文件夹）', async () => {
       const hits = await refreshZnTrace()
+      /**
+       * 三种结论分开说（rev173.164 · 期 1c）：
+       *  · 密码库有冲突副本 —— 两端都改过密码库，**必须人挑一份**
+       *  · `.zn/` 有冲突痕迹 —— 同步工具没排除 `.zn/`，要把它加回排除
+       *  · 都没有 —— 顺带把「想同步密码库该怎么放行」讲清楚
+       */
+      if (secretHits.length) {
+        api.host.notify(
+          `⚠ 密码库有 ${secretHits.length} 份同步冲突副本（例如 ${secretHits[0]}）—— 两端都改过密码库，请手动挑一份用`,
+          'warn',
+        )
+        return
+      }
       api.host.notify(
         hits.length
           ? `⚠ .zn/ 里有 ${hits.length} 个同步冲突副本（例如 ${hits[0]}）—— 同步工具没有排除它`
-          : '.zn/ 没发现同步冲突痕迹（仍请确认同步工具的排除列表里有 .zn/）',
+          : '.zn/ 没发现同步冲突痕迹（仍请确认同步工具的排除列表里有 .zn/）· 要同步密码库：放行 .zn/secrets/ 与 .zn/security/',
         hits.length ? 'warn' : 'info',
       )
     })

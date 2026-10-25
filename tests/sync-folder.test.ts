@@ -11,6 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import plugin, {
+  SECRET_DIRS,
   classifyChange,
   conflictFileName,
   fingerprint,
@@ -727,5 +728,54 @@ describe('扫描耗时（rev173.117）', () => {
     const h = harness({ 'a.md': '# 一\n' })
     const texts = collectTexts(h.renders.get('sync-folder.status')!({ state: {} }))
     expect(texts).toContain('上次检查：还没检查过')
+  })
+})
+
+/**
+ * rev173.164 · 期 1c：**密码库目录放行**。
+ *
+ * sync-folder 自己不搬文件（靠 Syncthing 等外部工具），所以"放行"对它只有两件事：
+ *  ① 把放行规则讲清楚（`.zn/secrets/` + `.zn/security/`，其余 `.zn/` 继续排除）
+ *  ② **密码库出现冲突副本 ≠ "同步工具没排除 .zn/"** —— 那是用户按提示放行后才可能的正常现象，
+ *     含义是"两端都改过密码库"，必须人挑一份（密文没法自动合并）。
+ */
+describe('密码库目录放行与冲突检测（rev173.164 · 期 1c）', () => {
+  it('SECRET_DIRS 正好是密码库的两个私有目录', () => {
+    expect(SECRET_DIRS).toEqual(['.zn/secrets', '.zn/security'])
+  })
+
+  it('密码库出现同步冲突副本 ⇒ 明确报「密码库」并要人挑一份', async () => {
+    const h = harness({
+      '.zn/secrets/secrets.zn': 'zn1.A.B',
+      '.zn/secrets/secrets.sync-conflict-20261026-101010-ABCDEF.zn': 'zn1.C.D',
+    })
+    await settle()
+    await h.runs.get('sync-folder.check-zn')!()
+    await settle()
+    const last = h.host.notes.at(-1)
+    expect(last?.msg).toContain('密码库')
+    expect(last?.msg).toContain('冲突副本')
+    expect(last?.level).toBe('warn')
+  })
+
+  it('没有冲突副本 ⇒ 提示里带上放行规则（.zn/secrets/ 与 .zn/security/）', async () => {
+    const h = harness({ '.zn/secrets/secrets.zn': 'zn1.A.B' })
+    await settle()
+    await h.runs.get('sync-folder.check-zn')!()
+    await settle()
+    const last = h.host.notes.at(-1)
+    expect(last?.msg).toContain('.zn/secrets/ 与 .zn/security/')
+  })
+
+  it('.zn/ 别处的冲突痕迹仍然报「没排除 .zn/」（两条不能混）', async () => {
+    const h = harness({
+      '.zn/sync/last/abc.sync-conflict-20261026-101010-ABCDEF.md': 'x',
+    })
+    await settle()
+    await h.runs.get('sync-folder.check-zn')!()
+    await settle()
+    const last = h.host.notes.at(-1)
+    expect(last?.msg).toContain('同步工具没有排除它')
+    expect(last?.msg).not.toContain('密码库')
   })
 })

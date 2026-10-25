@@ -472,3 +472,194 @@ describe('乐观锁失效的自愈（rev173.123）', () => {
     for (const s of api.subscriptions) s.dispose?.()
   })
 })
+
+/**
+ * rev173.164 · 期 1c：**私有文件同步**（密码库）。
+ *
+ * `.zn/` 下的密文不是 `.md`，`listNotes` 看不到 ⇒ 以前密码库**同步不出去**，
+ * 换设备就是空库（"云端零明文"做到了，"换设备能解开"没做到）。
+ */
+describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
+  const enc = (s: string) => new TextEncoder().encode(s)
+  const dec = (b: Uint8Array | undefined) => (b ? new TextDecoder().decode(b) : '')
+  const SECRETS = '.zn/secrets/secrets.zn'
+  const VAULT = '.zn/security/vault.json'
+
+  /** 极简 Contents API：对象表（key = 仓库内路径），sha 递增 */
+  function makeGitRepo() {
+    const files = new Map<string, { text: string; sha: string }>()
+    const requests: string[] = []
+    let ver = 0
+    const emptyBytes = () => new Uint8Array()
+    const net = {
+      fetch: async (spec: { url: string; method: string; body?: string }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const m = /\/contents\/([^?]+)/.exec(spec.url)
+        if (!m) return { status: 200, headers: {}, text: () => '{}', bytes: emptyBytes }
+        const p = decodeURIComponent(m[1])
+        requests.push(`${method} ${p}`)
+        if (method === 'GET') {
+          const f = files.get(p)
+          if (!f) return { status: 404, headers: {}, text: () => '{}', bytes: emptyBytes }
+          const body = JSON.stringify({
+            name: p,
+            path: p,
+            sha: f.sha,
+            encoding: 'base64',
+            content: b64encode(f.text),
+          })
+          return { status: 200, headers: {}, text: () => body, bytes: () => enc(body) }
+        }
+        if (method === 'PUT') {
+          const body = JSON.parse(String(spec.body ?? '{}'))
+          ver += 1
+          const sha = `s${ver}`
+          files.set(p, { text: b64decode(String(body.content ?? '')), sha })
+          const out = JSON.stringify({ content: { sha } })
+          return { status: 201, headers: {}, text: () => out, bytes: () => enc(out) }
+        }
+        if (method === 'DELETE') {
+          files.delete(p)
+          return { status: 200, headers: {}, text: () => '{}', bytes: emptyBytes }
+        }
+        return { status: 500, headers: {}, text: () => '', bytes: emptyBytes }
+      },
+    }
+    return { files, net, requests }
+  }
+
+  function makeDevice(net: unknown, local: Map<string, Uint8Array>, platform: string) {
+    const store = new Map<string, unknown>()
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    const notices: string[] = []
+    store.set('settings.v1', {
+      provider: 'github',
+      apiBase: '',
+      owner: 'me',
+      repo: 'notes',
+      branch: 'main',
+      prefix: '',
+      enabled: true,
+      auto: false,
+    })
+    const api = {
+      host: {
+        platform,
+        log: () => {},
+        notify: (msg: string) => {
+          notices.push(msg)
+        },
+        secrets: { get: async () => 'T', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [],
+        readText: async (p: string) => dec(local.get(p)),
+        writeText: async (p: string, text: string) => {
+          local.set(p, enc(String(text)))
+        },
+        readBytes: async (p: string) => local.get(p) ?? new Uint8Array(),
+        writeBytes: async () => {},
+        mkdir: async () => {},
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: { registerPanel: () => ({ dispose: () => {} }), refresh: () => {} },
+      service: { consume: async () => null, provide: () => ({ dispose: () => {} }) },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    return { commands, notices, dispose: () => { for (const s of api.subscriptions) s.dispose?.() } }
+  }
+
+  it('A 建库 ⇒ 两个文件都进仓库；B 空库 ⇒ 都拉下来', async () => {
+    const { files: repo, net } = makeGitRepo()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await new Promise((r) => setTimeout(r, 20))
+
+    localA.set(SECRETS, enc('zn1.AAAA.BBBB'))
+    localA.set(VAULT, enc('{"v":1,"rings":{"secrets":{"wrapped":{"secrets":"zn1.X.Y"}}}}'))
+
+    await A.commands.get('sync-git.sync')!({})
+    expect(repo.get(SECRETS)?.text).toBe('zn1.AAAA.BBBB')
+    expect(repo.get(VAULT)?.text).toContain('wrapped')
+
+    await B.commands.get('sync-git.sync')!({})
+    expect(dec(localB.get(SECRETS))).toBe('zn1.AAAA.BBBB')
+    expect(dec(localB.get(VAULT))).toContain('wrapped')
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('只有远端变 ⇒ 本机拉下来（不能既不拉也不推）', async () => {
+    const { files: repo, net, requests } = makeGitRepo()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await new Promise((r) => setTimeout(r, 20))
+
+    localA.set(SECRETS, enc('zn1.v1'))
+    await A.commands.get('sync-git.sync')!({})
+    await B.commands.get('sync-git.sync')!({})
+    expect(dec(localB.get(SECRETS))).toBe('zn1.v1')
+
+    localB.set(SECRETS, enc('zn1.v2'))
+    await B.commands.get('sync-git.sync')!({})
+    expect(repo.get(SECRETS)?.text).toBe('zn1.v2')
+
+    const before = requests.length
+    await A.commands.get('sync-git.sync')!({})
+    expect(dec(localA.get(SECRETS))).toBe('zn1.v2')
+    const round = requests.slice(before).filter((r) => r.includes(SECRETS))
+    expect(round.some((r) => r.startsWith('GET'))).toBe(true)
+    expect(round.some((r) => r.startsWith('PUT'))).toBe(false)
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('双端都改 ⇒ 冲突留副本，本地取远端版', async () => {
+    const { files: repo, net } = makeGitRepo()
+    const localA = new Map<string, Uint8Array>()
+    const localB = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    const B = makeDevice(net, localB, 'mac')
+    await new Promise((r) => setTimeout(r, 20))
+
+    localA.set(SECRETS, enc('zn1.v1'))
+    await A.commands.get('sync-git.sync')!({})
+    await B.commands.get('sync-git.sync')!({})
+
+    localA.set(SECRETS, enc('zn1.v2'))
+    await A.commands.get('sync-git.sync')!({})
+
+    localB.set(SECRETS, enc('zn1.v3'))
+    await B.commands.get('sync-git.sync')!({})
+
+    const copies = [...localB.keys()].filter((k) => k.startsWith('.zn/conflicts/'))
+    expect(copies).toHaveLength(1)
+    expect(dec(localB.get(copies[0]))).toBe('zn1.v3')
+    expect(dec(localB.get(SECRETS))).toBe('zn1.v2')
+    expect(repo.get(SECRETS)?.text).toBe('zn1.v2')
+
+    A.dispose()
+    B.dispose()
+  })
+})

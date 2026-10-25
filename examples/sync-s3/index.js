@@ -44,6 +44,14 @@ const SECRET_KEY = 'sync.s3.secret'
 /** 云端的权威索引（与 WebDAV 版同一个键名与格式） */
 const MANIFEST_KEY = '_zn/manifest.json'
 const CONFLICT_ROOT = '.zn/conflicts'
+
+/**
+ * **私有文件**清单（rev173.164 · 期 1c）：库内 `.zn/` 下的密文，不是 `.md`、`listNotes` 拿不到。
+ *
+ * 密码库要**两个**文件一起搬：`secrets.zn`（数据密文）+ `vault.json`（KDF salt 与被主密码
+ * 包裹的 DEK）。少了后者，另一台设备拿到密文也解不开。两者都不含明文。
+ */
+export const PRIVATE_FILES = ['.zn/secrets/secrets.zn', '.zn/security/vault.json']
 const MAX_CONFLICTS = 100
 const MAX_TIMING = 50
 const MAX_FILES_PER_RUN = 200
@@ -347,10 +355,10 @@ export function normalizeManifest(raw) {
     try {
       j = JSON.parse(raw)
     } catch {
-      return { version: 1, files: {}, attachments: {} }
+      return { version: 1, files: {}, attachments: {}, private: {} }
     }
   }
-  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {} }
+  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {}, private: {} }
   const files = {}
   const src = j.files && typeof j.files === 'object' ? j.files : {}
   for (const [path, v] of Object.entries(src)) {
@@ -376,7 +384,18 @@ export function normalizeManifest(raw) {
       ...(v.mode === 'full' || v.mode === 'relay' ? { mode: v.mode } : {}),
     }
   }
-  return { version: 1, files, attachments }
+  /**
+   * 私有文件段（rev173.164 · 期 1c）：密码库密文 + 密钥元数据。
+   * 它们不是 `.md`、又在 `.zn/` 下，`listNotes` 看不到，只能按固定清单单独搬。
+   */
+  const privateFiles = {}
+  const srcPriv = j.private && typeof j.private === 'object' ? j.private : {}
+  for (const [rel, v] of Object.entries(srcPriv)) {
+    if (!v || typeof v !== 'object') continue
+    if (typeof v.fp !== 'string' || !v.fp) continue
+    privateFiles[rel] = { fp: v.fp, at: Number(v.at) || 0 }
+  }
+  return { version: 1, files, attachments, private: privateFiles }
 }
 
 /** 耗时给人看（与另外两个同步插件同一套写法） */
@@ -793,6 +812,94 @@ export default {
      *
      * @returns {{ attachments: Record<string, object>, changed: boolean }}
      */
+    /**
+     * **私有文件同步**（rev173.164 · 期 1c）：密码库密文 + 密钥元数据。
+     *
+     * 与附件段的差别：附件丢了只是少张图，密码库传坏了**解不开** —— 所以这里更保守：
+     * 只在确知方向时动手（靠 baseline 判谁变了），双端都变就留副本再取远端，
+     * 任何一步失败只写 hint 不抛（不该让整轮笔记同步跟着停）。
+     *
+     * @returns {{ private: Record<string, object>, changed: boolean }}
+     */
+    async function syncPrivate(client, manifest, summary) {
+      const remotePriv = manifest.private || {}
+      const nextPriv = { ...remotePriv }
+      let changed = false
+
+      for (const rel of PRIVATE_FILES) {
+        /** 不用 `fs.exists`：少一次 IPC，且"不存在（抛）/ 空文件（''）"要收敛成同一个 null */
+        let localText = null
+        try {
+          const raw = await api.fs.readText(rel)
+          if (raw && raw.trim()) localText = raw
+        } catch {
+          localText = null
+        }
+        const localFp = localText == null ? null : fingerprint(localText)
+        const entry = remotePriv[rel] ?? null
+        const remoteFp = typeof entry?.fp === 'string' ? entry.fp : null
+        const base = baseline[rel]?.fp ?? null
+        const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+
+        // ① 一致 ⇒ 只刷新 baseline
+        if (localFp && remoteFp && localFp === remoteFp) {
+          baseline[rel] = { fp: localFp, at: entry?.at ?? 0 }
+          continue
+        }
+
+        const localChanged = localFp !== base
+        const remoteChanged = remoteFp !== base
+
+        // ② 该拉：本地没有（新设备）· 或只有远端变
+        if (remoteFp && (!localFp || (remoteChanged && !localChanged))) {
+          try {
+            const got = await client.get(rel)
+            if (!got) continue
+            await api.fs.mkdir(parent).catch(() => {})
+            await api.fs.writeText(rel, got.text)
+            baseline[rel] = { fp: fingerprint(got.text), at: entry?.at ?? 0 }
+            summary.pulled += 1
+          } catch (e) {
+            summary.hint = `私有文件下载失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        // ③ 该推：远端还没有 · 或只有本地变
+        if (localFp && (!remoteFp || (localChanged && !remoteChanged))) {
+          try {
+            const res = await client.put(rel, localText)
+            if (!res.ok) {
+              summary.hint = `私有文件上传失败 ${rel}（${res.status}）`
+              continue
+            }
+            nextPriv[rel] = { fp: localFp, at: Date.now() }
+            baseline[rel] = { fp: localFp, at: nextPriv[rel].at }
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `私有文件上传失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        // ④ 双端都变 ⇒ 冲突：本机版留副本（keepConflict 自己读文本），再取远端版
+        if (localFp && remoteFp && localChanged && remoteChanged) {
+          try {
+            const got = await client.get(rel)
+            if (!got) continue
+            await keepConflict(rel, '密码库双端修改')
+            await api.fs.writeText(rel, got.text)
+            baseline[rel] = { fp: fingerprint(got.text), at: entry?.at ?? 0 }
+            summary.conflicts += 1
+          } catch (e) {
+            summary.hint = `私有文件冲突处理失败 ${rel}：${String(e)}`
+          }
+        }
+      }
+      return { private: nextPriv, changed }
+    }
+
     async function syncAttachments(client, manifest, summary) {
       const mode = settings.attachments || 'off'
       const remoteAtt = manifest.attachments || {}
@@ -927,7 +1034,7 @@ export default {
       if (!silent) api.view.refresh()
       const t0 = Date.now()
       let tMark = t0
-      const timing = { manifest: 0, notes: 0, attachments: 0, write: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, write: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -946,12 +1053,12 @@ export default {
         let remote
         const got = await client.get(MANIFEST_KEY)
         if (got === null) {
-          remote = { files: {}, attachments: {} }
-          manifestCache = { files: {}, attachments: {}, etag: null }
+          remote = { files: {}, attachments: {}, private: {} }
+          manifestCache = { files: {}, attachments: {}, private: {}, etag: null }
         } else {
           const m = normalizeManifest(got.text)
-          remote = { files: m.files, attachments: m.attachments }
-          manifestCache = { files: m.files, attachments: m.attachments, etag: got.etag }
+          remote = { files: m.files, attachments: m.attachments, private: m.private }
+          manifestCache = { files: m.files, attachments: m.attachments, private: m.private, etag: got.etag }
         }
         timing.manifest = lap()
 
@@ -1136,15 +1243,29 @@ export default {
         const att = await syncAttachments(client, remote, summary)
         timing.attachments = lap()
 
+        // ④b 私有文件（密码库密文 + 密钥元数据，rev173.164 · 期 1c）
+        const priv = await syncPrivate(client, remote, summary)
+        timing.private = lap()
+
         // ⑤ manifest 回写（有变动才写 —— 5 秒一轮，没变化不该反复 PUT）
-        if (summary.pushed > 0 || summary.removed > 0 || att.changed || manifestChanged) {
+        if (summary.pushed > 0 || summary.removed > 0 || att.changed || priv.changed || manifestChanged) {
           const w = await client.put(
             MANIFEST_KEY,
-            JSON.stringify({ version: 1, files: nextFiles, attachments: att.attachments }),
+            JSON.stringify({
+              version: 1,
+              files: nextFiles,
+              attachments: att.attachments,
+              private: priv.private,
+            }),
             { contentType: 'application/json; charset=utf-8' },
           )
           if (w.ok) {
-            manifestCache = { files: nextFiles, attachments: att.attachments, etag: w.etag }
+            manifestCache = {
+              files: nextFiles,
+              attachments: att.attachments,
+              private: priv.private,
+              etag: w.etag,
+            }
           }
         }
         timing.write = lap()
