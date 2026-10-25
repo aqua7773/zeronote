@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.136）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.137）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.136 · 0.4.0 · 2026-10-25 |
+| rev / 版本 | rev173.137 · 0.5.0 · 2026-10-25 |
 | 测试基线 | vitest 923 · cargo 40 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
-| 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
+| 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -327,6 +327,7 @@ pwsh -File scripts\verify.ps1
 
 | 项 | 状态 |
 |---|---|
+| 文档状态债 + 发版 0.5.0 | ✅ **rev173.137**：`docs/README.md` 权威矩阵 4 行 + 4 份文档状态头按代码/提交复核（快捷入口 = 已实现 · 标签拖拽 = 已裁决 · 全功能对标 §6 五项全完成 · 同步方案 = 已落地）· **`D-002`「不做云同步」原先仍标 accepted**，而同步四后端早已真机验收 ⇒ 新增 **`D-009` 做同步但自带后端**（不做账号 / 服务端 / E2E）取代之 · `D-006` → superseded（rev173.61 已接 window-state）· **发版 0.5.0**（`v0.4.0` 之后 44 个提交；0.4.0 的详细条目从未归档 ⇒ `[Unreleased]` 改名 0.5.0 + 段首标注 + 补 `[0.4.0]` 段）· verify 六步 + tag `v0.5.0` |
 | `note:created` payload | ✅ **rev173.135**：`createNote` 带 `text`（= content 参数）；`restoreTrash` 读盘后带（失败不带）；`sync-folder` 有 text 就同步种基线 / 同步点 · 契约 §1.4 同步 · 单测 923 · 反向验证红 |
 | `sync-folder` 真双端冲突 | ✅ **rev173.136**：真实 **Syncthing 2.1.7** 两实例（GUI 8384/8385 · 监听 22001/22002）REST 配对共享 folder `zn` · 双端改同一篇（差 1.7 s）⇒ 4 s 后 Syncthing 产出 `.sync-conflict-…-SLX52RS.md` ⇒ **三方合并成功**：主文件两边改动都在、`pending` 清空、面板「合并 1」· 实例不常驻，复跑 `_tmp-sync\pair.mjs` + `conflict.mjs` · Syncthing 已登记 `_View\网络与传输\` + `_软件清单.md` |
 | 链接无法跳转 | ✅ **rev173.102**：根因 = rev173.97 的点击判据拿 `.cm-atomic-link` 的**可见文本**判 `^\[\[…\]\]$`，而 atomic 的可见文本永远不含双方括号（活跃行是 widget、普通行是隐藏 span）⇒ 正则永不匹配、点击全被丢弃 · 改看**源码行**（`posAtDOM` + `wikiLinkTarget`，与外观判据同一套「绿色 = 可点」）· `[[目标\|别名]]` 支持 · 单测 12 条 · 桌面 CDP 实测（wikilink / 别名跳转、普通方括号不跳）· ⚠️ 验这条必须 `location.reload()`（HMR 保留旧 effect 闭包） |
