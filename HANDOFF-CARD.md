@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.163）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.164）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.163 · 0.5.0 · 2026-10-26 |
-| 测试基线 | vitest 1030 · cargo 52 · oxlint 3 warnings（2026-10-26） |
+| rev / 版本 | rev173.164 · 0.5.0 · 2026-10-26 |
+| 测试基线 | vitest 1045 · cargo 52 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 13 · 示例 39 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
@@ -31,18 +31,22 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **期 1c 完成（rev173.164）**：三个网络后端（webdav / s3 / git）各加 `syncPrivate` 阶段，按固定清单搬
+> `secrets.zn` + `vault.json`（**后者少了另一台解不开**）；`sync-folder` 改成放行规则 + **密码库冲突单独报警**
+> （`.stignore`：`.zn/*` 后加 `!.zn/secrets` `!.zn/security`）。15 条新单测 + 反向验证 + CDP 实测。
+> ⚠️ 已知局限：`vault.json` 现在整文件同步（含 `notes` 环元数据），做私密文件夹时要按环拆。
 > **密码库（rev173.163）已完成**：`examples/secrets/` 消费 `security` 的 `crypto` 服务（软依赖，缺了降级提示）·
 > 整库密文 `.zn/secrets/secrets.zn`（AAD `secrets|secrets`）· 平台/账号两级 · 搜索**不含密码** · 16 位生成器（排除 `0O1lI`）·
 > 显示 15 秒收起 · 复制 **60 秒清剪贴板** · 回收站 7 天 · **空闲 60 秒自动锁** · 内核加了 `input.secret`（`type=password`）·
-> 27 条单测 + CDP 实测 12 项 · **未签名发市场**（要装得手动放 `.zn/plugins/`）。方案 §4.5。
+> 27 条单测 + CDP 实测 12 项 · **已签名发到市场（15 条）**。方案 §4.5。
 > **安全插件（rev173.160–162）已完成并上线**：`examples/security/` **双密钥环**（私密笔记 / 账号密码**各一把主密码**，
 > 互不派生）· XChaCha20-Poly1305 + Argon2id · `crypto` 服务**只给操作不给密钥** · 25 条单测 + CDP 实测九项 ·
-> **已签名发到市场（14 条）、不预装**（用户决定）· 已推送 `981b114`、CI 全绿。方案见 `docs/安全插件-方案-2026-10-25.md`。
+> **已签名发到市场、不预装**（用户决定）· 已推送 `981b114`、CI 全绿。方案见 `docs/安全插件-方案-2026-10-25.md`。
 > **上一个会话（rev173.154–158）**：CI 从「每个 run 都红」修到全绿（`localeCompare` 不传 locale）· 开源配套
 > （issue/PR 模板 + `CONTRIBUTING.md`）· 市场第二批 UX（详情页 / 更新角标 / 24h 检查）· CI Rust 缓存 · 审查材料生成器。
 > **下一步**：
-> ① **期 1c 同步放行 `.zn/secrets/`**（四个同步插件；现在 `.zn/` 整段被排除 ⇒ 密码库同步不出去），冲突保留两份 ·
-> ② `secrets` 签名发市场（与 `security` 同路，一行 `pack-plugin` + `gen-market --write`）·
+> ① **期 2a 手机实测三档 KDF 真实耗时**（定死默认档；热更新即可，不用重装）·
+> ② **期 2b 生物识别**（Android Keystore，要重编 APK 重装；Windows 官方不支持 ⇒ 降级主密码或自写 `UserConsentVerifier`）·
 > ③ 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
 > ④ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
 > ⑤ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。

@@ -24,6 +24,14 @@
   在此之前 `input` 硬编码 `type="text"`，密码只能明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。
   **UINode 仍是 21 种**：只加可选字段，老插件一个都不用改；`state[bind]` 里仍是明文（遮的是显示，不是内存）。
 
+- **同步放行密码库（`.zn/secrets/`）**（rev173.164）：三个网络后端（`sync-webdav` / `sync-s3` / `sync-git`）
+  各加一个**私有文件**同步阶段，按固定清单搬 `.zn/secrets/secrets.zn`（整库密文）与
+  `.zn/security/vault.json`（KDF salt + 被主密码包裹的 DEK）—— **后者少了另一台拿到密文也解不开**。
+  远端 manifest 新增 `private` 段（`304` 短路径照走）。方向靠 baseline 判断；**双端都变 ⇒ 留副本不合并**
+  （密文拼不起来），本机版进 `.zn/conflicts/<平台>/`、本地取远端版；任何一步失败只写 hint，不拖累笔记同步。
+  `sync-folder` 不搬文件，改成**放行规则 + 密码库冲突单独报警**（`.stignore`：`.zn/*` 后加
+  `!.zn/secrets` `!.zn/security`）。⚠️ 已知局限：`vault.json` 目前整文件同步，做私密文件夹时要按环拆。
+
 ### Changed
 
 - **插件页统一：设置里也能进市场**（rev173.152）：设置 → 插件 与 菜单 → 插件管理 **复用同一个
