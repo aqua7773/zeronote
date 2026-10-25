@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.150
-更新时间: 2026-10-25 · 最新 rev173.150
+revision: 173.151
+更新时间: 2026-10-25 · 最新 rev173.151
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.150
 
 | rev | 内容 |
 |---|---|
+| rev173.151 | 2026-10-25 · **插件市场手机端真机走查**（测试机 `33b676f6`）：先重编 APK（`install_znp_from_url` 是 Rust 改动，18:01 的 0.4.0 包不含）→ **0.5.0 装机** · 手机打开「发现」= **13 条**（默认公网 raw 索引，走手机网络，不是 adb reverse）· ⚠️ **第一次拉取网络抖动失败**（`连不上服务器`，刷新一次即 13 条）—— raw 偶发不稳，桌面版也遇到过挂 6 分钟 · **安装**：内置插件 reload 就被 `ensureBuiltinPlugins` 补回、删不掉 ⇒ 改为在页面里直调 `install_znp_from_url`（同一份代码路径）：`{ok:true, id:'tag-panel'}`，磁盘出现 `index.js / manifest.json / signature.json`（keyId `aqua-2026`）· **reload 后列表显示「标签 v0.2.0 已签名」、无错误** ⇒ 手机端下载 / 整包 sha / 解包 / **内置公钥验签** / 「有签名不被内置版覆盖」五条全通 · 边界：手机端只走 https 源（`http` 仅回环），桌面那套本机静态测试床在手机上不可用 |
 | rev173.150 | 2026-10-25 · **插件包入库、走 raw 分发**（开源当天实测发现的关键问题）：`raw.githubusercontent.com` 直连 **693ms 可用**，但 `github.com:443`（Release 下载域名）**直连连不上** ⇒ 索引能拉、包下不来，市场「能看不能装」· 13 个包（**573 KB**）放进 `market/packs/` 并入库，索引 url 改走 raw ⇒ 索引与包同一域名 · `gen-market.mjs` 新增校验：**包必须在 `market/packs/` 且 sha256 与条目一致**（防「改了包忘重建索引」与「忘了入库」）· `pack-plugin.mjs` 默认输出改 `market/packs/` + raw url（不再依赖 Release）· `verify-trust.mjs` 默认验**入库那份**（12/12 签名包通过）· 实测：公网匿名拉索引 + 逐包下载核 sha256 + 用内置公钥验签 |
 | rev173.149 | 2026-10-25 · **开源（MIT）**：`gh repo edit --visibility public` 前置审计 —— 全量扫 801 个跟踪文件 + **全部历史**：无私钥 / 无 token / 无 `ghp_` 模式；历史里只出现过两个测试探针（`_tmp-vault-*/probe.md`，内容是「标题行 / 正文内容」，无害）；`gradle.properties` 干净；author email = `self@local` · 新增 `LICENSE`（MIT —— Cargo.toml 早声明 `license = "MIT"` 但缺文件）· README 顶部加**开源声明 + 免责**：插件与内核**同权限运行**、内核不提供沙箱，「装谁的插件」就是全部安全边界；数据自行备份 · README 现状行 rev173.137 → rev173.148（补插件市场）· 公开后确认匿名可拉 `market/index.json`（693 ms） |
 | rev173.148 | 2026-10-25 · **插件市场阶段 1：应用内「发现」tab（能装、能升、装不坏）**：插件管理页第二个 tab，列表来自静态 `market/index.json` · 装一条 = 下载 → **整包 sha256** → 解包，三步在 Rust `install_znp_from_url` 里**一次完成**（校验的字节 = 落盘的字节），任一失败**不落盘** · 索引地址可改（默认本仓库 raw；private 仓库明确报「匿名拉不到」而不是空市场），存 localStorage · 坏条目**跳过并列原因** · **不静默升级**（启动不查、后台不下）· 新增 `src/kernel/market.ts` + `src/components/MarketPane.tsx` · 内核命令 33 → **34** · `sha2` 新依赖（已在依赖树里）· Rust 49 → **52**（URL 白名单含 `http://127.0.0.1.evil.com` 混淆 / 正常安装 / sha 不符不落盘）· vitest 932 → **949** · **实测**：14 条渲染 → 装 demo 0.1.0（磁盘落地）→ 索引升 0.1.1 ⇒「↑ 更新 0.1.1」→ 更新成功 → **把索引 sha256 改成 0 ⇒ 报「校验失败…不安装」，磁盘仍是 0.1.1** · 手机端未实测 |
@@ -45,6 +46,42 @@ revision: 173.150
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.151（2026-10-25 · 插件市场手机端走查）
+
+> 用户：「手机」。在测试机 `33b676f6` 上把市场走了一遍。
+>
+> ### 前置：必须重编 APK
+>
+> `install_znp_from_url` 是 **Rust** 改动 —— 手机上跑的包（`versionName=0.4.0`，18:01 装的）里没有它。
+> 按既有约定「改 Rust 才需要重装 APK」，跑了一次 `android-dev.cmd`（约 4 分钟，增量）：
+> 装成 **0.5.0**，`lastUpdateTime=19:34`。前端部分不用重装 —— 手机连的是桌面 dev 的 vite，
+> 页面 `location.reload()` 就拿到最新代码。
+>
+> ### 结果
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 打开「发现」（默认公网 raw 索引） | **13 条**；第一次拉取**失败**（`连不上服务器`），**刷新一次就成了** |
+> | 定位一个「可安装」的条目 | 手机上 14 个插件覆盖了索引全部 13 条 ⇒ 都是「已安装」 |
+> | 删 `tag-panel` 造「安装」态 | ❌ **删不掉**：reload 时 `ensureBuiltinPlugins` 立刻按内置版补回（这是它该干的事） |
+> | 改为直调内核命令 | `install_znp_from_url` → `{ok:true, id:"tag-panel"}` |
+> | 磁盘 | `index.js / manifest.json / **signature.json**`，`keyId = aqua-2026` |
+> | reload 后 | 插件列表 `标签 v0.2.0 **已签名**`，无错误；插件数回到 14 |
+>
+> 最后一行同时证明了四件事：下载通、**整包 sha256** 对得上、解包原子落盘、
+> **内置公钥在手机上验签通过**，以及 rev173.147 的「有签名不被内置版覆盖」在真机上也成立。
+>
+> ### 两条经验（下次别重踩）
+>
+> 1. **内置插件删不掉**：想造「可安装」状态不能用删内置插件的办法（reload 必被补回）。
+>    手机端又没法用本机静态测试床（`http` 只允许回环地址），所以要测「UI 点安装」得：
+>    ① 先在索引里加一条**非内置**的测试包（要推公网才能 https），或
+>    ② 像这次一样直调 `install_znp_from_url`（走的是同一份代码路径，差的只是按钮接线 ——
+>    而按钮接线在桌面端已经端到端验过）。
+> 2. **raw 会偶发连不上**：手机第一次拉索引就失败、刷新即好；桌面 `verify-public.mjs` 第一次跑
+>    也因为某个请求挂住跑了 6 分钟（加 20 s 超时后 13/13 只用了 6.3 s）。市场页的「刷新」
+>    按钮就是给这种情况留的 —— 不要因为它偶尔失败就以为坏了。
 
 > ## 📌 rev173.150（2026-10-25 · 插件包入库 —— 开源当天就发现「能看不能装」）
 
