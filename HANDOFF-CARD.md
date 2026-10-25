@@ -43,6 +43,10 @@ pwsh -File scripts\verify.ps1
 > 503 停掉自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false（限流分支 / 测试连接失败），
 > `saveSettings` 也不再整体覆盖（会冲掉 `auto` / `attachments`）。单测 +1 · vitest 804 · verify 6/6。
 > ✅ **已推送**（`0e05ea7..7f05d79`，9 个提交；**git 直连即可，不要设 `HTTPS_PROXY`** —— 2026-10-24 用户实测更正）
+> ⚠️ **2026-10-25 再更正（情况变了，两条都留）**：本轮 `git push` 直连报 `Recv failure: Connection was reset`，
+> 改挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`（该端口实测在听）**一次成功**
+> （`e574b20..1f13f3f` + 新 tag `v0.5.0`）。**正确做法：先直连；被 reset 就挂 26561 再试**，
+> 别把它当成配置错误或账号问题。
 > · rev173.110/111/112/113/114 的提交见 `git log`（2026-10-24 已推送）
 >
 > ✅ **同步插件收尾四项全部完成（rev173.111–114）**：`If-None-Match` 304 短路径（实测命中）·
@@ -410,6 +414,13 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
+- **2026-10-25 15:3x 发版时环境（rev173.137 · 0.5.0）**：改 `tauri.conf.json` / `Cargo.toml` 的版本号
+  ⇒ **`tauri dev` 自动重编并重启应用**（`zeronote.exe` pid 19632 → **20112**，起于 15:24:25）；
+  重编期间它与 `verify.ps1` 第 3 步的 `cargo test` 争同一个 `CARGO_TARGET_DIR`
+  （`~\cargo-targets\zeronote`），那一步因此等了约 **8 分钟**才出结果 —— **是正常排队，不是卡死**
+  （判据：`cargo` CPU 在涨、`rustc` 进程数 12 → 0 在递减）。
+  ⚠️ **dev 窗口「关于」仍显示 0.4.0**：`__APP_VERSION__` 由 vite 在 **dev server 启动时**求值
+  （本机 vite 是 13:27 起的），改 package.json 不会热更新它 —— 重启 vite（≈重启 dev）才变 0.5.0。
 - **2026-10-25 14:5x 交接时环境（rev173.135）**：桌面 dev 仍在跑（`zeronote.exe` pid **19632**，起于 13:27 · vite 1420 · CDP 9222）。
   - **手机 `33b676f6` 坑（本轮实际踩到）**：`adb reverse tcp:1420 tcp:1420` 会丢；丢了以后手机 WebView 连不上 1420，
     看门狗把进程杀掉（表现：启动 15 秒后无声退出，`pidof` 空，logcat 只有 `pthread_mutex_lock called on a destroyed mutex`）。
