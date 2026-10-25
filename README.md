@@ -83,7 +83,7 @@ ZeroNote\
   src-tauri\           Rust 原生内核：文件命令 / 原子写 / 回收站 / 看门狗
   examples\            34 个示例插件（功能主力；部分只是验收夹具）
   tools\               CDP 自动验收脚本（不碰用户鼠标）
-  scripts\             内核快照 / 恢复 / 一键自检
+  scripts\             一键自检 / 插件打包签名 / 市场索引 / 内核快照
   public\vendor\       内置离线渲染库（pdf.js / foliate / mammoth / marked / …）
   docs\                架构原则 / 内核契约 / 需求 / 安装说明 / 调研
   HANDOFF.md           交接件：逐版本「做了什么 + 证据 + 踩坑」（只留当前版本周期，更早在 docs\archive\handoff\）

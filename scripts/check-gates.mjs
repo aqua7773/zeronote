@@ -16,6 +16,8 @@ const gates = [
   ['links', 'scripts/check-links.mjs'],
   ['catalog', 'scripts/gen-catalog.mjs', '--check'],
   ['keys', 'scripts/gen-keys.mjs', '--check'],
+  // rev173.143：市场索引与 examples 的 manifest 不能漂移（改了插件版本忘重新打包 = 红）
+  ['market', 'scripts/gen-market.mjs'],
 ]
 
 let failed = 0

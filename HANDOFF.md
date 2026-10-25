@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.142
-更新时间: 2026-10-25 · 最新 rev173.142
+revision: 173.143
+更新时间: 2026-10-25 · 最新 rev173.143
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.142
 
 | rev | 内容 |
 |---|---|
+| rev173.143 | 2026-10-25 · **插件市场阶段 0：打包 / 索引 / 原子安装**（用户拍板「做 + 外部作者开放 + 索引放本仓库」）：`scripts/lib/signing.mjs`（签名单一实现，`sign.mjs` 与打包共用）· `pack-plugin.mjs`（目录 → `.znp` + 签名 + 整包 sha256 + 市场条目）· `gen-market.mjs`（合并 `market/entries/*.json` 与 `external.json` → `index.json`，**已进质量门**：条目版本与 `examples/<id>/manifest.json` 不一致就红）· `market/`（README 投稿说明 / external.json / entries/ / index.json）· **`install_znp` 改原子**：先写 `.zn/tmp/install-<id>-<ms>` 再整目录交换，失败回滚（rev119 的「逐文件覆盖写 + 不删旧文件」已废）· Rust 测试 41 → **43**（坏包回滚 / 整目录替换） |
 | rev173.142 | 2026-10-25 · **插件签名 v2：`manifest.files` 一并签进 payload**（用户拍板「扩」）：v1 只签入口 ⇒ 多文件插件里 `lib/*.js` 被换掉验签照样过 · payload → `zn-plugin-v2\|<id>\|<ver>\|<入口 sha>\|<path:sha256 按路径字典序>`（无 files 时末尾空段）· 三处改：`plugin-signing.ts`（`signingPayload` 收 `SignedFileDigest[]`）· `sign.mjs`（同步 + 校验声明文件存在）· `plugin-host.ts`（**把 `manifest.files` 的读取提到验签之前**，读到内容给 CJS 组装复用——原顺序下签名时根本看不到 lib 文件）· **Rust 没动**（只对 payload 字符串验签）· 单测 9 → **11**（排序无关 / 换内容·换路径·删文件·加文件四种篡改都让 payload 变 / 真实往返改 lib 后验不过 / v1 签名在 v2 下验不过）· **脚本 ↔ 前端一致性**：真实 `examples/cjs-multi` 跑 `sign.mjs --check` 与 vitest 输出逐字比对通过（临时测试，验完即删）· **反向验证**：`tail` 恒空 ⇒ 3 条红，恢复即绿 · 契约 §3.4 + 调研 §5 已同步 |
 | rev173.141 | 2026-10-25 · **插件市场形态 + 开发者流程（补 §4.4 / §4.5）**：**市场不是新页面**，是「插件管理页」的第二个 tab（`mainView === plugins` 已有；用户心智「装插件 → 去插件管理」，复用 `PluginPanel` 分组列表）· 入口沿用右键 ☰ / 长按 ☰ 菜单 / `core.plugins`，新增「拖 `.znp` 进窗口」与可选 `core.market` 直达 · 安装 4 步（确认框列**能力自述** → 下载 → sha256 + 验签**失败不落盘** → 解包 + 自动重扫）· 更新三档：手动 / **启动静默检查 24h 节流只给角标** / 自动安装 ❌ 不做（插件能读任意文件、能 invoke 命令，换代码必须让人看见）· **发现现存隐患**：`install_znp` 是覆盖写同名文件 ⇒ 半截包会污染现有插件，要改成先解临时目录再换 · **开发者**：官方插件零手工（`examples/<id>/` → 打包签名 → `gen-market.mjs` 生成索引并进 verify 质量门 → CI 发 Release；加插件 = 加目录）· 外部作者照 Obsidian「索引不存版本号」，只存 `entry` 指向作者仓库的 `market-entry.json`，客户端列表页用 `latest` 快照、安装时再 GET `entry` ⇒ 作者发版不用改索引 · 审核**只审格式不审代码** + 每周 CI 健康检查标 `broken` |
 | rev173.140 | 2026-10-25 · **插件市场可行性调研（不做实现）**：产出 docs/插件市场-调研-2026-10-25.md —— 先问「给谁用」（自用 = 净成本 / 给别人与手机 = 刚需）· **一手参照 Obsidian**（README + community-plugins.json）：索引就是一个静态 JSON（5 字段、**无版本号**），详情页拉插件自己的仓库、安装按 manifest.version 找同名 tag 的 Release ⇒ **市场不需要服务端** · 现状逐条核实：.znp 是单文件 JSON 不是 zip · 签名只覆盖入口文件 · 信任根手工放 · **内核 33 条命令里没有任何安装/重扫命令**（插件够不着 ppDataDir()/.zn/plugins/）· 三方案 A 静态索引+一键装（≈1.5 天）/ B +更新通道（+0.5 天）/ C 服务端（不做，与 D-009 冲突）· 分期 0（2 h 零风险）→1→2 · 安全叙事不包装：**市场是发现渠道 + 身份证明，不是安全门**，并点明内置公钥 = 持私钥者可推任意代码 · **代码零改动**；D-008 加 ⚠️ 更正块（重议条件已满足、决策仍 pending） |
@@ -37,6 +38,50 @@ revision: 173.142
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.143（2026-10-25 · 插件市场阶段 0：打包 / 索引 / 原子安装）
+
+> 用户拍板四项（做 · 外部作者开放 · 索引放本仓库 · 签名扩），④ 已在 rev173.142 交付，本段做 ①②③ 的地基。
+>
+> ### 交付
+>
+> | 文件 | 作用 |
+> |---|---|
+> | `scripts/lib/signing.mjs` | 签名的 **Node 侧单一实现**（payload / 收集文件 / 签名）；`sign.mjs` 与 `pack-plugin.mjs` 共用，避免两份漂移 |
+> | `scripts/pack-plugin.mjs` | 插件目录 → `.znp`（含 `manifest.sha256` + `signature.json`）+ **市场条目**（展示字段 + 下载地址 + **整包 sha256**） |
+> | `scripts/gen-market.mjs` | 合并 `market/entries/*.json`（官方）与 `market/external.json`（外部）→ `market/index.json`；**已进质量门** |
+> | `market/` | `README.md`（官方发版 + 外部投稿流程）· `external.json`（PR 加一行）· `entries/`（pack 生成）· `index.json`（生成物） |
+> | `src-tauri/src/lib.rs` | **`install_znp` 改原子安装**（见下） |
+>
+> ### 为什么 `install_znp` 必须改
+>
+> rev119 的实现是**逐文件覆盖写、不删旧文件**：装上半个包（下载中断 / 校验失败之前就开写）会留下
+> 「新 index.js + 旧 lib/x.js」这种混合目录，而且这个目录**正在被应用加载**。
+> 现在：整包先写进 `<私有根>/.zn/tmp/install-<id>-<ms>/` → 旧目录挪成 `prev-*` → 新目录 rename 上位 → 删旧。
+> 任一步失败 ⇒ 清理暂存 + 把旧目录放回原位，**要么全旧要么全新**。
+>
+> ⚠️ **语义变化**：整目录替换 ⇒ 旧目录里没被新包覆盖的文件会消失（rev119 的「不删旧文件」已废）。
+> 另：开发时插件目录常是 junction 指向 `examples/`，安装会替换掉那个链接（要重新 link）。
+>
+> ### 质量门新增一项
+>
+> `check-gates` 加了 `market`：**条目里的 version 必须与 `examples/<id>/manifest.json` 一致**
+> —— 改了插件却忘了重新打包，门直接红。这取代不了「人记得发版」，但至少不会静默漂移。
+>
+> ### 验证
+>
+> - `pack-plugin` 实跑两个真实插件：`tag-panel`（单文件，23.8 KB）· `cjs-multi`（4 文件含 2 个 lib，2.4 KB），
+>   包内 `signature.json` 与 `manifest.sha256` 都写进去了
+> - `sign.mjs` 重构后 `--check` 输出与重构前**逐字相同**（同一 sha、同一 payload）
+> - Rust 测试 41 → **43**：`install_znp_rolls_back_on_bad_pack`（非字符串文件 ⇒ 失败且旧 manifest/index 原封不动、`.zn/tmp` 不留垃圾）·
+>   `install_znp_replaces_dir_wholesale`（旧目录多余的 `lib/gone.js` 安装后消失）
+> - `gen-market` 空索引起步可跑（官方 0 / 外部 0），质量门 6/6
+>
+> ### 没做的
+>
+> **阶段 0 只到「能打包、能生成索引、安装不污染」**。应用里还没有任何市场 UI（阶段 1），
+> 也没有正式的发布密钥 —— 官方条目要等你生成私钥后跑 `pack-plugin --key` 才会有内容。
+> 索引目前是空的（`plugins: []`），这不影响门禁与其它功能。
 
 > ## 📌 rev173.142（2026-10-25 · 插件签名 v2：manifest.files 一并签进 payload）
 

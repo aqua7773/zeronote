@@ -1912,7 +1912,15 @@ fn read_znp(path: String) -> Result<serde_json::Value, String> {
   Ok(serde_json::json!({ "manifest": pack.manifest, "files": files }))
 }
 
-/// 安装 `.znp` 到 `<私有根>/.zn/plugins/<id>/`（覆盖写同名文件；不删旧文件）。
+/// 安装 `.znp` 到 `<私有根>/.zn/plugins/<id>/`。
+///
+/// **原子安装（rev173.143）**：先把整包写进 `<私有根>/.zn/tmp/install-<id>-<ms>/`，
+/// 再把旧目录挪到 `prev-*`、新目录 rename 上位、最后删旧目录。
+/// 任一步失败 ⇒ 清掉暂存目录 + 把旧目录放回原位 —— **不会留下「半个新版本 + 半个旧版本」的混合状态**
+/// （rev119 的实现是逐文件覆盖写，中途失败就是混合目录，而且安装半截的包会污染正在用的插件）。
+///
+/// ⚠️ 语义变化：这是**整目录替换**，旧目录里没被新包覆盖的文件会消失（rev119 的「不删旧文件」已改）。
+/// 另：开发时插件目录常是 junction 指向 `examples/` —— 安装会替换掉那个链接本身（要重新 link）。
 #[tauri::command]
 fn install_znp(vault: String, path: String) -> Result<String, String> {
   let pack = read_znp_file(&path)?;
@@ -1923,18 +1931,70 @@ fn install_znp(vault: String, path: String) -> Result<String, String> {
     .unwrap_or("")
     .to_string();
   let dir = plugin_dir(&vault, &id)?;
-  fs::create_dir_all(&dir).map_err(|e| format!("创建插件目录失败：{e}"))?;
-  let manifest_text = serde_json::to_string_pretty(&pack.manifest)
-    .map_err(|e| format!("序列化 manifest 失败：{e}"))?;
-  atomic_write(&dir.join("manifest.json"), &manifest_text)?;
-  for (rel, val) in pack.files.iter() {
-    let text = val
-      .as_str()
-      .ok_or_else(|| format!("插件包里的 {rel} 不是字符串（二进制资源暂不支持）"))?;
-    let target = plugin_file(&vault, &id, rel)?;
-    atomic_write(&target, text)?;
+  let plugins_root = private_root(&vault).join(PRIVATE_DIR).join("plugins");
+  fs::create_dir_all(&plugins_root).map_err(|e| format!("创建插件目录失败：{e}"))?;
+  let tmp_root = private_root(&vault).join(PRIVATE_DIR).join("tmp");
+  fs::create_dir_all(&tmp_root).map_err(|e| format!("创建临时目录失败：{e}"))?;
+
+  let stamp = format!("{id}-{}", now_ms());
+  let staging = tmp_root.join(format!("install-{stamp}"));
+  let _ = fs::remove_dir_all(&staging);
+  fs::create_dir_all(&staging).map_err(|e| format!("创建暂存目录失败：{e}"))?;
+
+  // ① 整包写进暂存目录；这一步任何失败都不碰正式目录
+  let write_result = (|| -> Result<(), String> {
+    let manifest_text = serde_json::to_string_pretty(&pack.manifest)
+      .map_err(|e| format!("序列化 manifest 失败：{e}"))?;
+    atomic_write(&staging.join("manifest.json"), &manifest_text)?;
+    for (rel, val) in pack.files.iter() {
+      let text = val
+        .as_str()
+        .ok_or_else(|| format!("插件包里的 {rel} 不是字符串（二进制资源暂不支持）"))?;
+      // 包内路径与 `plugin_file()` 同一套白名单（禁 `..`、禁绝对路径）
+      let mut target = staging.clone();
+      for c in std::path::Path::new(&rel.trim().replace('\\', "/")).components() {
+        match c {
+          std::path::Component::Normal(seg) => target.push(seg),
+          _ => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("非法插件内路径：{rel}"));
+          }
+        }
+      }
+      atomic_write(&target, text)?;
+    }
+    Ok(())
+  })();
+
+  if let Err(e) = write_result {
+    let _ = fs::remove_dir_all(&staging);
+    return Err(e);
   }
-  Ok(id)
+
+  // ② 交换：旧目录先挪开 → 新目录上位 → 删旧；失败则回滚
+  let prev = tmp_root.join(format!("prev-{stamp}"));
+  let had_old = dir.exists();
+  if had_old {
+    if let Err(e) = fs::rename(&dir, &prev) {
+      let _ = fs::remove_dir_all(&staging);
+      return Err(format!("安装失败：旧插件目录无法移走（可能正被占用）：{e}"));
+    }
+  }
+  match fs::rename(&staging, &dir) {
+    Ok(()) => {
+      if had_old {
+        let _ = fs::remove_dir_all(&prev);
+      }
+      Ok(id)
+    }
+    Err(e) => {
+      if had_old {
+        let _ = fs::rename(&prev, &dir);
+      }
+      let _ = fs::remove_dir_all(&staging);
+      Err(format!("安装失败，已回滚到原版本：{e}"))
+    }
+  }
 }
 
 #[tauri::command]
@@ -3038,6 +3098,76 @@ mod tests {
     assert!(
       install_znp(d.to_string_lossy().to_string(), p.to_string_lossy().to_string()).is_err(),
       "含 .. 的路径必须被拒"
+    );
+  }
+
+  /// rev173.143：安装失败必须**回滚**，旧插件保持完整（不能留「半个新版本 + 半个旧版本」）
+  #[test]
+  fn install_znp_rolls_back_on_bad_pack() {
+    let d = tmpdir("znp-rollback");
+    let v = d.to_string_lossy().to_string();
+    let good = r#"{"znp":1,"manifest":{"id":"demo","name":"旧","version":"1.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"OLD"}}"#;
+    let gp = d.join("good.znp");
+    fs::write(&gp, good).unwrap();
+    install_znp(v.clone(), gp.to_string_lossy().to_string()).unwrap();
+    assert_eq!(
+      fs::read_to_string(d.join(".zn/plugins/demo/index.js")).unwrap(),
+      "OLD"
+    );
+
+    // 坏包：files 里有个非字符串值 ⇒ 写到一半就失败
+    let bad = r#"{"znp":1,"manifest":{"id":"demo","name":"新","version":"2.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"NEW","x.bin":[1,2,3]}}"#;
+    let bp = d.join("bad.znp");
+    fs::write(&bp, bad).unwrap();
+    assert!(
+      install_znp(v.clone(), bp.to_string_lossy().to_string()).is_err(),
+      "非字符串文件必须报错"
+    );
+
+    // 旧版本原封不动
+    assert_eq!(
+      fs::read_to_string(d.join(".zn/plugins/demo/index.js")).unwrap(),
+      "OLD",
+      "安装失败后旧文件不能被改"
+    );
+    let mf = fs::read_to_string(d.join(".zn/plugins/demo/manifest.json")).unwrap();
+    assert!(mf.contains("1.0.0"), "manifest 也必须是旧的");
+    // 暂存目录不留垃圾（.zn/tmp 下不该有 install-* 残留）
+    let tmp_root = d.join(".zn/tmp");
+    if tmp_root.is_dir() {
+      let leftovers: Vec<_> = fs::read_dir(&tmp_root)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("install-") || n.starts_with("prev-"))
+        .collect();
+      assert!(leftovers.is_empty(), "暂存目录必须清干净：{leftovers:?}");
+    }
+  }
+
+  /// rev173.143：安装是**整目录替换** —— 旧目录里多余的旧文件不会留下
+  #[test]
+  fn install_znp_replaces_dir_wholesale() {
+    let d = tmpdir("znp-replace");
+    let v = d.to_string_lossy().to_string();
+    let old = r#"{"znp":1,"manifest":{"id":"demo","name":"旧","version":"1.0.0","apiVersion":"^0.2.0","entry":"index.js","files":["lib/gone.js"]},"files":{"index.js":"OLD","lib/gone.js":"bye"}}"#;
+    let op = d.join("old.znp");
+    fs::write(&op, old).unwrap();
+    install_znp(v.clone(), op.to_string_lossy().to_string()).unwrap();
+    assert!(d.join(".zn/plugins/demo/lib/gone.js").is_file());
+
+    let new = r#"{"znp":1,"manifest":{"id":"demo","name":"新","version":"2.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"NEW"}}"#;
+    let np = d.join("new.znp");
+    fs::write(&np, new).unwrap();
+    install_znp(v, np.to_string_lossy().to_string()).unwrap();
+
+    assert_eq!(
+      fs::read_to_string(d.join(".zn/plugins/demo/index.js")).unwrap(),
+      "NEW"
+    );
+    assert!(
+      !d.join(".zn/plugins/demo/lib/gone.js").exists(),
+      "整目录替换后旧文件必须消失（rev119 的「不删旧文件」语义已改）"
     );
   }
 

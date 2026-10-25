@@ -1,0 +1,4 @@
+{
+  "$comment": "外部作者条目。PR 加一行即可；version / url / sha256 不放这里 —— 它们在作者仓库根的 market-entry.json 里，客户端点开详情时才去读，所以作者发版不用改本文件。说明见 market/README.md",
+  "plugins": []
+}
