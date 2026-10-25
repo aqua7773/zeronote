@@ -95,7 +95,18 @@ export function withFsEvents(
       await raw.createNote(path, content)
       if (!isNotePath(path)) return
       void index.upsert(path, content)
-      event.emit('note:created', { path })
+      /**
+       * **新建也把正文带上**（rev173.135）—— 与 `note:saved` 的 `text` 同一个来由。
+       *
+       * 订阅方（同步插件）收到 `note:created` 要给这篇"种基线"；旧写法要
+       * `await readText` 才拿得到正文。新建的 `note:saved` 不存在（走的是 createNote），
+       * 所以没有"先于回响"的保护：watcher 的 `note:changed` 回响可能插在那段 await
+       * 中间先跑完扫描（`scan` 见到本地文件 ⇒ 判 `remote`、对齐基线）⇒ 新建的这篇
+       * 基线有了、同步点没种下，冲突判定仍正确但第一次同步会多绕一圈。
+       *
+       * 正文是同一个 JS 上下文里的字符串引用，事件总线不序列化 ⇒ 没有拷贝开销。
+       */
+      event.emit('note:created', { path, text: content })
     },
 
     async rename(from, to) {
@@ -130,8 +141,25 @@ export function withFsEvents(
 
     async restoreTrash(id) {
       const restored = await raw.restoreTrash(id)
-      if (isNotePath(restored)) indexFromDisk(restored)
-      event.emit('note:created', { path: restored, restored: true })
+      /**
+       * 恢复也是"新建"，同样带正文（rev173.135）。这里没有现成的字符串（内容在回收站
+       * 目录里），所以读一次盘 —— 反正索引本来就要读；读失败就不带 `text`，
+       * 订阅方退回它自己的读盘路径，不会因为缺字段静默失效。
+       */
+      let text: string | undefined
+      if (isNotePath(restored)) {
+        try {
+          text = await raw.readText(restored)
+          void index.upsert(restored, text)
+        } catch (e: unknown) {
+          onLog(`恢复后索引失败 ${restored}：${String(e)}`)
+        }
+      }
+      event.emit('note:created', {
+        path: restored,
+        restored: true,
+        ...(text === undefined ? {} : { text }),
+      })
       return restored
     },
 

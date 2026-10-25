@@ -146,6 +146,8 @@ describe('snapshotPath', () => {
 function memoryFs(initial: Record<string, string> = {}) {
   const files = new Map<string, string>(Object.entries(initial))
   const writes: Array<{ path: string; content: string }> = []
+  /** 每次 `readText` 记一条（rev173.135：断言「带 text 时根本不读盘」） */
+  const reads: string[] = []
   /**
    * 下一次 `readText(path)` 拖一个宏任务再返回 —— 模拟 IPC 慢（rev173.133 的竞争测试要它）。
    * 只影响**下一次**调用：这样「保存时的读盘」可以慢、「回响的读盘」正常，
@@ -155,6 +157,7 @@ function memoryFs(initial: Record<string, string> = {}) {
   return {
     files,
     writes,
+    reads,
     slowNextRead: (path: string) => {
       slowNext.add(path)
     },
@@ -171,6 +174,7 @@ function memoryFs(initial: Record<string, string> = {}) {
         )
       },
       readText: async (path: string) => {
+        reads.push(path)
         if (slowNext.delete(path)) await new Promise((r) => setTimeout(r, 0))
         if (!files.has(path)) throw new Error(`ENOENT ${path}`)
         return files.get(path) as string
@@ -551,6 +555,39 @@ describe('冲突端到端（双端都改同一篇）', () => {
     const cw = h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts/windows/'))
     expect(cw).toHaveLength(1)
     expect(cw[0].content).toBe('v2')
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('新建的判定不再读盘（带 text）⇒ 同步点用内核正文种下（rev173.135）', async () => {
+    /**
+     * `note:created` 以前要 `await readText` 才拿得到正文。Rust watcher 的回响若在那段
+     * `await` 中间先跑完 `scan`，这篇会被当成"外部已有、本机没有" —— 基线按磁盘对齐、
+     * **同步点没种下**（冲突判定仍正确，只是第一次同步多绕一圈）。
+     *
+     * rev173.135 内核随事件带 `text`：判定段同步完成，`slowNextRead` 根本不会被消费。
+     */
+    const snapshots: Array<{ path: string; text: string }> = []
+    const h = harness({ 'g.md': 'v1' }, {}, {
+      history: {
+        findBase: async () => null,
+        snapshot: async (path: string, text: string) => {
+          snapshots.push({ path, text })
+          return true
+        },
+      },
+    })
+    await settle()
+
+    h.mem.slowNextRead('g.md') // 旧代码会在这让出事件循环
+    h.handlers['note:created']({ path: 'g.md', text: 'v1' })
+
+    // ① 判定段**同步**完成：这一刻还没为这篇读过盘（旧代码这里会 await readText）
+    expect(h.mem.reads).not.toContain('g.md')
+
+    await settle()
+    // ② 同步点直接用事件里的正文种下
+    expect(snapshots).toEqual([{ path: 'g.md', text: 'v1' }])
 
     h.api.subscriptions.forEach((s) => s.dispose())
   })

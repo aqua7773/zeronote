@@ -496,20 +496,35 @@ export default {
       })()
     })
 
-    /** 本机新建：直接进基线（新文件没有"双方"可言） */
+    /**
+     * 本机新建：直接进基线（新文件没有"双方"可言）。
+     *
+     * rev173.135：内核现在随 `note:created` 带 `text`（与 `note:saved` 同一个来由）。
+     * 新内核下"种基线 + 打同步点"在**同步段**里完成，watcher 的 `note:changed`
+     * 回响插不进来；旧内核（事件不带 `text`）退回读盘版本，不因版本差异静默失效。
+     */
     api.event.on('note:created', (payload) => {
       const path = String(payload?.path ?? '')
       if (!isSyncable(path)) return
+
+      const adopt = (text) => {
+        if (baseline[path]) return
+        baseline[path] = { fp: fingerprint(text), at: Date.now() }
+        markDirty()
+        // 新建即"两端一致"（外部还没有这篇），同步点可以马上种下
+        void markBase(path, text)
+        api.view.refresh()
+      }
+
+      const given = typeof payload?.text === 'string' ? payload.text : null
+      if (given !== null) {
+        adopt(given)
+        return
+      }
+
       void (async () => {
         try {
-          const text = await api.fs.readText(path)
-          if (!baseline[path]) {
-            baseline[path] = { fp: fingerprint(text), at: Date.now() }
-            markDirty()
-            // 新建即"两端一致"（外部还没有这篇），同步点可以马上种下
-            void markBase(path, text)
-            api.view.refresh()
-          }
+          adopt(await api.fs.readText(path))
         } catch {
           /* 读不到就等下一次扫描 */
         }

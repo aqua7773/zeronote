@@ -96,15 +96,33 @@ describe('fs 写路径 → 索引 + 事件', () => {
     expect(hits.map((h) => h.path)).toEqual(['a.md'])
   })
 
-  it('createNote：发 note:created', async () => {
+  it('createNote：发 note:created（带正文，rev173.135）', async () => {
     const k = makeKernel()
     const seen: unknown[] = []
     k.event.on('note:created', (p) => seen.push(p))
 
     await k.fs.createNote('b.md', '全新内容')
 
-    expect(seen).toEqual([{ path: 'b.md' }])
+    /**
+     * rev173.135：payload 带 `text`（新建的正文）—— 与 `note:saved` 同一个来由。
+     * 订阅方（同步插件）靠它在**同步段**里种基线，不必 `await readText`；
+     * 那边的 watcher 回响可能插在那段 await 中间先跑完扫描。
+     */
+    expect(seen).toEqual([{ path: 'b.md', text: '全新内容' }])
     expect((await k.index.query('全新')).map((h) => h.path)).toEqual(['b.md'])
+  })
+
+  it('restoreTrash：也发 note:created，带 restored 标记与正文（rev173.135）', async () => {
+    files['a.md'] = '回收站恢复的内容'
+    const k = makeKernel()
+    const seen: unknown[] = []
+    k.event.on('note:created', (p) => seen.push(p))
+
+    const restored = await k.fs.restoreTrash('1')
+
+    expect(restored).toBe('a.md')
+    expect(seen).toEqual([{ path: 'a.md', restored: true, text: '回收站恢复的内容' }])
+    expect((await k.index.query('回收站恢复')).map((h) => h.path)).toEqual(['a.md'])
   })
 
   it('写 `.zn/` 下的 .md（历史快照 / 同步影子副本）**不发** note:saved，也不进索引', async () => {

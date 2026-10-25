@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.134）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.135）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.134 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 921 · cargo 40 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.135 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 923 · cargo 40 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -180,6 +180,22 @@ pwsh -File scripts\verify.ps1
 > **反向验证**：把 `at` 分支改成 `return false` ⇒ 信任窗口那条红）· 实测 dev：写 `[[标签验收-周报]]` →
 > 打开该篇 ⇒ 状态栏 **「被 1 篇引用」**、面板 **`全库 30 篇 · 本轮读盘 0 篇`** · `backlinks` 0.1.0 → **0.2.0**。
 >
+> ✅ **`note:created` 也带正文（rev173.135 · 收掉 rev173.133 的 ⚠️）+ 三处终端验收（无代码）**：
+> ① `fs.createNote` 的 payload `{ path }` → **`{ path, text }`**；`fs.restoreTrash` 恢复成功时也带
+> `text`（读失败则不带该字段）· `sync-folder` 的 `note:created` 有 `text` 就**同步**种基线 / 同步点，
+> 旧内核退回读盘 · 契约 §1.4 表同步 · 单测 921 → **923** · **反向验证**：`given = null` ⇒ 新用例红。
+> ② **`history` 的 ☰ 菜单入口实测**（此前一直标「CDP 未验证，待手动」）：右键 ☰ →「历史版本」⇒
+> modal 打开（1 版 / 现在存一版），**标签条没有多一个标签**，Esc 可关。
+> ③ **`outline-map` 手机实测**：真机 `33b676f6` 点标题行 ❖ ⇒ 主区面板 `mind-elixir 5.15.1 · 5 个节点`，
+> 返回键回编辑器（`_shots/phone-outline-map-20261025.png`）。**同轮修环境坑**：手机
+> `adb reverse tcp:1420` 丢失 ⇒ WebView 连不上 1420 ⇒ 看门狗杀进程（表现为启动 15 秒后无声退出，
+> logcat 只有 `pthread_mutex_lock called on a destroyed mutex`）—— 重连 adb 后先
+> `adb reverse tcp:1420 tcp:1420` 再启动。
+> ④ **`sync-webdav` 附件方向实测**（rev173.127 此前只有单测证据）：指向本机 DAV 桩
+> （`127.0.0.1:8899`，pid 20860 —— **CARD 旧记「已删除」不准，它一直活着**）· 附件 full 上传 4 个
+> （png 27507 / jpg 89438 / txt 52 / epub 1332）· 远端改（文件 + manifest 一起改）⇒ 本地拉取更新 ·
+> 本地 mtime 更新 ⇒ **本地不被覆盖，且推上远端** · 配置已恢复坚果云 / 附件 off · `sync-folder` 0.3.1 → **0.3.2**。
+>
 > ✅ **同步 · 本机保存的改动可能永远同步不出去（rev173.133 · 修 173.116 记下的观察项）**：
 > `note:saved` 的处理体以 `await readText` 开头 ⇒ Rust watcher 的回响若在这段 `await` 中间跑完判定，
 > pending 还没建立、磁盘已是新内容 ⇒ 判 `remote`（当成"别处更新"）把基线对齐新内容；随后 saved 醒来
@@ -300,6 +316,7 @@ pwsh -File scripts\verify.ps1
 
 | 项 | 状态 |
 |---|---|
+| `note:created` payload | ✅ **rev173.135**：`createNote` 带 `text`（= content 参数）；`restoreTrash` 读盘后带（失败不带）；`sync-folder` 有 text 就同步种基线 / 同步点 · 契约 §1.4 同步 · 单测 923 · 反向验证红 |
 | 链接无法跳转 | ✅ **rev173.102**：根因 = rev173.97 的点击判据拿 `.cm-atomic-link` 的**可见文本**判 `^\[\[…\]\]$`，而 atomic 的可见文本永远不含双方括号（活跃行是 widget、普通行是隐藏 span）⇒ 正则永不匹配、点击全被丢弃 · 改看**源码行**（`posAtDOM` + `wikiLinkTarget`，与外观判据同一套「绿色 = 可点」）· `[[目标\|别名]]` 支持 · 单测 12 条 · 桌面 CDP 实测（wikilink / 别名跳转、普通方括号不跳）· ⚠️ 验这条必须 `location.reload()`（HMR 保留旧 effect 闭包） |
 | 提醒打卡 `habit` | ✅ **rev173.103 + rev173.105**：主区面板（计划列表 + 今日次数 + 打卡 + 月历 + 连续/累计）· 四种频率 · 一天多次 / 上限 1–99 · 连续按应打卡日 · 补打卡 / 清除限最近 7 天 · 数据 `store` · 预装 9 · 单测 **36** 条 · 桌面 CDP 全流程实测 · **手机真机 33b676f6 全流程实测（rev173.105）**，同轮修：补打早于 startDate 连续不涨 / 切月不清选中日 / 按钮禁用态 · **到点提醒不做**（用户裁决） |
 | 会话恢复（hot exit） | ✅ **rev173.65**：崩溃 / HMR 整页重载后主窗口启动提示「恢复 / 丢弃」· 草稿只留 1 篇 / ≤ 8 KB / 7 天过期 · 恢复以磁盘内容为 `baseRef` · `taskkill` 进程级强杀实测通过 |
@@ -380,7 +397,18 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
-- **2026-10-25 14:08 交接时环境（本会话最新）**：桌面 dev 在跑（`zeronote.exe` pid **19632** 起于 **13:27**，
+- **2026-10-25 14:5x 交接时环境（rev173.135）**：桌面 dev 仍在跑（`zeronote.exe` pid **19632**，起于 13:27 · vite 1420 · CDP 9222）。
+  - **手机 `33b676f6` 坑（本轮实际踩到）**：`adb reverse tcp:1420 tcp:1420` 会丢；丢了以后手机 WebView 连不上 1420，
+    看门狗把进程杀掉（表现：启动 15 秒后无声退出，`pidof` 空，logcat 只有 `pthread_mutex_lock called on a destroyed mutex`）。
+    **每次重连 adb / 重启后先跑一次 `adb reverse tcp:1420 tcp:1420`**，再 `am start`；CDP forward 每次按新 pid 重建。
+  - **本机 DAV 桩其实还活着**：`node _tmp-dav-server.mjs _tmp-dav-root 8899`（pid **20860**，起于 10-24 23:43）——
+    旧记录说「已删除」不对。要用直接连 `http://127.0.0.1:8899/`（无鉴权，支持 PUT/GET/ETag/If-Match 412/MKCOL/PROPFIND；
+    **`If-None-Match` 不返 304**）。
+  - **`sync-webdav` 配置已恢复坚果云**（`https://dav.jianguoyun.com/dav/` · 目录 `ZeroNote` · 账号原样 · 附件 **off**）。
+  - **桌面 CDP 坐标有 32px 垂直偏移**（`.zn-titlebar` 的 `getBoundingClientRect().y = -32`，但视觉在 0）——
+    用 `cdp.mjs click` 点不准时，改 `eval` 里 `el.click()` / `dispatchEvent(new MouseEvent(...))`。
+  - **桌面菜单入口 = 右键 ☰**（左键是文件树栏开关）；`Ctrl+P` 等命令表快捷键本轮用 CDP `Input.dispatchKeyEvent` 没验通（代码有接线，原因未查）。
+- **2026-10-25 14:08 交接时环境（上一代）**：桌面 dev 在跑（`zeronote.exe` pid **19632** 起于 **13:27**，
   二进制 13:22 重编 ⇒ **已含 rev173.131 的 `net.rs` CL 修复**）· vite 1420 / CDP 9222 正常 ·
   本会话**没重启 dev**，只 `location.reload()` 过几次（插件从 `?raw` 重新写盘）。
   - **全局插件目录**：`sync-folder` **0.3.1**（rev173.133）· `backlinks` **0.2.0**（rev173.134）·
