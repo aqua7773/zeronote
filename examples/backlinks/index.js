@@ -7,9 +7,13 @@
  *
  * 为什么用 `fs` 扫而不是 `index.query('[[名字]]')`：
  * 索引会**切词**（空格 / 标点 / `[[` 都可能被丢），拿它找引用必然漏（方案 §4.2 已核实）。
- * 所以走 `fs.listNotes()` + 逐篇 `readText` —— 有成本，靠下面两条压住：
- *   1. **只扫最近 30 天**改过的笔记（老笔记里的引用极少变化，且用户当前关心的通常在新笔记里）
- *   2. **按 path + mtime 缓存**到 `store`：mtime 没变就不重读（第二次打开几乎零 IO）
+ *
+ * rev173.134：从「只扫最近 30 天」升级为**全库持久反链索引**。成本靠三条压住：
+ *   1. **`mtime` 缓存**：磁盘 mtime 没变就不重读（rev173.95 起就有）；
+ *   2. **`at` 信任窗口**：`note:saved` 现在带 `text`（rev173.133），保存后**零读盘**就能
+ *      更新这一篇的 refs；`at >= mtime` 表示我们手里的内容比磁盘那次修改还新，不必重读；
+ *   3. **事件增量**：保存 / 外部改 / 删除 / 改名都只动这一篇，不再全库重扫。
+ * 老库第一次加载会全量读一遍（后台跑、不挡界面），之后基本零 IO。
  *
  * 面板形态：`location: 'modal'`（浮层）—— 不顶掉编辑器，看一眼就关（2026-10-23 用户已拍板：
  * 标签 / 历史 / 打卡用主区标签，反链用 modal）。
@@ -21,10 +25,14 @@
 const PANEL_ID = 'backlinks.board'
 /** 状态栏入口：显示「被 N 篇引用」（2026-10-24 用户要求） */
 const STATUS_ID = 'backlinks.status'
-/** 缓存键：`{ [path]: { mtime, refs: [{ name, line }] } }` */
+/**
+ * 缓存键：`{ [path]: { mtime, at, refs: [{ name, line }] } }`
+ *
+ * · `mtime` —— 读盘时那篇的磁盘修改时间（判"磁盘没变"用）
+ * · `at`    —— 我们**最后一次拿到这篇内容**的时刻（事件 / 读盘）。
+ *              `at >= mtime` ⇒ 手里的内容不比磁盘旧，可以不重读（rev173.134）
+ */
 const CACHE_KEY = 'refs.v1'
-/** 只扫最近这么多天改过的笔记（方案 §4.2 的折中） */
-const SCAN_DAYS = 30
 /** 上下文行截断（一个字一个字算，不用 slice 免得切坏 emoji） */
 const CONTEXT_MAX = 120
 /** 同一篇里最多展示几条引用（一篇里刷 20 条会把面板撑爆） */
@@ -205,47 +213,133 @@ export default {
       api.view.refresh(PANEL_ID)
     }
 
+    /* ── 全库持久反链索引（rev173.134） ── */
+
     /**
-     * 扫描全库引用（带缓存）。返回 `{ entries, total, recent }`。
+     * 内存缓存 `{ [path]: { mtime, at, refs } }` —— 全库的引用表，也是状态栏计数的唯一数据源。
      *
-     * 缓存语义：**path + mtime 都没变 ⇒ 直接用上次抽出的 refs**。删掉的笔记用"新缓存表覆盖"
-     * 自然淘汰（不必主动清）。`force` 时整表作废（「重新扫描」按钮）。
+     * 为什么放进内存：状态栏「被 N 篇引用」原来每次事件都 `listNotes()` + 全库扫描，
+     * 大库上每保存一次就是一次全库 IO。现在事件只增量改这一篇，计数直接从内存算。
+     */
+    let cache = {}
+    let cacheLoaded = false
+    /** store 写入防抖（保存一次写一次 store 太重） */
+    let persistTimer = 0
+
+    /** 从 store 恢复缓存（只做一次；坏数据当空表，别让插件起不来） */
+    async function loadCache() {
+      if (cacheLoaded) return
+      cacheLoaded = true
+      try {
+        const saved = (await api.store.get(CACHE_KEY, {})) ?? {}
+        if (saved && typeof saved === 'object') cache = { ...saved, ...cache }
+      } catch {
+        /* 读不出来就当空表：下一次扫描会重建 */
+      }
+    }
+
+    /** 落盘（500 ms 防抖） */
+    function persistSoon() {
+      if (persistTimer) return
+      persistTimer = setTimeout(() => {
+        persistTimer = 0
+        void Promise.resolve(api.store.set(CACHE_KEY, cache)).catch(() => {})
+      }, 500)
+    }
+
+    /**
+     * 这条缓存够不够新 —— 够新就不必读盘。
+     *
+     * · `mtime` 相等 ⇒ 磁盘没动过（老判据）；
+     * · `at >= mtime` ⇒ 我们手里这份内容来自事件 / 读盘，比磁盘那次修改**不旧**。
+     *   事件总是发生在写盘之后，所以 `at` 天然 ≥ 文件 mtime；之后别处再改，
+     *   mtime 会越过 `at` ⇒ 判定失效 ⇒ 自动重读。这一条是「保存后零读盘」的关键。
+     */
+    function freshEnough(hit, meta) {
+      if (!hit) return false
+      if (hit.mtime === meta.mtime) return true
+      return typeof hit.at === 'number' && hit.at >= meta.mtime
+    }
+
+    /** 记一篇的 refs */
+    function putEntry(path, refs, mtime, at) {
+      cache[path] = { mtime, at, refs }
+      persistSoon()
+    }
+
+    /** 从磁盘重读一篇（`note:changed` 用；读不到就当作被删） */
+    async function refreshEntry(path) {
+      try {
+        const text = await api.fs.readText(path)
+        putEntry(path, extractRefs(text), 0, Date.now())
+      } catch {
+        delete cache[path]
+        persistSoon()
+      }
+    }
+
+    /**
+     * 扫描全库引用（带缓存）。返回 `{ entries, total, read }`。
+     *
+     * rev173.134：**全库**（不再只扫最近 30 天）。`read` = 这一轮真正读了几篇盘 ——
+     * 稳态下应该是 0（全靠 mtime / at 命中）。大库每读 25 篇让出一次事件循环，
+     * 免得首次全扫把界面顶死。
      */
     async function scan(force, prefetched) {
       const all = ((prefetched ?? (await api.fs.listNotes())) || []).filter(
         (n) => n.kind === 'note',
       )
-      const cutoff = Date.now() - SCAN_DAYS * 24 * 60 * 60 * 1000
-      const recent = all.filter((n) => n.mtime >= cutoff)
-      let cached = {}
-      if (!force) {
-        try {
-          cached = (await api.store.get(CACHE_KEY, {})) ?? {}
-        } catch {
-          cached = {}
-        }
-      }
-      const nextCache = {}
+      await loadCache()
+      const source = force ? {} : cache
       const entries = []
-      for (const n of recent) {
-        const hit = cached[n.path]
-        let entry = hit && hit.mtime === n.mtime ? hit : null
+      let read = 0
+      for (const n of all) {
+        const hit = source[n.path]
+        let entry = freshEnough(hit, n) ? hit : null
         if (!entry) {
           try {
-            entry = { mtime: n.mtime, refs: extractRefs(await api.fs.readText(n.path)) }
+            entry = {
+              mtime: n.mtime,
+              at: Date.now(),
+              refs: extractRefs(await api.fs.readText(n.path)),
+            }
+            read += 1
           } catch {
             continue // 刚删 / 读不了：这篇跳过，不影响其它
           }
         }
-        nextCache[n.path] = entry
+        cache[n.path] = entry
         entries.push({ path: n.path, title: n.title, refs: entry.refs })
+        // 分片让出：每读完 25 篇喘一口气（只有首次全扫会走到）
+        if (read > 0 && read % 25 === 0) await new Promise((r) => setTimeout(r, 0))
       }
-      try {
-        await api.store.set(CACHE_KEY, nextCache)
-      } catch {
-        /* 缓存写失败不影响本次结果 */
-      }
-      return { entries, total: all.length, recent: recent.length }
+      // 磁盘上已经没有的篇：缓存里一并淘汰（用 listNotes 的结果当权威）
+      const alive = new Set(all.map((n) => n.path))
+      for (const path of Object.keys(cache)) if (!alive.has(path)) delete cache[path]
+      persistSoon()
+      return { entries, total: all.length, read }
+    }
+
+    /**
+     * 后台补齐全库索引（启动 / 切库后跑一次；不挡界面）。
+     *
+     * 用 promise 缓存：`updateCount` 会 `await` 它 —— 否则冷启动那一下状态栏先显示
+     * 「被 0 篇引用」再跳成真实数字（测试里也暴露了同样的时序）。补齐完成后延迟一拍
+     * 重算一次，避免和 `updateCount` 自己的等待互相递归。
+     */
+    let catchUpPromise = null
+    function ensureCaughtUp() {
+      if (catchUpPromise) return catchUpPromise
+      catchUpPromise = (async () => {
+        await loadCache()
+        try {
+          await scan(false)
+        } catch (e) {
+          api.host.log?.('debug', `反链索引补齐失败：${String(e)}`)
+        }
+        setTimeout(() => touchCount(), 0)
+      })()
+      return catchUpPromise
     }
 
     /** 用当前 target 重算命中（`view.names` 由 show 时定） */
@@ -261,7 +355,7 @@ export default {
           hits: matchRefs(r.entries, view.names, view.selfPath),
           ambiguity: findAmbiguous(r.entries, view.names, view.selfPath),
           scanning: false,
-          summary: `最近 ${SCAN_DAYS} 天改过 ${r.recent} 篇 / 全库 ${r.total} 篇 · ${new Date().toLocaleTimeString()}`,
+          summary: `全库 ${r.total} 篇 · 本轮读盘 ${r.read} 篇 · ${new Date().toLocaleTimeString()}`,
         }
       } catch (e) {
         view = { ...view, scanning: false, hits: [], summary: `扫描失败：${String(e)}` }
@@ -369,16 +463,20 @@ export default {
     /**
      * 重算状态栏计数。
      *
-     * 用 `scan(false)`（带 path+mtime 缓存）—— 切一篇笔记只重读"改过的那几篇"，
-     * 不是每次全库读盘。算完只 `refresh(STATUS_ID)`，不动面板。
+     * rev173.134：**从内存缓存算**，不再 `scan()` 全库。以前每收到一个 `note:*` 事件
+     * 就 `listNotes()` + 扫描一轮，大库上「每保存一次 = 一次全库 IO」。现在缓存由事件
+     * 增量维护，这里只剩一次目录列举（拿标题）。
      */
     async function updateCount(path) {
       const seq = ++countSeq
       try {
+        await ensureCaughtUp() // 冷启动先让全库索引就位，避免先显示 0 再跳数字
         const notes = await api.fs.listNotes()
         const meta = notes.find((n) => n.path === path)
         const names = [...new Set([meta?.title, baseName(path)].filter(Boolean))]
-        const { entries } = await scan(false)
+        const entries = (notes ?? [])
+          .filter((n) => n.kind === 'note')
+          .map((n) => ({ path: n.path, title: n.title, refs: cache[n.path]?.refs ?? [] }))
         if (seq !== countSeq) return // 期间又切了笔记，丢弃旧结果
         const hits = matchRefs(entries, names, path)
         refTarget = meta?.title || baseName(path)
@@ -413,19 +511,77 @@ export default {
         if (d?.path) void updateCount(d.path)
       }),
     )
-    for (const topic of ['note:saved', 'note:changed', 'note:deleted', 'note:renamed']) {
-      api.subscriptions.push(
-        api.event.on(topic, () => {
-          const doc = api.doc.active()
-          if (doc?.path) void updateCount(doc.path)
-        }),
-      )
-    }
-    // 插件加载时可能已经有打开的笔记（热重载 / 切换插件）：先算一次
-    {
+
+    /** 有打开的笔记就顺手重算状态栏（缓存已经更新，这一步很便宜） */
+    function touchCount() {
       const doc = api.doc.active()
       if (doc?.path) void updateCount(doc.path)
     }
+
+    /* 事件增量：增删改都只动这一篇，不再触发全库扫描（rev173.134） */
+    api.subscriptions.push(
+      api.event.on('note:saved', (payload) => {
+        const path = String(payload?.path ?? '')
+        if (!path) return
+        // 内核随事件带正文（rev173.133）⇒ 保存后零读盘就能更新这篇的引用表
+        if (typeof payload?.text === 'string') {
+          putEntry(path, extractRefs(payload.text), 0, Date.now())
+        } else {
+          void refreshEntry(path) // 旧内核：退回读盘
+        }
+        touchCount()
+      }),
+    )
+
+    api.subscriptions.push(
+      api.event.on('note:changed', (payload) => {
+        const path = String(payload?.path ?? '')
+        if (!path) return
+        // 插件自己写盘（rev173.120）不算内容变化，跳过避免无谓读盘
+        if (payload?.origin === 'plugin') return
+        if (payload?.kind === 'delete') {
+          delete cache[path]
+          persistSoon()
+        } else {
+          void refreshEntry(path)
+        }
+        touchCount()
+      }),
+    )
+
+    api.subscriptions.push(
+      api.event.on('note:deleted', (payload) => {
+        const path = String(payload?.path ?? '')
+        if (!path) return
+        delete cache[path]
+        persistSoon()
+        touchCount()
+      }),
+    )
+
+    api.subscriptions.push(
+      api.event.on('note:renamed', (payload) => {
+        const from = String(payload?.from ?? '')
+        const to = String(payload?.to ?? '')
+        if (!from || !to) return
+        if (cache[from]) {
+          cache[to] = cache[from]
+          delete cache[from]
+          persistSoon()
+        }
+        touchCount()
+      }),
+    )
+
+    /**
+     * 插件加载时可能已经有打开的笔记（热重载 / 切换插件）：
+     * 先恢复缓存 → 后台补齐全库（老库第一次会全量读一遍）→ 再算一次状态栏。
+     */
+    void (async () => {
+      await ensureCaughtUp()
+      const doc = api.doc.active()
+      if (doc?.path) void updateCount(doc.path)
+    })()
 
     api.subscriptions.push(
       api.command.register({

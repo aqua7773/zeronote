@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "id": "backlinks",
   "name": "反向链接",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "看谁引用了这篇笔记",
+  "description": "看谁引用了这篇笔记（全库索引：老笔记里的引用也算，保存后零读盘更新）",
   "category": "tool",
-  "capabilities": ["fs:read", "doc:read", "store", "command", "view:modal"],
+  "capabilities": ["fs:read", "doc:read", "store", "event", "command", "view:modal"],
   "activationEvents": ["onStartup"],
   "contributes": {
     "commands": [

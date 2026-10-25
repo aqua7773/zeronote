@@ -182,7 +182,9 @@ type PanelSpec = {
   render: (ctx?: { pluginId: string; state: Record<string, unknown> }) => Node
 }
 
-function fakeApi(opts: { doc?: { path: string } | null; notes?: unknown[] } = {}) {
+function fakeApi(
+  opts: { doc?: { path: string } | null; notes?: unknown[]; texts?: Record<string, string> } = {},
+) {
   const commands = new Map<string, { id: string; run: (p?: unknown) => unknown }>()
   const panels: PanelSpec[] = []
   const executed: { id: string; payload: unknown }[] = []
@@ -195,6 +197,7 @@ function fakeApi(opts: { doc?: { path: string } | null; notes?: unknown[] } = {}
   const texts: Record<string, string> = {
     '双链验收.md': '引用 [[标签验收-周报]] 与 [[本周进展]]',
     '标签验收-周报.md': '没有引用',
+    ...(opts.texts ?? {}),
   }
 
   const readText = vi.fn(async (path: string) => texts[path] ?? '')
@@ -341,5 +344,85 @@ describe('apply：注册与接线', () => {
     const status = panels.find((p) => p.id === 'backlinks.status')!
     const node = status.render() as unknown as { onClick: string }
     expect(node.onClick).toBe('backlinks.show-for-current')
+  })
+})
+
+/* ───────────────────────── 6. 全库持久反链索引（rev173.134） ───────────────────────── */
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+describe('全库持久反链索引（rev173.134）', () => {
+  it('120 天前的老笔记里的引用也命中（不再有 30 天窗口）', async () => {
+    const old = Date.now() - 120 * 24 * 60 * 60 * 1000
+    const { api, commands, panels } = fakeApi({
+      doc: { path: '老笔记.md' },
+      notes: [
+        { path: '老笔记.md', title: '老笔记', mtime: old, kind: 'note' },
+        { path: '很久以前.md', title: '很久以前', mtime: old - 86_400_000, kind: 'note' },
+      ],
+      texts: { '很久以前.md': '见 [[老笔记]]' },
+    })
+    plugin.apply(api as never)
+    await commands.get('backlinks.show-for-current')!.run()
+
+    const links = walk(panels[0].render()).filter((n) => n.type === 'link')
+    expect(links).toHaveLength(1)
+  })
+
+  it('`note:saved` 带正文 ⇒ 缓存直接更新，不读盘', async () => {
+    const now = Date.now()
+    const { api, readText, events, panels } = fakeApi({
+      doc: { path: '标签验收-周报.md' },
+      notes: [
+        { path: '新篇.md', title: '新篇', mtime: now, kind: 'note' },
+        { path: '标签验收-周报.md', title: '本周进展', mtime: now, kind: 'note' },
+      ],
+      texts: { '新篇.md': '还没有引用' },
+    })
+    plugin.apply(api as never)
+    await sleep(30) // 等后台补齐（会把磁盘上的「还没有引用」读进来）
+    const before = readText.mock.calls.length
+
+    events.get('note:saved')!({ path: '新篇.md', text: '现在引用 [[标签验收-周报]]' })
+    await sleep(20)
+
+    expect(readText.mock.calls.length).toBe(before) // 零读盘
+    const status = panels.find((p) => p.id === 'backlinks.status')!
+    expect((status.render() as unknown as { label: string }).label).toBe('被 1 篇引用')
+  })
+
+  it('事件更新过之后即使 mtime 变新也不重读（`at` 信任窗口）', async () => {
+    const base = Date.now() - 60_000
+    const { api, readText, events, commands } = fakeApi({
+      doc: { path: '标签验收-周报.md' },
+      notes: [
+        { path: '旧.md', title: '旧', mtime: base, kind: 'note' },
+        { path: '标签验收-周报.md', title: '本周进展', mtime: base, kind: 'note' },
+      ],
+      texts: { '旧.md': '' },
+    })
+    plugin.apply(api as never)
+    await sleep(30)
+
+    // 事件时刻晚于 base ⇒ at >= mtime ⇒ 下次扫描应直接信任缓存
+    events.get('note:saved')!({ path: '旧.md', text: '[[标签验收-周报]]' })
+    await sleep(10)
+    const before = readText.mock.calls.length
+    await commands.get('backlinks.show-for-current')!.run()
+
+    expect(readText.mock.calls.length).toBe(before)
+  })
+
+  it('`note:deleted` ⇒ 缓存淘汰，计数归零', async () => {
+    const { api, events, panels } = fakeApi({ doc: { path: '标签验收-周报.md' } })
+    plugin.apply(api as never)
+    await sleep(30)
+
+    const status = panels.find((p) => p.id === 'backlinks.status')!
+    expect((status.render() as unknown as { label: string }).label).toBe('被 1 篇引用')
+
+    events.get('note:deleted')!({ path: '双链验收.md' })
+    await sleep(20)
+    expect((status.render() as unknown as { label: string }).label).toBe('被 0 篇引用')
   })
 })
