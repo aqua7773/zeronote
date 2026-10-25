@@ -37,7 +37,9 @@ pwsh -File scripts\verify.ps1
 > **第二批 UX 已落地（rev173.156：详情页含能力自述 / 更新角标 / 启动 24h 节流检查 + 设置开关）**。
 > **下一步按成本挑**：
 > ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上、且有按 IP 的速率限制 —— 见 rev173.151）·
-> ② 公开仓库剩余：仓库 **topics**（现在为空，搜索发现不到）、CI 依赖缓存加速。
+> ② 公开仓库剩余：**CI 依赖缓存加速**（现在每次全量装：4 分钟里约 3 分钟是 Rust 编译）；
+> 仓库 **topics 已加**（2026-10-25 · 14 个：`tauri` `markdown` `note-taking` `notes-app`
+> `local-first` `offline-first` `plugin-system` `react` `rust` `typescript` `desktop-app` `android` `tauri-app` `markdown-editor`）。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
 
@@ -79,6 +81,7 @@ pwsh -File scripts\verify.ps1
   `node scripts/gen-market.mjs --write`（会校验「包在不在 + sha256 对不对」）→ 提交 `market/`。
   `dist/*.znp` 仍是不入库的构建产物；Release `plugins-v0.5.0` 那 13 个包**留着当镜像**，索引不再指向它。
 - **仓库已开源**（2026-10-25 · MIT）：https://github.com/aqua7773/zeronote（public）。`LICENSE` + README 顶部免责已补。
+  **topics** 14 个（2026-10-25 加，便于搜索发现）；描述已在。改：`gh repo edit aqua7773/zeronote --add-topic <t>`。
 - **CI**：`.github/workflows/verify.yml`（windows-latest，push / PR 都跑）＝ `verify.ps1` 六步，质量门走
   `check-gates.mjs`（与本地唯一入口一致，别在 workflow 里逐条重列）。2026-10-25 之前**每个 run 都是红的**
   （根因：`localeCompare` 不传 locale，runner 的 en-US 下中文排序与本机 zh-CN 不同）⇒ rev173.154 修，
