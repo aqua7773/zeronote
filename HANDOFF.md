@@ -19,7 +19,7 @@ revision: 173.139
 
 | rev | 内容 |
 |---|---|
-| rev173.139 | 2026-10-25 · **HANDOFF 分卷 890 KB → 63 KB + ROADMAP 收口**：新增 `scripts/handoff-archive.mjs`（可复用 / 幂等 / `--dry-run`）—— 主文件只留 0.5.0 周期（`KEEP_FROM = rev173.125`，14 段 / 63 KB），275 段按版本切进 `docs/archive/handoff/`：`0.4.md` 54 段 · `0.3.md` 44 段 · `0.2.md` 163 段 · 同时切索引与正文 ⇒ check-docs 第 ③ 条天然通过 · 顶部加指路表 + `git grep -n "rev号" -- docs/archive/handoff/` · 原「更新时间」行是 25,989 字符的累积摘要 ⇒ 改成一行（信息没丢）· **副产物**：归档被 check-links 递归扫到（它**不扫 HANDOFF.md 本身**），暴露一处 `[App.tsx](<src/App.tsx>)` 伪链接（已修）⇒ 分卷前这些链接从没被检查过 · **ROADMAP 收口**：上一阶段留档 → 已拍板决定 → **候选池**（卡外部输入 / 等输入 / 要用户拍板 / 小债）→ 固定收口 → 暂缓不做；`D-008` 的重议条件「插件数 > 10」已满足（预装 13）⇒ 标成「要不要重开由用户定」 |
+| rev173.139 | 2026-10-25 · **HANDOFF 分卷 890 KB → 63 KB + ROADMAP 收口**：新增 `scripts/handoff-archive.mjs`（可复用 / 幂等 / `--dry-run`）—— 主文件只留 0.5.0 周期（`KEEP_FROM = rev173.125`，14 段 / 63 KB），275 段按版本切进 `docs/archive/handoff/`：`0.4.md` 54 段 · `0.3.md` 44 段 · `0.2.md` 163 段 · 同时切索引与正文 ⇒ check-docs 第 ③ 条天然通过 · 顶部加指路表 + `git grep -n "rev号" -- docs/archive/handoff/` · 原「更新时间」行是 25,989 字符的累积摘要 ⇒ 改成一行（信息没丢）· **副产物**：归档被 check-links 递归扫到（它**不扫 HANDOFF.md 本身**），暴露一处 `[App.tsx](<src/App.tsx>)` 伪链接（已修）⇒ 分卷前这些链接从没被检查过 · **ROADMAP 收口**：上一阶段留档 → 已拍板决定 → **候选池**（卡外部输入 / 等输入 / 要用户拍板 / 小债）→ 固定收口 → 暂缓不做；`D-008` 的重议条件「插件数 > 10」已满足（预装 13）⇒ 标成「要不要重开由用户定」 · **HANDOFF-CARD 也从 540 行瘦到 84 行**（删 200 行 ✅ 累积 + 50 行 0.3.0 周期 rev 表；3 条坑早就在 `docs/开发约定.md`，2 条补进 §4 测试约定 / §8 事故清单，CDP 端点补进本文备注） |
 | rev173.138 | 2026-10-25 · **`rewrite_links` 两个防护 + 两次误判的教训入库**：Rust 新增 `replace_outside_code`（状态机替换，**fenced code / 行内代码原样保留** —— 此前纯字面替换会把笔记里贴的 `[[旧名]]` 语法示例改坏）· 新增 `backup_before_rewrite`（改前原文 → `<库>/.zn/link-rewrite/<毫秒>/<原路径>`，只留最近 20 次）· 单测 +1（fenced 不动 / 行内不动 / 备份内容 = 改前原文）· **同轮两次「只 grep `src/`」误判已回滚**：改名改引用其实 2026-10-17 就在 `rename_note → rewrite_links`；待办 checkbox 是 atomic 0.6.2 内置 · 教训写进 `docs/开发约定.md` §0.5（三层都查）+ §8 |
 | rev173.137 | 2026-10-25 · **文档状态复核 + 发版 0.5.0**：`docs/README.md` 权威矩阵 4 行 + 4 份文档状态头按代码/提交复核（快捷入口 `QuickLaunch.tsx` = rev173.20–22 · 标签拖拽 = 已裁决，B 方案 rev173.54 落地、rev173.68 移除 · 全功能对标 §6 五项 = rev173.59/60/61/63/65 · 同步方案 = 已落地 rev173.106–136）· **`D-002`「不做云同步」仍标 accepted 而同步四后端已真机验收** ⇒ 新增 **`D-009`** 取代（自带后端 · 凭据走钥匙串 · 前台近实时 · 三方合并 · 仍不做账号/服务端/E2E），`D-002` 正文加 ⚠️ 更正块 · `D-006` → **superseded**（rev173.61 已接 window-state）· **发版 0.5.0**（`v0.4.0` 后 44 个提交；0.4.0 详细条目从未归档 ⇒ `[Unreleased]` 整体改名 0.5.0 并标注，另补 `[0.4.0]` 段） |
 | rev173.136 | 2026-10-25 · **`sync-folder` 真双端合并冲突验收（Syncthing 2.1.7 两实例）**：装便携版 `Apps\Portable\Syncthing`（winget 两条路都卡：msstore 证书 `0x8a15005e` / GitHub 42 KB/s ⇒ `gh release download` + 本机代理）· 同机两实例（GUI 8384/8385 · 监听 22001/22002）REST 配对共享 folder `zn`，A = `_tmp-vault-tb`、B = `_tmp-sync\peer-b`，两端 `.stignore` 排除 `.zn` · 编辑器加 `A-SIDE-1521` 后 **1.7 s** 在对端加 `B-SIDE-1521` ⇒ **4 s 后** Syncthing 生成 `笔记1.sync-conflict-20261025-151226-SLX52RS.md` ⇒ **三方合并成功**：主文件两边改动都在、`pending` 清空、面板「合并 1」· 实例已停（不常驻）；Syncthing 已登记 `_View\网络与传输\`（55 条）+ `_软件清单.md`（7 → 8） |
@@ -65,6 +65,16 @@ revision: 173.139
 > 上一阶段（留档）→ 已拍板决定 → **候选池**（卡外部输入 / 等输入 / 要用户拍板 / 小债）→ 固定收口 → 暂缓不做。
 > 候选池**只收文档里已有记录的项，没有新发明工作**。
 > 其中 `D-008` 重议条件「插件数 > 10」已满足（预装 13）⇒ 标成「要不要重开由用户定」。
+>
+> ### 顺手：HANDOFF-CARD 也瘦了（540 → 84 行）
+>
+> 卡本身超了规范 4 倍（`docs/文档编写规范.md` §5.5：**≤ 120 行**）：200 行是「下个会话第一件事」的 ✅ 累积、
+> 50 行是 0.3.0 周期的 rev 表 —— 全是 HANDOFF 里已有的重复。
+> 删重复、留真未决（7 条卡点）、环境现状只留当前一代、硬约束 / 授权边界原样。
+> 「踩过的坑」里 3 条早就在 `docs/开发约定.md`（`useState` 顺序 / 行号删段 / HANDOFF 标题行），
+> 剩下 2 条补进 §4 测试约定（**组件测试必须 `afterEach(cleanup)`**）与 §8（**CSS HMR 偶发不生效**），
+> 「WebView2 的 CDP 端点只认 `node fetch`」补进本文备注。
+> **信息没丢，只是不再写两遍。**
 >
 > ### 验证
 >
@@ -715,6 +725,7 @@ revision: 173.139
 - **合成键盘**：字母键（`keybd_event`）能进 WebView2 ✅；**Enter（VK 0x0D）进不去** ❌（已用命令面板对照实验确认）⇒ **不要用合成 Enter 做验收**。
 - **合成鼠标**：可行，但**悬停要 ≥300ms、按压 ≥90ms**，否则 React 的 click 可能不触发（悬停 200ms + 按压 60ms 时实测失败）。
 - **中文输入法会转换合成输入**：输入 `zntest` 落盘变成「只能testx」——测试文本请用不含拼音歧义的字符串。
+- **WebView2 的 CDP 端点只认 `node fetch`**：`Invoke-WebRequest` / PowerShell 的 HTTP 栈一律 **404**（不是权限、不是端口问题）。
 - **不要目测截图里的坐标**（2026-10-11 连栽三次）：① PrintWindow 画布 1800px 而预览图 1554px，目测值差约 15%；② **tab 栏的横向滚动位置会变**，上一轮扫到的坐标下一轮就失效。**正确做法：同一个脚本里先 `PrintWindow` 扫描目标元素的像素列段，拿扫描结果直接去点**，绝不跨轮沿用坐标。命中失败时先怀疑坐标，别怀疑功能没实现。
 - **`PrintWindow` 可能返回同一帧**：连续两次截图 sha256 完全相同 ⇒ 别当成"功能坏了"。**2026-10-11 二次踩坑**：WebView 未重绘时它会把**旧的缓存帧**原样吐出来（实测连续三张图字节完全一致，而界面早已变了），一度误判成"代码没生效"。**正确做法：改用 `Graphics.CopyFromScreen(窗口矩形)` 抓屏**，抓到的才是实时内容（体积也明显更大：86 KB vs 32 KB 缓存帧）。
 - **HMR 会断——`F5` 也可能救不回来，这时只能重启 dev**（2026-10-11 实测）：vite 日志显示 `[vite] (client) hmr update /src/App.tsx` 一直在发（watcher 没死），但 WebView 里始终是旧界面，连 F5 都不生效。根因是 WebView 的 HMR WebSocket 断了、页面重载也没接上。**判据**：改了 `src/**`、vite 日志有对应 `hmr update`，但界面纹丝不动 ⇒ 直接重启 dev（`Stop-Process` 掉 `zeronote` + `cargo` + 占 1420 的 node，再 `Start-Process cmd /c dev.cmd`），别再去查代码。**副产物**：`file watcher error: EBUSY ... .tmpdir\App.tsx.tmp` 是 dsh 的 edit 工具用「临时文件 + rename」写盘造成的噪音，无害，不是 HMR 断线的原因。
