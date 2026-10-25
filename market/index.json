@@ -196,6 +196,32 @@
       ]
     },
     {
+      "id": "secrets",
+      "name": "密码库",
+      "author": "aqua7773",
+      "description": "绝密账号库：平台 / 账号两级，整库加密存 .zn/secrets/，需要先装「安全」插件提供密钥环",
+      "category": "tool",
+      "platforms": [
+        "desktop",
+        "android"
+      ],
+      "apiVersion": "^0.2.0",
+      "version": "0.1.0",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.0.znp",
+      "sha256": "c0fc84a97cfbb4d348a748f989b9028110f84768f3873089135224c1e62e0b98",
+      "size": 47859,
+      "files": [
+        "index.js",
+        "signature.json"
+      ],
+      "capabilities": [
+        "command",
+        "fs:read",
+        "fs:write",
+        "view:main"
+      ]
+    },
+    {
       "id": "security",
       "name": "安全",
       "author": "aqua7773",
