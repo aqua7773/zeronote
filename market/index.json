@@ -20,6 +20,13 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "store",
+        "command",
+        "view:main",
+        "fs",
+        "host"
       ]
     },
     {
@@ -35,11 +42,19 @@
       "apiVersion": "^0.2.0",
       "version": "0.2.1",
       "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.1.znp",
-      "sha256": "7446c7cfbe2076ff28c27f63508610faf53c84b9823c18b7ff80f9a4a6e78561",
-      "size": 24418,
+      "sha256": "0e4e03e35ff070ca80986a6da059ddd22b2aabcb2709dc9582e1d38dbae5dc94",
+      "size": 24420,
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "doc:read",
+        "store",
+        "event",
+        "command",
+        "view:modal"
       ]
     },
     {
@@ -60,6 +75,12 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "command",
+        "view:main",
+        "store"
       ]
     },
     {
@@ -80,6 +101,12 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "store",
+        "command",
+        "view:main",
+        "host"
       ]
     },
     {
@@ -100,6 +127,15 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "doc:read",
+        "doc:write",
+        "command",
+        "view:modal",
+        "host"
       ]
     },
     {
@@ -120,6 +156,12 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "command",
+        "view:sidebar"
       ]
     },
     {
@@ -141,6 +183,16 @@
         "index.js",
         "outline.css",
         "signature.json"
+      ],
+      "capabilities": [
+        "doc:read",
+        "doc:write",
+        "fs:read",
+        "fs:write",
+        "command",
+        "editor:line-action",
+        "editor:line-class",
+        "editor:fold"
       ]
     },
     {
@@ -161,6 +213,16 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "doc:read",
+        "store",
+        "event",
+        "command",
+        "view:main",
+        "host"
       ]
     },
     {
@@ -181,6 +243,18 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "doc:read",
+        "store",
+        "event",
+        "command",
+        "view:main",
+        "host",
+        "net",
+        "service"
       ]
     },
     {
@@ -201,6 +275,18 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "doc:read",
+        "store",
+        "event",
+        "command",
+        "view:main",
+        "host",
+        "net",
+        "service"
       ]
     },
     {
@@ -221,6 +307,17 @@
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "doc:read",
+        "store",
+        "event",
+        "command",
+        "view:main",
+        "host",
+        "net"
       ]
     },
     {
@@ -236,11 +333,20 @@
       "apiVersion": "^0.2.0",
       "version": "0.2.1",
       "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/tag-panel-0.2.1.znp",
-      "sha256": "01ab61066570b2d27262329ffddaf92a8ef86a4ed86471ac0f80fb270225601d",
-      "size": 24513,
+      "sha256": "b6dfaa94a7f27bbd72e1f10ffe98aefd7e315532e95f3fc8df4efc091e1842ea",
+      "size": 24515,
       "files": [
         "index.js",
         "signature.json"
+      ],
+      "capabilities": [
+        "index:query",
+        "doc:read",
+        "command",
+        "view:main",
+        "view:modal",
+        "editor:mark",
+        "host"
       ]
     },
     {
@@ -260,7 +366,8 @@
       "size": 734,
       "files": [
         "theme.css"
-      ]
+      ],
+      "capabilities": []
     }
   ]
 }

@@ -16,5 +16,14 @@
   "files": [
     "index.js",
     "signature.json"
+  ],
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "doc:read",
+    "doc:write",
+    "command",
+    "view:modal",
+    "host"
   ]
 }

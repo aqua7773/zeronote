@@ -102,6 +102,7 @@ export function PluginPanel({
   onDelete,
   onInstall,
   onMarketInstall,
+  updates,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -117,6 +118,13 @@ export function PluginPanel({
    * 在 Rust 侧一次完成（失败不落盘）。不传 ⇒ 不显示「发现」tab（独立窗口 / 测试环境）。
    */
   onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
+  /**
+   * 可更新项（rev173.156）：`{ [插件 id]: 索引里的最新版本 }`。
+   *
+   * 来自 App 的 24h 节流检查（只查、只标角标，**不下载不安装**）。
+   * 缺省 / 空对象 ⇒ 不显示任何「可更新」提示。
+   */
+  updates?: Record<string, string>
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
@@ -146,6 +154,17 @@ export function PluginPanel({
       return next
     })
   }
+
+  /**
+   * 有几个插件在市场里有新版本（rev173.156）。
+   *
+   * 只数**真装着的**：`updates` 是索引算出来的，可能还留着已经删掉的插件 id ——
+   * 直接 `Object.keys(updates).length` 会把它们也算进去，角标就永远归零不了。
+   */
+  const updateCount = useMemo(
+    () => plugins.filter((p) => updates?.[p.id]).length,
+    [plugins, updates],
+  )
 
   /**
    * 按分类分组（rev173.4 · 用户「插件越来越多了，开始做插件分类存放」）。
@@ -186,6 +205,14 @@ export function PluginPanel({
             onClick={() => setTab('installed')}
           >
             已安装 <span className="zn-plugins-tab-count">{plugins.length}</span>
+            {updateCount > 0 && (
+              <span
+                className="zn-plugin-update-count"
+                title={`${updateCount} 个插件在市场里有新版本（不会自动升级，去「发现」里手动更新）`}
+              >
+                ↑ {updateCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -257,6 +284,15 @@ export function PluginPanel({
                   {p.name} <span className="zn-plugin-ver">v{p.version}</span>
                   {p.platformNote && (
                     <span className="zn-plugin-ver"> {p.platformNote}</span>
+                  )}
+                  {/* 可更新角标（rev173.156）：来自 24h 节流检查，点它不会自动升级 */}
+                  {updates?.[p.id] && (
+                    <span
+                      className="zn-plugin-update"
+                      title={`市场里有 v${updates[p.id]}，去「发现」tab 手动更新（不会自动升级）`}
+                    >
+                      ↑ 可更新 v{updates[p.id]}
+                    </span>
                   )}
                   {p.integrity === 'signed' ? (
                     <span

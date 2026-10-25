@@ -34,6 +34,12 @@ const externalPath = join(marketDir, 'external.json')
 const indexPath = join(marketDir, 'index.json')
 const write = process.argv.includes('--write')
 
+/**
+ * 官方插件的签名 keyId —— **必须与 `src-tauri/src/lib.rs` 的 `BUILTIN_TRUSTED_KEYS` 一致**。
+ * 轮换密钥时三处一起改：这里 / lib.rs / 重打包全部插件（`node scripts/verify-trust.mjs` 对账）。
+ */
+const OFFICIAL_KEY_ID = 'aqua-2026'
+
 const problems = []
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'))
 
@@ -80,6 +86,30 @@ if (existsSync(entriesDir)) {
         problems.push(
           `${name} 的包 sha256 与条目不一致（包 ${got.slice(0, 12)}… ≠ 条目 ${String(e.sha256).slice(0, 12)}…）`,
         )
+      }
+    }
+    /**
+     * ⑤ 官方包的签名 keyId 必须是内置信任根里的那个（rev173.156 事故防复发）。
+     *
+     * `pack-plugin.mjs` 不传 `--key-id` 时会把 keyId 写成 **`default`**：签名本身完全有效，
+     * 但客户端 `BUILTIN_TRUSTED_KEYS` 只认 `aqua-2026` ⇒ 包能下、能装，**加载时被拒载**。
+     * 症状极隐蔽（sha256 也对、签名也对），只有换台机器装才看得见。
+     */
+    if (existsSync(packPath)) {
+      try {
+        const pack = JSON.parse(readFileSync(packPath, 'utf8'))
+        const sigRaw = pack?.files?.['signature.json']
+        if (typeof sigRaw === 'string') {
+          const sig = JSON.parse(sigRaw)
+          if (sig?.keyId !== OFFICIAL_KEY_ID) {
+            problems.push(
+              `${name} 的签名 keyId 是 ${sig?.keyId ?? '?'}，应为 ${OFFICIAL_KEY_ID}` +
+                '（客户端内置信任根只认它；重打包时加 --key-id）',
+            )
+          }
+        }
+      } catch {
+        // 包本身坏了由 install 侧兜底；这里只查 keyId，不重复报解析错误
       }
     }
     official.push(e)

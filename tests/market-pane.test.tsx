@@ -16,6 +16,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 import { MarketPane } from '../src/components/MarketPane'
+import { capabilityLabel } from '../src/lib/capability-label'
 import type { PluginRow } from '../src/components/PluginPanel'
 
 const SHA = 'a'.repeat(64)
@@ -134,5 +135,88 @@ describe('发现（市场）', () => {
     await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
     expect(screen.getByText(/1 条被跳过/)).toBeTruthy()
     expect(screen.getByText(/broken/)).toBeTruthy()
+  })
+})
+
+/* ───────── 第二批 UX（rev173.156）：详情页 ───────── */
+
+describe('详情', () => {
+  const full = {
+    id: 'tag-panel',
+    name: '标签面板',
+    version: '0.2.1',
+    url: 'https://x/tag-panel-0.2.1.znp',
+    sha256: SHA,
+    author: 'aqua7773',
+    category: 'tool',
+    platforms: ['desktop', 'android'],
+    description: '按篇数降序列出全库标签',
+    size: 24513,
+    files: ['index.js', 'signature.json'],
+    capabilities: ['index:query', 'doc:read', 'command'],
+  }
+
+  it('点「详情」不安装，摊开描述 / 能力自述 / 下载地址', async () => {
+    mockIndex([full])
+    const onInstall = vi.fn()
+    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('详情'))
+    // 列表里已有一份描述，详情里再一份 ⇒ 2 处
+    await waitFor(() => expect(screen.getAllByText('按篇数降序列出全库标签')).toHaveLength(2))
+
+    // 能力被翻成人话（不是把 index:query 直接丢给用户）
+    expect(screen.getByText(capabilityLabel('index:query'))).toBeTruthy()
+    expect(screen.getByText(capabilityLabel('doc:read'))).toBeTruthy()
+    expect(screen.getByText(/tag-panel-0\.2\.1\.znp/)).toBeTruthy()
+    // 底部说明里也有「sha256」字样，这里只认详情里以它开头的那一行
+    expect(screen.getByText(/^sha256/)).toBeTruthy()
+    // 只是看一眼，不该触发任何下载
+    expect(onInstall).not.toHaveBeenCalled()
+  })
+
+  it('详情里点「安装」→ 关掉详情、弹确认框（确认后才装）', async () => {
+    mockIndex([{ id: 'n', name: '新插件', version: '1.0.0', url: 'https://x/n.znp', sha256: SHA }])
+    const onInstall = vi.fn().mockResolvedValue('n')
+    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('新插件')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('详情'))
+    await waitFor(() => expect(screen.getByText('关闭')).toBeTruthy())
+    expect(onInstall).not.toHaveBeenCalled()
+
+    const installBtns = screen.getAllByText('安装')
+    fireEvent.click(installBtns[installBtns.length - 1])
+    await waitFor(() => expect(screen.getByText('安装这个插件？')).toBeTruthy())
+    expect(onInstall).not.toHaveBeenCalled()
+
+    const now = screen.getAllByText('安装')
+    fireEvent.click(now[now.length - 1])
+    await waitFor(() => expect(onInstall).toHaveBeenCalledTimes(1))
+  })
+
+  it('字段缺失也不崩（老索引：没有能力自述 / 描述 / 大小）', async () => {
+    mockIndex([{ id: 'old', name: '老插件', version: '0.1.0', url: 'https://x/o.znp', sha256: SHA }])
+    render(<MarketPane installed={[]} onInstall={vi.fn()} onSwitchToInstalled={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('老插件')).toBeTruthy())
+    fireEvent.click(screen.getByText('详情'))
+    await waitFor(() => expect(screen.getByText(/索引里没有这个字段/)).toBeTruthy())
+    expect(screen.getByText('全平台')).toBeTruthy()
+  })
+
+  it('已装时详情里说明「已是最新 / 索引里更新」', async () => {
+    mockIndex([full])
+    render(
+      <MarketPane
+        installed={[installedRow('tag-panel', '0.2.0')]}
+        onInstall={vi.fn()}
+        onSwitchToInstalled={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
+    fireEvent.click(screen.getByText('详情'))
+    await waitFor(() => expect(screen.getByText(/索引里更新/)).toBeTruthy())
+    expect(screen.getByText('v0.2.0')).toBeTruthy()
   })
 })

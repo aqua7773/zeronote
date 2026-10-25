@@ -101,6 +101,14 @@ export interface SettingsProps {
    * 不传 ⇒ 该处不显示「发现」（测试 / 独立窗口）。
    */
   onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
+  /** 可更新项（rev173.156）：`{ [插件 id]: 最新版本 }` —— 只用于列表角标 */
+  updates?: Record<string, string>
+  /**
+   * 启动时静默检查插件更新（24 小时一次，只标角标、不下载不安装）。
+   * 缺省 = 不显示这一行（测试 / 独立窗口）。
+   */
+  autoCheckUpdates?: boolean
+  onAutoCheckChange?: (on: boolean) => void
 }
 
 export function Settings({
@@ -123,6 +131,9 @@ export function Settings({
   onReloadPlugins,
   onInstall,
   onMarketInstall,
+  updates,
+  autoCheckUpdates,
+  onAutoCheckChange,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
 
@@ -230,8 +241,25 @@ export function Settings({
                */
               <div className="flex h-[min(62vh,520px)] flex-col gap-2">
                 {/* 扫描按钮原本在 PluginPanel 的标题栏里，那边已按用户要求去掉标题与横线，
-                    这里补一个同款文字按钮，免得设置页里没法重新扫描 */}
-                <div className="flex justify-end">
+                    这里补一个同款文字按钮，免得设置页里没法重新扫描。
+                    rev173.156：左边加「启动检查更新」开关（24h 节流、只标角标、不自动安装） */}
+                <div className="flex items-center justify-between gap-3">
+                  {onAutoCheckChange ? (
+                    <label
+                      className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
+                      title="启动时最多每 24 小时查一次市场索引；只标「可更新」角标，不会自动下载或安装"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={autoCheckUpdates ?? true}
+                        onChange={(e) => onAutoCheckChange(e.target.checked)}
+                        aria-label="启动时检查插件更新"
+                      />
+                      启动时检查更新
+                    </label>
+                  ) : (
+                    <span />
+                  )}
                   <button type="button" className="zn-plain-btn" onClick={onReloadPlugins}>
                     重新扫描
                   </button>
@@ -245,6 +273,7 @@ export function Settings({
                     onDelete={onDeletePlugin}
                     onInstall={onInstall}
                     onMarketInstall={onMarketInstall}
+                    updates={updates}
                   />
                 </div>
               </div>

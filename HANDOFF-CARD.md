@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.155）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.156）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.155 · 0.5.0 · 2026-10-25 |
-| 测试基线 | vitest 951 · cargo 52 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.156 · 0.5.0 · 2026-10-25 |
+| 测试基线 | vitest 977 · cargo 52 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
@@ -33,10 +33,11 @@ pwsh -File scripts\verify.ps1
 
 > **仓库已开源（MIT · rev173.149）**，插件市场阶段 1 已落地（rev173.148），包已入库走 raw（rev173.150），
 > **手机端已真机走查（rev173.151）**，**设置与菜单两处插件页已统一（rev173.152：同一个 `PluginPanel`，
-> 市场 tab 一份代码）**，**开源配套已补齐（rev173.154：CI 从「一直红」修到能跑 + issue/PR 模板 + `CONTRIBUTING.md`）**。
+> 市场 tab 一份代码）**，**开源配套已补齐（rev173.154：CI 从「一直红」修到能跑 + issue/PR 模板 + `CONTRIBUTING.md`）**，
+> **第二批 UX 已落地（rev173.156：详情页含能力自述 / 更新角标 / 启动 24h 节流检查 + 设置开关）**。
 > **下一步按成本挑**：
-> ① 第二批 UX：详情页 / 更新角标 / 启动 24h 节流检查（~1 天）·
-> ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上、且有按 IP 的速率限制 —— 见 rev173.151）。
+> ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上、且有按 IP 的速率限制 —— 见 rev173.151）·
+> ② 公开仓库剩余：仓库 **topics**（现在为空，搜索发现不到）、CI 依赖缓存加速。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
 
@@ -82,6 +83,10 @@ pwsh -File scripts\verify.ps1
   `check-gates.mjs`（与本地唯一入口一致，别在 workflow 里逐条重列）。2026-10-25 之前**每个 run 都是红的**
   （根因：`localeCompare` 不传 locale，runner 的 en-US 下中文排序与本机 zh-CN 不同）⇒ rev173.154 修，
   **rev173.155 首次确认全绿**（15 步 · 4m45s · run `40192229548`）。
+- **市场实测要看新字段时**（rev173.156 实证过）：索引默认拉 GitHub raw、**推送前的改动看不到** ⇒
+  仓库根起 `python -m http.server 8931 --bind 127.0.0.1`，页面里
+  `localStorage.setItem('zn-market-index-url','http://127.0.0.1:8931/market/index.json')` → reload；
+  测完 `removeItem` 恢复并停服务。`window.__znExec('core.plugins' / 'core.settings')` 可直接进页面，不必点菜单。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374`，重启即恢复 · **别用 `plugin:window|destroy` 关窗口**（会连主窗口一起没）。
 
 ## 硬约束

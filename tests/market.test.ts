@@ -16,16 +16,25 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 import {
+  clearCachedUpdate,
+  computeUpdates,
   decodeBase64Utf8,
   fetchMarketIndex,
   installFromMarket,
+  isAutoCheckEnabled,
   marketAction,
   parseMarketIndex,
+  readCachedUpdates,
+  setAutoCheckEnabled,
+  shouldCheckUpdates,
+  writeCachedUpdates,
+  MARKET_CHECK_TTL_MS,
   type MarketEntry,
 } from '../src/kernel/market'
 
 beforeEach(() => {
   mocks.invoke.mockReset()
+  localStorage.clear()
 })
 
 const GOOD_SHA = 'a'.repeat(64)
@@ -119,6 +128,109 @@ describe('decodeBase64Utf8', () => {
     const text = '标签面板 · 中文没问题'
     const b64 = Buffer.from(text, 'utf8').toString('base64')
     expect(decodeBase64Utf8(b64)).toBe(text)
+  })
+})
+
+/* ───────── 第二批 UX（rev173.156）：能力自述 / 更新判定 / 24h 节流 ───────── */
+
+describe('parseMarketIndex：能力自述', () => {
+  it('字符串数组原样带出（详情页与安装确认框要用）', () => {
+    const r = parseMarketIndex(
+      JSON.stringify({ plugins: [{ ...entry(), capabilities: ['doc:read', 'net'] }] }),
+    )
+    expect(r.entries[0].capabilities).toEqual(['doc:read', 'net'])
+  })
+
+  it('混进非字符串 / 空串时过滤掉，不影响整条', () => {
+    const r = parseMarketIndex(
+      JSON.stringify({ plugins: [{ ...entry(), capabilities: ['fs:read', 42, '', '  ', null] }] }),
+    )
+    expect(r.entries[0].capabilities).toEqual(['fs:read'])
+  })
+
+  it('没有这个字段 ⇒ undefined（老索引照样能读）', () => {
+    const r = parseMarketIndex(JSON.stringify({ plugins: [entry()] }))
+    expect(r.entries[0].capabilities).toBeUndefined()
+  })
+})
+
+describe('computeUpdates', () => {
+  const installed = [
+    { id: 'tag-panel', version: '0.2.0' },
+    { id: 'habit', version: '0.3.0' },
+    { id: 'local-only', version: '1.0.0' },
+  ]
+
+  it('只返回「比本地新」的；同版本 / 本地更新 / 没装都不算', () => {
+    const entries = [
+      entry({ id: 'tag-panel', version: '0.2.1' }), // 可更新
+      entry({ id: 'habit', version: '0.3.0' }), // 同版本
+      entry({ id: 'history', version: '0.2.0' }), // 没装
+    ]
+    expect(computeUpdates(entries, installed)).toEqual({ 'tag-panel': '0.2.1' })
+  })
+
+  it('空索引 / 空已装 ⇒ 空对象（角标不出现）', () => {
+    expect(computeUpdates([], installed)).toEqual({})
+    expect(computeUpdates([entry()], [])).toEqual({})
+  })
+
+  it('数字段比较：0.10.0 > 0.9.0', () => {
+    const updates = computeUpdates([entry({ id: 'tag-panel', version: '0.10.0' })], [
+      { id: 'tag-panel', version: '0.9.0' },
+    ])
+    expect(updates).toEqual({ 'tag-panel': '0.10.0' })
+  })
+})
+
+describe('shouldCheckUpdates：24h 节流', () => {
+  const NOW = 1_000_000_000_000
+
+  it('没记录 / 记录坏了 ⇒ 查', () => {
+    expect(shouldCheckUpdates(null, NOW)).toBe(true)
+    expect(shouldCheckUpdates(undefined, NOW)).toBe(true)
+    expect(shouldCheckUpdates(0, NOW)).toBe(true)
+    expect(shouldCheckUpdates(Number.NaN, NOW)).toBe(true)
+  })
+
+  it('24 小时内不查、超过就查（边界按 >= 算）', () => {
+    expect(shouldCheckUpdates(NOW - 1000, NOW)).toBe(false)
+    expect(shouldCheckUpdates(NOW - MARKET_CHECK_TTL_MS + 1, NOW)).toBe(false)
+    expect(shouldCheckUpdates(NOW - MARKET_CHECK_TTL_MS, NOW)).toBe(true)
+  })
+
+  it('系统时间被调回（now < lastAt）⇒ 查，别变成「永远不查」', () => {
+    expect(shouldCheckUpdates(NOW + 5_000, NOW)).toBe(true)
+  })
+})
+
+describe('检查结论的缓存', () => {
+  it('写入后能读回来（含时间戳）', () => {
+    writeCachedUpdates(123, { 'tag-panel': '0.2.1' })
+    expect(readCachedUpdates()).toEqual({ at: 123, updates: { 'tag-panel': '0.2.1' } })
+  })
+
+  it('缓存坏了 ⇒ 当成没记录，不炸', () => {
+    localStorage.setItem('zn-market-updates', '{坏 JSON')
+    localStorage.setItem('zn-market-check-at', 'abc')
+    expect(readCachedUpdates()).toEqual({ at: null, updates: {} })
+  })
+
+  it('装完之后摘掉那一条（角标不该留着让人以为没更新成功）', () => {
+    const next = clearCachedUpdate({ a: '1.0.0', b: '2.0.0' }, 'a')
+    expect(next).toEqual({ b: '2.0.0' })
+    // 不在表里 ⇒ 原样返回同一个对象（避免无意义的重渲染）
+    expect(clearCachedUpdate(next, 'zzz')).toBe(next)
+  })
+})
+
+describe('启动静默检查开关', () => {
+  it('默认开；关掉后读得到关', () => {
+    expect(isAutoCheckEnabled()).toBe(true)
+    setAutoCheckEnabled(false)
+    expect(isAutoCheckEnabled()).toBe(false)
+    setAutoCheckEnabled(true)
+    expect(isAutoCheckEnabled()).toBe(true)
   })
 })
 

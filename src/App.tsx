@@ -14,6 +14,21 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type { EditorView } from '@codemirror/view'
 import { createKernel, type Kernel, type KernelAudit, type PanelRegistration } from './kernel/kernel'
 import { deletePluginDir, type PluginDirEntry } from './kernel/plugin-host'
+/* rev173.156 · 第二批 UX：启动 24h 节流检查插件更新（只查不装，见 kernel/market.ts） */
+import {
+  DEFAULT_MARKET_INDEX_URL,
+  MARKET_INDEX_URL_KEY,
+  clearCachedUpdate,
+  computeUpdates,
+  fetchMarketIndex,
+  isAutoCheckEnabled,
+  readCachedUpdates,
+  setAutoCheckEnabled,
+  shouldCheckUpdates,
+  writeCachedUpdates,
+  type MarketEntry,
+  type MarketUpdates,
+} from './kernel/market'
 import type {
   DocEvent,
   NoteDoc,
@@ -2743,6 +2758,90 @@ export default function App() {
     integrity: getSignature(m.id) === 'signed' ? 'signed' : m.sha256 ? 'verified' : 'none',
   }))
 
+  /**
+   * 插件可更新项（rev173.156 · 第二批 UX）。
+   *
+   * 来源两处，都是「只标角标、不下载不安装」：
+   *  1. 启动时 24h 节流检查一次（下面那个 effect）
+   *  2. 上次检查的缓存（localStorage）—— 冷启动先亮角标，不用等网络
+   *
+   * 什么都不点就不会有东西被装上：插件能读任意文件、能 invoke 命令，换代码必须让人看见。
+   */
+  const [marketUpdates, setMarketUpdates] = useState<MarketUpdates>(
+    () => readCachedUpdates().updates,
+  )
+  /** 启动静默检查的开关（设置 → 插件；默认开） */
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(() => isAutoCheckEnabled())
+  /** 本轮是否已经检查过（靠它防重复请求） */
+  const marketCheckedRef = useRef(false)
+  /**
+   * `rows` 的最新快照。
+   *
+   * 检查 effect 的依赖只能写 `rows.length` —— `rows` 是每次渲染新建的数组
+   * （`manifests.map(...)`），依赖它会让 effect 每次重渲染都 cleanup ⇒ 4 秒定时器被无限重置，
+   * 检查永远等不到（实测症状：reload 后 localStorage 一直空，单测看不出来）。
+   * 值从 ref 取：ref 由下面这个**不带依赖的 effect** 在每次渲染后同步，
+   * 声明在检查 effect 之前 ⇒ 检查运行时它已是最新。
+   */
+  const rowsRef = useRef(rows)
+  useEffect(() => {
+    rowsRef.current = rows
+  })
+
+  /**
+   * 启动检查更新：**24 小时最多一次**，只记录「谁有新版」，失败完全静默。
+   *
+   * 三条取舍：
+   *  · 延迟 4 秒再发 —— 别和首屏的笔记 / 插件加载抢网络；
+   *  · 网络失败**不提示**（用户没主动点「检查更新」，报错只会吓人）；
+   *  · 一个插件都没装 ⇒ 不查（没有「已装」可比，查了也只能得到空结论）。
+   */
+  useEffect(() => {
+    if (marketCheckedRef.current || !autoCheckUpdates || rowsRef.current.length === 0) return
+    if (!shouldCheckUpdates(readCachedUpdates().at, Date.now())) return
+    marketCheckedRef.current = true
+    let alive = true
+    const timer = setTimeout(() => {
+      const url =
+        (localStorage.getItem(MARKET_INDEX_URL_KEY) ?? '').trim() || DEFAULT_MARKET_INDEX_URL
+      fetchMarketIndex(url)
+        .then((r) => {
+          if (!alive) return
+          const next = computeUpdates(r.entries, rowsRef.current)
+          writeCachedUpdates(Date.now(), next)
+          setMarketUpdates(next)
+        })
+        .catch(() => {
+          // 后台检查失败：留到下次启动再试（不把 at 写进去，免得「失败也算查过」）
+          marketCheckedRef.current = false
+        })
+    }, 4000)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [rows.length, autoCheckUpdates])
+
+  /**
+   * 市场安装 / 更新：装完把该插件从「可更新」里摘掉。
+   *
+   * 不摘的话角标会挂到下一次 24h 检查 —— 用户刚更新完还看到「可更新」，会以为没装上。
+   */
+  const installFromMarket = useCallback(
+    async (entry: MarketEntry): Promise<string | null> => {
+      const id = await installZnpFromUrl(entry)
+      if (id) {
+        setMarketUpdates((prev) => {
+          const next = clearCachedUpdate(prev, id)
+          if (next !== prev) writeCachedUpdates(Date.now(), next)
+          return next
+        })
+      }
+      return id
+    },
+    [installZnpFromUrl],
+  )
+
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */
   const titleText = activePath
     ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
@@ -3655,7 +3754,8 @@ export default function App() {
                 onToggle={togglePlugin}
                 onDelete={(id) => void deletePlugin(id)}
                 onInstall={() => void installZnp()}
-                onMarketInstall={installZnpFromUrl}
+                onMarketInstall={installFromMarket}
+                updates={marketUpdates}
               />
             </div>
           </div>
@@ -3954,7 +4054,13 @@ export default function App() {
         // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
         onInstall={() => void installZnp()}
         // 同一个 PluginPanel ⇒ 透传市场通道后，设置页自动多出「发现」tab（rev173.152）
-        onMarketInstall={installZnpFromUrl}
+        onMarketInstall={installFromMarket}
+        updates={marketUpdates}
+        autoCheckUpdates={autoCheckUpdates}
+        onAutoCheckChange={(on) => {
+          setAutoCheckEnabled(on)
+          setAutoCheckUpdates(on)
+        }}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

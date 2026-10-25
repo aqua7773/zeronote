@@ -4,7 +4,7 @@
  *  · 说明只显示 15 个字（全文放悬停 title，manifest 原文不动）；
  *  · 分类标题可点击折叠，状态记 localStorage（重开应用仍是折叠的）。
  */
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PluginPanel, type PluginRow } from '../src/components/PluginPanel'
 import { clampText } from '../src/lib/format'
@@ -127,5 +127,47 @@ describe('插件页 tab（市场通道透传才有）', () => {
     )
     expect(tabs).toEqual(['已安装 2', '发现'])
     expect(container.querySelector('.zn-plugins-tab.is-active')?.textContent).toContain('已安装')
+  })
+})
+
+/**
+ * 可更新角标（rev173.156 · 第二批 UX）。
+ *
+ * 数据来自 24h 节流检查（只查不装）；这里只锁「显示规则」：
+ *  · 有更新才显示，没更新不显示；
+ *  · tab 上的计数**只数真装着的**（缓存里可能残留已删插件的 id）。
+ */
+describe('可更新角标', () => {
+  it('有更新的行显示「↑ 可更新 vX」，没更新的行不显示', () => {
+    const { container } = render(
+      <PluginPanel
+        plugins={[row({ id: 'a' }), row({ id: 'b' })]}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        updates={{ a: '0.2.1' }}
+      />,
+    )
+    const badges = [...container.querySelectorAll('.zn-plugin-update')]
+    expect(badges).toHaveLength(1)
+    expect(badges[0].textContent).toContain('↑ 可更新 v0.2.1')
+  })
+
+  it('tab 计数只算装着的那几个（残留的已删 id 不算）', () => {
+    render(
+      <PluginPanel
+        plugins={[row({ id: 'a' })]}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        onMarketInstall={vi.fn().mockResolvedValue(null)}
+        updates={{ a: '0.2.1', ghost: '9.9.9' }}
+      />,
+    )
+    expect(screen.getByText('↑ 1')).toBeTruthy()
+  })
+
+  it('没有更新 / 不传 updates ⇒ 一个角标都不出现', () => {
+    const { container } = renderPanel([row({ id: 'a' })])
+    expect(container.querySelector('.zn-plugin-update')).toBeNull()
+    expect(container.querySelector('.zn-plugin-update-count')).toBeNull()
   })
 })

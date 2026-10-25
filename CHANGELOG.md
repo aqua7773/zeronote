@@ -40,6 +40,18 @@
 
 ### Added
 
+- **插件市场第二批 UX**（rev173.156 · 详情页 / 更新角标 / 启动 24h 节流检查）：
+  ① **详情页** —— 「发现」每条加「详情」（不触发下载）：描述 / 分类平台 / 大小 / 接口版本 /
+  **能力自述** / 已装版本 / 下载地址 / sha256 / 包内文件数。能力来自**索引新增字段 `capabilities`**
+  （`pack-plugin.mjs` 从 manifest 带出，13 个包重跑打包 + `gen-market --write`）—— 装之前就知道它要什么；
+  中文说法在 `src/lib/capability-label.ts`（**未知取值原样露出**，`fs` / `host` / `event` 老写法也译）。
+  ② **可更新角标** —— 「已安装」tab 计数旁 `↑ N`（只数真装着的）+ 行内 `↑ 可更新 vX`；装完立刻摘缓存。
+  ③ **启动 24 小时节流检查** —— `shouldCheckUpdates` / `computeUpdates` 纯函数 + localStorage
+  （`at` + `updates`），延迟 4 秒发、**失败静默且不写 `at`**；设置 → 插件 → 「启动时检查更新」开关（默认开）。
+  **只标角标，不下载不安装**（这条不变）。
+  ⚠️ 实测抓到：effect 依赖 `rows` 数组引用 ⇒ 4 秒定时器被每次重渲染重置、**检查永不发生**（单测看不出来），
+  改成依赖 `rows.length` + `rowsRef` 取值后一次写入。vitest 951 → **977**。
+
 - **插件市场阶段 1：应用内「发现」tab**（rev173.148 · 能装、能升、装不坏）：插件管理页的第二个 tab，
   列表来自 `market/index.json`（静态 JSON，不需要服务端）。装一条 = 下载 → **整包 sha256** → 解包，
   三个动作在 Rust 的 `install_znp_from_url` 里**一次完成** ——「校验的字节」就是「落盘的字节」，
@@ -66,6 +78,13 @@
   （等价于「新装机器的宿主能不能加载这 13 个包」）。
 
 ### Fixed
+
+- **rev173.154 打的两个 0.2.1 包会被拒载**（rev173.156 修）：那次打包漏了 `--key-id`，`pack-plugin.mjs`
+  默认把 `signature.json` 的 keyId 写成 **`default`** —— 签名本身完全有效、sha256 也对，但客户端
+  `BUILTIN_TRUSTED_KEYS` 只认 `aqua-2026` ⇒ **装得上、加载时拒载**（换台机器才看得见）。
+  已用 `--key-id aqua-2026` 重签 `tag-panel` / `backlinks` 0.2.1（`verify-trust.mjs` 用内置公钥验 14/15，
+  1 个纯样式无签名）。`gen-market.mjs` 加第 ⑤ 条门：**官方包的 `signature.json.keyId` 必须等于 `aqua-2026`**
+  —— 反向验证：不带 `--key-id` 重打一个包 ⇒ 门报「keyId 是 default，应为 aqua-2026」，恢复即绿。
 
 - **内置插件启动时不再覆盖市场装的版本**（rev173.147 · 插件市场的前置修复）：`ensureBuiltinPlugins`
   以前「内容不同就写」⇒ ① 从市场装的官方插件新版，重启后被内置版（应用编译时的快照）盖回去；

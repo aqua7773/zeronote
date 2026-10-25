@@ -11,6 +11,7 @@ import {
   type MarketParseResult,
 } from '../kernel/market'
 import type { PluginRow } from './PluginPanel'
+import { capabilityLabels } from '../lib/capability-label'
 
 /**
  * **发现**（插件市场阶段 1 · rev173.148）。
@@ -31,6 +32,75 @@ function formatSize(bytes?: number): string | null {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/**
+ * 一条市场条目的详情（rev173.156）—— 不触发安装，只把信息摊开。
+ *
+ * 导出成独立组件是为了能直接单测：详情页最容易犯的错是「索引里没有的字段直接崩掉」，
+ * 所以每个字段都要能缺失。
+ */
+export function MarketDetailBody({
+  entry,
+  installedVersion,
+}: {
+  entry: MarketEntry
+  installedVersion?: string
+}) {
+  const caps = capabilityLabels(entry.capabilities)
+  const size = formatSize(entry.size)
+  const platforms = entry.platforms?.length ? entry.platforms.join(' + ') : null
+  return (
+    <div className="text-xs leading-relaxed text-muted-foreground">
+      <p>
+        {entry.category ? `${entry.category} · ` : ''}
+        {platforms ?? '全平台'}
+        {size ? ` · ${size}` : ''}
+        {entry.apiVersion ? ` · 接口 ${entry.apiVersion}` : ''}
+      </p>
+
+      {entry.description && (
+        <p className="mt-2 whitespace-pre-wrap text-foreground">{entry.description}</p>
+      )}
+
+      <div className="mt-3">
+        <div className="font-medium text-foreground">自称需要</div>
+        {caps.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            {caps.map((c) => (
+              <span key={c} className="zn-market-cap">
+                {c}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 opacity-70">
+            索引里没有这个字段（老索引或作者没写）—— 安装后可在插件列表看到。
+          </p>
+        )}
+        <p className="mt-1 opacity-70">
+          只是自述：插件与内核<strong className="font-semibold text-foreground">同权限运行</strong>
+          ，内核不拦它做别的事。
+        </p>
+      </div>
+
+      {installedVersion && (
+        <p className="mt-3">
+          已装 <span className="text-foreground">v{installedVersion}</span>
+          {marketAction(entry, installedVersion) === 'update' ? '（索引里更新）' : '（已是最新）'}
+        </p>
+      )}
+
+      <div className="mt-3">
+        <div className="font-medium text-foreground">下载地址</div>
+        <p className="mt-1 break-all opacity-80">{entry.url}</p>
+        <p className="mt-1">
+          sha256 <code className="break-all">{entry.sha256.slice(0, 16)}…</code>
+          {entry.files?.length ? ` · 包内 ${entry.files.length} 个文件` : ''}
+        </p>
+      </div>
+    </div>
+  )
 }
 
 export function MarketPane({
@@ -56,6 +126,8 @@ export function MarketPane({
   /** 正在下载 / 安装的插件 id */
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pending, setPending] = useState<MarketEntry | null>(null)
+  /** 详情（rev173.156）：点某一条看它的完整信息，不触发安装 */
+  const [detail, setDetail] = useState<MarketEntry | null>(null)
 
   const installedVersion = useMemo(() => {
     const m = new Map<string, string>()
@@ -197,20 +269,30 @@ export function MarketPane({
                     </div>
                   )}
                 </div>
-                {action === 'installed' ? (
-                  <span className="zn-market-done" title="已安装同一版本或更新版本">
-                    已安装
-                  </span>
-                ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Button
                     size="sm"
-                    variant={action === 'update' ? 'primary' : 'secondary'}
-                    disabled={busy || busyId !== null}
-                    onClick={() => setPending(e)}
+                    variant="ghost"
+                    title="查看详情（描述 / 能力自述 / 下载地址）"
+                    onClick={() => setDetail(e)}
                   >
-                    {busy ? '下载中…' : action === 'update' ? `↑ 更新 ${e.version}` : '安装'}
+                    详情
                   </Button>
-                )}
+                  {action === 'installed' ? (
+                    <span className="zn-market-done" title="已安装同一版本或更新版本">
+                      已安装
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant={action === 'update' ? 'primary' : 'secondary'}
+                      disabled={busy || busyId !== null}
+                      onClick={() => setPending(e)}
+                    >
+                      {busy ? '下载中…' : action === 'update' ? `↑ 更新 ${e.version}` : '安装'}
+                    </Button>
+                  )}
+                </div>
               </div>
             )
           })}
@@ -221,6 +303,49 @@ export function MarketPane({
         插件来自索引里的下载地址；<strong>整包 sha256 对得上才安装</strong>
         ，有签名还会验签（不通过不落盘）。不会自动升级。
       </div>
+
+      {/* 详情（rev173.156）：装之前先把「它是什么、要什么、从哪来」摊开 */}
+      <Dialog
+        open={detail !== null}
+        onOpenChange={(next) => {
+          if (!next) setDetail(null)
+        }}
+        width={460}
+      >
+        <DialogHeader
+          title={detail ? `${detail.name} v${detail.version}` : '插件详情'}
+          description={detail?.author ? `作者 ${detail.author}` : undefined}
+        />
+        <DialogBody>
+          {detail && (
+            <MarketDetailBody entry={detail} installedVersion={installedVersion.get(detail.id)} />
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="md" onClick={() => setDetail(null)}>
+            关闭
+          </Button>
+          {detail &&
+            (() => {
+              const action = marketAction(detail, installedVersion.get(detail.id))
+              if (action === 'installed') return null
+              return (
+                <Button
+                  variant={action === 'update' ? 'primary' : 'secondary'}
+                  size="md"
+                  disabled={busyId !== null}
+                  onClick={() => {
+                    const d = detail
+                    setDetail(null)
+                    setPending(d)
+                  }}
+                >
+                  {action === 'update' ? `↑ 更新 ${detail.version}` : '安装'}
+                </Button>
+              )
+            })()}
+        </DialogFooter>
+      </Dialog>
 
       <Dialog
         open={pending !== null}
@@ -240,6 +365,14 @@ export function MarketPane({
                 作者：{pending.author || '（未注明）'}
                 {formatSize(pending.size) ? ` · 大小 ${formatSize(pending.size)}` : ''}
               </p>
+              {pending.capabilities?.length ? (
+                <p className="mt-2">
+                  自称需要：
+                  <span className="text-foreground">
+                    {capabilityLabels(pending.capabilities).join('、')}
+                  </span>
+                </p>
+              ) : null}
               <p className="mt-2 break-all opacity-80">{pending.url}</p>
               <p className="mt-2">
                 安装前会核对<strong className="font-semibold text-foreground">整包 sha256</strong>

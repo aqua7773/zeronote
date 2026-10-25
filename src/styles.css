@@ -1754,6 +1754,11 @@ body.is-resizing * {
 .zn-market-url:focus { outline: none; border-color: var(--zn-accent); }
 .zn-market-skipped { padding: 0 0 8px; color: var(--zn-warn); font-size: var(--zn-text-sm); }
 .zn-market-done { flex: none; color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); padding-top: 2px; }
+/* 可更新角标（rev173.156 · 第二批 UX）：24h 节流检查的结论，只标不装 */
+.zn-plugin-update { flex: none; margin-left: 6px; padding: 0 6px; border-radius: var(--zn-radius-sm); color: var(--zn-accent); background: var(--zn-bg-active); font-size: 11px; }
+.zn-plugin-update-count { margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--zn-accent); color: #fff; font-size: 11px; font-weight: 600; }
+/* 详情里的能力自述 chips（与安装确认框的纯文本互为表里） */
+.zn-market-cap { padding: 0 6px; border: 1px solid var(--zn-border); border-radius: 999px; font-size: 11px; }
 /* 原先这里有 .zn-plugins-head（「插件」标题 + 重新扫描 + 下横线），
    用户要求去掉标题与横线、扫描按钮挪到主区顶栏，故整块移除。
    .zn-plugins-title 也随之不再使用。 */

@@ -32,6 +32,14 @@ export type MarketEntry = {
   sha256: string
   size?: number
   files?: string[]
+  /**
+   * **能力自述**（rev173.156）：插件 manifest 里声明的 capability 列表。
+   *
+   * 索引里带它是为了「装之前就让人看见」—— 调研 §4.4 的安装确认框要求列出能力，
+   * 而插件包下载完才知道就晚了。**它只是自述**：内核不会校验插件是否真的只用这些
+   * （插件与内核同权限运行，见 README 免责）。
+   */
+  capabilities?: string[]
 }
 
 /** 解析结果：有效条目 + 被跳过的坏条目（**跳过必须可见**，硬约束 4） */
@@ -130,6 +138,9 @@ export function parseMarketIndex(raw: string): MarketParseResult {
       files: Array.isArray(o.files)
         ? o.files.filter((f): f is string => typeof f === 'string')
         : undefined,
+      capabilities: Array.isArray(o.capabilities)
+        ? o.capabilities.filter((c): c is string => typeof c === 'string' && c.trim() !== '')
+        : undefined,
     })
   }
   return { entries, skipped }
@@ -147,6 +158,134 @@ export type MarketAction = 'install' | 'update' | 'installed'
 export function marketAction(entry: MarketEntry, installedVersion?: string): MarketAction {
   if (!installedVersion) return 'install'
   return compareVersions(entry.version, installedVersion) > 0 ? 'update' : 'installed'
+}
+
+/* ───────────────── 更新检查（rev173.156 · 第二批 UX） ───────────────── */
+
+/**
+ * 24 小时节流：启动时最多每 24 小时查一次「有没有新版本」。
+ *
+ * **只查、只标角标，不下载不安装** —— 插件能读任意文件、能 invoke 命令，
+ * 换代码必须让人看见（调研 §4.4 的「自动安装 ❌ 不做」）。
+ */
+export const MARKET_CHECK_TTL_MS = 24 * 60 * 60 * 1000
+/** 上次检查的时间戳（毫秒） */
+export const MARKET_CHECK_AT_KEY = 'zn-market-check-at'
+/** 上次检查的结论：`{ [id]: 最新版本 }`，只存可更新的 */
+export const MARKET_UPDATES_KEY = 'zn-market-updates'
+/** 启动静默检查的开关（`'0'` = 关；缺省 = 开） */
+export const MARKET_AUTO_CHECK_KEY = 'zn-market-auto-check'
+
+/** 可更新项：插件 id → 索引里的最新版本（**只含比本地新的**） */
+export type MarketUpdates = Record<string, string>
+
+/**
+ * 算「哪些已装插件在索引里有更新」。
+ *
+ * 只返回可更新的：同版本 / 本地比索引还新 / 没装，全部不算 —— 角标只该在真有事时出现。
+ */
+export function computeUpdates(
+  entries: MarketEntry[],
+  installed: { id: string; version: string }[],
+): MarketUpdates {
+  const have = new Map(installed.map((p) => [p.id, p.version]))
+  const out: MarketUpdates = {}
+  for (const e of entries) {
+    const local = have.get(e.id)
+    if (local && marketAction(e, local) === 'update') out[e.id] = e.version
+  }
+  return out
+}
+
+/**
+ * 该不该去查更新。
+ *
+ * · 没记录 / 记录坏了 ⇒ 查（第一次装就该知道有没有新版）
+ * · `now < lastAt`（系统时间被调回 / 时区跳）⇒ 查，宁多查一次也不要「永远不查」
+ */
+export function shouldCheckUpdates(
+  lastAt: number | null | undefined,
+  now: number,
+  ttlMs = MARKET_CHECK_TTL_MS,
+): boolean {
+  if (!lastAt || !Number.isFinite(lastAt) || lastAt <= 0) return true
+  if (now < lastAt) return true
+  return now - lastAt >= ttlMs
+}
+
+/** localStorage 可能不存在（SSR / 隐私模式 / 测试没有 DOM）—— 拿不到就当"没有记录" */
+function storage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
+/** 读上次检查的结论（`at` = 检查时刻；`updates` 可能是空的） */
+export function readCachedUpdates(): { at: number | null; updates: MarketUpdates } {
+  const l = storage()
+  if (!l) return { at: null, updates: {} }
+  try {
+    const rawAt = Number(l.getItem(MARKET_CHECK_AT_KEY))
+    const parsed: unknown = JSON.parse(l.getItem(MARKET_UPDATES_KEY) ?? 'null')
+    const updates: MarketUpdates = {}
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === 'string' && v) updates[k] = v
+      }
+    }
+    return { at: Number.isFinite(rawAt) && rawAt > 0 ? rawAt : null, updates }
+  } catch {
+    return { at: null, updates: {} }
+  }
+}
+
+/** 写上次检查的结论（同时把 `at` 记下来给 24h 节流用） */
+export function writeCachedUpdates(at: number, updates: MarketUpdates): void {
+  const l = storage()
+  if (!l) return
+  try {
+    l.setItem(MARKET_CHECK_AT_KEY, String(at))
+    l.setItem(MARKET_UPDATES_KEY, JSON.stringify(updates))
+  } catch {
+    // 配额满 / 隐私模式：不持久也要能用（下次启动再查一次而已）
+  }
+}
+
+/**
+ * 装完 / 更新完某个插件后，把它从「可更新」里摘掉。
+ *
+ * 不摘的话角标会一直挂着到下一次 24h 检查 —— 用户刚更新完却还看到「可更新」，
+ * 会以为更新没成功（静默失效比报错更糟，硬约束 4）。
+ */
+export function clearCachedUpdate(updates: MarketUpdates, id: string): MarketUpdates {
+  if (!(id in updates)) return updates
+  const next = { ...updates }
+  delete next[id]
+  return next
+}
+
+/** 启动静默检查开关（默认开） */
+export function isAutoCheckEnabled(): boolean {
+  const l = storage()
+  if (!l) return true
+  try {
+    return l.getItem(MARKET_AUTO_CHECK_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+export function setAutoCheckEnabled(on: boolean): void {
+  const l = storage()
+  if (!l) return
+  try {
+    if (on) l.removeItem(MARKET_AUTO_CHECK_KEY)
+    else l.setItem(MARKET_AUTO_CHECK_KEY, '0')
+  } catch {
+    // 同上：不持久也能用
+  }
 }
 
 type NetResponse = { status: number; headers: Record<string, string>; body_b64: string }

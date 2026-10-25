@@ -108,6 +108,11 @@ const entry = {
   sha256: packSha,
   size: Buffer.byteLength(packText, 'utf8'),
   files: Object.keys(files).sort(),
+  /**
+   * 能力自述（rev173.156）：让「发现」页在**下载之前**就能说清这个插件要什么权限
+   * （调研 §4.4 的安装确认框要求）。只是 manifest 的转述，内核不校验。
+   */
+  capabilities: Array.isArray(manifest.capabilities) ? manifest.capabilities : [],
 }
 
 console.log(`\n插件：${manifest.name}（${id}@${version}）`)

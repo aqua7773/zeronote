@@ -11,10 +11,18 @@
   "apiVersion": "^0.2.0",
   "version": "0.2.1",
   "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.1.znp",
-  "sha256": "7446c7cfbe2076ff28c27f63508610faf53c84b9823c18b7ff80f9a4a6e78561",
-  "size": 24418,
+  "sha256": "0e4e03e35ff070ca80986a6da059ddd22b2aabcb2709dc9582e1d38dbae5dc94",
+  "size": 24420,
   "files": [
     "index.js",
     "signature.json"
+  ],
+  "capabilities": [
+    "fs:read",
+    "doc:read",
+    "store",
+    "event",
+    "command",
+    "view:modal"
   ]
 }

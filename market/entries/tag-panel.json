@@ -11,10 +11,19 @@
   "apiVersion": "^0.2.0",
   "version": "0.2.1",
   "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/tag-panel-0.2.1.znp",
-  "sha256": "01ab61066570b2d27262329ffddaf92a8ef86a4ed86471ac0f80fb270225601d",
-  "size": 24513,
+  "sha256": "b6dfaa94a7f27bbd72e1f10ffe98aefd7e315532e95f3fc8df4efc091e1842ea",
+  "size": 24515,
   "files": [
     "index.js",
     "signature.json"
+  ],
+  "capabilities": [
+    "index:query",
+    "doc:read",
+    "command",
+    "view:main",
+    "view:modal",
+    "editor:mark",
+    "host"
   ]
 }

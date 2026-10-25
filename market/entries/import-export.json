@@ -16,5 +16,11 @@
   "files": [
     "index.js",
     "signature.json"
+  ],
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "command",
+    "view:sidebar"
   ]
 }

@@ -16,5 +16,12 @@
   "files": [
     "index.js",
     "signature.json"
+  ],
+  "capabilities": [
+    "store",
+    "command",
+    "view:main",
+    "fs",
+    "host"
   ]
 }

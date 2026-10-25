@@ -17,5 +17,15 @@
     "index.js",
     "outline.css",
     "signature.json"
+  ],
+  "capabilities": [
+    "doc:read",
+    "doc:write",
+    "fs:read",
+    "fs:write",
+    "command",
+    "editor:line-action",
+    "editor:line-class",
+    "editor:fold"
   ]
 }
