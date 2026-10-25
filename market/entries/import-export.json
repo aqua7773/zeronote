@@ -1,0 +1,20 @@
+{
+  "id": "import-export",
+  "name": "导入导出",
+  "author": "aqua7773",
+  "description": "导入外部文件或导出笔记",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.1.0",
+  "version": "0.1.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/import-export-0.1.0.znp",
+  "sha256": "293182ee56049bb8d4170b44d482bd3ac621245a2734ab1093511d922cfe6ef8",
+  "size": 36139,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

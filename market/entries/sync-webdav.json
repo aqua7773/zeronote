@@ -1,0 +1,20 @@
+{
+  "id": "sync-webdav",
+  "name": "同步 · WebDAV",
+  "author": "aqua7773",
+  "description": "直连自己的 WebDAV（坚果云 / Nextcloud / 群晖），前台近实时双向同步，双端改同一篇能自动合",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.3.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-webdav-0.3.0.znp",
+  "sha256": "adb0297d9d7b4fa1ba4dc04d535fdd72f0d42dee7ac43a840474f5f30f50f667",
+  "size": 78908,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

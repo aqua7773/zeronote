@@ -1,0 +1,20 @@
+{
+  "id": "backlinks",
+  "name": "反向链接",
+  "author": "aqua7773",
+  "description": "看谁引用了这篇笔记（全库索引：老笔记里的引用也算，保存后零读盘更新）",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.2.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/backlinks-0.2.0.znp",
+  "sha256": "0c57813ccc52c139340d4db4ae7f98cd954d35dcee6c2f55f767a739be885b43",
+  "size": 24299,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "sync-s3",
+  "name": "同步 · S3",
+  "author": "aqua7773",
+  "description": "直连 S3 兼容存储（AWS S3 / MinIO / R2 / B2），前台近实时双向同步，双端改同一篇能自动合，附件可选中转或永久同步",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.4.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-s3-0.4.0.znp",
+  "sha256": "b69aea2fbfa6e1b24e5b47ff035a3bd35b2b767a2b58bc50b80f035cdc0fb137",
+  "size": 66555,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

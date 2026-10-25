@@ -1,0 +1,20 @@
+{
+  "id": "sync-git",
+  "name": "同步 · Git",
+  "author": "aqua7773",
+  "description": "用代码托管平台的 Contents API 同步（GitHub / Gitea / Gitee），sha 当乐观锁，双端改同一篇能自动合，附件可选中转或永久同步",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.5.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/sync-git-0.5.0.znp",
+  "sha256": "1495c0d690d42f50d7bc5bbb295671f9187bbecb4748c98c739e084b17a3df82",
+  "size": 58118,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

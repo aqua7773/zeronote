@@ -46,8 +46,12 @@ const keyPath = resolve(repo, keyArg)
 const check = process.argv.includes('--check')
 
 const manifest = readManifest(dir)
-if (!manifest.id || !manifest.version || !manifest.entry) {
-  console.error('manifest 缺 id / version / entry，无法签名')
+if (!manifest.id || !manifest.version) {
+  console.error('manifest 缺 id 或 version，无法签名')
+  process.exit(1)
+}
+if (!manifest.entry) {
+  console.error('纯样式插件（无 entry）不可签名 —— 宿主对它恒为 unsigned')
   process.exit(1)
 }
 if (!existsSync(join(dir, manifest.entry))) {
@@ -55,7 +59,7 @@ if (!existsSync(join(dir, manifest.entry))) {
   process.exit(1)
 }
 
-const files = collectPluginFiles(dir)
+const files = collectPluginFiles(dir, manifest)
 const { entrySha, files: extra, payload } = digestForSigning(manifest, files)
 
 console.log(`插件：${manifest.id}@${manifest.version}`)

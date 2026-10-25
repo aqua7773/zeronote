@@ -1,0 +1,20 @@
+{
+  "id": "tag-panel",
+  "name": "标签",
+  "author": "aqua7773",
+  "description": "按标签浏览与跳转",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.2.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/tag-panel-0.2.0.znp",
+  "sha256": "63b77ad6146e31440bc969bb550cf7e3ec3fe3c90a815f467efc559c16d748dc",
+  "size": 24391,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

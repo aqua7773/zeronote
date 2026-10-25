@@ -61,10 +61,13 @@ if (!id || !version) {
 const tag = arg('tag', `plugins-v${version}`)
 
 // ── 1. 收文件（排除 manifest.json / signature.json，它们单独处理） ──
-const files = collectPluginFiles(dir)
+const files = collectPluginFiles(dir, manifest)
 
 // ── 2. 签名（可选） ──
-if (keyPath) {
+if (!manifest.entry) {
+  // 纯样式插件：宿主对它恒为 `unsigned`（没有入口就没有可签的东西），见 plugin-host.ts
+  console.log('ℹ️  纯样式插件（无 entry）：宿主恒为 unsigned，跳过签名')
+} else if (keyPath) {
   const { signature } = signFiles(manifest, files, { keyPath, keyId: arg('key-id') })
   files['signature.json'] = JSON.stringify(signature, null, 2) + '\n'
   console.log(`🔏 已签名（keyId=${signature.keyId}）`)
@@ -73,8 +76,8 @@ if (keyPath) {
 }
 
 // ── 3. 入口 sha256 填进 manifest（加载时的完整性提示，不是签名） ──
-const entrySha = digestForSigning(manifest, files).entrySha
-const manifestOut = { ...manifest, sha256: entrySha }
+const entrySha = manifest.entry ? digestForSigning(manifest, files).entrySha : null
+const manifestOut = entrySha ? { ...manifest, sha256: entrySha } : { ...manifest }
 
 // ── 4. 组装 .znp ──
 const packObj = { znp: 1, manifest: manifestOut, files }

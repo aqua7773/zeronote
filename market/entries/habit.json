@@ -1,0 +1,20 @@
+{
+  "id": "habit",
+  "name": "打卡",
+  "author": "aqua7773",
+  "description": "计划打卡、日历与连续天数（不做提醒）",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.1.0",
+  "url": "https://github.com/aqua7773/zeronote/releases/download/plugins-v0.5.0/habit-0.1.0.znp",
+  "sha256": "60f8251e56e358d16c60082ccb615eb78d0c51e2cb6a9f0c6180560d2e208698",
+  "size": 34339,
+  "files": [
+    "index.js",
+    "signature.json"
+  ]
+}

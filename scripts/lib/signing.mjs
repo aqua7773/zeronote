@@ -9,8 +9,8 @@
  * ⚠️ 改这里 = 所有已有签名失效。改动时同步改前端那份，并跑 vitest。
  */
 import { createHash, createPrivateKey, sign } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 export const SIGNATURE_FILE = 'signature.json'
 export const SIGNATURE_PREFIX = 'zn-plugin-v2'
@@ -29,31 +29,26 @@ export function signingPayload(id, version, entrySha256, files = []) {
   return `${SIGNATURE_PREFIX}|${id}|${version}|${entrySha256}|${tail}`
 }
 
-/** 递归列出目录下的文件（POSIX 相对路径），跳过签名文件与 node_modules */
-function walk(dir, base = dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === SIGNATURE_FILE) continue
-    const abs = join(dir, name)
-    if (statSync(abs).isDirectory()) walk(abs, base, out)
-    else out.push(relative(base, abs).replace(/\\/g, '/'))
-  }
-  return out
-}
 
 /**
- * 收集一个插件目录里**需要进包**的文件（相对路径 → 文本内容）。
+ * 收集一个插件里**需要进包**的文件（相对路径 → 文本内容）。
  *
- * 规则：目录下所有文件都收，除了 `manifest.json`（它单独作为 `.znp` 的 manifest 字段）
- * 和 `signature.json`（签名是打包时现算的，不从源码目录带）。
+ * **按 manifest 声明收**，不是「收整个目录」—— 宿主真正会用到的只有这三类：
+ *   `entry`（入口）· `files`（CJS `require` 的模块）· `styles`（注入的 CSS）
+ * 插件读不到自己目录下的其它文件（`ctx.fs` 全是**库内**相对路径），
+ * 所以把 `selftest*.mjs` / `store.json` / README 打进去只会让包变大、还会让「签名覆盖了什么」变模糊。
+ *
  * 二进制文件直接报错 —— 目前没有插件带二进制，`.znp` 是纯文本 JSON。
  */
-export function collectPluginFiles(dir) {
+export function collectPluginFiles(dir, manifest) {
+  const wanted = new Set(
+    [manifest.entry, ...(manifest.files ?? []), ...(manifest.styles ?? [])].filter(Boolean),
+  )
   const files = {}
-  for (const rel of walk(dir)) {
-    if (rel === 'manifest.json') continue
-    const abs = join(dir, rel)
+  for (const rel of [...wanted].sort()) {
+    const abs = join(resolve(dir), rel.replace(/\\/g, '/'))
+    if (!existsSync(abs)) throw new Error(`manifest 声明了 ${rel}，但目录里没有这个文件：${abs}`)
     const raw = readFileSync(abs)
-    // 粗判二进制：含 NUL 字节
     if (raw.includes(0)) throw new Error(`插件文件是二进制，.znp 不支持：${rel}`)
     files[rel] = raw.toString('utf8')
   }
