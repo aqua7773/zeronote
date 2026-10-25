@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.162
-更新时间: 2026-10-25 · 最新 rev173.162
+revision: 173.163
+更新时间: 2026-10-26 · 最新 rev173.163
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.162
 
 | rev | 内容 |
 |---|---|
+| rev173.163 | 2026-10-26 · **密码库插件（期 1b）**：新增 `examples/secrets/`（1300 行）—— 消费 `security` 的 `crypto` 服务（**软依赖**：拿不到就降级提示"先去市场装安全插件"，不崩不阻塞）· **整库单文件密文** `.zn/secrets/secrets.zn`（`zn1.<nonce>.<ct>`，AAD `secrets\|secrets`）· 平台 / 账号两级（**空平台也显示**）· 搜索只搜平台 / 账号 / 备注（**反向验证过**：给 `matchesAccount` 加上密码匹配 ⇒ 那条用例立刻红）· 密码生成器 16 位（大小写 + 数字，**排除 0/O/1/l/I**，保证三类各一，Fisher–Yates 洗牌）· 显示密码 15 秒自动收起 · 复制密码 **60 秒清剪贴板**（只在内容仍是它时才清；桌面 CDP 实测 `CLIP_LEN 16 → 0`）· 回收站 7 天软删（剩 N 天 + 恢复 / 彻底删除）· **空闲 60 秒自动锁**（时间戳判定，不依赖定时器，Android 后台冻结也补得住）· 内核小扩展：`input.secret` 渲染成 `type="password"`（UIRenderer 一行 + 契约 §2 类型 + 契约文档，**UINode 仍是 21 种**）· vitest 1002 → **1029**（27 条新单测）· **CDP 实测 12 项全过** · **实测抓到两个真 bug**：① `accountRow` 返回了 `{key,node}` 列表项包装却塞进 `stack.children` ⇒ 整段 JSON 被当文本摊在界面上 ② `visibleTree` 过滤掉无账号的平台 ⇒ "新建平台 → 保存 → 列表里什么都没有" · 另一处：AEAD 的 `invalid tag` 被原样抛给用户 ⇒ 译成「主密码不对」 |
 | rev173.162 | 2026-10-25 · **交接**（用户「交接」）：本会话 rev173.160–161 总览（安全插件：调研 → 方案 → 实现 → 实测 → 发市场 14 条 → 推送，全部 CI 绿）+ 交接时实测状态（工作树干净 · 六步全绿 vitest **1002** · HEAD `981b114` · dev pid 11660 · 测试库 `_tmp-vault-tb` 里有临时两环）+ 下个会话入口（**期 1b `secrets` 密码库插件** / 期 1c 同步放行 `.zn/secrets/`）+ 四条已定结论（**预装与市场不互替**但安全类走市场 · **JS 里无法"完全封起来"** · 双环靠 AAD 硬隔离 · 两把密码无任何派生）+ 三个环境坑（僵尸 http.server / IWR 走代理 / curl 拉 raw 失败但 WebView 通） |
 | rev173.161 | 2026-10-25 · **安全插件发到市场（不预装）**（用户拍板：「有插件市场后应该不用做预装插件了吧」→ 同意 security 走市场）：`pack-plugin security --key … --key-id aqua-2026` → 整包 sha256 `42ff0e…`（47.4 KB，2 文件）→ `gen-market --write` 索引 **13 → 14 条** · **端到端实测**（本地 8932 静态服务 + 真包）：① 负向 —— 把期望 sha256 改成全 0 ⇒ **「插件包校验失败…」拒绝安装、不落盘** ② 正向 —— `install_znp_from_url` 装真包 ⇒ 磁盘出现 `signature.json`、reload 后插件页显示「安全 v0.1.0 **已签名**」③ 索引恢复 GitHub raw、测试服务全停 · 未登记 `BUILTIN_PLUGINS`（用户决定：安全类插件应由用户主动从市场装） · ✅ **已推送 `f99d9b9`**（直连成功，`git ls-remote` 核对一致）· CI run `40209288687` **15 步全绿** · 应用里从 GitHub raw 实测拉到 **14 条**，security 显示「47.4 KB · 已安装」· 坑两条：① 8931 上还留着上次会话的 `python -m http.server`（cwd 不对 ⇒ 请求恒 404，害我以为是新服务坏了）⇒ 已清 ② `Invoke-WebRequest` 走系统代理，连 `127.0.0.1` 也会 404；判本地服务死活要用 `node http.get` |
 | rev173.160 | 2026-10-25 · **安全插件 v0.1（期 1a）**（用户「做安全插件」→「先调查写方案」→「开工」）：新增 `examples/security/`（单文件 1172 行，纯函数全部命名导出）—— **双密钥环** `notes`/`secrets` 各一把主密码、各一个 salt、各一把 DEK，**互不派生**（用户拍板：账户密码要"绝对安全"）· XChaCha20-Poly1305 + Argon2id（noble **本地副本** `public/vendor/noble/` 13 文件 202 KB，`scripts/vendor-noble.mjs` 按 import 图精确复制）· **AAD 绑定** `环\|容器\|用途`（跨环 / 跨容器 / 跨用途的密文一律解不开，有反向测试）· **不存 password verifier**（解锁 = 解包裹，AEAD 认证通过即密码对）· 换密码与恢复**只重包裹 DEK**，数据密文一个字节不动 · vault 文件损坏 ⇒ 拒写不覆盖 · 对外 `service.provide('crypto')` **只给操作不给密钥** · 单测 **25 条全过**（错密码 / 改一字节 / 跨环 / 恢复答案错 / 只设恢复码 / 两条都不设要报错）· `tsc -b` 0 · ⚠️ **未做**：桌面 CDP 走查（面板还没在真机上点过）、`secrets` 插件、同步放行 `.zn/secrets/` · 踩坑两条：① **插件 ESM 相对 import 不可用**（契约 §3 只解析 CJS require）⇒ crypto 核心内联进 index.js ② `vendor-noble.mjs` 第一版在 Windows 下被 `path.join` 的反斜杠坑掉去重（同一模块复制两次、清单重复）⇒ `normalizeRel` 先统一 `/` |
@@ -57,6 +58,51 @@ revision: 173.162
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.163（2026-10-26 · 密码库插件 · 期 1b）
+
+> 用户「继续 ZeroNote」→ 按交接卡「下一步 ①」直接开工期 1b。
+>
+> ### 做了什么
+>
+> `examples/secrets/`（单文件 1299 行，纯函数全部命名导出供单测）：
+>
+> | 功能 | 做法 |
+> |---|---|
+> | 加密存储 | 整库 JSON → `crypto.encrypt({ring:'secrets', container:'secrets'})` → 写 `.zn/secrets/secrets.zn`（**单文件，不是一条一文件**） |
+> | 解锁 | 输主密码 → `crypto.unlock('secrets', pw)`（Argon2id t=3/m=64MiB，桌面约 1 s，先渲染"正在派生…"再算） |
+> | 平台 / 账号 | 两级列表，展开看账号；同平台多账号（小号 / 团队号） |
+> | 搜索 | 平台名 / 站点 / 账号 / 备注；**密码不参与**（有反向用例锁住） |
+> | 密码生成 | 16 位，两类字母 + 数字，排除 `0O1lI`，三类各至少一个，洗牌 |
+> | 显示密码 | 点「显示」出明文，15 秒后自动收起 |
+> | 复制 | 写原生剪贴板（`plugin:clipboard-manager\|write_text`，失败回退 `navigator.clipboard`），60 秒后**只在内容仍是它时**清空 |
+> | 回收站 | `deletedAt` 软删，7 天；列表显示「剩 N 天」，到期在解锁时自动清理并回写 |
+> | 自动锁定 | 60 秒无操作锁（3 秒轮询 + `visibilitychange` 补判；Android 后台冻结定时器也靠时间戳兜住） |
+> | 降级 | `service.consume('crypto')` 返回 null ⇒ 显示"先去市场装安全插件"，并等 `service:available` 自己补上 |
+>
+> ### 内核唯一改动：`input.secret`
+>
+> 密码输入框原本没有：`UIRenderer` 把 `input` 硬编码成 `type="text"` ⇒ 密码会明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。
+> 加一个可选字段 `secret?: boolean`（UINode 种类不变，仍是 21 种）：
+> `contract.ts` 类型 + 注释 · `UIRenderer.tsx` 一行 `type={node.secret ? 'password' : 'text'}`（+ `autoComplete="off"`）· `docs/内核契约-v0.2.md` UINode 表。
+>
+> ### 验证
+>
+> - `verify.ps1` 六步全过（tsc 0 · oxlint 3 warnings · cargo 52 · check-docs · **vitest 1029** · 质量门 7/7）
+> - 单测 **27 条**：密码生成（长度 / 字符集 / 三类各一 / 洗牌 / 可复现）· 搜索（平台命中带出全部账号 / 账号命中只显示它 / 备注 / **密码不命中** / 大小写与空格 / zh 排序 / 空平台保留）· 回收站（软删 / 恢复 / 6d23h 不清、7d 清 / 不误伤兄弟账号 / 彻底删除幂等 / `daysLeft` 取整）· 容错归一化 · 增删改边界
+> - **反向验证**：`matchesAccount` 里加上 `password` 匹配 ⇒「密码不参与搜索」红（1 failed / 26 passed），改回即绿
+> - **桌面 CDP 实测 12 项**：降级视图 → 环未建立提示 →「重新检查」→ 错密码（`invalid tag`，已译成「主密码不对」）→ 正确解锁 → 新建平台（落盘）→ reload 后再解锁数据还在 → 新建账号 →「生成」填 16 位 → 保存 → 展开看到账号行 → 显示密码（明文 `kahL8Gs9NYocwYuP`，无 0/O/1/l/I）→ 复制（`CLIP_LEN=16`）→ **等 66 秒 `CLIP_LEN=0`** → 删除进回收站（剩 7 天）→ 恢复
+> - **实测抓到两个真 bug**（都已修）：见上方索引行
+>
+> ### 踩到的两个坑（写下来省下次）
+>
+> 1. **`{key,node}` 只能进 `list.items`，不能进 `stack.children`** —— 后者只吃裸 UINode，塞包装对象会被当成"字段缺失的节点"，容错分支把整个 JSON 当文本渲染出来。测试抓不到（纯数据），只有真渲染才看得见。
+> 2. **`visibleTree` 第一版过滤掉了无账号的平台** ⇒ 新建平台保存后列表里什么都没有，用户没法往里加账号。已改成"无搜索时保留空平台，有搜索词时才要求命中"。
+>
+> ### 下一步
+>
+> - **期 1c**：四个同步插件放行 `.zn/secrets/`（现在 `sync-folder:184` 把 `.zn/` 整段排除 ⇒ 密码库同步不出去），冲突保留两份
+> - 可选：把 secrets 也签名发到市场（与 security 同路，`pack-plugin secrets --key …`）
 
 > ## 📌 rev173.162（2026-10-25 · 交接：安全插件上线 + 下个会话入口）
 

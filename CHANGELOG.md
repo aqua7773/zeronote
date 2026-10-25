@@ -17,6 +17,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`input` 节点支持密码框**（rev173.163）：声明 `{ type: 'input', secret: true }` 时宿主渲染成
+  `type="password"`（+ `autoComplete="off"`），回显为圆点。为 `secrets` 密码库插件而加 ——
+  在此之前 `input` 硬编码 `type="text"`，密码只能明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。
+  **UINode 仍是 21 种**：只加可选字段，老插件一个都不用改；`state[bind]` 里仍是明文（遮的是显示，不是内存）。
+
 ### Changed
 
 - **插件页统一：设置里也能进市场**（rev173.152）：设置 → 插件 与 菜单 → 插件管理 **复用同一个
