@@ -70,6 +70,28 @@ node scripts/gen-market.mjs --write
 
 **作者发版不用再改这个仓库** —— 版本信息在你自己的 `market-entry.json` 里，客户端点开详情时才读。
 
+## 审 PR（维护者 / 2026-10-25 rev173.158）
+
+```bash
+node scripts/review-plugin.mjs --entry <作者的 market-entry.json> --online --out market/review-YYYY-MM-DD.md
+```
+
+产出一份**人能读的材料**（照着看几行就能决定 merge 还是打回）：
+
+- entry 可达 · 字段齐全 · id 与索引行一致
+- **整包 sha256** 与 entry 一致（包没被换过）
+- 包内 `manifest` 与 entry 同 id 同版本 · `manifest.entry` 真的在包里
+- `apiVersion` 的 **major** 是否兼容（内核只比 major，`plugin-host.ts` 的 `assertApiVersion`）
+- 有签名就报 **keyId**（不验 —— 作者公钥不在信任根里，用户得自己决定要不要信任）
+- **能力自述**（翻成人话：读文件 / 联网 / 注册命令…）
+
+**它不审代码**，这是有意的：内核不为插件提供安全保证（`docs/架构原则-2026-10-13.md` §4.1），
+假装审过比不审更危险。材料只回答「格式对、包没被换过、谁签的」。
+
+- **离线半**（`external.json` 格式 / id 规范 / 不撞官方 / 不重复）**已进质量门**（`check-gates.mjs` 第 7 门）——
+  脏 PR 一进来 CI 就红。
+- **联网半**（拉 entry / 下包 / 核 sha256）**不进 CI** —— 别让 CI 红在别人的服务器上。
+
 ## 安全边界（请先读）
 
 内核**不为插件提供任何安全保证**（`docs/架构原则-2026-10-13.md` §4.1）：插件能读任意笔记文件、能发网络请求、能调用内核命令。

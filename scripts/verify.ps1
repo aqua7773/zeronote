@@ -1,4 +1,4 @@
-﻿# ZeroNote 一键自检 —— 前端类型 / lint / 内核单测 / 文档一致性 / 前端单测
+# ZeroNote 一键自检 —— 前端类型 / lint / 内核单测 / 文档一致性 / 前端单测
 # 用法：pwsh -File scripts\verify.ps1
 # 输出末尾会打印一行「基线」——文档只引用它，不要手写数字。
 # 注意：本文件必须是 UTF-8 **with BOM**（PS 5.1 否则中文乱码，见本机规约 §四）
@@ -59,7 +59,7 @@ if ($fail -eq 0) {
   [System.IO.File]::WriteAllText($baselinePath, $baselineJson, (New-Object System.Text.UTF8Encoding($false)))
   node scripts/facts.mjs --write | Out-Null
 }
-Write-Host '=== 6/6 质量门（facts / 依赖方向 / 本地链接 / 功能目录 / 键位表）===' -ForegroundColor Cyan
+Write-Host '=== 6/6 质量门（facts / 依赖方向 / 本地链接 / 功能目录 / 键位表 / 市场索引 / 外部条目审查）===' -ForegroundColor Cyan
 node scripts/check-gates.mjs
 if ($LASTEXITCODE -ne 0) { $fail++; Write-Host '❌ 质量门失败（见上方清单）' -ForegroundColor Red }
 Write-Host "基线：tsc 0 错误 · oxlint $w warnings · cargo test --lib $p2 passed · vitest $u passed" -ForegroundColor Cyan

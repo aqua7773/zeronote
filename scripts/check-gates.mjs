@@ -18,6 +18,9 @@ const gates = [
   ['keys', 'scripts/gen-keys.mjs', '--check'],
   // rev173.143：市场索引与 examples 的 manifest 不能漂移（改了插件版本忘重新打包 = 红）
   ['market', 'scripts/gen-market.mjs'],
+  // rev173.158：外部条目的格式门（**离线**，不联网）—— 脏 PR 一进来就红。
+  // 联网那半（拉 entry / 下包核 sha256）只在人工审 PR 时跑，不进 CI：别让 CI 红在别人的服务器上。
+  ['review', 'scripts/review-plugin.mjs'],
 ]
 
 let failed = 0
