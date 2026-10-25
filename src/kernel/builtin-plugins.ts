@@ -62,6 +62,39 @@ import syncGitManifest from '../../examples/sync-git/manifest.json?raw'
 
 type BuiltinPlugin = { id: string; files: Record<string, string> }
 
+/**
+ * 按 `x.y.z` 比较两个版本号（`1.10.0 > 1.9.0` —— 字符串比较在这里是错的）。
+ * 返回 >0 表示 a 更新，<0 表示 b 更新，0 表示相等。非数字段当 0（`0.2.0-beta` 与 `0.2.0` 同序）。
+ */
+export function compareVersions(a: string, b: string): number {
+  const parts = (v: string) =>
+    v
+      .replace(/^[v^~>=<\s]+/, '')
+      .split('.')
+      .slice(0, 3)
+      .map((p) => {
+        const n = Number.parseInt(p, 10)
+        return Number.isFinite(n) ? n : 0
+      })
+  const pa = parts(a)
+  const pb = parts(b)
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d !== 0) return d > 0 ? 1 : -1
+  }
+  return 0
+}
+
+/** 内置版本自带 `manifest.json` —— 从里面读 `version`（读不出返回 undefined，按"未知"处理） */
+function builtinVersion(plugin: BuiltinPlugin): string | undefined {
+  try {
+    const v = JSON.parse(plugin.files['manifest.json'] ?? '')
+    return typeof v?.version === 'string' ? v.version : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'outline-map',
@@ -127,32 +160,61 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
  *
  * 返回值 = 写失败的文件清单（rev173.41）。以前失败只 `console.warn` ——
  * 用户看到的是「导图 / 阅读器 / 记账莫名没了」，没有任何线索；调用方据此出提示。
+ *
+ * **不覆盖的两种情况**（rev173.147，插件市场的前置修复）：
+ *  · 目录里有 `signature.json` ⇒ 这是从市场 / 签名渠道装的，内置版本没有签名也无法签
+ *    ⇒ 写下去就变成「内容与签名对不上 ⇒ 插件被拒载」。市场包装的东西让市场包管。
+ *  · 已装版本**比内置新**（`compareVersions`）⇒ 当初写「覆盖为内置版本」时还没有市场渠道，
+ *    现在有市场了，覆盖等于把用户装的更新版**偷偷回退**。
+ * 其余情况（首装 / 内置更新 / 同版本内容不同）照旧覆盖：升级应用时内置插件要跟着走。
  */
-export async function ensureBuiltinPlugins(
-  root: string,
-): Promise<{ failed: { pluginId: string; rel: string; error: string }[] }> {
+export async function ensureBuiltinPlugins(root: string): Promise<{
+  failed: { pluginId: string; rel: string; error: string }[]
+  /** 被跳过、没动的插件（有签名 / 版本更新）—— 调用方可以只看 failed，这里便于测试与排障 */
+  skipped: { pluginId: string; reason: 'signed' | 'newer' }[]
+}> {
   const failed: { pluginId: string; rel: string; error: string }[] = []
+  const skipped: { pluginId: string; reason: 'signed' | 'newer' }[] = []
   for (const plugin of BUILTIN_PLUGINS) {
+    /**
+     * **幂等**：内容一样就不写（rev137）。
+     *
+     * 原先无条件覆盖 ⇒ 每次启动/每次插件重载都改写 18 个文件。dev 下这些文件在项目树内，
+     * watcher 会当成源码变化 ⇒ HMR ⇒ React Refresh 重放 effect ⇒ 插件加载链重跑 ⇒
+     * 再写一遍 —— 形成每 ~6 秒一轮的循环（主题样式每轮消失几百毫秒 = 闪深色）。
+     * 内容比较能让「没变化」的启动完全静默；真正的升级/首次安装照常写入。
+     */
+    const stale: string[] = []
     for (const [rel, content] of Object.entries(plugin.files)) {
       try {
-        /**
-         * **幂等**：内容一样就不写（rev137）。
-         *
-         * 原先无条件覆盖 ⇒ 每次启动/每次插件重载都改写 18 个文件。dev 下这些文件在项目树内，
-         * watcher 会当成源码变化 ⇒ HMR ⇒ React Refresh 重放 effect ⇒ 插件加载链重跑 ⇒
-         * 再写一遍 —— 形成每 ~6 秒一轮的循环（主题样式每轮消失几百毫秒 = 闪深色）。
-         * 内容比较能让「没变化」的启动完全静默；真正的升级/首次安装照常写入。
-         */
-        try {
-          const cur = await invoke<string>('read_plugin_file', {
-            vault: root,
-            pluginId: plugin.id,
-            rel,
-          })
-          if (cur === content) continue
-        } catch {
-          /* 文件不存在 / 读失败 ⇒ 走写入 */
-        }
+        const cur = await invoke<string>('read_plugin_file', {
+          vault: root,
+          pluginId: plugin.id,
+          rel,
+        })
+        if (cur === content) continue
+      } catch {
+        /* 文件不存在 / 读失败 ⇒ 算作要写 */
+      }
+      stale.push(rel)
+    }
+    if (stale.length === 0) continue
+
+    // 有差异 ⇒ 先判断「该不该覆盖」（内容一致时一次额外 invoke 都不发，启动成本不变）
+    if (await hasSignature(root, plugin.id)) {
+      skipped.push({ pluginId: plugin.id, reason: 'signed' })
+      continue
+    }
+    const installed = await readInstalledVersion(root, plugin.id)
+    const builtin = builtinVersion(plugin)
+    if (installed && builtin && compareVersions(installed, builtin) > 0) {
+      skipped.push({ pluginId: plugin.id, reason: 'newer' })
+      continue
+    }
+
+    for (const rel of stale) {
+      const content = plugin.files[rel]
+      try {
         await invoke('write_plugin_file', { vault: root, pluginId: plugin.id, rel, content })
       } catch (e) {
         failed.push({ pluginId: plugin.id, rel, error: String(e) })
@@ -160,5 +222,26 @@ export async function ensureBuiltinPlugins(
       }
     }
   }
-  return { failed }
+  return { failed, skipped }
+}
+
+/** 目录里有没有 `signature.json`（有 ⇒ 这个插件归签名渠道管，内置版不碰） */
+async function hasSignature(root: string, pluginId: string): Promise<boolean> {
+  try {
+    await invoke<string>('read_plugin_file', { vault: root, pluginId, rel: 'signature.json' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 目录里现有 `manifest.json` 的版本；读不到 / 不是合法 JSON ⇒ undefined（按"未知"处理，走覆盖） */
+async function readInstalledVersion(root: string, pluginId: string): Promise<string | undefined> {
+  try {
+    const raw = await invoke<string>('read_plugin_file', { vault: root, pluginId, rel: 'manifest.json' })
+    const v = JSON.parse(raw)
+    return typeof v?.version === 'string' ? v.version : undefined
+  } catch {
+    return undefined
+  }
 }
