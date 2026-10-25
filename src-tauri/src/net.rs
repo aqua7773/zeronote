@@ -126,7 +126,16 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
     let bytes = base64::engine::general_purpose::STANDARD
       .decode(b64.as_bytes())
       .map_err(|e| format!("请求体不是合法 base64：{e}"))?;
-    rb = rb.body(bytes);
+    // 显式带 Content-Length（**含 0**）。
+    //
+    // reqwest 对 `Vec::new()` 不发 CL、也不发 Transfer-Encoding —— 2026-10-25 抓包实测
+    // `cl=null te=null bytes=0`；rclone `serve s3` 对没有长度的 PUT 回 411 Length Required，
+    // 表现为「同步到一篇空笔记就永远卡住、每 5 秒重试同一篇」。
+    // 长度与实际 body 一致，reqwest 发送阶段不会拒绝。
+    let len = bytes.len();
+    rb = rb
+      .body(bytes)
+      .header(reqwest::header::CONTENT_LENGTH, len.to_string());
   }
 
   let resp = rb.send().await.map_err(|e| {

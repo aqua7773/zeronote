@@ -563,10 +563,22 @@ export function createS3Client(cfg, opts = {}) {
      * 头参与 SigV4 签名（`request()` 把所有传入头都签）—— AWS 允许签额外头，值必须一致。
      */
     async put(key, text, opts = {}) {
+      const body = typeof text === 'string' ? text : String(text ?? '')
       const extraHeaders = {}
       if (opts.ifMatch) extraHeaders['if-match'] = String(opts.ifMatch)
+      /**
+       * 空文本 PUT 必须显式带 `Content-Length: 0`（rev173.131）。
+       *
+       * 根因在内核 `net_request`：reqwest 对空 Vec 的 body **既不设 Content-Length
+       * 也不设 Transfer-Encoding**（2026-10-25 抓包实测：`cl=null te=null bytes=0`），
+       * 而 rclone `serve s3` 对没有长度的 PUT 回 **411 Length Required** ——
+       * 表现为「手机端同步到一篇空笔记就永远卡住、每 5 秒重试同一篇」。
+       * 内核侧已补显式 CL；这里再兜一层，让**已经装在别处的旧内核**也能同步空笔记。
+       * 头参与签名（`request()` 全签），值 '0' 与实际一致，服务端验签不受影响。
+       */
+      if (body.length === 0) extraHeaders['content-length'] = '0'
       const res = await request('PUT', key, {
-        body: typeof text === 'string' ? text : String(text ?? ''),
+        body,
         contentType: opts.contentType ?? 'text/markdown; charset=utf-8',
         extraHeaders,
       })

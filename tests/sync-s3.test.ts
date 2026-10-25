@@ -302,6 +302,18 @@ describe('S3 客户端', () => {
     })
     expect(await c.put('a.md', 'x')).toMatchObject({ ok: false, status: 409, conflict409: true })
   })
+
+  it('空文本 PUT ⇒ 显式 content-length: 0（rev173.131；非空不带，交给 reqwest）', async () => {
+    const { net, calls } = s3Net([
+      { status: 200, headers: { etag: '"e1"' } },
+      { status: 200, headers: { etag: '"e2"' } },
+    ])
+    const c = await client(net)
+    await c.put('empty.md', '')
+    expect(calls[0].headers['content-length']).toBe('0')
+    await c.put('x.md', 'hi')
+    expect(calls[1].headers['content-length']).toBeUndefined()
+  })
 })
 
 describe('附件（rev173.126）', () => {
@@ -426,6 +438,11 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
           const cond = headers['if-match']
           if (cond && mode === 'reject') {
             return { status: 400, headers: {}, text: () => '<Code>InvalidArgument</Code>', bytes: emptyBytes }
+          }
+          // rev173.131：空 body 不带 Content-Length ⇒ 411（rclone serve s3 的真实行为）
+          const bodyText = typeof spec.body === 'string' ? spec.body : ''
+          if (bodyText.length === 0 && headers['content-length'] == null) {
+            return { status: 411, headers: {}, text: () => '<Code>MissingContentLength</Code>', bytes: emptyBytes }
           }
           if (cond && mode === 'strict' && objects.get(key)?.etag !== cond) {
             return {
@@ -632,6 +649,24 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     expect(objects.get('n.md')!.body).toBe('local-mine\n')
     expect([...local.keys()].some((k) => k.startsWith('.zn/conflicts/'))).toBe(false)
     expect(requests.filter((r) => r.method === 'PUT' && r.key === 'n.md').length).toBe(2)
+
+    A.dispose()
+  })
+
+  it('空笔记也能同步（rev173.131：reqwest 对空 body 不发 CL ⇒ rclone 411、每 5 秒重试同一篇）', async () => {
+    const { objects, net } = makeS3('strict')
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+
+    local.set('empty.md', new Uint8Array(0))
+    mtimes.set('empty.md', Date.now() - 60_000)
+    const A = makeDevice(net, local, mtimes)
+    await configure(A)
+    const summary = (await A.commands.get('sync-s3.sync')!({})) as { pushed?: number; hint?: string }
+
+    expect(summary.pushed).toBe(1)
+    expect(objects.get('empty.md')!.body).toBe('')
+    expect(String(summary.hint ?? '')).not.toContain('411')
 
     A.dispose()
   })
