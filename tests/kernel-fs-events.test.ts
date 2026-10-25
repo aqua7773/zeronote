@@ -79,14 +79,19 @@ beforeEach(() => {
 })
 
 describe('fs 写路径 → 索引 + 事件', () => {
-  it('writeText：发 note:saved，且新内容立刻可搜', async () => {
+  it('writeText：发 note:saved（带正文），且新内容立刻可搜', async () => {
     const k = makeKernel()
     const seen: unknown[] = []
     k.event.on('note:saved', (p) => seen.push(p))
 
     await k.fs.writeText('a.md', '# 标题\n这是世界和平的笔记')
 
-    expect(seen).toEqual([{ path: 'a.md' }])
+    /**
+     * rev173.133：payload 带 `text`（刚写盘的正文）。订阅方（同步插件）靠它在**同步段**
+     * 里算指纹、记 pending —— 不这样的话它得 `await readText`，而 watcher 回响可能插在
+     * 那段 await 中间把基线对齐掉，本机改动就永远同步不出去。
+     */
+    expect(seen).toEqual([{ path: 'a.md', text: '# 标题\n这是世界和平的笔记' }])
     const hits = await k.index.query('世界')
     expect(hits.map((h) => h.path)).toEqual(['a.md'])
   })
@@ -116,7 +121,7 @@ describe('fs 写路径 → 索引 + 事件', () => {
 
     // 普通笔记不受影响（免得把修复做成"全都不发了"）
     await k.fs.writeText('正常.md', '正常笔记')
-    expect(saved).toEqual([{ path: '正常.md' }])
+    expect(saved).toEqual([{ path: '正常.md', text: '正常笔记' }])
   })
 
   it('delete：发 note:deleted（带 trashId），索引里移除', async () => {
@@ -185,7 +190,7 @@ describe('fs 写路径 → 索引 + 事件', () => {
 
     await k.fs.writeText('u.md', '用户保存的内容')
 
-    expect(saved).toEqual([{ path: 'u.md' }])
+    expect(saved).toEqual([{ path: 'u.md', text: '用户保存的内容' }])
     expect(changed).toEqual([])
   })
 

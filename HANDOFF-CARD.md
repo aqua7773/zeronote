@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.132）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.133）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.132 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 916 · cargo 40 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.133 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 917 · cargo 40 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -61,8 +61,9 @@ pwsh -File scripts\verify.ps1
 > **`selfWrites` 抑制表**挡住「合并落盘 ⇒ note:saved ⇒ 假 pending」（不挡会留永久 pending，之后任何外部改动
 > 都被误判成冲突）。同步点文件改成 `base.<后端>.sync.md`（`sync:webdav` / `sync:folder` 互不覆盖，实测各 30 篇并存）。
 > 单测 825 → **833** · verify 6/6 · 实测（dev 真环境）：本机 pending + 外部改第一行 ⇒ 自动合上、冲突记录不增；
-> 两边改同一行 ⇒ 回副本（= 本机版）。⚠️ 观察项：`note:saved` 与 Rust watcher 的 `note:changed` 有竞争
-> （冷启动首次可能 changed 先到 ⇒ 本机版没进影子副本），根治要改内核写盘语义，另议。
+> 两边改同一行 ⇒ 回副本（= 本机版）。✅ **观察项已修（rev173.133）**：`note:saved` 与 Rust watcher 的
+> `note:changed` 有竞争（冷启动首次可能 changed 先到 ⇒ 本机版没进影子副本）—— 根因是 `note:saved` 处理体以
+> `await readText` 开头、回响插在那段 await 中间；现在内核 payload 带 `text` ⇒ 判定段同步完成，详见本卡 rev173.133 段。
 >
 > ✅ **附件同步补齐 + 耗时上版面（rev173.117，二期小项收尾）**：① 附件不再只看「本地有没有这个文件名」
 > —— 远端换掉同一路径的图以前永远同步不下来，现在按 manifest 的 `fp` 判（`needsAttachmentPull`）·
@@ -168,6 +169,19 @@ pwsh -File scripts\verify.ps1
 > 读出**服务器真正收到的请求头**：空 body 必须 `Content-Length: 0`、非空长度匹配 ·
 > **反向验证**：删掉 `.header(CONTENT_LENGTH, …)` ⇒ 空 body 那条失败、非空仍过 · cargo 38 → **40** ·
 > ⚠️ 桌面 dev 当前二进制起于 10:22（早于 rev173.131）⇒ **要重启一次 dev** 才带上 Rust 修复。
+> ✅ 已解决：二进制 13:22 重编、进程 13:27 重启（`zeronote.exe` pid 19632），都晚于 rev173.131 的提交。
+>
+> ✅ **同步 · 本机保存的改动可能永远同步不出去（rev173.133 · 修 173.116 记下的观察项）**：
+> `note:saved` 的处理体以 `await readText` 开头 ⇒ Rust watcher 的回响若在这段 `await` 中间跑完判定，
+> pending 还没建立、磁盘已是新内容 ⇒ 判 `remote`（当成"别处更新"）把基线对齐新内容；随后 saved 醒来
+> 看到 `baseline.fp === 当前 fp` 直接早退 ⇒ 这次改动**既无 pending 也无影子副本**，永远同步不出去。
+> 修法：内核 `note:saved` 的 payload 带 **`text`** ⇒ 订阅方在**同步段**算指纹、记 pending，回响插不进来
+> （`note:saved` 总先于它的回响派发）；插件另加**内存影子副本**兜底（`readShadow` 内存优先、落盘后清），
+> 影子副本落盘窗口里来真冲突也不会误标「本机版未留存」。
+> 单测 916 → **917**（时序用例用 `slowNextRead` **只拖慢保存那次读盘**，精确重现回响抢跑）·
+> **反向验证**：把「用内核正文」分支掐掉 ⇒ 用例转红 · 契约 §1.4 的 `note:saved` payload 表已同步。
+> **桌面冒烟**：reload 后全局插件 `sync-folder` 0.3.1 → 编辑 `笔记1.md` 追加一行 ⇒ 自动保存 34 字节、
+> `.zn/sync/last/16a96rn.md` 同时落盘（内容一致）⇒ 处理体走到底、不再早退；20 秒后升基线（预期）。
 >
 > **下一步可选**：`sync-git` 手机端（**没凭据**：手机无 token、桌面也没配过 sync-git）·
 > Gitee 分支实测（没账号令牌）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
@@ -322,7 +336,7 @@ pwsh -File scripts\verify.ps1
 | 桌面 release exe | ✅ **rev173.26（隔离版）**：`identifier=com.aqua.zeronote.release` / 标题「ZeroNote Release」· 数据目录 `%LOCALAPPDATA%\com.aqua.zeronote.release` 独立 · 已放 `_View\办公与文档\zeronote.exe` · 与 dev **可同时运行** |
 | 同步插件 | ✅ **完成（rev173.106–114）**：内核地基（`net` / `fs` 二进制 / `host.secrets`）+ `sync-folder`（本地文件夹，不搬文件）+ `sync-webdav`（直连 WebDAV，`_zn/manifest.json` 权威索引，`PUT` 带 `If-Match`，前台每 5 秒自动同步）+ 附件三模式（off / 中转 / 永久）；两个都进预装（11 个）。**真机双向 + 全自动验证通过**（2026-10-24 23:06：手机新建 → 桌面 9 秒收到）。同轮修静默缺陷：503 停自动同步后开关仍显示「开着」⇒ `settings.auto` 同步落 false。**收尾四项也已完成（rev173.111–114）**：manifest 304 短路径 · `sync-folder` 自动检查开关 · 冲突副本一键打开 · `.zn/` 排除检查提醒。方案 `docs/同步插件-调研与方案-2026-10-24.md` |
 | 同步 · 附件（S3 / Git / WebDAV） | ✅ **rev173.126–127**：三个后端都是 off / relay / full（同一协议）· 内容级判定 + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0 · **真机：S3 15/15（rclone）· Git 13/13（真实 GitHub 私有仓库）** · 5 个静默 bug 已修（前缀路径 / list key / Git manifest 丢 attachments / GitHub `content` 二进制有损 / 先推后拉互相覆盖）· **rev173.127**：`sync-webdav` 也改成先拉后推 + 方向判定 + 条目 `mode`，另修「`{fp,bytes}` 对象当指纹」· 单测 **907** · ⚠️ webdav 只有单测证据（没真机） |
-| 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ⚠️ 观察项：`note:saved` 与 `note:changed` 有竞争（冷启动首次可能丢 pending）· **未做**：history 防抖触发（合并不需要）/ 内核级「插件写盘不触发 note:saved」（另议） |
+| 同步 · 三方合并 | ✅ **完成（rev173.115–116，两个后端都接）**：`history` 0.2.0 打**同步点**（`base.<后端>.sync.md`，按 `sync:webdav` / `sync:folder` 分开，固定名 / 覆盖写 / 不进历史列表 / 内容没变不写）+ 暴露 `history` 服务（`snapshot({tag})` / `findBase(path, {tag})`）· 内核内置 `kernel.merge`（`mergeLines` 唯一实现，插件 import 不到 `src/lib`）· 两个同步插件冲突先 `tryAutoMerge`：**只有 0 处真冲突才自动合**（合上写盘 + 对齐基线/推远端），有真冲突仍留副本 · `sync-folder` 侧加 `selfWrites` 抑制表（合并落盘不算"本机保存"）· 单测 **833** · 实测：WebDAV（本地 DAV 服务器）/ 本地文件夹（dev 真环境）都验过「改不同行自动合上 / 改同一行留副本」· ⚠️ 两边都在**末尾追加**会判冲突（行级语义）· ✅ **观察项已修（rev173.133）**：`note:saved` 与 `note:changed` 的竞争不再丢 pending —— 内核 payload 带 `text`、判定段同步完成 · **未做**：history 防抖触发（合并不需要）· 内核级「插件写盘不触发 note:saved」✅ rev173.120 已做 |
 | 同步 · 基线丢失 | ✅ **rev173.128**：`!base && remoteFp != null` 不再一律 `pull-new` —— 两边指纹相同 ⇒ `noop`、不同 ⇒ `conflict`（本机版先留副本再取远端）· 三个网络后端一起改，`sync-folder` 不涉及 · store 被清 / 换设备后本地改动不再被静默覆盖 · 新增 2 条端到端用例 + 反向验证 · 单测 **909** |
 | 同步 · S3 条件写 | ✅ **rev173.129**：笔记 PUT 带 `If-Match`（远端已有这篇 + manifest 记了 etag 时）· 412 ⇒ 冲突处理 + **刷新 manifest 条目**（否则下一轮重复撞）· 409 ⇒ 取新 ETag 重试一次 · 400 ⇒ 自动降级重试 · `push-new` 不带条件 · **真机 rclone 忽略该头 ⇒ 退化为旧行为**（带头的 PUT 通过验签）· 单测 **914** |
 | 同步 · 附件真机 | ✅ **rev173.130**：坚果云附件**双向**通 —— 桌面 27KB png + 52B txt 上传 → 删本地再同步 pulled=2 原样回来；手机开 full ⇒ pulled=3 / pushed=3 且手机出现两文件；桌面再同步收到手机推的 89KB jpg · 两端附件模式已恢复 off · 无代码改动 |

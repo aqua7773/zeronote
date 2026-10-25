@@ -146,9 +146,18 @@ describe('snapshotPath', () => {
 function memoryFs(initial: Record<string, string> = {}) {
   const files = new Map<string, string>(Object.entries(initial))
   const writes: Array<{ path: string; content: string }> = []
+  /**
+   * 下一次 `readText(path)` 拖一个宏任务再返回 —— 模拟 IPC 慢（rev173.133 的竞争测试要它）。
+   * 只影响**下一次**调用：这样「保存时的读盘」可以慢、「回响的读盘」正常，
+   * 复现 `note:changed` 抢在 `note:saved` 之前跑完判定的真实时序。
+   */
+  const slowNext = new Set<string>()
   return {
     files,
     writes,
+    slowNextRead: (path: string) => {
+      slowNext.add(path)
+    },
     api: {
       listNotes: async () =>
         [...files.keys()]
@@ -162,6 +171,7 @@ function memoryFs(initial: Record<string, string> = {}) {
         )
       },
       readText: async (path: string) => {
+        if (slowNext.delete(path)) await new Promise((r) => setTimeout(r, 0))
         if (!files.has(path)) throw new Error(`ENOENT ${path}`)
         return files.get(path) as string
       },
@@ -509,6 +519,38 @@ describe('冲突端到端（双端都改同一篇）', () => {
     const conflictWrites = h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts/windows/'))
     expect(conflictWrites).toHaveLength(1)
     expect(conflictWrites[0].content).toBe('v2')
+
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
+  it('保存的判定被回响抢跑（读盘慢）⇒ pending 仍留下，本机版不丢（rev173.133）', async () => {
+    /**
+     * 真实时序：`note:saved` 的处理体里有一次读盘（IPC）。Rust watcher 的回响若在这段
+     * `await` 中间跑完判定，pending 还没建立 ⇒ 磁盘是新内容、基线还是旧内容 ⇒ 判
+     * `remote`（当成"别处更新"），基线对齐新内容；随后 saved 醒来看到
+     * `baseline.fp === 当前 fp` 直接早退 ⇒ 这次改动**既没有 pending 也没有影子副本**，
+     * 永远同步不出去（rev173.116 实测记下的观察项，rev173.133 修）。
+     *
+     * `slowNextRead` 只拖慢「saved 那次」读盘，回响那次照常立即返回 —— 精确重现抢跑。
+     */
+    const h = harness({ 'f.md': 'v1' })
+    await settle()
+    h.handlers['note:created']({ path: 'f.md' }) // 基线 = v1
+    await settle()
+
+    h.mem.files.set('f.md', 'v2')
+    h.mem.slowNextRead('f.md')
+    h.handlers['note:saved']({ path: 'f.md', text: 'v2' })
+    h.handlers['note:changed']({ path: 'f.md', kind: 'modify' })
+    await settle()
+
+    // 对端再改成 v3 ⇒ 必须判得出冲突，且留的是本机版 v2
+    h.mem.files.set('f.md', 'v3')
+    h.handlers['note:changed']({ path: 'f.md', kind: 'modify' })
+    await settle()
+    const cw = h.mem.writes.filter((w) => w.path.startsWith('.zn/conflicts/windows/'))
+    expect(cw).toHaveLength(1)
+    expect(cw[0].content).toBe('v2')
 
     h.api.subscriptions.forEach((s) => s.dispose())
   })

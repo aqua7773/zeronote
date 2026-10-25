@@ -327,7 +327,8 @@ export default {
           api.host.log('warn', `冲突副本写入失败 ${fileName}：${String(e)}`)
           fileName = null
         }
-        // 影子副本用完即弃（本机版已经躺进冲突目录）
+        // 影子副本用完即弃（本机版已经躺进冲突目录）；内存那份一并清掉（rev173.133）
+        shadowMem.delete(path)
         void api.fs.purgePrivate(snap).catch(() => {})
       }
 
@@ -368,8 +369,30 @@ export default {
       }
     }
 
-    /** 读本机版（影子副本）—— 冲突时 `mine` 的来源 */
+    /**
+     * **内存里的本机版**（rev173.133）。
+     *
+     * `note:saved` 的判定段现在是同步的，但影子副本落盘仍要 `await`。这段窗口里若真来冲突，
+     * 磁盘上还没有影子副本 ⇒ `keepConflict` 会标「本机版未留存」（假 `lost`）。
+     * 正文先留在内存，`readShadow` 优先读它；落盘成功再清掉。
+     */
+    const shadowMem = new Map()
+
+    /** 影子副本落盘（失败只记日志：`readShadow` 还有内存兜底，不会丢内容） */
+    async function writeShadow(path, text) {
+      try {
+        await api.fs.mkdir(SNAPSHOT_DIR)
+        await api.fs.writeText(snapshotPath(path), text)
+        shadowMem.delete(path)
+      } catch (e) {
+        api.host.log('warn', `影子副本写入失败 ${path}：${String(e)}`)
+      }
+    }
+
+    /** 读本机版（影子副本）—— 冲突时 `mine` 的来源：内存优先，其次磁盘 */
     async function readShadow(path) {
+      const cached = shadowMem.get(path)
+      if (typeof cached === 'string') return cached
       try {
         return await api.fs.readText(snapshotPath(path))
       } catch {
@@ -417,6 +440,7 @@ export default {
       }
       baseline[path] = { fp, at: Date.now() }
       delete pending[path]
+      shadowMem.delete(path)
       void api.fs.purgePrivate(snapshotPath(path)).catch(() => {})
       markDirty()
       await markBase(path, text)
@@ -426,29 +450,49 @@ export default {
       return true
     }
 
-    /** 本机保存（用户编辑）：记 pending + 存影子副本，**不动 baseline** */
+    /**
+     * 本机保存（用户编辑）：记 pending + 存影子副本，**不动 baseline**。
+     *
+     * rev173.133：判定段**不放 `await`**。内核现在随事件带 `text`，于是「算指纹 → 判基线
+     * 没变 → 记 pending」全在同步段完成；watcher 回响（`note:changed`）的处理体不可能插到
+     * 中间去把基线对齐掉（`note:saved` 总是先于回响派发）。
+     *
+     * 为什么非要同步：以前这里是 `await readText` 开头。回响若在这段 `await` 中间跑完判定，
+     * pending 还没建 ⇒ 磁盘新、基线旧 ⇒ 判 `remote`（当成"别处更新"）、基线对齐新内容；
+     * 随后本函数醒来看到 `baseline.fp === 当前 fp` 直接早退 ⇒ 这次改动既没有 pending
+     * 也没有影子副本，**永远同步不出去**（rev173.116 实测记下的观察项，rev173.133 修）。
+     *
+     * 旧内核（事件不带 `text`）退回读盘版本：行为与之前一致，不因版本差异静默失效。
+     */
     api.event.on('note:saved', (payload) => {
+      const path = String(payload?.path ?? '')
+      if (!isSyncable(path)) return
+
+      /** 记 pending + 内存影子 + 异步落盘（同步段共用） */
+      const remember = (text) => {
+        const fp = fingerprint(text)
+        if (baseline[path]?.fp === fp) return // 保存了但内容没变
+        pending[path] = { fp, at: Date.now() }
+        shadowMem.set(path, text)
+        markDirty()
+        api.view.refresh()
+        void writeShadow(path, text)
+      }
+
+      const given = typeof payload?.text === 'string' ? payload.text : null
+      if (given !== null) {
+        remember(given)
+        return
+      }
+
       void (async () => {
-        const path = String(payload?.path ?? '')
-        if (!isSyncable(path)) return
         let text
         try {
           text = await api.fs.readText(path)
         } catch {
           return
         }
-        const fp = fingerprint(text)
-        if (baseline[path]?.fp === fp) return // 保存了但内容没变
-        pending[path] = { fp, at: Date.now() }
-        try {
-          await api.fs.mkdir(SNAPSHOT_DIR)
-          await api.fs.writeText(snapshotPath(path), text)
-        } catch (e) {
-          // 影子副本写不出来 ⇒ 冲突时救不回本地版，先记日志（面板会标 lost）
-          api.host.log('warn', `影子副本写入失败 ${path}：${String(e)}`)
-        }
-        markDirty()
-        api.view.refresh()
+        remember(text)
       })()
     })
 
@@ -492,6 +536,7 @@ export default {
       }
       delete pending[from]
       delete pending[to]
+      shadowMem.delete(from) // 改名前那份影子副本再也对不上路径（哈希跟着 path 走）
       markDirty()
       api.view.refresh()
     })
@@ -562,6 +607,8 @@ export default {
         if (verdict !== 'local-pending') {
           baseline[path] = { fp: remoteFp, at: now }
           delete pending[path]
+          // 本机版若还有价值，已经在上面的 keepConflict 里留了副本；内存那份不再需要
+          shadowMem.delete(path)
           markDirty()
           // 对齐之后两端一致 ⇒ 这是下次冲突要用的「共同祖先」
           void markBase(path, text)
@@ -623,6 +670,7 @@ export default {
           }
           baseline[n.path] = { fp, at: Date.now() }
           delete pending[n.path]
+          shadowMem.delete(n.path)
           void markBase(n.path, text)
           result.updated += 1
         }
@@ -637,6 +685,7 @@ export default {
           }
           delete baseline[path]
           delete pending[path]
+          shadowMem.delete(path)
           result.removed += 1
         }
 
@@ -666,6 +715,7 @@ export default {
           void api.fs.purgePrivate(snapshotPath(path)).catch(() => {})
         }
         delete pending[path]
+        shadowMem.delete(path)
         changed = true
       }
       if (changed) {

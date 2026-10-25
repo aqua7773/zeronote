@@ -74,7 +74,21 @@ export function withFsEvents(
         event.emit('note:changed', { path, kind: 'modify', origin: 'plugin' })
         return
       }
-      event.emit('note:saved', { path })
+      /**
+       * **把刚写盘的正文带上**（rev173.133）—— 不是省一次读盘，是为了让订阅方能把
+       * 「记 pending」放在**同步段**里做完。
+       *
+       * 起因：同步插件的 `note:saved` 处理要 `await readText` 才能算指纹；而 Rust watcher
+       * 的 `note:changed` 回响（自写抑制是 1500 ms 窗口，不保证 100% 吞掉）可能在这段
+       * `await` 中间跑完判定 —— 那时 pending 还没建，磁盘已是新内容、基线还是旧内容 ⇒
+       * 判成 `remote`（当成"别处更新"）把基线对齐新内容；随后 saved 醒来看到
+       * `baseline.fp === 当前 fp` 直接早退 ⇒ 这次本机改动既没有 pending 也没有影子副本，
+       * **永远同步不出去**。带上正文后，判定段不再有 `await`，回响不可能插队
+       * （`note:saved` 总是先于它的 watcher 回响派发）。
+       *
+       * 正文是同一个 JS 上下文里的字符串引用，事件总线不做序列化 ⇒ 这里没有拷贝开销。
+       */
+      event.emit('note:saved', { path, text: content })
     },
 
     async createNote(path, content = '') {
