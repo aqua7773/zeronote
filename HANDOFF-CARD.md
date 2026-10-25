@@ -380,6 +380,16 @@ pwsh -File scripts\verify.ps1
 
 ## 环境现状（活信息）
 
+- **2026-10-25 14:08 交接时环境（本会话最新）**：桌面 dev 在跑（`zeronote.exe` pid **19632** 起于 **13:27**，
+  二进制 13:22 重编 ⇒ **已含 rev173.131 的 `net.rs` CL 修复**）· vite 1420 / CDP 9222 正常 ·
+  本会话**没重启 dev**，只 `location.reload()` 过几次（插件从 `?raw` 重新写盘）。
+  - **全局插件目录**：`sync-folder` **0.3.1**（rev173.133）· `backlinks` **0.2.0**（rev173.134）·
+    `history` 0.2.0 · `tag-panel` 0.2.0。
+  - **冒烟改过测试库**（`_tmp-vault-tb`，不入库）：`笔记1.md` 开头加了 `参见 [[标签验收-周报]]`；
+    `.zn/sync/last/` 下有影子副本 `16a96rn.md`（已随 20 秒静默期升基线）。
+  - **插件 store 现状**（`%APPDATA%\com.aqua.zeronote\.zn\plugins\<id>\store.json`）：
+    `backlinks` 的 `refs.v1` **30 篇**（下次启动直接复用，首次不会再全量读盘）·
+    `sync-folder` 的 `baseline.v1` **30 篇** / `pending.v1` **0 篇**（冒烟那篇已升基线）。
 - **2026-10-25 00:12 交接时环境**：桌面 dev 仍在跑（`zeronote.exe` pid **23640** 起于 23:24 · vite pid **24648**（1420）·
   CDP 9222 正常）。本会话**没有重启 dev**，只在页面里 `location.reload()` 过多次（插件代码从 `?raw` 重新写盘）。
   - **全局插件目录已是新版本**：`history` 0.2.0（含 `base.*.sync.md`）/ `sync-folder` 0.2.0 / `sync-webdav` 0.2.0。
