@@ -609,7 +609,9 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         }
         return [...counter.entries()]
           .map(([tag, count]) => ({ tag, count }))
-          .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+          // 显式 'zh'：不传 locale 时排序结果取决于运行环境的 ICU 默认 locale
+          // （本机 zh-CN 下「工作」在前，GitHub runner en-US 下变成「会议」在前 ⇒ CI 红）。
+          .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh'))
       },
 
       /**

@@ -1,0 +1,43 @@
+name: 功能建议
+description: 想要的新能力，或对现有功能的不满
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先看一眼 `README.md` 的「现在能做什么」和 `docs/ROADMAP.md` —— 可能已经做了，或者被明确否定过（比如云同步 / 服务端账号）。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 说场景，不要只说方案。例如「我在手机上看 PDF 时想记一笔，但要退出阅读器」。
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你设想的做法（可选）
+      description: 有想法就写；没有也行，说明问题就够。
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 这更像哪一种
+      options:
+        - 应该做成插件（可以独立装卸）
+        - 可能得进内核（插件够不着）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你现在怎么绕过（可选）
+      description: 已有的替代做法，能帮助判断值不值得做。
+    validations:
+      required: false

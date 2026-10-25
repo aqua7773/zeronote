@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 怎么跑起来
+    url: https://github.com/aqua7773/zeronote/blob/main/README.md
+    about: README 里有「怎么跑」、功能清单和免责声明，先看一眼再提问。
+  - name: 想改代码 / 写插件
+    url: https://github.com/aqua7773/zeronote/blob/main/CONTRIBUTING.md
+    about: 贡献指南：环境、提交前门禁、代码与插件约定都在这里。

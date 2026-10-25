@@ -21,7 +21,8 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8')
 const exists = (p) => fs.existsSync(path.join(root, p))
 
 const files = []
-for (const f of ['README.md', 'HANDOFF-CARD.md', 'CHANGELOG.md', 'docs/README.md']) if (exists(f)) files.push(f)
+// CONTRIBUTING.md 是外部贡献者的第一入口 —— 它的链接同样不能死（2026-10-25 开源配套时加）
+for (const f of ['README.md', 'CONTRIBUTING.md', 'HANDOFF-CARD.md', 'CHANGELOG.md', 'docs/README.md']) if (exists(f)) files.push(f)
 const walkDocs = (dir) => {
   for (const d of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
     const rel = path.posix.join(dir, d.name)

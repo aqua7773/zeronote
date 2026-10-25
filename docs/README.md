@@ -13,6 +13,7 @@
 | 系统怎么运转（拓扑 / 主流程 / 模块地图） | `docs/系统总览.md` | **active** | — |
 | 为什么这样设计（原则 / 取舍） | `docs/架构原则-2026-10-13.md` | **active** | `archive/插件UI承载能力-2026-10-13.md`（方案已落地，作设计史） |
 | 写代码 / 重构 / 测试 / 提交约定 | `docs/开发约定.md` | **active** | `docs/App拆分方案-2026-10-18.md`（historical：拆分已收官，流程部分被本文取代） |
+| 外部贡献入口（环境 / 提交前门禁 / 插件投稿 / PR 流程） | `CONTRIBUTING.md`（仓库根） | **active（rev173.154）** | `docs/开发约定.md`（细则）、`market/README.md`（插件打包与外部投稿）、`.github/ISSUE_TEMPLATE/`（bug / 功能建议 / 插件投稿） |
 | 插件接口 / 数据模型 | `docs/内核契约-v0.2.md`（代码真相是 `src/kernel/contract.ts`） | **active** | 契约 §4 已被架构原则覆盖，读时以架构原则为准 |
 | 插件能力现状 / 对标六家 | `HANDOFF-CARD.md` + 契约 §4 | **active** | `archive/插件能力盘点-2026-10-12.md`（**historical**：rev30 快照） |
 | 需求（目标） | `docs/requirements/current.md` | **draft（仅参考）** | 2026-10-17 用户裁定需求 2 暂不采用；`archive/` 旧需求（superseded） |

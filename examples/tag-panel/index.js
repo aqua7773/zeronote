@@ -50,7 +50,8 @@ export function sortTags(list) {
   return (Array.isArray(list) ? list : [])
     .map((t) => ({ tag: String(t?.tag ?? ''), count: Number(t?.count) || 0 }))
     .filter((t) => t.tag !== '')
-    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    // 显式 'zh'：不传 locale 时结果随运行环境默认 locale 变化（CI 的 en-US 下中文序不同）
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh'))
 }
 
 /** 按名字筛选（大小写不敏感、中文子串）；空查询原样返回 */

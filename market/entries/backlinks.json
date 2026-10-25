@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.2.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.0.znp",
-  "sha256": "0c57813ccc52c139340d4db4ae7f98cd954d35dcee6c2f55f767a739be885b43",
-  "size": 24299,
+  "version": "0.2.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.1.znp",
+  "sha256": "7446c7cfbe2076ff28c27f63508610faf53c84b9823c18b7ff80f9a4a6e78561",
+  "size": 24418,
   "files": [
     "index.js",
     "signature.json"

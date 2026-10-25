@@ -44,17 +44,11 @@ jobs:
       - name: Docs consistency (check-docs)
         run: node scripts/check-docs.mjs
 
-      - name: Arch direction (check-arch)
-        run: node scripts/check-arch.mjs
-
-      - name: Local links (check-links)
-        run: node scripts/check-links.mjs
-
-      - name: Catalog freshness (gen-catalog --check)
-        run: node scripts/gen-catalog.mjs --check
-
-      - name: Keymap freshness (gen-keys --check)
-        run: node scripts/gen-keys.mjs --check
+      # 与 scripts/verify.ps1 的第 6 步同一个入口：facts / check-arch / check-links /
+      # gen-catalog --check / gen-keys --check / gen-market（rev173.143 起市场索引也进质量门）。
+      # 别再在这里逐条重列 —— 本机加一条门、CI 漏一条，就会出现「本地绿、CI 没这检查」。
+      - name: Quality gates
+        run: node scripts/check-gates.mjs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

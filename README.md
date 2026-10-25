@@ -8,7 +8,7 @@
 所以「装谁的插件」就是全部的安全边界：优先用带签名（`signature.json`）且你信任其作者的。
 本软件按「原样」提供、不担保任何用途；你的笔记请自行备份（同步 / Git / 直接拷文件夹都行）。
 
-**现状（2026-10-25 · rev173.148 · 0.5.0）**：桌面（Windows）＋ Android 双端跑通；**插件市场**（应用内「发现」tab：列出索引里的插件、一键装 / 升，整包 sha256 对不上就不落盘）；插件系统 v0.2（11 原语 / 21 种 UINode / 真窗口 / 整窗接管 / 懒激活）；
+**现状（2026-10-25 · rev173.154 · 0.5.0）**：桌面（Windows）＋ Android 双端跑通；**插件市场**（应用内「发现」tab：列出索引里的插件、一键装 / 升，整包 sha256 对不上就不落盘）；插件系统 v0.2（11 原语 / 21 种 UINode / 真窗口 / 整窗接管 / 懒激活）；
 37 个示例插件、内置预装 13 个（rev173.107 加「同步 · 本地文件夹」、rev173.121 加「同步 · S3」、rev173.125 加「同步 · Git」）；文档阅读器、导入导出、回收站、层级文件夹、多标签页 + 标签拆独立窗口、**面板标签**（阅读器 / 导图 / 文档在主区标签里，拖出成独立窗口）、**标签面板 + 正文 `#标签` 浮层**、**反向链接（状态栏「被 N 篇引用」）**、**历史版本**、**打卡**、**插件真签名**、搜索筛选、全局替换、粘贴图片、桌面时间流、**崩溃恢复（hot exit）**、**白屏兜底**（卡死窗口自动清理）、**同步**（WebDAV / S3 / Git / 本地文件夹 **四后端**，双端改同一篇能自动三方合并，合不上才留副本；附件可选「中转 / 永久」，面板给出每轮耗时与趋势）已落地。详细证据见 `HANDOFF.md`，当前事实（HEAD / 测试 / 插件数）见 `HANDOFF-CARD.md` 顶部自动生成块。
 
 ---
@@ -72,10 +72,13 @@ android-dev.cmd
 
 ```powershell
 pnpm exec tsc -b                 # 0 错误
-pnpm exec oxlint src             # 0 error（当前 6 warnings，以 verify 输出为准；全仓扫会把 examples 也算进去）
-cd src-tauri; cargo test --lib   # 必须全过（当前 23，以 verify 输出为准）
-# 或一键：pwsh -File scripts\verify.ps1（会打印真实数字）
+pnpm exec oxlint src             # 0 error（warning 数只许减不增；全仓扫会把 examples 也算进去）
+cd src-tauri; cargo test --lib   # 必须全过
+# 或一键：pwsh -File scripts\verify.ps1（打印真实数字，文档不写死）
 ```
+
+CI 用同一套门（`.github/workflows/verify.yml`，windows-latest）：本地绿但 CI 红，通常是测试依赖了本机
+环境（locale / 路径 / 时区）—— 改代码让结果确定，别改 CI 去迁就。
 
 ---
 
@@ -86,7 +89,7 @@ ZeroNote\
   src\                 前端全部代码：主壳 + 内核原语实现 + 组件
     kernel\            原语实现 + 插件宿主 / 插件来源（`plugin-roots.ts`）/ 内置插件（`builtin-plugins.ts`）
   src-tauri\           Rust 原生内核：文件命令 / 原子写 / 回收站 / 看门狗
-  examples\            34 个示例插件（功能主力；部分只是验收夹具）
+  examples\            示例插件（功能主力；部分只是验收夹具）
   tools\               CDP 自动验收脚本（不碰用户鼠标）
   scripts\             一键自检 / 插件打包签名 / 市场索引 / 内核快照
   public\vendor\       内置离线渲染库（pdf.js / foliate / mammoth / marked / …）
@@ -125,6 +128,15 @@ ZeroNote\
 | 需求存档（暂不采用） | `docs/requirements/current.md`（draft） |
 | 文档怎么写 | `docs/文档编写规范.md` |
 | 当前事实（HEAD / 测试 / 插件数） | `HANDOFF-CARD.md` 顶部 FACTS 块（`node scripts/facts.mjs --write` 生成） |
+
+## 参与 / 贡献
+
+- **改代码、写插件、提 PR**：先读 **`CONTRIBUTING.md`**（环境 / 提交前门禁 / 代码与插件约定 / PR 流程）。
+- **把自己的插件加进市场**：按 **`market/README.md`** 的两步投稿走 —— 源码留在你自己的仓库，
+  这里只加一行 `market/external.json`；发新版不用再来改这个仓库。
+- **报 bug / 提建议**：`.github/ISSUE_TEMPLATE/` 里有表单（**数据异常请注明，会优先处理**）。
+
+> 插件与内核同权限运行、没有沙箱：装之前看源码，投稿时也要让人能看。
 
 ## 铁律
 

@@ -115,7 +115,8 @@ export function matchRefs(entries, names, selfPath) {
     }
   }
   // 稳定顺序：先按来源标题，再按路径（同名笔记也能分开看）
-  hits.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path))
+  // 显式 'zh'：见 tag-panel —— 默认 locale 会让 CI（en-US）与用户机器排出不同顺序
+  hits.sort((a, b) => a.title.localeCompare(b.title, 'zh') || a.path.localeCompare(b.path, 'zh'))
   return hits
 }
 

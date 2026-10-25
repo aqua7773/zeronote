@@ -1,0 +1,60 @@
+name: 插件投稿（外部作者）
+description: 把你的插件加进市场索引（不是把源码提进本仓库）
+labels: ["plugin"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先读 `market/README.md` 的「外部作者怎么投稿」——投稿分两步：你自己的仓库放插件 + `market-entry.json`，
+        再来这里 PR 给 `market/external.json` **加一行**。
+
+        **安全说明**：插件与内核同权限运行，没有沙箱。市场只审格式、不审代码；
+        签名只证明「谁发的、发后有没有被改」，不代表善意。请在你的仓库里公开源码。
+
+  - type: input
+    id: plugin-id
+    attributes:
+      label: 插件 id
+      description: manifest.json 里的 `id`，小写连字符，全市场唯一。
+      placeholder: my-plugin
+    validations:
+      required: true
+
+  - type: input
+    id: display
+    attributes:
+      label: 展示名 + 一句话说明
+      description: 用户在「发现」列表里看到的内容。
+      placeholder: 我的插件 —— 把选中的文字整理成表格
+    validations:
+      required: true
+
+  - type: input
+    id: repo
+    attributes:
+      label: 源码仓库地址
+      description: 必须公开可访问 —— 市场的信任模型就是「让人能看源码」。
+      placeholder: https://github.com/you/zeronote-my-plugin
+    validations:
+      required: true
+
+  - type: input
+    id: entry-url
+    attributes:
+      label: market-entry.json 地址
+      description: 你自己的仓库里那份条目文件的 raw 地址，客户端会读它拿版本与下载地址。
+      placeholder: https://raw.githubusercontent.com/you/zeronote-my-plugin/main/market-entry.json
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: 确认
+      options:
+        - label: 我读过 `market/README.md`，源码是公开的
+          required: true
+        - label: 包已签名（对外分发的插件必须签；私钥不在任何公开位置）
+          required: true
+        - label: 我能说清这个插件用到的能力（fs / net / command 等），以及为什么要它们
+          required: true

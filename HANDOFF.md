@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.153
-更新时间: 2026-10-25 · 最新 rev173.153
+revision: 173.154
+更新时间: 2026-10-25 · 最新 rev173.154
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.153
 
 | rev | 内容 |
 |---|---|
+| rev173.154 | 2026-10-25 · **开源配套：CI 从「一直是红的」修到能跑 + 投稿入口补齐**：CI workflow 早在 rev173.130 就有，但 `gh run list` 显示最近每个 run 都 failure —— 根因是 `localeCompare` **不传 locale**（3 处：`src/kernel/index-api.ts` 的 `tags()`、`examples/tag-panel` 的 `sortTags`、`examples/backlinks` 的 `matchRefs`）：本机 zh-CN 排出「工作 · 会议 · 项目」，GitHub runner en-US 按 code point 排成「会议 · 工作 · 项目」⇒ `tests/tag-panel.test.ts` 必然红 · 修法是三处显式传 `'zh'`（与 `FileTree` / `QuickSwitcher` 早就用的写法一致），两个插件各升 **0.2.1** 并重新打包签名、`gen-market --write` 重建索引（13 条）· CI 里逐条 gate 改成 `node scripts/check-gates.mjs`（此前 CI **漏了** facts 与 market 两项门）· `facts.mjs --check` 修一个 CI 死结：测试基线只存在本机（baseline JSON / `_verify-*.log` 都不入库）⇒ 无基线时忽略该行比较，有基线时照旧整块比 · 新增 `CONTRIBUTING.md` + `.github/ISSUE_TEMPLATE/`（bug / 功能建议 / 插件投稿 + config）+ `pull_request_template.md`，`check-links` 把 CONTRIBUTING 纳入扫描 · 本地 verify 六步全绿 |
 | rev173.153 | 2026-10-25 · **交接卡「环境现状」跟上现实**（本轮收尾，无代码改动）：① 桌面 dev 补「AI 自己起用 `Start-Process cmd /c dev.cmd`（独立进程，等价双击）」+ 记「当前 dev 开着」 ② **插件包与市场整段重写**（旧文写「包在 Release、用 `--tag` 打包」已过时：现在包入库 `market/packs/`、走 raw、`pack-plugin` 默认就写那儿、gen-market 校验包存在 + sha） ③ 手机装机版本记成 **0.5.0**（0.4.0 没有 `install_znp_from_url`）+ 补「改前端 reload 即生效 / 改 Rust 必须重装」 ④ 补一行「仓库已开源 + 地址」· CARD 83 行（目标 ≤120）· check-docs / 质量门 6/6 |
 | rev173.152 | 2026-10-25 · **插件页统一：设置里也能进市场**（用户「统一设置和菜单的插件页」）：两处本来就复用同一个 `PluginPanel`，设置页只是**漏传** `onMarketInstall` ⇒ 补一条透传（Settings props + `<PluginPanel onMarketInstall>` + App 传 `installZnpFromUrl`），tab / 列表 / 确认框 / 坏条目提示全是一份代码 · **顺带修布局**：设置 Dialog 里的插件区无高度约束 ⇒ 市场 13 条把窗口撑到 1080 px、列表 1037 px 且不内滚（截图实证）→ 插件区 `h-[min(62vh,520px)]` + `min-h-0 flex-1`，Dialog 回到 640×~570、列表内滚 · vitest 949 → **951**（2 条锁「不传通道不显示 tab / 传了显示『已安装 N · 发现』」）· 实测：设置 → 插件 → 发现 **13 条**、`listScrollable=true`；菜单 → 插件管理 **13 条**，两处一致 |
 | rev173.151 | 2026-10-25 · **插件市场手机端真机走查**（测试机 `33b676f6`）：先重编 APK（`install_znp_from_url` 是 Rust 改动，18:01 的 0.4.0 包不含）→ **0.5.0 装机** · 手机打开「发现」= **13 条**（默认公网 raw 索引，走手机网络，不是 adb reverse）· ⚠️ **第一次拉取网络抖动失败**（`连不上服务器`，刷新一次即 13 条）—— raw 偶发不稳，桌面版也遇到过挂 6 分钟 · **安装**：内置插件 reload 就被 `ensureBuiltinPlugins` 补回、删不掉 ⇒ 改为在页面里直调 `install_znp_from_url`（同一份代码路径）：`{ok:true, id:'tag-panel'}`，磁盘出现 `index.js / manifest.json / signature.json`（keyId `aqua-2026`）· **reload 后列表显示「标签 v0.2.0 已签名」、无错误** ⇒ 手机端下载 / 整包 sha / 解包 / **内置公钥验签** / 「有签名不被内置版覆盖」五条全通 · 边界：手机端只走 https 源（`http` 仅回环），桌面那套本机静态测试床在手机上不可用 |
@@ -48,6 +49,58 @@ revision: 173.153
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.154（2026-10-25 · 开源配套：CI 修绿 + 投稿入口）
+
+> 用户选「公开仓库配套：CI + issue 模板 + CONTRIBUTING」。**开工第一件事就把假设推翻了**：
+> CI 不是「还没建」，而是 **rev173.130 就建好了、但此后每个 run 都是红的** ——
+> `gh run list` 最近 8 个 push 全部 `failure`。仓库已开源，首页顶着一个红叉，比没有 CI 更劝退。
+>
+> ### 根因：`localeCompare` 不传 locale（3 处）
+>
+> 每个 run 都挂在同一条：
+>
+> ```
+> FAIL tests/tag-panel.test.ts > sortTags：同篇数按本地化名字序
+> AssertionError: expected [ '会议', '工作', '项目' ] to deeply equal [ '工作', '会议', '项目' ]
+> ```
+>
+> `Array.prototype.localeCompare(other)` 不传 locale 时用**运行环境默认 locale**：
+> 本机 zh-CN 按拼音（工作 g < 会议 h < 项目 x），GitHub runner en-US 退化成 Unicode code point
+> （会 U+4F1A < 工 U+5DE5 < 项 U+9879）⇒ 断言翻转。这不是「CI 环境不好」，是**排序结果不确定**。
+>
+> 三处同款（`FileTree` / `QuickSwitcher` / `SearchPanel` 早就写了 `'zh'`，这三处漏了）：
+>
+> | 位置 | 改法 |
+> |---|---|
+> | `src/kernel/index-api.ts` `tags()` | `localeCompare(b.tag, 'zh')` |
+> | `examples/tag-panel/index.js` `sortTags` | 同上 + 注释说明「CI 的 en-US 下中文序不同」 |
+> | `examples/backlinks/index.js` `matchRefs` | 标题与路径都比 `'zh'` |
+>
+> 两个插件各升 **0.2.1** → `pack-plugin.mjs --key` 重签 → `gen-market.mjs --write`（13 条，索引 sha 对得上）。
+> 不升版本就重打包的话，已装 0.2.0 的用户永远收不到这个修复。
+>
+> ### CI 覆盖缺口（顺手补，不然修绿也没意义）
+>
+> 旧 workflow 逐条列了 5 个门，**漏了 `facts` 与 `market`** —— 前者是「交接卡事实块是否最新」，
+> 后者是「索引与 examples 的 manifest 是否漂移」。两个都是本地 verify 第 6 步在查的东西。
+> 改成一行 `node scripts/check-gates.mjs`（6 门唯一入口），本机加门即 CI 加门。
+>
+> `facts.mjs --check` 另有一个 CI 死结：它比较整块文本，而「测试基线」那一行只有本机有
+> （`scripts/.verify-baseline.json` 与 `_verify-*.log` 都不入库）⇒ CI 上必然不一致、门永远红。
+> 修法：**无基线时忽略该行**（本机有基线仍整块比，本地门不退化）。
+>
+> ### 投稿入口
+>
+> `CONTRIBUTING.md`（环境 / 门禁 / 代码约定摘要 / 插件贡献 / PR 流程 / 不接受的操作）·
+> `.github/ISSUE_TEMPLATE/`：bug 报告（含「数据异常」优先说明）、功能建议、插件投稿（外部作者，
+> 指向 `market/README.md` 的两步投稿）、`config.yml` 引导 · `.github/pull_request_template.md`（四行）。
+> `check-links` 把 `CONTRIBUTING.md` 纳入扫描 —— 贡献指南里的死链最尴尬。
+>
+> ### 验证
+>
+> `pwsh -File scripts\verify.ps1` 六步全绿（tsc 0 · oxlint 3 warnings · cargo 52 · check-docs · vitest 951 · 质量门 6/6）。
+> **CI 首跑结果见下一个 rev**（推送后才有 run；本机 zh-CN 环境验证不了 en-US 下的排序，只能靠 CI 实证）。
 
 > ## 📌 rev173.153（2026-10-25 · 交接：把「环境现状」改回真话）
 

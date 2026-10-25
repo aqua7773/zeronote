@@ -1,0 +1,60 @@
+name: Bug 报告
+description: 某个功能不对、崩溃、或数据（笔记内容）出问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        一个 bug 一张卡。**数据异常**（笔记被改坏 / 丢失）请优先说明这一点，它会优先处理。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望的结果 vs 实际的结果。有报错就贴原文。
+      placeholder: |
+        期望：点「重建索引」后标签列表刷新
+        实际：列表不变，控制台报 xxx
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 能稳定复现的话，一步步写；不能的话说明「偶发」以及发生时在做什么。
+      placeholder: |
+        1. 打开库 xxx
+        2. 右键 ☰ → 插件管理
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 应用「关于」里的版本号；或仓库 `HANDOFF-CARD.md` 顶部的 rev / 版本。
+      placeholder: 0.5.0 · rev173.153
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      multiple: true
+      options:
+        - Windows 桌面
+        - Android
+        - 两者都有
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图 / 日志（可选）
+      description: 拖图片进来即可。桌面日志在 `.self-logs/desktop-dev.log`；手机 `adb logcat`。
+    validations:
+      required: false

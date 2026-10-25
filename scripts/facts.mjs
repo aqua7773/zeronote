@@ -164,8 +164,12 @@ if (appVersion !== '?' && pkg.version && appVersion !== pkg.version) {
 
 if (CHECK) {
   const current = card.slice(card.indexOf(BEGIN), card.indexOf(END) + END.length)
+  // 「测试基线」这一行只有本机有（baseline JSON / _verify-*.log 都不入库）⇒ CI 上必然对不上。
+  // CI 里 `baseline` 为 null 时忽略该行；本机有基线时照旧整块比较（否则本地门会失去意义）。
+  const ignoreBaseline = (s) => s.replace(/^\| 测试基线 \|.*$/m, '| 测试基线 | （本机才有） |')
+  const norm = (s) => (baseline ? s : ignoreBaseline(s))
   if (!current) problems.push('HANDOFF-CARD.md 缺 FACTS 块（跑 node scripts/facts.mjs --write）')
-  else if (current !== block) problems.push('HANDOFF-CARD.md 的 FACTS 块不是最新（跑 node scripts/facts.mjs --write）')
+  else if (norm(current) !== norm(block)) problems.push('HANDOFF-CARD.md 的 FACTS 块不是最新（跑 node scripts/facts.mjs --write）')
 }
 
 console.log('事实快照')
