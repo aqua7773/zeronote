@@ -31,6 +31,11 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **下一步唯一动作（插件市场）**：补「**公钥内置进应用**」（~1 h，改 Rust 端信任根加载：内置一份 + 用户那份叠加）
+> ⇒ 然后做**阶段 1**：插件管理页加「发现」tab（列表 / 详情 / 安装确认 / 下载校验 / 自动重扫）。
+> **顺序不能反** —— 先做 UI 会做出一个别人装不上的市场。
+> 第三件（阶段 1 必须一起）：修 `ensureBuiltinPlugins` 启动覆盖全局目录 ⇒ 从市场装的官方插件新版重启后被回退。
+
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
 
 | 项 | 卡在哪 |
@@ -59,6 +64,8 @@ pwsh -File scripts\verify.ps1
 - **Git**：GitHub `aqua7773`（gh 已登录、keyring）· `git push` **先直连，被 reset 再挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`**。
 - **Rust**：`CARGO_TARGET_DIR` 必须在工作区外（本机铁律）；Rust 测试临时目录 `<repo>/_tmp-test/`。
 - **补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`），升级必须重打 · `.gitignore` 排除 `_shots/` `_tmp-*/` `examples/*/store.json`。
+- **插件签名密钥（2026-10-25 生成）**：keyId **`aqua-2026`** · 私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`（**仓库外，绝不入库**）· 公钥已写进本机 `<APPDATA>\com.aqua.zeronote\.zn\trusted-keys.json`（不写则本机装签名插件被拒载）· 公钥值 `iOIIUrkdKmP0w+pwpgqGiqSsLJYfl9Pa5VeUCBCjh6E=`
+- **插件包与市场**：`dist/*.znp` 是构建产物（不入库）；13 个包已上传 Release **`plugins-v0.5.0`**；索引 `market/index.json` 13 条（`node scripts/gen-market.mjs --write` 重建，已进质量门）；打包用 `node scripts/pack-plugin.mjs <id> --key <私钥> --tag plugins-v0.5.0`
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374`，重启即恢复 · **别用 `plugin:window|destroy` 关窗口**（会连主窗口一起没）。
 
 ## 硬约束
