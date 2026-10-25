@@ -1,14 +1,14 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.159）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.160）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.159 · 0.5.0 · 2026-10-25 |
-| 测试基线 | vitest 977 · cargo 52 · oxlint 3 warnings（2026-10-25） |
-| 插件 | 内置 13 · 示例 37 |
+| rev / 版本 | rev173.160 · 0.5.0 · 2026-10-25 |
+| 测试基线 | vitest 1002 · cargo 52 · oxlint 3 warnings（2026-10-25） |
+| 插件 | 内置 13 · 示例 38 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
 
@@ -31,14 +31,20 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **rev173.160（安全插件 · 期 1a）已完成**：`examples/security/` **双密钥环**（私密笔记 / 账号密码**各一把主密码**，
+> 互不派生）· XChaCha20-Poly1305 + Argon2id · noble **本地副本** `public/vendor/noble/`（202 KB）·
+> `crypto` 服务**只给操作不给密钥** · 25 条单测（含跨环 / 改一字节 / 错密码反向）·
+> ⚠️ **面板还没在 dev 里点过、未登记 `BUILTIN_PLUGINS`**。方案见 `docs/安全插件-方案-2026-10-25.md`。
 > **本会话（2026-10-25 · rev173.154–158）已完成**：CI 从「每个 run 都红」修到全绿（根因 `localeCompare`
 > 不传 locale，rev173.154）· issue/PR 模板 + `CONTRIBUTING.md` · 插件市场第二批 UX（详情页含能力自述 /
 > 更新角标 / 启动 24h 检查 + 设置开关，rev173.156）· CI Rust 缓存（rev173.157：Cargo 2m32s → 41s）·
 > 插件审查材料生成器（rev173.158：`scripts/review-plugin.mjs`）。
 > **下一步**：
-> ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
-> ② 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
-> ③ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
+> ① **安全插件**：dev 里走查面板（建立两环 → 锁 → 解锁 → 换密码 → 恢复码）→ 登记 `BUILTIN_PLUGINS` →
+>   期 1b `secrets` 密码库插件（`.zn/secrets/` 整库加密 + 剪贴板 60 s + 回收站）→ 期 1c 同步放行 `.zn/secrets/` ·
+> ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
+> ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
+> ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
 > 公开仓库配套**已齐**：topics 14 个、CI 缓存、`CONTRIBUTING.md`、issue/PR 模板、审查材料生成器。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。

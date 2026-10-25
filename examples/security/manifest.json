@@ -1,0 +1,31 @@
+{
+  "manifestVersion": 1,
+  "id": "security",
+  "name": "安全",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "主密码与双密钥环（私密笔记 / 账号密码各一把），为其他插件提供加密服务",
+  "category": "tool",
+  "capabilities": ["command", "fs:read", "fs:write", "view:main", "view:statusbar", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "security.open", "title": "安全：打开面板" },
+      { "id": "security.select", "title": "安全：切换密钥环" },
+      { "id": "security.setup", "title": "安全：建立密钥环" },
+      { "id": "security.unlock", "title": "安全：解锁" },
+      { "id": "security.lock", "title": "安全：立即锁定" },
+      { "id": "security.change-password", "title": "安全：换主密码" },
+      { "id": "security.recover-answer", "title": "安全：用恢复问题解锁" },
+      { "id": "security.recover-code", "title": "安全：用恢复码解锁" },
+      { "id": "security.reset-after-recovery", "title": "安全：恢复后重设主密码" },
+      { "id": "security.self-test", "title": "安全：自检" }
+    ],
+    "panels": [
+      { "id": "security.panel", "title": "安全", "location": "main" },
+      { "id": "security.status", "title": "安全", "location": "statusbar" }
+    ]
+  }
+}
