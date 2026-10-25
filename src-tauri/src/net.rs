@@ -230,3 +230,73 @@ pub fn secret_delete(account: String) -> Result<(), String> {
     },
   }
 }
+
+/* ───────────── 请求头回归（rev173.132） ───────────── */
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::io::{Read, Write};
+
+  /// 起一个只接一次的本地 HTTP 服务器；返回 (URL, 服务器线程)。
+  /// 服务器线程读出完整请求头后回 200，并把**收到的请求**交回来。
+  fn capture_one_request() -> (String, std::thread::JoinHandle<String>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定本地端口");
+    let addr = listener.local_addr().expect("取端口");
+    let handle = std::thread::spawn(move || {
+      let (mut sock, _) = listener.accept().expect("接受连接");
+      let mut buf = Vec::new();
+      let mut tmp = [0u8; 1024];
+      loop {
+        match sock.read(&mut tmp) {
+          Ok(0) | Err(_) => break,
+          Ok(n) => buf.extend_from_slice(&tmp[..n]),
+        }
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 16_384 {
+          break;
+        }
+      }
+      let _ = sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+      String::from_utf8_lossy(&buf).to_string()
+    });
+    (format!("http://{addr}/probe"), handle)
+  }
+
+  fn put(body_b64: &str) -> (NetResponse, String) {
+    let (url, handle) = capture_one_request();
+    let resp = tauri::async_runtime::block_on(net_request(NetRequest {
+      url,
+      method: Some("PUT".into()),
+      headers: None,
+      body_b64: Some(body_b64.to_string()),
+      timeout_ms: Some(5_000),
+    }))
+    .expect("请求应成功");
+    (resp, handle.join().expect("服务器线程"))
+  }
+
+  /// 根因回归：reqwest 对空 body 默认**既不发 Content-Length 也不发 Transfer-Encoding**，
+  /// S3 兼容服务（rclone）会回 411。空笔记同步不上就是这么来的（rev173.131）。
+  #[test]
+  fn empty_body_carries_content_length_zero() {
+    let (resp, req) = put("");
+    assert_eq!(resp.status, 200);
+    let lower = req.to_lowercase();
+    assert!(
+      lower.contains("content-length: 0"),
+      "空 body 的 PUT 必须带 Content-Length: 0，实际请求：{req}"
+    );
+  }
+
+  /// 非空 body 走 reqwest 自己的长度（这里不重复添加），只确认长度正确。
+  #[test]
+  fn non_empty_body_carries_matching_content_length() {
+    let (resp, req) = put("eA=="); // base64("x")
+    assert_eq!(resp.status, 200);
+    let lower = req.to_lowercase();
+    assert!(
+      lower.contains("content-length: 1"),
+      "非空 body 应带 Content-Length: 1，实际请求：{req}"
+    );
+  }
+}

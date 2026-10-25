@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.131）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.132）** ｜ 细节与证据在 **`HANDOFF.md`**（rev 索引在文首）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.131 · 0.4.0 · 2026-10-25 |
-| 测试基线 | vitest 916 · cargo 38 · oxlint 3 warnings（2026-10-25） |
+| rev / 版本 | rev173.132 · 0.4.0 · 2026-10-25 |
+| 测试基线 | vitest 916 · cargo 40 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.4.0 |
 <!-- FACTS:END -->
@@ -162,6 +162,12 @@ pwsh -File scripts\verify.ps1
 > 空文本 PUT 带 `content-length: 0`（旧内核/已装 app 立即生效）· 手机热更新后同步通过
 > （桶 32 文件含那篇 0 字节）；删本地一篇再同步 ⇒ 自动拉回（拉取方向通）·
 > 单测 914 → **916** · 坑：手机 CDP 在 app **退到后台时完全不响应**（先 `am start`）。
+>
+> ✅ **`net.rs` CL 修复补 Rust 回归（rev173.132）**：rev173.131 的根因原先**只有插件层兜底测试**
+> （Rust 那行改回去也没人报警）· `std::net::TcpListener` + `tauri::async_runtime::block_on`
+> 读出**服务器真正收到的请求头**：空 body 必须 `Content-Length: 0`、非空长度匹配 ·
+> **反向验证**：删掉 `.header(CONTENT_LENGTH, …)` ⇒ 空 body 那条失败、非空仍过 · cargo 38 → **40** ·
+> ⚠️ 桌面 dev 当前二进制起于 10:22（早于 rev173.131）⇒ **要重启一次 dev** 才带上 Rust 修复。
 >
 > **下一步可选**：`sync-git` 手机端（**没凭据**：手机无 token、桌面也没配过 sync-git）·
 > Gitee 分支实测（没账号令牌）。方案见 `docs/同步插件-调研与方案-2026-10-24.md` §5.0。
@@ -321,6 +327,7 @@ pwsh -File scripts\verify.ps1
 | 同步 · S3 条件写 | ✅ **rev173.129**：笔记 PUT 带 `If-Match`（远端已有这篇 + manifest 记了 etag 时）· 412 ⇒ 冲突处理 + **刷新 manifest 条目**（否则下一轮重复撞）· 409 ⇒ 取新 ETag 重试一次 · 400 ⇒ 自动降级重试 · `push-new` 不带条件 · **真机 rclone 忽略该头 ⇒ 退化为旧行为**（带头的 PUT 通过验签）· 单测 **914** |
 | 同步 · 附件真机 | ✅ **rev173.130**：坚果云附件**双向**通 —— 桌面 27KB png + 52B txt 上传 → 删本地再同步 pulled=2 原样回来；手机开 full ⇒ pulled=3 / pushed=3 且手机出现两文件；桌面再同步收到手机推的 89KB jpg · 两端附件模式已恢复 off · 无代码改动 |
 | 同步 · 空笔记 411 | ✅ **rev173.131**：reqwest 对空 body 不发 CL/TE ⇒ rclone 411、每 5 秒重试同一篇、整轮中止 · 修内核 `net.rs` 显式 CL（含 0）+ `sync-s3` 兜底头 · 手机热更新后同步过、删本地一篇能自动拉回 · 单测 **916** |
+| 内核 · 请求头回归 | ✅ **rev173.132**：`net.rs` 的 CL 修复原先无 Rust 测试（插件兜底掩盖）· 本地 TcpListener 读真实请求头 · 空 body 必须 `Content-Length: 0` · 反向验证红 · cargo **40** |
 | AI 标签 / 密级 | ❌ 未开工（需求2 暂不采用，方向待定） |
 | M3 收尾④：真机「编辑→保存」人工确认 | ⏳ 旧悬置项（实机早已能保存，可忽略） |
 | 手机端搜索入口 | ✅ **rev173.48**：长按 ☰（500ms）= 桌面右键菜单（新建 / 搜索 / 命令面板 / 设置 / 插件管理…），手机各功能入口补齐 |
