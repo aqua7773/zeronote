@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.144
-更新时间: 2026-10-25 · 最新 rev173.144
+revision: 173.145
+更新时间: 2026-10-25 · 最新 rev173.145
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.144
 
 | rev | 内容 |
 |---|---|
+| rev173.145 | 2026-10-25 · **13 个插件包已上传 GitHub Release（索引链路打通）**：`plugins-v0.5.0` · 13 个 asset（`gh release view` 核对）· **端到端校验**：从 Release 下载 `tag-panel-0.2.0.znp` 与 `market/entries/tag-panel.json` 对比 —— sha256 `63b77ad6…` **完全一致**、大小 24391 B 一致 ⇒ 索引 → Release → 下载 → 校验 这条链路真通，不是「文件传上去了」· 剩下：客户端下载安装 UI（阶段 1）+ 公钥内置进应用 |
 | rev173.144 | 2026-10-25 · **正式签名密钥 + 13 个官方插件打包入市**：生成 Ed25519 密钥 `aqua-2026`（私钥在 **仓库外** `%USERPROFILE%\.zeronote-keys\`；公钥写进本机信任根 `.zn/trusted-keys.json`）· **13 个插件全部打包**（12 签名 + 1 纯样式 `theme-sepia` —— 无 entry 的插件宿主恒为 unsigned，打包时跳过签名）· **端到端验签 12/12 通过**（按宿主算法重算 payload + 公钥验签 + 入口 sha 一致）· **打包规则改了**：从「收整个目录」改成「只收 manifest 声明的 entry / files / styles」——`outline-map` 目录里有 `selftest*.mjs` / `store.json` / 遗留 `vendor/`，以前会被打进包 · 索引 13 条已生成 · **未做**：包还没传到 GitHub Release（索引里的 url 现在是死链）、公钥还没内置进应用 |
 | rev173.143 | 2026-10-25 · **插件市场阶段 0：打包 / 索引 / 原子安装**（用户拍板「做 + 外部作者开放 + 索引放本仓库」）：`scripts/lib/signing.mjs`（签名单一实现，`sign.mjs` 与打包共用）· `pack-plugin.mjs`（目录 → `.znp` + 签名 + 整包 sha256 + 市场条目）· `gen-market.mjs`（合并 `market/entries/*.json` 与 `external.json` → `index.json`，**已进质量门**：条目版本与 `examples/<id>/manifest.json` 不一致就红）· `market/`（README 投稿说明 / external.json / entries/ / index.json）· **`install_znp` 改原子**：先写 `.zn/tmp/install-<id>-<ms>` 再整目录交换，失败回滚（rev119 的「逐文件覆盖写 + 不删旧文件」已废）· Rust 测试 41 → **43**（坏包回滚 / 整目录替换） |
 | rev173.142 | 2026-10-25 · **插件签名 v2：`manifest.files` 一并签进 payload**（用户拍板「扩」）：v1 只签入口 ⇒ 多文件插件里 `lib/*.js` 被换掉验签照样过 · payload → `zn-plugin-v2\|<id>\|<ver>\|<入口 sha>\|<path:sha256 按路径字典序>`（无 files 时末尾空段）· 三处改：`plugin-signing.ts`（`signingPayload` 收 `SignedFileDigest[]`）· `sign.mjs`（同步 + 校验声明文件存在）· `plugin-host.ts`（**把 `manifest.files` 的读取提到验签之前**，读到内容给 CJS 组装复用——原顺序下签名时根本看不到 lib 文件）· **Rust 没动**（只对 payload 字符串验签）· 单测 9 → **11**（排序无关 / 换内容·换路径·删文件·加文件四种篡改都让 payload 变 / 真实往返改 lib 后验不过 / v1 签名在 v2 下验不过）· **脚本 ↔ 前端一致性**：真实 `examples/cjs-multi` 跑 `sign.mjs --check` 与 vitest 输出逐字比对通过（临时测试，验完即删）· **反向验证**：`tail` 恒空 ⇒ 3 条红，恢复即绿 · 契约 §3.4 + 调研 §5 已同步 |
@@ -39,6 +40,44 @@ revision: 173.144
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.145（2026-10-25 · 13 个插件包已上传 GitHub Release）
+
+> 用户：「上传」。
+>
+> ### 结果
+>
+> Release：`https://github.com/aqua7773/zeronote/releases/tag/plugins-v0.5.0`
+>
+> `gh release view` 核对 **assets = 13**（accounting 66 KB … theme-sepia 0.7 KB，与本地 dist 逐个对得上）。
+>
+> ### 端到端校验（这步不能省）
+>
+> 从 Release 下载 `tag-panel-0.2.0.znp`，与 `market/entries/tag-panel.json` 对比：
+>
+> | 项 | 下载所得 | 索引记录 |
+> |---|---|---|
+> | sha256 | `63b77ad6146e…d748dc` | `63b77ad6146e…d748dc` ✅ |
+> | 大小 | 24391 B | 24391 B ✅ |
+>
+> ⇒ **索引 → Release → 下载 → 校验**这条链路是通的。只测「上传成功」不够 —— 传上去的字节和索引里记的必须是同一个。
+>
+> ### 现在的链路状态
+>
+> | 环节 | 状态 |
+> |---|---|
+> | 插件源码 → `.znp`（打包 + 签名 + 算整包 sha） | ✅ rev173.143/144 |
+> | `.znp` → GitHub Release | ✅ **本段** |
+> | Release → 索引（url + sha256） | ✅ 本段校验过 |
+> | 索引 → 客户端（下载 → 校验 → 安装 → 重扫） | ⏳ **阶段 1**（还没有 UI 与那条内核命令） |
+> | 公钥内置进应用 | ❌ 未做 |
+>
+> ### 边界（别误会成「已经能用了」）
+>
+> 1. **应用里还没有市场入口** —— 现在只能手动下载 `.znp`，再走「插件管理 → 安装插件包」。
+> 2. **别人装了也会验签失败** —— 他们的 `trusted-keys.json` 里没有 `aqua-2026`。
+>    公钥内置是阶段 1 之前必须补的一步（约 1 h，改 Rust 端信任根：内置一份 + 用户那份叠加）。
+> 3. Release 是 **private 仓库**的，别人看不到 —— 真要公开分发，仓库得先开源（那是另一件事）。
 
 > ## 📌 rev173.144（2026-10-25 · 正式签名密钥 + 13 个官方插件打包入市）
 
