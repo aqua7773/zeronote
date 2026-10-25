@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.158）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.159）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.158 · 0.5.0 · 2026-10-25 |
+| rev / 版本 | rev173.159 · 0.5.0 · 2026-10-25 |
 | 测试基线 | vitest 977 · cargo 52 · oxlint 3 warnings（2026-10-25） |
 | 插件 | 内置 13 · 示例 37 |
 | 文档 | README 现状 2026-10-25 · CHANGELOG 0.5.0 |
@@ -31,15 +31,14 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **仓库已开源（MIT · rev173.149）**，插件市场阶段 1 已落地（rev173.148），包已入库走 raw（rev173.150），
-> **手机端已真机走查（rev173.151）**，**设置与菜单两处插件页已统一（rev173.152：同一个 `PluginPanel`，
-> 市场 tab 一份代码）**，**开源配套已补齐（rev173.154：CI 从「一直红」修到能跑 + issue/PR 模板 + `CONTRIBUTING.md`）**，
-> **第二批 UX 已落地（rev173.156：详情页含能力自述 / 更新角标 / 启动 24h 节流检查 + 设置开关）**，
-> **CI 已加速（rev173.157：Rust 缓存命中后 Cargo 步骤 2m32s → 41s）**，
-> **插件审查材料生成器已就位（rev173.158：`scripts/review-plugin.mjs`）**。
-> **下一步可做**：
-> ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上、且有按 IP 的速率限制 —— 见 rev173.151）·
-> ② 第一个外部作者投稿时，按 `market/README.md` 的「审 PR」走（`--online` 出材料）。
+> **本会话（2026-10-25 · rev173.154–158）已完成**：CI 从「每个 run 都红」修到全绿（根因 `localeCompare`
+> 不传 locale，rev173.154）· issue/PR 模板 + `CONTRIBUTING.md` · 插件市场第二批 UX（详情页含能力自述 /
+> 更新角标 / 启动 24h 检查 + 设置开关，rev173.156）· CI Rust 缓存（rev173.157：Cargo 2m32s → 41s）·
+> 插件审查材料生成器（rev173.158：`scripts/review-plugin.mjs`）。
+> **下一步**：
+> ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
+> ② 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
+> ③ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
 > 公开仓库配套**已齐**：topics 14 个、CI 缓存、`CONTRIBUTING.md`、issue/PR 模板、审查材料生成器。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
@@ -51,16 +50,15 @@ pwsh -File scripts\verify.ps1
 | 记账文案校准 | 等真实漏识别样本（「诊断」视图已就绪） |
 | 性能基线 | 用户暂缓（2026-10-19 裁决） |
 | AI 标签 / 密级 | 需求 2 暂不采用，方向待定 |
-| 插件市场（rev173.142 起） | **已拍板**：① 做 ② 外部作者开放 ③ 索引放本仓库 `market/index.json` ④ 签名扩到多文件（✅ **rev173.142：payload v2 覆盖 `manifest.files`**）· **阶段 0 已完成（rev173.143）**：`pack-plugin.mjs` 打包签名 → `gen-market.mjs` 合并索引（进质量门）→ `market/` 目录；`install_znp` 改**原子** · **rev173.144：正式密钥 `aqua-2026` + 13 个插件打包签名（12 签 / 1 纯样式），端到端验签 12/12** · **rev173.145：13 个包已上传 Release `plugins-v0.5.0`，sha256 与索引一致** · **rev173.146：公钥已内置进应用**（`BUILTIN_TRUSTED_KEYS` + 用户文件叠加；新装机器不再因缺 `trusted-keys.json` 拒载；`scripts/verify-trust.mjs` 用内置公钥验过 12/12 包）· **rev173.147：`ensureBuiltinPlugins` 不再覆盖市场版**（有 `signature.json` 一个字节都不写 · 已装版本更新就跳过 · 新增 `compareVersions`）· **rev173.148：应用内「发现」tab 已落地**（列表 / 安装确认 / 整包 sha256 / 失败不落盘 / 索引地址可改 / 坏条目跳过可见 / 不静默升级；桌面端到端验过装+升+篡改拒绝）· 剩余：✅ 全部完成 —— **rev173.151 手机走查** · **rev173.152 设置页接入** · **rev173.149 开源** · **rev173.156 第二批 UX** · **rev173.158 外部投稿审查材料生成器**（`scripts/review-plugin.mjs`：离线格式门进质量门，`--online` 拉 entry + 下包核 sha256 + 报签名 keyId + 能力自述） |
-| `D-008` 插件市场 / 更新通道 | 重议条件**已满足**（预装 13 > 10）⇒ **调研 + 形态设计已做**：`docs/插件市场-调研-2026-10-25.md`（**§4.4 形态**：市场 = 插件管理页第二个 tab，入口沿用现有三个，安装 4 步含「验签失败不落盘」，**不做静默升级**；**§4.5 开发者**：官方插件零手工、外部作者索引不存版本号只存 `entry`）· **不需要服务端** · 阶段 0 = 纯脚本 **2 h** / 零内核改动 / 随时可停 · 待拍板 4 点：做不做/哪层 · 外部作者现在开放吗 · 索引托管在哪 · **签名扩不扩**（已给建议：**现在扩** —— 0 个插件签过名、1.5 h；分发后再扩 = 已签名包全部失效、用户侧表现为插件加载失败） |
-| M3 收尾④ 真机「编辑→保存」人工确认 | 旧悬置（实机早已能保存，可忽略） |
+| 插件市场 | ✅ **已完成**（rev173.142–158）：签名 v2 / 打包 / 索引 / 原子安装 / 公钥内置 / 「发现」tab（装 · 升 · 详情页含能力自述 · 更新角标 · 24h 检查）/ 外部投稿审查材料生成器。逐 rev 证据见 `HANDOFF.md`；待办只剩「插件数到几十个时换 CDN」。 |
+| `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
 
 ## 环境现状（活信息 · 2026-10-25）
 
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid 见 `Get-Process zeronote`），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **11660** · 19:47 启动），日志在 `.self-logs/desktop-dev.log`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
@@ -89,6 +87,7 @@ pwsh -File scripts\verify.ps1
   **rev173.155 首次确认全绿**（15 步 · 4m45s · run `40192229548`）；
   **rev173.157 起有 Rust 缓存**（`Swatinem/rust-cache@v2`）：命中时整 run **2m33s**、Cargo 步骤 **41s**
   （未命中 5m17s —— 首次要把缓存打包上传）。改 `Cargo.lock` / 升 rustc 会让缓存失效一次，属正常。
+  **交接时最近三次 run 全 success**：2m24s（rev173.158）/ 2m39s / 2m39s。
 - **市场实测要看新字段时**（rev173.156 实证过）：索引默认拉 GitHub raw、**推送前的改动看不到** ⇒
   仓库根起 `python -m http.server 8931 --bind 127.0.0.1`，页面里
   `localStorage.setItem('zn-market-index-url','http://127.0.0.1:8931/market/index.json')` → reload；

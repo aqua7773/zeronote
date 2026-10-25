@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.158
-更新时间: 2026-10-25 · 最新 rev173.158
+revision: 173.159
+更新时间: 2026-10-25 · 最新 rev173.159
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.158
 
 | rev | 内容 |
 |---|---|
+| rev173.159 | 2026-10-25 · **交接**（用户「交接」）：本会话 rev173.154–158 总览表 + 交接时实测状态（工作树干净 · 六步全绿 vitest 977 / 质量门 7/7 · CI 最近三次 success 2m24s–2m39s · dev pid 11660 · 手机 0.5.0）+ 下个会话入口（读 CARD → 卡点表；**候选池已无「可立即做」项**）+ 本会话踩到并已修的三个真问题（localeCompare 不传 locale / 0.2.1 包漏 --key-id / 24h 检查 effect 依赖数组引用） |
 | rev173.158 | 2026-10-25 · **插件审查材料生成器**（用户「做」= ROADMAP §3.3 最后一块）：`scripts/review-plugin.mjs` 只回答四件事 —— 格式对不对 / 地址通不通 / **包有没有被换过** / 谁签的（调研 §4.5「只审格式不审代码」）· 输出 markdown 材料：entry 可达 · 整包 sha256 一致 · 包内 manifest 与 entry 同 id 同版本 · **apiVersion 只比 major**（照抄 `plugin-host.ts:309`）· 签名 keyId（报不验）· 能力自述翻人话 · **两层**：离线半进 `check-gates.mjs` 第 **7** 门（脏 PR 直接红），联网半（`--online`）只在人工审时跑、不进 CI · **实测**：造 `_tmp-external/` 夹具（keyId `alice-2025`）走通正常路径；反向（entry sha256 改成 0 / id 撞官方 + 重复 + `Bad_ID` + `ftp://`）全部报错且 exit 1；空表通过 · 顺带修三个自己写出的问题（--entry 模式误要索引行 / 全局问题重复计数且单条不跟着红 / `--external` 值被当位置参数） |
 | rev173.157 | 2026-10-25 · **CI 加 Rust 编译缓存**（用户「加缓存」）：先核实到 **pnpm 那边本来就有** —— `actions/setup-node@v5` 的 `package-manager-cache` 默认 true、按 `packageManager` 自动缓存（读官方 README 确认），所以只补 Rust · `Swatinem/rust-cache@v2`（`workspaces: "src-tauri -> target"`，语法照官方 README）缓存 `~/.cargo` + target，键跟 Cargo.lock / rustc 版本走 · 加 `workflow_dispatch` 便于跑第二次 · **实测**：Cargo 步骤 **2m32s → 41s（−73%）**、整 run **3m35s → 2m33s**；首次（未命中、顺带写缓存）反而是 5m17s / Cargo 3m15s，属正常 |
 | rev173.156 | 2026-10-25 · **插件市场第二批 UX**（调研 §4.4 三件，零 Rust 改动）：① **详情页** —— 「发现」每条加「详情」，摊开描述 / 分类平台 / 大小 / 接口版本 / **能力自述 chips** / 已装版本 / 下载地址 / sha256 / 包内文件数；能力来自**索引新增字段 `capabilities`**（`pack-plugin.mjs` 从 manifest 带出，13 个包重打包 + `gen-market --write`），中文翻译 `src/lib/capability-label.ts`（未知取值**原样露出**，`fs`/`host`/`event` 老写法也译）② **更新角标** —— tab「已安装 14 ↑1」（只数真装着的）+ 行内「↑ 可更新 vX」，装完立刻摘缓存 ③ **启动 24h 节流检查** —— `shouldCheckUpdates`/`computeUpdates` 纯函数 + localStorage（`at`+`updates`），延迟 4s、失败静默且不写 `at`、设置页开关（默认开）；只标不装 · ⚠️ 实测抓到 effect 依赖 `rows` 数组引用 ⇒ 4s 定时器被每次重渲染重置、**检查永不发生**（改成依赖 `rows.length` + `rowsRef`）· **顺带修 rev173.154 的两个 0.2.1 包**：漏 `--key-id` ⇒ keyId 写成 `default` ⇒ 客户端内置信任根不认（装得上、加载拒载）；已重签，`gen-market` 加第 ⑤ 门「官方包 keyId 必须 = aqua-2026」（反向验证过）· vitest 951 → **977** · CDP 实测三项全过 |
@@ -53,6 +54,40 @@ revision: 173.158
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.159（2026-10-25 · 交接：本会话产出与下个会话入口）
+
+> 用户：「交接」。本会话（rev173.154 → 158）连着做完五件事，**全部已推送、CI 全绿**，工作树干净。
+> 这里只做一张总览 + 下个会话从哪开始；每件事的细节与踩坑在各自 rev 段。
+>
+> | rev | 做了什么 | 验证 |
+> |---|---|---|
+> | 154 | **CI 从「每个 run 都红」修到能跑** + 开源配套（issue/PR 模板、`CONTRIBUTING.md`、check-links 覆盖） | 本地六步全绿 |
+> | 155 | CI 首绿实证（15/15 步 · 4m45s） | run `40192229548` |
+> | 156 | **插件市场第二批 UX**：详情页（含能力自述）/ 更新角标 / 启动 24h 节流检查 + 设置开关 | vitest 951→977 · CDP 实测三项 · run `40195249557` |
+> | 157 | **CI Rust 缓存**：Cargo 步骤 2m32s → 41s，整 run 3m35s → 2m33s | 三次相邻 run 对比 + `workflow_dispatch` |
+> | 158 | **插件审查材料生成器** `scripts/review-plugin.mjs`（离线门进质量门第 7 项，联网半人工跑） | 夹具正常/反向/空表三组 · run `40197109611` 2m24s |
+>
+> ### 当前状态（交接时实测）
+>
+> - 工作树**干净** · `main...origin/main` 无 ahead/behind ⇒ 全部已推送
+> - `verify.ps1` 六步全绿：tsc 0 · oxlint **3 warnings** · cargo **52** · check-docs · vitest **977** · 质量门 **7/7**
+> - CI 最近三次 run 全 success（2m24s / 2m39s / 2m39s）—— **缓存命中后稳定在 2.5 分钟内**
+> - **dev 开着**（pid 11660 · 19:47 启动）· 手机测试机 `33b676f6` 装的是 0.5.0
+> - 仓库 public + 14 个 topics + CI 缓存 + CONTRIBUTING + issue/PR 模板 + 审查材料生成器 ⇒ **公开配套已齐**
+>
+> ### 下个会话从哪开始
+>
+> 1. 读 `HANDOFF-CARD.md`（一屏）→ 卡点表 + 「下一步」
+> 2. 剩下的都不急：插件数涨到几十个时换 CDN（raw 偶发连不上 + 按 IP 限流）· 第一个外部作者投稿时按
+>    `market/README.md`「审 PR」走 · 卡点表三条要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）
+> 3. 想开新功能就先看 `docs/ROADMAP.md` §3 —— **候选池里已经没有「可立即做」的项了**，要么等输入、要么新需求
+>
+> ### 本会话踩到并已修的三个真问题（都靠实测，不是靠读代码）
+>
+> 1. CI 每个 run 都红 = `localeCompare` 不传 locale（本机 zh-CN 过、runner en-US 红）
+> 2. rev173.154 打的 0.2.1 包漏 `--key-id` ⇒ keyId 写成 `default` ⇒ 装得上但加载拒载（已重签 + gen-market 加门）
+> 3. 24h 检查 effect 依赖 `rows` 数组引用 ⇒ 4 秒定时器被每次重渲染重置 ⇒ **检查永不发生**（单测看不出来）
 
 > ## 📌 rev173.158（2026-10-25 · 插件审查材料生成器）
 
