@@ -3,6 +3,8 @@ import { ChevronDown, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import { clampText } from '../lib/format'
+import { MarketPane } from './MarketPane'
+import type { MarketEntry } from '../kernel/market'
 import {
   PLUGIN_CATEGORY_HINT,
   PLUGIN_CATEGORY_LABEL,
@@ -99,6 +101,7 @@ export function PluginPanel({
   onToggle,
   onDelete,
   onInstall,
+  onMarketInstall,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -109,9 +112,16 @@ export function PluginPanel({
   onDelete: (id: string) => void
   /** 安装 `.znp` 插件包（rev119）—— 空态与列表都能看到入口 */
   onInstall?: () => void
+  /**
+   * 从市场安装 / 更新（rev173.148）—— App 传 hook 的实现：下载 + 整包 sha256 + 解包 + 重扫，
+   * 在 Rust 侧一次完成（失败不落盘）。不传 ⇒ 不显示「发现」tab（独立窗口 / 测试环境）。
+   */
+  onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
+  /** 当前 tab（rev173.148）：已安装 / 发现（插件市场） */
+  const [tab, setTab] = useState<'installed' | 'discover'>('installed')
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
   const pendingIsGlobal = pending?.source === 'global'
 
@@ -165,6 +175,40 @@ export function PluginPanel({
           用户要求去掉标题和横线，扫描按钮挪到主区顶栏（见 App 的 .zn-main-panel-bar）。 */}
       {error && <div className="zn-plugins-error">⚠ {error}</div>}
 
+      {/* 两个 tab（rev173.148）：「已安装」= 原来的列表；「发现」= 插件市场 */}
+      {onMarketInstall && (
+        <div className="zn-plugins-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'installed'}
+            className={`zn-plugins-tab${tab === 'installed' ? ' is-active' : ''}`}
+            onClick={() => setTab('installed')}
+          >
+            已安装 <span className="zn-plugins-tab-count">{plugins.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'discover'}
+            className={`zn-plugins-tab${tab === 'discover' ? ' is-active' : ''}`}
+            onClick={() => setTab('discover')}
+          >
+            发现
+          </button>
+        </div>
+      )}
+
+      {tab === 'discover' && onMarketInstall && (
+        <MarketPane
+          installed={plugins}
+          onInstall={onMarketInstall}
+          onSwitchToInstalled={() => setTab('installed')}
+        />
+      )}
+
+      {tab === 'installed' && (
+        <>
       {/* 安装 .znp（2026-10-18 rev119）：确认框会列出它自称要的能力与签名状态 */}
       <div style={{ display: 'flex', gap: 8, padding: '2px 0 10px' }}>
         <Button onClick={() => onInstall?.()}>安装插件包（.znp）…</Button>
@@ -261,6 +305,8 @@ export function PluginPanel({
             </section>
           ))}
         </div>
+      )}
+        </>
       )}
 
       {log && log.length > 0 && (

@@ -2189,7 +2189,7 @@ export default function App() {
   }, [pluginUsage])
 
   /* ── 插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）（rev128 · L3 第六刀）—— 见 hooks/usePluginHost.ts ── */
-  const { installZnp, getWebviewBridge, getSignature } = usePluginHost({
+  const { installZnp, installZnpFromUrl, getWebviewBridge, getSignature } = usePluginHost({
     kernel,
     vault,
     /**
@@ -3655,6 +3655,7 @@ export default function App() {
                 onToggle={togglePlugin}
                 onDelete={(id) => void deletePlugin(id)}
                 onInstall={() => void installZnp()}
+                onMarketInstall={installZnpFromUrl}
               />
             </div>
           </div>

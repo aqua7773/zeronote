@@ -37,6 +37,7 @@ import {
 } from '../kernel/plugin-host'
 import { collectPluginDirs, globalPluginRoot, tryGlobalPluginRoot } from '../kernel/plugin-roots'
 import { ensureBuiltinPlugins } from '../kernel/builtin-plugins'
+import { installFromMarket, type MarketEntry } from '../kernel/market'
 import type { PluginManifest } from '../kernel/contract'
 import { LS_LOADING } from '../lib/boot-heal'
 import { dropBootPluginStyles } from '../lib/boot-plugin-styles'
@@ -78,6 +79,11 @@ export type PluginHost = {
   installZnpFromPath: (picked: string, confirmFirst?: boolean) => Promise<string | null>
   /** 插件管理页按钮：选文件 → 走完整流程 */
   installZnp: () => Promise<void>
+  /**
+   * 从市场安装 / 更新（rev173.148）：下载 + 整包 sha256 + 解包 + 重扫，
+   * 一次完成，失败不落盘。返回装好的 id（失败 null，错误进 `pluginError`）。
+   */
+  installZnpFromUrl: (entry: MarketEntry) => Promise<string | null>
   /**
    * 按插件 id 取 **WebView 能力通道**（rev173.76 · 契约 §7.9）。
    * 没这个插件 / 纯样式插件 ⇒ `undefined`（通道关闭，页面照常显示）。
@@ -451,6 +457,29 @@ export function usePluginHost({
     [setReloadToken, setToast, setError],
   )
 
+  /**
+   * 从**市场**安装 / 更新（rev173.148 · 插件市场阶段 1）。
+   *
+   * 与 `installZnpFromPath` 的区别：那边是「用户挑了一个本地文件」，这边是「索引里的一条」。
+   * 下载、**整包 sha256**、解包都在 Rust（`install_znp_from_url`）一次完成 ——
+   * 「校验的字节」就是「落盘的字节」，任一步失败都不落盘。
+   */
+  const installZnpFromUrl = useCallback(
+    async (entry: MarketEntry): Promise<string | null> => {
+      try {
+        const root = await globalPluginRoot()
+        const id = await installFromMarket(root, entry)
+        setReloadToken((t) => t + 1)
+        setToast(`插件已安装：${id}`)
+        return id
+      } catch (e) {
+        setError(`安装插件失败：${String(e)}`)
+        return null
+      }
+    },
+    [setReloadToken, setToast, setError],
+  )
+
   /** 插件管理页按钮：选文件 → 走上面的完整流程 */
   const installZnp = useCallback(async () => {
     const picked = await open({
@@ -567,5 +596,5 @@ export function usePluginHost({
     [],
   )
 
-  return { installZnpFromPath, installZnp, getWebviewBridge, getSignature }
+  return { installZnpFromPath, installZnp, installZnpFromUrl, getWebviewBridge, getSignature }
 }

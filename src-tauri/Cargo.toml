@@ -25,6 +25,9 @@ log = "0.4"
 # —— 不用 Web Crypto 是因为旧 Android WebView 不一定有 `Ed25519` 算法。
 ed25519-dalek = "2"
 base64 = "0.22"
+# 市场下载的整包校验（rev173.148）：索引记的 sha256 与下载到的字节必须在**同一侧**比对。
+# 已在依赖树里（ed25519-dalek 的传递依赖）⇒ 不增加新的编译量。
+sha2 = "0.10"
 tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"

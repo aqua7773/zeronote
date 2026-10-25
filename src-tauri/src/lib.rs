@@ -1883,8 +1883,13 @@ struct ZnPack {
 
 fn read_znp_file(path: &str) -> Result<ZnPack, String> {
   let raw = fs::read_to_string(path).map_err(|e| format!("读取插件包失败：{e}"))?;
+  parse_znp(&raw)
+}
+
+/// 解析 `.znp` 文本（`read_znp_file` 与「从 URL 下载安装」共用 —— 一份校验逻辑）。
+fn parse_znp(raw: &str) -> Result<ZnPack, String> {
   let pack: ZnPack =
-    serde_json::from_str(&raw).map_err(|e| format!("插件包不是合法 JSON：{e}"))?;
+    serde_json::from_str(raw).map_err(|e| format!("插件包不是合法 JSON：{e}"))?;
   if let Some(v) = pack.znp {
     if v != 1 {
       return Err(format!("不支持的插件包版本：{v}（当前支持 1）"));
@@ -1924,16 +1929,22 @@ fn read_znp(path: String) -> Result<serde_json::Value, String> {
 #[tauri::command]
 fn install_znp(vault: String, path: String) -> Result<String, String> {
   let pack = read_znp_file(&path)?;
+  install_pack(&vault, pack)
+}
+
+/// 原子安装一个**已解析**的插件包 —— `install_znp`（本地文件）与
+/// `install_znp_from_url`（市场下载）共用同一份落盘逻辑。
+fn install_pack(vault: &str, pack: ZnPack) -> Result<String, String> {
   let id = pack
     .manifest
     .get("id")
     .and_then(|v| v.as_str())
     .unwrap_or("")
     .to_string();
-  let dir = plugin_dir(&vault, &id)?;
-  let plugins_root = private_root(&vault).join(PRIVATE_DIR).join("plugins");
+  let dir = plugin_dir(vault, &id)?;
+  let plugins_root = private_root(vault).join(PRIVATE_DIR).join("plugins");
   fs::create_dir_all(&plugins_root).map_err(|e| format!("创建插件目录失败：{e}"))?;
-  let tmp_root = private_root(&vault).join(PRIVATE_DIR).join("tmp");
+  let tmp_root = private_root(vault).join(PRIVATE_DIR).join("tmp");
   fs::create_dir_all(&tmp_root).map_err(|e| format!("创建临时目录失败：{e}"))?;
 
   let stamp = format!("{id}-{}", now_ms());
@@ -1995,6 +2006,93 @@ fn install_znp(vault: String, path: String) -> Result<String, String> {
       Err(format!("安装失败，已回滚到原版本：{e}"))
     }
   }
+}
+
+/// 插件包下载地址的白名单（rev173.148 · 插件市场阶段 1）。
+///
+/// 放行：`https://` 任意；`http://` **只允许回环地址**（`127.0.0.1` / `localhost` / `[::1]`）。
+/// 为什么给回环开一条：本机起个静态服务走完整的市场链路（下载 → 校验 → 安装）是唯一
+/// 不需要公网仓库的实测方式，将来「自建源」也是这个形状。
+/// 为什么不允许公网明文：插件包就是**可执行代码**，用明文信道下发，中间人可以换成自己的包 ——
+/// 签名会拦（换包验不过），但「用户看到的来源」已经被换了，这是不该给的默认姿势。
+fn require_plugin_pack_url(url: &str) -> Result<(), String> {
+  let lower = url.trim().to_ascii_lowercase();
+  if lower.starts_with("https://") && lower.len() > "https://".len() {
+    return Ok(());
+  }
+  for host in ["http://127.0.0.1", "http://localhost", "http://[::1]"] {
+    if let Some(rest) = lower.strip_prefix(host) {
+      // 必须紧跟端口 / 路径 / 结束 —— 否则 `http://127.0.0.1.evil.com` 也会命中
+      if rest.is_empty() || rest.starts_with(':') || rest.starts_with('/') {
+        return Ok(());
+      }
+    }
+  }
+  Err(format!(
+    "拒绝下载：插件包地址必须是 https://（本机测试可用 http://127.0.0.1:端口）—— 收到 {url}"
+  ))
+}
+
+/// 从 URL 下载 `.znp` 并安装（rev173.148 · 插件市场阶段 1）。
+///
+/// 为什么在 Rust 侧下载，而不是前端 `net_request` 拿 base64 再交给安装：
+/// **「校验的字节」必须就是「落盘的字节」**。前端解码 base64 → 再序列化回字符串，
+/// 中间多两次转换；真出现「前端校验过、落盘的不是同一份」时几乎没法查。
+/// 这里一次完成：下载 → 比对 sha256 → 解析 → 原子安装，任一步失败都不落盘。
+///
+/// `expected_sha256` 来自市场索引（**整包**摘要）。不传就不校验 —— 只给手工调试用，
+/// 市场页永远带它。
+#[tauri::command]
+async fn install_znp_from_url(
+  vault: String,
+  url: String,
+  expected_sha256: Option<String>,
+) -> Result<String, String> {
+  use sha2::{Digest, Sha256};
+  require_plugin_pack_url(&url)?;
+  let client = crate::net::http_client(60_000)?;
+  let resp = client
+    .get(url.trim())
+    .send()
+    .await
+    .map_err(|e| format!("下载插件包失败：{url} —— {e}"))?;
+  let status = resp.status();
+  if !status.is_success() {
+    // 私有仓库的 Release 匿名下载会 404 —— 这是最可能撞上的一种失败，直接说清怎么解
+    let hint = if status.as_u16() == 401 || status.as_u16() == 404 {
+      "（私有仓库的 Release 需要登录后才能下载；公开仓库或自建源才能匿名取）"
+    } else {
+      ""
+    };
+    return Err(format!("下载插件包失败：HTTP {status}（{url}）{hint}"));
+  }
+  let bytes = resp
+    .bytes()
+    .await
+    .map_err(|e| format!("读取插件包失败：{url} —— {e}"))?;
+  if bytes.len() > net::MAX_PLUGIN_PACK_BYTES {
+    return Err(format!(
+      "插件包过大（{} 字节，上限 {}）：{url}",
+      bytes.len(),
+      net::MAX_PLUGIN_PACK_BYTES
+    ));
+  }
+  let got = format!("{:x}", Sha256::digest(&bytes));
+  if let Some(want) = expected_sha256
+    .as_deref()
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+  {
+    if !got.eq_ignore_ascii_case(want) {
+      return Err(format!(
+        "插件包校验失败：索引记录 sha256={want}，实际下载到 {got} —— 不安装（包可能被改过，或下载被截断）"
+      ));
+    }
+  }
+  let text = String::from_utf8(bytes.to_vec())
+    .map_err(|e| format!("插件包不是 UTF-8 文本（.znp 是 JSON）：{e}"))?;
+  let pack = parse_znp(&text)?;
+  install_pack(&vault, pack)
 }
 
 #[tauri::command]
@@ -2801,6 +2899,7 @@ pub fn run() {
       copy_plugin_dir,
       read_znp,
       install_znp,
+      install_znp_from_url,
       open_external,
       opened_urls,
       zn_heartbeat,
@@ -4010,5 +4109,101 @@ mod tests {
     write_trusted_keys(&d, r#"{ "pubkeys": [] }"#);
     let err = load_trusted_keys(&root).unwrap_err();
     assert!(err.contains("缺 keys 数组"), "形状不对要说清：{err}");
+  }
+
+  /* ───────── 插件市场：从 URL 安装（rev173.148） ───────── */
+
+  /// 起一个只回一次的本地 HTTP 服务器，把 `body` 作为响应体回给第一个请求。
+  fn serve_once(body: &[u8]) -> (String, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定本地端口");
+    let addr = listener.local_addr().expect("取端口");
+    let body = body.to_vec();
+    let handle = std::thread::spawn(move || {
+      let (mut sock, _) = listener.accept().expect("接受连接");
+      let mut buf = Vec::new();
+      let mut tmp = [0u8; 1024];
+      loop {
+        match sock.read(&mut tmp) {
+          Ok(0) | Err(_) => break,
+          Ok(n) => buf.extend_from_slice(&tmp[..n]),
+        }
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 16_384 {
+          break;
+        }
+      }
+      let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+      );
+      let _ = sock.write_all(head.as_bytes());
+      let _ = sock.write_all(&body);
+    });
+    (format!("http://{addr}/demo.znp"), handle)
+  }
+
+  const DEMO_PACK: &str = r#"{"znp":1,"manifest":{"id":"demo","name":"演示","version":"1.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"export default { apply(){} }"}}"#;
+
+  fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+  }
+
+  /// URL 白名单：https 任意；http 只给回环（否则「明文下载可执行插件」会变成默认姿势）。
+  #[test]
+  fn plugin_pack_url_requires_https_or_loopback() {
+    for ok in [
+      "https://github.com/a/b/demo.znp",
+      "https://raw.githubusercontent.com/x/y.json",
+      "http://127.0.0.1:8765/demo.znp",
+      "http://localhost/demo.znp",
+      "http://[::1]:9000/demo.znp",
+    ] {
+      assert!(require_plugin_pack_url(ok).is_ok(), "{ok} 应放行");
+    }
+    for bad in [
+      "http://example.com/demo.znp",
+      // 前缀混淆：字符串以 http://127.0.0.1 开头，但主机其实是 127.0.0.1.evil.com
+      "http://127.0.0.1.evil.com/demo.znp",
+      "ftp://example.com/demo.znp",
+      "file:///C:/demo.znp",
+      "https://",
+    ] {
+      assert!(require_plugin_pack_url(bad).is_err(), "{bad} 应被拒");
+    }
+  }
+
+  /// 正常链路：下载 → sha256 对上 → 原子安装。
+  #[test]
+  fn install_znp_from_url_installs_when_sha_matches() {
+    let d = tmpdir("znp-url-ok");
+    let v = d.to_string_lossy().to_string();
+    let (url, handle) = serve_once(DEMO_PACK.as_bytes());
+    let id = tauri::async_runtime::block_on(install_znp_from_url(
+      v,
+      url,
+      Some(sha256_hex(DEMO_PACK)),
+    ))
+    .expect("sha 对得上就该装上");
+    let _ = handle.join();
+    assert_eq!(id, "demo");
+    assert!(d.join(".zn/plugins/demo/index.js").is_file());
+  }
+
+  /// sha256 对不上 ⇒ **一个字节都不落盘**（这是「失败不落盘」的可执行版）。
+  #[test]
+  fn install_znp_from_url_rejects_sha_mismatch_without_touching_disk() {
+    let d = tmpdir("znp-url-bad");
+    let v = d.to_string_lossy().to_string();
+    let (url, handle) = serve_once(DEMO_PACK.as_bytes());
+    let bogus = "0".repeat(64);
+    let err = tauri::async_runtime::block_on(install_znp_from_url(v, url, Some(bogus)))
+      .expect_err("sha 不符必须拒绝");
+    let _ = handle.join();
+    assert!(err.contains("校验失败"), "错误要说清是校验失败：{err}");
+    assert!(
+      !d.join(".zn/plugins/demo").exists(),
+      "校验失败必须一个字节都不落盘"
+    );
   }
 }

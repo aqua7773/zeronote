@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 /// 单次响应体上限 64 MB —— 同步的是笔记与附件，超过当错误返回（不静默截断）。
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// 插件包（`.znp`）的大小上限（rev173.148）。现有 13 个官方包 0.7 KB – 80 KB；
+/// 8 MB 是「明显不对」的界线 —— 撞上它说明下载到的不是插件包（HTML 错误页 / 别的大文件）。
+pub const MAX_PLUGIN_PACK_BYTES: usize = 8 * 1024 * 1024;
+
 /// 默认超时。坚果云 / Nextcloud 偶发 3–5 秒才回 PROPFIND，留足余量。
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 /// 超时上下限：太短会把慢服务器误判成失败，太长会把界面吊死。
@@ -74,19 +78,13 @@ pub fn ensure_tls_provider() {
   }
 }
 
-/// 发一次 HTTP 请求。成功与否只看「请求有没有发出去」，HTTP 错误码（401/404/500）
-/// 一律走 `Ok(status)` —— 调用方要能读到 `WWW-Authenticate` 这类头来判断怎么重试。
-#[tauri::command]
-pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
-  ensure_tls_provider();
-  let method_name = req.method.unwrap_or_else(|| "GET".to_string());
-  let method = reqwest::Method::from_bytes(method_name.as_bytes())
-    .map_err(|e| format!("HTTP 方法不合法（{method_name}）：{e}"))?;
-
-  let timeout = req
-    .timeout_ms
-    .unwrap_or(DEFAULT_TIMEOUT_MS)
-    .clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
+/// 建一个 HTTP 客户端（统一超时 / UA / Android 根证书）。
+///
+/// **pub 出来是因为插件包下载也用同一个**（`lib.rs` 的 `install_znp_from_url`）。
+/// 两处各写一份的话，下面 Android 那段「必须自己给根证书」的修法一定会漏在第二处 ——
+/// 表现是「手机上下载插件永远 pending」，而且和同步时的症状一模一样、极难认。
+pub fn http_client(timeout_ms: u64) -> Result<reqwest::Client, String> {
+  let timeout = timeout_ms.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   // 桌面上 `mut` 用不到（只有 Android 的 cfg 段会改它），但去掉会让 Android 编译不过
   #[allow(unused_mut)]
@@ -115,7 +113,25 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
     cb = cb.use_preconfigured_tls(tls);
   }
 
-  let client = cb.build().map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
+  cb.build()
+    .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))
+}
+
+/// 发一次 HTTP 请求。成功与否只看「请求有没有发出去」，HTTP 错误码（401/404/500）
+/// 一律走 `Ok(status)` —— 调用方要能读到 `WWW-Authenticate` 这类头来判断怎么重试。
+#[tauri::command]
+pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
+  ensure_tls_provider();
+  let method_name = req.method.unwrap_or_else(|| "GET".to_string());
+  let method = reqwest::Method::from_bytes(method_name.as_bytes())
+    .map_err(|e| format!("HTTP 方法不合法（{method_name}）：{e}"))?;
+
+  let timeout = req
+    .timeout_ms
+    .unwrap_or(DEFAULT_TIMEOUT_MS)
+    .clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
+
+  let client = http_client(timeout)?;
 
   let url = req.url;
   let mut rb = client.request(method, &url);

@@ -1741,6 +1741,19 @@ body.is-resizing * {
 
 /* ───────── 插件面板（M2）───────── */
 .zn-plugins { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+/* 插件页两个 tab（rev173.148）：「已安装」/「发现」（插件市场） */
+.zn-plugins-tabs { display: flex; gap: 4px; padding: 2px 0 8px; border-bottom: 1px solid var(--zn-border); margin-bottom: 8px; }
+.zn-plugins-tab { padding: 4px 10px; border-radius: var(--zn-radius-sm); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); }
+.zn-plugins-tab:hover { color: var(--zn-fg); background: var(--zn-bg-hover); }
+.zn-plugins-tab.is-active { color: var(--zn-fg); background: var(--zn-bg-active); font-weight: 600; }
+.zn-plugins-tab-count { color: var(--zn-fg-subtle); font-weight: 400; margin-left: 2px; }
+/* 发现（市场）：索引地址一行 + 条目列表 */
+.zn-market { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.zn-market-source { display: flex; gap: 6px; align-items: center; padding: 2px 0 8px; }
+.zn-market-url { flex: 1; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
+.zn-market-url:focus { outline: none; border-color: var(--zn-accent); }
+.zn-market-skipped { padding: 0 0 8px; color: var(--zn-warn); font-size: var(--zn-text-sm); }
+.zn-market-done { flex: none; color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); padding-top: 2px; }
 /* 原先这里有 .zn-plugins-head（「插件」标题 + 重新扫描 + 下横线），
    用户要求去掉标题与横线、扫描按钮挪到主区顶栏，故整块移除。
    .zn-plugins-title 也随之不再使用。 */
