@@ -86,7 +86,7 @@ ZeroNote\
   scripts\             内核快照 / 恢复 / 一键自检
   public\vendor\       内置离线渲染库（pdf.js / foliate / mammoth / marked / …）
   docs\                架构原则 / 内核契约 / 需求 / 安装说明 / 调研
-  HANDOFF.md           交接件：逐版本「做了什么 + 证据 + 踩坑」（只留最近 14 个 rev，更早在 docs\archive\handoff\）
+  HANDOFF.md           交接件：逐版本「做了什么 + 证据 + 踩坑」（只留当前版本周期，更早在 docs\archive\handoff\）
   HANDOFF-CARD.md      交接卡：当前状态一屏版
 ```
 

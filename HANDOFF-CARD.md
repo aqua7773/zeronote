@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-25（rev173.141）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留最近 14 个 rev；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-25（rev173.141）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
@@ -79,6 +79,6 @@ pwsh -File scripts\verify.ps1
 
 ## 细节读哪
 
-`HANDOFF.md`（最近 14 个 rev 的索引）· `docs/内核契约-v0.2.md` · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）· `docs/README.md`（权威矩阵）· `docs/系统总览.md` · `docs/同步插件-调研与方案-2026-10-24.md` · `tools/verify-*.mjs`
+`HANDOFF.md`（当前版本周期的索引）· `docs/内核契约-v0.2.md` · `docs/架构原则-2026-10-13.md`（**冲突时以它为准**）· `docs/README.md`（权威矩阵）· `docs/系统总览.md` · `docs/同步插件-调研与方案-2026-10-24.md` · `tools/verify-*.mjs`
 
 > 旧卡（539 行，含 2026-10-19 ~ 25 的逐项历史）看 git 历史：`git show ea3288e:HANDOFF-CARD.md`
