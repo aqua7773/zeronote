@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.156
-更新时间: 2026-10-25 · 最新 rev173.156
+revision: 173.157
+更新时间: 2026-10-25 · 最新 rev173.157
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.156
 
 | rev | 内容 |
 |---|---|
+| rev173.157 | 2026-10-25 · **CI 加 Rust 编译缓存**（用户「加缓存」）：先核实到 **pnpm 那边本来就有** —— `actions/setup-node@v5` 的 `package-manager-cache` 默认 true、按 `packageManager` 自动缓存（读官方 README 确认），所以只补 Rust · `Swatinem/rust-cache@v2`（`workspaces: "src-tauri -> target"`，语法照官方 README）缓存 `~/.cargo` + target，键跟 Cargo.lock / rustc 版本走 · 加 `workflow_dispatch` 便于跑第二次 · **实测**：Cargo 步骤 **2m32s → 41s（−73%）**、整 run **3m35s → 2m33s**；首次（未命中、顺带写缓存）反而是 5m17s / Cargo 3m15s，属正常 |
 | rev173.156 | 2026-10-25 · **插件市场第二批 UX**（调研 §4.4 三件，零 Rust 改动）：① **详情页** —— 「发现」每条加「详情」，摊开描述 / 分类平台 / 大小 / 接口版本 / **能力自述 chips** / 已装版本 / 下载地址 / sha256 / 包内文件数；能力来自**索引新增字段 `capabilities`**（`pack-plugin.mjs` 从 manifest 带出，13 个包重打包 + `gen-market --write`），中文翻译 `src/lib/capability-label.ts`（未知取值**原样露出**，`fs`/`host`/`event` 老写法也译）② **更新角标** —— tab「已安装 14 ↑1」（只数真装着的）+ 行内「↑ 可更新 vX」，装完立刻摘缓存 ③ **启动 24h 节流检查** —— `shouldCheckUpdates`/`computeUpdates` 纯函数 + localStorage（`at`+`updates`），延迟 4s、失败静默且不写 `at`、设置页开关（默认开）；只标不装 · ⚠️ 实测抓到 effect 依赖 `rows` 数组引用 ⇒ 4s 定时器被每次重渲染重置、**检查永不发生**（改成依赖 `rows.length` + `rowsRef`）· **顺带修 rev173.154 的两个 0.2.1 包**：漏 `--key-id` ⇒ keyId 写成 `default` ⇒ 客户端内置信任根不认（装得上、加载拒载）；已重签，`gen-market` 加第 ⑤ 门「官方包 keyId 必须 = aqua-2026」（反向验证过）· vitest 951 → **977** · CDP 实测三项全过 |
 | rev173.155 | 2026-10-25 · **CI 首绿实证**（rev173.154 的后续，无测试数字变化）：推送后第一次真跑 **15 步全 success**，4 分 45 秒（12:14:20 → 12:19:05 UTC）· 关键在 step 8「Unit tests (vitest)」—— 此前每个 run 都挂这里，`sortTags` 传 `'zh'` 后 951 全过；step 10「Quality gates」也是**第一次跑到**（排 vitest 之后，以前从没走到）· 证据链三条：`gh run list` 修复前 8 连 failure → 本次 success；新包公网实测 raw 下载 `http=200 · 24513 B` 且 sha256 与 `market/entries/tag-panel.json` 逐字一致；全局插件目录里 `tag-panel` / `backlinks` 均已是 0.2.1 · workflow 头注释改为与六步对齐（原写「五步」且漏质量门）· ⚠️ 一条 CI 自身小债：`pnpm/action-setup@v4` 声明 Node 20 被强制跑在 Node 24，每次 run 一条 deprecation annotation，等上游发版再升 |
 | rev173.154 | 2026-10-25 · **开源配套：CI 从「一直是红的」修到能跑 + 投稿入口补齐**：CI workflow 早在 rev173.130 就有，但 `gh run list` 显示最近每个 run 都 failure —— 根因是 `localeCompare` **不传 locale**（3 处：`src/kernel/index-api.ts` 的 `tags()`、`examples/tag-panel` 的 `sortTags`、`examples/backlinks` 的 `matchRefs`）：本机 zh-CN 排出「工作 · 会议 · 项目」，GitHub runner en-US 按 code point 排成「会议 · 工作 · 项目」⇒ `tests/tag-panel.test.ts` 必然红 · 修法是三处显式传 `'zh'`（与 `FileTree` / `QuickSwitcher` 早就用的写法一致），两个插件各升 **0.2.1** 并重新打包签名、`gen-market --write` 重建索引（13 条）· CI 里逐条 gate 改成 `node scripts/check-gates.mjs`（此前 CI **漏了** facts 与 market 两项门）· `facts.mjs --check` 修一个 CI 死结：测试基线只存在本机（baseline JSON / `_verify-*.log` 都不入库）⇒ 无基线时忽略该行比较，有基线时照旧整块比 · 新增 `CONTRIBUTING.md` + `.github/ISSUE_TEMPLATE/`（bug / 功能建议 / 插件投稿 + config）+ `pull_request_template.md`，`check-links` 把 CONTRIBUTING 纳入扫描 · 本地 verify 六步全绿 |
@@ -51,6 +52,34 @@ revision: 173.156
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.157（2026-10-25 · CI 加 Rust 编译缓存）
+
+> 用户「加缓存」。先说结论：**pnpm 那边本来就有** —— `actions/setup-node@v5` 的
+> `package-manager-cache` 默认 `true`，会按 `package.json` 的 `packageManager: pnpm@10.34.6`
+> 自动缓存（读官方 README 确认，不是猜）。所以真正缺的只有 Rust。
+>
+> ### 改动两处
+>
+> 1. `Swatinem/rust-cache@v2`，`workspaces: "src-tauri -> target"`
+>    （语法照官方 README：`$workspace -> $target`，target 相对 workspace）—— 缓存 `~/.cargo` 与
+>    target 目录；缓存键跟 `Cargo.lock` + rustc 版本走，不会拿旧产物骗人。
+> 2. `workflow_dispatch` —— 加缓存后必须**跑两次**才看得出「命中 vs 未命中」，没有手动入口就只能
+>    靠推空提交去凑第二次。
+>
+> ### 实测（同一份代码，相邻三次 run）
+>
+> | run | 触发 | 缓存 | Rust cache 步骤 | Cargo test 步骤 | 总时长 |
+> |---|---|---|---|---|---|
+> | `40195249557`（rev173.156） | push | 无 | — | 2m32s | 3m35s |
+> | `40196000313`（本 rev 首次） | push | **未命中（顺带写入）** | 2s（restore miss） | 3m15s | 5m17s |
+> | `40196424395`（手动 dispatch） | dispatch | **命中** | 32s（下载解压） | **41s** | **2m33s** |
+>
+> **Cargo 步骤 2m32s → 41s（−73%）**，整个 run 3m35s → 2m33s。
+> 第一次反而更慢是正常的：要在最后把缓存打包上传（约 +1 分钟）。
+>
+> ⚠️ 缓存失效条件（别当 bug 查）：改 `Cargo.lock` / 升 rustc / 改 `workspaces` 配置 ⇒ 换缓存键 ⇒
+> 下一次又走「未命中」那条慢路，之后自动恢复。
 
 > ## 📌 rev173.156（2026-10-25 · 插件市场第二批 UX：详情页 / 更新角标 / 24h 节流检查）
 
