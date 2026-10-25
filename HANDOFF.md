@@ -19,7 +19,7 @@ revision: 173.161
 
 | rev | 内容 |
 |---|---|
-| rev173.161 | 2026-10-25 · **安全插件发到市场（不预装）**（用户拍板：「有插件市场后应该不用做预装插件了吧」→ 同意 security 走市场）：`pack-plugin security --key … --key-id aqua-2026` → 整包 sha256 `42ff0e…`（47.4 KB，2 文件）→ `gen-market --write` 索引 **13 → 14 条** · **端到端实测**（本地 8932 静态服务 + 真包）：① 负向 —— 把期望 sha256 改成全 0 ⇒ **「插件包校验失败…」拒绝安装、不落盘** ② 正向 —— `install_znp_from_url` 装真包 ⇒ 磁盘出现 `signature.json`、reload 后插件页显示「安全 v0.1.0 **已签名**」③ 索引恢复 GitHub raw、测试服务全停 · 未登记 `BUILTIN_PLUGINS`（用户决定：安全类插件应由用户主动从市场装） · ⚠️ **未推送** —— 索引 url 指向 `main` 的 raw，推上去线上才变 14 条 · 坑两条：① 8931 上还留着上次会话的 `python -m http.server`（cwd 不对 ⇒ 请求恒 404，害我以为是新服务坏了）⇒ 已清 ② `Invoke-WebRequest` 走系统代理，连 `127.0.0.1` 也会 404；判本地服务死活要用 `node http.get` |
+| rev173.161 | 2026-10-25 · **安全插件发到市场（不预装）**（用户拍板：「有插件市场后应该不用做预装插件了吧」→ 同意 security 走市场）：`pack-plugin security --key … --key-id aqua-2026` → 整包 sha256 `42ff0e…`（47.4 KB，2 文件）→ `gen-market --write` 索引 **13 → 14 条** · **端到端实测**（本地 8932 静态服务 + 真包）：① 负向 —— 把期望 sha256 改成全 0 ⇒ **「插件包校验失败…」拒绝安装、不落盘** ② 正向 —— `install_znp_from_url` 装真包 ⇒ 磁盘出现 `signature.json`、reload 后插件页显示「安全 v0.1.0 **已签名**」③ 索引恢复 GitHub raw、测试服务全停 · 未登记 `BUILTIN_PLUGINS`（用户决定：安全类插件应由用户主动从市场装） · ✅ **已推送 `f99d9b9`**（直连成功，`git ls-remote` 核对一致）· CI run `40209288687` **15 步全绿** · 应用里从 GitHub raw 实测拉到 **14 条**，security 显示「47.4 KB · 已安装」· 坑两条：① 8931 上还留着上次会话的 `python -m http.server`（cwd 不对 ⇒ 请求恒 404，害我以为是新服务坏了）⇒ 已清 ② `Invoke-WebRequest` 走系统代理，连 `127.0.0.1` 也会 404；判本地服务死活要用 `node http.get` |
 | rev173.160 | 2026-10-25 · **安全插件 v0.1（期 1a）**（用户「做安全插件」→「先调查写方案」→「开工」）：新增 `examples/security/`（单文件 1172 行，纯函数全部命名导出）—— **双密钥环** `notes`/`secrets` 各一把主密码、各一个 salt、各一把 DEK，**互不派生**（用户拍板：账户密码要"绝对安全"）· XChaCha20-Poly1305 + Argon2id（noble **本地副本** `public/vendor/noble/` 13 文件 202 KB，`scripts/vendor-noble.mjs` 按 import 图精确复制）· **AAD 绑定** `环\|容器\|用途`（跨环 / 跨容器 / 跨用途的密文一律解不开，有反向测试）· **不存 password verifier**（解锁 = 解包裹，AEAD 认证通过即密码对）· 换密码与恢复**只重包裹 DEK**，数据密文一个字节不动 · vault 文件损坏 ⇒ 拒写不覆盖 · 对外 `service.provide('crypto')` **只给操作不给密钥** · 单测 **25 条全过**（错密码 / 改一字节 / 跨环 / 恢复答案错 / 只设恢复码 / 两条都不设要报错）· `tsc -b` 0 · ⚠️ **未做**：桌面 CDP 走查（面板还没在真机上点过）、`secrets` 插件、同步放行 `.zn/secrets/` · 踩坑两条：① **插件 ESM 相对 import 不可用**（契约 §3 只解析 CJS require）⇒ crypto 核心内联进 index.js ② `vendor-noble.mjs` 第一版在 Windows 下被 `path.join` 的反斜杠坑掉去重（同一模块复制两次、清单重复）⇒ `normalizeRel` 先统一 `/` |
 | rev173.159 | 2026-10-25 · **交接**（用户「交接」）：本会话 rev173.154–158 总览表 + 交接时实测状态（工作树干净 · 六步全绿 vitest 977 / 质量门 7/7 · CI 最近三次 success 2m24s–2m39s · dev pid 11660 · 手机 0.5.0）+ 下个会话入口（读 CARD → 卡点表；**候选池已无「可立即做」项**）+ 本会话踩到并已修的三个真问题（localeCompare 不传 locale / 0.2.1 包漏 --key-id / 24h 检查 effect 依赖数组引用） |
 | rev173.158 | 2026-10-25 · **插件审查材料生成器**（用户「做」= ROADMAP §3.3 最后一块）：`scripts/review-plugin.mjs` 只回答四件事 —— 格式对不对 / 地址通不通 / **包有没有被换过** / 谁签的（调研 §4.5「只审格式不审代码」）· 输出 markdown 材料：entry 可达 · 整包 sha256 一致 · 包内 manifest 与 entry 同 id 同版本 · **apiVersion 只比 major**（照抄 `plugin-host.ts:309`）· 签名 keyId（报不验）· 能力自述翻人话 · **两层**：离线半进 `check-gates.mjs` 第 **7** 门（脏 PR 直接红），联网半（`--online`）只在人工审时跑、不进 CI · **实测**：造 `_tmp-external/` 夹具（keyId `alice-2025`）走通正常路径；反向（entry sha256 改成 0 / id 撞官方 + 重复 + `Bad_ID` + `ftp://`）全部报错且 exit 1；空表通过 · 顺带修三个自己写出的问题（--entry 模式误要索引行 / 全局问题重复计数且单条不跟着红 / `--external` 值被当位置参数） |
@@ -88,11 +88,20 @@ revision: 173.161
 > 2. **`Invoke-WebRequest` 受系统代理影响**，连 `http://127.0.0.1:8932/...` 也返回 404（代理返回的，不是我的服务）。
 >    判本地服务死活要用 `node -e "http.get(...)"` 或 curl `--noproxy`。
 >
+> ### 推送与线上实证（23:56 推送完成）
+>
+> - `git push` **直连成功**：`96b6a87..f99d9b9`；`git ls-remote origin refs/heads/main` = `f99d9b9ac6…` 一致
+> - CI run [`40209288687`](https://github.com/aqua7773/zeronote/actions/runs/40209288687)：**15 步全绿**（tsc / oxlint / vitest 1002 / check-docs / 质量门 7 项 / cargo 52）
+> - **应用内实测**：清掉 localStorage 的本地索引地址 → reload → 插件管理「发现」**14 条**，
+>   「安全 v0.1.0 · aqua7773 · 47.4 KB」在列；市场版（签名）替换后面板照常打开、两环都在
+> - ⚠️ 本机 `curl` 走代理**仍拉不到** raw（`ECONNRESET` / schannel `CRYPT_E_NO_REVOCATION_CHECK`），
+>   但 **WebView 的 fetch 能通** ⇒ 这类失败跟 curl/代理有关，不代表索引或包有问题（真遇到"连不上服务器"先点刷新）
+>
 > ### 下一步
 >
-> 1. **推送**（`git push`）—— 之后市场线上才真的 14 条、别人才能装到 security
-> 2. 期 1b：`secrets` 密码库插件（消费 `crypto` 服务，`consume` 拿 `null` 时提示「先去市场装安全插件」）
-> 3. 期 1c：四个同步插件放行 `.zn/secrets/`
+> 1. 期 1b：`secrets` 密码库插件（消费 `crypto` 服务，`consume` 拿 `null` 时提示「先去市场装安全插件」）
+> 2. 期 1c：四个同步插件放行 `.zn/secrets/`
+> 3. 之后可选：市场里给官方包加「官方 / 已签名」徽标（`keyId=aqua-2026` 已可用于判断）
 
 > ## 📌 rev173.160（2026-10-25 · 安全插件 v0.1：双密钥环 + crypto 服务）
 
