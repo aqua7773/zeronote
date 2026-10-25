@@ -17,6 +17,7 @@ import {
   PLUGIN_SIGNATURE_FILE,
   parsePluginSignature,
   signingPayload,
+  type SignedFileDigest,
 } from '../lib/plugin-signing'
 import {
   cachePluginStyle,
@@ -274,6 +275,8 @@ async function verifyPluginSignature(opts: {
   dir: string
   manifest: PluginManifest
   entryContent: string
+  /** v2：`manifest.files` 里每个声明文件的摘要（不含入口） */
+  files?: SignedFileDigest[]
 }): Promise<'signed' | 'unsigned'> {
   let raw: string
   try {
@@ -293,7 +296,7 @@ async function verifyPluginSignature(opts: {
     )
   }
   const entrySha = await sha256Hex(opts.entryContent)
-  const payload = signingPayload(opts.manifest.id, opts.manifest.version, entrySha)
+  const payload = signingPayload(opts.manifest.id, opts.manifest.version, entrySha, opts.files ?? [])
   const status = await invoke<string>('verify_plugin_signature', {
     vault: opts.root,
     pluginId: opts.dir,
@@ -766,6 +769,23 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
 
   // ── 有 JS 入口：先嗅探形态，再组装成 ESM 交给 import ──
   const entrySrc = await readFile(manifest.entry)
+
+  /**
+   * **声明文件先读出来**（rev173.142 · 签名 v2）：验签的 payload 要 `manifest.files` 的摘要，
+   * 后面组装 CJS 包也要同一份内容 —— 读一次两处用，避免同一文件被读两遍后内容不一致。
+   */
+  const declaredFiles: PluginFiles = {}
+  try {
+    for (const rel of manifest.files ?? []) {
+      if (rel !== manifest.entry) declaredFiles[rel] = await readFile(rel)
+    }
+  } catch (e) {
+    throw new Error(`插件 ${manifest.id} 的 manifest.files 读取失败：${String(e)}`)
+  }
+  const fileDigests: SignedFileDigest[] = []
+  for (const [path, src] of Object.entries(declaredFiles)) {
+    fileDigests.push({ path, sha256: await sha256Hex(src) })
+  }
   /**
    * **完整性校验**（2026-10-18 rev119）：manifest 声明了 `sha256` 就必须对得上。
    * 只覆盖入口一个文件 —— 它是"文件被改过/装坏了"的提示，不是签名（见契约 §3）。
@@ -794,6 +814,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     dir,
     manifest,
     entryContent: entrySrc,
+    files: fileDigests,
   })
   const kind = sniffEntryKind(entrySrc)
 
@@ -802,16 +823,8 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     // 已经有 ESM 语法，原样加载（相对导入在 Blob 里解析不了 —— 见契约 §3 的限制）
     code = entrySrc
   } else if (kind === 'cjs') {
-    // 单文件与多文件走同一条路：把声明过的文件全部读出来交给虚拟 CommonJS 运行时
-    const files: PluginFiles = { [manifest.entry]: entrySrc }
-    try {
-      for (const rel of manifest.files ?? []) {
-        if (rel !== manifest.entry) files[rel] = await readFile(rel)
-      }
-    } catch (e) {
-      throw new Error(`插件 ${manifest.id} 的 manifest.files 读取失败：${String(e)}`)
-    }
-    code = buildCjsBundle(manifest.entry, files)
+    // 单文件与多文件走同一条路：`declaredFiles` 已在验签前读好，这里直接复用（不重复读盘）
+    code = buildCjsBundle(manifest.entry, { [manifest.entry]: entrySrc, ...declaredFiles })
   } else {
     code = buildIifeBundle(entrySrc)
   }

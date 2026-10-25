@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /**
- * 给一个插件目录生成 `signature.json`（rev173.77 · 契约 §7.4）。
+ * 给一个插件目录生成 `signature.json`（rev173.77 起 · 契约 §7.4；rev173.142 升到 v2）。
  *
  * 用法：
  *   node scripts/sign.mjs <插件目录> <私钥.pem> [--key-id <id>] [--check]
  *
- * 签名覆盖的是 **身份 + 内容**，不是整个目录：
- *   payload = "zn-plugin-v1|<manifest.id>|<manifest.version>|<入口文件 sha256>"
- * 所以：改入口文件 / 改 id / 改 version 都让签名失效；改 README 之类不受影响。
+ * 签名覆盖的是 **身份 + 全部声明文件**：
+ *   payload = "zn-plugin-v2|<manifest.id>|<manifest.version>|<入口 sha256>|<path:sha256 排序拼接>"
+ *   ⇒ 改入口 / 改 manifest.files 里任何一个文件 / 改 id / 改 version 都让签名失效；
+ *     改 README、加不在 files 里的附件不受影响。
+ *
+ * **v1 → v2（2026-10-25）**：v1 只签入口，多文件插件里 lib/*.js 被换掉也验得过。
+ * v2 把 `manifest.files` 一起签进去。升级时实测没有任何插件带 signature.json，
+ * 所以不存在兼容问题；旧签名在 v2 下一律验不过（宿主会拒载并报原因）。
  *
  * 产物写进插件目录：`signature.json`
  *   { "alg": "ed25519", "keyId": "...", "sig": "<base64 64B>" }
@@ -23,14 +28,20 @@ import { fileURLToPath } from 'node:url'
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 与前端 `src/lib/plugin-signing.ts` 的 signingPayload() **必须逐字一致** */
-function signingPayload({ id, version, entrySha256 }) {
-  return `zn-plugin-v1|${id}|${version}|${entrySha256}`
+function signingPayload(id, version, entrySha256, files = []) {
+  const tail = [...files]
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .map((f) => `${f.path}:${f.sha256}`)
+    .join('|')
+  return `zn-plugin-v2|${id}|${version}|${entrySha256}|${tail}`
 }
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`)
   return i >= 0 ? process.argv[i + 1] : undefined
 }
+
+const sha256 = (buf) => createHash('sha256').update(buf).digest('hex')
 
 const dirArg = process.argv[2]
 const keyArg = process.argv[3]
@@ -59,11 +70,22 @@ if (!existsSync(entryPath)) {
   console.error(`找不到入口文件 ${entryPath}`)
   process.exit(1)
 }
-const entrySha256 = createHash('sha256').update(readFileSync(entryPath)).digest('hex')
-const payload = signingPayload({ id: manifest.id, version: manifest.version, entrySha256 })
+const entrySha256 = sha256(readFileSync(entryPath))
+const files = []
+for (const rel of manifest.files ?? []) {
+  if (rel === manifest.entry) continue
+  const p = join(dir, rel)
+  if (!existsSync(p)) {
+    console.error(`manifest.files 声明了 ${rel}，但文件不存在：${p}`)
+    process.exit(1)
+  }
+  files.push({ path: rel, sha256: sha256(readFileSync(p)) })
+}
+const payload = signingPayload(manifest.id, manifest.version, entrySha256, files)
 
 console.log(`插件：${manifest.id}@${manifest.version}`)
 console.log(`入口：${manifest.entry} · sha256 ${entrySha256}`)
+if (files.length) console.log(`另签 ${files.length} 个文件：${files.map((f) => f.path).join(', ')}`)
 console.log(`将签：${payload}`)
 
 if (check) {
