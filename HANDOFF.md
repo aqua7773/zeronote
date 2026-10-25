@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.165
-更新时间: 2026-10-26 · 最新 rev173.165
+revision: 173.166
+更新时间: 2026-10-26 · 最新 rev173.166
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.165
 
 | rev | 内容 |
 |---|---|
+| rev173.166 | 2026-10-26 · **期 1b 手机走查（安全 / 密码库）**：手机 `33b676f6` 原来**没装** `security` / `secrets`（插件列表里没有）⇒ 手动装开发版（`adb push /data/local/tmp` + `run-as cp`）→ reload → 两个插件都加载。**10 项全过**：建环（Argon2 812 ms + 恢复码）· 解锁 · 新建平台 / 账号 · 16 位生成器 · 密码框真 `type=password` · 显示明文（`mpTeZ7FKv6VXdLg9`）· **复制到 Android 原生剪贴板（读到 16 字符）** · **60 秒后自动清空（`CLIP_LEN=0`）** · **空闲 60 秒自动锁定（「空闲 60 秒，已自动锁定」）** · reload 后解出「手机测试站 · 1 个账号」· 回收站（剩 7 天 / 恢复 / 彻底删除）。**踩坑**：① 手机插件根是 **`/data/user/0/<pkg>/.zn/plugins/`**，`files/.zn/` 不存在（`run-as ls files/` 只有 `profileInstalled`）② reload 后 app **偶发退出一次**（重启即恢复，原因未定位；怀疑频繁 reload + dev 双端 HMR）③ PowerShell 里 `$pid` 是只读变量，别拿来存 app pid。测试数据已从手机主库清空（`secrets` 环保留，主密码 `PhoneTest123`） |
 | rev173.165 | 2026-10-26 · **期 2a：手机实测三档 KDF，定死默认档**：真机 `33b676f6`（Redmi peridot · 0.5.0 dev 包 · Android WebView V8）在页面里直接 `import('/vendor/noble/hashes/argon2.js')` 跑三档、各 3 次取中位数 —— **t=2/19MiB 165 ms** · **t=3/64MiB 812 ms** · **t=1/128MiB 574 ms**。**手机比桌面 Node 还快约 0.8×**（桌面分别 212 / 993 / 682 ms），**推翻了方案 §3「手机 1–4× 慢、t=3 要 2–4 s」的估算**（已在原文处标 ⚠️ 更正）。配套：vendor 六模块首载 **114 ms**、XChaCha 1 MiB 加密 **29 ms** / 解密 7 ms ⇒ 手机首次解锁 ≈ **0.93 s**、之后 ≈ **0.81 s**。方案留的降档条件是「手机 > 5 s」，实测不成立 ⇒ **默认档保持 t=3 / m=64 MiB 不降**。代码零改动，但新增一条**锁测试**（`DEFAULT_RINGS` 两个环的 kdf 必须是 `t=3, m=65536, p=1`，且两个环的 kdf 不能是同一个对象）+ 反向验证（把 m 改成 19456 ⇒ 立刻红）；方案 §3 / §9 期 2a 已标完成；顺带记下手机插件根目录是 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`（不是 `files/.zn/`） |
 | rev173.164 | 2026-10-26 · **期 1c：四个同步插件放行密码库**：`.zn/secrets/` 以前整段被排除 ⇒ 密码库**同步不出去**（"云端零明文"做到了，"换设备能解开"没做到）。三个网络后端（webdav / s3 / git）各加一个 `syncPrivate` 阶段 —— 按**固定清单**搬两个文件：`secrets.zn`（数据密文）+ `vault.json`（KDF salt 与被主密码包裹的 DEK，**少了它另一台拿到密文也解不开**），方向靠 baseline 判断、双端都变就留副本（密文没法自动合并）、任一步失败只写 hint 不抛（不拖累笔记同步）；manifest 加 `private` 段（304 短路径照走）。`sync-folder` 性质不同（自己不搬文件），改成：新增 `SECRET_DIRS` 放行规则 + **把「密码库冲突副本」与「`.zn/` 没排除」分开报**（前者是用户按提示放行后才可能的现象，含义是两端都改过密码库）。新单测 **15 条**（四套各自的私有文件用例 + 反向验证：去掉"只有远端变"这条分支 ⇒ A 永远停在旧版，测试立刻红）· vitest 1030 → **1045** · CDP 实测：面板报警「⚠ 密码库有 1 份同步冲突副本（…）」+ toast 双语区分 |
 | rev173.163 | 2026-10-26 · **密码库插件（期 1b）**：新增 `examples/secrets/`（1300 行）—— 消费 `security` 的 `crypto` 服务（**软依赖**：拿不到就降级提示"先去市场装安全插件"，不崩不阻塞）· **整库单文件密文** `.zn/secrets/secrets.zn`（`zn1.<nonce>.<ct>`，AAD `secrets\|secrets`）· 平台 / 账号两级（**空平台也显示**）· 搜索只搜平台 / 账号 / 备注（**反向验证过**：给 `matchesAccount` 加上密码匹配 ⇒ 那条用例立刻红）· 密码生成器 16 位（大小写 + 数字，**排除 0/O/1/l/I**，保证三类各一，Fisher–Yates 洗牌）· 显示密码 15 秒自动收起 · 复制密码 **60 秒清剪贴板**（只在内容仍是它时才清；桌面 CDP 实测 `CLIP_LEN 16 → 0`）· 回收站 7 天软删（剩 N 天 + 恢复 / 彻底删除）· **空闲 60 秒自动锁**（时间戳判定，不依赖定时器，Android 后台冻结也补得住）· 内核小扩展：`input.secret` 渲染成 `type="password"`（UIRenderer 一行 + 契约 §2 类型 + 契约文档，**UINode 仍是 21 种**）· vitest 1002 → **1029**（27 条新单测）· **CDP 实测 12 项全过** · **实测抓到两个真 bug**：① `accountRow` 返回了 `{key,node}` 列表项包装却塞进 `stack.children` ⇒ 整段 JSON 被当文本摊在界面上 ② `visibleTree` 过滤掉无账号的平台 ⇒ "新建平台 → 保存 → 列表里什么都没有" · 另一处：AEAD 的 `invalid tag` 被原样抛给用户 ⇒ 译成「主密码不对」 |
@@ -60,6 +61,55 @@ revision: 173.165
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.166（2026-10-26 · 期 1b 手机走查：安全 / 密码库）
+
+> 用户「测手机」。期 1b / 1c 完成后唯一没验过的是**手机端**（rev173.163 明确写了"手机端未走查"）。
+>
+> ### 怎么装的
+>
+> 手机上插件根是 **`/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（不是 `files/.zn/` ——
+> `run-as ... ls files/` 只有 `profileInstalled`）。装开发版：
+> ```powershell
+> adb push examples/security/index.js /data/local/tmp/zn-security-index.js
+> adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/zn-security-index.js .zn/plugins/security/index.js
+> # manifest.json 同理；secrets 一样
+> ```
+> 然后 `location.reload()` 重新扫描插件目录 —— dev 包连桌面 vite，**不用重装 APK**。
+>
+> ### 10 项全过
+>
+> | # | 项 | 实测 |
+> |---|---|---|
+> | 1 | 建 `secrets` 环 | Argon2id 812 ms（与 2a 实测吻合），出恢复码 `VWPD-MA42-…` |
+> | 2 | 打开密码库 → 重新检查 → 解锁 | 「找到「账号密码」密钥环」→ 解锁成功 |
+> | 3 | 新建平台 | 「手机测试站 / phone.test」落盘 |
+> | 4 | 新建账号 + 生成密码 | 密码框 16 字符 |
+> | 5 | 密码框真 `type=password` | `text:16\|password:16` |
+> | 6 | 显示密码 | 明文 `mpTeZ7FKv6VXdLg9`（16 位，无 `0O1lI`） |
+> | 7 | **复制到 Android 原生剪贴板** | 读回 `CLIP_LEN=16 val=mpTeZ7FKv6VXdLg9` |
+> | 8 | **60 秒后自动清空** | 等 66 s ⇒ `CLIP_LEN=0` |
+> | 9 | **空闲 60 秒自动锁定** | 面板回到锁定态，文案「空闲 60 秒，已自动锁定」 |
+> | 10 | reload 后持久化 + 回收站 | 解锁后仍是「手机测试站 · 1 个账号」；删 → 回收站「剩 7 天」→ 恢复 → 彻底删除 |
+>
+> **第 8、9 两条是这次最想验的**：Android 后台会冻结 `setTimeout`，方案里明确写了会退化。
+> 实测**前台**下两条都正常 —— 冻结只发生在切后台，而 `visibilitychange` 的补偿逻辑（回到前台先按时间戳补判）
+> 就是为那个场景准备的，本轮没构造出后台场景（要真的切走 60 秒再回来）。
+>
+> ### 踩到的坑
+>
+> 1. **`files/.zn/plugins/` 不存在** —— appDataDir 在 Android 是 `/data/user/0/<pkg>`，`files/` 只是它的子目录。
+> 2. **reload 后 app 偶发退出一次**（必须重新 `am start`）：原因未定位，怀疑是频繁 reload + 桌面 vite 双端 HMR。
+>    重启即恢复，不影响功能。
+> 3. **PowerShell 的 `$pid` 是只读变量** —— 本轮 `$pid = adb shell pidof …` 静默失败（拿到的是 pwsh 自己的 PID），
+>    于是 `adb forward` 指向了错误 socket。改用 `$appPid` 才正常。
+>
+> ### 数据处置
+>
+> 手机主库（`/storage/emulated/0/Documents/ZeroNote`，就是用户的真库）里留过测试账号，
+> **已清空**（恢复 → 彻底删除）；但 `secrets` **环保留**，主密码 `PhoneTest123`（方便以后再验）。
+> 落盘位置：`.zn/secrets/secrets.zn`（545 B）+ `.zn/security/vault.json`（621 B）。
+> 手机上这两个插件是**开发版（无签名）**，市场里有签名版（15 条）；从市场重装会覆盖。
 
 > ## 📌 rev173.165（2026-10-26 · 期 2a：手机实测三档 KDF）
 

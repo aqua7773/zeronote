@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.165）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.166）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.165 · 0.5.0 · 2026-10-26 |
+| rev / 版本 | rev173.166 · 0.5.0 · 2026-10-26 |
 | 测试基线 | vitest 1046 · cargo 52 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 13 · 示例 39 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.5.0 |
@@ -31,29 +31,18 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **期 2a 完成（rev173.165）**：手机真机实测三档 KDF —— t=2/19MiB **165 ms** · t=3/64MiB **812 ms** ·
-> t=1/128MiB **574 ms**（**手机比桌面还快约 0.8×**，推翻方案里「1–4× 慢」的估算）⇒ **默认档保持 t=3/64MiB**。
-> vendor 首载 114 ms、XChaCha 1 MiB 加解密 29/7 ms ⇒ 手机解锁 ≈ 0.93 s（首次）/ 0.81 s。
-> 代码零改动 + 一条锁测试（`DEFAULT_RINGS` 两环 kdf 必须是 RFC 推荐档）。⚠️ 手机端到端解锁仍未走查（手机上没装 security/secrets）。
-> **期 1c 完成（rev173.164）**：三个网络后端（webdav / s3 / git）各加 `syncPrivate` 阶段，按固定清单搬
-> `secrets.zn` + `vault.json`（**后者少了另一台解不开**）；`sync-folder` 改成放行规则 + **密码库冲突单独报警**
-> （`.stignore`：`.zn/*` 后加 `!.zn/secrets` `!.zn/security`）。15 条新单测 + 反向验证 + CDP 实测。
-> ⚠️ 已知局限：`vault.json` 现在整文件同步（含 `notes` 环元数据），做私密文件夹时要按环拆。
-> **密码库（rev173.163）已完成**：`examples/secrets/` 消费 `security` 的 `crypto` 服务（软依赖，缺了降级提示）·
-> 整库密文 `.zn/secrets/secrets.zn`（AAD `secrets|secrets`）· 平台/账号两级 · 搜索**不含密码** · 16 位生成器（排除 `0O1lI`）·
-> 显示 15 秒收起 · 复制 **60 秒清剪贴板** · 回收站 7 天 · **空闲 60 秒自动锁** · 内核加了 `input.secret`（`type=password`）·
-> 27 条单测 + CDP 实测 12 项 · **已签名发到市场（15 条）**。方案 §4.5。
-> **安全插件（rev173.160–162）已完成并上线**：`examples/security/` **双密钥环**（私密笔记 / 账号密码**各一把主密码**，
-> 互不派生）· XChaCha20-Poly1305 + Argon2id · `crypto` 服务**只给操作不给密钥** · 25 条单测 + CDP 实测九项 ·
-> **已签名发到市场、不预装**（用户决定）· 已推送 `981b114`、CI 全绿。方案见 `docs/安全插件-方案-2026-10-25.md`。
-> **上一个会话（rev173.154–158）**：CI 从「每个 run 都红」修到全绿（`localeCompare` 不传 locale）· 开源配套
-> （issue/PR 模板 + `CONTRIBUTING.md`）· 市场第二批 UX（详情页 / 更新角标 / 24h 检查）· CI Rust 缓存 · 审查材料生成器。
+> **安全线进度（rev173.160–166，逐 rev 细节全在 HANDOFF）**：
+> `security` 双密钥环 + `crypto` 服务（160–162）→ `secrets` 密码库（163：整库加密 / 平台账号 / 生成器 /
+> 复制 60 s 清剪贴板 / 回收站 7 天 / 空闲 60 s 锁，内核加 `input.secret`）→ 同步放行 `.zn/secrets/`（164：
+> 三后端 `syncPrivate` 搬 `secrets.zn`+`vault.json`，sync-folder 给放行规则）→ KDF 定档（165：**t=3/64MiB**，
+> 手机实测 812 ms，比桌面快 0.8×）→ 手机走查（166：**10 项全过**，含 Android 剪贴板 60 s 清空与自动锁定）。
+> 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
+> ⚠️ 两条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）。
 > **下一步**：
 > ① **期 2b 生物识别**（Android Keystore，要重编 APK 重装；Windows 官方不支持 ⇒ 降级主密码或自写 `UserConsentVerifier`）·
-> ② **期 1b 遗留：手机端走查密码库**（手机上**没装** `security` / `secrets` —— 装 + 建环 + 解锁 + 复制一条龙）·
-> ③ 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
-> ④ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
-> ⑤ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
+> ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
+> ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
+> ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
 > 公开仓库配套**已齐**：topics 14 个、CI 缓存、`CONTRIBUTING.md`、issue/PR 模板、审查材料生成器。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
@@ -80,6 +69,10 @@ pwsh -File scripts\verify.ps1
 - **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：当前装的是 **0.5.0**（2026-10-25 19:34 装，含 `install_znp_from_url`；
   再早的 0.4.0 包没有市场安装命令）。启动：`adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`。
   adb 里有两个离线残留 ⇒ 所有命令带 `-s 33b676f6`。改前端不用重装（连桌面 dev 的 vite，reload 即生效）；**改 Rust 必须重装**。
+  - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
+    装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
+  - 现有插件 16 个（14 内置 + theme-green + **`security` / `secrets` 开发版**，rev173.166 手装）。手机主库 `secrets` 环主密码 = `PhoneTest123`。
+  - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
   - ⚠️ **`adb reverse tcp:1420 tcp:1420` 会丢** —— 丢了表现为「启动 15 秒后无声退出」（看门狗杀进程）。重连 adb / 重启后先补这条再 `am start`。
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。
   - 手机 CDP：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`（换进程先 `forward --remove`），`ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost`。
