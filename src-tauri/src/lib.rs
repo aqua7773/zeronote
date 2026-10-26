@@ -1956,6 +1956,31 @@ fn read_znp(path: String) -> Result<serde_json::Value, String> {
 ///
 /// ⚠️ 语义变化：这是**整目录替换**，旧目录里没被新包覆盖的文件会消失（rev119 的「不删旧文件」已改）。
 /// 另：开发时插件目录常是 junction 指向 `examples/` —— 安装会替换掉那个链接本身（要重新 link）。
+/// 插件的持久化数据文件（`plugin_store_read/write` 与安装时保留都认这一个名字）。
+const PLUGIN_STORE_FILE: &str = "store.json";
+
+/// 安装新版时把旧插件目录里的 `store.json` 搬进新目录（rev173.190）。
+///
+/// 为什么需要：安装是**整目录交换**（rev173.143）—— 旧目录整个删掉，而 `store.json` 是插件的
+/// **用户数据**（自动备份档位 / 打卡计数 / 主题选择），不是代码。rev173.189 实测踩到：
+/// `backup` 从市场装 0.3.1 之后，自动备份档位从「每周」回到了默认「每天」。
+///
+/// 规则两条：
+/// ① 新包自带同名文件 ⇒ **以包为准**（上游刻意给的初始值，比如换了存储格式）；
+/// ② 拷贝失败**只记日志、不中断安装** —— store 丢的后果是「设置回默认」，
+///    中断安装的后果是「插件没了」，后者更重（`静默失效比报错危险` 说的是别藏错误，
+///    不是「小错必须升级成大错」）。
+fn keep_plugin_store(old_dir: &Path, new_dir: &Path) {
+  let src = old_dir.join(PLUGIN_STORE_FILE);
+  let dst = new_dir.join(PLUGIN_STORE_FILE);
+  if !src.is_file() || dst.exists() {
+    return;
+  }
+  if let Err(e) = fs::copy(&src, &dst) {
+    eprintln!("[zn] 保留插件 store.json 失败（该插件的设置会回默认值）：{e}");
+  }
+}
+
 #[tauri::command]
 fn install_znp(vault: String, path: String) -> Result<String, String> {
   let pack = read_znp_file(&path)?;
@@ -2024,6 +2049,8 @@ fn install_pack(vault: &str, pack: ZnPack) -> Result<String, String> {
   match fs::rename(&staging, &dir) {
     Ok(()) => {
       if had_old {
+        // rev173.190：旧目录还完整躺在 prev 里 —— 先把插件的用户数据搬回新目录，再删旧
+        keep_plugin_store(&prev, &dir);
         let _ = fs::remove_dir_all(&prev);
       }
       Ok(id)
@@ -2410,7 +2437,7 @@ fn write_plugin_usage(vault: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
+fn plugin_store_read(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {  let path = plugin_dir(&vault, &plugin_id)?.join(PLUGIN_STORE_FILE);
   if !path.exists() {
     return Ok(serde_json::json!({}));
   }
@@ -2427,7 +2454,7 @@ fn plugin_store_write(
   plugin_id: String,
   data: serde_json::Value,
 ) -> Result<(), String> {
-  let path = plugin_dir(&vault, &plugin_id)?.join("store.json");
+  let path = plugin_dir(&vault, &plugin_id)?.join(PLUGIN_STORE_FILE);
   let text = serde_json::to_string_pretty(&data).map_err(|e| format!("序列化失败：{e}"))?;
   atomic_write(&path, &text)
 }
@@ -3486,6 +3513,64 @@ mod tests {
     assert!(
       !d.join(".zn/plugins/demo/lib/gone.js").exists(),
       "整目录替换后旧文件必须消失（rev119 的「不删旧文件」语义已改）"
+    );
+  }
+
+  /// rev173.190：整目录交换**不能**把插件的 `store.json`（用户数据）一起换掉 ——
+  /// rev173.189 实测：`backup` 从市场装 0.3.1 后，自动备份档位从「每周」回到默认「每天」。
+  #[test]
+  fn install_znp_keeps_store_json() {
+    let d = tmpdir("znp-store");
+    let v = d.to_string_lossy().to_string();
+    let pack = |ver: &str, js: &str| {
+      format!(
+        r#"{{"znp":1,"manifest":{{"id":"demo","name":"x","version":"{ver}","apiVersion":"^0.2.0","entry":"index.js"}},"files":{{"index.js":"{js}"}}}}"#
+      )
+    };
+    let p1 = d.join("v1.znp");
+    fs::write(&p1, pack("1.0.0", "OLD")).unwrap();
+    install_znp(v.clone(), p1.to_string_lossy().to_string()).unwrap();
+
+    // 插件运行期自己写进去的用户数据（档位 / 计数之类）
+    let store = d.join(".zn/plugins/demo/store.json");
+    fs::write(&store, r#"{"interval":"weekly"}"#).unwrap();
+
+    let p2 = d.join("v2.znp");
+    fs::write(&p2, pack("2.0.0", "NEW")).unwrap();
+    install_znp(v, p2.to_string_lossy().to_string()).unwrap();
+
+    assert_eq!(
+      fs::read_to_string(d.join(".zn/plugins/demo/index.js")).unwrap(),
+      "NEW",
+      "代码要换"
+    );
+    assert_eq!(
+      fs::read_to_string(&store).unwrap(),
+      r#"{"interval":"weekly"}"#,
+      "升级后 store.json 必须原样保留（用户设置不能回默认）"
+    );
+  }
+
+  /// rev173.190 反向：**包自带 store.json ⇒ 以包为准**（上游刻意给的初始值 / 换存储格式）
+  #[test]
+  fn install_znp_pack_store_wins() {
+    let d = tmpdir("znp-store-pack");
+    let v = d.to_string_lossy().to_string();
+    let old = r#"{"znp":1,"manifest":{"id":"demo","name":"x","version":"1.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"OLD"}}"#;
+    let op = d.join("old.znp");
+    fs::write(&op, old).unwrap();
+    install_znp(v.clone(), op.to_string_lossy().to_string()).unwrap();
+    fs::write(d.join(".zn/plugins/demo/store.json"), r#"{"v":1}"#).unwrap();
+
+    let new = r#"{"znp":1,"manifest":{"id":"demo","name":"x","version":"2.0.0","apiVersion":"^0.2.0","entry":"index.js"},"files":{"index.js":"NEW","store.json":"{\"v\":2}"}}"#;
+    let np = d.join("new.znp");
+    fs::write(&np, new).unwrap();
+    install_znp(v, np.to_string_lossy().to_string()).unwrap();
+
+    assert_eq!(
+      fs::read_to_string(d.join(".zn/plugins/demo/store.json")).unwrap(),
+      r#"{"v":2}"#,
+      "包内自带 store.json 时以包为准，不要用旧的覆盖它"
     );
   }
 
