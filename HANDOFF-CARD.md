@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.186）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-27（rev173.187）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.186 · 0.6.0 · 2026-10-26 |
-| 测试基线 | vitest 1147 · cargo 53 · oxlint 3 warnings（2026-10-26） |
+| rev / 版本 | rev173.187 · 0.6.0 · 2026-10-27 |
+| 测试基线 | vitest 1147 · cargo 53 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 41 |
-| 文档 | README 现状 2026-10-26 · CHANGELOG 0.6.0 |
+| 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -31,13 +31,11 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下个会话第一件事：把「旧 `vault.json` 自己回来」的写回者揪出来**（rev173.186 已查到关键一步）：
-> **写回走的是内核自己的 `write_note`**（`inotifyd` 抓到 `vault.zn-tmp` → rename；主窗口没法 hook
-> `invoke` —— 属性 `writable:false / configurable:false`）。已排除：库外备份（移走仍回来）、MediaStore、
-> Syncthing、备份插件（证据不足）。写回内容是 897 B **旧格式 `v:1`**，当前代码生成不了 ⇒ 怀疑某个还活着的
-> 旧实例 / 自动修复路径。下一步：**逐个禁用插件二分**（`backup` / `secrets` / `security` / `history`，
-> 每轮约 2 分钟），或给 Rust 的 `write_note` 临时加日志重编 APK（需用户同意）。
-> 防御已就位（rev173.185 · `security` 0.2.1）：purge 不静默 + 删后复查 + `apply()` 自愈。手机库 `PhoneTest123`。
+> **「旧 `vault.json` 自己回来」已稳定（rev173.187），不用再追**：写回走内核 `write_note`（`vault.zn-tmp` 铁证），
+> 但它是**内存态** —— 一次 reload + 彻底删干净后就终止；桌面从不复现。手机现在反复删 + 60 s 观察都不复活。
+> 真要再查（前提是让旧文件重新「在场并被缓存」）：**二分每轮等 ≥ 60 s**（12–15 s 会误判；rev173.187 踩过），
+> 或用 `inotifyd` 挂着。防御已就位（`security` 0.2.1）：purge 不静默 + 删后复查 + `apply()` 自愈。
+> 手机库 `PhoneTest123` · 桌面库 `TestPass123`。
 
 > **安全线进度（rev173.160–171，逐 rev 细节全在 HANDOFF）**：
 > `security` 双密钥环 + `crypto` 服务（160–162）→ `secrets` 密码库（163：整库加密 / 平台账号 / 生成器 /

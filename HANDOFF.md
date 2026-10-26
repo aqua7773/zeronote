@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.186
-更新时间: 2026-10-26 · 最新 rev173.186
+revision: 173.187
+更新时间: 2026-10-27 · 最新 rev173.187
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.186
 
 | rev | 内容 |
 |---|---|
+| rev173.187 | 2026-10-27 · **「旧 vault.json 自己回来」：桌面不复现 + 写回是内存态，手机已稳定**（接 rev173.186）：桌面删掉后 60 s 来回都没出现 ⇒ 手机独有。手机上一轮禁用/启用插件 + reload 之后，**删除后 60 s 轮询 12 次全为 False**，换密码后也不再写回 ⇒ **写回需要「旧文件曾在场」的页面内状态**（reload 清掉就没了）。⚠️ **本轮二分方法有缺陷**：第 1/2 轮只等 12–15 s 就判"不写回"，而写回窗口实际 > 15 s（前几次都是 60 s 内才出现）⇒ 那两轮结论不可靠。**现在手机状态稳定**：`.zn/security/` 只有 `vault.secrets.json`，反复删 + 60 s 无写回；`.off` 残留已清。无代码改动 |
 | rev173.186 | 2026-10-26 · **查「旧 vault.json 自己回来」的来源（有重大进展，仍未闭合）**：`inotifyd` 盯 `.zn/security/` 抓到事件序列 —— 删掉后约 1 s 内出现 **`vault.zn-tmp` → `rename` → `vault.json`**，**这正是内核 `atomic_write`（`write_note`）的临时文件命名** ⇒ **写回者是 ZeroNote 自己**（不是系统/第三方）。但**主窗口的 `invoke` 无法 hook**（`window.__TAURI_INTERNALS__.invoke` 是 `writable:false / configurable:false`），所以抓不到调用栈；CDP target 只有一个。已排除：库外备份（把它改名移走后仍回来）、MediaStore 条目、Syncthing、备份插件（禁用后一次未复现、也无反向复现）。写回内容是 **897 B 旧格式（`v:1`）**——当前代码生成不了（`vaultPartPayload` 输出 `v:2`）⇒ 最可能是**某个持有旧内容的旧版实例 / 自动修复路径**。无代码改动 |
 | rev173.185 | 2026-10-26 · **修「迁移收尾静默失败」+ `security` 0.2.1 发市**：`saveVault` 最后一步从 `purgePrivate(旧 vault.json).catch(() => {})` 换成 `purgeLegacy()` —— **失败不再吞**（最多删两轮，每轮删成功后再等 1.5 s 复查是否被写回），仍不行就 `host.notify` 提示「请手动删除」并带真实错误；`apply()` 加**残留自愈**（新结构文件在 + 旧文件也在 ⇒ 自动清）。实测：桌面成功路径 ✅ · 桌面失败路径（独占句柄锁住文件）✅ toast 原文「删除文件失败 …另一个程序正在使用此文件 (os error 32)」· 桌面 / 手机重启自愈 ✅。**但更麻烦的形态没解决**：手机上删掉 `vault.json` 后**不做任何操作**，它也会在 90 s 内自己回来（mtime 保留、内容与迁移前逐字节相同）；已排除备份插件、主窗口 invoke hook（零记录）、Syncthing、全盘副本 —— 暂按平台行为登记。`security` 0.2.0 → **0.2.1**（签名 keyId `aqua-2026` · 74.2 KB · 索引 15 条已重建）· vitest 1146 → **1147** |
 | rev173.184 | 2026-10-26 · **手机端走查（私密文件夹迁移链）**：手机 `33b676f6`（Android 16）把 `security` 换成 **0.2.0**（index.js 70475 B · md5 `52f8f4c3…`；manifest 无 sha 不用动），测试库 `/storage/emulated/0/Documents/ZeroNote` 的旧 `vault.json`（897 B · `v:1` · 只 secrets 环 · 已绑指纹 `d9c0b875…`）走一遍「解锁 → 换主密码 → 再换回」：**`vault.secrets.json`（825 B · `v:2` · 单环 · 新 salt）生成 ✅ · `biometrics[d9c0b875…]` 保留 ✅ · reload 后新旧密码都能解 ✅ · 点「用指纹解锁」能唤起系统指纹界面 ✅**；**但旧 `vault.json` 在 Android 上没被删掉** ❌ —— `saveVault` 最后一步 `purgePrivate(…).catch(() => {})` **静默失败**（同一路径手动 `invoke('purge_private')` 却能删 ⇒ 不是权限），之后它在 23:07–23:23 反复「复活」（每次 mtime=当前、内容与迁移前逐字节相同 · 源疑似 `.zn/backups/*/_secret/vault.json`，删掉后 70 秒不复现；主窗口 invoke hook 没抓到调用）· 另见启动后 60 秒内打出**两份**自动备份（`23-20-38` 缺 `dirNames`/带 `protected: false`，像旧版 meta）待查 |
@@ -81,6 +82,29 @@ revision: 173.186
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.187（2026-10-27 · 「旧 vault.json 自己回来」：桌面不复现，写回是内存态）
+
+> 用户「继续」。接着 rev173.186 的「下一步：逐个禁用插件二分」。
+
+> ### 三个新事实
+
+> 1. **桌面不复现**：在桌面测试库放回旧 `vault.json` 再删掉，60 s 内没再出现 ⇒ 手机独有。
+> 2. **写回需要「旧文件曾在场」的页面内状态**：手机上先把 `backup`/`secrets`/`history`/`sync-*` 一次性禁用
+>    并 reload，再删除 `vault.json` —— **60 s 轮询 12 次全是 False**；换一次密码也不再写回。
+>    ⇒ 写回者把旧内容**缓存在内存里**，reload（或几次删干净后）就没了。
+> 3. **现在手机是稳定态**：`.zn/security/` 只有 `vault.secrets.json`，反复删 + 60 s 观察都不再复活。
+
+> ### ⚠️ 方法教训（下一轮别重复）
+
+> 第 1/2 轮二分时我只等 **12–15 s** 就判「不写回」—— 而写回窗口实际 **> 15 s**（23:49 / 23:55 那几次都是
+> 删掉后 60 s 内才出现）。⇒ 那两轮的「已排除」**不可信**，`backup` / `history` / `sync-*` 并没有被真正排除。
+> 下次二分：**每轮等 ≥ 60 s**，或者直接用 `inotifyd` 挂着（事件一到就能看见）。
+
+> ### 判断
+
+> `security` 0.2.1 的 `apply()` 自愈 + 一次彻底删除，在实操上已经**终止了复活循环**（reload 会清内存态）。
+> 具体写回者仍未定位；要继续查的前提是让旧文件重新「在场并被缓存」，再按 ≥60 s 的窗口二分。
 
 > ## 📌 rev173.186（2026-10-26 · 查「旧 vault.json 自己回来」的来源）
 
