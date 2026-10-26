@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { Gauge, RefreshCw } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import {
-  DEFAULT_MARKET_INDEX_URL,
-  MARKET_INDEX_URL_KEY,
+  CUSTOM_MIRROR_ID,
+  MARKET_MIRRORS,
   fetchMarketIndex,
+  guessPackBase,
+  loadMirror,
   marketAction,
+  probeMirror,
+  saveMirror,
   type MarketEntry,
+  type MarketMirror,
   type MarketParseResult,
+  type MirrorProbe,
 } from '../kernel/market'
 import type { PluginRow } from './PluginPanel'
 import { capabilityLabels } from '../lib/capability-label'
@@ -115,14 +121,17 @@ export function MarketPane({
   /** 装完切回「已安装」tab —— 用户要能立刻看到「装上了」 */
   onSwitchToInstalled: () => void
 }) {
-  const [indexUrl, setIndexUrl] = useState(
-    () => localStorage.getItem(MARKET_INDEX_URL_KEY)?.trim() || DEFAULT_MARKET_INDEX_URL,
-  )
-  const [draft, setDraft] = useState(indexUrl)
+  /** 当前镜像（rev173.194）：索引地址 + 包前缀成对，换源 = 一换全换 */
+  const [mirror, setMirror] = useState<MarketMirror>(() => loadMirror())
+  const [indexUrl, setIndexUrl] = useState(mirror.indexUrl)
+  const [draft, setDraft] = useState(mirror.indexUrl)
   const [data, setData] = useState<MarketParseResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** 用户点了「刷新」——只由事件处理器设置（effect 里同步 setState 会触发级联渲染，oxlint 也会报） */
   const [refreshing, setRefreshing] = useState(false)
+  /** 测速结果（null = 没测过；数组按镜像顺序逐条追加，能边测边看） */
+  const [probes, setProbes] = useState<MirrorProbe[] | null>(null)
+  const [probing, setProbing] = useState(false)
   /** 正在下载 / 安装的插件 id */
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pending, setPending] = useState<MarketEntry | null>(null)
@@ -167,8 +176,55 @@ export function MarketPane({
   const applyIndexUrl = () => {
     const next = draft.trim()
     if (!next || next === indexUrl) return
-    localStorage.setItem(MARKET_INDEX_URL_KEY, next)
+    // 手工改地址 = 自定义源：包前缀按同目录猜（猜错也只是装不上，sha256 会拦住）
+    const custom: MarketMirror = {
+      id: CUSTOM_MIRROR_ID,
+      label: '自定义',
+      indexUrl: next,
+      packBase: guessPackBase(next),
+    }
+    setMirror(custom)
+    saveMirror(custom)
     setIndexUrl(next)
+  }
+
+  /** 下拉换镜像：索引地址与包前缀一起换（rev173.194） */
+  const switchMirror = (id: string) => {
+    if (id === CUSTOM_MIRROR_ID) {
+      const addr = draft.trim() || indexUrl
+      const custom: MarketMirror = {
+        id: CUSTOM_MIRROR_ID,
+        label: '自定义',
+        indexUrl: addr,
+        packBase: guessPackBase(addr),
+      }
+      setMirror(custom)
+      saveMirror(custom)
+      setDraft(addr)
+      setIndexUrl(addr)
+      return
+    }
+    const next = MARKET_MIRRORS.find((m) => m.id === id)
+    if (!next || next.indexUrl === indexUrl) {
+      if (next) setMirror(next)
+      return
+    }
+    setMirror(next)
+    saveMirror(next)
+    setDraft(next.indexUrl)
+    setIndexUrl(next.indexUrl)
+  }
+
+  /** 测速：逐条串行测（并发会互相抢带宽，测出来的数没意义） */
+  const probeAll = async () => {
+    setProbing(true)
+    setProbes([])
+    const acc: MirrorProbe[] = []
+    for (const m of MARKET_MIRRORS) {
+      acc.push(await probeMirror(m))
+      setProbes([...acc])
+    }
+    setProbing(false)
   }
 
   /** 「刷新」按钮：显式重拉（事件处理器里，可以同步 setState） */
@@ -204,10 +260,25 @@ export function MarketPane({
   return (
     <div className="zn-market">
       <div className="zn-market-source">
+        <select
+          className="zn-market-mirror"
+          value={mirror.id}
+          onChange={(e) => switchMirror(e.target.value)}
+          aria-label="市场镜像"
+          title="索引与插件包走同一条源。当前网络哪条能通，点「测速」看。"
+        >
+          {MARKET_MIRRORS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+          <option value={CUSTOM_MIRROR_ID}>自定义地址…</option>
+        </select>
         <input
           className="zn-market-url"
           value={draft}
           spellCheck={false}
+          readOnly={mirror.id !== CUSTOM_MIRROR_ID}
           placeholder="索引地址（market/index.json 的 http(s) 地址）"
           title="插件的「货架」就是这个 JSON。换仓库 / 换镜像 / 换成自己的源都改这里。"
           onChange={(e) => setDraft(e.target.value)}
@@ -220,7 +291,17 @@ export function MarketPane({
         <Button
           size="sm"
           variant="ghost"
-          disabled={loading}
+          disabled={loading || probing}
+          title="依次测各镜像：能不能拉到**真**索引（只看状态码会被错误页骗）"
+          onClick={() => void probeAll()}
+        >
+          <Gauge size={13} />
+          {probing ? '测速中' : '测速'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={loading || probing}
           title="重新拉取索引"
           onClick={() => void refresh()}
         >
@@ -229,7 +310,27 @@ export function MarketPane({
         </Button>
       </div>
 
-      {error && <div className="zn-plugins-error">⚠ {error}</div>}
+      {probes && (
+        <div className="zn-market-probes">
+          {probes.map((p) => (
+            <span key={p.id} className={`zn-market-probe ${p.ok ? 'is-ok' : 'is-bad'}`}>
+              {MARKET_MIRRORS.find((m) => m.id === p.id)?.label ?? p.id}
+              {' · '}
+              {p.ok ? `${p.ms} ms · ${p.detail}` : p.detail}
+            </span>
+          ))}
+          {probing && <span className="zn-market-probe">测速中…</span>}
+        </div>
+      )}
+
+      {error && (
+        <div className="zn-plugins-error">
+          ⚠ {error}
+          <div className="zn-market-hint">
+            当前网络连不上这条源？点上面的「测速」，挑一条能通的再刷新。
+          </div>
+        </div>
+      )}
 
       {skipped.length > 0 && (
         <div className="zn-market-skipped">

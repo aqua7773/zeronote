@@ -60,6 +60,191 @@ export const MARKET_INDEX_URL_KEY = 'zn-market-index-url'
 export const DEFAULT_MARKET_INDEX_URL =
   'https://raw.githubusercontent.com/aqua7773/zeronote/main/market/index.json'
 
+/* ───── 镜像（rev173.194）───── */
+
+/**
+ * 一条市场镜像 = **索引地址 + 包地址前缀**，必须成对。
+ *
+ * 为什么成对：索引里的 `url` 是打包时写死的（raw）。只换索引地址、不换包前缀，结果是
+ * 「列表拉得到、安装时又回 raw」—— 在 raw 不可达的网络里表现为「能看不能装」
+ * （rev173.150 踩过同款：索引走 raw 通、Release 域名不通）。
+ */
+export type MarketMirror = {
+  id: string
+  /** 下拉里显示的名字（要短） */
+  label: string
+  /** `market/index.json` 的地址 */
+  indexUrl: string
+  /** 包地址前缀；装的时候拼 `market/packs/<文件名>` */
+  packBase: string
+}
+
+/** 自定义源（用户自己填索引地址）的镜像 id */
+export const CUSTOM_MIRROR_ID = 'custom'
+
+/**
+ * 内置镜像。**第一条是默认**。
+ *
+ * 2026-10-27 手机真机实测（Android · rustls，与装插件同一条 Rust 链路）：
+ *  · `raw.githubusercontent.com` **6/6 失败**（`Connection reset by peer`，TLS 阶段被 RST）
+ *  · jsDelivr 的 `gcore` / `testingcf` 节点 **4/4 通**，索引与包都与 raw 逐字节一致
+ *    （真装过一次 `backup-0.3.1`，sha256 校验通过）
+ *  · `ghproxy.net` 也通，但它是第三方反代（随时可能挂 / 限速），排最后
+ *  · 桌面同一份代码连 raw = 200 ⇒ raw 仍留在列表里（局域网 / 海外直连最快）
+ */
+export const MARKET_MIRRORS: MarketMirror[] = [
+  {
+    id: 'raw',
+    label: 'GitHub raw',
+    indexUrl: 'https://raw.githubusercontent.com/aqua7773/zeronote/main/market/index.json',
+    packBase: 'https://raw.githubusercontent.com/aqua7773/zeronote/main/',
+  },
+  {
+    id: 'jsdelivr-gcore',
+    label: 'jsDelivr · GCore',
+    indexUrl: 'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
+    packBase: 'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/',
+  },
+  {
+    id: 'jsdelivr-testingcf',
+    label: 'jsDelivr · Cloudflare',
+    indexUrl: 'https://testingcf.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
+    packBase: 'https://testingcf.jsdelivr.net/gh/aqua7773/zeronote@main/',
+  },
+  {
+    id: 'jsdelivr',
+    label: 'jsDelivr（cdn，国内常断）',
+    indexUrl: 'https://cdn.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
+    packBase: 'https://cdn.jsdelivr.net/gh/aqua7773/zeronote@main/',
+  },
+  {
+    id: 'ghproxy',
+    label: 'ghproxy.net（第三方）',
+    indexUrl:
+      'https://ghproxy.net/https://raw.githubusercontent.com/aqua7773/zeronote/main/market/index.json',
+    packBase: 'https://ghproxy.net/https://raw.githubusercontent.com/aqua7773/zeronote/main/',
+  },
+]
+
+/** 选中的镜像 id 存这里（自定义源另存 `MARKET_INDEX_URL_KEY`） */
+export const MARKET_MIRROR_KEY = 'zn-market-mirror'
+
+/**
+ * 自定义索引地址 → 猜包前缀（同仓库同分支的 `market/packs/`）。
+ *
+ * 猜错不至于装坏：包地址最后还要过 Rust 的 sha256 校验，对不上就不落盘。
+ * 猜对了才能让自定义源和内置镜像一样「一换全换」。
+ */
+export function guessPackBase(indexUrl: string): string {
+  const u = indexUrl.trim()
+  const idx = u.toLowerCase().lastIndexOf('/market/index.json')
+  if (idx > 0) return u.slice(0, idx + 1)
+  const cut = u.lastIndexOf('/')
+  return cut >= 0 ? u.slice(0, cut + 1) : u
+}
+
+/**
+ * 本仓库打包脚本产出的包地址形态（`pack-plugin.mjs` 的默认输出）。
+ * **只有这种地址才允许被镜像改写** —— 外部作者 / 自建源 / Release 地址一律原样。
+ */
+const OWN_REPO_PACK_RE = /^https:\/\/raw\.githubusercontent\.com\/aqua7773\/zeronote\//
+
+/** 把条目里的下载地址换成镜像前缀（只取文件名 —— 包名唯一且稳定） */
+export function mirrorPackUrl(mirror: MarketMirror, entryUrl: string): string {
+  const u = entryUrl.trim()
+  // 不做「只取文件名再拼前缀」的粗暴改写：那会把 `https://example.com/x.znp`
+  // （外部作者 / 自建源）也搬到本仓库前缀下，装错或装不上。
+  if (!OWN_REPO_PACK_RE.test(u)) return entryUrl
+  const file = u.split('?')[0].split('/').pop() ?? ''
+  if (!file.endsWith('.znp')) return entryUrl
+  return `${mirror.packBase.replace(/\/+$/, '')}/market/packs/${file}`
+}
+
+/** 当前镜像：内置 id 优先 → 其次自定义地址 → 最后默认（raw） */
+export function loadMirror(): MarketMirror {
+  const l = storage()
+  const id = l?.getItem(MARKET_MIRROR_KEY)?.trim() ?? ''
+  const builtin = MARKET_MIRRORS.find((m) => m.id === id)
+  if (builtin) return builtin
+  const custom = l?.getItem(MARKET_INDEX_URL_KEY)?.trim() ?? ''
+  if (custom && custom !== DEFAULT_MARKET_INDEX_URL) {
+    return {
+      id: CUSTOM_MIRROR_ID,
+      label: '自定义',
+      indexUrl: custom,
+      packBase: guessPackBase(custom),
+    }
+  }
+  return MARKET_MIRRORS[0]
+}
+
+/** 选中一个镜像。自定义源同时把地址写进 `MARKET_INDEX_URL_KEY`（老字段，保持兼容） */
+export function saveMirror(m: MarketMirror): void {
+  const l = storage()
+  if (!l) return
+  l.setItem(MARKET_MIRROR_KEY, m.id)
+  if (m.id === CUSTOM_MIRROR_ID) l.setItem(MARKET_INDEX_URL_KEY, m.indexUrl)
+}
+
+/** 一次测速的结果 */
+export type MirrorProbe = {
+  id: string
+  ok: boolean
+  ms: number
+  /** 给人看的一句话（成功 = 条目数，失败 = 原因） */
+  detail: string
+}
+
+/**
+ * 判定一次测速（纯函数，方便测）。
+ *
+ * **只看状态码会被错误页骗** —— 2026-10-27 实测 `ghps.cc` 返回 200 但只有 508 字节（是个错误页）。
+ * 所以「可用」= 200 **且**能解析出至少一条插件。
+ */
+export function judgeMirrorProbe(
+  id: string,
+  status: number,
+  entryCount: number,
+  ms: number,
+): MirrorProbe {
+  if (status !== 200) return { id, ok: false, ms, detail: `HTTP ${status}` }
+  if (entryCount <= 0) return { id, ok: false, ms, detail: '索引为空或被改坏' }
+  return { id, ok: true, ms, detail: `${entryCount} 条` }
+}
+
+/** 错误文本里的最后一段（Rust 侧的错误带 `←` 源链，最后一段最有信息量） */
+function shortError(e: unknown): string {
+  const s = e instanceof Error ? e.message : String(e)
+  const parts = s
+    .split('←')
+    .map((x) => x.trim())
+    .filter(Boolean)
+  const last = parts.length > 1 ? parts[parts.length - 1] : s
+  return last.slice(0, 60)
+}
+
+/** 测一条镜像：拉索引 + 解析（与真正装插件走同一条 Rust 链路，不是浏览器的 fetch） */
+export async function probeMirror(m: MarketMirror): Promise<MirrorProbe> {
+  const t0 = Date.now()
+  try {
+    const resp = await invoke<NetResponse>('net_request', {
+      req: { url: m.indexUrl, method: 'GET', timeoutMs: 8_000 },
+    })
+    const ms = Date.now() - t0
+    let count = 0
+    if (resp.status === 200) {
+      try {
+        count = parseMarketIndex(decodeBase64Utf8(resp.body_b64)).entries.length
+      } catch {
+        count = 0
+      }
+    }
+    return judgeMirrorProbe(m.id, resp.status, count, ms)
+  } catch (e) {
+    return { id: m.id, ok: false, ms: Date.now() - t0, detail: shortError(e) }
+  }
+}
+
 const SHA256_RE = /^[0-9a-f]{64}$/i
 
 function str(v: unknown): string {
@@ -330,9 +515,12 @@ export async function fetchMarketIndex(url: string): Promise<MarketParseResult> 
  * 返回装好的插件 id；调用方负责重扫 + toast。
  */
 export async function installFromMarket(root: string, entry: MarketEntry): Promise<string> {
+  // 走**当前镜像**的包前缀（rev173.194）：索引里的 `url` 是打包时写死的 raw，
+  // 在 raw 被 RST 的网络里「列表能看、装不下来」。换个前缀就跟着换源了。
+  const mirror = loadMirror()
   return invoke<string>('install_znp_from_url', {
     vault: root,
-    url: entry.url,
+    url: mirrorPackUrl(mirror, entry.url),
     expectedSha256: entry.sha256,
   })
 }

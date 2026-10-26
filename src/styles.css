@@ -1750,6 +1750,16 @@ body.is-resizing * {
 /* 发现（市场）：索引地址一行 + 条目列表 */
 .zn-market { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .zn-market-source { display: flex; gap: 6px; align-items: center; padding: 2px 0 8px; }
+/* 镜像下拉（rev173.194）：索引与包前缀成对切换 */
+.zn-market-mirror { flex: none; height: 26px; padding: 0 4px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
+.zn-market-mirror:focus { outline: none; border-color: var(--zn-accent); }
+/* 测速结果：逐条出现，绿的可用 / 红的原因 */
+.zn-market-probes { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 0 0 8px; font-size: var(--zn-text-sm); }
+.zn-market-probe { color: var(--zn-fg-muted); white-space: nowrap; }
+.zn-market-probe.is-ok { color: var(--zn-success); }
+.zn-market-probe.is-bad { color: var(--zn-danger); }
+/* 连不上时的下一步建议（rev173.194）：只报错不给路，用户不知道还能换源 */
+.zn-market-hint { margin-top: 2px; color: var(--zn-fg-muted); font-size: var(--zn-text-sm); }
 .zn-market-url { flex: 1; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
 .zn-market-url:focus { outline: none; border-color: var(--zn-accent); }
 .zn-market-skipped { padding: 0 0 8px; color: var(--zn-warn); font-size: var(--zn-text-sm); }

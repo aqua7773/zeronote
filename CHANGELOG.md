@@ -38,6 +38,15 @@
 
 ### Added
 
+- **市场镜像可切换 + 测速**（rev173.194）：市场页顶部多一个镜像下拉（GitHub raw / jsDelivr · GCore /
+  jsDelivr · Cloudflare / jsDelivr(cdn) / ghproxy.net / 自定义地址），**索引地址与包地址前缀成对切换** ——
+  只换索引不换包前缀会「能看不能装」。新增「测速」：依次拉各镜像的索引，**必须解析出条目才算可用**
+  （只看 200 会被错误页骗：实测 `ghps.cc` 返回 200 但只有 508 字节）；结果逐条显示 `ms + 条数`。
+  `installFromMarket` 改走当前镜像的包前缀；**外部作者 / 自建源 / Release 地址一律不改写**
+  （只有 `raw.githubusercontent.com/aqua7773/zeronote/…` 形态才换）。实测（桌面）：raw 279 ms ·
+  GCore 722 ms · Cloudflare 648 ms · ghproxy 1413 ms 全部 16 条；`cdn.jsdelivr.net` 在桌面也
+  `os error 10054`（与手机一致）。vitest 1147 → **1170**（+23）。
+
 - **备份插件 v1**（rev173.175 · 需求 §14.1 / 阶段 3 的遗留项 —— ROADMAP 里此前**没有这一项**）：
   新增 `examples/backup/` 与内核命令 `fs.purgeBackup`（契约 §1 第 **35** 条）。把整个库快照到
   `<库>/.zn/backups/<YYYY-MM-DDTHH-mm-ss>/`（跟库走，拷库就带着）：公开笔记与附件**明文**、
