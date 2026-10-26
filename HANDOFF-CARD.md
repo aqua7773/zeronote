@@ -31,6 +31,15 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **下个会话第一件事：私密文件夹的「vault 迁移链」实测**（这是本会话唯一没真机证据的改动）。
+> 测试库 `_tmp-vault-tb/.zn/security/` 里**还是旧单文件** `vault.json`（1539 B，含 secrets + notes 两个环），
+> 正适合验迁移。步骤：
+> ① 把 `examples/security` 同步进全局插件目录（见下面「全局插件目录是拷贝不是链接」那条）；
+> ② 打开「安全」面板，对任一把环做一次**会触发保存**的操作（换密码 / 绑定指纹 —— 测试库 secrets 主密码 `TestPass123`）；
+> ③ 期望：`.zn/security/` 出现 `vault.notes.json` + `vault.secrets.json`，**旧 `vault.json` 消失**；
+> ④ 再 reload 一次，两个环都能正常解锁（证明迁移后读得回来）。
+> 顺手可做：手机端走查（纯 JS 改动 reload 即生效；`security` 换 `index.js` 即可，手机那份 manifest 无 sha）。
+
 > **安全线进度（rev173.160–171，逐 rev 细节全在 HANDOFF）**：
 > `security` 双密钥环 + `crypto` 服务（160–162）→ `secrets` 密码库（163：整库加密 / 平台账号 / 生成器 /
 > 复制 60 s 清剪贴板 / 回收站 7 天 / 空闲 60 s 锁，内核加 `input.secret`）→ 同步放行 `.zn/secrets/`（164：
@@ -42,17 +51,19 @@ pwsh -File scripts\verify.ps1
 > **生物识别按设备（173：`biometrics[<deviceId>]` + 本机 id 在凭据管理器 + 旧单段自动迁移；换机只失效那一台。`security` 0.1.2 发市场；桌面与手机都实测「迁移后按指纹 → 已用指纹解锁」）** →
 > **发版 0.6.0（174：0.5.0 之后 57 个提交一次收口；CHANGELOG 补上 `security` / `secrets` 本体与两平台生物识别五条主线 —— 原 `[Unreleased]` 只记了自动弹与按设备）**。
 > 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
-> ⚠️ 六条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）·
+> ⚠️ 已知局限：**`vault.json` 已按环拆（173.182）** —— 旧客户端（`security` ≤ 0.1.2）只认旧单文件，迁移后会以为"没建环" ⇒ **共用同一份 vault 的设备都要升到 0.2.0** · 手机端 reload 后 app 偶发退出一次（重启即好）·
 > **Windows Hello 签名必须有窗口**（无 HWND 挂死；已用 `IKeyCredentialWithWindow` 解决）·
 > **Android 换/加指纹会让旧密文失效**（N+ 默认）⇒ 提示「用主密码解锁后重新绑定」·
 > **Hello 是受保护的系统 UI**（171 实测：合成键鼠 / `Esc` / UIA / `FindWindow` 都触达不到）⇒ 自动弹只在窗口前台时发生，
 > 一旦弹了就得真人按指纹或取消；点取消 ⇒ 面板给中性提示「已取消 —— 输入主密码，或点「用指纹解锁」」（实测）·
 > **旧客户端读新结构会认为「没绑定」**（173 迁移删了旧单段 `biometric`，≤0.1.1 静默看不到指纹按钮）⇒ 共用同一把 vault 的设备都要把 `security` 升到 **≥ 0.1.2**。
 > **下一步**：
-> ① **私密文件夹发市场 + 手机走查**（期 1 ✅173.180 · 期 2 ✅173.181 · 期 3 ✅173.182 ——
->    解锁 / 列表 / 新建 / 打开 / 保存 / 搜索 / 回收站 / 移入移出全部实测通过；`vault.json` 已按环拆、
->    四后端都搬 `.zn/private/`、备份含私密树）。**剩下**：`security` 0.2.0 等 6 个包重打 + 索引重建
->    （`pack-plugin.mjs` + `gen-market.mjs --write`）+ 手机真机走查（改的是纯 JS，reload 即生效）·
+> ① **私密文件夹收尾**（期 1 ✅173.180 · 期 2 ✅173.181 · 期 3 ✅173.182 —— 三件事都已落地，**包也已
+>    重打签名发市**：`security` 0.2.0 / `sync-webdav` 0.3.2 / `sync-s3` 0.4.2 / `sync-git` 0.5.2 /
+>    `sync-folder` 0.3.4，索引 15 条）。**剩下两件都还没有真机证据**：
+>    (a) **vault 按环拆的迁移链**未实测（单测只覆盖了纯函数）—— 要在一份**旧的** vault.json 上走一遍
+>        「打开 → 改一次环（换密码/绑指纹）→ 应变成两个 `vault.*.json` 且旧文件消失」；
+>    (b) **手机端走查**（纯 JS 改动，reload 即生效；`security` 要把 `index.js` 换掉，手机那份 manifest 无 sha）·
 > ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
 > ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
 > ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
@@ -69,14 +80,14 @@ pwsh -File scripts\verify.ps1
 | AI 标签 / 密级 | 需求 2 暂不采用，方向待定 |
 | 插件市场 | ✅ **已完成**（rev173.142–158）：签名 v2 / 打包 / 索引 / 原子安装 / 公钥内置 / 「发现」tab（装 · 升 · 详情页含能力自述 · 更新角标 · 24h 检查）/ 外部投稿审查材料生成器。逐 rev 证据见 `HANDOFF.md`；待办只剩「插件数到几十个时换 CDN」。 |
 | `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
-| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）**：解锁 / 列表 / 新建 / 打开 / 保存 / 独立搜索 / 回收站 / 移入移出实测通过 · `vault.json` 按环拆（改一环保一环）· 四后端搬 `.zn/private/`（删除两边都传播）· 备份含私密树。**剩**：发市场打包 + 手机走查 |
+| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（5 个包重签名，索引 15 条）。**剩两件都缺真机证据**：vault 按环拆的**迁移链**（旧 vault.json → 改一次环 → 两个新文件 + 旧文件消失）· 手机端走查 |
 
 ## 环境现状（活信息 · 2026-10-26）
 
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **6772** · 2026-10-26 13:50 启动；发版改了 `Cargo.toml` ⇒ 触发过一次自动重编重启，原 pid 28892），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **5944** · 2026-10-26 14:14 启动 —— 13:50 那次的 pid 6772 被发版后的自动重编换掉了；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
@@ -91,6 +102,10 @@ pwsh -File scripts\verify.ps1
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。
   - 手机 CDP：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`（换进程先 `forward --remove`），`ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost`。
 - **桌面 CDP**：9222 · 坐标有 **32px 垂直偏移**（`.zn-titlebar`）· 菜单入口 = **右键 ☰**（左键开文件树栏）。
+- ⚠️ **全局插件目录里的插件是「拷贝」，不是链接**（`<APPDATA>\com.aqua.zeronote\.zn\plugins\<id>\`）—— 改了
+  `examples/` 里的源码**不会**自动生效，要么删掉那份再建 junction，要么在插件页重装。本会话实测：
+  测试库的 `security` 里仍是 0.1.x（不含 vault 按环拆），所以**换设备验证 vault 迁移前先把 `security`
+  同步进全局目录**。
 - **测试库** `_tmp-vault-tb/`（不入库）· **插件只有全局目录一处**，测试插件只放 `examples/`、用完即删 · **开发中要试的插件 = 在 `<APPDATA>\com.aqua.zeronote\.zn\plugins\` 下建 junction 指向 `examples/<id>`**（库内 `.zn/plugins/` **不再被扫描**，rev173.5 起只有全局根 —— rev173.180 踩过：挂测试库后 reload 命令表里什么都没有）· 全局目录里的 `secrets` 是**开发版（无签名）**（rev173.163 实测拷入；市场版已签名，重装即覆盖）· 测试库 `secrets` 环测试主密码 **`TestPass123`**，库内有 1 个 `GitHub / aqua@example.com` 测试账号，**已绑 Windows Hello**（rev173.169）· 测试库 **`notes` 环主密码 `NotesTest123`**（rev173.180 建，私密笔记测试数据已清，环保留）。
 - ⚠️ **桌面全局目录的 `security` 也是开发版**（rev173.169 换成带 Hello 适配器的版本；旧文件备份在 `_tmp-plugin-backup/`）。手换插件 `index.js` 后**必须同步 `manifest.json` 的 `sha256`**（入口哈希），否则插件加载但命令全部不存在 —— 本会话踩过。
 - **Git**：GitHub `aqua7773`（gh 已登录、keyring）· `git push` **先直连，被 reset 再挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`**。
