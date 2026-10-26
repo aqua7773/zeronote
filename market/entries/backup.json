@@ -1,0 +1,28 @@
+{
+  "id": "backup",
+  "name": "备份",
+  "author": "aqua7773",
+  "description": "本地整库备份与恢复：公开笔记明文、密码库以密文随包，按档位自动 + 保留最近 30 份",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.3.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backup-0.3.1.znp",
+  "sha256": "eb1f142e5f86fae38e5a8bad282e5ecc25fc21f7b738ad6ce4668dbc4cf4787e",
+  "size": 37278,
+  "files": [
+    "index.js",
+    "signature.json"
+  ],
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "store",
+    "command",
+    "view:main",
+    "host"
+  ]
+}

@@ -28,7 +28,7 @@ node scripts/gen-market.mjs --write
 
 **为什么包入库、不走 Release**（rev173.150，开源当天实测）：`github.com`（Release 下载域名）
 在国内经常直连连不上，而 `raw.githubusercontent.com` 通 —— 索引能拉、包下不来，市场就成了
-「能看不能装」。包放进仓库走 raw，索引和包同一个域名，一条链路通就全通；13 个包合计约 600 KB。
+「能看不能装」。包放进仓库走 raw，索引和包同一个域名，一条链路通就全通（历史版本包也留着，包总数与体积看 `Get-ChildItem market/packs`，别在这里写死）。
 `gen-market.mjs` 现在会校验「包存在 + sha256 与条目一致」，忘了重建或忘了入库都会红。
 
 ## 本仓库的正式签名密钥（2026-10-25 生成 · rev173.144）

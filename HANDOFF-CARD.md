@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-27（rev173.188）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-27（rev173.189）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.188 · 0.6.0 · 2026-10-27 |
+| rev / 版本 | rev173.189 · 0.6.0 · 2026-10-27 |
 | 测试基线 | vitest 1147 · cargo 53 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 41 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
@@ -47,7 +47,7 @@ pwsh -File scripts\verify.ps1
 > **`security` 0.1.1 发市场（172：版本 bump + 签名 keyId `aqua-2026` + 索引重建 + 本地安装实测；旧 0.1.0 用户需等提示或手动重装）** →
 > **生物识别按设备（173：`biometrics[<deviceId>]` + 本机 id 在凭据管理器 + 旧单段自动迁移；换机只失效那一台。`security` 0.1.2 发市场；桌面与手机都实测「迁移后按指纹 → 已用指纹解锁」）** →
 > **发版 0.6.0（174：0.5.0 之后 57 个提交一次收口；CHANGELOG 补上 `security` / `secrets` 本体与两平台生物识别五条主线 —— 原 `[Unreleased]` 只记了自动弹与按设备）**。
-> 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
+> 市场 16 条（`security` / `secrets` 已签名发市、不预装；**`backup` 预装且已发市**，rev173.189 —— 预装与市场不互替，签名包不被内置覆盖）。
 > ⚠️ 已知局限：**`vault.json` 已按环拆（173.182）** —— 旧客户端（`security` ≤ 0.1.2）只认旧单文件，迁移后会以为"没建环" ⇒ **共用同一份 vault 的设备都要升到 0.2.0** · 手机端 reload 后 app 偶发退出一次（重启即好）·
 > **Windows Hello 签名必须有窗口**（无 HWND 挂死；已用 `IKeyCredentialWithWindow` 解决）·
 > **Android 换/加指纹会让旧密文失效**（N+ 默认）⇒ 提示「用主密码解锁后重新绑定」·
@@ -57,7 +57,7 @@ pwsh -File scripts\verify.ps1
 > **下一步**：
 > ① **私密文件夹收尾**（期 1 ✅173.180 · 期 2 ✅173.181 · 期 3 ✅173.182 —— 三件事都已落地，**包也已
 >    重打签名发市**：`security` 0.2.0 / `sync-webdav` 0.3.2 / `sync-s3` 0.4.2 / `sync-git` 0.5.2 /
->    `sync-folder` 0.3.4，索引 15 条）。**只剩一件没有真机证据**：
+>    `sync-folder` 0.3.4，索引 16 条 —— rev173.189 加了 `backup`）。**只剩一件没有真机证据**：
 >    (a) ✅ **vault 按环拆的迁移链**已桌面实测（rev173.183：旧单文件 → 换一次主密码 → 两个
 >        `vault.*.json` + 旧文件消失 + reload 后两环都能解锁 + 「按环写」只动改动的那个文件）；
 >    (b) ✅ **手机端走查**已做（rev173.184）；迁移收尾的静默失败已修（rev173.185：`security` 0.2.1，
@@ -78,7 +78,7 @@ pwsh -File scripts\verify.ps1
 | AI 标签 / 密级 | 需求 2 暂不采用，方向待定 |
 | 插件市场 | ✅ **已完成**（rev173.142–158）：签名 v2 / 打包 / 索引 / 原子安装 / 公钥内置 / 「发现」tab（装 · 升 · 详情页含能力自述 · 更新角标 · 24h 检查）/ 外部投稿审查材料生成器。逐 rev 证据见 `HANDOFF.md`；待办只剩「插件数到几十个时换 CDN」。 |
 | `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
-| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 15 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
+| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 16 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
 
 ## 环境现状（活信息 · 2026-10-26）
 
@@ -110,7 +110,7 @@ pwsh -File scripts\verify.ps1
 - **Rust**：`CARGO_TARGET_DIR` 必须在工作区外（本机铁律）；Rust 测试临时目录 `<repo>/_tmp-test/`。
 - **补丁**：`patches/@atomic-editor__editor@0.6.2.patch`（空标题不隐藏 `#`），升级必须重打 · `.gitignore` 排除 `_shots/` `_tmp-*/` `examples/*/store.json`。
 - **插件签名密钥（2026-10-25 生成）**：keyId **`aqua-2026`** · 私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`（**仓库外，绝不入库**）· **公钥已内置进应用**（rev173.146，`src-tauri/src/lib.rs` 的 `BUILTIN_TRUSTED_KEYS`；改它要跑 `node scripts/verify-trust.mjs`）· 本机那份 `<APPDATA>\com.aqua.zeronote\.zn\trusted-keys.json` **不再是必需**（同 keyId 只会覆盖内置值），留着无害 · 公钥值 `iOIIUrkdKmP0w+pwpgqGiqSsLJYfl9Pa5VeUCBCjh6E=`
-- **插件包与市场（rev173.150 起）**：包**入库**在 `market/packs/*.znp`（13 个 · 573 KB），索引 `market/index.json` 13 条，
+- **插件包与市场（rev173.150 起）**：包**入库**在 `market/packs/*.znp`（30 个 · 约 1.5 MB —— **含各历史版本，别在这里写死个数**），索引 `market/index.json` **16 条**，
   下载 URL = `raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/…`（**不是 Release**：`github.com:443` 国内直连不通，
   走 Release 会「能看不能送」）。打包 `node scripts/pack-plugin.mjs <id> --key <私钥>`（默认就写 `market/packs/` + raw url）→
   `node scripts/gen-market.mjs --write`（会校验「包在不在 + sha256 对不对」）→ 提交 `market/`。
