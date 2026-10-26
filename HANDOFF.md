@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.195
-更新时间: 2026-10-27 · 最新 rev173.195
+revision: 173.196
+更新时间: 2026-10-27 · 最新 rev173.196
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.195
 
 | rev | 内容 |
 |---|---|
+| rev173.196 | 2026-10-27 · **AI 插件第一刀：骨架 + 设置页**（用户「开工」）：`examples/ai/` 新插件 —— 主区面板「AI」+ 服务商预设（DeepSeek / Kimi / 通义 / 自定义 OpenAI 兼容端点）+ 模型名 + **API Key 存系统凭据管理器**（`host.secrets` → 账号 `ai.api-key.<provider>`，不入库不同步；`cmdkey /list` 实测出现 `ai.api-key.deepseek.com.aqua.zeronote`）+ 测试连接（`net.fetch` GET `/models`）。**三态实测**：无 Key → 红字「还没有保存 API Key」· 假 Key → **HTTP 401 + DeepSeek 原文**（`Authentication Fails`）· 输入框回车即保存（`onSubmit`）。示例插件 41 → **42**（功能目录已重生成）。对照：`docs/AI插件-需求-2026-10-27.md`（39 问）· 实施计划 7 刀 |
 | rev173.195 | 2026-10-27 · **交接**（用户「收尾交接」）：本会话 **rev173.188–194 共 7 个提交**，主线三条 —— ① **备份插件发市场**（189：`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」）② **修市场安装清掉 `store.json`**（190：整目录交换前把用户数据搬回；cargo 53 → 55）③ **手机连不上 raw 的根因与解法**（192 错误带源链 → 是 TLS 阶段 RST；193 对照 12 个域名，只有 raw 全灭；**194 市场镜像可切换 + 测速**，5 条内置源，`cdn.jsdelivr.net` 两端都断、GCore/Cloudflare 两端都通）。**交接时状态**：工作区干净 · HEAD `80b0d4a` · 与 origin 同步 · verify 六步全绿（vitest **1170** · cargo **55** · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24）· 手机 pid 31861 / APK **01:00:40**（**不含 194 的镜像 UI**）· 测试端口 8931/8933/8934 全部释放。**下一步候选**：① 默认源是否改成 `jsDelivr · GCore`（现在仍 raw，手机开箱不可用）② 手机重编一次验证 194 的 UI ③ ROADMAP 里「安卓桌面组件」仍是大块未做。**本会话新增的坑**：见正文「四条」|
 | rev173.194 | 2026-10-27 · **市场镜像可切换 + 测速**（用户「准备几条镜像可供切换，加个测速功能」）：① **5 条内置镜像**（GitHub raw · jsDelivr · GCore · jsDelivr · Cloudflare · jsDelivr(cdn) · ghproxy.net）+ 自定义地址；**索引地址与包前缀成对切换**（`MarketMirror = { indexUrl, packBase }`）—— 只换索引不换包 = 「能看不能装」② `mirrorPackUrl` **只改写本仓库 `raw.githubusercontent.com/aqua7773/zeronote/…` 形态的地址**，外部作者 / Release / 自建源一律原样（第一版粗暴「只取文件名再拼前缀」被 `tests/market.test.ts` 的老用例当场抓住 —— 回归测试救了真 bug）③ **测速** `probeMirror` 走 Rust `net_request`（与装插件同一条链路），**必须解析出条目才算可用**：只看 200 会被错误页骗（实测 `ghps.cc` 200 但只有 508 字节）④ **桌面实测**：raw 279 ms · GCore 722 ms · Cloudflare 648 ms · ghproxy 1413 ms，**全部 16 条**；**`cdn.jsdelivr.net` 在桌面也 `os error 10054`**（与手机结论一致）⇒ 标签改「国内常断」⑤ 切换后市场列表从新源重拉（16 条），选择存 `zn-market-mirror` ⑥ 连不上时多一句「点测速换一条」的下一步提示。vitest 1147 → **1170**（+23） |
 | rev173.193 | 2026-10-27 · **域名对照测试（12 个 · 手机 rustls 实测）**（用户「还有别的域名吗，多测几个」）：**`raw.githubusercontent.com` 6/6 失败**（每次都是 `Connection reset by peer`）· **稳定可用**：`gcore.jsdelivr.net` / `testingcf.jsdelivr.net`（索引 `16764` b64 = 12571 B 正确、包 `49704` b64 = 37278 B 正确，各 2 次全过）· `ghproxy.net`（内容正确）· `api.github.com` / `github.com` 200 · `objects.githubusercontent.com` 404（连上了）· `unpkg.com` 200 · **间歇**：`cdn.jsdelivr.net` / `fastly.jsdelivr.net`（先 1 次 RST，后重测 200）· **不可用**：`gist.githubusercontent.com` 超时 · `raw.gitmirror.com` / `hub.gitmirror.com` / `kkgithub.com` RST · `cdn.statically.io` / `ghfast.top` 超时 · `ghps.cc` 200 但只 508 字节（非真内容）。⇒ **jsDelivr 是最可行的替代源**（`gcore` / `testingcf` 节点 4/4 稳定，内容与 raw 逐字节一致）。未改代码 |
@@ -91,6 +92,48 @@ revision: 173.195
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.196（2026-10-27 · AI 插件第一刀：骨架 + 设置页）
+>
+> 用户「开工」—— 按 `docs/AI插件-实施计划-2026-10-27.md` 的 rev196 落地。**零内核改动**。
+>
+> ### 做了什么
+>
+> `examples/ai/`（新插件，示例数 41 → 42）：manifest + index.js 单文件 —— 主区面板「AI」，
+> 服务商预设 4 条（DeepSeek / Kimi / 通义兼容模式 / **自定义 OpenAI 兼容端点**），
+> 模型名可空（留空用预设默认），API Key 输入框 `secret: true`（显示为圆点）。
+>
+> ### 三个关键选择
+>
+> | 项 | 做法 | 为什么 |
+> |---|---|---|
+> | Key 存哪 | `host.secrets` → keyring（账号 `ai.api-key.<provider>`） | `store` 落库、会被同步 / 备份搬走；keyring 不入库不同步（与 `security` 存本机 id 同一套机制） |
+> | 测试连接走哪 | `ctx.net.fetch`（Rust 侧 `reqwest`） | 浏览器 `fetch` 要过 CORS + CSP 两道，失败时插件只看得到 `TypeError: Failed to fetch`，**分不清是谁拦的**（`examples/net-demo` 的教训） |
+> | 面板怎么刷新 | 命令里改模块级状态 + `view.refresh(PANEL_ID)` | `render` 是纯函数，状态不能塞进组件（与 backup / accounting 一致） |
+>
+> ### 实测（桌面 dev · CDP）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 无 Key 点「测试连接」 | 红字「请求失败」+ 代码块「还没有保存 API Key（先在上面填，再点保存）」 |
+> | 保存假 Key `sk-test-not-a-real-key` | 绿字「Key 已写入系统凭据库（DeepSeek）」· badge 变「已配置」 |
+> | `cmdkey /list` | 出现 `LegacyGeneric:target=ai.api-key.deepseek.com.aqua.zeronote`，User `ai.api-key.deepseek` ⇒ **真的进了 Windows 凭据管理器，不在库里** |
+> | 假 Key 点「测试连接」 | 红字「API Key 被拒（HTTP 401）」+ DeepSeek 原文 `{"error":{"message":"Authentication Fails …"}}` ⇒ `net.fetch` 链路通 |
+> | 输入框回车 | 保存生效（`input.onSubmit`），不必点按钮 |
+> | 删除 Key | 凭据消失（`cmdkey /list` 无条目）、状态回「未保存」 |
+>
+> ### 环境动作（不进仓库）
+>
+> - 全局插件根建 **junction**：`%APPDATA%\com.aqua.zeronote\.zn\plugins\ai` → `examples/ai`
+>   （全局目录里其它插件是**拷贝**，改 `examples/` 不生效 —— 交接卡早有记载）
+> - `location.reload()` 后插件自动加载；`__znKernelAudit().commands` 里 7 条 `ai.*` 命令齐全
+> - 测试用假 Key 已删；`_shots/ai-01…05*.png` 是本地截图（不入库）
+>
+> ### 下一步
+>
+> rev197：模型调用层 + 流式对话（SSE 解析 / 停止 / 滑动窗口 20 条 / 历史存 store）。
+> 传输通道按计划双路：**真流式走浏览器 `fetch`**（DeepSeek 预检已实测回 CORS 头），
+> 失败降级 `net.fetch`（非流式）。
+>
 > ## 📌 rev173.195（2026-10-27 · 交接）
 
 > 用户「收尾交接」。本会话从 rev173.187 之后接手，**7 个提交 rev173.188–194**。

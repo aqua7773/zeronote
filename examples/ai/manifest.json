@@ -1,0 +1,35 @@
+{
+  "manifestVersion": 1,
+  "id": "ai",
+  "name": "AI 管家",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "对话式 AI 管家：用一句话定义任务，按事件 / 定时 / 手动触发自动干活（第一版只碰笔记）",
+  "category": "tool",
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "doc:read",
+    "doc:write",
+    "index:query",
+    "command",
+    "view:main",
+    "store",
+    "net"
+  ],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "ai.open", "title": "AI：打开对话" },
+      { "id": "ai.set-provider", "title": "AI：切换服务商" },
+      { "id": "ai.save-key", "title": "AI：保存 API Key" },
+      { "id": "ai.clear-key", "title": "AI：删除 API Key" },
+      { "id": "ai.save-model", "title": "AI：保存模型名" },
+      { "id": "ai.save-baseurl", "title": "AI：保存自有端点" },
+      { "id": "ai.test", "title": "AI：测试连接" }
+    ],
+    "panels": [{ "id": "ai.chat", "title": "AI", "location": "main" }]
+  }
+}
