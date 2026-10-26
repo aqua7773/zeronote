@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.182
-更新时间: 2026-10-26 · 最新 rev173.179
+revision: 173.183
+更新时间: 2026-10-26 · 最新 rev173.183
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.182
 
 | rev | 内容 |
 |---|---|
+| rev173.183 | 2026-10-26 · **期 3 实测：vault 按环拆的迁移链**（交接卡点名「唯一没有真机证据的改动」）：全局插件目录里的 `security` 是 **0.1.2 的拷贝**（改 `examples/` 它不生效）⇒ 备份后删目录、**junction 指向 `examples/security` 0.2.0**（那份 manifest 无 `sha256` ⇒ 不校验入口哈希），reload 后 13 条 `security.*` 命令齐全 · 测试库 `_tmp-vault-tb` 旧**单文件** `vault.json`（1539 B · `v:1` · 两环 · secrets 已绑本机 Hello）当迁移源，**换一次主密码**（`TestPass123` → `TestPass1234`）触发 `saveVault` ⇒ 磁盘出现 `vault.notes.json`（560 B）+ `vault.secrets.json`（880 B）、**旧 `vault.json` 消失**；新格式 `v:2` + 单环 `ring`，**notes 的 KDF salt 与旧文件逐字相同**（迁移只搬不重算）、secrets 出新 salt（换密码本就重包裹 DEK）、`biometrics[16c9a8a9-…]` / `idleLockMs` / recovery 段全部保留 · reload 后「账号密码」用**新密码** ✅、「私密笔记」用 `NotesTest123` ✅（2 把已解锁）· **顺带验「按环写」**：把 secrets 换回 `TestPass123` ⇒ `vault.secrets.json` mtime 更新、**`vault.notes.json` 不动**（22:59:05）⇒ 两设备各改一个环不再判冲突；再 reload 仍能解锁 · 测试库回到已知状态（`secrets=TestPass123` / `notes=NotesTest123`）；迁移前备份 `_tmp-vault-tb/.zn/security-backup-20261026-225121/`、旧插件 `_tmp-plugin-backup/security-0.1.2-20261026-225114/` |
 | rev173.182 | 2026-10-26 · **私密文件夹 期 3：vault 按环拆 + 四后端同步 + 备份**（需求 §10.1）：① **`vault.json` 按环拆** —— 以前两环的 KDF 参数与包裹 DEK 在同一个文件里，而它**整文件同步**：两台设备各改一个环的密码（只重包裹 DEK）⇒ 两边都改同一个文件 ⇒ 判冲突 ⇒ 取远端 ⇒ **另一边的重包裹丢了，那台设备再也解不开**。现在每环一个 `vault.<环>.json`（各自一个同步单元）。旧单文件读到就迁移（拼回两环 → 写两个新文件 → 删旧文件）。⚠️ 旧客户端（`security` ≤ 0.1.2）只认 `vault.json`，迁移后以为"没建环" ⇒ 共用 vault 的设备都要升到 **0.2.0**。② **四后端都搬私密树**：`.zn/private/` 的 `index.zn` + `notes/*.zn` + `trash/*.zn` 逐文件走方向判定（webdav/s3/git 各加 `syncPrivateTree`；sync-folder `SECRET_DIRS` 加 `.zn/private`），判定抽成纯函数 **`decideTreeAction`**（11 种组合全覆盖），**删除两边都传播**（否则删一篇同步一轮就复活）；Git 额外要 sha（Contents API）⇒ `privateTree` 条目带 `sha`。③ **备份含私密树**：`_private/` 整棵密文随包，恢复原样写回。⚠️ 口径：memory fs 对不存在路径返回空串，当"本地有"会**白推空文件**（`空笔记也能同步` 抓到）⇒ 统一 `raw && raw.trim()`。vitest 1140 → **1146** |
 | rev173.181 | 2026-10-26 · **私密文件夹 期 2：独立搜索 / 回收站 / 移入移出**（需求 §3.3 后四条）：① **搜索** —— 面板内搜索框，标题与正文一起搜、多关键词 **AND**（与 `index.query` 同语义）；数据源是**解锁期内存里解密后的正文**（懒加载：第一次搜索才逐篇解密，锁定即清空；不落盘任何明文索引），命中处前后各取一段、**标题命中优先** ② **回收站** —— `.zn/private/trash/` 与全局回收站完全分开（「进入也需验证」= 继承主面板解锁态）；删除 = `fs.move` 搬密文（**不解密也能删**）· 恢复 = 搬回 + 索引挪回（原始 createdAt/updatedAt 一起存，**恢复后排序不跳**）· 彻底删除**两步确认**（第一次上膛按钮变「真的删？」）+ 清空 ③ **移入** = 把当前公开笔记加密搬进来，密文写成功后才动原文件，且**原文件立刻真删**（`fs.delete` 进全局回收站后按 `originalPath` 找到再 `purgeTrash`）—— 否则明文留在 `.zn/trash/` 等于没加密；**移出** = 解密写 `<标题>.md`（清洗 Windows 非法字符 / **不能以 `.` 开头**（会被当隐藏文件跳过）/ 重名加 `-2`），明文落盘后立刻删密文。⚠️ **单测抓到真 bug**：`upsertNote` / `removeNote` 返回不带 `trash`，而 `upsertNote` 在 `onDocSaved` 里每保存一次就跑 ⇒ **保存任意一篇就把回收站从索引里抹掉**（磁盘上的 trash 密文变孤儿）。**实测**（`_tmp-vault-tb` · 真 Argon2）：两篇 → 搜「开会」命中正文片段 · 搜「今天 面包」0 篇（跨篇 AND）· 搜「清单」标题命中 · 删除 ⇒ notes→trash + 面板只列回收站 · 恢复 ⇒ 两文件回 notes · 两次 `purge` ⇒ 第一次按钮变「真的删？」且文件还在、第二次消失 · 移入 ⇒ 库根文件消失 / 私密 +1 / **全局回收站无残留** · 移出 ⇒ 库根出现「要移入的笔记.md」且是明文。vitest 1120 → **1140** |
 | rev173.180 | 2026-10-26 · **私密文件夹（期 1）+ 内核 `doc.registerCodec`**（需求 §3.3 / §10.1）：编辑器此前只有「readText → 明文 → writeText」一条链路，**密文落盘的内容用不了编辑器**（只能自绘降级编辑器，或把明文临时写到磁盘上）。新增**内容转换器**原语：读盘后 `decode`、写盘前 `encode`，**内核不认识加密**，只认识「这个路径的内容要过一次转换」；合并 / 脏标记 / 自动保存 / `doc.on` 全部仍在**明文层**。安全语义三条（别退化）：① 打开时用过某个 codec ⇒ 保存必须还用它，它被卸载 ⇒ **读写都抛错**（绝不退回"原样写盘"，否则正在编辑的私密笔记会明文落盘）② `transient` ⇒ 不写会话恢复草稿（草稿是 localStorage 明文）③ `match` 抛错按"不匹配"处理。插件 `examples/private-notes/`：整棵树在 `.zn/private/`（内核的 `list_notes` / `list_dirs` 天然跳过 `.` 开头 ⇒ **不进文件树 / 全局搜索 / 回收站**），**每篇一密文 + 加密索引**（文件名是随机 id，磁盘上不泄漏标题），用 `security` 的 `notes` 环（3 分钟空闲锁）。**实测**（`_tmp-vault-tb` · 真 Argon2）：建 notes 环 → 解锁 → 新建 → 写入 → 保存 ⇒ 磁盘 `zn1.<nonce>.<ct>`（含中文 / `#` 均为 False）· 关文档回列表显示标题（索引解密 + `doc.on('save')` 回填）· 重开正文正确 · **锁定后** `core.openNote` 直接打开被拒（显示「已锁定 —— 先在面板里解锁」，编辑器不打开、密文不喂进去）。vitest 1099 → **1120**（doc-codec 9 + private-notes 12）。**未做**：期 2（独立搜索 / 回收站 / 移入移出）· 期 3（`vault.json` 按环拆 + 四后端同步 `.zn/private/`） |
@@ -77,6 +78,64 @@ revision: 173.182
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.183（2026-10-26 · 期 3 实测：vault 按环拆的迁移链）
+
+> 用户「继续」。rev173.182 三件事都落地了，但交接卡点名**两件没有真机证据**：迁移链、手机端走查。这轮做前者。
+
+> ### ① 先让桌面 dev 真的加载 0.2.0
+
+> 全局插件目录里的 `security` 是 **0.1.2 的拷贝**（入口 sha `be8f6d24…`，manifest 版本 0.1.2）——
+> 不改它、reload 一万次也测不到新代码（交接卡「全局目录是拷贝不是链接」那条正是这个坑）。
+> 做法：备份旧目录 → 删掉 → **junction 指向 `examples/security`**（0.2.0 那份 manifest **没有 `sha256` 字段**
+> ⇒ 加载时不校验入口哈希，与手机那份「无 sha」同理）。reload 后 `__znKernelAudit()` 里 13 条
+> `security.*` 命令齐全，面板可开。
+
+> ### ② 迁移：换一次环的密码就够了
+
+> 迁移的触发点只在 `saveVault`：`loadVault` 读到旧单文件只是**用**它，不动盘。
+> 必须做一次「会保存」的操作 —— 换主密码（`doChangePassword` → `saveVault(..., ring.id)`）。
+> 测试库 `_tmp-vault-tb` 的旧 `vault.json` 是 1539 B、`v:1`、`rings=secrets,notes`、secrets 已绑本机 Hello
+> （`16c9a8a9-…`），正好覆盖「带生物识别绑定」的迁移路径。
+
+> | 检查 | 结果 |
+> |---|---|
+> | `vault.notes.json` | ✅ 出现 · 560 B · `v:2` + 单环 `ring` |
+> | `vault.secrets.json` | ✅ 出现 · 880 B · `v:2` + 单环 `ring` |
+> | 旧 `vault.json` | ✅ 消失（只剩历史的 `.bak-20261026001719`） |
+> | notes 的 KDF salt | ✅ 与旧文件**逐字相同**（`sx0cbv52…`）—— 迁移只搬不改 |
+> | secrets 的 KDF salt | 变了（`JANH-O78…` → `VGINrn7G…`）—— 换密码本就重包裹 DEK，符合预期 |
+> | `biometrics[16c9a8a9-…]` | ✅ 保留（换密码不碰生物识别段） |
+> | `idleLockMs` / recovery 段 | ✅ 原样（notes 180000 / 两环恢复码都在） |
+
+> ### ③ reload 后两环都读得回来
+
+> `location.reload()`（走 CDP）→ 面板「账号密码」用**新密码** `TestPass1234` 解锁 ✅
+> → 切「私密笔记」用 `NotesTest123` 解锁 ✅（面板「2 把已解锁」）。这条才是「迁移没把库弄坏」的证据。
+
+> ### ④ 顺带验了「按环写」—— 这才是拆开的目的
+
+> 把 secrets 密码换回 `TestPass123`（避免测试库密码与交接卡记载漂移）：
+> `vault.secrets.json` mtime 更新，**`vault.notes.json` 仍是 22:59:05** ⇒ 另一环文件一个字节都没动。
+> 两台设备各改一个环时，同步看到的只是各自那个文件变了 —— 不再判冲突。再 reload，secrets 用恢复后的
+> `TestPass123` 仍能解锁。
+
+> ### 三个坑
+
+> - **`Ctrl+R` / `F5` 在 ZeroNote 里不会 reload**，且页面外观不变时截图 sha256 完全相同（一开始当成
+>   "没生效"，其实两次按键都没到达）。可靠做法：`node tools/cdp.mjs eval "location.reload()"`。
+> - **CDP 的 HTTP 端点只认 `node fetch`**：PowerShell 的 `Invoke-WebRequest` / `HttpClient` 对
+>   `/json/list` 一律 **404**（「备注」里早就记过，这次又踩了一次）⇒ 别用 PS 的 HTTP 栈探 CDP。
+> - **解锁后 60 秒空闲锁会打断"慢慢来"的批量操作**：`type 主密码 → 点解锁`，再慢慢填换密码表单，
+>   会在第二步前锁回去（第一次就这样失败在「找不到 `input[placeholder="当前主密码"]`」）。要么在
+>   **一条** `cdp.mjs` 命令里串完（`type … click … wait 2600 type … click …`），要么接受中途重新解锁。
+
+> ### 状态
+
+> 测试库回到已知状态：`secrets` 环 `TestPass123`、`notes` 环 `NotesTest123`；旧 `vault.json` 已删，
+> 迁移前备份 `_tmp-vault-tb/.zn/security-backup-20261026-225121/`；旧插件目录备份
+> `_tmp-plugin-backup/security-0.1.2-20261026-225114/`。全局目录 `security` 现在是
+> **junction → `examples/security`**（以后改 examples 自动生效，不用再手拷）。
 
 > ## 📌 rev173.182（2026-10-26 · 私密文件夹期 3：vault 按环拆 / 四后端同步 / 备份）
 
