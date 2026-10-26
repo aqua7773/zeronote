@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-biometric",
+  "description": "Android 生物识别（期 2b 前置验证，2026-10-26 临时加）：只给主窗口 status / authenticate / biometricCipher 三条权限。桌面构建不加载本文件（platforms 限 android）。",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "biometric:default",
+    "biometric:allow-biometric-cipher"
+  ]
+}

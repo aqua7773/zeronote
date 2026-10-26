@@ -390,6 +390,49 @@ export function resetPasswordWithDek(libs, ring, dek, newPassword) {
   return { ...ring, kdf: { ...ring.kdf, salt }, wrapped }
 }
 
+/* ───────────────────────── 生物识别（期 2b / 2c） ───────────────────────── */
+
+/**
+ * 适配器接口：`{ platform, seal(dek, ringId) → Promise<string>, open(wrapped, ringId) → Promise<Uint8Array> }`
+ *
+ * - **Android**：`plugin:biometric|biometric_cipher` —— Keystore 里一把不可导出的 AES-256-GCM 密钥，
+ *   每次加解密都要一次 fresh 指纹（实测 2026-10-26）。
+ * - **Windows**：`hello_sign` 签名 → HKDF 出 KEK → 用本文件的 XChaCha 包裹（方案 §8.5）。
+ *
+ * 本层是纯函数：只依赖 seal/open 两个动作，单测注入假适配器即可，不需要真机。
+ */
+
+/** 把 DEK 绑到当前设备的生物识别上（纯函数：返回新 ring） */
+export async function bindBiometric(ring, dek, adapter) {
+  if (!adapter?.seal) throw new Error('这台设备没有可用的生物识别')
+  if (!(dek instanceof Uint8Array) || dek.length !== 32) throw new Error('DEK 形状不对')
+  const wrapped = await adapter.seal(new Uint8Array(dek), ring.id)
+  if (typeof wrapped !== 'string' || !wrapped) throw new Error('生物识别没有返回包裹结果')
+  return { ...ring, biometric: { platform: adapter.platform, wrapped, at: Date.now() } }
+}
+
+/**
+ * 用生物识别解出 DEK。失败**原样抛**：取消 / 换过指纹 / 密钥失效 是不同的语义，
+ * 由适配器给错误码，UI 再翻成人话（不要在这里统一成"失败"）。
+ */
+export async function unlockWithBiometric(ring, adapter) {
+  const bound = ring?.biometric
+  if (!bound?.wrapped) throw new Error('这个密钥环没有绑定生物识别')
+  if (!adapter?.open) throw new Error('这台设备没有可用的生物识别')
+  const dek = await adapter.open(bound.wrapped, ring.id)
+  if (!(dek instanceof Uint8Array) || dek.length !== 32) {
+    throw new Error('生物识别解出的密钥长度不对')
+  }
+  return dek
+}
+
+/** 解除绑定（纯函数） */
+export function unbindBiometric(ring) {
+  const next = { ...(ring ?? {}) }
+  delete next.biometric
+  return next
+}
+
 /* ───────────────────────── 数据加解密 ───────────────────────── */
 
 /** DEK + 容器 → 数据密文 */
@@ -520,6 +563,64 @@ function loadLibs() {
   return libsPromise
 }
 
+/* ───────────────────────── 生物识别适配器（真机实现） ───────────────────────── */
+
+const isAndroid = () => /android/i.test(globalThis.navigator?.userAgent ?? '')
+
+/** Tauri 2 的 IPC 入口（插件宿主跑在同一个 WebView 里，直接用内部 invoke） */
+function tauriInvoke() {
+  return globalThis.__TAURI_INTERNALS__?.invoke
+}
+
+/**
+ * Android 适配器：官方 `tauri-plugin-biometric`（0.5.0 起随包装入）。
+ *
+ * `biometric_cipher` 的语义：Keystore 里的 AES-256-GCM 密钥 `setUserAuthenticationRequired(true)`，
+ * **每次调用都要一次指纹**；返回 `base64(密文);base64(iv)`。明文只在这次 IPC 里出现。
+ */
+export function androidBiometricAdapter(invoke) {
+  return {
+    platform: 'android',
+    async seal(dek, ringId) {
+      const r = await invoke('plugin:biometric|biometric_cipher', {
+        reason: '绑定指纹，之后免输主密码解锁 ZeroNote',
+        title: `绑定指纹 · ${RING_LABEL[ringId] ?? ringId}`,
+        dataToEncrypt: toB64url(dek),
+      })
+      return r?.data
+    },
+    async open(wrapped, ringId) {
+      const r = await invoke('plugin:biometric|biometric_cipher', {
+        reason: '用指纹解锁 ZeroNote',
+        title: `指纹解锁 · ${RING_LABEL[ringId] ?? ringId}`,
+        dataToDecrypt: wrapped,
+      })
+      return fromB64url(r?.data ?? '')
+    },
+  }
+}
+
+/**
+ * 探测本机可用的生物识别适配器。失败一律返回 null（静默 = 面板不显示入口），
+ * 但**不吞掉"有硬件没录指纹"**：status.isAvailable=false 时同样返回 null，
+ * 用户去系统设置录一枚指纹后重新打开面板即可。
+ */
+async function detectBiometric() {
+  if (isAndroid()) {
+    const invoke = tauriInvoke()
+    if (!invoke) return null
+    try {
+      const st = await invoke('plugin:biometric|status')
+      if (!st?.isAvailable) return null
+      return androidBiometricAdapter(invoke)
+    } catch {
+      return null
+    }
+  }
+  // Windows：期 2c 接 `hello_*`（Rust 侧 KeyCredentialManager），先返回 null
+  return null
+}
+
 /* ───────────────────────── 插件内部状态 ───────────────────────── */
 
 const store = {
@@ -535,6 +636,8 @@ const store = {
   recoveryCodeShown: '',
   /** vault 文件坏了：不回退、不覆盖（见 loadVault） */
   corrupt: false,
+  /** 本机生物识别适配器（探测失败 = null，面板不显示入口） */
+  biometric: null,
 }
 
 /** 已解锁的环：ringId → { dek, lastActive }。DEK 只在这里和 crypto.js 之间流动 */
@@ -683,6 +786,8 @@ export function panelNode(view) {
     hasRecoveryQuestion = false,
     hasRecoveryCode = false,
     recoveredPending = false,
+    hasBiometric = false,
+    biometricReady = false,
   } = view ?? {}
 
   const ring = getRing(vault, selected)
@@ -754,6 +859,7 @@ export function panelNode(view) {
         { type: 'text', value: `「${label}」已建立，输入主密码解锁`, variant: 'body' },
         ...(hasRecoveryCode ? [{ type: 'badge', text: '有恢复码' }] : []),
         ...(hasRecoveryQuestion ? [{ type: 'badge', text: '有恢复问题' }] : []),
+        ...(hasBiometric ? [{ type: 'badge', text: '已绑定指纹' }] : []),
       ],
     })
     kids.push({ type: 'input', bind: B.pw1, placeholder: '主密码' })
@@ -763,6 +869,9 @@ export function panelNode(view) {
       wrap: true,
       gap: 'sm',
       children: [
+        ...(hasBiometric && biometricReady
+          ? [{ type: 'button', label: '用指纹解锁', onClick: 'security.biometric-unlock' }]
+          : []),
         {
           type: 'button',
           label: busy === selected ? '正在派生密钥…' : '解锁',
@@ -795,6 +904,13 @@ export function panelNode(view) {
       children: [
         { type: 'text', value: `「${label}」已解锁`, variant: 'body' },
         { type: 'button', label: '立即锁定', onClick: 'security.lock', variant: 'danger' },
+        ...(biometricReady
+          ? [
+              hasBiometric
+                ? { type: 'button', label: '解除指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
+                : { type: 'button', label: '绑定指纹解锁', onClick: 'security.biometric-bind', variant: 'ghost' },
+            ]
+          : []),
       ],
     })
     kids.push({ type: 'divider' })
@@ -842,6 +958,8 @@ function panelView() {
     hasRecoveryQuestion: Boolean(ring?.recovery?.answerWrap),
     hasRecoveryCode: Boolean(ring?.recovery?.codeWrap),
     recoveredPending: recovered.has(store.selected),
+    hasBiometric: Boolean(ring?.biometric?.wrapped),
+    biometricReady: Boolean(store.biometric),
   }
 }
 
@@ -981,6 +1099,68 @@ async function doResetAfterRecovery(api) {
   }
 }
 
+/* ───────────── 生物识别命令：绑定 / 解锁 / 解除 ───────────── */
+
+/** 把系统错误翻成人话（Android 给错误码，Windows 给 HRESULT/状态字符串） */
+export function biometricErrorMessage(error) {
+  const raw = String(error?.message ?? error ?? '')
+  if (/AEADBadTag|Failed to decrypt|decrypt the data/i.test(raw)) {
+    return '指纹解不开这把密文 —— 多半是换过 / 新增过指纹。请用主密码解锁后重新绑定'
+  }
+  if (/userCancel|Cancel|canceled|cancelled/i.test(raw)) return '已取消'
+  if (/biometryLockout|Lockout|too many/i.test(raw)) return '指纹尝试次数过多，请稍后再试或用主密码'
+  if (/biometryNotEnrolled|not enrolled/i.test(raw)) return '系统里没有录入指纹'
+  if (/biometryNotAvailable|No hardware|unavailable/i.test(raw)) return '这台设备当前用不了指纹'
+  return `生物识别失败：${raw}`
+}
+
+async function doBiometricUnlock(api) {
+  const ringId = store.selected
+  const ring = getRing(store.vault, ringId)
+  const adapter = store.biometric
+  if (!ring) return setStatus(api, '这个环还没建立', 'warn')
+  if (!adapter) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
+  try {
+    const dek = await unlockWithBiometric(ring, adapter)
+    live.set(ringId, { dek, lastActive: Date.now() })
+    api.event.emit('security:unlocked', { ringId })
+    setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已用指纹解锁`, 'success')
+  } catch (e) {
+    setStatus(api, biometricErrorMessage(e), 'error')
+  }
+}
+
+async function doBiometricBind(api) {
+  const ringId = store.selected
+  const ring = getRing(store.vault, ringId)
+  const s = live.get(ringId)
+  const adapter = store.biometric
+  if (!ring) return setStatus(api, '这个环还没建立', 'warn')
+  if (!s) return setStatus(api, '先解锁，再绑定指纹', 'warn')
+  if (!adapter) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
+  try {
+    const next = await bindBiometric(ring, s.dek, adapter)
+    store.vault = putRing(store.vault, next)
+    await saveVault(api, store.vault)
+    setStatus(api, '已绑定 —— 之后锁定可直接用指纹解锁（主密码仍然有效）', 'success')
+  } catch (e) {
+    setStatus(api, `绑定失败：${biometricErrorMessage(e)}`, 'error')
+  }
+}
+
+async function doBiometricUnbind(api) {
+  const ringId = store.selected
+  const ring = getRing(store.vault, ringId)
+  if (!ring?.biometric) return setStatus(api, '这个环没有绑定指纹', 'warn')
+  try {
+    store.vault = putRing(store.vault, unbindBiometric(ring))
+    await saveVault(api, store.vault)
+    setStatus(api, '已解除指纹绑定（主密码不受影响）', 'success')
+  } catch (e) {
+    setStatus(api, `解除失败：${String(e?.message ?? e)}`, 'error')
+  }
+}
+
 /** 自检：跑一遍真实往返 + 篡改必失败，不碰用户数据 */
 async function doSelfTest(api) {
   try {
@@ -1020,6 +1200,8 @@ export default {
   async apply(api) {
     store.vault = await loadVault(api)
     store.loaded = true
+    // 生物识别探测（Android 官方插件 / Windows hello_*）：失败静默，面板只是不显示入口
+    store.biometric = await detectBiometric()
 
     /* 面板 */
     api.subscriptions.push(
@@ -1106,11 +1288,13 @@ export default {
       { id: 'security.change-password', title: '安全：换主密码', run: () => doChangePassword(api) },
       { id: 'security.recover-answer', title: '安全：用恢复问题解锁', run: () => doRecover(api, 'answer') },
       { id: 'security.recover-code', title: '安全：用恢复码解锁', run: () => doRecover(api, 'code') },
-      {
-        id: 'security.reset-after-recovery',
+      { id: 'security.reset-after-recovery',
         title: '安全：恢复后重设主密码',
         run: () => doResetAfterRecovery(api),
       },
+      { id: 'security.biometric-unlock', title: '安全：用生物识别解锁', run: () => doBiometricUnlock(api) },
+      { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },
+      { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))

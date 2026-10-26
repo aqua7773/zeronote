@@ -18,6 +18,8 @@ import { hmac } from '@noble/hashes/hmac.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import {
   DEFAULT_RINGS,
+  bindBiometric,
+  biometricErrorMessage,
   changePassword,
   createRing,
   createVault,
@@ -30,15 +32,19 @@ import {
   getRing,
   normalizeAnswer,
   normalizeCode,
+  open,
   putRing,
   recoverWithAnswer,
   recoverWithCode,
   resetPasswordWithDek,
+  seal,
   setupRecovery,
   signData,
   toB64url,
   toBytes,
+  unbindBiometric,
   unlockRing,
+  unlockWithBiometric,
   verifyData,
 } from '../examples/security/index.js'
 
@@ -306,5 +312,121 @@ describe('小工具', () => {
 
   it('normalizeCode 去空白与横杠 + 转大写', () => {
     expect(normalizeCode(' abcd-efgh 1234 ')).toBe('ABCDEFGH1234')
+  })
+})
+
+/**
+ * 期 2b / 2c：生物识别绑定（2026-10-26）
+ *
+ * 纯函数层只认「适配器」：Android 是 Keystore 的 AES-GCM（实测 2026-10-26 三次弹窗后
+ * 加密 → 解密 → 篡改被拒），Windows 是 hello_sign → HKDF → KEK。这里用**真的 XChaCha**
+ * 做假适配器，而不是"交换字节"—— 篡改用例才能真的被 AEAD 拦住。
+ */
+describe('生物识别绑定（适配器注入）', () => {
+  /** 假设备：一把随机 key + 真 AEAD；seal/open 必须用同一个实例 */
+  const fakeDevice = (platform = 'test') => {
+    const key = randomBytes(32)
+    return {
+      platform,
+      async seal(dek: Uint8Array) {
+        return `wrap.${seal(libs, key, 'bio', dek)}`
+      },
+      async open(wrapped: string) {
+        return open(libs, key, 'bio', String(wrapped).slice('wrap.'.length))
+      },
+    }
+  }
+
+  it('绑定只加 biometric 段，主密码容器一个字节不动（纯函数）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const next = await bindBiometric(ring, dek, fakeDevice())
+    expect(next.wrapped).toEqual(ring.wrapped)
+    expect(next.biometric.platform).toBe('test')
+    expect(next.biometric.wrapped).toMatch(/^wrap\.zn1\./)
+    // 原对象没被改
+    expect(ring.biometric).toBeUndefined()
+  })
+
+  it('能解出同一把 DEK（逐字节）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const device = fakeDevice()
+    const next = await bindBiometric(ring, dek, device)
+    const got = await unlockWithBiometric(next, device)
+    expect(Array.from(got)).toEqual(Array.from(dek))
+  })
+
+  it('换主密码后生物识别仍解出同一把 DEK（DEK 没变，只重包主密码那份）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', '旧密码', { kdf: FAST })
+    const device = fakeDevice()
+    const bound = await bindBiometric(ring, dek, device)
+    const next = changePassword(libs, bound, '旧密码', '新密码')
+    expect(next.biometric).toEqual(bound.biometric)
+    expect(Array.from(await unlockWithBiometric(next, device))).toEqual(Array.from(dek))
+  })
+
+  it('解除绑定后没有 biometric 段，再用生物识别解锁必须抛错', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const device = fakeDevice()
+    const next = unbindBiometric(await bindBiometric(ring, dek, device))
+    expect(next.biometric).toBeUndefined()
+    await expect(unlockWithBiometric(next, device)).rejects.toThrow(/没有绑定生物识别/)
+  })
+
+  it('没有适配器时绑定 / 解锁都抛错（不静默降级）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    await expect(bindBiometric(ring, dek, null)).rejects.toThrow(/没有可用的生物识别/)
+    // 没绑定 ⇒ 先报"没绑定"（比"没适配器"更贴近事实）
+    await expect(unlockWithBiometric(ring, null)).rejects.toThrow(/没有绑定生物识别/)
+    // 有绑定但没适配器 ⇒ 报"没有可用的生物识别"
+    await expect(unlockWithBiometric({ ...ring, biometric: { wrapped: 'x' } }, null)).rejects.toThrow(
+      /没有可用的生物识别/,
+    )
+  })
+
+  it('包裹被改一个字节 ⇒ AEAD 抛错（真机上是 AEADBadTagException）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const device = fakeDevice()
+    const next = await bindBiometric(ring, dek, device)
+    const w = next.biometric.wrapped
+    const tampered = {
+      ...next,
+      biometric: { ...next.biometric, wrapped: w.slice(0, -2) + (w.endsWith('AA') ? 'BB' : 'AA') },
+    }
+    await expect(unlockWithBiometric(tampered, device)).rejects.toThrow()
+  })
+
+  it('解出的密钥长度不对（适配器返回 16 字节）⇒ 拒绝，不交给上层当 DEK 用', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const short = {
+      platform: 'test',
+      async seal() {
+        return 'x'
+      },
+      async open() {
+        return new Uint8Array(16)
+      },
+    }
+    const next = await bindBiometric(ring, dek, short)
+    await expect(unlockWithBiometric(next, short)).rejects.toThrow(/长度不对/)
+  })
+})
+
+describe('生物识别错误翻译（给用户看的文案）', () => {
+  it('AEAD 失败 → 提示多半是换过指纹', () => {
+    expect(biometricErrorMessage(new Error('Failed to decrypt the data: AEADBadTagException'))).toMatch(
+      /换过/,
+    )
+    expect(biometricErrorMessage('AEADBadTagException')).toMatch(/重新绑定/)
+  })
+
+  it('取消 / 锁定 / 没录指纹 各自翻成人话', () => {
+    expect(biometricErrorMessage(new Error('userCancel'))).toBe('已取消')
+    expect(biometricErrorMessage('biometryLockout')).toMatch(/次数过多/)
+    expect(biometricErrorMessage('biometryNotEnrolled')).toMatch(/没有录入指纹/)
+    expect(biometricErrorMessage('biometryNotAvailable')).toMatch(/用不了指纹/)
+  })
+
+  it('认不出的错误原样带出来（不吞）', () => {
+    expect(biometricErrorMessage(new Error('weird-error-42'))).toContain('weird-error-42')
   })
 })

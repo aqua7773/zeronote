@@ -2714,6 +2714,19 @@ fn disable_accelerator_keys_for(_app: tauri::AppHandle, _label: String) -> Resul
 
 /// 起看门狗线程（`run()` 的 `setup` 里调用）。
 fn spawn_watchdog() {
+  // dev 包（debug 构建）默认不启动看门狗。
+  // 起因（2026-10-26 安卓真机实测）：Android 的 app 进程环境由 zygote 决定，CLI 脚本里
+  // `set ZN_WATCHDOG=off` **传不进 app 进程**；而 dev 首次加载 / HMR 空窗必然超过 5 s 阈值
+  // ⇒ 每次启动都被看门狗 exit(101) 杀掉，表现为「启动几秒后无声退出」。
+  // 生产（release）构建不受影响；需要强制开启时设 ZN_WATCHDOG=on。
+  if cfg!(debug_assertions)
+    && !std::env::var("ZN_WATCHDOG")
+      .map(|v| v.eq_ignore_ascii_case("on"))
+      .unwrap_or(false)
+  {
+    log::info!("[watchdog] debug 构建 ⇒ 默认不启动（ZN_WATCHDOG=on 可强制开启）");
+    return;
+  }
   if std::env::var("ZN_WATCHDOG")
     .map(|v| v.eq_ignore_ascii_case("off"))
     .unwrap_or(false)
@@ -2804,6 +2817,10 @@ pub fn run() {
         .build(),
     );
   }
+
+  // 生物识别（期 2b 前置验证）：只在 android 目标编译并注册，桌面构建不引用该 crate。
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_biometric::init());
 
   builder
     .plugin(tauri_plugin_dialog::init())

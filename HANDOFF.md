@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.167
-更新时间: 2026-10-26 · 最新 rev173.167
+revision: 173.168
+更新时间: 2026-10-26 · 最新 rev173.168
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.167
 
 | rev | 内容 |
 |---|---|
+| rev173.168 | 2026-10-26 · **期 2b：Android 指纹解锁落地**：`tauri-plugin-biometric 2.5.0`（仅 android target）+ `#[cfg(target_os="android")]` 注册 + capability `android-biometric.json`；`security` 插件加 `biometric` 段（`vault.json` 的 `rings.<id>.biometric`）与面板三入口（绑定 / 指纹解锁 / 解除），主密码那份 `wrapped` 不动、换密码与恢复重设都保留该段；真机走通「主密码解锁 → 绑定 → 空闲自动锁 → 指纹解锁（1 把已解锁）」；顺手修 **debug 包被看门狗 5 秒误杀**（`exit(101)`：Android 进程 env 传不进 `ZN_WATCHDOG=off`，改 debug 默认不启动）。vitest 1046 → **1056**（+10 含反向验证）· verify 六步全过 |
 | rev173.167 | 2026-10-26 · **Windows Hello 可行性验证（期 2c 前置）**：用户指出「windows 不是有 hello 吗」，纠了方案 §8 的旧说法。真机实测（PowerShell 5.1 直调 WinRT，同一台机）：`IsSupportedAsync()` = **True**（PIN 已设）· `RequestCreateAsync` = **Success**（**非打包进程 + 无 HWND 也能建凭据**）· `RequestSignAsync` = **90 秒无返回（挂死）⇒ 签名必须有窗口**。⇒ 门槛收敛成一条：Rust 侧要用 `IKeyCredentialManagerInterop` 传 HWND。**两个概念更正**：① 「不支持」只是 Tauri 插件层面，平台有完整 API ② **PIN 与生物识别是同一套 API**（弹什么由 Windows 决定）⇒「先做 PIN」不是降级，用户以后加指纹代码零改动 ③ `UserConsentVerifier` **不给密钥材料**，只能当二次确认，方案里那条路不够，得用 `KeyCredentialManager`（签名 PKCS#1 v1.5 确定性 ⇒ HKDF 出 KEK 包裹 DEK）。方案 §8 已加 ⚠️ 更正块 + 新增 §8.5 具体设计（第三条包裹路径 / 三个 Rust 命令 / 失败语义 / 安全边界 + Bitwarden CVE-2023-27706 的教训）；§9 期 2b/2c 拆开。**测试凭据已删净**（`OpenAsync` 复核 NotFound），临时探针目录已删 |
 | rev173.166 | 2026-10-26 · **期 1b 手机走查（安全 / 密码库）**：手机 `33b676f6` 原来**没装** `security` / `secrets`（插件列表里没有）⇒ 手动装开发版（`adb push /data/local/tmp` + `run-as cp`）→ reload → 两个插件都加载。**10 项全过**：建环（Argon2 812 ms + 恢复码）· 解锁 · 新建平台 / 账号 · 16 位生成器 · 密码框真 `type=password` · 显示明文（`mpTeZ7FKv6VXdLg9`）· **复制到 Android 原生剪贴板（读到 16 字符）** · **60 秒后自动清空（`CLIP_LEN=0`）** · **空闲 60 秒自动锁定（「空闲 60 秒，已自动锁定」）** · reload 后解出「手机测试站 · 1 个账号」· 回收站（剩 7 天 / 恢复 / 彻底删除）。**踩坑**：① 手机插件根是 **`/data/user/0/<pkg>/.zn/plugins/`**，`files/.zn/` 不存在（`run-as ls files/` 只有 `profileInstalled`）② reload 后 app **偶发退出一次**（重启即恢复，原因未定位；怀疑频繁 reload + dev 双端 HMR）③ PowerShell 里 `$pid` 是只读变量，别拿来存 app pid。测试数据已从手机主库清空（`secrets` 环保留，主密码 `PhoneTest123`） |
 | rev173.165 | 2026-10-26 · **期 2a：手机实测三档 KDF，定死默认档**：真机 `33b676f6`（Redmi peridot · 0.5.0 dev 包 · Android WebView V8）在页面里直接 `import('/vendor/noble/hashes/argon2.js')` 跑三档、各 3 次取中位数 —— **t=2/19MiB 165 ms** · **t=3/64MiB 812 ms** · **t=1/128MiB 574 ms**。**手机比桌面 Node 还快约 0.8×**（桌面分别 212 / 993 / 682 ms），**推翻了方案 §3「手机 1–4× 慢、t=3 要 2–4 s」的估算**（已在原文处标 ⚠️ 更正）。配套：vendor 六模块首载 **114 ms**、XChaCha 1 MiB 加密 **29 ms** / 解密 7 ms ⇒ 手机首次解锁 ≈ **0.93 s**、之后 ≈ **0.81 s**。方案留的降档条件是「手机 > 5 s」，实测不成立 ⇒ **默认档保持 t=3 / m=64 MiB 不降**。代码零改动，但新增一条**锁测试**（`DEFAULT_RINGS` 两个环的 kdf 必须是 `t=3, m=65536, p=1`，且两个环的 kdf 不能是同一个对象）+ 反向验证（把 m 改成 19456 ⇒ 立刻红）；方案 §3 / §9 期 2a 已标完成；顺带记下手机插件根目录是 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`（不是 `files/.zn/`） |
@@ -62,6 +63,49 @@ revision: 173.167
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.168（2026-10-26 · 期 2b：Android 指纹解锁落地）
+
+> 用户「两边都验证通过，直接开始做」—— 把 2026-10-26 凌晨的可行性验证做成真功能。
+>
+> ### 做了什么
+>
+> - `tauri-plugin-biometric 2.5.0` 只挂 android target；`lib.rs` 里 `#[cfg(target_os="android")]` 注册；
+>   新增 capability `android-biometric.json`（`platforms:["android"]`，`biometric:default` + `allow-biometric-cipher`）。
+> - `security` 插件新增生物识别层：**纯函数** `bindBiometric` / `unlockWithBiometric` / `unbindBiometric`
+>   （适配器注入），Android 适配器走 `plugin:biometric|biometric_cipher`。
+> - `vault.json`：`rings.<id>.biometric = { platform:'android', wrapped, at }` —— 只多一个段；
+>   主密码那份 `wrapped` 一个字节不动；**换主密码 / 恢复重设都会原样保留** biometric 段（DEK 没变）。
+> - 面板三入口：「绑定指纹解锁」（已解锁时）/「用指纹解锁」（锁定时，排在主密码前）/「解除指纹」。
+> - 错误翻译：换过指纹 ⇒ AEADBadTag ⇒「请用主密码解锁后重新绑定」；取消 / 锁定 / 没录指纹各自人话。
+>
+> ### 实测（真机 Redmi peridot · Android 16 · 0.5.0 dev 包）
+>
+> | 步骤 | 证据 |
+> |---|---|
+> | 插件链路 | `status` = `{isAvailable:true, biometryType:1}`（13 ms）；`BiometricActivity` + `USE_BIOMETRIC` 在 manifest |
+> | 命令层 | 加密 `DEK-TEST-20261026` → `base64(ct);base64(iv)`；解密还原；改一字节 ⇒ `AEADBadTagException` |
+> | 绑定 | 主密码解锁 → 点「绑定指纹解锁」→ 按指纹 → `vault.json` 出现 `biometric` 段（platform=android） |
+> | 解锁 | 空闲 60 s 自动锁（9 小时后回来显示 0 把已解锁）→ 点「用指纹解锁」→ 按指纹 → 「1 把已解锁」 |
+>
+> ### 顺带修的真 bug
+>
+> **debug 包被看门狗 5 秒误杀**（`exit(101)`，`watchdog.log` 里 `前端无响应 5xxx ms`）。
+> 根因：Android 的 app 进程环境由 zygote 决定，`android-dev.cmd` 里 `set ZN_WATCHDOG=off` **传不进 app**；
+> 而 dev 首次加载必然超过 5 s 阈值 ⇒ 每次启动都被杀，表现为「启动几秒后无声退出」。
+> 改成 **debug 构建默认不启动看门狗**（`ZN_WATCHDOG=on` 可强制开启），release 行为不变。
+>
+> ### 测试
+>
+> vitest 1046 → **1056**（+10：绑定 / 解锁 / 换密码后仍可解 / 解除 / 无适配器 / 篡改 / 长度不对 / 三条错误翻译）；
+> 反向验证：注释掉 `unlockWithBiometric` 的适配器检查 ⇒「没有适配器」那条立刻红。
+> verify 六步全过（12:13:06）· cargo 52 · 质量门 7/7。
+>
+> ### 下一步
+>
+> **期 2c Windows Hello**：`KeyCredentialManager` + `IKeyCredentialManagerInterop` 传 HWND（rev173.167 已验门槛），
+> HKDF 出 KEK 后用同一套 `seal/open` 包裹 DEK；`security` 加 Windows 适配器即可复用面板与单测。
+> ⚠️ 手机端已知边界三条：密钥别名全局唯一 · 新增/更换指纹让旧密文失效 · 明文 DEK 过 JS（见方案 §8 实测块）。
 
 > ## 📌 rev173.167（2026-10-26 · Windows Hello 可行性验证）
 

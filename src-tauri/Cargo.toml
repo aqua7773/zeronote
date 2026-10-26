@@ -96,3 +96,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # **HTTPS 请求会永远 pending**（实测：http 200 / https 挂死，连超时都不触发）。
 # 换成内置根证书后不依赖平台验证器，也顺带让行为在两端一致。
 webpki-roots = "1"
+# 生物识别（期 2b 前置验证）：官方插件只挂 Android 目标，桌面构建不引入该 crate。
+# 2.5.0 = v2 分支当前最新（2026-10-14），Android 提供 status / authenticate / biometricCipher。
+tauri-plugin-biometric = "2.5.0"
