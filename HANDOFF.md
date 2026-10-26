@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.171
-更新时间: 2026-10-26 · 最新 rev173.171
+revision: 173.172
+更新时间: 2026-10-26 · 最新 rev173.172
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.171
 
 | rev | 内容 |
 |---|---|
+| rev173.172 | 2026-10-26 · **安全插件 0.1.1 发市场（含锁定后自动弹）**：`examples/security/manifest.json` 0.1.0 → **0.1.1**（同版本内容不同的话，已装用户收不到更新提示）→ `pack-plugin.mjs security --key <私钥> **--key-id aqua-2026**` → `gen-market.mjs --write`（官方 15 条 · security@0.1.1 · 64.3 KB · 整包 sha256 `30829bc3…`）。⚠️ **坑**：不给 `--key-id` 会签成 `default`，而内置信任根只有 `aqua-2026` ⇒ 发出去装完加载时**验签失败被拒载**（第一次就打错了，已重打）。**实测安装**：本地 `http.server 8931` + CDP `install_znp_from_url`（expectedSha256 对上）⇒ 返回 `security`，落盘 index.js 62029 / manifest version 0.1.1+入口 sha256 / signature.json keyId `aqua-2026` → reload ⇒ 插件正常加载、面板可开（验签通过）· 旧包 0.1.0 按惯例保留 |
 | rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` / `FindWindow` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作 ⇒ **改请用户真人点「取消」验证**：面板显示「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在。⚠️ **手机端也已实测**（`33b676f6` · 换新 `index.js` 后）：空闲 60 s 自动锁 ⇒ **自动拉起指纹界面** ⇒ 按指纹后「已用指纹解锁」；手动锁定 1.5 s 内面板「正在请求指纹…」；指纹界面返回 ⇒ 中性提示「已取消 —— …」。vitest 1059 → **1064** · verify 六步全绿 |
 | rev173.170 | 2026-10-26 · **交接**（用户「交接」）：本会话 rev173.168–169 总览 + 交接时实测状态（工作树干净 · HEAD `16904bb` · verify 六步全绿 vitest **1059** · 桌面 dev pid **28892** · 手机 0.5.0 pid **10392**）+ 下个会话入口（**锁定后自动弹生物识别** / `biometric` 段按设备 / 手机 reload 偶发退出）+ 本会话四类坑（看门狗 env 传不进 Android / `manifest.sha256` 不同步即拒载 / windows crate 0.62 缺带窗口接口 / 硬编码旧 API）|
 | rev173.169 | 2026-10-26 · **期 2c：Windows Hello 解锁落地**：`hello_available` / `hello_enroll` / `hello_sign` 三个命令 —— windows crate 0.62 **没有**带窗口的接口，故手写 `IKeyCredentialManagerCreateWithWindowStatics`（30b1b9c9-…）+ `IKeyCredentialWithWindow`（050deb3b-…）的 vtable（IID 从系统 `Windows.Security.winmd` 解析）；`security` 的 `windowsHelloAdapter` = `hello_sign(challenge)` → HKDF → KEK → XChaCha 包裹，格式 `hello1.<challenge>.<zn1…>`；桌面实测「探测 → 绑定 → 锁定 → Hello 解锁」，**签名确定性由解锁本身证明**；顺手记两个坑（无窗口签名挂死 / `IAsyncOperation` 在 windows-future 且 0.3 没有 `.get()`）|
@@ -66,6 +67,35 @@ revision: 173.171
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.172（2026-10-26 · 安全插件 0.1.1 发市场）
+
+> 用户选「重新打包签名 + 更新市场索引」。rev173.171 的代码此前只跑在开发版上，市场里的 `security-0.1.0.znp` 还是 rev173.169 的内容。
+>
+> ### 做了什么
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 版本 | `examples/security/manifest.json` 0.1.0 → **0.1.1**（同版本号内容不同，已装用户不会收到更新提示） |
+> | 打包 | `node scripts/pack-plugin.mjs security --key <私钥> --key-id aqua-2026` ⇒ `market/packs/security-0.1.1.znp`（64.3 KB） |
+> | 索引 | `node scripts/gen-market.mjs --write` ⇒ 官方 15 条，security@0.1.1，整包 sha256 `30829bc34447bb6d61f79cb9306d0fa227a54ad3feb09fb1840d61002f0ec698` |
+>
+> ⚠️ **踩到的坑**：`pack-plugin.mjs` 不给 `--key-id` 时**签成 `keyId=default`**，而 Rust 的 `BUILTIN_TRUSTED_KEYS` 只有
+> `aqua-2026`（`src-tauri/src/lib.rs:2247`）⇒ 那样发出去，市场装完**加载时验签失败、插件被拒载**。第一次打包就是 `default`，已重打。
+>
+> ### 实测安装（不走 UI，直接打 Rust 命令）
+>
+> 1. 仓库根起 `python -m http.server 8931 --bind 127.0.0.1`（app 默认拉 GitHub raw，推送前看不到本地改动）
+> 2. CDP：`install_znp_from_url({ vault: '%APPDATA%\\com.aqua.zeronote', url: 'http://127.0.0.1:8931/market/packs/security-0.1.1.znp', expectedSha256 })` ⇒ 返回 `security`
+> 3. 落盘核对：`index.js` 62029 B · `manifest.json` version **0.1.1**、入口 sha256 `b7d4620e…` · `signature.json` keyId **`aqua-2026`**
+> 4. 页面 `location.reload()` ⇒ 「安全」插件正常加载、安全面板可开（**签名校验通过**），测试库 31 篇不变
+>
+> 收尾：停 http.server。
+>
+> ### 交付
+>
+> `market/packs/security-0.1.1.znp`（入库走 raw，不挂 Release）+ `market/entries/security.json` + `market/index.json`。
+> 旧的 `security-0.1.0.znp` 保留（与 sync-* 多版本并存同一惯例）。
 
 > ## 📌 rev173.171（2026-10-26 · 锁定后自动弹生物识别）
 
