@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.169
-更新时间: 2026-10-26 · 最新 rev173.169
+revision: 173.170
+更新时间: 2026-10-26 · 最新 rev173.170
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.169
 
 | rev | 内容 |
 |---|---|
+| rev173.170 | 2026-10-26 · **交接**（用户「交接」）：本会话 rev173.168–169 总览 + 交接时实测状态（工作树干净 · HEAD `16904bb` · verify 六步全绿 vitest **1059** · 桌面 dev pid **28892** · 手机 0.5.0 pid **10392**）+ 下个会话入口（**锁定后自动弹生物识别** / `biometric` 段按设备 / 手机 reload 偶发退出）+ 本会话四类坑（看门狗 env 传不进 Android / `manifest.sha256` 不同步即拒载 / windows crate 0.62 缺带窗口接口 / 硬编码旧 API）|
 | rev173.169 | 2026-10-26 · **期 2c：Windows Hello 解锁落地**：`hello_available` / `hello_enroll` / `hello_sign` 三个命令 —— windows crate 0.62 **没有**带窗口的接口，故手写 `IKeyCredentialManagerCreateWithWindowStatics`（30b1b9c9-…）+ `IKeyCredentialWithWindow`（050deb3b-…）的 vtable（IID 从系统 `Windows.Security.winmd` 解析）；`security` 的 `windowsHelloAdapter` = `hello_sign(challenge)` → HKDF → KEK → XChaCha 包裹，格式 `hello1.<challenge>.<zn1…>`；桌面实测「探测 → 绑定 → 锁定 → Hello 解锁」，**签名确定性由解锁本身证明**；顺手记两个坑（无窗口签名挂死 / `IAsyncOperation` 在 windows-future 且 0.3 没有 `.get()`）|
 | rev173.168 | 2026-10-26 · **期 2b：Android 指纹解锁落地**：`tauri-plugin-biometric 2.5.0`（仅 android target）+ `#[cfg(target_os="android")]` 注册 + capability `android-biometric.json`；`security` 插件加 `biometric` 段（`vault.json` 的 `rings.<id>.biometric`）与面板三入口（绑定 / 指纹解锁 / 解除），主密码那份 `wrapped` 不动、换密码与恢复重设都保留该段；真机走通「主密码解锁 → 绑定 → 空闲自动锁 → 指纹解锁（1 把已解锁）」；顺手修 **debug 包被看门狗 5 秒误杀**（`exit(101)`：Android 进程 env 传不进 `ZN_WATCHDOG=off`，改 debug 默认不启动）。vitest 1046 → **1056**（+10 含反向验证）· verify 六步全过 |
 | rev173.167 | 2026-10-26 · **Windows Hello 可行性验证（期 2c 前置）**：用户指出「windows 不是有 hello 吗」，纠了方案 §8 的旧说法。真机实测（PowerShell 5.1 直调 WinRT，同一台机）：`IsSupportedAsync()` = **True**（PIN 已设）· `RequestCreateAsync` = **Success**（**非打包进程 + 无 HWND 也能建凭据**）· `RequestSignAsync` = **90 秒无返回（挂死）⇒ 签名必须有窗口**。⇒ 门槛收敛成一条：Rust 侧要用 `IKeyCredentialManagerInterop` 传 HWND。**两个概念更正**：① 「不支持」只是 Tauri 插件层面，平台有完整 API ② **PIN 与生物识别是同一套 API**（弹什么由 Windows 决定）⇒「先做 PIN」不是降级，用户以后加指纹代码零改动 ③ `UserConsentVerifier` **不给密钥材料**，只能当二次确认，方案里那条路不够，得用 `KeyCredentialManager`（签名 PKCS#1 v1.5 确定性 ⇒ HKDF 出 KEK 包裹 DEK）。方案 §8 已加 ⚠️ 更正块 + 新增 §8.5 具体设计（第三条包裹路径 / 三个 Rust 命令 / 失败语义 / 安全边界 + Bitwarden CVE-2023-27706 的教训）；§9 期 2b/2c 拆开。**测试凭据已删净**（`OpenAsync` 复核 NotFound），临时探针目录已删 |
@@ -64,6 +65,47 @@ revision: 173.169
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.170（2026-10-26 · 交接）
+
+> 用户「交接」。本会话从「接手 zeronote，测一下安卓端生物识别」开始，把两个平台都做完并提交。
+>
+> ### 本会话做了什么（2 个提交）
+>
+> | rev | 提交 | 内容 |
+> |---|---|---|
+> | 173.168 | `d96f9ab` | Android 指纹解锁：`tauri-plugin-biometric 2.5.0` + `security` 的 `biometric` 段 + 面板三入口；修 debug 包看门狗误杀 |
+> | 173.169 | `16904bb` | Windows Hello：`hello_available/enroll/sign`（手写 winmd 带窗口 interop）+ `windowsHelloAdapter` |
+>
+> 起点是 rev173.167 的可行性验证（只在文档里，无提交改动）。
+>
+> ### 交接时实测状态（2026-10-26 12:56）
+>
+> - 工作树**干净**，HEAD = `16904bb`（main）
+> - `verify.ps1` 六步全绿：tsc 0 · oxlint 3 warnings · cargo **52** · vitest **1059** · 质量门 7/7（12:55:25）
+> - 桌面 dev 开着：pid **28892**（12:40 启动，日志 `.self-logs/desktop-dev.log`）
+> - 手机 `33b676f6` 装 0.5.0（12:43 更新），app pid **10392**；`adb reverse tcp:1420` 在
+> - 桌面插件目录的 `security` 已是**开发版**（无签名；manifest `sha256` 已同步成新入口哈希）
+> - 手机测试库 `secrets` 环主密码 `PhoneTest123`，**已绑指纹**；桌面测试库 `_tmp-vault-tb` 已绑 Windows Hello
+>
+> ### 下个会话入口（按优先级）
+>
+> 1. **锁定后自动弹生物识别**（需求 §13，两平台都只差这一块）：`lockRing(api, ringId, 'idle')` 之后，
+>    若 `ring.biometric` 存在且 `store.biometric` 可用，自动调 `doBiometricUnlock`；注意别盖住用户的主动操作。
+> 2. **`biometric` 段按设备**：现在同一 vault 换机器会解不开（报 AEAD 失败并提示重新绑定，行为正确，
+>    但没有"多设备并存"的元数据）。
+> 3. 手机端 reload 后 app 偶发退出一次（rev173.166 就记了，未定位）。
+>
+> ### 本会话四类坑（都已写进代码 / 文档注释）
+>
+> 1. **Android 的 app 进程环境由 zygote 决定**：`android-dev.cmd` 里 `set ZN_WATCHDOG=off` 传不进 app，
+>    导致 debug 包每次启动 5 秒后被看门狗 `exit(101)`。修法 = debug 构建默认不启动看门狗。
+> 2. **`manifest.json` 的 `sha256` 是入口文件哈希**：手换插件 `index.js` 后必须同步它，否则插件拒载
+>    （现象：列表显示已加载，但命令不存在）。
+> 3. **windows crate 0.62 没有 `KeyCredentialManager` 的带窗口接口**：必须从系统
+>    `Windows.Security.winmd` 解析 IID 手写 vtable（`hello.rs` 有完整注释）。
+> 4. **旧资料里的 `.get()` / `windows::Foundation::IAsyncOperation` 在 0.62 上编不过**：
+>    `IAsyncOperation` 在 `windows-future`（要 `std` feature），等待用 `.await`。
 
 > ## 📌 rev173.169（2026-10-26 · 期 2c：Windows Hello 解锁落地）
 
