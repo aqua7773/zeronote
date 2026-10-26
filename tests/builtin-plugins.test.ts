@@ -80,20 +80,20 @@ describe('compareVersions（数字段按数值比，不是字符串序）', () =
  * ② 覆盖后目录里残留的 `signature.json` 与新内容对不上 ⇒ 插件变「拒载」（不是简单回退）。
  */
 describe('ensureBuiltinPlugins 不覆盖（rev173.147）', () => {
-  const target = BUILTIN_PLUGINS.find((p) => p.id === 'outline-map')!
+  const target = BUILTIN_PLUGINS.find((p) => p.id === 'tag-panel')!
   const builtinVer = JSON.parse(target.files['manifest.json']).version as string
 
   /** 让「已装目录」看起来是这样：只有 outline-map 存在，其它插件一律不存在 */
   function mockInstalled(opts: { version?: string; signed?: boolean }) {
     mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
       if (cmd === 'read_plugin_file') {
-        if (args?.pluginId !== 'outline-map') throw new Error('missing')
+        if (args?.pluginId !== 'tag-panel') throw new Error('missing')
         if (args?.rel === 'signature.json') {
           if (opts.signed) return '{"alg":"ed25519","keyId":"aqua-2026","sig":"x"}'
           throw new Error('missing')
         }
         if (args?.rel === 'manifest.json') {
-          return JSON.stringify({ id: 'outline-map', version: opts.version ?? builtinVer })
+          return JSON.stringify({ id: 'tag-panel', version: opts.version ?? builtinVer })
         }
         return '/* 用户装的旧版内容 */'
       }
@@ -110,28 +110,28 @@ describe('ensureBuiltinPlugins 不覆盖（rev173.147）', () => {
   it('已装版本比内置新：不覆盖（不把市场装的更新版偷偷回退）', async () => {
     mockInstalled({ version: '9.9.9' })
     const r = await ensureBuiltinPlugins('C:/appdata')
-    expect(r.skipped).toContainEqual({ pluginId: 'outline-map', reason: 'newer' })
-    expect(writesFor('outline-map')).toHaveLength(0)
+    expect(r.skipped).toContainEqual({ pluginId: 'tag-panel', reason: 'newer' })
+    expect(writesFor('tag-panel')).toHaveLength(0)
   })
 
   it('有 signature.json：一个字节都不写（写了签名就对不上 ⇒ 拒载）', async () => {
     mockInstalled({ signed: true, version: builtinVer })
     const r = await ensureBuiltinPlugins('C:/appdata')
-    expect(r.skipped).toContainEqual({ pluginId: 'outline-map', reason: 'signed' })
-    expect(writesFor('outline-map')).toHaveLength(0)
+    expect(r.skipped).toContainEqual({ pluginId: 'tag-panel', reason: 'signed' })
+    expect(writesFor('tag-panel')).toHaveLength(0)
   })
 
   it('同版本内容不同：照旧覆盖（升级 / 修复路径不能被新规则挡住）', async () => {
     mockInstalled({ version: builtinVer })
     const r = await ensureBuiltinPlugins('C:/appdata')
-    expect(writesFor('outline-map').length).toBeGreaterThan(0)
-    expect(r.skipped.find((s) => s.pluginId === 'outline-map')).toBeUndefined()
+    expect(writesFor('tag-panel').length).toBeGreaterThan(0)
+    expect(r.skipped.find((s) => s.pluginId === 'tag-panel')).toBeUndefined()
   })
 
   it('已装版本比内置旧：覆盖（应用升级时内置插件跟着走）', async () => {
     mockInstalled({ version: '0.0.1' })
     const r = await ensureBuiltinPlugins('C:/appdata')
-    expect(writesFor('outline-map').length).toBeGreaterThan(0)
-    expect(r.skipped.find((s) => s.pluginId === 'outline-map')).toBeUndefined()
+    expect(writesFor('tag-panel').length).toBeGreaterThan(0)
+    expect(r.skipped.find((s) => s.pluginId === 'tag-panel')).toBeUndefined()
   })
 })

@@ -13,23 +13,12 @@ import { invoke } from '@tauri-apps/api/core'
  * ⚠️ 只打包**运行必需**的文件（index.js / manifest.json / 样式），不带 selftest / store。
  */
 
-// outline-map（大纲 · 导图）
-import outlineMapIndex from '../../examples/outline-map/index.js?raw'
-import outlineMapManifest from '../../examples/outline-map/manifest.json?raw'
-import outlineMapCss from '../../examples/outline-map/outline.css?raw'
-// doc-reader（文档阅读器）
-import docReaderIndex from '../../examples/doc-reader/index.js?raw'
-import docReaderManifest from '../../examples/doc-reader/manifest.json?raw'
+// ⟶ rev173.179：outline-map / doc-reader **移出预装**（`D-010`「增强」类可逐步移市场）
 // import-export（导入导出）
 import importExportIndex from '../../examples/import-export/index.js?raw'
 import importExportManifest from '../../examples/import-export/manifest.json?raw'
 // inspiration-flow（灵感流）—— **已搁置**（rev173.35 · 2026-10-19 用户要求）：源码留在 examples/，不再预装
-// theme-sepia（米色主题，纯 CSS）
-import sepiaManifest from '../../examples/theme-sepia/manifest.json?raw'
-import sepiaCss from '../../examples/theme-sepia/theme.css?raw'
-// accounting（记账：通知捕获 + 自动分类，2026-10-19 rev173.16）
-import accountingIndex from '../../examples/accounting/index.js?raw'
-import accountingManifest from '../../examples/accounting/manifest.json?raw'
+// ⟶ rev173.179：theme-sepia / accounting **移出预装**（`D-010`「增强」类可逐步移市场）
 // tag-panel（标签面板，2026-10-23 rev173.93）
 import tagPanelIndex from '../../examples/tag-panel/index.js?raw'
 import tagPanelManifest from '../../examples/tag-panel/manifest.json?raw'
@@ -40,8 +29,7 @@ import backlinksManifest from '../../examples/backlinks/manifest.json?raw'
 import historyIndex from '../../examples/history/index.js?raw'
 import historyManifest from '../../examples/history/manifest.json?raw'
 // habit（打卡，2026-10-24 rev173.103）
-import habitIndex from '../../examples/habit/index.js?raw'
-import habitManifest from '../../examples/habit/manifest.json?raw'
+// ⟶ rev173.179：habit **移出预装**（`D-010`「增强」类；它和记账都是业务插件）
 // sync-folder（同步 · 本地文件夹，2026-10-24 rev173.107）
 // 用户拍板「加入内置预装」（9 → 10）：库放同步目录的人开箱就能用，
 // 判定与冲突副本全在插件里，内核只提供事件与 fs。
@@ -102,22 +90,8 @@ import backupManifest from '../../examples/backup/manifest.json?raw'
 
 export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
-    id: 'outline-map',
-    files: {
-      'index.js': outlineMapIndex,
-      'manifest.json': outlineMapManifest,
-      'outline.css': outlineMapCss,
-    },
-  },
-  { id: 'doc-reader', files: { 'index.js': docReaderIndex, 'manifest.json': docReaderManifest } },
-  {
     id: 'import-export',
     files: { 'index.js': importExportIndex, 'manifest.json': importExportManifest },
-  },
-  { id: 'theme-sepia', files: { 'manifest.json': sepiaManifest, 'theme.css': sepiaCss } },
-  {
-    id: 'accounting',
-    files: { 'index.js': accountingIndex, 'manifest.json': accountingManifest },
   },
   {
     id: 'tag-panel',
@@ -130,10 +104,6 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'history',
     files: { 'index.js': historyIndex, 'manifest.json': historyManifest },
-  },
-  {
-    id: 'habit',
-    files: { 'index.js': habitIndex, 'manifest.json': habitManifest },
   },
   {
     id: 'sync-folder',
