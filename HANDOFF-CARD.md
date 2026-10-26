@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.184）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.185）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.184 · 0.6.0 · 2026-10-26 |
-| 测试基线 | vitest 1146 · cargo 53 · oxlint 3 warnings（2026-10-26） |
+| rev / 版本 | rev173.185 · 0.6.0 · 2026-10-26 |
+| 测试基线 | vitest 1147 · cargo 53 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 9 · 示例 41 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -31,12 +31,12 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下个会话第一件事：修 Android 上迁移收尾的静默失败**（rev173.184 手机走查暴露）：
-> `saveVault` 最后一步 `purgePrivate(LEGACY_VAULT_FILE).catch(() => {})` 在 Android 上**没删掉**
-> 旧 `vault.json`（同一路径手动调 `purge_private` 却能删 ⇒ 不是权限），面板照样报「主密码已换」。
-> 修法：purge 不静默 + 写完后再 `exists` 复核一次，仍在就重试并把错误报到状态栏。
-> 顺手查：旧 `vault.json` 为什么会从 `.zn/backups/*/_secret/vault.json` 复活（删掉那份后 70 秒不复现，
-> 但主窗口的 invoke hook 没抓到调用）。手机测试库 `PhoneTest123`，证据与状态见 HANDOFF rev173.184。
+> **下个会话第一件事：查 Android 上「旧 `vault.json` 自己回来」的来源**（rev173.184 暴露、173.185 已做防御）：
+> 删掉 `.zn/security/vault.json` 后**不做任何操作**，它也会在 90 s 内自己出现（mtime 保留、内容与迁移前
+> 逐字节相同）。已排除：备份插件、主窗口 `invoke` hook（`write_note`/`copy_entry`/`purge_private` 零记录）、
+> Syncthing、全盘 897 字节副本。下一步：`inotifyd` 盯 `.zn/security/` + `stat` 比 inode（看是不是同一份被「还原」）。
+> 已做好的防御（rev173.185 · `security` 0.2.1）：`purgeLegacy` 失败不静默（toast 带真实错误）、删后 1.5 s 复查、
+> `apply()` 残留自愈。手机测试库 `PhoneTest123`，证据见 HANDOFF rev173.185。
 
 > **安全线进度（rev173.160–171，逐 rev 细节全在 HANDOFF）**：
 > `security` 双密钥环 + `crypto` 服务（160–162）→ `secrets` 密码库（163：整库加密 / 平台账号 / 生成器 /
@@ -61,8 +61,8 @@ pwsh -File scripts\verify.ps1
 >    `sync-folder` 0.3.4，索引 15 条）。**只剩一件没有真机证据**：
 >    (a) ✅ **vault 按环拆的迁移链**已桌面实测（rev173.183：旧单文件 → 换一次主密码 → 两个
 >        `vault.*.json` + 旧文件消失 + reload 后两环都能解锁 + 「按环写」只动改动的那个文件）；
->    (b) ✅ **手机端走查**已做（rev173.184：结构 / 解锁 / 指纹界面都过；**但旧 `vault.json` 在 Android 上没删掉**
->        —— 静默失败，见「下个会话第一件事」）·
+>    (b) ✅ **手机端走查**已做（rev173.184）；迁移收尾的静默失败已修（rev173.185：`security` 0.2.1，
+>        purge 不再吞错 + 加载时自愈）。剩「文件自己回来」的平台级问题，见「下个会话第一件事」·
 > ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
 > ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
 > ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
@@ -79,7 +79,7 @@ pwsh -File scripts\verify.ps1
 | AI 标签 / 密级 | 需求 2 暂不采用，方向待定 |
 | 插件市场 | ✅ **已完成**（rev173.142–158）：签名 v2 / 打包 / 索引 / 原子安装 / 公钥内置 / 「发现」tab（装 · 升 · 详情页含能力自述 · 更新角标 · 24h 检查）/ 外部投稿审查材料生成器。逐 rev 证据见 `HANDOFF.md`；待办只剩「插件数到几十个时换 CDN」。 |
 | `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
-| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（5 个包重签名，索引 15 条）· **桌面与手机的迁移链都已实测**（173.183 桌面删除成功 / 173.184 手机旧 `vault.json` 没删掉 —— 静默失败待修） |
+| 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 15 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
 
 ## 环境现状（活信息 · 2026-10-26）
 

@@ -566,6 +566,20 @@ export function vaultFileOf(ringId) {
 /** 旧版单文件（按环拆之前的）—— 只读兼容 + 迁移时删除 */
 export const LEGACY_VAULT_FILE = `${VAULT_DIR}/vault.json`
 
+/**
+ * 迁移收尾「删不掉旧文件」时给用户的提示（纯函数，单测覆盖 · rev173.184）。
+ *
+ * 为什么要有这句话：手机走查实测 —— Android 上 `purgePrivate` 可能**静默失败**
+ * （面板照样报「主密码已换」，旧 `vault.json` 留在原地）。旧文件留着不是"没影响"：
+ * 同步插件仍会把它当私有文件搬、备份也会收它。所以失败必须说出来。
+ */
+export function legacyPurgeWarning(error) {
+  const why = error
+    ? `：${error}`
+    : '（删除调用没报错，但文件还在 —— 可能被同步 / 备份又写了回来）'
+  return `vault 已按环拆好，但旧的 ${LEGACY_VAULT_FILE} 删不掉${why}。请手动删除它，否则同步 / 备份会继续收它`
+}
+
 /** 单环 vault 文件的明文内容（写盘前用） */
 export function vaultPartPayload(ring) {
   return JSON.stringify({ v: 2, ring: { id: ring.id, ...ring } }, null, 2)
@@ -893,6 +907,32 @@ async function loadVault(api) {
 }
 
 /**
+ * 删掉迁移前的旧单文件（`saveVault` 的收尾 + 插件加载时的残留自愈）。
+ *
+ * ⚠️ **不能**写成 `.catch(() => {})`（rev173.184 手机走查踩到）：Android 上删除可能**静默失败**，
+ * 面板照样报「主密码已换」。实测还有第二种形态 —— **删掉之后又被写回来**（mtime 更新、内容与
+ * 迁移前逐字节相同，主窗口的 invoke hook 抓不到是谁写的）。所以这里删完**等一拍再看一眼**，
+ * 还在就再删一轮；两轮都不行才通知用户（文案带真实错误，方便定位）。
+ */
+async function purgeLegacy(api) {
+  let err = ''
+  for (let round = 0; round < 2; round++) {
+    try {
+      await api.fs.purgePrivate(LEGACY_VAULT_FILE)
+      err = ''
+    } catch (e) {
+      err = String(e?.message ?? e)
+    }
+    // 还在 ⇒ 下一轮再删
+    if (await api.fs.exists(LEGACY_VAULT_FILE).catch(() => false)) continue
+    // 删掉了 —— 等一拍确认不是「删掉又被写回」
+    await new Promise((r) => setTimeout(r, 1500))
+    if (!(await api.fs.exists(LEGACY_VAULT_FILE).catch(() => false))) return
+  }
+  api.host.notify(legacyPurgeWarning(err), 'warn')
+}
+
+/**
  * 写 vault —— **只写改动的那一把环**（`onlyRing`）。
  *
  * 为什么必须按环写而不是整份：两台设备各改一个环的密码时，只有各自那个文件变 ⇒
@@ -920,9 +960,7 @@ async function saveVault(api, vault, onlyRing = null) {
     }
     await api.fs.writeText(vaultFileOf(id), vaultPartPayload(ring))
   }
-  if (legacyExists) {
-    await api.fs.purgePrivate(LEGACY_VAULT_FILE).catch(() => {})
-  }
+  if (legacyExists) await purgeLegacy(api)
 }
 
 /* ───────────────────────── 解锁 / 锁定 ───────────────────────── */
@@ -1576,6 +1614,20 @@ export default {
   async apply(api) {
     store.vault = await loadVault(api)
     store.loaded = true
+    /**
+     * 旧单文件的残留自愈（rev173.184 手机走查）：迁移时 `saveVault` 会删 `vault.json`，但实测
+     * Android 上它可能**删掉又被写回来**（mtime 更新、内容与迁移前逐字节相同）。所以每次加载时
+     * 顺手再清一次 —— 前置是**新结构确实存在**，否则可能把唯一的 vault 删掉。
+     */
+    if (!store.corrupt) {
+      const rings = Object.keys(store.vault.rings)
+      const hasNew = (
+        await Promise.all(rings.map((id) => api.fs.exists(vaultFileOf(id)).catch(() => false)))
+      ).some(Boolean)
+      if (hasNew && (await api.fs.exists(LEGACY_VAULT_FILE).catch(() => false))) {
+        await purgeLegacy(api)
+      }
+    }
     // 设备 id（rev173.173）：生物识别按设备存，本机 id 在凭据管理器里（不随库同步）
     store.deviceId = await resolveDeviceId(api)
     // 旧的单段 biometric → biometrics[<本机>]（一次性；别的环原样不动）

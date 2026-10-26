@@ -56,6 +56,7 @@ import {
   vaultPartPayload,
   parseVaultPart,
   LEGACY_VAULT_FILE,
+  legacyPurgeWarning,
   VAULT_DIR,
 } from '../examples/security/index.js'
 
@@ -590,6 +591,19 @@ describe('vault 按环拆文件（rev173.182 · 私密文件夹期 3）', () => 
   it('单环文件往返：payload → parse 回来是同一把环', () => {
     const ring = { id: 'notes', kdf: { t: 1, m: 8, p: 1, salt: 'abc' }, wrapped: { notes: 'zn1.x' } }
     expect(parseVaultPart(vaultPartPayload(ring))).toEqual(ring)
+  })
+
+  it('删不掉旧 vault.json 时给的是「要手动删」的提示（rev173.184 · 失败不静默）', () => {
+    const withErr = legacyPurgeWarning('权限不足')
+    expect(withErr).toContain('.zn/security/vault.json')
+    expect(withErr).toContain('权限不足')
+    expect(withErr).toContain('手动删除')
+
+    // 删除调用没报错、文件却还在（被同步 / 备份写回）也要说清楚
+    const noErr = legacyPurgeWarning('')
+    expect(noErr).toContain('.zn/security/vault.json')
+    expect(noErr).toContain('删除调用没报错')
+    expect(noErr).toContain('手动删除')
   })
 
   it('坏内容一律抛错（调用方据此标 corrupt、**不覆盖**原文件）', () => {
