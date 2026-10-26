@@ -70,6 +70,36 @@ revision: 173.174
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.174（2026-10-26 · 发版 0.6.0）
+
+> 0.5.0 之后 **57 个提交**（rev173.137–173）一次收成版本号。
+>
+> ### 内容
+>
+> | 主线 | 落点 |
+> |---|---|
+> | 安全 / 密码库 | `security`（双密钥环 · XChaCha20-Poly1305 + Argon2id · AAD 绑定）· `secrets`（整库加密 · 生成器 · 复制 60 s 清剪贴板 · 空闲 60 s 自锁）· Android 指纹 / Windows Hello 解锁 · 锁定后自动弹 · 绑定按设备 |
+> | 插件市场闭环 | 签名 v2 · 打包签名索引 · 应用内「发现」tab · 公钥内置 · 仓库开源（MIT）· 包入库走 raw · 第二批 UX（详情页 / 更新角标 / 24h 检查） |
+> | 配套 | CI 从「一直红」修到全绿（`localeCompare` 不传 locale）· HANDOFF 分卷 890 KB → 63 KB · ROADMAP 收口 |
+>
+> ### 这次真正做的事
+>
+> `[Unreleased]` → `[0.6.0]`，但**原段落只记了「锁定后自动弹」和「按设备」** —— 两个插件本体
+> （rev173.160 `security` / rev173.163 `secrets`）、Android 指纹（168）、Windows Hello（169）、
+> KDF 定档（165）**一条都没进 CHANGELOG**。发版前补了这五条主线（约 130 行），并把散落的两个
+> `### Added` 收成一套 Added / Changed / Fixed。
+> 版本三处（`package.json` / `tauri.conf.json` / `Cargo.toml`）+ `Cargo.lock` → 0.6.0；
+> README 现状行 → rev173.174 · 0.6.0，顺手补了安全段门面描述（之前完全没提密码库）。
+>
+> ### 踩坑
+>
+> - **`Set-Content` 拼接 CHANGELOG 会把整文件写成 CRLF**（仓库是 LF）⇒ 要
+>   `[System.IO.File]::ReadAllText` + `-replace "\`r\`n", "\`n"` 再写，否则 diff 全是行尾噪音（本次已修）。
+> - **改 `Cargo.toml` ⇒ dev 自动重编重启**：pid `28892` → `6772`（13:50:49），属预期行为。
+> - **本地 verify 绿 ≠ CI 绿**：这次 verify（13:51:24 绿）跑完之后才补上「索引行 + 正文段」，
+>   所以本地 check-docs 绿、CI 的 check-docs 红（`索引有 rev173.174 但正文无对应段`）。
+>   **教训**：`verify.ps1` 之后只要动过 `HANDOFF.md` 的结构（索引表 / 正文段），必须**重跑 check-docs**。
+
 > ## 📌 rev173.173（2026-10-26 · 生物识别「按设备」）
 
 > 卡片下一步 ①：`biometric` 段做成按设备 —— 换机只失效那一台。
