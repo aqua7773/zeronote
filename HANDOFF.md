@@ -90,6 +90,8 @@ revision: 173.174
 > `### Added` 收成一套 Added / Changed / Fixed。
 > 版本三处（`package.json` / `tauri.conf.json` / `Cargo.toml`）+ `Cargo.lock` → 0.6.0；
 > README 现状行 → rev173.174 · 0.6.0，顺手补了安全段门面描述（之前完全没提密码库）。
+> GitHub Release `v0.6.0` 已建（无资产，正文 = CHANGELOG 的 `[0.6.0]` 段，标 Latest）。
+> ⚠️ **发版固定动作里要带上 Release**：v0.4.0 有、**v0.5.0 漏了** —— 只在 `release.mjs` 打 tag 不会建它。
 >
 > ### 踩坑
 >
