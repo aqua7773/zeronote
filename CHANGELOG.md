@@ -28,6 +28,13 @@
   正在派生密钥 / 用户已在输主密码都不弹；自动弹被取消只给中性提示（面板本来就有「用指纹解锁」
   + 主密码框兜底）。锁定同时清掉主密码输入框。市场同步发 `security` **0.1.1**（rev173.172）。vitest 1059 → **1064**。
 
+- **生物识别绑定改成「按设备」**（rev173.173）：`vault.json` 的 `rings.<id>.biometrics[<deviceId>]`
+  —— 同一把密钥环在多台设备各绑各的，**换机只失效那一台**。本机 id 存在**凭据管理器**
+  （`host.secrets` → Windows 凭据管理器 / Android Keystore；不随库同步、不进 `vault.json`）。
+  旧的单段 `biometric` 在加载时一次性迁到 `biometrics[<本机>]`（原机升级后照常用指纹）。
+  面板：本机已绑 → 「本机已绑定」；只有别的设备绑过 → 「别的 N 台已绑定」且**不显示**指纹按钮
+  （旧版会显示、点了才报 AEAD）。vitest 1064 → **1067**；`security` **0.1.2** 发市场。
+
 - **`input` 节点支持密码框**（rev173.163）：声明 `{ type: 'input', secret: true }` 时宿主渲染成
   `type="password"`（+ `autoComplete="off"`），回显为圆点。为 `secrets` 密码库插件而加 ——
   在此之前 `input` 硬编码 `type="text"`，密码只能明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。

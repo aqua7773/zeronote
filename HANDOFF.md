@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.172
-更新时间: 2026-10-26 · 最新 rev173.172
+revision: 173.173
+更新时间: 2026-10-26 · 最新 rev173.173
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.172
 
 | rev | 内容 |
 |---|---|
+| rev173.173 | 2026-10-26 · **生物识别按设备（`biometrics` 字典）**：`vault.json` 从单段 `rings.<id>.biometric` 改成 `rings.<id>.biometrics[<deviceId>]` —— **换机只失效那一台**，别的设备绑定不受影响；本机 id 存**凭据管理器**（`host.secrets` → `secret_*` → Windows 凭据管理器 / Android Keystore，**不随库同步**），拿不到时退回 `'local'`（等同旧行为）。旧单段由 `migrateBiometrics` 在 `apply()` 一次性迁到 `biometrics[<本机>]` 并落盘（默认「旧段就是这台机器」⇒ 原机升级后照常用指纹；真换机过来的 vault 会 AEAD 失败并提示重绑，同旧引导，但**不再覆盖**原机器的绑定）。UI：badge「本机已绑定」/「别的 N 台已绑定」+ 未绑定时一句 caption；按钮改「绑定本机指纹 / 解除本机指纹」，解除只删当前设备。**实测**（`_tmp-vault-tb` · 0.1.2 市场包）：迁移后 `vault.json` 出现 `biometrics["16c9a8a9-…"]`、旧 `biometric` 消失；把 `secret_set zeronote.device.id` 改成假 id 再 reload ⇒ 面板「别的 1 台已绑定」+ **没有**指纹按钮（旧版会显示、点了才报 AEAD）；切回原 id ⇒ 「本机已绑定」+ 按钮回来，点它 Hello 正常弹出。⚠️ **按指纹那一步待用户确认**（Hello 是受保护 UI，合成输入到不了，见 171）。vitest 1064 → **1067** · 打包 **0.1.2** 发市场 |
 | rev173.172 | 2026-10-26 · **安全插件 0.1.1 发市场（含锁定后自动弹）**：`examples/security/manifest.json` 0.1.0 → **0.1.1**（同版本内容不同的话，已装用户收不到更新提示）→ `pack-plugin.mjs security --key <私钥> **--key-id aqua-2026**` → `gen-market.mjs --write`（官方 15 条 · security@0.1.1 · 64.3 KB · 整包 sha256 `30829bc3…`）。⚠️ **坑**：不给 `--key-id` 会签成 `default`，而内置信任根只有 `aqua-2026` ⇒ 发出去装完加载时**验签失败被拒载**（第一次就打错了，已重打）。**实测安装**：本地 `http.server 8931` + CDP `install_znp_from_url`（expectedSha256 对上）⇒ 返回 `security`，落盘 index.js 62029 / manifest version 0.1.1+入口 sha256 / signature.json keyId `aqua-2026` → reload ⇒ 插件正常加载、面板可开（验签通过）· 旧包 0.1.0 按惯例保留 |
 | rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` / `FindWindow` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作 ⇒ **改请用户真人点「取消」验证**：面板显示「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在。⚠️ **手机端也已实测**（`33b676f6` · 换新 `index.js` 后）：空闲 60 s 自动锁 ⇒ **自动拉起指纹界面** ⇒ 按指纹后「已用指纹解锁」；手动锁定 1.5 s 内面板「正在请求指纹…」；指纹界面返回 ⇒ 中性提示「已取消 —— …」。vitest 1059 → **1064** · verify 六步全绿 |
 | rev173.170 | 2026-10-26 · **交接**（用户「交接」）：本会话 rev173.168–169 总览 + 交接时实测状态（工作树干净 · HEAD `16904bb` · verify 六步全绿 vitest **1059** · 桌面 dev pid **28892** · 手机 0.5.0 pid **10392**）+ 下个会话入口（**锁定后自动弹生物识别** / `biometric` 段按设备 / 手机 reload 偶发退出）+ 本会话四类坑（看门狗 env 传不进 Android / `manifest.sha256` 不同步即拒载 / windows crate 0.62 缺带窗口接口 / 硬编码旧 API）|
@@ -67,6 +68,48 @@ revision: 173.172
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.173（2026-10-26 · 生物识别「按设备」）
+
+> 卡片下一步 ①：`biometric` 段做成按设备 —— 换机只失效那一台。
+>
+> ### 数据结构
+>
+> ```json
+> rings.<id>.biometrics = {
+>   "<deviceId>": { "platform": "windows", "wrapped": "hello1.…", "at": 1730000000000 }
+> }
+> ```
+>
+> - **本机 id 放凭据管理器**（`api.host.secrets` → `secret_get/set` → Windows 凭据管理器 / Android Keystore）：
+>   不随库同步、不进 `vault.json`。丢了（清凭据 / 重装）只让这一台的绑定失效。
+> - **旧单段兼容**：`migrateBiometrics(vault, deviceId)` 在 `apply()` 里一次性把 `biometric` 迁到
+>   `biometrics[<本机>]` 并落盘；迁移默认「旧段就是这台机器」⇒ 原机升级后照常用指纹。换机过来的 vault 会
+>   AEAD 失败并提示重绑（与改造前同一条引导），但**不再覆盖**原机器的绑定。
+> - 解除只删当前设备那一格；`otherDeviceCount` 给 UI 提供「别的 N 台已绑定」。
+>
+> ### 界面
+>
+> | 状态 | 面板 |
+> |---|---|
+> | 本机已绑 | badge **本机已绑定** + 「用指纹解锁」 |
+> | 只有别的设备绑过 | badge **别的 N 台已绑定** + caption「这台设备还没绑定（互不影响）」+ **不显示**指纹按钮 |
+> | 已解锁 | 「绑定本机指纹」/「解除本机指纹」；有别的设备时提示「解除只影响这台」 |
+>
+> ### 实测（`_tmp-vault-tb` · 0.1.2 市场包）
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 装 0.1.2 → reload | `secret_get` 生成 `deviceId=16c9a8a9-…`；`vault.json` 旧 `biometric` 消失、出现 `biometrics["16c9a8a9-…"]`（原 Hello 包裹原样搬过去） |
+> | 面板 | 「本机已绑定」+「用指纹解锁」 |
+> | 伪装另一台：`secret_set zeronote.device.id = fake-other-device` → reload | 「别的 1 台已绑定」+ caption；**没有**指纹按钮（旧版会显示、点了才报 AEAD） |
+> | 切回原 id → reload | 「本机已绑定」+ 按钮回来；点击 ⇒ Hello 正常弹出（`_shots/device-binding-hello.png`） |
+> | 按指纹 | ⏳ 待用户操作（Hello 受保护 UI，合成输入触达不到 —— 见 rev173.171） |
+>
+> ### 交付
+>
+> `security` **0.1.2** 打包发市场（`market/packs/security-0.1.2.znp` · 69.3 KB · 整包 sha256 `ccd173b1…`）+ 索引重建。
+> vitest 1064 → **1067**（+3：两台设备各绑各的 / 解除只删本机 / 旧单段迁移；原有 7 条按设备改造）。
 
 > ## 📌 rev173.172（2026-10-26 · 安全插件 0.1.1 发市场）
 

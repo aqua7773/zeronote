@@ -24,15 +24,18 @@ import {
   createRing,
   createVault,
   decryptData,
+  deviceBinding,
   dropRing,
   encryptData,
   fromB64url,
   fromBytes,
   generateRecoveryCode,
   getRing,
+  migrateBiometrics,
   normalizeAnswer,
   normalizeCode,
   open,
+  otherDeviceCount,
   planAutoUnlock,
   putRing,
   recoverWithAnswer,
@@ -325,7 +328,7 @@ describe('小工具', () => {
  * 加密 → 解密 → 篡改被拒），Windows 是 hello_sign → HKDF → KEK。这里用**真的 XChaCha**
  * 做假适配器，而不是"交换字节"—— 篡改用例才能真的被 AEAD 拦住。
  */
-describe('生物识别绑定（适配器注入）', () => {
+describe('生物识别绑定（适配器注入 · rev173.173 起按设备）', () => {
   /** 假设备：一把随机 key + 真 AEAD；seal/open 必须用同一个实例 */
   const fakeDevice = (platform = 'test') => {
     const key = randomBytes(32)
@@ -340,39 +343,41 @@ describe('生物识别绑定（适配器注入）', () => {
     }
   }
 
-  it('绑定只加 biometric 段，主密码容器一个字节不动（纯函数）', async () => {
+  it('绑定只写本机那份，主密码容器一个字节不动（纯函数）', async () => {
     const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
-    const next = await bindBiometric(ring, dek, fakeDevice())
+    const next = await bindBiometric(ring, dek, fakeDevice(), 'dev-a')
     expect(next.wrapped).toEqual(ring.wrapped)
-    expect(next.biometric.platform).toBe('test')
-    expect(next.biometric.wrapped).toMatch(/^wrap\.zn1\./)
-    // 原对象没被改
-    expect(ring.biometric).toBeUndefined()
+    expect(next.biometrics['dev-a'].platform).toBe('test')
+    expect(next.biometrics['dev-a'].wrapped).toMatch(/^wrap\.zn1\./)
+    // 旧单段不再写；原对象没被改
+    expect(next.biometric).toBeUndefined()
+    expect(ring.biometrics).toBeUndefined()
   })
 
   it('能解出同一把 DEK（逐字节）', async () => {
     const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
     const device = fakeDevice()
-    const next = await bindBiometric(ring, dek, device)
-    const got = await unlockWithBiometric(next, device)
+    const next = await bindBiometric(ring, dek, device, 'dev-a')
+    const got = await unlockWithBiometric(next, device, 'dev-a')
     expect(Array.from(got)).toEqual(Array.from(dek))
   })
 
   it('换主密码后生物识别仍解出同一把 DEK（DEK 没变，只重包主密码那份）', async () => {
     const { ring, dek } = createRing(libs, 'secrets', '旧密码', { kdf: FAST })
     const device = fakeDevice()
-    const bound = await bindBiometric(ring, dek, device)
+    const bound = await bindBiometric(ring, dek, device, 'dev-a')
     const next = changePassword(libs, bound, '旧密码', '新密码')
-    expect(next.biometric).toEqual(bound.biometric)
-    expect(Array.from(await unlockWithBiometric(next, device))).toEqual(Array.from(dek))
+    expect(next.biometrics['dev-a']).toEqual(bound.biometrics['dev-a'])
+    expect(Array.from(await unlockWithBiometric(next, device, 'dev-a'))).toEqual(Array.from(dek))
   })
 
   it('解除绑定后没有 biometric 段，再用生物识别解锁必须抛错', async () => {
     const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
     const device = fakeDevice()
-    const next = unbindBiometric(await bindBiometric(ring, dek, device))
+    const next = unbindBiometric(await bindBiometric(ring, dek, device, 'dev-a'), 'dev-a')
+    expect(next.biometrics).toBeUndefined()
     expect(next.biometric).toBeUndefined()
-    await expect(unlockWithBiometric(next, device)).rejects.toThrow(/没有绑定生物识别/)
+    await expect(unlockWithBiometric(next, device, 'dev-a')).rejects.toThrow(/没有绑定生物识别/)
   })
 
   it('没有适配器时绑定 / 解锁都抛错（不静默降级）', async () => {
@@ -381,21 +386,27 @@ describe('生物识别绑定（适配器注入）', () => {
     // 没绑定 ⇒ 先报"没绑定"（比"没适配器"更贴近事实）
     await expect(unlockWithBiometric(ring, null)).rejects.toThrow(/没有绑定生物识别/)
     // 有绑定但没适配器 ⇒ 报"没有可用的生物识别"
-    await expect(unlockWithBiometric({ ...ring, biometric: { wrapped: 'x' } }, null)).rejects.toThrow(
-      /没有可用的生物识别/,
-    )
+    await expect(
+      unlockWithBiometric({ ...ring, biometrics: { local: { wrapped: 'x' } } }, null),
+    ).rejects.toThrow(/没有可用的生物识别/)
   })
 
   it('包裹被改一个字节 ⇒ AEAD 抛错（真机上是 AEADBadTagException）', async () => {
     const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
     const device = fakeDevice()
-    const next = await bindBiometric(ring, dek, device)
-    const w = next.biometric.wrapped
+    const next = await bindBiometric(ring, dek, device, 'dev-a')
+    const w = next.biometrics['dev-a'].wrapped
     const tampered = {
       ...next,
-      biometric: { ...next.biometric, wrapped: w.slice(0, -2) + (w.endsWith('AA') ? 'BB' : 'AA') },
+      biometrics: {
+        ...next.biometrics,
+        'dev-a': {
+          ...next.biometrics['dev-a'],
+          wrapped: w.slice(0, -2) + (w.endsWith('AA') ? 'BB' : 'AA'),
+        },
+      },
     }
-    await expect(unlockWithBiometric(tampered, device)).rejects.toThrow()
+    await expect(unlockWithBiometric(tampered, device, 'dev-a')).rejects.toThrow()
   })
 
   it('解出的密钥长度不对（适配器返回 16 字节）⇒ 拒绝，不交给上层当 DEK 用', async () => {
@@ -409,8 +420,53 @@ describe('生物识别绑定（适配器注入）', () => {
         return new Uint8Array(16)
       },
     }
-    const next = await bindBiometric(ring, dek, short)
-    await expect(unlockWithBiometric(next, short)).rejects.toThrow(/长度不对/)
+    const next = await bindBiometric(ring, dek, short, 'dev-a')
+    await expect(unlockWithBiometric(next, short, 'dev-a')).rejects.toThrow(/长度不对/)
+  })
+
+  it('两台设备各绑各的：都能解出同一把 DEK，跨设备开不开（rev173.173）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const devA = fakeDevice('android')
+    const devB = fakeDevice('windows')
+    const one = await bindBiometric(ring, dek, devA, 'dev-a')
+    const two = await bindBiometric(one, dek, devB, 'dev-b')
+    expect(Object.keys(two.biometrics).sort()).toEqual(['dev-a', 'dev-b'])
+    // 各自用自己那把能解
+    expect(Array.from(await unlockWithBiometric(two, devA, 'dev-a'))).toEqual(Array.from(dek))
+    expect(Array.from(await unlockWithBiometric(two, devB, 'dev-b'))).toEqual(Array.from(dek))
+    // 拿 B 的适配器去开 A 那份 ⇒ AEAD 拒（不同设备密钥不同）
+    await expect(unlockWithBiometric(two, devB, 'dev-a')).rejects.toThrow()
+    expect(deviceBinding(two, 'dev-a').platform).toBe('android')
+    expect(otherDeviceCount(two, 'dev-b')).toBe(1)
+  })
+
+  it('解除只删本机那份，别的设备仍能解（换机只失效那一台）', async () => {
+    const { ring, dek } = createRing(libs, 'secrets', 'pw', { kdf: FAST })
+    const devA = fakeDevice()
+    const devB = fakeDevice()
+    const both = await bindBiometric(await bindBiometric(ring, dek, devA, 'dev-a'), dek, devB, 'dev-b')
+    const cleared = unbindBiometric(both, 'dev-b')
+    expect(cleared.biometrics['dev-a']).toBeTruthy()
+    expect(cleared.biometrics['dev-b']).toBeUndefined()
+    await expect(unlockWithBiometric(cleared, devB, 'dev-b')).rejects.toThrow(/没有绑定生物识别/)
+    expect(Array.from(await unlockWithBiometric(cleared, devA, 'dev-a'))).toEqual(Array.from(dek))
+    expect(otherDeviceCount(cleared, 'dev-b')).toBe(1)
+  })
+
+  it('旧单段迁移：biometric → biometrics[<本机>]，别的环原样不动；没东西可迁返回 null', () => {
+    const legacy = {
+      rings: {
+        secrets: { id: 'secrets', biometric: { platform: 'android', wrapped: 'wrap.x', at: 1 }, wrapped: {} },
+        notes: { id: 'notes', wrapped: {} },
+      },
+    }
+    const next = migrateBiometrics(legacy, 'dev-a')
+    expect(next.rings.secrets.biometric).toBeUndefined()
+    expect(next.rings.secrets.biometrics['dev-a']).toEqual({ platform: 'android', wrapped: 'wrap.x', at: 1 })
+    expect(next.rings.notes).toBe(legacy.rings.notes)
+    // 已经迁过 / 本来就没有 ⇒ 不返回新对象（避免每次启动白写盘）
+    expect(migrateBiometrics(next, 'dev-a')).toBeNull()
+    expect(migrateBiometrics({ rings: {} }, 'dev-a')).toBeNull()
   })
 })
 

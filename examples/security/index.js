@@ -402,22 +402,78 @@ export function resetPasswordWithDek(libs, ring, dek, newPassword) {
  * 本层是纯函数：只依赖 seal/open 两个动作，单测注入假适配器即可，不需要真机。
  */
 
-/** 把 DEK 绑到当前设备的生物识别上（纯函数：返回新 ring） */
-export async function bindBiometric(ring, dek, adapter) {
+/** 把 DEK 绑到**这台设备**的生物识别上（纯函数：返回新 ring，别的设备那几份一个字节不动） */
+export async function bindBiometric(ring, dek, adapter, deviceId = 'local') {
   if (!adapter?.seal) throw new Error('这台设备没有可用的生物识别')
   if (!(dek instanceof Uint8Array) || dek.length !== 32) throw new Error('DEK 形状不对')
   const wrapped = await adapter.seal(new Uint8Array(dek), ring.id)
   if (typeof wrapped !== 'string' || !wrapped) throw new Error('生物识别没有返回包裹结果')
-  return { ...ring, biometric: { platform: adapter.platform, wrapped, at: Date.now() } }
+  const all = { ...(ring.biometrics ?? {}) }
+  all[deviceId] = { platform: adapter.platform, wrapped, at: Date.now() }
+  return { ...ring, biometrics: all }
+}
+
+/**
+ * 本机设备 id 存在**凭据管理器**里（`api.host.secrets`）—— 不随库同步、不进 vault.json。
+ * 丢了（清凭据 / 重装）只让这一台的绑定失效，别的设备不受影响。
+ */
+export const DEVICE_ID_ACCOUNT = 'zeronote.device.id'
+
+/**
+ * 读「这台设备那一份」绑定（纯函数）。
+ *
+ * 数据结构（`vault.json` 的 `rings.<id>`）：
+ * ```json
+ * { "biometrics": { "<deviceId>": { "platform": "windows", "wrapped": "hello1.…", "at": 123 } } }
+ * ```
+ * rev173.171 及以前是单段 `biometric`（没有设备维度）—— 由 `migrateBiometrics` 一次性迁到 `biometrics[<本机>]`。
+ */
+export function deviceBinding(ring, deviceId) {
+  const all = ring?.biometrics
+  if (!all || typeof all !== 'object') return null
+  const bound = all[deviceId]
+  return bound?.wrapped ? bound : null
+}
+
+/** 这台设备之外还有几台绑过（UI 提示用；纯函数） */
+export function otherDeviceCount(ring, deviceId) {
+  const all = ring?.biometrics
+  if (!all || typeof all !== 'object') return 0
+  return Object.entries(all).filter(([id, v]) => id !== deviceId && v?.wrapped).length
+}
+
+/**
+ * 把旧的单段 `biometric` 迁到 `biometrics[<本机>]`（纯函数；没东西可迁返回 `null`）。
+ *
+ * 迁移默认「旧段就是这台机器的」—— 单设备用户升级后指纹照常可用；真是换机过来的 vault，
+ * 解开时会报 AEAD 失败并提示重新绑定（与改造前同一条引导）。
+ */
+export function migrateBiometrics(vault, deviceId) {
+  const rings = vault?.rings
+  if (!rings) return null
+  let changed = false
+  const next = {}
+  for (const [id, ring] of Object.entries(rings)) {
+    if (ring?.biometric?.wrapped) {
+      const all = { ...(ring.biometrics ?? {}), [deviceId]: { ...ring.biometric } }
+      const copy = { ...ring, biometrics: all }
+      delete copy.biometric
+      next[id] = copy
+      changed = true
+    } else {
+      next[id] = ring
+    }
+  }
+  return changed ? { ...vault, rings: next } : null
 }
 
 /**
  * 用生物识别解出 DEK。失败**原样抛**：取消 / 换过指纹 / 密钥失效 是不同的语义，
  * 由适配器给错误码，UI 再翻成人话（不要在这里统一成"失败"）。
  */
-export async function unlockWithBiometric(ring, adapter) {
-  const bound = ring?.biometric
-  if (!bound?.wrapped) throw new Error('这个密钥环没有绑定生物识别')
+export async function unlockWithBiometric(ring, adapter, deviceId = 'local') {
+  const bound = deviceBinding(ring, deviceId)
+  if (!bound) throw new Error('这个密钥环没有绑定生物识别')
   if (!adapter?.open) throw new Error('这台设备没有可用的生物识别')
   const dek = await adapter.open(bound.wrapped, ring.id)
   if (!(dek instanceof Uint8Array) || dek.length !== 32) {
@@ -426,9 +482,14 @@ export async function unlockWithBiometric(ring, adapter) {
   return dek
 }
 
-/** 解除绑定（纯函数） */
-export function unbindBiometric(ring) {
+/** 解除**这台设备**的绑定（纯函数；别的设备那几份保留） */
+export function unbindBiometric(ring, deviceId = 'local') {
   const next = { ...(ring ?? {}) }
+  const all = { ...(next.biometrics ?? {}) }
+  delete all[deviceId]
+  if (Object.keys(all).length) next.biometrics = all
+  else delete next.biometrics
+  // 旧单段同源：既然用户在“解除本机绑定”，它也不该留着（迁移只会把它归给本机）
   delete next.biometric
   return next
 }
@@ -656,6 +717,24 @@ export function windowsHelloAdapter(invoke, libs) {
  * 但**不吞掉"有硬件没录指纹"**：status.isAvailable=false 时同样返回 null，
  * 用户去系统设置录一枚指纹后重新打开面板即可。
  */
+/**
+ * 本机设备 id（rev173.173）：生物识别绑定按设备存，本机 id 放**凭据管理器**（不随库同步）。
+ * 拿不到（老内核 / 凭据管理器不可用）⇒ 退回 `'local'`，行为等同改造前的单段。
+ */
+async function resolveDeviceId(api) {
+  try {
+    const saved = await api.host.secrets.get(DEVICE_ID_ACCOUNT)
+    if (saved) return String(saved)
+    const fresh =
+      globalThis.crypto?.randomUUID?.() ??
+      `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    await api.host.secrets.set(DEVICE_ID_ACCOUNT, fresh)
+    return fresh
+  } catch {
+    return 'local'
+  }
+}
+
 async function detectBiometric() {
   if (isAndroid()) {
     const invoke = tauriInvoke()
@@ -699,6 +778,8 @@ const store = {
   corrupt: false,
   /** 本机生物识别适配器（探测失败 = null，面板不显示入口） */
   biometric: null,
+  /** 本机设备 id（rev173.173：`biometrics` 按设备存；resolved 在 apply 里 —— 见 resolveDeviceId） */
+  deviceId: 'local',
 }
 
 /** 已解锁的环：ringId → { dek, lastActive }。DEK 只在这里和 crypto.js 之间流动 */
@@ -868,7 +949,7 @@ function scheduleAutoUnlock(api, ringId, reason) {
   cancelAutoUnlock()
   const ring = getRing(store.vault, ringId)
   const plan = planAutoUnlock({
-    hasBiometric: Boolean(ring?.biometric?.wrapped),
+    hasBiometric: Boolean(deviceBinding(ring, store.deviceId)),
     adapterReady: Boolean(store.biometric),
     unlocked: live.has(ringId),
     busy: Boolean(store.busy),
@@ -959,6 +1040,7 @@ export function panelNode(view) {
     recoveredPending = false,
     hasBiometric = false,
     biometricReady = false,
+    otherBiometrics = 0,
   } = view ?? {}
 
   const ring = getRing(vault, selected)
@@ -1030,10 +1112,21 @@ export function panelNode(view) {
         { type: 'text', value: `「${label}」已建立，输入主密码解锁`, variant: 'body' },
         ...(hasRecoveryCode ? [{ type: 'badge', text: '有恢复码' }] : []),
         ...(hasRecoveryQuestion ? [{ type: 'badge', text: '有恢复问题' }] : []),
-        ...(hasBiometric ? [{ type: 'badge', text: '已绑定指纹' }] : []),
+        ...(hasBiometric ? [{ type: 'badge', text: '本机已绑定' }] : []),
+        ...(!hasBiometric && otherBiometrics > 0
+          ? [{ type: 'badge', text: `别的 ${otherBiometrics} 台已绑定` }]
+          : []),
       ],
     })
     kids.push({ type: 'input', bind: B.pw1, placeholder: '主密码' })
+    if (!hasBiometric && otherBiometrics > 0) {
+      kids.push({
+        type: 'text',
+        value: `这台设备还没绑定生物识别（其他 ${otherBiometrics} 台设备已绑定，互不影响）—— 用主密码解锁后可在这里绑定。`,
+        variant: 'caption',
+        tone: 'muted',
+      })
+    }
     kids.push({
       type: 'row',
       align: 'center',
@@ -1078,9 +1171,12 @@ export function panelNode(view) {
         ...(biometricReady
           ? [
               hasBiometric
-                ? { type: 'button', label: '解除指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
-                : { type: 'button', label: '绑定指纹解锁', onClick: 'security.biometric-bind', variant: 'ghost' },
+                ? { type: 'button', label: '解除本机指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
+                : { type: 'button', label: '绑定本机指纹', onClick: 'security.biometric-bind', variant: 'ghost' },
             ]
+          : []),
+        ...(hasBiometric && otherBiometrics > 0
+          ? [{ type: 'text', value: `另有 ${otherBiometrics} 台设备绑过（解除只影响这台）`, variant: 'caption', tone: 'muted' }]
           : []),
       ],
     })
@@ -1129,8 +1225,10 @@ function panelView() {
     hasRecoveryQuestion: Boolean(ring?.recovery?.answerWrap),
     hasRecoveryCode: Boolean(ring?.recovery?.codeWrap),
     recoveredPending: recovered.has(store.selected),
-    hasBiometric: Boolean(ring?.biometric?.wrapped),
+    hasBiometric: Boolean(deviceBinding(ring, store.deviceId)),
     biometricReady: Boolean(store.biometric),
+    /** 别的设备绑过几份（本机没有时提示「别的设备已绑定」） */
+    otherBiometrics: otherDeviceCount(ring, store.deviceId),
   }
 }
 
@@ -1305,7 +1403,7 @@ async function doBiometricUnlock(api, opts = {}) {
   biometricInFlight = true
   if (auto) setStatus(api, '正在请求指纹…', 'info')
   try {
-    const dek = await unlockWithBiometric(ring, adapter)
+    const dek = await unlockWithBiometric(ring, adapter, store.deviceId)
     live.set(ringId, { dek, lastActive: Date.now() })
     api.event.emit('security:unlocked', { ringId })
     setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已用指纹解锁`, 'success')
@@ -1330,10 +1428,10 @@ async function doBiometricBind(api) {
   if (!s) return setStatus(api, '先解锁，再绑定指纹', 'warn')
   if (!adapter) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
   try {
-    const next = await bindBiometric(ring, s.dek, adapter)
+    const next = await bindBiometric(ring, s.dek, adapter, store.deviceId)
     store.vault = putRing(store.vault, next)
     await saveVault(api, store.vault)
-    setStatus(api, '已绑定 —— 之后锁定可直接用指纹解锁（主密码仍然有效）', 'success')
+    setStatus(api, '已绑定这台设备 —— 之后锁定可直接用指纹解锁（主密码仍然有效，别的设备不受影响）', 'success')
   } catch (e) {
     setStatus(api, `绑定失败：${biometricErrorMessage(e)}`, 'error')
   }
@@ -1342,11 +1440,11 @@ async function doBiometricBind(api) {
 async function doBiometricUnbind(api) {
   const ringId = store.selected
   const ring = getRing(store.vault, ringId)
-  if (!ring?.biometric) return setStatus(api, '这个环没有绑定指纹', 'warn')
+  if (!deviceBinding(ring, store.deviceId)) return setStatus(api, '这台设备没有绑定指纹', 'warn')
   try {
-    store.vault = putRing(store.vault, unbindBiometric(ring))
+    store.vault = putRing(store.vault, unbindBiometric(ring, store.deviceId))
     await saveVault(api, store.vault)
-    setStatus(api, '已解除指纹绑定（主密码不受影响）', 'success')
+    setStatus(api, '已解除这台设备的指纹绑定（主密码与别的设备不受影响）', 'success')
   } catch (e) {
     setStatus(api, `解除失败：${String(e?.message ?? e)}`, 'error')
   }
@@ -1391,6 +1489,18 @@ export default {
   async apply(api) {
     store.vault = await loadVault(api)
     store.loaded = true
+    // 设备 id（rev173.173）：生物识别按设备存，本机 id 在凭据管理器里（不随库同步）
+    store.deviceId = await resolveDeviceId(api)
+    // 旧的单段 biometric → biometrics[<本机>]（一次性；别的环原样不动）
+    const migrated = migrateBiometrics(store.vault, store.deviceId)
+    if (migrated && !store.corrupt) {
+      try {
+        await saveVault(api, migrated)
+        store.vault = migrated
+      } catch (e) {
+        api.host.log('warn', `[security] 生物识别按设备迁移没落盘：${String(e?.message ?? e)}`)
+      }
+    }
     // 生物识别探测（Android 官方插件 / Windows hello_*）：失败静默，面板只是不显示入口
     store.biometric = await detectBiometric()
 

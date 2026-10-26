@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-26（rev173.172）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-26（rev173.173）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留 0.5.0 周期；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.172 · 0.5.0 · 2026-10-26 |
-| 测试基线 | vitest 1064 · cargo 52 · oxlint 3 warnings（2026-10-26） |
+| rev / 版本 | rev173.173 · 0.5.0 · 2026-10-26 |
+| 测试基线 | vitest 1067 · cargo 52 · oxlint 3 warnings（2026-10-26） |
 | 插件 | 内置 13 · 示例 39 |
 | 文档 | README 现状 2026-10-26 · CHANGELOG 0.5.0 |
 <!-- FACTS:END -->
@@ -38,7 +38,8 @@ pwsh -File scripts\verify.ps1
 > 手机实测 812 ms，比桌面快 0.8×）→ 手机走查（166：**10 项全过**）→ Windows Hello 可行性验证（167）→
 > **Android 指纹解锁（168）** → **Windows Hello 解锁（169：手写 winmd 里的带窗口 interop，`hello1.<challenge>.<zn1…>` 包裹，桌面走通 绑定 → 锁定 → 解锁）** →
 > **锁定后自动弹生物识别（171：桌面失焦挂起、手机看可见性；桌面点回窗口 600 ms 弹 Hello、手机空闲锁后自动弹指纹并解锁、取消给中性提示）** →
-> **`security` 0.1.1 发市场（172：版本 bump + 签名 keyId `aqua-2026` + 索引重建 + 本地安装实测；旧 0.1.0 用户需等提示或手动重装）**。
+> **`security` 0.1.1 发市场（172：版本 bump + 签名 keyId `aqua-2026` + 索引重建 + 本地安装实测；旧 0.1.0 用户需等提示或手动重装）** →
+> **生物识别按设备（173：`biometrics[<deviceId>]` + 本机 id 在凭据管理器 + 旧单段自动迁移；换机只失效那一台。`security` 0.1.2 发市场）**。
 > 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
 > ⚠️ 五条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）·
 > **Windows Hello 签名必须有窗口**（无 HWND 挂死；已用 `IKeyCredentialWithWindow` 解决）·
@@ -46,10 +47,9 @@ pwsh -File scripts\verify.ps1
 > **Hello 是受保护的系统 UI**（171 实测：合成键鼠 / `Esc` / UIA / `FindWindow` 都触达不到）⇒ 自动弹只在窗口前台时发生，
 > 一旦弹了就得真人按指纹或取消；点取消 ⇒ 面板给中性提示「已取消 —— 输入主密码，或点「用指纹解锁」」（实测）。
 > **下一步**：
-> ① `biometric` 段做成按设备（换机只失效那一台）·
-> ② 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
-> ③ 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
-> ④ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
+> ① 插件数涨到几十个时换 CDN / 自建源（raw 偶发连不上 + 按 IP 限流，见 rev173.151）·
+> ② 第一个外部作者投稿时按 `market/README.md` 的「审 PR」走（`--online` 出材料）·
+> ③ 卡点表前三行要外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本）。
 > 公开仓库配套**已齐**：topics 14 个、CI 缓存、`CONTRIBUTING.md`、issue/PR 模板、审查材料生成器。
 
 > 完整候选池（含成本与做法）在 `docs/ROADMAP.md` §3。这里只列**卡点**。
