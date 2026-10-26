@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.173
-更新时间: 2026-10-26 · 最新 rev173.173
+revision: 173.174
+更新时间: 2026-10-26 · 最新 rev173.174
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.173
 
 | rev | 内容 |
 |---|---|
+| rev173.174 | 2026-10-26 · **发版 0.6.0**（用户「发版」）：0.5.0 之后 **57 个提交**（rev173.137–173）一次收成版本号。两条主线 —— **安全 / 密码库**（新插件 `security` 双密钥环 + `secrets` 整库加密 + Android 指纹 / Windows Hello + 锁定后自动弹 + 生物识别按设备）与**插件市场闭环**（签名 v2 / 打包签名索引 / 应用内「发现」/ 公钥内置 / 开源 MIT / 包走 raw 分发 / 第二批 UX）。**CHANGELOG 补全**是这次的主要工作量：原 `[Unreleased]` 只记了「自动弹」与「按设备」，**两个插件本体没进 CHANGELOG** ⇒ 补上 `security` / `secrets` / Android 指纹 / Windows Hello / KDF 定档五条主线（约 130 行），`[Unreleased]` → `[0.6.0]`，应用版本表加行；README 现状行同步 rev173.174 · 0.6.0 并补安全段门面描述（之前完全没提密码库）。`package.json` / `tauri.conf.json` / `Cargo.toml` + `Cargo.lock` → **0.6.0**。**踩坑**：用 `Set-Content` 拼接 CHANGELOG 会整文件写成 CRLF（仓库是 LF）⇒ 用 `[System.IO.File]::ReadAllText` + 正则换 `\n` 再写，否则 diff 里全是行尾噪音。verify 六步全绿 · tag `v0.6.0` 已推 |
 | rev173.173 | 2026-10-26 · **生物识别按设备（`biometrics` 字典）**：`vault.json` 从单段 `rings.<id>.biometric` 改成 `rings.<id>.biometrics[<deviceId>]` —— **换机只失效那一台**，别的设备绑定不受影响；本机 id 存**凭据管理器**（`host.secrets` → `secret_*` → Windows 凭据管理器 / Android Keystore，**不随库同步**），拿不到时退回 `'local'`（等同旧行为）。旧单段由 `migrateBiometrics` 在 `apply()` 一次性迁到 `biometrics[<本机>]` 并落盘（默认「旧段就是这台机器」⇒ 原机升级后照常用指纹；真换机过来的 vault 会 AEAD 失败并提示重绑，同旧引导，但**不再覆盖**原机器的绑定）。UI：badge「本机已绑定」/「别的 N 台已绑定」+ 未绑定时一句 caption；按钮改「绑定本机指纹 / 解除本机指纹」，解除只删当前设备。**实测**（`_tmp-vault-tb` · 0.1.2 市场包）：迁移后 `vault.json` 出现 `biometrics["16c9a8a9-…"]`、旧 `biometric` 消失；把 `secret_set zeronote.device.id` 改成假 id 再 reload ⇒ 面板「别的 1 台已绑定」+ **没有**指纹按钮（旧版会显示、点了才报 AEAD）；切回原 id ⇒ 「本机已绑定」+ 按钮回来，点它 Hello 正常弹出。按指纹也已实测（用户真人操作，见 171 的受保护 UI 说明）：面板「「账号密码」已用指纹解锁」、1 把已解锁 ⇒ **迁移过来的旧包裹在新结构下解出同一把 DEK**；**手机端同样通过**（`33b676f6` 装 0.1.2 → 迁移 → 「本机已绑定」→ 按指纹「已用指纹解锁」）。vitest 1064 → **1067** · 打包 **0.1.2** 发市场 |
 | rev173.172 | 2026-10-26 · **安全插件 0.1.1 发市场（含锁定后自动弹）**：`examples/security/manifest.json` 0.1.0 → **0.1.1**（同版本内容不同的话，已装用户收不到更新提示）→ `pack-plugin.mjs security --key <私钥> **--key-id aqua-2026**` → `gen-market.mjs --write`（官方 15 条 · security@0.1.1 · 64.3 KB · 整包 sha256 `30829bc3…`）。⚠️ **坑**：不给 `--key-id` 会签成 `default`，而内置信任根只有 `aqua-2026` ⇒ 发出去装完加载时**验签失败被拒载**（第一次就打错了，已重打）。**实测安装**：本地 `http.server 8931` + CDP `install_znp_from_url`（expectedSha256 对上）⇒ 返回 `security`，落盘 index.js 62029 / manifest version 0.1.1+入口 sha256 / signature.json keyId `aqua-2026` → reload ⇒ 插件正常加载、面板可开（验签通过）· 旧包 0.1.0 按惯例保留 |
 | rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` / `FindWindow` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作 ⇒ **改请用户真人点「取消」验证**：面板显示「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在。⚠️ **手机端也已实测**（`33b676f6` · 换新 `index.js` 后）：空闲 60 s 自动锁 ⇒ **自动拉起指纹界面** ⇒ 按指纹后「已用指纹解锁」；手动锁定 1.5 s 内面板「正在请求指纹…」；指纹界面返回 ⇒ 中性提示「已取消 —— …」。vitest 1059 → **1064** · verify 六步全绿 |

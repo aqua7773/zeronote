@@ -1,6 +1,6 @@
 # Changelog
 
-> 状态：**active** ｜最后核对：2026-10-25（0.5.0）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
+> 状态：**active** ｜最后核对：2026-10-26（0.6.0）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
 
 ## 应用版本（app version · rev173.37 起）
 
@@ -10,130 +10,167 @@
 
 | 版本 | 日期 | 内容 |
 |---|---|---|
+| 0.6.0 | 2026-10-26 | **安全 / 密码库**：新插件 `security`（双密钥环 · XChaCha20-Poly1305 + Argon2id · AAD 绑定）与 `secrets`（整库加密 · 生成器 · 60 s 清剪贴板 · 空闲自锁）· **Android 指纹 + Windows Hello 解锁** · 锁定后自动弹 · 生物识别按设备 · `input.secret` 密码框 · 同步放行 `.zn/secrets/` · **插件市场闭环**：签名 v2 / 应用内「发现」/ 公钥内置 / 仓库开源 MIT / 包走 raw · CI 修绿 |
 | 0.5.0 | 2026-10-25 | **同步四个后端全部真机落地**（本地文件夹 / WebDAV / S3 / Git · 附件三模式 · 三方合并）· 条件写与冲突自愈 · **反向链接全库持久索引** · `note:saved` / `note:created` 带正文 · `net` 空 body 请求头修复 |
 | 0.4.0 | 2026-10-24 | A 档 4 个插件（标签 / 反向链接 / 历史版本 / 打卡）· 面板体系（阅读器 / 导图 / 文档多标签）· 白屏兜底 · 插件真签名与能力审计 · 手机原生剪贴板与长按四键 · 记账收尾 |
 | 0.3.0 | 2026-10-20 | 多标签页 + 标签拆独立窗口 · 会话恢复（hot exit）· 主窗口位置记忆 · 粘贴图片 · 搜索筛选 · 全局替换 · 桌面时间流面板 · Markdown 语法增强（脚注 / Mermaid / 定义列表 / HTML 白名单）· 记账 v0.2 |
 | 0.2.0 | 2026-10-19 | 第一个正式版本：内核 10 原语 + 插件体系（5 个预装）· 桌面 / Android · 桌面时间流面板 · 全局自绘滚动条 · Markdown 语法增强（上标 / 下标 / Emoji / KaTeX 数学） |
 
-## [Unreleased]
+## [0.6.0] - 2026-10-26（rev173.137 – rev173.174）
+
+> 0.5.0（2026-10-25）之后的 **57 个提交**。两条主线：
+> **① 安全 / 密码库**（rev173.159–173）—— 新插件 `security`（双密钥环 · XChaCha20-Poly1305 · Argon2id）
+> 与 `secrets`（整库加密的密码库），外加两平台生物识别解锁（Android 指纹 / Windows Hello）与「锁定后自动弹」；
+> **② 插件市场闭环**（rev173.140–158）—— 签名 v2 · 打包 / 索引 / 原子安装 · 应用内「发现」tab · 公钥内置 ·
+> 仓库开源（MIT）· 包入库走 raw 分发 · 第二批 UX（详情页 / 更新角标 / 启动 24h 检查）。
+> 另有 CI 从「一直是红的」修到全绿、HANDOFF 分卷（890 KB → 63 KB）与发版收口。
+>
+> ⚠️ 两个新插件**不预装**，从插件市场装（索引 15 条）：`security` 当前 **0.1.2**、`secrets` **0.1.0**。
+> `secrets` 对 `security` 是**软依赖** —— 拿不到 `crypto` 服务时降级提示「先去市场装安全插件」，不崩不阻塞。
+> ⚠️ 共用同一把密钥库的设备都要把 `security` 升到 **≥ 0.1.2**（0.1.2 迁移删掉了旧单段 `biometric`，
+> ≤ 0.1.1 读新结构会静默认为「没绑定」）。
 
 ### Added
 
-- **锁定后自动弹生物识别**（rev173.171 · 需求 §13）：`security` 插件在 `lockRing` 之后自动发起一次
-  Hello / 指纹请求 —— 以前两平台都只能手动点「用指纹解锁」。判据抽成纯函数
-  `planAutoUnlock` / `shouldWaitForFocus`：**桌面窗口失焦时挂起**（Windows Hello 弹在受保护的
-  系统 UI 上，实测合成键鼠 / `Esc` / UIA 都触达不到，弹出来等于挡住用户正在做的事 —— 这和「该不该
-  打扰」是同一个判断），等用户点回窗口的 `focus` 再弹；手机只看可见性（WebView 没有真实键焦点、
-  切后台时 CPU 冻结，回到前台补弹）。`reason: 'service'`（别的插件程序性锁定）/ 已解锁 /
-  正在派生密钥 / 用户已在输主密码都不弹；自动弹被取消只给中性提示（面板本来就有「用指纹解锁」
-  + 主密码框兜底）。锁定同时清掉主密码输入框。市场同步发 `security` **0.1.1**（rev173.172）。vitest 1059 → **1064**。
-
+- **安全插件 `security` v0.1 · 双密钥环**（rev173.160 · 需求 §13）：新增 `examples/security/`（单文件，
+  纯函数全部命名导出）。`notes` / `secrets` 两个环**各一把主密码、各一个 salt、各一把 DEK，互不派生**
+  （用户拍板：账户密码要「绝对安全」）。加密 = **XChaCha20-Poly1305**、KDF = **Argon2id**
+  （noble 库**本地副本** `public/vendor/noble/`，13 文件 202 KB，`scripts/vendor-noble.mjs` 按 import 图精确复制
+  —— 插件宿主的 ESM 相对 import 不可用，核心内联进 `index.js`）。**AAD 绑定** `环|容器|用途`：
+  跨环 / 跨容器 / 跨用途的密文一律解不开（有反向测试）。**不存 password verifier** —— 解锁 = 解包裹，
+  AEAD 认证通过即密码对；换密码与恢复**只重包裹 DEK**，数据密文一个字节不动。`vault.json` 损坏 ⇒
+  拒写不覆盖。对外 `service.provide('crypto')` **只给操作、不给密钥**。单测 25 条。
+- **密码库插件 `secrets` · 整库加密**（rev173.163）：新增 `examples/secrets/`（约 1300 行），消费 `security`
+  的 `crypto` 服务。**整库单文件密文** `.zn/secrets/secrets.zn`（`zn1.<nonce>.<ct>`，AAD `secrets|secrets`）。
+  平台 / 账号两级（空平台也显示）· 搜索只搜平台 / 账号 / 备注（**不搜密码**，反向验证过）· 生成的密码
+  **16 位**（大小写 + 数字，排除 `0/O/1/l/I`，三类各保证一个，Fisher–Yates 洗牌）· 显示密码
+  **15 秒自动收起** · 复制密码 **60 秒清剪贴板**（只在内容仍是它时才清）· 回收站软删 **7 天**
+  （剩 N 天 + 恢复 / 彻底删除）· **空闲 60 秒自动锁**（时间戳判定，不依赖定时器 —— Android 后台冻结
+  也补得住）。vitest 1002 → **1029**；CDP 实测 12 项全过；实测抓到两个真 bug（列表项包装塞进
+  `stack.children` ⇒ 整段 JSON 摊在界面上 / 过滤掉无账号平台 ⇒ 新建平台后列表空）。
+- **Android 指纹解锁**（rev173.168）：`tauri-plugin-biometric 2.5.0`（**仅 android target**）+
+  `#[cfg(target_os = "android")]` 注册 + capability `android-biometric.json`；`security` 面板加「绑定 /
+  指纹解锁 / 解除」三入口。主密码那份 `wrapped` 不动，换密码与恢复重设都保留生物识别段。真机走通
+  「主密码解锁 → 绑定 → 空闲自动锁 → 指纹解锁」。同轮修掉 **debug 包被看门狗 5 秒误杀**（Android 进程
+  拿不到 `ZN_WATCHDOG=off` ⇒ 改 debug 默认不启动）。vitest 1046 → **1056**。
+- **Windows Hello 解锁**（rev173.169）：新增 `hello_available` / `hello_enroll` / `hello_sign` 三个内核命令。
+  `windows` crate 0.62 **没有带窗口的接口**，而 `RequestSignAsync` 无 HWND 会**挂死**（rev173.167 实测
+  90 秒无返回）⇒ 手写 `IKeyCredentialManagerCreateWithWindowStatics` / `IKeyCredentialWithWindow` 的
+  vtable（IID 从系统 `Windows.Security.winmd` 解析）。包裹格式 `hello1.<challenge>.<zn1…>`：签名
+  （PKCS#1 v1.5，确定性）→ HKDF → KEK → XChaCha 包 DEK。桌面实测「探测 → 绑定 → 锁定 → Hello 解锁」。
+- **锁定后自动弹生物识别**（rev173.171）：`security` 在 `lockRing` 之后自动发起一次 Hello / 指纹请求 ——
+  以前两平台都只能手动点「用指纹解锁」。判据抽成纯函数 `planAutoUnlock` / `shouldWaitForFocus`：
+  **桌面窗口失焦时挂起**（Hello 弹在受保护的系统 UI 上，实测合成键鼠 / `Esc` / UIA 都触达不到，弹出来
+  等于挡住用户正在做的事），等用户点回窗口的 `focus` 再弹；手机只看可见性（WebView 没有真实键焦点、
+  切后台时 CPU 冻结，回到前台补弹）。`reason: 'service'` / 已解锁 / 正在派生密钥 / 用户已在输主密码
+  都不弹；自动弹被取消只给中性提示（面板本来就有「用指纹解锁」+ 主密码框兜底）。锁定时清主密码输入框。
+  市场同步发 `security` **0.1.1**（rev173.172）。vitest 1059 → **1064**。
 - **生物识别绑定改成「按设备」**（rev173.173）：`vault.json` 的 `rings.<id>.biometrics[<deviceId>]`
   —— 同一把密钥环在多台设备各绑各的，**换机只失效那一台**。本机 id 存在**凭据管理器**
   （`host.secrets` → Windows 凭据管理器 / Android Keystore；不随库同步、不进 `vault.json`）。
-  旧的单段 `biometric` 在加载时一次性迁到 `biometrics[<本机>]`（原机升级后照常用指纹）。
-  面板：本机已绑 → 「本机已绑定」；只有别的设备绑过 → 「别的 N 台已绑定」且**不显示**指纹按钮
-  （旧版会显示、点了才报 AEAD）。vitest 1064 → **1067**；`security` **0.1.2** 发市场。
-
+  旧的单段 `biometric` 在加载时一次性迁到 `biometrics[<本机>]`（原机升级后照常用指纹；真换机过来的
+  vault 会 AEAD 失败并提示重绑，且**不再覆盖**原机器的绑定）。面板：本机已绑 → 「本机已绑定」；
+  只有别的设备绑过 → 「别的 N 台已绑定」且**不显示**指纹按钮（旧版会显示、点了才报 AEAD）。
+  vitest 1064 → **1067**；`security` **0.1.2** 发市场。
 - **`input` 节点支持密码框**（rev173.163）：声明 `{ type: 'input', secret: true }` 时宿主渲染成
-  `type="password"`（+ `autoComplete="off"`），回显为圆点。为 `secrets` 密码库插件而加 ——
-  在此之前 `input` 硬编码 `type="text"`，密码只能明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。
-  **UINode 仍是 21 种**：只加可选字段，老插件一个都不用改；`state[bind]` 里仍是明文（遮的是显示，不是内存）。
-
+  `type="password"`（+ `autoComplete="off"`），回显为圆点。在此之前 `input` 硬编码 `type="text"`，
+  密码只能明文摊在屏幕上（违背需求 §8.6「密码默认隐藏」）。**UINode 仍是 21 种**：只加可选字段，
+  老插件一个都不用改；`state[bind]` 里仍是明文（遮的是显示，不是内存）。
 - **同步放行密码库（`.zn/secrets/`）**（rev173.164）：三个网络后端（`sync-webdav` / `sync-s3` / `sync-git`）
   各加一个**私有文件**同步阶段，按固定清单搬 `.zn/secrets/secrets.zn`（整库密文）与
   `.zn/security/vault.json`（KDF salt + 被主密码包裹的 DEK）—— **后者少了另一台拿到密文也解不开**。
   远端 manifest 新增 `private` 段（`304` 短路径照走）。方向靠 baseline 判断；**双端都变 ⇒ 留副本不合并**
   （密文拼不起来），本机版进 `.zn/conflicts/<平台>/`、本地取远端版；任何一步失败只写 hint，不拖累笔记同步。
   `sync-folder` 不搬文件，改成**放行规则 + 密码库冲突单独报警**（`.stignore`：`.zn/*` 后加
-  `!.zn/secrets` `!.zn/security`）。⚠️ 已知局限：`vault.json` 目前整文件同步，做私密文件夹时要按环拆。
-
-### Changed
-
-- **插件页统一：设置里也能进市场**（rev173.152）：设置 → 插件 与 菜单 → 插件管理 **复用同一个
-  `PluginPanel`** —— 之前设置页那段只是漏传了市场通道，所以看不到「发现」tab。现在把
-  `onMarketInstall` 透传下去，两处的 tab、列表、安装确认框、坏条目提示全是一份代码。
-  **修了一个加 tab 后暴露的布局问题**：设置 Dialog 里的插件区没有高度约束 ⇒ 13 条市场列表把
-  窗口撑到屏幕外、底部看不到（实测 dialog 1080 px、列表 1037 px 且不内滚）。
-  给插件区 `h-[min(62vh,520px)]` + 内部 `min-h-0 flex-1` 后，Dialog 回到正常尺寸、列表在自己区域里滚。
-  vitest 949 → **951**（新增 2 条：不传通道不显示 tab / 传了显示「已安装 N · 发现」）。
-
-- **开源（MIT）+ 插件包入库走 raw 分发**（rev173.149 / rev173.150）：
-  仓库已 public（`gh repo edit --visibility public`），补了 `LICENSE`（MIT —— `Cargo.toml` 早就声明
-  `license = "MIT"`，缺文件）与 README 顶部免责（插件与内核**同权限运行**、内核无沙箱，
-  「装谁的插件」就是全部安全边界；数据自行备份）。公开前做了泄漏审计：全量扫 801 个跟踪文件 +
-  **全部历史**，无私钥 / token / `ghp_` 模式；历史里只有两个无害测试探针。
-  **开源当天实测发现的市场致命问题**：`raw.githubusercontent.com` 直连可用（693 ms），
-  但 `github.com:443`（Release 下载域名）直连**连不上** ⇒ 索引能拉、包下不来 =「能看不能装」。
-  处置：13 个包（573 KB）放进 `market/packs/` **入库**，索引 url 改走 raw（索引与包同一域名）。
-  `gen-market.mjs` 新增校验：**包必须在 `market/packs/` 且 sha256 与条目一致**；
-  `pack-plugin.mjs` 默认输出改 `market/packs/` + raw url；`verify-trust.mjs` 默认验入库那份（12/12 签名包通过）。
-
-### Added
-
-- **插件市场第二批 UX**（rev173.156 · 详情页 / 更新角标 / 启动 24h 节流检查）：
-  ① **详情页** —— 「发现」每条加「详情」（不触发下载）：描述 / 分类平台 / 大小 / 接口版本 /
-  **能力自述** / 已装版本 / 下载地址 / sha256 / 包内文件数。能力来自**索引新增字段 `capabilities`**
-  （`pack-plugin.mjs` 从 manifest 带出，13 个包重跑打包 + `gen-market --write`）—— 装之前就知道它要什么；
-  中文说法在 `src/lib/capability-label.ts`（**未知取值原样露出**，`fs` / `host` / `event` 老写法也译）。
-  ② **可更新角标** —— 「已安装」tab 计数旁 `↑ N`（只数真装着的）+ 行内 `↑ 可更新 vX`；装完立刻摘缓存。
-  ③ **启动 24 小时节流检查** —— `shouldCheckUpdates` / `computeUpdates` 纯函数 + localStorage
-  （`at` + `updates`），延迟 4 秒发、**失败静默且不写 `at`**；设置 → 插件 → 「启动时检查更新」开关（默认开）。
-  **只标角标，不下载不安装**（这条不变）。
-  ⚠️ 实测抓到：effect 依赖 `rows` 数组引用 ⇒ 4 秒定时器被每次重渲染重置、**检查永不发生**（单测看不出来），
-  改成依赖 `rows.length` + `rowsRef` 取值后一次写入。vitest 951 → **977**。
-
+  `!.zn/secrets` `!.zn/security`）。新增 15 条单测。⚠️ 已知局限：`vault.json` 目前整文件同步，
+  做私密文件夹时要按环拆。
 - **插件市场阶段 1：应用内「发现」tab**（rev173.148 · 能装、能升、装不坏）：插件管理页的第二个 tab，
   列表来自 `market/index.json`（静态 JSON，不需要服务端）。装一条 = 下载 → **整包 sha256** → 解包，
   三个动作在 Rust 的 `install_znp_from_url` 里**一次完成** ——「校验的字节」就是「落盘的字节」，
   任一步失败**不落盘**。索引地址可改（默认本仓库 raw；private 仓库会明确报「匿名拉不到」而不是
-  给一个空市场），记在 localStorage。索引里的坏条目**跳过并列出原因**（一条脏数据不让整页空白）。
-  **没有静默升级**：启动不检查、后台不下载，只有用户点了才动（插件能读任意文件，换代码必须让人看见）。
+  给一个空市场），记在 localStorage。索引里的坏条目**跳过并列出原因**。**没有静默升级**：启动不检查、
+  后台不下载，只有用户点了才动（插件能读任意文件，换代码必须让人看见）。
   新增 `src/kernel/market.ts`（解析 / 状态判定 / 拉取）+ `src/components/MarketPane.tsx`；
-  内核命令 33 → **34**；`sha2` 新依赖（已在依赖树里，不增加编译量）。
-  Rust 49 → **52**（URL 白名单含 `http://127.0.0.1.evil.com` 前缀混淆 / 正常安装 / sha 不符不落盘）；
-  vitest 932 → **949**（market 11 + MarketPane 6）。
-  **实测**（桌面 dev + 本机静态服务）：索引 14 条渲染 → 装 demo 0.1.0（磁盘出现 manifest + index.js）→
-  索引升到 0.1.1 ⇒ 列表显示「↑ 更新 0.1.1」→ 更新成功且加载无错 →
-  **把索引里的 sha256 改成 0 再点更新 ⇒ 报「校验失败…不安装」，磁盘版本仍是 0.1.1**（端到端的失败不落盘）。
+  内核命令 33 → **34**。Rust 49 → **52**；vitest 932 → **949**。
+- **内置官方签名公钥**（rev173.146 · 契约 §7.4）：`verify_plugin_signature` 的信任根从「只读
+  `<应用数据目录>/.zn/trusted-keys.json`」改成 **内置 `BUILTIN_TRUSTED_KEYS`（`aqua-2026`）∪ 用户那份文件**。
+  旧行为在新装机器 / 换电脑上必然失败 —— 那个文件不存在 ⇒ 官方插件全部拒载，而预装 13 个里 12 个是
+  签名包。合并规则：文件不存在 = 只有内置（**正常状态**）· 同 `keyId` 用户那条**覆盖**内置（轮换 / 撤销）·
+  其它追加（外部作者公钥）· 文件存在但读不懂 = **报错不静默跳过**。Rust 测试 43 → **49**。
+  新增 `scripts/verify-trust.mjs`：**从 `lib.rs` 解析**内置常量（不另抄一份），与私钥逐字节对账
+  + 用内置公钥验「新装机器的宿主能不能加载这些包」。
+- **插件市场第二批 UX**（rev173.156 · 详情页 / 更新角标 / 启动 24h 节流检查）：
+  ① **详情页** —— 「发现」每条加「详情」（不触发下载）：描述 / 分类平台 / 大小 / 接口版本 /
+  **能力自述** / 已装版本 / 下载地址 / sha256 / 包内文件数。能力来自**索引新增字段 `capabilities`**
+  （`pack-plugin.mjs` 从 manifest 带出）—— 装之前就知道它要什么；中文说法在
+  `src/lib/capability-label.ts`（**未知取值原样露出**，`fs` / `host` / `event` 老写法也译）。
+  ② **可更新角标** —— 「已安装」tab 计数旁 `↑ N`（只数真装着的）+ 行内 `↑ 可更新 vX`；装完立刻摘缓存。
+  ③ **启动 24 小时节流检查** —— `shouldCheckUpdates` / `computeUpdates` 纯函数 + localStorage
+  （`at` + `updates`），延迟 4 秒发、**失败静默且不写 `at`**；设置 → 插件 → 「启动时检查更新」开关（默认开）。
+  **只标角标，不下载不安装**（这条不变）。⚠️ 实测抓到：effect 依赖 `rows` 数组引用 ⇒ 4 秒定时器被每次
+  重渲染重置、**检查永不发生**（单测看不出来），改成依赖 `rows.length` + `rowsRef` 取值。
+  vitest 951 → **977**。
 
-- **内置官方签名公钥**（rev173.146 · 契约 §7.4）：`verify_plugin_signature` 的信任根从
-  「只读 `<应用数据目录>/.zn/trusted-keys.json`」改成 **内置 `BUILTIN_TRUSTED_KEYS`（`aqua-2026`）
-  ∪ 用户那份文件**。旧行为在新装机器 / 换电脑上必然失败 —— 那个文件不存在 ⇒ 官方插件全部拒载，
-  而预装 13 个里 12 个是签名包。合并规则：文件不存在 = 只有内置（**正常状态**）·
-  同 `keyId` 用户那条**覆盖**内置（轮换 / 撤销）· 其它追加（外部作者公钥）·
-  文件存在但读不懂 = **报错不静默跳过**（硬约束 4）。
-  Rust 测试 43 → 48（内置常量合法 / 载荷·keyId·签名三种判据 / 缺失回落 / 追加 / 覆盖 / 坏 JSON 三形状）。
-  新增 `scripts/verify-trust.mjs`：**从 `lib.rs` 解析**内置常量（不另抄一份），
-  与私钥逐字节对账 + 用内置公钥验 `dist/` 里每个 `.znp` ⇒ 12/12 已签名包通过
-  （等价于「新装机器的宿主能不能加载这 13 个包」）。
+### Changed
+
+- **Argon2id 参数定档 t=3 / m=64 MiB**（rev173.165）：方案原估算「手机 1–4× 慢、t=3 要 2–4 s」——
+  真机（Redmi peridot · 0.5.0 dev 包 · Android WebView V8）页面内直跑三档各 3 次取中位数：
+  **t=2/19 MiB 165 ms · t=3/64 MiB 812 ms · t=1/128 MiB 574 ms**，手机比桌面 Node 还快约 0.8×
+  （桌面 212 / 993 / 682 ms）⇒ **估算推翻，默认档不降**（留的降档条件是「手机 > 5 s」）。
+  首次解锁 ≈ **0.93 s**、之后 ≈ **0.81 s**。新增**锁测试**（两个环的 kdf 必须是 `t=3, m=65536, p=1`
+  且不能是同一个对象）+ 反向验证（把 m 改成 19456 ⇒ 立刻红）。
+- **开源（MIT）+ 插件包入库走 raw 分发**（rev173.149 / rev173.150）：仓库已 public（`gh repo edit
+  --visibility public`），补 `LICENSE`（MIT —— `Cargo.toml` 早就声明、缺文件）与 README 顶部免责
+  （插件与内核**同权限运行**、内核无沙箱，「装谁的插件」就是全部安全边界；数据自行备份）。
+  公开前做了泄漏审计：全量扫 801 个跟踪文件 + **全部历史**，无私钥 / token / `ghp_` 模式。
+  **开源当天实测发现的市场致命问题**：`raw.githubusercontent.com` 直连可用（693 ms），但
+  `github.com:443`（Release 下载域名）直连**连不上** ⇒ 索引能拉、包下不来 =「能看不能装」。
+  处置：15 个包放进 `market/packs/` **入库**，索引 url 改走 raw（索引与包同一域名）。
+  `gen-market.mjs` 新增校验：**包必须在 `market/packs/` 且 sha256 与条目一致**；
+  `pack-plugin.mjs` 默认输出改 `market/packs/` + raw url。
+- **插件页统一：设置里也能进市场**（rev173.152）：设置 → 插件 与 菜单 → 插件管理 **复用同一个
+  `PluginPanel`** —— 之前设置页那段只是漏传了市场通道，所以看不到「发现」tab。**修了一个加 tab 后
+  暴露的布局问题**：设置 Dialog 里的插件区没有高度约束 ⇒ 市场列表把窗口撑到屏幕外（实测 dialog
+  1080 px、列表 1037 px 且不内滚）。给插件区 `h-[min(62vh,520px)]` + 内部 `min-h-0 flex-1` 后
+  Dialog 回到正常尺寸、列表在自己区域里滚。vitest 949 → **951**。
+- **HANDOFF 分卷 + ROADMAP 收口**（rev173.139）：主文件只留 0.5.0 周期（14 段 / 63 KB），
+  275 段按版本切进 `docs/archive/handoff/`（`scripts/handoff-archive.mjs`，可复用 / 幂等 / `--dry-run`）；
+  HANDOFF-CARD 从 540 行瘦到 84 行。**副产物**：归档被 check-links 递归扫到，暴露一处伪链接（已修）。
+- **文档状态复核 + 发版 0.5.0**（rev173.137）：`docs/README.md` 权威矩阵 4 行 + 4 份文档状态头按代码 /
+  提交复核；**`D-002`「不做云同步」仍标 accepted 而同步四后端已真机验收** ⇒ 新增 **`D-009`** 取代
+  （自带后端 · 凭据走钥匙串 · 前台近实时 · 三方合并 · 仍不做账号 / 服务端 / E2E），`D-002` 正文加
+  ⚠️ 更正块；`D-006` → superseded。
 
 ### Fixed
 
+- **CI 一直是红的（2026-10-25 之前每个 run 都 failure）**（rev173.154）：根因是 `localeCompare`
+  **不传 locale**（3 处：`src/kernel/index-api.ts` 的 `tags()`、`examples/tag-panel` 的 `sortTags`、
+  `examples/backlinks` 的 `matchRefs`）—— 本机 zh-CN 排出「工作 · 会议 · 项目」，GitHub runner 的
+  en-US 按 code point 排成「会议 · 工作 · 项目」⇒ `tests/tag-panel.test.ts` 必然红。三处显式传 `'zh'`。
+  同轮把 CI 里逐条 gate 改成 `node scripts/check-gates.mjs`（此前 CI **漏了** facts 与 market 两项门）；
+  `facts.mjs --check` 修一个 CI 死结（测试基线只存在本机 ⇒ 无基线时忽略该行比较）。
+  **rev173.155 首次确认全绿**（15 步 · 4m45s）；**rev173.157 起有 Rust 缓存**（`Swatinem/rust-cache@v2`）：
+  命中时整 run **2m33s**、Cargo 步骤 **41s**（未命中 5m17s）。
 - **rev173.154 打的两个 0.2.1 包会被拒载**（rev173.156 修）：那次打包漏了 `--key-id`，`pack-plugin.mjs`
   默认把 `signature.json` 的 keyId 写成 **`default`** —— 签名本身完全有效、sha256 也对，但客户端
   `BUILTIN_TRUSTED_KEYS` 只认 `aqua-2026` ⇒ **装得上、加载时拒载**（换台机器才看得见）。
-  已用 `--key-id aqua-2026` 重签 `tag-panel` / `backlinks` 0.2.1（`verify-trust.mjs` 用内置公钥验 14/15，
-  1 个纯样式无签名）。`gen-market.mjs` 加第 ⑤ 条门：**官方包的 `signature.json.keyId` 必须等于 `aqua-2026`**
-  —— 反向验证：不带 `--key-id` 重打一个包 ⇒ 门报「keyId 是 default，应为 aqua-2026」，恢复即绿。
-
+  已用 `--key-id aqua-2026` 重签 `tag-panel` / `backlinks` 0.2.1。`gen-market.mjs` 加第 ⑤ 条门：
+  **官方包的 `signature.json.keyId` 必须等于 `aqua-2026`** —— 反向验证：不带 `--key-id` 重打一个包
+  ⇒ 门报「keyId 是 default，应为 aqua-2026」，恢复即绿。
+  ⚠️ 同一个坑在 **rev173.172** 又踩了一次（`security` 0.1.1 第一次也签成 `default`），已重打。
 - **内置插件启动时不再覆盖市场装的版本**（rev173.147 · 插件市场的前置修复）：`ensureBuiltinPlugins`
   以前「内容不同就写」⇒ ① 从市场装的官方插件新版，重启后被内置版（应用编译时的快照）盖回去；
-  ② 更糟的是覆盖后目录里残留的 `signature.json` 与新内容对不上 ⇒ 插件从「旧版能跑」变成**拒载**，
-  不是简单回退。新规则（**先比内容，一致时零额外 invoke**）：目录里有 `signature.json` ⇒ 一个字节都不写
-  （签名渠道装的东西归签名渠道管）· 已装 `manifest.version` 比内置新 ⇒ 跳过 · 其余（首装 / 内置更新 /
-  同版本内容不同）照旧覆盖。返回对象加 `skipped: [{ pluginId, reason: 'signed' | 'newer' }]` 便于排障。
+  ② 更糟的是覆盖后目录里残留的 `signature.json` 与新内容对不上 ⇒ 插件从「旧版能跑」变成**拒载**。
+  新规则（**先比内容，一致时零额外 invoke**）：目录里有 `signature.json` ⇒ 一个字节都不写（签名渠道
+  装的东西归签名渠道管）· 已装 `manifest.version` 比内置新 ⇒ 跳过 · 其余（首装 / 内置更新 /
+  同版本内容不同）照旧覆盖。返回对象加 `skipped: [{ pluginId, reason: 'signed' | 'newer' }]`。
   新增 `compareVersions`（数字段按数值比 —— 字符串比较会把 `1.10.0` 判成小于 `1.9.0`）。
-  vitest 926 → **932**（4 条不覆盖 + 2 条版本比较）。**反向验证**：判据 `> 0` 改 `>= 0`
-  ⇒ 「同版本内容不同」那条立即红，恢复即绿。
-
-- **改名改引用会改坏代码块里的语法示例**（rev173.138 · 用户要求）：`rename_note` 的
-  `rewrite_links` 是纯字面替换 —— 笔记里贴的 `[[旧名]]` 示例（写在 fenced code / 行内代码里）
-  会被一起改掉，而目标只是正文里的真实引用。改用**状态机**（`replace_outside_code`，不是正则）
-  逐行切 fenced / 行内 / 正文，只对正文段替换。同时补**改前备份**：原文写到
-  `<库>/.zn/link-rewrite/<毫秒>/<原相对路径>`，`prune_rewrite_backups` 只留最近 20 次
-  （`history` 只在关闭笔记时存快照，救不了「刚改完就发现改错」）。
-  Rust 单测 40 → **41**（fenced 不动 / 行内不动 / 备份内容 = 改前原文）。
+  vitest 926 → **932**。反向验证：判据 `> 0` 改 `>= 0` ⇒ 「同版本内容不同」那条立即红。
+- **改名改引用会改坏代码块里的语法示例**（rev173.138）：`rename_note` 的 `rewrite_links` 是纯字面替换
+  —— 笔记里贴的 `[[旧名]]` 示例（写在 fenced code / 行内代码里）会被一起改掉。改用**状态机**
+  （`replace_outside_code`，不是正则）逐行切 fenced / 行内 / 正文，只对正文段替换。同时补**改前备份**：
+  原文写到 `<库>/.zn/link-rewrite/<毫秒>/<原相对路径>`，`prune_rewrite_backups` 只留最近 20 次。
+  Rust 单测 40 → **41**。
 
 ## [0.5.0] - 2026-10-25（rev173.125 – rev173.136）
 
