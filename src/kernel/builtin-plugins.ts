@@ -95,6 +95,11 @@ function builtinVersion(plugin: BuiltinPlugin): string | undefined {
   }
 }
 
+// backup（备份 + 恢复，rev173.178）—— 数据安全地基，**预装**而不是走市场：
+// 用户还没装任何东西时，就该有一份能救命的快照
+import backupIndex from '../../examples/backup/index.js?raw'
+import backupManifest from '../../examples/backup/manifest.json?raw'
+
 export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   {
     id: 'outline-map',
@@ -146,6 +151,8 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
     id: 'sync-git',
     files: { 'index.js': syncGitIndex, 'manifest.json': syncGitManifest },
   },
+  // rev173.178：备份（本地整库备份 + 恢复）—— 数据安全地基，预装而非走市场
+  { id: 'backup', files: { 'index.js': backupIndex, 'manifest.json': backupManifest } },
 ]
 
 /**
