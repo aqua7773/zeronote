@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.192
-更新时间: 2026-10-27 · 最新 rev173.192
+revision: 173.193
+更新时间: 2026-10-27 · 最新 rev173.193
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.192
 
 | rev | 内容 |
 |---|---|
+| rev173.193 | 2026-10-27 · **域名对照测试（12 个 · 手机 rustls 实测）**（用户「还有别的域名吗，多测几个」）：**`raw.githubusercontent.com` 6/6 失败**（每次都是 `Connection reset by peer`）· **稳定可用**：`gcore.jsdelivr.net` / `testingcf.jsdelivr.net`（索引 `16764` b64 = 12571 B 正确、包 `49704` b64 = 37278 B 正确，各 2 次全过）· `ghproxy.net`（内容正确）· `api.github.com` / `github.com` 200 · `objects.githubusercontent.com` 404（连上了）· `unpkg.com` 200 · **间歇**：`cdn.jsdelivr.net` / `fastly.jsdelivr.net`（先 1 次 RST，后重测 200）· **不可用**：`gist.githubusercontent.com` 超时 · `raw.gitmirror.com` / `hub.gitmirror.com` / `kkgithub.com` RST · `cdn.statically.io` / `ghfast.top` 超时 · `ghps.cc` 200 但只 508 字节（非真内容）。⇒ **jsDelivr 是最可行的替代源**（`gcore` / `testingcf` 节点 4/4 稳定，内容与 raw 逐字节一致）。未改代码 |
 | rev173.192 | 2026-10-27 · **查「手机 Rust 连不上 raw.githubusercontent.com」的根因**（用户「查」）：先给 `net_request` 的错误补上**错误源链**（沿 `std::error::Error::source` 逐层拼 `←`）—— reqwest 的 Display 只有「error sending request」，真因全在 source 里。拿到：**`← client error (Connect) ← Connection reset by peer (os error 104)`** ⇒ **TCP/TLS 被 RST**，不是证书 / DNS / 超时。**对照组（同一台手机 · 同一份代码 · `net_request` 实测）**：`api.github.com` **200** · `github.com` **200** · `objects.githubusercontent.com` **404**（连上了，只是路径不存在）· **`raw.githubusercontent.com` 100% 失败** ⇒ raw 是**域名级针对性干扰**，不是 Fastly 网段、也不是 ZeroNote 的缺陷。两条旁证：① 桌面同一份代码连 raw **200**（桌面 native-tls / 手机 rustls+webpki-roots）② `toybox nc` 到 raw 的 IPv4 与 IPv6:443 **都能建连**（rc=0）⇒ RST 发生在 **TLS 阶段**，不是 TCP 建连。⚠️ 也测了 jsDelivr（`cdn.` / `fastly.`）：**首次 200、随后同样 RST** ⇒ 换镜像也不稳。**未修**（要不要给市场加「备用源 / 可选源」，等用户定）。改动只有错误信息（`net.rs` 一处），无行为变化 |
 | rev173.191 | 2026-10-27 · **手机端市场走查（备份插件）**（用户「走一遍」）：① **手机 app 已被 `android-dev` 自动重编重装** —— `versionName` 仍 0.5.0，但 `lastUpdateTime` = 00:36:41（改 `lib.rs` 触发，java 进程 00:32:07 起）⇒ 手机 Rust 是**最新代码**，顺带验了 rev173.190；② **手机 Rust 连不上 `raw.githubusercontent.com`**（「连不上服务器 … error sending request」），但**同一 URL 的 WebView `fetch` 成功**（11690 B）· ping 通（108 ms）⇒ 平台/TLS 层差异，**未查根因**；③ 绕过：本地 http 源（`adb reverse tcp:8934` + 临时索引把每条 url 改成 `http://127.0.0.1:8934`，手机端 `install_znp_from_url` 走明文回环）；④ **5 条全过**：市场 UI 16 条含备份 · `OK:backup` 落盘（`index.js` 34698 · `signature.json` keyId `aqua-2026`）· **`store.json` 的 `interval=1w` 保留**（rev173.190 在 Android 生效）· reload 后「**备份 v0.3.1 已签名**」正常加载 · 面板「自动备份：每周」→ 立即备份 ⇒ **6/30 · 36 篇 5 文件夹 · 含密码库密文 · 1316 ms**；⑤ 清理：store 恢复 `1d`、localStorage 清、reverse 移除、临时索引目录删、8934 停（另清了 `8933` / `8934` 两个 10-25 僵尸 `http.server`，它们是本期 socket hang up 的源头）。无代码改动 |
 | rev173.190 | 2026-10-27 · **修「市场安装清掉插件 `store.json`」**（rev173.189 顺带发现，用户「修」）：根因在 `install_pack` 的整目录交换 —— 旧目录整个 `remove_dir_all`，而 `store.json` 是**用户数据**（备份档位 / 打卡计数 / 主题），不是代码。修法：交换成功、**删旧目录之前** `keep_plugin_store(&prev, &dir)` 把旧 `store.json` 拷进新目录；**包内自带同名文件时以包为准**（上游刻意给的初始值 / 换存储格式）；**拷贝失败只 `eprintln`、不中断安装**（store 丢 = 设置回默认，中断安装 = 插件没了，后者更重）。顺带抽出常量 `PLUGIN_STORE_FILE`，`plugin_store_read/write` 与安装共用同一个名字。**测试** `install_znp_keeps_store_json`（升级后 store 原样）+ `install_znp_pack_store_wins`（反向：包内优先）· cargo 53 → **55**，全绿。**真机**：把全局 `backup` 的 `store.json` 改成 `interval=1w` → 页面调 `install_znp` 装同一份 0.3.1 包 ⇒ `store.json` 内容与 **mtime 00:33:09 都不变**、`index.js/manifest/signature` mtime 变 00:34:16（说明整目录真换了）→ reload 后面板「**自动备份：每周 · 上次 10-27 00:26 · 下次 11-03 00:26**」。⚠️ 环境：`8931/8933` 被残留 `python -m http.server` 占着（8931 是本次自己起的、已清；**8933 是 2026-10-25 的历史残留 pid 30832，未动**）⇒ 这两端口别再当测试床 |
@@ -87,6 +88,42 @@ revision: 173.192
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.193（2026-10-27 · 域名对照测试：12 个里只有 raw 全灭，jsDelivr 稳定）
+
+> 用户「还有别的域名吗，多测几个」。方法：手机页面 `net_request` 逐个打（rustls + webpki-roots，与市场 / 安装同一条链路），每个 7–8 s 超时，看**状态码 + body 长度**（长度能验内容对不对，不只是「连上了」）。
+
+> ### 结果
+
+> | 域名 | 结果 |
+> |---|---|
+> | **raw.githubusercontent.com** | ❌ **6/6 RST**（`Connection reset by peer`） |
+> | gcore.jsdelivr.net | ✅ 索引 `16764` b64 · 包 `49704` b64（各 2 次全过） |
+> | testingcf.jsdelivr.net | ✅ 同上（各 2 次全过） |
+> | ghproxy.net | ✅ 200 · `16764`（内容正确） |
+> | api.github.com | ✅ 200 |
+> | github.com | ✅ 200 |
+> | objects.githubusercontent.com | ✅ 404（连上了，只是路径不存在） |
+> | github.githubassets.com | ✅ 200 |
+> | unpkg.com | ✅ 200 |
+> | cdn.jsdelivr.net / fastly.jsdelivr.net | ⚠️ 间歇（先 1 次 RST，后重测 200） |
+> | gist.githubusercontent.com | ❌ 超时 |
+> | raw.gitmirror.com / hub.gitmirror.com / kkgithub.com | ❌ RST |
+> | cdn.statically.io / ghfast.top | ❌ 超时 |
+> | ghps.cc | ⚠️ 200 但只有 508 字节（返回的不是索引） |
+
+> ### 为什么一定要看长度
+
+> `b64=16764` ⇒ 原始 `12571` B = 本地 `market/index.json`；`49704` ⇒ `37278` B = `backup-0.3.1.znp`。
+> **只看 200 会被 `ghps.cc` 骗**（200 但 508 字节，是个错误页）。
+
+> ### 结论
+
+> 1. **raw 是唯一稳定全灭的域名** —— 不是 GitHub、也不是 Fastly 网段的问题。
+> 2. **jsDelivr 的 `gcore` / `testingcf` 节点稳定且内容逐字节一致** ⇒ 最现实的替代源。
+> 3. `ghproxy.net` 可作备用。
+
+> **未改代码**（换源涉及产品形态，等用户定）。verify 六步全绿。
 
 > ## 📌 rev173.192（2026-10-27 · 查「手机连不上 raw.githubusercontent.com」：是 RST，不是证书）
 
