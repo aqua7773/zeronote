@@ -49,6 +49,36 @@ const SECRET_FILES = [
   { from: '.zn/security/vault.json', to: '_secret/vault.json' },
 ]
 
+/**
+ * 自动备份档位（需求 §14.1 的九个固定档）。**默认每天**（需求写死）。
+ *
+ * 「每月」按 30 天算而不是日历月 —— 备份间隔不需要对齐日历，反而日历月会让
+ * 「下次什么时候」变得难解释；30 天与需求「每月」的意图一致。
+ */
+const INTERVALS = [
+  { value: '1h', label: '每小时', ms: 3600e3 },
+  { value: '3h', label: '每 3 小时', ms: 3 * 3600e3 },
+  { value: '6h', label: '每 6 小时', ms: 6 * 3600e3 },
+  { value: '12h', label: '每 12 小时', ms: 12 * 3600e3 },
+  { value: '1d', label: '每天', ms: 86400e3 },
+  { value: '2d', label: '每 2 天', ms: 2 * 86400e3 },
+  { value: '3d', label: '每 3 天', ms: 3 * 86400e3 },
+  { value: '1w', label: '每周', ms: 7 * 86400e3 },
+  { value: '1mo', label: '每月', ms: 30 * 86400e3 },
+]
+/** 需求 §14.1：默认每天 */
+const DEFAULT_INTERVAL = '1d'
+/**
+ * 检查周期：每 60 秒看一眼「到期没有」。
+ *
+ * 为什么不直接按档位设一个长定时器：**页面关掉定时器就没了**（没有后台服务，
+ * 契约也没有定时原语）。60 秒轮询 + 启动时补做，才能在「关机一夜后重开」时
+ * 立刻补一份，而不是又等一整天。
+ */
+const TICK_MS = 60_000
+/** 自动备份配置的 store 键（`{ interval, lastAt }`） */
+const CONFIG_KEY = 'backup:config'
+
 /* ───────────────────────── 纯函数（tests/backup.test.ts 单测） ───────────────────────── */
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -126,8 +156,7 @@ export function parseIndex(text) {
 }
 
 /** 清单 → 面板行 */
-export function toRows(items) {
-  return (Array.isArray(items) ? items : []).map((it) => ({
+export function toRows(items) {  return (Array.isArray(items) ? items : []).map((it) => ({
     name: String(it?.name ?? ''),
     label: formatName(it?.name),
     notes: Number(it?.notes) || 0,
@@ -138,6 +167,80 @@ export function toRows(items) {
   }))
 }
 
+/* ── 自动备份档位（rev173.176） ── */
+
+/** 档位 → 毫秒；未知值回落默认档（防 store 里存了旧档位 / 手工改坏） */
+export function intervalMs(value) {
+  const hit = INTERVALS.find((i) => i.value === value)
+  return hit ? hit.ms : INTERVALS.find((i) => i.value === DEFAULT_INTERVAL).ms
+}
+
+/** 档位 → 人话；未知值给默认档的说法 */
+export function intervalLabel(value) {
+  const hit = INTERVALS.find((i) => i.value === value)
+  return hit ? hit.label : INTERVALS.find((i) => i.value === DEFAULT_INTERVAL).label
+}
+
+/**
+ * 该不该备份了。
+ *
+ * 三条判据（都有单测）：
+ *   · **从没备份过**（`lastAt = 0`）⇒ 立刻备 —— 新库 / 刚装插件时不该等一整天；
+ *   · `now - lastAt >= 档位` ⇒ 到期；
+ *   · 其余 ⇒ 不到期。反向验证过：把 `>=` 改成 `>` 会让「正好到期」那条例红。
+ */
+export function isDue(lastAt, value, now = Date.now()) {
+  const last = Number(lastAt) || 0
+  if (!last) return true
+  return Number(now) - last >= intervalMs(value)
+}
+
+/** 下次到期的时间戳（从没备过 ⇒ 0，表示「立刻」） */
+export function dueAt(lastAt, value) {
+  const last = Number(lastAt) || 0
+  return last ? last + intervalMs(value) : 0
+}
+
+const pad2 = (n) => String(n).padStart(2, '0')
+/** 时间戳 → `MM-DD HH:mm`（面板 caption 用；跨年时带上年份） */
+export function stamp(ms, now = Date.now()) {
+  const t = Number(ms)
+  if (!Number.isFinite(t) || t <= 0) return '—'
+  const d = new Date(t)
+  const sameYear = new Date(now).getFullYear() === d.getFullYear()
+  const md = `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  return sameYear ? `${md} ${hm}` : `${d.getFullYear()}-${md} ${hm}`
+}
+
+/**
+ * 面板上那行「自动备份」的说法。三种状态各有各的信息量：
+ * 从没备过 / 已到期待补 / 正常（上次 + 下次）。
+ */
+export function dueText(lastAt, value, now = Date.now()) {
+  const last = Number(lastAt) || 0
+  if (!last) return `自动备份：${intervalLabel(value)} · 还没备份过，下一轮检查会立刻补一份`
+  if (isDue(last, value, now)) {
+    return `自动备份：${intervalLabel(value)} · 上次 ${stamp(last, now)} · 已到期，马上补一份`
+  }
+  return `自动备份：${intervalLabel(value)} · 上次 ${stamp(last, now)} · 下次 ${stamp(dueAt(last, value), now)}`
+}
+
+/**
+ * select 的选项顺序：**当前档位排第一**。
+ *
+ * 为什么要这个 hack：`select` 的值来自宿主 `ctx.state[bind]`，插件**没有**直接写它的接口；
+ * 首次渲染时 state 为空 ⇒ 浏览器选中第一项。把当前档位放第一项，画面就与真实配置一致
+ * （否则明明设的是「每周」，控件却显示「每小时」）。用户选过之后 state 有值，按 value 匹配即可。
+ */
+export function selectOptions(value) {
+  const cur = INTERVALS.find((i) => i.value === value) ?? INTERVALS.find((i) => i.value === DEFAULT_INTERVAL)
+  return [cur, ...INTERVALS.filter((i) => i.value !== cur.value)].map((i) => ({
+    value: i.value,
+    label: i.label,
+  }))
+}
+
 /**
  * 面板视图（纯数据，UINode）。
  *
@@ -145,7 +248,14 @@ export function toRows(items) {
  * （硬约束 4：静默失效比报错危险）。
  */
 export function panelNode(view) {
-  const { rows = [], status = '', running = false, broken = false } = view ?? {}
+  const {
+    rows = [],
+    status = '',
+    running = false,
+    broken = false,
+    interval = DEFAULT_INTERVAL,
+    lastAt = 0,
+  } = view ?? {}
   return {
     type: 'stack',
     gap: 'md',
@@ -169,6 +279,22 @@ export function panelNode(view) {
       ...(status
         ? [{ type: 'text', value: status, variant: 'caption', tone: running ? 'muted' : 'default' }]
         : []),
+      {
+        type: 'row',
+        align: 'center',
+        wrap: true,
+        gap: 'sm',
+        children: [
+          { type: 'text', value: '自动备份', variant: 'caption' },
+          {
+            type: 'select',
+            bind: 'backup.interval',
+            options: selectOptions(interval),
+            onSubmit: 'backup.set-interval',
+          },
+        ],
+      },
+      { type: 'text', value: dueText(lastAt, interval), variant: 'caption', tone: 'muted' },
       { type: 'divider' },
       {
         type: 'list',
@@ -217,6 +343,10 @@ export default {
     let status = ''
     let running = false
     let broken = false
+    /** 自动备份配置（rev173.176）：档位 + 上次成功备份的时间戳 */
+    let config = { interval: DEFAULT_INTERVAL, lastAt: 0 }
+    /** 60 秒轮询的句柄（卸载时清掉） */
+    let ticker = 0
     /** 串行闸门：连点「立即备份」不该起两个并发拷贝（同一秒同名会互相覆盖） */
     let busy = false
 
@@ -227,7 +357,7 @@ export default {
         id: PANEL_ID,
         title: '备份',
         location: 'main',
-        render: () => panelNode({ rows, status, running, broken }),
+        render: () => panelNode({ rows, status, running, broken, interval: config.interval, lastAt: config.lastAt }),
       }),
     )
 
@@ -254,6 +384,51 @@ export default {
         INDEX_PATH,
         JSON.stringify({ version: INDEX_VERSION, items }, null, 2),
       )
+    }
+
+    /* ── 自动备份配置（rev173.176） ── */
+
+    /** 读配置；读不到 / 坏值一律回落默认（默认每天、从未备份 ⇒ 启动就补一份） */
+    async function loadConfig() {
+      try {
+        const raw = await api.store.get(CONFIG_KEY, null)
+        const interval = String(raw?.interval ?? DEFAULT_INTERVAL)
+        config = {
+          interval: INTERVALS.some((i) => i.value === interval) ? interval : DEFAULT_INTERVAL,
+          lastAt: Number(raw?.lastAt) || 0,
+        }
+      } catch {
+        config = { interval: DEFAULT_INTERVAL, lastAt: 0 }
+      }
+    }
+
+    async function saveConfig(patch) {
+      config = { ...config, ...patch }
+      try {
+        await api.store.set(CONFIG_KEY, config)
+      } catch (e) {
+        // store 写失败不该让备份本身失败：内存里仍是新值，面板照实显示
+        status = `保存自动备份配置失败：${String(e)}`
+      }
+    }
+
+    /** 每轮检查：到期就备一份。`busy` 挡住手动备份期间的并发 */
+    async function tick() {
+      if (busy) return
+      if (!isDue(config.lastAt, config.interval)) return
+      // 空库不备 —— 否则新装的应用每次启动都塞一份空备份进列表
+      try {
+        const notes = await api.fs.listNotes()
+        const dirs = await api.fs.listDirs()
+        if (notes.length === 0 && dirs.length === 0) {
+          status = '库是空的，跳过自动备份'
+          refresh()
+          return
+        }
+      } catch {
+        /* 列不出来就照常尝试备份，让真正的错误在备份里暴露 */
+      }
+      await runBackup('auto')
     }
 
     /** 清单 + 真实目录对齐：手动删掉过目录的条目剔除掉，免得点「删除」才报错 */
@@ -332,6 +507,8 @@ export default {
         const staleNames = new Set(stale.map((s) => s.name))
         const finalItems = next.filter((it) => !staleNames.has(it.name))
         await saveIndex(finalItems)
+        // 手动也算「刚备过」：否则点完「立即备份」，60 秒后自动备份又立刻来一份
+        await saveConfig({ lastAt: Date.now() })
         broken = false
         rows = toRows(finalItems)
         if (!String(status).startsWith('旧备份')) {
@@ -397,7 +574,22 @@ export default {
     /**
      * 打开面板。`core.panel.<id>` 由内核为每个面板注册，但要等插件加载后的下一次 React 提交
      * 才存在 ⇒ 冷启动先重试几次（doc-reader / tag-panel 同样做法）。
-     */
+     */    api.subscriptions.push(
+      api.command.register({
+        id: 'backup.set-interval',
+        title: '备份：设置自动备份档位',
+        run: async (payload) => {
+          const next = String(payload?.value ?? '').trim()
+          if (!INTERVALS.some((i) => i.value === next)) return
+          await saveConfig({ interval: next })
+          status = `自动备份改为：${intervalLabel(next)}`
+          refresh()
+          // 改成更短的档位后可能立刻到期 —— 马上看一眼，不必等下一轮 60 秒
+          void tick()
+        },
+      }),
+    )
+
     api.subscriptions.push(
       api.command.register({
         id: 'backup.open',
@@ -416,7 +608,24 @@ export default {
       }),
     )
 
-    // 启动就把清单读出来（面板打开即有内容；不在这里自动备份 —— 定时是下一 rev）
-    void reloadRows()
+    /**
+     * 启动序列（rev173.176）：先读配置与清单，再**立刻补一次**到期检查 ——
+     * 页面关掉期间定时器不存在，错过的那次靠这里补上，而不是又等一个整档位。
+     * 之后每 60 秒看一眼。
+     */
+    void (async () => {
+      await loadConfig()
+      await reloadRows()
+      void tick()
+      ticker = setInterval(() => {
+        void tick()
+      }, TICK_MS)
+      api.subscriptions.push({
+        dispose: () => {
+          if (ticker) clearInterval(ticker)
+          ticker = 0
+        },
+      })
+    })()
   },
 }

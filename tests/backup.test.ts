@@ -10,11 +10,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import plugin, {
   backupName,
+  dueAt,
+  dueText,
   formatName,
   formatSize,
+  intervalLabel,
+  intervalMs,
+  isDue,
   panelNode,
   parseIndex,
   pickStale,
+  selectOptions,
   toRows,
 } from '../examples/backup/index.js'
 
@@ -123,6 +129,58 @@ describe('toRows / formatSize', () => {
   })
 })
 
+describe('自动备份档位（rev173.176）', () => {
+  const HOUR = 3600e3
+  const DAY = 86400e3
+
+  it('九个档位、默认每天', () => {
+    expect(intervalMs('1h')).toBe(HOUR)
+    expect(intervalMs('1d')).toBe(DAY)
+    expect(intervalMs('1mo')).toBe(30 * DAY)
+    expect(intervalLabel('1d')).toBe('每天')
+  })
+
+  it('未知档位回落默认（store 里存了旧值 / 手工改坏）', () => {
+    expect(intervalMs('7m')).toBe(DAY)
+    expect(intervalMs(undefined)).toBe(DAY)
+    expect(intervalLabel('乱写')).toBe('每天')
+  })
+
+  it('从没备份过 ⇒ 立刻到期', () => {
+    expect(isDue(0, '1d', 1000)).toBe(true)
+    expect(isDue(null, '1d', 1000)).toBe(true)
+  })
+
+  it('正好到期（边界用 >=，不是 >）', () => {
+    const last = 1_000_000
+    expect(isDue(last, '1d', last + DAY)).toBe(true)
+    expect(isDue(last, '1d', last + DAY - 1)).toBe(false)
+  })
+
+  it('dueAt：没备过给 0（表示立刻），备过按档位加', () => {
+    expect(dueAt(0, '1d')).toBe(0)
+    expect(dueAt(1000, '1h')).toBe(1000 + HOUR)
+  })
+
+  it('selectOptions 把当前档位排第一（宿主 state 为空时落到它）', () => {
+    const opts = selectOptions('1w')
+    expect(opts[0].value).toBe('1w')
+    expect(opts).toHaveLength(9)
+    expect(new Set(opts.map((o) => o.value)).size).toBe(9)
+    // 非法值回落默认档，且仍排第一
+    expect(selectOptions('乱写')[0].value).toBe('1d')
+  })
+
+  it('dueText 三种状态', () => {
+    const now = new Date(2026, 9, 26, 12, 0, 0).getTime()
+    expect(dueText(0, '1d', now)).toContain('还没备份过')
+    expect(dueText(now - DAY - 1, '1d', now)).toContain('已到期')
+    const normal = dueText(now - HOUR, '1d', now)
+    expect(normal).toContain('上次')
+    expect(normal).toContain('下次')
+  })
+})
+
 describe('panelNode', () => {
   it('空态：没备过 vs 清单坏了 文案不同', () => {
     const fresh = JSON.stringify(panelNode({ rows: [] }))
@@ -150,61 +208,82 @@ describe('panelNode', () => {
 })
 
 describe('接线', () => {
-  function makeApi() {
+  function makeApi({ notes = [] as unknown[], files = [] as unknown[], dirs = [] as unknown[] } = {}) {
     const commands = new Map()
     const panels = []
-    return {
-      api: {
-        subscriptions: [],
-        fs: {
-          exists: vi.fn(async () => false),
-          readText: vi.fn(async () => ''),
-          writeText: vi.fn(async () => {}),
-          readBytes: vi.fn(async () => new Uint8Array()),
-          writeBytes: vi.fn(async () => {}),
-          listFiles: vi.fn(async () => []),
-          listDirs: vi.fn(async () => []),
-          listNotes: vi.fn(async () => []),
-          copy: vi.fn(async () => {}),
-          mkdir: vi.fn(async () => {}),
-          purgeBackup: vi.fn(async () => {}),
-        },
-        view: {
-          registerPanel: vi.fn((p) => {
-            panels.push(p)
-            return () => {}
-          }),
-          refresh: vi.fn(),
-        },
-        command: {
-          register: vi.fn((c) => {
-            commands.set(c.id, c)
-            return () => {}
-          }),
-          execute: vi.fn(async () => {}),
-        },
-        host: { notify: vi.fn(), platform: 'desktop' },
+    const api = {
+      subscriptions: [] as { dispose?: () => void }[],
+      fs: {
+        exists: vi.fn(async () => false),
+        readText: vi.fn(async () => ''),
+        writeText: vi.fn(async () => {}),
+        readBytes: vi.fn(async () => new Uint8Array()),
+        writeBytes: vi.fn(async () => {}),
+        listFiles: vi.fn(async () => files),
+        listDirs: vi.fn(async () => dirs),
+        listNotes: vi.fn(async () => notes),
+        copy: vi.fn(async () => {}),
+        mkdir: vi.fn(async () => {}),
+        purgeBackup: vi.fn(async () => {}),
       },
-      commands,
-      panels,
+      store: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => {}),
+      },
+      view: {
+        registerPanel: vi.fn((p) => {
+          panels.push(p)
+          return { dispose: () => {} }
+        }),
+        refresh: vi.fn(),
+      },
+      command: {
+        register: vi.fn((c) => {
+          commands.set(c.id, c)
+          return { dispose: () => {} }
+        }),
+        execute: vi.fn(async () => {}),
+      },
+      host: { notify: vi.fn(), platform: 'desktop' },
     }
+    const disposeAll = () => {
+      for (const d of api.subscriptions) d?.dispose?.()
+    }
+    return { api, commands, panels, disposeAll }
   }
 
   it('面板注册在主区，命令齐', () => {
-    const { api, commands, panels } = makeApi()
+    const { api, commands, panels, disposeAll } = makeApi()
     plugin.apply(/** @type {any} */ (api))
     expect(panels).toHaveLength(1)
     expect(panels[0]).toMatchObject({ id: 'backup.board', location: 'main' })
-    for (const id of ['backup.run', 'backup.refresh', 'backup.remove', 'backup.open']) {
+    for (const id of [
+      'backup.run',
+      'backup.refresh',
+      'backup.remove',
+      'backup.set-interval',
+      'backup.open',
+    ]) {
       expect(commands.has(id)).toBe(true)
     }
+    disposeAll()
   })
 
-  it('启动只读清单，不自动备份', async () => {
-    const { api } = makeApi()
+  it('启动：从没备份 + 空库 ⇒ 不备份（新装应用不该每次塞一份空备份）', async () => {
+    const { api, disposeAll } = makeApi()
     plugin.apply(/** @type {any} */ (api))
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 10))
     expect(api.fs.copy).not.toHaveBeenCalled()
     expect(api.fs.exists).toHaveBeenCalled()
+    disposeAll()
+  })
+
+  it('启动：从没备份 + 库里有文件 ⇒ 立刻补一份（lastAt=0 视为到期）', async () => {
+    const { api, disposeAll } = makeApi({ notes: [{ path: 'a.md' }], files: ['a.md'] })
+    plugin.apply(/** @type {any} */ (api))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(api.fs.copy).toHaveBeenCalledWith('a.md', expect.stringContaining('.zn/backups/'))
+    expect(api.store.set).toHaveBeenCalled()
+    disposeAll()
   })
 })
