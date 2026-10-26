@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseSseBuffer, windowMessages } from '../examples/ai/index.js'
+import {
+  accumulateToolCalls,
+  finalizeToolCalls,
+  parseSseBuffer,
+  windowMessages,
+} from '../examples/ai/index.js'
 
 /**
  * SSE 解析是本刀最容易悄悄错的地方：半包会在 chunk 边界丢字，
@@ -50,6 +55,64 @@ describe('parseSseBuffer', () => {
       '',
     ].join('\n')
     expect(parseSseBuffer(buf).deltas).toEqual([])
+  })
+})
+
+describe('工具调用分片（rev198）', () => {
+  it('parseSseBuffer 提取 tool_calls 增量', () => {
+    const r = parseSseBuffer(
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"list_dirs","arguments":"{"}}]}}]}\n',
+    )
+    expect(r.toolDeltas).toHaveLength(1)
+    expect(r.toolDeltas[0]).toMatchObject({
+      index: 0,
+      id: 'call_1',
+      name: 'list_dirs',
+      args: '{',
+    })
+    // 正文增量不受影响
+    expect(r.deltas).toEqual([])
+  })
+
+  it('同一 index 的参数分片要拼起来再 parse', () => {
+    const state = {}
+    accumulateToolCalls(state, [{ index: 0, id: 'call_1', name: 'search_notes', args: '{"q":' }])
+    accumulateToolCalls(state, [{ index: 0, args: '"周报"}' }])
+    const calls = finalizeToolCalls(state)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('search_notes')
+    expect(calls[0].id).toBe('call_1')
+    expect(calls[0].arguments).toBe('{"q":"周报"}')
+    expect(JSON.parse(calls[0].arguments)).toEqual({ q: '周报' })
+  })
+
+  it('多个 index 并行累积互不覆盖', () => {
+    const state = {}
+    accumulateToolCalls(state, [
+      { index: 0, id: 'a', name: 'list_dirs', args: '{}' },
+      { index: 1, id: 'b', name: 'list_tags', args: '{}' },
+    ])
+    expect(finalizeToolCalls(state).map((c) => `${c.id}:${c.name}`)).toEqual([
+      'a:list_dirs',
+      'b:list_tags',
+    ])
+  })
+
+  it('没有 name 的残片被丢掉；缺 id 自动补一个', () => {
+    const state = {
+      0: { id: '', name: '', arguments: '{"x":1}' },
+      1: { id: '', name: 'list_tags', arguments: '{}' },
+    }
+    const calls = finalizeToolCalls(state)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('list_tags')
+    expect(calls[0].id.startsWith('call_')).toBe(true)
+  })
+
+  it('空 / 非数组输入不炸', () => {
+    expect(finalizeToolCalls({})).toEqual([])
+    expect(finalizeToolCalls(undefined)).toEqual([])
+    expect(accumulateToolCalls({}, null)).toEqual({})
   })
 })
 

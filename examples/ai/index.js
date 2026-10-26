@@ -60,15 +60,92 @@ const DEFAULT_PROVIDER = 'deepseek'
 /** 发给模型的上下文窗口（条）· 需求 Q38 */
 export const CONTEXT_WINDOW = 20
 
+/** 一次回复里最多允许几步工具调用（需求 Q28「现场判断」的上限） */
+export const MAX_TOOL_STEPS = 4
+
 /**
- * 从一段 SSE 缓冲里解析出所有 `content` 增量。
+ * 只读工具（rev198）。
+ *
+ * 都是「查」：不移动、不写盘、不删。写工具在 rev199，届时每个写操作都要过预览确认。
+ * 参数用 JSON Schema —— 模型靠它决定调什么、传什么。
+ */
+export const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_dirs',
+      description: '列出笔记库里的全部文件夹（库内相对路径，/ 分隔）',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_notes',
+      description: '列出笔记，返回路径与标题（默认全库，可按目录过滤）',
+      parameters: {
+        type: 'object',
+        properties: {
+          dir: { type: 'string', description: '只列这个目录下的笔记（库内相对路径，留空 = 全库）' },
+          limit: { type: 'integer', description: '最多返回几条，默认 100' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_note',
+      description: '读一篇笔记的全文（超过 8000 字会截断）',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '笔记的库内相对路径，例如 工作/周报.md' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_notes',
+      description: '全文搜索笔记（空格分隔的多关键词按 AND 匹配），返回路径、标题与命中片段',
+      parameters: {
+        type: 'object',
+        properties: {
+          q: { type: 'string', description: '关键词' },
+          tag: { type: 'string', description: '只返回带这个标签的笔记' },
+          dir: { type: 'string', description: '只在这个目录（含子目录）下搜' },
+          limit: { type: 'integer', description: '最多几条，默认 20' },
+        },
+        required: ['q'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_tags',
+      description: '列出库里所有标签及各自笔记数（按数量降序）',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+]
+
+/**
+ * 从一段 SSE 缓冲里解析出所有增量。
  *
  * 纯函数：不碰网络、不碰状态（`tests/ai.test.ts` 覆盖半包 / 多事件 / [DONE] / 坏行）。
- * 返回 `{ deltas, done, rest }` —— `rest` 是**最后一行可能不完整**的尾巴，
- * 调用方必须把它拼回下一段缓冲，否则长回复会在 chunk 边界丢字。
+ * 返回 `{ deltas, toolDeltas, done, rest }`：
+ * · `deltas` —— 正文增量（`choices[0].delta.content`）
+ * · `toolDeltas` —— 工具调用增量（`choices[0].delta.tool_calls[]`，**参数是分片来的**，调用方要按 index 累积）
+ * · `rest` —— **最后一行可能不完整**的尾巴，调用方必须拼回下一段缓冲，否则长回复会在 chunk 边界丢字
  */
 export function parseSseBuffer(buf) {
   const deltas = []
+  const toolDeltas = []
   let done = false
   const parts = String(buf ?? '').split('\n')
   const rest = parts.pop() ?? ''
@@ -83,13 +160,54 @@ export function parseSseBuffer(buf) {
     }
     try {
       const j = JSON.parse(payload)
-      const d = j?.choices?.[0]?.delta?.content
+      const ch = j?.choices?.[0]
+      const d = ch?.delta?.content
       if (typeof d === 'string' && d) deltas.push(d)
+      if (Array.isArray(ch?.delta?.tool_calls)) {
+        for (const tc of ch.delta.tool_calls) {
+          if (!tc || typeof tc !== 'object') continue
+          toolDeltas.push({
+            index: Number.isInteger(tc.index) ? tc.index : 0,
+            id: tc.id,
+            name: tc.function?.name,
+            args: tc.function?.arguments,
+          })
+        }
+      }
     } catch {
       /* 半包 / 非 JSON 行：跳过（下一轮会重新拼） */
     }
   }
-  return { deltas, done, rest }
+  return { deltas, toolDeltas, done, rest }
+}
+
+/**
+ * 按 `index` 累积工具调用分片（纯函数，原地改 `state` 并返回它）。
+ *
+ * OpenAI 兼容接口把一次工具调用的 `arguments` **切成多片**发（{"path":… 可能断在任意位置），
+ * 所以只能字符串拼接，不能每片各自 JSON.parse。`name` 一般只给一次，但也按拼接处理。
+ */
+export function accumulateToolCalls(state, toolDeltas) {
+  const out = state ?? {}
+  for (const d of Array.isArray(toolDeltas) ? toolDeltas : []) {
+    const i = Number.isInteger(d?.index) ? d.index : 0
+    const cur = out[i] ?? (out[i] = { id: '', name: '', arguments: '' })
+    if (d.id) cur.id = d.id
+    if (d.name) cur.name += d.name
+    if (d.args) cur.arguments += d.args
+  }
+  return out
+}
+
+/** 工具调用分片收尾：丢掉没有 name 的残片；有些服务商不回 id，补一个（回灌 tool 消息要它） */
+export function finalizeToolCalls(state) {
+  return Object.values(state ?? {})
+    .filter((t) => t && t.name)
+    .map((t) => ({
+      id: t.id || `call_${Math.random().toString(36).slice(2, 10)}`,
+      name: t.name,
+      arguments: t.arguments || '',
+    }))
 }
 
 /** 只保留最近 N 条（纯函数）· 首条若是 assistant 也允许 —— 模型能接受 */
@@ -103,7 +221,7 @@ export function windowMessages(list, n = CONTEXT_WINDOW) {
 /** @type {import('../../src/kernel/contract').Plugin} */
 export default {
   apply(ctx) {
-    const { command, view, host, store, net, subscriptions } = ctx
+    const { command, view, host, store, net, fs, index, subscriptions } = ctx
 
     /** 配置（落 store） */
     let cfg = { provider: DEFAULT_PROVIDER, model: '', baseUrl: '' }
@@ -258,6 +376,80 @@ export default {
      * 流式请求：走**浏览器 fetch**（要服务商回 CORS 头；DeepSeek 预检实测允许）。
      * 失败（CORS / 网络 / 不支持流）由调用方降级 `nonStreamChat`。
      */
+    /* ───────── 工具（只读 · rev198） ───────── */
+
+    /**
+     * 执行一个只读工具，返回**给模型看**的字符串。
+     *
+     * 失败也以 `throw` 出去、由调用方包成 `错误：…` 回灌 —— 模型看到错误能自己换参数重试，
+     * 而不是整个对话崩掉（这与「静默失效比报错危险」同向）。
+     */
+    async function runTool(name, args) {
+      const a = args && typeof args === 'object' ? args : {}
+      if (name === 'list_dirs') {
+        const dirs = await fs.listDirs()
+        return JSON.stringify({ count: dirs.length, dirs: dirs.slice(0, 200) })
+      }
+      if (name === 'list_notes') {
+        const dir = typeof a.dir === 'string' && a.dir.trim() ? a.dir.trim() : undefined
+        const all = await fs.listNotes(dir)
+        const limit = Math.min(Math.max(Number(a.limit) || 100, 1), 200)
+        const notes = all.slice(0, limit).map((n) => ({ path: n.path, title: n.title }))
+        return JSON.stringify({ total: all.length, returned: notes.length, notes })
+      }
+      if (name === 'read_note') {
+        const p = String(a.path || '').trim()
+        if (!p) throw new Error('缺少 path 参数')
+        const text = await fs.readText(p)
+        const cut = text.slice(0, 8000)
+        return cut.length < text.length
+          ? `${cut}\n\n[已截断：原文 ${text.length} 字符，只给了前 8000]`
+          : cut
+      }
+      if (name === 'search_notes') {
+        const q = String(a.q || '').trim()
+        if (!q) throw new Error('缺少 q 参数')
+        const hits = await index.query(q, {
+          limit: Math.min(Math.max(Number(a.limit) || 20, 1), 50),
+          dir: typeof a.dir === 'string' && a.dir.trim() ? a.dir.trim() : undefined,
+          tag: typeof a.tag === 'string' && a.tag.trim() ? a.tag.trim() : undefined,
+        })
+        return JSON.stringify({
+          count: hits.length,
+          hits: hits.map((h) => ({
+            path: h.path,
+            title: h.title,
+            excerpt: h.excerpt.slice(0, 200),
+          })),
+        })
+      }
+      if (name === 'list_tags') {
+        const tags = await index.tags()
+        return JSON.stringify({ count: tags.length, tags: tags.slice(0, 100) })
+      }
+      throw new Error(`未知工具：${name}`)
+    }
+
+    /** 模型给的参数可能是空串或坏 JSON —— 坏 JSON 要报出来（静默当成 {} 会调错工具） */
+    function parseArgs(raw) {
+      const s = String(raw ?? '').trim()
+      if (!s) return {}
+      try {
+        return JSON.parse(s)
+      } catch {
+        throw new Error(`工具参数不是合法 JSON：${s.slice(0, 120)}`)
+      }
+    }
+
+    /** 步骤流里显示的一行摘要 */
+    function summarize(s) {
+      const t = String(s ?? '').replace(/\s+/g, ' ')
+      return t.length > 80 ? `${t.slice(0, 80)}…` : t
+    }
+
+    /* ───────── 模型调用 ───────── */
+
+    /** 流式：返回 `{ content, toolCalls }`；正文增量走 `onDelta` 实时上屏 */
     async function streamChat(body, signal, onDelta) {
       const res = await fetch(`${body.base}/chat/completions`, {
         method: 'POST',
@@ -265,7 +457,12 @@ export default {
           'content-type': 'application/json',
           authorization: `Bearer ${body.key}`,
         },
-        body: JSON.stringify({ model: body.model, messages: body.messages, stream: true }),
+        body: JSON.stringify({
+          model: body.model,
+          messages: body.messages,
+          tools: TOOLS,
+          stream: true,
+        }),
         signal,
       })
       if (!res.ok) {
@@ -276,15 +473,22 @@ export default {
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
+      let content = ''
+      const toolState = {}
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
         buf += dec.decode(value, { stream: true })
         const parsed = parseSseBuffer(buf)
         buf = parsed.rest
-        for (const d of parsed.deltas) onDelta(d)
+        for (const d of parsed.deltas) {
+          content += d
+          onDelta(d)
+        }
+        accumulateToolCalls(toolState, parsed.toolDeltas)
         if (parsed.done) break
       }
+      return { content, toolCalls: finalizeToolCalls(toolState) }
     }
 
     /** 非流式（降级）：Rust 侧发出，没有 CORS 这回事，但只能整段返回 */
@@ -296,7 +500,7 @@ export default {
           'content-type': 'application/json',
           authorization: `Bearer ${body.key}`,
         },
-        body: JSON.stringify({ model: body.model, messages: body.messages }),
+        body: JSON.stringify({ model: body.model, messages: body.messages, tools: TOOLS }),
         timeoutMs: 60000,
       })
       const text = res.text()
@@ -304,9 +508,18 @@ export default {
         throw new Error(`HTTP ${res.status}：${text.slice(0, 300)}`)
       }
       const j = JSON.parse(text)
-      const c = j?.choices?.[0]?.message?.content
-      if (typeof c !== 'string') throw new Error('响应里没有 content')
-      return c
+      const msg = j?.choices?.[0]?.message ?? {}
+      const content = typeof msg.content === 'string' ? msg.content : ''
+      const toolCalls = Array.isArray(msg.tool_calls)
+        ? msg.tool_calls
+            .filter((t) => t?.function?.name)
+            .map((t) => ({
+              id: String(t.id || ''),
+              name: String(t.function.name),
+              arguments: String(t.function.arguments || ''),
+            }))
+        : []
+      return { content, toolCalls }
     }
 
     async function sendMessage(raw) {
@@ -327,7 +540,8 @@ export default {
       }
 
       messages.push({ role: 'user', content: text })
-      const asst = { role: 'assistant', content: '' }
+      /** UI 侧消息（带 steps）；发给模型的序列另存 `api` */
+      const asst = { role: 'assistant', content: '', steps: [] }
       messages.push(asst)
       streaming = true
       streamError = ''
@@ -348,34 +562,66 @@ export default {
       if (key) {
         const ctrl = new AbortController()
         abortCtrl = ctrl
+        /** 发给模型的序列：历史（去掉 tool 中间态）+ 本次 user */
+        const api = windowMessages(messages.slice(0, -1))
+        let streamed = ''
+        const onDelta = (d) => {
+          streamed += d
+          asst.content += d
+          scheduleRefresh()
+        }
         try {
-          await streamChat(
-            { base, model, key, messages: windowMessages(messages) },
-            ctrl.signal,
-            (d) => {
-              asst.content += d
-              scheduleRefresh()
-            },
-          )
-        } catch (e) {
-          if (e?.name === 'AbortError') {
-            streamError = '已停止'
-          } else if (!asst.content) {
-            // 流式失败且一个字都没收到 ⇒ 降级非流式再试一次
+          for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+            let r
             try {
-              asst.content = await nonStreamChat({
-                base,
-                model,
-                key,
-                messages: windowMessages(messages),
-              })
-            } catch (e2) {
-              streamError = `发送失败：${String(e2?.message ?? e2)}`
-              messages.pop()
+              r = await streamChat({ base, model, key, messages: api }, ctrl.signal, onDelta)
+            } catch (e) {
+              if (e?.name === 'AbortError') throw e
+              if (streamed) throw e // 已经出字：按「流中断」处理，不降级（否则会重复）
+              r = await nonStreamChat({ base, model, key, messages: api })
+              if (r.content) {
+                streamed += r.content
+                asst.content += r.content
+                refresh()
+              }
             }
-          } else {
-            streamError = `流中断：${String(e?.message ?? e)}`
+            if (!r.toolCalls.length) break
+
+            // 回传 assistant 的 tool_calls（OpenAI 协议要求下一轮能看到它要什么）
+            api.push({
+              role: 'assistant',
+              content: r.content || null,
+              tool_calls: r.toolCalls.map((t) => ({
+                id: t.id,
+                type: 'function',
+                function: { name: t.name, arguments: t.arguments },
+              })),
+            })
+            for (const tc of r.toolCalls) {
+              const log = { name: tc.name, args: tc.arguments, ok: true, text: '', ms: 0 }
+              const t0 = Date.now()
+              let out = ''
+              try {
+                out = await runTool(tc.name, parseArgs(tc.arguments))
+                log.text = summarize(out)
+              } catch (e) {
+                log.ok = false
+                out = `错误：${String(e?.message ?? e)}`
+                log.text = String(e?.message ?? e)
+              }
+              log.ms = Date.now() - t0
+              asst.steps.push(log)
+              api.push({ role: 'tool', tool_call_id: tc.id, content: out })
+              scheduleRefresh()
+            }
+            if (step === MAX_TOOL_STEPS - 1) {
+              streamError = `工具调用超过 ${MAX_TOOL_STEPS} 步，先停在这里`
+            }
           }
+        } catch (e) {
+          if (e?.name === 'AbortError') streamError = '已停止'
+          else streamError = `发送失败：${String(e?.message ?? e)}`
+          if (!asst.content && !asst.steps.length) messages.pop()
         } finally {
           abortCtrl = null
         }
@@ -430,6 +676,18 @@ export default {
               type: 'markdown',
               value: m.content || (streaming ? '…' : '（空回复）'),
             })
+            // 步骤流：这一轮调了哪些工具、用了多久、结果摘要
+            if (Array.isArray(m.steps) && m.steps.length) {
+              nodes.push({
+                type: 'list',
+                items: m.steps.map((s) => ({
+                  type: 'text',
+                  value: `${s.ok ? '✓' : '✗'} ${s.name} · ${s.ms} ms · ${s.text}`,
+                  variant: 'caption',
+                  tone: s.ok ? 'muted' : 'danger',
+                })),
+              })
+            }
           }
         }
       }

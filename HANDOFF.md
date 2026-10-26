@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.197
-更新时间: 2026-10-27 · 最新 rev173.197
+revision: 173.198
+更新时间: 2026-10-27 · 最新 rev173.198
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.197
 
 | rev | 内容 |
 |---|---|
+| rev173.198 | 2026-10-27 · **AI 插件第三刀：只读工具 + 工具调用循环 + 步骤流**：5 个只读工具（`list_dirs` / `list_notes` / `read_note` / `search_notes` / `list_tags`，走 `fs.listDirs/listNotes/readText` + `index.query/tags`）+ **工具循环**（最多 4 步，`assistant.tool_calls` → 执行 → `role:'tool'` 回灌 → 再调）+ **步骤流**（✓/✗ + 工具名 + 耗时 + 结果摘要）+ SSE 的 `tool_calls` **分片累积**（`accumulateToolCalls` 按 index 拼参数，`finalizeToolCalls` 收尾）。单测 9 → **14**（工具分片 5 条）。**实测**（mock 第一轮只回 tool_calls、第二轮引用结果）：说「列一下文件夹」→ 真读测试库 18 个目录 → 回灌后模型复述 → 步骤行 `✓ list_dirs · 6 ms · {"count":18,…}`。⚠️ 坑：`job_kill` 杀不掉后台 node（旧 mock 进程还占着 8999，新 mock `EADDRINUSE`）→ 得按端口找 pid `Stop-Process` |
 | rev173.197 | 2026-10-27 · **AI 插件第二刀：模型调用 + 流式对话**（用户「继续」）：`examples/ai/` 加 —— ① **SSE 流式**（浏览器 `fetch` + `ReadableStream`，DeepSeek 允许 CORS）② 两个纯函数 `parseSseBuffer` / `windowMessages` + **9 条单测**（半包 / 多事件 / `[DONE]` / 坏行 / 窗口裁剪）③ 降级 `net.fetch` 非流式（流式失败且一个字没收到才降）④ **停止**（`AbortController`）+ **新对话** ⑤ 历史存 `store`（最多 40 条，发模型只带最近 **20** 条）。**实测**（本地 SSE mock `127.0.0.1:8999` + 页面内 `setTimeout` 定时停止）：逐字渲染、10 段文本完整拼接、停在中途显示「已停止」、`reload` 后历史还在；假 Key 对真 DeepSeek ⇒ **401 原文**（流式与非流式两条路都试过）。⚠️ **踩坑**：CDP `eval` 里的 `__znExec` 是异步的，`eval send → wait 800 → eval stop` 时流往往已跑完（截图前后各一次都拿到完成态）—— 停止测试必须**在页面内** `setTimeout(() => __znExec('ai.stop'), 400)` |
 | rev173.196 | 2026-10-27 · **AI 插件第一刀：骨架 + 设置页**（用户「开工」）：`examples/ai/` 新插件 —— 主区面板「AI」+ 服务商预设（DeepSeek / Kimi / 通义 / 自定义 OpenAI 兼容端点）+ 模型名 + **API Key 存系统凭据管理器**（`host.secrets` → 账号 `ai.api-key.<provider>`，不入库不同步；`cmdkey /list` 实测出现 `ai.api-key.deepseek.com.aqua.zeronote`）+ 测试连接（`net.fetch` GET `/models`）。**三态实测**：无 Key → 红字「还没有保存 API Key」· 假 Key → **HTTP 401 + DeepSeek 原文**（`Authentication Fails`）· 输入框回车即保存（`onSubmit`）。示例插件 41 → **42**（功能目录已重生成）。对照：`docs/AI插件-需求-2026-10-27.md`（39 问）· 实施计划 7 刀 |
 | rev173.195 | 2026-10-27 · **交接**（用户「收尾交接」）：本会话 **rev173.188–194 共 7 个提交**，主线三条 —— ① **备份插件发市场**（189：`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」）② **修市场安装清掉 `store.json`**（190：整目录交换前把用户数据搬回；cargo 53 → 55）③ **手机连不上 raw 的根因与解法**（192 错误带源链 → 是 TLS 阶段 RST；193 对照 12 个域名，只有 raw 全灭；**194 市场镜像可切换 + 测速**，5 条内置源，`cdn.jsdelivr.net` 两端都断、GCore/Cloudflare 两端都通）。**交接时状态**：工作区干净 · HEAD `80b0d4a` · 与 origin 同步 · verify 六步全绿（vitest **1170** · cargo **55** · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24）· 手机 pid 31861 / APK **01:00:40**（**不含 194 的镜像 UI**）· 测试端口 8931/8933/8934 全部释放。**下一步候选**：① 默认源是否改成 `jsDelivr · GCore`（现在仍 raw，手机开箱不可用）② 手机重编一次验证 194 的 UI ③ ROADMAP 里「安卓桌面组件」仍是大块未做。**本会话新增的坑**：见正文「四条」|
@@ -93,6 +94,53 @@ revision: 173.197
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.198（2026-10-27 · AI 插件第三刀：只读工具 + 工具循环 + 步骤流）
+>
+> 用户「继续」。仍然**零内核改动** —— 工具全部走现有原语（`fs.listDirs/listNotes/readText`、`index.query/tags`）。
+>
+> ### 五个只读工具
+>
+> | 工具 | 参数 | 落到哪 |
+> |---|---|---|
+> | `list_dirs` | — | `fs.listDirs()`（库内相对路径，已排序） |
+> | `list_notes` | `dir?` `limit?` | `fs.listNotes(dir)` → path + title（默认 100 条，上限 200） |
+> | `read_note` | `path` | `fs.readText(path)`，**超 8000 字截断并注明** |
+> | `search_notes` | `q` `tag?` `dir?` `limit?` | `index.query()`（多关键词 AND；上限 50） |
+> | `list_tags` | — | `index.tags()`（按篇数降序） |
+>
+> ### 工具循环
+>
+> 一轮用户消息最多 **4 步**（`MAX_TOOL_STEPS`，需求 Q28）：
+> 调模型（流式）→ 有 `tool_calls` 就把 `assistant.tool_calls` 回传、逐个执行、
+> 结果以 `{ role:'tool', tool_call_id }` 回灌 → 再调模型 → 直到没有工具调用。
+>
+> 两个刻意的细节：
+> - **工具失败不中断对话**：错误包成 `错误：…` 回灌，模型能自己换参数重试；只有坏 JSON 参数会直接报出（静默当 `{}` 会调错工具）。
+> - **流式失败才降级**：已经出字了就按「流中断」处理，不再走非流式重试（否则同一段会重复）。
+>
+> ### 步骤流
+>
+> 每条 assistant 消息下挂 `steps`：`✓ list_dirs · 6 ms · {"count":18,"dirs":[…]}`；
+> 失败行标红。存历史时一起进 `store`（下次打开还能看到当时调了什么）。
+>
+> ### 单测（`tests/ai.test.ts` 9 → 14）
+>
+> 新增 5 条钉住「工具分片」：`parseSseBuffer` 提取 `tool_calls` 增量 · 同 index 参数分片拼接后 `JSON.parse` 成功 ·
+> 多 index 并行互不覆盖 · 无 name 残片丢弃 + 缺 id 自动补 · 空/非数组不炸。
+>
+> ### 实测（mock 两轮：第一轮只回 `tool_calls`，第二轮引用工具结果）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 「列一下文件夹」 | 模型先要 `list_dirs` → 插件真跑 `fs.listDirs()` → **18 个目录**回灌 → 第二轮复述全部路径 |
+> | 步骤流 | `✓ list_dirs · 6 ms · {"count":18,"dirs":["attachments","学习","学习/Rust",…]}` |
+> | 清理 | custom 端点 / mock Key / 历史全清；mock 进程已停（**`job_kill` 杀不掉后台 node**，要按端口找 pid `Stop-Process`） |
+>
+> ### 下一步
+>
+> rev199：写工具（`note.create` / `note.write` / `note.move` / `note.trash` / `tag.add` / `tag.remove` / `folder.create`）+
+> **diff 预览确认**（Q4/Q11：覆盖正文与删除必须确认）。
+>
 > ## 📌 rev173.197（2026-10-27 · AI 插件第二刀：模型调用 + 流式对话）
 >
 > 用户「继续」—— 按实施计划 rev197 落地。仍然**零内核改动**。
