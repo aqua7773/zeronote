@@ -37,7 +37,7 @@ pwsh -File scripts\verify.ps1
 > 三后端 `syncPrivate` 搬 `secrets.zn`+`vault.json`，sync-folder 给放行规则）→ KDF 定档（165：**t=3/64MiB**，
 > 手机实测 812 ms，比桌面快 0.8×）→ 手机走查（166：**10 项全过**）→ Windows Hello 可行性验证（167）→
 > **Android 指纹解锁（168）** → **Windows Hello 解锁（169：手写 winmd 里的带窗口 interop，`hello1.<challenge>.<zn1…>` 包裹，桌面走通 绑定 → 锁定 → 解锁）** →
-> **锁定后自动弹生物识别（171：桌面失焦挂起、手机看可见性；实测点回窗口 600 ms 弹出 Hello）**。
+> **锁定后自动弹生物识别（171：桌面失焦挂起、手机看可见性；桌面点回窗口 600 ms 弹 Hello、手机空闲锁后自动弹指纹并解锁、取消给中性提示）**。
 > 市场 15 条（`security` / `secrets` 都已签名发市、不预装）。
 > ⚠️ 五条已知局限：`vault.json` 整文件同步（做私密文件夹时要按环拆）· 手机端 reload 后 app 偶发退出一次（重启即好）·
 > **Windows Hello 签名必须有窗口**（无 HWND 挂死；已用 `IKeyCredentialWithWindow` 解决）·
@@ -77,7 +77,7 @@ pwsh -File scripts\verify.ps1
   adb 里有两个离线残留 ⇒ 所有命令带 `-s 33b676f6`。改前端不用重装（连桌面 dev 的 vite，reload 即生效）；**改 Rust 必须重装**。
   - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
-  - 现有插件 16 个（14 内置 + theme-green + **`security` / `secrets` 开发版**，rev173.166 手装；`security` 已更新到 rev173.169 版，含 Windows Hello 适配器）。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。
+  - 现有插件 16 个（14 内置 + theme-green + **`security` / `secrets` 开发版**，rev173.166 手装；`security` 已更新到 **rev173.171 版**（含锁定后自动弹，手机上那份 manifest 无 `sha256`，换 `index.js` 即可）。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
   - ⚠️ **`adb reverse tcp:1420 tcp:1420` 会丢** —— 丢了表现为「启动 15 秒后无声退出」（看门狗杀进程）。重连 adb / 重启后先补这条再 `am start`。
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。

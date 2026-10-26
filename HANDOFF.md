@@ -19,7 +19,7 @@ revision: 173.171
 
 | rev | 内容 |
 |---|---|
-| rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` / `FindWindow` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作 ⇒ **改请用户真人点「取消」验证**：面板显示「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在。⚠️ **手机端本轮未实测**：Android 那条判据（「只看可见性」）是按 WebView 的 `visibilitychange` 语义写的，本轮只跑了桌面；手机 0.5.0 里装的 `security` 仍是 rev173.169 开发版，要用新行为得先换 `index.js`（+改 `manifest.sha256`）。vitest 1059 → **1064** · verify 六步全绿 |
+| rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` / `FindWindow` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作 ⇒ **改请用户真人点「取消」验证**：面板显示「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在。⚠️ **手机端也已实测**（`33b676f6` · 换新 `index.js` 后）：空闲 60 s 自动锁 ⇒ **自动拉起指纹界面** ⇒ 按指纹后「已用指纹解锁」；手动锁定 1.5 s 内面板「正在请求指纹…」；指纹界面返回 ⇒ 中性提示「已取消 —— …」。vitest 1059 → **1064** · verify 六步全绿 |
 | rev173.170 | 2026-10-26 · **交接**（用户「交接」）：本会话 rev173.168–169 总览 + 交接时实测状态（工作树干净 · HEAD `16904bb` · verify 六步全绿 vitest **1059** · 桌面 dev pid **28892** · 手机 0.5.0 pid **10392**）+ 下个会话入口（**锁定后自动弹生物识别** / `biometric` 段按设备 / 手机 reload 偶发退出）+ 本会话四类坑（看门狗 env 传不进 Android / `manifest.sha256` 不同步即拒载 / windows crate 0.62 缺带窗口接口 / 硬编码旧 API）|
 | rev173.169 | 2026-10-26 · **期 2c：Windows Hello 解锁落地**：`hello_available` / `hello_enroll` / `hello_sign` 三个命令 —— windows crate 0.62 **没有**带窗口的接口，故手写 `IKeyCredentialManagerCreateWithWindowStatics`（30b1b9c9-…）+ `IKeyCredentialWithWindow`（050deb3b-…）的 vtable（IID 从系统 `Windows.Security.winmd` 解析）；`security` 的 `windowsHelloAdapter` = `hello_sign(challenge)` → HKDF → KEK → XChaCha 包裹，格式 `hello1.<challenge>.<zn1…>`；桌面实测「探测 → 绑定 → 锁定 → Hello 解锁」，**签名确定性由解锁本身证明**；顺手记两个坑（无窗口签名挂死 / `IAsyncOperation` 在 windows-future 且 0.3 没有 `.get()`）|
 | rev173.168 | 2026-10-26 · **期 2b：Android 指纹解锁落地**：`tauri-plugin-biometric 2.5.0`（仅 android target）+ `#[cfg(target_os="android")]` 注册 + capability `android-biometric.json`；`security` 插件加 `biometric` 段（`vault.json` 的 `rings.<id>.biometric`）与面板三入口（绑定 / 指纹解锁 / 解除），主密码那份 `wrapped` 不动、换密码与恢复重设都保留该段；真机走通「主密码解锁 → 绑定 → 空闲自动锁 → 指纹解锁（1 把已解锁）」；顺手修 **debug 包被看门狗 5 秒误杀**（`exit(101)`：Android 进程 env 传不进 `ZN_WATCHDOG=off`，改 debug 默认不启动）。vitest 1046 → **1056**（+10 含反向验证）· verify 六步全过 |
@@ -94,8 +94,20 @@ revision: 173.171
 > （UIA 顶层窗口列表里根本没有它，`FindWindow` 也找不到）⇒ 取消 / 指纹只能真人操作 —— 这轮就是请用户点了一下「取消」，
 > 提示立刻出现在面板上（中性色，不是红字）。
 >
-> ⚠️ **手机端本轮未实测**：Android 判据（只看可见性）按 `visibilitychange` 语义写；手机 0.5.0 里装的 `security`
-> 还是 rev173.169 开发版，要用新行为得换 `index.js` + 同步 `manifest.sha256`。
+> ### 手机端实测（`33b676f6` · 主库 · 0.5.0 dev 包）
+>
+> 手机上装的 `security` 是 rev173.169 开发版 ⇒ `adb push` 新 `index.js` → `run-as cp` 覆盖（该包 manifest **没有
+> `sha256`**，不用同步；桌面那份有）→ `adb reverse tcp:1420 tcp:1420` + `forward tcp:9333 localabstract:webview_devtools_remote_<pid>`
+> → 页面 `location.reload()`（新 `index.js` 62029 B 生效）。
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 主密码 `PhoneTest123` 解锁 | 「1 把已解锁」 |
+> | **空闲 60 s 自动锁**（app 在前台） | 自动拉起系统指纹界面 → **用户按指纹** → 面板「「账号密码」已用指纹解锁」、1 把已解锁（`_shots/phone-locked.png`） |
+> | 点「立即锁定」→ 1.5 s | 面板「正在请求指纹…」，系统指纹界面已拉起（`_shots/phone-autoprompt.png`；截图是黑底指纹圆环 = 系统界面，`screencap` 抓不到内容） |
+> | 取消（系统指纹界面返回） | 面板「已取消 —— 输入主密码，或点「用指纹解锁」」，手动按钮仍在 |
+>
+> ⇒ Android 那条「只看可见性、不看 `hasFocus`」的判据成立：WebView 在手机上的键焦点确实不可靠，可见性够用。
 >
 > ### 验证
 >
