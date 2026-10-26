@@ -57,6 +57,49 @@ const PROVIDERS = [
 
 const DEFAULT_PROVIDER = 'deepseek'
 
+/** 发给模型的上下文窗口（条）· 需求 Q38 */
+export const CONTEXT_WINDOW = 20
+
+/**
+ * 从一段 SSE 缓冲里解析出所有 `content` 增量。
+ *
+ * 纯函数：不碰网络、不碰状态（`tests/ai.test.ts` 覆盖半包 / 多事件 / [DONE] / 坏行）。
+ * 返回 `{ deltas, done, rest }` —— `rest` 是**最后一行可能不完整**的尾巴，
+ * 调用方必须把它拼回下一段缓冲，否则长回复会在 chunk 边界丢字。
+ */
+export function parseSseBuffer(buf) {
+  const deltas = []
+  let done = false
+  const parts = String(buf ?? '').split('\n')
+  const rest = parts.pop() ?? ''
+  for (const raw of parts) {
+    const line = raw.trim()
+    if (!line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload) continue
+    if (payload === '[DONE]') {
+      done = true
+      continue
+    }
+    try {
+      const j = JSON.parse(payload)
+      const d = j?.choices?.[0]?.delta?.content
+      if (typeof d === 'string' && d) deltas.push(d)
+    } catch {
+      /* 半包 / 非 JSON 行：跳过（下一轮会重新拼） */
+    }
+  }
+  return { deltas, done, rest }
+}
+
+/** 只保留最近 N 条（纯函数）· 首条若是 assistant 也允许 —— 模型能接受 */
+export function windowMessages(list, n = CONTEXT_WINDOW) {
+  return (Array.isArray(list) ? list : [])
+    .slice(-n)
+    .map((m) => ({ role: m.role, content: String(m.content ?? '') }))
+}
+
+
 /** @type {import('../../src/kernel/contract').Plugin} */
 export default {
   apply(ctx) {
@@ -71,6 +114,15 @@ export default {
     let result = null
     let loadError = ''
 
+    /** 对话消息（持久化到 store 的 `history`） */
+    let messages = []
+    let streaming = false
+    let streamError = ''
+    /** @type {AbortController | null} */
+    let abortCtrl = null
+    /** 流式回复的节流刷新计时器（80ms 一次，不逐字重排整个面板） */
+    let refreshTimer = 0
+
     const providerOf = (id) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0]
     const accountOf = (id) => `ai.api-key.${id}`
     const trimBase = (s) => String(s || '').trim().replace(/\/+$/, '')
@@ -83,6 +135,15 @@ export default {
       } catch {
         /* 面板还没注册好 / 已被卸载 —— 刷新失败不该冒泡 */
       }
+    }
+
+    /** 流式增量：80ms 合并一次重渲染（逐字刷整个面板会很卡） */
+    const scheduleRefresh = () => {
+      if (refreshTimer) return
+      refreshTimer = setTimeout(() => {
+        refreshTimer = 0
+        refresh()
+      }, 80)
     }
 
     async function readKeyState() {
@@ -109,6 +170,7 @@ export default {
         loadError = `读配置失败：${String(e)}`
       }
       await readKeyState()
+      await loadHistory()
       refresh()
     }
 
@@ -167,7 +229,234 @@ export default {
       }
     }
 
+    /* ───────── 对话 ───────── */
+
+    async function loadHistory() {
+      try {
+        const h = await store.get('history', [])
+        if (Array.isArray(h)) {
+          messages = h
+            .filter(
+              (m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
+            )
+            .slice(-40)
+        }
+      } catch (e) {
+        host.log('warn', `读对话历史失败：${String(e)}`)
+      }
+    }
+
+    async function saveHistory() {
+      try {
+        await store.set('history', messages.slice(-40))
+      } catch (e) {
+        host.log('warn', `存对话历史失败：${String(e)}`)
+      }
+    }
+
+    /**
+     * 流式请求：走**浏览器 fetch**（要服务商回 CORS 头；DeepSeek 预检实测允许）。
+     * 失败（CORS / 网络 / 不支持流）由调用方降级 `nonStreamChat`。
+     */
+    async function streamChat(body, signal, onDelta) {
+      const res = await fetch(`${body.base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${body.key}`,
+        },
+        body: JSON.stringify({ model: body.model, messages: body.messages, stream: true }),
+        signal,
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`HTTP ${res.status}：${text.slice(0, 300)}`)
+      }
+      if (!res.body) throw new Error('这个环境拿不到响应流（不支持流式）')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const parsed = parseSseBuffer(buf)
+        buf = parsed.rest
+        for (const d of parsed.deltas) onDelta(d)
+        if (parsed.done) break
+      }
+    }
+
+    /** 非流式（降级）：Rust 侧发出，没有 CORS 这回事，但只能整段返回 */
+    async function nonStreamChat(body) {
+      const res = await net.fetch({
+        url: `${body.base}/chat/completions`,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${body.key}`,
+        },
+        body: JSON.stringify({ model: body.model, messages: body.messages }),
+        timeoutMs: 60000,
+      })
+      const text = res.text()
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(`HTTP ${res.status}：${text.slice(0, 300)}`)
+      }
+      const j = JSON.parse(text)
+      const c = j?.choices?.[0]?.message?.content
+      if (typeof c !== 'string') throw new Error('响应里没有 content')
+      return c
+    }
+
+    async function sendMessage(raw) {
+      if (streaming) return
+      const text = String(raw ?? '').trim()
+      if (!text) return
+      if (keyState !== 'set') {
+        streamError = '还没有保存 API Key —— 在下面的设置区填好再说话'
+        refresh()
+        return
+      }
+      const base = effectiveBase()
+      const model = effectiveModel()
+      if (!base || !model) {
+        streamError = '服务商或模型名没配好'
+        refresh()
+        return
+      }
+
+      messages.push({ role: 'user', content: text })
+      const asst = { role: 'assistant', content: '' }
+      messages.push(asst)
+      streaming = true
+      streamError = ''
+      try {
+        view.setState('ai.input', '')
+      } catch {
+        /* 输入框可能已卸载 */
+      }
+      refresh()
+
+      let key = null
+      try {
+        key = await host.secrets.get(accountOf(cfg.provider))
+      } catch (e) {
+        streamError = `读 Key 失败：${String(e?.message ?? e)}`
+      }
+
+      if (key) {
+        const ctrl = new AbortController()
+        abortCtrl = ctrl
+        try {
+          await streamChat(
+            { base, model, key, messages: windowMessages(messages) },
+            ctrl.signal,
+            (d) => {
+              asst.content += d
+              scheduleRefresh()
+            },
+          )
+        } catch (e) {
+          if (e?.name === 'AbortError') {
+            streamError = '已停止'
+          } else if (!asst.content) {
+            // 流式失败且一个字都没收到 ⇒ 降级非流式再试一次
+            try {
+              asst.content = await nonStreamChat({
+                base,
+                model,
+                key,
+                messages: windowMessages(messages),
+              })
+            } catch (e2) {
+              streamError = `发送失败：${String(e2?.message ?? e2)}`
+              messages.pop()
+            }
+          } else {
+            streamError = `流中断：${String(e?.message ?? e)}`
+          }
+        } finally {
+          abortCtrl = null
+        }
+      } else {
+        messages.pop()
+      }
+
+      streaming = false
+      if (!asst.content && !streamError) streamError = '模型没有返回内容'
+      refresh()
+      void saveHistory()
+    }
+
     /* ───────── 面板 ───────── */
+
+    /**
+     * 对话区节点。
+     *
+     * 用声明式 UINode 而不是 `mount`：rev197 只要消息列表 + 输入框，
+     * `markdown` 节点已经能渲染模型回复。流式靠 80ms 节流重渲染。
+     */
+    function chatSection(ready) {
+      if (!ready) {
+        return [
+          {
+            type: 'text',
+            value: '配好服务商与 API Key 之后，这里就是对话框。',
+            variant: 'caption',
+            tone: 'muted',
+          },
+        ]
+      }
+      /** @type {import('../../src/kernel/contract').UINode[]} */
+      const nodes = []
+      if (!messages.length) {
+        nodes.push({
+          type: 'text',
+          value: '先聊两句试试。工具（列文件夹 / 搜索 / 移动笔记）在 rev198–199 接上。',
+          variant: 'caption',
+          tone: 'muted',
+        })
+      } else {
+        for (const m of messages) {
+          if (m.role === 'user') {
+            nodes.push({
+              type: 'field',
+              label: '你',
+              children: { type: 'text', value: m.content },
+            })
+          } else {
+            nodes.push({
+              type: 'markdown',
+              value: m.content || (streaming ? '…' : '（空回复）'),
+            })
+          }
+        }
+      }
+      if (streamError) {
+        nodes.push({ type: 'text', value: streamError, variant: 'caption', tone: 'danger' })
+      }
+      nodes.push({
+        type: 'textarea',
+        bind: 'ai.input',
+        // 内核的多行框：裸 Enter 是换行，**Ctrl/Cmd+Enter** 才提交（UIRenderer textarea 分支）
+        placeholder: '说点什么…（Ctrl+Enter 发送，或点「发送」）',
+        rows: 3,
+        onSubmit: 'ai.send',
+      })
+      nodes.push({
+        type: 'row',
+        align: 'center',
+        gap: 'sm',
+        children: streaming
+          ? [{ type: 'button', label: '停止', onClick: 'ai.stop' }]
+          : [
+              { type: 'button', label: '发送', onClick: 'ai.send', send: 'ai.input' },
+              { type: 'button', label: '新对话', variant: 'ghost', onClick: 'ai.clear' },
+            ],
+      })
+      return nodes
+    }
 
     function renderPanel() {
       const p = providerOf(cfg.provider)
@@ -209,6 +498,11 @@ export default {
         ...(loadError
           ? [{ type: 'text', value: loadError, variant: 'caption', tone: 'danger' }]
           : []),
+        { type: 'divider' },
+
+        /* 对话区 */
+        ...chatSection(ready),
+
         { type: 'divider' },
 
         /* 服务商 */
@@ -344,8 +638,8 @@ export default {
         {
           type: 'text',
           value: ready
-            ? '配置已通。对话与工具在 rev197 落地（模型调用层 + 流式对话）。'
-            : '配置完成后，下一刀（rev197）在这里接对话框。',
+            ? '对话已可用。工具（列文件夹 / 搜索 / 读笔记 / 移动）在 rev198–199 接上。'
+            : '配好服务商与 API Key 之后就能对话。',
           variant: 'caption',
           tone: 'muted',
         },
@@ -482,6 +776,51 @@ export default {
         run: () => testConnection(),
       }),
     )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.send',
+        title: 'AI：发送消息',
+        run: async (payload) => {
+          await sendMessage(payload?.value)
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.stop',
+        title: 'AI：停止生成',
+        run: () => {
+          abortCtrl?.abort()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.clear',
+        title: 'AI：新对话',
+        run: async () => {
+          if (streaming) abortCtrl?.abort()
+          messages = []
+          streamError = ''
+          await saveHistory()
+          refresh()
+        },
+      }),
+    )
+
+    // 定时器与进行中的请求不归宿主管，卸载时自己收尾（否则重载会留下孤儿流）
+    subscriptions.push({
+      dispose: () => {
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = 0
+        abortCtrl?.abort()
+        abortCtrl = null
+        streaming = false
+      },
+    })
 
     void load()
   },

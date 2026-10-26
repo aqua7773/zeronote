@@ -28,7 +28,10 @@
       { "id": "ai.clear-key", "title": "AI：删除 API Key" },
       { "id": "ai.save-model", "title": "AI：保存模型名" },
       { "id": "ai.save-baseurl", "title": "AI：保存自有端点" },
-      { "id": "ai.test", "title": "AI：测试连接" }
+      { "id": "ai.test", "title": "AI：测试连接" },
+      { "id": "ai.send", "title": "AI：发送消息" },
+      { "id": "ai.stop", "title": "AI：停止生成" },
+      { "id": "ai.clear", "title": "AI：新对话" }
     ],
     "panels": [{ "id": "ai.chat", "title": "AI", "location": "main" }]
   }

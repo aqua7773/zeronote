@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.196
-更新时间: 2026-10-27 · 最新 rev173.196
+revision: 173.197
+更新时间: 2026-10-27 · 最新 rev173.197
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.196
 
 | rev | 内容 |
 |---|---|
+| rev173.197 | 2026-10-27 · **AI 插件第二刀：模型调用 + 流式对话**（用户「继续」）：`examples/ai/` 加 —— ① **SSE 流式**（浏览器 `fetch` + `ReadableStream`，DeepSeek 允许 CORS）② 两个纯函数 `parseSseBuffer` / `windowMessages` + **9 条单测**（半包 / 多事件 / `[DONE]` / 坏行 / 窗口裁剪）③ 降级 `net.fetch` 非流式（流式失败且一个字没收到才降）④ **停止**（`AbortController`）+ **新对话** ⑤ 历史存 `store`（最多 40 条，发模型只带最近 **20** 条）。**实测**（本地 SSE mock `127.0.0.1:8999` + 页面内 `setTimeout` 定时停止）：逐字渲染、10 段文本完整拼接、停在中途显示「已停止」、`reload` 后历史还在；假 Key 对真 DeepSeek ⇒ **401 原文**（流式与非流式两条路都试过）。⚠️ **踩坑**：CDP `eval` 里的 `__znExec` 是异步的，`eval send → wait 800 → eval stop` 时流往往已跑完（截图前后各一次都拿到完成态）—— 停止测试必须**在页面内** `setTimeout(() => __znExec('ai.stop'), 400)` |
 | rev173.196 | 2026-10-27 · **AI 插件第一刀：骨架 + 设置页**（用户「开工」）：`examples/ai/` 新插件 —— 主区面板「AI」+ 服务商预设（DeepSeek / Kimi / 通义 / 自定义 OpenAI 兼容端点）+ 模型名 + **API Key 存系统凭据管理器**（`host.secrets` → 账号 `ai.api-key.<provider>`，不入库不同步；`cmdkey /list` 实测出现 `ai.api-key.deepseek.com.aqua.zeronote`）+ 测试连接（`net.fetch` GET `/models`）。**三态实测**：无 Key → 红字「还没有保存 API Key」· 假 Key → **HTTP 401 + DeepSeek 原文**（`Authentication Fails`）· 输入框回车即保存（`onSubmit`）。示例插件 41 → **42**（功能目录已重生成）。对照：`docs/AI插件-需求-2026-10-27.md`（39 问）· 实施计划 7 刀 |
 | rev173.195 | 2026-10-27 · **交接**（用户「收尾交接」）：本会话 **rev173.188–194 共 7 个提交**，主线三条 —— ① **备份插件发市场**（189：`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」）② **修市场安装清掉 `store.json`**（190：整目录交换前把用户数据搬回；cargo 53 → 55）③ **手机连不上 raw 的根因与解法**（192 错误带源链 → 是 TLS 阶段 RST；193 对照 12 个域名，只有 raw 全灭；**194 市场镜像可切换 + 测速**，5 条内置源，`cdn.jsdelivr.net` 两端都断、GCore/Cloudflare 两端都通）。**交接时状态**：工作区干净 · HEAD `80b0d4a` · 与 origin 同步 · verify 六步全绿（vitest **1170** · cargo **55** · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24）· 手机 pid 31861 / APK **01:00:40**（**不含 194 的镜像 UI**）· 测试端口 8931/8933/8934 全部释放。**下一步候选**：① 默认源是否改成 `jsDelivr · GCore`（现在仍 raw，手机开箱不可用）② 手机重编一次验证 194 的 UI ③ ROADMAP 里「安卓桌面组件」仍是大块未做。**本会话新增的坑**：见正文「四条」|
 | rev173.194 | 2026-10-27 · **市场镜像可切换 + 测速**（用户「准备几条镜像可供切换，加个测速功能」）：① **5 条内置镜像**（GitHub raw · jsDelivr · GCore · jsDelivr · Cloudflare · jsDelivr(cdn) · ghproxy.net）+ 自定义地址；**索引地址与包前缀成对切换**（`MarketMirror = { indexUrl, packBase }`）—— 只换索引不换包 = 「能看不能装」② `mirrorPackUrl` **只改写本仓库 `raw.githubusercontent.com/aqua7773/zeronote/…` 形态的地址**，外部作者 / Release / 自建源一律原样（第一版粗暴「只取文件名再拼前缀」被 `tests/market.test.ts` 的老用例当场抓住 —— 回归测试救了真 bug）③ **测速** `probeMirror` 走 Rust `net_request`（与装插件同一条链路），**必须解析出条目才算可用**：只看 200 会被错误页骗（实测 `ghps.cc` 200 但只有 508 字节）④ **桌面实测**：raw 279 ms · GCore 722 ms · Cloudflare 648 ms · ghproxy 1413 ms，**全部 16 条**；**`cdn.jsdelivr.net` 在桌面也 `os error 10054`**（与手机结论一致）⇒ 标签改「国内常断」⑤ 切换后市场列表从新源重拉（16 条），选择存 `zn-market-mirror` ⑥ 连不上时多一句「点测速换一条」的下一步提示。vitest 1147 → **1170**（+23） |
@@ -92,6 +93,55 @@ revision: 173.196
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.197（2026-10-27 · AI 插件第二刀：模型调用 + 流式对话）
+>
+> 用户「继续」—— 按实施计划 rev197 落地。仍然**零内核改动**。
+>
+> ### 做了什么
+>
+> `examples/ai/index.js`（488 → 约 800 行）：
+>
+> | 部分 | 内容 |
+> |---|---|
+> | 流式 | 浏览器 `fetch` + `ReadableStream`，SSE 逐行解析；**80ms 节流**重渲染（逐字刷整面板会卡） |
+> | 纯函数 | `parseSseBuffer(buf) → { deltas, done, rest }`（`rest` = 半包尾巴，必须拼回下一段）· `windowMessages(list, n)` |
+> | 降级 | 流式失败且**一个字都没收到** ⇒ `net.fetch` 非流式重试（Rust 侧无 CORS；已收到部分内容则不重试，避免重复） |
+> | 停止 | `AbortController` + `ai.stop`；中断后保留已收到的部分文字 |
+> | 历史 | `store` 键 `history`，最多 40 条；发给模型的只有最近 **20** 条（需求 Q38） |
+> | UI | 消息区（用户 = `field` 标签「你」+ text；AI = `markdown` 节点）+ `textarea`（**Ctrl/Cmd+Enter** 发送）+ 发送/停止/新对话 |
+>
+> ### 单测（`tests/ai.test.ts` · 9 条）
+>
+> 覆盖 SSE 的四个真实故障形态：**半包不丢字**（`rest` 拼回）· 一次多事件 · `[DONE]` ·
+> 坏 JSON 不炸（后面的好行照常解析）· 忽略注释行 / 空 delta / `finish_reason` 帧；
+> 窗口裁剪（30 → 5、少于 N 原样、非数组/缺字段不炸）。
+>
+> ### 实测（桌面 dev · CDP）
+>
+> 本地 SSE mock（`_tmp-ai-mock.mjs`，测完即删）每 250ms 吐一个字：
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 正常流式 | 逐字出现（80ms 节流），10 段完整拼成「你好，这是一段流式输出的测试。」 |
+> | 中途停止 | 页面内 `setTimeout(400ms)` 调 `ai.stop` ⇒ 只剩 1 个字「你」+ 红字「已停止」 |
+> | reload 后 | 历史还在（`HISTORY-OK`，读 `store.history`） |
+> | 新对话 | `ai.clear` 清空消息与存储 |
+> | 假 Key 真服务 | 401 原文透传（流式与非流式两条路都验过） |
+> | 清理 | custom 端点 / mock Key / deepseek 假 Key 全删；`cmdkey /list` 无 `ai.api-key` 残留；mock 服务已停 |
+>
+> ### 两个坑（都写进卡了）
+>
+> 1. **CDP `eval` 里的 `__znExec` 是异步的** —— `eval ai.send → wait 800 → eval ai.stop` 这种写法，
+>    `wait` 期间流早就跑完了（截图两次拿到同一张完成态，一度以为「停止没生效」）。
+>    正确做法：**在页面内** `setTimeout(() => __znExec('ai.stop'), 400)`，一次 eval 搞定。
+> 2. **`textarea` 的 `onSubmit` 只在 `Ctrl/Cmd+Enter` 触发**（裸 Enter 是换行，`src/components/UIRenderer.tsx:249-254`）。
+>    第一版占位符写成「Enter 发送」—— 实测按 Enter 只换了行、消息没发出（`textarea.value` 还在）。
+>    已改成「Ctrl+Enter 发送，或点发送」，并用合成 `KeyboardEvent{ctrlKey:true}` 复测通过。
+>
+> ### 下一步
+>
+> rev198：只读工具（`folder.list` / `note.list` / `note.read` / `search.run` / `tag.list`）+ 工具调用循环 + 步骤流。
+>
 > ## 📌 rev173.196（2026-10-27 · AI 插件第一刀：骨架 + 设置页）
 >
 > 用户「开工」—— 按 `docs/AI插件-实施计划-2026-10-27.md` 的 rev196 落地。**零内核改动**。
