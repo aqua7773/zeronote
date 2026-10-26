@@ -109,6 +109,11 @@ revision: 173.173
 > | 切回原 id → reload | 「本机已绑定」+ 按钮回来；点击 ⇒ Hello 正常弹出（`_shots/device-binding-hello.png`） |
 > | 按指纹（**用户真人**操作；Hello 受保护 UI，合成输入触达不到 —— 见 rev173.171） | 面板「「账号密码」已用指纹解锁」、1 把已解锁 —— **迁移过来的旧包裹在新结构下解出同一把 DEK**；按钮变「解除本机指纹」 |
 >
+> ### 手机端（`33b676f6` · 0.5.0 dev 包）
+>
+> `security` 换 0.1.2（`adb push` + `run-as cp`；手机上那份 manifest 无 `sha256`，不用同步）→ `adb forward 9333` → reload：
+> 旧单段自动迁到 `biometrics[<手机 deviceId>]`，面板 **「本机已绑定」+「用指纹解锁」** ⇒ 迁移在 Android 上同样成立。
+>
 > ### 交付
 >
 > `security` **0.1.2** 打包发市场（`market/packs/security-0.1.2.znp` · 69.3 KB · 整包 sha256 `ccd173b1…`）+ 索引重建。
