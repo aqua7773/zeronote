@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "private-notes",
   "name": "私密文件夹",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "私密笔记：整棵树加密存 .zn/private/（文件名是随机 id），独立入口与密码，不进全局搜索 / 回收站；需要先装「安全」插件提供密钥环",
+  "description": "私密笔记：整棵树加密存 .zn/private/（文件名是随机 id），独立入口 / 搜索 / 回收站与独立密码，不进全局搜索与回收站；需要先装「安全」插件提供密钥环",
   "category": "tool",
   "capabilities": ["command", "fs:read", "fs:write", "view:main"],
   "activationEvents": ["onStartup"],
@@ -21,7 +21,16 @@
       { "id": "private.open-security", "title": "私密文件夹：打开安全插件" },
       { "id": "private.open-plugins", "title": "私密文件夹：打开插件管理" },
       { "id": "private.open-note", "title": "私密文件夹：打开一篇" },
-      { "id": "private.delete", "title": "私密文件夹：删除一篇" }
+      { "id": "private.search-run", "title": "私密文件夹：搜索" },
+      { "id": "private.search-clear", "title": "私密文件夹：清除搜索" },
+      { "id": "private.goto-trash", "title": "私密文件夹：回收站" },
+      { "id": "private.goto-list", "title": "私密文件夹：返回列表" },
+      { "id": "private.trash", "title": "私密文件夹：删除一篇（进私密回收站）" },
+      { "id": "private.restore", "title": "私密文件夹：恢复一篇" },
+      { "id": "private.purge", "title": "私密文件夹：彻底删除（不可恢复）" },
+      { "id": "private.empty-trash", "title": "私密文件夹：清空回收站" },
+      { "id": "private.move-in", "title": "私密文件夹：把当前笔记移入私密" },
+      { "id": "private.move-out", "title": "私密文件夹：把一篇移出为公开笔记" }
     ],
     "panels": [{ "id": "private.panel", "title": "私密文件夹", "location": "main" }]
   }

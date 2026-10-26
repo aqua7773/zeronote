@@ -36,6 +36,8 @@ export const CONTAINER = 'notes'
 /** 私密文件夹根（整棵树在 `.zn/` 下 ⇒ 内核天然看不见） */
 export const PRIVATE_DIR = '.zn/private'
 export const NOTES_DIR = '.zn/private/notes'
+/** 私密回收站（期 2）：与全局回收站分开 —— 需求 §3.3「独立回收站，进入也需验证」 */
+export const TRASH_DIR = '.zn/private/trash'
 export const INDEX_FILE = '.zn/private/index.zn'
 /** security 插件的 vault 文件（只读：判断 notes 环有没有建立） */
 export const SECURITY_VAULT = '.zn/security/vault.json'
@@ -64,7 +66,7 @@ export function notePath(id) {
 
 /** 空索引 */
 export function emptyIndex() {
-  return { v: INDEX_VERSION, notes: [] }
+  return { v: INDEX_VERSION, notes: [], trash: [] }
 }
 
 /**
@@ -72,6 +74,9 @@ export function emptyIndex() {
  *
  * ⚠️ 这里做**明文内校验**（方案 §4.1）：索引与正文用同一个容器同一套 AAD，
  * 密文互换是能解开的 —— 所以"解出来是不是索引"必须自己判断，不能只看解密成功。
+ *
+ * `trash` 是期 2 加的段：**老索引没有它**（期 1 写出来的），按空数组处理 ——
+ * 加字段改的是同一版本号 v:1，因为"没有 trash"与"trash 为空"行为完全一致。
  */
 export function parseIndex(text) {
   let raw
@@ -93,16 +98,42 @@ export function parseIndex(text) {
       updatedAt: Number(n.updatedAt) || 0,
     })
   }
-  return { v: INDEX_VERSION, notes }
+  const trash = []
+  for (const t of Array.isArray(raw.trash) ? raw.trash : []) {
+    if (!t || typeof t.id !== 'string' || !t.id) continue
+    trash.push({
+      id: t.id,
+      title: typeof t.title === 'string' ? t.title : '',
+      // 恢复要**无损**：原始时间也一起存（否则恢复后列表排序会跳）
+      createdAt: Number(t.createdAt) || 0,
+      updatedAt: Number(t.updatedAt) || 0,
+      deletedAt: Number(t.deletedAt) || 0,
+    })
+  }
+  return { v: INDEX_VERSION, notes, trash }
 }
 
 /** 索引 → 明文（写盘前由 crypto 服务加密） */
 export function serializeIndex(index) {
-  return JSON.stringify({ v: INDEX_VERSION, notes: index.notes.map(stripNote) })
+  return JSON.stringify({
+    v: INDEX_VERSION,
+    notes: index.notes.map(stripNote),
+    trash: (index.trash ?? []).map(stripTrash),
+  })
 }
 
 function stripNote(n) {
   return { id: n.id, title: n.title ?? '', createdAt: n.createdAt ?? 0, updatedAt: n.updatedAt ?? 0 }
+}
+
+function stripTrash(t) {
+  return {
+    id: t.id,
+    title: t.title ?? '',
+    createdAt: t.createdAt ?? 0,
+    updatedAt: t.updatedAt ?? 0,
+    deletedAt: t.deletedAt ?? 0,
+  }
 }
 
 /** 列表顺序：最近更新在前（同一时刻按 id 兜底，保证稳定） */
@@ -130,21 +161,163 @@ export function titleFromText(text, fallback = '未命名') {
   return fallback
 }
 
-/** 索引里插入或更新一篇 */
+/**
+ * 索引里插入或更新一篇。
+ *
+ * ⚠️ **必须带上 `trash`**：这个函数在 `onDocSaved` 里被调用（每次保存都跑），
+ * 早期版本只返回 `{ v, notes }` ⇒ 保存任意一篇就会把回收站**整个从索引里抹掉**
+ * （磁盘上的 `trash/*.zn` 还在，变成没人认领的孤儿）。单测 `moveToTrash … no-op` 抓到的。
+ */
 export function upsertNote(index, note) {
   const notes = index.notes.filter((n) => n.id !== note.id)
   notes.push(stripNote(note))
-  return { v: INDEX_VERSION, notes }
+  return { v: INDEX_VERSION, notes, trash: index.trash ?? [] }
 }
 
-/** 索引里删掉一篇 */
+/** 索引里删掉一篇（同样要保留 `trash` —— 理由见 `upsertNote`） */
 export function removeNote(index, id) {
-  return { v: INDEX_VERSION, notes: index.notes.filter((n) => n.id !== id) }
+  return {
+    v: INDEX_VERSION,
+    notes: index.notes.filter((n) => n.id !== id),
+    trash: index.trash ?? [],
+  }
 }
 
 /** 索引里找一篇 */
 export function findNote(index, id) {
   return index?.notes?.find((n) => n.id === id) ?? null
+}
+
+/** 某篇笔记在回收站里的库内相对路径（密文搬家，不解密） */
+export function trashPath(id) {
+  return `${TRASH_DIR}/${id}.zn`
+}
+
+/* ── 回收站（索引层面的增删，纯函数） ── */
+
+/** 移进回收站：notes 里挪到 trash（保留原始时间，恢复要无损） */
+export function moveToTrash(index, id, deletedAt = Date.now()) {
+  const note = findNote(index, id)
+  if (!note) return index
+  return {
+    v: INDEX_VERSION,
+    notes: index.notes.filter((n) => n.id !== id),
+    trash: [...(index.trash ?? []), { ...note, deletedAt }],
+  }
+}
+
+/** 从回收站恢复：trash 里挪回 notes */
+export function restoreFromTrash(index, id) {
+  const entry = findTrash(index, id)
+  if (!entry) return index
+  return {
+    v: INDEX_VERSION,
+    notes: [...index.notes, stripNote(entry)],
+    trash: (index.trash ?? []).filter((t) => t.id !== id),
+  }
+}
+
+/** 从回收站彻底删掉一条（只改索引；磁盘文件由调用方 purge） */
+export function purgeTrashEntry(index, id) {
+  return {
+    v: INDEX_VERSION,
+    notes: index.notes,
+    trash: (index.trash ?? []).filter((t) => t.id !== id),
+  }
+}
+
+/** 回收站里的某条 */
+export function findTrash(index, id) {
+  return index?.trash?.find((t) => t.id === id) ?? null
+}
+
+/** 回收站顺序：最近删的在前 */
+export function sortTrash(trash) {
+  return [...(trash ?? [])].sort((a, b) => {
+    if (b.deletedAt !== a.deletedAt) return b.deletedAt - a.deletedAt
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+}
+
+/* ── 搜索（期 2 · 需求 §3.3「独立搜索入口」） ── */
+
+/**
+ * 多关键词 **AND** 搜索（大小写不敏感），标题或正文命中即可。
+ *
+ * 与内核 `index.query` 同一套语义（多词 AND、全量小写比较），但**数据源是内存里
+ * 解密后的正文** —— 私密笔记不进内核索引（需求 §3.3「不经过 AI」+ 不落明文索引）。
+ *
+ * @param {Array<{id:string,title:string}>} notes 索引里的条目
+ * @param {Map<string,string>|Record<string,string>} plainById 已解密的正文
+ * @param {string} q 查询串
+ * @returns {Array<{id:string,title:string,excerpt:string,titleHit:boolean}>}
+ */
+export function searchNotes(notes, plainById, q) {
+  const terms = String(q ?? '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+  if (!terms.length) return []
+  const get = (id) =>
+    plainById instanceof Map ? plainById.get(id) ?? '' : plainById?.[id] ?? ''
+  const out = []
+  for (const n of notes) {
+    const text = get(n.id)
+    const title = String(n.title ?? '')
+    const hay = `${title}\n${text}`.toLowerCase()
+    if (!terms.every((t) => hay.includes(t))) continue
+    out.push({
+      id: n.id,
+      title: title || '未命名',
+      excerpt: excerptOf(text, terms),
+      // 标题命中优先（与内核搜索的"标题权重高"口径接近）
+      titleHit: terms.every((t) => title.toLowerCase().includes(t)),
+    })
+  }
+  return out.sort((a, b) => Number(b.titleHit) - Number(a.titleHit))
+}
+
+/** 命中处前后各取 `radius` 个字符作为片段（找不到就给开头一段） */
+export function excerptOf(text, terms, radius = 30) {
+  const s = String(text ?? '')
+  const low = s.toLowerCase()
+  let at = -1
+  let hit = ''
+  for (const t of terms ?? []) {
+    const i = low.indexOf(String(t).toLowerCase())
+    if (i >= 0 && (at < 0 || i < at)) {
+      at = i
+      hit = String(t)
+    }
+  }
+  const clean = (x) => x.replace(/\s+/g, ' ').trim()
+  if (at < 0) return clean(s.slice(0, radius * 2))
+  const from = Math.max(0, at - radius)
+  const to = Math.min(s.length, at + hit.length + radius)
+  return `${from > 0 ? '…' : ''}${clean(s.slice(from, to))}${to < s.length ? '…' : ''}`
+}
+
+/* ── 移出（私密 → 公开）需要文件名 ── */
+
+/**
+ * 用标题生成一个**库内可用的** .md 文件名（重名自动加 `-2`）。
+ *
+ * 为什么要清洗：标题可能带 `/` `:` `*` 这些 Windows 非法字符；以 `.` 开头会被内核的
+ * `list_notes` 当私有目录/隐藏文件跳过（移出去就"看不见"了，静默失效）。
+ */
+export function publicPathFor(title, taken = [], ext = '.md') {
+  const base =
+    String(title || '私密笔记')
+      .replace(/[\\/:*?"<>|]/g, ' ')
+      .replace(/^\.+/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 60) || '私密笔记'
+  const used = new Set((taken ?? []).map((p) => String(p).toLowerCase()))
+  let name = base
+  let n = 2
+  while (used.has((name + ext).toLowerCase())) name = `${base}-${n++}`
+  return name + ext
 }
 
 /**
@@ -162,12 +335,23 @@ export function hasNotesRing(vaultText) {
 /* ───────────────────────── 状态 ───────────────────────── */
 
 let svc = null // crypto 服务（软依赖）
-let index = null // 解锁后才有：{ v, notes }
+let index = null // 解锁后才有：{ v, notes, trash }
 let ringReady = false // notes 环建了没有
-let busy = '' // 正在忙的环节（'unlock' | 'save' | ''）
+let busy = '' // 正在忙的环节（'unlock' | 'search' | ''）
 let message = { text: '', tone: 'muted' }
 let lastActive = 0 // 空闲锁定的时间戳（Android 后台会冻结定时器 ⇒ 只信时间）
 let ui = {} // 面板 render 快照里的 bind 值
+/**
+ * 解锁期正文缓存（id → 明文）—— **只给搜索用**（期 2）。
+ * 懒加载：第一次搜索才逐篇解密，锁定即清空。方案 §4.4：不落盘任何明文索引。
+ */
+const plainCache = new Map()
+/** 搜索结果（null = 没在搜）；面板 render 是同步的，异步结果存在这里 */
+let searchResult = null
+/** 当前面板视图：'list' | 'trash' */
+let mode = 'list'
+/** 回收站里「已上膛」的那条（彻底删除要点两次 —— 与备份恢复同一套防误触） */
+let purgeArmed = null
 
 /* ───────────────────────── 锁定 ───────────────────────── */
 
@@ -189,6 +373,9 @@ async function closePrivateDoc(api) {
 
 function lockNow(api, reason = 'manual') {
   index = null
+  plainCache.clear() // 明文缓存必须随锁清掉（搜索用的是它）
+  searchResult = null
+  mode = 'list'
   ui = { ...ui }
   try {
     svc?.lock(RING)
@@ -220,17 +407,14 @@ function setMessage(text, tone = 'muted') {
 
 /* ───────────────────────── 存储 ───────────────────────── */
 
-/** 确保 `.zn/private/{notes}` 目录在（幂等） */
+/** 确保 `.zn/private/{notes,trash}` 目录在（幂等） */
 async function ensureDirs(api) {
-  try {
-    await api.fs.mkdir(PRIVATE_DIR)
-  } catch {
-    /* 已存在 */
-  }
-  try {
-    await api.fs.mkdir(NOTES_DIR)
-  } catch {
-    /* 已存在 */
+  for (const dir of [PRIVATE_DIR, NOTES_DIR, TRASH_DIR]) {
+    try {
+      await api.fs.mkdir(dir)
+    } catch {
+      /* 已存在 */
+    }
   }
 }
 
@@ -288,6 +472,10 @@ async function unlockAndLoad(api, password) {
   if (!pw) throw new Error('请输入主密码')
   await s.unlock(RING, pw)
   index = await loadIndex(api)
+  plainCache.clear()
+  searchResult = null
+  mode = 'list'
+  purgeArmed = null
   lastActive = nowMs()
   setMessage(`已解锁 · ${index.notes.length} 篇私密笔记`, 'success')
 }
@@ -315,6 +503,158 @@ async function createNote(api) {
   return id
 }
 
+/* ───────────────────────── 期 2：搜索（独立搜索入口 · 需求 §3.3） ───────────────────────── */
+
+/** 把正文缓存补齐（只解密还没缓存过的；单篇解不开按空处理，不反复重试） */
+async function fillPlainCache(api) {
+  if (!index) return 0
+  let n = 0
+  for (const note of index.notes) {
+    if (plainCache.has(note.id)) continue
+    try {
+      plainCache.set(note.id, await readPlain(api, note.id))
+      n += 1
+    } catch {
+      plainCache.set(note.id, '')
+    }
+  }
+  return n
+}
+
+async function runSearch(api, q) {
+  const query = String(q ?? '').trim()
+  if (!query) {
+    searchResult = null
+    setMessage('', 'muted')
+    api.view.refresh(PANEL_ID)
+    return
+  }
+  if (!index) return
+  busy = 'search'
+  setMessage(`正在解密索引…（共 ${index.notes.length} 篇）`, 'muted')
+  api.view.refresh(PANEL_ID)
+  await sleep(30) // 先让提示渲染出来，再跑解密
+  try {
+    await fillPlainCache(api)
+    searchResult = searchNotes(index.notes, plainCache, query)
+    setMessage(
+      searchResult.length ? `找到 ${searchResult.length} 篇` : '没有匹配的私密笔记',
+      searchResult.length ? 'success' : 'muted',
+    )
+  } catch (e) {
+    setMessage(`搜索失败：${String(e?.message ?? e)}`, 'danger')
+  } finally {
+    busy = ''
+    api.view.refresh(PANEL_ID)
+  }
+}
+
+/* ───────────────────────── 期 2：回收站（独立回收站 · 需求 §3.3） ───────────────────────── */
+
+/**
+ * 删除 = 密文搬进 `.zn/private/trash/`（**不解密、不碰全局回收站**）。
+ * 用 `fs.move` 而不是"读出来再写" —— 搬家不需要密钥，锁定时也能删。
+ */
+async function trashNote(api, id) {
+  if (!index) throw new Error('先解锁')
+  const note = findNote(index, id)
+  if (!note) throw new Error('没有这篇私密笔记')
+  // 正在编辑器里开着就先关掉：否则下一次自动保存会把刚移走的文件重新写出来
+  const d = api.doc.active?.()
+  if (d?.path === notePath(id)) {
+    try {
+      api.doc.close()
+    } catch {
+      /* 没打开就无所谓 */
+    }
+  }
+  await ensureDirs(api)
+  await api.fs.move(notePath(id), trashPath(id))
+  plainCache.delete(id)
+  index = moveToTrash(index, id, nowMs())
+  await saveIndex(api)
+  return note
+}
+
+async function restoreNote(api, id) {
+  if (!index) throw new Error('先解锁')
+  if (!findTrash(index, id)) throw new Error('回收站里没有这篇')
+  await ensureDirs(api)
+  await api.fs.move(trashPath(id), notePath(id))
+  plainCache.delete(id) // 恢复后重新解密（内容可能变过）
+  index = restoreFromTrash(index, id)
+  await saveIndex(api)
+}
+
+async function purgeNote(api, id) {
+  if (!index) throw new Error('先解锁')
+  await api.fs.purgePrivate(trashPath(id)).catch(() => {})
+  index = purgeTrashEntry(index, id)
+  await saveIndex(api)
+}
+
+async function emptyPrivateTrash(api) {
+  if (!index) throw new Error('先解锁')
+  const items = [...(index.trash ?? [])]
+  for (const t of items) await api.fs.purgePrivate(trashPath(t.id)).catch(() => {})
+  index = { ...index, trash: [] }
+  await saveIndex(api)
+  return items.length
+}
+
+/* ───────────────────────── 期 2：移入 / 移出（公开 ⇄ 私密） ───────────────────────── */
+
+/**
+ * 移入：把**当前打开的公开笔记**加密搬进私密文件夹。
+ *
+ * 为什么原文件要**立刻真删**（而不是留进全局回收站）：全局回收站的条目是**明文** ——
+ * 移入私密却把明文留在 `.zn/trash/` 里，等于没加密。所以 `fs.delete`（进回收站）后
+ * 按 `originalPath` 找到那条再 `purgeTrash`。顺序铁律：密文写成功之后才动原文件。
+ */
+async function moveCurrentIntoPrivate(api) {
+  if (!index) throw new Error('先解锁私密文件夹')
+  const d = api.doc.active?.()
+  if (!d?.path) throw new Error('先打开一篇公开笔记')
+  if (d.path.startsWith('.zn/')) throw new Error('这篇已经在私有目录里了（只有普通笔记能移入）')
+  if (d.dirty) await api.doc.save(d.path)
+  const plain = await api.fs.readText(d.path)
+  const id = newNoteId()
+  const at = nowMs()
+  await writePlain(api, id, plain)
+  index = upsertNote(index, { id, title: titleFromText(plain), createdAt: at, updatedAt: at })
+  await saveIndex(api)
+  const originalPath = d.path
+  await api.doc.close()
+  await api.fs.delete(originalPath)
+  try {
+    const list = await api.fs.listTrash()
+    const hit = list.find((t) => t.originalPath === originalPath) ?? null
+    if (hit) await api.fs.purgeTrash(hit.id)
+  } catch {
+    /* 清不掉也不致命：全局回收站里会留一份明文，属于已知边界（见方案 §6） */
+  }
+  return { id, title: titleFromText(plain) }
+}
+
+/**
+ * 移出：解开一篇私密笔记，写成库内普通 `.md`；明文落盘后**立刻**删密文
+ * （不保留双份 —— 用户要的是"变成公开笔记"，留一份密文只会让它下次又出现在私密列表里）。
+ */
+async function moveOutToPublic(api, id) {
+  if (!index) throw new Error('先解锁私密文件夹')
+  const note = findNote(index, id)
+  if (!note) throw new Error('没有这篇私密笔记')
+  const plain = await readPlain(api, id)
+  const taken = (await api.fs.listNotes()).map((n) => n.path)
+  const target = publicPathFor(note.title || titleFromText(plain), taken)
+  await api.fs.writeText(target, plain)
+  await api.fs.purgePrivate(notePath(id)).catch(() => {})
+  plainCache.delete(id)
+  index = removeNote(index, id)
+  await saveIndex(api)
+  return target
+}
+
 /* ───────────────────────── 面板 ───────────────────────── */
 
 function textNode(value, variant, tone) {
@@ -334,7 +674,7 @@ function val(bind) {
   return typeof v === 'string' ? v : ''
 }
 
-const BINDS = { pw: 'private.pw' }
+const BINDS = { pw: 'private.pw', search: 'private.search' }
 
 /** 「安全插件没装」的降级视图（软依赖标准做法：不崩、给出去哪装） */
 function noServiceView() {
@@ -395,13 +735,14 @@ function lockedView() {
 }
 
 /**
- * 列表视图（期 1：列表 + 新建 + 打开 + 锁定；搜索 / 回收站留期 2 —— 见方案 §5）。
+ * 列表视图（期 2）：搜索框 + 列表 + 回收站入口 + 移出。
  *
- * 为什么列表只显示标题与时间：正文解密在**打开时**做（每篇一次），列表不解密正文
- * ⇒ 100 篇的库打开面板也不卡。
+ * 列表本身只显示标题与时间 —— 正文解密留到打开 / 搜索时做，
+ * 所以 100 篇的库打开面板也不卡。
  */
 function listView() {
   const notes = sortNotes(index.notes)
+  const trashCount = index.trash?.length ?? 0
   const children = [
     {
       type: 'row',
@@ -412,13 +753,61 @@ function listView() {
         textNode('🔓 私密文件夹', 'title'),
         { type: 'badge', text: `${notes.length} 篇`, tone: 'default' },
         btn('＋ 新建', 'private.new'),
+        btn(`🗑 回收站${trashCount ? ` ${trashCount}` : ''}`, 'private.goto-trash', { variant: 'ghost' }),
         btn('锁定', 'private.lock', { variant: 'ghost' }),
       ],
     },
-    textNode('打开即用完整编辑器；保存时自动加密回磁盘。', 'caption', 'muted'),
+    {
+      type: 'field',
+      label: '搜索',
+      hint: busy === 'search' ? '正在解密正文…' : '搜标题和正文，多关键词用空格分开',
+      children: {
+        type: 'input',
+        bind: BINDS.search,
+        placeholder: '搜索私密笔记…',
+        onSubmit: 'private.search-run',
+      },
+    },
+    {
+      type: 'row',
+      gap: 'sm',
+      children: [
+        btn('搜索', 'private.search-run', { send: BINDS.search }),
+        btn('清除', 'private.search-clear', { variant: 'ghost' }),
+      ],
+    },
   ]
 
-  if (!notes.length) {
+  if (searchResult) {
+    children.push(textNode(`找到 ${searchResult.length} 篇`, 'body'))
+    if (!searchResult.length) {
+      children.push(textNode('没有匹配的私密笔记。', 'body', 'muted'))
+    } else {
+      children.push({
+        type: 'list',
+        items: searchResult.map((r) => ({
+          key: r.id,
+          node: {
+            type: 'stack',
+            gap: 'sm',
+            children: [
+              {
+                type: 'row',
+                gap: 'sm',
+                align: 'center',
+                wrap: true,
+                children: [
+                  textNode(r.title || '未命名', 'body'),
+                  btn('打开', 'private.open', { variant: 'ghost', payload: { id: r.id } }),
+                ],
+              },
+              textNode(r.excerpt, 'caption', 'muted'),
+            ],
+          },
+        })),
+      })
+    }
+  } else if (!notes.length) {
     children.push(textNode('还没有私密笔记。点「＋ 新建」开始。', 'body', 'muted'))
   } else {
     children.push({
@@ -434,6 +823,8 @@ function listView() {
             textNode(n.title || '未命名', 'body'),
             textNode(fmtTime(n.updatedAt), 'caption', 'muted'),
             btn('打开', 'private.open', { variant: 'ghost', payload: { id: n.id } }),
+            btn('移出', 'private.move-out', { variant: 'ghost', payload: { id: n.id } }),
+            btn('删除', 'private.trash', { variant: 'ghost', payload: { id: n.id } }),
           ],
         },
       })),
@@ -441,7 +832,65 @@ function listView() {
   }
 
   if (message.text) children.push(textNode(message.text, 'caption', message.tone))
-  children.push(textNode('文件在 .zn/private/（密文，文件名是随机 id）· 不进全局搜索 / 回收站', 'caption', 'muted'))
+  children.push(
+    textNode(
+      '文件在 .zn/private/（密文，文件名是随机 id）· 不进全局搜索 / 回收站 · 「移入私密」把当前打开的公开笔记搬进来',
+      'caption',
+      'muted',
+    ),
+  )
+  return { type: 'stack', gap: 'md', children }
+}
+
+/**
+ * 回收站视图（期 2）—— 与全局回收站分开：需求 §3.3「独立回收站，进入也需验证」。
+ * 验证继承主面板的解锁状态（没解锁根本进不来）。
+ */
+function trashView() {
+  const items = sortTrash(index.trash)
+  const children = [
+    {
+      type: 'row',
+      gap: 'sm',
+      align: 'center',
+      wrap: true,
+      children: [
+        textNode('🗑 私密回收站', 'title'),
+        { type: 'badge', text: `${items.length} 篇`, tone: 'default' },
+        btn('返回列表', 'private.goto-list', { variant: 'ghost' }),
+        ...(items.length ? [btn('清空', 'private.empty-trash', { variant: 'ghost' })] : []),
+      ],
+    },
+    textNode('条目仍是密文（删除不解密）。彻底删除不可恢复。', 'caption', 'muted'),
+  ]
+
+  if (!items.length) {
+    children.push(textNode('回收站是空的。', 'body', 'muted'))
+  } else {
+    children.push({
+      type: 'list',
+      items: items.map((t) => ({
+        key: t.id,
+        node: {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          wrap: true,
+          children: [
+            textNode(t.title || '未命名', 'body'),
+            textNode(`删于 ${fmtTime(t.deletedAt)}`, 'caption', 'muted'),
+            btn('恢复', 'private.restore', { variant: 'ghost', payload: { id: t.id } }),
+            btn(purgeArmed === t.id ? '真的删？' : '彻底删除', 'private.purge', {
+              variant: 'ghost',
+              payload: { id: t.id },
+            }),
+          ],
+        },
+      })),
+    })
+  }
+
+  if (message.text) children.push(textNode(message.text, 'caption', message.tone))
   return { type: 'stack', gap: 'md', children }
 }
 
@@ -456,7 +905,7 @@ function fmtTime(ms) {
 function panelNode() {
   if (!svc) return noServiceView()
   if (!index) return lockedView()
-  return listView()
+  return mode === 'trash' ? trashView() : listView()
 }
 
 /* ───────────────────────── 命令实现 ───────────────────────── */
@@ -480,6 +929,8 @@ async function onDocSaved(api, d) {
   const id = d.path.slice(NOTES_DIR.length + 1).replace(/\.zn$/, '')
   const existing = findNote(index, id)
   if (!existing) return
+  // 保存后正文就是事件里这份 —— 直接更新搜索缓存，免得下次搜索又解一次
+  plainCache.set(id, d.content)
   index = upsertNote(index, {
     ...existing,
     title: titleFromText(d.content, '未命名'),
@@ -652,24 +1103,149 @@ export default {
           await api.command.execute('core.openNote', { path: notePath(id) })
         },
       },
+      /* ── 期 2：搜索 ── */
       {
-        id: 'private.delete',
-        title: '私密文件夹：删除一篇',
+        id: 'private.search-run',
+        title: '私密文件夹：搜索',
+        run: async (payload) => {
+          if (!index || busy) return
+          const q = String(payload?.value ?? '') || val(BINDS.search)
+          await runSearch(api, q)
+        },
+      },
+      {
+        id: 'private.search-clear',
+        title: '私密文件夹：清除搜索',
+        run: () => {
+          searchResult = null
+          setMessage('', 'muted')
+          api.view.setState(BINDS.search, '')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      /* ── 期 2：回收站 ── */
+      {
+        id: 'private.goto-trash',
+        title: '私密文件夹：回收站',
+        run: () => {
+          mode = 'trash'
+          purgeArmed = null
+          searchResult = null
+          setMessage('', 'muted')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.goto-list',
+        title: '私密文件夹：返回列表',
+        run: () => {
+          mode = 'list'
+          purgeArmed = null
+          setMessage('', 'muted')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.trash',
+        title: '私密文件夹：删除一篇（进私密回收站）',
         run: async (payload) => {
           if (!index) return
           const id = String(payload?.id ?? '')
-          if (!id || !findNote(index, id)) return
           try {
-            api.doc.close()
-          } catch {
-            /* 没打开 */
+            await trashNote(api, id)
+            setMessage('已移入私密回收站（可恢复）', 'muted')
+          } catch (e) {
+            setMessage(`删除失败：${String(e?.message ?? e)}`, 'danger')
           }
-          // 期 1：真删除（`purge_private` 只认 `.zn/`）。独立回收站留期 2（方案 §5）
-          await api.fs.purgePrivate(notePath(id)).catch(() => {})
-          index = removeNote(index, id)
-          await saveIndex(api)
-          setMessage('已删除（期 1 为彻底删除；回收站随后续版本加）', 'muted')
           api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.restore',
+        title: '私密文件夹：恢复一篇',
+        run: async (payload) => {
+          if (!index) return
+          try {
+            await restoreNote(api, String(payload?.id ?? ''))
+            setMessage('已恢复到私密列表', 'success')
+          } catch (e) {
+            setMessage(`恢复失败：${String(e?.message ?? e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.purge',
+        title: '私密文件夹：彻底删除（不可恢复）',
+        run: async (payload) => {
+          if (!index) return
+          const id = String(payload?.id ?? '')
+          if (!id) return
+          // 两步确认：第一次只上膛（按钮变「真的删？」），第二次才真删 —— 与备份恢复同一套
+          if (purgeArmed !== id) {
+            purgeArmed = id
+            setMessage('再点一次「真的删？」才会彻底删除 —— 这一步不可恢复', 'warn')
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          purgeArmed = null
+          try {
+            await purgeNote(api, id)
+            setMessage('已彻底删除', 'muted')
+          } catch (e) {
+            setMessage(`彻底删除失败：${String(e?.message ?? e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.empty-trash',
+        title: '私密文件夹：清空回收站',
+        run: async () => {
+          if (!index) return
+          const n = index.trash?.length ?? 0
+          if (!n) return
+          const cleared = await emptyPrivateTrash(api).catch((e) => {
+            setMessage(`清空失败：${String(e?.message ?? e)}`, 'danger')
+            return -1
+          })
+          if (cleared >= 0) setMessage(`已清空回收站（${cleared} 篇）`, 'muted')
+          purgeArmed = null
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      /* ── 期 2：移入 / 移出 ── */
+      {
+        id: 'private.move-in',
+        title: '私密文件夹：把当前笔记移入私密',
+        run: async () => {
+          try {
+            const r = await moveCurrentIntoPrivate(api)
+            setMessage(`「${r.title}」已移入私密文件夹（原文件已从库中移除）`, 'success')
+            api.view.refresh(PANEL_ID)
+            await api.command.execute('core.openNote', { path: notePath(r.id) })
+          } catch (e) {
+            api.host.notify(`移入失败：${String(e?.message ?? e)}`, 'warn')
+          }
+        },
+      },
+      {
+        id: 'private.move-out',
+        title: '私密文件夹：把一篇移出为公开笔记',
+        run: async (payload) => {
+          if (!index) {
+            api.host.notify('先在面板里解锁', 'warn')
+            return
+          }
+          try {
+            const target = await moveOutToPublic(api, String(payload?.id ?? ''))
+            setMessage(`已移出为公开笔记：${target}`, 'success')
+            api.view.refresh(PANEL_ID)
+            await api.command.execute('core.openNote', { path: target })
+          } catch (e) {
+            setMessage(`移出失败：${String(e?.message ?? e)}`, 'danger')
+            api.view.refresh(PANEL_ID)
+          }
         },
       },
     ]
