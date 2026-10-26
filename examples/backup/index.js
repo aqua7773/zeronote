@@ -39,6 +39,15 @@ const INDEX_PATH = `${DIR}/index.json`
 const KEEP = 30
 /** 清单格式版本（以后要迁移时认它） */
 const INDEX_VERSION = 1
+/**
+ * 「恢复前快照」的名字前缀（rev173.177）。
+ *
+ * 需求 §14.2：恢复前自动备份当前数据，**这份快照不占最近 30 份的限额**。
+ * 靠前缀区分 —— `pickStale` 见到它就跳过，轮换永远删不到它。
+ */
+const PRE_PREFIX = 'pre-restore-'
+/** 合法备份目录名：普通备份是 `YYYY-MM-DDTHH-mm-ss`，恢复前快照多一个前缀 */
+const NAME_RE = new RegExp(`^(?:${PRE_PREFIX})?\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}$`)
 
 /**
  * 密码库要随包的文件 —— 两个都是**密文/元数据**，不会把明文密码带出去。
@@ -113,7 +122,8 @@ export function formatName(name) {
 export function pickStale(items, keep = KEEP) {
   const rows = (Array.isArray(items) ? items : [])
     .map((it) => ({ name: String(it?.name ?? ''), at: Number(it?.at) || 0 }))
-    .filter((it) => it.name !== '')
+    // 恢复前快照不参与轮换（需求 §14.2：不占 30 份限额）
+    .filter((it) => it.name !== '' && !it.name.startsWith(PRE_PREFIX))
     .sort((a, b) => b.name.localeCompare(a.name))
   const k = Number.isFinite(keep) && keep > 0 ? Math.floor(keep) : KEEP
   return rows.slice(k)
@@ -148,23 +158,30 @@ export function parseIndex(text) {
         files: Number(it?.files) || 0,
         secret: Boolean(it?.secret),
         ms: Number(it?.ms) || 0,
+        protected: Boolean(it?.protected) || String(it?.name ?? '').startsWith(PRE_PREFIX),
       }))
-      .filter((it) => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/.test(it.name))
+      .filter((it) => NAME_RE.test(it.name))
   } catch {
     return []
   }
 }
 
 /** 清单 → 面板行 */
-export function toRows(items) {  return (Array.isArray(items) ? items : []).map((it) => ({
-    name: String(it?.name ?? ''),
-    label: formatName(it?.name),
-    notes: Number(it?.notes) || 0,
-    dirs: Number(it?.dirs) || 0,
-    secret: Boolean(it?.secret),
-    trigger: String(it?.trigger ?? 'manual'),
-    ms: Number(it?.ms) || 0,
-  }))
+export function toRows(items) {
+  return (Array.isArray(items) ? items : []).map((it) => {
+    const name = String(it?.name ?? '')
+    return {
+      name,
+      label: formatName(name),
+      notes: Number(it?.notes) || 0,
+      dirs: Number(it?.dirs) || 0,
+      secret: Boolean(it?.secret),
+      trigger: String(it?.trigger ?? 'manual'),
+      ms: Number(it?.ms) || 0,
+      /** 恢复前快照：**不占 30 份限额**，列表里单标出来（rev173.177） */
+      pre: name.startsWith(PRE_PREFIX),
+    }
+  })
 }
 
 /* ── 自动备份档位（rev173.176） ── */
@@ -255,6 +272,7 @@ export function panelNode(view) {
     broken = false,
     interval = DEFAULT_INTERVAL,
     lastAt = 0,
+    pendingRestore = '',
   } = view ?? {}
   return {
     type: 'stack',
@@ -313,7 +331,18 @@ export function panelNode(view) {
               { type: 'badge', text: `${r.notes} 篇` },
               ...(r.dirs > 0 ? [{ type: 'badge', text: `${r.dirs} 个文件夹` }] : []),
               ...(r.secret ? [{ type: 'badge', text: '含密码库', tone: 'success' }] : []),
-              { type: 'badge', text: r.trigger === 'manual' ? '手动' : '自动' },
+              {
+                type: 'badge',
+                text: r.pre ? '恢复前' : r.trigger === 'manual' ? '手动' : '自动',
+                tone: r.pre ? 'warn' : 'default',
+              },
+              {
+                type: 'button',
+                label: pendingRestore === r.name ? '确认恢复？再点一次' : '恢复',
+                onClick: 'backup.restore',
+                payload: { name: r.name },
+                variant: pendingRestore === r.name ? 'danger' : 'ghost',
+              },
               {
                 type: 'button',
                 label: '删除',
@@ -345,6 +374,8 @@ export default {
     let broken = false
     /** 自动备份配置（rev173.176）：档位 + 上次成功备份的时间戳 */
     let config = { interval: DEFAULT_INTERVAL, lastAt: 0 }
+    /** 恢复的「上膛」态（rev173.177）：第一次点恢复只上膛，第二次才真覆盖 */
+    let pendingRestore = ''
     /** 60 秒轮询的句柄（卸载时清掉） */
     let ticker = 0
     /** 串行闸门：连点「立即备份」不该起两个并发拷贝（同一秒同名会互相覆盖） */
@@ -357,7 +388,16 @@ export default {
         id: PANEL_ID,
         title: '备份',
         location: 'main',
-        render: () => panelNode({ rows, status, running, broken, interval: config.interval, lastAt: config.lastAt }),
+        render: () =>
+          panelNode({
+            rows,
+            status,
+            running,
+            broken,
+            interval: config.interval,
+            lastAt: config.lastAt,
+            pendingRestore,
+          }),
       }),
     )
 
@@ -447,76 +487,194 @@ export default {
      *       → 更新清单 → 轮换旧备份。**任何一步抛错都保留已完成的那份**（半份备份好过没有），
      * 只在状态栏报错；清单最后才写，所以失败的那次不会进列表。
      */
+    /**
+     * 真正的复制动作（不含 busy / 状态管理）—— 普通备份与「恢复前快照」共用。
+     *
+     * `dirNames` 必须记进 meta：恢复时要逐个把子目录拷回来，而 `fs.listDirs()` 跳过
+     * `.` 开头的目录 ⇒ `.zn/backups/<name>/*` 的子目录**列不出来**（rev173.177）。
+     */
+    async function snapshot(name, trigger, protectedSnap = false) {
+      const started = Date.now()
+      const root = `${DIR}/${name}`
+      await api.fs.mkdir(root)
+
+      // ① 库根文件（跳过 `.` 开头的；它们要么是系统文件，要么已经单独处理）
+      const rootFiles = (await api.fs.listFiles()).filter(
+        (f) => !f.startsWith('.') && !f.includes('/'),
+      )
+      for (const f of rootFiles) await api.fs.copy(f, `${root}/${f}`)
+
+      // ② 库根一级目录（`listDirs` 是递归的，只取第一层；`.zn` 与隐藏目录天然被跳过）
+      const rootDirs = (await api.fs.listDirs()).filter(
+        (d) => !d.startsWith('.') && !d.includes('/'),
+      )
+      for (const d of rootDirs) await api.fs.copy(d, `${root}/${d}`)
+
+      // ③ 密码库密文（有才拷 —— 没装 secrets / security 的库不该因此失败）
+      let secret = false
+      for (const s of SECRET_FILES) {
+        if (await api.fs.exists(s.from)) {
+          await api.fs.writeBytes(`${root}/${s.to}`, await api.fs.readBytes(s.from))
+          secret = true
+        }
+      }
+
+      const notes = (await api.fs.listNotes()).length
+      const meta = {
+        at: started,
+        trigger,
+        notes,
+        dirs: rootDirs.length,
+        dirNames: rootDirs,
+        files: rootFiles.length,
+        secret,
+        ms: Date.now() - started,
+        ...(protectedSnap ? { protected: true } : {}),
+      }
+      await api.fs.writeText(`${root}/_meta.json`, JSON.stringify(meta, null, 2))
+      return meta
+    }
+
+    /** 把一份快照插进清单，并轮换掉超出 30 份的旧备份（恢复前快照不参与轮换） */
+    async function commitSnapshot(name, meta) {
+      const kept = (await liveItems(await loadIndex())).filter((it) => it.name !== name)
+      const next = [{ name, ...meta }, ...kept].sort((a, b) => b.name.localeCompare(a.name))
+      const stale = pickStale(next, KEEP)
+      for (const s of stale) {
+        try {
+          await api.fs.purgeBackup(s.name)
+        } catch (e) {
+          // 单份删不掉不拖累整次备份：记进状态，清单照写
+          status = `旧备份「${formatName(s.name)}」删不掉：${String(e)}`
+        }
+      }
+      const staleNames = new Set(stale.map((s) => s.name))
+      const finalItems = next.filter((it) => !staleNames.has(it.name))
+      await saveIndex(finalItems)
+      broken = false
+      rows = toRows(finalItems)
+      return finalItems
+    }
+
     async function runBackup(trigger = 'manual') {
       if (busy) return
       busy = true
       running = true
       status = '正在备份…'
       refresh()
-      const started = Date.now()
       try {
         const name = backupName(new Date())
-        const root = `${DIR}/${name}`
-        await api.fs.mkdir(root)
-
-        // ① 库根文件（跳过 `.` 开头的；它们要么是系统文件，要么已经单独处理）
-        const rootFiles = (await api.fs.listFiles()).filter(
-          (f) => !f.startsWith('.') && !f.includes('/'),
-        )
-        for (const f of rootFiles) await api.fs.copy(f, `${root}/${f}`)
-
-        // ② 库根一级目录（`listDirs` 是递归的，只取第一层；`.zn` 与隐藏目录天然被跳过）
-        const rootDirs = (await api.fs.listDirs()).filter(
-          (d) => !d.startsWith('.') && !d.includes('/'),
-        )
-        for (const d of rootDirs) await api.fs.copy(d, `${root}/${d}`)
-
-        // ③ 密码库密文（有才拷 —— 没装 secrets / security 的库不该因此失败）
-        let secret = false
-        for (const s of SECRET_FILES) {
-          if (await api.fs.exists(s.from)) {
-            await api.fs.writeBytes(`${root}/${s.to}`, await api.fs.readBytes(s.from))
-            secret = true
-          }
-        }
-
-        const notes = (await api.fs.listNotes()).length
-        const meta = {
-          at: started,
-          trigger,
-          notes,
-          dirs: rootDirs.length,
-          files: rootFiles.length,
-          secret,
-          ms: Date.now() - started,
-        }
-        await api.fs.writeText(`${root}/_meta.json`, JSON.stringify(meta, null, 2))
-
-        // ④ 清单 + 轮换（先算要删的，删完再写清单，避免"清单里有、盘上没了"）
-        const kept = (await liveItems(await loadIndex())).filter((it) => it.name !== name)
-        const next = [{ name, ...meta }, ...kept].sort((a, b) => b.name.localeCompare(a.name))
-        const stale = pickStale(next, KEEP)
-        for (const s of stale) {
-          try {
-            await api.fs.purgeBackup(s.name)
-          } catch (e) {
-            // 单份删不掉不拖累整次备份：记进状态，清单照写
-            status = `旧备份「${formatName(s.name)}」删不掉：${String(e)}`
-          }
-        }
-        const staleNames = new Set(stale.map((s) => s.name))
-        const finalItems = next.filter((it) => !staleNames.has(it.name))
-        await saveIndex(finalItems)
+        const meta = await snapshot(name, trigger)
+        await commitSnapshot(name, meta)
         // 手动也算「刚备过」：否则点完「立即备份」，60 秒后自动备份又立刻来一份
         await saveConfig({ lastAt: Date.now() })
-        broken = false
-        rows = toRows(finalItems)
         if (!String(status).startsWith('旧备份')) {
-          status = `已备份 ${notes} 篇 · ${rootDirs.length} 个文件夹${secret ? ' · 含密码库密文' : ''} · ${meta.ms} ms`
+          status = `已备份 ${meta.notes} 篇 · ${meta.dirs} 个文件夹${meta.secret ? ' · 含密码库密文' : ''} · ${meta.ms} ms`
         }
         api.host.notify('备份完成', 'info')
       } catch (e) {
         status = `备份失败：${String(e)}`
+        api.host.notify(status, 'error')
+      } finally {
+        running = false
+        busy = false
+        refresh()
+      }
+    }
+
+    /** 读某份备份的 `_meta.json`（恢复靠它拿 dirNames / 是否需要写回密码库） */
+    async function readMeta(name) {
+      try {
+        const raw = JSON.parse(await api.fs.readText(`${DIR}/${name}/_meta.json`))
+        return {
+          secret: Boolean(raw?.secret),
+          dirs: Number(raw?.dirs) || 0,
+          dirNames: Array.isArray(raw?.dirNames) ? raw.dirNames.map(String) : [],
+        }
+      } catch {
+        return { secret: false, dirs: 0, dirNames: [] }
+      }
+    }
+
+    /**
+     * 恢复（rev173.177 · 需求 §14.2）：**整体覆盖**，顺序按「先保命再动刀」——
+     *
+     *   ① 把当前库存成「恢复前快照」（`pre-restore-*`，不占 30 份限额）
+     *   ② 当前内容移进**回收站**（可撤销；不是物理删）
+     *   ③ 从备份拷回顶层文件 + 子目录
+     *   ④ 密码库密文写回原位（`.zn/secrets` / `.zn/security`）
+     *
+     * 旧备份（rev173.175/176 打的）没有 `dirNames` ⇒ **拒绝恢复**而不是悄悄丢掉子目录
+     * （硬约束 4：静默失效比报错危险）。
+     */
+    async function doRestore(name) {
+      if (busy) return
+      busy = true
+      running = true
+      status = `正在恢复 ${formatName(name)}…`
+      refresh()
+      try {
+        if (!(await api.fs.exists(`${DIR}/${name}`))) throw new Error('这份备份已经不在了')
+        const meta = await readMeta(name)
+        if (meta.dirs > 0 && meta.dirNames.length === 0) {
+          throw new Error(
+            `这份备份是旧版打的，没记目录清单 —— 恢复会丢掉 ${meta.dirs} 个文件夹，已取消。` +
+              `先点「立即备份」打一份新的再恢复。`,
+          )
+        }
+
+        // ① 恢复前快照（先保命）
+        status = '① 先给当前数据存一份快照…'
+        refresh()
+        const pre = `${PRE_PREFIX}${backupName(new Date())}`
+        const preMeta = await snapshot(pre, 'pre-restore', true)
+        await commitSnapshot(pre, preMeta)
+
+        // ② 清空当前（移进回收站，可撤销）
+        status = '② 把当前内容移进回收站…'
+        refresh()
+        const files = (await api.fs.listFiles()).filter(
+          (f) => !f.startsWith('.') && !f.includes('/'),
+        )
+        for (const f of files) await api.fs.delete(f)
+        const dirs = (await api.fs.listDirs()).filter(
+          (d) => !d.startsWith('.') && !d.includes('/'),
+        )
+        for (const d of dirs) await api.fs.delete(d)
+
+        // ③ 拷回（`_meta.json` 不还原 —— 它是备份自己的账本，不是笔记）
+        // ⚠️ `fs.listFiles(dir)` 返回的是**库内相对路径**（`dir/文件名`），不是裸文件名
+        //    —— 直接拿它去 `${DIR}/${name}/${f}` 会拼成 `.../zn/backups/.../zn/backups/...`
+        //    （rev173.177 实测踩到：恢复完库是空的，报告「源不存在」）。
+        status = '③ 从备份拷回笔记…'
+        refresh()
+        const backFiles = await api.fs.listFiles(`${DIR}/${name}`)
+        for (const full of backFiles) {
+          const base = String(full).split('/').pop() ?? ''
+          if (!base || base === '_meta.json') continue
+          await api.fs.copy(full, base)
+        }
+        for (const d of meta.dirNames) {
+          if (d.startsWith('.') || d.includes('/')) continue
+          if (await api.fs.exists(`${DIR}/${name}/${d}`)) await api.fs.copy(`${DIR}/${name}/${d}`, d)
+        }
+
+        // ④ 密码库密文写回原位
+        if (meta.secret) {
+          status = '④ 写回密码库密文…'
+          refresh()
+          for (const s of SECRET_FILES) {
+            if (await api.fs.exists(`${DIR}/${name}/${s.to}`)) {
+              await api.fs.writeBytes(s.from, await api.fs.readBytes(`${DIR}/${name}/${s.to}`))
+            }
+          }
+        }
+
+        status = `已恢复 ${formatName(name)} · 旧数据在回收站 · 恢复前快照 ${formatName(pre)}`
+        api.host.notify('恢复完成（旧数据在回收站，可撤销）', 'info')
+        await reloadRows()
+      } catch (e) {
+        status = `恢复失败：${String(e)}`
         api.host.notify(status, 'error')
       } finally {
         running = false
@@ -544,6 +702,7 @@ export default {
         title: '备份：刷新列表',
         run: async () => {
           status = ''
+          pendingRestore = ''
           await reloadRows()
         },
       }),
@@ -575,6 +734,32 @@ export default {
      * 打开面板。`core.panel.<id>` 由内核为每个面板注册，但要等插件加载后的下一次 React 提交
      * 才存在 ⇒ 冷启动先重试几次（doc-reader / tag-panel 同样做法）。
      */    api.subscriptions.push(
+      api.command.register({
+        /**
+         * 恢复（两步确认，rev173.177）。
+         *
+         * 为什么不做「弹确认框」：UINode 没有 modal confirm 原语；而且恢复是**覆盖整库**，
+         * 一次误点就够呛。所以做成「上膛 → 再点一次」：第一次点只把按钮变红并提示，
+         * 第二次点同一份才执行。点别的备份 / 刷新会把上膛态清掉。
+         */
+        id: 'backup.restore',
+        title: '备份：恢复这一份',
+        run: async (payload) => {
+          const name = String(payload?.name ?? '').trim()
+          if (!name) return
+          if (pendingRestore !== name) {
+            pendingRestore = name
+            status = `再点一次「确认恢复」才会覆盖当前库（会先自动存一份恢复前快照）`
+            refresh()
+            return
+          }
+          pendingRestore = ''
+          await doRestore(name)
+        },
+      }),
+    )
+
+    api.subscriptions.push(
       api.command.register({
         id: 'backup.set-interval',
         title: '备份：设置自动备份档位',

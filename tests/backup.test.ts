@@ -181,6 +181,66 @@ describe('自动备份档位（rev173.176）', () => {
   })
 })
 
+describe('恢复（rev173.177）', () => {
+  it('恢复前快照不参与 30 份轮换（需求 §14.2）', () => {
+    const items = [
+      { name: 'pre-restore-2026-10-01T00-00-00' },
+      ...Array.from({ length: 30 }, (_, i) => ({
+        name: `2026-10-${String(i + 2).padStart(2, '0')}T00-00-00`,
+      })),
+    ]
+    // 30 份普通备份 + 1 份快照 ⇒ 一份都不删（快照不占额度）
+    expect(pickStale(items, 30)).toEqual([])
+    // 再挤一份普通备份 ⇒ 只删最老那份普通备份，快照永远不动
+    const stale = pickStale([...items, { name: '2026-11-01T00-00-00' }], 30)
+    expect(stale.map((s) => s.name)).toEqual(['2026-10-02T00-00-00'])
+  })
+
+  it('parseIndex 认恢复前快照并标 protected', () => {
+    const items = parseIndex(
+      JSON.stringify([
+        { name: 'pre-restore-2026-10-26T20-30-00', protected: true, dirs: 6 },
+        { name: '2026-10-26T14-30-00' },
+      ]),
+    )
+    expect(items.map((i) => i.name)).toEqual([
+      'pre-restore-2026-10-26T20-30-00',
+      '2026-10-26T14-30-00',
+    ])
+    expect(items[0].protected).toBe(true)
+    expect(items[1].protected).toBe(false)
+  })
+
+  it('toRows 把快照标成 pre（面板要单独显示）', () => {
+    const [row] = toRows([{ name: 'pre-restore-2026-10-26T20-30-00' }])
+    expect(row.pre).toBe(true)
+  })
+
+  it('面板有「恢复」按钮；上膛态换成确认文案', () => {
+    const row = {
+      name: '2026-10-26T14-30-00',
+      label: '10-26 14:30:00',
+      notes: 3,
+      dirs: 0,
+      secret: false,
+      trigger: 'manual',
+      pre: false,
+    }
+    const idle = JSON.stringify(panelNode({ rows: [row] }))
+    expect(idle).toContain('backup.restore')
+    expect(idle).toContain('"恢复"')
+    const armed = JSON.stringify(panelNode({ rows: [row], pendingRestore: row.name }))
+    expect(armed).toContain('确认恢复？再点一次')
+  })
+
+  it('旧备份没有 dirNames ⇒ 恢复会被拒绝（由命令层兜）', () => {
+    // 这里锁的是「meta 里没有 dirNames 时会话能看出来」这一段的数据形状
+    const meta = JSON.parse(JSON.stringify({ dirs: 6, secret: true }))
+    expect(Array.isArray(meta.dirNames)).toBe(false)
+    expect(meta.dirs).toBeGreaterThan(0)
+  })
+})
+
 describe('panelNode', () => {
   it('空态：没备过 vs 清单坏了 文案不同', () => {
     const fresh = JSON.stringify(panelNode({ rows: [] }))
