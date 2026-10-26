@@ -155,15 +155,25 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
   }
 
   let resp = rb.send().await.map_err(|e| {
+    // 把**错误源链**一起打出来（rev173.192 真机排障需要）。
+    // reqwest 的 Display 只有「error sending request for url」，真正原因（DNS / TCP / TLS / 证书）
+    // 全在 source 链里 —— 排障时没有它等于没信息。桌面与 Android 走的 TLS 栈不同
+    // （桌面 native-tls / Android rustls+webpki-roots），同一个 URL 两端表现可以完全不同。
+    let mut chain = String::new();
+    let mut cur = std::error::Error::source(&e);
+    while let Some(s) = cur {
+      chain.push_str(&format!(" ← {s}"));
+      cur = std::error::Error::source(s);
+    }
     // 分类给出「人能懂的原因」—— 笼统的 request failed 在同步排障里毫无用处。
     if e.is_timeout() {
-      format!("请求超时（{timeout} ms）：{url}")
+      format!("请求超时（{timeout} ms）：{url}{chain}")
     } else if e.is_connect() {
-      format!("连不上服务器（地址 / 端口 / 证书 / DNS 之一）：{url} —— {e}")
+      format!("连不上服务器（地址 / 端口 / 证书 / DNS 之一）：{url} —— {e}{chain}")
     } else if e.is_decode() || e.is_body() {
-      format!("响应读取失败：{url} —— {e}")
+      format!("响应读取失败：{url} —— {e}{chain}")
     } else {
-      format!("请求失败：{url} —— {e}")
+      format!("请求失败：{url} —— {e}{chain}")
     }
   })?;
 
