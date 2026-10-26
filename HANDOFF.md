@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.194
-更新时间: 2026-10-27 · 最新 rev173.194
+revision: 173.195
+更新时间: 2026-10-27 · 最新 rev173.195
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.194
 
 | rev | 内容 |
 |---|---|
+| rev173.195 | 2026-10-27 · **交接**（用户「收尾交接」）：本会话 **rev173.188–194 共 7 个提交**，主线三条 —— ① **备份插件发市场**（189：`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」）② **修市场安装清掉 `store.json`**（190：整目录交换前把用户数据搬回；cargo 53 → 55）③ **手机连不上 raw 的根因与解法**（192 错误带源链 → 是 TLS 阶段 RST；193 对照 12 个域名，只有 raw 全灭；**194 市场镜像可切换 + 测速**，5 条内置源，`cdn.jsdelivr.net` 两端都断、GCore/Cloudflare 两端都通）。**交接时状态**：工作区干净 · HEAD `80b0d4a` · 与 origin 同步 · verify 六步全绿（vitest **1170** · cargo **55** · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24）· 手机 pid 31861 / APK **01:00:40**（**不含 194 的镜像 UI**）· 测试端口 8931/8933/8934 全部释放。**下一步候选**：① 默认源是否改成 `jsDelivr · GCore`（现在仍 raw，手机开箱不可用）② 手机重编一次验证 194 的 UI ③ ROADMAP 里「安卓桌面组件」仍是大块未做。**本会话新增的坑**：见正文「四条」|
 | rev173.194 | 2026-10-27 · **市场镜像可切换 + 测速**（用户「准备几条镜像可供切换，加个测速功能」）：① **5 条内置镜像**（GitHub raw · jsDelivr · GCore · jsDelivr · Cloudflare · jsDelivr(cdn) · ghproxy.net）+ 自定义地址；**索引地址与包前缀成对切换**（`MarketMirror = { indexUrl, packBase }`）—— 只换索引不换包 = 「能看不能装」② `mirrorPackUrl` **只改写本仓库 `raw.githubusercontent.com/aqua7773/zeronote/…` 形态的地址**，外部作者 / Release / 自建源一律原样（第一版粗暴「只取文件名再拼前缀」被 `tests/market.test.ts` 的老用例当场抓住 —— 回归测试救了真 bug）③ **测速** `probeMirror` 走 Rust `net_request`（与装插件同一条链路），**必须解析出条目才算可用**：只看 200 会被错误页骗（实测 `ghps.cc` 200 但只有 508 字节）④ **桌面实测**：raw 279 ms · GCore 722 ms · Cloudflare 648 ms · ghproxy 1413 ms，**全部 16 条**；**`cdn.jsdelivr.net` 在桌面也 `os error 10054`**（与手机结论一致）⇒ 标签改「国内常断」⑤ 切换后市场列表从新源重拉（16 条），选择存 `zn-market-mirror` ⑥ 连不上时多一句「点测速换一条」的下一步提示。vitest 1147 → **1170**（+23） |
 | rev173.193 | 2026-10-27 · **域名对照测试（12 个 · 手机 rustls 实测）**（用户「还有别的域名吗，多测几个」）：**`raw.githubusercontent.com` 6/6 失败**（每次都是 `Connection reset by peer`）· **稳定可用**：`gcore.jsdelivr.net` / `testingcf.jsdelivr.net`（索引 `16764` b64 = 12571 B 正确、包 `49704` b64 = 37278 B 正确，各 2 次全过）· `ghproxy.net`（内容正确）· `api.github.com` / `github.com` 200 · `objects.githubusercontent.com` 404（连上了）· `unpkg.com` 200 · **间歇**：`cdn.jsdelivr.net` / `fastly.jsdelivr.net`（先 1 次 RST，后重测 200）· **不可用**：`gist.githubusercontent.com` 超时 · `raw.gitmirror.com` / `hub.gitmirror.com` / `kkgithub.com` RST · `cdn.statically.io` / `ghfast.top` 超时 · `ghps.cc` 200 但只 508 字节（非真内容）。⇒ **jsDelivr 是最可行的替代源**（`gcore` / `testingcf` 节点 4/4 稳定，内容与 raw 逐字节一致）。未改代码 |
 | rev173.192 | 2026-10-27 · **查「手机 Rust 连不上 raw.githubusercontent.com」的根因**（用户「查」）：先给 `net_request` 的错误补上**错误源链**（沿 `std::error::Error::source` 逐层拼 `←`）—— reqwest 的 Display 只有「error sending request」，真因全在 source 里。拿到：**`← client error (Connect) ← Connection reset by peer (os error 104)`** ⇒ **TCP/TLS 被 RST**，不是证书 / DNS / 超时。**对照组（同一台手机 · 同一份代码 · `net_request` 实测）**：`api.github.com` **200** · `github.com` **200** · `objects.githubusercontent.com` **404**（连上了，只是路径不存在）· **`raw.githubusercontent.com` 100% 失败** ⇒ raw 是**域名级针对性干扰**，不是 Fastly 网段、也不是 ZeroNote 的缺陷。两条旁证：① 桌面同一份代码连 raw **200**（桌面 native-tls / 手机 rustls+webpki-roots）② `toybox nc` 到 raw 的 IPv4 与 IPv6:443 **都能建连**（rc=0）⇒ RST 发生在 **TLS 阶段**，不是 TCP 建连。⚠️ 也测了 jsDelivr（`cdn.` / `fastly.`）：**首次 200、随后同样 RST** ⇒ 换镜像也不稳。**未修**（要不要给市场加「备用源 / 可选源」，等用户定）。改动只有错误信息（`net.rs` 一处），无行为变化 |
@@ -89,6 +90,48 @@ revision: 173.194
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.195（2026-10-27 · 交接）
+
+> 用户「收尾交接」。本会话从 rev173.187 之后接手，**7 个提交 rev173.188–194**。
+
+> ### 本会话做了什么
+
+> | rev | 一句话 |
+> |---|---|
+> | 188 | ROADMAP 现状段纠错（0.5.0 → 0.6.0，六处「已完成」还标着待办） |
+> | 189 | 备份插件发市场（`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」） |
+> | 190 | 修市场安装清掉 `store.json`（整目录交换前搬回用户数据 · cargo 53 → 55） |
+> | 191 | 手机端市场走查（5 项全过；顺带发现手机 APK 已被 `android-dev` 悄悄重编成最新代码） |
+> | 192 | 查 raw 根因：错误带源链 → 是 **TLS 阶段 RST**，不是证书 / DNS |
+> | 193 | 12 个域名对照：只有 raw 全灭，jsDelivr 的 GCore / Cloudflare 稳定 |
+> | 194 | **市场镜像可切换 + 测速**（5 条内置源，索引与包前缀成对切换） |
+
+> ### 交接时实测状态
+
+> - 工作区干净 · HEAD **`80b0d4a`** · 与 `origin/main` 同步
+> - verify 六步全绿：tsc 0 · oxlint 0 error/3 warnings · cargo **55** · check-docs · vitest **1170** · 质量门 7/7
+> - 桌面 dev：pid **35548**（00:58:24 起）· vite 1420 / CDP 9222 正常
+> - 手机 `33b676f6`：pid 31861 · APK **01:00:40** —— **不含 rev173.194 的镜像 UI**（前端在那之后才改）
+> - 测试端口 8931 / 8933 / 8934 **全部释放**（清掉了两个 10-25 的僵尸 `http.server`）
+
+> ### 下一步候选
+
+> 1. **默认源是否改成 `jsDelivr · GCore`** —— 现在默认仍是 raw：桌面快（279 ms），但手机开箱拉不到。
+> 2. **手机重编一次**，验证 rev173.194 的下拉 / 测速在 Android 上（改前端不会自动重装，要动一下 Rust 或手动 build）。
+> 3. ROADMAP 里「安卓桌面组件」（需求 §15）仍是唯一没动过的大块。
+
+> ### 本会话新增的四条坑
+
+> 1. **别手抄 sha256**：手抄 64 位少一位，安装直接报「校验失败」，白折腾一轮。用 `node -e` 从 `market/entries/*.json` 读。
+> 2. **WebView `fetch` 成功 ≠ 网络通**：我一度以为「WebView 能连 raw」，结果它拿到 **11690 B**（旧边缘缓存），
+>    而桌面 Rust 同时拿到 **12571 B**（= 本地文件大小）。判「能不能连」要看**内容对不对**，不看「有没有返回」。
+> 3. **`job_kill` 杀不掉子进程**：`python -m http.server` 会活下来继续占端口，表现是 **`socket hang up`**
+>    （不是 404、也不是拒绝连接）。要 `Stop-Process -Id <pid>`，并且先用 `Get-NetTCPConnection` 找出真正占端口的 pid。
+> 4. **PowerShell 的 `$?` 会抢先展开**：`adb shell 'echo rc=$?'` 必须用**单引号**包住整条命令，否则输出是 `rc=True`。
+>    （同类：`$pid` 只读 —— 旧卡已记。）
+
+> verify 六步全绿。
 
 > ## 📌 rev173.194（2026-10-27 · 市场镜像可切换 + 测速）
 
