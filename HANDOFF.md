@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.170
-更新时间: 2026-10-26 · 最新 rev173.170
+revision: 173.171
+更新时间: 2026-10-26 · 最新 rev173.171
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.170
 
 | rev | 内容 |
 |---|---|
+| rev173.171 | 2026-10-26 · **锁定后自动弹生物识别（需求 §13）**：`security` 的 `lockRing` 之后自动发起一次生物识别 —— 判据抽成 `planAutoUnlock` / `shouldWaitForFocus` 两个纯函数（+5 单测）。**桌面失焦 ⇒ 挂起**，`focus` 回来再弹；**手机只看可见性**（WebView `hasFocus()` 恒 false；切后台 CPU 冻结 ⇒ `visibilitychange` 补弹），`reason:'service'` / 已解锁 / 正在派生 / 用户已在输密码 都不弹；自动弹取消给中性提示（「用指纹解锁」+ 主密码框兜底）；锁定时清主密码输入框。**实测**（`_tmp-vault-tb`）：空闲 60 s 锁 → 失焦不弹（截图无对话框）→ 点回窗口 600 ms 后 **Windows Hello 对话框弹出**（面板显示「正在请求指纹…」）。⚠️ 新坑：**Hello 是受保护的系统 UI** —— 合成键鼠 / `Esc` / UIA `InvokePattern` 全触达不到（UIA 顶层窗口列表里没有它），取消/指纹只能真人操作；所以「取消后提示」这条本轮**未经合成输入验证**。⚠️ **手机端本轮未实测**：Android 那条判据（「只看可见性」）是按 WebView 的 `visibilitychange` 语义写的，本轮只跑了桌面；手机 0.5.0 里装的 `security` 仍是 rev173.169 开发版，要用新行为得先换 `index.js`（+改 `manifest.sha256`）。vitest 1059 → **1064** · verify 六步全绿 |
 | rev173.170 | 2026-10-26 · **交接**（用户「交接」）：本会话 rev173.168–169 总览 + 交接时实测状态（工作树干净 · HEAD `16904bb` · verify 六步全绿 vitest **1059** · 桌面 dev pid **28892** · 手机 0.5.0 pid **10392**）+ 下个会话入口（**锁定后自动弹生物识别** / `biometric` 段按设备 / 手机 reload 偶发退出）+ 本会话四类坑（看门狗 env 传不进 Android / `manifest.sha256` 不同步即拒载 / windows crate 0.62 缺带窗口接口 / 硬编码旧 API）|
 | rev173.169 | 2026-10-26 · **期 2c：Windows Hello 解锁落地**：`hello_available` / `hello_enroll` / `hello_sign` 三个命令 —— windows crate 0.62 **没有**带窗口的接口，故手写 `IKeyCredentialManagerCreateWithWindowStatics`（30b1b9c9-…）+ `IKeyCredentialWithWindow`（050deb3b-…）的 vtable（IID 从系统 `Windows.Security.winmd` 解析）；`security` 的 `windowsHelloAdapter` = `hello_sign(challenge)` → HKDF → KEK → XChaCha 包裹，格式 `hello1.<challenge>.<zn1…>`；桌面实测「探测 → 绑定 → 锁定 → Hello 解锁」，**签名确定性由解锁本身证明**；顺手记两个坑（无窗口签名挂死 / `IAsyncOperation` 在 windows-future 且 0.3 没有 `.get()`）|
 | rev173.168 | 2026-10-26 · **期 2b：Android 指纹解锁落地**：`tauri-plugin-biometric 2.5.0`（仅 android target）+ `#[cfg(target_os="android")]` 注册 + capability `android-biometric.json`；`security` 插件加 `biometric` 段（`vault.json` 的 `rings.<id>.biometric`）与面板三入口（绑定 / 指纹解锁 / 解除），主密码那份 `wrapped` 不动、换密码与恢复重设都保留该段；真机走通「主密码解锁 → 绑定 → 空闲自动锁 → 指纹解锁（1 把已解锁）」；顺手修 **debug 包被看门狗 5 秒误杀**（`exit(101)`：Android 进程 env 传不进 `ZN_WATCHDOG=off`，改 debug 默认不启动）。vitest 1046 → **1056**（+10 含反向验证）· verify 六步全过 |
@@ -65,6 +66,39 @@ revision: 173.170
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.171（2026-10-26 · 锁定后自动弹生物识别）
+
+> 用户：「继续 ZeroNote，做锁定后自动弹生物识别」（需求 §13 最后一块）。遮罩是消费者插件（私密文件夹）的画法，`security` 只负责**锁定后自己发起一次验证**。
+>
+> ### 做了什么
+>
+> - `examples/security/index.js`：`lockRing()` 之后 `scheduleAutoUnlock()`；判据抽成两个导出的纯函数
+>   `shouldWaitForFocus` / `planAutoUnlock`（返回 `'go' | 'wait' | 'skip'`）—— 五条「不弹」：没绑指纹 /
+>   没适配器 / 已解锁 / 正在派生密钥 / `reason:'service'`；**桌面失焦先挂起等 `focus`，手机只看可见性**。
+> - 自动弹 600 ms 后再核一遍（这几百毫秒里用户可能自己解锁了 / 开始输主密码），`cancelAutoUnlock()` 挂到三处：
+>   手动点「用指纹解锁」、走主密码解锁、锁定时清空 `pw1` 输入框（`clearInputs`）。
+> - 自动弹被取消 ⇒ 中性提示「已取消 —— 输入主密码，或点「用指纹解锁」」（不刷红字）；手动点按钮仍按原语义报错。
+> - `apply()` 里挂 `visibilitychange` + `focus`，`dispose()` 里移除；锁定时挂起的那一次在用户回来时补弹，超过 5 分钟作废。
+>
+> ### 实测（桌面 `_tmp-vault-tb` · Windows Hello）
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 主密码解锁 secrets 环（`TestPass123`） | 面板「1 把已解锁」 |
+> | 空闲 60 s 自动锁（**窗口失焦**） | 「0 把已解锁」；**没有** Hello 对话框（`_shots/auto-bio-locked.png`）—— 挂起生效 |
+> | 点回窗口 → 600 ms | **Windows Hello「确保那是你」弹出** + 面板「正在请求指纹…」（`_shots/auto-bio-hello.png`） |
+>
+> ⚠️ **新坑**：Hello 对话框是**受保护的系统 UI** —— `SendInput` 合成点击、`Esc`、UIA `InvokePattern` 全触达不到
+> （UIA 顶层窗口列表里根本没有它）⇒ 取消 / 指纹只能真人操作。「取消后中性提示」这条**没验到**（推到真人验收）。
+>
+> ⚠️ **手机端本轮未实测**：Android 判据（只看可见性）按 `visibilitychange` 语义写；手机 0.5.0 里装的 `security`
+> 还是 rev173.169 开发版，要用新行为得换 `index.js` + 同步 `manifest.sha256`。
+>
+> ### 验证
+>
+> vitest 1059 → **1064**（+5：桌面在场 / 桌面失焦挂起 / 手机前后台 / 五种不弹 / 手动锁也弹 + 前后台组合）；
+> `verify.ps1` 六步全绿（tsc 0 · oxlint 3 warnings · cargo 52 · vitest 1064 · 质量门 7/7）。
 
 > ## 📌 rev173.170（2026-10-26 · 交接）
 

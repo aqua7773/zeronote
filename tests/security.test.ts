@@ -33,6 +33,7 @@ import {
   normalizeAnswer,
   normalizeCode,
   open,
+  planAutoUnlock,
   putRing,
   recoverWithAnswer,
   recoverWithCode,
@@ -40,6 +41,7 @@ import {
   seal,
   setupRecovery,
   signData,
+  shouldWaitForFocus,
   toB64url,
   toBytes,
   unbindBiometric,
@@ -468,5 +470,50 @@ describe('生物识别错误翻译（给用户看的文案）', () => {
 
   it('认不出的错误原样带出来（不吞）', () => {
     expect(biometricErrorMessage(new Error('weird-error-42'))).toContain('weird-error-42')
+  })
+})
+
+describe('锁定后自动弹生物识别（rev173.171）', () => {
+  /** 一旦条件完美：桌面、窗口在前台、有绑定、没解锁、没在派生 */
+  const ready = {
+    hasBiometric: true,
+    adapterReady: true,
+    unlocked: false,
+    busy: false,
+    reason: 'idle',
+    platform: 'windows',
+    visibility: 'visible',
+    hasFocus: true,
+  }
+
+  it('桌面在场 + 已绑定 ⇒ 立刻弹', () => {
+    expect(planAutoUnlock(ready)).toBe('go')
+  })
+
+  it('桌面窗口失焦 ⇒ 挂起，等用户点回窗口再弹（Hello 不抢焦点）', () => {
+    expect(planAutoUnlock({ ...ready, hasFocus: false })).toBe('wait')
+  })
+
+  it('手机：切后台挂起；WebView 没有键焦点但可见时照弹', () => {
+    expect(planAutoUnlock({ ...ready, platform: 'android', visibility: 'hidden', hasFocus: false })).toBe(
+      'wait',
+    )
+    expect(planAutoUnlock({ ...ready, platform: 'android', hasFocus: false })).toBe('go')
+  })
+
+  it('没绑 / 没适配器 / 已解锁 / 正在派生 / 别的插件锁的 ⇒ 一概不弹', () => {
+    expect(planAutoUnlock({ ...ready, hasBiometric: false })).toBe('skip')
+    expect(planAutoUnlock({ ...ready, adapterReady: false })).toBe('skip')
+    expect(planAutoUnlock({ ...ready, unlocked: true })).toBe('skip')
+    expect(planAutoUnlock({ ...ready, busy: true })).toBe('skip')
+    expect(planAutoUnlock({ ...ready, reason: 'service' })).toBe('skip')
+  })
+
+  it('手动锁定也弹（用户刚锁定、人在场）；前后台只看可见性与桌面焦点', () => {
+    expect(planAutoUnlock({ ...ready, reason: 'manual' })).toBe('go')
+    expect(shouldWaitForFocus({ platform: 'android', visibility: 'hidden', hasFocus: true })).toBe(true)
+    expect(shouldWaitForFocus({ platform: 'android', visibility: 'visible', hasFocus: false })).toBe(false)
+    expect(shouldWaitForFocus({ platform: 'windows', visibility: 'visible', hasFocus: false })).toBe(true)
+    expect(shouldWaitForFocus({ platform: 'windows', visibility: 'visible', hasFocus: true })).toBe(false)
   })
 })

@@ -516,6 +516,10 @@ const RING_HINT = {
 }
 /** 空闲检查间隔（不是锁定时间；锁定时间按环的 idleLockMs 判） */
 const IDLE_CHECK_MS = 3000
+/** 锁定后自动弹生物识别：先让面板切到「已锁定」再弹，免得弹窗盖住刷新 */
+const AUTO_UNLOCK_DELAY_MS = 600
+/** 锁定时应用不在前台 ⇒ 挂起这次自动弹；用户 5 分钟没回来就当他不想要 */
+const AUTO_UNLOCK_PENDING_MS = 5 * 60 * 1000
 
 /** 面板 bind 名 */
 const B = {
@@ -755,6 +759,42 @@ async function saveVault(api, vault) {
 
 /* ───────────────────────── 解锁 / 锁定 ───────────────────────── */
 
+/**
+ * 锁定时应用在不在前台（rev173.171）—— 两平台的判据不一样：
+ *
+ * - **桌面**：窗口失焦就等。Windows Hello 的验证对话框会**抢焦点**，
+ *   用户人已经在别的应用里时弹出来是打扰；等他点回窗口（`focus`）再弹。
+ * - **手机**：WebView 常常没有真实键焦点（`document.hasFocus()` 恒 false），
+ *   只看可见性 —— 切后台是 `hidden`，回到前台触发一次 `visibilitychange` / `focus`。
+ */
+export function shouldWaitForFocus({ platform, visibility, hasFocus }) {
+  if (visibility === 'hidden') return true
+  if (platform === 'android') return false
+  return hasFocus !== true
+}
+
+/**
+ * 锁定后要不要自动弹生物识别（纯函数，单测覆盖）。
+ * `'go'` 立刻弹 · `'wait'` 等窗口回到前台 · `'skip'` 完全不弹。
+ */
+export function planAutoUnlock({
+  hasBiometric,
+  adapterReady,
+  unlocked,
+  busy,
+  reason,
+  platform,
+  visibility,
+  hasFocus,
+}) {
+  if (!hasBiometric) return 'skip' // 这个环没绑生物识别
+  if (!adapterReady) return 'skip' // 本机没有可用适配器
+  if (unlocked) return 'skip' // 已经解锁（锁的瞬间又解了）
+  if (busy) return 'skip' // 正在派生密钥 = 用户正在主动解锁，别插队
+  if (reason === 'service') return 'skip' // 别的插件程序性锁定：用户可能不在这个界面
+  return shouldWaitForFocus({ platform, visibility, hasFocus }) ? 'wait' : 'go'
+}
+
 /** 先让界面显示"正在派生密钥…"，再算（Argon2 同步阻塞 1 s / 手机 2–4 s） */
 async function withBusy(api, ringId, fn) {
   store.busy = ringId
@@ -787,9 +827,83 @@ function lockRing(api, ringId, reason = 'manual') {
   if (!s) return false
   wipe(s.dek)
   live.delete(ringId)
+  // 锁定时不把主密码留在输入框里（自动弹的「用户正在输入」判据也靠它）
+  clearInputs(api, B.pw1)
   api.event.emit('security:locked', { ringId, reason })
   api.view.refresh(PANEL_ID)
+  scheduleAutoUnlock(api, ringId, reason)
   return true
+}
+
+/* ───────────── 锁定后自动弹生物识别（rev173.171） ───────────── */
+
+let autoUnlockTimer = null
+/** 锁定时不在前台 ⇒ 挂起这一次等用户回来：`{ ringId, until }` */
+let autoUnlockPending = null
+/** 生物识别请求进行中（自动 / 手动都算），防重入 */
+let biometricInFlight = false
+
+function cancelAutoUnlock() {
+  if (autoUnlockTimer) clearTimeout(autoUnlockTimer)
+  autoUnlockTimer = null
+  autoUnlockPending = null
+}
+
+/** 当前前台状态 + 适配器平台（判据在纯函数里，单测覆盖） */
+function appVisibility() {
+  try {
+    return {
+      platform: store.biometric?.platform ?? '',
+      visibility: globalThis.document?.visibilityState ?? 'visible',
+      hasFocus: globalThis.document?.hasFocus?.() === true,
+    }
+  } catch {
+    return { platform: '', visibility: 'visible', hasFocus: true }
+  }
+}
+
+/** 锁定后安排一次自动弹（同一时刻只排一个） */
+function scheduleAutoUnlock(api, ringId, reason) {
+  if (ringId !== store.selected) return // 锁的不是用户正看的环：面板上给按钮，不打扰
+  cancelAutoUnlock()
+  const ring = getRing(store.vault, ringId)
+  const plan = planAutoUnlock({
+    hasBiometric: Boolean(ring?.biometric?.wrapped),
+    adapterReady: Boolean(store.biometric),
+    unlocked: live.has(ringId),
+    busy: Boolean(store.busy),
+    reason,
+    ...appVisibility(),
+  })
+  if (plan === 'skip') return
+  if (plan === 'wait') {
+    autoUnlockPending = { ringId, until: Date.now() + AUTO_UNLOCK_PENDING_MS }
+    return
+  }
+  autoUnlockTimer = setTimeout(() => {
+    autoUnlockTimer = null
+    runAutoUnlock(api, ringId)
+  }, AUTO_UNLOCK_DELAY_MS)
+}
+
+/** 到点了再核一遍：这几百毫秒里用户可能已经自己解锁 / 开始输主密码 */
+function runAutoUnlock(api, ringId) {
+  if (live.has(ringId)) return cancelAutoUnlock()
+  if (String(ui[B.pw1] ?? '').trim()) return cancelAutoUnlock() // 用户正在输主密码
+  return doBiometricUnlock(api, { auto: true, ringId })
+}
+
+/** 窗口回到前台：把挂起的那次补弹出来（超过 5 分钟就作废，让用户自己点） */
+function resumeAutoUnlock(api) {
+  const pending = autoUnlockPending
+  if (!pending) return
+  if (Date.now() > pending.until) return cancelAutoUnlock()
+  if (shouldWaitForFocus(appVisibility())) return
+  autoUnlockPending = null
+  autoUnlockTimer = setTimeout(() => {
+    autoUnlockTimer = null
+    runAutoUnlock(api, pending.ringId)
+  }, AUTO_UNLOCK_DELAY_MS)
 }
 
 /** 按环的 idleLockMs 判空闲；后台被冻结也能靠时间戳补判 */
@@ -1065,6 +1179,7 @@ async function doSetup(api) {
 async function doUnlock(api) {
   const ringId = store.selected
   const pw = String(ui[B.pw1] ?? '')
+  cancelAutoUnlock() // 用户已经在走主密码这条路，别再弹指纹
   try {
     await withBusy(api, ringId, () => unlockWithPassword(api, ringId, pw))
     // 解锁后恢复码提示可以收了（已抄过的用户不希望它一直挂在屏幕上）
@@ -1171,19 +1286,38 @@ export function biometricErrorMessage(error) {
   return `生物识别失败：${raw}`
 }
 
-async function doBiometricUnlock(api) {
-  const ringId = store.selected
+/**
+ * 用生物识别解锁。
+ *
+ * - **手动**（面板按钮 / 命令）：失败原样报错。
+ * - **自动**（`{ auto: true }`，锁定后由 `scheduleAutoUnlock` 触发，rev173.171）：
+ *   取消 / 超时只给中性提示 —— 用户没主动做错什么；面板本来就有「用指纹解锁」
+ *   和主密码框兜底（需求 §13「失败或取消显示手动验证按钮」）。
+ */
+async function doBiometricUnlock(api, opts = {}) {
+  const { auto = false, ringId = store.selected } = opts
   const ring = getRing(store.vault, ringId)
   const adapter = store.biometric
   if (!ring) return setStatus(api, '这个环还没建立', 'warn')
   if (!adapter) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
+  if (biometricInFlight) return // 自动弹与手点叠在一起时只认第一个
+  if (!auto) cancelAutoUnlock() // 用户主动点了按钮：撤掉还没弹的那次自动弹
+  biometricInFlight = true
+  if (auto) setStatus(api, '正在请求指纹…', 'info')
   try {
     const dek = await unlockWithBiometric(ring, adapter)
     live.set(ringId, { dek, lastActive: Date.now() })
     api.event.emit('security:unlocked', { ringId })
     setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已用指纹解锁`, 'success')
   } catch (e) {
-    setStatus(api, biometricErrorMessage(e), 'error')
+    const msg = biometricErrorMessage(e)
+    if (auto && msg === '已取消') {
+      setStatus(api, '已取消 —— 输入主密码，或点「用指纹解锁」', 'info')
+    } else {
+      setStatus(api, msg, 'error')
+    }
+  } finally {
+    biometricInFlight = false
   }
 }
 
@@ -1301,6 +1435,28 @@ export default {
     /* 空闲锁定：3 秒检查一次（时间戳判定，不依赖定时器在后台还活着） */
     const timer = setInterval(() => checkIdle(api), IDLE_CHECK_MS)
     api.subscriptions.push({ dispose: () => clearInterval(timer) })
+
+    /* 锁定时人不在前台 ⇒ 这次自动弹先挂起，等用户回来再补（rev173.171）：
+       桌面的 Hello 对话框会抢焦点、手机切后台时 CPU 冻结 —— 都该等用户回来。
+       判据在 shouldWaitForFocus 里（纯函数，单测覆盖）。 */
+    const onAppActive = () => resumeAutoUnlock(api)
+    try {
+      document.addEventListener('visibilitychange', onAppActive)
+      window.addEventListener('focus', onAppActive)
+    } catch {
+      /* 无 DOM（单测 / 极端环境）：自动弹只在锁定当时立即尝试一次 */
+    }
+    api.subscriptions.push({
+      dispose: () => {
+        try {
+          document.removeEventListener('visibilitychange', onAppActive)
+          window.removeEventListener('focus', onAppActive)
+        } catch {
+          /* 同上 */
+        }
+        cancelAutoUnlock()
+      },
+    })
 
     /* 命令 */
     const commands = [
