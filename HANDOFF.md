@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.183
-更新时间: 2026-10-26 · 最新 rev173.183
+revision: 173.184
+更新时间: 2026-10-26 · 最新 rev173.184
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.183
 
 | rev | 内容 |
 |---|---|
+| rev173.184 | 2026-10-26 · **手机端走查（私密文件夹迁移链）**：手机 `33b676f6`（Android 16）把 `security` 换成 **0.2.0**（index.js 70475 B · md5 `52f8f4c3…`；manifest 无 sha 不用动），测试库 `/storage/emulated/0/Documents/ZeroNote` 的旧 `vault.json`（897 B · `v:1` · 只 secrets 环 · 已绑指纹 `d9c0b875…`）走一遍「解锁 → 换主密码 → 再换回」：**`vault.secrets.json`（825 B · `v:2` · 单环 · 新 salt）生成 ✅ · `biometrics[d9c0b875…]` 保留 ✅ · reload 后新旧密码都能解 ✅ · 点「用指纹解锁」能唤起系统指纹界面 ✅**；**但旧 `vault.json` 在 Android 上没被删掉** ❌ —— `saveVault` 最后一步 `purgePrivate(…).catch(() => {})` **静默失败**（同一路径手动 `invoke('purge_private')` 却能删 ⇒ 不是权限），之后它在 23:07–23:23 反复「复活」（每次 mtime=当前、内容与迁移前逐字节相同 · 源疑似 `.zn/backups/*/_secret/vault.json`，删掉后 70 秒不复现；主窗口 invoke hook 没抓到调用）· 另见启动后 60 秒内打出**两份**自动备份（`23-20-38` 缺 `dirNames`/带 `protected: false`，像旧版 meta）待查 |
 | rev173.183 | 2026-10-26 · **期 3 实测：vault 按环拆的迁移链**（交接卡点名「唯一没有真机证据的改动」）：全局插件目录里的 `security` 是 **0.1.2 的拷贝**（改 `examples/` 它不生效）⇒ 备份后删目录、**junction 指向 `examples/security` 0.2.0**（那份 manifest 无 `sha256` ⇒ 不校验入口哈希），reload 后 13 条 `security.*` 命令齐全 · 测试库 `_tmp-vault-tb` 旧**单文件** `vault.json`（1539 B · `v:1` · 两环 · secrets 已绑本机 Hello）当迁移源，**换一次主密码**（`TestPass123` → `TestPass1234`）触发 `saveVault` ⇒ 磁盘出现 `vault.notes.json`（560 B）+ `vault.secrets.json`（880 B）、**旧 `vault.json` 消失**；新格式 `v:2` + 单环 `ring`，**notes 的 KDF salt 与旧文件逐字相同**（迁移只搬不重算）、secrets 出新 salt（换密码本就重包裹 DEK）、`biometrics[16c9a8a9-…]` / `idleLockMs` / recovery 段全部保留 · reload 后「账号密码」用**新密码** ✅、「私密笔记」用 `NotesTest123` ✅（2 把已解锁）· **顺带验「按环写」**：把 secrets 换回 `TestPass123` ⇒ `vault.secrets.json` mtime 更新、**`vault.notes.json` 不动**（22:59:05）⇒ 两设备各改一个环不再判冲突；再 reload 仍能解锁 · 测试库回到已知状态（`secrets=TestPass123` / `notes=NotesTest123`）；迁移前备份 `_tmp-vault-tb/.zn/security-backup-20261026-225121/`、旧插件 `_tmp-plugin-backup/security-0.1.2-20261026-225114/` |
 | rev173.182 | 2026-10-26 · **私密文件夹 期 3：vault 按环拆 + 四后端同步 + 备份**（需求 §10.1）：① **`vault.json` 按环拆** —— 以前两环的 KDF 参数与包裹 DEK 在同一个文件里，而它**整文件同步**：两台设备各改一个环的密码（只重包裹 DEK）⇒ 两边都改同一个文件 ⇒ 判冲突 ⇒ 取远端 ⇒ **另一边的重包裹丢了，那台设备再也解不开**。现在每环一个 `vault.<环>.json`（各自一个同步单元）。旧单文件读到就迁移（拼回两环 → 写两个新文件 → 删旧文件）。⚠️ 旧客户端（`security` ≤ 0.1.2）只认 `vault.json`，迁移后以为"没建环" ⇒ 共用 vault 的设备都要升到 **0.2.0**。② **四后端都搬私密树**：`.zn/private/` 的 `index.zn` + `notes/*.zn` + `trash/*.zn` 逐文件走方向判定（webdav/s3/git 各加 `syncPrivateTree`；sync-folder `SECRET_DIRS` 加 `.zn/private`），判定抽成纯函数 **`decideTreeAction`**（11 种组合全覆盖），**删除两边都传播**（否则删一篇同步一轮就复活）；Git 额外要 sha（Contents API）⇒ `privateTree` 条目带 `sha`。③ **备份含私密树**：`_private/` 整棵密文随包，恢复原样写回。⚠️ 口径：memory fs 对不存在路径返回空串，当"本地有"会**白推空文件**（`空笔记也能同步` 抓到）⇒ 统一 `raw && raw.trim()`。vitest 1140 → **1146** |
 | rev173.181 | 2026-10-26 · **私密文件夹 期 2：独立搜索 / 回收站 / 移入移出**（需求 §3.3 后四条）：① **搜索** —— 面板内搜索框，标题与正文一起搜、多关键词 **AND**（与 `index.query` 同语义）；数据源是**解锁期内存里解密后的正文**（懒加载：第一次搜索才逐篇解密，锁定即清空；不落盘任何明文索引），命中处前后各取一段、**标题命中优先** ② **回收站** —— `.zn/private/trash/` 与全局回收站完全分开（「进入也需验证」= 继承主面板解锁态）；删除 = `fs.move` 搬密文（**不解密也能删**）· 恢复 = 搬回 + 索引挪回（原始 createdAt/updatedAt 一起存，**恢复后排序不跳**）· 彻底删除**两步确认**（第一次上膛按钮变「真的删？」）+ 清空 ③ **移入** = 把当前公开笔记加密搬进来，密文写成功后才动原文件，且**原文件立刻真删**（`fs.delete` 进全局回收站后按 `originalPath` 找到再 `purgeTrash`）—— 否则明文留在 `.zn/trash/` 等于没加密；**移出** = 解密写 `<标题>.md`（清洗 Windows 非法字符 / **不能以 `.` 开头**（会被当隐藏文件跳过）/ 重名加 `-2`），明文落盘后立刻删密文。⚠️ **单测抓到真 bug**：`upsertNote` / `removeNote` 返回不带 `trash`，而 `upsertNote` 在 `onDocSaved` 里每保存一次就跑 ⇒ **保存任意一篇就把回收站从索引里抹掉**（磁盘上的 trash 密文变孤儿）。**实测**（`_tmp-vault-tb` · 真 Argon2）：两篇 → 搜「开会」命中正文片段 · 搜「今天 面包」0 篇（跨篇 AND）· 搜「清单」标题命中 · 删除 ⇒ notes→trash + 面板只列回收站 · 恢复 ⇒ 两文件回 notes · 两次 `purge` ⇒ 第一次按钮变「真的删？」且文件还在、第二次消失 · 移入 ⇒ 库根文件消失 / 私密 +1 / **全局回收站无残留** · 移出 ⇒ 库根出现「要移入的笔记.md」且是明文。vitest 1120 → **1140** |
@@ -78,6 +79,56 @@ revision: 173.183
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.184（2026-10-26 · 手机端走查：迁移链 + 一个真机才暴露的缺陷）
+
+> 用户「走查手机」。交接卡最后一件缺真机证据的事（vault 迁移链桌面已实测，手机没验过）。
+
+> ### 做了什么
+
+> - 手机 `33b676f6`（24069RA21C · Android 16）：插件目录 `security` 拷入 **0.2.0** 的 `index.js`
+>   （70475 B · md5 `52f8f4c3…`；manifest 无 `sha256` ⇒ 不用同步哈希），reload 后 13 条 `security.*` 命令齐全。
+> - 测试库 `/storage/emulated/0/Documents/ZeroNote`（**不是** app 私有 `vault/`，那个是空的旧库）：
+>   `.zn/security/vault.json` 897 B · `v:1` · 只有 secrets 一把环 · 已绑指纹 `d9c0b875-…`。
+> - 面板解锁（`PhoneTest123`）→ 换主密码（→ `PhoneTest1234`）→ 观察磁盘 → 再换回 `PhoneTest123`。
+
+> ### 结果
+
+> | 检查 | 结果 |
+> |---|---|
+> | `vault.secrets.json` 生成 | ✅ 825 B · `v:2` + 单环 `ring` · 新 salt |
+> | `biometrics[d9c0b875-…]` 保留 | ✅（换密码不碰生物识别段） |
+> | 旧 `vault.json` 删除 | ❌ **没删掉**（同一操作桌面删掉了） |
+> | reload 后解锁 | ✅ 新密码、换回旧密码都能解 |
+> | 指纹 | ✅ 面板「本机已绑定」；点「用指纹解锁」唤起系统指纹界面 |
+
+> ### 缺陷：迁移收尾在 Android 上静默失败
+
+> `saveVault` 最后一步 `purgePrivate(LEGACY_VAULT_FILE).catch(() => {})` —— 删除失败被吞掉，
+> 面板照样显示「主密码已换」。手机上换密码后旧 `vault.json` 仍在；但**同一路径手动
+> `invoke('purge_private', {path:'.zn/security/vault.json'})` 返回 OK 并真的删掉了** ⇒ 不是权限问题，
+> 是那一刻的调用没生效（`exists` 判空或 purge 失败），且**没有任何提示**（硬约束 4：静默失效比报错危险）。
+> 影响：旧单文件残留 ⇒ 同步插件（rev173.164）仍会把它当私有文件搬；备份也会把它收进去。
+> 修法（下轮）：purge 不要静默；写完后 `exists` 复核一次，仍在就重试 + 状态栏报错。
+
+> ### 可疑现象（待查）
+
+> - 旧 `vault.json` 在 23:07–23:23 之间反复「复活」：每次 mtime = 当前时间、**内容与迁移前逐字节相同**
+>   （md5 `90cb95d7…`）。源疑似 `.zn/backups/<旧备份>/_secret/vault.json` —— 把那份删掉后 70 秒观察不再复现；
+>   但主窗口的 invoke hook（`write_note` / `copy_entry` / `purge_private`）**没抓到任何调用** ⇒ 写入者
+>   不是主 webview 里的插件，或发生在 hook 之前。
+> - 启动后 60 秒内打出**两份**自动备份：`2026-10-26T23-20-38` 的 meta 缺 `dirNames`、带 `protected: false`；
+>   `23-20-39` 正常。前者像 **旧版 backup 代码**的产物，待查（可能与「内置版覆盖全局目录」有关）。
+
+> ### 状态
+
+> - 手机 `.zn/security/` 里**仍有旧 `vault.json`**（897 B · 迁移前内容）。0.2.0 的 `loadVault` 优先读
+>   `vault.secrets.json` ⇒ **不影响解锁**；但它就是上面那个待修缺陷的表现 —— 手动删掉后还会被「复活」
+>   （23:30 又一次观察到：从指纹界面 BACK 回 app 之后出现）。
+> - `vault.secrets.json`（`PhoneTest123` 包裹）已验解锁 ✅（新密码 / 换回旧密码都解过）。
+> - 迁移前备份在 `/storage/emulated/0/Documents/zeronote-phone-backups/security-backup-20261026-2312/`
+>   （**库外**，避免被备份 / 同步扫进去）；手机插件 `security` = 0.2.0（app 私有目录，junction 用不上）。
+> - 指纹要真人按：AI 只能把系统指纹界面唤起（黑底圆环那版），按下去的是用户。
 
 > ## 📌 rev173.183（2026-10-26 · 期 3 实测：vault 按环拆的迁移链）
 
