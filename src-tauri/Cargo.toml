@@ -70,6 +70,19 @@ tauri-plugin-window-state = "2"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows-core = "0.62"
+# Windows Hello（rev173.169）：KeyCredentialManager + 带窗口 interop（hello.rs 手写 vtable）。
+# 0.62 与 tauri 内部用的一致（Cargo.lock 里本来就是 0.62.2，只加 feature 不引入新版本）。
+windows = { version = "0.62", features = [
+  "Foundation",
+  "Security_Credentials",
+  "Security_Cryptography",
+  "Storage_Streams",
+] }
+# `IAsyncOperation` 不住在 windows crate 里（0.62 起挪到 windows-future），
+# 而 KeyCredentialManager 的每个调用都返回它 ⇒ 必须直接依赖才能标注类型 / await。
+windows-future = { version = "0.3", features = ["std"] }
+# hello.rs 用 block_on 等 WinRT 的 IAsyncOperation（COM 接口不是 Send，不能跨 await）
+futures = "0.3"
 
 # HTTP 原语（`net` · rev173.106）：WebDAV 同步靠它，必须**在 Rust 侧发请求**——
 # WebView 里直连会被 CORS 拦死（PROPFIND/PUT 必然触发 preflight，见方案文档 §3 缺口 1）。

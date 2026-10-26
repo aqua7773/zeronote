@@ -46,6 +46,7 @@ import {
   unlockRing,
   unlockWithBiometric,
   verifyData,
+  windowsHelloAdapter,
 } from '../examples/security/index.js'
 
 /** 生产端从 `/vendor/noble/…` 注入，测试端直接用 node_modules 的同版本 */
@@ -408,6 +409,45 @@ describe('生物识别绑定（适配器注入）', () => {
     }
     const next = await bindBiometric(ring, dek, short)
     await expect(unlockWithBiometric(next, short)).rejects.toThrow(/长度不对/)
+  })
+})
+
+describe('Windows Hello 适配器（rev173.169）', () => {
+  /** 假 invoke：hello_sign 返回**确定性**的假签名（真机是 RSA-PKCS1 v1.5，同为确定性） */
+  const fakeInvoke = (signature = new Uint8Array(32).fill(7)) => async (cmd: string) => {
+    if (cmd === 'hello_enroll') return undefined
+    if (cmd === 'hello_sign') return toB64url(signature)
+    throw new Error(`unexpected command: ${cmd}`)
+  }
+
+  it('seal → open 往返解出同一把 DEK，包裹格式是 hello1.<challenge>.<zn1…>', async () => {
+    const adapter = windowsHelloAdapter(fakeInvoke() as never, libs)
+    const dek = randomBytes(32)
+    const blob = await adapter.seal(dek, 'secrets')
+    expect(adapter.platform).toBe('windows')
+    expect(blob).toMatch(/^hello1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
+    const back = await adapter.open(blob, 'secrets')
+    expect(Array.from(back)).toEqual(Array.from(dek))
+  })
+
+  it('换一份签名（模拟"签名不确定"）⇒ 解不开', async () => {
+    const sealer = windowsHelloAdapter(fakeInvoke(new Uint8Array(32).fill(7)) as never, libs)
+    const dek = randomBytes(32)
+    const blob = await sealer.seal(dek, 'secrets')
+    const other = windowsHelloAdapter(fakeInvoke(new Uint8Array(32).fill(8)) as never, libs)
+    await expect(other.open(blob, 'secrets')).rejects.toThrow()
+  })
+
+  it('篡改包裹 / 格式不认识都拒绝', async () => {
+    const adapter = windowsHelloAdapter(fakeInvoke() as never, libs)
+    const dek = randomBytes(32)
+    const blob = await adapter.seal(dek, 'secrets')
+    const parts = blob.split('.')
+    // 改最后一段的最后一个字符
+    parts[parts.length - 1] = parts[parts.length - 1].slice(0, -1) + (parts[parts.length - 1].endsWith('A') ? 'B' : 'A')
+    await expect(adapter.open(parts.join('.'), 'secrets')).rejects.toThrow()
+    await expect(adapter.open('hello1.short', 'secrets')).rejects.toThrow(/格式不认识/)
+    await expect(adapter.open('android1.abc.def', 'secrets')).rejects.toThrow(/格式不认识/)
   })
 })
 

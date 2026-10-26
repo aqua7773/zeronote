@@ -601,6 +601,53 @@ export function androidBiometricAdapter(invoke) {
 }
 
 /**
+ * Windows 适配器（期 2c · rev173.169）：`KeyCredentialManager` 签名 → HKDF → KEK →
+ * 用本文件的 XChaCha 包裹 DEK。
+ *
+ * 签名是 **RSA-PKCS1 v1.5 + SHA256**（确定性）⇒ 同一个 challenge 每次签出同一份签名 ⇒
+ * HKDF 出同一把 KEK。challenge 随机、随包裹一起存在 vault 里（它本身不是秘密）。
+ *
+ * 包裹格式：`hello1.<challenge>.<zn1.nonce.ct>`（`zn1` 段里还有两个点，解析时按前两段切）。
+ */
+export function windowsHelloAdapter(invoke, libs) {
+  const aad = (ringId) => `hello|${ringId}|dek`
+  const kekOf = (sig, ringId) =>
+    libs.hkdf(libs.sha256, sig, utf8.encode(`ZeroNote:${ringId}`), utf8.encode('zn-hello-kek'), 32)
+
+  return {
+    platform: 'windows',
+    async seal(dek, ringId) {
+      const accountId = `ZeroNote:${ringId}`
+      await invoke('hello_enroll', { accountId })
+      const challenge = libs.randomBytes(32)
+      const sigB64 = await invoke('hello_sign', { accountId, challenge: toB64url(challenge) })
+      const kek = kekOf(fromB64url(sigB64), ringId)
+      try {
+        return `hello1.${toB64url(challenge)}.${seal(libs, kek, aad(ringId), dek)}`
+      } finally {
+        wipe(kek)
+      }
+    },
+    async open(blob, ringId) {
+      const parts = String(blob ?? '').split('.')
+      if (parts[0] !== 'hello1' || parts.length < 4) {
+        throw new Error('Windows Hello 包裹格式不认识')
+      }
+      const challenge = fromB64url(parts[1])
+      const wrapped = parts.slice(2).join('.')
+      const accountId = `ZeroNote:${ringId}`
+      const sigB64 = await invoke('hello_sign', { accountId, challenge: toB64url(challenge) })
+      const kek = kekOf(fromB64url(sigB64), ringId)
+      try {
+        return open(libs, kek, aad(ringId), wrapped)
+      } finally {
+        wipe(kek)
+      }
+    },
+  }
+}
+
+/**
  * 探测本机可用的生物识别适配器。失败一律返回 null（静默 = 面板不显示入口），
  * 但**不吞掉"有硬件没录指纹"**：status.isAvailable=false 时同样返回 null，
  * 用户去系统设置录一枚指纹后重新打开面板即可。
@@ -617,7 +664,17 @@ async function detectBiometric() {
       return null
     }
   }
-  // Windows：期 2c 接 `hello_*`（Rust 侧 KeyCredentialManager），先返回 null
+  // Windows：Kernel 的 hello_* 命令（rev173.169）。非 Windows 桌面直接跳过。
+  if (/Windows/i.test(globalThis.navigator?.userAgent ?? '')) {
+    const invoke = tauriInvoke()
+    if (!invoke) return null
+    try {
+      if (!(await invoke('hello_available'))) return null
+      return windowsHelloAdapter(invoke, await loadLibs())
+    } catch {
+      return null
+    }
+  }
   return null
 }
 

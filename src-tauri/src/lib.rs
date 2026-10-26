@@ -25,6 +25,10 @@ use tauri::{Emitter, Manager};
 /// 这两组是**管道**不是功能，协议语义全在同步插件里。
 mod net;
 
+/// Windows Hello（rev173.169 · 期 2c）：KeyCredentialManager + 带窗口 interop。
+#[cfg(windows)]
+mod hello;
+
 /// 库内私有目录：不进文件树、不进 git
 const PRIVATE_DIR: &str = ".zn";
 
@@ -2607,6 +2611,69 @@ fn zn_watchdog_status() -> serde_json::Value {
   })
 }
 
+/* ───────────── Windows Hello（rev173.169 · 期 2c） ─────────────
+ *
+ * 三个命令都**必须带窗口**：没有 HWND 的 `RequestSignAsync` 会静默挂死（rev173.167 实测）。
+ * 实现见 `hello.rs`（手写 interop vtable）。Android 走官方 biometric 插件，不需要这三个。
+ */
+
+#[tauri::command]
+async fn hello_available() -> Result<bool, String> {
+  #[cfg(windows)]
+  {
+    tauri::async_runtime::spawn_blocking(hello::is_supported)
+      .await
+      .map_err(|e| e.to_string())?
+  }
+  #[cfg(not(windows))]
+  {
+    Ok(false)
+  }
+}
+
+#[tauri::command]
+async fn hello_enroll(window: tauri::WebviewWindow, account_id: String) -> Result<(), String> {
+  #[cfg(windows)]
+  {
+    // HWND 转 isize：COM/Hello 全部在阻塞线程里跑，Future 里不出现非 Send 类型
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || hello::enroll(hwnd, &account_id))
+      .await
+      .map_err(|e| e.to_string())?
+  }
+  #[cfg(not(windows))]
+  {
+    let _ = (window, account_id);
+    Err("Windows Hello 只在 Windows 上可用".to_string())
+  }
+}
+
+#[tauri::command]
+async fn hello_sign(
+  window: tauri::WebviewWindow,
+  account_id: String,
+  challenge: String,
+) -> Result<String, String> {
+  #[cfg(windows)]
+  {
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || {
+      let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(challenge.as_bytes())
+        .map_err(|e| format!("challenge 不是 base64url：{e}"))?;
+      let sig = hello::sign(hwnd, &account_id, &raw)?;
+      Ok::<String, String>(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sig))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+  }
+  #[cfg(not(windows))]
+  {
+    let _ = (window, account_id, challenge);
+    Err("Windows Hello 只在 Windows 上可用".to_string())
+  }
+}
+
 /// 卡死留痕：往 `<库>/.zn/watchdog.log` 追加一行。**必须 Rust 写** —— 卡死时前端已执行不了。
 /// 还不知道库路径（没选库）就跳过；调用方仍会打 `log::error!`（dev 有 log 插件会落文件）。
 fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
@@ -2923,6 +2990,10 @@ pub fn run() {
       zn_watchdog_pause,
       zn_watchdog_resume,
       zn_watchdog_status,
+      // rev173.169：Windows Hello（期 2c）
+      hello_available,
+      hello_enroll,
+      hello_sign,
       // rev173.106：网络 / 凭据（同步插件的地基）
       net::net_request,
       net::secret_get,
