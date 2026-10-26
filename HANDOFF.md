@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.190
-更新时间: 2026-10-27 · 最新 rev173.190
+revision: 173.191
+更新时间: 2026-10-27 · 最新 rev173.191
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.190
 
 | rev | 内容 |
 |---|---|
+| rev173.191 | 2026-10-27 · **手机端市场走查（备份插件）**（用户「走一遍」）：① **手机 app 已被 `android-dev` 自动重编重装** —— `versionName` 仍 0.5.0，但 `lastUpdateTime` = 00:36:41（改 `lib.rs` 触发，java 进程 00:32:07 起）⇒ 手机 Rust 是**最新代码**，顺带验了 rev173.190；② **手机 Rust 连不上 `raw.githubusercontent.com`**（「连不上服务器 … error sending request」），但**同一 URL 的 WebView `fetch` 成功**（11690 B）· ping 通（108 ms）⇒ 平台/TLS 层差异，**未查根因**；③ 绕过：本地 http 源（`adb reverse tcp:8934` + 临时索引把每条 url 改成 `http://127.0.0.1:8934`，手机端 `install_znp_from_url` 走明文回环）；④ **5 条全过**：市场 UI 16 条含备份 · `OK:backup` 落盘（`index.js` 34698 · `signature.json` keyId `aqua-2026`）· **`store.json` 的 `interval=1w` 保留**（rev173.190 在 Android 生效）· reload 后「**备份 v0.3.1 已签名**」正常加载 · 面板「自动备份：每周」→ 立即备份 ⇒ **6/30 · 36 篇 5 文件夹 · 含密码库密文 · 1316 ms**；⑤ 清理：store 恢复 `1d`、localStorage 清、reverse 移除、临时索引目录删、8934 停（另清了 `8933` / `8934` 两个 10-25 僵尸 `http.server`，它们是本期 socket hang up 的源头）。无代码改动 |
 | rev173.190 | 2026-10-27 · **修「市场安装清掉插件 `store.json`」**（rev173.189 顺带发现，用户「修」）：根因在 `install_pack` 的整目录交换 —— 旧目录整个 `remove_dir_all`，而 `store.json` 是**用户数据**（备份档位 / 打卡计数 / 主题），不是代码。修法：交换成功、**删旧目录之前** `keep_plugin_store(&prev, &dir)` 把旧 `store.json` 拷进新目录；**包内自带同名文件时以包为准**（上游刻意给的初始值 / 换存储格式）；**拷贝失败只 `eprintln`、不中断安装**（store 丢 = 设置回默认，中断安装 = 插件没了，后者更重）。顺带抽出常量 `PLUGIN_STORE_FILE`，`plugin_store_read/write` 与安装共用同一个名字。**测试** `install_znp_keeps_store_json`（升级后 store 原样）+ `install_znp_pack_store_wins`（反向：包内优先）· cargo 53 → **55**，全绿。**真机**：把全局 `backup` 的 `store.json` 改成 `interval=1w` → 页面调 `install_znp` 装同一份 0.3.1 包 ⇒ `store.json` 内容与 **mtime 00:33:09 都不变**、`index.js/manifest/signature` mtime 变 00:34:16（说明整目录真换了）→ reload 后面板「**自动备份：每周 · 上次 10-27 00:26 · 下次 11-03 00:26**」。⚠️ 环境：`8931/8933` 被残留 `python -m http.server` 占着（8931 是本次自己起的、已清；**8933 是 2026-10-25 的历史残留 pid 30832，未动**）⇒ 这两端口别再当测试床 |
 | rev173.189 | 2026-10-27 · **备份插件发市场（`backup` 0.3.1）**（用户问「内置跟上市场不冲突吧」→ 答「不冲突，9 个预装里 8 个本来就双份」→ 用户「发」）：**零代码改动**，只走发版链 —— `pack-plugin backup --key <私钥> --key-id aqua-2026`（36.4 KB · 整包 sha256 `eb1f142e…` · 入口 `6cb18e37…` · 签进 `signature.json`）→ `gen-market --write` ⇒ 索引 **15 → 16 条** · **实测**（本地 `http.server 8931` + CDP `install_znp_from_url`，vault 传 `appDataDir()` 不是库根 —— `plugin-roots.ts` 的「把 appDataDir 当 vault 传」约定）：① **负向** 我手抄 sha 少一位 ⇒ 报「插件包校验失败：…实际下载到 …」**不落盘** ② **正向** 用索引里的 sha（脚本读，不手抄）⇒ `OK:backup`，磁盘 `index.js` sha 与包内一致、`signature.json` keyId `aqua-2026` ③ **reload 后插件页「备份 v0.3.1 已签名」且正常加载** ⇒ 证明 `ensureBuiltinPlugins` 的**规则 2（有签名一律不覆盖）**在真机上生效 —— 这正是「内置 + 市场」不冲突的关键 ④ 清理：localStorage 的 `zn-market-index-url` 已 removeItem、服务已停。⚠️ **顺带发现**：`install_pack` 是整目录交换（旧目录 `remove_dir_all`）⇒ **`store.json` 被清掉**，插件重新加载后写回默认值（备份的自动档位回「每天」）—— 对「升级插件保留设置」是个缺口，**本次未修**（不在「发」的范围，rev173.190 已修）。文档同步：CARD 市场数 15 → 16 + 包数改口径（30 个 · 约 1.5 MB，含历史版本，不再写死）· ROADMAP §3.0 索引 16 条 · `market/README.md` 去掉「13 个包 600 KB」死数字 · README 现状行 rev173.189 + **私密文件夹从「开发中·期 1」改成三期已落地**（这句早就该改）|
 | rev173.188 | 2026-10-27 · **ROADMAP 现状段纠错（0.5.0 → 0.6.0）**（用户「改roadmap」）：交接汇报时发现 `docs/ROADMAP.md` §0 还停在 rev173.139。逐条对到当前 —— ① 抬头复核日期 → 2026-10-27（rev173.188）② §0 版本 **0.5.0 → 0.6.0**（tag `v0.6.0`），补两条主线（安全 / 密码库 · 插件市场闭环 rev173.137–173）与 0.6.0 之后的私密文件夹三期 + 备份插件；**HANDOFF 大小不再写数字**（分卷时 63 KB，已涨到 263 KB）③ 契约行「最近一次改动 rev173.135」→ **rev173.180**（`doc.registerCodec`），并列出 rev173.163（`input.secret`）—— 原句在两个契约扩展之后就成了假的 ④ §3.0 两行收尾：自动备份「剩余：内置还是发市场（待拍板）」→ **内置已定**（173.178 预装 / 173.179 `D-010` 判据）；私密文件夹「剩：发市场打包 + 手机走查」→ **已完成**（0.2.1 发市 · 173.183 / 184 两平台实测 · 旧 `vault.json` 已查清）⑤ §4 质量门「5 项」→ **7 项**；§5 仍写 `D-008` pending（与 §3.3 矛盾）→ ✅ 已完成 · 另同步了 `docs/README.md` 权威矩阵同源三行（市场第二批 UX / 安全插件「未签名发市」/ 私密文件夹「剩」）· 无代码改动 |
@@ -85,6 +86,50 @@ revision: 173.190
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.191（2026-10-27 · 手机端市场走查：备份装上、签名、能用）
+
+> 用户「走一遍」。接 rev173.190 之后那句「手机端走一遍市场安装」。
+
+> ### 结论先说：手机包里其实已经是最新代码
+
+> `versionName` 仍是 **0.5.0**，但 `lastUpdateTime` = **2026-10-27 00:36:41** —— 我 00:30 改 `lib.rs` 之后，
+> 后台的 `android-dev` 自动重编并安装了 APK（java 进程 00:32:07 起，构建约 4 分钟）。
+> ⇒ **手机上跑的是最新代码**，所以这次走查顺带把 rev173.190 的 store 修复也在 Android 上验了。
+
+> ### 卡住的地方：手机 Rust 连不上 GitHub raw
+
+> 市场页报「⚠ 连不上服务器（地址 / 端口 / 证书 / DNS 之一）：https://raw.githubusercontent.com/…」。
+> 同一条 URL：`adb shell ping` 通（108 ms · 0% 丢包）· **WebView 里 `fetch` 成功**（11690 字节）。
+> ⇒ 不是手机没网，是 **Rust 侧 reqwest 那条链路**在连接/TLS 阶段失败（0.5.0 起的既有行为；rev173.151 当时是通的）。
+> **未查根因**（不在本次范围）。
+
+> ### 绕过去：本地 http 源
+
+> 1. `_tmp-market-local/gen.mjs` 把 `market/index.json` 每条 url 的 raw 域名换成 `http://127.0.0.1:8934`（16 条）。
+> 2. 仓库根起 node 静态服务 8934 + `adb reverse tcp:8934 tcp:8934`。
+> 3. 手机 `localStorage['zn-market-index-url'] = http://127.0.0.1:8934/_tmp-market-local/index.json` → reload。
+> 4. 「发现」tab 拉到 **16 条**（含「备份 v0.3.1 · 36.4 KB」）。
+> 5. 备份显示「已安装」（预装目录在），UI 不给安装按钮 ⇒ 页面直调 `install_znp_from_url`（与 rev173.151 同一做法），sha 从 `market/entries/backup.json` 脚本读取，不手抄。
+
+> ### 结果（5 条全过）
+
+> | 检查 | 证据 |
+> |---|---|
+> | 下载 + sha256 | `OK:backup`（Rust 从 `http://127.0.0.1:8934` 取包，37278 B） |
+> | 落盘 | `index.js` 34698 · `manifest.json` 1312 · **`signature.json` keyId `aqua-2026`** |
+> | **store 保留** | 装前把 `store.json` 改成 `interval=1w` ⇒ 装完**仍是 1w**（rev173.190 在 Android 生效） |
+> | 签名包加载 | reload 后插件页「**备份 v0.3.1 已签名**」，`ensureBuiltinPlugins` 没覆盖 |
+> | 功能 | 面板「自动备份：每周」→ 立即备份 ⇒ **6/30 · 36 篇 · 5 个文件夹 · 含密码库密文 · 1316 ms** |
+
+> ⚠️ 备份目录在 `/storage/emulated/0/…/.zn/backups/`，`run-as` 读不了（scoped storage）⇒ 磁盘层只能靠 UI 清单与耗时间接证明。
+
+> ### 清理
+
+> store 恢复 `1d` · `zn-market-index-url` 已删 · `adb reverse --remove tcp:8934` · `_tmp-market-local/` 删除 · 8934 服务停。
+> 顺手清了两个 10-25 的僵尸 `http.server`：`8933`、`8934`（后者 `--directory _tmp-external`，是 rev173.158 的审查夹具）—— 它们正是本期「socket hang up」的源头。
+
+> 无代码改动 · verify 六步全绿。
 
 > ## 📌 rev173.190（2026-10-27 · 修「市场安装清掉插件 store.json」）
 
