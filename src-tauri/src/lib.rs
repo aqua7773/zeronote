@@ -404,6 +404,32 @@ fn purge_private(vault: String, path: String) -> Result<(), String> {
   }
 }
 
+/// 删除一份**旧备份目录**（整棵树）—— 只允许 `<库>/.zn/backups/` 下的一级名字。
+///
+/// 为什么单开一条而不是复用 `purge_private`（rev173.175）：那条只删文件与**空**目录
+/// （`fs::remove_dir`），而备份是非空的树 —— 历史版本靠「逐文件删 + 最后删空目录」绕过去，
+/// 备份一次几十个文件那样要几十次 IPC。也不能走 `delete_note`：那会把它搬进回收站，
+/// 30 份备份轮换会把回收站塞满（用户也分不清哪些是备份垃圾）。
+///
+/// 边界：`name` 不许出现路径分隔符 / `..` / 以 `.` 开头（挡住 `.zn` 与隐藏目录）；
+/// 算出路径后再 `starts_with(.zn/backups)` 二次确认。幂等：目标不存在 ⇒ Ok。
+#[tauri::command]
+fn purge_backup(vault: String, name: String) -> Result<(), String> {
+  let n = name.trim();
+  if n.is_empty() || n.starts_with('.') || n.contains('/') || n.contains('\\') || n.contains("..") {
+    return Err(format!("拒绝删除：备份名不合法（{name}）"));
+  }
+  let abs = resolve(&vault, &format!(".zn/backups/{n}"))?;
+  let base = resolve(&vault, ".zn/backups")?;
+  if abs == base || !abs.starts_with(&base) {
+    return Err(format!("拒绝删除：越界（{name}）"));
+  }
+  if !abs.exists() {
+    return Ok(());
+  }
+  fs::remove_dir_all(&abs).map_err(|e| format!("删除备份失败 {}：{e}", abs.display()))
+}
+
 /// 原子写：同目录临时文件 → sync → rename 覆盖。
 ///
 /// **先写临时文件、再换名**：任何一步失败，原文件都还在。
@@ -2946,6 +2972,7 @@ pub fn run() {
       list_dirs,
       list_files,
       purge_private,
+      purge_backup,
       read_note,
       write_note,
       read_note_bytes,
@@ -3303,6 +3330,28 @@ mod tests {
     purge_private(vault.clone(), ".zn/history/x/1.md".into()).unwrap();
     assert!(!snap.exists());
     purge_private(vault, ".zn/history/x/2.md".into()).unwrap();
+  }
+
+  /// rev173.175：备份轮换只删 `<库>/.zn/backups/` 下的一级目录，名字越界一律拒
+  #[test]
+  fn purge_backup_removes_tree_and_rejects_bad_names() {
+    let d = tmpdir("purge-backup");
+    let vault = d.to_string_lossy().to_string();
+    // 非空的备份树整棵删掉（`purge_private` 做不到这个：它只删空目录）
+    fs::create_dir_all(d.join(".zn/backups/b1/sub")).unwrap();
+    fs::write(d.join(".zn/backups/b1/sub/x.md"), "x").unwrap();
+    purge_backup(vault.clone(), "b1".into()).unwrap();
+    assert!(!d.join(".zn/backups/b1").exists(), "整棵树要删掉");
+    // 幂等
+    purge_backup(vault.clone(), "b1".into()).unwrap();
+    // 名字合法时也只会在 `.zn/backups/` 下找 ⇒ 永远够不到库内用户目录
+    fs::create_dir_all(d.join("笔记/子目录")).unwrap();
+    purge_backup(vault.clone(), "笔记".into()).unwrap();
+    assert!(d.join("笔记/子目录").is_dir(), "库内用户目录必须原封不动");
+    // 各种越界名
+    for bad in ["../笔记", "a/b", "a\\b", "..", "", "   ", ".zn", ".hidden"] {
+      assert!(purge_backup(vault.clone(), bad.into()).is_err(), "{bad:?} 必须拒绝");
+    }
   }
 
   /// rev173.99：`list_files` 读得出私有目录（历史快照），且不递归、按路径排序

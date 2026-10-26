@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 1,
+  "id": "backup",
+  "name": "备份",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "本地整库备份：公开笔记明文、密码库以密文随包，保留最近 30 份",
+  "category": "tool",
+  "capabilities": ["fs:read", "fs:write", "command", "view:main", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "backup.run", "title": "备份：立即备份" },
+      { "id": "backup.refresh", "title": "备份：刷新列表" },
+      { "id": "backup.remove", "title": "备份：删除这一份" },
+      { "id": "backup.open", "title": "备份：打开备份面板" }
+    ],
+    "panels": [{ "id": "backup.board", "title": "备份", "location": "main" }]
+  }
+}

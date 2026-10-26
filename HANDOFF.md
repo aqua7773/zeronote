@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.174
-更新时间: 2026-10-26 · 最新 rev173.174
+revision: 173.175
+更新时间: 2026-10-26 · 最新 rev173.175
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.174
 
 | rev | 内容 |
 |---|---|
+| rev173.175 | 2026-10-26 · **备份插件 v1（需求 §14.1 遗留项）**：新增 `examples/backup/`（约 380 行）+ 内核命令 `purge_backup`（34 → **35**，cargo 52 → **53**）。备份 = 整库快照到 `<库>/.zn/backups/<YYYY-MM-DDTHH-mm-ss>/`（跟库走、拷库就带着）：**公开笔记与附件明文**、**密码库以原密文随包**（`_secret/secrets.zn` + `_secret/vault.json` —— 「加密复用主密码」在实现上就是原样拷密文，锁着也能备）、`_meta.json` 记规模。清单 `index.json` 是列表的唯一来源（`fs.listDirs()` 跳过 `.` 开头目录 ⇒ 列不出备份目录，必须靠清单）；保留最近 **30** 份（`pickStale` 纯函数）；面板「立即备份 / 刷新 / 单份删除」。**实测**（`_tmp-vault-tb`）：37 篇 + 6 个文件夹 ⇒ 备份 40 文件 = 源 37 + `_meta.json` + 两个密文，**逐一核对一致**；删除命令后目录消失、清单清空；面板 247 ms / 225 ms。vitest 1067 → **1086**（19 条）。⚠️ 插件入口必须叫 `apply(api)`（我第一版写成 `activate` ⇒ 宿主报「入口没有可用的 apply()」，插件页可见但命令全无）。**待做**：定时档位 / 恢复 / 是否内置 |
 | rev173.174 | 2026-10-26 · **发版 0.6.0**（用户「发版」）：0.5.0 之后 **57 个提交**（rev173.137–173）一次收成版本号。两条主线 —— **安全 / 密码库**（新插件 `security` 双密钥环 + `secrets` 整库加密 + Android 指纹 / Windows Hello + 锁定后自动弹 + 生物识别按设备）与**插件市场闭环**（签名 v2 / 打包签名索引 / 应用内「发现」/ 公钥内置 / 开源 MIT / 包走 raw 分发 / 第二批 UX）。**CHANGELOG 补全**是这次的主要工作量：原 `[Unreleased]` 只记了「自动弹」与「按设备」，**两个插件本体没进 CHANGELOG** ⇒ 补上 `security` / `secrets` / Android 指纹 / Windows Hello / KDF 定档五条主线（约 130 行），`[Unreleased]` → `[0.6.0]`，应用版本表加行；README 现状行同步 rev173.174 · 0.6.0 并补安全段门面描述（之前完全没提密码库）。`package.json` / `tauri.conf.json` / `Cargo.toml` + `Cargo.lock` → **0.6.0**。**踩坑**：用 `Set-Content` 拼接 CHANGELOG 会整文件写成 CRLF（仓库是 LF）⇒ 用 `[System.IO.File]::ReadAllText` + 正则换 `\n` 再写，否则 diff 里全是行尾噪音。verify 六步全绿 · tag `v0.6.0` 已推 |
 | rev173.173 | 2026-10-26 · **生物识别按设备（`biometrics` 字典）**：`vault.json` 从单段 `rings.<id>.biometric` 改成 `rings.<id>.biometrics[<deviceId>]` —— **换机只失效那一台**，别的设备绑定不受影响；本机 id 存**凭据管理器**（`host.secrets` → `secret_*` → Windows 凭据管理器 / Android Keystore，**不随库同步**），拿不到时退回 `'local'`（等同旧行为）。旧单段由 `migrateBiometrics` 在 `apply()` 一次性迁到 `biometrics[<本机>]` 并落盘（默认「旧段就是这台机器」⇒ 原机升级后照常用指纹；真换机过来的 vault 会 AEAD 失败并提示重绑，同旧引导，但**不再覆盖**原机器的绑定）。UI：badge「本机已绑定」/「别的 N 台已绑定」+ 未绑定时一句 caption；按钮改「绑定本机指纹 / 解除本机指纹」，解除只删当前设备。**实测**（`_tmp-vault-tb` · 0.1.2 市场包）：迁移后 `vault.json` 出现 `biometrics["16c9a8a9-…"]`、旧 `biometric` 消失；把 `secret_set zeronote.device.id` 改成假 id 再 reload ⇒ 面板「别的 1 台已绑定」+ **没有**指纹按钮（旧版会显示、点了才报 AEAD）；切回原 id ⇒ 「本机已绑定」+ 按钮回来，点它 Hello 正常弹出。按指纹也已实测（用户真人操作，见 171 的受保护 UI 说明）：面板「「账号密码」已用指纹解锁」、1 把已解锁 ⇒ **迁移过来的旧包裹在新结构下解出同一把 DEK**；**手机端同样通过**（`33b676f6` 装 0.1.2 → 迁移 → 「本机已绑定」→ 按指纹「已用指纹解锁」）。vitest 1064 → **1067** · 打包 **0.1.2** 发市场 |
 | rev173.172 | 2026-10-26 · **安全插件 0.1.1 发市场（含锁定后自动弹）**：`examples/security/manifest.json` 0.1.0 → **0.1.1**（同版本内容不同的话，已装用户收不到更新提示）→ `pack-plugin.mjs security --key <私钥> **--key-id aqua-2026**` → `gen-market.mjs --write`（官方 15 条 · security@0.1.1 · 64.3 KB · 整包 sha256 `30829bc3…`）。⚠️ **坑**：不给 `--key-id` 会签成 `default`，而内置信任根只有 `aqua-2026` ⇒ 发出去装完加载时**验签失败被拒载**（第一次就打错了，已重打）。**实测安装**：本地 `http.server 8931` + CDP `install_znp_from_url`（expectedSha256 对上）⇒ 返回 `security`，落盘 index.js 62029 / manifest version 0.1.1+入口 sha256 / signature.json keyId `aqua-2026` → reload ⇒ 插件正常加载、面板可开（验签通过）· 旧包 0.1.0 按惯例保留 |
@@ -69,6 +70,53 @@ revision: 173.174
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.175（2026-10-26 · 备份插件 v1 —— 需求 §14.1 的遗留项）
+
+> 复核需求文档时发现：§18 阶段 3 要求「备份插件」，但 `docs/ROADMAP.md` 候选池里**从来没有这一项**
+> —— 它在交接里丢了。这条补丁先把「能备份」做出来（恢复与定时下一 rev）。
+>
+> ### 备份长什么样
+>
+> ```
+> <库>/.zn/backups/
+>   index.json                  ← 清单（列表的唯一来源）
+>   2026-10-26T14-21-58/
+>     <库根所有文件 + 一级目录>    ← 笔记 / 附件，明文
+>     _secret/secrets.zn         ← 密码库密文（有才拷）
+>     _secret/vault.json         ← KDF salt + 被主密码包裹的 DEK
+>     _meta.json                 ← { at, trigger, notes, dirs, files, secret, ms }
+> ```
+>
+> ### 三条设计决定（各自都有具体理由，别随手改）
+>
+> | 决定 | 理由 |
+> |---|---|
+> | **明文 + 密文原样搬，不自己再加一层加密** | 密码库本来就是我方 XChaCha20-Poly1305 密文，钥匙是主密码；再包一层会要求「备份时也知道主密码」——锁屏/未解锁时就没法自动备份。所以「加密复用主密码」 = **拷密文** |
+> | **清单放 `index.json`，不靠列目录** | `fs.listDirs()` 的实现 `collect_dirs` 第 4 行就 `name.starts_with('.') ⇒ continue` ⇒ `.zn/backups/*` **永远列不出来**；`fs.listFiles('.zn/backups')` 能读该目录下的文件（`list_files` 不跳过 `.zn`） |
+> | **新开 `purge_backup` 而不是复用 `purge_private`** | 后者只删文件与**空**目录（`fs::remove_dir`），备份是几十个文件的树；`delete_note` 会把它搬进回收站，30 份轮换会把回收站塞满 |
+>
+> ### 实测（`_tmp-vault-tb` · 桌面 dev · CDP）
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | `backup.run` | 目录 `2026-10-26T14-20-04/` 出现；**40 个文件 = 源库 37 + `_meta.json` + `secrets.zn` + `vault.json`**（逐项核对，6 个子目录全在） |
+> | `index.json` | `{ notes: 37, dirs: 6, files: 17, secret: true, ms: 247 }` |
+> | 面板 | 「备份 1 / 30」+「已备份 37 篇 · 6 个文件夹 · 含密码库密文 · 247 ms」+ 行内徽标（37 篇 / 6 个文件夹 / 含密码库 / 手动 / 删除） |
+> | `backup.remove` | 目录删除、清单变空；再跑一次 `backup.run` ⇒ `14:21:58` · 225 ms |
+>
+> ### 踩坑
+>
+> **插件入口必须叫 `apply(api)`**（宿主判定 esm 形态：`export default { apply }` / `export function apply` /
+> `module.exports = function (api)` / `registerPlugin({ register })`）。第一版写成 `activate(api)` ⇒
+> 插件页里**看得见**（「备份 v0.1.0 未签名」，还能勾选），但顶部报
+> 「入口没有可用的 apply()」、命令一条都没有 —— 这种「看得见但用不了」最容易误判成扫描没生效。
+>
+> ### 待做（下一 rev）
+>
+> - **定时档位**：1h / 3h / 6h / 12h / 每天 / 2 天 / 3 天 / 每周 / 每月，默认每天（需求 §14.1）
+> - **恢复**：整体覆盖 + 恢复前自动快照（不占 30 份），当前内容先进回收站
+> - **内置还是发市场**：待用户拍板（现在是 examples + 手装全局目录）
 
 > ## 📌 rev173.174（2026-10-26 · 发版 0.6.0）
 

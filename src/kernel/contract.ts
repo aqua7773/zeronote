@@ -147,6 +147,15 @@ export interface FsApi {
    */
   purgePrivate(path: string): Promise<void>
   /**
+   * 删掉一份**旧备份目录**（整棵树）—— 只认 `<库>/.zn/backups/` 下的**一级名字**。
+   *
+   * 为什么不让备份插件顺手用 `purgePrivate`（rev173.175）：那条只删文件与**空**目录，
+   * 备份是几十个文件的树，逐文件删要几十次 IPC。也不该用 `delete` —— 30 份轮换会把
+   * 回收站塞满。名字里带分隔符 / `..` / 以 `.` 开头一律拒绝，越界在 Rust 侧硬拒。
+   * 幂等：目标不存在也算成功。
+   */
+  purgeBackup(name: string): Promise<void>
+  /**
    * 读**二进制**（图片 / PDF / 附件）—— rev173.106 加。
    *
    * `readText` 只吃 UTF-8，读一张 PNG 只会得到乱码；这条经 base64 过桥，字节原样返回。

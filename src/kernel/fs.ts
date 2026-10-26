@@ -31,6 +31,10 @@ export function createFsApi(
     purgePrivate: (path: string) =>
       invoke<void>('purge_private', { vault, path }),
 
+    /** 真删除一份旧备份目录（整棵树）—— 只认 `.zn/backups/` 下的一级名字，rev173.175 */
+    purgeBackup: (name: string) =>
+      invoke<void>('purge_backup', { vault, name }),
+
     readText: (path: string) =>
       invoke<string>('read_note', { vault, path }),
 
