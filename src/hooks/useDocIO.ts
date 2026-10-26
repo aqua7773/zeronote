@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { DocEvent, NoteMeta } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
+import { decodeForOpen, encodeForSave, isTransientPath } from '../kernel/doc-codec'
 import { failMsg, type SaveState } from '../lib/fail-msg'
 import { clearDraftFor, saveDraft } from '../lib/draft-snapshot'
 import { mergeLines } from '../lib/merge3'
@@ -136,7 +137,8 @@ export function useDocIO({
     if (!k || !path) return { ok: false as const }
     let theirs: string
     try {
-      theirs = await k.fs.readText(path)
+      // 读盘后过一遍内容转换（rev173.180）：密文内容在合并前必须是明文，否则三方合并没意义
+      theirs = await decodeForOpen(await k.fs.readText(path), path)
     } catch {
       return { ok: false as const }
     }
@@ -197,10 +199,11 @@ export function useDocIO({
     if (!k || !path) return false
     let text: string
     try {
-      text = await k.fs.readText(path)
+      // 外部重载同样过内容转换（rev173.180）：磁盘上是密文时先解密再比较
+      text = await decodeForOpen(await k.fs.readText(path), path)
     } catch {
       trace('read-fail')
-      return false // 文件被删/读不了：**不动编辑器**（免得把用户的文档清空）
+      return false // 文件被删/读不了/解密失败：**不动编辑器**（免得把用户的文档清空）
     }
     if (text === contentRef.current) {
       trace('same')
@@ -262,7 +265,9 @@ export function useDocIO({
           setContent(text)
         }
       }
-      await k.fs.writeText(path, text)
+      // 写盘前过一遍内容转换（rev173.180）：密文落盘的笔记在这里加密。
+      // encode 抛错（例如插件已锁定 / 转换器被卸载）⇒ 整次保存失败，原子写不留半截。
+      await k.fs.writeText(path, await encodeForSave(text, path))
       baseRef.current = text
       setDirty(false)
       setSaveState('saved')
@@ -359,7 +364,8 @@ export function useDocIO({
            * 失败则它就是最后一次保护 —— 否则「Ctrl+S 之后写盘失败再关窗」会两头落空。
            */
           const p = activeRef.current
-          if (p) saveDraft(p, contentRef.current)
+          // 内容敏感（私密笔记）：关窗前也不落草稿 —— 同上，草稿是明文
+          if (p && !isTransientPath(p)) saveDraft(p, contentRef.current)
           try {
             await saveNowRef.current()
           } finally {
@@ -390,7 +396,8 @@ export function useDocIO({
     const flush = () => {
       if (closingRef.current || !dirtyRef.current) return
       const p = activeRef.current
-      if (p) saveDraft(p, contentRef.current)
+      // 内容敏感（私密笔记）：页面卸载前也不落草稿 —— 草稿是 localStorage 明文
+      if (p && !isTransientPath(p)) saveDraft(p, contentRef.current)
     }
     window.addEventListener('beforeunload', flush)
     window.addEventListener('pagehide', flush)
@@ -429,6 +436,8 @@ export function useDocIO({
       draftTimerRef.current = window.setTimeout(() => {
         draftTimerRef.current = null
         if (!editPath || activeRef.current !== editPath || !dirtyRef.current) return
+        // 内容敏感（私密笔记 / 密码库）：**不落草稿** —— 草稿是 localStorage 明文
+        if (isTransientPath(editPath)) return
         saveDraft(editPath, contentRef.current)
       }, DRAFT_DEBOUNCE_MS)
       /**

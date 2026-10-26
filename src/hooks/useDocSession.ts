@@ -7,6 +7,7 @@
 import { useCallback, useEffect, type MutableRefObject } from 'react'
 import type { DocEvent, NoteMeta } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
+import { decodeForOpen, forgetOpenedVia } from '../kernel/doc-codec'
 import { failMsg } from '../lib/fail-msg'
 
 /** `doc.on` 的广播入口（App 的 fireDoc） */
@@ -92,7 +93,13 @@ export function useDocSession({
       flushDocChange() // 上一篇挂起的 change 先兑现，别让它落在 open(new) 之后（会乱序）
       if (dirtyRef.current) await saveNowRef.current()
       try {
-        const text = await k.fs.readText(path)
+        const raw = await k.fs.readText(path)
+        /**
+         * 内容转换（rev173.180）：密文落盘的笔记（私密文件夹）在这里解密；
+         * 没有注册 codec 的路径原样返回（普通笔记零开销，只多一次 Map 查找）。
+         * 解密失败（未解锁 / 密钥不对）走下面的 catch —— **不打开、不改 activePath**。
+         */
+        const text = await decodeForOpen(raw, path)
         // P1-2：这篇笔记的 frontmatter 跟着文档一起走（见 `frontmatterRef`）。
         // 列表里暂时找不到（刚新建、还没刷新）就退化成空对象，别让它 undefined。
         frontmatterRef.current = notesRef.current.find((n) => n.path === path)?.frontmatter ?? {}
@@ -173,6 +180,7 @@ export function useDocSession({
       flushDocChange()
       const p = activeRef.current
       const c = contentRef.current
+      forgetOpenedVia(p) // 关掉了：清掉"这个路径由哪个 codec 打开"的记录
       setActivePath(null)
       setContent('')
       baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言

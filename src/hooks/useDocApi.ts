@@ -16,6 +16,7 @@
 import { useCallback, useMemo, type MutableRefObject } from 'react'
 import type { EditorView } from '@codemirror/view'
 import type { DocApi, DocEvent, NoteDoc } from '../kernel/contract'
+import { forgetOpenedVia, registerDocCodec } from '../kernel/doc-codec'
 
 /** `doc.on` 的广播入口（本 hook 的 `fireDoc`） */
 type FireDoc = (ev: DocEvent, path: string | null, content: string, dirty: boolean) => void
@@ -127,6 +128,7 @@ export function useDocApi({ refs, setActivePath, setContent, setDirty }: UseDocA
         const p = activeRef.current
         const c = contentRef.current
         flushDocChange()
+        forgetOpenedVia(p) // 关掉了：清掉"这个路径由哪个 codec 打开"的记录
         setActivePath(null)
         setContent('')
         baseRef.current = '' // 关掉了：没有"与磁盘一致的那份"可言
@@ -213,6 +215,12 @@ export function useDocApi({ refs, setActivePath, setContent, setDirty }: UseDocA
           },
         }
       },
+      /**
+       * 内容转换器（rev173.180）—— 读盘后 decode / 写盘前 encode。
+       * 注册表是**模块级单例**（`src/kernel/doc-codec.ts`）：useDocSession（打开）与
+       * useDocIO（保存 / 合并）各自 import 即看到同一份，不需要一路传 props。
+       */
+      registerCodec: (codec) => registerDocCodec(codec),
     }),
     /**
      * 依赖只写 `[]`：docApi 的回调**全部**读 ref（activeRef / editorRef / docSubsRef …），

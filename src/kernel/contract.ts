@@ -181,6 +181,32 @@ export type NoteDoc = {
 /** `doc.on` 能订阅的四种文档生命周期事件（U3b 起是真事件，此前是空桩）。 */
 export type DocEvent = 'open' | 'change' | 'save' | 'close'
 
+/**
+ * 文档内容转换器（`doc.registerCodec` · rev173.180）。
+ *
+ * 内核的编辑器只有一条链路：读盘 → 编辑器明文 → 写盘。加密 / 压缩 / 任意容器格式因此没法用编辑器。
+ * 这个钩子把「磁盘字节 ⇄ 编辑器文本」变成可插拔的一步 —— **内核不认识加密**，只认识
+ * 「这个路径的内容要过一次转换」。
+ *
+ * 只在四个真读写磁盘的点发生：`doc.open`（读盘后 decode）· 保存（写盘前 encode）·
+ * 外部重载 · 三方合并读盘。合并 / 脏标记 / 自动保存 / 广播全部仍在**明文层面**跑。
+ */
+export interface DocCodec {
+  /** 唯一 id（建议 `<插件id>:<用途>`）。同 id 重复注册 = 后注册的覆盖前一个 */
+  id: string
+  /** 哪些库内相对路径归我管（纯函数、必须快：每次读写都会问） */
+  match(path: string): boolean
+  /** 磁盘字节 → 编辑器明文。抛错 = 打开失败（错误给用户看） */
+  decode(raw: string, path: string): Promise<string>
+  /** 编辑器明文 → 磁盘字节。抛错 = 保存失败（原子写，不留半截） */
+  encode(plain: string, path: string): Promise<string>
+  /**
+   * 内容敏感：**不写会话恢复草稿**（草稿是 localStorage 明文）。
+   * 私密笔记 / 密码库类内容必须置 true。
+   */
+  transient?: boolean
+}
+
 /** 2. doc —— 当前文档 / 选区。编辑类入口：replaceSelection / insertAtCursor / insertAt / replaceRange。 */
 export interface DocApi {
   active(): NoteDoc | null
@@ -228,6 +254,21 @@ export interface DocApi {
    * - 回调抛错不会影响其它订阅者，也不会中断编辑器（内核逐个 try/catch 并 `console.error`）。
    */
   on(ev: DocEvent, cb: (d: NoteDoc) => void): Disposable
+  /**
+   * 注册一个**内容转换器**（rev173.180）—— 读盘后 `decode`、写盘前 `encode`。
+   *
+   * 用途：密文落盘的笔记（私密文件夹）、压缩 / 容器格式等「编辑器看到明文、磁盘上不是明文」的内容。
+   * 内核不提供加密——只提供"这一步由插件来"的钩子；密钥与算法全在插件里。
+   *
+   * 语义（别退化，`src/kernel/doc-codec.ts` 有完整注释）：
+   * - 只在**真读写磁盘**的四个点生效：打开 / 保存 / 外部重载 / 保存前的三方合并读盘；
+   * - 文档打开时用过某个 codec ⇒ 保存**必须**还用它；codec 被卸载 ⇒ 保存**失败**（绝不退回明文写盘）；
+   * - `transient: true` ⇒ 不写会话恢复草稿（草稿是 localStorage 明文）；
+   * - 返回的 `Disposable` 按项目约定 push 进 `ctx.subscriptions`（卸载即净）。
+   *
+   * ⚠️ `decode` / `encode` 里不要递归调用 `doc.open` / `doc.save`（会自触发）。
+   */
+  registerCodec(codec: DocCodec): Disposable
 }
 
 export type SearchHit = { path: string; title: string; excerpt: string; score: number }

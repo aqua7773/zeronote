@@ -40,6 +40,7 @@
 | 外部技术调研 | `_research/*` | **historical**（均带日期） | — |
 | 插件市场 / 更新通道 | `docs/插件市场-调研-2026-10-25.md` | **active（阶段 1 已落地 · 仓库已开源 · rev173.152）**：应用内「发现」tab 能列 / 装 / 升，整包 sha256 不符不落盘（端到端验过）；**包入库 `market/packs/` 走 raw 分发**（`github.com:443` 国内直连不通，走 Release 会「能看不能装」）；手机真机走查通过；**设置与菜单两处插件页统一**（同一个 `PluginPanel`，市场 tab 一份代码）；剩第二批 UX（详情页 / 更新角标 / 24h 检查） | [D-008](decisions/D-008-暂不做插件市场与更新通道.md)（状态已过时，重议条件「插件数 > 10」早满足：预装 13；进度以 `docs/ROADMAP.md` §3.3 为准） |
 | 安全插件 / 绝密账号库（加密 / 主密码 / 自动锁定） | `docs/安全插件-方案-2026-10-25.md` | **accepted · 期 1a 已落地并签名发市场（rev173.160–161）**：`security` 插件（**双密钥环** · XChaCha20-Poly1305 + Argon2id · `crypto` 服务只给操作不给密钥 · 25 条单测 + CDP 实测九项）· 包在 `market/packs/security-0.1.0.znp`（keyId `aqua-2026`）· **不预装**（用户决定：安全类插件从市场主动装）· **`secrets` 密码库（期 1b）已落地（rev173.163）**：`examples/secrets/` 消费 `crypto` 服务，整库密文 `.zn/secrets/secrets.zn`、平台/账号两级、搜索不含密码、16 位生成器、显示 15 秒收起、复制 60 秒清剪贴板、回收站 7 天、空闲 60 秒自动锁；27 条单测 + CDP 实测 12 项；**未签名发市场**（期 1c 同步放行 `.zn/secrets/` 仍未做） | 需求 §8 / §9 / §8.6 / §9.4；先例 `examples/dep-crypto`（PBKDF2 + AES-GCM） |
+| 私密文件夹（私密笔记存哪 / 怎么编辑 / 怎么同步） | `docs/私密文件夹-方案-2026-10-26.md` | **accepted · 期 1 已落地（rev173.180）**：内核新增 `doc.registerCodec`（读盘后 decode / 写盘前 encode，内核不认识加密）；`examples/private-notes/` —— `.zn/private/` 整棵树（`.zn` 天然不进文件树/搜索/回收站）· 每篇一密文 + 加密索引（文件名是 id，不泄漏标题）· `notes` 环 3 分钟锁 · 实测：写入后磁盘 `zn1.…` 无中文/`#`，锁定后打开被拒。**未做**：期 2（搜索 / 回收站 / 移入移出）· 期 3（`vault.json` 按环拆 + 同步 + 备份） | 需求 §3.3（7 条）+ §10.1；前置 `security` 的 `notes` 环（3 分钟锁）早已预留 |
 | 出包过程产物 | `_build/*` | **disposable**（可重建） | — |
 
 ## 阅读路径

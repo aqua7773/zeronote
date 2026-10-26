@@ -1,6 +1,6 @@
 # 项目交接
 
-revision: 173.179
+revision: 173.180
 更新时间: 2026-10-26 · 最新 rev173.179
 项目: ZeroNote
 
@@ -19,6 +19,7 @@ revision: 173.179
 
 | rev | 内容 |
 |---|---|
+| rev173.180 | 2026-10-26 · **私密文件夹（期 1）+ 内核 `doc.registerCodec`**（需求 §3.3 / §10.1）：编辑器此前只有「readText → 明文 → writeText」一条链路，**密文落盘的内容用不了编辑器**（只能自绘降级编辑器，或把明文临时写到磁盘上）。新增**内容转换器**原语：读盘后 `decode`、写盘前 `encode`，**内核不认识加密**，只认识「这个路径的内容要过一次转换」；合并 / 脏标记 / 自动保存 / `doc.on` 全部仍在**明文层**。安全语义三条（别退化）：① 打开时用过某个 codec ⇒ 保存必须还用它，它被卸载 ⇒ **读写都抛错**（绝不退回"原样写盘"，否则正在编辑的私密笔记会明文落盘）② `transient` ⇒ 不写会话恢复草稿（草稿是 localStorage 明文）③ `match` 抛错按"不匹配"处理。插件 `examples/private-notes/`：整棵树在 `.zn/private/`（内核的 `list_notes` / `list_dirs` 天然跳过 `.` 开头 ⇒ **不进文件树 / 全局搜索 / 回收站**），**每篇一密文 + 加密索引**（文件名是随机 id，磁盘上不泄漏标题），用 `security` 的 `notes` 环（3 分钟空闲锁）。**实测**（`_tmp-vault-tb` · 真 Argon2）：建 notes 环 → 解锁 → 新建 → 写入 → 保存 ⇒ 磁盘 `zn1.<nonce>.<ct>`（含中文 / `#` 均为 False）· 关文档回列表显示标题（索引解密 + `doc.on('save')` 回填）· 重开正文正确 · **锁定后** `core.openNote` 直接打开被拒（显示「已锁定 —— 先在面板里解锁」，编辑器不打开、密文不喂进去）。vitest 1099 → **1120**（doc-codec 9 + private-notes 12）。**未做**：期 2（独立搜索 / 回收站 / 移入移出）· 期 3（`vault.json` 按环拆 + 四后端同步 `.zn/private/`） |
 | rev173.179 | 2026-10-26 · **预装范围成文 + 移出 5 个「增强」插件（`D-010`）**：这条规则此前**只在会话里**（安全插件开发期 rev173.160–161 用户原话），没落文档 ⇒ 加备份插件时我又把「要不要预装」重新问了一遍。本次成文：**核心体验预装 · 「增强」逐步移市场 · 安全 / 密码库只走市场**（涉及隐私、要用户知情选择、预装加密插件会暗示「默认不加密」）。逐插件归类：预装 = 标签 / 反链 / 历史 / 导入导出 / 同步 ×4 / **备份**（不碰隐私、不暗示风险，是「数据会丢」的地基）；移市场 = 大纲导图 / 文档阅读器 / 记账 / 米色主题 / **打卡**（业务功能，规则没列但同属「增强」）。`builtin-plugins.ts` 移出 5 条 + 5 组 `?raw` 导入，**预装 14 → 9**；五个市场包都在（都验过签名），已装环境不受影响（`ensureBuiltinPlugins` 只是不再写内置版）。新增 `docs/decisions/D-010-预装范围.md`（含「以后加新插件怎么判」四步）+ decisions 索引行。README / CARD / 功能目录同步 |
 | rev173.178 | 2026-10-26 · **备份登记为预装第 14 个**（用户「预装」）：`src/kernel/builtin-plugins.ts` 加 `backup`（`?raw` 打进前端包，启动写全局插件根）。按既有策略「**预装与市场不互相替代** —— 预装 = 离线 / 首启可用 + 版本确定；市场 = 扩展 / 更新」（rev173.161 定），备份属**数据安全地基**（新用户还没装任何东西时就得有能救命的快照）⇒ 预装而不是走市场。预装数 **13 → 14**（README / CARD / 功能目录 / FACTS 同步）。⚠️ 已手装过开发版的环境不受影响：`ensureBuiltinPlugins` 见同内容直接跳过 |
 | rev173.177 | 2026-10-26 · **备份 v3：恢复（需求 §14.2）**：`backup.restore` —— **两步确认**（第一次点只上膛，按钮变红；第二次同一份才执行）。顺序是「先保命再动刀」：① 当前库存成 `pre-restore-<时间>` 快照（**不占 30 份额度**，`pickStale` 见到前缀就跳过）② 当前内容**移进回收站**（`fs.delete`，可撤销，不物理删）③ 从备份拷回顶层文件 + 子目录 ④ 密码库密文写回原位。`_meta.json` 新增 **`dirNames`**（恢复要靠它找回子目录 —— `listDirs()` 列不出 `.zn/backups/*`）；旧备份没有它 ⇒ **拒绝恢复并说明**（不静默丢目录）。**实测抓到真 bug**：`fs.listFiles(dir)` 返回的是**库内相对路径**（`dir/文件名`）不是裸文件名，第一版拼成 `.../zn/backups/.../zn/backups/...` ⇒ 恢复后库是空的 + 报「源不存在」；改成取 basename 后重跑 ⇒ **38 个文件全回来**（库根 17 + 子目录 20 + 标记文件），密码库密文原样、目录逐项与备份一致。vitest 1094 → **1099**（+5） |
@@ -74,6 +75,64 @@ revision: 173.179
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.180（2026-10-26 · 私密文件夹期 1 + 内核 `doc.registerCodec`）
+
+> 用户「继续zeronote」。接手时 rev173.179 已收口、工作树干净、verify 全绿；交接卡的「下一步」三条
+> 全卡外部输入（sync-git 手机端 / Gitee 令牌 / 记账样本），ROADMAP §3.0 里唯一不依赖外部条件的
+> 大项就是**私密文件夹**（需求 §3.3 七条 + §10.1 加密同步）。
+>
+> ### 先写方案，把架构分叉摆出来（`docs/私密文件夹-方案-2026-10-26.md`）
+>
+> 关键发现：`security` 早已预留 `notes` 环（3 分钟锁）与「入口由后续插件调用」的注释，方案 §4.5
+> 的表格里容器 id 写的是 `private` 而代码建的是环 id —— 这类偏差现在记在方案 §7-2。
+> 三个决策：**D1 加密粒度**（每篇一密文 vs 整包，推荐前者）· **D2 编辑怎么接内核**（★ 真分叉）·
+> **D3 同步怎么拆**（vault.json 按环拆，无分叉）。用户拍板 **D2 = A：内核加通用钩子**。
+>
+> ### 内核改了什么（4 处，全是"真读写磁盘"的必经点）
+>
+> `src/kernel/doc-codec.ts`（新，约 170 行）+ `contract.ts` 的 `DocApi.registerCodec`：
+> 读盘后 `decodeForOpen`、写盘前 `encodeForSave`。接入点：
+> `useDocSession.openNote` · `useDocIO.saveNow` · `useDocIO.reloadActiveFromDisk` · `useDocIO.mergeWithDisk`。
+> 草稿三处加 `isTransientPath` 守卫（localStorage 是明文）。
+>
+> **两条安全线值得单独记**（`tests/doc-codec.test.ts` 有反向用例）：
+> ① `openedVia` 记账 —— 打开过某 codec 的路径，codec 被卸载后**读与写都抛错**。没有它的话，
+> 插件禁用后用户点保存 ⇒ 密文被明文覆盖，静默丢安全属性；
+> ② `transient` 必须由 codec 自己声明 —— 内核无法判断"这个内容敏不敏感"。
+>
+> ### 插件（`examples/private-notes/`，约 560 行）
+>
+> `.zn/private/{index.zn, notes/<id>.zn}`：索引也加密（标题不落明文），文件名是 base36 随机 id。
+> 用 `crypto` 服务的 `notes` 环；`doc.on('save')` 回填索引标题与时间。
+> 面板三态：没服务（降级指引）/ 锁定（主密码，环没建则引导去 security）/ 列表。
+>
+> ### 实测（dev CDP · 真 Argon2 · 测试库 `_tmp-vault-tb`）
+>
+> 1. 建 notes 环：security 面板切「私密笔记」→ 两次密码 → 建立 ⇒ `vault.json` 出现 `notes`
+> 2. 私密面板 `private.recheck` → 输密码 → 「已解锁 · 0 篇」
+> 3. 「＋ 新建」⇒ 磁盘立刻出现 `index.zn`（207 B）+ `notes/mvpbqrsjr7tz.zn`（59 B，空正文）
+> 4. 写入「# 第一篇私密笔记 / 这是加密存储的正文。」→ 保存 ⇒ 密文 59 → **132 B**，
+>    **含中文 = False · 含 `#` = False**（明文检查）
+> 5. 关文档回面板 ⇒ 列表出现「第一篇私密笔记」（索引解密 + save 回填都生效）
+> 6. 重新打开 ⇒ 编辑器明文逐字正确
+> 7. `private.lock` ⇒ 当前文档自动关闭；**锁定后** `core.openNote` 直接打开 `.zn/private/notes/…`
+>    ⇒ 编辑器不打开、界面显示「已锁定 —— 先在面板里解锁」（密文没被喂进去）
+>
+> 测试数据与全局 junction 已清理（源码留在 `examples/`）。
+>
+> ### 两条坑
+>
+> - **库内 `.zn/plugins/` 不再被扫描**（rev173.5 起只有全局根）。第一版把 junction 建在测试库里，
+>   reload 后命令表里没有 `private.*` —— 改挂 `%APPDATA%\com.aqua.zeronote\.zn\plugins\private-notes`
+>   立刻加载。CARD 里「测试插件只放 examples/」的前提是**挂到全局目录**。
+> - `core.panel.<id>` 对 main 面板可用，但 **CDP 点按钮**时坐标会撞到别的元素（`text:打开` 撞上了
+>   标题行）；改用 `__znExec('private.open-note', {id})` 直接调命令才验证到真实链路。
+>
+> ### 未做
+>
+> 期 2（独立搜索 / 回收站 / 移入移出）· 期 3（`vault.json` 按环拆 + 四后端同步 `.zn/private/`
+> + 备份包含私密树）。方案 §5 有估时。
 
 > ## 📌 rev173.179（2026-10-26 · 预装范围成文 · 移出 5 个「增强」插件）
 

@@ -446,7 +446,15 @@ function scopedFs(fs: FsApi, subs: Disposable[]): FsApi {
 }
 
 function scopedDoc(doc: DocApi, subs: Disposable[]): DocApi {
-  return { ...doc, on: (ev, cb) => collect(subs, doc.on(ev, cb)) }
+  return {
+    ...doc,
+    on: (ev, cb) => collect(subs, doc.on(ev, cb)),
+    /**
+     * 内容转换器（rev173.180）同样自动登记 —— 漏登记的后果很具体：插件卸载后转换器还挂着，
+     * 下一次打开那条路径会走一个**已卸载插件**的 decode（其闭包引用的密钥早就没了）。
+     */
+    registerCodec: (codec) => collect(subs, doc.registerCodec(codec)),
+  }
 }
 
 /**

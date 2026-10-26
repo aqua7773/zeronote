@@ -1,0 +1,28 @@
+{
+  "manifestVersion": 1,
+  "id": "private-notes",
+  "name": "私密文件夹",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "私密笔记：整棵树加密存 .zn/private/（文件名是随机 id），独立入口与密码，不进全局搜索 / 回收站；需要先装「安全」插件提供密钥环",
+  "category": "tool",
+  "capabilities": ["command", "fs:read", "fs:write", "view:main"],
+  "activationEvents": ["onStartup"],
+  "dependencies": ["security"],
+  "contributes": {
+    "commands": [
+      { "id": "private.open", "title": "私密文件夹：打开" },
+      { "id": "private.lock", "title": "私密文件夹：立即锁定" },
+      { "id": "private.new", "title": "私密文件夹：新建私密笔记" },
+      { "id": "private.unlock", "title": "私密文件夹：解锁" },
+      { "id": "private.recheck", "title": "私密文件夹：重新检查密钥环" },
+      { "id": "private.open-security", "title": "私密文件夹：打开安全插件" },
+      { "id": "private.open-plugins", "title": "私密文件夹：打开插件管理" },
+      { "id": "private.open-note", "title": "私密文件夹：打开一篇" },
+      { "id": "private.delete", "title": "私密文件夹：删除一篇" }
+    ],
+    "panels": [{ "id": "private.panel", "title": "私密文件夹", "location": "main" }]
+  }
+}
