@@ -51,7 +51,42 @@ const CONFLICT_ROOT = '.zn/conflicts'
  * 密码库要**两个**文件一起搬：`secrets.zn`（数据密文）+ `vault.json`（KDF salt 与被主密码
  * 包裹的 DEK）。少了后者，另一台设备拿到密文也解不开。两者都不含明文。
  */
-export const PRIVATE_FILES = ['.zn/secrets/secrets.zn', '.zn/security/vault.json']
+/**
+ * 私有文件清单（rev173.164 · 期 1c；**rev173.182 按环拆 vault**）。
+ *
+ * `vault.<环>.json` 各是一个同步单元 —— 两台设备各改一个环的密码（重包裹 DEK）时
+ * 不会同时改同一个文件，也就不会互相覆盖。旧单文件 `vault.json` 留在清单里兼容
+ * 还没迁移的库（迁移完成后它消失，分支自然变成 no-op）。
+ */
+export const PRIVATE_FILES = [
+  '.zn/secrets/secrets.zn',
+  '.zn/security/vault.notes.json',
+  '.zn/security/vault.secrets.json',
+  '.zn/security/vault.json',
+]
+/** 私密文件夹的根文件（不在 notes/ 或 trash/ 里） */
+export const PRIVATE_ROOT_FILES = ['.zn/private/index.zn']
+/** 私密文件夹的目录树（数量可变 ⇒ 逐个文件走 `decideTreeAction`） */
+export const PRIVATE_DIRS = ['.zn/private/notes', '.zn/private/trash']
+
+/**
+ * 私密树单个文件的同步方向（**纯函数**）。语义与 `sync-webdav` 的同名函数逐字一致
+ * （那份有完整测试），这里复制一份是因为插件之间不能共享代码。
+ */
+export function decideTreeAction(localFp, remoteFp, baseFp) {
+  const l = localFp || null
+  const r = remoteFp || null
+  const b = baseFp || null
+  if (l === r) return 'noop'
+  if (!l && r) return b ? 'delete-remote' : 'pull'
+  if (l && !r) return b ? 'delete-local' : 'push'
+  const localChanged = l !== b
+  const remoteChanged = r !== b
+  if (!b) return 'conflict'
+  if (remoteChanged && !localChanged) return 'pull'
+  if (localChanged && !remoteChanged) return 'push'
+  return 'conflict'
+}
 const MAX_CONFLICTS = 100
 const MAX_TIMING = 50
 const MAX_FILES_PER_RUN = 200
@@ -349,16 +384,31 @@ export function relayName(fp, ext) {
  * `{ version: 1, files: { [path]: { fp, etag?, at } }, attachments: { … } }`
  * 坏数据一律退成空表 —— 远端被别的东西覆盖过时，不要让整个同步崩掉。
  */
+/**
+ * 私密文件夹树段（rev173.182 · 期 3）：`{ rel: { fp, at } }`，数量可变。
+ * 老 manifest 没有这一段 ⇒ 空对象（首轮全部当"新"推上去）。
+ */
+function privateTreeOf(j) {
+  const out = {}
+  const src = j && typeof j === 'object' && j.privateTree && typeof j.privateTree === 'object' ? j.privateTree : {}
+  for (const [rel, v] of Object.entries(src)) {
+    if (!v || typeof v !== 'object') continue
+    if (typeof v.fp !== 'string' || !v.fp) continue
+    out[rel] = { fp: v.fp, at: Number(v.at) || 0 }
+  }
+  return out
+}
+
 export function normalizeManifest(raw) {
   let j = raw
   if (typeof raw === 'string') {
     try {
       j = JSON.parse(raw)
     } catch {
-      return { version: 1, files: {}, attachments: {}, private: {} }
+      return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
     }
   }
-  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {}, private: {} }
+  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
   const files = {}
   const src = j.files && typeof j.files === 'object' ? j.files : {}
   for (const [path, v] of Object.entries(src)) {
@@ -395,7 +445,7 @@ export function normalizeManifest(raw) {
     if (typeof v.fp !== 'string' || !v.fp) continue
     privateFiles[rel] = { fp: v.fp, at: Number(v.at) || 0 }
   }
-  return { version: 1, files, attachments, private: privateFiles }
+  return { version: 1, files, attachments, private: privateFiles, privateTree: privateTreeOf(j) }
 }
 
 /** 耗时给人看（与另外两个同步插件同一套写法） */
@@ -900,6 +950,125 @@ export default {
       return { private: nextPriv, changed }
     }
 
+    /**
+     * **私密文件夹目录树同步**（rev173.182 · 私密文件夹期 3）。
+     *
+     * 与 `syncPrivate` 的区别：那个是固定清单，这里是**数量可变**的目录树。
+     * 方向判定用纯函数 `decideTreeAction`（与 sync-webdav 逐字一致）。
+     * 删除两边都传播 —— 私密笔记在面板里删除是真删除，不传播同步一轮就复活。
+     */
+    async function syncPrivateTree(client, manifest, summary) {
+      const remoteTree = manifest.privateTree || {}
+      const nextTree = { ...remoteTree }
+      let changed = false
+
+      const localPaths = new Set()
+      if (typeof api.fs.listFiles === 'function') {
+        for (const dir of PRIVATE_DIRS) {
+          const files = await api.fs.listFiles(dir).catch(() => [])
+          for (const rel of files) localPaths.add(rel)
+        }
+      }
+      for (const rel of PRIVATE_ROOT_FILES) {
+        // 空串按"没有"处理（与 `syncPrivate` 同一口径）：memory fs 对不存在的路径可能返回 ''，
+        // 当成"本地有"会白推一次空文件（单测 `空笔记也能同步` 抓到过）
+        const raw = await api.fs.readText(rel).catch(() => null)
+        if (raw && raw.trim()) localPaths.add(rel)
+      }
+
+      const all = new Set([...localPaths, ...Object.keys(remoteTree)])
+      for (const rel of all) {
+        let localText = null
+        if (localPaths.has(rel)) {
+          try {
+            const raw = await api.fs.readText(rel)
+            if (raw != null) localText = raw
+          } catch {
+            localText = null
+          }
+        }
+        const localFp = localText == null ? null : fingerprint(localText)
+        const entry = remoteTree[rel] ?? null
+        const remoteFp = typeof entry?.fp === 'string' ? entry.fp : null
+        const base = baseline[rel]?.fp ?? null
+        const action = decideTreeAction(localFp, remoteFp, base)
+        const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+
+        if (action === 'noop') {
+          if (localFp && remoteFp) baseline[rel] = { fp: localFp, at: entry?.at ?? 0 }
+          continue
+        }
+
+        if (action === 'pull') {
+          try {
+            const got = await client.get(rel)
+            if (!got) continue
+            await api.fs.mkdir(parent).catch(() => {})
+            await api.fs.writeText(rel, got.text)
+            baseline[rel] = { fp: fingerprint(got.text), at: entry?.at ?? 0 }
+            summary.pulled += 1
+          } catch (e) {
+            summary.hint = `私密笔记下载失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'push') {
+          try {
+            const res = await client.put(rel, localText)
+            if (!res.ok) {
+              summary.hint = `私密笔记上传失败 ${rel}（${res.status}）`
+              continue
+            }
+            nextTree[rel] = { fp: localFp, at: Date.now() }
+            baseline[rel] = { fp: localFp, at: nextTree[rel].at }
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `私密笔记上传失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-remote') {
+          try {
+            await client.remove(rel)
+            delete nextTree[rel]
+            delete baseline[rel]
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `删除远端私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-local') {
+          try {
+            await api.fs.purgePrivate(rel).catch(() => {})
+            delete baseline[rel]
+            summary.removed = (summary.removed ?? 0) + 1
+          } catch (e) {
+            summary.hint = `删除本地私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        try {
+          const got = await client.get(rel)
+          if (!got) continue
+          await keepConflict(rel, '私密笔记双端修改')
+          await api.fs.writeText(rel, got.text)
+          baseline[rel] = { fp: fingerprint(got.text), at: entry?.at ?? 0 }
+          summary.conflicts += 1
+        } catch (e) {
+          summary.hint = `私密笔记冲突处理失败 ${rel}：${String(e)}`
+        }
+      }
+
+      return { privateTree: nextTree, changed }
+    }
+
     async function syncAttachments(client, manifest, summary) {
       const mode = settings.attachments || 'off'
       const remoteAtt = manifest.attachments || {}
@@ -1034,7 +1203,7 @@ export default {
       if (!silent) api.view.refresh()
       const t0 = Date.now()
       let tMark = t0
-      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, write: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, privateTree: 0, write: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -1053,12 +1222,23 @@ export default {
         let remote
         const got = await client.get(MANIFEST_KEY)
         if (got === null) {
-          remote = { files: {}, attachments: {}, private: {} }
-          manifestCache = { files: {}, attachments: {}, private: {}, etag: null }
+          remote = { files: {}, attachments: {}, private: {}, privateTree: {} }
+          manifestCache = { files: {}, attachments: {}, private: {}, privateTree: {}, etag: null }
         } else {
           const m = normalizeManifest(got.text)
-          remote = { files: m.files, attachments: m.attachments, private: m.private }
-          manifestCache = { files: m.files, attachments: m.attachments, private: m.private, etag: got.etag }
+          remote = {
+            files: m.files,
+            attachments: m.attachments,
+            private: m.private,
+            privateTree: m.privateTree,
+          }
+          manifestCache = {
+            files: m.files,
+            attachments: m.attachments,
+            private: m.private,
+            privateTree: m.privateTree,
+            etag: got.etag,
+          }
         }
         timing.manifest = lap()
 
@@ -1247,8 +1427,19 @@ export default {
         const priv = await syncPrivate(client, remote, summary)
         timing.private = lap()
 
+        // ④c 私密文件夹目录树（rev173.182 · 期 3）
+        const privTree = await syncPrivateTree(client, remote, summary)
+        timing.privateTree = lap()
+
         // ⑤ manifest 回写（有变动才写 —— 5 秒一轮，没变化不该反复 PUT）
-        if (summary.pushed > 0 || summary.removed > 0 || att.changed || priv.changed || manifestChanged) {
+        if (
+          summary.pushed > 0 ||
+          summary.removed > 0 ||
+          att.changed ||
+          priv.changed ||
+          privTree.changed ||
+          manifestChanged
+        ) {
           const w = await client.put(
             MANIFEST_KEY,
             JSON.stringify({
@@ -1256,6 +1447,7 @@ export default {
               files: nextFiles,
               attachments: att.attachments,
               private: priv.private,
+              privateTree: privTree.privateTree,
             }),
             { contentType: 'application/json; charset=utf-8' },
           )
@@ -1264,6 +1456,7 @@ export default {
               files: nextFiles,
               attachments: att.attachments,
               private: priv.private,
+              privateTree: privTree.privateTree,
               etag: w.etag,
             }
           }

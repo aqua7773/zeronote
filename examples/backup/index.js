@@ -50,13 +50,25 @@ const PRE_PREFIX = 'pre-restore-'
 const NAME_RE = new RegExp(`^(?:${PRE_PREFIX})?\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}$`)
 
 /**
- * 密码库要随包的文件 —— 两个都是**密文/元数据**，不会把明文密码带出去。
- * `vault.json` 是 KDF salt 与被主密码包裹的 DEK，**少了它另一台拿到密文也解不开**。
+ * 密码库要随包的文件 —— 都是**密文/元数据**，不会把明文密码带出去。
+ * `vault.<环>.json` 是 KDF salt 与被主密码包裹的 DEK，**少了它另一台拿到密文也解不开**。
+ *
+ * rev173.182：vault 按环拆了，所以这里列三个（两个新文件 + 旧单文件）；
+ * 不存在的条目自然跳过，旧库也能备。
  */
 const SECRET_FILES = [
   { from: '.zn/secrets/secrets.zn', to: '_secret/secrets.zn' },
+  { from: '.zn/security/vault.notes.json', to: '_secret/vault.notes.json' },
+  { from: '.zn/security/vault.secrets.json', to: '_secret/vault.secrets.json' },
   { from: '.zn/security/vault.json', to: '_secret/vault.json' },
 ]
+
+/**
+ * 私密文件夹整棵树（rev173.182 · 期 3）：`.zn/private/` → `_private/`。
+ * 里面**只有密文**（每篇正文 + 加密索引），而且锁着也能拷（不解密）。
+ */
+const PRIVATE_DIR = '.zn/private'
+const PRIVATE_BACKUP_DIR = '_private'
 
 /**
  * 自动备份档位（需求 §14.1 的九个固定档）。**默认每天**（需求写死）。
@@ -519,6 +531,23 @@ export default {
         }
       }
 
+      /**
+       * ③b 私密文件夹整棵树（rev173.182 · 期 3）—— 里面**只有密文**，锁着也能拷。
+       * `listFiles(dir)` 不递归，所以按已知的三层（根 / notes / trash）分别列。
+       */
+      let privateCount = 0
+      for (const sub of ['', 'notes', 'trash']) {
+        const dir = sub ? `${PRIVATE_DIR}/${sub}` : PRIVATE_DIR
+        const files = await api.fs.listFiles(dir).catch(() => [])
+        for (const rel of files) {
+          const to = `${root}/${PRIVATE_BACKUP_DIR}/${rel.slice(PRIVATE_DIR.length + 1)}`
+          const parent = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : ''
+          if (parent) await api.fs.mkdir(parent).catch(() => {})
+          await api.fs.writeBytes(to, await api.fs.readBytes(rel))
+          privateCount += 1
+        }
+      }
+
       const notes = (await api.fs.listNotes()).length
       const meta = {
         at: started,
@@ -528,6 +557,7 @@ export default {
         dirNames: rootDirs,
         files: rootFiles.length,
         secret,
+        private: privateCount,
         ms: Date.now() - started,
         ...(protectedSnap ? { protected: true } : {}),
       }
@@ -667,6 +697,29 @@ export default {
             if (await api.fs.exists(`${DIR}/${name}/${s.to}`)) {
               await api.fs.writeBytes(s.from, await api.fs.readBytes(`${DIR}/${name}/${s.to}`))
             }
+          }
+        }
+
+        /**
+         * ⑤ 私密文件夹整棵树写回（rev173.182 · 期 3）。
+         * 与备份时对称：按根 / notes / trash 三层分别列（`listFiles` 不递归）。
+         * 只在备份里真有 `_private/` 时才动 —— 旧备份没有这一段，跳过即可。
+         */
+        let privateRestored = 0
+        for (const sub of ['', 'notes', 'trash']) {
+          const fromDir = `${DIR}/${name}/${PRIVATE_BACKUP_DIR}${sub ? `/${sub}` : ''}`
+          const files = await api.fs.listFiles(fromDir).catch(() => [])
+          if (!files.length) continue
+          status = '⑤ 写回私密笔记密文…'
+          refresh()
+          for (const full of files) {
+            const subPath = String(full).split(`/${PRIVATE_BACKUP_DIR}/`)[1] ?? ''
+            if (!subPath) continue
+            const target = `${PRIVATE_DIR}/${subPath}`
+            const parent = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : ''
+            if (parent) await api.fs.mkdir(parent).catch(() => {})
+            await api.fs.writeBytes(target, await api.fs.readBytes(full))
+            privateRestored += 1
           }
         }
 

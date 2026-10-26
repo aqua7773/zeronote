@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.5.1",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.1.znp",
-  "sha256": "541b853697117184fb8d1c6af4381a4aa7659851b4662163b09035d2897c5d9f",
-  "size": 63658,
+  "version": "0.5.2",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.2.znp",
+  "sha256": "0c547f3d73df62558338c27d161dff11077da5a216b54438d9f6f675e874a71b",
+  "size": 71371,
   "files": [
     "index.js",
     "signature.json"

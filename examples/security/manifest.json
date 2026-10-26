@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

@@ -52,6 +52,11 @@ import {
   unlockWithBiometric,
   verifyData,
   windowsHelloAdapter,
+  vaultFileOf,
+  vaultPartPayload,
+  parseVaultPart,
+  LEGACY_VAULT_FILE,
+  VAULT_DIR,
 } from '../examples/security/index.js'
 
 /** 生产端从 `/vendor/noble/…` 注入，测试端直接用 node_modules 的同版本 */
@@ -571,5 +576,36 @@ describe('锁定后自动弹生物识别（rev173.171）', () => {
     expect(shouldWaitForFocus({ platform: 'android', visibility: 'visible', hasFocus: false })).toBe(false)
     expect(shouldWaitForFocus({ platform: 'windows', visibility: 'visible', hasFocus: false })).toBe(true)
     expect(shouldWaitForFocus({ platform: 'windows', visibility: 'visible', hasFocus: true })).toBe(false)
+  })
+})
+
+describe('vault 按环拆文件（rev173.182 · 私密文件夹期 3）', () => {
+  it('每个环一个固定文件名（同步插件靠固定清单搬，不能是动态扫描）', () => {
+    expect(VAULT_DIR).toBe('.zn/security')
+    expect(vaultFileOf('notes')).toBe('.zn/security/vault.notes.json')
+    expect(vaultFileOf('secrets')).toBe('.zn/security/vault.secrets.json')
+    expect(LEGACY_VAULT_FILE).toBe('.zn/security/vault.json')
+  })
+
+  it('单环文件往返：payload → parse 回来是同一把环', () => {
+    const ring = { id: 'notes', kdf: { t: 1, m: 8, p: 1, salt: 'abc' }, wrapped: { notes: 'zn1.x' } }
+    expect(parseVaultPart(vaultPartPayload(ring))).toEqual(ring)
+  })
+
+  it('坏内容一律抛错（调用方据此标 corrupt、**不覆盖**原文件）', () => {
+    expect(() => parseVaultPart('不是 JSON')).toThrow()
+    expect(() => parseVaultPart('null')).toThrow()
+    expect(() => parseVaultPart(JSON.stringify({ v: 2 }))).toThrow(/缺 ring.id/)
+    expect(() => parseVaultPart(JSON.stringify({ v: 2, ring: {} }))).toThrow(/缺 ring.id/)
+  })
+
+  it('**两个环的文件互不包含**（拆开的目的：各改各的不会交叉冲突）', () => {
+    const notesRing = { id: 'notes', kdf: {}, wrapped: { notes: 'a' } }
+    const secretsRing = { id: 'secrets', kdf: {}, wrapped: { secrets: 'b' } }
+    const notesText = vaultPartPayload(notesRing)
+    const secretsText = vaultPartPayload(secretsRing)
+    expect(notesText).not.toContain('secrets')
+    expect(secretsText).not.toContain('notes')
+    expect(Object.keys(parseVaultPart(notesText).wrapped)).toEqual(['notes'])
   })
 })

@@ -232,10 +232,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.2",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.1.2.znp",
-      "sha256": "ccd173b16d2d437c70f466dbb8c836f154af34485cc2f62dbb8e9c7497594d9f",
-      "size": 70938,
+      "version": "0.2.0",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.0.znp",
+      "sha256": "5ffdf1bf3539f0684fa24c524b9f6897eca4603e6e80931fdd8e7487f1794758",
+      "size": 74550,
       "files": [
         "index.js",
         "signature.json"
@@ -260,10 +260,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.3.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-folder-0.3.3.znp",
-      "sha256": "d9ecf07521220d98425f72f98efaa6ae0ac2eab6fd8441462849e9500134272f",
-      "size": 46949,
+      "version": "0.3.4",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-folder-0.3.4.znp",
+      "sha256": "5e06e51c382a4e58a8be92ae730f24b2ea43271e4a123e498c00590be6c5a132",
+      "size": 47093,
       "files": [
         "index.js",
         "signature.json"
@@ -290,10 +290,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.5.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.1.znp",
-      "sha256": "541b853697117184fb8d1c6af4381a4aa7659851b4662163b09035d2897c5d9f",
-      "size": 63658,
+      "version": "0.5.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.2.znp",
+      "sha256": "0c547f3d73df62558338c27d161dff11077da5a216b54438d9f6f675e874a71b",
+      "size": 71371,
       "files": [
         "index.js",
         "signature.json"
@@ -322,10 +322,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.4.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-s3-0.4.1.znp",
-      "sha256": "c1617db353a8bf6e7f0cad62324900640805aa5b8f53756a7acaefa95afec7b0",
-      "size": 71780,
+      "version": "0.4.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-s3-0.4.2.znp",
+      "sha256": "a68c96856b04f3f8e64080437943a7dd353b4d0747eb1d5f97d7e12c4faed9d3",
+      "size": 79098,
       "files": [
         "index.js",
         "signature.json"
@@ -354,10 +354,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.3.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.1.znp",
-      "sha256": "1a38a5527b4f5a20490df7f3568cbb7b9db7892bb58e7de1f137c89952e2446d",
-      "size": 86130,
+      "version": "0.3.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.2.znp",
+      "sha256": "58f475a050c2865f05823fbdb26fd1fb8d31f716d6505448fa56e7bdc21134b3",
+      "size": 94899,
       "files": [
         "index.js",
         "signature.json"

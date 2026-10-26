@@ -55,18 +55,20 @@ const SNAPSHOT_DIR = '.zn/sync/last'
 /**
  * **密码库私有目录**（rev173.164 · 期 1c）。
  *
- * 要跨设备同步密码库，外部工具必须**放行**这两个目录（`.zn/` 其余部分继续排除）：
+ * 要跨设备同步密码库与私密笔记，外部工具必须**放行**这三个目录（`.zn/` 其余部分继续排除）：
  *  · `.zn/secrets/`   —— 整库密文
  *  · `.zn/security/`  —— KDF salt + 被主密码包裹的 DEK（少了它另一台解不开）
+ *  · `.zn/private/`   —— 私密笔记（rev173.182：每篇一个密文 + 加密索引）
  *
  * Syncthing 的 `.stignore` 写法（把 `.zn/*` 排除后，用 `!` 逐条放回）：
  * ```
  * .zn/*
  * !.zn/secrets
  * !.zn/security
+ * !.zn/private
  * ```
  */
-export const SECRET_DIRS = ['.zn/secrets', '.zn/security']
+export const SECRET_DIRS = ['.zn/secrets', '.zn/security', '.zn/private']
 /** 冲突副本根（方案 §6.1：按平台分文件夹） */
 const CONFLICT_ROOT = '.zn/conflicts'
 

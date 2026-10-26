@@ -548,6 +548,46 @@ export function createVault() {
   return { v: 1, rings: {} }
 }
 
+/**
+ * **vault 按环拆文件**（rev173.182 · 私密文件夹期 3）。
+ *
+ * 为什么要拆：`vault.json` 是整文件同步的 —— 两台设备各改一个环的密码（重包裹 DEK）时，
+ * 两边都改了同一个文件 ⇒ 同步判定冲突 ⇒ 取远端 ⇒ **另一边的重包裹丢了**，那台设备
+ * 直接解不开自己的数据。拆成「每环一个文件、各自一个同步单元」就没有这个交叉冲突了。
+ *
+ * 文件名固定（`vault.<环id>.json`）而不是动态扫描：同步插件要靠**固定清单**搬文件
+ * （见三个网络后端的 `PRIVATE_FILES`），动态文件名会让"要同步哪些"变成运行时才发现的事。
+ */
+export const VAULT_DIR = '.zn/security'
+/** 某个环的 vault 文件（库内相对路径） */
+export function vaultFileOf(ringId) {
+  return `${VAULT_DIR}/vault.${ringId}.json`
+}
+/** 旧版单文件（按环拆之前的）—— 只读兼容 + 迁移时删除 */
+export const LEGACY_VAULT_FILE = `${VAULT_DIR}/vault.json`
+
+/** 单环 vault 文件的明文内容（写盘前用） */
+export function vaultPartPayload(ring) {
+  return JSON.stringify({ v: 2, ring: { id: ring.id, ...ring } }, null, 2)
+}
+
+/**
+ * 解析单环 vault 文件。结构不对就抛（调用方据此标记 `corrupt`，**不覆盖**原文件）。
+ * `v` 只做记录、不校验：将来加字段时不想因为版本号把用户的环判成坏的。
+ */
+export function parseVaultPart(text) {
+  let p
+  try {
+    p = JSON.parse(text)
+  } catch {
+    throw new Error('不是合法 JSON')
+  }
+  if (!p || typeof p !== 'object' || !p.ring || typeof p.ring !== 'object' || !p.ring.id) {
+    throw new Error('结构不对（缺 ring.id）')
+  }
+  return p.ring
+}
+
 /** 取一把环；没有返回 null（不抛，UI 据此走"首次设置"） */
 export function getRing(vault, ringId) {
   return vault?.rings?.[ringId] ?? null
@@ -568,7 +608,6 @@ export function dropRing(vault, ringId) {
 
 const PANEL_ID = 'security.panel'
 const STATUS_ID = 'security.status'
-const VAULT_FILE = '.zn/security/vault.json'
 const RING_IDS = ['notes', 'secrets']
 const RING_LABEL = { notes: '私密笔记', secrets: '账号密码' }
 const RING_HINT = {
@@ -805,37 +844,85 @@ function clearInputs(api, ...binds) {
   }
 }
 
-/* ───────────────────────── 落盘 ───────────────────────── */
+/* ───────────────────────── 落盘（按环拆文件 · rev173.182） ───────────────────────── */
 
+/**
+ * 读 vault：**先新结构、再旧单文件**。
+ *
+ * 新结构 = 每个环一个 `vault.<环id>.json`，各自一个同步单元（见 `vaultFileOf` 的注释）。
+ * 旧单文件只在"还没迁移过"的库上出现；读到时内存里拼成 `{ rings }`，**下一次保存顺手迁移**。
+ */
 async function loadVault(api) {
+  // ① 新结构：按环读
+  const rings = {}
+  let found = false
+  for (const id of RING_IDS) {
+    const file = vaultFileOf(id)
+    let text
+    try {
+      text = await api.fs.readText(file)
+    } catch {
+      continue // 没有这个文件是正常态（那个环还没建）
+    }
+    try {
+      rings[id] = parseVaultPart(text)
+      found = true
+    } catch {
+      // 文件在、却读不懂 ⇒ 坏盘 / 别的版本。**不清空、不覆盖**
+      store.corrupt = true
+      return createVault()
+    }
+  }
+  if (found) return { v: 1, rings }
+
+  // ② 回落旧单文件（还带两个环的合集）
   let text
   try {
-    text = await api.fs.readText(VAULT_FILE)
+    text = await api.fs.readText(LEGACY_VAULT_FILE)
   } catch {
-    // 文件不存在 = 首次使用（正常态）
-    return createVault()
+    return createVault() // 首次使用（正常态）
   }
   try {
     const parsed = JSON.parse(text)
     if (!parsed || typeof parsed !== 'object' || !parsed.rings) throw new Error('结构不对')
     return parsed
   } catch {
-    // 文件在、但读不懂 ⇒ 可能是坏盘 / 别的版本。**不清空、不覆盖**，让用户自己决定
     store.corrupt = true
     return createVault()
   }
 }
 
-async function saveVault(api, vault) {
+/**
+ * 写 vault —— **只写改动的那一把环**（`onlyRing`）。
+ *
+ * 为什么必须按环写而不是整份：两台设备各改一个环的密码时，只有各自那个文件变 ⇒
+ * 同步不会误判冲突。传 `null` 表示"全部写一遍"（一次性迁移 / 全量修复时用）。
+ *
+ * 迁移：旧单文件还在 ⇒ 这次把**所有环**都写出来，成功后再删旧文件。
+ * 它现在会过期（拆开后就没人再更新它），留着反而会被同步插件当成第二份数据搬来搬去。
+ */
+async function saveVault(api, vault, onlyRing = null) {
   if (store.corrupt) {
-    throw new Error('vault.json 读不懂，已停止写入（避免覆盖原文件）。请先备份并检查 .zn/security/')
+    throw new Error('vault 读不懂，已停止写入（避免覆盖原文件）。请先备份并检查 .zn/security/')
   }
   try {
-    await api.fs.mkdir('.zn/security')
+    await api.fs.mkdir(VAULT_DIR)
   } catch {
     /* 目录已存在 */
   }
-  await api.fs.writeText(VAULT_FILE, JSON.stringify(vault, null, 2))
+  const legacyExists = await api.fs.exists(LEGACY_VAULT_FILE).catch(() => false)
+  const ids = legacyExists || !onlyRing ? Object.keys(vault.rings) : [onlyRing]
+  for (const id of ids) {
+    const ring = vault.rings[id]
+    if (!ring) {
+      await api.fs.purgePrivate(vaultFileOf(id)).catch(() => {})
+      continue
+    }
+    await api.fs.writeText(vaultFileOf(id), vaultPartPayload(ring))
+  }
+  if (legacyExists) {
+    await api.fs.purgePrivate(LEGACY_VAULT_FILE).catch(() => {})
+  }
 }
 
 /* ───────────────────────── 解锁 / 锁定 ───────────────────────── */
@@ -1263,7 +1350,7 @@ async function doSetup(api) {
     })
 
     store.vault = putRing(store.vault, ring)
-    await saveVault(api, store.vault)
+    await saveVault(api, store.vault, ring.id)
     store.recoveryCodeShown = code
     setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已建立。请抄下上面的恢复码。`, 'success')
     api.host.notify('密钥环已建立 —— 恢复码只显示一次，请抄下来', 'info')
@@ -1305,7 +1392,7 @@ async function doChangePassword(api) {
       return changePassword(L, ring, oldPw, newPw)
     })
     store.vault = putRing(store.vault, next)
-    await saveVault(api, store.vault)
+    await saveVault(api, store.vault, next.id)
     // 换完密码当前会话仍然有效（DEK 没变），但要提示一次
     setStatus(api, '主密码已换。数据密文没动，旧密码从此失效。', 'success')
   } catch (e) {
@@ -1430,7 +1517,7 @@ async function doBiometricBind(api) {
   try {
     const next = await bindBiometric(ring, s.dek, adapter, store.deviceId)
     store.vault = putRing(store.vault, next)
-    await saveVault(api, store.vault)
+    await saveVault(api, store.vault, next.id)
     setStatus(api, '已绑定这台设备 —— 之后锁定可直接用指纹解锁（主密码仍然有效，别的设备不受影响）', 'success')
   } catch (e) {
     setStatus(api, `绑定失败：${biometricErrorMessage(e)}`, 'error')
@@ -1443,7 +1530,7 @@ async function doBiometricUnbind(api) {
   if (!deviceBinding(ring, store.deviceId)) return setStatus(api, '这台设备没有绑定指纹', 'warn')
   try {
     store.vault = putRing(store.vault, unbindBiometric(ring, store.deviceId))
-    await saveVault(api, store.vault)
+    await saveVault(api, store.vault, ring.id)
     setStatus(api, '已解除这台设备的指纹绑定（主密码与别的设备不受影响）', 'success')
   } catch (e) {
     setStatus(api, `解除失败：${String(e?.message ?? e)}`, 'error')

@@ -48,17 +48,61 @@ const CONFLICT_ROOT = '.zn/conflicts'
 const MANIFEST_REL = '_zn/manifest.json'
 
 /**
- * **私有文件**清单（rev173.164 · 期 1c）：这些是库内 `.zn/` 下的密文，
- * 不是 `.md`、`listNotes` 永远拿不到，所以要单独搬。
+ * **私有文件**清单（rev173.164 · 期 1c；rev173.182 按环拆 vault）。
  *
- * 为什么密码库必须同步**两个**文件：
- *  · `secrets.zn`    —— 整库密文（真正的数据）
- *  · `vault.json`    —— KDF salt + 被主密码包裹的 DEK（**没有它，另一台设备拿到密文也解不开**）
+ * 这些是库内 `.zn/` 下的密文，不是 `.md`、`listNotes` 永远拿不到，所以要单独搬。
  *
- * 两个文件里都没有明文（vault.json 只有公开参数与密文块），所以"上云"不等于"泄露"；
+ * 为什么密码库必须同步**多个**文件：
+ *  · `secrets.zn`        —— 整库密文（真正的数据）
+ *  · `vault.<环>.json`   —— KDF salt + 被主密码包裹的 DEK（**没有它，另一台拿到密文也解不开**）
+ *
+ * 为什么 vault 按环拆（rev173.182）：整文件同步时，两台设备各改一个环的密码（重包裹）
+ * 会同时改同一个文件 ⇒ 判冲突 ⇒ 取远端 ⇒ **另一边的重包裹丢了**，那台设备解不开。
+ * 拆开之后两个环各是一个同步单元，互不干扰。
+ *
+ * `vault.json`（旧单文件）仍留在清单里：还没迁移的库还在用它；迁移完成后文件会消失，
+ * 那几条分支自然变成"两边都没有"的 no-op。
+ *
+ * 三个文件里都没有明文（只有公开参数与密文块），所以"上云"不等于"泄露"；
  * 但没有主密码，谁也解不开 —— 这是需求 §10.1「加密后同步」要的效果。
  */
-export const PRIVATE_FILES = ['.zn/secrets/secrets.zn', '.zn/security/vault.json']
+export const PRIVATE_FILES = [
+  '.zn/secrets/secrets.zn',
+  '.zn/security/vault.notes.json',
+  '.zn/security/vault.secrets.json',
+  '.zn/security/vault.json',
+]
+/** 私密文件夹的**根文件**（不在 notes/ 或 trash/ 里，单独列出） */
+export const PRIVATE_ROOT_FILES = ['.zn/private/index.zn']
+/** 私密文件夹的**目录树**（数量可变 ⇒ 逐个文件走同一套方向判定，见 `syncPrivateTree`） */
+export const PRIVATE_DIRS = ['.zn/private/notes', '.zn/private/trash']
+
+/**
+ * 私密树单个文件的同步方向（**纯函数**，单测覆盖全部分支）。
+ *
+ * `localFp` / `remoteFp` / `baseFp` 都是指纹字符串或 `null`（null = 那边没有这个文件）。
+ *
+ * 与笔记同步的 `decideSync` **语义一致但不共用**：笔记那边删除了不会传播（保守），
+ * 私密树这边**两边都传播** —— 私密笔记在面板里删除是真删除，不传播的话同步一轮就复活。
+ */
+export function decideTreeAction(localFp, remoteFp, baseFp) {
+  const l = localFp || null
+  const r = remoteFp || null
+  const b = baseFp || null
+  // 两边一致（或两边都没有）⇒ 只刷新 baseline
+  if (l === r) return 'noop'
+  // 远端有、本地没有
+  if (!l && r) return b ? 'delete-remote' : 'pull'
+  // 本地有、远端没有
+  if (l && !r) return b ? 'delete-local' : 'push'
+  // 两边都有、内容不同
+  const localChanged = l !== b
+  const remoteChanged = r !== b
+  if (!b) return 'conflict' // 没有基线且两边不同：谁都不该覆盖谁（与 `!base` 的笔记判据同一套）
+  if (remoteChanged && !localChanged) return 'pull'
+  if (localChanged && !remoteChanged) return 'push'
+  return 'conflict'
+}
 /** 单次同步最多处理多少篇（防止第一次全量时把界面吊死） */
 const MAX_FILES_PER_RUN = 200
 /** 自动同步节拍：前台每 5 秒跑一次（坚果云 600 次/30min ≈ 12 次/分钟，5 秒正好 12 次） */
@@ -312,9 +356,20 @@ export function normalizeManifest(raw) {
       if (typeof v.fp !== 'string') continue
       priv[rel] = { fp: v.fp, at: Number(v.at) || 0 }
     }
-    return { version: 1, files: out, attachments, private: priv }
+    /**
+     * 私密文件夹树（rev173.182 · 期 3）：与 `private` 同形状，只是**数量可变**
+     * （每篇私密笔记一个密文）。老 manifest 没有这一段 ⇒ 空对象（首轮全部当"新"推上去）。
+     */
+    const trees = j && typeof j === 'object' && j.privateTree && typeof j.privateTree === 'object' ? j.privateTree : {}
+    const privateTree = {}
+    for (const [rel, v] of Object.entries(trees)) {
+      if (!v || typeof v !== 'object') continue
+      if (typeof v.fp !== 'string') continue
+      privateTree[rel] = { fp: v.fp, at: Number(v.at) || 0 }
+    }
+    return { version: 1, files: out, attachments, private: priv, privateTree }
   } catch {
-    return { version: 1, files: {}, attachments: {}, private: {} }
+    return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
   }
 }
 
@@ -637,14 +692,21 @@ export function createDavClient(cfg) {
         headers: ifNoneMatch ? { 'If-None-Match': ifNoneMatch } : {},
       })
       if (res.status === 304) {
-        return { files: null, attachments: null, private: null, etag: ifNoneMatch ?? null, notModified: true }
+        return {
+          files: null,
+          attachments: null,
+          private: null,
+          privateTree: null,
+          etag: ifNoneMatch ?? null,
+          notModified: true,
+        }
       }
       /**
        * `404` / `409` = 还没有 manifest（坚果云对**父目录不存在**的 GET 回 409）⇒ 空表。
        * 这里不再走 `get()`：它把 404/409 吞成 null，拿不到响应的 ETag。
        */
       if (res.status === 404 || res.status === 409) {
-        return { files: {}, attachments: {}, private: {}, etag: null, notModified: false }
+        return { files: {}, attachments: {}, private: {}, privateTree: {}, etag: null, notModified: false }
       }
       if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${MANIFEST_REL}`)
       const m = normalizeManifest(res.text())
@@ -659,6 +721,7 @@ export function createDavClient(cfg) {
         files: manifest.files ?? {},
         attachments: manifest.attachments ?? {},
         private: manifest.private ?? {},
+        privateTree: manifest.privateTree ?? {},
       })
       // 不做 If-Match：manifest 是"尽力而为"的索引，真冲突靠每篇文件的 etag 兜
       return this.put(MANIFEST_REL, body)
@@ -870,7 +933,7 @@ export default {
        * 为什么要这个：自动同步每 5 秒一轮，用户能感觉到"卡"的时候第一句一定是
        * 「是不是同步拖的」—— 面板上直接给出哪个阶段慢，比猜快。
        */
-      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, privateTree: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -900,14 +963,21 @@ export default {
               files: manifestCache.files,
               attachments: manifestCache.attachments,
               private: manifestCache.private,
+              privateTree: manifestCache.privateTree,
             }
             summary.manifest304 = true
           } else {
-            remote = { files: got.files, attachments: got.attachments, private: got.private }
+            remote = {
+              files: got.files,
+              attachments: got.attachments,
+              private: got.private,
+              privateTree: got.privateTree,
+            }
             manifestCache = {
               files: got.files,
               attachments: got.attachments,
               private: got.private,
+              privateTree: got.privateTree,
               etag: got.etag,
             }
           }
@@ -1083,18 +1153,24 @@ export default {
         const priv = await syncPrivate(client, remote, summary)
         timing.private = lap()
 
+        // 私密文件夹目录树（rev173.182 · 期 3）—— 数量可变，逐文件比对
+        const privTree = await syncPrivateTree(client, remote, summary)
+        timing.privateTree = lap()
+
         // manifest 回写（本轮有 .md / 附件 / 私有文件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
-        if (summary.pushed > 0 || att.changed || priv.changed) {
+        if (summary.pushed > 0 || att.changed || priv.changed || privTree.changed) {
           const w = await client.writeManifest({
             files: nextFiles,
             attachments: att.attachments,
             private: priv.private,
+            privateTree: privTree.privateTree,
           })
           // 写盘后远端 etag 变了 ⇒ 缓存跟着换，下一轮照样能走 304
           manifestCache = {
             files: nextFiles,
             attachments: att.attachments,
             private: priv.private,
+            privateTree: privTree.privateTree,
             etag: w?.etag ?? null,
           }
         }
@@ -1288,6 +1364,137 @@ export default {
         // ⑤ 只剩「本地没有 + 远端也没有」—— 正常态（用户还没建密码库），什么都不做
       }
       return { private: nextPriv, changed }
+    }
+
+    /**
+     * **私密文件夹目录树同步**（rev173.182 · 私密文件夹期 3）。
+     *
+     * 与 `syncPrivate` 的区别：那个是**固定清单**（密码库那几个文件），这里是**数量可变**的
+     * 目录树（每篇私密笔记一个 `.zn` 密文）。方向判定抽成纯函数 `decideTreeAction`
+     * （单测覆盖全部分支），这里只负责按判定执行。
+     *
+     * 与笔记同步唯一不同的语义：**删除两边都传播**。私密笔记在面板里删除是真删除，
+     * 不传播的话同步一轮就会"复活"。
+     */
+    async function syncPrivateTree(client, manifest, summary) {
+      const remoteTree = manifest.privateTree || {}
+      const nextTree = { ...remoteTree }
+      let changed = false
+
+      /**
+       * 本地有哪些（`listFiles` 返回**库内相对路径**，rev173.177 的教训）。
+       * `typeof` 兜底：单测里的 memory fs 是逐个方法手写的，没提供 `listFiles` 时按"没有树"
+       * 处理（等价于旧行为），而不是整轮同步崩掉。
+       */
+      const localPaths = new Set()
+      if (typeof api.fs.listFiles === 'function') {
+        for (const dir of PRIVATE_DIRS) {
+          const files = await api.fs.listFiles(dir).catch(() => [])
+          for (const rel of files) localPaths.add(rel)
+        }
+      }
+      // 根下的固定文件（`.zn/private/index.zn`）不在那两个目录里，单独补
+      for (const rel of PRIVATE_ROOT_FILES) {
+        // 空串按"没有"处理（与 `syncPrivate` 同一口径）
+        const raw = await api.fs.readText(rel).catch(() => null)
+        if (raw && raw.trim()) localPaths.add(rel)
+      }
+
+      // 要处理的路径 = 本地 ∪ 远端（任一存在）
+      const all = new Set([...localPaths, ...Object.keys(remoteTree)])
+
+      for (const rel of all) {
+        let localText = null
+        if (localPaths.has(rel)) {
+          try {
+            const raw = await api.fs.readText(rel)
+            if (raw != null) localText = raw
+          } catch {
+            localText = null
+          }
+        }
+        const localFp = localText == null ? null : fingerprint(localText)
+        const entry = remoteTree[rel] ?? null
+        const remoteFp = typeof entry?.fp === 'string' ? entry.fp : null
+        const base = baseline[rel]?.fp ?? null
+        const action = decideTreeAction(localFp, remoteFp, base)
+        const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+
+        if (action === 'noop') {
+          if (localFp && remoteFp) baseline[rel] = { fp: localFp, at: entry?.at ?? 0 }
+          continue
+        }
+
+        if (action === 'pull') {
+          try {
+            const text = await client.get(rel)
+            if (text == null) continue
+            await api.fs.mkdir(parent).catch(() => {})
+            await api.fs.writeText(rel, text)
+            baseline[rel] = { fp: fingerprint(text), at: entry?.at ?? 0 }
+            summary.pulled += 1
+          } catch (e) {
+            summary.hint = `私密笔记下载失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'push') {
+          try {
+            await client.mkdir(parent).catch(() => {})
+            const res = await client.put(rel, localText)
+            if (![200, 201, 204, 207].includes(res?.status ?? 201)) {
+              summary.hint = `私密笔记上传失败 ${rel}（${res?.status}）`
+              continue
+            }
+            nextTree[rel] = { fp: localFp, at: Date.now() }
+            baseline[rel] = { fp: localFp, at: nextTree[rel].at }
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `私密笔记上传失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-remote') {
+          try {
+            await client.remove(rel)
+            delete nextTree[rel]
+            delete baseline[rel]
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `删除远端私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-local') {
+          try {
+            await api.fs.purgePrivate(rel).catch(() => {})
+            delete baseline[rel]
+            summary.removed = (summary.removed ?? 0) + 1
+          } catch (e) {
+            summary.hint = `删除本地私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        // conflict：密文无法合并 ⇒ 留本机副本 + 取远端
+        try {
+          const text = await client.get(rel)
+          if (text == null) continue
+          await keepConflict(rel, '私密笔记双端修改')
+          await api.fs.writeText(rel, text)
+          baseline[rel] = { fp: fingerprint(text), at: entry?.at ?? 0 }
+          summary.conflicts += 1
+        } catch (e) {
+          summary.hint = `私密笔记冲突处理失败 ${rel}：${String(e)}`
+        }
+      }
+
+      return { privateTree: nextTree, changed }
     }
 
     async function syncAttachments(client, manifest, summary) {

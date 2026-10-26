@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "sync-git",
   "name": "同步 · Git",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

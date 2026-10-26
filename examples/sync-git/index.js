@@ -41,7 +41,41 @@ const MANIFEST_PATH = '_zn/manifest.json'
  * 密码库要**两个**文件一起搬：`secrets.zn`（数据密文）+ `vault.json`（KDF salt 与被主密码
  * 包裹的 DEK）。少了后者，另一台设备拿到密文也解不开。两者都不含明文。
  */
-export const PRIVATE_FILES = ['.zn/secrets/secrets.zn', '.zn/security/vault.json']
+/**
+ * 私有文件清单（rev173.164 · 期 1c；**rev173.182 按环拆 vault**）。
+ *
+ * `vault.<环>.json` 各是一个同步单元 —— 两台设备各改一个环的密码时不会互踩。
+ * 旧单文件 `vault.json` 留在清单里兼容还没迁移的库。
+ */
+export const PRIVATE_FILES = [
+  '.zn/secrets/secrets.zn',
+  '.zn/security/vault.notes.json',
+  '.zn/security/vault.secrets.json',
+  '.zn/security/vault.json',
+]
+/** 私密文件夹的根文件（不在 notes/ 或 trash/ 里） */
+export const PRIVATE_ROOT_FILES = ['.zn/private/index.zn']
+/** 私密文件夹的目录树（数量可变 ⇒ 逐个文件走 `decideTreeAction`） */
+export const PRIVATE_DIRS = ['.zn/private/notes', '.zn/private/trash']
+
+/**
+ * 私密树单个文件的同步方向（**纯函数**）。语义与 `sync-webdav` 的同名函数逐字一致
+ * （那份有完整测试），这里复制一份是因为插件之间不能共享代码。
+ */
+export function decideTreeAction(localFp, remoteFp, baseFp) {
+  const l = localFp || null
+  const r = remoteFp || null
+  const b = baseFp || null
+  if (l === r) return 'noop'
+  if (!l && r) return b ? 'delete-remote' : 'pull'
+  if (l && !r) return b ? 'delete-local' : 'push'
+  const localChanged = l !== b
+  const remoteChanged = r !== b
+  if (!b) return 'conflict'
+  if (remoteChanged && !localChanged) return 'pull'
+  if (localChanged && !remoteChanged) return 'push'
+  return 'conflict'
+}
 const CONFLICT_ROOT = '.zn/conflicts'
 const MAX_CONFLICTS = 100
 const MAX_TIMING = 50
@@ -226,16 +260,31 @@ export function conflictFileName(when, path) {
  * **`attachments` 段必须原样解析**（rev173.126）：以前这里恒返回 `{}`，
  * 于是附件同步读到"远端没有附件" —— 下载循环直接空转，表现是不报错但图永远不过去。
  */
+/**
+ * 私密文件夹树段（rev173.182 · 期 3）：`{ rel: { fp, at, sha } }`。
+ * **sha 必须带上** —— Git 后端的删除 / 覆盖都要 sha（GitHub Contents API）。
+ */
+function privateTreeOf(j) {
+  const out = {}
+  const src = j && typeof j === 'object' && j.privateTree && typeof j.privateTree === 'object' ? j.privateTree : {}
+  for (const [rel, v] of Object.entries(src)) {
+    if (!v || typeof v !== 'object') continue
+    if (typeof v.fp !== 'string' || !v.fp) continue
+    out[rel] = { fp: v.fp, at: Number(v.at) || 0, ...(typeof v.sha === 'string' && v.sha ? { sha: v.sha } : {}) }
+  }
+  return out
+}
+
 export function normalizeManifest(raw) {
   let j = raw
   if (typeof raw === 'string') {
     try {
       j = JSON.parse(raw)
     } catch {
-      return { version: 1, files: {}, attachments: {}, private: {} }
+      return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
     }
   }
-  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {}, private: {} }
+  if (!j || typeof j !== 'object') return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
   const files = {}
   const src = j.files && typeof j.files === 'object' ? j.files : {}
   for (const [path, v] of Object.entries(src)) {
@@ -270,7 +319,7 @@ export function normalizeManifest(raw) {
       ...(typeof v.sha === 'string' ? { sha: v.sha } : {}),
     }
   }
-  return { version: 1, files, attachments, private: privateFiles }
+  return { version: 1, files, attachments, private: privateFiles, privateTree: privateTreeOf(j) }
 }
 
 /** 耗时给人看（与另外三个同步插件同一套写法） */
@@ -699,6 +748,143 @@ export default {
       return { private: nextPriv, changed }
     }
 
+    /**
+     * **私密文件夹目录树同步**（rev173.182 · 私密文件夹期 3）。
+     *
+     * 与 `syncPrivate` 的区别：那个是固定清单，这里是**数量可变**的目录树。
+     * 方向判定用纯函数 `decideTreeAction`（与 sync-webdav 逐字一致）。
+     * 删除两边都传播 —— 私密笔记在面板里删除是真删除，不传播同步一轮就复活。
+     *
+     * Git 特有：删除 / 覆盖都要 **sha**（GitHub Contents API），所以远端条目里存 `sha`。
+     */
+    async function syncPrivateTree(client, manifest, summary) {
+      const remoteTree = manifest.privateTree || {}
+      const nextTree = { ...remoteTree }
+      let changed = false
+
+      const localPaths = new Set()
+      if (typeof api.fs.listFiles === 'function') {
+        for (const dir of PRIVATE_DIRS) {
+          const files = await api.fs.listFiles(dir).catch(() => [])
+          for (const rel of files) localPaths.add(rel)
+        }
+      }
+      for (const rel of PRIVATE_ROOT_FILES) {
+        // 空串按"没有"处理（与 `syncPrivate` 同一口径）
+        const raw = await api.fs.readText(rel).catch(() => null)
+        if (raw && raw.trim()) localPaths.add(rel)
+      }
+
+      const all = new Set([...localPaths, ...Object.keys(remoteTree)])
+      for (const rel of all) {
+        let localText = null
+        if (localPaths.has(rel)) {
+          try {
+            const raw = await api.fs.readText(rel)
+            if (raw != null) localText = raw
+          } catch {
+            localText = null
+          }
+        }
+        const localFp = localText == null ? null : fingerprint(localText)
+        const entry = remoteTree[rel] ?? null
+        const remoteFp = typeof entry?.fp === 'string' ? entry.fp : null
+        const base = baseline[rel]?.fp ?? null
+        const action = decideTreeAction(localFp, remoteFp, base)
+        const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+
+        if (action === 'noop') {
+          if (localFp && remoteFp) {
+            baseline[rel] = { fp: localFp, at: entry?.at ?? 0, ...(entry?.sha ? { sha: entry.sha } : {}) }
+          }
+          continue
+        }
+
+        if (action === 'pull') {
+          try {
+            const got = await client.read(rel)
+            if (!got || typeof got.text !== 'string') continue
+            await api.fs.mkdir(parent).catch(() => {})
+            await api.fs.writeText(rel, got.text)
+            baseline[rel] = {
+              fp: fingerprint(got.text),
+              at: entry?.at ?? 0,
+              ...(got.sha ? { sha: got.sha } : {}),
+            }
+            summary.pulled += 1
+          } catch (e) {
+            summary.hint = `私密笔记下载失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'push') {
+          try {
+            const res = await client.write(rel, localText, {
+              sha: entry?.sha ?? null,
+              message: 'ZeroNote 同步：私密笔记',
+            })
+            if (!res.ok) {
+              summary.hint = `私密笔记上传失败 ${rel}（${res.status}）`
+              continue
+            }
+            nextTree[rel] = { fp: localFp, at: Date.now(), ...(res.sha ? { sha: res.sha } : {}) }
+            baseline[rel] = { fp: localFp, at: nextTree[rel].at, ...(res.sha ? { sha: res.sha } : {}) }
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `私密笔记上传失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-remote') {
+          try {
+            let sha = entry?.sha ?? null
+            if (!sha) {
+              const cur = await client.read(rel)
+              sha = cur?.sha ?? null
+            }
+            if (sha) await client.remove(rel, sha, 'ZeroNote 同步：删除私密笔记')
+            delete nextTree[rel]
+            delete baseline[rel]
+            summary.pushed += 1
+            changed = true
+          } catch (e) {
+            summary.hint = `删除远端私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        if (action === 'delete-local') {
+          try {
+            await api.fs.purgePrivate(rel).catch(() => {})
+            delete baseline[rel]
+            summary.removed = (summary.removed ?? 0) + 1
+          } catch (e) {
+            summary.hint = `删除本地私密笔记失败 ${rel}：${String(e)}`
+          }
+          continue
+        }
+
+        try {
+          const got = await client.read(rel)
+          if (!got || typeof got.text !== 'string') continue
+          await keepConflict(rel, '私密笔记双端修改')
+          await api.fs.writeText(rel, got.text)
+          baseline[rel] = {
+            fp: fingerprint(got.text),
+            at: entry?.at ?? 0,
+            ...(got.sha ? { sha: got.sha } : {}),
+          }
+          summary.conflicts += 1
+        } catch (e) {
+          summary.hint = `私密笔记冲突处理失败 ${rel}：${String(e)}`
+        }
+      }
+
+      return { privateTree: nextTree, changed }
+    }
     async function syncAttachments(client, manifest, summary) {
       const mode = settings.attachments || 'off'
       const remoteAtt = manifest.attachments || {}
@@ -859,7 +1045,7 @@ export default {
       if (!silent) api.view.refresh()
       const t0 = Date.now()
       let tMark = t0
-      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, write: 0 }
+      const timing = { manifest: 0, notes: 0, attachments: 0, private: 0, privateTree: 0, write: 0 }
       const lap = () => {
         const now = Date.now()
         const d = now - tMark
@@ -871,11 +1057,16 @@ export default {
         const client = createGitClient({ ...settings, token: await token(), net: api.net })
 
         // ① manifest
-        let remote = { files: {}, attachments: {}, private: {} }
+        let remote = { files: {}, attachments: {}, private: {}, privateTree: {} }
         const got = await client.read(MANIFEST_PATH)
         if (got && typeof got.text === 'string') {
           const m = normalizeManifest(got.text)
-          remote = { files: m.files, attachments: m.attachments, private: m.private }
+          remote = {
+            files: m.files,
+            attachments: m.attachments,
+            private: m.private,
+            privateTree: m.privateTree,
+          }
           manifestSha = got.sha ?? null
         } else {
           manifestSha = null
@@ -1042,8 +1233,12 @@ export default {
         const priv = await syncPrivate(client, remote, summary)
         timing.private = lap()
 
+        // ④c 私密文件夹目录树（rev173.182 · 期 3）
+        const privTree = await syncPrivateTree(client, remote, summary)
+        timing.privateTree = lap()
+
         // ⑤ manifest 回写（有变动才写）
-        if (remoteChanged || summary.pushed > 0 || att.changed || priv.changed) {
+        if (remoteChanged || summary.pushed > 0 || att.changed || priv.changed || privTree.changed) {
           const w = await client.write(
             MANIFEST_PATH,
             JSON.stringify({
@@ -1051,6 +1246,7 @@ export default {
               files: nextFiles,
               attachments: att.attachments,
               private: priv.private,
+              privateTree: privTree.privateTree,
             }),
             { sha: manifestSha, message: 'ZeroNote 同步：更新 manifest' },
           )

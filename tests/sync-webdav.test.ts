@@ -16,6 +16,7 @@ import plugin, {
   conflictFileName,
   createDavClient,
   decideSync,
+  decideTreeAction,
   dirOf,
   encodeDavPath,
   extOf,
@@ -1340,8 +1341,17 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     return { files, net, requests }
   }
 
-  function makeDevice(net: unknown, local: Map<string, Uint8Array>, platform: string) {
-    const store = new Map<string, unknown>()
+  /**
+   * `baseline` 在插件里是**模块级变量**（真实环境一个 webview 一份），同一测试里的两个
+   * device 共用它 ⇒ 换 device 同步前必须重新 `apply`，而 `apply` 从 `store` 恢复 baseline。
+   * 所以 store 要能从外部传进来复用（否则重建 device 就丢了 baseline）。
+   */
+  function makeDevice(
+    net: unknown,
+    local: Map<string, Uint8Array>,
+    platform: string,
+    store = new Map<string, unknown>(),
+  ) {
     const commands = new Map<string, (p?: unknown) => unknown>()
     const notices: string[] = []
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
@@ -1356,6 +1366,9 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
       },
       fs: {
         listNotes: async () => [],
+        /** 私密树同步（rev173.182）靠它列目录 —— 返回**库内相对路径**（与真内核一致） */
+        listFiles: async (dir?: string) =>
+          [...local.keys()].filter((p) => (dir ? p.startsWith(`${dir}/`) : true)),
         readText: async (p: string) => dec(local.get(p)),
         writeText: async (p: string, text: string) => {
           local.set(p, enc(String(text)))
@@ -1395,6 +1408,7 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
       commands,
       notices,
       render,
+      store,
       dispose: () => {
         for (const s of api.subscriptions) s.dispose?.()
       },
@@ -1527,9 +1541,45 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     )
     expect(ok.private['.zn/secrets/secrets.zn']).toEqual({ fp: 'abc', at: 7 })
   })
+
+  /* ── 私密文件夹目录树（rev173.182 · 期 3） ── */
+
+  it('私密树方向判定：一致 / 只远端变 / 只本地变 / 双端变 / 两边删除都传播', () => {
+    // 两边一致（或两边都没有）⇒ 不动作
+    expect(decideTreeAction('f1', 'f1', 'f1')).toBe('noop')
+    expect(decideTreeAction(null, null, null)).toBe('noop')
+    // 远端有、本地没有
+    expect(decideTreeAction(null, 'f1', null)).toBe('pull') // 新设备首次拉
+    expect(decideTreeAction(null, 'f1', 'f0')).toBe('delete-remote') // 本地删过 ⇒ 删远端
+    // 本地有、远端没有
+    expect(decideTreeAction('f1', null, null)).toBe('push') // 首次推
+    expect(decideTreeAction('f1', null, 'f0')).toBe('delete-local') // 远端删过 ⇒ 删本地
+    // 两边都有、内容不同
+    expect(decideTreeAction('f2', 'f2', 'f1')).toBe('noop') // 两边改成了同样的内容
+    expect(decideTreeAction('f1', 'f2', 'f1')).toBe('pull') // 只远端变
+    expect(decideTreeAction('f2', 'f1', 'f1')).toBe('push') // 只本地变
+    expect(decideTreeAction('f2', 'f3', 'f1')).toBe('conflict') // 双端都变
+    expect(decideTreeAction('f2', 'f3', null)).toBe('conflict') // 没基线且两边不同
+  })
+
+  it('私密树：A 把两篇 + 索引推上去，远端 manifest 带 privateTree 段', async () => {
+    const { files: dav, net } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const IDX = '.zn/private/index.zn'
+    const N1 = '.zn/private/notes/n1.zn'
+    const N2 = '.zn/private/notes/n2.zn'
+    const A = makeDevice(net, localA, 'windows')
+    await configure(A)
+    localA.set(IDX, enc('zn1.IDX'))
+    localA.set(N1, enc('zn1.N1'))
+    localA.set(N2, enc('zn1.N2'))
+    await A.commands.get('sync-webdav.sync')!({})
+
+    expect(dec(dav.get(IDX)?.bytes)).toBe('zn1.IDX')
+    expect(dec(dav.get(N1)?.bytes)).toBe('zn1.N1')
+    expect(dec(dav.get(N2)?.bytes)).toBe('zn1.N2')
+    const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
+    expect(Object.keys(mf.privateTree).sort()).toEqual([IDX, N1, N2].sort())
+    A.dispose()
+  })
 })
-
-
-
-
-

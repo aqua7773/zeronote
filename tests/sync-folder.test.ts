@@ -740,8 +740,9 @@ describe('扫描耗时（rev173.117）', () => {
  *     含义是"两端都改过密码库"，必须人挑一份（密文没法自动合并）。
  */
 describe('密码库目录放行与冲突检测（rev173.164 · 期 1c）', () => {
-  it('SECRET_DIRS 正好是密码库的两个私有目录', () => {
-    expect(SECRET_DIRS).toEqual(['.zn/secrets', '.zn/security'])
+  it('SECRET_DIRS 正好是三个私有目录（密码库两处 + 私密笔记一棵树）', () => {
+    // rev173.182 加 `.zn/private`：私密笔记也要能跨设备同步（每篇一个密文）
+    expect(SECRET_DIRS).toEqual(['.zn/secrets', '.zn/security', '.zn/private'])
   })
 
   it('密码库出现同步冲突副本 ⇒ 明确报「密码库」并要人挑一份', async () => {
