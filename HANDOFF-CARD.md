@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.217 · 0.6.0 · 2026-10-27 |
+| rev / 版本 | rev173.218 · 0.6.0 · 2026-10-27 |
 | 测试基线 | vitest 1333 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
@@ -121,8 +121,13 @@ pwsh -File scripts\verify.ps1
 >    新 `stripHostNotes`（渲染与存盘前剥掉伪造段）。**复测**：模型真调 `task_create`（任务真建成）且不再伪造 ·
 >    任务侧真模型跑任务 4 步 `tag_add` 成功 **不误报** · mock 任务说「已移到 工作/」不调工具 ⇒ `claimWarning` 报警。
 >    vitest **1329 → 1333**。测完已复原（假 Key / store / 测试任务 / 对话历史）。
->    **下个会话第一件事**：① 手机从市场装一次 `ai@0.8.0`（签名包 Android 首次安装未验）② 217 的修复没打包，
->    下次发版 **0.9.0** ③ 安卓桌面组件（ROADMAP §3 大块）。
+>    **218 手机装市场包** ✅ —— 手机市场源切 `jsDelivr · GCore`（raw 仍 100% RST）→ 删本地同名开发版 →
+>    点安装 → **成功**：包内 `index.js` 145,553 B + `manifest.json` 3,007 B + **`signature.json`（keyId
+>    `aqua-2026`）**，页面变「v0.8.0 已签名」，AI 面板正常加载。**整条链路首次在 Android 闭环**
+>    （镜像 → 索引 → 下载 → sha256 → 验签 → 落盘）。
+>    ⚠️ **手机 `ai` 现在是市场 0.8.0（=216 内容，不含 217）**；下次 push 开发版要**先删 `signature.json`**。
+>    **下个会话第一件事**：① 发 `ai@0.9.0`（217 的修复 + 打包）② 手机续做开发版走查要先删签名文件
+>    ③ 安卓桌面组件（ROADMAP §3 大块）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。
@@ -156,7 +161,7 @@ pwsh -File scripts\verify.ps1
   adb 里有两个离线残留 ⇒ 所有命令带 `-s 33b676f6`。改前端不用重装（连桌面 dev 的 vite，reload 即生效）；**改 Rust 必须重装**。
   - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
-  - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。
+  - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.8.0**（rev173.218 从市场装的，带 `signature.json`，内容 = rev216、**不含 217 的 `stripHostNotes`**））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
   - ⚠️ **`adb reverse tcp:1420 tcp:1420` 会丢** —— 丢了表现为「启动 15 秒后无声退出」（看门狗杀进程）。重连 adb / 重启后先补这条再 `am start`。
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。
