@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.203
-更新时间: 2026-10-27 · 最新 rev173.203
+revision: 173.204
+更新时间: 2026-10-27 · 最新 rev173.204
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.203
 
 | rev | 内容 |
 |---|---|
+| rev173.204 | 2026-10-27 · **AI 插件收口：手机走查 + 发市场**（用户「补收口」· 零内核改动）：① **手机走查**（`33b676f6`）—— 把 `examples/ai/` 两文件 push 进 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/ai/`，reload 后 **19 条 `ai.*` 命令 + 2 个面板**加载；三步向导在手机上布局正常（`_shots/rev173203-phone-wizard.png`）；配「自定义 + `http://127.0.0.1:8999/v1`（`adb reverse tcp:8999` 到桌面 mock）+ 假 Key」⇒ **测试连接 200** → 完成配置 → **流式对话**回复正常 → **用量「1 次 · 输入 88 / 输出 12 tokens」**；任务面板空状态正常（`_shots/rev173203-phone-tasks.png`）。走完清干净（删 Key / 删手机 `store.json` / 撤 reverse，重载回「未配置」）② **发市场** —— `pack-plugin ai --key … --key-id aqua-2026` 签出 **ai@0.5.0**（123.2 KB · 整包 sha256 `b8b10eb4…` · 入口 `1a95c873…`）→ `gen-market --write` ⇒ 索引 **16 → 17 条**（`market/packs/ai-0.5.0.znp` + `market/entries/ai.json`）。**剩余唯一没做**：真 API Key 下的人工准确率抽样（本机无 Key） |
 | rev173.203 | 2026-10-27 · **AI 插件第七刀：向导 + token 统计 + 抽样（第一版收口）**（用户「继续」· 零内核改动）：① **三步向导** —— 选服务商（自定义时同样给端点输入）→ 填模型名与 Key → 测试连接，每步 badge 标「已完成 / 第 N 步」，走完点「完成配置」收起、换成完整设置区（落 `store.wizardDone`）；**新库不预置任务**（Q34）② **token 统计** —— 流式与非流式两条路都取 `usage`（`prompt_tokens` / `input_tokens` 两套字段名都认），累计进 `store.usage`，对话面板显示「N 次 · 输入 x / 输出 y」，任务面板单独显示任务累计（`taskCalls` 一列）③ **分类抽样** `ai.sample` —— 取 20 篇 `.md` 逐篇问模型「选哪个文件夹 + 1-3 个标签」，结果用表格列出**只读不写**（评估用，不替用户整理）④ 顺手修两处：`fs.listNotes()` 实际**包含附件**（jpg/epub/txt，Rust `collect` 从 rev173.3 起就是）⇒ `list_notes` 工具与抽样都自己过滤 `.md`（契约注释那句"只上报 .md"已过时）。vitest 1262 → **1277**（+15）。**实测**：向导三步全绿 → 完成配置后向导消失、设置区出现 · 发消息后「用量：1 次 · 输入 120 / 输出 30 tokens」· 抽样 20 篇出表（全是 .md）。⚠️ **分类准确率没做**：本机没有真 API Key（mock 只会回固定 JSON），留待用户配好 Key 后点「分类抽样」人工核对 |
 | rev173.202 | 2026-10-27 · **AI 插件第六刀：定时触发 + 执行模式**（用户「继续」· 零内核改动）：① **定时** `trigger = {type:'schedule', at:'HH:MM', days:[…]}`，`days` 空 = 每天、`[1..7]` = 每周几；**每分钟 tick + 启动 2 秒补做**，判据 `lastDueAt > lastRunAt` —— 关掉 app 三天再开**只补一次**（不是三次）；新建定时任务时 `lastRunAt = now`，否则中午建「每天 23:00」会立刻补跑昨天那次 ② **两种执行模式**（Q28）：`fixed` = 建任务时排好工具调用、**不调模型**（便宜稳定、断网无 Key 也能跑，参数可用 `{{path}}` 占位符 → 触发笔记路径）；`auto` = 每次让模型看内容自己决定（≤4 步）③ 面板每张卡显示「触发 · 上次 · **下次** · 执行模式」④ `task.create` 加 `at` / `days` / `mode` / `steps`。vitest 1237 → **1262**（+25）。**实测 4 项**：12:51 的定时任务 **12:51:03 自动跑**（schedule）· `lastRunAt=0` 的任务 reload 后 **2 秒补做一次** · **未配置 API Key 时 fixed 任务照样跑通**（打标签 + 移动，证明不调模型）· 5 步 fixed 任务被截到 4 步并记「超过 4 步上限」 |
 | rev173.201 | 2026-10-27 · **AI 插件第五刀：任务系统**（用户「继续」· 零内核改动）：任务 = 一句话定义的规则。① **数据** `store.tasks`，触发 `save` / `manual`（`schedule` 留 rev202），每任务留 **最近 10 次**记录 ② **触发链**：内核 `note:saved` → `skipForTasks`（Q24：私密 / 回收站 / 收件箱 / 导入目录）→ **同路径 3 秒去抖**（实测一次保存连发两次）→ `matchTasks`（启用 + 类型 + 目录过滤）→ 串行队列 ③ **串行队列** `createSerialQueue`（两任务同时动一篇会互相覆盖；一步失败不断链）④ **执行**：非流式调模型 + 最多 4 步，`runTool(..., {interactive:false})` —— 自动任务里 `note.write` / `note.trash` **直接拒绝**，`note.move` / `tag.add` / 建笔记建文件夹直接做 ⑤ **任务面板** `ai.tasks`（列表 / 开关 / 立即跑 / 删除 / 展开记录，失败步骤单列）⑥ 5 个工具 `task.create/update/delete/list/run`，`task.create` **按 instruction+触发去重**（实测模型在循环里连调 4 次）。vitest 1214 → **1237**（23 条）。**实测 5 场景全过**：建任务→面板 1 个 · 保存→移到 `工作/` + `tags: [AI分类]` · 停用→不再触发 · 收件箱笔记→不触发 · 任务里 `note.write`→被拒且正文没被改。⚠️ 两个坑见正文 |
@@ -99,6 +100,52 @@ revision: 173.203
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.204（2026-10-27 · AI 插件收口：手机走查 + 发市场）
+>
+> 用户「补收口」。零内核改动。第一版还剩三件，本刀做完两件，第三件卡在真 Key。
+>
+> ### 手机走查（`33b676f6`）
+>
+> 手机上原本没有 `ai` 插件 ⇒ `adb push` 两文件到 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/ai/`
+> （手机插件根是**文件拷贝**，不是桌面那种 junction），reload 后 **19 条 `ai.*` 命令 + 2 个面板**都在。
+>
+> | 检查项 | 结果 |
+> |---|---|
+> | 三步向导布局 | 正常（下拉 / 输入框 / 按钮都铺满宽度，无溢出）· 截图 `_shots/rev173203-phone-wizard.png` |
+> | 测试连接 | `adb reverse tcp:8999 tcp:8999` 把桌面 mock 映射进手机 ⇒ **HTTP 200** |
+> | 完成配置 | 向导收起、设置区出现 |
+> | 流式对话 | 正常出字 |
+> | token 统计 | 用量「**1 次 · 输入 88 / 输出 12 tokens**」 |
+> | 任务面板 | 空状态文案与按钮正常 · 截图 `_shots/rev173203-phone-tasks.png` |
+>
+> 走完清干净：删 Key（`ai.clear-key`）、删手机 `store.json`、撤 `reverse tcp:8999`，重载回「未配置」——
+> 下次谁打开手机都是向导第一步。
+>
+> ### 发市场
+>
+> ```powershell
+> node scripts/pack-plugin.mjs ai --key <私钥> --key-id aqua-2026
+> node scripts/gen-market.mjs --write
+> ```
+>
+> ⇒ `ai@0.5.0`（123.2 KB · 整包 sha256 `b8b10eb4…` · 入口 `1a95c873…` · keyId `aqua-2026`），
+> 索引 **16 → 17 条**，包与条目都已入库（`market/packs/ai-0.5.0.znp` / `market/entries/ai.json`）。
+>
+> ⚠️ **没有做真机安装实测**：桌面的 `ai` 是 **junction 指向 `examples/ai`**，装市场包会把它换成真实目录、
+> 之后改源码就不生效了；而手机刚清完。安装链本身在 rev173.189–191 已多轮实测（备份 / 安全插件），
+> 本刀新增的只是"又一个签名包"。真要验：装到一台干净设备上，看插件页是否显示「已签名」。
+>
+> ### 三件收口的最终状态
+>
+> | 项 | 状态 |
+> |---|---|
+> | 手机走查 | ✅ 本刀完成 |
+> | 发市场 | ✅ 本刀完成（索引 17 条） |
+> | 真 Key 准确率抽样 | ❌ **仍缺** —— 本机没有可用 API Key（DeepSeek 需要用户自己的 Key） |
+>
+> 抽样怎么补：在任意设备配好真 Key → AI 面板点「分类抽样（20 篇）」→ 看表格里「AI 建议文件夹」是否合理，
+> 把命中率写进下一版 HANDOFF。代码不需要再改。
+>
 > ## 📌 rev173.203（2026-10-27 · AI 插件第七刀：首向导 + token 统计 + 抽样 · 第一版收口）
 >
 > 用户「继续」。零内核改动。**七刀全部落地**，AI 插件第一版到此为止。
