@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.213 · 0.6.0 · 2026-10-27 |
+| rev / 版本 | rev173.214 · 0.6.0 · 2026-10-27 |
 | 测试基线 | vitest 1311 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
@@ -98,7 +98,11 @@ pwsh -File scripts\verify.ps1
 >    **历史压缩把工具步骤丢了** ⇒ 模型只看到自己上轮说「0 条」就不再查（强制它调也答「查过了」）⇒ `historyContent` 把 `✓/✗ name → 结果` 附进历史；
 >    system 加规则 5「涉及当前状态要重新调工具」。真模型对照：修复前「还是空的」不调工具 → 修复后调工具答「能用 1 条 accounting.stats」。vitest 1302 → **1311**。
 >    **213 交接** ✅ —— 本会话 6 个 rev（207–212）· HEAD `a93fd18` · 与 origin 同步 · verify 全绿 · vitest **1311** · dev pid 35548（19 小时+）。
->    **下个会话第一件事**：① 手机走查 208–212 的 UI（白名单分组 / 筛选 / plugin_exec，手机 reload 即生效）② 重打 `ai@0.7.0` 发市场（市场包还停在 208 的 0.6.0）。
+>    **214 发市场** ✅ —— `ai@0.7.0` 已签名发市（`market/packs/ai-0.7.0.znp` · **141.4 KB** · 整包 sha256 `fc42785f…` ·
+>    入口 `a163fb1a…` · keyId `aqua-2026` · 索引 **17 条**，ai 0.6.0 → **0.7.0**）；`verify-trust` **32/33** 验签过
+>    （`theme-sepia` 纯样式恒无签名）· 六步全绿 · vitest 1311 不变。包内是 209–212 的 system 提示 / 分组 / 筛选 / 历史步骤。
+>    ⚠️ `pack-plugin` 不带 `--key-id aqua-2026` 会写 `default`，`gen-market` 第 ⑤ 条校验直接红。
+>    **下个会话第一件事**：① 手机走查 208–212 的 UI（白名单分组 / 筛选 / `plugin_exec`）—— 先把最新 `examples/ai/` 两文件 push 进手机插件目录再 reload ② 手机从市场装一次 `ai@0.7.0`（真机安装本轮未验）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。
