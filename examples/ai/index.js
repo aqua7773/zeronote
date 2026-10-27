@@ -145,7 +145,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'note.create',
+      name: 'note_create',
       description: '新建一篇笔记。路径已存在会报错（不会覆盖，改写已有笔记请用 note.write）',
       parameters: {
         type: 'object',
@@ -160,7 +160,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'note.write',
+      name: 'note_write',
       description:
         '改写一篇**已有**笔记的全文。不会立刻写盘：生成 diff 预览，用户在面板点「采用」后才生效。' +
         '返回 status=pending 表示等确认，不是已完成。一次只改一篇。',
@@ -177,7 +177,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'note.move',
+      name: 'note_move',
       description:
         '移动 / 重命名一篇笔记。不会立刻执行，要用户在面板确认。to 可以是新路径，也可以是已存在的文件夹（自动拼上原文件名）。目标已存在会报错，不覆盖。',
       parameters: {
@@ -193,7 +193,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'note.trash',
+      name: 'note_trash',
       description: '把一篇笔记移入回收站（可恢复）。不会立刻执行，要用户在面板确认。',
       parameters: {
         type: 'object',
@@ -205,7 +205,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'tag.add',
+      name: 'tag_add',
       description: '给一篇笔记加标签（写进 frontmatter，不动正文）。已有标签自动跳过。直接生效。',
       parameters: {
         type: 'object',
@@ -220,7 +220,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'tag.remove',
+      name: 'tag_remove',
       description:
         '移除一篇笔记的标签（只删 frontmatter；正文里的 #标签 引用不会动，结果里会告知还剩几处）。直接生效。',
       parameters: {
@@ -236,7 +236,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'folder.create',
+      name: 'folder_create',
       description: '新建文件夹（多级一起建，已存在不报错）。直接生效。',
       parameters: {
         type: 'object',
@@ -251,7 +251,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'task.create',
+      name: 'task_create',
       description:
         '创建一个自动任务。先用自然语言把规则写进 instruction。' +
         'trigger=save（保存笔记后跑）/ schedule（定时跑，要给 at）/ manual（只手动跑）。' +
@@ -300,7 +300,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'task.update',
+      name: 'task_update',
       description: '修改任务：改名 / 改指令 / 开关 / 换触发方式',
       parameters: {
         type: 'object',
@@ -319,7 +319,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'task.delete',
+      name: 'task_delete',
       description: '删除一个任务（只是删规则，不会撤销它以前的执行结果）',
       parameters: {
         type: 'object',
@@ -331,7 +331,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'task.list',
+      name: 'task_list',
       description: '列出全部任务（含开关状态、触发方式、最近一次失败）',
       parameters: { type: 'object', properties: {}, required: [] },
     },
@@ -339,7 +339,7 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'task.run',
+      name: 'task_run',
       description: '立即跑一次某个任务（入队，不阻塞对话；结果在任务面板的运行记录里）',
       parameters: {
         type: 'object',
@@ -1178,6 +1178,15 @@ export default {
         if (!notes.length) throw new Error('库里还没有笔记')
         for (const n of notes) {
           const text = await fs.readText(n.path).catch(() => '')
+          /**
+           * 空笔记不送模型（实测 2026-10-27）：空正文时模型不一定回 JSON
+           * （有一篇直接回了别的话 ⇒ 解析失败、白花一次调用）。空笔记本来也没有"该分到哪"可言。
+           */
+          if (!text.trim()) {
+            sampleRows.push({ path: n.path, dir: '（空笔记，跳过）', tags: '' })
+            refresh()
+            continue
+          }
           const ask = [
             '你是笔记整理助手。',
             `现有文件夹：${dirs.length ? dirs.join('、') : '（没有子文件夹，可以建议新建）'}`,
@@ -1631,7 +1640,7 @@ export default {
 
       /* ── 写工具：可逆的直接做 ── */
 
-      if (name === 'note.create') {
+      if (name === 'note_create') {
         const p = notePathOf(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
         if (await fs.exists(p)) {
@@ -1644,17 +1653,17 @@ export default {
         return JSON.stringify({ ok: true, created: p, chars: content.length })
       }
 
-      if (name === 'folder.create') {
+      if (name === 'folder_create') {
         const p = normRel(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
         await fs.mkdir(p)
         return JSON.stringify({ ok: true, created: p })
       }
 
-      if (name === 'tag.add' || name === 'tag.remove') {
+      if (name === 'tag_add' || name === 'tag_remove') {
         const p = notePathOf(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
-        const mode = name === 'tag.add' ? 'add' : 'remove'
+        const mode = name === 'tag_add' ? 'add' : 'remove'
         const r = applyTags(await fs.readText(p), a.tags ?? a.tag, mode)
         if (!r.changed) {
           const out = { ok: true, changed: false, path: p, tags: r.tags, message: '标签没有变化（要加的已经在了 / 要删的本来就没有）' }
@@ -1672,7 +1681,7 @@ export default {
 
       /* ── 写工具：不可逆的只生成提案 ── */
 
-      if (name === 'note.write') {
+      if (name === 'note_write') {
         if (!interactive) {
           throw new Error('自动任务里不能改写已有正文（需要人在对话里看 diff 再点「采用」）—— 改用 tag.add / note.move，或让用户在对话里改')
         }
@@ -1710,7 +1719,7 @@ export default {
         })
       }
 
-      if (name === 'note.move') {
+      if (name === 'note_move') {
         const from = notePathOf(a.from)
         if (!from) throw new Error('from 不合法')
         /** `to` 若是一个已存在的文件夹，就拼上原文件名（模型常说「移到 技术/」） */
@@ -1750,7 +1759,7 @@ export default {
         })
       }
 
-      if (name === 'note.trash') {
+      if (name === 'note_trash') {
         if (!interactive) {
           throw new Error('自动任务里不能删除笔记（不可逆，需要人在对话里确认）')
         }
@@ -1774,7 +1783,7 @@ export default {
 
       /* ── 任务管理（rev201）── */
 
-      if (name === 'task.create') {
+      if (name === 'task_create') {
         const instruction = String(a.instruction ?? '').trim()
         if (!instruction) throw new Error('缺少 instruction（这个任务要 AI 做什么）')
         const trig = normalizeTrigger({ type: a.trigger, dir: a.dir, at: a.at, days: a.days })
@@ -1841,7 +1850,7 @@ export default {
         })
       }
 
-      if (name === 'task.update') {
+      if (name === 'task_update') {
         const task = findTask(String(a.id ?? ''))
         if (!task) throw new Error(`没有这个任务：${a.id}（用 task.list 看有哪些）`)
         if (typeof a.name === 'string' && a.name.trim()) task.name = a.name.trim()
@@ -1876,7 +1885,7 @@ export default {
         })
       }
 
-      if (name === 'task.delete') {
+      if (name === 'task_delete') {
         const id = String(a.id ?? '')
         const i = tasks.findIndex((t) => t && t.id === id)
         if (i < 0) throw new Error(`没有这个任务：${id}`)
@@ -1886,7 +1895,7 @@ export default {
         return JSON.stringify({ ok: true, deleted: gone.id, name: gone.name })
       }
 
-      if (name === 'task.list') {
+      if (name === 'task_list') {
         return JSON.stringify({
           count: tasks.length,
           tasks: tasks.map((t) => ({
@@ -1902,7 +1911,7 @@ export default {
         })
       }
 
-      if (name === 'task.run') {
+      if (name === 'task_run') {
         const task = findTask(String(a.id ?? ''))
         if (!task) throw new Error(`没有这个任务：${a.id}`)
         // 入队而不是当场 await：一次任务可能跑几十秒，对话不该卡在这里
