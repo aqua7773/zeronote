@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.200
-更新时间: 2026-10-27 · 最新 rev173.200
+revision: 173.201
+更新时间: 2026-10-27 · 最新 rev173.201
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.200
 
 | rev | 内容 |
 |---|---|
+| rev173.201 | 2026-10-27 · **AI 插件第五刀：任务系统**（用户「继续」· 零内核改动）：任务 = 一句话定义的规则。① **数据** `store.tasks`，触发 `save` / `manual`（`schedule` 留 rev202），每任务留 **最近 10 次**记录 ② **触发链**：内核 `note:saved` → `skipForTasks`（Q24：私密 / 回收站 / 收件箱 / 导入目录）→ **同路径 3 秒去抖**（实测一次保存连发两次）→ `matchTasks`（启用 + 类型 + 目录过滤）→ 串行队列 ③ **串行队列** `createSerialQueue`（两任务同时动一篇会互相覆盖；一步失败不断链）④ **执行**：非流式调模型 + 最多 4 步，`runTool(..., {interactive:false})` —— 自动任务里 `note.write` / `note.trash` **直接拒绝**，`note.move` / `tag.add` / 建笔记建文件夹直接做 ⑤ **任务面板** `ai.tasks`（列表 / 开关 / 立即跑 / 删除 / 展开记录，失败步骤单列）⑥ 5 个工具 `task.create/update/delete/list/run`，`task.create` **按 instruction+触发去重**（实测模型在循环里连调 4 次）。vitest 1214 → **1237**（23 条）。**实测 5 场景全过**：建任务→面板 1 个 · 保存→移到 `工作/` + `tags: [AI分类]` · 停用→不再触发 · 收件箱笔记→不触发 · 任务里 `note.write`→被拒且正文没被改。⚠️ 两个坑见正文 |
 | rev173.200 | 2026-10-27 · **AI 插件第四刀：写工具 + diff 预览确认**（用户「继续 ZeroNote」· **零内核改动**）：需求 Q4/Q11 落地 —— **可逆的直接做，不可逆的先给预览**。7 个写工具：`note.create` / `folder.create` / `tag.add` / `tag.remove` **直接生效**（建笔记已存在 ⇒ 报错并指向 `note.write`，不覆盖）；`note.write` / `note.move` / `note.trash` **只生成提案**。行级 diff 用 **LCS**（先剥公共前后缀，中间段 >400×400 退化「全删+全加」，整篇 >2000 行标 `tooLong` 不硬算）+ 面板「待确认」区（diff 块 + 采用/放弃/确认移动/确认删除）。**三条安全线**：① 冲突检测（提案时记旧全文，采用前重读，不一致 ⇒ 拒绝）② 提案只在内存（reload 丢，绝不落 store 后执行）③ 同路径只许一份待确认改写。vitest 1184 → **1214**（30 条新单测：路径边界 / diff 七种形态 / 标签三种 frontmatter 写法 + 幂等 + `stillInBody`）。**CDP 实测 7 场景全过**（采用 / 放弃 / 冲突拒绝 / 移动 `to:'工作/'` 自动拼名 / 回收站 / 标签幂等）。⚠️ 新坑：**WebView2 的 PNA 拦页面 `fetch` 到 `127.0.0.1`**（CSP 有 `http:` 也不管用），本地 mock 要回 `access-control-allow-private-network: true` |
 | rev173.199 | 2026-10-27 · **交接**（用户「交接」）：本会话 **AI 插件从需求到第三刀**共 4 个提交 —— ① **39 问需求定稿 + 7 刀实施计划**（`docs/AI插件-需求-2026-10-27.md` / `docs/AI插件-实施计划-2026-10-27.md`，9ce6c9b）② **rev196 骨架 + 设置页**（`examples/ai/` · 面板 · Key 进系统凭据库 · 测试连接三态，2cc4700）③ **rev197 模型调用 + 流式对话**（SSE 逐字 / 停止 / 新对话 / 历史存 store / 9 条单测，a60386a）④ **rev198 只读工具 + 工具循环 + 步骤流**（5 个工具 / 最多 4 步 / 14 条单测，9dea102）。**交接时**：HEAD `9dea102` · **ahead 4 未推送** · 工作区干净 · verify 六步全绿（vitest **1184** · cargo 55 · oxlint 3 · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24 起，**已连续跑 11 小时仍可用**）· 8999 测试端口已释放。**下个会话第一件事**：rev199 写工具 + diff 预览确认。**三条新坑**见正文 |
 | rev173.198 | 2026-10-27 · **AI 插件第三刀：只读工具 + 工具调用循环 + 步骤流**：5 个只读工具（`list_dirs` / `list_notes` / `read_note` / `search_notes` / `list_tags`，走 `fs.listDirs/listNotes/readText` + `index.query/tags`）+ **工具循环**（最多 4 步，`assistant.tool_calls` → 执行 → `role:'tool'` 回灌 → 再调）+ **步骤流**（✓/✗ + 工具名 + 耗时 + 结果摘要）+ SSE 的 `tool_calls` **分片累积**（`accumulateToolCalls` 按 index 拼参数，`finalizeToolCalls` 收尾）。单测 9 → **14**（工具分片 5 条）。**实测**（mock 第一轮只回 tool_calls、第二轮引用结果）：说「列一下文件夹」→ 真读测试库 18 个目录 → 回灌后模型复述 → 步骤行 `✓ list_dirs · 6 ms · {"count":18,…}`。⚠️ 坑：`job_kill` 杀不掉后台 node（旧 mock 进程还占着 8999，新 mock `EADDRINUSE`）→ 得按端口找 pid `Stop-Process` |
@@ -96,6 +97,71 @@ revision: 173.200
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.201（2026-10-27 · AI 插件第五刀：任务系统）
+>
+> 用户「继续」。零内核改动。需求 §3.2 的任务模型、Q24 的排除清单、Q29 的独立任务面板落地。
+>
+> ### 任务是什么
+>
+> 一句话规则：`{ id, name, instruction, trigger, enabled, runs[] }`，落 `store.tasks`。
+> `trigger.type` = `save`（任何公开笔记保存后）· `manual`（只在点「立即跑」）· `schedule`（rev202 才做）。
+> `trigger.dir` 可选：只在保存到这个目录（含子目录）时触发。每个任务留最近 **10 次**运行记录。
+>
+> ### 一条链路（触发 → 执行）
+>
+> ```
+> note:saved（内核）
+>   → skipForTasks(path)              Q24：私密 / 回收站 / 收件箱 / 导入目录 全跳过
+>   → 同路径 3 秒去抖                 实测：一次保存连发两次 note:saved（相隔 200 ms）
+>   → matchTasks(tasks, {save, path}) 启用 + 触发类型 + 目录过滤
+>   → createSerialQueue()             两个任务同时动同一篇会互相覆盖
+>   → runTask：非流式调模型 + ≤4 步工具
+>   → runTool(..., { interactive: false })
+> ```
+>
+> ### 自动任务里的写操作边界（这一刀最重要的决定）
+>
+> 自动任务跑在后台，**没有人会点「采用」**。所以把「不可逆」那条线划在工具层：
+>
+> | 工具 | 任务里 |
+> |---|---|
+> | `note.create` / `folder.create` / `tag.add` / `tag.remove` | 直接执行 |
+> | `note.move` | **直接执行**（可逆：移回去就是） |
+> | `note.write` | **拒绝**：`自动任务里不能改写已有正文（需要人在对话里看 diff 再点「采用」）` |
+> | `note.trash` | **拒绝**：不可逆，要人在对话里确认 |
+>
+> ### 实测（CDP + 本地 SSE mock · 5 场景全过）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 对话：「每次保存后帮我分类并打标签」 | `task.create` ×1 → 任务面板「1 个 · 1 启用」 |
+> | 新建笔记 → `core.save` | 文件从库根移到 `工作/任务测试.md`、frontmatter 写入 `tags: [AI分类]`、记录 `2 步 · 90 ms` |
+> | 停用后再保存一篇 | 文件不动、无新记录（面板「1 个 · 0 启用」） |
+> | 收件箱里的笔记保存 | **不触发**（Q24），文件原地不动 |
+> | 任务里调 `note.write` | 该步被拒、正文没被改；运行记录标红并把失败步骤单列 |
+>
+> ### 实测抓到的三个真问题（前两个已修）
+>
+> 1. **一次保存触发两次**：两条记录相隔 200 ms —— 第一条把文件移走，第二条 `tag.add` / `note.move` 全报「文件不存在」。
+>    修法：同路径 **3 秒去抖**（`lastTriggerAt`）。
+> 2. **「三步全失败」也记成 ✓**：第一版 `run.ok` 只看有没有抛异常，没看工具步骤 ⇒ 面板一片绿、文件没动。
+>    修法：`run.ok = steps.every(s => s.ok)`，`error` 写清哪一步、什么原因；面板展开时每个失败步骤单列一行。
+> 3. **`task.create` 被连调 4 次**：模型在工具循环里每轮都以为还没建 ⇒ 建出 4 个一模一样的任务（之后每次保存跑 4 遍）。
+>    修法：同 `instruction` + 同触发方式 ⇒ 不重复建，返回 `existed: <id>`。
+>
+> ### 交接时状态
+>
+> - HEAD 见 `git log`（本刀 1 个提交）· 与 origin 同步
+> - verify 六步全绿 · vitest **1237**（+23）· cargo 55 · oxlint 3 warnings · 质量门 7/7
+> - 桌面 dev 仍开着（pid **35548**，已连续 11 小时+）· 8999 已释放、临时 mock 已删
+> - 测试库 `_tmp-vault-tb` 已清理（任务测试用的四篇笔记已删、`收件箱/` 已删）
+> - AI 插件配置回「未配置」（Key 已从凭据库删除）· 任务与对话历史已清空
+>
+> ### 下个会话第一件事
+>
+> **rev202：定时触发 + 执行模式**（每天 HH:MM / 每周几；桌面每分钟检查 + 启动补做；Android 打开时补做；
+> 创建任务时 AI 自选「固定步骤 / 现场判断」；失败重试）。之后 rev203 向导与打磨。
+>
 > ## 📌 rev173.200（2026-10-27 · AI 插件第四刀：写工具 + diff 预览确认）
 >
 > 用户「继续 ZeroNote」。仍然**零内核改动** —— 全部走现有原语（`fs.writeText/createNote/mkdir/move/delete`、`doc.active/save/open/close`）。

@@ -29,6 +29,8 @@
  */
 
 const PANEL_ID = 'ai.chat'
+/** 任务面板（rev201）：任务列表 / 开关 / 立即跑 / 最近 10 次记录 */
+const TASKS_PANEL_ID = 'ai.tasks'
 
 /** 服务商预设。baseUrl 按 OpenAI 兼容格式拼（`/chat/completions`、`/models`） */
 const PROVIDERS = [
@@ -240,6 +242,82 @@ export const TOOLS = [
         type: 'object',
         properties: { path: { type: 'string', description: '库内相对路径，例如 工作/周报' } },
         required: ['path'],
+      },
+    },
+  },
+
+  /* ── 任务管理（rev201 · 需求 §3.2）──
+   * 任务 = 用户用一句话定义的自动化规则；`trigger=save` 的会在**任何笔记被保存后**跑。 */
+  {
+    type: 'function',
+    function: {
+      name: 'task.create',
+      description:
+        '创建一个自动任务（保存笔记后自动执行的规则）。先用 Natural language 把规则写进 instruction，例如「把这篇按内容移到合适的文件夹并打 1-3 个标签」。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '任务名，例如「保存后自动分类」' },
+          instruction: { type: 'string', description: '任务指令（自然语言，AI 每次按它执行）' },
+          trigger: {
+            type: 'string',
+            enum: ['save', 'manual'],
+            description: 'save = 每次保存公开笔记后自动跑；manual = 只在点「立即跑」时跑',
+          },
+          dir: { type: 'string', description: '只在保存到这个文件夹（含子目录）时触发；留空 = 全库' },
+        },
+        required: ['instruction'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'task.update',
+      description: '修改任务：改名 / 改指令 / 开关 / 换触发方式',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '任务 id' },
+          name: { type: 'string' },
+          instruction: { type: 'string' },
+          trigger: { type: 'string', enum: ['save', 'manual'] },
+          dir: { type: 'string' },
+          enabled: { type: 'boolean', description: 'false = 停用（保存后不再触发）' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'task.delete',
+      description: '删除一个任务（只是删规则，不会撤销它以前的执行结果）',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'task.list',
+      description: '列出全部任务（含开关状态、触发方式、最近一次失败）',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'task.run',
+      description: '立即跑一次某个任务（入队，不阻塞对话；结果在任务面板的运行记录里）',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
       },
     },
   },
@@ -606,11 +684,114 @@ export function applyTags(text, tags, mode = 'add') {
   return res
 }
 
+/* ───────────────── 任务（rev173.201 · 单测覆盖） ───────────────── */
+
+/** 每个任务最多留几条运行记录（需求 §3.2） */
+export const MAX_RUNS = 10
+/** 一次任务执行最多几步工具调用（与对话同一条上限） */
+export const MAX_TASK_STEPS = 4
+
+/**
+ * 任务触发时**不该碰**的路径（需求 Q24：私密 / 回收站 / 导入 / 收件箱）。
+ *
+ * 内核那一层已经挡掉了一部分：`note:saved` 只对库内的 `.md` 发（`isNotePath` 跳过 `.zn/`）。
+ * 这里再挡一层，因为插件自己的事件订阅可能从别的来源收到路径（跨插件 emit 的字符串不保证）。
+ * 目前没有"导入目录 / 收件箱"的固定名字约定（导入插件是用户选文件、直接写到当前目录），
+ * 所以按**常见目录名**挡，规则集中在这一个函数里，将来有正式约定只改这里。
+ */
+const EXCLUDED_DIRS = ['收件箱', 'inbox', '导入', '导入中转']
+
+export function skipForTasks(rawPath) {
+  const p = String(rawPath ?? '').trim().replace(/\\/g, '/')
+  if (!p || !/\.md$/i.test(p)) return true
+  const parts = p.split('/').filter(Boolean)
+  if (!parts.length) return true
+  // `.zn/`、`.trash/`、隐藏目录：私密文件夹与回收站都在这一类
+  if (parts.some((s) => s.startsWith('.'))) return true
+  if (parts.length > 1 && EXCLUDED_DIRS.includes(parts[0].toLowerCase())) return true
+  return false
+}
+
+/** 触发条件规范化：`save` / `manual` / `schedule`；缺省 manual（只能手动跑） */
+export function normalizeTrigger(t) {
+  const type = String(t?.type ?? 'manual')
+  const okType = type === 'save' || type === 'schedule' ? type : 'manual'
+  const dir = normRel(t?.dir)
+  return okType === 'save' && dir ? { type: okType, dir } : { type: okType }
+}
+
+/**
+ * 一次事件该触发哪些任务（纯函数）。
+ *
+ * 三条判据都要过：启用中 · 触发器类型一致 · `save` 触发的目录过滤命中（空 = 全库）。
+ * **排除路径在调用方判**（`skipForTasks`），这里只看任务自身条件 ——
+ * 这样单测里能分开验证"任务匹配"与"路径该不该碰"两件事。
+ */
+export function matchTasks(tasks, evt) {
+  const e = evt && typeof evt === 'object' ? evt : {}
+  const type = String(e.type ?? 'manual')
+  const path = String(e.path ?? '')
+  return (Array.isArray(tasks) ? tasks : []).filter((t) => {
+    if (!t || !t.enabled) return false
+    const tr = t.trigger ?? { type: 'manual' }
+    if (String(tr.type ?? 'manual') !== type) return false
+    if (type === 'save' && tr.dir) {
+      const dir = String(tr.dir)
+      if (path !== dir && !path.startsWith(`${dir}/`)) return false
+    }
+    return true
+  })
+}
+
+/** 运行记录只留最近 N 条（新的在前） */
+export function trimRuns(runs, max = MAX_RUNS) {
+  return (Array.isArray(runs) ? runs : []).slice(0, Math.max(1, max))
+}
+
+/** 任务显示用的一句触发器描述 */
+export function triggerText(t) {
+  const tr = t?.trigger ?? { type: 'manual' }
+  if (tr.type === 'save') return tr.dir ? `保存到 ${tr.dir} 后` : '任何笔记保存后'
+  if (tr.type === 'schedule') return '定时'
+  return '仅手动'
+}
+
+/**
+ * 串行队列（任务执行用）。
+ *
+ * 为什么必须串行：两个任务同时跑，可能一个在移动笔记、另一个在读同一篇 ——
+ * 读到半路文件被搬走，模型给出基于旧路径的结论；更糟的是两边都改 frontmatter，后写的覆盖先写的。
+ *
+ * 返回的 `push` 永远**不抛**（失败由任务自己记进运行记录）—— 否则一次失败会把整条链断掉。
+ */
+export function createSerialQueue() {
+  let tail = Promise.resolve()
+  let depth = 0
+  return {
+    get depth() {
+      return depth
+    },
+    push(fn) {
+      depth++
+      const p = tail.then(() => fn())
+      tail = p
+        .catch(() => {})
+        .finally(() => {
+          depth--
+        })
+      return p.catch(() => {})
+    },
+    /** 等队列排空（测试与卸载时用） */
+    idle() {
+      return tail.catch(() => {})
+    },
+  }
+}
 
 /** @type {import('../../src/kernel/contract').Plugin} */
 export default {
   apply(ctx) {
-    const { command, view, host, store, net, fs, index, doc, subscriptions } = ctx
+    const { command, view, host, store, net, fs, index, doc, event, subscriptions } = ctx
 
     /** 配置（落 store） */
     let cfg = { provider: DEFAULT_PROVIDER, model: '', baseUrl: '' }
@@ -642,6 +823,17 @@ export default {
     /** 最近一次确认 / 放弃的结果，显示在面板上（一行） */
     let actionNote = ''
     let actionOk = true
+
+    /** 任务列表（落 store 的 `tasks`）· 运行记录挂在每个任务的 `runs` 里（最多 10 条） */
+    let tasks = []
+    /** 任务面板里展开了运行记录的 id 集合 */
+    const runsOpen = new Set()
+    /** 任务执行串行队列（两个任务同时动同一篇笔记会互相覆盖） */
+    const taskQueue = createSerialQueue()
+    /** 最近一次入队 / 完成的提示，显示在任务面板 */
+    let taskNote = ''
+    /** 插件卸载标志：队列里还没跑的任务看到它就退出（卸载后继续跑会写半截数据） */
+    let disposed = false
 
     const providerOf = (id) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0]
     const accountOf = (id) => `ai.api-key.${id}`
@@ -691,7 +883,176 @@ export default {
       }
       await readKeyState()
       await loadHistory()
+      await loadTasks()
       refresh()
+    }
+
+    /* ───────── 任务（rev173.201） ───────── */
+
+    async function loadTasks() {
+      try {
+        const saved = await store.get('tasks', [])
+        tasks = (Array.isArray(saved) ? saved : []).filter((t) => t && typeof t === 'object')
+      } catch (e) {
+        loadError = `读任务失败：${String(e)}`
+        tasks = []
+      }
+    }
+
+    async function saveTasks() {
+      try {
+        await store.set('tasks', tasks)
+      } catch (e) {
+        taskNote = `保存任务失败：${String(e?.message ?? e)}`
+      }
+    }
+
+    const findTask = (id) => tasks.find((t) => t && t.id === String(id))
+
+    /** 任务面板刷新（面板没开时是空操作） */
+    const refreshTasks = () => {
+      try {
+        view.refresh(TASKS_PANEL_ID)
+      } catch {
+        /* 面板没开 */
+      }
+    }
+
+    /** 时间戳 → `10-27 12:30`（面板里只显示到分钟） */
+    function timeText(at) {
+      const d = new Date(Number(at) || Date.now())
+      return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    }
+
+    /** 运行记录一行 */
+    function runLine(r) {
+      const t = timeText(r?.at)
+      const where = r?.path ? ` · ${r.path}` : ''
+      if (!r?.ok) {
+        const why = String(r?.error || '失败')
+        return `✗ ${t}${where} · ${why.length > 60 ? `${why.slice(0, 60)}…` : why}`
+      }
+      const steps = Array.isArray(r?.steps) ? r.steps.length : 0
+      return `✓ ${t}${where} · ${steps} 步 · ${Number(r?.ms) || 0} ms`
+    }
+
+    /** 任务执行的 system 提示：把"这是自动任务、不能改正文/删除"讲清楚 */
+    function taskSystemPrompt(task, info) {
+      return [
+        '你在 ZeroNote 笔记应用里执行用户事先定义好的自动任务。',
+        `任务名：${task.name}`,
+        `任务指令：${task.instruction}`,
+        info?.path ? `触发原因：笔记「${info.path}」刚刚被保存。` : '触发原因：用户手动点了「立即跑」。',
+        '',
+        '规则：',
+        '1. 只做指令要求的事，不要顺手整理其它笔记。',
+        '2. 可以：列目录 / 列笔记 / 读笔记 / 搜索 / 打标签 / 移动笔记 / 新建文件夹 / 新建笔记。',
+        '3. 不可以：改写已有正文、删除笔记 —— 这两个在自动任务里会被拒绝（要用户在对话里确认）。',
+        `4. 最多 ${MAX_TASK_STEPS} 步工具调用；够用就停。`,
+        '5. 最后用一句话说明你做了什么；不要输出无关解释。',
+      ].join('\n')
+    }
+
+    /**
+     * 跑一个任务（串行队列里执行）。
+     *
+     * 失败**不抛**：写成运行记录 + 任务上标红（需求「失败记日志 + 不阻塞笔记保存」）。
+     * 工具走 `runTool(..., { interactive: false })` —— 自动任务里没有"点采用"的人，
+     * 所以改写正文 / 删除会被工具层拒绝，移动与打标签直接执行。
+     */
+    async function runTask(task, info) {
+      if (disposed) return null
+      const t0 = Date.now()
+      const run = {
+        at: t0,
+        reason: String(info?.reason ?? 'manual'),
+        path: String(info?.path ?? ''),
+        ok: true,
+        steps: [],
+        error: '',
+        ms: 0,
+      }
+      taskNote = `正在跑「${task.name}」…`
+      refreshTasks()
+      try {
+        const key = await host.secrets.get(accountOf(cfg.provider))
+        if (!key) throw new Error('还没有保存 API Key —— 在 AI 面板里配好才能跑任务')
+        const base = effectiveBase()
+        const model = effectiveModel()
+        if (!base || !model) throw new Error('服务商或模型名没配好')
+        /** @type {{ role: string, content: string }[]} */
+        const api = [{ role: 'system', content: taskSystemPrompt(task, info) }]
+        if (info?.path) {
+          const text = await fs.readText(info.path).catch(() => '')
+          api.push({
+            role: 'user',
+            content: `触发笔记：${info.path}\n\n${text.slice(0, 6000)}`,
+          })
+        } else {
+          api.push({ role: 'user', content: '现在手动跑一次这个任务。先看看当前库的状态再动手。' })
+        }
+        for (let step = 0; step < MAX_TASK_STEPS; step++) {
+          const r = await nonStreamChat({ base, model, key, messages: api })
+          if (!r.toolCalls.length) break
+          api.push({
+            role: 'assistant',
+            content: r.content || null,
+            tool_calls: r.toolCalls.map((t) => ({
+              id: t.id,
+              type: 'function',
+              function: { name: t.name, arguments: t.arguments },
+            })),
+          })
+          for (const tc of r.toolCalls) {
+            const log = { name: tc.name, ok: true, text: '', ms: 0 }
+            const s0 = Date.now()
+            let out = ''
+            try {
+              out = await runTool(tc.name, parseArgs(tc.arguments), { interactive: false })
+              log.text = summarize(out)
+            } catch (e) {
+              log.ok = false
+              out = `错误：${String(e?.message ?? e)}`
+              log.text = String(e?.message ?? e)
+            }
+            log.ms = Date.now() - s0
+            run.steps.push(log)
+            api.push({ role: 'tool', tool_call_id: tc.id, content: out })
+          }
+          if (step === MAX_TASK_STEPS - 1) {
+            run.error = `超过 ${MAX_TASK_STEPS} 步，已停止`
+            run.ok = false
+          }
+        }
+      } catch (e) {
+        run.ok = false
+        run.error = String(e?.message ?? e)
+      }
+      run.ms = Date.now() - t0
+      /**
+       * 工具步骤失败 ⇒ 这次运行算失败（rev201 实测踩到）：
+       * 第一版只看有没有抛异常，于是「三步全失败」也记成 ✓ ——
+       * 面板一片绿、文件却没动，正是「静默失效比报错危险」。
+       */
+      const failed = run.steps.filter((s) => !s.ok)
+      if (failed.length) {
+        run.ok = false
+        const why = failed.map((s) => `${s.name}（${s.text}）`).join('；')
+        run.error = run.error ? `${run.error}；${why}` : `步骤失败：${why}`
+      }
+      task.runs = trimRuns([run, ...(Array.isArray(task.runs) ? task.runs : [])])
+      task.lastRunAt = run.at
+      task.lastError = run.ok ? '' : run.error
+      taskNote = run.ok ? `✓ 「${task.name}」跑完（${run.ms} ms）` : `✗ 「${task.name}」失败：${run.error}`
+      await saveTasks()
+      refreshTasks()
+      return run
+    }
+
+    /** 入队（串行）。用户点「立即跑」与 `note:saved` 都走这里。 */
+    function queueTask(task, info) {
+      if (!task) return
+      taskQueue.push(() => runTask(task, info))
     }
 
     async function saveConfig() {
@@ -806,8 +1167,12 @@ export default {
      *
      * 写工具分两档（需求 Q4）：**可逆的直接做**（新建 / 建文件夹 / 打标签），
      * **不可逆的只生成提案**（覆盖正文 / 移动 / 删除）。
+     *
+     * `opts.interactive === false` 是**自动任务**（rev201）的调用方式：没有人会点「采用」，
+     * 所以改写正文 / 删除直接拒绝，移动与打标签改成直接执行。
      */
-    async function runTool(name, args) {
+    async function runTool(name, args, opts = {}) {
+      const interactive = opts.interactive !== false
       const a = args && typeof args === 'object' ? args : {}
       if (name === 'list_dirs') {
         const dirs = await fs.listDirs()
@@ -895,6 +1260,9 @@ export default {
       /* ── 写工具：不可逆的只生成提案 ── */
 
       if (name === 'note.write') {
+        if (!interactive) {
+          throw new Error('自动任务里不能改写已有正文（需要人在对话里看 diff 再点「采用」）—— 改用 tag.add / note.move，或让用户在对话里改')
+        }
         const p = notePathOf(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
         const next = String(a.content ?? '')
@@ -943,6 +1311,15 @@ export default {
         if (from === to) return JSON.stringify({ ok: true, changed: false, message: '源路径和目标路径相同，没有移动' })
         if (!(await fs.exists(from))) throw new Error(`源不存在：${from}`)
         if (await fs.exists(to)) throw new Error(`目标已存在：${to}（不覆盖，换一个名字）`)
+        /** 自动任务：没有人点确认，移动**直接执行**（可逆：移回去就是） */
+        if (!interactive) {
+          const active = doc.active()
+          const isActive = active?.path === from
+          if (isActive) await doc.save()
+          await fs.move(from, to)
+          if (isActive) await doc.open(to)
+          return JSON.stringify({ ok: true, moved: true, from, to })
+        }
         const prop = queueProposal('move', `移动 ${from}`, `→ ${to}`, async () => {
           const active = doc.active()
           const isActive = active?.path === from
@@ -961,6 +1338,9 @@ export default {
       }
 
       if (name === 'note.trash') {
+        if (!interactive) {
+          throw new Error('自动任务里不能删除笔记（不可逆，需要人在对话里确认）')
+        }
         const p = notePathOf(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
         if (!(await fs.exists(p))) throw new Error(`不存在：${p}`)
@@ -976,6 +1356,110 @@ export default {
           proposalId: prop.id,
           path: p,
           message: '等用户在面板点「确认删除」后才进回收站',
+        })
+      }
+
+      /* ── 任务管理（rev201）── */
+
+      if (name === 'task.create') {
+        const instruction = String(a.instruction ?? '').trim()
+        if (!instruction) throw new Error('缺少 instruction（这个任务要 AI 做什么）')
+        const trig = normalizeTrigger({ type: a.trigger, dir: a.dir })
+        /**
+         * 去重：指令与触发方式都一样就是同一个任务。
+         *
+         * 真实踩到（rev201 实测）：模型在工具循环里可能**把同一个 task.create 调好几次**
+         * （每次它都以为还没建），一口气建出 4 个一模一样的任务，之后每次保存跑 4 遍。
+         */
+        const dup = tasks.find((t) => t.instruction === instruction && t.trigger?.type === trig.type && t.trigger?.dir === trig.dir)
+        if (dup) {
+          return JSON.stringify({
+            ok: true,
+            existed: dup.id,
+            name: dup.name,
+            message: `已经有一个一样的任务（${dup.name}），没有重复创建`,
+          })
+        }
+        const task = {
+          id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`,
+          name: String(a.name ?? '').trim() || '未命名任务',
+          instruction,
+          trigger: trig,
+          enabled: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          runs: [],
+          lastRunAt: 0,
+          lastError: '',
+        }
+        tasks.push(task)
+        await saveTasks()
+        refreshTasks()
+        return JSON.stringify({
+          ok: true,
+          id: task.id,
+          name: task.name,
+          trigger: triggerText(task),
+          message: trig.type === 'save' ? '任务已建好并启用 —— 下次保存笔记时自动跑' : '任务已建好（仅手动）',
+        })
+      }
+
+      if (name === 'task.update') {
+        const task = findTask(String(a.id ?? ''))
+        if (!task) throw new Error(`没有这个任务：${a.id}（用 task.list 看有哪些）`)
+        if (typeof a.name === 'string' && a.name.trim()) task.name = a.name.trim()
+        if (typeof a.instruction === 'string' && a.instruction.trim()) task.instruction = a.instruction.trim()
+        if (a.trigger !== undefined || a.dir !== undefined) {
+          task.trigger = normalizeTrigger({ type: a.trigger ?? task.trigger?.type, dir: a.dir ?? task.trigger?.dir })
+        }
+        if (typeof a.enabled === 'boolean') task.enabled = a.enabled
+        task.updatedAt = Date.now()
+        await saveTasks()
+        refreshTasks()
+        return JSON.stringify({
+          ok: true,
+          id: task.id,
+          name: task.name,
+          enabled: task.enabled,
+          trigger: triggerText(task),
+        })
+      }
+
+      if (name === 'task.delete') {
+        const id = String(a.id ?? '')
+        const i = tasks.findIndex((t) => t && t.id === id)
+        if (i < 0) throw new Error(`没有这个任务：${id}`)
+        const [gone] = tasks.splice(i, 1)
+        await saveTasks()
+        refreshTasks()
+        return JSON.stringify({ ok: true, deleted: gone.id, name: gone.name })
+      }
+
+      if (name === 'task.list') {
+        return JSON.stringify({
+          count: tasks.length,
+          tasks: tasks.map((t) => ({
+            id: t.id,
+            name: t.name,
+            enabled: Boolean(t.enabled),
+            trigger: triggerText(t),
+            instruction: t.instruction,
+            lastRunAt: t.lastRunAt || 0,
+            lastError: t.lastError || '',
+            runs: (Array.isArray(t.runs) ? t.runs : []).length,
+          })),
+        })
+      }
+
+      if (name === 'task.run') {
+        const task = findTask(String(a.id ?? ''))
+        if (!task) throw new Error(`没有这个任务：${a.id}`)
+        // 入队而不是当场 await：一次任务可能跑几十秒，对话不该卡在这里
+        queueTask(task, { reason: 'manual' })
+        return JSON.stringify({
+          ok: true,
+          queued: task.id,
+          message: `「${task.name}」已排入队列，跑完在任务面板看运行记录`,
         })
       }
 
@@ -1520,7 +2004,24 @@ export default {
 
         { type: 'divider' },
 
-        /* 下一步占位 */
+        /* 任务入口 + 下一步提示 */
+        {
+          type: 'row',
+          align: 'center',
+          wrap: true,
+          gap: 'sm',
+          children: [
+            { type: 'button', label: '任务面板', variant: 'ghost', onClick: 'ai.tasks' },
+            {
+              type: 'text',
+              value: tasks.length
+                ? `${tasks.length} 个任务（${tasks.filter((t) => t.enabled).length} 启用）· 保存笔记后自动跑`
+                : '还没有任务 —— 说一句「每次保存后帮我分类并打标签」就会建一个',
+              variant: 'caption',
+              tone: 'muted',
+            },
+          ],
+        },
         {
           type: 'text',
           value: ready
@@ -1534,6 +2035,133 @@ export default {
       return { type: 'stack', gap: 'md', children }
     }
 
+    /**
+     * 任务面板（rev201 · 需求 Q29「单独一个任务面板」）。
+     *
+     * 一块面板放全部：任务名 / 触发方式 / 开关 / 指令 / 立即跑 / 删除 / 最近 10 次记录。
+     * 记录默认收起（一个任务 10 行 × N 个任务会把面板撑爆），展开状态在内存里。
+     */
+    function renderTasks() {
+      const enabled = tasks.filter((t) => t && t.enabled).length
+      /** @type {import('../../src/kernel/contract').UINode[]} */
+      const children = [
+        {
+          type: 'row',
+          align: 'center',
+          wrap: true,
+          gap: 'sm',
+          children: [
+            { type: 'text', value: 'AI 任务', variant: 'title' },
+            { type: 'badge', text: `${tasks.length} 个 · ${enabled} 启用`, tone: enabled ? 'success' : 'muted' },
+            { type: 'text', value: taskQueue.depth ? `队列里还有 ${taskQueue.depth} 个` : '串行执行', variant: 'caption', tone: 'muted' },
+          ],
+        },
+        {
+          type: 'text',
+          value:
+            '任务 = 用一句话定义的规则。`save` 触发的会在**你保存任何公开笔记后**自动跑（最多 4 步工具）；私密 / 回收站 / 收件箱里的笔记不触发。',
+          variant: 'caption',
+          tone: 'muted',
+        },
+        ...(taskNote ? [{ type: 'text', value: taskNote, variant: 'caption', tone: 'muted' }] : []),
+        { type: 'divider' },
+      ]
+
+      if (!tasks.length) {
+        children.push({
+          type: 'text',
+          value: '还没有任务。在 AI 对话里说一句「每次保存后帮我分类并打标签」就会建一个。',
+          variant: 'caption',
+          tone: 'muted',
+        })
+      }
+
+      for (const t of tasks) {
+        const open = runsOpen.has(t.id)
+        const runs = Array.isArray(t.runs) ? t.runs : []
+        /** @type {import('../../src/kernel/contract').UINode[]} */
+        const kids = [
+          { type: 'text', value: t.instruction, variant: 'caption', tone: 'muted' },
+          ...(t.lastError
+            ? [{ type: 'text', value: `最近失败：${t.lastError}`, variant: 'caption', tone: 'danger' }]
+            : []),
+          {
+            type: 'row',
+            align: 'center',
+            wrap: true,
+            gap: 'sm',
+            children: [
+              {
+                type: 'button',
+                label: t.enabled ? '停用' : '启用',
+                variant: 'ghost',
+                onClick: 'ai.task-toggle',
+                payload: { id: t.id },
+              },
+              { type: 'button', label: '立即跑', onClick: 'ai.task-run', payload: { id: t.id } },
+              {
+                type: 'button',
+                label: open ? '收起记录' : `运行记录 (${runs.length})`,
+                variant: 'ghost',
+                onClick: 'ai.task-runs',
+                payload: { id: t.id },
+              },
+              { type: 'button', label: '删除', variant: 'danger', onClick: 'ai.task-delete', payload: { id: t.id } },
+            ],
+          },
+          ...(open
+            ? runs.length
+              ? [
+                  {
+                    type: 'list',
+                    items: runs.map((r) => ({
+                      key: String(r.at),
+                      node: {
+                        type: 'stack',
+                        gap: 'sm',
+                        children: [
+                          {
+                            type: 'text',
+                            value: runLine(r),
+                            variant: 'caption',
+                            tone: r.ok ? 'muted' : 'danger',
+                          },
+                          // 失败的那几步要看得见 —— 否则「任务失败」只是四个字，不知道哪一步、为什么
+                          ...(Array.isArray(r.steps) ? r.steps : [])
+                            .filter((s) => s && !s.ok)
+                            .map((s) => ({
+                              type: 'text',
+                              value: `　✗ ${s.name}：${s.text}`,
+                              variant: 'caption',
+                              tone: 'danger',
+                            })),
+                        ],
+                      },
+                    })),
+                  },
+                ]
+              : [{ type: 'text', value: '还没有跑过', variant: 'caption', tone: 'muted' }]
+            : []),
+        ]
+        children.push({
+          type: 'field',
+          label: `${t.name}${t.enabled ? '' : '（已停用）'}`,
+          hint: `${triggerText(t)} · ${t.lastRunAt ? `上次 ${timeText(t.lastRunAt)}` : '还没跑过'}`,
+          children: { type: 'stack', gap: 'sm', children: kids },
+        })
+      }
+
+      children.push({ type: 'divider' })
+      children.push({
+        type: 'text',
+        value:
+          '自动任务里不能改写正文、不能删除（不可逆操作要人在对话里确认）；移动笔记、打标签、建文件夹可以直接做。',
+        variant: 'caption',
+        tone: 'muted',
+      })
+      return { type: 'stack', gap: 'md', children }
+    }
+
     /* ───────── 注册 ───────── */
 
     subscriptions.push(
@@ -1542,6 +2170,15 @@ export default {
         title: 'AI',
         location: 'main',
         render: () => renderPanel(),
+      }),
+    )
+
+    subscriptions.push(
+      view.registerPanel({
+        id: TASKS_PANEL_ID,
+        title: 'AI 任务',
+        location: 'main',
+        render: () => renderTasks(),
       }),
     )
 
@@ -1748,9 +2385,126 @@ export default {
       }),
     )
 
+    /* ───────── 任务面板命令（rev201） ───────── */
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.tasks',
+        title: 'AI：打开任务面板',
+        run: async () => {
+          for (let i = 0; i < 5; i++) {
+            try {
+              await command.execute(`core.panel.${TASKS_PANEL_ID}`)
+              return
+            } catch (e) {
+              if (i === 4) throw e
+              await new Promise((r) => setTimeout(r, 120))
+            }
+          }
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.task-toggle',
+        title: 'AI：启用 / 停用任务',
+        run: async (payload) => {
+          const task = findTask(payload?.id)
+          if (!task) return
+          task.enabled = !task.enabled
+          task.updatedAt = Date.now()
+          taskNote = `${task.enabled ? '已启用' : '已停用'}「${task.name}」`
+          await saveTasks()
+          refreshTasks()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.task-run',
+        title: 'AI：立即跑一个任务',
+        run: async (payload) => {
+          const task = findTask(payload?.id)
+          if (!task) return
+          queueTask(task, { reason: 'manual' })
+          taskNote = `「${task.name}」已排队`
+          refreshTasks()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.task-runs',
+        title: 'AI：展开 / 收起任务运行记录',
+        run: async (payload) => {
+          const id = String(payload?.id || '')
+          if (!id) return
+          if (runsOpen.has(id)) runsOpen.delete(id)
+          else runsOpen.add(id)
+          refreshTasks()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.task-delete',
+        title: 'AI：删除任务',
+        run: async (payload) => {
+          const id = String(payload?.id || '')
+          const i = tasks.findIndex((t) => t && t.id === id)
+          if (i < 0) return
+          const [gone] = tasks.splice(i, 1)
+          runsOpen.delete(id)
+          taskNote = `已删除「${gone.name}」`
+          await saveTasks()
+          refreshTasks()
+        },
+      }),
+    )
+
+    /**
+     * 事件触发（需求 §3.2）：**用户保存笔记** ⇒ 匹配任务 ⇒ 入串行队列。
+     *
+     * 注意四件事：
+     * ① 插件自己写盘走 `note:changed`（不触发 saved）⇒ 任务里移动笔记**不会**递归触发自己；
+     * ② 私密 / 回收站 / 收件箱的路径先被 `skipForTasks` 挡掉（Q24）；
+     * ③ **同一路径 3 秒内只触发一次**：编辑器保存 + 自动保存会连着发两次 `note:saved`
+     *    （rev201 实测：相隔 200 ms 两次，第一次把文件移走，第二次就"源不存在"全失败）；
+     * ④ 回调必须 try/catch —— 事件总线上抛错会惊动其它订阅者（与内核同一条规矩）。
+     */
+    const lastTriggerAt = new Map()
+    const TRIGGER_DEBOUNCE_MS = 3000
+
+    subscriptions.push(
+      event.on('note:saved', (payload) => {
+        try {
+          const path = String(payload?.path ?? '')
+          if (!path || skipForTasks(path)) return
+          const now = Date.now()
+          const prev = lastTriggerAt.get(path) ?? 0
+          if (now - prev < TRIGGER_DEBOUNCE_MS) return
+          const hits = matchTasks(tasks, { type: 'save', path })
+          if (!hits.length) return
+          lastTriggerAt.set(path, now)
+          for (const t of hits) {
+            queueTask(t, { reason: 'save', path })
+            taskNote = `「${t.name}」因 ${path} 保存而触发`
+            refreshTasks()
+          }
+        } catch (e) {
+          host.log('warn', `AI 任务触发失败：${String(e)}`)
+        }
+      }),
+    )
+
     // 定时器与进行中的请求不归宿主管，卸载时自己收尾（否则重载会留下孤儿流）
     subscriptions.push({
       dispose: () => {
+        disposed = true
         if (refreshTimer) clearTimeout(refreshTimer)
         refreshTimer = 0
         abortCtrl?.abort()
