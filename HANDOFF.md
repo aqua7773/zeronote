@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.206
-更新时间: 2026-10-27 · 最新 rev173.206
+revision: 173.207
+更新时间: 2026-10-27 · 最新 rev173.207
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.206
 
 | rev | 内容 |
 |---|---|
+| rev173.207 | 2026-10-27 · **工具名格式单测 + 真模型写工具全链路**（用户「开始」· 零内核改动）：① 新增 `tests/ai-tools.test.ts` **4 条** —— 字符集 `^[a-zA-Z0-9_-]+$` / 唯一 / **执行器分支与 TOOLS 集合一致**（从 `runTool` 抽 `name ===` 分支）/ 发给模型的描述里无点号旧名；反向验证（改回 `note.write` ⇒ 3 条立刻红）② 修 rev205 的漏网 —— **5 处给模型看的文案**仍写点号旧名（`note_create` desc、`task_create.steps` 参数说明、3 处运行时错误文本），模型会照着传错 ③ **真模型实测**：对话 `note_move` 提案→确认→真移动 · `tag_add` 直接生效 · `note_trash` 提案→确认→进回收站；fixed 任务 save 触发 **169 ms**（tag_add 36 + note_move 133）④ ⚠️ 模型会说「任务建好了」而没调 `task_create`（`steps` 空 / `tasks` 空）⇒ 看面板数字与 store 才算数。vitest 1277 → **1281** |
 | rev173.206 | 2026-10-27 · **交接：AI 插件第一版**（用户「交接」）：本会话把 AI 插件从 0 做到第一版 —— **9 个 rev（196–205）· 零内核改动**：骨架与设置 → 流式对话 → 只读工具 ×5 → 写工具 ×7 + diff 预览确认 → 任务系统（保存触发 / 串行队列 / 去抖）→ 定时触发 + `fixed` 执行模式 → 三步向导 + token 统计 + 分类抽样 → 手机走查 + 发市场（索引 17 条）→ **工具名改下划线**（真模型 400 的根因）+ 真 Key 抽样。**交接时**：HEAD `5f6a07b` · 与 origin 同步 · verify 全绿 **13:25:36** · vitest **1277** · 质量门 7/7 · dev pid 35548（12 小时+）· 测试库配了真 DeepSeek Key（凭据管理器 `ai.api-key.deepseek`）· 手机 ai 插件已装。**下个会话第一件事**：给工具名加一条格式单测 + 真模型下过一遍写工具全链路 |
 | rev173.205 | 2026-10-27 · **AI 工具名改下划线 + 真 Key 抽样**（用户给了测试 Key · 零内核改动）：**第一次用真模型跑工具，抓到大 bug** —— DeepSeek 的 function name 只允许 `^[a-zA-Z0-9_-]+$`，我们 17 个工具里 12 个带点号（`note.create` / `tag.add` / `task.create` …）⇒ 抽样 20 篇**全部 400**（`Invalid 'tools[5].function.name'`）。rev197–203 全走本地 mock，mock 不校验名字格式，**写工具在真模型上从来没能用过**。修法：17 个名字改下划线、24 处引用一起换。**真 Key 抽样**（deepseek-chat · 46k 输入 / 295 输出 ≈ ¥0.03）：本来有目录的 8 篇 **8/8 正确**（7 原目录 + 1 上一级），根目录 12 篇给顶层兜底或按内容归类、无一荒谬，空笔记改为跳过。**改名后真模型全链路验证**：「列文件夹」→ `list_dirs` ✓；「改写根笔记」→ `read_note` → `note_write` 出提案 → 点「采用」→ 磁盘真变 ✓ |
 | rev173.204 | 2026-10-27 · **AI 插件收口：手机走查 + 发市场**（用户「补收口」· 零内核改动）：① **手机走查**（`33b676f6`）—— 把 `examples/ai/` 两文件 push 进 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/ai/`，reload 后 **19 条 `ai.*` 命令 + 2 个面板**加载；三步向导在手机上布局正常（`_shots/rev173203-phone-wizard.png`）；配「自定义 + `http://127.0.0.1:8999/v1`（`adb reverse tcp:8999` 到桌面 mock）+ 假 Key」⇒ **测试连接 200** → 完成配置 → **流式对话**回复正常 → **用量「1 次 · 输入 88 / 输出 12 tokens」**；任务面板空状态正常（`_shots/rev173203-phone-tasks.png`）。走完清干净（删 Key / 删手机 `store.json` / 撤 reverse，重载回「未配置」）② **发市场** —— `pack-plugin ai --key … --key-id aqua-2026` 签出 **ai@0.5.0**（123.2 KB · 整包 sha256 `b8b10eb4…` · 入口 `1a95c873…`）→ `gen-market --write` ⇒ 索引 **16 → 17 条**（`market/packs/ai-0.5.0.znp` + `market/entries/ai.json`）。**剩余唯一没做**：真 API Key 下的人工准确率抽样（本机无 Key） |
@@ -102,6 +103,55 @@ revision: 173.206
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.207（2026-10-27 · 工具名格式单测 + 真模型写工具全链路）
+>
+> 用户「开始」—— 这是上一卡点名的「下个会话第一件事」。**零内核改动**：只改 `examples/ai/index.js` 的 5 处文案 + 新增 `tests/ai-tools.test.ts`。
+>
+> ### ① 工具名约束钉成测试（4 条）
+>
+> `tests/ai-tools.test.ts`：
+>
+> 1. 每个 `TOOLS[].function.name` 匹配 `^[a-zA-Z0-9_-]+$`（rev173.205 的 400 根因）；
+> 2. 名字唯一；
+> 3. **执行器与工具表一致** —— 从 `runTool` 函数体里抽 `name === '…'` 分支，集合必须与 `TOOLS` 完全相同
+>    （防「模型调 A、执行器只认 B」这种静默失效；提取时排除 `s.name === 'string'` 这类属性比较）；
+> 4. 发给模型的 `JSON.stringify(TOOLS)` 里没有点号旧名（模型会照着描述传参）。
+>
+> **反向验证**：把 `note_write` 临时改回 `note.write` ⇒ 3 条立刻红（字符集断言报 `[ 'note.write' ]`、执行器集合多一项、描述扫描命中）；还原即绿。
+>
+> ### ② 顺带修 5 处「教错模型」的旧名
+>
+> rev173.205 只改了 `name` 字段与代码引用，**给模型看的文案里还留着点号旧名**：
+> `note_create` 的 description（「请用 note.write」）、`task_create.steps[].name` 的参数说明（「例如 tag.add / note.move」），
+> 以及 3 处运行时错误文本（「要改写它请用 note.write」「改用 tag.add / note.move」「用 task.list 看有哪些」）。
+> 模型读到这些真的会照着传 `note.write` ⇒ 执行器报未知工具。全部改成下划线；
+> 文件头注释里作为历史叙述的点号名（rev199 那段）保留，测试只扫 `TOOLS` 的序列化文本，不误伤注释。
+>
+> ### ③ 真模型写工具全链路（DeepSeek `deepseek-chat` · 测试库 `_tmp-vault-tb`）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 对话「移到 工作/ + 打标签」 | `note_move` 42 ms 出提案 → 点「确认移动」→ 磁盘真移动（根消失、`工作/` 出现）；`tag_add` 19 ms **直接生效**（frontmatter 出现 `tags: [AI测试]`） |
+> | 对话「删掉 X」 | 模型先反问确认（符合不可逆语义）→ `note_trash` 4 ms 出提案 → 点「确认删除」→ 文件消失、`.zn/trash/<戳>/` 新增且 `.origin` 正确 |
+> | 任务（`save` 触发 · fixed） | 真模型 `task_create` 20 ms 建任务（steps = `tag_add` → `note_move`）；保存 `灵感/随笔/任务触发.md` ⇒ **169 ms 跑完**：`tag_add` 36 ms + `note_move` 133 ms，文件出现在 `工作/` 且带标签；面板显示「✓ 跑完（169 ms）· 上次 10-27 18:32」 |
+>
+> 证据：`_shots/rev173.207-ai-write1~3.png` · `rev173.207-ai-trash1~3.png` · `rev173.207-ai-task-create.png` · `rev173.207-task-run.png`。
+>
+> ### ⚠️ 两个观察
+>
+> 1. **模型会说「建好了」而没调工具**：第一次说「任务已建好」时该轮 `steps: []`，`store.tasks` 仍是 `[]`、面板 0 个任务。
+>    第二次用户明确「现在建 / 就用 fixed」才真的调 `task_create`。⇒ 自动任务的验收要看**面板数字与 store**，
+>    不能只信模型的话（与「静默失效比报错危险」同向）。
+> 2. **删除类工具模型会先反问**（「要我把 X 移入回收站吗」）—— 期望行为；回一句「确认」才出提案。
+>
+> ### 交接时状态
+>
+> 工作区只改 `examples/ai/index.js` + 新增 `tests/ai-tools.test.ts` · `verify.ps1` 六步全绿 · vitest **1277 → 1281** ·
+> dev 仍是 pid **35548**（本会话 reload 过 3 次仍可用）· 测试库已还原（根 13 篇、`工作/` 回到 2 个子目录 + 发布计划、
+> 灵感/随笔/深夜.md 原样、回收站测试目录已删、AI 任务已删、对话历史与用量保留）·
+> `market/packs/ai-0.5.0.znp` **未重打**（源码文案变了，下次发市场时要 bump 版本）：插件在全局目录是 junction 指向 `examples/ai`，
+> 本机已用新代码。
+>
 > ## 📌 rev173.206（2026-10-27 · 交接：AI 插件第一版）
 >
 > 用户「交接」。本会话从「继续 ZeroNote」开始，**AI 插件从 0 做到第一版**：9 个 rev（196–205），**零内核改动**。

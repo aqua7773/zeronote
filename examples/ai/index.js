@@ -146,7 +146,7 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'note_create',
-      description: '新建一篇笔记。路径已存在会报错（不会覆盖，改写已有笔记请用 note.write）',
+      description: '新建一篇笔记。路径已存在会报错（不会覆盖，改写已有笔记请用 note_write）',
       parameters: {
         type: 'object',
         properties: {
@@ -286,7 +286,7 @@ export const TOOLS = [
             items: {
               type: 'object',
               properties: {
-                name: { type: 'string', description: '工具名，例如 tag.add / note.move / folder.create' },
+                name: { type: 'string', description: '工具名，例如 tag_add / note_move / folder_create' },
                 args: { type: 'object', description: '工具参数（可用 {{path}} 占位符）' },
               },
               required: ['name'],
@@ -1645,7 +1645,7 @@ export default {
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
         if (await fs.exists(p)) {
           throw new Error(
-            `${p} 已存在 —— 不覆盖。要改写它请用 note.write（会生成预览让你确认），要换名字请用 note.move`,
+            `${p} 已存在 —— 不覆盖。要改写它请用 note_write（会生成预览让你确认），要换名字请用 note_move`,
           )
         }
         const content = String(a.content ?? '')
@@ -1683,7 +1683,7 @@ export default {
 
       if (name === 'note_write') {
         if (!interactive) {
-          throw new Error('自动任务里不能改写已有正文（需要人在对话里看 diff 再点「采用」）—— 改用 tag.add / note.move，或让用户在对话里改')
+          throw new Error('自动任务里不能改写已有正文（需要人在对话里看 diff 再点「采用」）—— 改用 tag_add / note_move，或让用户在对话里改')
         }
         const p = notePathOf(a.path)
         if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
@@ -1852,7 +1852,7 @@ export default {
 
       if (name === 'task_update') {
         const task = findTask(String(a.id ?? ''))
-        if (!task) throw new Error(`没有这个任务：${a.id}（用 task.list 看有哪些）`)
+        if (!task) throw new Error(`没有这个任务：${a.id}（用 task_list 看有哪些）`)
         if (typeof a.name === 'string' && a.name.trim()) task.name = a.name.trim()
         if (typeof a.instruction === 'string' && a.instruction.trim()) task.instruction = a.instruction.trim()
         if (a.trigger !== undefined || a.dir !== undefined || a.at !== undefined || a.days !== undefined) {
