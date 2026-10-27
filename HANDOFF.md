@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.198
-更新时间: 2026-10-27 · 最新 rev173.198
+revision: 173.199
+更新时间: 2026-10-27 · 最新 rev173.199
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.198
 
 | rev | 内容 |
 |---|---|
+| rev173.199 | 2026-10-27 · **交接**（用户「交接」）：本会话 **AI 插件从需求到第三刀**共 4 个提交 —— ① **39 问需求定稿 + 7 刀实施计划**（`docs/AI插件-需求-2026-10-27.md` / `docs/AI插件-实施计划-2026-10-27.md`，9ce6c9b）② **rev196 骨架 + 设置页**（`examples/ai/` · 面板 · Key 进系统凭据库 · 测试连接三态，2cc4700）③ **rev197 模型调用 + 流式对话**（SSE 逐字 / 停止 / 新对话 / 历史存 store / 9 条单测，a60386a）④ **rev198 只读工具 + 工具循环 + 步骤流**（5 个工具 / 最多 4 步 / 14 条单测，9dea102）。**交接时**：HEAD `9dea102` · **ahead 4 未推送** · 工作区干净 · verify 六步全绿（vitest **1184** · cargo 55 · oxlint 3 · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24 起，**已连续跑 11 小时仍可用**）· 8999 测试端口已释放。**下个会话第一件事**：rev199 写工具 + diff 预览确认。**三条新坑**见正文 |
 | rev173.198 | 2026-10-27 · **AI 插件第三刀：只读工具 + 工具调用循环 + 步骤流**：5 个只读工具（`list_dirs` / `list_notes` / `read_note` / `search_notes` / `list_tags`，走 `fs.listDirs/listNotes/readText` + `index.query/tags`）+ **工具循环**（最多 4 步，`assistant.tool_calls` → 执行 → `role:'tool'` 回灌 → 再调）+ **步骤流**（✓/✗ + 工具名 + 耗时 + 结果摘要）+ SSE 的 `tool_calls` **分片累积**（`accumulateToolCalls` 按 index 拼参数，`finalizeToolCalls` 收尾）。单测 9 → **14**（工具分片 5 条）。**实测**（mock 第一轮只回 tool_calls、第二轮引用结果）：说「列一下文件夹」→ 真读测试库 18 个目录 → 回灌后模型复述 → 步骤行 `✓ list_dirs · 6 ms · {"count":18,…}`。⚠️ 坑：`job_kill` 杀不掉后台 node（旧 mock 进程还占着 8999，新 mock `EADDRINUSE`）→ 得按端口找 pid `Stop-Process` |
 | rev173.197 | 2026-10-27 · **AI 插件第二刀：模型调用 + 流式对话**（用户「继续」）：`examples/ai/` 加 —— ① **SSE 流式**（浏览器 `fetch` + `ReadableStream`，DeepSeek 允许 CORS）② 两个纯函数 `parseSseBuffer` / `windowMessages` + **9 条单测**（半包 / 多事件 / `[DONE]` / 坏行 / 窗口裁剪）③ 降级 `net.fetch` 非流式（流式失败且一个字没收到才降）④ **停止**（`AbortController`）+ **新对话** ⑤ 历史存 `store`（最多 40 条，发模型只带最近 **20** 条）。**实测**（本地 SSE mock `127.0.0.1:8999` + 页面内 `setTimeout` 定时停止）：逐字渲染、10 段文本完整拼接、停在中途显示「已停止」、`reload` 后历史还在；假 Key 对真 DeepSeek ⇒ **401 原文**（流式与非流式两条路都试过）。⚠️ **踩坑**：CDP `eval` 里的 `__znExec` 是异步的，`eval send → wait 800 → eval stop` 时流往往已跑完（截图前后各一次都拿到完成态）—— 停止测试必须**在页面内** `setTimeout(() => __znExec('ai.stop'), 400)` |
 | rev173.196 | 2026-10-27 · **AI 插件第一刀：骨架 + 设置页**（用户「开工」）：`examples/ai/` 新插件 —— 主区面板「AI」+ 服务商预设（DeepSeek / Kimi / 通义 / 自定义 OpenAI 兼容端点）+ 模型名 + **API Key 存系统凭据管理器**（`host.secrets` → 账号 `ai.api-key.<provider>`，不入库不同步；`cmdkey /list` 实测出现 `ai.api-key.deepseek.com.aqua.zeronote`）+ 测试连接（`net.fetch` GET `/models`）。**三态实测**：无 Key → 红字「还没有保存 API Key」· 假 Key → **HTTP 401 + DeepSeek 原文**（`Authentication Fails`）· 输入框回车即保存（`onSubmit`）。示例插件 41 → **42**（功能目录已重生成）。对照：`docs/AI插件-需求-2026-10-27.md`（39 问）· 实施计划 7 刀 |
@@ -94,6 +95,46 @@ revision: 173.198
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.199（2026-10-27 · 交接：AI 插件三刀 + 需求定稿）
+>
+> 用户「交接」。本会话没动内核，产出全在插件层与文档层。
+>
+> ### 四个提交（全部在本地，**未推送**）
+>
+> | 提交 | 内容 |
+> |---|---|
+> | `9ce6c9b` | docs：39 问需求定稿 + 7 刀实施计划 + README 权威矩阵两行 |
+> | `2cc4700` | feat(rev196)：`examples/ai/` 骨架 + 设置页（4 家服务商预设 / Key 进 keyring / 测试连接三态） |
+> | `a60386a` | feat(rev197)：模型调用 + 流式对话（SSE / 停止 / 新对话 / 历史 40 条存 store / 9 条单测） |
+> | `9dea102` | feat(rev198)：只读工具 ×5 + 工具循环（最多 4 步）+ 步骤流（14 条单测） |
+>
+> ### 交接时状态
+>
+> - HEAD `9dea102` · **ahead 4**（`git push` 待做：先直连，被 reset 再挂 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`）
+> - 工作区干净 · verify 六步全绿（02:54:23 · vitest **1184** · cargo 55 · oxlint 3 warnings · 质量门 7/7）
+> - 桌面 dev **仍开着**：zeronote pid **35548**（00:58:24 起，11 小时）· vite 1420 · CDP 9222 · 面板与 10 条 `ai.*` 命令都在
+> - 8999 测试 mock 已停、临时文件已删、测试 Key 与历史全部清过（`cmdkey /list` 无 `ai.api-key`）
+>
+> ### 三条新坑
+>
+> 1. **CDP `eval` 里的 `__znExec` 是异步的** —— `eval send → wait → eval stop` 测停止时流早跑完，
+>    两次截图拿到同一张完成态。要在页面内 `setTimeout(() => __znExec('ai.stop'), 400)`。
+> 2. **`textarea` 的 `onSubmit` 只在 `Ctrl/Cmd+Enter` 触发**（`UIRenderer.tsx:249-254`，裸 Enter 换行）。
+>    占位符已改；用合成 `KeyboardEvent{ctrlKey:true}` 复测过。
+> 3. **`job_kill` 杀不掉后台 node** —— 旧 mock 进程仍占 8999，新 mock `EADDRINUSE`。
+>    按端口找 pid：`Get-NetTCPConnection -LocalPort 8999 -State Listen` → `Stop-Process -Id`。
+>
+> ### 下个会话第一件事
+>
+> **rev199：写工具 + diff 预览确认**（`note.create` / `note.write` / `note.move` / `note.trash` /
+> `tag.add` / `tag.remove` / `folder.create`；覆盖正文与删除必须先给预览，Q4/Q11）。
+> 之后 rev200 任务系统、rev201 定时与执行模式、rev202 向导与打磨（见实施计划）。
+>
+> ### 一个待确认的产品问题
+>
+> 需求 §5 说「保存后立即 AI 分类」—— 现在实现的是**对话驱动**，没有后台自动任务。
+> rev200 的任务系统做完后，这条才真正落地；在那之前「自动分类」需要用户手动说一句。
+>
 > ## 📌 rev173.198（2026-10-27 · AI 插件第三刀：只读工具 + 工具循环 + 步骤流）
 >
 > 用户「继续」。仍然**零内核改动** —— 工具全部走现有原语（`fs.listDirs/listNotes/readText`、`index.query/tags`）。
