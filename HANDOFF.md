@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.219
-更新时间: 2026-10-27 · 最新 rev173.219
+revision: 173.220
+更新时间: 2026-10-27 · 最新 rev173.220
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.219
 
 | rev | 内容 |
 |---|---|
+| rev173.220 | 2026-10-27 · **手机把 `ai` 更新到 0.9.0 + 发现「CDN 索引缓存滞后」**（用户「发」后的收尾验证）：手机市场「刷新」仍显示 0.8.0 —— 实测 **`gcore.jsdelivr.net` 与 `testingcf.jsdelivr.net` 的 `index.json` 都还是旧版**（ai 0.8.0），raw 本机也超时（连 5 KB 的 index.json 都 20 s 超时，不是包的问题）；**只有 `jsdelivr.b-cdn.net` 是最新的**（ai 0.9.0）。⇒ 手机用「自定义地址」填 b-cdn 索引 → 列表出现「↑ 更新 0.9.0」→ 点更新 + 确认 ⇒ 手机 `ai` **0.9.0**（`index.js` 147,239 B · `signature.json` keyId `aqua-2026` · 页面「v0.9.0 已签名」）· AI 面板正常加载。测完镜像恢复 `jsDelivr · GCore` |
 | rev173.219 | 2026-10-27 · **`ai@0.9.0` 发市场**（用户「发」）：把 217 的修复打进包 —— `stripHostNotes`（渲染与存盘前剥掉伪造的「系统记录」）+ `<系统记录>` 边界 + system 规则 8。`pack-plugin ai --key … --key-id aqua-2026` ⇒ `market/packs/ai-0.9.0.znp`（**151.1 KB** · 整包 sha256 `034f4c92…` · 入口 `459b8e69…`）· `gen-market --write`（17 条，0.8.0 → **0.9.0**）· `verify-trust` **34/35**（`theme-sepia` 纯样式）· verify 全绿 · vitest 1333（无代码改动） |
 | rev173.218 | 2026-10-27 · **手机从市场装 `ai@0.8.0`（签名包 Android 首验）**（用户「验证」）：手机市场源 raw 100% RST ⇒ 切 `jsDelivr · GCore` 拉到 17 条 ⇒ 本地开发版与市场同版本显示「已安装」⇒ **先删本地目录**再点安装 ⇒ 成功：包内 `index.js` 145,553 B + `manifest.json` 3,007 B + **`signature.json` 148 B（keyId `aqua-2026`）**，页面变「v0.8.0**已签名**」，AI 面板正常加载。⚠️ 手机 `ai` 现在是市场 0.8.0（=216 内容、**不含 217**）；下次 push 开发版要**先删 `signature.json`**，否则校验对不上 |
 | rev173.217 | 2026-10-27 · **真模型实测任务审计 → 抓到「伪造系统记录」**（用户「做」）：真模型第一轮就复现 209 的老毛病 —— 说「任务已建好并已启用（id `tmvq4hr4js2`）」但 `store.tasks` **0 个**、无任何 `task_create` 调用，**审计当场红字**；同时暴露新问题：模型**照抄** `historyContent` 的方括号标记，在自己回复末尾写「[较早轮次的工具] ✓task_create」（它没调过）。修法：历史元信息改 `<系统记录 …>` + system 规则 8（别复述别模仿）· 新 `stripHostNotes` 在渲染与存盘前剥掉伪造段 · 重发同样请求 ⇒ 模型**真调** `task_create`（任务真建成）且不再伪造。vitest **1329 → 1333**。任务侧端到端：真模型跑任务（4 步 `tag_add` 成功）**不误报**；mock 说「已移到 工作/」不调工具 ⇒ `claimWarning` 报警 |
@@ -115,6 +116,55 @@ revision: 173.219
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.220（2026-10-27 · 手机更新到 0.9.0：发现「CDN 索引缓存滞后」）
+>
+> 用户「发」之后顺手做的收尾验证 —— 结果比预想更有信息量。
+>
+> ### 现象：新版本发上去了，市场却看不到
+>
+> 手机市场「刷新」后仍显示 `AI 管家 v0.8.0`。逐个测索引（桌面上直接拉）：
+>
+> | 镜像 | `market/index.json` 里的 ai |
+> |---|---|
+> | `raw.githubusercontent.com` | **超时**（连 5 KB 的 index.json 都 20 s 超时；`ai-0.8.0.znp` 老包同样超时）|
+> | `gcore.jsdelivr.net` | **0.8.0（旧）** |
+> | `testingcf.jsdelivr.net` | **0.8.0（旧）** |
+> | `cdn.jsdelivr.net` | 502 |
+> | `jsdelivr.b-cdn.net` | **0.9.0（新）** |
+>
+> 关键判据：**连 0.8.0 的老包在 raw 上都超时** ⇒ 不是新包的问题，是本机 raw 通道 + jsDelivr 部分节点缓存滞后。
+> `@main` 这种分支引用在 jsDelivr 上有缓存，不同节点刷新时间不一致（官方说 12 小时内）。
+>
+> ### 解法与结果
+>
+> 手机市场切「自定义地址…」→ 填 `https://jsdelivr.b-cdn.net/gh/aqua7773/zeronote@main/market/index.json`
+> → 列表出现「**↑ 更新 0.9.0**」→ 点更新 + 确认 ⇒ 装上。
+>
+> | 项 | 值 |
+> |---|---|
+> | `index.js` | **147,239 B**（217 的源码，比 0.8.0 的 145,553 大） |
+> | `manifest.json` | 2,975 B · `"version": "0.9.0"` |
+> | `signature.json` | 148 B · `keyId: aqua-2026` |
+> | 页面 | 「AI 管家 v0.9.0**已签名**」 |
+> | 加载 | AI 面板正常：向导 / 白名单 13 组 / 筛选框（`_shots/rev173220-phone-090.png`） |
+>
+> 顺带确认：**确认弹窗里的下载地址显示的是索引里的 raw URL，实际下载走的是镜像包前缀**（rev173.194 的逻辑），
+> 所以「显示 raw 却在没有 raw 的环境里装成功」是正常的，不是 bug。
+>
+> 测完把手机镜像恢复成 `jsDelivr · GCore`（localStorage `zn-market-mirror`）。
+>
+> ### 留给下一次的教训
+>
+> **发版后立刻用手机验「更新」会撞 CDN 缓存**：要么等节点刷新，要么用自定义地址指向一个已刷新的节点
+> （`b-cdn` 这次是快的那个）。这也是「市场」这条链路唯一还没有自动化的地方 ——
+> 将来若要彻底解掉，可考虑索引地址带 `?v=<commit>`（会牺牲缓存，需要权衡）。
+>
+> ### 下个会话第一件事
+>
+> ① 手机插件现在已经是 **0.9.0 市场签名包**（与源码一致，只是少了「开发版」的调试便利）
+> ② 若要在手机上继续改插件调试：**先删 `signature.json`** 再 push
+> ③ ROADMAP §3「安卓桌面组件」仍是大块未做。
+>
 > ## 📌 rev173.219（2026-10-27 · `ai@0.9.0` 发市场）
 >
 > 用户「发」。把 **217 的修复**（模型伪造「系统记录」）打进市场包 —— 上一版 0.8.0 停在了 216 的内容。

@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.219 · 0.6.0 · 2026-10-27 |
+| rev / 版本 | rev173.220 · 0.6.0 · 2026-10-27 |
 | 测试基线 | vitest 1333 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
@@ -131,6 +131,13 @@ pwsh -File scripts\verify.ps1
 >    `verify-trust` **34/35**（`theme-sepia` 纯样式）· verify 全绿 · vitest 1333（无代码改动）。
 >    **下个会话第一件事**：① 手机去「发现」把 `ai` 从 0.8.0 **更新**到 0.9.0（验证「更新」路径，跟首次安装不是一条）
 >    ② 手机改回开发版走查要**先删 `signature.json`** ③ 安卓桌面组件（ROADMAP §3 大块）。
+>    **220 手机更新到 0.9.0** ✅ —— 撞上 **CDN 索引缓存滞后**：GCore / testingcf 的 index.json 仍是 0.8.0，
+>    raw 本机全超时（连 5 KB 索引都超时、老包 0.8.0 也超时 ⇒ 不是包的问题），只有 **`jsdelivr.b-cdn.net` 最新**。
+>    ⇒ 手机用「自定义地址」填 b-cdn 索引 → 出现「↑ 更新 0.9.0」→ 更新成功：`index.js` **147,239 B** ·
+>    manifest `"version": "0.9.0"` · `signature.json` keyId `aqua-2026` · 页面「v0.9.0 已签名」· 面板正常加载。
+>    测完镜像恢复 `jsDelivr · GCore`。
+>    ⚠️ 教训：**发版后立刻用手机验「更新」会撞缓存**（jsDelivr `@main` 缓存 12h 内逐节点刷新），
+>    要么等，要么自定义地址指向已刷新的节点。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。
@@ -164,7 +171,7 @@ pwsh -File scripts\verify.ps1
   adb 里有两个离线残留 ⇒ 所有命令带 `-s 33b676f6`。改前端不用重装（连桌面 dev 的 vite，reload 即生效）；**改 Rust 必须重装**。
   - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
-  - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.8.0**（rev173.218 从市场装的，带 `signature.json`，内容 = rev216、**不含 217 的 `stripHostNotes`**））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
+  - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.9.0**（rev173.220 从 0.8.0 更新上来，带 `signature.json`，与源码 rev217 一致））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
   - ⚠️ **`adb reverse tcp:1420 tcp:1420` 会丢** —— 丢了表现为「启动 15 秒后无声退出」（看门狗杀进程）。重连 adb / 重启后先补这条再 `am start`。
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。
