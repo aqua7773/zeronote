@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "ai",
   "name": "AI 管家",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

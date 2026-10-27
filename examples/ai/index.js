@@ -253,7 +253,10 @@ export const TOOLS = [
     function: {
       name: 'task.create',
       description:
-        '创建一个自动任务（保存笔记后自动执行的规则）。先用 Natural language 把规则写进 instruction，例如「把这篇按内容移到合适的文件夹并打 1-3 个标签」。',
+        '创建一个自动任务。先用自然语言把规则写进 instruction。' +
+        'trigger=save（保存笔记后跑）/ schedule（定时跑，要给 at）/ manual（只手动跑）。' +
+        '动作固定、不需要看内容的活（打标签、移到某目录）请用 mode=fixed + steps，不调用模型、更便宜稳定；' +
+        '需要按内容判断的（分类到哪个文件夹）用默认的 auto。',
       parameters: {
         type: 'object',
         properties: {
@@ -261,10 +264,34 @@ export const TOOLS = [
           instruction: { type: 'string', description: '任务指令（自然语言，AI 每次按它执行）' },
           trigger: {
             type: 'string',
-            enum: ['save', 'manual'],
-            description: 'save = 每次保存公开笔记后自动跑；manual = 只在点「立即跑」时跑',
+            enum: ['save', 'schedule', 'manual'],
+            description: 'save = 保存后跑；schedule = 定时跑（配 at）；manual = 只手动跑',
           },
-          dir: { type: 'string', description: '只在保存到这个文件夹（含子目录）时触发；留空 = 全库' },
+          dir: { type: 'string', description: 'save 触发时只在保存到这个文件夹（含子目录）才跑；留空 = 全库' },
+          at: { type: 'string', description: 'schedule 的时间，HH:MM，例如 23:00' },
+          days: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'schedule 的星期几（1=周一 … 7=周日）；留空 = 每天',
+          },
+          mode: {
+            type: 'string',
+            enum: ['auto', 'fixed'],
+            description: 'auto = 每次让模型看内容自己决定（默认）；fixed = 按 steps 固定执行、不调模型',
+          },
+          steps: {
+            type: 'array',
+            description:
+              'fixed 模式的工具调用序列（最多 4 步）。参数里可用占位符 {{path}}（触发它的那篇笔记路径）。',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: '工具名，例如 tag.add / note.move / folder.create' },
+                args: { type: 'object', description: '工具参数（可用 {{path}} 占位符）' },
+              },
+              required: ['name'],
+            },
+          },
         },
         required: ['instruction'],
       },
@@ -712,11 +739,126 @@ export function skipForTasks(rawPath) {
   return false
 }
 
-/** 触发条件规范化：`save` / `manual` / `schedule`；缺省 manual（只能手动跑） */
+/**
+ * `'HH:MM'` / `'H:M'` → `{ h, m, text: 'HH:MM' }`；不合法返回 `null`。
+ *
+ * 为什么要返回规范化后的 `text`：面板与下次运行时间都按它算，
+ * 用户填 `9:5` 与 `09:05` 应该是同一个时刻（真实输入里两种都常见）。
+ */
+export function parseClock(raw) {
+  const s = String(raw ?? '').trim()
+  const m = /^(\d{1,2})\s*[:：]\s*(\d{1,2})$/.exec(s)
+  if (!m) return null
+  const h = Number(m[1])
+  const mi = Number(m[2])
+  if (!Number.isInteger(h) || !Number.isInteger(mi)) return null
+  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null
+  return { h, m: mi, text: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}` }
+}
+
+/** 周几集合：ISO 1（周一）… 7（周日），去重排序；空 = 每天 */
+export function normalizeDays(days) {
+  const list = (Array.isArray(days) ? days : [days])
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)
+  return [...new Set(list)].sort((a, b) => a - b)
+}
+
+/** `Date` → ISO 周几（1=周一 … 7=周日；JS 的 `getDay()` 里周日是 0） */
+function isoDay(d) {
+  const g = d.getDay()
+  return g === 0 ? 7 : g
+}
+
+/**
+ * 这个任务在 `now` **之前最近一次应该跑**的时刻（毫秒）；没配时间 / 从没到过点 ⇒ 0。
+ *
+ * 「补做」就是靠它：关掉 app 三天再打开，最近一次应跑是昨天 23:00，
+ * 而 `lastRunAt` 是三天前 → `isDue` 为真 ⇒ **补跑一次**（不是三次）。
+ * 往回最多看 7 天：覆盖「每周几」的最长间隔，也避免老任务算出个远古时间。
+ */
+export function lastDueAt(task, now = Date.now()) {
+  const tr = task?.trigger ?? {}
+  if (String(tr.type) !== 'schedule') return 0
+  const c = parseClock(tr.at)
+  if (!c) return 0
+  const days = normalizeDays(tr.days)
+  const base = new Date(Number(now) || Date.now())
+  for (let back = 0; back <= 7; back++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - back, c.h, c.m, 0, 0)
+    if (d.getTime() > base.getTime()) continue
+    if (days.length && !days.includes(isoDay(d))) continue
+    return d.getTime()
+  }
+  return 0
+}
+
+/** 到点了吗：最近一次应跑时刻晚于上次运行（且任务启用） */
+export function isDue(task, now = Date.now()) {
+  if (!task || !task.enabled) return false
+  if (String(task.trigger?.type) !== 'schedule') return false
+  const due = lastDueAt(task, now)
+  if (!due) return false
+  return due > Number(task.lastRunAt || 0)
+}
+
+/** 下次该跑的时刻（面板显示用）；没配时间返回 0 */
+export function nextDueAt(task, now = Date.now()) {
+  const tr = task?.trigger ?? {}
+  if (String(tr.type) !== 'schedule') return 0
+  const c = parseClock(tr.at)
+  if (!c) return 0
+  const days = normalizeDays(tr.days)
+  const base = new Date(Number(now) || Date.now())
+  for (let fwd = 0; fwd <= 7; fwd++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + fwd, c.h, c.m, 0, 0)
+    if (d.getTime() <= base.getTime()) continue
+    if (days.length && !days.includes(isoDay(d))) continue
+    return d.getTime()
+  }
+  return 0
+}
+
+/**
+ * 固定步骤模式里的占位符替换（`{{path}}` → 触发笔记路径）。
+ *
+ * 为什么要有：固定步骤是**建任务时**写死的，而它要处理的正是"刚保存的那一篇"，
+ * 路径只有当次触发才知道。不给占位符就只能写死某一篇 —— 那就不叫规则了。
+ * 递归处理数组与对象（工具参数基本是这两层）。
+ */
+export function expandArgs(args, ctx = {}) {
+  const vars = { path: String(ctx.path ?? ''), dir: String(ctx.dir ?? '') }
+  const walk = (v) => {
+    if (typeof v === 'string') {
+      return v.replace(/\{\{\s*(path|dir)\s*\}\}/g, (_, k) => vars[k] ?? '')
+    }
+    if (Array.isArray(v)) return v.map(walk)
+    if (v && typeof v === 'object') {
+      const out = {}
+      for (const [k, val] of Object.entries(v)) out[k] = walk(val)
+      return out
+    }
+    return v
+  }
+  return walk(args ?? {})
+}
+
+/**
+ * 任务触发条件规范化：`save` / `manual` / `schedule`；缺省 manual（只能手动跑）。
+ *
+ * `schedule` 的时间不合法 ⇒ **退化为 manual**，而不是保留一个永远不触发的任务：
+ * 静默不跑比"看起来建了其实永远不动"更好排查（面板上会显示「仅手动」）。
+ */
 export function normalizeTrigger(t) {
   const type = String(t?.type ?? 'manual')
-  const okType = type === 'save' || type === 'schedule' ? type : 'manual'
+  if (type === 'schedule') {
+    const c = parseClock(t?.at)
+    if (!c) return { type: 'manual' }
+    const days = normalizeDays(t?.days)
+    return days.length ? { type: 'schedule', at: c.text, days } : { type: 'schedule', at: c.text }
+  }
   const dir = normRel(t?.dir)
+  const okType = type === 'save' ? 'save' : 'manual'
   return okType === 'save' && dir ? { type: okType, dir } : { type: okType }
 }
 
@@ -748,11 +890,20 @@ export function trimRuns(runs, max = MAX_RUNS) {
   return (Array.isArray(runs) ? runs : []).slice(0, Math.max(1, max))
 }
 
+const WEEK_NAMES = ['一', '二', '三', '四', '五', '六', '日']
+
 /** 任务显示用的一句触发器描述 */
 export function triggerText(t) {
   const tr = t?.trigger ?? { type: 'manual' }
   if (tr.type === 'save') return tr.dir ? `保存到 ${tr.dir} 后` : '任何笔记保存后'
-  if (tr.type === 'schedule') return '定时'
+  if (tr.type === 'schedule') {
+    const c = parseClock(tr.at)
+    if (!c) return '定时（时间无效）'
+    const days = normalizeDays(tr.days)
+    if (!days.length) return `每天 ${c.text}`
+    if (days.length === 7) return `每天 ${c.text}`
+    return `每周${days.map((d) => WEEK_NAMES[d - 1]).join('、')} ${c.text}`
+  }
   return '仅手动'
 }
 
@@ -884,6 +1035,7 @@ export default {
       await readKeyState()
       await loadHistory()
       await loadTasks()
+      startDueTimer()
       refresh()
     }
 
@@ -918,9 +1070,22 @@ export default {
       }
     }
 
+    /** 任务卡片的一行状态：触发方式 · 上次 / 下次 · 执行模式 */
+    function taskHint(t) {
+      const parts = [triggerText(t)]
+      const runs = Array.isArray(t.runs) ? t.runs : []
+      parts.push(runs.length ? `上次 ${timeText(runs[0].at)}` : '还没跑过')
+      if (t.trigger?.type === 'schedule') {
+        const next = nextDueAt(t)
+        if (next) parts.push(`下次 ${timeText(next)}`)
+      }
+      const n = Array.isArray(t.steps) ? t.steps.length : 0
+      parts.push(t.mode === 'fixed' && n ? `固定 ${n} 步` : '现场判断')
+      return parts.join(' · ')
+    }
+
     /** 时间戳 → `10-27 12:30`（面板里只显示到分钟） */
-    function timeText(at) {
-      const d = new Date(Number(at) || Date.now())
+    function timeText(at) {      const d = new Date(Number(at) || Date.now())
       return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
     }
 
@@ -975,53 +1140,81 @@ export default {
       taskNote = `正在跑「${task.name}」…`
       refreshTasks()
       try {
-        const key = await host.secrets.get(accountOf(cfg.provider))
-        if (!key) throw new Error('还没有保存 API Key —— 在 AI 面板里配好才能跑任务')
-        const base = effectiveBase()
-        const model = effectiveModel()
-        if (!base || !model) throw new Error('服务商或模型名没配好')
-        /** @type {{ role: string, content: string }[]} */
-        const api = [{ role: 'system', content: taskSystemPrompt(task, info) }]
-        if (info?.path) {
-          const text = await fs.readText(info.path).catch(() => '')
-          api.push({
-            role: 'user',
-            content: `触发笔记：${info.path}\n\n${text.slice(0, 6000)}`,
-          })
-        } else {
-          api.push({ role: 'user', content: '现在手动跑一次这个任务。先看看当前库的状态再动手。' })
-        }
-        for (let step = 0; step < MAX_TASK_STEPS; step++) {
-          const r = await nonStreamChat({ base, model, key, messages: api })
-          if (!r.toolCalls.length) break
-          api.push({
-            role: 'assistant',
-            content: r.content || null,
-            tool_calls: r.toolCalls.map((t) => ({
-              id: t.id,
-              type: 'function',
-              function: { name: t.name, arguments: t.arguments },
-            })),
-          })
-          for (const tc of r.toolCalls) {
-            const log = { name: tc.name, ok: true, text: '', ms: 0 }
+        /**
+         * **固定步骤模式**（rev202）：建任务时就把工具调用排好，执行时按序跑，**不调模型**。
+         * 好处：便宜（0 token）、稳定（同一个指令每次结果一样）、断网 / 没配 Key 也能跑。
+         * 代价：不会按内容临场判断 —— 所以只适合"动作固定"的活（打标签、移到某目录）。
+         */
+        if (task.mode === 'fixed' && Array.isArray(task.steps) && task.steps.length) {
+          run.mode = 'fixed'
+          const list = task.steps.slice(0, MAX_TASK_STEPS)
+          for (const st of list) {
+            const log = { name: String(st?.name ?? ''), ok: true, text: '', ms: 0 }
             const s0 = Date.now()
-            let out = ''
             try {
-              out = await runTool(tc.name, parseArgs(tc.arguments), { interactive: false })
+              const out = await runTool(log.name, expandArgs(st?.args, info), { interactive: false })
               log.text = summarize(out)
             } catch (e) {
               log.ok = false
-              out = `错误：${String(e?.message ?? e)}`
               log.text = String(e?.message ?? e)
             }
             log.ms = Date.now() - s0
             run.steps.push(log)
-            api.push({ role: 'tool', tool_call_id: tc.id, content: out })
           }
-          if (step === MAX_TASK_STEPS - 1) {
-            run.error = `超过 ${MAX_TASK_STEPS} 步，已停止`
+          if (task.steps.length > MAX_TASK_STEPS) {
             run.ok = false
+            run.error = `固定步骤有 ${task.steps.length} 步，超过 ${MAX_TASK_STEPS} 步上限，只跑了前 ${MAX_TASK_STEPS} 步`
+          }
+        } else {
+          run.mode = 'auto'
+          const key = await host.secrets.get(accountOf(cfg.provider))
+          if (!key) throw new Error('还没有保存 API Key —— 在 AI 面板里配好才能跑任务（或改用「固定步骤」模式，那个不需要模型）')
+          const base = effectiveBase()
+          const model = effectiveModel()
+          if (!base || !model) throw new Error('服务商或模型名没配好')
+          /** @type {{ role: string, content: string }[]} */
+          const api = [{ role: 'system', content: taskSystemPrompt(task, info) }]
+          if (info?.path) {
+            const text = await fs.readText(info.path).catch(() => '')
+            api.push({
+              role: 'user',
+              content: `触发笔记：${info.path}\n\n${text.slice(0, 6000)}`,
+            })
+          } else {
+            api.push({ role: 'user', content: '现在手动跑一次这个任务。先看看当前库的状态再动手。' })
+          }
+          for (let step = 0; step < MAX_TASK_STEPS; step++) {
+            const r = await nonStreamChat({ base, model, key, messages: api })
+            if (!r.toolCalls.length) break
+            api.push({
+              role: 'assistant',
+              content: r.content || null,
+              tool_calls: r.toolCalls.map((t) => ({
+                id: t.id,
+                type: 'function',
+                function: { name: t.name, arguments: t.arguments },
+              })),
+            })
+            for (const tc of r.toolCalls) {
+              const log = { name: tc.name, ok: true, text: '', ms: 0 }
+              const s0 = Date.now()
+              let out = ''
+              try {
+                out = await runTool(tc.name, parseArgs(tc.arguments), { interactive: false })
+                log.text = summarize(out)
+              } catch (e) {
+                log.ok = false
+                out = `错误：${String(e?.message ?? e)}`
+                log.text = String(e?.message ?? e)
+              }
+              log.ms = Date.now() - s0
+              run.steps.push(log)
+              api.push({ role: 'tool', tool_call_id: tc.id, content: out })
+            }
+            if (step === MAX_TASK_STEPS - 1) {
+              run.error = `超过 ${MAX_TASK_STEPS} 步，已停止`
+              run.ok = false
+            }
           }
         }
       } catch (e) {
@@ -1053,6 +1246,49 @@ export default {
     function queueTask(task, info) {
       if (!task) return
       taskQueue.push(() => runTask(task, info))
+    }
+
+    /* ───────── 定时触发（rev202 · 需求 §3.2「桌面可靠，Android 打开时补做」） ───────── */
+
+    /** 检查间隔：每分钟一次（到点精度就是「分钟」，与 `HH:MM` 一致） */
+    const DUE_TICK_MS = 60000
+    let dueTimer = 0
+
+    /**
+     * 扫一遍：哪些定时任务该跑了。
+     *
+     * `isDue` 判的是「最近一次应跑时刻」> `lastRunAt` —— 这一条同时覆盖两种场景：
+     * · 正常到点（最近一次应跑 = 刚刚）
+     * · 关闭 app 几天后再打开（最近一次应跑 = 昨天 23:00，仍大于上次运行）⇒ **补做一次**
+     * 补做不会补多次：跑完 `lastRunAt` 就更新到当前，再 tick 时 `isDue` 已为假。
+     */
+    function tickDue() {
+      if (disposed) return
+      const now = Date.now()
+      let fired = 0
+      for (const t of tasks) {
+        if (!isDue(t, now)) continue
+        queueTask(t, { reason: 'schedule' })
+        fired++
+      }
+      if (fired) {
+        taskNote = `定时触发：${fired} 个任务入队`
+        refreshTasks()
+      }
+    }
+
+    /** 启动后第一次检查稍等 2 秒（等面板与库就绪），之后每分钟一次 */
+    function startDueTimer() {
+      if (dueTimer) return
+      const boot = setTimeout(() => tickDue(), 2000)
+      dueTimer = window.setInterval(() => tickDue(), DUE_TICK_MS)
+      subscriptions.push({
+        dispose: () => {
+          clearTimeout(boot)
+          if (dueTimer) clearInterval(dueTimer)
+          dueTimer = 0
+        },
+      })
     }
 
     async function saveConfig() {
@@ -1364,14 +1600,28 @@ export default {
       if (name === 'task.create') {
         const instruction = String(a.instruction ?? '').trim()
         if (!instruction) throw new Error('缺少 instruction（这个任务要 AI 做什么）')
-        const trig = normalizeTrigger({ type: a.trigger, dir: a.dir })
+        const trig = normalizeTrigger({ type: a.trigger, dir: a.dir, at: a.at, days: a.days })
+        if (String(a.trigger ?? '') === 'schedule' && trig.type !== 'schedule') {
+          throw new Error(`定时时间不合法：${String(a.at ?? '（空）')} —— 要 HH:MM 形式，例如 23:00`)
+        }
+        /**
+         * 执行模式（需求 Q28）：**固定步骤**（建任务时排好工具调用，不调模型）或
+         * **现场判断**（每次让模型看内容自己决定，最多 4 步）。
+         * 给了 steps 就按固定步骤跑；只给了 mode='fixed' 却没步骤 ⇒ 退回现场判断（否则这个任务永远不动）。
+         */
+        const steps = (Array.isArray(a.steps) ? a.steps : [])
+          .filter((s) => s && typeof s.name === 'string' && s.name.trim())
+          .slice(0, MAX_TASK_STEPS)
+          .map((s) => ({ name: s.name.trim(), args: s.args && typeof s.args === 'object' ? s.args : {} }))
+        const mode = steps.length ? 'fixed' : 'auto'
         /**
          * 去重：指令与触发方式都一样就是同一个任务。
          *
          * 真实踩到（rev201 实测）：模型在工具循环里可能**把同一个 task.create 调好几次**
          * （每次它都以为还没建），一口气建出 4 个一模一样的任务，之后每次保存跑 4 遍。
          */
-        const dup = tasks.find((t) => t.instruction === instruction && t.trigger?.type === trig.type && t.trigger?.dir === trig.dir)
+        const trigKey = JSON.stringify(trig)
+        const dup = tasks.find((t) => t.instruction === instruction && JSON.stringify(t.trigger ?? {}) === trigKey)
         if (dup) {
           return JSON.stringify({
             ok: true,
@@ -1385,22 +1635,32 @@ export default {
           name: String(a.name ?? '').trim() || '未命名任务',
           instruction,
           trigger: trig,
+          mode,
+          steps,
           enabled: true,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           runs: [],
-          lastRunAt: 0,
+          /**
+           * 定时任务从**创建时刻**开始算：否则「每天 23:00」在中午建好，
+           * `lastDueAt` 会指到昨天 23:00 > lastRunAt(0) ⇒ 立刻补跑一次 —— 用户没要这个。
+           */
+          lastRunAt: trig.type === 'schedule' ? Date.now() : 0,
           lastError: '',
         }
         tasks.push(task)
         await saveTasks()
         refreshTasks()
+        const whenSave = '任务已建好并启用 —— 下次保存笔记时自动跑'
+        const whenSchedule = `任务已建好 · ${triggerText(task)}`
         return JSON.stringify({
           ok: true,
           id: task.id,
           name: task.name,
           trigger: triggerText(task),
-          message: trig.type === 'save' ? '任务已建好并启用 —— 下次保存笔记时自动跑' : '任务已建好（仅手动）',
+          mode,
+          steps: steps.map((s) => s.name),
+          message: trig.type === 'save' ? whenSave : trig.type === 'schedule' ? whenSchedule : '任务已建好（仅手动）',
         })
       }
 
@@ -1409,9 +1669,23 @@ export default {
         if (!task) throw new Error(`没有这个任务：${a.id}（用 task.list 看有哪些）`)
         if (typeof a.name === 'string' && a.name.trim()) task.name = a.name.trim()
         if (typeof a.instruction === 'string' && a.instruction.trim()) task.instruction = a.instruction.trim()
-        if (a.trigger !== undefined || a.dir !== undefined) {
-          task.trigger = normalizeTrigger({ type: a.trigger ?? task.trigger?.type, dir: a.dir ?? task.trigger?.dir })
+        if (a.trigger !== undefined || a.dir !== undefined || a.at !== undefined || a.days !== undefined) {
+          task.trigger = normalizeTrigger({
+            type: a.trigger ?? task.trigger?.type,
+            dir: a.dir ?? task.trigger?.dir,
+            at: a.at ?? task.trigger?.at,
+            days: a.days ?? task.trigger?.days,
+          })
         }
+        if (Array.isArray(a.steps)) {
+          task.steps = a.steps
+            .filter((s) => s && typeof s.name === 'string' && s.name.trim())
+            .slice(0, MAX_TASK_STEPS)
+            .map((s) => ({ name: s.name.trim(), args: s.args && typeof s.args === 'object' ? s.args : {} }))
+        }
+        if (a.mode === 'fixed' || a.mode === 'auto') task.mode = a.mode
+        // 固定步骤却没有步骤 ⇒ 退回现场判断（否则这个任务永远不动）
+        if (task.mode === 'fixed' && !(Array.isArray(task.steps) && task.steps.length)) task.mode = 'auto'
         if (typeof a.enabled === 'boolean') task.enabled = a.enabled
         task.updatedAt = Date.now()
         await saveTasks()
@@ -2146,7 +2420,7 @@ export default {
         children.push({
           type: 'field',
           label: `${t.name}${t.enabled ? '' : '（已停用）'}`,
-          hint: `${triggerText(t)} · ${t.lastRunAt ? `上次 ${timeText(t.lastRunAt)}` : '还没跑过'}`,
+          hint: taskHint(t),
           children: { type: 'stack', gap: 'sm', children: kids },
         })
       }
