@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.233
-更新时间: 2026-10-28 · 最新 rev173.233
+revision: 173.234
+更新时间: 2026-10-28 · 最新 rev173.234
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.233
 
 | rev | 内容 |
 |---|---|
+| rev173.234 | 2026-10-28 · **附件同步 · 期 2（图片两模式 + 压缩）**（用户「继续 zeronot」· 排期 8）：① **依赖** —— `image` 0.25.10 只开 `jpeg`/`png`/`webp`（默认 features 会把 avif/exr/hdr/ico… 全编进来）；`Cargo.toml` 给 image 家族单独开 `[profile.dev.package.*] opt-level = 3`（dev 默认 opt-level=0，实测 19 MB 图要几十秒）② **压缩**（`src-tauri/src/lib.rs`）—— 长边阶梯 2560 → 1920 → 1280 × 质量阶梯 85 → 70 → 60 → 45（能靠降质量达标就不缩边）；**透明图走无损 WebP**（`WebPEncoder::new_lossless`，绝不转 JPEG ⇒ 不会「透明变黑」）；**EXIF orientation 解码后转正**（`into_decoder().orientation()` + `apply_orientation`，输出不带 EXIF）；GIF / svg / avif 不压 ③ **两模式** —— `import_attachment` 新增 `mode: Option<String>`：`compress` = 压到 ≤1 MiB 入库（≤1 MiB 的图两模式都直接复制，不白丢画质）；`original`（默认）= >1 MiB 引用原图 + 生成**预览图**（长边 1280 / q70）入库，**同一张图重复插入复用**已有预览图 ④ **台账扩展** —— entry 加 `storedInVault`（模式 B 压缩版相对路径）/ `storedSize` / `preview`；`ledger_record` 改 `LedgerExtra`，已有值不被「这次没带」清空 ⑤ **前端** —— `attachment.ts` 加 `ImageInsertMode` / `loadImageMode` / `IMAGE_MODE_STORAGE_KEY`，`attachmentHint` 支持「已压缩 A → B」（透明图压不到 1 MiB 时如实说「（无损图仍超过 1 MiB）」）；设置 → 通用 →「图片插入模式」两个分段按钮（默认「引入原图」）；App 插入链路传 `mode`，压缩降级时 toast 说明 ⑥ **降级不静默** —— 解码失败 ⇒ 退回「引用原文件」并带 `note` 说明。**测试**：cargo 62 → **67**（模式 B 压到 ≤1 MiB + 台账字段 / 模式 A 引用 + 预览图 + 复用 / GIF 不压 / 小图两模式原样复制 / 编码器按 alpha 选）· vitest 1394 → **1398**（模式默认值 / 存储回落 / 压缩提示两条）。**实测**（CDP，`_tmp-vault-tb`）：19 MB / 5000×3500 JPEG · 模式 A ⇒ `referenced` + 绝对路径 + 预览 322,405 B（618 ms）· 再插同图 ⇒ 复用同一张 preview；2.4 MB PNG · 模式 B ⇒ `936,711 B` jpg（0.77 s，台账 `storedInVault`/`storedSize`）；19 MB JPEG · 模式 B ⇒ `1,046,244 B`（9.1 s，仍 ≤1 MiB）；7.7 MB 透明噪声 PNG ⇒ 4,912,090 B **webp**（无损压不到 1 MiB，如实提示）；23 KB 透明小图 ⇒ 原样复制 23,198 B。设置页两个按钮 + hint 切换已截图（`_shots/rev173233-settings-mode.png` / `-compress.png`）。测完已还原模式与库（删 `rev233-*` 六个文件 + `.zn-assets/`）· verify 六步全绿 · 质量门 7/7 |
 | rev173.233 | 2026-10-28 · **交接**：本会话 **3 个 rev（230–232）** = 插件版本回滚（`be06216`）· 核心能力接管（`544383e`）· 附件同步期 1（`6dd548b`）。交接时 HEAD `6dd548b` · 与 origin 同步 · 工作区干净 · verify 全绿（05:21:52）· vitest **1394** · cargo **62** · dev pid **38456**（05:16:26）。**下个会话第一件事 = 附件同步 · 期 2（图片两模式 + 压缩）**；遗留：期 3/4 · 调试面板未做项 · **手机未验 230–232**（都动了 Rust，要重装 APK）。详见正文 |
 | rev173.232 | 2026-10-28 · **附件同步 · 期 1（规则 + 1 MiB 阈值 + 引用台账骨架）**（用户「继续」· 排期 7）：① **Rust `import_attachment` 按大小分流** —— `ATTACHMENT_COPY_LIMIT = 1,048,576`；≤ 1 MiB 复制（老行为），> 1 MiB **不复制**、返回绝对路径、整文件 sha256 记进引用台账；返回值改成结构化 `{ mode: 'copied'\|'referenced', path, size, ledgerId }`（`import_attachment_b64` 也改，但**永远 copied** —— 剪贴板字节没有原文件可引用）② **台账** `<库>/.zn-assets/manifest.json`（库根独立点目录，`list_notes` 天然跳过）：`{version:1, entries:[{id:'sha256:…', original, size, storedInVault:null, devices:{}}]}`；同 id 重复插入只更新不追加；**台账坏了明确报错**（静默重建会丢掉文件身份）③ 新命令 `assets_ledger_read(vault)` ④ **前端** `src/kernel/attachment.ts`：`AttachmentOutcome` 类型 / `attachmentHint`（引用型提示「超过 1 MiB 不复制进库」）/ `mdTarget`（含空格或括号的绝对路径用 `<...>` 包起来，否则 Markdown 目标被截断）；App 两处插入链路改消费结构化结果 ⑤ **只记不搬**：`devices` 留空对象，设备维度等期 4 的搬运插件填（不编假数据）。**测试**：cargo 59 → **62**（3 条：1 MiB / 1 MiB+1 边界、同文件去重、台账损坏报错）· vitest 1389 → **1394**（5 条阈值 / 提示 / `mdTarget`）。**实测**：插 2 MiB mp3 ⇒ 库内无副本 · 笔记写 `![](C:/…/big-clip.mp3)` · 台账 1 条（`sha256:5647f05e…` · 2097152 B · `storedInVault:null`）；插 800 KiB mp3 ⇒ 复制入库 `small-clip.mp3`（819200 B）· 笔记写 `![](small-clip.mp3)` · 台账仍 1 条。测完已还原笔记 + 删测试文件 / 台账 |
 | rev173.231 | 2026-10-28 · **核心能力接管（需求 §2.15 前半 · 排期 6）**（用户「做接管」）：① **新 `src/kernel/capability.ts`** —— 能力注册表：`provide(name, impl, {priority})` / `invoke` / `release` / `status` / `setChoice`；内核默认实现**永不参与竞争**，只在没有插件提供时兜底；同优先级取最早登记 + `needsChoice`，用户选择写 `localStorage['zn-capability-choice']`；**防重入**（实现执行期间再调能力 ⇒ 走默认，接管者靠它拿原始结果）② **契约**新增 `CapabilityApi` / `CapabilityName` / `CapabilityStatus`，`PluginContext.capability`；5 个能力：`search.query` + `storage.read/write/exists/list`（**不做 `editor.render`**，用户已拍板）③ **kernel 组装**：`index.query` → `capability.invoke('search.query')`（`scoped` 递归包装）；`fs` 只包读/写/存在/列清单四个消费侧方法（结构操作仍在内核）；默认实现 = 包装前的原链路（含索引跟随 + 事件）④ **plugin-host** `ctx.capability` + `usePluginHost` 三处卸载点调 `releaseCapabilities`（漏 dispose 也不留幽灵）⑤ **设置页**「插件」tab 新增「核心能力」折叠块（当前提供者 / 同级冲突提示）+ 选择对话框。**测试**：vitest 1379 → **1389**（+10 条注册表语义）· cargo 59 不变。**实测**（CDP 两个探针，同 priority 10，测完已删干净）：装 A ⇒ 搜索「验收」8 条全部 `[接管A]` · 装 B ⇒ 设置页「有同优先级冲突，请选择」+ 对话框两候选 · 选 B ⇒ 搜索变 `[接管B]` · 禁用 B ⇒ 自动回退 `[接管A]` · 禁用 A ⇒ 无前缀、仍是 8 条结果（内核默认）。截图 `_shots/rev173231-{capability-settings,capability-conflict,capability-pick,search-takeover,search-B,fallback-kernel}.png` |
@@ -128,6 +129,44 @@ revision: 173.233
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.234（2026-10-28 · 附件同步 · 期 2：图片两模式 + 压缩）
+>
+> 排期 8（§3.5）。用户一句「继续 zeronot」，按交接卡「下个会话第一件事」直接开工。
+>
+> ### 做了什么
+>
+> | 层 | 内容 |
+> |---|---|
+> | 依赖 | `image` **0.25.10**，只开 `jpeg` / `png` / `webp`（默认 features 会拉 avif(ravif) / exr / hdr / ico / pnm / qoi / tga）；`Cargo.toml` 给 image 家族单独 `[profile.dev.package.*] opt-level = 3` |
+> | 压缩 | 长边 **2560 → 1920 → 1280** × 质量 **85 → 70 → 60 → 45**，长边从大到小、每档先把质量走完（能靠降质量达标就不缩边）；**透明图走无损 WebP**（`WebPEncoder::new_lossless`，绝不转 JPEG）；**EXIF orientation 解码后转正**、输出不带 EXIF；GIF / svg / avif 不压 |
+> | 两模式 | `import_attachment` 加 `mode: Option<String>`：`original`（默认）⇒ >1 MiB 引用原图 + 生成**预览图**（长边 1280 / q70）入库、同图重复插入**复用**；`compress` ⇒ 压到 ≤1 MiB 入库（≤1 MiB 的图两模式都直接复制，不白丢画质） |
+> | 台账 | entry 新增 `storedInVault` / `storedSize` / `preview`；`ledger_record` 改 `LedgerExtra`（已存在的值不被「这次没带」清空） |
+> | 前端 | `attachment.ts`：`ImageInsertMode` / `loadImageMode` / `IMAGE_MODE_STORAGE_KEY` / `attachmentHint` 支持「已压缩 A → B」；设置 → 通用 →「图片插入模式」两个分段按钮；App 插入链路传 `mode`，降级时 toast 说明 |
+>
+> ### 实测（CDP · `_tmp-vault-tb`，环境已还原）
+>
+> | 输入 | 模式 | 结果 |
+> |---|---|---|
+> | 19,156,439 B JPEG（5000×3500） | A | `referenced` + 绝对路径；预览图 **322,405 B**；618 ms；再插同图复用同一 preview |
+> | 2,434,388 B PNG | B | `copied` → `rev233-b.jpg` **936,711 B**；0.77 s；台账 `storedInVault` / `storedSize` 齐全 |
+> | 19,156,439 B JPEG | B | `copied` → **1,046,244 B**（≤1 MiB）；9.1 s |
+> | 7,691,695 B 透明噪声 PNG | B | `copied` → **4,912,090 B webp**（无损压不到 1 MiB，前端如实提示「（无损图仍超过 1 MiB）」）；1.8 s |
+> | 23,198 B 透明 PNG | B | 原样复制 23,198 B，无 `compressed` 字段 |
+> | `anim.gif`（>1 MiB） | B | `referenced`，无 preview（GIF 不压） |
+>
+> 设置页两个按钮 + hint 切换已截图（`_shots/rev173233-settings-mode.png` / `-compress.png`）；localStorage `zeronote.imageMode` 读写已验。
+>
+> ### 收口
+>
+> verify 六步全绿（05:52:48）· 质量门 7/7 · cargo **62 → 67** · vitest **1394 → 1398** · oxlint 3 warnings 不变。
+>
+> ### 遗留 / 下一步
+>
+> - **下个会话第一件事 = 期 4（跨设备手动搬运）**；期 3 的渲染已由 rev173.226（音视频内联）+ rev173.228（引用 hover）覆盖，**只剩「库外绝对路径的图片 / 文件卡片渲染」**
+> - 模式 B 的「同步原图」入口属期 4（本期原图只进台账，没有搬运 UI）
+> - 粘贴图片（`import_attachment_b64`）**不接 mode** —— 剪贴板字节没有原文件路径，永远走复制；大截图想压只能走「插入附件…」
+> - 手机未验：本期动了 Rust（`Cargo.toml` + `lib.rs`），要重装 APK
 
 > ## 📌 rev173.233（2026-10-28 · 交接）
 >

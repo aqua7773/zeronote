@@ -103,7 +103,14 @@ import {
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
-import { attachmentHint, mdTarget, type AttachmentOutcome } from './kernel/attachment'
+import {
+  IMAGE_MODE_STORAGE_KEY,
+  attachmentHint,
+  loadImageMode,
+  mdTarget,
+  type AttachmentOutcome,
+  type ImageInsertMode,
+} from './kernel/attachment'
 import { mediaHint, mediaKindOf } from './lib/media-render'
 import { findWikiNote, previewSnippet } from './lib/wiki-preview'
 import { categorizePlugin } from './lib/plugin-category'
@@ -398,6 +405,20 @@ export default function App() {
       /* 隐私模式等拿不到 storage —— 忽略 */
     }
   }, [renderHtml])
+
+  /**
+   * 图片插入模式（rev173.234 · 附件同步期 2）：默认「引入原图」(A)，可选「压缩入库」(B)。
+   * 只影响 **>1 MiB 的图片** —— ≤1 MiB 时两种模式都是直接复制原图（不白丢画质）。
+   */
+  const [imageMode, setImageMode] = useState<ImageInsertMode>(loadImageMode)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imageMode)
+    } catch {
+      /* 隐私模式等拿不到 storage —— 忽略 */
+    }
+  }, [imageMode])
 
   /**
    * 打开某个浮层时**关掉其余的** —— 它们都是模态，同时开着会叠层。
@@ -2568,6 +2589,8 @@ export default function App() {
         notePath: activePath,
         src,
         stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
+        // 图片模式（期 2）：只对图片有意义 —— 其它附件照旧按 1 MiB 分流
+        mode: asImage ? imageMode : undefined,
       })
       const as = asImage ? 'image' : playable ? 'embed' : 'link'
       /**
@@ -2587,8 +2610,10 @@ export default function App() {
        */
       const hint = playable || asImage ? null : mediaHint(src)
       if (hint && !refHint) setToast(`已按链接插入 ${out.path} —— ${hint}`)
+      // 压缩失败这类「插入了但没按预期」的情况单独说一句（不静默降级，硬约束 4）
+      if (out.note) setToast(`${refHint ? `${refHint} · ` : ''}${out.note}`)
     },
-    [activePath, vault, insertAttachmentSyntax],
+    [activePath, vault, imageMode, insertAttachmentSyntax],
   )
 
   /**
@@ -4194,6 +4219,8 @@ export default function App() {
         onThemeChange={setThemePref}
         renderHtml={renderHtml}
         onRenderHtmlChange={setRenderHtml}
+        imageMode={imageMode}
+        onImageModeChange={setImageMode}
         plugins={rows}
         pluginError={pluginError}
         pluginLog={panelLog}

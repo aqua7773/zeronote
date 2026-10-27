@@ -5,11 +5,13 @@
  *  · 引用型（>1 MiB）要给「不复制进库」的说明；复制型不额外解释
  *  · 含空格 / 括号的绝对路径必须用 `<...>` 包起来，否则 Markdown 目标会被截断
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeEach } from 'vitest'
 import {
   ATTACHMENT_COPY_LIMIT,
+  IMAGE_MODE_STORAGE_KEY,
   attachmentHint,
   formatSize,
+  loadImageMode,
   mdTarget,
   type AttachmentOutcome,
 } from '../src/kernel/attachment'
@@ -61,5 +63,52 @@ describe('mdTarget', () => {
   it('含空白 / 括号 / 尖括号的路径包进 <>', () => {
     expect(mdTarget('D:/Music/专辑 1/a b.mp3')).toBe('<D:/Music/专辑 1/a b.mp3>')
     expect(mdTarget('D:/x/(live).mp4')).toBe('<D:/x/(live).mp4>')
+  })
+})
+
+describe('图片模式（rev173.234 · 期 2）', () => {
+  beforeEach(() => {
+    window.localStorage.removeItem(IMAGE_MODE_STORAGE_KEY)
+  })
+
+  it('没存过 ⇒ 默认「引入原图」(A)', () => {
+    expect(loadImageMode()).toBe('original')
+  })
+
+  it('存 compress 才返回 B；其它乱七八糟的值一律回落 A', () => {
+    window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, 'compress')
+    expect(loadImageMode()).toBe('compress')
+
+    window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, 'bogus')
+    expect(loadImageMode()).toBe('original')
+  })
+
+  it('压缩型要报出「已压缩 原 → 新」，且不能再说「引用原文件」', () => {
+    const squeezed: AttachmentOutcome = {
+      mode: 'copied',
+      path: 'notes/image-x.jpg',
+      size: 700 * 1024,
+      ledgerId: 'sha256:abc',
+      compressed: { originalSize: 10 * 1024 * 1024, format: 'jpg' },
+    }
+    const hint = attachmentHint(squeezed)
+    expect(hint).toContain('已压缩')
+    expect(hint).toContain('10.0 MB')
+    expect(hint).toContain('700 KB')
+    expect(hint).not.toContain('引用原文件')
+  })
+
+  it('压缩失败退回引用型时，两条说明都要在', () => {
+    const fallback: AttachmentOutcome = {
+      mode: 'referenced',
+      path: 'D:/Pictures/big.png',
+      size: 12 * 1024 * 1024,
+      ledgerId: 'sha256:def',
+      preview: 'notes/image-x-preview.jpg',
+      compressed: { originalSize: 12 * 1024 * 1024, format: 'jpg' },
+    }
+    const hint = attachmentHint(fallback)
+    expect(hint).toContain('已压缩')
+    expect(hint).toContain('已引用原文件')
   })
 })

@@ -28,6 +28,11 @@ base64 = "0.22"
 # 市场下载的整包校验（rev173.148）：索引记的 sha256 与下载到的字节必须在**同一侧**比对。
 # 已在依赖树里（ed25519-dalek 的传递依赖）⇒ 不增加新的编译量。
 sha2 = "0.10"
+# 图片压缩（rev173.233 · 附件同步期 2）：插入图片时按需压到 1 MiB 以下。
+# 只开要用的格式 —— 默认 features 会把 avif(ravif) / exr / hdr / ico / pnm / qoi / tga
+# 全编进来（多几十个 crate、CI 明显变慢），而插入场景只需要 jpeg / png / webp。
+# png 本来就在依赖树里（arboard 用），这里真正新增的只有 zune-jpeg + image-webp。
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
@@ -112,3 +117,16 @@ webpki-roots = "1"
 # 生物识别（期 2b 前置验证）：官方插件只挂 Android 目标，桌面构建不引入该 crate。
 # 2.5.0 = v2 分支当前最新（2026-10-14），Android 提供 status / authenticate / biometricCipher。
 tauri-plugin-biometric = "2.5.0"
+
+# 图片编解码是 CPU 密集的，而 dev 构建默认 opt-level = 0（全不优化）——
+# 实测 dev 下处理一张 19 MB / 5000×3500 的图要几十秒，用户插入时像卡死（rev173.233）。
+# 只给这几个 crate 开优化，不动全项目的 dev 配置（全开会让每次 `cargo build` 慢一倍）。
+# release 构建本来就优化，这里只影响 dev / CI 的 debug 产物。
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3

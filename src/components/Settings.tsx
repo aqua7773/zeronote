@@ -9,6 +9,7 @@ import type { CapabilityName, CapabilityStatus, PluginLogEntry } from '../kernel
 import { CAPABILITY_LABELS } from '../kernel/capability'
 import type { KernelAudit } from '../kernel/kernel'
 import type { MarketEntry } from '../kernel/market'
+import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
  * 设置弹窗。
@@ -86,6 +87,12 @@ export interface SettingsProps {
    */
   renderHtml: boolean
   onRenderHtmlChange: (v: boolean) => void
+  /**
+   * 图片插入模式（rev173.234 · 附件同步期 2）：A 引入原图（默认）/ B 压到 1 MiB 以下入库。
+   * 只影响**超过 1 MiB 的图片** —— 小图两种模式都是直接复制原图。
+   */
+  imageMode: ImageInsertMode
+  onImageModeChange: (mode: ImageInsertMode) => void
   /** 插件段：直接把现有 PluginPanel 复用进来，不重复实现 */
   plugins: PluginRow[]
   pluginError?: string | null
@@ -141,6 +148,8 @@ export function Settings({
   onThemeChange,
   renderHtml,
   onRenderHtmlChange,
+  imageMode = 'original',
+  onImageModeChange,
   plugins,
   pluginError,
   pluginLog,
@@ -223,6 +232,37 @@ export function Settings({
                         className={cn(
                           'px-2.5 py-1 text-xs transition-colors',
                           renderHtml === value
+                            ? 'bg-primary zn-on-accent'
+                            : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                <Row
+                  label="图片插入模式"
+                  hint={
+                    imageMode === 'compress'
+                      ? '超过 1 MiB 的图片压到 1 MiB 以下再入库（正文与点开都是压缩版，原图路径记进引用台账）'
+                      : '引入原图：≤1 MiB 复制进库；更大的引用原文件，另存一张预览图'
+                  }
+                >
+                  <div className="flex overflow-hidden rounded-ui-sm border border-border-strong">
+                    {(
+                      [
+                        ['original', '引入原图'],
+                        ['compress', '压缩入库'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => onImageModeChange(value)}
+                        className={cn(
+                          'px-2.5 py-1 text-xs transition-colors',
+                          imageMode === value
                             ? 'bg-primary zn-on-accent'
                             : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
                         )}
