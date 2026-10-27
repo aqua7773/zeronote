@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { PluginPanel, type PluginRow } from './PluginPanel'
+import type { PluginLogEntry } from '../kernel/contract'
+import type { KernelAudit } from '../kernel/kernel'
 import type { MarketEntry } from '../kernel/market'
 
 /**
@@ -85,7 +87,14 @@ export interface SettingsProps {
   /** 插件段：直接把现有 PluginPanel 复用进来，不重复实现 */
   plugins: PluginRow[]
   pluginError?: string | null
-  pluginLog?: string[]
+  pluginLog?: PluginLogEntry[]
+  /** 调试面板数据源（rev173.229 · 需求 §2.13）—— 不传则不显示「调试」tab */
+  pluginAudit?: KernelAudit | null
+  devMode?: boolean
+  onToggleDevMode?: (on: boolean) => void
+  onEmitEvent?: (topic: string, payload: unknown) => string | null
+  onClearLogs?: () => void
+  onTestLog?: () => void
   onTogglePlugin: (id: string, enabled: boolean) => void
   onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
@@ -126,6 +135,12 @@ export function Settings({
   plugins,
   pluginError,
   pluginLog,
+  pluginAudit,
+  devMode = false,
+  onToggleDevMode,
+  onEmitEvent,
+  onClearLogs,
+  onTestLog,
   onTogglePlugin,
   onDeletePlugin,
   onReloadPlugins,
@@ -268,7 +283,13 @@ export function Settings({
                   <PluginPanel
                     plugins={plugins}
                     error={pluginError}
-                    log={pluginLog}
+                    logs={pluginLog}
+                    audit={pluginAudit}
+                    devMode={devMode}
+                    onToggleDevMode={onToggleDevMode}
+                    onEmitEvent={onEmitEvent}
+                    onClearLogs={onClearLogs}
+                    onTestLog={onTestLog}
                     onToggle={onTogglePlugin}
                     onDelete={onDeletePlugin}
                     onInstall={onInstall}

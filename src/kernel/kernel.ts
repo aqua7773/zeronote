@@ -32,6 +32,7 @@ import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { withFsEvents } from './fs-events'
 import { createIndexApi } from './index-api'
+import { allPluginTopics } from './plugin-host'
 import { createNetApi } from './net'
 import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
@@ -85,7 +86,16 @@ export type PanelRegistration = {
 export type KernelHooks = {
   onPanelsChange: (panels: PanelRegistration[]) => void
   onNotify: (msg: string, level?: 'info' | 'warn' | 'error') => void
-  onLog: (msg: string, level?: 'debug' | 'info' | 'warn' | 'error') => void
+  /**
+   * 日志钩子（rev173.229 起带归属）：`pluginId` 空 = 内核自身；
+   * `stack` 只在 error 时由 `scopedHost` 捕获（需求 §2.13「错误堆栈」）。
+   */
+  onLog: (
+    msg: string,
+    level?: 'debug' | 'info' | 'warn' | 'error',
+    pluginId?: string,
+    stack?: string,
+  ) => void
   /** 插件通过 `view.setState` 写面板状态时回调 */
   onPanelStateChange: (bind: string, value: unknown) => void
   /** 服务登记表变了（宿主一般不需要处理 —— kernel 已经把它转成 event 广播） */
@@ -125,6 +135,11 @@ export type KernelAudit = {
   commands: { id: string; impl: string | null }[]
   /** 事件订阅表：topic → 订阅者数（无订阅者的 topic 不出现） */
   eventTopics: Record<string, number>
+  /**
+   * 插件 → 它订阅的 topic（rev173.229 · 调试面板）。
+   * `eventTopics` 只有计数、分不出「谁在听」，这里补归属。
+   */
+  pluginTopics: Record<string, string[]>
   /** 已登记面板：id / 位置 / 归属插件 */
   panels: { id: string; location: PanelLocation; pluginId?: string }[]
   /** 服务表：名字 / 提供者 / 是否已实例化 */
@@ -215,11 +230,30 @@ export type Kernel = {
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
   const rawFs = createFsApi(vault)
   const event = createEventApi((topic, err) =>
-    hooks.onLog(`事件处理器异常 topic=${topic}：${String(err)}`, 'warn'),
+    hooks.onLog(
+      `事件处理器异常 topic=${topic}：${String(err)}`,
+      // rev173.229：事件处理器抛错是**插件代码炸了**，按 error 记并带堆栈（需求 §2.13）
+      'error',
+      undefined,
+      err instanceof Error ? err.stack : undefined,
+    ),
   )
-  const commands = createCommandApi((id, err) =>
-    hooks.onLog(`命令 ${id} 执行失败：${String(err)}`, 'warn'),
-  )
+  const commands = createCommandApi((id, err) => {
+    /**
+     * rev173.229：命令失败也按 error + 堆栈记，并**反推归属插件**
+     * （实现标签 `plugin:<id>`）—— 调试面板要能一眼看出是谁炸的。
+     * `commands` 在这里是闭包引用（回调运行时早已初始化）。
+     */
+    const impl = commands.implTag?.(id) ?? null
+    const m = impl ? /^plugin:(.+)$/.exec(impl) : null
+    const pluginId = m && m[1] !== 'kernel' ? m[1] : undefined
+    hooks.onLog(
+      `命令 ${id} 执行失败：${String(err)}`,
+      'error',
+      pluginId,
+      err instanceof Error ? err.stack : undefined,
+    )
+  })
 
   const panelMap = new Map<string, PanelRegistration>()
   /**
@@ -475,7 +509,8 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
     platform: /Android/i.test(navigator.userAgent) ? 'android' : 'windows',
     log(level, msg) {
-      hooks.onLog(`[${level}] ${msg}`, level)
+      // rev173.229：级别已由结构化日志携带，不再往消息里塞 `[warn] ` 前缀（面板会重复显示）
+      hooks.onLog(msg, level)
     },
     notify(msg, level) {
       hooks.onNotify(msg, level)
@@ -619,6 +654,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         .map((c) => ({ id: c.id, impl: commands.implTag(c.id) }))
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
       eventTopics: event.stats(),
+      pluginTopics: allPluginTopics(),
       panels: [...panelMap.values()].map((p) => ({
         id: p.id,
         location: p.location,

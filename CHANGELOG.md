@@ -52,6 +52,14 @@
 
 ### Added
 
+- **开发者调试面板**（rev173.229 · 需求 §2.13）：插件页新增「调试」tab（开发者模式开关，落 localStorage）。
+  **结构化日志** —— 契约新增 `PluginLogEntry { ts, pluginId, level, msg, stack }`：每条带来源插件与级别，
+  `error` 级自动捕获调用栈（`scopedHost` 包 `host.log`，栈里有插件帧，能定位到文件行号）；
+  **诊断表** —— 已启用插件的命令数 / 面板数 / 服务数 / 订阅 topic（`kernel.audit()` 新增 `pluginTopics`）；
+  **模拟触发** —— topic + JSON payload → `kernel.event.emit`；命令执行失败与事件处理器异常改记 `error`
+  并反推归属插件。⚠️ 未做：单插件热重载 · 沙箱控制台 · 内存/CPU 监控 ·
+  开发者模式「跳过权限确认」（刻意不做，见 ROADMAP §3.0）。
+
 - **`[[笔记名]]` 悬浮预览**（rev173.228 · 需求 §4.5「引用显示标题和摘要」）：桌面悬停 350 ms、
   手机长按 450 ms，在链接下方弹小卡片 —— 标题 + 正文前 ~140 字（剥掉 frontmatter / 代码块 /
   图片 / 链接标记）；找不到时显示「没有找到这篇笔记」。查找与点击跳转**共用** `findWikiNote`

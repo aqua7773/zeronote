@@ -47,6 +47,29 @@ export type FsChange = {
   path: string
 }
 
+/* ───────────────── 插件调试（rev173.229） ───────────────── */
+
+/** 插件日志级别（`host.log` 的入参；`debug` 只在开发者模式下显示） */
+export type PluginLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+/**
+ * 一条**结构化**插件日志（rev173.229 · 需求 §2.13「插件日志 / 错误堆栈」）。
+ *
+ * 此前是一整串 `string`（面板里 `<pre>` 全量打出来）：
+ * 分不清哪条来自哪个插件、error 也没有堆栈。现在每条带归属与级别；
+ * `stack` 只对 error 记（info / warn 记了也没人看，还占内存）。
+ */
+export type PluginLogEntry = {
+  /** 毫秒时间戳 */
+  ts: number
+  /** 来源插件 id；`null` = 内核自身（fs 事件、市场、启动等） */
+  pluginId: string | null
+  level: PluginLogLevel
+  msg: string
+  /** 仅 error：捕获时的调用栈（含插件的帧，定位到文件与行号） */
+  stack?: string
+}
+
 /** 回收站条目（`fs.listTrash`） */
 export type TrashEntry = {
   /** 稳定标识：新格式 = 时间戳目录名；旧格式 = `<时间戳>--<名>` 整个文件名 */

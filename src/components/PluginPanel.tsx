@@ -4,7 +4,10 @@ import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import { clampText } from '../lib/format'
 import { MarketPane } from './MarketPane'
+import { PluginDevPane } from './PluginDevPane'
 import type { MarketEntry } from '../kernel/market'
+import type { PluginLogEntry } from '../kernel/contract'
+import type { KernelAudit } from '../kernel/kernel'
 import {
   PLUGIN_CATEGORY_HINT,
   PLUGIN_CATEGORY_LABEL,
@@ -96,17 +99,25 @@ function writeCollapsed(next: Set<PluginCategory>) {
 export function PluginPanel({
   plugins,
   error,
-  log,
+  logs,
   globalRoot,
   onToggle,
   onDelete,
   onInstall,
   onMarketInstall,
   updates,
+  audit,
+  devMode = false,
+  onToggleDevMode,
+  onReloadPlugins,
+  onEmitEvent,
+  onClearLogs,
+  onTestLog,
 }: {
   plugins: PluginRow[]
   error?: string | null
-  log?: string[]
+  /** 结构化插件日志（rev173.229）—— 调试 tab 与底部折叠区共用 */
+  logs?: PluginLogEntry[]
   /** 全局插件根（`appDataDir()`）—— 空态与列表底部都要告诉用户"拷到哪能全库生效" */
   globalRoot?: string | null
   onToggle: (id: string, enabled: boolean) => void
@@ -125,11 +136,27 @@ export function PluginPanel({
    * 缺省 / 空对象 ⇒ 不显示任何「可更新」提示。
    */
   updates?: Record<string, string>
+  /**
+   * 调试面板数据源（rev173.229 · 需求 §2.13）：`kernel.audit()` 的快照。
+   * 不传 ⇒ 不显示「调试」tab（独立窗口 / 测试环境）。
+   */
+  audit?: KernelAudit | null
+  /** 开发者模式（localStorage，由 App 持有）—— 关着时调试 tab 只显示一个开关 */
+  devMode?: boolean
+  onToggleDevMode?: (on: boolean) => void
+  /** 重载全部插件（就是 `setReloadToken` bump 一次） */
+  onReloadPlugins?: () => void
+  /** 模拟触发：把 topic + payload 交给内核 event.emit；返回错误文案或 null */
+  onEmitEvent?: (topic: string, payload: unknown) => string | null
+  /** 清空日志 */
+  onClearLogs?: () => void
+  /** 写一条测试日志（验证日志面板与堆栈展开） */
+  onTestLog?: () => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
-  /** 当前 tab（rev173.148）：已安装 / 发现（插件市场） */
-  const [tab, setTab] = useState<'installed' | 'discover'>('installed')
+  /** 当前 tab（rev173.148）：已安装 / 发现（插件市场）/ 调试（rev173.229，仅开发者模式） */
+  const [tab, setTab] = useState<'installed' | 'discover' | 'dev'>('installed')
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
   const pendingIsGlobal = pending?.source === 'global'
 
@@ -194,8 +221,8 @@ export function PluginPanel({
           用户要求去掉标题和横线，扫描按钮挪到主区顶栏（见 App 的 .zn-main-panel-bar）。 */}
       {error && <div className="zn-plugins-error">⚠ {error}</div>}
 
-      {/* 两个 tab（rev173.148）：「已安装」= 原来的列表；「发现」= 插件市场 */}
-      {onMarketInstall && (
+      {/* tab（rev173.148）：已安装 / 发现（市场）；rev173.229 加「调试」（开发者模式） */}
+      {(onMarketInstall || audit) && (
         <div className="zn-plugins-tabs" role="tablist">
           <button
             type="button"
@@ -214,16 +241,46 @@ export function PluginPanel({
               </span>
             )}
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'discover'}
-            className={`zn-plugins-tab${tab === 'discover' ? ' is-active' : ''}`}
-            onClick={() => setTab('discover')}
-          >
-            发现
-          </button>
+          {onMarketInstall && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'discover'}
+              className={`zn-plugins-tab${tab === 'discover' ? ' is-active' : ''}`}
+              onClick={() => setTab('discover')}
+            >
+              发现
+            </button>
+          )}
+          {audit && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'dev'}
+              className={`zn-plugins-tab${tab === 'dev' ? ' is-active' : ''}`}
+              onClick={() => setTab('dev')}
+            >
+              调试
+              {devMode && <span className="zn-plugins-tab-count">{plugins.filter((p) => p.enabled).length}</span>}
+            </button>
+          )}
         </div>
+      )}
+
+      {tab === 'dev' && audit && (
+        <PluginDevPane
+          plugins={plugins}
+          logs={logs ?? []}
+          audit={audit}
+          devMode={devMode}
+          onToggleDevMode={(on) => onToggleDevMode?.(on)}
+          onReload={() => onReloadPlugins?.()}
+          onEmit={(topic, payload) =>
+            onEmitEvent ? onEmitEvent(topic, payload) : '宿主没有提供 event.emit'
+          }
+          onClearLogs={onClearLogs}
+          onTestLog={onTestLog}
+        />
       )}
 
       {tab === 'discover' && onMarketInstall && (
@@ -345,10 +402,19 @@ export function PluginPanel({
         </>
       )}
 
-      {log && log.length > 0 && (
+      {logs && logs.length > 0 && (
         <details className="zn-plugins-log">
-          <summary>插件日志（{log.length}）</summary>
-          <pre>{log.slice(-50).join('\n')}</pre>
+          <summary>插件日志（{logs.length}）</summary>
+          <pre>
+            {logs
+              .slice(-50)
+              .map((l) => {
+                const t = new Date(l.ts)
+                const p = (n: number) => String(n).padStart(2, '0')
+                return `${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())} [${l.level}] ${l.pluginId ?? '内核'} ${l.msg}`
+              })
+              .join('\n')}
+          </pre>
         </details>
       )}
 

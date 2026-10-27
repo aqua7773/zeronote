@@ -33,6 +33,7 @@ import type {
   DocEvent,
   NoteDoc,
   NoteMeta,
+  PluginLogEntry,
   PluginManifest,
   ShellMountCtx,
 } from './kernel/contract'
@@ -292,7 +293,16 @@ export default function App() {
    */
   const [platformSkipped, setPlatformSkipped] = useState<string[]>([])
   const [panels, setPanels] = useState<PanelRegistration[]>([])
-  const [panelLog, setPanelLog] = useState<string[]>([])
+  /** 结构化插件日志（rev173.229 · 需求 §2.13）：带归属 / 级别 / 错误堆栈 */
+  const [panelLog, setPanelLog] = useState<PluginLogEntry[]>([])
+  /** 开发者模式（localStorage，插件页「调试」tab 的开关） */
+  const [devMode, setDevMode] = useState(() => {
+    try {
+      return localStorage.getItem('zeronote.devMode') === '1'
+    } catch {
+      return false
+    }
+  })
   const [pluginError, setPluginError] = useState<string | null>(null)
   const [panelState, setPanelState] = useState<Record<string, unknown>>({})
   /* 2026-10-13 拆权限门：这里原本是 `permissions` state（读 `.zn/permissions.json`
@@ -786,7 +796,8 @@ export default function App() {
       ? createKernel(v, docApi, {
           onPanelsChange: setPanels,
           onNotify: (msg) => setToast(msg),
-          onLog: (msg) => setPanelLog((l) => [...l.slice(-199), msg]),
+          onLog: (msg, level, pluginId, stack) =>
+            setPanelLog((l) => [...l.slice(-499), { ts: Date.now(), pluginId: pluginId ?? null, level: level ?? 'info', msg, stack }]),
           onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
           // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
           onShellChange: () => setShellTick((t) => t + 1),
@@ -807,6 +818,40 @@ export default function App() {
     setKernelSlot({ vault, kernel: makeKernel(vault) })
   }
   const kernel = kernelSlot.vault === vault ? kernelSlot.kernel : null
+
+  /** 开发者模式落盘（rev173.229）：刷新 / 重启后保持 */
+  useEffect(() => {
+    try {
+      localStorage.setItem('zeronote.devMode', devMode ? '1' : '0')
+    } catch {
+      /* 隐私模式：持久不了也要能用 */
+    }
+  }, [devMode])
+
+  /**
+   * 调试面板的「模拟触发」（rev173.229 · 需求 §2.13）：把 topic + payload 交给内核事件总线。
+   * 返回错误文案而不是抛出 —— 面板只有字符串通道，抛出去会变成未处理的 rejection。
+   */
+  /** 调试面板「写一条测试日志」（rev173.229）：验证日志面板与堆栈展开 */
+  const addTestLog = useCallback(() => {
+    setPanelLog((l) => [
+      ...l.slice(-499),
+      { ts: Date.now(), pluginId: null, level: 'error' as const, msg: '测试日志（来自调试面板）', stack: new Error('测试日志（来自调试面板）').stack },
+    ])
+  }, [])
+
+  const emitDebugEvent = useCallback(
+    (topic: string, payload: unknown): string | null => {
+      if (!kernel) return '内核未就绪'
+      try {
+        kernel.event.emit(topic, payload)
+        return null
+      } catch (e) {
+        return String(e)
+      }
+    },
+    [kernel],
+  )
 
   /** 当前整窗接管者（`null` = 内核 UI 正常）—— 直接读内核那本账，引用在接管期间稳定 */
   const shellTakeover = kernel?.shellOwner() ?? null
@@ -856,7 +901,7 @@ export default function App() {
     if (!kernel) return
     const sub = kernel.fs.watch((e) => {
       applyExternalChange(e, kernel.fs, kernel.index, kernel.event, (msg) => {
-        setPanelLog((l) => [...l.slice(-199), msg])
+        setPanelLog((l) => [...l.slice(-499), { ts: Date.now(), pluginId: null, level: 'info', msg }])
       })
     })
     return () => sub.dispose()
@@ -3821,7 +3866,14 @@ export default function App() {
               <PluginPanel
                 plugins={rows}
                 error={pluginError}
-                log={panelLog}
+                logs={panelLog}
+                audit={kernel?.audit() ?? null}
+                devMode={devMode}
+                onToggleDevMode={setDevMode}
+                onEmitEvent={emitDebugEvent}
+                onReloadPlugins={() => setReloadToken((t) => t + 1)}
+                onClearLogs={() => setPanelLog([])}
+                onTestLog={addTestLog}
                 globalRoot={globalRoot}
                 onToggle={togglePlugin}
                 onDelete={(id) => void deletePlugin(id)}
@@ -4121,6 +4173,12 @@ export default function App() {
         plugins={rows}
         pluginError={pluginError}
         pluginLog={panelLog}
+        pluginAudit={kernel?.audit() ?? null}
+        devMode={devMode}
+        onToggleDevMode={setDevMode}
+        onEmitEvent={emitDebugEvent}
+        onClearLogs={() => setPanelLog([])}
+        onTestLog={addTestLog}
         onTogglePlugin={togglePlugin}
         onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}

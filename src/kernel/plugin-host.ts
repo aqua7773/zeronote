@@ -158,7 +158,16 @@ export type PluginHostDeps = {
    * 不传则完全不记录（单测 / 无宿主环境）。
    */
   usage?: UsageRecorder
-  onLog: (msg: string, level?: 'info' | 'warn' | 'error') => void
+  /**
+   * 宿主日志钩子（rev173.229 起**带归属**）：`pluginId` 为空 = 内核自身；
+   * `stack` 只在 `level === 'error'` 时由 `scopedHost` 捕获（需求 §2.13「错误堆栈」）。
+   */
+  onLog: (
+    msg: string,
+    level?: 'info' | 'warn' | 'error',
+    pluginId?: string,
+    stack?: string,
+  ) => void
   /* 2026-10-13 拆权限门：`isGranted` 接线**已删除**（内核不再做权限判定）。
    * 同日清尾：`.zn/permissions.json` 与 Rust 的 `read_permissions` / `set_permission`
    * **已整体删除** —— 内核不再读写任何授权记录。见 `docs/架构原则-2026-10-13.md` §6.1。 */
@@ -425,9 +434,28 @@ function scopedView(view: ViewApi, pluginId: string, subs: Disposable[]): ViewAp
  * **宿主有能力兜住的事，就不该留给插件作者去记。** 所以这三个原语统一包装：
  * 只做登记，**不做能力裁剪**（2026-10-13 拆门后插件拿到的就是内核那一份）。
  */
-function scopedEvent(event: EventApi, subs: Disposable[]): EventApi {
+function scopedEvent(event: EventApi, pluginId: string, subs: Disposable[]): EventApi {
   // 展开而非枚举方法：EventApi 将来加方法时这里不会静默漏转发
-  return { ...event, on: (topic, cb) => collect(subs, event.on(topic, cb)) }
+  return {
+    ...event,
+    on: (topic, cb) => {
+      // 调试面板要能看到「这个插件在听哪些 topic」（rev173.229）—— 只登记、不拦截
+      let set = pluginTopics.get(pluginId)
+      if (!set) {
+        set = new Set()
+        pluginTopics.set(pluginId, set)
+      }
+      set.add(String(topic))
+      const sub = collect(subs, event.on(topic, cb))
+      return {
+        dispose: () => {
+          sub.dispose()
+          set.delete(String(topic))
+          if (set.size === 0) pluginTopics.delete(pluginId)
+        },
+      }
+    },
+  }
 }
 
 function scopedFs(fs: FsApi, subs: Disposable[]): FsApi {
@@ -471,9 +499,43 @@ function scopedDoc(doc: DocApi, subs: Disposable[]): DocApi {
  * （宿主 DOM、全局变量、document 级监听）做的不可记账改动"的还原声明 ——
  * 而不是又一份需要作者记得手动 push 的 Disposable。
  */
-function scopedHost(host: HostApi, pluginId: string, subs: Disposable[]): HostApi {
+/** 插件 → 它订阅过的事件 topic（rev173.229 · 调试面板「事件监听」一栏） */
+const pluginTopics = new Map<string, Set<string>>()
+
+/** 某插件当前订阅的 topic（排序后返回，面板直接渲染） */
+export function pluginTopicsOf(pluginId: string): string[] {
+  return [...(pluginTopics.get(pluginId) ?? [])].sort()
+}
+
+/** 全部插件的 topic 表 —— 调试面板一次取走 */
+export function allPluginTopics(): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const id of pluginTopics.keys()) out[id] = pluginTopicsOf(id)
+  return out
+}
+
+function scopedHost(
+  host: HostApi,
+  pluginId: string,
+  subs: Disposable[],
+  onLog?: (msg: string, level?: 'info' | 'warn' | 'error', pluginId?: string, stack?: string) => void,
+): HostApi {
   return {
     ...host,
+    /**
+     * 插件视角的 `host.log`：补上**归属 + 堆栈**（rev173.229 · 需求 §2.13）。
+     * 为什么在这一层包而不是 kernel：只有这里知道"当前是哪个插件在调"。
+     * 堆栈只对 error 捕获 —— `new Error().stack` 此刻正包含插件的调用帧，
+     * 插件作者拿到的就是「哪个文件哪一行」。
+     */
+    log(level, msg) {
+      if (!onLog) {
+        host.log(level, msg)
+        return
+      }
+      const stack = level === 'error' ? new Error(String(msg)).stack : undefined
+      onLog(String(msg), level === 'debug' ? 'info' : level, pluginId, stack)
+    },
     onRollback(fn: () => void): Disposable {
       let disposed = false
       const sub: Disposable = {
@@ -758,7 +820,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
       rollback()
       throw e
     }
-    deps.onLog(`插件已加载（纯样式）：${manifest.name}（${manifest.id}）`, 'info')
+    deps.onLog(`插件已加载（纯样式）：${manifest.name}（${manifest.id}）`, 'info', manifest.id)
     return {
       dir,
       root,
@@ -878,13 +940,13 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     fs: audit('fs', scopedFs(deps.fs, subs)),
     doc: audit('doc', scopedDoc(deps.doc, subs)),
     index: audit('index', deps.index),
-    event: audit('event', scopedEvent(deps.event, subs)),
+    event: audit('event', scopedEvent(deps.event, manifest.id, subs)),
     command: audit('command', scopedCommand(deps.command, manifest.id, subs, ownedCommands)),
     view: audit('view', scopedView(deps.view, manifest.id, subs)),
     // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。
     store: audit('store', deps.store(manifest.id, root)),
-    host: audit('host', scopedHost(deps.host, manifest.id, subs)),
+    host: audit('host', scopedHost(deps.host, manifest.id, subs, deps.onLog)),
     net: audit('net', deps.net),
     service: audit('service', deps.service(manifest.id)),
     editor: audit('editor', deps.editor(manifest.id)),
@@ -914,7 +976,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
   })
 
   const fileNote = manifest.files?.length ? `，${manifest.files.length + 1} 个文件` : ''
-  deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info')
+  deps.onLog(`插件已加载：${manifest.name}（${manifest.id}｜${kind}${fileNote}）`, 'info', manifest.id)
   return { dir, root, source: entry.source, manifest, instance, subs, webviewBridge, signature }
 }
 
@@ -925,7 +987,7 @@ export async function unloadPlugin(loaded: LoadedPlugin, deps: PluginHostDeps): 
   try {
     await loaded.instance.dispose?.()
   } catch (e) {
-    deps.onLog(`插件 ${loaded.manifest.id} 的 dispose 抛异常：${String(e)}`, 'warn')
+    deps.onLog(`插件 ${loaded.manifest.id} 的 dispose 抛异常：${String(e)}`, 'warn', loaded.manifest.id)
   }
   for (const s of loaded.subs.splice(0)) {
     try {
@@ -934,5 +996,5 @@ export async function unloadPlugin(loaded: LoadedPlugin, deps: PluginHostDeps): 
       /* 单个资源清理失败不阻断 */
     }
   }
-  deps.onLog(`插件已卸载：${loaded.manifest.id}`, 'info')
+  deps.onLog(`插件已卸载：${loaded.manifest.id}`, 'info', loaded.manifest.id)
 }

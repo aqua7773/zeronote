@@ -2722,3 +2722,193 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
+
+/* ───────────── 插件调试面板（rev173.229 · 需求 §2.13） ─────────────
+   面板嵌在插件页里（「调试」tab），所以只用 zn-* 变量、不引入新的布局容器。 */
+.zn-dev {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 2px 2px 12px;
+}
+.zn-dev-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.zn-dev-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+  user-select: none;
+}
+.zn-dev-actions {
+  display: flex;
+  gap: 8px;
+}
+.zn-dev-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+.zn-dev-stats b {
+  color: var(--zn-fg);
+  font-weight: 600;
+}
+.zn-dev-err-count {
+  color: var(--zn-danger);
+  font-style: normal;
+}
+.zn-dev-hint {
+  margin: 0;
+  font-size: var(--zn-text-sm);
+  line-height: 1.6;
+  color: var(--zn-fg-subtle);
+}
+.zn-dev-title {
+  margin: 4px 0 0;
+  font-size: var(--zn-text-sm);
+  font-weight: 600;
+  color: var(--zn-fg);
+}
+.zn-dev-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius);
+  overflow: hidden;
+}
+.zn-dev-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 52px 52px 52px minmax(0, 1.4fr);
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg);
+  border-top: 1px solid var(--zn-border);
+}
+.zn-dev-row:first-child {
+  border-top: 0;
+}
+.zn-dev-row-head {
+  background: var(--zn-bg-subtle, rgba(127, 127, 127, 0.08));
+  color: var(--zn-fg-muted);
+  font-weight: 600;
+}
+.zn-dev-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-dev-id {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--zn-fg-subtle);
+}
+.zn-dev-ver {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--zn-fg-subtle);
+}
+.zn-dev-topics {
+  color: var(--zn-fg-muted);
+}
+.zn-dev-emit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.zn-dev-input,
+.zn-dev-payload {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg);
+  background: var(--zn-bg);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+}
+.zn-dev-payload {
+  font-family: var(--zn-font-mono);
+  resize: vertical;
+}
+.zn-dev-emit-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.zn-dev-note {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+.zn-dev-logs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius);
+  background: var(--zn-bg);
+}
+.zn-dev-log {
+  display: grid;
+  grid-template-columns: 62px 92px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--zn-fg);
+  padding: 2px 0;
+}
+.zn-dev-log.is-warn .zn-dev-log-msg {
+  color: var(--zn-warn);
+}
+.zn-dev-log.is-error .zn-dev-log-msg {
+  color: var(--zn-danger);
+}
+.zn-dev-log-time,
+.zn-dev-log-src {
+  color: var(--zn-fg-subtle);
+  font-family: var(--zn-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-dev-log-msg {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.zn-dev-stack {
+  grid-column: 1 / -1;
+  margin: 2px 0 4px;
+}
+.zn-dev-stack summary {
+  cursor: pointer;
+  color: var(--zn-fg-subtle);
+  font-size: 11px;
+}
+.zn-dev-stack pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--zn-fg-muted);
+  background: var(--zn-bg-subtle, rgba(127, 127, 127, 0.08));
+  border-radius: var(--zn-radius-sm);
+}
