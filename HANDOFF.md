@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.207
-更新时间: 2026-10-27 · 最新 rev173.207
+revision: 173.208
+更新时间: 2026-10-27 · 最新 rev173.208
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.207
 
 | rev | 内容 |
 |---|---|
+| rev173.208 | 2026-10-27 · **AI 第二版：`plugin_exec` 白名单**（用户「1，2」拍板：设置页勾选 + 自动任务里也允许但仅限勾选命令）· 零内核改动：① 新工具 `plugin_exec`（`command` + 可选 `args` 数组）② 设置页「允许 AI 调用的命令」—— 候选来自 `command.list()`（去掉 `core.*` / `ai.*`），逐条「允许 / 已允许」按钮，落 `store.allowedCommands` ③ 三条硬线：内核命令与 AI 自身命令永不开放 · 未授权返回「命令未授权：…」· 任务里同样受白名单限制 ④ 单测 **9 条**（白名单判定 / 清洗 / 候选过滤 / argv 归一 / 工具定义）⑤ **真模型实测**：未授权 3 ms 拒绝 → 点「允许」后 2 ms 成功、打卡面板真打开；fixed 任务（manual）**22 ms** ok ⑥ **发市场 `ai@0.6.0`**（重新打包签名 + 索引重建）。vitest 1281 → **1290** |
 | rev173.207 | 2026-10-27 · **工具名格式单测 + 真模型写工具全链路**（用户「开始」· 零内核改动）：① 新增 `tests/ai-tools.test.ts` **4 条** —— 字符集 `^[a-zA-Z0-9_-]+$` / 唯一 / **执行器分支与 TOOLS 集合一致**（从 `runTool` 抽 `name ===` 分支）/ 发给模型的描述里无点号旧名；反向验证（改回 `note.write` ⇒ 3 条立刻红）② 修 rev205 的漏网 —— **5 处给模型看的文案**仍写点号旧名（`note_create` desc、`task_create.steps` 参数说明、3 处运行时错误文本），模型会照着传错 ③ **真模型实测**：对话 `note_move` 提案→确认→真移动 · `tag_add` 直接生效 · `note_trash` 提案→确认→进回收站；fixed 任务 save 触发 **169 ms**（tag_add 36 + note_move 133）④ ⚠️ 模型会说「任务建好了」而没调 `task_create`（`steps` 空 / `tasks` 空）⇒ 看面板数字与 store 才算数。vitest 1277 → **1281** |
 | rev173.206 | 2026-10-27 · **交接：AI 插件第一版**（用户「交接」）：本会话把 AI 插件从 0 做到第一版 —— **9 个 rev（196–205）· 零内核改动**：骨架与设置 → 流式对话 → 只读工具 ×5 → 写工具 ×7 + diff 预览确认 → 任务系统（保存触发 / 串行队列 / 去抖）→ 定时触发 + `fixed` 执行模式 → 三步向导 + token 统计 + 分类抽样 → 手机走查 + 发市场（索引 17 条）→ **工具名改下划线**（真模型 400 的根因）+ 真 Key 抽样。**交接时**：HEAD `5f6a07b` · 与 origin 同步 · verify 全绿 **13:25:36** · vitest **1277** · 质量门 7/7 · dev pid 35548（12 小时+）· 测试库配了真 DeepSeek Key（凭据管理器 `ai.api-key.deepseek`）· 手机 ai 插件已装。**下个会话第一件事**：给工具名加一条格式单测 + 真模型下过一遍写工具全链路 |
 | rev173.205 | 2026-10-27 · **AI 工具名改下划线 + 真 Key 抽样**（用户给了测试 Key · 零内核改动）：**第一次用真模型跑工具，抓到大 bug** —— DeepSeek 的 function name 只允许 `^[a-zA-Z0-9_-]+$`，我们 17 个工具里 12 个带点号（`note.create` / `tag.add` / `task.create` …）⇒ 抽样 20 篇**全部 400**（`Invalid 'tools[5].function.name'`）。rev197–203 全走本地 mock，mock 不校验名字格式，**写工具在真模型上从来没能用过**。修法：17 个名字改下划线、24 处引用一起换。**真 Key 抽样**（deepseek-chat · 46k 输入 / 295 输出 ≈ ¥0.03）：本来有目录的 8 篇 **8/8 正确**（7 原目录 + 1 上一级），根目录 12 篇给顶层兜底或按内容归类、无一荒谬，空笔记改为跳过。**改名后真模型全链路验证**：「列文件夹」→ `list_dirs` ✓；「改写根笔记」→ `read_note` → `note_write` 出提案 → 点「采用」→ 磁盘真变 ✓ |
@@ -103,6 +104,50 @@ revision: 173.207
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.208（2026-10-27 · AI 第二版：`plugin_exec` 白名单）
+>
+> 用户「1，2」—— 两个拍板点：**勾选 UI** + **自动任务里也允许，但仅限勾选过的命令**。零内核改动：
+> 只动 `examples/ai/`（`index.js` +176 行 · `manifest.json` 0.5.0 → **0.6.0**）+ 新增 `tests/ai-plugin-exec.test.ts`。
+>
+> ### ① 工具 `plugin_exec`
+>
+> 参数 `command`（必填）+ `args`（数组，可省略）。执行 `command.execute(cmd, ...argvOf(args))`，结果 JSON 化后截断 2000 字符。
+> 不把「有哪些命令可用」塞进工具描述（本机 137 条，会撑爆）；被拒绝时错误文本会说明去哪授权。
+>
+> ### ② 白名单 UI
+>
+> 「AI」设置页新增「允许 AI 调用的命令」：候选来自 `command.list()`，**去掉 `core.*` 与 `ai.*`**，
+> 每条一行「标题 · id」+「允许 / 已允许」按钮（点击切换，落 `store.allowedCommands`）。
+> 为什么不用 checkbox：契约的 checkbox 只回 `{ value }`，动态列表拿不到「哪一条」；按钮的 `payload` 能带 id。
+> 实测本机列出 **137 条**候选（记账 / 同步 ×4 / 标签 / 打卡 / 主题 …）。
+>
+> ### ③ 安全边界（三条硬线）
+>
+> 1. `core.*` 永不开放（等于把内核交给模型）；`ai.*` 永不开放（防 `plugin_exec` 递归自己）；
+> 2. 未授权 ⇒ 抛 `命令未授权：<id>`，步骤流标 ✗（不静默）；
+> 3. 自动任务同样走白名单 —— 用户已按「勾选 = 知情同意」拍板。
+>
+> ### ④ 单测 9 条（`tests/ai-plugin-exec.test.ts`）
+>
+> 白名单判定（core / ai / 空 / 非字符串）· 清洗（去重、脏值、旧 store 的 `null`）· 候选过滤（title 缺省用 id）·
+> argv 归一（缺省 / 数组 / 标量 / 对象）· `plugin_exec` 工具定义。**单测抓到一处真问题**：
+> `normalizeAllowedCommands` 原先用 `String(item)`，手改 store 塞进数字 `42` 会被当成命令 `"42"` 放行 ⇒ 改成只接受字符串。
+>
+> ### ⑤ 真模型实测（DeepSeek · 测试库 `_tmp-vault-tb`）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 未授权调 `habit.create-plan` | 模型主动调 `plugin_exec` ⇒ **3 ms 拒绝**「命令未授权：habit.create-plan」，步骤 ✗ |
+> | 点「允许」后重调 | **2 ms 成功**（返回 `null`）⇒ **打卡面板真的打开并停在「新建计划」表单**（`_shots/rev173.208-habit-open.png`） |
+> | 自动任务里（fixed · manual） | 模型又说「任务建好了（id `tmvqjnbin6k`）」但 `steps: []`、`tasks` 空（同 rev207 的幻觉，且这次编造了旧 id）⇒ 手工播种任务后点「立即跑」：**22 ms ok**，`runs[0].steps[0] = { name:'plugin_exec', ok:true }`，打卡面板同样打开（`_shots/rev173.208-task-plugin-exec.png`） |
+>
+> 清理：任务已删 · 授权已撤销（`allowedCommands=[]`）· `verify.ps1` 全绿。
+>
+> ### 交接时状态
+>
+> vitest **1281 → 1290** · `verify.ps1` 六步全绿 · **已重新打包签名发市场 `ai@0.6.0`**（130.7 KB · 整包 sha256 `0da9428e…` · 入口 `061cb66a…`，索引 17 条不变 —— 同一条目换代）·
+> 白名单在候选多时很长（137 行），后续可做「按插件分组折叠」。
+>
 > ## 📌 rev173.207（2026-10-27 · 工具名格式单测 + 真模型写工具全链路）
 >
 > 用户「开始」—— 这是上一卡点名的「下个会话第一件事」。**零内核改动**：只改 `examples/ai/index.js` 的 5 处文案 + 新增 `tests/ai-tools.test.ts`。

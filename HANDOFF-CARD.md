@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-27（rev173.207 · 工具名单测 + 真模型全链路）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-27（rev173.208 · AI 第二版：plugin_exec 白名单）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.207 · 0.6.0 · 2026-10-27 |
-| 测试基线 | vitest 1281 · cargo 55 · oxlint 3 warnings（2026-10-27） |
+| rev / 版本 | rev173.208 · 0.6.0 · 2026-10-27 |
+| 测试基线 | vitest 1290 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -81,6 +81,10 @@ pwsh -File scripts\verify.ps1
 >    修 5 处「教错模型」的旧点号文案；真模型实测 `note_move` 提案→确认→真移动 · `tag_add` 直接生效 · `note_trash` 提案→确认→进回收站 ·
 >    fixed 任务（save 触发）**169 ms** 跑完 tag_add + note_move。vitest 1277 → **1281**。
 >    ⚠️ **模型会说「任务建好了」而没调 `task_create`**（面板 0 个 / store.tasks 空）—— 验收要看面板数字与 store，别信回复原话。
+>    **208 第二版：`plugin_exec` 白名单** ✅ —— 设置页「允许 AI 调用的命令」（候选 137 条，去掉 `core.*` / `ai.*`，逐条允许/已允许）；
+>    新工具 `plugin_exec`（command + args）；三条硬线：内核与 AI 自身命令永不开放 · 未授权明确报错 · **自动任务同样受白名单限制**（用户拍板）。
+>    真模型实测：未授权 3 ms 拒绝 → 允许后 2 ms 成功（打卡面板真打开）；fixed 任务 22 ms ok。vitest 1281 → **1290**。
+>    ⚠️ 白名单 UI 在候选多时很长（137 行），后续可按插件分组折叠；**`ai@0.6.0` 已重新打包签名发市场**（`market/packs/ai-0.6.0.znp` · 130.7 KB · 索引 17 条）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。

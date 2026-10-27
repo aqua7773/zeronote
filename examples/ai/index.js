@@ -348,7 +348,76 @@ export const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'plugin_exec',
+      description:
+        '执行一条**用户已授权**的插件命令（例如打卡 habit.check / habit.backfill）。' +
+        '设置页「允许 AI 调用的命令」里没勾选的命令会被拒绝；内核命令与 AI 自己的命令永远不开放。' +
+        '参数按顺序放进 args 数组。不确定某个命令要什么参数时，先问用户或用只读工具查清楚。',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: '命令 id，例如 habit.check' },
+          args: {
+            type: 'array',
+            items: {},
+            description: '按顺序传给命令的参数（可省略）',
+          },
+        },
+        required: ['command'],
+      },
+    },
+  },
 ]
+
+/* ───────────────── 插件命令白名单（rev173.208 · 第二版 plugin.exec） ───────────────── */
+
+/**
+ * 一条命令能不能被 AI 执行。
+ *
+ * 安全语义（2026-10-27 用户拍板：设置页勾选 + 自动任务里也允许，但仅限勾选过的）：
+ * · **内核命令**（`core.*`）不开放 —— 那等于把内核交给模型；
+ * · **AI 自己的命令**（`ai.*`）不开放 —— 防递归（plugin_exec 调 ai.* 再调 plugin_exec…）；
+ * · 其余必须是用户显式勾选过的插件命令。
+ */
+export function isPluginCommandAllowed(id, allowed) {
+  if (typeof id !== 'string') return false
+  const cmd = id.trim()
+  if (!cmd) return false
+  if (cmd.startsWith('core.') || cmd.startsWith('ai.')) return false
+  return (Array.isArray(allowed) ? allowed : []).includes(cmd)
+}
+
+/** 白名单落盘 / 读回时的清洗：去空、去内核与 AI 自身、去重（手改 store 或旧数据都可能带脏值） */
+export function normalizeAllowedCommands(value) {
+  const out = []
+  for (const item of Array.isArray(value) ? value : []) {
+    if (typeof item !== 'string') continue
+    const s = item.trim()
+    if (!s || s.startsWith('core.') || s.startsWith('ai.')) continue
+    if (!out.includes(s)) out.push(s)
+  }
+  return out
+}
+
+/** 从 `command.list()` 的结果里挑出可授权的命令（内核与 AI 自己的不列） */
+export function pickAllowableCommands(all) {
+  const out = []
+  for (const c of Array.isArray(all) ? all : []) {
+    const id = String(c?.id ?? '').trim()
+    if (!id || id.startsWith('core.') || id.startsWith('ai.')) continue
+    out.push({ id, title: String(c?.title ?? id) })
+  }
+  return out
+}
+
+/** 模型给的 args 归一化成位置参数（缺省 / null = 不传；非数组包成单参，不静默丢掉） */
+export function argvOf(value) {
+  if (value === undefined || value === null) return []
+  return Array.isArray(value) ? value : [value]
+}
 
 /**
  * 从一段 SSE 缓冲里解析出所有增量。
@@ -1059,6 +1128,8 @@ export default {
     let usageStat = emptyUsage()
     /** 首次向导是否已走完（落 store 的 `wizardDone`）；完成前用三步向导替代设置区 */
     let wizardDone = false
+    /** 用户授权给 AI 的插件命令 id（落 store 的 `allowedCommands`；rev173.208） */
+    let allowedCommands = []
     /** 本次会话里测试连接成功过（向导第三步判据；不落盘，重启重测一次） */
     let wizardTestOk = false
     /** 分类抽样结果（rev203 · 20 篇对照片，人工核对用） */
@@ -1125,6 +1196,11 @@ export default {
         wizardDone = Boolean(await store.get('wizardDone', false))
       } catch {
         wizardDone = false
+      }
+      try {
+        allowedCommands = normalizeAllowedCommands(await store.get('allowedCommands', []))
+      } catch {
+        allowedCommands = []
       }
       startDueTimer()
       refresh()
@@ -1291,6 +1367,7 @@ export default {
         '规则：',
         '1. 只做指令要求的事，不要顺手整理其它笔记。',
         '2. 可以：列目录 / 列笔记 / 读笔记 / 搜索 / 打标签 / 移动笔记 / 新建文件夹 / 新建笔记。',
+        '2b. 用户授权过的插件命令可以用 plugin_exec 调（例如 habit.check）；没授权的会被拒绝，不要重试。',
         '3. 不可以：改写已有正文、删除笔记 —— 这两个在自动任务里会被拒绝（要用户在对话里确认）。',
         `4. 最多 ${MAX_TASK_STEPS} 步工具调用；够用就停。`,
         '5. 最后用一句话说明你做了什么；不要输出无关解释。',
@@ -1923,6 +2000,29 @@ export default {
         })
       }
 
+      if (name === 'plugin_exec') {
+        const cmd = String(a.command ?? '').trim()
+        if (!cmd) throw new Error('缺少 command 参数')
+        if (!isPluginCommandAllowed(cmd, allowedCommands)) {
+          throw new Error(
+            `命令未授权：${cmd}。请让用户在「AI」设置页的「允许 AI 调用的命令」里允许它（内核命令与 AI 自己的命令不开放）`,
+          )
+        }
+        let result
+        try {
+          result = await command.execute(cmd, ...argvOf(a.args))
+        } catch (e) {
+          throw new Error(`命令 ${cmd} 执行失败：${String(e?.message ?? e)}`)
+        }
+        let text
+        try {
+          text = typeof result === 'string' ? result : JSON.stringify(result ?? null)
+        } catch {
+          text = String(result)
+        }
+        return text.length > 2000 ? `${text.slice(0, 2000)}…（结果已截断）` : text
+      }
+
       throw new Error(`未知工具：${name}`)
     }
 
@@ -2400,6 +2500,53 @@ export default {
       ]
     }
 
+    /**
+     * 「允许 AI 调用的命令」区块（rev173.208）。
+     *
+     * 候选来自 `command.list()`（已加载插件注册的命令），去掉内核与 AI 自身；
+     * 每条一个「允许 / 已允许」按钮 —— 点击切换并落 store。
+     * 为什么不用 checkbox：checkbox 的 onSubmit 只回 `{ value }`，动态列表拿不到是哪一条
+     * （契约 UINode 的 checkbox 按 bind 字段绑定，不适合 N 条动态项）；按钮的 payload 能带 id。
+     */
+    function allowCommandSection() {
+      let all = []
+      try {
+        all = pickAllowableCommands(command.list())
+      } catch {
+        all = []
+      }
+      if (!all.length) {
+        return {
+          type: 'text',
+          value: '还没有可授权的插件命令 —— 装好/启用插件后这里会列出来',
+          variant: 'caption',
+          tone: 'muted',
+        }
+      }
+      return {
+        type: 'list',
+        items: all.map((c) => ({
+          key: c.id,
+          node: {
+            type: 'row',
+            align: 'center',
+            gap: 'sm',
+            children: [
+              { type: 'text', value: `${c.title} · ${c.id}`, variant: 'caption' },
+              {
+                type: 'button',
+                label: allowedCommands.includes(c.id) ? '已允许' : '允许',
+                variant: allowedCommands.includes(c.id) ? 'ghost' : 'default',
+                onClick: 'ai.toggle-command',
+                payload: { id: c.id },
+              },
+            ],
+          },
+        })),
+        empty: '还没有可授权的插件命令',
+      }
+    }
+
     function renderPanel() {
       const p = providerOf(cfg.provider)
       const base = effectiveBase()
@@ -2590,6 +2737,14 @@ export default {
         ] : []),
 
         { type: 'divider' },
+
+        /* 允许 AI 调用的插件命令（rev173.208 · 第二版 plugin.exec） */
+        {
+          type: 'field',
+          label: '允许 AI 调用的命令',
+          hint: '只有点过「允许」的插件命令才能被 AI 执行；内核命令与 AI 自己的命令不开放，自动任务同样受此限制',
+          children: allowCommandSection(),
+        },
 
         /* 任务入口 + 下一步提示 */
         {
@@ -3003,6 +3158,27 @@ export default {
     )
 
     /* ───────── 任务面板命令（rev201） ───────── */
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.toggle-command',
+        title: 'AI：切换命令授权',
+        run: async (payload) => {
+          const id = String(payload?.id ?? '').trim()
+          if (!id) return
+          allowedCommands = normalizeAllowedCommands(
+            allowedCommands.includes(id) ? allowedCommands.filter((x) => x !== id) : [...allowedCommands, id],
+          )
+          try {
+            await store.set('allowedCommands', allowedCommands)
+          } catch (e) {
+            actionNote = `保存授权失败：${String(e?.message ?? e)}`
+            actionOk = false
+          }
+          refresh()
+        },
+      }),
+    )
 
     subscriptions.push(
       command.register({
