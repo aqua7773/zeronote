@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "ai",
   "name": "AI 管家",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -38,7 +38,9 @@
       { "id": "ai.task-toggle", "title": "AI：启用 / 停用任务" },
       { "id": "ai.task-run", "title": "AI：立即跑一个任务" },
       { "id": "ai.task-runs", "title": "AI：展开 / 收起任务运行记录" },
-      { "id": "ai.task-delete", "title": "AI：删除任务" }
+      { "id": "ai.task-delete", "title": "AI：删除任务" },
+      { "id": "ai.wizard-done", "title": "AI：完成首次配置向导" },
+      { "id": "ai.sample", "title": "AI：分类抽样（20 篇，人工核对）" }
     ],
     "panels": [
       { "id": "ai.chat", "title": "AI", "location": "main" },

@@ -354,14 +354,16 @@ export const TOOLS = [
  * 从一段 SSE 缓冲里解析出所有增量。
  *
  * 纯函数：不碰网络、不碰状态（`tests/ai.test.ts` 覆盖半包 / 多事件 / [DONE] / 坏行）。
- * 返回 `{ deltas, toolDeltas, done, rest }`：
+ * 返回 `{ deltas, toolDeltas, usage, done, rest }`：
  * · `deltas` —— 正文增量（`choices[0].delta.content`）
  * · `toolDeltas` —— 工具调用增量（`choices[0].delta.tool_calls[]`，**参数是分片来的**，调用方要按 index 累积）
+ * · `usage` —— token 用量（rev203；服务商一般只在最后一块给，没有就是 `null`）
  * · `rest` —— **最后一行可能不完整**的尾巴，调用方必须拼回下一段缓冲，否则长回复会在 chunk 边界丢字
  */
 export function parseSseBuffer(buf) {
   const deltas = []
   const toolDeltas = []
+  let usage = null
   let done = false
   const parts = String(buf ?? '').split('\n')
   const rest = parts.pop() ?? ''
@@ -376,6 +378,8 @@ export function parseSseBuffer(buf) {
     }
     try {
       const j = JSON.parse(payload)
+      const u = normalizeUsage(j?.usage)
+      if (u) usage = u
       const ch = j?.choices?.[0]
       const d = ch?.delta?.content
       if (typeof d === 'string' && d) deltas.push(d)
@@ -394,7 +398,72 @@ export function parseSseBuffer(buf) {
       /* 半包 / 非 JSON 行：跳过（下一轮会重新拼） */
     }
   }
-  return { deltas, toolDeltas, done, rest }
+  return { deltas, toolDeltas, usage, done, rest }
+}
+
+/* ───────────────── token 用量（rev173.203） ───────────────── */
+
+/**
+ * 把服务商回的 `usage` 规范成 `{ prompt, completion }`（都是整数）；拿不到返回 `null`。
+ *
+ * 为什么要 normalize：OpenAI 用 `prompt_tokens / completion_tokens`，
+ * 少数兼容实现用 `input_tokens / output_tokens`；两套都认，别让统计静默变成 0。
+ *
+ * ⚠️ 还要认**自己输出的形状**（`prompt` / `completion`）—— 这个函数是幂等的：
+ * `parseSseBuffer` 已经 normalize 过一次，`addUsage` 会再 normalize 一次。
+ * 第一版没认这两个字段 ⇒ 流式那条路的统计**永远是 0 次**（实测踩到）。
+ */
+export function normalizeUsage(u) {
+  if (!u || typeof u !== 'object') return null
+  const prompt = Number(u.prompt_tokens ?? u.input_tokens ?? u.prompt ?? 0)
+  const completion = Number(u.completion_tokens ?? u.output_tokens ?? u.completion ?? 0)
+  if (!Number.isFinite(prompt) && !Number.isFinite(completion)) return null
+  const p = Number.isFinite(prompt) ? prompt : 0
+  const c = Number.isFinite(completion) ? completion : 0
+  if (!p && !c) return null
+  return { prompt: p, completion: c }
+}
+
+/** 累计器初值 */
+export function emptyUsage() {
+  return { calls: 0, prompt: 0, completion: 0, taskCalls: 0, taskPrompt: 0, taskCompletion: 0 }
+}
+
+/**
+ * 累加一次调用（纯函数，返回新对象 —— 不原地改，面板能靠引用变化判断要不要重渲染）。
+ * `isTask` ⇒ 同时记进「任务累计」那一列（任务与对话分开看，才知道钱花在哪）。
+ */
+export function addUsage(acc, u, isTask = false) {
+  const base = { ...emptyUsage(), ...(acc && typeof acc === 'object' ? acc : {}) }
+  const n = normalizeUsage(u)
+  if (!n) return base
+  return {
+    ...base,
+    calls: base.calls + 1,
+    prompt: base.prompt + n.prompt,
+    completion: base.completion + n.completion,
+    taskCalls: base.taskCalls + (isTask ? 1 : 0),
+    taskPrompt: base.taskPrompt + (isTask ? n.prompt : 0),
+    taskCompletion: base.taskCompletion + (isTask ? n.completion : 0),
+  }
+}
+
+/** token 数字的人话：`1234` → `1.2k` */
+export function formatTokens(n) {
+  const v = Number(n) || 0
+  if (v < 1000) return String(v)
+  if (v < 1000000) {
+    const k = v / 1000
+    return `${k >= 10 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, '')}k`
+  }
+  return `${(v / 1000000).toFixed(1).replace(/\.0$/, '')}M`
+}
+
+/** 一行用量摘要：`12 次 · 输入 3.2k / 输出 1.1k` */
+export function usageText(u) {
+  const v = { ...emptyUsage(), ...(u && typeof u === 'object' ? u : {}) }
+  if (!v.calls) return '还没调用过模型'
+  return `${v.calls} 次 · 输入 ${formatTokens(v.prompt)} / 输出 ${formatTokens(v.completion)} tokens`
 }
 
 /**
@@ -986,6 +1055,17 @@ export default {
     /** 插件卸载标志：队列里还没跑的任务看到它就退出（卸载后继续跑会写半截数据） */
     let disposed = false
 
+    /** token 累计（rev203 · 落 store 的 `usage`；任务与对话分开记） */
+    let usageStat = emptyUsage()
+    /** 首次向导是否已走完（落 store 的 `wizardDone`）；完成前用三步向导替代设置区 */
+    let wizardDone = false
+    /** 本次会话里测试连接成功过（向导第三步判据；不落盘，重启重测一次） */
+    let wizardTestOk = false
+    /** 分类抽样结果（rev203 · 20 篇对照片，人工核对用） */
+    let sampleRows = []
+    let sampling = false
+    let sampleNote = ''
+
     const providerOf = (id) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0]
     const accountOf = (id) => `ai.api-key.${id}`
     const trimBase = (s) => String(s || '').trim().replace(/\/+$/, '')
@@ -1035,11 +1115,101 @@ export default {
       await readKeyState()
       await loadHistory()
       await loadTasks()
+      try {
+        const saved = await store.get('usage', null)
+        if (saved && typeof saved === 'object') usageStat = { ...emptyUsage(), ...saved }
+      } catch {
+        /* 统计读不出来不影响使用 */
+      }
+      try {
+        wizardDone = Boolean(await store.get('wizardDone', false))
+      } catch {
+        wizardDone = false
+      }
       startDueTimer()
       refresh()
     }
 
+    /**
+     * 记一次 token 用量。
+     *
+     * 写盘失败只记日志：统计是附属信息，不能因为它让对话/任务失败。
+     * `isTask` 分开记 —— 用户想知道"钱花在聊天还是花在自动任务上"。
+     */
+    async function recordUsage(u, isTask) {
+      if (!u) return
+      usageStat = addUsage(usageStat, u, isTask)
+      try {
+        await store.set('usage', usageStat)
+      } catch (e) {
+        host.log('warn', `存 token 统计失败：${String(e)}`)
+      }
+      refresh()
+      refreshTasks()
+    }
+
     /* ───────── 任务（rev173.201） ───────── */
+
+    /**
+     * 分类抽样（rev203 · 实施计划「抽样 20 篇，人工核对准确率」）。
+     *
+     * 每篇问一次模型：「现有文件夹里选一个 + 给 1-3 个标签」，结果列成表给用户对照。
+     * **只读不写**：不移动、不打标签 —— 抽样是为了评估，不是替用户整理。
+     */
+    async function runSample() {
+      if (sampling) return
+      sampling = true
+      sampleRows = []
+      sampleNote = '正在逐篇问模型…（20 篇约 20 次调用）'
+      refresh()
+      try {
+        const key = await host.secrets.get(accountOf(cfg.provider))
+        if (!key) throw new Error('还没有保存 API Key')
+        const base = effectiveBase()
+        const model = effectiveModel()
+        if (!base || !model) throw new Error('服务商或模型名没配好')
+        const dirs = await fs.listDirs().catch(() => [])
+        /**
+         * ⚠️ 实测（rev203）：`fs.listNotes()` 会把**附件**也列出来（`.jpg` / `.epub` / `.txt`）——
+         * 契约注释写的是"只上报 .md"，实际 Rust 侧没过滤。抽样与任务都要自己挡一道，
+         * 不然模型会去"分类"一张图片。
+         */
+        const notes = (await fs.listNotes()).filter((n) => /\.md$/i.test(String(n?.path ?? ''))).slice(0, 20)
+        if (!notes.length) throw new Error('库里还没有笔记')
+        for (const n of notes) {
+          const text = await fs.readText(n.path).catch(() => '')
+          const ask = [
+            '你是笔记整理助手。',
+            `现有文件夹：${dirs.length ? dirs.join('、') : '（没有子文件夹，可以建议新建）'}`,
+            `笔记路径：${n.path}`,
+            `内容：\n${text.slice(0, 1500)}`,
+            '',
+            '给这篇笔记选一个最合适的文件夹（优先从现有文件夹里选），再给 1-3 个标签。',
+            '只输出 JSON，不要解释：{"dir":"工作","tags":["a","b"]}',
+          ].join('\n')
+          let dir = '（解析失败）'
+          let tags = []
+          try {
+            const r = await nonStreamChat({ base, model, key, messages: [{ role: 'user', content: ask }] })
+            void recordUsage(r.usage, false)
+            const m = /\{[\s\S]*\}/.exec(r.content)
+            const j = m ? JSON.parse(m[0]) : null
+            if (j && typeof j.dir === 'string') dir = j.dir
+            if (j && Array.isArray(j.tags)) tags = j.tags.slice(0, 3).map((t) => String(t))
+          } catch (e) {
+            dir = `（失败：${String(e?.message ?? e).slice(0, 40)}）`
+          }
+          sampleRows.push({ path: n.path, dir, tags: tags.join('、') })
+          refresh()
+        }
+        sampleNote = `完成 ${sampleRows.length} 篇 —— 逐行核对「AI 建议」是否合理（它没有真的移动任何文件）`
+      } catch (e) {
+        sampleNote = `抽样失败：${String(e?.message ?? e)}`
+      } finally {
+        sampling = false
+        refresh()
+      }
+    }
 
     async function loadTasks() {
       try {
@@ -1185,6 +1355,7 @@ export default {
           }
           for (let step = 0; step < MAX_TASK_STEPS; step++) {
             const r = await nonStreamChat({ base, model, key, messages: api })
+            void recordUsage(r.usage, true)
             if (!r.toolCalls.length) break
             api.push({
               role: 'assistant',
@@ -1322,6 +1493,7 @@ export default {
         })
         const body = res.text()
         if (res.status === 200) {
+          wizardTestOk = true
           result = { ok: true, text: `连接成功（HTTP 200 · ${base}）`, detail: '' }
         } else if (res.status === 401 || res.status === 403) {
           result = {
@@ -1416,7 +1588,12 @@ export default {
       }
       if (name === 'list_notes') {
         const dir = typeof a.dir === 'string' && a.dir.trim() ? a.dir.trim() : undefined
-        const all = await fs.listNotes(dir)
+        /**
+         * `fs.listNotes()` 实际返回**笔记 + 只读文档 + 图片**（Rust `collect` 从 rev173.3 起就这样，
+         * 契约注释里那句"只上报 .md"是过时的）。工具名叫 list_notes ⇒ 这里只给 .md，
+         * 否则模型会拿 `image-xxx.png` 当笔记去读、去分类。
+         */
+        const all = (await fs.listNotes(dir)).filter((n) => /\.md$/i.test(String(n?.path ?? '')))
         const limit = Math.min(Math.max(Number(a.limit) || 100, 1), 200)
         const notes = all.slice(0, limit).map((n) => ({ path: n.path, title: n.title }))
         return JSON.stringify({ total: all.length, returned: notes.length, notes })
@@ -1788,6 +1965,8 @@ export default {
       let buf = ''
       let content = ''
       const toolState = {}
+      /** token 用量（rev203）：服务商一般只在最后一块给，没有就是 null */
+      let usage = null
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
@@ -1799,9 +1978,10 @@ export default {
           onDelta(d)
         }
         accumulateToolCalls(toolState, parsed.toolDeltas)
+        if (parsed.usage) usage = parsed.usage
         if (parsed.done) break
       }
-      return { content, toolCalls: finalizeToolCalls(toolState) }
+      return { content, toolCalls: finalizeToolCalls(toolState), usage }
     }
 
     /** 非流式（降级）：Rust 侧发出，没有 CORS 这回事，但只能整段返回 */
@@ -1832,7 +2012,7 @@ export default {
               arguments: String(t.function.arguments || ''),
             }))
         : []
-      return { content, toolCalls }
+      return { content, toolCalls, usage: normalizeUsage(j?.usage) }
     }
 
     async function sendMessage(raw) {
@@ -1898,6 +2078,7 @@ export default {
                 refresh()
               }
             }
+            void recordUsage(r.usage, false)
             if (!r.toolCalls.length) break
 
             // 回传 assistant 的 tool_calls（OpenAI 协议要求下一轮能看到它要什么）
@@ -2099,6 +2280,117 @@ export default {
       ]
     }
 
+    /**
+     * 首次向导（rev203 · 需求 Q33「不设默认，首次配置时让你选」）。
+     *
+     * 三步：选服务商 → 填模型名与 Key → 测试连接。走完点「完成配置」，之后这块收起、
+     * 换成完整设置区。**刻意不预置任务**（Q34）—— 新库打开只有向导。
+     */
+    function wizardSection(ready) {
+      if (wizardDone) return []
+      const step1 = Boolean(cfg.provider)
+      const step2 = keyState === 'set' && Boolean(effectiveModel())
+      const step3 = wizardTestOk
+      const mark = (done, n, title) => ({
+        type: 'row',
+        align: 'center',
+        wrap: true,
+        gap: 'sm',
+        children: [
+          { type: 'badge', text: done ? '已完成' : `第 ${n} 步`, tone: done ? 'success' : 'warning' },
+          { type: 'text', value: title, variant: 'caption', tone: 'muted' },
+        ],
+      })
+      return [
+        {
+          type: 'field',
+          label: '第一次用？三步配好',
+          hint: '走完点「完成配置」，这里就收起来，换成完整设置',
+          children: {
+            type: 'stack',
+            gap: 'sm',
+            children: [
+              mark(step1, 1, '选服务商（DeepSeek / Kimi / 通义 / 自定义 OpenAI 兼容端点）'),
+              {
+                type: 'select',
+                bind: 'ai.provider',
+                options: PROVIDERS.map((x) => ({ value: x.id, label: x.name })),
+                onSubmit: 'ai.set-provider',
+              },
+              mark(step2, 2, '填模型名与 API Key（Key 存系统凭据管理器）'),
+              /* 自定义服务商：向导里也得有端点输入，否则用户选完 custom 就走不下去 */
+              ...(cfg.provider === 'custom'
+                ? [
+                    {
+                      type: 'input',
+                      bind: 'ai.baseurl',
+                      placeholder: '端点地址，例如 https://api.example.com/v1',
+                      onSubmit: 'ai.save-baseurl',
+                    },
+                  ]
+                : []),
+              {
+                type: 'input',
+                bind: 'ai.model',
+                placeholder: `模型名，留空用默认：${providerOf(cfg.provider).model || '（自定义无默认）'}`,
+                onSubmit: 'ai.save-model',
+              },
+              {
+                type: 'row',
+                align: 'center',
+                gap: 'sm',
+                children: [
+                  {
+                    type: 'input',
+                    bind: 'ai.key',
+                    placeholder: 'sk-…',
+                    secret: true,
+                    onSubmit: 'ai.save-key',
+                  },
+                  { type: 'button', label: '保存 Key', onClick: 'ai.save-key', send: 'ai.key' },
+                ],
+              },
+              {
+                type: 'button',
+                label: '保存模型名',
+                variant: 'ghost',
+                onClick: 'ai.save-model',
+                send: 'ai.model',
+              },
+              mark(step3, 3, '测试连接（能用才算配好）'),
+              {
+                type: 'row',
+                align: 'center',
+                wrap: true,
+                gap: 'sm',
+                children: [
+                  { type: 'button', label: busy ? '连接中…' : '测试连接', onClick: 'ai.test' },
+                  {
+                    type: 'button',
+                    label: '完成配置',
+                    disabled: !ready,
+                    onClick: 'ai.wizard-done',
+                  },
+                ],
+              },
+              ...(result
+                ? [
+                    {
+                      type: 'text',
+                      value: result.text,
+                      variant: 'caption',
+                      tone: result.ok ? 'success' : 'danger',
+                    },
+                  ]
+                : []),
+              ...(result?.detail ? [{ type: 'code', value: result.detail, lang: 'text' }] : []),
+            ],
+          },
+        },
+        { type: 'divider' },
+      ]
+    }
+
     function renderPanel() {
       const p = providerOf(cfg.provider)
       const base = effectiveBase()
@@ -2136,10 +2428,19 @@ export default {
           variant: 'caption',
           tone: 'muted',
         },
+        {
+          type: 'text',
+          value: `用量：${usageText(usageStat)}`,
+          variant: 'caption',
+          tone: 'muted',
+        },
         ...(loadError
           ? [{ type: 'text', value: loadError, variant: 'caption', tone: 'danger' }]
           : []),
         { type: 'divider' },
+
+        /* 首次向导（没走完时替代下面的完整设置区） */
+        ...wizardSection(ready),
 
         /* 待确认（不可逆写操作）—— 放在对话区上方，长对话滚下去也看得见 */
         ...pendingSection(),
@@ -2149,6 +2450,8 @@ export default {
 
         { type: 'divider' },
 
+        // 向导走完才显示完整设置区（走完前用上面的三步向导，避免两块重复）
+        ...(wizardDone ? [
         /* 服务商 */
         {
           type: 'field',
@@ -2275,6 +2578,7 @@ export default {
         ...(result?.detail
           ? [{ type: 'code', value: result.detail, lang: 'text' }]
           : []),
+        ] : []),
 
         { type: 'divider' },
 
@@ -2287,6 +2591,13 @@ export default {
           children: [
             { type: 'button', label: '任务面板', variant: 'ghost', onClick: 'ai.tasks' },
             {
+              type: 'button',
+              label: sampling ? '抽样中…' : '分类抽样（20 篇）',
+              variant: 'ghost',
+              disabled: sampling || !ready,
+              onClick: 'ai.sample',
+            },
+            {
               type: 'text',
               value: tasks.length
                 ? `${tasks.length} 个任务（${tasks.filter((t) => t.enabled).length} 启用）· 保存笔记后自动跑`
@@ -2296,6 +2607,23 @@ export default {
             },
           ],
         },
+        ...(sampleNote
+          ? [{ type: 'text', value: sampleNote, variant: 'caption', tone: 'muted' }]
+          : []),
+        ...(sampleRows.length
+          ? [
+              {
+                type: 'table',
+                columns: [
+                  { key: 'path', label: '笔记' },
+                  { key: 'dir', label: 'AI 建议文件夹' },
+                  { key: 'tags', label: '标签' },
+                ],
+                rows: sampleRows,
+                empty: '还没有结果',
+              },
+            ]
+          : []),
         {
           type: 'text',
           value: ready
@@ -2328,6 +2656,12 @@ export default {
             { type: 'text', value: 'AI 任务', variant: 'title' },
             { type: 'badge', text: `${tasks.length} 个 · ${enabled} 启用`, tone: enabled ? 'success' : 'muted' },
             { type: 'text', value: taskQueue.depth ? `队列里还有 ${taskQueue.depth} 个` : '串行执行', variant: 'caption', tone: 'muted' },
+            {
+              type: 'text',
+              value: `任务用量：${usageStat.taskCalls ? `${usageStat.taskCalls} 次 · 输入 ${formatTokens(usageStat.taskPrompt)} / 输出 ${formatTokens(usageStat.taskCompletion)} tokens` : '还没有任务调用过模型'}`,
+              variant: 'caption',
+              tone: 'muted',
+            },
           ],
         },
         {
@@ -2675,6 +3009,30 @@ export default {
               await new Promise((r) => setTimeout(r, 120))
             }
           }
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.sample',
+        title: 'AI：分类抽样（20 篇，人工核对）',
+        run: () => runSample(),
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.wizard-done',
+        title: 'AI：完成首次配置向导',
+        run: async () => {
+          wizardDone = true
+          try {
+            await store.set('wizardDone', true)
+          } catch (e) {
+            host.log('warn', `存向导状态失败：${String(e)}`)
+          }
+          refresh()
         },
       }),
     )
