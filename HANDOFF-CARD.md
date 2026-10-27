@@ -6,8 +6,8 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.214 · 0.6.0 · 2026-10-27 |
-| 测试基线 | vitest 1311 · cargo 55 · oxlint 3 warnings（2026-10-27） |
+| rev / 版本 | rev173.215 · 0.6.0 · 2026-10-27 |
+| 测试基线 | vitest 1326 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -102,7 +102,15 @@ pwsh -File scripts\verify.ps1
 >    入口 `a163fb1a…` · keyId `aqua-2026` · 索引 **17 条**，ai 0.6.0 → **0.7.0**）；`verify-trust` **32/33** 验签过
 >    （`theme-sepia` 纯样式恒无签名）· 六步全绿 · vitest 1311 不变。包内是 209–212 的 system 提示 / 分组 / 筛选 / 历史步骤。
 >    ⚠️ `pack-plugin` 不带 `--key-id aqua-2026` 会写 `default`，`gen-market` 第 ⑤ 条校验直接红。
->    **下个会话第一件事**：① 手机走查 208–212 的 UI（白名单分组 / 筛选 / `plugin_exec`）—— 先把最新 `examples/ai/` 两文件 push 进手机插件目录再 reload ② 手机从市场装一次 `ai@0.7.0`（真机安装本轮未验）。
+>    **215 AI 不可信** ✅ —— 先调研（`docs/AI不可信-调研-2026-10-27.md` · 六个一手来源：Cline 完成即工具 /
+>    arXiv ECT「终止携带证据」0-288 vs 252-288 / OpenAI guardrails / Anthropic ground truth / 压缩保结构 / aider 自动测试）
+>    再落地三件（**零内核改动**）：① `claimAudit` 完成声明审计（完成词 → 本轮必须有哪个工具成功；逐句判、否定语境跳过；
+>    15 条单测）② 界面事实条（红字「这句没有实际依据」+「实际动作 · N 次」）③ 压缩保结构（`brief` 只留工具名，
+>    最近 3 条完整）。vitest **1311 → 1326**。**端到端**：本地 mock 回「任务已经建好了」且不调工具 ⇒ 界面当场红字
+>    （`_shots/rev173215-claim.png`）；测完 provider / 假 Key / store / 历史**全部复原**（`_shots/rev173215-restored.png`）。
+>    ⚠️ `claimAudit` 刻意做窄：宁可漏报，不要误报（误报一次这条提示就没人信）。
+>    **没做**：任务侧 `runTask` 接审计（要先定「任务最终内容算不算声明」）· brief 压缩没跑过 20 轮以上真对话。
+>    **下个会话第一件事**：① 任务侧审计 ② 手机走查 208–215 的 UI（白名单分组 / 筛选 / `plugin_exec` / 事实条）③ 手机从市场装一次 `ai@0.7.0`。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。

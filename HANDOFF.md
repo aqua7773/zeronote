@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.214
-更新时间: 2026-10-27 · 最新 rev173.214
+revision: 173.215
+更新时间: 2026-10-27 · 最新 rev173.215
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.214
 
 | rev | 内容 |
 |---|---|
+| rev173.215 | 2026-10-27 · **AI 不可信：完成声明由宿主核对**（用户「调研一下别的项目怎么解决」→「开始做」· 零内核改动）：调研落 `docs/AI不可信-调研-2026-10-27.md`（六个一手来源：Cline 完成即工具 / arXiv ECT「终止携带证据」0-288 vs 252-288 / OpenAI output guardrails / Anthropic ground truth / OpenHands+Anthropic 压缩保结构 / aider 自动测试）⇒ 落地最小三件：① **`claimAudit` 审计**（完成词 → 本轮必须有哪个工具成功；逐句判、否定语境跳过、零工具说「搞定」有兜底）② **界面事实条**（红字「这句没依据」+「实际动作 · N 次」）③ **压缩保结构**（`brief` 只留工具名；最近 3 条完整，更早的压缩）。vitest **1311 → 1326**（15 条新单测）· **端到端**：本地 mock 回「任务已经建好了」且不调工具 ⇒ 界面当场红字（`_shots/rev173215-claim.png`），测完配置与历史全部复原 |
 | rev173.214 | 2026-10-27 · **重打 `ai@0.7.0` 发市场**（用户「继续zeronote」，在交接卡两件事里选了发市场 · 零代码改动）：市场包停在 208 的 0.6.0，209–212 的 system 提示 / 分组 / 筛选 / 历史步骤都没进包 ⇒ `examples/ai/manifest.json` version → 0.7.0 + description 改「第三版」→ `pack-plugin ai --key … --key-id aqua-2026` 签出 `market/packs/ai-0.7.0.znp`（**141.4 KB** · 整包 sha256 `fc42785f…` · 入口 `a163fb1a…`）→ `gen-market --write` 重建索引（**17 条**，ai 0.6.0 → **0.7.0**）。`verify-trust`：内置公钥与私钥一致 · **32/33 包验签过**（`theme-sepia` 纯样式恒无签名）· verify 六步全绿 · vitest **1311**（无测试改动）。⚠️ 坑：`pack-plugin` 不传 `--key-id` 会写 `default`，gen-market 第 ⑤ 条校验会红 |
 | rev173.213 | 2026-10-27 · **交接**（用户「交接」）：本会话 6 个 rev（207–212），AI 插件第一版收口 + 第二版 —— ① 工具名格式单测（4 条，反向验证红）② `plugin_exec` 白名单（勾选 UI + 自动任务同样受限，`ai@0.6.0` 发市场）③ 对话补 **system 提示**（防幻觉，三轮真模型对照）④ 白名单**分组折叠**（137 → 13 组）⑤ 命令**筛选框** ⑥ `list_allowed_commands` + **历史带上工具步骤**（修「模型以为刚查过就不再查」）。**交接时**：HEAD `a93fd18` · 与 origin 同步 · verify 全绿 · vitest **1311** · dev pid 35548（19 小时+ 仍可用）· 测试库无授权 / 无任务。**下个会话第一件事**：手机走查 208–212 的 UI + 重打 `ai@0.7.0` 发市场（市场包还停在 208 的 0.6.0） |
 | rev173.212 | 2026-10-27 · **AI 知道「能用哪些命令」+ 历史带上工具步骤**（用户「继续」· 零内核改动）：① 新只读工具 `list_allowed_commands` —— 只返回**已授权**的 id + 标题、另带可授权总数（不把 137 条塞给模型），可选 `query` 再筛 ② **历史压缩把工具步骤全丢了** —— 模型只看到自己上一轮说「0 条」，就以为刚查过、这轮不调工具（实测强制「先调 list_allowed_commands」它仍不调，还声称「查过了，和上面一致」）⇒ `historyContent` 把步骤摘要（`✓/✗ name → 结果`，每条 120 字）附在 assistant 内容后；system 新增规则 5「涉及当前状态（授权 / 任务 / 笔记）要重新调工具」③ **真模型对照**：修复前「还是空的」且不调工具 → 修复后调工具答「能用 1 条 `accounting.stats`（记账：统计）」④ 单测 +9（汇总 4 / 工具定义 1 / 历史步骤 4）。vitest 1302 → **1311** |
@@ -110,6 +111,51 @@ revision: 173.214
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.215（2026-10-27 · AI 不可信：完成声明由宿主核对）
+>
+> 用户先要「调研别的项目怎么解决 AI 不可信」，再「开始做」。**零内核改动**，全在 `examples/ai/`。
+>
+> ### 调研（`docs/AI不可信-调研-2026-10-27.md`）
+>
+> 一句话结论：**模型的文本不是事实来源；「完成」只能是宿主能重放的事实**。
+> 最硬的证据是 arXiv 2608.23623（Evidence-Carrying Termination）：同样任务下「让模型自己检查终止」
+> 不安全完成 **252/288**，而「终止必须携带可重放证据」是 **0/288**。
+> 其余可抄的：Cline（每轮必须有工具调用 / `attempt_completion`）· OpenAI Agents SDK（output guardrail
+> tripwire 拒绝候选输出，用户看不到假话）· Anthropic（`ground truth from the environment`、
+> evaluator-optimizer、压缩保留架构决策与最近 5 个文件）· OpenHands（事件级 condenser + `keep_first`）·
+> aider（`--auto-test`：完成判据是退出码）。
+>
+> ### 落地三件
+>
+> 1. **`claimAudit` 完成声明审计**（新导出）：把回复里的完成词映射成「本轮必须有哪个工具成功」——
+>    `已创建 / 建好了` → note_create / folder_create / task_create · `已改写 / 已更新` → note_write / task_update ·
+>    `已移动` → note_move · `已删除` → note_trash / task_delete · `已添加标签` → tag_add / tag_remove。
+>    逐句切分，句中带「待确认 / 还没 / 不能 / 将」直接跳过；一个工具都没调却说「搞定了」另有一条兜底。
+>    **判据刻意做窄**：宁可漏报 —— 误报一次，这条提示就没人信了。
+> 2. **界面事实条**：有警告 ⇒ 红字「本轮没有执行「创建」对应的工具调用，上面这句「已完成」没有实际依据」；
+>    有调用 ⇒ 先「实际动作 · N 次」再列 `✓ name · ms · 结果`（原来是没标题的灰色列表）。
+>    流式过程中不判（半截话必然误报）。system 提示同时加规则 7，让模型知道**它的回复会被核对**。
+> 3. **压缩保结构**：`historyContent(m, { detail: 'brief' })` 只留 `✓/✗ 工具名`、不留结果正文；
+>    `windowMessages` 让最近 **3** 条（`RECENT_FULL_TURNS`）带完整步骤、更早的走 brief。
+>    rev173.212 修的是「历史里根本没有工具步骤」，215 补的是「有步骤但 20 条都带全文，等于没压缩」。
+>
+> ### 实测
+>
+> - vitest **1311 → 1326**：新增 `tests/ai-claims.test.ts` **15 条**（无工具却说完成 / 工具失败仍报 /
+>   只调 list_notes 却说删除 / 否定语境不报 / 普通对话不报 / 兜底 done / brief 格式 / 最近 3 条完整）
+> - **端到端**（本地 mock · `_shots/rev173215-claim.png`）：mock 回「任务已经建好了，每天 22:00 自动跑」
+>   且**不调任何工具** ⇒ 界面当场红字「⚠️ 本轮没有执行「创建」对应的工具调用，上面这句「已完成」没有实际依据」；
+>   正常那条真模型历史（「列出我的文件夹」）没有误报
+> - 测完已复原：provider 回 DeepSeek、删掉 mock 的假 Key（`cmdkey /list` 只剩 `ai.api-key.deepseek`）、
+>   `store.json` 覆盖回备份 → reload 后「已配置 DeepSeek · deepseek-chat」与历史都在
+>   （`_shots/rev173215-restored.png`）
+>
+> ### 没做的（留给下一轮）
+>
+> - **任务侧 `runTask` 还没接审计** —— 自动任务没有对话回复，要先把「任务的最终 content 算不算声明」定下来
+> - `brief` 压缩只验过格式，**没跑过 20 轮以上的真对话**
+> - Cline 式「完成即工具」（A）与输出 guardrail（C）：按调研 §4，留到要对外承诺时再付成本
+>
 > ## 📌 rev173.214（2026-10-27 · 重打 `ai@0.7.0` 发市场）
 >
 > 用户「继续zeronote」，在交接卡点名的两件事里选了**发市场**（手机走查留待下轮）。

@@ -653,10 +653,16 @@ export function finalizeToolCalls(state) {
  * 还声称「查过了，和上面一致」）。这里把步骤摘要附在 assistant 内容后面：
  * 模型能看见「上一轮我调过什么、拿到什么」，也能判断哪些是旧结果。
  */
-export function historyContent(m) {
+export function historyContent(m, opts = {}) {
   const base = String(m?.content ?? '')
   const steps = Array.isArray(m?.steps) ? m.steps : []
   if (!steps.length) return base
+  if (opts?.detail === 'brief') {
+    // 更早的轮次只留「调过什么、成没成」：事实（我查过）保住了，结果正文丢掉 ——
+    // 20 条历史每条都带完整结果等于没压缩（rev173.215，见 RECENT_FULL_TURNS）
+    const names = [...new Set(steps.map((s) => `${s?.ok === false ? '✗' : '✓'}${String(s?.name ?? '?')}`))]
+    return `${base}\n\n[较早轮次的工具] ${names.join(' ')}`
+  }
   const lines = steps.map((s) => {
     const name = String(s?.name ?? '?')
     const mark = s?.ok === false ? '✗' : '✓'
@@ -666,11 +672,108 @@ export function historyContent(m) {
   return `${base}\n\n[上一轮工具调用]\n${lines.join('\n')}`
 }
 
+/** 最近几条带**完整**步骤摘要（更早的只留工具名，见 `historyContent` 的 `brief`） */
+export const RECENT_FULL_TURNS = 3
+
 /** 只保留最近 N 条（纯函数）· 首条若是 assistant 也允许 —— 模型能接受 */
 export function windowMessages(list, n = CONTEXT_WINDOW) {
-  return (Array.isArray(list) ? list : [])
-    .slice(-n)
-    .map((m) => ({ role: m.role, content: historyContent(m) }))
+  const arr = (Array.isArray(list) ? list : []).slice(-n)
+  return arr.map((m, i) => ({
+    role: m.role,
+    // 最近的轮次给完整步骤（模型要知道「上轮到底调了什么、拿到什么」），
+    // 更早的只留名字 —— 否则 20 条 × 每条一大段，等于没压缩（rev173.215）
+    content: historyContent(m, { detail: i >= arr.length - RECENT_FULL_TURNS ? 'full' : 'brief' }),
+  }))
+}
+
+/* ───────────────── 完成声明的宿主播审计（rev173.215） ───────────────── */
+
+/**
+ * 「回复声称做了什么」→ 需要哪一种工具调用才算数。
+ *
+ * 来源：rev173.209 真模型下模型说「任务建好了」但没调 `task_create`（面板 0 个、store 空），
+ * 212 又发现历史压缩后模型会拿「上一轮的结论」当证据。业界共识（调研 §2）是
+ * **完成声明必须有宿主可核对的证据** —— Claude Code / aider / ECT 论文都走这条路。
+ * 这里做最小版：把回复里的完成词映射到工具名，再核对本轮 `steps`。
+ */
+export const CLAIM_RULES = [
+  {
+    kind: 'create',
+    label: '创建',
+    re: /已(?:经)?(?:创建|建好|新建|建立)|成功(?:创建|新建|建立)|建好了|创建好了/,
+    tools: ['note_create', 'folder_create', 'task_create'],
+  },
+  {
+    kind: 'write',
+    label: '改写',
+    re: /已(?:经)?(?:改写|写入|更新了|修改了|改好了)|成功(?:改写|写入)/,
+    tools: ['note_write', 'task_update'],
+  },
+  {
+    kind: 'move',
+    label: '移动',
+    re: /已(?:经)?(?:移动|移入|移到|挪到|挪过去)/,
+    tools: ['note_move'],
+  },
+  {
+    kind: 'trash',
+    label: '删除',
+    re: /已(?:经)?(?:删除|删掉|丢弃)|成功(?:删除|删掉)|放进回收站了/,
+    tools: ['note_trash', 'task_delete'],
+  },
+  {
+    kind: 'tag',
+    label: '标签',
+    re: /已(?:经)?(?:添加|打上|贴上)(?:了)?标签|已(?:经)?(?:移除|去掉)(?:了)?标签/,
+    tools: ['tag_add', 'tag_remove'],
+  },
+]
+
+/** 句子里出现这些词 ⇒ 是在说「还没做/等你确认」，不是完成声明 */
+const CLAIM_NEGATION = /(待确认|需要(?:你)?确认|请确认|等你确认|尚未|还没|没(?:有)?执行|不能|无法|将(?:要)?|准备(?:去)?)/
+/** 兜底：一个工具都没调却说「完成了」 */
+const CLAIM_GENERIC_DONE = /(已(?:经)?完成|搞定了?|处理好了?|办好了?|全部完成|都(?:做|弄)好了)/
+
+/**
+ * 审计一条回复：它声称完成了哪些动作、本轮有没有对应的成功工具调用。
+ *
+ * 纯函数（单测覆盖）。**只做高置信判断**：宁可漏报，不要误报 —— 误报会让人不再信任这条提示。
+ * 逐句切分后判断，句子里带「待确认 / 还没 / 将」等词的直接跳过（那是在说没做）。
+ *
+ * @returns {{ warnings: { kind: string, label: string, sentence: string }[], okTools: string[] }}
+ */
+export function claimAudit(content, steps) {
+  const text = String(content ?? '')
+  const list = Array.isArray(steps) ? steps : []
+  const okTools = list.filter((s) => s && s.ok !== false).map((s) => String(s.name ?? ''))
+  const have = new Set(okTools)
+  /** @type {{ kind: string, label: string, sentence: string }[]} */
+  const warnings = []
+  const seen = new Set()
+
+  for (const raw of text.split(/[。！？!?；;\n]+/)) {
+    const sentence = raw.trim()
+    if (!sentence || CLAIM_NEGATION.test(sentence)) continue
+    for (const rule of CLAIM_RULES) {
+      if (seen.has(rule.kind) || !rule.re.test(sentence)) continue
+      if (rule.tools.some((t) => have.has(t))) continue
+      seen.add(rule.kind)
+      warnings.push({ kind: rule.kind, label: rule.label, sentence: sentence.slice(0, 40) })
+    }
+    if (!have.size && !seen.has('done') && CLAIM_GENERIC_DONE.test(sentence)) {
+      seen.add('done')
+      warnings.push({ kind: 'done', label: '完成', sentence: sentence.slice(0, 40) })
+    }
+  }
+  return { warnings, okTools }
+}
+
+/** 审计结果 → 给人看的一行（没有警告时返回空串） */
+export function claimWarningText(warnings) {
+  const list = Array.isArray(warnings) ? warnings : []
+  if (!list.length) return ''
+  const labels = [...new Set(list.map((w) => w.label))].join(' / ')
+  return `⚠️ 本轮没有执行「${labels}」对应的工具调用，上面这句「已完成」没有实际依据 —— 下面的实际动作是全部真实记录。`
 }
 
 /**
@@ -692,6 +795,8 @@ export const CHAT_SYSTEM_PROMPT = [
   '4. plugin_exec 只能执行用户授权过的命令；被拒绝时说明去哪授权，不要反复重试同一个命令。不知道能用哪些命令时调 list_allowed_commands。',
   '5. 涉及当前状态的问题（授权了哪些命令、有哪些任务、库里有什么）**要重新调用工具**，不要只凭历史或记忆回答。',
   '6. 用户已经给出关键参数（路径 / 范围 / 目标）时直接执行，不要反复确认；只有缺关键参数时才问一句。',
+  '7. 你的回复会被宿主核对：说「已完成 / 已创建 / 已删除 / 已移动」时，本轮必须有对应的工具调用且成功；',
+  '   没有对应调用，界面会把这句话标成「没有依据」。不确定就直说没做，不要用完成语气。',
 ].join('\n')
 
 /** 发给模型的完整消息序列：system 在首位 + 最近 N 条历史（纯函数，单测覆盖） */
@@ -2429,8 +2534,22 @@ export default {
               type: 'markdown',
               value: m.content || (streaming ? '…' : '（空回复）'),
             })
+            // 事实条（rev173.215）：**宿主**核对这条回复的完成声明，数据来自本轮 steps，不看模型怎么说。
+            // 流式过程中 content 还没写完，不判（否则每一段半截话都可能误报）
+            const settled = !streaming
+            const audit = settled ? claimAudit(m.content, m.steps) : { warnings: [] }
+            const warnText = claimWarningText(audit.warnings)
+            if (warnText) {
+              nodes.push({ type: 'text', value: warnText, variant: 'caption', tone: 'danger' })
+            }
             // 步骤流：这一轮调了哪些工具、用了多久、结果摘要
             if (Array.isArray(m.steps) && m.steps.length) {
+              nodes.push({
+                type: 'text',
+                value: `实际动作 · ${m.steps.length} 次`,
+                variant: 'caption',
+                tone: 'muted',
+              })
               nodes.push({
                 type: 'list',
                 items: m.steps.map((s) => ({
