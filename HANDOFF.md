@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.229
-更新时间: 2026-10-28 · 最新 rev173.229
+revision: 173.230
+更新时间: 2026-10-28 · 最新 rev173.230
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.229
 
 | rev | 内容 |
 |---|---|
+| rev173.230 | 2026-10-28 · **插件版本回滚（需求 §2.14 · 排期 5b）**（用户「继续」，先确认工作区与基线全绿）：① **安装时存档** —— `install_pack` 换目录**之前**把旧版本整目录复制到 `<应用数据目录>/.zn/plugin-versions/<id>/<version>-<ms>/`，只留最近 **3** 份（按目录名**尾部时间戳**排序，不按版本名）；存档失败只记日志、不阻断安装 ② **两条 Rust 命令** `list_plugin_versions` / `rollback_plugin`（`force` 两段式）+ `manifest.storeVersion`（数据格式代际，可选整数）③ **回滚**：① 备份当前 `store.json` 到 `_backup/<ms>-store.json`（保 10 份）② 当前版本**也存档**（回滚后能滚回来）③ 存档复制上位、删旧目录，失败恢复原版本 ④ **反向迁移**：当前代际 > 目标代际 ⇒ 先返回 `needConfirm`（**磁盘一个字节不动**）⇒ 带 `force` 再调时用**该版本存档里的 store** 替换（数据跟着回退），无快照则保留当前数据 + `warning`；内核**不调用插件代码**做 down-migration（插件不可信 / 回滚发生在加载前）⑤ **UI**：插件行「版本记录」按钮（History 图标）→ 对话框（版本 / 时间 / 体积 / 含数据 / 回滚）+ 插件行「回滚」；降级时红框「仍要回滚 / 取消」。**测试**：cargo 55 → **59**（4 条：保 3 份 / 回滚保数据+备份 / 降级确认+force 回退 / 非法 stamp）· vitest 1373 → **1379**（6 条：对话框列表 / 回滚成功 / 降级两段式 / formatBytes / formatVersionTime / 内置插件回滚标记）。**桌面实测**（CDP 造 `rollback-probe` v1/v2 探针，测完已删干净）：装 v1（store `{gen:1}`）→ 装 v2 ⇒ `.zn/plugin-versions/rollback-probe/1.0.0-…/` 出现（含 store）；打开版本对话框 ⇒「v1.0.0 · 04:11 · 426 B · 含数据」→ 点回滚 ⇒ 红框「第 2 代 vs 第 1 代」**磁盘未动**（仍 2.0.0 / gen 2）→「仍要回滚」⇒ 当前 **1.0.0** + `index.js` 是 v1 + `store.json` **`{gen:1}`** + 存档多一份 **2.0.0** + `_backup/` 2 份 + 日志「插件已卸载 → 插件已加载」。截图 `_shots/rev173230-{versions-dialog,need-confirm,rolled-back}.png` |
 | rev173.229 | 2026-10-28 · **开发者调试面板（§2.13 的一半）**（用户「继续」· 排期 5）：① **结构化日志** —— `PluginLogEntry { ts, pluginId, level, msg, stack }`（契约新增）；`PluginHostDeps.onLog` 多带归属插件与堆栈，`scopedHost` 包 `host.log`（error 时捕 `new Error().stack`，栈里有插件帧）；`kernel.audit()` 新增 `pluginTopics` ② **诊断表** —— 插件页新「调试」tab：插件 / 命令数 / 面板数 / 服务数 / 订阅 topic / 版本（18 个插件全列出，含纯样式）③ **模拟触发** —— topic + JSON payload → `event.emit` ④ **错误归属** —— 命令执行失败与事件处理器异常改记 `error` 并反推 `plugin:xxx` 归属 + 带堆栈 ⑤ 重载全部 / 清空日志 / 写测试日志 / 开发者模式开关（localStorage）。**未做**：单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限确认（详见 ROADMAP §3.0）· **版本回滚（§2.14）本轮没做**，已拆成 §3.5 的 5b 作为下轮第一件事。实测：调试 tab 打开 · 统计「已安装 18 · 启用 17 · 命令 210 · topic 7」· 诊断表 18 行 · `zn:probe` 发射成功 · 测试日志的 error + 堆栈可展开（`_shots/rev173229-dev-panel.png`） |
 | rev173.228 | 2026-10-28 · **引用悬浮预览 + 安卓重编真机验证**（用户「继续，安卓也编译测验」）：① **需求 §4.5 引用 hover** —— 新 `src/lib/wiki-preview.ts`（`findWikiNote` / `previewSnippet` / `wikiTarget`，纯函数 +12 单测）；`openWikiLink` 与预览**共用** `findWikiNote`（ID → 路径 → 后缀 → 标题），不会「点开 A、预览 B」；桌面 `mouseover` 停 350 ms、手机 `pointerdown` 长按 450 ms（移动 >10 px 取消）弹浮层「标题 + 正文前 140 字」（剥 frontmatter / 代码块 / 图片 / 链接），找不到显示「没有找到这篇笔记」，滚动 / Esc / 点别处都收；摘要 5 秒缓存、每次现查 ② **安卓重编 + 真机验证**（`tauri android dev` · 手机 pid 25184）：视频 `<video>` `readyState 4` + `play()` 后 `paused=false`（附件计数 5 ⇒ `kind=media` 生效）· 待办已完成行 `line-through` · 从 `/sdcard/Download` 导入 ⇒ `日期导入/2026-10-28/导入样本.md` · 长按 700 ms 弹浮层且松手**不跳转** ③ 五个踩坑（旧 android-dev 进程占日志 / 长按抑制标记时机 / CSS 模板里的反引号 / Android 单数 `Download` / 多文件中文名 push 报 EOF）全部记进正文与代码注释 |
 | rev173.227 | 2026-10-28 · **排期 2 + 3：待办删除线（核实：本来就有）+ 导入目录语义**（用户「继续」）：① **§4.4 零代码改动** —— ROADMAP 原写「勾选后加删除线未做」是**误判**：atomic 自带 `.cm-line.cm-atomic-task-done { color: faint; text-decoration: line-through }`（`dist/styles/inline-preview.css:414`），实测勾选后行类出现、`getComputedStyle().textDecorationLine = line-through`、颜色 `rgb(113,113,122)`、未完成行 `none`、文本与位置不变、磁盘落盘 `- [x]` ② **§12 导入落点改造**（`examples/import-export/index.js`）：`日期导入/<YYYY-MM-DD>/[原分类/]<文件名>.md`（同一天多次导入合并同一目录）；分类默认从**源文件父目录**猜（`guessCategory`，桌面 / 下载 / 缓存 / 盘符根不猜），命令支持 `category` 显式指定；导入时补 frontmatter `created`（导入时刻）+ `source`（原文件名），已有同名键不覆盖；`freeRelPath` 改收完整 base ③ **AI 排除名单加 `日期导入`**（`examples/ai/index.js` 的 `EXCLUDED_DIRS`）—— 需求 §12「导入后不立即让 AI 整理」，不加就会被自动任务吃掉 ④ 单测 **+17**（`tests/import-export.test.ts`：清洗 / 猜分类 / 日期戳 / 落点 / frontmatter 合并）+ ai-tasks 一条断言。**实测**：`工作/周报.md` → `日期导入/2026-10-28/工作/周报.md`（分类自动）· 重导 → `周报-1.md`（同目录合并）· `category:'自定义分类'` → 该目录 · 磁盘 frontmatter 正确（保留原 `tags`、追加 `created`/`source`）· 文件树三层结构正常 |
@@ -125,6 +126,99 @@ revision: 173.229
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.230（2026-10-28 · 插件版本回滚 §2.14）
+>
+> 用户「继续」= ROADMAP §3.5 的 **5b**（rev173.229 交接时点名的「下个会话第一件事」）。
+> 需求 §2.14 原文：混合模式 · 每插件保留最近 3 个版本 · 回滚前自动备份当前插件数据 · 尝试反向迁移 ·
+> 失败则提示「仍要回滚并接受数据可能不可用 / 取消回滚」。
+>
+> ### ① 磁盘形状
+>
+> - `plugins/<id>/` —— 当前版本（唯一被加载的那份）
+> - `plugin-versions/<id>/<version>-<毫秒>/` —— 存档（装新版前**整目录复制**，保留最近 3 份）
+> - `plugin-versions/<id>/_backup/<毫秒>-store.json` —— 回滚前的数据备份（保留 10 份）
+>
+> 细节：存档在 `install_pack` 换目录**之前**做（本地 `.znp` 与市场下载共用同一条路径）·
+> **只留 3 份**，按目录名**尾部毫秒**排序（不按版本名：`0.10.0` 会排到 `0.9.0` 前面）·
+> 存档失败**只记日志、不阻断安装**（后悔药不该挡住正常升级）· 删除插件**不删**存档（重装同 id 还能滚回去）。
+>
+> ### ② 两个命令
+>
+> - `list_plugin_versions(vault, pluginId)` → `{ current, versions[] }`
+>   （版本 / 存档时刻 / 体积 / 是否有 store / `manifest.storeVersion`）
+> - `rollback_plugin(vault, pluginId, stamp, force)` → `{ status: "ok" | "needConfirm", … }`
+>   - `ok`：已换回旧版；`dataBackup` 是回滚前数据的备份路径，`storeRestored` 说明数据是否也回退
+>   - `needConfirm`：**磁盘一个字节没动**，带 `force: true` 重调即执行
+>
+> 执行顺序：备份当前 store → 当前版本**也存档**（回滚后能滚回来）→ 存档复制上位 → 删旧目录；
+> 任一步失败恢复原版本（与安装同一套「先暂存再交换」）。
+>
+> ### ③ 「反向迁移」怎么落的
+>
+> - manifest 新增可选整数 **`storeVersion`**（数据格式代际）
+> - 当前代际 > 目标代际 ⇒ 先返回 `needConfirm`（红框说明「第 N 代 vs 第 M 代」）
+> - 用户选「仍要回滚」⇒ 用**该版本存档里的 `store.json`** 替换当前数据（数据跟着回退）；
+>   存档里没有 store ⇒ 保留当前数据 + 结果里给 `warning`
+>
+> ⚠️ **取舍（写进契约 §3.5）**：内核**不调用插件代码**做 down-migration —— 插件代码不可信，
+> 而且回滚发生在加载之前。真实迁移仍归插件自己；内核只决定「要不要拦一下 + 数据回到哪个快照」。
+> 目前没有任何插件声明 `storeVersion`，这条路径由 4 条 Rust 单测 + 探针实测覆盖。
+>
+> ### ④ 回滚标记（否则预装插件回滚无效）
+>
+> 内置插件每次重扫都会被 `ensureBuiltinPlugins` 用内置内容覆盖回来（那是正常升级路径）——
+> 回滚一个预装插件会在**同一次重扫**里被打回最新版（`onReloadPlugins` 就触发它）。
+> 所以：
+>
+> - 回滚成功在插件目录写 `.zn-rolled-back.json`（`{at, from, to}`）
+> - `ensureBuiltinPlugins` 见到标记 ⇒ `skipped: 'rolledback'`，不覆盖
+> - **下一次安装新版**清除标记（回到正常升级轨道）
+> - 单测：Rust 断言「回滚后有标记 / 装上 3.0.0 后标记消失」；
+>   TS 断言「有标记 ⇒ 一个 `write_plugin_file` 都不发」
+> - ⚠️ 「内置插件被跳过」这条路径**没有真机造场景**：要验它得把探针登记进
+>   `BUILTIN_PLUGINS`（改内置表只为验证，不值得）；靠 TS 单测 + 代码路径覆盖
+>
+> ### ⑤ UI
+>
+> - 插件行多一个 **History 图标**（删除左侧）→「版本记录」对话框：版本 / 时间 / 体积 / 含数据 / 回滚
+> - 没有历史版本时明说「从下一次安装 / 更新开始存档」
+> - 代际降级：对话框内红框 + 「仍要回滚 / 取消」（取消什么都不改）
+> - 回滚成功 → `onReloadPlugins()` 重扫 + 提示「已回滚：v2.0.0 → v1.0.0（数据也回退到该版本快照）」
+>
+> ### 实测（桌面 dev · CDP）
+>
+> 探针 `rollback-probe`：v1（storeVersion 1）/ v2（storeVersion 2），安装后各写一次 store。
+>
+> 1. 装 v1 ⇒ store `{"gen":1}`；装 v2 ⇒ `.zn/plugin-versions/rollback-probe/1.0.0-1793131874495/` 出现（含 store.json）
+> 2. 插件页 → 探针行 History ⇒「v1.0.0 · 2026-10-28 04:11 · 426 B · 含数据」
+> 3. 点「回滚」⇒ 红框「当前 v2.0.0 的数据格式是第 2 代，v1.0.0 只认第 1 代」；
+>    此时磁盘**未动**（仍 2.0.0 / `{gen:2}`），`_backup/` 也还没落（备份在确认之后）
+> 4. 点「仍要回滚」⇒ 当前 **1.0.0** · `index.js` 是 v1 · `store.json` = **`{"gen":1}`** ·
+>    存档多一份 **2.0.0**（刚离开的版本）· `_backup/` 2 份（确认时一次 + 执行前一次）
+> 5. 日志：`插件已卸载：rollback-probe` → `插件已加载：回滚探针（rollback-probe｜esm）`
+> 6. 截图 `_shots/rev173230-versions-dialog.png` · `_shots/rev173230-need-confirm.png` · `_shots/rev173230-rolled-back.png`
+>
+> 测完通过 UI 删除插件 + 手动删 `plugin-versions/rollback-probe`（探针不进仓库、不留在功能里）。
+>
+> **测试**：cargo **59**（+4）· vitest **1379**（+6）· verify 六步全绿 · 质量门 7/7。
+>
+> ### 踩坑
+>
+> - **`needConfirm` 阶段原本也写备份** ⇒ 用户点「取消」后在磁盘留下垃圾 `_backup/*.json`。
+>   改成确认之后才备份，单测加了「needConfirm 时 `dataBackup` 必须是 null」
+> - **存档名尾部必须是时间戳** —— 原先把「同毫秒序号」放在最后（`<version>-<ms>-<n>`），
+>   `stamp_time()` 取尾段拿到的是 **n**，列表排序会乱；改成 `<version>-<n>-<ms>`
+> - `__znInstallZnp` 失败时返回 `null`，插件页**没有**报错 —— 错误显示在 App 顶部错误条、
+>   不在 `.zn-plugins-error`（那是「插件加载失败」的通道）；实测踩了一次才知道
+> - 探针脚本把包生成到了嵌套目录（`_tmp-test/rollback-probe/rollback-probe/`），
+>   第一次安装报「读取插件包失败：系统找不到指定的文件」—— 路径要按实际产出写
+>
+> ### 未做
+>
+> - 真正的 down-migration 钩子（见 ③ 的取舍）
+> - 删除插件时清理版本存档（有意保留）
+> - 手机端走查（本轮是纯 Rust + 宿主 UI；手机要重装 APK 才带新 Rust，交接注明）
+>
 > ## 📌 rev173.229（2026-10-28 · 开发者调试面板）
 >
 > 用户「继续」= 排期 5（调试面板 + 版本回滚）。这一轮只做完**调试面板**；

@@ -2074,6 +2074,11 @@ fn install_pack(vault: &str, pack: ZnPack) -> Result<String, String> {
   let prev = tmp_root.join(format!("prev-{stamp}"));
   let had_old = dir.exists();
   if had_old {
+    // rev173.230：升级前先把旧版本整份存档（需求 §2.14「保留最近 3 个版本」）。
+    // 失败只记日志、不阻断安装 —— 存档是"后悔药"，不该让一次复制失败挡住正常升级。
+    if let Err(e) = archive_plugin_dir(vault, &id) {
+      eprintln!("[zn] 存档旧版本失败（本次安装照常进行）：{e}");
+    }
     if let Err(e) = fs::rename(&dir, &prev) {
       let _ = fs::remove_dir_all(&staging);
       return Err(format!("安装失败：旧插件目录无法移走（可能正被占用）：{e}"));
@@ -2086,6 +2091,8 @@ fn install_pack(vault: &str, pack: ZnPack) -> Result<String, String> {
         keep_plugin_store(&prev, &dir);
         let _ = fs::remove_dir_all(&prev);
       }
+      // rev173.230：装上新版本 = 离开「回滚状态」，内置插件恢复正常升级
+      let _ = fs::remove_file(dir.join(PLUGIN_ROLLBACK_MARKER));
       Ok(id)
     }
     Err(e) => {
@@ -2094,6 +2101,416 @@ fn install_pack(vault: &str, pack: ZnPack) -> Result<String, String> {
       }
       let _ = fs::remove_dir_all(&staging);
       Err(format!("安装失败，已回滚到原版本：{e}"))
+    }
+  }
+}
+
+/* ───────────── 插件版本存档 / 回滚（rev173.230 · 需求 §2.14）───────────── */
+//
+// 形态（需求 §2.14「混合模式」）：
+//  · 装新版**之前**把当前目录整份复制到 `<私有根>/.zn/plugin-versions/<id>/<stamp>/`（保留最近 3 份）；
+//  · 回滚 = 把某份存档装回去；**当前版本也顺手存档** ⇒ 回滚之后还能滚回来；
+//  · 回滚前把当前 `store.json` 复制到 `_backup/`（用户数据不是代码，丢了不可重建）；
+//  · 「反向迁移」：manifest 可声明整数 `storeVersion`（数据格式代际）。当前代际 > 目标代际时，
+//    回滚默认把数据换成**该版本存档里的 store.json**（数据跟着回退）；没有存档数据 ⇒
+//    返回 `needConfirm`，由用户选「仍要回滚 / 取消」。
+//    ⚠️ 取舍：内核**不调用插件代码**做 down-migration（插件代码不可信，且回滚发生在加载之前）。
+//    真正的迁移函数需要插件 API（`store.migrate`），不在本 rev 范围；现在是「数据快照回退 + 降级确认」。
+//
+// 为什么存档不在 `.zn/tmp/`：tmp 是安装暂存区，安装收尾就会删；存档要跨会话活着。
+
+/// 每个插件保留几份旧版本存档（需求 §2.14「默认保留最近 3 个」）。
+const MAX_PLUGIN_VERSIONS: usize = 3;
+/// 版本存档目录（`<私有根>/.zn/plugin-versions/<id>/` 下每份一个子目录）。
+const PLUGIN_VERSIONS_DIR: &str = "plugin-versions";
+/// 回滚前的数据备份放在版本目录下的这个子目录（名字不以版本名开头 ⇒ 不会被列成版本）。
+const PLUGIN_BACKUP_DIR: &str = "_backup";
+/// 数据备份最多留几份（每次回滚一份；留太多会把 `.zn` 撑大）。
+const MAX_STORE_BACKUPS: usize = 10;
+/// 回滚标记：用户把这个插件**主动回滚**到了旧版本（rev173.230）。
+///
+/// 为什么需要它：内置插件每次重扫都会被 `ensureBuiltinPlugins` 用内置内容覆盖回来
+/// （那是正常升级路径），可回滚一个预装插件就会被立刻打回最新版 —— 回滚等于没做。
+/// 标记由**下次安装**清除（装新版 = 回到正常升级轨道）。
+const PLUGIN_ROLLBACK_MARKER: &str = ".zn-rolled-back.json";
+
+fn plugin_versions_root(vault: &str) -> PathBuf {
+  private_root(vault).join(PRIVATE_DIR).join(PLUGIN_VERSIONS_DIR)
+}
+
+fn plugin_versions_dir(vault: &str, plugin_id: &str) -> Result<PathBuf, String> {
+  if !valid_plugin_id(plugin_id) {
+    return Err(format!("非法插件 id（只允许字母数字与 - _ .）：{plugin_id}"));
+  }
+  Ok(plugin_versions_root(vault).join(plugin_id))
+}
+
+/// 存档名白名单：`<version>-<毫秒时间戳>`。
+///
+/// 单独校验它，是因为 `stamp` 会作为**目录名**拼进路径 —— `..` / 绝对路径必须挡掉。
+fn valid_version_stamp(stamp: &str) -> bool {
+  if stamp.is_empty() || stamp.len() > 120 || stamp == "." || stamp == ".." {
+    return false;
+  }
+  if !stamp
+    .chars()
+    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+  {
+    return false;
+  }
+  matches!(Path::new(stamp).components().count(), 1)
+}
+
+fn read_manifest_value(dir: &Path) -> Option<serde_json::Value> {
+  fs::read_to_string(dir.join("manifest.json"))
+    .ok()
+    .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+fn manifest_text(m: &Option<serde_json::Value>, key: &str) -> String {
+  m.as_ref()
+    .and_then(|v| v.get(key))
+    .and_then(|v| v.as_str())
+    .unwrap_or("")
+    .to_string()
+}
+
+fn manifest_int(m: &Option<serde_json::Value>, key: &str) -> Option<i64> {
+  m.as_ref().and_then(|v| v.get(key)).and_then(|v| v.as_i64())
+}
+
+/// 存档名尾巴是毫秒时间戳（`<version>-<ms>`）—— 用它排序。
+///
+/// 别按名字排：`0.10.0` 会排到 `0.9.0` 前面；版本号里也可能带 `-`。
+fn stamp_time(stamp: &str) -> u64 {
+  stamp
+    .rsplit('-')
+    .next()
+    .and_then(|s| s.parse::<u64>().ok())
+    .unwrap_or(0)
+}
+
+fn dir_size_bytes(dir: &Path) -> u64 {
+  let mut total = 0u64;
+  let Ok(entries) = fs::read_dir(dir) else {
+    return 0;
+  };
+  for entry in entries.flatten() {
+    let Ok(meta) = entry.metadata() else { continue };
+    if meta.is_dir() {
+      total += dir_size_bytes(&entry.path());
+    } else {
+      total += meta.len();
+    }
+  }
+  total
+}
+
+/// 递归复制整目录（目标应为空 / 不存在；用于「当前插件目录 → 版本存档」）。
+fn copy_dir_tree(src: &Path, dst: &Path) -> Result<u32, String> {
+  fs::create_dir_all(dst).map_err(|e| format!("创建版本目录失败：{e}"))?;
+  let mut copied = 0u32;
+  for entry in fs::read_dir(src).map_err(|e| format!("读取插件目录失败：{e}"))? {
+    let entry = entry.map_err(|e| e.to_string())?;
+    let from = entry.path();
+    let to = dst.join(entry.file_name());
+    if from.is_dir() {
+      copied += copy_dir_tree(&from, &to)?;
+    } else {
+      fs::copy(&from, &to).map_err(|e| format!("复制插件文件失败：{e}"))?;
+      copied += 1;
+    }
+  }
+  Ok(copied)
+}
+
+/// 只保留最近 `MAX_PLUGIN_VERSIONS` 份存档（`_backup/` 不参与）。
+fn prune_plugin_versions(dir: &Path) {
+  let Ok(entries) = fs::read_dir(dir) else {
+    return;
+  };
+  let mut stamps: Vec<(u64, String)> = entries
+    .flatten()
+    .filter(|e| e.path().is_dir())
+    .map(|e| e.file_name().to_string_lossy().to_string())
+    .filter(|n| n != PLUGIN_BACKUP_DIR && valid_version_stamp(n))
+    .map(|n| (stamp_time(&n), n))
+    .collect();
+  if stamps.len() <= MAX_PLUGIN_VERSIONS {
+    return;
+  }
+  stamps.sort_by(|a, b| b.0.cmp(&a.0));
+  for (_, name) in stamps.into_iter().skip(MAX_PLUGIN_VERSIONS) {
+    let _ = fs::remove_dir_all(dir.join(name));
+  }
+}
+
+fn prune_store_backups(dir: &Path) {
+  let Ok(entries) = fs::read_dir(dir) else {
+    return;
+  };
+  let mut files: Vec<(u64, String)> = entries
+    .flatten()
+    .filter(|e| e.path().is_file())
+    .map(|e| e.file_name().to_string_lossy().to_string())
+    .filter(|n| n.ends_with("-store.json"))
+    .map(|n| {
+      let time = n
+        .trim_end_matches("-store.json")
+        .rsplit('-')
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+      (time, n)
+    })
+    .collect();
+  if files.len() <= MAX_STORE_BACKUPS {
+    return;
+  }
+  files.sort_by(|a, b| b.0.cmp(&a.0));
+  for (_, name) in files.into_iter().skip(MAX_STORE_BACKUPS) {
+    let _ = fs::remove_file(dir.join(name));
+  }
+}
+
+/// 把某个目录存成一份版本存档，返回存档名（`<version>-<ms>`）。
+fn archive_dir_as_version(dir: &Path, vault: &str, plugin_id: &str) -> Result<String, String> {
+  let root = plugin_versions_dir(vault, plugin_id)?;
+  fs::create_dir_all(&root).map_err(|e| format!("创建版本目录失败：{e}"))?;
+  let m = read_manifest_value(dir);
+  let raw_version = manifest_text(&m, "version");
+  let version: String = raw_version
+    .chars()
+    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    .collect();
+  let version = if version.is_empty() {
+    "unknown".to_string()
+  } else {
+    version
+  };
+  let mut stamp = format!("{version}-{}", now_ms());
+  let mut n = 1u32;
+  // 同一毫秒连装两次（自动化测试里很常见）会撞名：追加序号直到不冲突。
+  // 序号放在时间戳**前面** —— `stamp_time()` 按最后一段解析，尾部必须始终是毫秒。
+  while root.join(&stamp).exists() {
+    stamp = format!("{version}-{n}-{}", now_ms());
+    n += 1;
+    if n > 100 {
+      return Err("无法生成版本存档名（同一毫秒内重名太多次）".to_string());
+    }
+  }
+  let dst = root.join(&stamp);
+  if let Err(e) = copy_dir_tree(dir, &dst) {
+    // 半份存档比没有更糟（会出现在回滚列表里却装不回去）
+    let _ = fs::remove_dir_all(&dst);
+    return Err(e);
+  }
+  prune_plugin_versions(&root);
+  Ok(stamp)
+}
+
+/// 把**当前**插件目录存档一份；目录不存在返回 `Ok(None)`。
+fn archive_plugin_dir(vault: &str, plugin_id: &str) -> Result<Option<String>, String> {
+  let dir = plugin_dir(vault, plugin_id)?;
+  if !dir.is_dir() {
+    return Ok(None);
+  }
+  archive_dir_as_version(&dir, vault, plugin_id).map(Some)
+}
+
+/// 回滚前备份当前插件的 `store.json`，返回备份文件的绝对路径（没有 store / 复制失败 ⇒ None）。
+fn backup_plugin_store(cur_dir: &Path, vault: &str, plugin_id: &str) -> Option<String> {
+  let src = cur_dir.join(PLUGIN_STORE_FILE);
+  if !src.is_file() {
+    return None;
+  }
+  let Ok(root) = plugin_versions_dir(vault, plugin_id) else {
+    return None;
+  };
+  let dir = root.join(PLUGIN_BACKUP_DIR);
+  fs::create_dir_all(&dir).ok()?;
+  let dst = dir.join(format!("{}-store.json", now_ms()));
+  fs::copy(&src, &dst).ok()?;
+  prune_store_backups(&dir);
+  Some(dst.to_string_lossy().to_string())
+}
+
+/// 列出版本存档 + 当前版本（UI 的「版本记录」对话框用）。
+#[tauri::command]
+fn list_plugin_versions(vault: String, plugin_id: String) -> Result<serde_json::Value, String> {
+  let dir = plugin_dir(&vault, &plugin_id)?;
+  let current = if dir.is_dir() {
+    let m = read_manifest_value(&dir);
+    Some(serde_json::json!({
+      "version": manifest_text(&m, "version"),
+      "name": manifest_text(&m, "name"),
+      "storeVersion": manifest_int(&m, "storeVersion"),
+      "hasStore": dir.join(PLUGIN_STORE_FILE).is_file(),
+    }))
+  } else {
+    None
+  };
+
+  let root = plugin_versions_dir(&vault, &plugin_id)?;
+  let mut versions: Vec<serde_json::Value> = Vec::new();
+  if root.is_dir() {
+    for entry in fs::read_dir(&root).map_err(|e| format!("读取版本目录失败：{e}"))? {
+      let entry = entry.map_err(|e| e.to_string())?;
+      let path = entry.path();
+      if !path.is_dir() {
+        continue;
+      }
+      let stamp = entry.file_name().to_string_lossy().to_string();
+      if stamp == PLUGIN_BACKUP_DIR || !valid_version_stamp(&stamp) {
+        continue;
+      }
+      let m = read_manifest_value(&path);
+      let size = dir_size_bytes(&path);
+      versions.push(serde_json::json!({
+        "stamp": stamp,
+        "version": manifest_text(&m, "version"),
+        "name": manifest_text(&m, "name"),
+        "installedAt": stamp_time(&stamp),
+        "sizeBytes": size,
+        "storeVersion": manifest_int(&m, "storeVersion"),
+        "hasStore": path.join(PLUGIN_STORE_FILE).is_file(),
+      }));
+    }
+  }
+  versions.sort_by_key(|v| std::cmp::Reverse(v["installedAt"].as_u64().unwrap_or(0)));
+  Ok(serde_json::json!({ "current": current, "versions": versions }))
+}
+
+/// 回滚到某份版本存档。
+///
+/// 返回 `{ status: "ok" | "needConfirm", … }`：
+/// · `ok` —— 已换回旧版（`dataBackup` 是回滚前当前数据的备份路径）；
+/// · `needConfirm` —— 需要用户决定，**磁盘什么都没动**（当前数据已备份）；带 `force: true` 重调即执行。
+#[tauri::command]
+fn rollback_plugin(
+  vault: String,
+  plugin_id: String,
+  stamp: String,
+  force: bool,
+) -> Result<serde_json::Value, String> {
+  rollback_plugin_at(&vault, &plugin_id, &stamp, force)
+}
+
+fn rollback_plugin_at(
+  vault: &str,
+  plugin_id: &str,
+  stamp: &str,
+  force: bool,
+) -> Result<serde_json::Value, String> {
+  if !valid_version_stamp(stamp) {
+    return Err(format!("非法版本标识：{stamp}"));
+  }
+  let versions = plugin_versions_dir(vault, plugin_id)?;
+  let src = versions.join(stamp);
+  if !src.is_dir() {
+    return Err(format!("版本存档不存在：{plugin_id} / {stamp}"));
+  }
+  let target = read_manifest_value(&src);
+  let target_version = manifest_text(&target, "version");
+  let target_sv = manifest_int(&target, "storeVersion");
+  let dir = plugin_dir(vault, plugin_id)?;
+  let cur = if dir.is_dir() {
+    read_manifest_value(&dir)
+  } else {
+    None
+  };
+  let cur_version = manifest_text(&cur, "version");
+  let cur_sv = manifest_int(&cur, "storeVersion");
+
+  // ① 「反向迁移」判定：当前数据代际高于目标 ⇒ 旧版可能读不懂
+  let degrade = matches!((cur_sv, target_sv), (Some(c), Some(t)) if c > t);
+  if degrade && !force {
+    let fmt_sv = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_else(|| "未声明".to_string());
+    return Ok(serde_json::json!({
+      "status": "needConfirm",
+      "fromVersion": cur_version,
+      "toVersion": target_version,
+      "reason": format!(
+        "当前 v{cur_version} 的数据格式是第 {} 代，v{target_version} 只认第 {} 代 —— 直接回滚可能让数据不可用",
+        fmt_sv(cur_sv),
+        fmt_sv(target_sv)
+      ),
+      "dataBackup": null,
+    }));
+  }
+
+  // ② 回滚前先备份当前数据（需求 §2.14「回滚前自动备份当前插件数据」）。
+  //    放在 needConfirm **之后**：用户只是看一眼警示、点了取消，不该在磁盘上留垃圾备份。
+  let data_backup = backup_plugin_store(&dir, vault, plugin_id);
+
+  let tmp_root = private_root(vault).join(PRIVATE_DIR).join("tmp");
+  fs::create_dir_all(&tmp_root).map_err(|e| format!("创建临时目录失败：{e}"))?;
+  let ms = now_ms();
+  let staging = tmp_root.join(format!("rollback-{plugin_id}-{ms}"));
+  let prev = tmp_root.join(format!("prev-{plugin_id}-{ms}"));
+  let _ = fs::remove_dir_all(&staging);
+
+  // ③ 存档 → 暂存（存档本身**保留**，之后还能再滚回来）
+  if let Err(e) = copy_dir_tree(&src, &staging) {
+    let _ = fs::remove_dir_all(&staging);
+    return Err(e);
+  }
+
+  // ④ 数据选择：
+  //    · 代际降级 ⇒ 用存档里那份 store（数据跟着回退，这是"反向迁移"的实际动作）；
+  //    · 否则保留当前数据（用户在新版里攒的东西不该因为换个代码版本就消失）。
+  let archived_store = staging.join(PLUGIN_STORE_FILE);
+  let store_restored = degrade && archived_store.is_file();
+  if !store_restored {
+    let _ = fs::remove_file(&archived_store);
+  }
+
+  let had_old = dir.is_dir();
+  if had_old {
+    // 当前版本也存一份 —— 回滚之后还能滚回来
+    if let Err(e) = archive_plugin_dir(vault, plugin_id) {
+      eprintln!("[zn] 回滚前存档当前版本失败（不影响本次回滚）：{e}");
+    }
+    if let Err(e) = fs::rename(&dir, &prev) {
+      let _ = fs::remove_dir_all(&staging);
+      return Err(format!("回滚失败：旧插件目录无法移走（可能正被占用）：{e}"));
+    }
+  }
+  match fs::rename(&staging, &dir) {
+    Ok(()) => {
+      if had_old && !store_restored {
+        keep_plugin_store(&prev, &dir);
+      }
+      let _ = fs::remove_dir_all(&prev);
+      // rev173.230：留一个标记 —— 内置插件下次重扫会被 `ensureBuiltinPlugins` 覆盖回内置内容，
+      // 那等于回滚没做。标记由下一次安装清除（装新版 = 回到正常升级轨道）。
+      let marker = serde_json::json!({
+        "at": now_ms(),
+        "from": &cur_version,
+        "to": &target_version,
+      });
+      if let Err(e) = atomic_write(&dir.join(PLUGIN_ROLLBACK_MARKER), &marker.to_string()) {
+        eprintln!("[zn] 写回滚标记失败（内置插件可能被启动自愈覆盖回来）：{e}");
+      }
+      Ok(serde_json::json!({
+        "status": "ok",
+        "fromVersion": cur_version,
+        "toVersion": target_version,
+        "dataBackup": data_backup,
+        "storeRestored": store_restored,
+        "warning": if degrade && !store_restored {
+          Some("旧版本存档里没有数据快照：当前数据原样保留，旧版可能读不懂".to_string())
+        } else {
+          None
+        },
+      }))
+    }
+    Err(e) => {
+      if had_old {
+        let _ = fs::rename(&prev, &dir);
+      }
+      let _ = fs::remove_dir_all(&staging);
+      Err(format!("回滚失败，已恢复原版本：{e}"))
     }
   }
 }
@@ -3071,6 +3488,9 @@ pub fn run() {
       read_znp,
       install_znp,
       install_znp_from_url,
+      // rev173.230：插件版本回滚（需求 §2.14）
+      list_plugin_versions,
+      rollback_plugin,
       open_external,
       opened_urls,
       zn_heartbeat,
@@ -4015,6 +4435,146 @@ mod tests {
       "nope".into(),
     )
     .is_err());
+  }
+
+  /* ── 插件版本回滚（rev173.230 · 需求 §2.14）── */
+
+  /// 造一个最小可安装包：id / 版本 / 入口内容 / 可选 storeVersion。
+  fn znp(id: &str, version: &str, body: &str, store_version: Option<i64>) -> ZnPack {
+    let mut manifest = serde_json::json!({
+      "id": id,
+      "name": "Hello",
+      "version": version,
+      "apiVersion": "0.2",
+      "entry": "index.js",
+    });
+    if let Some(sv) = store_version {
+      manifest["storeVersion"] = serde_json::json!(sv);
+    }
+    let mut files = serde_json::Map::new();
+    files.insert("index.js".to_string(), serde_json::json!(body));
+    ZnPack {
+      znp: Some(1),
+      manifest,
+      files,
+    }
+  }
+
+  #[test]
+  fn install_archives_previous_versions_and_keeps_three() {
+    let d = tmpdir("pver");
+    let v = d.to_string_lossy().to_string();
+    for ver in ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"] {
+      install_pack(&v, znp("hello", ver, ver, None)).unwrap();
+    }
+    let list = list_plugin_versions(v.clone(), "hello".into()).unwrap();
+    assert_eq!(list["current"]["version"], "5.0.0");
+    let versions = list["versions"].as_array().unwrap();
+    assert_eq!(
+      versions.len(),
+      MAX_PLUGIN_VERSIONS,
+      "只留最近 3 份存档（需求 §2.14）"
+    );
+    let mut have: Vec<&str> = versions
+      .iter()
+      .map(|x| x["version"].as_str().unwrap())
+      .collect();
+    have.sort_unstable();
+    assert_eq!(have, vec!["2.0.0", "3.0.0", "4.0.0"], "留下的是最近三份");
+  }
+
+  #[test]
+  fn rollback_restores_files_and_keeps_current_store_with_backup() {
+    let d = tmpdir("pver2");
+    let v = d.to_string_lossy().to_string();
+    install_pack(&v, znp("hello", "1.0.0", "one", None)).unwrap();
+    plugin_store_write(v.clone(), "hello".into(), serde_json::json!({ "gen": 1 })).unwrap();
+    install_pack(&v, znp("hello", "2.0.0", "two", None)).unwrap();
+    plugin_store_write(v.clone(), "hello".into(), serde_json::json!({ "gen": 2 })).unwrap();
+
+    let stamp = list_plugin_versions(v.clone(), "hello".into()).unwrap()["versions"][0]["stamp"]
+      .as_str()
+      .unwrap()
+      .to_string();
+    let r = rollback_plugin_at(&v, "hello", &stamp, false).unwrap();
+    assert_eq!(r["status"], "ok");
+    assert_eq!(r["toVersion"], "1.0.0");
+    let dir = plugin_dir(&v, "hello").unwrap();
+    assert_eq!(fs::read_to_string(dir.join("index.js")).unwrap(), "one");
+    // 没声明 storeVersion ⇒ 不回退数据：当前数据保留，且回滚前已备份
+    assert_eq!(
+      plugin_store_read(v.clone(), "hello".into()).unwrap(),
+      serde_json::json!({ "gen": 2 })
+    );
+    let backup = r["dataBackup"].as_str().unwrap();
+    assert!(Path::new(backup).is_file(), "回滚前要备份当前 store：{backup}");
+
+    // 回滚后的当前版本是 1.0.0，刚离开的 2.0.0 进了存档（还能滚回去）
+    let after = list_plugin_versions(v.clone(), "hello".into()).unwrap();
+    assert_eq!(after["current"]["version"], "1.0.0");
+    let vers: Vec<String> = after["versions"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|x| x["version"].as_str().unwrap().to_string())
+      .collect();
+    assert!(vers.iter().any(|x| x == "2.0.0"), "回滚后应能滚回 2.0.0：{vers:?}");
+
+    // 回滚要留标记（否则内置插件会被 `ensureBuiltinPlugins` 覆盖回最新版）；
+    // 装上新版本就清除标记（回到正常升级轨道）
+    let marker = dir.join(PLUGIN_ROLLBACK_MARKER);
+    assert!(marker.is_file(), "回滚后要留回滚标记");
+    install_pack(&v, znp("hello", "3.0.0", "three", None)).unwrap();
+    assert!(!marker.is_file(), "装上新版本后回滚标记要清掉");
+  }
+
+  #[test]
+  fn rollback_requires_confirm_when_store_version_degrades() {
+    let d = tmpdir("pver3");
+    let v = d.to_string_lossy().to_string();
+    install_pack(&v, znp("hello", "1.0.0", "one", Some(1))).unwrap();
+    plugin_store_write(v.clone(), "hello".into(), serde_json::json!({ "gen": 1 })).unwrap();
+    install_pack(&v, znp("hello", "2.0.0", "two", Some(2))).unwrap();
+    plugin_store_write(v.clone(), "hello".into(), serde_json::json!({ "gen": 2 })).unwrap();
+
+    let stamp = list_plugin_versions(v.clone(), "hello".into()).unwrap()["versions"][0]["stamp"]
+      .as_str()
+      .unwrap()
+      .to_string();
+    let need = rollback_plugin_at(&v, "hello", &stamp, false).unwrap();
+    assert_eq!(need["status"], "needConfirm");
+    assert_eq!(
+      need["dataBackup"],
+      serde_json::Value::Null,
+      "只是弹确认、用户还没拍板 ⇒ 连备份文件都不该落"
+    );
+    // 用户还没拍板 ⇒ 磁盘一点没动
+    let dir = plugin_dir(&v, "hello").unwrap();
+    assert_eq!(fs::read_to_string(dir.join("index.js")).unwrap(), "two");
+    assert_eq!(
+      plugin_store_read(v.clone(), "hello".into()).unwrap(),
+      serde_json::json!({ "gen": 2 })
+    );
+
+    let ok = rollback_plugin_at(&v, "hello", &stamp, true).unwrap();
+    assert_eq!(ok["status"], "ok");
+    assert_eq!(ok["storeRestored"], true, "降级时数据应回退到该版本的存档快照");
+    assert_eq!(
+      plugin_store_read(v.clone(), "hello".into()).unwrap(),
+      serde_json::json!({ "gen": 1 })
+    );
+  }
+
+  #[test]
+  fn rollback_rejects_bad_or_missing_stamp() {
+    let d = tmpdir("pver4");
+    let v = d.to_string_lossy().to_string();
+    install_pack(&v, znp("hello", "1.0.0", "one", None)).unwrap();
+    assert!(
+      rollback_plugin_at(&v, "hello", "../evil", true).is_err(),
+      "stamp 会拼进路径，必须挡掉 .."
+    );
+    assert!(rollback_plugin_at(&v, "hello", "nope-123", true).is_err());
   }
 
   /* ── 插入图片（rev173）── */

@@ -294,6 +294,7 @@ export function Settings({
                     onDelete={onDeletePlugin}
                     onInstall={onInstall}
                     onMarketInstall={onMarketInstall}
+                    onReloadPlugins={onReloadPlugins}
                     updates={updates}
                   />
                 </div>

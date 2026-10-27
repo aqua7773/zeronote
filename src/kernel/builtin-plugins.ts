@@ -147,11 +147,11 @@ export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
  */
 export async function ensureBuiltinPlugins(root: string): Promise<{
   failed: { pluginId: string; rel: string; error: string }[]
-  /** 被跳过、没动的插件（有签名 / 版本更新）—— 调用方可以只看 failed，这里便于测试与排障 */
-  skipped: { pluginId: string; reason: 'signed' | 'newer' }[]
+  /** 被跳过、没动的插件（有签名 / 版本更新 / 用户回滚过）—— 调用方可以只看 failed，这里便于测试与排障 */
+  skipped: { pluginId: string; reason: 'signed' | 'newer' | 'rolledback' }[]
 }> {
   const failed: { pluginId: string; rel: string; error: string }[] = []
-  const skipped: { pluginId: string; reason: 'signed' | 'newer' }[] = []
+  const skipped: { pluginId: string; reason: 'signed' | 'newer' | 'rolledback' }[] = []
   for (const plugin of BUILTIN_PLUGINS) {
     /**
      * **幂等**：内容一样就不写（rev137）。
@@ -178,6 +178,18 @@ export async function ensureBuiltinPlugins(root: string): Promise<{
     if (stale.length === 0) continue
 
     // 有差异 ⇒ 先判断「该不该覆盖」（内容一致时一次额外 invoke 都不发，启动成本不变）
+
+    /**
+     * **用户主动回滚过**（rev173.230）：别用内置版覆盖回来 —— 回滚的意义就是「停在旧版」。
+     *
+     * 标记由 Rust `rollback_plugin` 写、下一次安装删。没有这一步，回滚一个预装插件
+     * 会在**同一次重扫**里被打回最新版（`onReloadPlugins` 就触发本函数）。
+     */
+    if (await hasRollbackMarker(root, plugin.id)) {
+      skipped.push({ pluginId: plugin.id, reason: 'rolledback' })
+      continue
+    }
+
     if (await hasSignature(root, plugin.id)) {
       skipped.push({ pluginId: plugin.id, reason: 'signed' })
       continue
@@ -207,6 +219,22 @@ async function hasSignature(root: string, pluginId: string): Promise<boolean> {
   try {
     await invoke<string>('read_plugin_file', { vault: root, pluginId, rel: 'signature.json' })
     return true
+  } catch {
+    return false
+  }
+}
+
+/** 回滚标记（Rust `rollback_plugin` 写）：有它 ⇒ 用户要停在这个旧版本，内置版不许覆盖 */
+const ROLLBACK_MARKER = '.zn-rolled-back.json'
+
+async function hasRollbackMarker(root: string, pluginId: string): Promise<boolean> {
+  try {
+    const raw = await invoke<string>('read_plugin_file', { vault: root, pluginId, rel: ROLLBACK_MARKER })
+    // 目录里没有这个文件时 Rust 会抛错；但 mock / 异常实现可能给空值 ——
+    // 这里要求「非空且能解析成对象」，免得把「读到一个空串」误判成回滚标记。
+    if (typeof raw !== 'string' || raw.trim() === '') return false
+    const parsed: unknown = JSON.parse(raw)
+    return !!parsed && typeof parsed === 'object'
   } catch {
     return false
   }

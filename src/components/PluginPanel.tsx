@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Trash2 } from 'lucide-react'
+import { ChevronDown, History, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import { clampText } from '../lib/format'
 import { MarketPane } from './MarketPane'
 import { PluginDevPane } from './PluginDevPane'
+import { tryGlobalPluginRoot } from '../kernel/plugin-roots'
+import {
+  formatBytes,
+  formatVersionTime,
+  listPluginVersions,
+  rollbackPlugin,
+  type PluginVersionEntry,
+  type PluginVersionsState,
+} from '../kernel/plugin-versions'
 import type { MarketEntry } from '../kernel/market'
 import type { PluginLogEntry } from '../kernel/contract'
 import type { KernelAudit } from '../kernel/kernel'
@@ -155,6 +164,21 @@ export function PluginPanel({
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
+  /**
+   * 版本记录对话框（rev173.230 · 需求 §2.14）。
+   *
+   * `versionFor` = 给哪个插件看（null = 关着）；`versionState` = 现查的版本列表
+   * （**不缓存** —— 回滚完立刻重查，免得界面与磁盘对不上）。
+   */
+  const [versionFor, setVersionFor] = useState<PluginRow | null>(null)
+  const [versionState, setVersionState] = useState<PluginVersionsState | null>(null)
+  const [versionBusy, setVersionBusy] = useState(false)
+  const [versionNote, setVersionNote] = useState<string | null>(null)
+  /** 代际降级：Rust 返回 `needConfirm` 时的待确认项（磁盘这时还没动） */
+  const [versionConfirm, setVersionConfirm] = useState<{
+    entry: PluginVersionEntry
+    reason: string
+  } | null>(null)
   /** 当前 tab（rev173.148）：已安装 / 发现（插件市场）/ 调试（rev173.229，仅开发者模式） */
   const [tab, setTab] = useState<'installed' | 'discover' | 'dev'>('installed')
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
@@ -180,6 +204,67 @@ export function PluginPanel({
       else next.add(cat)
       return next
     })
+  }
+
+  /**
+   * 打开「版本记录」（rev173.230）。
+   *
+   * 插件只有全局一份 ⇒ 版本存档也只在全局根里（`appDataDir()`），
+   * 所以这里直接用 `tryGlobalPluginRoot()` 而不是插件行上的 `source`。
+   */
+  const openVersions = async (p: PluginRow) => {
+    setVersionFor(p)
+    setVersionState(null)
+    setVersionNote(null)
+    setVersionConfirm(null)
+    try {
+      const root = await tryGlobalPluginRoot()
+      if (!root) {
+        setVersionNote('拿不到应用数据目录，无法读取版本记录')
+        return
+      }
+      setVersionState(await listPluginVersions(root, p.id))
+    } catch (e) {
+      setVersionNote(`读取版本记录失败：${String(e)}`)
+    }
+  }
+
+  /** 重查版本列表（回滚后）—— 缓存会让界面显示过期条目 */
+  const refreshVersions = async (p: PluginRow) => {
+    const root = await tryGlobalPluginRoot()
+    if (root) setVersionState(await listPluginVersions(root, p.id))
+  }
+
+  /**
+   * 回滚到某份存档。
+   *
+   * 两段式：`force: false` 先问 Rust「这个回滚会不会降级数据代际」——
+   * 会的话返回 `needConfirm`、**磁盘不动**；用户在对话框里选「仍要回滚」再带 `force: true`。
+   */
+  const doRollback = async (p: PluginRow, entry: PluginVersionEntry, force: boolean) => {
+    setVersionBusy(true)
+    setVersionNote(null)
+    try {
+      const root = await tryGlobalPluginRoot()
+      if (!root) throw new Error('拿不到应用数据目录')
+      const r = await rollbackPlugin(root, p.id, entry.stamp, force)
+      if (r.status === 'needConfirm') {
+        setVersionConfirm({ entry, reason: r.reason })
+        return
+      }
+      setVersionConfirm(null)
+      setVersionNote(
+        `已回滚：v${r.fromVersion || '?'} → v${r.toVersion}` +
+          (r.storeRestored ? '（数据也回退到该版本快照）' : '') +
+          (r.warning ? ` · ${r.warning}` : ''),
+      )
+      onReloadPlugins?.()
+      await refreshVersions(p)
+    } catch (e) {
+      setVersionNote(`回滚失败：${String(e)}`)
+    } finally {
+      setVersionBusy(false)
+    }
   }
 
   /**
@@ -386,6 +471,15 @@ export function PluginPanel({
               </div>
               <button
                 type="button"
+                className="zn-plugin-hist"
+                onClick={() => void openVersions(p)}
+                title={`版本记录 / 回滚（当前 v${p.version}，最多保留 3 份旧版）`}
+                aria-label={`查看 ${p.name} 的版本记录`}
+              >
+                <History size={14} />
+              </button>
+              <button
+                type="button"
                 className="zn-plugin-del"
                 onClick={() => setPending(p)}
                 title="删除插件"
@@ -463,6 +557,113 @@ export function PluginPanel({
             }}
           >
             删除
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* 版本记录 / 回滚（rev173.230 · 需求 §2.14） */}
+      <Dialog
+        open={versionFor !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setVersionFor(null)
+            setVersionConfirm(null)
+          }
+        }}
+        width={460}
+      >
+        <DialogHeader
+          title="版本记录"
+          description={
+            versionFor
+              ? `${versionFor.name} · 当前 v${versionState?.current?.version ?? versionFor.version}`
+              : undefined
+          }
+        />
+        <DialogBody>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            每次安装 / 更新前会把旧版本整份存档（最多留 3 份）。回滚前会先把当前{' '}
+            <code>store.json</code> 备份到
+            <code>.zn/plugin-versions/&lt;id&gt;/_backup/</code>。
+          </p>
+
+          {versionNote && <p className="zn-plugin-version-note">{versionNote}</p>}
+
+          {versionConfirm && (
+            <div className="zn-plugin-version-warn" role="alert">
+              <div className="zn-plugin-version-warn-text">
+                {versionConfirm.reason}
+                <br />
+                确认后才会动数据（会先把当前 store.json 备份）；现在取消则什么都不改。
+              </div>
+              <div className="zn-plugin-version-warn-actions">
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={() => {
+                    setVersionConfirm(null)
+                    setVersionNote('已取消，什么都没改')
+                  }}
+                >
+                  取消
+                </Button>
+                <Button
+                  variant="danger"
+                  size="md"
+                  disabled={versionBusy}
+                  onClick={() => {
+                    if (versionFor) void doRollback(versionFor, versionConfirm.entry, true)
+                  }}
+                >
+                  仍要回滚
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!versionState ? (
+            <p className="text-xs text-muted-foreground">{versionNote ? '' : '读取中…'}</p>
+          ) : versionState.versions.length === 0 ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              还没有历史版本 —— 从下一次安装 / 更新开始存档。
+            </p>
+          ) : (
+            <ul className="zn-plugin-version-list">
+              {versionState.versions.map((v) => (
+                <li key={v.stamp} className="zn-plugin-version-row">
+                  <div className="zn-plugin-version-meta">
+                    <span className="zn-plugin-version-ver">v{v.version || '?'}</span>
+                    <span className="zn-plugin-version-time">
+                      {formatVersionTime(v.installedAt)}
+                    </span>
+                    <span className="zn-plugin-version-size">{formatBytes(v.sizeBytes)}</span>
+                    {v.hasStore && (
+                      <span
+                        className="zn-plugin-version-tag"
+                        title="存档里有这个版本当时的 store.json（插件数据快照）"
+                      >
+                        含数据
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={versionBusy}
+                    onClick={() => {
+                      if (versionFor) void doRollback(versionFor, v, false)
+                    }}
+                  >
+                    回滚
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="md" onClick={() => setVersionFor(null)}>
+            关闭
           </Button>
         </DialogFooter>
       </Dialog>

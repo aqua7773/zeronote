@@ -1799,6 +1799,21 @@ body.is-resizing * {
 /* 插件行的「删除」：平时只是个淡图标，hover 才显 danger —— 免得一排红叉吓人 */
 .zn-plugin-del { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }
 .zn-plugin-del:hover { color: var(--zn-danger); background: var(--zn-bg-hover); border-color: var(--zn-border); }
+/* 插件行的「版本记录」按钮（rev173.230 · 需求 §2.14）：跟删除同排，平时淡、hover 才亮 */
+.zn-plugin-hist { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }
+.zn-plugin-hist:hover { color: var(--zn-fg); background: var(--zn-bg-hover); border-color: var(--zn-border); }
+/* 版本记录对话框：一份存档一行（版本 · 时间 · 大小 · 是否含数据 + 回滚按钮） */
+.zn-plugin-version-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
+.zn-plugin-version-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--zn-border); border-radius: 8px; }
+.zn-plugin-version-meta { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.zn-plugin-version-ver { font-weight: 600; font-size: var(--zn-text-sm); }
+.zn-plugin-version-time, .zn-plugin-version-size { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+.zn-plugin-version-tag { color: var(--zn-fg-muted); font-size: var(--zn-text-sm); border: 1px solid var(--zn-border); border-radius: 999px; padding: 0 6px; }
+.zn-plugin-version-note { margin: 8px 0 0; color: var(--zn-fg-muted); font-size: var(--zn-text-sm); }
+/* 数据代际降级：必须显眼（这是"可能读不懂你数据的旧版"） */
+.zn-plugin-version-warn { margin-top: 10px; padding: 10px; border: 1px solid var(--zn-danger); border-radius: 8px; background: var(--zn-bg-hover); display: flex; flex-direction: column; gap: 8px; }
+.zn-plugin-version-warn-text { color: var(--zn-fg); font-size: var(--zn-text-sm); line-height: 1.6; }
+.zn-plugin-version-warn-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .zn-plugins-log { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); font-size: var(--zn-text-sm); }
 .zn-plugins-log pre { max-height: 160px; overflow: auto; margin: var(--zn-space-2) 0 0; color: var(--zn-fg-muted); white-space: pre-wrap; }
 /* 全局插件根（rev94）：列表底部的只读说明，让"拷到哪全库生效"有个明确落点 */

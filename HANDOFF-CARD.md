@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.229 · 开发者调试面板）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.230 · 插件版本回滚）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.229 · 0.6.0 · 2026-10-28 |
-| 测试基线 | vitest 1373 · cargo 55 · oxlint 3 warnings（2026-10-28） |
+| rev / 版本 | rev173.230 · 0.6.0 · 2026-10-28 |
+| 测试基线 | vitest 1379 · cargo 59 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -149,8 +149,11 @@ pwsh -File scripts\verify.ps1
 >      从 `/sdcard/Download` 导入落点正确）· ④ ✅ **引用 hover 预览**（**rev173.228**：桌面 hover 350 ms /
 >      手机长按 450 ms 弹「标题 + 摘要」，与跳转共用 `findWikiNote`）
 >    ⑤ ⚠️ **调试面板**（**rev173.229 部分完成**：结构化日志 + 错误堆栈 + 诊断表 + 模拟触发 + 重载全部；
->      **未做**单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限）· **版本回滚（§2.14）未做**
->    · **下个会话第一件事 = 版本回滚**（装时存档 3 版 + `list/rollback` + 数据备份 + 反迁移失败提示）
+>      **未做**单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限）· ✅ **版本回滚（§2.14）已完成**
+>      （**rev173.230**：装新版前整目录存档 3 份 + `list_plugin_versions` / `rollback_plugin` +
+>      回滚前备份 `store.json` 到 `_backup/` + `manifest.storeVersion` 降级两段式；桌面 CDP 实测）
+>    · **下个会话第一件事 = 核心能力接管**（§3.5 第 6 位，只做 `search.query` + `storage.*`；
+>      `editor.render` 用户已拍板不做）
 >    ⑥ 核心能力接管（只 `search.query` + `storage.*`，不做 `editor.render`）⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
@@ -176,7 +179,7 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **4164** · 2026-10-28 02:46:34 启动 —— rev173.226 改 `tauri.conf.json`
+  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **31592** · 2026-10-28 04:17:34 启动 —— rev173.230 改 `lib.rs`
   后 tauri CLI 自动重编重启；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。

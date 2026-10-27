@@ -57,6 +57,23 @@ describe('ensureBuiltinPlugins', () => {
     const r = await ensureBuiltinPlugins('C:/appdata')
     expect(r.failed).toHaveLength(1)
   })
+
+  it('用户回滚过的插件：内置版不覆盖（回滚标记优先）', async () => {
+    mocks.invoke.mockImplementation(async (cmd: string, args: { rel?: string }) => {
+      if (cmd === 'read_plugin_file') {
+        // 标记存在；其余文件“缺失” ⇒ 本该被判成 stale 并覆盖
+        if (args?.rel === '.zn-rolled-back.json') return '{"at":1,"from":"2.0.0","to":"1.0.0"}'
+        throw new Error('missing')
+      }
+      return null
+    })
+    const r = await ensureBuiltinPlugins('C:/appdata')
+    expect(r.failed).toEqual([])
+    expect(r.skipped.length).toBe(BUILTIN_PLUGINS.length)
+    expect(r.skipped.every((s) => s.reason === 'rolledback')).toBe(true)
+    const wrote = mocks.invoke.mock.calls.filter(([c]) => c === 'write_plugin_file')
+    expect(wrote).toHaveLength(0)
+  })
 })
 
 describe('compareVersions（数字段按数值比，不是字符串序）', () => {
