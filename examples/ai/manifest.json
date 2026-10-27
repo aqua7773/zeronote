@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "ai",
   "name": "AI 管家",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -31,7 +31,9 @@
       { "id": "ai.test", "title": "AI：测试连接" },
       { "id": "ai.send", "title": "AI：发送消息" },
       { "id": "ai.stop", "title": "AI：停止生成" },
-      { "id": "ai.clear", "title": "AI：新对话" }
+      { "id": "ai.clear", "title": "AI：新对话" },
+      { "id": "ai.accept", "title": "AI：采用待确认的改动" },
+      { "id": "ai.reject", "title": "AI：放弃待确认的改动" }
     ],
     "panels": [{ "id": "ai.chat", "title": "AI", "location": "main" }]
   }

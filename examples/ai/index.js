@@ -1,10 +1,13 @@
 /**
- * AI 管家（0.1.0 · rev173.196）—— 骨架 + 设置页
+ * AI 管家（0.2.0 · rev173.196 → 173.199）
  *
- * 这一刀只做三件事：
- *   ① 注册主区面板「AI」（对话区先占位，rev197 接模型）
- *   ② 设置：服务商 / 模型名 / 自有端点 / API Key
- *   ③ 测试连接：GET `{baseUrl}/models`，把 status 与响应原文摊开
+ * 四刀：
+ *   · rev196 骨架 + 设置页（服务商 / 模型 / Key 进系统凭据库 / 测试连接）
+ *   · rev197 模型调用 + 流式对话（SSE 逐字 / 停止 / 历史存 store）
+ *   · rev198 只读工具（list_dirs / list_notes / read_note / search_notes / list_tags）+ 工具循环 + 步骤流
+ *   · rev199 写工具（本刀）：**可逆的直接做**（note.create / folder.create / tag.add / tag.remove），
+ *     **不可逆的只生成提案**（note.write 出 diff 预览、note.move、note.trash），
+ *     用户在面板点「采用 / 确认移动 / 确认删除」才落盘（需求 Q4 / Q11）
  *
  * ## 为什么 Key 不进 `store`
  * `store` 落库（`<库>/.zn/...`），而库会被同步插件、备份插件搬到云端与备份包里。
@@ -132,6 +135,114 @@ export const TOOLS = [
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
+
+  /* ── 写工具（rev199）──
+   * 需求 Q4：**只对不可逆操作要确认**（删除 / 覆盖已有正文）；新建、建文件夹、打标签直接做。
+   * 需要确认的三个工具**不会立刻落盘**，只生成 proposal，等用户在面板点「采用」。
+   * 返回 `status: "pending"` 时**不要对用户说「已经改好了」** —— 那是撒谎。 */
+  {
+    type: 'function',
+    function: {
+      name: 'note.create',
+      description: '新建一篇笔记。路径已存在会报错（不会覆盖，改写已有笔记请用 note.write）',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '库内相对路径，例如 工作/周报.md' },
+          content: { type: 'string', description: '正文（可含 Markdown）' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'note.write',
+      description:
+        '改写一篇**已有**笔记的全文。不会立刻写盘：生成 diff 预览，用户在面板点「采用」后才生效。' +
+        '返回 status=pending 表示等确认，不是已完成。一次只改一篇。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '库内相对路径' },
+          content: { type: 'string', description: '**完整**新正文（整篇替换，不是补丁）' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'note.move',
+      description:
+        '移动 / 重命名一篇笔记。不会立刻执行，要用户在面板确认。to 可以是新路径，也可以是已存在的文件夹（自动拼上原文件名）。目标已存在会报错，不覆盖。',
+      parameters: {
+        type: 'object',
+        properties: {
+          from: { type: 'string', description: '源路径' },
+          to: { type: 'string', description: '目标路径或目标文件夹' },
+        },
+        required: ['from', 'to'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'note.trash',
+      description: '把一篇笔记移入回收站（可恢复）。不会立刻执行，要用户在面板确认。',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: '库内相对路径' } },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tag.add',
+      description: '给一篇笔记加标签（写进 frontmatter，不动正文）。已有标签自动跳过。直接生效。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '库内相对路径' },
+          tags: { type: 'array', items: { type: 'string' }, description: '要加的标签（不带 #）' },
+        },
+        required: ['path', 'tags'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tag.remove',
+      description:
+        '移除一篇笔记的标签（只删 frontmatter；正文里的 #标签 引用不会动，结果里会告知还剩几处）。直接生效。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '库内相对路径' },
+          tags: { type: 'array', items: { type: 'string' }, description: '要删的标签（不带 #）' },
+        },
+        required: ['path', 'tags'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'folder.create',
+      description: '新建文件夹（多级一起建，已存在不报错）。直接生效。',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: '库内相对路径，例如 工作/周报' } },
+        required: ['path'],
+      },
+    },
+  },
 ]
 
 /**
@@ -217,11 +328,289 @@ export function windowMessages(list, n = CONTEXT_WINDOW) {
     .map((m) => ({ role: m.role, content: String(m.content ?? '') }))
 }
 
+/* ───────────────── 写工具的纯函数（rev173.199 · 单测覆盖） ───────────────── */
+
+/** 一行 diff 的类型（`same` 不打标记，`add`/`del` 带 +/−） */
+/** @typedef {{ type: 'same' | 'add' | 'del', text: string }} DiffLine */
+
+/** 超过这么多行就不做行级 diff（LCS 是 O(n·m)，8000×8000 会把面板卡住） */
+export const DIFF_MAX_LINES = 2000
+/** 中间段的行数乘积上限：超过就退化为「全删 + 全加」，不做最小编辑 */
+export const DIFF_DP_LIMIT = 400
+/** 面板里最多显示这么多行 diff */
+export const DIFF_SHOW_LINES = 120
+
+/**
+ * 库内相对路径归一化（**安全边界在这里**，不是靠 Rust 兜）。
+ *
+ * 三条硬拒：空、含 `..`、任一段以 `.` 开头（`.zn` 是内核私有区，隐藏文件也不该被 AI 碰）。
+ * 分隔符统一成 `/`（Windows 上模型经常回 `工作\周报.md`）。
+ * 返回 `''` 表示不合法 —— 调用方必须当成错误，**不能当空路径继续跑**。
+ */
+export function normRel(raw) {
+  const s = String(raw ?? '').trim().replace(/\\/g, '/')
+  if (!s) return ''
+  const parts = []
+  for (const seg of s.split('/')) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') return ''
+    if (seg.startsWith('.')) return ''
+    parts.push(seg)
+  }
+  return parts.join('/')
+}
+
+/** 笔记路径 = 归一化 + 补 `.md`（模型经常只给「工作/周报」） */
+export function notePathOf(raw) {
+  const p = normRel(raw)
+  if (!p) return ''
+  return /\.md$/i.test(p) ? p : `${p}.md`
+}
+
+/** 按行切开（统一换行）；空文本 = 0 行，而不是 ['' ] */
+function splitLines(text) {
+  const s = String(text ?? '')
+  if (!s) return []
+  return s.replace(/\r\n?/g, '\n').split('\n')
+}
+
+/** 行级 LCS diff（只在中间段调用，输入已剥掉公共前后缀） */
+function lcsDiff(a, b) {
+  const n = a.length
+  const m = b.length
+  const w = m + 1
+  const dp = new Int32Array((n + 1) * w)
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i * w + j] =
+        a[i] === b[j]
+          ? dp[(i + 1) * w + j + 1] + 1
+          : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1])
+    }
+  }
+  /** @type {DiffLine[]} */
+  const out = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push({ type: 'same', text: a[i] })
+      i++
+      j++
+    } else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) {
+      out.push({ type: 'del', text: a[i] })
+      i++
+    } else {
+      out.push({ type: 'add', text: b[j] })
+      j++
+    }
+  }
+  while (i < n) out.push({ type: 'del', text: a[i++] })
+  while (j < m) out.push({ type: 'add', text: b[j++] })
+  return out
+}
+
+/**
+ * 生成行级 diff（纯函数）。
+ *
+ * 返回 `{ lines, added, removed, same, tooLong, oldLines, newLines }`。
+ * `tooLong` 为真时 `lines` 是空的 —— 调用方**不要**把它当成「没改动」，
+ * 那时 `added/removed` 也是 0，只能按行数对比给用户一个提示。
+ *
+ * 为什么先剥公共前后缀：真实编辑几乎都是「改中间一段」，
+ * 整篇 LCS 既慢又会让摘要里 `same` 行数爆掉。
+ */
+export function buildDiff(oldText, newText) {
+  const a = splitLines(oldText)
+  const b = splitLines(newText)
+  if (a.length > DIFF_MAX_LINES || b.length > DIFF_MAX_LINES) {
+    return { lines: [], added: 0, removed: 0, same: 0, tooLong: true, oldLines: a.length, newLines: b.length }
+  }
+  let head = 0
+  while (head < a.length && head < b.length && a[head] === b[head]) head++
+  let tail = 0
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) {
+    tail++
+  }
+  /** @type {DiffLine[]} */
+  const lines = []
+  let added = 0
+  let removed = 0
+  const push = (type, text) => {
+    lines.push({ type, text })
+    if (type === 'add') added++
+    else if (type === 'del') removed++
+  }
+  for (let i = 0; i < head; i++) push('same', a[i])
+  const am = a.slice(head, a.length - tail)
+  const bm = b.slice(head, b.length - tail)
+  if (am.length && bm.length && am.length * bm.length <= DIFF_DP_LIMIT * DIFF_DP_LIMIT) {
+    for (const d of lcsDiff(am, bm)) push(d.type, d.text)
+  } else {
+    for (const t of am) push('del', t)
+    for (const t of bm) push('add', t)
+  }
+  for (let i = a.length - tail; i < a.length; i++) push('same', a[i])
+  return { lines, added, removed, same: lines.length - added - removed, tooLong: false, oldLines: a.length, newLines: b.length }
+}
+
+/** 把 diff 变成可读文本（`+` / `-` / 两空格前缀，超长截断并说明还有多少行） */
+export function diffText(diff, max = DIFF_SHOW_LINES) {
+  const lines = Array.isArray(diff?.lines) ? diff.lines : []
+  if (!lines.length) return ''
+  const shown = lines.slice(0, max)
+  const body = shown
+    .map((l) => (l.type === 'add' ? `+ ${l.text}` : l.type === 'del' ? `- ${l.text}` : `  ${l.text}`))
+    .join('\n')
+  return lines.length > max ? `${body}\n… 还有 ${lines.length - max} 行没有显示` : body
+}
+
+/** 标签名清洗（去引号 / 方括号 / 开头的 #）—— 与内核 `tagsOf` 同一套口径 */
+function cleanTag(s) {
+  return String(s ?? '')
+    .trim()
+    .replace(/^["'[\]]+|["'[\]]+$/g, '')
+    .replace(/^#/, '')
+    .trim()
+}
+
+/** 标题正文里的 `#标签`（与 `index-api.ts` 的正文正则同源，用来判断「删了 frontmatter 但正文还有」） */
+const BODY_TAG_RE = /(?<=^|\s)#([^\s#[\]{}()（）【】「」，。！？、；：""''.,!?;:]{1,30})/gm
+
+/** 正文（去掉 frontmatter）里的标签 */
+function bodyTagsOf(raw) {
+  const body = String(raw ?? '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*/, '')
+  const out = []
+  for (const m of body.matchAll(BODY_TAG_RE)) out.push(m[1])
+  return out
+}
+
+/**
+ * 在 frontmatter 里增删标签（纯函数）。
+ *
+ * 为什么是 frontmatter 而不是在正文里追加 `#tag`：内核的 `tagsOf` 两处都认，
+ * 但往正文里塞标签会改用户的文字内容，frontmatter 是"额外信息"，改它不动正文。
+ *
+ * **保留原写法**：行内数组 / 多行 `- a` / 单行逗号 —— 三种原文回写同一种格式，
+ * 不做"统一成行内数组"（那会在 diff 里制造与本次改动无关的噪音）。
+ * 没有 frontmatter 时新增一段（只有 add 才建）。
+ *
+ * 返回 `{ text, changed, added, removed, tags, stillInBody }`：
+ * · `stillInBody` —— remove 时正文里仍然出现的 `#tag`（**标签列表里还会看到它**，
+ *   内核索引两处都认；工具结果必须把这件事说出来，否则就是静默失效）
+ */
+export function applyTags(text, tags, mode = 'add') {
+  const src = String(text ?? '')
+  const want = [...new Set((Array.isArray(tags) ? tags : [tags]).map(cleanTag).filter(Boolean))]
+  const res = { text: src, changed: false, added: [], removed: [], tags: [], stillInBody: [] }
+  if (!want.length) return res
+  const lowerWant = want.map((t) => t.toLowerCase())
+
+  const fm = /^---[ \t]*(\r?\n)([\s\S]*?)\r?\n---[ \t]*((?:\r?\n)?)/.exec(src)
+  if (!fm) {
+    if (mode === 'remove') {
+      // 没有 frontmatter，但正文里可能真有 #tag —— 也要报出来（同样是为了不静默失效）
+      const inBody = bodyTagsOf(src)
+      res.stillInBody = want.filter((t) => inBody.some((b) => b.toLowerCase() === t.toLowerCase()))
+      return res
+    }
+    const eol = '\n'
+    res.text = `---${eol}tags: [${want.join(', ')}]${eol}---${eol}${eol}${src}`
+    res.changed = true
+    res.added = want
+    res.tags = want
+    return res
+  }
+
+  const eol = fm[1]
+  const body = fm[2]
+  const after = fm[3]
+  const rest = src.slice(fm[0].length)
+
+  /** 现有标签行：三种写法分别匹配（与 `index-api.ts` 的 `tagsOf` 一一对应） */
+  const inlineRe = /^((tags|标签)[ \t]*:[ \t]*)\[([^\]]*)\][ \t]*$/m
+  const multiRe = /^((tags|标签)[ \t]*:[ \t]*)\r?\n((?:[ \t]*-[ \t]*[^\r\n]+(?:\r?\n|$))+)/m
+  const plainRe = /^((tags|标签)[ \t]*:[ \t]*)([^\[\r\n][^\r\n]*)$/m
+  const inline = inlineRe.exec(body)
+  const multi = inline ? null : multiRe.exec(body)
+  const plain = inline || multi ? null : plainRe.exec(body)
+
+  let cur = []
+  let style = 'none'
+  if (inline) {
+    cur = inline[3].split(',').map(cleanTag).filter(Boolean)
+    style = 'inline'
+  } else if (multi) {
+    cur = [...multi[3].matchAll(/^[ \t]*-[ \t]*(.+?)[ \t]*$/gm)].map((m) => cleanTag(m[1])).filter(Boolean)
+    style = 'multi'
+  } else if (plain) {
+    cur = plain[3].split(',').map(cleanTag).filter(Boolean)
+    style = 'plain'
+  }
+
+  const lowerCur = new Set(cur.map((t) => t.toLowerCase()))
+  let next = cur.slice()
+  if (mode === 'add') {
+    for (const t of want) {
+      if (!lowerCur.has(t.toLowerCase())) {
+        next.push(t)
+        res.added.push(t)
+      }
+    }
+  } else {
+    next = cur.filter((t) => {
+      const hit = lowerWant.includes(t.toLowerCase())
+      if (hit) res.removed.push(t)
+      return !hit
+    })
+  }
+  res.tags = next
+  if (!res.added.length && !res.removed.length) {
+    // 幂等：加已有 / 删本来没有 ⇒ 不写盘
+    if (mode === 'remove') {
+      const inBody = bodyTagsOf(src)
+      res.stillInBody = want.filter((t) => inBody.some((b) => b.toLowerCase() === t.toLowerCase()))
+    }
+    return res
+  }
+
+  const key = (inline || multi || plain)?.[2] ?? 'tags'
+  const render = (list) => {
+    if (!list.length) return '' // 删掉整行（`tags: []` 留着是噪音）
+    if (style === 'multi') return `${key}:${eol}${list.map((t) => `  - ${t}`).join(eol)}${eol}`
+    if (style === 'plain') return `${key}: ${list.join(', ')}${eol}`
+    return `${key}: [${list.join(', ')}]${eol}`
+  }
+
+  let newBody
+  if (style === 'none') {
+    // 有 frontmatter 但没有标签行 ⇒ 追加到最后一行（空 frontmatter 就只写这一行）
+    const trimmed = body.replace(/[ \t\r\n]+$/, '')
+    newBody = `${trimmed ? `${trimmed}${eol}` : ''}tags: [${next.join(', ')}]`
+  } else {
+    const whole = (inline ?? multi ?? plain)[0]
+    newBody = body.replace(whole, render(next))
+  }
+  res.text = `---${eol}${newBody}${eol}---${after}${rest}`
+  res.changed = true
+
+  if (mode === 'remove' && res.removed.length) {
+    // 注意：判断「正文里还有」要用**改完之后**的文本（frontmatter 已不含这些标签）
+    const inBody = bodyTagsOf(res.text)
+    res.stillInBody = want.filter((t) => inBody.some((b) => b.toLowerCase() === t.toLowerCase()))
+  }
+  return res
+}
+
 
 /** @type {import('../../src/kernel/contract').Plugin} */
 export default {
   apply(ctx) {
-    const { command, view, host, store, net, fs, index, subscriptions } = ctx
+    const { command, view, host, store, net, fs, index, doc, subscriptions } = ctx
 
     /** 配置（落 store） */
     let cfg = { provider: DEFAULT_PROVIDER, model: '', baseUrl: '' }
@@ -240,6 +629,19 @@ export default {
     let abortCtrl = null
     /** 流式回复的节流刷新计时器（80ms 一次，不逐字重排整个面板） */
     let refreshTimer = 0
+
+    /**
+     * 待用户确认的写操作（需求 Q4 / Q11）。
+     *
+     * **只在内存里**：每个提案的 `run` 闭包捕获了生成时的旧内容，
+     * 存进 store 再 reload 回来就成了"基于一份可能已经变了的内容去覆盖" —— 那比丢掉提案危险。
+     * reload 丢提案 = 用户重说一遍；留着过期提案 = 静默覆盖用户的修改。
+     */
+    let pending = []
+    let proposalSeq = 0
+    /** 最近一次确认 / 放弃的结果，显示在面板上（一行） */
+    let actionNote = ''
+    let actionOk = true
 
     const providerOf = (id) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0]
     const accountOf = (id) => `ai.api-key.${id}`
@@ -376,13 +778,34 @@ export default {
      * 流式请求：走**浏览器 fetch**（要服务商回 CORS 头；DeepSeek 预检实测允许）。
      * 失败（CORS / 网络 / 不支持流）由调用方降级 `nonStreamChat`。
      */
-    /* ───────── 工具（只读 · rev198） ───────── */
+    /* ───────── 工具（只读 rev198 · 写 rev199） ───────── */
 
     /**
-     * 执行一个只读工具，返回**给模型看**的字符串。
+     * 造一个待确认提案。`run` 是**用户点「采用」时才执行**的那段。
+     *
+     * 返回给模型的字符串里必须有 `status: 'pending'`：模型看到它才知道"还没落地"，
+     * 否则它会回一句「已经帮你改好了」—— 用户看着没变，下次再让它改，就叠出两份不同的内容。
+     */
+    function queueProposal(kind, title, detail, run, extra = {}) {
+      const id = `p${++proposalSeq}`
+      const prop = { id, kind, title, detail, run, ...extra }
+      pending.push(prop)
+      return prop
+    }
+
+    /** 提案里已有同一路径的待确认改写 ⇒ 拒绝（两版都采用会互相覆盖，用户看到的是"改两次只生效一次"） */
+    function hasPendingWrite(path) {
+      return pending.some((p) => p.kind === 'write' && p.path === path)
+    }
+
+    /**
+     * 执行一个工具，返回**给模型看**的字符串。
      *
      * 失败也以 `throw` 出去、由调用方包成 `错误：…` 回灌 —— 模型看到错误能自己换参数重试，
      * 而不是整个对话崩掉（这与「静默失效比报错危险」同向）。
+     *
+     * 写工具分两档（需求 Q4）：**可逆的直接做**（新建 / 建文件夹 / 打标签），
+     * **不可逆的只生成提案**（覆盖正文 / 移动 / 删除）。
      */
     async function runTool(name, args) {
       const a = args && typeof args === 'object' ? args : {}
@@ -427,6 +850,135 @@ export default {
         const tags = await index.tags()
         return JSON.stringify({ count: tags.length, tags: tags.slice(0, 100) })
       }
+
+      /* ── 写工具：可逆的直接做 ── */
+
+      if (name === 'note.create') {
+        const p = notePathOf(a.path)
+        if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
+        if (await fs.exists(p)) {
+          throw new Error(
+            `${p} 已存在 —— 不覆盖。要改写它请用 note.write（会生成预览让你确认），要换名字请用 note.move`,
+          )
+        }
+        const content = String(a.content ?? '')
+        await fs.createNote(p, content)
+        return JSON.stringify({ ok: true, created: p, chars: content.length })
+      }
+
+      if (name === 'folder.create') {
+        const p = normRel(a.path)
+        if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
+        await fs.mkdir(p)
+        return JSON.stringify({ ok: true, created: p })
+      }
+
+      if (name === 'tag.add' || name === 'tag.remove') {
+        const p = notePathOf(a.path)
+        if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
+        const mode = name === 'tag.add' ? 'add' : 'remove'
+        const r = applyTags(await fs.readText(p), a.tags ?? a.tag, mode)
+        if (!r.changed) {
+          const out = { ok: true, changed: false, path: p, tags: r.tags, message: '标签没有变化（要加的已经在了 / 要删的本来就没有）' }
+          if (r.stillInBody.length) out.warning = `正文里还有 #${r.stillInBody.join(' #')}，标签列表里仍会看到它`
+          return JSON.stringify(out)
+        }
+        await fs.writeText(p, r.text)
+        const out = { ok: true, changed: true, path: p, tags: r.tags }
+        if (r.removed.length) out.removed = r.removed
+        if (r.stillInBody.length) {
+          out.warning = `frontmatter 里的 ${r.stillInBody.join(', ')} 已删除，但正文里还有 #${r.stillInBody.join(' #')} 引用 —— 标签列表里仍会看到它（要彻底去掉得改正文）`
+        }
+        return JSON.stringify(out)
+      }
+
+      /* ── 写工具：不可逆的只生成提案 ── */
+
+      if (name === 'note.write') {
+        const p = notePathOf(a.path)
+        if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
+        const next = String(a.content ?? '')
+        if (!next.trim()) {
+          throw new Error('content 是空的。要清空一篇笔记请明确说明；这里不会把文件写成空的')
+        }
+        if (hasPendingWrite(p)) {
+          throw new Error(`${p} 已经有一份待确认的改写 —— 等用户在那份上点「采用」或「放弃」再改，两版同时存在会互相覆盖`)
+        }
+        const old = await fs.readText(p)
+        const diff = buildDiff(old, next)
+        if (!diff.tooLong && !diff.added && !diff.removed) {
+          return JSON.stringify({ ok: true, changed: false, path: p, message: '内容和现在完全一样，没有改动' })
+        }
+        const detail = diff.tooLong
+          ? `文件较长（${diff.oldLines} → ${diff.newLines} 行），不逐行对比；采用后整篇替换`
+          : `+${diff.added} 行 / −${diff.removed} 行`
+        const prop = queueProposal('write', `改写 ${p}`, detail, async () => {
+          const cur = await fs.readText(p)
+          if (cur !== old) {
+            throw new Error('文件在预览之后被改过（可能你在编辑器里改了），这次写入已取消 —— 让 AI 重新生成一版')
+          }
+          await fs.writeText(p, next)
+          await index.upsert(p, next)
+        }, { path: p, diff, oldLen: old.length, newLen: next.length })
+        return JSON.stringify({
+          status: 'pending',
+          proposalId: prop.id,
+          path: p,
+          summary: detail,
+          message: '已生成预览，**还没写盘**。用户在 AI 面板点「采用」后才生效 —— 现在不要对用户说已经改好',
+        })
+      }
+
+      if (name === 'note.move') {
+        const from = notePathOf(a.from)
+        if (!from) throw new Error('from 不合法')
+        /** `to` 若是一个已存在的文件夹，就拼上原文件名（模型常说「移到 技术/」） */
+        const toDir = normRel(a.to)
+        let to = notePathOf(a.to)
+        if (toDir) {
+          const dirs = await fs.listDirs().catch(() => [])
+          if (dirs.includes(toDir)) to = `${toDir}/${from.split('/').pop()}`
+        }
+        if (!to) throw new Error('to 不合法：不能为空、不能含 ..、不能以 . 开头')
+        if (from === to) return JSON.stringify({ ok: true, changed: false, message: '源路径和目标路径相同，没有移动' })
+        if (!(await fs.exists(from))) throw new Error(`源不存在：${from}`)
+        if (await fs.exists(to)) throw new Error(`目标已存在：${to}（不覆盖，换一个名字）`)
+        const prop = queueProposal('move', `移动 ${from}`, `→ ${to}`, async () => {
+          const active = doc.active()
+          const isActive = active?.path === from
+          if (isActive) await doc.save()
+          await fs.move(from, to)
+          // 打开着的正是这篇 ⇒ 让编辑器跟着走，否则标题栏还挂着旧路径、再保存会重建旧文件
+          if (isActive) await doc.open(to)
+        }, { path: from, to })
+        return JSON.stringify({
+          status: 'pending',
+          proposalId: prop.id,
+          from,
+          to,
+          message: '等用户在面板点「确认移动」后才执行',
+        })
+      }
+
+      if (name === 'note.trash') {
+        const p = notePathOf(a.path)
+        if (!p) throw new Error('path 不合法：不能为空、不能含 ..、不能以 . 开头')
+        if (!(await fs.exists(p))) throw new Error(`不存在：${p}`)
+        const prop = queueProposal('trash', `移入回收站 ${p}`, '可在内核回收站恢复（Ctrl+Shift+T 或回收站面板）', async () => {
+          const active = doc.active()
+          if (active?.path === p) await doc.save()
+          const inTrash = await fs.delete(p)
+          if (active?.path === p) doc.close(p)
+          return inTrash
+        }, { path: p })
+        return JSON.stringify({
+          status: 'pending',
+          proposalId: prop.id,
+          path: p,
+          message: '等用户在面板点「确认删除」后才进回收站',
+        })
+      }
+
       throw new Error(`未知工具：${name}`)
     }
 
@@ -443,7 +995,10 @@ export default {
 
     /** 步骤流里显示的一行摘要 */
     function summarize(s) {
-      const t = String(s ?? '').replace(/\s+/g, ' ')
+      const raw = String(s ?? '')
+      // 写工具的返回值是一大段 JSON，摊在步骤行里全是噪音 —— 换成一句话
+      if (raw.includes('"status":"pending"')) return '已生成预览，等确认'
+      const t = raw.replace(/\s+/g, ' ')
       return t.length > 80 ? `${t.slice(0, 80)}…` : t
     }
 
@@ -659,7 +1214,8 @@ export default {
       if (!messages.length) {
         nodes.push({
           type: 'text',
-          value: '先聊两句试试。工具（列文件夹 / 搜索 / 移动笔记）在 rev198–199 接上。',
+          value:
+            '先聊两句试试。它能查你的笔记（列文件夹 / 搜索 / 读全文），也能改写、移动、删除 —— 后三种会先出预览，你点确认才生效。',
           variant: 'caption',
           tone: 'muted',
         })
@@ -716,6 +1272,75 @@ export default {
       return nodes
     }
 
+    /**
+     * 「待确认」区（rev199 · 需求 Q4 / Q11）。
+     *
+     * 三类提案共用一块：改写显示 diff 让用户看清改了哪几行，移动/删除显示一行路径。
+     * 按钮文案按**后果**写（「确认删除」而不是「确定」）—— 用户扫一眼就知道点下去会失去什么。
+     */
+    function pendingSection() {
+      if (!pending.length) {
+        // 提案都没了，但刚点的「采用 / 放弃」得留一行结果 ——
+        // 否则区域整块消失，用户不知道自己是点成功了还是点漏了
+        return actionNote
+          ? [
+              { type: 'text', value: actionNote, variant: 'caption', tone: actionOk ? 'success' : 'danger' },
+              { type: 'divider' },
+            ]
+          : []
+      }
+      /** @type {import('../../src/kernel/contract').UINode[]} */
+      const nodes = []
+      for (const it of pending) {
+        /** @type {import('../../src/kernel/contract').UINode[]} */
+        const kids = [
+          { type: 'text', value: it.detail, variant: 'caption', tone: 'muted' },
+        ]
+        if (it.kind === 'write' && it.diff && !it.diff.tooLong) {
+          kids.push({ type: 'code', value: diffText(it.diff), lang: 'text' })
+        }
+        const buttons = []
+        if (it.kind === 'write') {
+          buttons.push({ type: 'button', label: '采用', onClick: 'ai.accept', payload: { id: it.id } })
+        } else if (it.kind === 'move') {
+          buttons.push({ type: 'button', label: '确认移动', onClick: 'ai.accept', payload: { id: it.id } })
+        } else {
+          buttons.push({ type: 'button', label: '确认删除', variant: 'danger', onClick: 'ai.accept', payload: { id: it.id } })
+        }
+        buttons.push({ type: 'button', label: '放弃', variant: 'ghost', onClick: 'ai.reject', payload: { id: it.id } })
+        kids.push({ type: 'row', align: 'center', gap: 'sm', children: buttons })
+        nodes.push({
+          type: 'field',
+          label: it.title,
+          hint: it.kind === 'write' ? '采用 = 按上面的预览整篇替换（写入前会再核一次文件有没有被别人改过）' : '',
+          children: { type: 'stack', gap: 'sm', children: kids },
+        })
+      }
+      return [
+        {
+          type: 'row',
+          align: 'center',
+          wrap: true,
+          gap: 'sm',
+          children: [
+            { type: 'text', value: '待确认', variant: 'title' },
+            { type: 'badge', text: `${pending.length} 项`, tone: 'warning' },
+            {
+              type: 'text',
+              value: '不可逆操作 —— 点确认才执行',
+              variant: 'caption',
+              tone: 'muted',
+            },
+          ],
+        },
+        ...nodes,
+        ...(actionNote
+          ? [{ type: 'text', value: actionNote, variant: 'caption', tone: actionOk ? 'success' : 'danger' }]
+          : []),
+        { type: 'divider' },
+      ]
+    }
+
     function renderPanel() {
       const p = providerOf(cfg.provider)
       const base = effectiveBase()
@@ -757,6 +1382,9 @@ export default {
           ? [{ type: 'text', value: loadError, variant: 'caption', tone: 'danger' }]
           : []),
         { type: 'divider' },
+
+        /* 待确认（不可逆写操作）—— 放在对话区上方，长对话滚下去也看得见 */
+        ...pendingSection(),
 
         /* 对话区 */
         ...chatSection(ready),
@@ -896,7 +1524,7 @@ export default {
         {
           type: 'text',
           value: ready
-            ? '对话已可用。工具（列文件夹 / 搜索 / 读笔记 / 移动）在 rev198–199 接上。'
+            ? '对话已可用：只读工具直接查；改写 / 移动 / 删除会先在上方给预览，点了确认才落盘。'
             : '配好服务商与 API Key 之后就能对话。',
           variant: 'caption',
           tone: 'muted',
@@ -1063,8 +1691,59 @@ export default {
           if (streaming) abortCtrl?.abort()
           messages = []
           streamError = ''
+          // 新对话不清提案：那几份改动还在等着用户点，凭一句"新对话"丢掉太容易误触
           await saveHistory()
           refresh()
+        },
+      }),
+    )
+
+    /**
+     * 确认 / 放弃一个提案。
+     *
+     * 失败时**不删提案**：最常见的原因是「文件在预览后被改过」——
+     * 直接抹掉的话用户只看到一行红字，连刚才预览了什么都没了；留着还能点「放弃」或让 AI 重来。
+     */
+    async function resolveProposal(id, accept) {
+      const i = pending.findIndex((p) => p.id === id)
+      if (i < 0) return
+      const prop = pending[i]
+      if (!accept) {
+        pending.splice(i, 1)
+        actionOk = true
+        actionNote = `已放弃：${prop.title}`
+        refresh()
+        return
+      }
+      try {
+        const extra = await prop.run()
+        pending.splice(i, 1)
+        actionOk = true
+        actionNote = `✓ 已完成：${prop.title}${prop.kind === 'write' ? ` · ${prop.detail}` : ''}`
+        if (prop.kind === 'trash' && extra) actionNote += `（回收站：${extra}）`
+      } catch (e) {
+        actionOk = false
+        actionNote = `✗ ${prop.title} 失败：${String(e?.message ?? e)}`
+      }
+      refresh()
+    }
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.accept',
+        title: 'AI：采用待确认的改动',
+        run: async (payload) => {
+          await resolveProposal(String(payload?.id || ''), true)
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.reject',
+        title: 'AI：放弃待确认的改动',
+        run: async (payload) => {
+          await resolveProposal(String(payload?.id || ''), false)
         },
       }),
     )

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.199
-更新时间: 2026-10-27 · 最新 rev173.199
+revision: 173.200
+更新时间: 2026-10-27 · 最新 rev173.200
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.199
 
 | rev | 内容 |
 |---|---|
+| rev173.200 | 2026-10-27 · **AI 插件第四刀：写工具 + diff 预览确认**（用户「继续 ZeroNote」· **零内核改动**）：需求 Q4/Q11 落地 —— **可逆的直接做，不可逆的先给预览**。7 个写工具：`note.create` / `folder.create` / `tag.add` / `tag.remove` **直接生效**（建笔记已存在 ⇒ 报错并指向 `note.write`，不覆盖）；`note.write` / `note.move` / `note.trash` **只生成提案**。行级 diff 用 **LCS**（先剥公共前后缀，中间段 >400×400 退化「全删+全加」，整篇 >2000 行标 `tooLong` 不硬算）+ 面板「待确认」区（diff 块 + 采用/放弃/确认移动/确认删除）。**三条安全线**：① 冲突检测（提案时记旧全文，采用前重读，不一致 ⇒ 拒绝）② 提案只在内存（reload 丢，绝不落 store 后执行）③ 同路径只许一份待确认改写。vitest 1184 → **1214**（30 条新单测：路径边界 / diff 七种形态 / 标签三种 frontmatter 写法 + 幂等 + `stillInBody`）。**CDP 实测 7 场景全过**（采用 / 放弃 / 冲突拒绝 / 移动 `to:'工作/'` 自动拼名 / 回收站 / 标签幂等）。⚠️ 新坑：**WebView2 的 PNA 拦页面 `fetch` 到 `127.0.0.1`**（CSP 有 `http:` 也不管用），本地 mock 要回 `access-control-allow-private-network: true` |
 | rev173.199 | 2026-10-27 · **交接**（用户「交接」）：本会话 **AI 插件从需求到第三刀**共 4 个提交 —— ① **39 问需求定稿 + 7 刀实施计划**（`docs/AI插件-需求-2026-10-27.md` / `docs/AI插件-实施计划-2026-10-27.md`，9ce6c9b）② **rev196 骨架 + 设置页**（`examples/ai/` · 面板 · Key 进系统凭据库 · 测试连接三态，2cc4700）③ **rev197 模型调用 + 流式对话**（SSE 逐字 / 停止 / 新对话 / 历史存 store / 9 条单测，a60386a）④ **rev198 只读工具 + 工具循环 + 步骤流**（5 个工具 / 最多 4 步 / 14 条单测，9dea102）。**交接时**：HEAD `9dea102` · **ahead 4 未推送** · 工作区干净 · verify 六步全绿（vitest **1184** · cargo 55 · oxlint 3 · 质量门 7/7）· 桌面 dev pid **35548**（00:58:24 起，**已连续跑 11 小时仍可用**）· 8999 测试端口已释放。**下个会话第一件事**：rev199 写工具 + diff 预览确认。**三条新坑**见正文 |
 | rev173.198 | 2026-10-27 · **AI 插件第三刀：只读工具 + 工具调用循环 + 步骤流**：5 个只读工具（`list_dirs` / `list_notes` / `read_note` / `search_notes` / `list_tags`，走 `fs.listDirs/listNotes/readText` + `index.query/tags`）+ **工具循环**（最多 4 步，`assistant.tool_calls` → 执行 → `role:'tool'` 回灌 → 再调）+ **步骤流**（✓/✗ + 工具名 + 耗时 + 结果摘要）+ SSE 的 `tool_calls` **分片累积**（`accumulateToolCalls` 按 index 拼参数，`finalizeToolCalls` 收尾）。单测 9 → **14**（工具分片 5 条）。**实测**（mock 第一轮只回 tool_calls、第二轮引用结果）：说「列一下文件夹」→ 真读测试库 18 个目录 → 回灌后模型复述 → 步骤行 `✓ list_dirs · 6 ms · {"count":18,…}`。⚠️ 坑：`job_kill` 杀不掉后台 node（旧 mock 进程还占着 8999，新 mock `EADDRINUSE`）→ 得按端口找 pid `Stop-Process` |
 | rev173.197 | 2026-10-27 · **AI 插件第二刀：模型调用 + 流式对话**（用户「继续」）：`examples/ai/` 加 —— ① **SSE 流式**（浏览器 `fetch` + `ReadableStream`，DeepSeek 允许 CORS）② 两个纯函数 `parseSseBuffer` / `windowMessages` + **9 条单测**（半包 / 多事件 / `[DONE]` / 坏行 / 窗口裁剪）③ 降级 `net.fetch` 非流式（流式失败且一个字没收到才降）④ **停止**（`AbortController`）+ **新对话** ⑤ 历史存 `store`（最多 40 条，发模型只带最近 **20** 条）。**实测**（本地 SSE mock `127.0.0.1:8999` + 页面内 `setTimeout` 定时停止）：逐字渲染、10 段文本完整拼接、停在中途显示「已停止」、`reload` 后历史还在；假 Key 对真 DeepSeek ⇒ **401 原文**（流式与非流式两条路都试过）。⚠️ **踩坑**：CDP `eval` 里的 `__znExec` 是异步的，`eval send → wait 800 → eval stop` 时流往往已跑完（截图前后各一次都拿到完成态）—— 停止测试必须**在页面内** `setTimeout(() => __znExec('ai.stop'), 400)` |
@@ -95,6 +96,73 @@ revision: 173.199
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.200（2026-10-27 · AI 插件第四刀：写工具 + diff 预览确认）
+>
+> 用户「继续 ZeroNote」。仍然**零内核改动** —— 全部走现有原语（`fs.writeText/createNote/mkdir/move/delete`、`doc.active/save/open/close`）。
+> 需求 Q4（只对不可逆操作确认）与 Q11（改写正文先给 diff）在这一刀落地：**可逆的直接做，不可逆的先给预览**。
+>
+> ### 七个写工具
+>
+> | 工具 | 行为 |
+> |---|---|
+> | `note.create` | 直接建；**路径已存在 ⇒ 报错**并指向 `note.write`（绝不静默覆盖） |
+> | `folder.create` | 直接建（多级、幂等） |
+> | `tag.add` / `tag.remove` | 直接改 **frontmatter**（正文里的 `#tag` 不动） |
+> | `note.write` | **只生成提案**：行级 diff + `+N/−M`，点「采用」才写盘 |
+> | `note.move` | **只生成提案**；`to` 是已存在的文件夹时自动拼上原文件名 |
+> | `note.trash` | **只生成提案**，确认后进 `.zn/trash/`（可恢复，结果里回报回收站路径） |
+>
+> ### 三条安全线（比功能本身重要）
+>
+> 1. **冲突检测**：提案生成时记下旧全文，点「采用」前重读 —— 不一致就**拒绝写入**并说明原因。
+>    实测：提案后手改文件 ⇒ `✗ 文件在预览之后被改过…这次写入已取消`，磁盘保持手改内容、提案留着可放弃。
+> 2. **提案只在内存**：reload 丢提案（重说一遍），**绝不**把过期提案存进 `store` 再执行 —— 那等于静默覆盖用户的修改。
+> 3. **同路径只许一份待确认改写**：两版都点「采用」会互相覆盖 ⇒ 第二次直接报错并说明等前一份。
+>
+> ### diff 是怎么算的
+>
+> 先剥公共前后缀，中间段跑**行级 LCS**；中间段 `>400×400` 退化「全删 + 全加」（不做最小编辑），
+> 整篇 `>2000` 行标 `tooLong` 直接不逐行算（面板只显示「N → M 行，采用后整篇替换」）。
+> CRLF 与 LF 视为同一份内容 —— 否则 Windows 上每次都是"整篇改了"。
+>
+> ### 实测（CDP + 本地 SSE mock `127.0.0.1:8999`，mock 参数故意切片发）
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 「帮我改写一下根笔记」 | 待确认区出现 `+2 行 / −3 行` + diff 块；**磁盘未变**；步骤行 `✓ note.write · 7 ms · 已生成预览，等确认` |
+> | 点「放弃」 | 提案消失、磁盘未变、留一行「已放弃：改写 根笔记.md」 |
+> | 点「采用」 | `✓ 已完成：改写 根笔记.md · +2 行 / −3 行`，磁盘内容确实变了 |
+> | 提案后手改文件再点采用 | 拒绝写入 + 明确原因，文件保持手改内容（截图在 `_shots/rev173199-ai-pending.png`） |
+> | 「把它移动到工作目录」（`to: '工作/'`） | 提案显示 `→ 工作/根笔记.md`（自动拼名），确认后文件真移动 |
+> | 「这篇不要了，删除它」 | 提案 + 红色「确认删除」；确认后文件进 `.zn/trash/1793074585424/根笔记.md`，工作目录已无该文件 |
+> | 「给它打个标签」 | 直接生效：`---\ntags: [AI打标]\n---` 写入；**再打一次** ⇒ `changed:false`「标签没有变化」 |
+>
+> ### 编号顺延
+>
+> 交接（rev173.199）用掉了原计划给「写工具」的号 ⇒ 本刀记 **rev173.200**，
+> 实施计划里 200/201/202 三刀顺延为 **201/202/203**（`docs/AI插件-实施计划-2026-10-27.md` 已改）。
+>
+> ### 两个新坑
+>
+> 1. **WebView2 的 Private Network Access 会拦页面 `fetch` 到 `127.0.0.1`**：CSP 里明明有 `http:`
+>    （`src-tauri/tauri.conf.json:28`），报错却只有一句 `TypeError: Failed to fetch`（降级到 `net.fetch`
+>    后又变成「Unexpected token 'd'」—— 那是把 SSE 文本当 JSON 解）。
+>    本地 mock 必须回 `access-control-allow-origin: *` **且** `access-control-allow-private-network: true`，并处理 `OPTIONS`。
+> 2. **`job_kill` 仍杀不掉后台 node**（rev198 记过，这次又踩）：先 `Get-NetTCPConnection -LocalPort 8999 -State Listen`
+>    找 pid 再 `Stop-Process -Force`，然后**重新起服务前先探端口**，否则新进程 `EADDRINUSE` 而你以为是旧代码。
+>
+> ### 交接时状态
+>
+> - HEAD `a57e5b1`（rev199 交接）+ 本刀 1 个提交 · 与 origin 同步（上一批 ahead 4 已推送）
+> - verify 六步全绿 **12:20:47** · vitest **1214**（+30）· cargo 55 · oxlint 3 warnings · 质量门 7/7
+> - 桌面 dev 仍开着：pid **35548**（00:58:24 起，**已 11 小时+**）· 8999 已释放、临时 mock 已删
+> - 测试库 `_tmp-vault-tb` 已还原（`根笔记.md` 回库根、`工作/根笔记.md` 已删）· AI 插件配置回「未配置」（Key 已删）
+>
+> ### 下个会话第一件事
+>
+> **rev201：任务系统**（`task.create/update/delete/list/run` + 任务面板 + `note:saved` 触发 + 串行队列 + 记录裁到 10）。
+> 之后 rev202 定时与执行模式、rev203 向导与打磨。
+>
 > ## 📌 rev173.199（2026-10-27 · 交接：AI 插件三刀 + 需求定稿）
 >
 > 用户「交接」。本会话没动内核，产出全在插件层与文档层。
