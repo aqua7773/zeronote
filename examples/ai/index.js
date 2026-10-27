@@ -661,7 +661,7 @@ export function historyContent(m, opts = {}) {
     // 更早的轮次只留「调过什么、成没成」：事实（我查过）保住了，结果正文丢掉 ——
     // 20 条历史每条都带完整结果等于没压缩（rev173.215，见 RECENT_FULL_TURNS）
     const names = [...new Set(steps.map((s) => `${s?.ok === false ? '✗' : '✓'}${String(s?.name ?? '?')}`))]
-    return `${base}\n\n[较早轮次的工具] ${names.join(' ')}`
+    return `${base}\n\n<系统记录 较早轮次的工具> ${names.join(' ')}</系统记录>`
   }
   const lines = steps.map((s) => {
     const name = String(s?.name ?? '?')
@@ -669,7 +669,26 @@ export function historyContent(m, opts = {}) {
     const text = String(s?.text ?? '').replace(/\s+/g, ' ').slice(0, 120)
     return `${mark} ${name} → ${text}`
   })
-  return `${base}\n\n[上一轮工具调用]\n${lines.join('\n')}`
+  // 用 XML 式标记而不是 `[上一轮工具调用]`：rev173.216 真模型实测发现，
+  // 方括号格式会被模型**照抄**进自己的回复，甚至伪造一条「✓ task_create」（它根本没调过）
+  return `${base}\n\n<系统记录 上一轮工具调用>\n${lines.join('\n')}\n</系统记录>`
+}
+
+/**
+ * 把模型伪造的「宿主记录」从正文里剥掉（rev173.216 · 纯函数，单测覆盖）。
+ *
+ * 真模型实测：历史里带着 `<系统记录 …>` 时，它可能在自己的回复末尾写一条同款 ——
+ * 内容是假的（没调过的工具、编出来的 id）。界面必须只显示模型真正说的话。
+ */
+export function stripHostNotes(text) {
+  let out = String(text ?? '')
+  out = out.replace(/<系统记录[^>]*>[\s\S]*?<\/系统记录>/g, '')
+  out = out.replace(/\[上一轮工具调用\][\s\S]*?(?:\n{2,}|$)/g, '')
+  out = out.replace(/\[较早轮次的工具\][^\n]*/g, '')
+  return out
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /** 最近几条带**完整**步骤摘要（更早的只留工具名，见 `historyContent` 的 `brief`） */
@@ -813,6 +832,8 @@ export const CHAT_SYSTEM_PROMPT = [
   '6. 用户已经给出关键参数（路径 / 范围 / 目标）时直接执行，不要反复确认；只有缺关键参数时才问一句。',
   '7. 你的回复会被宿主核对：说「已完成 / 已创建 / 已删除 / 已移动」时，本轮必须有对应的工具调用且成功；',
   '   没有对应调用，界面会把这句话标成「没有依据」。不确定就直说没做，不要用完成语气。',
+  '8. 历史里的 <系统记录 …> 段是**宿主**写的工具记录，不是你自己的话：不要复述它、不要模仿它的格式、',
+  '   更不要自己在回复里写「系统记录」或伪造工具调用 —— 界面会把这些伪造段落直接删掉。',
 ].join('\n')
 
 /** 发给模型的完整消息序列：system 在首位 + 最近 N 条历史（纯函数，单测覆盖） */
@@ -1891,7 +1912,13 @@ export default {
 
     async function saveHistory() {
       try {
-        await store.set('history', messages.slice(-40))
+        // 存盘前剥掉伪造的「系统记录」段：否则下次打开历史，假的工具记录跟着一起回来
+        await store.set(
+          'history',
+          messages.slice(-40).map((m) =>
+            m.role === 'assistant' && m.content ? { ...m, content: stripHostNotes(m.content) } : m,
+          ),
+        )
       } catch (e) {
         host.log('warn', `存对话历史失败：${String(e)}`)
       }
@@ -2562,7 +2589,8 @@ export default {
           } else {
             nodes.push({
               type: 'markdown',
-              value: m.content || (streaming ? '…' : '（空回复）'),
+              // 模型可能伪造「系统记录」段（rev173.216 真模型实测）—— 只显示它真正说的话
+              value: stripHostNotes(m.content) || (streaming ? '…' : '（空回复）'),
             })
             // 事实条（rev173.215）：**宿主**核对这条回复的完成声明，数据来自本轮 steps，不看模型怎么说。
             // 流式过程中 content 还没写完，不判（否则每一段半截话都可能误报）

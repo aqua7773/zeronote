@@ -4,6 +4,7 @@ import {
   claimAudit,
   claimWarningText,
   historyContent,
+  stripHostNotes,
   windowMessages,
 } from '../examples/ai/index.js'
 
@@ -101,6 +102,28 @@ describe('auditTaskRun：自动任务也审计（rev173.215 第二步）', () =>
   })
 })
 
+describe('stripHostNotes：模型伪造的「系统记录」要剥掉（rev173.216 真模型实测）', () => {
+  it('剥掉 <系统记录> 段（这是宿主自己的标记）', () => {
+    const out = stripHostNotes('任务已建好。\n\n<系统记录 上一轮工具调用>\n✓ task_create → ok\n</系统记录>')
+    expect(out).toBe('任务已建好。')
+  })
+
+  it('剥掉模型照抄的旧方括号格式', () => {
+    expect(stripHostNotes('已建好。\n\n[上一轮工具调用]\n✓ task_create')).toBe('已建好。')
+    expect(stripHostNotes('已建好。\n[较早轮次的工具] ✓task_create')).toBe('已建好。')
+  })
+
+  it('正常文本原样保留（含 ✓ 但不在宿主标记里）', () => {
+    const text = '已完成 3 件事：\n✓ 打标签\n✓ 移动笔记'
+    expect(stripHostNotes(text)).toBe(text)
+  })
+
+  it('空输入 / null 不炸', () => {
+    expect(stripHostNotes('')).toBe('')
+    expect(stripHostNotes(null)).toBe('')
+  })
+})
+
 describe('历史压缩保结构（rev173.215）', () => {
   const turn = (n) => ({
     role: 'assistant',
@@ -110,7 +133,7 @@ describe('历史压缩保结构（rev173.215）', () => {
 
   it('brief：只留工具名与成败，不留结果正文', () => {
     const text = historyContent(turn(1), { detail: 'brief' })
-    expect(text).toContain('[较早轮次的工具] ✓tool_1')
+    expect(text).toContain('<系统记录 较早轮次的工具> ✓tool_1')
     expect(text).not.toContain('结果 1')
   })
 
@@ -121,7 +144,7 @@ describe('历史压缩保结构（rev173.215）', () => {
   it('windowMessages：最近 3 条完整，更早的只留名字', () => {
     const list = [turn(1), turn(2), turn(3), turn(4), turn(5)]
     const api = windowMessages(list)
-    expect(api[0].content).toContain('[较早轮次的工具]')
+    expect(api[0].content).toContain('<系统记录 较早轮次的工具>')
     expect(api[0].content).not.toContain('结果 1')
     // 最后三条（3/4/5）保留完整结果
     for (const i of [2, 3, 4]) expect(api[i].content).toContain('→ 结果')

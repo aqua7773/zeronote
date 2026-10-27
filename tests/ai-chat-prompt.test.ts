@@ -56,7 +56,7 @@ describe('historyContent（工具步骤进历史）', () => {
       ],
     })
     expect(text).toContain('查过了')
-    expect(text).toContain('[上一轮工具调用]')
+    expect(text).toContain('<系统记录 上一轮工具调用>')
     expect(text).toContain('✓ list_allowed_commands → {"allowedCount":0}')
     expect(text).toContain('✗ plugin_exec → 命令未授权')
   })
@@ -75,7 +75,7 @@ describe('historyContent（工具步骤进历史）', () => {
     const api = windowMessages([
       { role: 'assistant', content: 'ok', steps: [{ name: 't', ok: true, text: '1' }] },
     ])
-    expect(api[0].content).toContain('[上一轮工具调用]')
+    expect(api[0].content).toContain('<系统记录 上一轮工具调用>')
   })
 })
 
