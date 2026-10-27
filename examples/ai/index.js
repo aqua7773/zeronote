@@ -371,6 +371,22 @@ export const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'list_allowed_commands',
+      description:
+        '列出用户已授权给 AI 的插件命令（id + 标题）。想知道「现在能用哪些命令」时先调这个；' +
+        '返回空表示用户还没授权任何命令。可选 query 按 id / 标题筛选。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '可选：只列 id 或标题包含它的命令' },
+        },
+        required: [],
+      },
+    },
+  },
 ]
 
 /* ───────────────── 插件命令白名单（rev173.208 · 第二版 plugin.exec） ───────────────── */
@@ -464,6 +480,24 @@ export function filterCommands(list, query) {
 export function argvOf(value) {
   if (value === undefined || value === null) return []
   return Array.isArray(value) ? value : [value]
+}
+
+/**
+ * 「我有哪些命令可用」的只读汇总（rev173.212）。
+ *
+ * 模型看不到白名单内容，只能瞎试 `plugin_exec`；这个纯函数给 `list_allowed_commands` 用：
+ * 只返回**已授权**的条目（不把 137 条未授权命令塞给模型），另带总数，让模型知道「还能授权更多」。
+ */
+export function summarizeAllowedCommands(all, allowed, query) {
+  const list = Array.isArray(all) ? all : []
+  const allow = new Set(Array.isArray(allowed) ? allowed : [])
+  const allowedItems = list.filter((c) => allow.has(c?.id))
+  const hits = filterCommands(allowedItems, query)
+  return {
+    allowedCount: allowedItems.length,
+    allowed: hits.map((c) => ({ id: c.id, title: String(c?.title ?? c.id) })),
+    allowableTotal: list.length,
+  }
 }
 
 /**
@@ -611,11 +645,32 @@ export function finalizeToolCalls(state) {
     }))
 }
 
+/**
+ * 历史消息压成模型能看的文本（rev173.213）。
+ *
+ * `windowMessages` 以前只留 `{ role, content }`，**工具步骤全丢** —— 模型只看到自己上一轮说的
+ * 「0 条授权」，就以为刚查过、这轮不再调工具（实测：强制「先调 list_allowed_commands」它仍不调，
+ * 还声称「查过了，和上面一致」）。这里把步骤摘要附在 assistant 内容后面：
+ * 模型能看见「上一轮我调过什么、拿到什么」，也能判断哪些是旧结果。
+ */
+export function historyContent(m) {
+  const base = String(m?.content ?? '')
+  const steps = Array.isArray(m?.steps) ? m.steps : []
+  if (!steps.length) return base
+  const lines = steps.map((s) => {
+    const name = String(s?.name ?? '?')
+    const mark = s?.ok === false ? '✗' : '✓'
+    const text = String(s?.text ?? '').replace(/\s+/g, ' ').slice(0, 120)
+    return `${mark} ${name} → ${text}`
+  })
+  return `${base}\n\n[上一轮工具调用]\n${lines.join('\n')}`
+}
+
 /** 只保留最近 N 条（纯函数）· 首条若是 assistant 也允许 —— 模型能接受 */
 export function windowMessages(list, n = CONTEXT_WINDOW) {
   return (Array.isArray(list) ? list : [])
     .slice(-n)
-    .map((m) => ({ role: m.role, content: String(m.content ?? '') }))
+    .map((m) => ({ role: m.role, content: historyContent(m) }))
 }
 
 /**
@@ -634,8 +689,9 @@ export const CHAT_SYSTEM_PROMPT = [
   '   必须告诉用户「等确认」，绝不能声称已经改好。',
   '3. 说「做好了」之前必须真的调用过对应工具，且工具返回成功；没调用就直说没做 —— 不要凭记忆或历史编造结果，尤其不要编任务 id。',
   '   回复的开头也不要先声称「已完成 / 已建好」再补充说明：没确认成功之前不要用完成语气。',
-  '4. plugin_exec 只能执行用户授权过的命令；被拒绝时说明去哪授权，不要反复重试同一个命令。',
-  '5. 用户已经给出关键参数（路径 / 范围 / 目标）时直接执行，不要反复确认；只有缺关键参数时才问一句。',
+  '4. plugin_exec 只能执行用户授权过的命令；被拒绝时说明去哪授权，不要反复重试同一个命令。不知道能用哪些命令时调 list_allowed_commands。',
+  '5. 涉及当前状态的问题（授权了哪些命令、有哪些任务、库里有什么）**要重新调用工具**，不要只凭历史或记忆回答。',
+  '6. 用户已经给出关键参数（路径 / 范围 / 目标）时直接执行，不要反复确认；只有缺关键参数时才问一句。',
 ].join('\n')
 
 /** 发给模型的完整消息序列：system 在首位 + 最近 N 条历史（纯函数，单测覆盖） */
@@ -2098,6 +2154,22 @@ export default {
           text = String(result)
         }
         return text.length > 2000 ? `${text.slice(0, 2000)}…（结果已截断）` : text
+      }
+
+      if (name === 'list_allowed_commands') {
+        let all = []
+        try {
+          all = pickAllowableCommands(command.list())
+        } catch {
+          all = []
+        }
+        const summary = summarizeAllowedCommands(all, allowedCommands, a.query)
+        return JSON.stringify({
+          ...summary,
+          hint: summary.allowedCount
+            ? '只能执行 allowed 里的命令（未列出的需要用户在「AI」设置页授权）。'
+            : `用户还没授权任何插件命令（可授权 ${summary.allowableTotal} 条）—— 请让用户在「AI」设置页的「允许 AI 调用的命令」里勾选。`,
+        })
       }
 
       throw new Error(`未知工具：${name}`)

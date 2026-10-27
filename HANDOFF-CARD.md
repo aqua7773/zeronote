@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-27（rev173.211 · AI 白名单命令筛选）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-27（rev173.212 · AI 知道能用哪些命令）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.211 · 0.6.0 · 2026-10-27 |
-| 测试基线 | vitest 1302 · cargo 55 · oxlint 3 warnings（2026-10-27） |
+| rev / 版本 | rev173.212 · 0.6.0 · 2026-10-27 |
+| 测试基线 | vitest 1311 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -94,6 +94,9 @@ pwsh -File scripts\verify.ps1
 >    桌面实测：展开记账 27 条 → 允许 `accounting.stats` → 顶部「已授权 1 条」→ 撤销归零。vitest 1297 → **1300**。
 >    **211 白名单命令筛选** ✅ —— 关键词框（`filterCommands` 按 id / 标题、大小写不敏感），有筛选时平铺结果 + 「清除筛选」回分组；
 >    新命令 `ai.filter-commands`（21 → **22**）。实测：`csv` ⇒ 2 条；清除 ⇒ 回到「记账 · accounting · 27 条」。vitest 1300 → **1302**。
+>    **212 知道能用哪些命令 + 历史带工具步骤** ✅ —— 新只读工具 `list_allowed_commands`（只返回已授权 id+title、带可授权总数）；
+>    **历史压缩把工具步骤丢了** ⇒ 模型只看到自己上轮说「0 条」就不再查（强制它调也答「查过了」）⇒ `historyContent` 把 `✓/✗ name → 结果` 附进历史；
+>    system 加规则 5「涉及当前状态要重新调工具」。真模型对照：修复前「还是空的」不调工具 → 修复后调工具答「能用 1 条 accounting.stats」。vitest 1302 → **1311**。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。

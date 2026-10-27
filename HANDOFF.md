@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.211
-更新时间: 2026-10-27 · 最新 rev173.211
+revision: 173.212
+更新时间: 2026-10-27 · 最新 rev173.212
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.211
 
 | rev | 内容 |
 |---|---|
+| rev173.212 | 2026-10-27 · **AI 知道「能用哪些命令」+ 历史带上工具步骤**（用户「继续」· 零内核改动）：① 新只读工具 `list_allowed_commands` —— 只返回**已授权**的 id + 标题、另带可授权总数（不把 137 条塞给模型），可选 `query` 再筛 ② **历史压缩把工具步骤全丢了** —— 模型只看到自己上一轮说「0 条」，就以为刚查过、这轮不调工具（实测强制「先调 list_allowed_commands」它仍不调，还声称「查过了，和上面一致」）⇒ `historyContent` 把步骤摘要（`✓/✗ name → 结果`，每条 120 字）附在 assistant 内容后；system 新增规则 5「涉及当前状态（授权 / 任务 / 笔记）要重新调工具」③ **真模型对照**：修复前「还是空的」且不调工具 → 修复后调工具答「能用 1 条 `accounting.stats`（记账：统计）」④ 单测 +9（汇总 4 / 工具定义 1 / 历史步骤 4）。vitest 1302 → **1311** |
 | rev173.211 | 2026-10-27 · **白名单命令筛选**（用户「继续做 ai 这边的」· 零内核改动）：13 组仍要逐组展开找「导出 CSV」⇒ 加关键词筛选框（`filterCommands` 纯函数，按 id / 标题、**大小写不敏感**；空查询 = 显示分组）。输入框 `ai.cmd-filter` 回车或点「筛选」触发 `ai.filter-commands`；有筛选时**平铺结果** + 「清除筛选」回分组。新命令（21 → **22**，功能目录已重生成）· 单测 +2 · **桌面实测**：输 `csv` ⇒ 「筛选「csv」：2 条」（导出 / 导入 CSV）· 清除 ⇒ 回到「记账 · accounting · 27 条」。vitest 1300 → **1302** |
 | rev173.210 | 2026-10-27 · **白名单按插件分组折叠**（用户「继续做 ai 这边的」· 零内核改动）：137 条平铺 → **13 组默认折叠**（`groupCommands` 按 id 第一段分组、**码点排序**避开 locale 差异 —— CI en-US 与本机 zh-CN 排不同）；`groupLabel` 取命令 title 的「前缀：」；**组标题带上 group id**，否则 4 个「同步」分不清。已授权条目单列在顶部（好撤销），展开状态只在内存（重开面板回默认）。新命令 `ai.toggle-group`（命令数 20 → **21**，功能目录已重生成）。单测 +3（分组 / 排序 / 标题回退）。**桌面实测**：13 组 · 展开「记账」27 条 · 允许 `accounting.stats` ⇒ 顶部「已授权 1 条」⇒ 撤销归零。vitest 1297 → **1300** |
 | rev173.209 | 2026-10-27 · **AI 对话补上 system 提示（防幻觉）**（用户「继续做 ai 这边的」· 零内核改动）：rev197–208 的对话请求里**一直没有 system 消息** —— 模型不知道「写工具只出提案」，实测两次谎称任务已建好（208 还编造已删除任务的旧 id）。新增 `CHAT_SYSTEM_PROMPT` + `buildChatMessages`（system 在首位、**不进历史 / 不进 store**，每轮现拼）：pending ≠ 完成 · 说完成前必须真调过工具 · 不编任务 id · `plugin_exec` 只走授权 · 关键参数齐全就直接执行。单测 **7 条** · **真模型对照**：改规则 5 后 `task_create` 58 ms + `task_update` 55 ms 真建成并停用（回复带 id）；另一轮谎称后自己调 `task_list` 并更正「我上一条说建好了是错的」。vitest 1290 → **1297** |
@@ -107,6 +108,40 @@ revision: 173.211
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.212（2026-10-27 · AI 知道「能用哪些命令」+ 历史带上工具步骤）
+>
+> 用户「继续」。起因：模型看不到白名单里有什么，只能瞎试 `plugin_exec`。
+> 做到一半发现第二个更隐蔽的问题：**历史压缩把工具步骤全丢了**。
+>
+> ### ① 新只读工具 `list_allowed_commands`
+>
+> 返回 `{ allowedCount, allowed: [{id,title}], allowableTotal, hint }` —— 只给**已授权**条目
+> （不把 137 条塞给模型）；`hint` 分两种：有授权时提示「只能执行 allowed 里的」，没有时提示去设置页勾选。
+> 可选 `query` 在已授权范围内再筛。抽纯函数 `summarizeAllowedCommands(all, allowed, query)`，单测 4 条。
+>
+> ### ② 历史里的工具步骤（真问题）
+>
+> `windowMessages` 只保留 `{ role, content }`，**tool 消息与步骤记录全丢**。实测链条：
+>
+> 1. 问「你现在能用哪些插件命令？」⇒ 模型调 `list_allowed_commands`，答「0 条」✔
+> 2. 授权 `accounting.stats` 后再问「现在能用哪些？」⇒ 模型**不调工具**，答「还是空的」
+> 3. 强制「先调用 list_allowed_commands 查一下」⇒ **仍不调**，答「查过了，结果和上面一致：0 条」
+>
+> 根因：历史里模型只看到自己上一轮说的「0 条」，看不到「那是一次工具调用的结果」，于是把它当成记忆里的现状。
+> 修法 `historyContent(m)`：assistant 消息若带 `steps`，在 content 后附
+> `[上一轮工具调用]` + 每步 `✓/✗ name → 结果`（结果压平空白、截 120 字）。
+> 同时 system 加规则 5：**涉及当前状态的问题要重新调用工具**，不要只凭历史回答。
+> 单测 +4（无 steps 原样 / 步骤块含 ✓✗ / 截断 120 / `windowMessages` 透传）。
+>
+> ### ③ 真模型对照（修复后）
+>
+> 同一句「现在能用哪些插件命令？」⇒ 模型调 `list_allowed_commands`（1 ms）⇒ 准确答
+> 「现在能用 1 条：`accounting.stats`（记账：统计）」。随后撤销授权清理（`allowedCommands=[]`、任务 0）。
+>
+> ### 交接时状态
+>
+> vitest **1302 → 1308** · `verify.ps1` 六步全绿 · 测试库无授权 / 无任务 · 市场包仍停在 208 的 0.6.0。
+>
 > ## 📌 rev173.211（2026-10-27 · AI 白名单命令筛选）
 >
 > 用户「继续做 ai 这边的」。分组把 137 条压成 13 行，但「找导出 CSV」仍要逐组展开；本轮加筛选框。

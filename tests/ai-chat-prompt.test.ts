@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChatMessages, CHAT_SYSTEM_PROMPT, windowMessages } from '../examples/ai/index.js'
+import { buildChatMessages, CHAT_SYSTEM_PROMPT, historyContent, windowMessages } from '../examples/ai/index.js'
 
 /**
  * 对话 system 提示（rev173.209）。
@@ -38,6 +38,44 @@ describe('buildChatMessages', () => {
   it('历史里的 content 统一转成字符串（坏数据不把请求打断）', () => {
     const api = buildChatMessages([{ role: 'user', content: null }], 'S')
     expect(api[1].content).toBe('')
+  })
+})
+
+describe('historyContent（工具步骤进历史）', () => {
+  it('无 steps 时原样返回', () => {
+    expect(historyContent({ role: 'user', content: '甲' })).toBe('甲')
+  })
+
+  it('有 steps 时附「上一轮工具调用」块，失败步骤标 ✗', () => {
+    const text = historyContent({
+      role: 'assistant',
+      content: '查过了',
+      steps: [
+        { name: 'list_allowed_commands', ok: true, text: '{"allowedCount":0}' },
+        { name: 'plugin_exec', ok: false, text: '命令未授权' },
+      ],
+    })
+    expect(text).toContain('查过了')
+    expect(text).toContain('[上一轮工具调用]')
+    expect(text).toContain('✓ list_allowed_commands → {"allowedCount":0}')
+    expect(text).toContain('✗ plugin_exec → 命令未授权')
+  })
+
+  it('长结果截到 120 字符', () => {
+    const text = historyContent({
+      role: 'assistant',
+      content: '',
+      steps: [{ name: 'x', ok: true, text: 'a'.repeat(200) }],
+    })
+    expect(text).toContain('a'.repeat(120))
+    expect(text).not.toContain('a'.repeat(121))
+  })
+
+  it('windowMessages 透传步骤（模型能看到上一轮真的调了什么）', () => {
+    const api = windowMessages([
+      { role: 'assistant', content: 'ok', steps: [{ name: 't', ok: true, text: '1' }] },
+    ])
+    expect(api[0].content).toContain('[上一轮工具调用]')
   })
 })
 

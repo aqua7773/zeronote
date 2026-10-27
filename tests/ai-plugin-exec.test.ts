@@ -7,6 +7,7 @@ import {
   isPluginCommandAllowed,
   normalizeAllowedCommands,
   pickAllowableCommands,
+  summarizeAllowedCommands,
   TOOLS,
 } from '../examples/ai/index.js'
 
@@ -132,6 +133,35 @@ describe('filterCommands', () => {
   })
 })
 
+describe('summarizeAllowedCommands', () => {
+  const all = [
+    { id: 'accounting.stats', title: '记账：统计' },
+    { id: 'habit.check', title: '打卡：打卡' },
+  ]
+
+  it('只返回已授权条目，另带可授权总数（不把 137 条塞给模型）', () => {
+    expect(summarizeAllowedCommands(all, ['habit.check'])).toEqual({
+      allowedCount: 1,
+      allowed: [{ id: 'habit.check', title: '打卡：打卡' }],
+      allowableTotal: 2,
+    })
+  })
+
+  it('一条都没授权时返回空列表', () => {
+    expect(summarizeAllowedCommands(all, [])).toEqual({ allowedCount: 0, allowed: [], allowableTotal: 2 })
+  })
+
+  it('query 在已授权范围内再筛一次', () => {
+    expect(
+      summarizeAllowedCommands(all, ['accounting.stats', 'habit.check'], '记账').allowed.map((c) => c.id),
+    ).toEqual(['accounting.stats'])
+  })
+
+  it('非数组输入当空', () => {
+    expect(summarizeAllowedCommands(null, null)).toEqual({ allowedCount: 0, allowed: [], allowableTotal: 0 })
+  })
+})
+
 describe('argvOf', () => {
   it('缺省不传参；数组原样；标量与对象包成单参', () => {
     expect(argvOf(undefined)).toEqual([])
@@ -149,5 +179,12 @@ describe('plugin_exec 工具定义', () => {
     expect(t.function.parameters.required).toEqual(['command'])
     expect(t.function.parameters.properties.command.type).toBe('string')
     expect(t.function.parameters.properties.args.type).toBe('array')
+  })
+
+  it('list_allowed_commands 存在且只收可选 query', () => {
+    const t = TOOLS.find((x) => x.function.name === 'list_allowed_commands')
+    expect(t).toBeTruthy()
+    expect(t.function.parameters.required).toEqual([])
+    expect(t.function.parameters.properties.query.type).toBe('string')
   })
 })
