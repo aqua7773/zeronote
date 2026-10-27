@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   argvOf,
+  filterCommands,
   groupCommands,
   groupLabel,
   isPluginCommandAllowed,
@@ -106,6 +107,28 @@ describe('groupCommands / groupLabel', () => {
     expect(groupLabel([{ id: 'a.x', title: '打卡：打卡' }], 'a')).toBe('打卡')
     expect(groupLabel([{ id: 'a.x', title: '没有冒号' }], 'a')).toBe('a')
     expect(groupLabel([], 'zz')).toBe('zz')
+  })
+})
+
+describe('filterCommands', () => {
+  const list = [
+    { id: 'accounting.exportCsv', title: '记账：导出 CSV' },
+    { id: 'habit.check', title: '打卡：打卡' },
+    { id: 'tag-panel.open', title: '标签：打开标签面板' },
+  ]
+
+  it('按 id 或标题匹配，大小写不敏感', () => {
+    expect(filterCommands(list, 'csv').map((c) => c.id)).toEqual(['accounting.exportCsv'])
+    expect(filterCommands(list, 'CSV').map((c) => c.id)).toEqual(['accounting.exportCsv'])
+    expect(filterCommands(list, '标签').map((c) => c.id)).toEqual(['tag-panel.open'])
+    expect(filterCommands(list, 'habit').map((c) => c.id)).toEqual(['habit.check'])
+  })
+
+  it('空查询返回全部；无匹配返回空；非数组当空', () => {
+    expect(filterCommands(list, '')).toHaveLength(3)
+    expect(filterCommands(list, '   ')).toHaveLength(3)
+    expect(filterCommands(list, '不存在的命令')).toEqual([])
+    expect(filterCommands(null, 'x')).toEqual([])
   })
 })
 

@@ -443,6 +443,23 @@ export function groupLabel(items, fallback) {
   return head || String(fallback ?? '')
 }
 
+/**
+ * 按关键词筛选命令（rev173.211）。
+ *
+ * 137 条命令即便分成 13 组，找「导出 CSV」也要逐组展开；筛选框直接按 id 或标题匹配。
+ * 大小写不敏感（用户可能打 `csv` / `CSV`）；空查询返回全部（调用方用「有没有 query」决定显示分组还是平铺）。
+ */
+export function filterCommands(list, query) {
+  const q = String(query ?? '').trim().toLowerCase()
+  const all = Array.isArray(list) ? list : []
+  if (!q) return all
+  return all.filter((c) => {
+    const id = String(c?.id ?? '').toLowerCase()
+    const title = String(c?.title ?? '').toLowerCase()
+    return id.includes(q) || title.includes(q)
+  })
+}
+
 /** 模型给的 args 归一化成位置参数（缺省 / null = 不传；非数组包成单参，不静默丢掉） */
 export function argvOf(value) {
   if (value === undefined || value === null) return []
@@ -1188,6 +1205,8 @@ export default {
     let allowedCommands = []
     /** 命令白名单区块里展开了哪些插件分组（rev173.210；只在内存，重开面板回默认折叠） */
     const openGroups = new Set()
+    /** 命令筛选关键词（rev173.211；只在内存） */
+    let cmdFilter = ''
     /** 本次会话里测试连接成功过（向导第三步判据；不落盘，重启重测一次） */
     let wizardTestOk = false
     /** 分类抽样结果（rev203 · 20 篇对照片，人工核对用） */
@@ -2608,6 +2627,39 @@ export default {
       }
       /** @type {import('../../src/kernel/contract').UINode[]} */
       const nodes = []
+      /* 筛选（rev173.211）：137 条分 13 组仍要逐组展开找，直接按 id / 标题搜 */
+      nodes.push({
+        type: 'row',
+        align: 'center',
+        gap: 'sm',
+        children: [
+          {
+            type: 'input',
+            bind: 'ai.cmd-filter',
+            placeholder: '筛选命令（id 或标题，回车）',
+            onSubmit: 'ai.filter-commands',
+          },
+          { type: 'button', label: '筛选', variant: 'ghost', onClick: 'ai.filter-commands', send: 'ai.cmd-filter' },
+        ],
+      })
+      if (cmdFilter) {
+        const hits = filterCommands(all, cmdFilter)
+        nodes.push({
+          type: 'text',
+          value: `筛选「${cmdFilter}」：${hits.length} 条`,
+          variant: 'caption',
+          tone: 'muted',
+        })
+        nodes.push({ type: 'list', items: hits.map(commandRow), empty: '没有匹配的命令' })
+        nodes.push({
+          type: 'button',
+          label: '清除筛选',
+          variant: 'ghost',
+          onClick: 'ai.filter-commands',
+          payload: { value: '' },
+        })
+        return { type: 'stack', gap: 'sm', children: nodes }
+      }
       const allowed = all.filter((c) => allowedCommands.includes(c.id))
       if (allowed.length) {
         nodes.push({
@@ -3282,6 +3334,17 @@ export default {
           if (!g) return
           if (openGroups.has(g)) openGroups.delete(g)
           else openGroups.add(g)
+          refresh()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.filter-commands',
+        title: 'AI：筛选命令列表',
+        run: async (payload) => {
+          cmdFilter = String(payload?.value ?? '').trim()
           refresh()
         },
       }),
