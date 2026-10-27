@@ -700,31 +700,33 @@ export const CLAIM_RULES = [
   {
     kind: 'create',
     label: '创建',
-    re: /已(?:经)?(?:创建|建好|新建|建立)|成功(?:创建|新建|建立)|建好了|创建好了/,
+    // 「已」「动词」之间允许夹一小段话（「已**经给这篇**建好了」），但不出句、不超过 16 字
+    re: /已(?:经)?[^。；!?]{0,16}?(?:创建|建好|新建|建立)|成功(?:创建|新建|建立)/,
     tools: ['note_create', 'folder_create', 'task_create'],
   },
   {
     kind: 'write',
     label: '改写',
-    re: /已(?:经)?(?:改写|写入|更新了|修改了|改好了)|成功(?:改写|写入)/,
+    re: /已(?:经)?[^。；!?]{0,16}?(?:改写|写入|更新|修改|改好)|成功(?:改写|写入)/,
     tools: ['note_write', 'task_update'],
   },
   {
     kind: 'move',
     label: '移动',
-    re: /已(?:经)?(?:移动|移入|移到|挪到|挪过去)/,
+    re: /已(?:经)?[^。；!?]{0,16}?(?:移动|移入|移到|挪到|挪过去)/,
     tools: ['note_move'],
   },
   {
     kind: 'trash',
     label: '删除',
-    re: /已(?:经)?(?:删除|删掉|丢弃)|成功(?:删除|删掉)|放进回收站了/,
+    re: /已(?:经)?[^。；!?]{0,16}?(?:删除|删掉|丢弃)|成功(?:删除|删掉)|放进回收站了/,
     tools: ['note_trash', 'task_delete'],
   },
   {
     kind: 'tag',
     label: '标签',
-    re: /已(?:经)?(?:添加|打上|贴上)(?:了)?标签|已(?:经)?(?:移除|去掉)(?:了)?标签/,
+    // 标签名会夹在中间：「已给这篇打上「工作」标签」—— 动词到「标签」之间再允许一小段名字
+    re: /已(?:经)?[^。；!?]{0,16}?(?:添加|打上|贴上)[^。；!?]{0,24}?标签|已(?:经)?[^。；!?]{0,16}?(?:移除|去掉)[^。；!?]{0,16}?标签/,
     tools: ['tag_add', 'tag_remove'],
   },
 ]
@@ -774,6 +776,20 @@ export function claimWarningText(warnings) {
   if (!list.length) return ''
   const labels = [...new Set(list.map((w) => w.label))].join(' / ')
   return `⚠️ 本轮没有执行「${labels}」对应的工具调用，上面这句「已完成」没有实际依据 —— 下面的实际动作是全部真实记录。`
+}
+
+/**
+ * 给**一条任务运行记录**做完成声明审计（rev173.215 · 纯函数，单测覆盖）。
+ *
+ * 自动任务没有对话界面，但模型最后那句「已打上标签 / 已移到 工作/」同样可能没有对应的工具调用 ——
+ * 运行记录里一行 ✓ 就是用户能看到的全部，静默失效比报错危险。
+ * `fixed` 模式没有模型、没有 reply，直接返回 null。
+ */
+export function auditTaskRun(run) {
+  const reply = String(run?.reply ?? '')
+  if (!reply) return null
+  const warn = claimWarningText(claimAudit(reply, run?.steps).warnings)
+  return warn || null
 }
 
 /**
@@ -1680,7 +1696,11 @@ export default {
           for (let step = 0; step < MAX_TASK_STEPS; step++) {
             const r = await nonStreamChat({ base, model, key, messages: api })
             void recordUsage(r.usage, true)
-            if (!r.toolCalls.length) break
+            if (!r.toolCalls.length) {
+              // 模型收尾的那句话 —— 运行记录靠它审计「说做了但没做」（rev173.215）
+              run.reply = String(r.content ?? '').slice(0, 400)
+              break
+            }
             api.push({
               role: 'assistant',
               content: r.content || null,
@@ -1727,6 +1747,16 @@ export default {
         run.ok = false
         const why = failed.map((s) => `${s.name}（${s.text}）`).join('；')
         run.error = run.error ? `${run.error}；${why}` : `步骤失败：${why}`
+      }
+      /**
+       * 完成声明审计（rev173.215）：任务没有对话界面，用户能看到的只有运行记录里的那一行。
+       * 模型收尾说「已打上标签 / 已移到 工作/」而本轮没有对应工具 ⇒ 这行 ✓ 是假的 ⇒ 标成失败并留话。
+       */
+      const claimWarn = auditTaskRun(run)
+      if (claimWarn) {
+        run.ok = false
+        run.claimWarning = claimWarn
+        run.error = run.error ? `${run.error}；${claimWarn}` : claimWarn
       }
       task.runs = trimRuns([run, ...(Array.isArray(task.runs) ? task.runs : [])])
       task.lastRunAt = run.at
@@ -3243,6 +3273,10 @@ export default {
                               variant: 'caption',
                               tone: 'danger',
                             })),
+                          // 完成声明没有证据（模型说做了、工具没跑）—— 单独一行，别混在「步骤失败」里
+                          ...(r.claimWarning
+                            ? [{ type: 'text', value: `　${r.claimWarning}`, variant: 'caption', tone: 'danger' }]
+                            : []),
                         ],
                       },
                     })),

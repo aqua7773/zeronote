@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { claimAudit, claimWarningText, historyContent, windowMessages } from '../examples/ai/index.js'
+import {
+  auditTaskRun,
+  claimAudit,
+  claimWarningText,
+  historyContent,
+  windowMessages,
+} from '../examples/ai/index.js'
 
 /**
  * 完成声明审计（rev173.215 · 调研 `docs/AI不可信-调研-2026-10-27.md` §4-F）。
@@ -72,6 +78,26 @@ describe('claimWarningText：给人看的一行', () => {
     ])
     expect(text).toContain('创建 / 移动')
     expect(text).toContain('没有实际依据')
+  })
+})
+
+describe('auditTaskRun：自动任务也审计（rev173.215 第二步）', () => {
+  it('模型收尾说「已打上标签」但本轮没调 tag_add ⇒ 有警告', () => {
+    const warn = auditTaskRun({ reply: '已给这篇打上「工作」标签。', steps: [] })
+    expect(warn).toContain('标签')
+  })
+
+  it('真的调了 tag_add 并成功 ⇒ 不报', () => {
+    const warn = auditTaskRun({
+      reply: '已给这篇打上「工作」标签。',
+      steps: [{ name: 'tag_add', ok: true, text: 'ok' }],
+    })
+    expect(warn).toBeNull()
+  })
+
+  it('fixed 模式（没有 reply）⇒ 不审计', () => {
+    expect(auditTaskRun({ steps: [{ name: 'tag_add', ok: true, text: 'ok' }] })).toBeNull()
+    expect(auditTaskRun({})).toBeNull()
   })
 })
 

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.215
-更新时间: 2026-10-27 · 最新 rev173.215
+revision: 173.216
+更新时间: 2026-10-27 · 最新 rev173.216
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.215
 
 | rev | 内容 |
 |---|---|
+| rev173.216 | 2026-10-27 · **任务侧审计 + 手机走查 + `ai@0.8.0` 发市场**（用户「依次进行」）：① `auditTaskRun` 把 215 的审计接到自动任务 —— 模型收尾说「已打上标签」而本轮没调 `tag_add` ⇒ **标失败** + 运行记录单独一行红字；`fixed` 模式无 reply 跳过；顺带修 215 正则的真 bug（「已**给这篇**打上标签」不匹配）② **手机走查 208–215**：`csv` ⇒ 2 条 · 记账展开 27 条 · 事实条红字与桌面一致（4 张截图），测完手机回「未完成配置」③ **`ai@0.8.0` 发市场**（149.4 KB · 整包 sha256 `22a7b167…` · keyId `aqua-2026` · 索引 17 条 · 验签 33/34）。vitest **1326 → 1329** |
 | rev173.215 | 2026-10-27 · **AI 不可信：完成声明由宿主核对**（用户「调研一下别的项目怎么解决」→「开始做」· 零内核改动）：调研落 `docs/AI不可信-调研-2026-10-27.md`（六个一手来源：Cline 完成即工具 / arXiv ECT「终止携带证据」0-288 vs 252-288 / OpenAI output guardrails / Anthropic ground truth / OpenHands+Anthropic 压缩保结构 / aider 自动测试）⇒ 落地最小三件：① **`claimAudit` 审计**（完成词 → 本轮必须有哪个工具成功；逐句判、否定语境跳过、零工具说「搞定」有兜底）② **界面事实条**（红字「这句没依据」+「实际动作 · N 次」）③ **压缩保结构**（`brief` 只留工具名；最近 3 条完整，更早的压缩）。vitest **1311 → 1326**（15 条新单测）· **端到端**：本地 mock 回「任务已经建好了」且不调工具 ⇒ 界面当场红字（`_shots/rev173215-claim.png`），测完配置与历史全部复原 |
 | rev173.214 | 2026-10-27 · **重打 `ai@0.7.0` 发市场**（用户「继续zeronote」，在交接卡两件事里选了发市场 · 零代码改动）：市场包停在 208 的 0.6.0，209–212 的 system 提示 / 分组 / 筛选 / 历史步骤都没进包 ⇒ `examples/ai/manifest.json` version → 0.7.0 + description 改「第三版」→ `pack-plugin ai --key … --key-id aqua-2026` 签出 `market/packs/ai-0.7.0.znp`（**141.4 KB** · 整包 sha256 `fc42785f…` · 入口 `a163fb1a…`）→ `gen-market --write` 重建索引（**17 条**，ai 0.6.0 → **0.7.0**）。`verify-trust`：内置公钥与私钥一致 · **32/33 包验签过**（`theme-sepia` 纯样式恒无签名）· verify 六步全绿 · vitest **1311**（无测试改动）。⚠️ 坑：`pack-plugin` 不传 `--key-id` 会写 `default`，gen-market 第 ⑤ 条校验会红 |
 | rev173.213 | 2026-10-27 · **交接**（用户「交接」）：本会话 6 个 rev（207–212），AI 插件第一版收口 + 第二版 —— ① 工具名格式单测（4 条，反向验证红）② `plugin_exec` 白名单（勾选 UI + 自动任务同样受限，`ai@0.6.0` 发市场）③ 对话补 **system 提示**（防幻觉，三轮真模型对照）④ 白名单**分组折叠**（137 → 13 组）⑤ 命令**筛选框** ⑥ `list_allowed_commands` + **历史带上工具步骤**（修「模型以为刚查过就不再查」）。**交接时**：HEAD `a93fd18` · 与 origin 同步 · verify 全绿 · vitest **1311** · dev pid 35548（19 小时+ 仍可用）· 测试库无授权 / 无任务。**下个会话第一件事**：手机走查 208–212 的 UI + 重打 `ai@0.7.0` 发市场（市场包还停在 208 的 0.6.0） |
@@ -111,6 +112,58 @@ revision: 173.215
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.216（2026-10-27 · 任务侧审计 + 手机走查 + `ai@0.8.0`）
+>
+> 用户「依次进行」，把 215 留的三件按顺序做完（这一批 **零内核改动**）。
+>
+> ### 1 任务侧也审完成声明（`auditTaskRun`）
+>
+> 215 只审对话；自动任务没有对话界面，用户能看到的只有运行记录那一行 ✓。
+> 现在 `runTask` 在 auto 模式收尾时把模型最后那句话存进 `run.reply`，再 `auditTaskRun(run)`：
+> 说「已打上标签」而本轮没有 `tag_add` ⇒ `run.ok = false` + `run.claimWarning`（任务面板单独一行红字）。
+> `fixed` 模式没有模型、没有 reply，直接跳过。
+>
+> **顺带修掉 215 正则的一个真 bug**：`已给这篇打上「工作」标签` 匹配不上原正则（「已」与动词之间夹了「给这篇」）。
+> 五条规则统一改成「已 + 最多 16 字 + 动词」，否则只有「已添加标签」这种标准句式才抓得到 —— 而模型恰恰爱说人话。
+>
+> ### 2 手机走查 208–215（`33b676f6`）
+>
+> push `examples/ai/` 两文件 → reload → 逐项：
+>
+> | 项 | 结果 | 截图 |
+> |---|---|---|
+> | 白名单**分组折叠**（210） | 13 组，「记账 · accounting · 27 条」可展开 / 收起 | `_shots/rev173215-phone-panel.png` |
+> | 命令**筛选**（211） | 输 `csv` 回车 ⇒ 「筛选「csv」：2 条」 | `_shots/rev173215-phone-filter.png` |
+> | 展开某组（210） | 记账 27 条逐条列出，每条一个「允许」 | `_shots/rev173215-phone-group.png` |
+> | **事实条**（215） | mock 回「任务已经建好了」且不调工具 ⇒ 红字警告与桌面完全一致 | `_shots/rev173215-phone-claim.png` |
+>
+> 手机没 Key：`adb reverse tcp:8999` + 面板里配「自定义 + 假 Key」走通；**测完已复原** ——
+> `ai.clear-key` → 删手机 `store.json` → 撤 reverse → reload ⇒ 回「未完成配置」，`reverse --list` 只剩 1420。
+>
+> ### 3 `ai@0.8.0` 发市场
+>
+> | 项 | 值 |
+> |---|---|
+> | 包 | `market/packs/ai-0.8.0.znp` · **149.4 KB** |
+> | 整包 sha256 | `22a7b167a300464bee16ab61e0800639bdcae1e7fc905a6df8c5195f5e7f1cfd` |
+> | 入口 sha256 | `688619cbcdd8c12d2a0cad1d3c3f36369aae113ea52c2c0907bf72fff128afdb` |
+> | 签名 / 索引 | keyId `aqua-2026` · 索引 **17 条**，ai 0.7.0 → **0.8.0** |
+> | 验签 | `verify-trust` **33/34**（`theme-sepia` 纯样式恒无签名） |
+>
+> 装进这版的是：215 的完成声明审计 + 界面事实条 + 压缩保结构，加上 216 的任务侧审计。
+>
+> ### 状态与坑
+>
+> - **手机上的 `ai` 是手动 push 的，不是市场包** —— 要从市场装 0.8.0 得先切镜像（手机 raw 100% RST，
+>   市场页下拉选 `fastly.jsdelivr`），本轮没做这一步
+> - `job_kill` 杀不掉后台 `node`（老坑复现）：job 显示 completed 但 8999 仍被占用 ⇒ 按端口
+>   `Get-NetTCPConnection` 找 pid 再 `Stop-Process`（这次踩在 mock 上，EADDRINUSE）
+>
+> ### 下个会话第一件事
+>
+> ① **任务侧审计的真模型实测**（本轮只有单测：`fixed` 模式不调模型，得用 `auto` 任务 + 触发）②
+> 手机从市场装一次 `ai@0.8.0`（验证签名包在 Android 上装得上）③ ROADMAP §3 里「安卓桌面组件」仍是大块未做。
+>
 > ## 📌 rev173.215（2026-10-27 · AI 不可信：完成声明由宿主核对）
 >
 > 用户先要「调研别的项目怎么解决 AI 不可信」，再「开始做」。**零内核改动**，全在 `examples/ai/`。
