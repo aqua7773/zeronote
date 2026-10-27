@@ -27,7 +27,7 @@ type TreeNode = {
    * 只用于**区分显示**（文档挂类型徽章）—— "打开走哪条命令"由 `App.tsx` 的
    * `core.openDocument` 派发，文件树不掺业务判断。
    */
-  kind?: 'note' | 'doc' | 'image'
+  kind?: 'note' | 'doc' | 'image' | 'media'
   /**
    * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录，
    * 只是把只读文档聚合到一处显示。见 `DOCS_NODE`。
@@ -110,16 +110,16 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   for (const d of dirs) ensureDir(d)
 
-  /** 只读文档 / 图片附件的收集桶（最后统一挂到各自的虚拟分组下） */
+  /** 只读文档 / 附件（图片 + 音视频）的收集桶（最后统一挂到各自的虚拟分组下） */
   const docs: TreeNode[] = []
-  const images: TreeNode[] = []
+  const attachments: TreeNode[] = []
 
   for (const n of notes) {
     const parts = n.path.split('/')
     const name = parts[parts.length - 1]
-    // 文档 / 图片不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
-    if (n.kind === 'doc' || n.kind === 'image') {
-      const bucket = n.kind === 'doc' ? docs : images
+    // 文档 / 附件不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
+    if (n.kind === 'doc' || n.kind === 'image' || n.kind === 'media') {
+      const bucket = n.kind === 'doc' ? docs : attachments
       bucket.push({
         name,
         path: n.path,
@@ -164,15 +164,15 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
     })
   }
 
-  // 「附件」分组（rev173.3）：图片附件的唯一可见入口，排在「文档」之后
-  if (images.length) {
-    images.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  // 「附件」分组（rev173.3）：图片与音视频附件的唯一可见入口，排在「文档」之后
+  if (attachments.length) {
+    attachments.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
     root.push({
       name: '附件',
       path: ATTACH_NODE,
-      children: images,
+      children: attachments,
       isDir: true,
-      kind: 'image',
+      kind: 'media',
       virtual: true,
     })
   }
@@ -411,17 +411,20 @@ function Node({
   // （文档没有 frontmatter / 首行标题那套语义），这里再挂一个类型徽章
   // —— 否则它在树里和笔记长得一模一样，用户分不清哪个能编辑。
   const isDoc = node.kind === 'doc'
-  /** 图片附件（rev173.3）：与只读文档同样挂扩展名徽章，点开走图片预览 */
+  /** 附件（rev173.3 图片 · rev173.226 音视频）：与只读文档同样挂扩展名徽章 */
   const isImage = node.kind === 'image'
+  const isMedia = node.kind === 'media'
   const ext =
-    isDoc || isImage ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase() : ''
+    isDoc || isImage || isMedia
+      ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase()
+      : ''
   /**
    * 显示名（2026-10-17 用户定「文件显示 .md」）：
    *  · 笔记 —— 直接显示**磁盘文件名**（含 `.md`），一眼看出是 Markdown；
-   *  · 只读文档（pdf/epub/…）/ 图片 —— 去掉扩展名：它后面已经跟着 `.pdf` / `.png` 徽章了，
-   *    再带一次会变成 `测试书籍.epub .epub`。
+   *  · 只读文档（pdf/epub/…）/ 图片 / 音视频 —— 去掉扩展名：它后面已经跟着
+   *    `.pdf` / `.png` / `.mp4` 徽章了，再带一次会变成 `测试书籍.epub .epub`。
    */
-  const label = isDoc || isImage ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
+  const label = isDoc || isImage || isMedia ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
   /**
    * 高亮判据**用选中集合**，不用裸 `activePath`（2026-10-17 修）：
    * `selectedSet` 已经处理了「selected 为空 ⇒ 回退到当前打开的那篇」，
@@ -483,7 +486,7 @@ function Node({
         ●
       </span>
       <span className="zn-tree-label">{label}</span>
-      {(isDoc || isImage) && <span className="zn-ext">.{ext}</span>}
+      {(isDoc || isImage || isMedia) && <span className="zn-ext">.{ext}</span>}
       </button>
     </div>
   )

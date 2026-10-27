@@ -40,14 +40,15 @@ export function AppStatusBar({
       {/* 左半：库信息与常驻面板。整块包一层，保证从最左开始 ——
           之前只靠末尾一个 margin-left:auto 的空元素压尾，内容为空时排版会漂。 */}
       <div className="zn-statusbar-left">
-        {/* 「篇」只数**笔记**：文档（pdf/epub/…）与图片附件都不是笔记，混进同一个数字会误导 */}
+        {/* 「篇」只数**笔记**：文档（pdf/epub/…）与附件（图片 / 音视频）都不是笔记，
+            混进同一个数字会误导 */}
         <span>
           {notes.filter((n) => n.kind === 'note').length} 篇
           {notes.some((n) => n.kind === 'doc')
             ? ` · ${notes.filter((n) => n.kind === 'doc').length} 文档`
             : ''}
-          {notes.some((n) => n.kind === 'image')
-            ? ` · ${notes.filter((n) => n.kind === 'image').length} 附件`
+          {notes.some((n) => n.kind === 'image' || n.kind === 'media')
+            ? ` · ${notes.filter((n) => n.kind === 'image' || n.kind === 'media').length} 附件`
             : ''}
         </span>
         {/* location: 'statusbar' 的面板常驻状态栏（小部件），不进右栏 tab */}

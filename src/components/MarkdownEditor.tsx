@@ -13,6 +13,7 @@ import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath } from '../lib/insert-image'
+import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
 import { isPlainBracketLink, isPlainBracketSource, wikiLinkTarget } from '../lib/atomic-link'
 import {
@@ -104,6 +105,8 @@ function fixImageSrc(
   for (const img of view.contentDOM.querySelectorAll('img')) {
     const raw = img.getAttribute('src')
     if (!raw) continue
+    // 音视频不在这里处理 —— 交给 upgradeMediaWidgets（它会把整个 image 块换成播放器）
+    if (mediaKindOf(raw)) continue
     // 已经是可直接加载的 URL（网络图 / data: / plugin 的 asset:）就别碰
     if (/^(?:https?|data|blob|asset):/i.test(raw)) continue
     const abs = resolveImageAbsPath(vault, notePath, raw)
@@ -117,6 +120,84 @@ function fixImageSrc(
     }
     // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
     if (img.src !== url) img.src = url
+  }
+  upgradeMediaWidgets(view, vault, notePath)
+}
+
+/**
+ * 音视频内联播放（rev173.226 · 2026-10-28 用户要求「音视频内联播放」）。
+ *
+ * 为什么走这条路：atomic 的 image-blocks 把 `![](clip.mp4)` 一律渲染成
+ * `<div class="cm-atomic-image"><img src="clip.mp4"></div>` —— 浏览器拿 mp4 当图片
+ * 只会显示破图。这里在 widget 挂进 DOM 后把 `<img>` 换成 `<video controls>` /
+ * `<audio controls>`；asset URL 的解析规则与图片**完全一致**（相对笔记目录 /
+ * `/` 开头相对库根 / 网络 URL 原样）。
+ *
+ * 三个约束：
+ *  - **幂等**：`data-zn-media` 标记 + 没有 `img` 就跳过。CM6 虚拟化滚走再滚回来会重建
+ *    widget（标记自然丢），那时走同一段代码重新升级，不需要额外缓存。
+ *  - **别抢光标**：atomic 在 wrap 上挂了 `mousedown`（点图把光标挪到源码行）。
+ *    播放器要能点播放，所以在 capture 阶段把 mousedown 掐掉，不让它冒到那个监听器。
+ *  - **失败要说话**：`error` 事件在播放器下方写一条明确提示（文件不在 / 容器不支持），
+ *    而不是留一个黑框（「静默失效比报错危险」）。
+ */
+function upgradeMediaWidgets(
+  view: EditorView,
+  vault: string | null | undefined,
+  notePath: string | null,
+) {
+  for (const wrap of view.contentDOM.querySelectorAll<HTMLElement>('.cm-atomic-image')) {
+    if (wrap.dataset.znMedia) continue
+    const img = wrap.querySelector('img')
+    if (!img) continue
+    const raw = img.getAttribute('src')
+    if (!raw) continue
+    const kind = mediaKindOf(raw)
+    if (!kind) continue
+    const url = mediaSourceUrl(raw, vault, notePath)
+    if (!url) continue
+
+    const el = document.createElement(kind === 'video' ? 'video' : 'audio')
+    el.className = `${MEDIA_ELEMENT_CLASS} ${MEDIA_ELEMENT_CLASS}-${kind}`
+    el.src = url
+    el.controls = true
+    el.preload = 'metadata'
+    if (kind === 'video') {
+      // 属性写法而不是 `el.playsInline`：`el` 是 video | audio 的联合类型（audio 没有这属性）
+      el.setAttribute('playsinline', '')
+      el.setAttribute('webkit-playsinline', '')
+    }
+    const hint = document.createElement('div')
+    hint.className = 'zn-media-error'
+    hint.hidden = true
+    el.addEventListener('error', () => {
+      hint.hidden = false
+      hint.textContent =
+        kind === 'video'
+          ? '无法播放：文件可能不在库里，或容器/编码不被支持（MKV、AVI 请先转成 MP4）'
+          : '无法播放：文件可能不在库里，或格式不被支持（请先转成 MP3）'
+    })
+
+    wrap.dataset.znMedia = kind
+    wrap.classList.add(MEDIA_WRAP_CLASS)
+    wrap.replaceChildren(el, hint)
+    wrap.addEventListener('mousedown', (e) => e.stopPropagation(), true)
+  }
+}
+
+/** 媒体 src → 可直接喂给 `<video>` / `<audio>` 的 URL（解析规则与图片一致） */
+function mediaSourceUrl(
+  raw: string,
+  vault: string | null | undefined,
+  notePath: string | null,
+): string | null {
+  if (/^(?:https?|data|blob|asset):/i.test(raw)) return raw
+  const abs = resolveImageAbsPath(vault, notePath, raw)
+  if (!abs) return null
+  try {
+    return convertFileSrc(abs)
+  } catch {
+    return null
   }
 }
 
@@ -264,6 +345,32 @@ const EDITOR_CSS = `
 @media (max-width: 640px) {
   .zn-editor .cm-atomic-image img {
     max-height: 23vh;
+  }
+}
+/* 音视频内联播放（rev173.226）：正文 ![](clip.mp4) 的 image 块被换成播放器
+   （见 upgradeMediaWidgets）。视频限高、音频只占一行宽；失败提示用 danger 色。 */
+.zn-editor .cm-atomic-image.zn-media-wrap {
+  cursor: default;
+}
+.zn-editor .cm-atomic-image video {
+  display: block;
+  max-width: 100%;
+  max-height: min(60vh, 420px);
+  border-radius: var(--zn-radius);
+  background: #000;
+}
+.zn-editor .cm-atomic-image audio {
+  display: block;
+  width: min(100%, 420px);
+}
+.zn-editor .cm-atomic-image .zn-media-error {
+  margin-top: 6px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-danger);
+}
+@media (max-width: 640px) {
+  .zn-editor .cm-atomic-image video {
+    max-height: 40vh;
   }
 }
 /* 查找面板：从「编辑器顶部通栏」改成**悬挂窗**（rev173.43 · 用户要求「像命令输入框这样的悬挂窗口」）。

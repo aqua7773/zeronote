@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-27（rev173.221 · 交接：AI 不可信三件套 + ai@0.9.0 发市 + 手机双路径验证）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.226 · 音视频内联播放）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.225 · 0.6.0 · 2026-10-28 |
-| 测试基线 | vitest 1333 · cargo 55 · oxlint 3 warnings（2026-10-28） |
+| rev / 版本 | rev173.226 · 0.6.0 · 2026-10-28 |
+| 测试基线 | vitest 1344 · cargo 55 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
-| 文档 | README 现状 2026-10-27（落后） · CHANGELOG 0.6.0 |
+| 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -142,9 +142,10 @@ pwsh -File scripts\verify.ps1
 >    verify 全绿 · vitest **1333** · 市场 17 条（ai **0.9.0**）· dev pid 35548（20.9 小时）·
 >    手机 `ai` = 市场签名包 0.9.0（与源码 rev217 一致）。主线：**让 AI 的「完成」变成宿主可验证的事实**。
 >    **下个会话第一件事**：按 **ROADMAP §3.5 排期**（2026-10-28 定稿）开工 ——
->    ① **音视频内联播放**（1 天；内核媒体渲染 + Rust 附件白名单 + 插入时检测扩展名提示「请先转成 MP4」）
->    ② 待办删除线（30 分钟）③ 导入目录语义（1 小时）④ 引用 hover 预览（1 会话）⑤ 调试面板 + 版本回滚（1 会话）
->    ⑥ 核心能力接管（只 `search.query` + `storage.*`，不做 `editor.render`）⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件。
+>    ① ✅ **音视频内联播放**（**rev173.226 完成**：`video`/`audio` 内联 + Rust `kind=media` + 插入提示；
+>       手机未重装，Android 真机待验）· ② 待办删除线（30 分钟）③ 导入目录语义（1 小时）④ 引用 hover 预览（1 会话）
+>    ⑤ 调试面板 + 版本回滚（1 会话）⑥ 核心能力接管（只 `search.query` + `storage.*`，不做 `editor.render`）
+>    ⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件。
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
@@ -169,7 +170,8 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **35548** · 2026-10-27 00:58:24 启动，**交接时已连续跑 11 小时仍可用**；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **4164** · 2026-10-28 02:46:34 启动 —— rev173.226 改 `tauri.conf.json`
+  后 tauri CLI 自动重编重启；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。

@@ -102,6 +102,7 @@ import {
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
+import { mediaHint, mediaKindOf } from './lib/media-render'
 import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, isPanelTab, panelIdOfTab, panelTabId, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
@@ -2464,25 +2465,36 @@ export default function App() {
    * 把**已经落进库里**的附件写进正文（光标处）—— 两条入口共用：
    *  · `insertFileFromPath`：右键「插入附件…」→ 从磁盘复制进库；
    *  · `insertPastedImage`：Ctrl+V 粘贴剪贴板图片 → 从字节写进库（rev173.46）。
+   *
+   * `as` 决定写哪种语法（rev173.226 起三种）：
+   *  · `image` / `embed` → `![](相对路径)`（embed = 音视频，编辑器把它换成播放器）
+   *  · `link`            → `[原名.ext](相对路径)`（点开由宿主按类型分流）
    */
   const insertAttachmentSyntax = useCallback(
-    (rel: string, asImage: boolean) => {
+    (rel: string, as: 'image' | 'embed' | 'link') => {
       const view = editorRef.current
       if (!view || !activePath) return
       const target = pathFromNote(activePath, rel)
       const label = rel.split('/').pop() ?? target
       const sel = view.state.selection.main
       const doc = view.state.doc.toString()
-      const edit = asImage
-        ? imageInsertion(doc, sel.from, sel.to, target)
-        : linkInsertion(doc, sel.from, sel.to, target, label)
+      const edit =
+        as === 'link'
+          ? linkInsertion(doc, sel.from, sel.to, target, label)
+          : imageInsertion(doc, sel.from, sel.to, target)
       view.dispatch({
         changes: { from: edit.from, to: edit.to, insert: edit.insert },
         selection: { anchor: edit.anchor },
         scrollIntoView: true,
       })
       view.focus()
-      setToast(asImage ? `已插入图片 ${label}` : `已插入附件 ${label}`)
+      setToast(
+        as === 'image'
+          ? `已插入图片 ${label}`
+          : as === 'embed'
+            ? `已插入音视频 ${label}`
+            : `已插入附件 ${label}`,
+      )
     },
     [activePath],
   )
@@ -2491,13 +2503,21 @@ export default function App() {
     async (src: string) => {
       if (!editorRef.current || !activePath || !vault) return
       const asImage = isImageFileName(src)
+      /** 能内联播放的音视频（mp4 / mp3 …）—— 与图片一样写 `![]()`，由编辑器换成播放器 */
+      const playable = mediaKindOf(src) !== null
       const rel = await invoke<string>('import_attachment', {
         vault,
         notePath: activePath,
         src,
         stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
       })
-      insertAttachmentSyntax(rel, asImage)
+      insertAttachmentSyntax(rel, asImage ? 'image' : playable ? 'embed' : 'link')
+      /**
+       * 播不了的容器（mkv / avi / wma …）：照样进库（用户可能只想存附件），
+       * 但**立刻**说清下一步 —— 否则正文里只剩一个点不动的链接（rev173.226）。
+       */
+      const hint = playable || asImage ? null : mediaHint(src)
+      if (hint) setToast(`已按链接插入 ${rel} —— ${hint}`)
     },
     [activePath, vault, insertAttachmentSyntax],
   )
@@ -2520,7 +2540,7 @@ export default function App() {
           ext: img.ext,
           base64: img.base64,
         })
-        insertAttachmentSyntax(rel, true)
+        insertAttachmentSyntax(rel, 'image')
       } catch (e) {
         setToast(`粘贴图片失败：${String(e)}`)
       }
@@ -2577,6 +2597,10 @@ export default function App() {
       }
       if (meta.kind === 'image') openImagePreview(norm)
       else if (meta.kind === 'doc') runCore('core.openDocument', { path: norm })
+      else if (meta.kind === 'media')
+        setToast(
+          `音视频附件：${norm} —— 正文里用 \`![](${norm.split('/').pop()})\` 会内联播放`,
+        )
       else setToast(`附件：${norm}（暂不支持直接打开）`)
     },
     [activePath, notes, openImagePreview, runCore],
@@ -3621,6 +3645,9 @@ export default function App() {
               setSidebarOpen(false)
               runCore('core.openDocument', { path: p })
             } else if (meta?.kind === 'image') openImagePreview(p)
+            else if (meta?.kind === 'media')
+              // rev173.226：音视频不独立开窗 —— 播放要放在笔记上下文里（正文内联）
+              setToast(`音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`)
             else {
               // rev173.85：已经在面板视图 / 点的是当前这篇（openNote 会早退）时也要回编辑器
               setMainView('editor')
@@ -3663,6 +3690,8 @@ export default function App() {
                 const meta = notes.find((n) => n.path === p)
                 if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
                 else if (meta?.kind === 'image') openImagePreview(p)
+                else if (meta?.kind === 'media')
+                  setToast(`音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`)
                 else {
                   // rev173.85：手机没有标签条，从面板视图点卡片必须显式切回编辑器
                   setMainView('editor')

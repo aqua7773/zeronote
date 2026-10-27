@@ -28,15 +28,18 @@ export type NoteMeta = {
   /**
    * `note` = Markdown 笔记（内核可编辑，走编辑器）；
    * `doc`  = 只读文档（pdf / epub / mobi / cbz / txt …）；
-   * `image` = 图片附件（png / jpg / gif / webp / svg …，rev173.3 起进文件树）。
+   * `image` = 图片附件（png / jpg / gif / webp / svg …，rev173.3 起进文件树）；
+   * `media` = 音视频附件（mp4 / mp3 / mkv …，rev173.226 起进文件树）。
    *
    * 2026-10-13 加 doc：内核此前只列 `.md`，库里放了 PDF 也看不见。
    * 2026-10-18 加 image：「插入图片」把图复制进笔记目录后，文件树里什么都看不到 ⇒
-   * 用户「附件的入口也没做」。现在三类都进文件树，但：
+   * 用户「附件的入口也没做」。现在四类都进文件树，但：
    * **只有 `note` 进索引、只有 `note` 走 `openNote`**；`doc` 交给插件
-   * （`core.openDocument` 派发）；`image` 由内核自己弹图片预览。
+   * （`core.openDocument` 派发）；`image` 由内核自己弹图片预览；
+   * `media` 只是「在正文里用 `![](clip.mp4)` 内联播放」，单独点开给提示
+   * （播放要放在笔记上下文中，不是独立窗口）。
    */
-  kind: 'note' | 'doc' | 'image'
+  kind: 'note' | 'doc' | 'image' | 'media'
 }
 
 export type FsChange = {

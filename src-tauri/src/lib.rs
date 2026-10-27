@@ -64,6 +64,20 @@ fn is_image(name: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// 文件名（大小写不敏感）是否为**音视频附件**（rev173.226 · 2026-10-28）。
+///
+/// 为什么要这一类：`<video>` / `<audio>` 是 Chromium 的能力（WebView2 与 Android
+/// WebView 同一个内核），能播的容器只有 MP4 / WebM / MOV 与 MP3 / M4A / OGG / WAV / FLAC；
+/// **MKV / AVI 是容器不被识别**，不转码就是播不了。内核在这里只做一件事 ——
+/// 让它们**进文件树**（`kind = media`，前端归到「附件」分组），
+/// 正文里的内联播放由前端渲染（`src/lib/media-render.ts`）；这里不解码、不转码。
+fn is_media(name: &str) -> bool {
+  name
+    .rsplit_once('.')
+    .map(|(_, e)| MEDIA_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    .unwrap_or(false)
+}
+
 #[derive(Serialize)]
 pub struct NoteMeta {
   /// 库内相对路径，统一用 `/`
@@ -78,8 +92,10 @@ pub struct NoteMeta {
   size: u64,
   frontmatter: serde_json::Value,
   /// `note` = Markdown 笔记（内核可读可写，走编辑器）；
-  /// `doc`  = 只读文档（pdf/epub/…，内核只列出来，打开交给插件）。
-  /// 前端据此分流，见 `App.tsx` 的 `core.openDocument`。
+  /// `doc`  = 只读文档（pdf/epub/…，内核只列出来，打开交给插件）；
+  /// `image` = 图片附件（正文 `![]()` 渲染，点开看原图）；
+  /// `media` = 音视频附件（rev173.226；正文 `![]()` 内联播放，单独点开给提示）。
+  /// 前端据此分流，见 `App.tsx` 的 `core.openDocument` 与 `media-render.ts`。
   kind: String,
 }
 
@@ -228,10 +244,12 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
     }
     // 笔记（.md）与**只读文档**（pdf/epub/…）都进文件树；其它一律跳过。
     // 2026-10-18 rev173.3：图片附件也进（kind = image，前端归到「附件」分组）。
+    // 2026-10-28 rev173.226：音视频附件也进（kind = media，正文可内联播放）。
     let is_note = is_markdown(&name);
     let is_doc = is_readonly_doc(&name);
     let is_img = is_image(&name);
-    if !is_note && !is_doc && !is_img {
+    let is_media_file = is_media(&name);
+    if !is_note && !is_doc && !is_img && !is_media_file {
       continue;
     }
     let meta = match entry.metadata() {
@@ -283,6 +301,9 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       } else if is_img {
         // rev173.3：图片附件（文件树里归到「附件」分组，点开是图片预览）
         "image"
+      } else if is_media_file {
+        // rev173.226：音视频附件（文件树里归到「附件」分组；正文里内联播放）
+        "media"
       } else {
         "doc"
       }
@@ -1502,6 +1523,18 @@ fn copy_entry(vault: String, from: String, to: String) -> Result<(), String> {
 
 /// 「插入图片」接受的扩展名（小写；与前端 `src/lib/insert-image.ts` 的 IMAGE_EXTS 同一份）。
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"];
+
+/// 音视频附件的扩展名（小写；与前端 `src/lib/media-render.ts` 同一份口径 ——
+/// 那边分三组：能播的 video / audio，以及认得出但播不了的容器）。
+/// 这里合成一份：**只要认得出是音视频就进文件树**，能不能播由前端决定。
+const MEDIA_EXTS: &[&str] = &[
+  // 视频（Chromium 能播）
+  "mp4", "webm", "mov", "m4v", "ogv", // 音频
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba",
+  // 认得出、容器不被 Chromium 识别（不转码就播不了；照样进文件树）
+  "mkv", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "mts", "3gp", "wma", "ape", "aiff",
+  "aif", "amr",
+];
 
 /// 不允许复制进库的扩展名（可执行 / 脚本）—— 附件区不该有能直接双击运行的东西。
 const BLOCKED_EXTS: &[&str] = &[
@@ -3777,6 +3810,10 @@ mod tests {
     fs::write(d.join("b.pdf"), "%PDF-1.4").unwrap();
     fs::write(d.join("c.png"), "PNG").unwrap();
     fs::write(d.join("d.bin"), "BIN").unwrap();
+    fs::write(d.join("v.mp4"), "MP4").unwrap();
+    fs::write(d.join("m.mkv"), "MKV").unwrap();
+    fs::write(d.join("s.MP3"), "MP3").unwrap();
+    fs::write(d.join("t.ts"), "TS").unwrap();
     fs::create_dir_all(d.join("子目录")).unwrap();
     fs::write(d.join("子目录").join("c.md"), "# c").unwrap();
     fs::create_dir_all(d.join(".zn")).unwrap();
@@ -3811,6 +3848,27 @@ mod tests {
     assert_eq!(png.kind, "image", "图片的 kind 必须是 image");
     assert_eq!(png.title, "c", "图片显示名 = 去掉扩展名的文件名");
     assert!(png.frontmatter.is_null(), "图片不解析 frontmatter");
+
+    // 2026-10-28 rev173.226：音视频附件也进文件树（kind = media，正文可内联播放）。
+    // 能不能播是前端的事 —— 这里只保证**认得出来就列出来**（mkv 也一样，用于提示转格式）。
+    for (path, want) in [
+      ("v.mp4", "video"),
+      ("m.mkv", "mkv"), // 容器不支持 → 仍进文件树
+      ("s.MP3", "audio"), // 大写扩展名也要认
+      ("t.ts", "ts"),
+    ] {
+      let m = list
+        .iter()
+        .find(|m| m.path == path)
+        .unwrap_or_else(|| panic!("{path} 要进文件树（{want}）：{paths:?}"));
+      assert_eq!(m.kind, "media", "{path} 的 kind 必须是 media");
+      assert!(m.frontmatter.is_null(), "{path} 不解析 frontmatter");
+      assert!(
+        !m.title.contains('.'),
+        "{path} 显示名 = 去掉扩展名的文件名：{}",
+        m.title
+      );
+    }
   }
 
   /// 空目录也要上报 —— 文件树若只靠 `list_notes` 反推目录，**空文件夹根本不会显示**

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.225
-更新时间: 2026-10-28 · 最新 rev173.225
+revision: 173.226
+更新时间: 2026-10-28 · 最新 rev173.226
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.225
 
 | rev | 内容 |
 |---|---|
+| rev173.226 | 2026-10-28 · **音视频内联播放**（用户「开工」· 排期 1）：① **内核媒体渲染** —— `MarkdownEditor.tsx` 新增 `upgradeMediaWidgets`，复用 `imageAssetPlugin` 的 MutationObserver，把 `![](clip.mp4)` 的 image 块（atomic 一律当图片）换成 `<video controls>` / `<audio controls>`，asset URL 规则与图片一致；**幂等**（`data-zn-media` + 无 img 跳过，CM6 虚拟化重挂载自动重升）、**不抢光标**（capture 阶段掐掉 atomic 挂在 wrap 上的 mousedown）、**失败说话**（`error` 事件写明确提示）② **Rust 附件白名单** `MEDIA_EXTS` + `is_media` + `kind = "media"` 进 `list_notes`（mp4/webm/mov/m4v/ogv + mp3/m4a/aac/ogg/oga/opus/wav/flac/weba + 播不了的 mkv/avi/wmv/flv/mpg/mpeg/ts/m2ts/mts/3gp/wma/ape/aiff/aif/amr）③ **插入时检测**：能播的写 `![]()` 内联、播不了的容器写 `[]()` 链接 + toast 提示转 MP4/MP3 ④ **CSP 加 `media-src`**（不加会被 `default-src 'self'` 拦掉 asset:）⑤ 文件树「附件」分组收 media + 扩展名徽章、状态栏附件计数。单测 +11（`tests/media-render.test.ts`，扩展名 / URL query / 不可播容器 / 提示文案）· **桌面实测**：video `readyState 4` / 320×240 / 点播放 `paused=false` / audio `duration 1` / mkv toast 原文 / 附件分组 9 项 / 图片渲染未受影响 |
 | rev173.225 | 2026-10-28 · **交接**（用户「排完交接」）：本会话 **3 个 rev（222–224）全是文档**，产出 = ① `docs/附件与同步-需求-2026-10-28.md` 定稿（≤1 MiB 复制/引用二分 · 图片 A/B 两模式 · 台账 `.zn-assets/manifest.json` · 主动调用+每次确认式搬运 · §3.1 媒体容器查证）② ROADMAP **§3.0 补齐 8 条缺口** + **§3.5 排期 10 项** ③ CARD 更正「安卓桌面组件是唯一大块缺口」这个错。**下个会话第一件事**：排期 1 = **音视频内联播放**（1 天）。零代码改动 · verify 六步全绿（02:22:22）· 工作区干净 |
 | rev173.224 | 2026-10-28 · **需求整理 + 排期定稿**：用户答完 5 问（① 音视频内联 ② 格式见下 ③ 台账改 `<库>/.zn-assets/manifest.json` ④ 核心能力接管只做 `search.query`+`storage.*`、不做 `editor.render` ⑤ 附件同步「本轮不开工，按合理顺序排」）。ROADMAP 新增 **§3.5 建议排期 8 项**；§3.0 补齐 8 条缺口（音视频 / 调试面板 / 版本回滚 / 核心能力接管 / 导入目录语义 / 引用 hover / 待办删除线 / 附件同步）。**媒体容器查证**（写进附件需求 §3.1）：WebView2 与 Android WebView 都是 Chromium ⇒ 视频只认 **MP4 / WebM / MOV**，**MKV / AVI 是容器不被识别、不是编码问题**，不转码就是播不了；音频 MP3/M4A/OGG/WAV/FLAC 全支持。建议「插入时检测扩展名提示转 MP4 + 播放失败给明确提示」，不内置 ffmpeg。零代码改动 |
 | rev173.223 | 2026-10-28 · **附件需求补充（用户口径）**：① 触发方式 = **主动调用 + 每次确认**（笔记里点音频/视频、模式 B 的「同步原图」、附件面板三入口；启动 / 保存 / 定时 / 打开笔记都不自动搬）② 模式 A：≤1 MiB 复制原图，**预览=原图、点开=原图**；>1 MiB 引用原图 + 预览图 ③ 模式 B：**正文与点开默认都是压缩版**，提供「同步原图」，同步成功后点开默认原图。文档同步更新，零代码改动 · verify 六步全绿 |
@@ -121,6 +122,70 @@ revision: 173.225
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.226（2026-10-28 · 音视频内联播放）
+>
+> 用户「开工」，按 **ROADMAP §3.5 排期 1** 做：笔记正文里直接播 mp4 / mp3。
+>
+> ### 为什么不能只改前端
+>
+> atomic 的 image-blocks 把 `![](clip.mp4)` **一律**渲染成 `<img>`（`dist/image-blocks.js` 的
+> `buildImageBlocks` 只认 `Image` 节点、`toDOM` 固定 `createElement('img')`）——
+> 浏览器拿 mp4 当图片只会显示破图。所以要在 widget 挂进 DOM 后**替换**它。
+>
+> ### 改动
+>
+> 1. **`src/lib/media-render.ts`（新）** —— 纯函数：`mediaExt`（去 query/hash、大小写不敏感）、
+>    `mediaKindOf`（能播的 → video/audio；**mkv / avi 返回 null**）、`isMediaFileName`（含播不了的容器）、
+>    `mediaHint`（「浏览器不能播放 .mkv（容器不支持），请先转成 MP4」）。三组扩展名与 Rust 同一份口径。
+> 2. **`MarkdownEditor.tsx`** —— `upgradeMediaWidgets`（在 `fixImageSrc` 末尾调用，复用同一个 MutationObserver）：
+>    把 `.cm-atomic-image` 里的 `<img>` 换成 `<video controls playsinline>` / `<audio controls>`。
+>    三条约束：**幂等**（`data-zn-media` 标记；CM6 滚走再滚回来会重建 widget，那时自动重升）·
+>    **不抢光标**（atomic 在 wrap 上挂了 mousedown 把光标挪到源码行 —— 播放器要能点，所以在 capture 阶段
+>    `stopPropagation`）· **失败要说话**（`error` → 播放器下方红字「MKV、AVI 请先转成 MP4」）。
+>    CSS 限高 60vh（手机 40vh）。
+> 3. **`src-tauri/src/lib.rs`** —— `MEDIA_EXTS` + `is_media` + `collect()` 放行 + `kind = "media"`。
+>    不改这里：音视频**根本不进 `list_notes` / 文件树**（`collect` 只收 note/doc/image），侧栏点了只会说
+>    「库里没有这个附件」。
+> 4. **`tauri.conf.json` CSP 加 `media-src`** —— 此前只有 `img-src`。没有它会回落到 `default-src 'self'`
+>    ⇒ `asset:` 的媒体被**静默拦掉**（画面全黑、且不一定报错）。
+> 5. **`FileTree.tsx` / `AppStatusBar.tsx` / `App.tsx`** —— 附件分组收 media（徽章 `.mp4`）、状态栏
+>    「· N 附件」含 media、侧栏 / 时间流点 media 给中性提示（播放要在笔记上下文里，不单独开窗）。
+>
+> ### 插入链路
+>
+> `insertFileFromPath`：图片 → `![](…)`（时间戳名）；**能播的音视频 → `![](…)`（保留原名主干）**；
+> **播不了的容器（mkv / avi / wma …）→ `[…](…)` 链接 + toast 提示转格式**（照样复制进库，用户可能只想存附件）。
+>
+> ### 测试
+>
+> vitest 1333 → **1344**（+11，`tests/media-render.test.ts`：扩展名 / URL query / 大小写 / 不可播容器 / 提示文案）；
+> cargo 55 不变 —— Rust 侧的 media 断言加在现有 `list_covers_notes_and_readonly_docs_but_skips_others` 里
+> （mp4 / mkv / 大写 `.MP3` / `.ts` 四条：进文件树、`kind = media`、`title` 去扩展名、`frontmatter` 为 null）。
+> **verify 六步全绿（02:56:40）· 质量门 7/7**。
+>
+> ### 实测（桌面 dev · CDP · 测试库 `_tmp-vault-tb`）
+>
+> - 插入 `test-clip.mp4`（ffmpeg 生成 2 s 彩条）⇒ 磁盘 `test-clip-1.mp4`（撞名递增）+ 正文 `![](test-clip-1.mp4)`；
+>   DOM：`video` `readyState 4`、`videoWidth 320 × 240`、`video.error null` —— **asset 协议与 CSP media-src 都通**
+> - CDP 真实点击播放按钮（436,337）⇒ `paused=false`、`currentTime 0.81`、`document.activeElement` = video
+>   （atomic 的「点图跳源码行」确实被掐掉了）
+> - `test-tone.mp3` ⇒ `<audio>` `readyState 4`、`duration 1`
+> - `test-old.mkv` ⇒ 走链接 `test-old-1.mkv`，toast 原文「已按链接插入 test-old-1.mkv —— 浏览器不能播放
+>   .mkv（容器不支持），请先转成 MP4」
+> - reload 后文件树 **「附件 9」**（3 图片 + 6 音视频），状态栏「31 篇 · 3 文档 · 9 附件」；
+>   点附件里的 mp4 ⇒ toast「音视频附件：test-clip-1.mp4 —— 在笔记正文里用 ![](test-clip-1.mp4) 内联播放」
+> - 回归：打开含图片的笔记，`img.src` 仍是 asset URL、`naturalWidth 1220`、页面无 `video/audio`（图片链路未受影响）
+> - 截图：`_shots/rev173226-video.png`（首帧 + 控制条）· `_shots/rev173226-playing.png`（播放中 + audio + mkv 链接 +
+>   附件 9）· `_shots/rev173226-attach-group.png`
+>
+> ### 已知取舍 / 未做
+>
+> - **手机未重装**（硬约束 7：只跑已装 dev 包；改 Rust 要重编 APK）⇒ Android 上的 media 列表与播放**未真机验证**。
+>   前端改动会随 vite 生效，但 `kind` 要新 Rust —— 手机要验得重编一次。
+> - **没有独立播放器 / 附件面板**：侧栏点音视频只给提示（要播请写进正文）。附件面板属附件同步期。
+> - **音频用原生控件**（Chrome 绘制，深色主题下是白底条），未做自绘播放器。
+> - `.ts` 同时是 MPEG-TS 与 TypeScript 源码 —— 库里放 `.ts` 源码会被归进「附件」。笔记库场景低风险，先记录。
+>
 > ## 📌 rev173.225（2026-10-28 · 交接：需求定稿 + 排期）
 >
 > 用户「排完交接」。本会话 **3 个 rev（222–224），全是文档，零代码改动**。

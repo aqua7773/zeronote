@@ -20,6 +20,13 @@
 
 ### Changed
 
+- **`NoteMeta.kind` 增加 `media`（rev173.226 · 契约扩展）**：音视频附件（mp4 / webm / mov / m4v / ogv ·
+  mp3 / m4a / aac / ogg / opus / wav / flac …，以及**播不了**的 mkv / avi / wmv / flv …）现在进
+  `list_notes` 与文件树（前端归「附件」分组；`title` = 去掉扩展名的文件名，`frontmatter` 恒 `null`）。
+  正文 `![](clip.mp4)` 由内核渲染成 `<video controls>` / `<audio controls>`（asset 协议；CSP 新增 `media-src`）。
+  ⚠️ **能不能播是 WebView 的能力**：MKV / AVI 等容器 Chromium 不识别 ⇒ 插入时只写普通链接并提示
+  「请先转成 MP4」。插件侧兼容：`kind` 本来就是多值字段，未处理 `media` 的插件会把它当未知类型 ——
+  行为等同以前的「不入列」，不会崩。**只有 `note` 进索引、只走 `openNote`** 的规则不变。
 - **预装范围成文，移出 5 个「增强」插件**（rev173.179 · 新增 `docs/decisions/D-010-预装范围.md`）：
   规则此前**只在会话里**（安全插件开发期），没落文档 ⇒ 加备份插件时被重新问一遍。现在成文：
   **核心体验预装**（标签 / 反链 / 历史 / 导入导出 / 同步 ×4 / 备份）· **「增强」逐步移市场**
