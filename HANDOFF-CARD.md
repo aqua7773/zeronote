@@ -181,8 +181,12 @@ pwsh -File scripts\verify.ps1
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-28 03:16 已被 `android-dev` 重编重装成最新代码**
-  （app pid **25184**；含 rev173.226 的 `kind=media`、227 的导入落点、228 的引用预览）⇒ **别再按 0.5.0 的功能边界判断**。
+  ⚠️ 交接时有**一个 watch 进程在跑**（AI 当后台 job 起的：`cmd /c android-dev.cmd`，03:12 起）——
+  会话结束 job 被回收时它可能一起消失（app 是独立进程，不受影响）。**要再编就双击 `android-dev.cmd`**，
+  编之前先清旧进程树（见下）。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-28 03:16 已被 `android-dev` 重编重装**
+  （app pid **25184**，交接时仍存活、日志刷到 03:42）。**Rust 侧含 rev173.226 的 `kind=media`、227 的导入落点、228 的引用预览**；
+  **前端已随桌面 vite 的 HMR 更新到 rev173.229**（调试面板在手机上也能开）⇒ **别再按 0.5.0 的功能边界判断**。
   ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
   新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
   启动：`adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`。
