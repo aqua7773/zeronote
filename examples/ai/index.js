@@ -253,7 +253,8 @@ export const TOOLS = [
     function: {
       name: 'task_create',
       description:
-        '创建一个自动任务。先用自然语言把规则写进 instruction。' +
+        '创建一个自动任务。**用户明确要求建任务时必须调用本工具**，不要只在回复里描述。' +
+        '先用自然语言把规则写进 instruction。' +
         'trigger=save（保存笔记后跑）/ schedule（定时跑，要给 at）/ manual（只手动跑）。' +
         '动作固定、不需要看内容的活（打标签、移到某目录）请用 mode=fixed + steps，不调用模型、更便宜稳定；' +
         '需要按内容判断的（分类到哪个文件夹）用默认的 auto。',
@@ -569,6 +570,32 @@ export function windowMessages(list, n = CONTEXT_WINDOW) {
   return (Array.isArray(list) ? list : [])
     .slice(-n)
     .map((m) => ({ role: m.role, content: String(m.content ?? '') }))
+}
+
+/**
+ * 对话的 system 提示（rev173.209）。
+ *
+ * rev197–208 一直**没有** system 消息：模型只知道工具表，不知道「写工具只出提案」这条语义，
+ * 于是实测两次出现「嘴上说建好了、其实没调工具」（207/208 都遇到；208 还编造了已删任务的旧 id）。
+ * 这里把行为规则写死；历史里**不存** system（不显示、不落 store），每轮现拼。
+ */
+export const CHAT_SYSTEM_PROMPT = [
+  '你是 ZeroNote 笔记应用里的笔记助手。',
+  '',
+  '规则：',
+  '1. 用中文回复，简短直接；不要复述工具返回的原文，只给结论。',
+  '2. 写工具（note_write / note_move / note_trash）只生成提案：返回 status=pending 时**还没有完成**，',
+  '   必须告诉用户「等确认」，绝不能声称已经改好。',
+  '3. 说「做好了」之前必须真的调用过对应工具，且工具返回成功；没调用就直说没做 —— 不要凭记忆或历史编造结果，尤其不要编任务 id。',
+  '   回复的开头也不要先声称「已完成 / 已建好」再补充说明：没确认成功之前不要用完成语气。',
+  '4. plugin_exec 只能执行用户授权过的命令；被拒绝时说明去哪授权，不要反复重试同一个命令。',
+  '5. 用户已经给出关键参数（路径 / 范围 / 目标）时直接执行，不要反复确认；只有缺关键参数时才问一句。',
+].join('\n')
+
+/** 发给模型的完整消息序列：system 在首位 + 最近 N 条历史（纯函数，单测覆盖） */
+export function buildChatMessages(history, system = CHAT_SYSTEM_PROMPT) {
+  const msgs = windowMessages(history)
+  return system ? [{ role: 'system', content: system }, ...msgs] : msgs
 }
 
 /* ───────────────── 写工具的纯函数（rev173.199 · 单测覆盖） ───────────────── */
@@ -2164,8 +2191,8 @@ export default {
       if (key) {
         const ctrl = new AbortController()
         abortCtrl = ctrl
-        /** 发给模型的序列：历史（去掉 tool 中间态）+ 本次 user */
-        const api = windowMessages(messages.slice(0, -1))
+        /** 发给模型的序列：system + 历史（去掉 tool 中间态）+ 本次 user */
+        const api = buildChatMessages(messages.slice(0, -1))
         let streamed = ''
         const onDelta = (d) => {
           streamed += d
