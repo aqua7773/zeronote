@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.230
-更新时间: 2026-10-28 · 最新 rev173.230
+revision: 173.231
+更新时间: 2026-10-28 · 最新 rev173.231
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.230
 
 | rev | 内容 |
 |---|---|
+| rev173.231 | 2026-10-28 · **核心能力接管（需求 §2.15 前半 · 排期 6）**（用户「做接管」）：① **新 `src/kernel/capability.ts`** —— 能力注册表：`provide(name, impl, {priority})` / `invoke` / `release` / `status` / `setChoice`；内核默认实现**永不参与竞争**，只在没有插件提供时兜底；同优先级取最早登记 + `needsChoice`，用户选择写 `localStorage['zn-capability-choice']`；**防重入**（实现执行期间再调能力 ⇒ 走默认，接管者靠它拿原始结果）② **契约**新增 `CapabilityApi` / `CapabilityName` / `CapabilityStatus`，`PluginContext.capability`；5 个能力：`search.query` + `storage.read/write/exists/list`（**不做 `editor.render`**，用户已拍板）③ **kernel 组装**：`index.query` → `capability.invoke('search.query')`（`scoped` 递归包装）；`fs` 只包读/写/存在/列清单四个消费侧方法（结构操作仍在内核）；默认实现 = 包装前的原链路（含索引跟随 + 事件）④ **plugin-host** `ctx.capability` + `usePluginHost` 三处卸载点调 `releaseCapabilities`（漏 dispose 也不留幽灵）⑤ **设置页**「插件」tab 新增「核心能力」折叠块（当前提供者 / 同级冲突提示）+ 选择对话框。**测试**：vitest 1379 → **1389**（+10 条注册表语义）· cargo 59 不变。**实测**（CDP 两个探针，同 priority 10，测完已删干净）：装 A ⇒ 搜索「验收」8 条全部 `[接管A]` · 装 B ⇒ 设置页「有同优先级冲突，请选择」+ 对话框两候选 · 选 B ⇒ 搜索变 `[接管B]` · 禁用 B ⇒ 自动回退 `[接管A]` · 禁用 A ⇒ 无前缀、仍是 8 条结果（内核默认）。截图 `_shots/rev173231-{capability-settings,capability-conflict,capability-pick,search-takeover,search-B,fallback-kernel}.png` |
 | rev173.230 | 2026-10-28 · **插件版本回滚（需求 §2.14 · 排期 5b）**（用户「继续」，先确认工作区与基线全绿）：① **安装时存档** —— `install_pack` 换目录**之前**把旧版本整目录复制到 `<应用数据目录>/.zn/plugin-versions/<id>/<version>-<ms>/`，只留最近 **3** 份（按目录名**尾部时间戳**排序，不按版本名）；存档失败只记日志、不阻断安装 ② **两条 Rust 命令** `list_plugin_versions` / `rollback_plugin`（`force` 两段式）+ `manifest.storeVersion`（数据格式代际，可选整数）③ **回滚**：① 备份当前 `store.json` 到 `_backup/<ms>-store.json`（保 10 份）② 当前版本**也存档**（回滚后能滚回来）③ 存档复制上位、删旧目录，失败恢复原版本 ④ **反向迁移**：当前代际 > 目标代际 ⇒ 先返回 `needConfirm`（**磁盘一个字节不动**）⇒ 带 `force` 再调时用**该版本存档里的 store** 替换（数据跟着回退），无快照则保留当前数据 + `warning`；内核**不调用插件代码**做 down-migration（插件不可信 / 回滚发生在加载前）⑤ **UI**：插件行「版本记录」按钮（History 图标）→ 对话框（版本 / 时间 / 体积 / 含数据 / 回滚）+ 插件行「回滚」；降级时红框「仍要回滚 / 取消」。**测试**：cargo 55 → **59**（4 条：保 3 份 / 回滚保数据+备份 / 降级确认+force 回退 / 非法 stamp）· vitest 1373 → **1379**（6 条：对话框列表 / 回滚成功 / 降级两段式 / formatBytes / formatVersionTime / 内置插件回滚标记）。**桌面实测**（CDP 造 `rollback-probe` v1/v2 探针，测完已删干净）：装 v1（store `{gen:1}`）→ 装 v2 ⇒ `.zn/plugin-versions/rollback-probe/1.0.0-…/` 出现（含 store）；打开版本对话框 ⇒「v1.0.0 · 04:11 · 426 B · 含数据」→ 点回滚 ⇒ 红框「第 2 代 vs 第 1 代」**磁盘未动**（仍 2.0.0 / gen 2）→「仍要回滚」⇒ 当前 **1.0.0** + `index.js` 是 v1 + `store.json` **`{gen:1}`** + 存档多一份 **2.0.0** + `_backup/` 2 份 + 日志「插件已卸载 → 插件已加载」。截图 `_shots/rev173230-{versions-dialog,need-confirm,rolled-back}.png` |
 | rev173.229 | 2026-10-28 · **开发者调试面板（§2.13 的一半）**（用户「继续」· 排期 5）：① **结构化日志** —— `PluginLogEntry { ts, pluginId, level, msg, stack }`（契约新增）；`PluginHostDeps.onLog` 多带归属插件与堆栈，`scopedHost` 包 `host.log`（error 时捕 `new Error().stack`，栈里有插件帧）；`kernel.audit()` 新增 `pluginTopics` ② **诊断表** —— 插件页新「调试」tab：插件 / 命令数 / 面板数 / 服务数 / 订阅 topic / 版本（18 个插件全列出，含纯样式）③ **模拟触发** —— topic + JSON payload → `event.emit` ④ **错误归属** —— 命令执行失败与事件处理器异常改记 `error` 并反推 `plugin:xxx` 归属 + 带堆栈 ⑤ 重载全部 / 清空日志 / 写测试日志 / 开发者模式开关（localStorage）。**未做**：单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限确认（详见 ROADMAP §3.0）· **版本回滚（§2.14）本轮没做**，已拆成 §3.5 的 5b 作为下轮第一件事。实测：调试 tab 打开 · 统计「已安装 18 · 启用 17 · 命令 210 · topic 7」· 诊断表 18 行 · `zn:probe` 发射成功 · 测试日志的 error + 堆栈可展开（`_shots/rev173229-dev-panel.png`） |
 | rev173.228 | 2026-10-28 · **引用悬浮预览 + 安卓重编真机验证**（用户「继续，安卓也编译测验」）：① **需求 §4.5 引用 hover** —— 新 `src/lib/wiki-preview.ts`（`findWikiNote` / `previewSnippet` / `wikiTarget`，纯函数 +12 单测）；`openWikiLink` 与预览**共用** `findWikiNote`（ID → 路径 → 后缀 → 标题），不会「点开 A、预览 B」；桌面 `mouseover` 停 350 ms、手机 `pointerdown` 长按 450 ms（移动 >10 px 取消）弹浮层「标题 + 正文前 140 字」（剥 frontmatter / 代码块 / 图片 / 链接），找不到显示「没有找到这篇笔记」，滚动 / Esc / 点别处都收；摘要 5 秒缓存、每次现查 ② **安卓重编 + 真机验证**（`tauri android dev` · 手机 pid 25184）：视频 `<video>` `readyState 4` + `play()` 后 `paused=false`（附件计数 5 ⇒ `kind=media` 生效）· 待办已完成行 `line-through` · 从 `/sdcard/Download` 导入 ⇒ `日期导入/2026-10-28/导入样本.md` · 长按 700 ms 弹浮层且松手**不跳转** ③ 五个踩坑（旧 android-dev 进程占日志 / 长按抑制标记时机 / CSS 模板里的反引号 / Android 单数 `Download` / 多文件中文名 push 报 EOF）全部记进正文与代码注释 |
@@ -126,6 +127,67 @@ revision: 173.230
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.231（2026-10-28 · 核心能力接管 §2.15 前半）
+>
+> 用户「做接管」= ROADMAP §3.5 第 6 位。范围按已拍板：只做 `search.query` + `storage.*`，
+> **不做 `editor.render`**（会打破「插件不接触 CM6」）。
+>
+> ### ① 注册表（`src/kernel/capability.ts`）
+>
+> - `provide(name, impl, { priority })` → `Disposable`；`priority` 缺省 0
+> - 内核默认实现由组装点登记，**永不参与竞争** —— 没有插件提供时才兜底
+> - 同优先级：取最早登记的，同时 `needsChoice: true`；`setChoice` 写 `localStorage['zn-capability-choice']`
+> - **防重入**：`invoke` 用一个深度计数 —— 实现执行期间再调能力一律走默认。
+>   接管者就是靠它拿「原始结果」（否则"给搜索结果加前缀"的插件会把自己喂给自己）
+> - `release(pluginId)`：卸载时强制摘掉（不信插件的 dispose 一定跑）
+> - 坏实现抛错 ⇒ 调用方 reject（搜索面板显示「搜索失败」），不静默空表、也不自动禁用插件
+>
+> ### ② 接进内核（`kernel.ts`）
+>
+> - `index.query` → `capability.invoke('search.query')`；`scoped(partition)` 递归包装
+> - `fs` 只包四个消费侧方法：`readText` / `writeText` / `exists` / `listNotes`
+>   （`rename` / `delete` / `watch` 仍直接操作 —— 回收站、索引跟随、目录语义都在内核侧，
+>   拦一半只会造出不一致状态）
+> - 默认实现 = **包装前那条链路**（`fsBase`，含索引跟随 + 事件派发）⇒ 回退后行为与没接管过一致
+> - `PluginContext.capability` + `KernelDeps.capability`；`usePluginHost` 三处卸载点调 `releaseCapabilities`
+>
+> ### ③ 设置页
+>
+> 「插件」tab 顶部一个折叠块：5 个能力逐行显示「当前谁在提供」，有同优先级冲突时红字提示；
+> 点「选择…」弹窗选一个（写 localStorage）。选择后 bump 一次 state 让设置页立刻刷新。
+>
+> ### 实测（CDP · 两个探针，同 `priority: 10`）
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 装 A | 搜索「验收」8 条全部带 `[接管A]` |
+> | 装 B（同优先级） | 设置页「有同优先级冲突，请选择」；对话框两候选，A 标「当前」 |
+> | 选 B | 搜索变 `[接管B]` |
+> | 禁用 B | 自动回退 `[接管A]`（无冲突了） |
+> | 禁用 A | 无前缀、仍是 8 条结果 —— 内核默认实现 |
+>
+> 截图 `_shots/rev173231-*.png`。测完已删两个探针目录 + 清 `zn-capability-choice` + reload。
+>
+> **测试**：vitest 1379 → **1389**（10 条注册表语义）· cargo 59 不变 · verify 全绿 · 质量门 7/7。
+>
+> ### 踩坑
+>
+> - **HMR 之后 `deps.capability is not a function`**：`kernel` 是在 effect 里建的，热更新只换了
+>   React 组件、旧 kernel 实例还在跑 ⇒ 插件加载拿不到新字段。**必须 `location.reload()`** 重建内核
+>   （以后所有「内核组装点新增依赖」的改动都成立）
+> - `Settings` 的 `return` 原本只有一个 `<Dialog>`，加第二个同胞节点必须用 Fragment 包起来（否则 tsc 报
+>   `')' expected`）
+> - **`fs.writeText` 的第三参 `opts.origin` 被包装层吞掉** ⇒ 插件写盘变成"用户保存"，
+>   `note:saved` 误发（同步插件会留下永远清不掉的 pending —— rev173.120 的旧伤）。
+>   现在默认实现与包装层都用 `...args` 透传；`kernel-fs-events` 那条 `origin: 'plugin'` 用例当场抓到
+>
+> ### 未做 / 取舍
+>
+> - `editor.render`：用户已拍板不做
+> - `storage.*` 只接管读写 / 存在 / 列清单；结构操作（rename/move/delete）仍在内核
+> - 冲突「弹窗」落在设置页的「选择…」而不是自动弹全局对话框（需求原话「弹窗让你选并记住」，
+>   放在设置里更不打断；自动弹的条件留到真有插件用这项时再评估）
+>
 > ## 📌 rev173.230（2026-10-28 · 插件版本回滚 §2.14）
 >
 > 用户「继续」= ROADMAP §3.5 的 **5b**（rev173.229 交接时点名的「下个会话第一件事」）。

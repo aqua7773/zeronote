@@ -1164,6 +1164,62 @@ export interface ServiceApi {
   list(): { name: string; pluginId: string; version?: string; loaded: boolean }[]
 }
 
+/**
+ * **可以被插件接管的核心能力**（需求 §2.15 · rev173.231）。
+ *
+ * 这不是「capability 自述」那套（插件说自己要什么）；这里是**反向**的：
+ * 插件提供一个实现，内核消费者改用它。名字固定，因为内核要在固定位置委托。
+ */
+export type CapabilityName =
+  | 'search.query'
+  | 'storage.read'
+  | 'storage.write'
+  | 'storage.exists'
+  | 'storage.list'
+
+/** 一个能力的当前状态（设置页「核心能力」区块 / 诊断用） */
+export type CapabilityStatus = {
+  name: CapabilityName
+  /** 给人看的中文名 */
+  label: string
+  /** 当前生效者：`'kernel'`（内核默认）或插件 id */
+  active: 'kernel' | string
+  /** 同优先级有多个插件、用户还没选 ⇒ UI 要提示「请选择」 */
+  needsChoice: boolean
+  /** 同优先级的候选（needsChoice 时给选择框用） */
+  top: { pluginId: string; priority: number; chosen: boolean }[]
+  /** 全部提供者（含低优先级的） */
+  providers: { pluginId: string; priority: number }[]
+  /** 内核默认实现是否已登记（正常应为 true） */
+  hasFallback: boolean
+}
+
+/**
+ * 核心能力接管（`ctx.capability`）。
+ *
+ * 规则（需求 §2.15）：
+ * - 插件**启用**时 `provide` 即接管；插件**禁用 / 卸载**时宿主调 `release`，自动回退到内核默认；
+ * - 多个插件提供同一能力 ⇒ `priority` 大的胜出（缺省 0）；
+ * - 同优先级 ⇒ 设置页会让你选，选择记在 `localStorage`；
+ * - **实现内部继续调用同一能力会走内核默认实现**（防递归）—— 接管者正是靠这个拿「原始结果」。
+ *
+ * ```js
+ * ctx.capability.provide('search.query', async (q, opts) => {
+ *   const raw = await ctx.index.query(q, opts) // 重入 ⇒ 走内核默认，拿到原始命中
+ *   return raw.map((h) => ({ ...h, title: `[接管] ${h.title}` }))
+ * }, { priority: 10 })
+ * ```
+ */
+export interface CapabilityApi {
+  provide(
+    name: CapabilityName,
+    impl: (...args: unknown[]) => unknown,
+    opts?: { priority?: number },
+  ): Disposable
+  /** 当前各能力由谁提供（插件自身 / 设置页 / 诊断用） */
+  status(): CapabilityStatus[]
+}
+
 export interface PluginContext {
   fs: FsApi
   doc: DocApi
@@ -1175,6 +1231,8 @@ export interface PluginContext {
   host: HostApi
   service: ServiceApi
   editor: EditorApi
+  /** 核心能力接管（需求 §2.15 · rev173.231）—— 搜索 / 存储可被插件替换 */
+  capability: CapabilityApi
   /** HTTP 请求（Rust 侧发出，不受 CORS 限制）—— 同步插件靠它，见上面 `NetApi` */
   net: NetApi
   pluginId: string

@@ -11,6 +11,9 @@ import { watchAcceleratorKeys } from '../lib/accelerator'
 import { mergeLines } from '../lib/merge3'
 import { API_VERSION } from './contract'
 import type {
+  CapabilityApi,
+  CapabilityName,
+  CapabilityStatus,
   Disposable,
   DocApi,
   EditorApi,
@@ -18,7 +21,9 @@ import type {
   HostApi,
   IndexApi,
   NetApi,
+  NoteMeta,
   PanelLocation,
+  SearchHit,
   ServiceApi,
   ShellSpec,
   StoreApi,
@@ -26,6 +31,7 @@ import type {
   ViewApi,
   ViewCtx,
 } from './contract'
+import { createCapabilityRegistry } from './capability'
 import { createCommandApi, type CommandRegistry } from './command'
 import { createScopedEditorApi, editorMarkEntries, releaseEditorMarks } from './editor-marks'
 import { createEventApi, type EventBus } from './event'
@@ -197,6 +203,17 @@ export type Kernel = {
    */
   releaseEditorMarks: (pluginId: string) => void
   /**
+   * **核心能力接管**（需求 §2.15 · rev173.231）：给插件用的 `ctx.capability` 视图。
+   * 插件的 `provide` 会一直生效到它被卸载 —— 宿主卸载时会调 `releaseCapabilities`。
+   */
+  capability: (pluginId: string) => CapabilityApi
+  /** 各能力当前由谁提供（设置页「核心能力」/ 诊断 / CDP 验收） */
+  capabilityStatus: () => CapabilityStatus[]
+  /** 同优先级冲突时记住用户的选择（`null` = 清除，回到"取最早登记的那个"） */
+  setCapabilityChoice: (name: CapabilityName, pluginId: string | null) => void
+  /** 插件卸载时强制回收它接管的能力（兜底：Disposable 漏推也不会留下幽灵提供者） */
+  releaseCapabilities: (pluginId: string) => void
+  /**
    * **宿主侧**的「把面板开成独立窗口」（rev173.83）—— 标签拖出 / 右键「在新窗口打开」用。
    *
    * 复用 `view.openWindow` 的全套语义（面板未注册要报错 / Android 自动降级为主区 /
@@ -229,6 +246,15 @@ export type Kernel = {
 
 export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Kernel {
   const rawFs = createFsApi(vault)
+  /**
+   * **核心能力（需求 §2.15）注册表**（rev173.231）。
+   *
+   * 放在最前面：搜索与存储的包装层要用它，而默认实现（`rawFs` / `indexRaw`）反而要在
+   * 它们创建之后才登记 —— `setDefault` 是后置的，顺序上不冲突。
+   */
+  const capabilities = createCapabilityRegistry({
+    onLog: (msg, level) => hooks.onLog(msg, level),
+  })
   const event = createEventApi((topic, err) =>
     hooks.onLog(
       `事件处理器异常 topic=${topic}：${String(err)}`,
@@ -461,10 +487,31 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
    * `onRebuilt` → `index:rebuilt` 事件（契约 §1.4）：插件不必轮询"重建完了没"。
    * 注意它用 `rawFs`：重建只需要 `listNotes` / `readText`，不该走下面那层写包装。
    */
-  const index: IndexApi = createIndexApi({
+  const indexRaw: IndexApi = createIndexApi({
     fs: rawFs,
     onRebuilt: (stats) => event.emit('index:rebuilt', stats),
   })
+
+  /**
+   * 对外的 `index` = 原始索引 + **搜索能力委托**（rev173.231 · 需求 §2.15）。
+   *
+   * `query` 走 `capability.invoke('search.query')`：没有插件接管时落到 `indexRaw.query`；
+   * 有插件接管时用它的实现。搜索面板 / 插件 / 命令拿到的都是同一份结果。
+   * `scoped(partition)` 也递归包装 —— 分区索引同样可被接管。
+   */
+  const capabilityQuery = (
+    q: string,
+    opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean },
+  ) => capabilities.invoke<SearchHit[]>('search.query', q, opts)
+  const withCapabilityQuery = (api: IndexApi): IndexApi => ({
+    ...api,
+    query: capabilityQuery,
+    scoped: (partition: string) => withCapabilityQuery(api.scoped(partition)),
+  })
+  const index: IndexApi = withCapabilityQuery(indexRaw)
+  capabilities.setDefault('search.query', (q, opts) =>
+    indexRaw.query(q as string, opts as Parameters<IndexApi['query']>[1]),
+  )
 
   /**
    * 对外的 fs = rawFs + 索引跟随 + 事件派发（rev173.40，见 fs-events.ts）。
@@ -472,7 +519,37 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
    * 为什么包装必须发生在**内核组装点**：插件拿到的 `ctx.fs` 是 `kernel.fs` 的 scoped 视图，
    * 宿主（App / hooks）也调 `kernel.fs` —— 只有在这里换一次，所有写入路径才都经过它。
    */
-  const fs: FsApi = withFsEvents(rawFs, index, event, (msg) => hooks.onLog(msg, 'warn'))
+  const fsBase: FsApi = withFsEvents(rawFs, indexRaw, event, (msg) => hooks.onLog(msg, 'warn'))
+
+  /**
+   * 存储能力的默认实现 = 内核正常链路（含索引跟随 + 事件派发）。
+   * 这样"接管 → 禁用插件 → 回退"之后行为与从没接管过完全一致。
+   */
+  capabilities.setDefault('storage.read', (p) => fsBase.readText(p as string))
+  // ⚠️ `writeText` 有第三参 `opts.origin`（user / plugin）—— 包装层必须**原样透传**，
+  // 吞掉它会让插件写盘变成"用户保存"（发 note:saved ⇒ 同步插件留下永远清不掉的 pending，
+  // rev173.120 的教训）。所以这里用 spread 而不是逐参转写。
+  capabilities.setDefault('storage.write', (...args) =>
+    fsBase.writeText(...(args as Parameters<FsApi['writeText']>)),
+  )
+  capabilities.setDefault('storage.exists', (p) => fsBase.exists(p as string))
+  capabilities.setDefault('storage.list', (d) => fsBase.listNotes(typeof d === 'string' ? d : undefined))
+
+  /**
+   * 对外的 `fs` = fsBase + **存储能力委托**（rev173.231 · 需求 §2.15）。
+   *
+   * 只包四个"消费侧"方法：读 / 写 / 存在 / 列清单。其余（rename / delete / watch…）
+   * 不动 —— 需求 §2.15 只要求「存储可接管」，而结构操作改由插件替换没有可解释的语义
+   * （目录搬移、回收站、索引跟随全在内核侧，拦一半只会造出不一致状态）。
+   */
+  const fs: FsApi = {
+    ...fsBase,
+    readText: (path: string) => capabilities.invoke<string>('storage.read', path),
+    writeText: ((...args: Parameters<FsApi['writeText']>) =>
+      capabilities.invoke<void>('storage.write', ...args)) as FsApi['writeText'],
+    exists: (path: string) => capabilities.invoke<boolean>('storage.exists', path),
+    listNotes: (dir?: string) => capabilities.invoke<NoteMeta[]>('storage.list', dir),
+  }
 
   /**
    * 服务注册表（**「前置插件」的载体**）。登记表一变就转成
@@ -631,6 +708,11 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     store: (pluginId: string, root?: string) => createStoreApi(root ?? vault, pluginId),
     service: (pluginId: string) => services.scoped(pluginId),
     releaseServices: (pluginId: string) => services.release(pluginId),
+    capability: (pluginId: string) => capabilities.scoped(pluginId),
+    capabilityStatus: () => capabilities.status(),
+    setCapabilityChoice: (name: CapabilityName, pluginId: string | null) =>
+      capabilities.setChoice(name, pluginId),
+    releaseCapabilities: (pluginId: string) => capabilities.release(pluginId),
     editor: (pluginId: string) => createScopedEditorApi(pluginId),
     releaseEditorMarks: (pluginId: string) => releaseEditorMarks(pluginId),
     /**

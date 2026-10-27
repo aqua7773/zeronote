@@ -42,6 +42,7 @@ import type {
   NetApi,
   StoreApi,
   ViewApi,
+  CapabilityApi,
 } from './contract'
 
 /** 契约 §4 的 capability 白名单 */
@@ -153,6 +154,8 @@ export type PluginHostDeps = {
   service: (pluginId: string) => ServiceApi
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
+  /** 核心能力接管（需求 §2.15 · rev173.231）；按插件 id 视图化，卸载时宿主调 release */
+  capability: (pluginId: string) => CapabilityApi
   /**
    * 能力使用审计（rev173.78，可选）—— 只记录"用了哪个 API"，不记参数与内容。
    * 不传则完全不记录（单测 / 无宿主环境）。
@@ -950,6 +953,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     net: audit('net', deps.net),
     service: audit('service', deps.service(manifest.id)),
     editor: audit('editor', deps.editor(manifest.id)),
+    capability: audit('capability', deps.capability(manifest.id)),
     pluginId: manifest.id,
     subscriptions: subs,
   }

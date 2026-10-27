@@ -171,6 +171,7 @@ export function usePluginHost({
       net: k.net,
       service: k.service,
       editor: k.editor,
+      capability: k.capability,
       // 能力使用审计（rev173.78）：App 侧传进来，没传就不记录
       usage,
       onLog: (msg, level) => k.host.log(level ?? 'info', msg),
@@ -195,6 +196,7 @@ export function usePluginHost({
         await unloadPlugin(l, deps)
         k.releaseServices(pluginId)
         k.releaseEditorMarks(pluginId)
+        k.releaseCapabilities(pluginId)
         return
       }
       setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
@@ -216,6 +218,7 @@ export function usePluginHost({
         // 强制回收它提供的服务 —— 不指望插件自己 dispose 掉 provide 的东西
         k.releaseServices(l.manifest.id)
         k.releaseEditorMarks(l.manifest.id)
+        k.releaseCapabilities(l.manifest.id)
       }
       if (cancelled) return
 
@@ -320,6 +323,7 @@ export function usePluginHost({
               await unloadPlugin(l, deps)
               k.releaseServices(m.id)
               k.releaseEditorMarks(m.id)
+              k.releaseCapabilities(m.id)
               return
             }
             loaded.push(l)

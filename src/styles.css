@@ -1814,6 +1814,25 @@ body.is-resizing * {
 .zn-plugin-version-warn { margin-top: 10px; padding: 10px; border: 1px solid var(--zn-danger); border-radius: 8px; background: var(--zn-bg-hover); display: flex; flex-direction: column; gap: 8px; }
 .zn-plugin-version-warn-text { color: var(--zn-fg); font-size: var(--zn-text-sm); line-height: 1.6; }
 .zn-plugin-version-warn-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 核心能力接管（rev173.231 · 需求 §2.15）：设置页插件段顶部的折叠块 */
+.zn-capability-box { border: 1px solid var(--zn-border); border-radius: 8px; padding: 6px 10px; font-size: var(--zn-text-sm); }
+.zn-capability-box > summary { cursor: pointer; color: var(--zn-fg-muted); }
+.zn-capability-need { margin-left: 8px; color: var(--zn-danger); font-weight: 500; }
+.zn-capability-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.zn-capability-hint { margin: 0; color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); line-height: 1.6; }
+.zn-capability-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; border: 1px solid var(--zn-border); border-radius: 6px; }
+.zn-capability-meta { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.zn-capability-label { font-weight: 600; }
+.zn-capability-name, .zn-capability-active { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+.zn-capability-warn { color: var(--zn-danger); font-size: var(--zn-text-sm); }
+.zn-capability-pick { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.zn-capability-pick-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--zn-border); border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.zn-capability-pick-row:hover { background: var(--zn-bg-hover); }
+.zn-capability-pick-row.is-active { border-color: var(--zn-fg-muted); }
+.zn-capability-pick-id { font-weight: 600; }
+.zn-capability-pick-pri, .zn-capability-pick-now { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+.zn-capability-pick-now { margin-left: auto; }
 .zn-plugins-log { border-top: 1px solid var(--zn-border); padding: var(--zn-space-2) var(--zn-space-3); font-size: var(--zn-text-sm); }
 .zn-plugins-log pre { max-height: 160px; overflow: auto; margin: var(--zn-space-2) 0 0; color: var(--zn-fg-muted); white-space: pre-wrap; }
 /* 全局插件根（rev94）：列表底部的只读说明，让"拷到哪全库生效"有个明确落点 */

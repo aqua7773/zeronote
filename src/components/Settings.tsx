@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Info, Plug, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
-import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui'
+import { Button } from '@/components/ui'
 import { PluginPanel, type PluginRow } from './PluginPanel'
-import type { PluginLogEntry } from '../kernel/contract'
+import type { CapabilityName, CapabilityStatus, PluginLogEntry } from '../kernel/contract'
+import { CAPABILITY_LABELS } from '../kernel/capability'
 import type { KernelAudit } from '../kernel/kernel'
 import type { MarketEntry } from '../kernel/market'
 
@@ -113,6 +115,13 @@ export interface SettingsProps {
   /** 可更新项（rev173.156）：`{ [插件 id]: 最新版本 }` —— 只用于列表角标 */
   updates?: Record<string, string>
   /**
+   * 核心能力接管状态（rev173.231 · 需求 §2.15）—— 不传则不显示「核心能力」块
+   * （测试 / 独立窗口 / 内核还没建好时）。
+   */
+  capabilities?: CapabilityStatus[]
+  /** 同优先级冲突时记住用户的选择（`null` = 清除记忆，回到最早登记的） */
+  onCapabilityChoice?: (name: CapabilityName, pluginId: string | null) => void
+  /**
    * 启动时静默检查插件更新（24 小时一次，只标角标、不下载不安装）。
    * 缺省 = 不显示这一行（测试 / 独立窗口）。
    */
@@ -149,11 +158,17 @@ export function Settings({
   updates,
   autoCheckUpdates,
   onAutoCheckChange,
+  capabilities = [],
+  onCapabilityChoice,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>('general')
+  /** 正在为哪个能力挑提供者（null = 对话框关着）—— rev173.231 */
+  const [pickFor, setPickFor] = useState<CapabilityName | null>(null)
+  const pickStatus = pickFor ? capabilities.find((c) => c.name === pickFor) : null
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} width={640}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange} width={640}>
       <DialogHeader title="设置" />
       <DialogBody className="p-0">
         <div className="flex min-h-[360px]">
@@ -279,6 +294,44 @@ export function Settings({
                     重新扫描
                   </button>
                 </div>
+
+                {/* 核心能力接管（需求 §2.15 · rev173.231）：搜索 / 存储可被插件替换 */}
+                {capabilities.length > 0 && (
+                  <details className="zn-capability-box">
+                    <summary>
+                      核心能力 · {capabilities.filter((c) => c.active !== 'kernel').length} 项被插件接管
+                      {capabilities.some((c) => c.needsChoice) && (
+                        <span className="zn-capability-need">有同优先级冲突，请选择</span>
+                      )}
+                    </summary>
+                    <div className="zn-capability-list">
+                      <p className="zn-capability-hint">
+                        插件启用即接管、禁用即回退本体。多个插件同时提供时按优先级选；同级由你决定，选择会记住。
+                      </p>
+                      {capabilities.map((c) => (
+                        <div key={c.name} className="zn-capability-row">
+                          <div className="zn-capability-meta">
+                            <span className="zn-capability-label">{CAPABILITY_LABELS[c.name] ?? c.name}</span>
+                            <code className="zn-capability-name">{c.name}</code>
+                            <span className="zn-capability-active">
+                              {c.active === 'kernel' ? '本体' : c.active}
+                            </span>
+                            {c.needsChoice && <span className="zn-capability-warn">同级冲突</span>}
+                          </div>
+                          {c.providers.length > 0 && (
+                            <button
+                              type="button"
+                              className="zn-plain-btn"
+                              onClick={() => setPickFor(c.name)}
+                            >
+                              选择…
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
                 <div className="min-h-0 flex-1">
                   <PluginPanel
                     plugins={plugins}
@@ -321,5 +374,57 @@ export function Settings({
         </div>
       </DialogBody>
     </Dialog>
+
+      {/* 同优先级冲突：让用户选一个并记住（需求 §2.15「优先级相同弹窗让你选并记住」） */}
+      <Dialog
+        open={pickFor !== null}
+        onOpenChange={(next) => {
+          if (!next) setPickFor(null)
+        }}
+        width={420}
+      >
+        <DialogHeader
+          title="选择核心能力的实现"
+          description={pickFor ? CAPABILITY_LABELS[pickFor] : undefined}
+        />
+        <DialogBody>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            同优先级的插件只能有一个生效；选中的那个会被记住。插件被禁用 / 卸载后自动回到本体。
+          </p>
+          <div className="zn-capability-pick">
+            {(pickStatus?.top ?? []).map((c) => (
+              <button
+                key={c.pluginId}
+                type="button"
+                className={`zn-capability-pick-row${c.chosen ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (pickFor) onCapabilityChoice?.(pickFor, c.pluginId)
+                  setPickFor(null)
+                }}
+              >
+                <span className="zn-capability-pick-id">{c.pluginId}</span>
+                <span className="zn-capability-pick-pri">优先级 {c.priority}</span>
+                {c.chosen && <span className="zn-capability-pick-now">当前</span>}
+              </button>
+            ))}
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => {
+              if (pickFor) onCapabilityChoice?.(pickFor, null)
+              setPickFor(null)
+            }}
+          >
+            清除记忆
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setPickFor(null)}>
+            关闭
+          </Button>
+        </DialogFooter>
+      </Dialog>
+    </>
   )
 }

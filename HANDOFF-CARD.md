@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.230 · 插件版本回滚）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.231 · 核心能力接管）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.230 · 0.6.0 · 2026-10-28 |
-| 测试基线 | vitest 1379 · cargo 59 · oxlint 3 warnings（2026-10-28） |
+| rev / 版本 | rev173.231 · 0.6.0 · 2026-10-28 |
+| 测试基线 | vitest 1389 · cargo 59 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -152,9 +152,11 @@ pwsh -File scripts\verify.ps1
 >      **未做**单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限）· ✅ **版本回滚（§2.14）已完成**
 >      （**rev173.230**：装新版前整目录存档 3 份 + `list_plugin_versions` / `rollback_plugin` +
 >      回滚前备份 `store.json` 到 `_backup/` + `manifest.storeVersion` 降级两段式；桌面 CDP 实测）
->    · **下个会话第一件事 = 核心能力接管**（§3.5 第 6 位，只做 `search.query` + `storage.*`；
->      `editor.render` 用户已拍板不做）
->    ⑥ 核心能力接管（只 `search.query` + `storage.*`，不做 `editor.render`）⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件
+>    · ⑥ ✅ **核心能力接管（§2.15 前半）已完成**（**rev173.231**：`search.query` +
+>      `storage.read/write/exists/list` 可被插件接管 —— 启用即接管 / 禁用即回退 / 优先级冲突可选并记住 /
+>      防重入；设置页「核心能力」块；**`editor.render` 不做**，用户已拍板）
+>    · **下个会话第一件事 = 附件同步 · 期 1**（§3.5 第 7 位：规则 + 1 MiB 阈值 + 台账骨架，半天）
+>    ⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。

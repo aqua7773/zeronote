@@ -59,6 +59,9 @@ function makeKernel() {
     },
     releaseServices: vi.fn(),
     releaseEditorMarks: vi.fn(),
+    // rev173.231 核心能力接管：deps 里会透传 `k.capability`，卸载时调 `releaseCapabilities`
+    capability: vi.fn(() => ({ provide: vi.fn(), status: () => [] })),
+    releaseCapabilities: vi.fn(),
   }
 }
 

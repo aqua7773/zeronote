@@ -304,6 +304,12 @@ export default function App() {
     }
   })
   const [pluginError, setPluginError] = useState<string | null>(null)
+  /**
+   * 核心能力接管的刷新计数（rev173.231 · 需求 §2.15）：
+   * 内核不是 React state，用户在选择框里改了提供者之后 bump 一次让设置页重算。
+   * 插件加载 / 卸载本身会让别的 state 变化，App 重渲染时 `capabilityStatus()` 自然重算。
+   */
+  const [, setCapabilityTick] = useState(0)
   const [panelState, setPanelState] = useState<Record<string, unknown>>({})
   /* 2026-10-13 拆权限门：这里原本是 `permissions` state（读 `.zn/permissions.json`
    * 的授权记录）。**已删除** —— 内核不设防，不查授权；设置页也不再展示能力自述
@@ -4188,6 +4194,12 @@ export default function App() {
         onMarketInstall={installFromMarket}
         updates={marketUpdates}
         autoCheckUpdates={autoCheckUpdates}
+        capabilities={kernel?.capabilityStatus() ?? []}
+        onCapabilityChoice={(name, pluginId) => {
+          kernel?.setCapabilityChoice(name, pluginId)
+          // 内核不是 React state：选完 bump 一次，设置页立刻显示新生效者
+          setCapabilityTick((t) => t + 1)
+        }}
         onAutoCheckChange={(on) => {
           setAutoCheckEnabled(on)
           setAutoCheckUpdates(on)
