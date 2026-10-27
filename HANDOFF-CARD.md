@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-27（rev173.209 · AI 对话补 system 提示）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-27（rev173.210 · AI 白名单分组折叠）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.209 · 0.6.0 · 2026-10-27 |
-| 测试基线 | vitest 1297 · cargo 55 · oxlint 3 warnings（2026-10-27） |
+| rev / 版本 | rev173.210 · 0.6.0 · 2026-10-27 |
+| 测试基线 | vitest 1300 · cargo 55 · oxlint 3 warnings（2026-10-27） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-27 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -89,6 +89,9 @@ pwsh -File scripts\verify.ps1
 >    两次谎称任务已建好（208 还编造已删任务的旧 id）。新增 `CHAT_SYSTEM_PROMPT` + `buildChatMessages`（system 不进历史 / 不落 store），
 >    五条规则：pending ≠ 完成 · 说完成前必须真调过工具 · 不编任务 id · `plugin_exec` 只走授权 · 关键参数齐全就直接执行。
 >    真模型对照：改规则 5 后 `task_create` 58 ms + `task_update` 55 ms 真建成并停用；另一轮谎称后自己调 `task_list` 更正「我上一条说建好了是错的」。vitest 1290 → **1297**。
+>    **210 白名单按插件分组折叠** ✅ —— 137 条 → **13 组默认折叠**（`groupCommands` 按 id 第一段、**码点排序**避开 locale 差异；
+>    组标题带 group id，否则 4 个「同步」分不清）；已授权单列顶部、「展开 / 收起」、新命令 `ai.toggle-group`（命令 20 → **21**）。
+>    桌面实测：展开记账 27 条 → 允许 `accounting.stats` → 顶部「已授权 1 条」→ 撤销归零。vitest 1297 → **1300**。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
 >    `^[a-zA-Z0-9_-]+$`，点号会被 400 拒掉（本机 mock 不校验，这个 bug 直到 rev173.205 用真 Key 才暴露）。
 >    39 问需求 `docs/AI插件-需求-2026-10-27.md` · 7 刀排期 `docs/AI插件-实施计划-2026-10-27.md`（写工具记 rev200，其后三刀顺延）。

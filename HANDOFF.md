@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.209
-更新时间: 2026-10-27 · 最新 rev173.209
+revision: 173.210
+更新时间: 2026-10-27 · 最新 rev173.210
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.209
 
 | rev | 内容 |
 |---|---|
+| rev173.210 | 2026-10-27 · **白名单按插件分组折叠**（用户「继续做 ai 这边的」· 零内核改动）：137 条平铺 → **13 组默认折叠**（`groupCommands` 按 id 第一段分组、**码点排序**避开 locale 差异 —— CI en-US 与本机 zh-CN 排不同）；`groupLabel` 取命令 title 的「前缀：」；**组标题带上 group id**，否则 4 个「同步」分不清。已授权条目单列在顶部（好撤销），展开状态只在内存（重开面板回默认）。新命令 `ai.toggle-group`（命令数 20 → **21**，功能目录已重生成）。单测 +3（分组 / 排序 / 标题回退）。**桌面实测**：13 组 · 展开「记账」27 条 · 允许 `accounting.stats` ⇒ 顶部「已授权 1 条」⇒ 撤销归零。vitest 1297 → **1300** |
 | rev173.209 | 2026-10-27 · **AI 对话补上 system 提示（防幻觉）**（用户「继续做 ai 这边的」· 零内核改动）：rev197–208 的对话请求里**一直没有 system 消息** —— 模型不知道「写工具只出提案」，实测两次谎称任务已建好（208 还编造已删除任务的旧 id）。新增 `CHAT_SYSTEM_PROMPT` + `buildChatMessages`（system 在首位、**不进历史 / 不进 store**，每轮现拼）：pending ≠ 完成 · 说完成前必须真调过工具 · 不编任务 id · `plugin_exec` 只走授权 · 关键参数齐全就直接执行。单测 **7 条** · **真模型对照**：改规则 5 后 `task_create` 58 ms + `task_update` 55 ms 真建成并停用（回复带 id）；另一轮谎称后自己调 `task_list` 并更正「我上一条说建好了是错的」。vitest 1290 → **1297** |
 | rev173.208 | 2026-10-27 · **AI 第二版：`plugin_exec` 白名单**（用户「1，2」拍板：设置页勾选 + 自动任务里也允许但仅限勾选命令）· 零内核改动：① 新工具 `plugin_exec`（`command` + 可选 `args` 数组）② 设置页「允许 AI 调用的命令」—— 候选来自 `command.list()`（去掉 `core.*` / `ai.*`），逐条「允许 / 已允许」按钮，落 `store.allowedCommands` ③ 三条硬线：内核命令与 AI 自身命令永不开放 · 未授权返回「命令未授权：…」· 任务里同样受白名单限制 ④ 单测 **9 条**（白名单判定 / 清洗 / 候选过滤 / argv 归一 / 工具定义）⑤ **真模型实测**：未授权 3 ms 拒绝 → 点「允许」后 2 ms 成功、打卡面板真打开；fixed 任务（manual）**22 ms** ok ⑥ **发市场 `ai@0.6.0`**（重新打包签名 + 索引重建）。vitest 1281 → **1290** |
 | rev173.207 | 2026-10-27 · **工具名格式单测 + 真模型写工具全链路**（用户「开始」· 零内核改动）：① 新增 `tests/ai-tools.test.ts` **4 条** —— 字符集 `^[a-zA-Z0-9_-]+$` / 唯一 / **执行器分支与 TOOLS 集合一致**（从 `runTool` 抽 `name ===` 分支）/ 发给模型的描述里无点号旧名；反向验证（改回 `note.write` ⇒ 3 条立刻红）② 修 rev205 的漏网 —— **5 处给模型看的文案**仍写点号旧名（`note_create` desc、`task_create.steps` 参数说明、3 处运行时错误文本），模型会照着传错 ③ **真模型实测**：对话 `note_move` 提案→确认→真移动 · `tag_add` 直接生效 · `note_trash` 提案→确认→进回收站；fixed 任务 save 触发 **169 ms**（tag_add 36 + note_move 133）④ ⚠️ 模型会说「任务建好了」而没调 `task_create`（`steps` 空 / `tasks` 空）⇒ 看面板数字与 store 才算数。vitest 1277 → **1281** |
@@ -105,6 +106,44 @@ revision: 173.209
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.210（2026-10-27 · AI 白名单按插件分组折叠）
+>
+> 用户「继续做 ai 这边的」。rev173.208 的白名单把 137 条命令一次铺开，面板被撑成一面墙；
+> 本轮只改 UI 组织，**安全语义一条没变**（照样是「用户逐条勾选」）。
+>
+> ### ① 分组
+>
+> `groupCommands(list)`：按命令 id 的第一段分组（`sync-webdav.sync` → `sync-webdav`），
+> **按码点排序**而不是 `localeCompare` 默认行为 —— rev173.154 踩过「CI en-US 与本机 zh-CN 排序不同」的坑。
+> `groupLabel(items, fallback)`：取命令 title 的「前缀：」部分（「记账：统计」→「记账」），取不到退回 group id。
+> **组标题同时显示 group id**（`记账 · accounting · 27 条`）—— 四个同步后端都叫「同步」，只看中文分不清是 WebDAV 还是 Git。
+>
+> ### ② 交互
+>
+> - 已授权条目**单列在顶部**「已授权 N 条（点「已允许」撤销）」，不用先展开找到它；
+> - 其余按组折叠，每组一行「标题 · group · N 条」+「展开 / 收起」；
+> - 展开状态只在内存（`openGroups: Set`）—— 重开面板回默认折叠，不落 store（这不是用户数据）。
+> - 新命令 `ai.toggle-group`（`payload: { group }`）；manifest 声明 + 功能目录重生成（命令 20 → **21**）。
+>
+> ### ③ 单测 +3（`tests/ai-plugin-exec.test.ts`）
+>
+> 分组与排序（4 个 id → 3 组、组内保持输入顺序）· 没有点号的 id 单独成组、空输入返回空数组 ·
+> 标题取「前缀：」与回退。vitest 1297 → **1300**。
+>
+> ### ④ 桌面实测（CDP · `_shots/rev173.210-*.png`）
+>
+> | 步 | 结果 |
+> |---|---|
+> | 打开 AI 面板 | 白名单从 137 行缩到 **13 组**（记账 27 · 反向链接 3 · 备份 6 · 文档阅读器 1 · 打卡 13 · 历史版本 5 · io 6 · 大纲 6 · 密码库 21 · 安全 13 · 同步 ×4 共 29 · 标签 7） |
+> | 点「展开」记账组 | 27 条列出，按钮变「收起」，组标题「记账 · accounting · 27 条」 |
+> | 允许 `accounting.stats` | `store.allowedCommands=["accounting.stats"]`，顶部出现「已授权 1 条」+ 该行「已允许」 |
+> | 点「已允许」撤销 | `allowedCommands=[]`，已授权区消失 |
+>
+> ### 交接时状态
+>
+> vitest **1297 → 1300** · `verify.ps1` 六步全绿 · 测试库授权已清空 ·
+> `ai` 源码已含 209/210，`manifest` 仍 **0.6.0**、市场包仍是 208 那版（提示词与 UI 属于内部改进，下个功能版一起 bump 重打）。
+>
 > ## 📌 rev173.209（2026-10-27 · AI 对话补上 system 提示，防幻觉）
 >
 > 用户「继续做 ai 这边的」。根因一句话：**rev197 起的对话请求里一直没有 `system` 消息** ——

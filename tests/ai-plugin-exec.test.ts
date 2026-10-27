@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   argvOf,
+  groupCommands,
+  groupLabel,
   isPluginCommandAllowed,
   normalizeAllowedCommands,
   pickAllowableCommands,
@@ -78,6 +80,32 @@ describe('pickAllowableCommands', () => {
 
   it('非数组当空处理', () => {
     expect(pickAllowableCommands(undefined)).toEqual([])
+  })
+})
+
+describe('groupCommands / groupLabel', () => {
+  it('按 id 第一段分组，按码点稳定排序（不依赖 locale）', () => {
+    const groups = groupCommands([
+      { id: 'tag-panel.open', title: '标签：打开标签面板' },
+      { id: 'accounting.stats', title: '记账：统计' },
+      { id: 'accounting.sync', title: '记账：同步支付通知' },
+      { id: 'habit.check', title: '打卡：打卡' },
+    ])
+    expect(groups.map((g) => g.group)).toEqual(['accounting', 'habit', 'tag-panel'])
+    expect(groups[0].items.map((i) => i.id)).toEqual(['accounting.stats', 'accounting.sync'])
+  })
+
+  it('没有点号的 id 单独成组；空输入返回空数组', () => {
+    expect(groupCommands([{ id: 'plain' }])).toEqual([
+      { group: 'plain', items: [{ id: 'plain', title: 'plain' }] },
+    ])
+    expect(groupCommands(null)).toEqual([])
+  })
+
+  it('分组标题取命令 title 的「前缀：」；取不到退回 id', () => {
+    expect(groupLabel([{ id: 'a.x', title: '打卡：打卡' }], 'a')).toBe('打卡')
+    expect(groupLabel([{ id: 'a.x', title: '没有冒号' }], 'a')).toBe('a')
+    expect(groupLabel([], 'zz')).toBe('zz')
   })
 })
 

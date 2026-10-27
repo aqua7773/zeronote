@@ -414,6 +414,35 @@ export function pickAllowableCommands(all) {
   return out
 }
 
+/**
+ * 把命令按插件（id 的第一段）分组（rev173.210）。
+ *
+ * 本机 137 条一条条铺开会把面板撑成一面墙；分组后默认折叠，只展开用户想看的那一组。
+ * 排序**不用 `localeCompare` 的默认行为**：CI 的 en-US 与本地 zh-CN 排序不同（rev173.154 踩过），
+ * 这里按码点稳定排序，两边结果一致。
+ */
+export function groupCommands(list) {
+  const groups = new Map()
+  for (const c of Array.isArray(list) ? list : []) {
+    const id = String(c?.id ?? '').trim()
+    if (!id) continue
+    const group = id.includes('.') ? id.slice(0, id.indexOf('.')) : id
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group).push({ id, title: String(c?.title ?? id) })
+  }
+  return [...groups.entries()]
+    .map(([group, items]) => ({ group, items }))
+    .sort((a, b) => (a.group < b.group ? -1 : a.group > b.group ? 1 : 0))
+}
+
+/** 分组标题：命令 title 的「前缀：」部分（「打卡：打卡」→「打卡」），取不到就用 id */
+export function groupLabel(items, fallback) {
+  const first = (Array.isArray(items) ? items : []).find((c) => typeof c?.title === 'string' && c.title.includes('：'))
+  if (!first) return String(fallback ?? '')
+  const head = first.title.split('：')[0].trim()
+  return head || String(fallback ?? '')
+}
+
 /** 模型给的 args 归一化成位置参数（缺省 / null = 不传；非数组包成单参，不静默丢掉） */
 export function argvOf(value) {
   if (value === undefined || value === null) return []
@@ -1157,6 +1186,8 @@ export default {
     let wizardDone = false
     /** 用户授权给 AI 的插件命令 id（落 store 的 `allowedCommands`；rev173.208） */
     let allowedCommands = []
+    /** 命令白名单区块里展开了哪些插件分组（rev173.210；只在内存，重开面板回默认折叠） */
+    const openGroups = new Set()
     /** 本次会话里测试连接成功过（向导第三步判据；不落盘，重启重测一次） */
     let wizardTestOk = false
     /** 分类抽样结果（rev203 · 20 篇对照片，人工核对用） */
@@ -2528,13 +2559,38 @@ export default {
     }
 
     /**
-     * 「允许 AI 调用的命令」区块（rev173.208）。
+     * 「允许 AI 调用的命令」区块（rev173.208 初版 · rev173.210 改成按插件分组折叠）。
      *
      * 候选来自 `command.list()`（已加载插件注册的命令），去掉内核与 AI 自身；
      * 每条一个「允许 / 已允许」按钮 —— 点击切换并落 store。
      * 为什么不用 checkbox：checkbox 的 onSubmit 只回 `{ value }`，动态列表拿不到是哪一条
      * （契约 UINode 的 checkbox 按 bind 字段绑定，不适合 N 条动态项）；按钮的 payload 能带 id。
+     *
+     * 为什么分组：本机 137 条铺开会把面板撑成一面墙；已授权的单列在最上面（好撤销），
+     * 其余按插件分组、默认折叠。
      */
+    function commandRow(c) {
+      const on = allowedCommands.includes(c.id)
+      return {
+        key: c.id,
+        node: {
+          type: 'row',
+          align: 'center',
+          gap: 'sm',
+          children: [
+            { type: 'text', value: `${c.title} · ${c.id}`, variant: 'caption' },
+            {
+              type: 'button',
+              label: on ? '已允许' : '允许',
+              variant: on ? 'ghost' : 'default',
+              onClick: 'ai.toggle-command',
+              payload: { id: c.id },
+            },
+          ],
+        },
+      }
+    }
+
     function allowCommandSection() {
       let all = []
       try {
@@ -2550,28 +2606,38 @@ export default {
           tone: 'muted',
         }
       }
-      return {
-        type: 'list',
-        items: all.map((c) => ({
-          key: c.id,
-          node: {
-            type: 'row',
-            align: 'center',
-            gap: 'sm',
-            children: [
-              { type: 'text', value: `${c.title} · ${c.id}`, variant: 'caption' },
-              {
-                type: 'button',
-                label: allowedCommands.includes(c.id) ? '已允许' : '允许',
-                variant: allowedCommands.includes(c.id) ? 'ghost' : 'default',
-                onClick: 'ai.toggle-command',
-                payload: { id: c.id },
-              },
-            ],
-          },
-        })),
-        empty: '还没有可授权的插件命令',
+      /** @type {import('../../src/kernel/contract').UINode[]} */
+      const nodes = []
+      const allowed = all.filter((c) => allowedCommands.includes(c.id))
+      if (allowed.length) {
+        nodes.push({
+          type: 'text',
+          value: `已授权 ${allowed.length} 条（点「已允许」撤销）`,
+          variant: 'caption',
+          tone: 'muted',
+        })
+        nodes.push({ type: 'list', items: allowed.map(commandRow) })
       }
+      for (const g of groupCommands(all)) {
+        const open = openGroups.has(g.group)
+        nodes.push({
+          type: 'row',
+          align: 'center',
+          gap: 'sm',
+          children: [
+            { type: 'text', value: `${groupLabel(g.items, g.group)} · ${g.group} · ${g.items.length} 条`, variant: 'caption' },
+            {
+              type: 'button',
+              label: open ? '收起' : '展开',
+              variant: 'ghost',
+              onClick: 'ai.toggle-group',
+              payload: { group: g.group },
+            },
+          ],
+        })
+        if (open) nodes.push({ type: 'list', items: g.items.map(commandRow) })
+      }
+      return { type: 'stack', gap: 'sm', children: nodes }
     }
 
     function renderPanel() {
@@ -3202,6 +3268,20 @@ export default {
             actionNote = `保存授权失败：${String(e?.message ?? e)}`
             actionOk = false
           }
+          refresh()
+        },
+      }),
+    )
+
+    subscriptions.push(
+      command.register({
+        id: 'ai.toggle-group',
+        title: 'AI：展开 / 收起命令分组',
+        run: async (payload) => {
+          const g = String(payload?.group ?? '').trim()
+          if (!g) return
+          if (openGroups.has(g)) openGroups.delete(g)
+          else openGroups.add(g)
           refresh()
         },
       }),

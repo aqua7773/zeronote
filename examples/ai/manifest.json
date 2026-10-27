@@ -41,6 +41,7 @@
       { "id": "ai.task-delete", "title": "AI：删除任务" },
       { "id": "ai.wizard-done", "title": "AI：完成首次配置向导" },
       { "id": "ai.toggle-command", "title": "AI：允许 / 撤销某条插件命令" },
+      { "id": "ai.toggle-group", "title": "AI：展开 / 收起命令分组" },
       { "id": "ai.sample", "title": "AI：分类抽样（20 篇，人工核对）" }
     ],
     "panels": [
