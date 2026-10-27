@@ -1132,10 +1132,10 @@ export const MAX_TASK_STEPS = 4
  *
  * 内核那一层已经挡掉了一部分：`note:saved` 只对库内的 `.md` 发（`isNotePath` 跳过 `.zn/`）。
  * 这里再挡一层，因为插件自己的事件订阅可能从别的来源收到路径（跨插件 emit 的字符串不保证）。
- * 目前没有"导入目录 / 收件箱"的固定名字约定（导入插件是用户选文件、直接写到当前目录），
- * 所以按**常见目录名**挡，规则集中在这一个函数里，将来有正式约定只改这里。
+ * **正式约定**（rev173.227）：`import-export` 把导入的笔记固定写到 `日期导入/<YYYY-MM-DD>/…`
+ * （需求 §12），所以这里必须带 `日期导入`；其余按**常见目录名**挡，规则集中在这一个函数里。
  */
-const EXCLUDED_DIRS = ['收件箱', 'inbox', '导入', '导入中转']
+const EXCLUDED_DIRS = ['收件箱', 'inbox', '导入', '导入中转', '日期导入']
 
 export function skipForTasks(rawPath) {
   const p = String(rawPath ?? '').trim().replace(/\\/g, '/')

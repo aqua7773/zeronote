@@ -36,6 +36,9 @@ describe('skipForTasks（Q24：哪些笔记不送给自动任务）', () => {
     expect(skipForTasks('收件箱/2026/x.md')).toBe(true)
     expect(skipForTasks('Inbox/a.md')).toBe(true)
     expect(skipForTasks('导入/微信.md')).toBe(true)
+    // rev173.227：import-export 固定写「日期导入/<日期>/[分类]/」，需求 §12 要求导入后不自动让 AI 整理
+    expect(skipForTasks('日期导入/2026-10-28/周报.md')).toBe(true)
+    expect(skipForTasks('日期导入/2026-10-28/工作/周报.md')).toBe(true)
   })
 
   it('名字里带"收件箱"但不是顶层目录 ⇒ 照跑', () => {

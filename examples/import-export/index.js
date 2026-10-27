@@ -2,7 +2,10 @@
  * 导入导出插件
  *
  * · **批 1**：md / txt 导入（已验证）
- * · **批 2**（本次）：**html→md**、**docx→md** 导入；**导出 txt / html**
+ * · **批 2**：**html→md**、**docx→md** 导入；**导出 txt / html**
+ * · **批 3（rev173.227）**：**导入落点改成 `日期导入/<YYYY-MM-DD>/[原分类/]<文件名>.md`**
+ *   （需求 §12：统一放「日期导入」· 按原分类保存 · 同一天合并）＋ 导入时补 frontmatter
+ *   （`created` = 导入时刻、`source` = 原文件名）
  * · 后续批：pdf / epub 导入（复用已内置 pdf.js / foliate-js）、长图、docx 导出、Android 导出
  *
  * ## 通道（全走契约）
@@ -605,6 +608,109 @@ async function printMarkdown(md, title, dryRun) {
   return { chars }
 }
 
+/* ─────────── 导入落点与元数据（需求 §12 · rev173.227） ─────────── */
+
+/**
+ * 「日期导入」根目录（需求原文用词）。
+ *
+ * ⚠️ 与 AI 插件联动：`examples/ai/index.js` 的 `EXCLUDED_DIRS` 里有同名条目 ——
+ * 导入后的笔记**不触发 AI 自动任务**（需求 §12 最后两条：导入后不立即让 AI 整理）。
+ * 改名要两边一起改。
+ */
+export const IMPORT_ROOT = '日期导入'
+
+/**
+ * 目录 / 文件名清洗：去掉 Windows 非法字符与控制字符，压空白，去首尾点，限 40 字。
+ * 返回 '' 表示「这一层不要」（调用方决定：分类为空就不建那层目录）。
+ */
+export function sanitizeDirName(raw) {
+  return String(raw ?? '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 40)
+}
+
+/**
+ * 没有「分类」语义的父目录名 —— 从这些目录导入时猜出来的分类只是噪音。
+ * （`cache` 那几条是 Android `content://` 的副本落点：`.../cache/<原名>`。）
+ */
+const GENERIC_PARENTS = new Set([
+  'desktop', 'downloads', 'documents', 'document', 'temp', 'tmp', 'cache', 'caches',
+  'users', 'export', 'exports', '桌面', '下载', '下载夹', '文档', '临时', '导出',
+])
+
+/**
+ * 从源文件的绝对路径猜「原分类」= 父目录名（需求 §12「尽量保留原分类」）。
+ *
+ * 判据很保守：**只取直接父目录**，通用目录（桌面 / 下载 / 缓存 …）与盘符根返回 ''。
+ * 为什么不做「往上找第一个有意义的目录」：那会把 `C:/Users/AQUA/…` 猜成 `AQUA`，
+ * 比不猜更糟；真正的「原分类」只有批量导入器（印象笔记 / Notion 导出目录树）才拿得到。
+ */
+export function guessCategory(absPath) {
+  const s = String(absPath ?? '').trim()
+  if (!s) return ''
+  const parts = s.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (parts.length < 2) return ''
+  const parent = parts[parts.length - 2]
+  if (!parent || /^[a-zA-Z]:$/.test(parent)) return ''
+  if (GENERIC_PARENTS.has(parent.toLowerCase())) return ''
+  return sanitizeDirName(parent)
+}
+
+/** 本地日期 `YYYY-MM-DD`（同一天多次导入要落进同一个目录） */
+export function importDateStamp(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * 导入落点（**不含扩展名**，交给 `freeRelPath` 加 `.md` 并去重）：
+ *
+ * ```
+ * 日期导入/<YYYY-MM-DD>/<文件名>
+ * 日期导入/<YYYY-MM-DD>/<原分类>/<文件名>     ← 有分类时多一层
+ * ```
+ *
+ * 需求 §12：统一放「日期导入」· 里面按原分类名保存 · 同一天多次导入合并同一目录。
+ */
+export function importBasePath({ date, stem, category }) {
+  const d = date instanceof Date ? date : new Date(date ?? Date.now())
+  const day = importDateStamp(d)
+  const cat = sanitizeDirName(category)
+  const name = sanitizeDirName(stem) || 'imported'
+  return cat ? `${IMPORT_ROOT}/${day}/${cat}/${name}` : `${IMPORT_ROOT}/${day}/${name}`
+}
+
+/**
+ * 给导入内容补元数据（需求 §12「创建时间等」）：
+ *
+ * - 没有 frontmatter → 新建一块，写 `created` / `source`
+ * - 已有 frontmatter → **就地追加缺的键**（已有同名键不覆盖：md 导入常自带 frontmatter）
+ *
+ * ⚠️ 诚实口径：`created` 是**导入时刻**，不是源文件的创建时间 ——
+ * asset 协议不返回 `Last-Modified`（实测只有 `content-length` / `content-type`），
+ * 内核也没有 `stat` 原语。要真拿源文件时间得先加契约原语（未做，见 HANDOFF rev173.227）。
+ */
+export function withImportFrontmatter(md, { source, created } = {}) {
+  const text = String(md ?? '')
+  const at = created instanceof Date ? created.toISOString() : String(created ?? new Date().toISOString())
+  const fields = [`created: ${at}`]
+  if (source) fields.push(`source: ${String(source).replace(/[\r\n]+/g, ' ').trim()}`)
+
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
+  if (!m) return `---\n${fields.join('\n')}\n---\n\n${text}`
+
+  const head = m[1]
+  const add = fields.filter((line) => {
+    const key = line.slice(0, line.indexOf(':'))
+    return !new RegExp(`^${key}\\s*:`, 'm').test(head)
+  })
+  if (!add.length) return text
+  return `---\n${head}\n${add.join('\n')}\n---\n` + text.slice(m[0].length)
+}
+
 /* ─────────── 插件本体 ─────────── */
 
 export default {
@@ -612,22 +718,23 @@ export default {
     const { fs, doc, command, view, host, subscriptions } = ctx
 
     /**
-     * 找一个**还不存在**的库内相对路径：`foo.md` 撞名就 `foo-1.md`、`foo-2.md`…
+     * 把 `base`（库内相对路径、**不含扩展名**）变成不撞名的完整路径：
+     * `日期导入/2026-10-28/工作/周报` → `…/周报.md` / `…/周报-1.md` …
      * （内核没有"存在否"的查询原语；`fs.readText` 读不到即视为空着）
      */
-    async function freeRelPath(stem, ext = 'md') {
+    async function freeRelPath(base, ext = 'md') {
       for (let i = 0; i < 200; i++) {
-        const rel = i === 0 ? `${stem}.${ext}` : `${stem}-${i}.${ext}`
+        const rel = i === 0 ? `${base}.${ext}` : `${base}-${i}.${ext}`
         try {
           await fs.readText(rel)
         } catch {
           return rel
         }
       }
-      return `${stem}-${Date.now()}.${ext}`
+      return `${base}-${Date.now()}.${ext}`
     }
 
-    /** 读一个源文件（`raw` 省略则弹系统选择器）→ `{ buf, name }`；取消返回 `null` */
+    /** 读一个源文件（`raw` 省略则弹系统选择器）→ `{ buf, name, path }`；取消返回 `null` */
     async function readSource(raw) {
       let picked = raw
       if (!picked) {
@@ -642,22 +749,35 @@ export default {
       if (!res.ok) throw new Error(`读源文件失败（HTTP ${res.status}）`)
       const buf = await res.arrayBuffer()
       console.log('[io] 源 =', abs, '| 名 =', name, '| 字节 =', buf.byteLength)
-      return { buf, name }
+      return { buf, name, path: abs }
     }
 
     /**
      * 导入一个文件（`raw` 省略则弹选择器）→ 落库的相对路径；用户取消返回 `null`。
      * 支持的源格式见 `toMarkdown`。
+     *
+     * **落点（rev173.227 · 需求 §12）**：`日期导入/<YYYY-MM-DD>/[原分类/]<文件名>.md`
+     * —— 同一天多次导入自然合并进同一个日期目录；分类默认从**源文件父目录**猜
+     * （`opts.category` 可显式指定）。
      */
-    async function importOne(raw) {
+    async function importOne(raw, opts) {
+      const o = opts && typeof opts === 'object' ? opts : {}
       const src = await readSource(raw)
       if (!src) return null
 
       const md = await toMarkdown(src.name, src.buf)
       const stem = src.name.replace(/\.[^.]+$/, '') || 'imported'
-      const rel = await freeRelPath(stem, 'md')
-      await fs.createNote(rel, md)
-      host.log('info', `导入 ${src.name} → ${rel}（${md.length} 字符）`)
+      const now = new Date()
+      const category = o.category ? sanitizeDirName(o.category) : guessCategory(src.path || raw || '')
+      const rel = await freeRelPath(importBasePath({ date: now, stem, category }), 'md')
+      /**
+       * 元数据（需求 §12「尽量保留原分类、创建时间等」）：
+       * 分类已经体现在**目录**上；创建时间来源拿不到（asset 协议不返回 Last-Modified），
+       * 所以 frontmatter 里记的是**导入时刻**，键名 `created` 与手写笔记的约定一致。
+       */
+      const body = withImportFrontmatter(md, { source: src.name, created: now })
+      await fs.createNote(rel, body)
+      host.log('info', `导入 ${src.name} → ${rel}（${body.length} 字符${category ? ` · 分类 ${category}` : ''}）`)
       host.notify(`已导入「${rel}」`)
       return rel
     }
@@ -758,7 +878,9 @@ export default {
         title: '导入外部文件…',
         run: guard(async (payload) => {
           const p = payload && typeof payload === 'object' ? payload : {}
-          return await importOne(typeof p.path === 'string' ? p.path : undefined)
+          return await importOne(typeof p.path === 'string' ? p.path : undefined, {
+            category: typeof p.category === 'string' ? p.category : '',
+          })
         }),
       }),
     )
@@ -807,6 +929,7 @@ export default {
               type: 'text',
               value:
                 '导入支持：md / txt / html / docx（pdf / epub 在下一批）。\n' +
+                '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
                 '导出支持：txt / html（pdf / docx / 长图在后续批次）。\n' +
                 'Android 的"另存为"需要下一次构建才会生效（见 HANDOFF rev85）。',
               variant: 'caption',

@@ -20,6 +20,13 @@
 
 ### Changed
 
+- **导入落点统一到「日期导入/<日期>/[原分类/]」（rev173.227 · 需求 §12）**：`import-export` 此前把导入的笔记
+  直接写进**库根**（撞名才加 `-1`），和手写笔记混在一起、也分不清哪天导入。现在固定写
+  `日期导入/<YYYY-MM-DD>/[<原分类>/]<文件名>.md` —— 同一天多次导入合并同一个日期目录；
+  分类默认取源文件**直接父目录**（桌面 / 下载 / 缓存不猜），命令 `io.importFile` 支持 `category` 指定。
+  导入内容补 frontmatter `created`（导入时刻）+ `source`（原文件名），已有同名键不覆盖。
+  ⚠️ AI 插件的任务排除名单同步加了 `日期导入`（需求 §12：导入后不立即让 AI 整理）。
+  ⚠️ 市场包 `import-export@0.1.0` 仍是旧行为，下次发市同步。
 - **`NoteMeta.kind` 增加 `media`（rev173.226 · 契约扩展）**：音视频附件（mp4 / webm / mov / m4v / ogv ·
   mp3 / m4a / aac / ogg / opus / wav / flac …，以及**播不了**的 mkv / avi / wmv / flv …）现在进
   `list_notes` 与文件树（前端归「附件」分组；`title` = 去掉扩展名的文件名，`frontmatter` 恒 `null`）。

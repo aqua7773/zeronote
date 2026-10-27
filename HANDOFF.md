@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.226
-更新时间: 2026-10-28 · 最新 rev173.226
+revision: 173.227
+更新时间: 2026-10-28 · 最新 rev173.227
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.226
 
 | rev | 内容 |
 |---|---|
+| rev173.227 | 2026-10-28 · **排期 2 + 3：待办删除线（核实：本来就有）+ 导入目录语义**（用户「继续」）：① **§4.4 零代码改动** —— ROADMAP 原写「勾选后加删除线未做」是**误判**：atomic 自带 `.cm-line.cm-atomic-task-done { color: faint; text-decoration: line-through }`（`dist/styles/inline-preview.css:414`），实测勾选后行类出现、`getComputedStyle().textDecorationLine = line-through`、颜色 `rgb(113,113,122)`、未完成行 `none`、文本与位置不变、磁盘落盘 `- [x]` ② **§12 导入落点改造**（`examples/import-export/index.js`）：`日期导入/<YYYY-MM-DD>/[原分类/]<文件名>.md`（同一天多次导入合并同一目录）；分类默认从**源文件父目录**猜（`guessCategory`，桌面 / 下载 / 缓存 / 盘符根不猜），命令支持 `category` 显式指定；导入时补 frontmatter `created`（导入时刻）+ `source`（原文件名），已有同名键不覆盖；`freeRelPath` 改收完整 base ③ **AI 排除名单加 `日期导入`**（`examples/ai/index.js` 的 `EXCLUDED_DIRS`）—— 需求 §12「导入后不立即让 AI 整理」，不加就会被自动任务吃掉 ④ 单测 **+17**（`tests/import-export.test.ts`：清洗 / 猜分类 / 日期戳 / 落点 / frontmatter 合并）+ ai-tasks 一条断言。**实测**：`工作/周报.md` → `日期导入/2026-10-28/工作/周报.md`（分类自动）· 重导 → `周报-1.md`（同目录合并）· `category:'自定义分类'` → 该目录 · 磁盘 frontmatter 正确（保留原 `tags`、追加 `created`/`source`）· 文件树三层结构正常 |
 | rev173.226 | 2026-10-28 · **音视频内联播放**（用户「开工」· 排期 1）：① **内核媒体渲染** —— `MarkdownEditor.tsx` 新增 `upgradeMediaWidgets`，复用 `imageAssetPlugin` 的 MutationObserver，把 `![](clip.mp4)` 的 image 块（atomic 一律当图片）换成 `<video controls>` / `<audio controls>`，asset URL 规则与图片一致；**幂等**（`data-zn-media` + 无 img 跳过，CM6 虚拟化重挂载自动重升）、**不抢光标**（capture 阶段掐掉 atomic 挂在 wrap 上的 mousedown）、**失败说话**（`error` 事件写明确提示）② **Rust 附件白名单** `MEDIA_EXTS` + `is_media` + `kind = "media"` 进 `list_notes`（mp4/webm/mov/m4v/ogv + mp3/m4a/aac/ogg/oga/opus/wav/flac/weba + 播不了的 mkv/avi/wmv/flv/mpg/mpeg/ts/m2ts/mts/3gp/wma/ape/aiff/aif/amr）③ **插入时检测**：能播的写 `![]()` 内联、播不了的容器写 `[]()` 链接 + toast 提示转 MP4/MP3 ④ **CSP 加 `media-src`**（不加会被 `default-src 'self'` 拦掉 asset:）⑤ 文件树「附件」分组收 media + 扩展名徽章、状态栏附件计数。单测 +11（`tests/media-render.test.ts`，扩展名 / URL query / 不可播容器 / 提示文案）· **桌面实测**：video `readyState 4` / 320×240 / 点播放 `paused=false` / audio `duration 1` / mkv toast 原文 / 附件分组 9 项 / 图片渲染未受影响 |
 | rev173.225 | 2026-10-28 · **交接**（用户「排完交接」）：本会话 **3 个 rev（222–224）全是文档**，产出 = ① `docs/附件与同步-需求-2026-10-28.md` 定稿（≤1 MiB 复制/引用二分 · 图片 A/B 两模式 · 台账 `.zn-assets/manifest.json` · 主动调用+每次确认式搬运 · §3.1 媒体容器查证）② ROADMAP **§3.0 补齐 8 条缺口** + **§3.5 排期 10 项** ③ CARD 更正「安卓桌面组件是唯一大块缺口」这个错。**下个会话第一件事**：排期 1 = **音视频内联播放**（1 天）。零代码改动 · verify 六步全绿（02:22:22）· 工作区干净 |
 | rev173.224 | 2026-10-28 · **需求整理 + 排期定稿**：用户答完 5 问（① 音视频内联 ② 格式见下 ③ 台账改 `<库>/.zn-assets/manifest.json` ④ 核心能力接管只做 `search.query`+`storage.*`、不做 `editor.render` ⑤ 附件同步「本轮不开工，按合理顺序排」）。ROADMAP 新增 **§3.5 建议排期 8 项**；§3.0 补齐 8 条缺口（音视频 / 调试面板 / 版本回滚 / 核心能力接管 / 导入目录语义 / 引用 hover / 待办删除线 / 附件同步）。**媒体容器查证**（写进附件需求 §3.1）：WebView2 与 Android WebView 都是 Chromium ⇒ 视频只认 **MP4 / WebM / MOV**，**MKV / AVI 是容器不被识别、不是编码问题**，不转码就是播不了；音频 MP3/M4A/OGG/WAV/FLAC 全支持。建议「插入时检测扩展名提示转 MP4 + 播放失败给明确提示」，不内置 ffmpeg。零代码改动 |
@@ -122,6 +123,57 @@ revision: 173.226
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.227（2026-10-28 · 排期 2 + 3：删除线核实 + 导入目录语义）
+>
+> 用户「继续」，把 §3.5 的第 2、3 项做完 —— 一件是**核实**（本来就有），一件是**实现**。
+>
+> ### ① §4.4 待办删除线：本来就实现了（零代码改动）
+>
+> ROADMAP §3.0 写「勾选后加删除线未做」，实测是**误判**：
+>
+> - 行类：勾选后 `.cm-line` 多 `cm-atomic-task-done`（`dist/inline-preview.js:681-685` 发 `Decoration.line`）
+> - 样式：atomic 自带 `.cm-line.cm-atomic-task-done { color: var(--atomic-editor-fg-faint);
+>   text-decoration: line-through }`（`dist/styles/inline-preview.css:414`）；本项目只把
+>   `--atomic-editor-fg-faint` 桥接到 `--zn-fg-subtle`，没动删除线
+> - 实测（CDP）：未完成行 `textDecorationLine: none`；已完成行 `line-through` + `rgb(113,113,122)`；
+>   点击 checkbox ⇒ 磁盘 `- [ ]` → `- [x]`、**文本与位置都不变**（需求 §4.4「保持原位」）
+>
+> ⇒ 只更正文档（ROADMAP §3.0 / §3.5），没动代码。
+>
+> ### ② §12 导入目录语义：落点改成「日期导入/<日期>/[原分类/]」
+>
+> `examples/import-export/index.js`：
+>
+> - **落点** `日期导入/<YYYY-MM-DD>/[<原分类>/]<文件名>.md` —— 同一天多次导入天然合并进同一个日期目录
+> - **分类** `guessCategory(srcPath)`：取源文件**直接父目录**；桌面 / 下载 / 缓存 / 盘符根不猜
+>   （`GENERIC_PARENTS`）。命令 `io.importFile` 也接受 `category` 显式指定
+> - **元数据** `withImportFrontmatter`：补 `created`（**导入时刻**）+ `source`（原文件名）；
+>   已有 frontmatter 就地追加、**同名键不覆盖**（md 导入常自带 frontmatter）
+> - **清洗** `sanitizeDirName`：Windows 非法字符 / 控制字符 / 首尾点，限 40 字
+> - `freeRelPath` 改收「完整 base（不含扩展名）」，撞名递增逻辑不变
+>
+> ⚠️ **联动**：`examples/ai/index.js` 的 `EXCLUDED_DIRS` 加 `日期导入` —— 需求 §12 要求
+> 「导入后不立即让 AI 整理」，不加的话导入的笔记会被 `save` 触发的自动任务直接吃掉。
+>
+> ### 实测（桌面 dev · CDP · 测试库 `_tmp-vault-tb`）
+>
+> - 从 `_tmp-import-src/工作/周报.md` 导入 ⇒ `日期导入/2026-10-28/工作/周报.md`（分类 = 父目录「工作」）；
+>   磁盘 frontmatter：原 `tags: [工作]` 保留 + 追加 `created` / `source`
+> - 同一文件再导一次 ⇒ `…/工作/周报-1.md`（同目录合并、撞名递增）
+> - `{category:'自定义分类'}` ⇒ `…/自定义分类/周报.md`（显式分类生效）
+> - 从 `_tmp-import-src/生活记录.md` 导入 ⇒ 分类 = 父目录 `_tmp-import-src`（父目录名有意义就保留）
+> - reload 后文件树三层结构正常（`日期导入 / 2026-10-28 / 工作 / 周报.md`）· `_shots/rev173227-import-tree.png`
+>
+> **测试**：vitest 1344 → **1361**（+17）· cargo 55 不变 · **verify 六步全绿（03:07:42）· 质量门 7/7**。
+>
+> ### 遗留
+>
+> - **源文件创建时间拿不到**：asset 协议只回 `content-length` / `content-type`（HEAD 实测），
+>   没有 `Last-Modified`，内核也没有 `stat` 原语 ⇒ 先记**导入时刻**。要真保留得加契约原语。
+> - **市场包 `import-export@0.1.0` 仍是旧代码**（落库根、不写 frontmatter）。内置预装版是新的；
+>   市场版要发市才会同步 —— 下次发市一起打。
+> - Android 未走查（本轮无 Rust 改动；导入要过系统文件选择器，手机上没测）。
+>
 > ## 📌 rev173.226（2026-10-28 · 音视频内联播放）
 >
 > 用户「开工」，按 **ROADMAP §3.5 排期 1** 做：笔记正文里直接播 mp4 / mp3。
