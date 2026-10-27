@@ -384,20 +384,28 @@ const EDITOR_CSS = `
   }
 }
 /* 音视频内联播放（rev173.226）：正文 ![](clip.mp4) 的 image 块被换成播放器
-   （见 upgradeMediaWidgets）。视频限高、音频只占一行宽；失败提示用 danger 色。 */
+   （见 upgradeMediaWidgets）。失败提示用 danger 色。
+
+   **版式与正文图片统一（rev173.236 · 用户「把视频、音频块的宽度和圆角统一成图片的样式」）**：
+   图片的规格 = atomic 的 max-width:100% / height:auto / border-radius:0.4em
+   ＋ 上面那条 max-height: min(29vh, 280px)（手机 23vh）。
+   播放器此前各写各的 —— 视频 60vh / 420px + var(--zn-radius) + 黑底、音频 420px 且**没有圆角**
+   ⇒ 在正文里比图片明显大一圈、边角也不一样。现在同一套：同圆角（0.4em）、同最大高度；
+   音频保留 420px 上限（它没有宽高比，不能靠限高压宽），补上圆角。 */
 .zn-editor .cm-atomic-image.zn-media-wrap {
   cursor: default;
 }
 .zn-editor .cm-atomic-image video {
   display: block;
   max-width: 100%;
-  max-height: min(60vh, 420px);
-  border-radius: var(--zn-radius);
+  max-height: min(29vh, 280px);
+  border-radius: 0.4em;
   background: #000;
 }
 .zn-editor .cm-atomic-image audio {
   display: block;
   width: min(100%, 420px);
+  border-radius: 0.4em;
 }
 .zn-editor .cm-atomic-image .zn-media-error {
   margin-top: 6px;
@@ -406,7 +414,7 @@ const EDITOR_CSS = `
 }
 @media (max-width: 640px) {
   .zn-editor .cm-atomic-image video {
-    max-height: 40vh;
+    max-height: 23vh;
   }
 }
 /* [[x]] 悬浮预览（rev173.228）：固定定位的小卡片，贴在链接下方 */

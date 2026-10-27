@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.235 · 库外路径渲染 + 破图不静默）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.236 · 音视频块版式与图片统一）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.235 · 0.6.0 · 2026-10-28 |
+| rev / 版本 | rev173.236 · 0.6.0 · 2026-10-28 |
 | 测试基线 | vitest 1404 · cargo 67 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
