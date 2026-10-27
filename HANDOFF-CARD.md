@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.232 · 附件同步期 1）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.233 · 交接）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.232 · 0.6.0 · 2026-10-28 |
+| rev / 版本 | rev173.233 · 0.6.0 · 2026-10-28 |
 | 测试基线 | vitest 1394 · cargo 62 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
@@ -184,7 +184,7 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **31592** · 2026-10-28 04:17:34 启动 —— rev173.230 改 `lib.rs`
+  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **38456** · 2026-10-28 05:16:26 启动 —— rev173.232 改 `lib.rs`
   后 tauri CLI 自动重编重启；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
