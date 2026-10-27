@@ -103,6 +103,7 @@ import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { mediaHint, mediaKindOf } from './lib/media-render'
+import { findWikiNote, previewSnippet } from './lib/wiki-preview'
 import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, isPanelTab, panelIdOfTab, panelTabId, remapTabs, stepTab } from './lib/tabs'
 /* rev173.51：笔记独立窗口的 URL / label（纯函数，见 tests/note-window.test.ts） */
@@ -2606,6 +2607,47 @@ export default function App() {
     [activePath, notes, openImagePreview, runCore],
   )
 
+  /**
+   * `[[x]]` 悬浮预览的数据源（rev173.228 · 需求 §4.5「引用显示标题和摘要」）。
+   *
+   * 命中用 `findWikiNote`（与点击跳转**同一套匹配**）→ 读正文 → `previewSnippet` 出摘要。
+   * 缓存 5 秒：同一篇反复 hover 不反复读盘；同时「被引用笔记改摘要」最多 5 秒后可见
+   * —— 需求那条「标题/摘要变化时引用自动更新」靠**短期缓存 + 每次 hover 现查**，
+   * 不做长期缓存。
+   */
+  const wikiPreviewCacheRef = useRef(
+    new Map<string, { at: number; value: { title: string; snippet: string } | null }>(),
+  )
+  const wikiPreview = useCallback(
+    async (target: string) => {
+      const hit = findWikiNote(notes, target)
+      if (!hit) return null
+      const cached = wikiPreviewCacheRef.current.get(hit.path)
+      if (cached && Date.now() - cached.at < 5000) return cached.value
+      let value: { title: string; snippet: string } = {
+        title: hit.title || hit.path,
+        snippet: '',
+      }
+      try {
+        if (kernel) {
+          const title = hit.title || hit.path
+          let snippet = previewSnippet(await kernel.fs.readText(hit.path), 160)
+          /**
+           * 正文第一行常常就是 `# 标题`，剥掉标记后与浮层标题重复（「标题 / 标题 …」）。
+           * 多取 20 字余地，去掉重复的前缀后再截 140。
+           */
+          if (title && snippet.startsWith(title)) snippet = snippet.slice(title.length).trim()
+          value = { title, snippet: snippet.slice(0, 140) }
+        }
+      } catch {
+        // 读不到（刚删 / 私密 / 编码）：只给标题，浮层别空着
+      }
+      wikiPreviewCacheRef.current.set(hit.path, { at: Date.now(), value })
+      return value
+    },
+    [notes, kernel],
+  )
+
   /* 诊断出口（与 `__znBackPress` 同一套路）：插入附件要过系统文件选择器，
      CDP 点不了原生对话框 —— 这个口让脚本直接喂一个**已存在的文件路径**，
      走与右键菜单完全相同的「复制 + 插入」链路（图片 / 其它文件自动分流）。 */
@@ -3523,6 +3565,7 @@ export default function App() {
               onRequestReplace={() => setReplaceOpen(true)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
+              onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
@@ -3864,6 +3907,7 @@ export default function App() {
               onRequestReplace={() => setReplaceOpen(true)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
+              onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}

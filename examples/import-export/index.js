@@ -637,8 +637,9 @@ export function sanitizeDirName(raw) {
  * （`cache` 那几条是 Android `content://` 的副本落点：`.../cache/<原名>`。）
  */
 const GENERIC_PARENTS = new Set([
-  'desktop', 'downloads', 'documents', 'document', 'temp', 'tmp', 'cache', 'caches',
-  'users', 'export', 'exports', '桌面', '下载', '下载夹', '文档', '临时', '导出',
+  'desktop', 'downloads', 'download', 'documents', 'document', 'temp', 'tmp', 'cache', 'caches',
+  'users', 'export', 'exports', 'dcim', 'pictures', 'movies', 'music',
+  '桌面', '下载', '下载夹', '文档', '临时', '导出',
 ])
 
 /**

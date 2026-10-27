@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.227 · 待办删除线（本来就有）+ 导入目录语义）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.228 · 引用悬浮预览 + 安卓重编真机验证）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.227 · 0.6.0 · 2026-10-28 |
-| 测试基线 | vitest 1361 · cargo 55 · oxlint 3 warnings（2026-10-28） |
+| rev / 版本 | rev173.228 · 0.6.0 · 2026-10-28 |
+| 测试基线 | vitest 1373 · cargo 55 · oxlint 3 warnings（2026-10-28） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -142,11 +142,13 @@ pwsh -File scripts\verify.ps1
 >    verify 全绿 · vitest **1333** · 市场 17 条（ai **0.9.0**）· dev pid 35548（20.9 小时）·
 >    手机 `ai` = 市场签名包 0.9.0（与源码 rev217 一致）。主线：**让 AI 的「完成」变成宿主可验证的事实**。
 >    **下个会话第一件事**：按 **ROADMAP §3.5 排期**（2026-10-28 定稿）开工 ——
->    ① ✅ **音视频内联播放**（**rev173.226 完成**：`video`/`audio` 内联 + Rust `kind=media` + 插入提示；
->       手机未重装，Android 真机待验）· ② ✅ **待办删除线**（**本来就有** —— atomic 自带 `.cm-atomic-task-done`，
->       实测勾选即删除线 + 落盘 `- [x]`，零改动，2026-10-28 核实）· ③ ✅ **导入目录语义**（**rev173.227**：
->       落 `日期导入/<日期>/[原分类/]` + frontmatter `created`/`source`；AI 任务排除名单已加）
->    ④ 引用 hover 预览（1 会话）⑤ 调试面板 + 版本回滚（1 会话）
+>    ① ✅ **音视频内联播放**（**rev173.226**：`video`/`audio` 内联 + Rust `kind=media` + 插入提示；
+>       **2026-10-28 安卓重编真机验过**：`readyState 4`、`play()` 后 `paused=false`、附件计数含 mp4）
+>    · ② ✅ **待办删除线**（**本来就有** —— atomic 自带 `.cm-atomic-task-done`，桌面 + 手机都实测）
+>    · ③ ✅ **导入目录语义**（**rev173.227**：落 `日期导入/<日期>/[原分类/]` + frontmatter；手机实测
+>      从 `/sdcard/Download` 导入落点正确）· ④ ✅ **引用 hover 预览**（**rev173.228**：桌面 hover 350 ms /
+>      手机长按 450 ms 弹「标题 + 摘要」，与跳转共用 `findWikiNote`）
+>    ⑤ 调试面板 + 版本回滚（1 会话）
 >    ⑥ 核心能力接管（只 `search.query` + `storage.*`，不做 `editor.render`）⑦–⑨ 附件同步三期 ⑩ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
@@ -177,17 +179,22 @@ pwsh -File scripts\verify.ps1
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-27 00:36 已被 `android-dev` 重编重装成最新代码**（`lastUpdateTime` 实测；rev173.191 走查确认手机 Rust 已含 rev173.190 的 store 保留）⇒ **别再按 0.5.0 的功能边界判断**；
-  ⚠️ **当前 APK 是 01:00:40 那次构建**，**不含 rev173.194 的市场镜像下拉**（前端在那之后才改）—— 想在手机上看「切源 / 测速」得让 `android-dev` 再编一次（改前端不会自动重装，只有改 Rust 才会）。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-28 03:16 已被 `android-dev` 重编重装成最新代码**
+  （app pid **25184**；含 rev173.226 的 `kind=media`、227 的导入落点、228 的引用预览）⇒ **别再按 0.5.0 的功能边界判断**。
+  ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
+  新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
   启动：`adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`。
   adb 里有两个离线残留 ⇒ 所有命令带 `-s 33b676f6`。改前端不用重装（连桌面 dev 的 vite，reload 即生效）；**改 Rust 必须重装**。
+  - 手机 CDP：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`（换进程先 `forward --remove`），
+    然后 `ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost`。**普通 DOM 截图走 CDP `shot` 可以**，
+    只有 canvas / video 画面抓不到（rev173.228 实测：video 截图是全黑但控制条有，`readyState/play()` 才是判据）。
+  - 手机 `adb push` **多个中文名文件一次推**会 `failed to read copy response: EOF` ⇒ 逐个 push（rev173.228 实测）。
   - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
   - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.9.0**（rev173.220 从 0.8.0 更新上来，带 `signature.json`，与源码 rev217 一致））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
   - ⚠️ **`adb reverse tcp:1420 tcp:1420` 会丢** —— 丢了表现为「启动 15 秒后无声退出」（看门狗杀进程）。重连 adb / 重启后先补这条再 `am start`。
   - ⚠️ **☰ 短按 = 抽屉 · 长按 600ms = 菜单**；CDP `click` 点不动长按，得 `adb shell input motionevent DOWN/UP`。
-  - 手机 CDP：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`（换进程先 `forward --remove`），`ZN_CDP=http://127.0.0.1:9333 ZN_TARGET=tauri.localhost`。
 - **桌面 CDP**：9222 · 坐标有 **32px 垂直偏移**（`.zn-titlebar`）· 菜单入口 = **右键 ☰**（左键开文件树栏）。
 - ⚠️ **全局插件目录里的插件是「拷贝」，不是链接**（`<APPDATA>\com.aqua.zeronote\.zn\plugins\<id>\`）—— 改了
   `examples/` 里的源码**不会**自动生效，要么删掉那份再建 junction，要么在插件页重装。本会话实测：

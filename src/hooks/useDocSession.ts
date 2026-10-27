@@ -9,6 +9,7 @@ import type { DocEvent, NoteMeta } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
 import { decodeForOpen, forgetOpenedVia } from '../kernel/doc-codec'
 import { failMsg } from '../lib/fail-msg'
+import { findWikiNote, wikiTarget } from '../lib/wiki-preview'
 
 /** `doc.on` 的广播入口（App 的 fireDoc） */
 type FireDoc = (ev: DocEvent, path: string | null, content: string, dirty: boolean) => void
@@ -152,18 +153,11 @@ export function useDocSession({
       /**
        * `[[目标|别名]]`：atomic 的可见文本是**整段**（`目标|别名`），
        * 跳转只认 `|` 前面的目标（别名是显示名，2026-10-24 实测）。
+       * 匹配逻辑与悬浮预览共用 `findWikiNote`（rev173.228），避免两处漂移。
        */
-      const target = raw.split('|')[0].trim()
-      if (!target) return
-      const norm = (s: string) => s.replace(/\\/g, '/').replace(/\.md$/i, '').trim()
-      const want = norm(target)
-      const hit =
-        notes.find((n) => n.id === target) ??
-        notes.find((n) => norm(n.path) === want) ??
-        notes.find((n) => norm(n.path).endsWith(`/${want}`)) ??
-        notes.find((n) => norm(n.title) === want)
+      const hit = findWikiNote(notes, raw)
       if (hit) void openNote(hit.path)
-      else setToast(`没有找到「${target}」这篇笔记`)
+      else setToast(`没有找到「${wikiTarget(raw)}」这篇笔记`)
     },
     [notes, openNote, setToast],
   )

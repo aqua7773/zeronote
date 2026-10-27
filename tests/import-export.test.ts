@@ -48,6 +48,9 @@ describe('guessCategory', () => {
     expect(guessCategory('C:/Users/AQUA/Downloads/a.md')).toBe('')
     expect(guessCategory('/data/user/0/app/cache/截图.png')).toBe('')
     expect(guessCategory('C:/周报.md')).toBe('')
+    // Android 标准目录是**单数** Download（不是 Downloads）—— 手机实测踩到过
+    expect(guessCategory('/sdcard/Download/导入样本.md')).toBe('')
+    expect(guessCategory('/sdcard/DCIM/a.jpg')).toBe('')
   })
 
   it('没有目录 / 空值 → 空串', () => {

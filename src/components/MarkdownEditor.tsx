@@ -257,6 +257,14 @@ type Props = {
    */
   onWikiLinkOpen?: (target: string) => void
   /**
+   * `[[x]]` 的**悬浮预览**（rev173.228 · 需求 §4.5「引用显示标题和摘要」）。
+   *
+   * 传了就启用：桌面 hover 350 ms、手机长按 450 ms 弹浮层。
+   * 返回 `null` = 没找到这篇笔记（浮层显示「未找到」）；不传则完全不监听。
+   * 查找与读正文由宿主负责（编辑器不认识 `notes` / `fs`）。
+   */
+  onWikiPreview?: (target: string) => Promise<{ title: string; snippet: string } | null>
+  /**
    * 点正文里的**库内相对链接**（附件，rev173.3）→ 交给宿主按类型分流：
    * 图片预览 / 文档阅读器 / 提示路径。`http(s):` 这类外部链接仍走 `open_external`。
    *
@@ -372,6 +380,33 @@ const EDITOR_CSS = `
   .zn-editor .cm-atomic-image video {
     max-height: 40vh;
   }
+}
+/* [[x]] 悬浮预览（rev173.228）：固定定位的小卡片，贴在链接下方 */
+.zn-wiki-tip {
+  position: fixed;
+  z-index: 120;
+  width: min(340px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: var(--zn-radius-lg);
+  border: 1px solid var(--zn-border-strong);
+  background: var(--zn-bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  animation: zn-wiki-in 120ms ease-out;
+}
+@keyframes zn-wiki-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+.zn-wiki-tip-title {
+  margin-bottom: 4px;
+  font-size: var(--zn-text-sm);
+  font-weight: 600;
+  color: var(--zn-fg);
+}
+.zn-wiki-tip-body {
+  font-size: var(--zn-text-sm);
+  line-height: 1.5;
+  color: var(--zn-fg-muted);
 }
 /* 查找面板：从「编辑器顶部通栏」改成**悬挂窗**（rev173.43 · 用户要求「像命令输入框这样的悬挂窗口」）。
  *
@@ -539,6 +574,7 @@ export function MarkdownEditor({
   onRequestReplace,
   onCommand,
   onWikiLinkOpen,
+  onWikiPreview,
   onLocalLinkOpen,
   onNotify,
   onPasteImage,
@@ -564,6 +600,25 @@ export function MarkdownEditor({
   const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
   /** 正文图片的全屏预览地址（null = 没开）。rev173.1：正文里只显示缩略尺寸，点开看原图 */
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  /**
+   * `[[笔记名]]` 悬浮预览的浮层状态（rev173.228 · 需求 §4.5）。
+   *
+   * `x/y` 是**视口坐标**（浮层 `position: fixed`）：贴在链接下方 6 px。
+   * `loading` 期间先出壳（「读取中…」）—— 读正文是异步的，不先出壳会感觉"hover 没反应"。
+   */
+  const [wikiTip, setWikiTip] = useState<{
+    x: number
+    y: number
+    target: string
+    title: string
+    snippet: string
+    missing: boolean
+  } | null>(null)
+  /**
+   * 长按弹了预览之后，**吞掉紧随其后的那一次 click**（rev173.228）。
+   * 否则手机上「长按看预览」松手会直接跳走 —— 预览变成了跳转。
+   */
+  const suppressWikiClickRef = useRef(false)
   useEffect(() => {
     try {
       localStorage.setItem('zeronote.sourceMode', sourceMode ? '1' : '0')
@@ -611,6 +666,25 @@ export function MarkdownEditor({
    * 目标名直接取链接的可见文本（atomic 渲染出的就是 `[[…]]` 里的目标；
    * `[[目标|显示名]]` 时拿到的是显示名，属已知取舍，由宿主的匹配兜底）。
    */
+  /**
+   * 从点到的 `.cm-atomic-link` 反查 `[[…]]` 的目标名（点击 / hover / 长按**共用一份**）。
+   *
+   * 判据见 `wikiLinkTarget`：看**源码行**而不是可见文本 —— 可见文本的形态随光标位置变
+   * （活跃行里方括号是 widget，`textContent` 只剩目标名；普通行里方括号是隐藏 span），
+   * rev173.97 用可见文本判定时一半点击被丢弃。
+   */
+  const resolveWikiTarget = useCallback((el: HTMLElement): string | null => {
+    const view = viewRef.current ?? EditorView.findFromDOM(el)
+    if (!view) return null
+    try {
+      const from = view.posAtDOM(el, 0)
+      return wikiLinkTarget(view.state.doc.lineAt(from).text, el.textContent ?? '')
+    } catch {
+      // 位置拿不到（widget / 未渲染）：不是 wikilink，交给别的分支
+      return null
+    }
+  }, [])
+
   useEffect(() => {
     if (!onWikiLinkOpen) return
     const onClick = (ev: MouseEvent) => {
@@ -618,31 +692,186 @@ export function MarkdownEditor({
       if (!el) return
       const content = handleRef.current?.getContentDOM()
       if (!content || !content.contains(el)) return
-      /**
-       * ⚠️ 可见文本的形态**随光标位置变**：活跃行里方括号是 widget（`textContent` 只剩
-       * 目标名），普通行里方括号是隐藏的 `<span>`（`textContent` 变成 `[目标]`）。
-       * rev173.97 曾用 `^\[\[…\]\]$` 判 wikilink ⇒ 一半形态永远不匹配
-       * ⇒ 点击全被丢弃（用户 2026-10-24 报「链接无法跳转」）。
-       * 判据改看**源码行**，与下面 `mark()` 的外观判据同一套（绿色 = 可点）。
-       */
-      const view = viewRef.current ?? EditorView.findFromDOM(el)
-      if (!view) return
-      let target: string | null = null
-      try {
-        const from = view.posAtDOM(el, 0)
-        target = wikiLinkTarget(view.state.doc.lineAt(from).text, el.textContent ?? '')
-      } catch {
-        // 位置拿不到（widget / 未渲染）：不拦，别把普通链接当成 wikilink
-        return
-      }
+      const target = resolveWikiTarget(el)
       if (!target) return
       ev.preventDefault()
       ev.stopPropagation()
+      /**
+       * 刚刚用长按看过这篇的预览 ⇒ 这次松手是「关预览」，不是「打开笔记」（rev173.228）。
+       * 标记在 click 里消费掉；`onUp` 另有一个 500 ms 兜底复位（有的浏览器不派发那次 click）。
+       */
+      if (suppressWikiClickRef.current) {
+        suppressWikiClickRef.current = false
+        return
+      }
       onWikiLinkOpen(target)
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
-  }, [onWikiLinkOpen])
+  }, [onWikiLinkOpen, resolveWikiTarget])
+
+  /**
+   * `[[笔记名]]` **悬浮预览**（rev173.228 · 需求 §4.5「引用显示标题和摘要」）。
+   *
+   * · 桌面：`mouseover` 停 350 ms 弹；离开链接或浮层 160 ms 后收（留时间让鼠标移到浮层上）
+   * · 手机：长按 450 ms 弹（移动 >10 px 取消 —— 那是滚动/拖选，不是长按）
+   * · 只认**编辑器正文里**的链接（侧栏 / 面板里的 `.cm-atomic-link` 不受影响）
+   *
+   * 关闭：鼠标离开 / 滚动 / Esc / 点别处。查找与读正文在宿主（`onWikiPreview`），
+   * 编辑器只负责「什么时候、在哪儿显示」。
+   */
+  useEffect(() => {
+    if (!onWikiPreview) return
+    const content = () => handleRef.current?.getContentDOM() ?? null
+    const linkAt = (t: EventTarget | null): HTMLElement | null => {
+      const el = (t as HTMLElement | null)?.closest?.<HTMLElement>('.cm-atomic-link') ?? null
+      if (!el) return null
+      const c = content()
+      return c && c.contains(el) ? el : null
+    }
+
+    let openTimer: number | null = null
+    let closeTimer: number | null = null
+    let pressTimer: number | null = null
+    let press: { x: number; y: number; el: HTMLElement } | null = null
+
+    const clearOpen = () => {
+      if (openTimer !== null) window.clearTimeout(openTimer)
+      openTimer = null
+    }
+    const clearClose = () => {
+      if (closeTimer !== null) window.clearTimeout(closeTimer)
+      closeTimer = null
+    }
+    const clearPress = () => {
+      if (pressTimer !== null) window.clearTimeout(pressTimer)
+      pressTimer = null
+      press = null
+    }
+    const close = () => setWikiTip(null)
+    const scheduleClose = () => {
+      clearClose()
+      closeTimer = window.setTimeout(close, 160)
+    }
+
+    /** 弹浮层：先出壳（标题=目标名、正文空），读到摘要再补 —— 否则异步读盘期间像"没反应" */
+    const show = (el: HTMLElement) => {
+      const target = resolveWikiTarget(el)
+      if (!target) return
+      const rect = el.getBoundingClientRect()
+      // 视口坐标：贴链接下方 6 px；右侧放不下就左移（简单 clamp）
+      const x = Math.min(rect.left, Math.max(8, window.innerWidth - 348))
+      const y = Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - 140))
+      setWikiTip({ x, y, target, title: target, snippet: '', missing: false })
+      void onWikiPreview(target)
+        .then((info) => {
+          setWikiTip((cur) =>
+            cur && cur.target === target
+              ? {
+                  ...cur,
+                  title: info?.title || target,
+                  snippet: info?.snippet ?? '',
+                  missing: !info,
+                }
+              : cur,
+          )
+        })
+        .catch(() => {
+          setWikiTip((cur) => (cur && cur.target === target ? { ...cur, missing: true } : cur))
+        })
+    }
+
+    const onOver = (ev: MouseEvent) => {
+      const el = linkAt(ev.target)
+      if (!el) return
+      clearClose()
+      if (openTimer !== null) return
+      openTimer = window.setTimeout(() => {
+        openTimer = null
+        show(el)
+      }, 350)
+    }
+
+    const onOut = (ev: MouseEvent) => {
+      const el = linkAt(ev.target)
+      if (!el) return
+      const to = ev.relatedTarget as HTMLElement | null
+      if (to?.closest?.('.zn-wiki-tip')) return // 移到浮层上：先别收
+      clearOpen()
+      scheduleClose()
+    }
+
+    const onDown = (ev: PointerEvent) => {
+      if (ev.pointerType === 'mouse') {
+        // 鼠标点别处：关掉（点在链接上不算 —— 那是要跳转）
+        if (!linkAt(ev.target)) close()
+        return
+      }
+      const el = linkAt(ev.target)
+      if (!el) {
+        close()
+        return
+      }
+      clearPress()
+      press = { x: ev.clientX, y: ev.clientY, el }
+      pressTimer = window.setTimeout(() => {
+        pressTimer = null
+        if (!press) return
+        suppressWikiClickRef.current = true
+        show(press.el)
+        press = null
+      }, 450)
+    }
+
+    const onMove = (ev: PointerEvent) => {
+      if (!press) return
+      if (Math.abs(ev.clientX - press.x) > 10 || Math.abs(ev.clientY - press.y) > 10) clearPress()
+    }
+    /**
+     * 松手：清掉长按计时器；**已经弹过预览**的话，抑制标记等这一次 click 消费。
+     *
+     * ⚠️ 复位必须挂在 pointerup 之后（300 ms 窗口）而不是长按触发时 —— 从触发时算，
+     * 用户按住超过 950 ms 再松手，标记已过期 ⇒ 松手直接跳走（rev173.228 真机实测踩到）。
+     */
+    const onUp = () => {
+      clearPress()
+      if (suppressWikiClickRef.current) {
+        window.setTimeout(() => {
+          suppressWikiClickRef.current = false
+        }, 300)
+      }
+    }
+    const onScroll = () => {
+      clearOpen()
+      clearPress()
+      close()
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') close()
+    }
+
+    document.addEventListener('mouseover', onOver)
+    document.addEventListener('mouseout', onOut)
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('pointermove', onMove, true)
+    document.addEventListener('pointerup', onUp, true)
+    document.addEventListener('pointercancel', onUp, true)
+    document.addEventListener('scroll', onScroll, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      clearOpen()
+      clearClose()
+      clearPress()
+      document.removeEventListener('mouseover', onOver)
+      document.removeEventListener('mouseout', onOut)
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('pointermove', onMove, true)
+      document.removeEventListener('pointerup', onUp, true)
+      document.removeEventListener('pointercancel', onUp, true)
+      document.removeEventListener('scroll', onScroll, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onWikiPreview, resolveWikiTarget])
 
   /**
    * 非 wikilink 的 `.cm-atomic-link` 去掉链接外观（rev173.97 · 用户「取消这个标签形式，
@@ -1157,6 +1386,23 @@ export function MarkdownEditor({
         {/* 表格工具条：光标在表格里时浮在表格左上角 */}
         <TableToolbar view={editorView} info={tableInfo} />
       </div>
+      {/* `[[x]]` 悬浮预览（rev173.228 · 需求 §4.5）：标题 + 摘要；找不到时给「未找到」 */}
+      {wikiTip && (
+        <div
+          className="zn-wiki-tip"
+          style={{ left: wikiTip.x, top: wikiTip.y }}
+          role="tooltip"
+          onMouseLeave={() => setWikiTip(null)}
+          onClick={() => setWikiTip(null)}
+        >
+          <div className="zn-wiki-tip-title">
+            {wikiTip.missing ? `「${wikiTip.target}」` : wikiTip.title}
+          </div>
+          <div className="zn-wiki-tip-body">
+            {wikiTip.missing ? '没有找到这篇笔记' : wikiTip.snippet || '（空笔记）'}
+          </div>
+        </div>
+      )}
       {/* 正文图片全屏预览（rev173.1）：点遮罩 / Esc 关闭 */}
       {previewSrc && (
         <div

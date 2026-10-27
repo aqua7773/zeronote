@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.227
-更新时间: 2026-10-28 · 最新 rev173.227
+revision: 173.228
+更新时间: 2026-10-28 · 最新 rev173.228
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.227
 
 | rev | 内容 |
 |---|---|
+| rev173.228 | 2026-10-28 · **引用悬浮预览 + 安卓重编真机验证**（用户「继续，安卓也编译测验」）：① **需求 §4.5 引用 hover** —— 新 `src/lib/wiki-preview.ts`（`findWikiNote` / `previewSnippet` / `wikiTarget`，纯函数 +12 单测）；`openWikiLink` 与预览**共用** `findWikiNote`（ID → 路径 → 后缀 → 标题），不会「点开 A、预览 B」；桌面 `mouseover` 停 350 ms、手机 `pointerdown` 长按 450 ms（移动 >10 px 取消）弹浮层「标题 + 正文前 140 字」（剥 frontmatter / 代码块 / 图片 / 链接），找不到显示「没有找到这篇笔记」，滚动 / Esc / 点别处都收；摘要 5 秒缓存、每次现查 ② **安卓重编 + 真机验证**（`tauri android dev` · 手机 pid 25184）：视频 `<video>` `readyState 4` + `play()` 后 `paused=false`（附件计数 5 ⇒ `kind=media` 生效）· 待办已完成行 `line-through` · 从 `/sdcard/Download` 导入 ⇒ `日期导入/2026-10-28/导入样本.md` · 长按 700 ms 弹浮层且松手**不跳转** ③ 五个踩坑（旧 android-dev 进程占日志 / 长按抑制标记时机 / CSS 模板里的反引号 / Android 单数 `Download` / 多文件中文名 push 报 EOF）全部记进正文与代码注释 |
 | rev173.227 | 2026-10-28 · **排期 2 + 3：待办删除线（核实：本来就有）+ 导入目录语义**（用户「继续」）：① **§4.4 零代码改动** —— ROADMAP 原写「勾选后加删除线未做」是**误判**：atomic 自带 `.cm-line.cm-atomic-task-done { color: faint; text-decoration: line-through }`（`dist/styles/inline-preview.css:414`），实测勾选后行类出现、`getComputedStyle().textDecorationLine = line-through`、颜色 `rgb(113,113,122)`、未完成行 `none`、文本与位置不变、磁盘落盘 `- [x]` ② **§12 导入落点改造**（`examples/import-export/index.js`）：`日期导入/<YYYY-MM-DD>/[原分类/]<文件名>.md`（同一天多次导入合并同一目录）；分类默认从**源文件父目录**猜（`guessCategory`，桌面 / 下载 / 缓存 / 盘符根不猜），命令支持 `category` 显式指定；导入时补 frontmatter `created`（导入时刻）+ `source`（原文件名），已有同名键不覆盖；`freeRelPath` 改收完整 base ③ **AI 排除名单加 `日期导入`**（`examples/ai/index.js` 的 `EXCLUDED_DIRS`）—— 需求 §12「导入后不立即让 AI 整理」，不加就会被自动任务吃掉 ④ 单测 **+17**（`tests/import-export.test.ts`：清洗 / 猜分类 / 日期戳 / 落点 / frontmatter 合并）+ ai-tasks 一条断言。**实测**：`工作/周报.md` → `日期导入/2026-10-28/工作/周报.md`（分类自动）· 重导 → `周报-1.md`（同目录合并）· `category:'自定义分类'` → 该目录 · 磁盘 frontmatter 正确（保留原 `tags`、追加 `created`/`source`）· 文件树三层结构正常 |
 | rev173.226 | 2026-10-28 · **音视频内联播放**（用户「开工」· 排期 1）：① **内核媒体渲染** —— `MarkdownEditor.tsx` 新增 `upgradeMediaWidgets`，复用 `imageAssetPlugin` 的 MutationObserver，把 `![](clip.mp4)` 的 image 块（atomic 一律当图片）换成 `<video controls>` / `<audio controls>`，asset URL 规则与图片一致；**幂等**（`data-zn-media` + 无 img 跳过，CM6 虚拟化重挂载自动重升）、**不抢光标**（capture 阶段掐掉 atomic 挂在 wrap 上的 mousedown）、**失败说话**（`error` 事件写明确提示）② **Rust 附件白名单** `MEDIA_EXTS` + `is_media` + `kind = "media"` 进 `list_notes`（mp4/webm/mov/m4v/ogv + mp3/m4a/aac/ogg/oga/opus/wav/flac/weba + 播不了的 mkv/avi/wmv/flv/mpg/mpeg/ts/m2ts/mts/3gp/wma/ape/aiff/aif/amr）③ **插入时检测**：能播的写 `![]()` 内联、播不了的容器写 `[]()` 链接 + toast 提示转 MP4/MP3 ④ **CSP 加 `media-src`**（不加会被 `default-src 'self'` 拦掉 asset:）⑤ 文件树「附件」分组收 media + 扩展名徽章、状态栏附件计数。单测 +11（`tests/media-render.test.ts`，扩展名 / URL query / 不可播容器 / 提示文案）· **桌面实测**：video `readyState 4` / 320×240 / 点播放 `paused=false` / audio `duration 1` / mkv toast 原文 / 附件分组 9 项 / 图片渲染未受影响 |
 | rev173.225 | 2026-10-28 · **交接**（用户「排完交接」）：本会话 **3 个 rev（222–224）全是文档**，产出 = ① `docs/附件与同步-需求-2026-10-28.md` 定稿（≤1 MiB 复制/引用二分 · 图片 A/B 两模式 · 台账 `.zn-assets/manifest.json` · 主动调用+每次确认式搬运 · §3.1 媒体容器查证）② ROADMAP **§3.0 补齐 8 条缺口** + **§3.5 排期 10 项** ③ CARD 更正「安卓桌面组件是唯一大块缺口」这个错。**下个会话第一件事**：排期 1 = **音视频内联播放**（1 天）。零代码改动 · verify 六步全绿（02:22:22）· 工作区干净 |
@@ -123,6 +124,60 @@ revision: 173.227
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.228（2026-10-28 · 引用悬浮预览 + 安卓重编真机验证）
+>
+> 用户「继续，安卓也编译测验」：排期 4（引用 hover）＋ 把 226/227 的改动真正装到手机上看。
+>
+> ### ① 引用悬浮预览（需求 §4.5「引用显示标题和摘要」）
+>
+> - 新 `src/lib/wiki-preview.ts`（纯函数）：`findWikiNote`（ID → 相对路径 → 路径后缀 → 标题，
+>   **与点击跳转共用**）、`previewSnippet`（剥 frontmatter / 代码块 / 图片 / 链接 / 标题符号，
+>   压一行截 140）、`wikiTarget`（`目标|别名` → 目标）
+> - `useDocSession.openWikiLink` 改用 `findWikiNote` —— 匹配只有一份代码，
+>   不会「点开 A、预览 B」
+> - `MarkdownEditor`：新增 `onWikiPreview` 回调（宿主查笔记 + 读正文），编辑器只管时机与定位：
+>   桌面 `mouseover` 停 350 ms 弹、离开 160 ms 收；手机 `pointerdown` 长按 450 ms
+>   （移动 >10 px 取消 = 滚动不是长按）；浮层 `position: fixed` 贴链接下方、右侧放不下左移；
+>   滚动 / Esc / 点别处 / 鼠标离开都收
+> - **长按弹过预览后吞掉紧随的 click**（否则松手直接跳走 —— 真机踩到，见踩坑 ②）
+> - 摘要去重：正文首行常是 `# 标题`，剥完后与浮层标题重复 ⇒ 去掉前缀
+> - 单测 **+12**（`tests/wiki-preview.test.ts`：匹配顺序 / 别名 / 反斜杠 / 找不到 /
+>   摘要剥标记 / 截断）
+>
+> ### ② 安卓重编 + 真机验证（`tauri android dev` → 手机 `33b676f6` · app pid 25184）
+>
+> | 验证项 | 结果 |
+> |---|---|
+> | 视频内联播放（rev173.226） | `<video>` `readyState 4` / 320×240 / `play()` 后 `paused=false`；**附件计数 5**（含 `clip.mp4`）⇒ `kind = media` 在手机 Rust 上生效 |
+> | 待办删除线（rev173.227 的核实项） | 已完成行 `cm-atomic-task-done` + `line-through` + 灰 `rgb(161,161,170)`；未完成行 `none` |
+> | 导入落点（rev173.227） | 从 `/sdcard/Download/导入样本.md` 导入 ⇒ `日期导入/2026-10-28/导入样本.md`（无分类层）；frontmatter 正常 |
+> | 引用长按预览（本 rev） | 长按 700 ms 弹浮层「链接目标 + 摘要」；松手 + click **不跳转**（正文仍是「引用测试」） |
+>
+> 截图：`_shots/rev173228-phone-video.png` · `_shots/rev173228-phone-wiki.png`（长按浮层）·
+> 桌面 `_shots/rev173228-wiki-hover2.png`
+>
+> **测试**：vitest 1361 → **1373**（+12）· cargo 55 · **verify 六步全绿（03:27:00）· 质量门 7/7**。
+>
+> ### 踩坑（都进了代码注释）
+>
+> 1. **旧的 `android-dev` 进程（10-26 02:33 起）一直卡着** —— 占着 `.self-logs/android-dev.log`
+>    与两个 `adb logcat`，新编译直接「The process cannot access the file」
+>    ⇒ `taskkill /PID <pnpm> /T /F` 清整棵树 + 单独杀那两个 10-26 的 `adb logcat` 才起得来
+> 2. **长按抑制标记的兜底时机错了**：原本从「长按触发」起算 500 ms 复位，用户按住 >950 ms
+>    再松手 ⇒ 标记已过期 ⇒ 松手直接跳走。改成 **pointerup 之后 300 ms** 复位
+>    （click 在 pointerup 后同步派发）
+> 3. **CSS 模板字符串里的反引号**：注释里写反引号包着的 `[[x]]` 会提前结束 `EDITOR_CSS` 模板
+>    ⇒ 手机日志 `ReferenceError: x is not defined`
+> 4. **Android 下载目录是单数 `Download`**（`GENERIC_PARENTS` 原来只有复数 `downloads`）
+>    ⇒ 从下载目录导入时分类被猜成「Download」；补齐 `download / dcim / pictures / movies / music`
+> 5. 手机 `adb push` **多个中文名文件一次推**会 `failed to read copy response: EOF` ⇒ 逐个 push
+>
+> ### 遗留
+>
+> - 手机长按预览时 Android 会聚焦编辑器（软键盘可能弹出）—— 不影响浮层可读；
+>   没做 `blur()`（会打断正在输入的用户）
+> - 摘要走 `fs.readText`（异步读盘，5 秒缓存）；只读 hover 的那一篇，库大也无影响
+>
 > ## 📌 rev173.227（2026-10-28 · 排期 2 + 3：删除线核实 + 导入目录语义）
 >
 > 用户「继续」，把 §3.5 的第 2、3 项做完 —— 一件是**核实**（本来就有），一件是**实现**。
