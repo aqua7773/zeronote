@@ -103,6 +103,7 @@ import {
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
+import { attachmentHint, mdTarget, type AttachmentOutcome } from './kernel/attachment'
 import { mediaHint, mediaKindOf } from './lib/media-render'
 import { findWikiNote, previewSnippet } from './lib/wiki-preview'
 import { categorizePlugin } from './lib/plugin-category'
@@ -2523,10 +2524,14 @@ export default function App() {
    *  · `link`            → `[原名.ext](相对路径)`（点开由宿主按类型分流）
    */
   const insertAttachmentSyntax = useCallback(
-    (rel: string, as: 'image' | 'embed' | 'link') => {
+    (rel: string, as: 'image' | 'embed' | 'link', hint?: string) => {
       const view = editorRef.current
       if (!view || !activePath) return
-      const target = pathFromNote(activePath, rel)
+      /**
+       * 绝对路径（>1 MiB 的引用型附件）原样保留 —— `pathFromNote` 对「不以笔记目录开头」
+       * 的路径本来就是原样返回；再套 `mdTarget` 处理空格（`![](<D:/Music/a b.mp3>)`）。
+       */
+      const target = mdTarget(pathFromNote(activePath, rel))
       const label = rel.split('/').pop() ?? target
       const sel = view.state.selection.main
       const doc = view.state.doc.toString()
@@ -2541,11 +2546,12 @@ export default function App() {
       })
       view.focus()
       setToast(
-        as === 'image'
-          ? `已插入图片 ${label}`
-          : as === 'embed'
-            ? `已插入音视频 ${label}`
-            : `已插入附件 ${label}`,
+        hint ??
+          (as === 'image'
+            ? `已插入图片 ${label}`
+            : as === 'embed'
+              ? `已插入音视频 ${label}`
+              : `已插入附件 ${label}`),
       )
     },
     [activePath],
@@ -2557,19 +2563,30 @@ export default function App() {
       const asImage = isImageFileName(src)
       /** 能内联播放的音视频（mp4 / mp3 …）—— 与图片一样写 `![]()`，由编辑器换成播放器 */
       const playable = mediaKindOf(src) !== null
-      const rel = await invoke<string>('import_attachment', {
+      const out = await invoke<AttachmentOutcome>('import_attachment', {
         vault,
         notePath: activePath,
         src,
         stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
       })
-      insertAttachmentSyntax(rel, asImage ? 'image' : playable ? 'embed' : 'link')
+      const as = asImage ? 'image' : playable ? 'embed' : 'link'
+      /**
+       * > 1 MiB 的附件**不复制**（需求 §1）：正文写绝对路径、身份进引用台账。
+       * 这时 toast 用「已引用原文件」—— 比「已插入附件」更接近真相（硬约束 4）。
+       */
+      const refHint = attachmentHint(out)
+      insertAttachmentSyntax(
+        out.path,
+        as,
+        refHint ? `${refHint} · ${out.path}` : undefined,
+      )
       /**
        * 播不了的容器（mkv / avi / wma …）：照样进库（用户可能只想存附件），
        * 但**立刻**说清下一步 —— 否则正文里只剩一个点不动的链接（rev173.226）。
+       * 引用型已经有了自己的提示，不覆盖它。
        */
       const hint = playable || asImage ? null : mediaHint(src)
-      if (hint) setToast(`已按链接插入 ${rel} —— ${hint}`)
+      if (hint && !refHint) setToast(`已按链接插入 ${out.path} —— ${hint}`)
     },
     [activePath, vault, insertAttachmentSyntax],
   )
@@ -2585,14 +2602,15 @@ export default function App() {
     async (img: { base64: string; ext: string }) => {
       if (!editorRef.current || !activePath || !vault) return
       try {
-        const rel = await invoke<string>('import_attachment_b64', {
+        const out = await invoke<AttachmentOutcome>('import_attachment_b64', {
           vault,
           notePath: activePath,
           stem: attachmentStem(new Date()),
           ext: img.ext,
           base64: img.base64,
         })
-        insertAttachmentSyntax(rel, 'image')
+        // 内存字节没有原文件路径可引用 ⇒ 永远复制入库（Rust 侧返回 copied）
+        insertAttachmentSyntax(out.path, 'image')
       } catch (e) {
         setToast(`粘贴图片失败：${String(e)}`)
       }

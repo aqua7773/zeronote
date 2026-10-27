@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.231
-更新时间: 2026-10-28 · 最新 rev173.231
+revision: 173.232
+更新时间: 2026-10-28 · 最新 rev173.232
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.231
 
 | rev | 内容 |
 |---|---|
+| rev173.232 | 2026-10-28 · **附件同步 · 期 1（规则 + 1 MiB 阈值 + 引用台账骨架）**（用户「继续」· 排期 7）：① **Rust `import_attachment` 按大小分流** —— `ATTACHMENT_COPY_LIMIT = 1,048,576`；≤ 1 MiB 复制（老行为），> 1 MiB **不复制**、返回绝对路径、整文件 sha256 记进引用台账；返回值改成结构化 `{ mode: 'copied'\|'referenced', path, size, ledgerId }`（`import_attachment_b64` 也改，但**永远 copied** —— 剪贴板字节没有原文件可引用）② **台账** `<库>/.zn-assets/manifest.json`（库根独立点目录，`list_notes` 天然跳过）：`{version:1, entries:[{id:'sha256:…', original, size, storedInVault:null, devices:{}}]}`；同 id 重复插入只更新不追加；**台账坏了明确报错**（静默重建会丢掉文件身份）③ 新命令 `assets_ledger_read(vault)` ④ **前端** `src/kernel/attachment.ts`：`AttachmentOutcome` 类型 / `attachmentHint`（引用型提示「超过 1 MiB 不复制进库」）/ `mdTarget`（含空格或括号的绝对路径用 `<...>` 包起来，否则 Markdown 目标被截断）；App 两处插入链路改消费结构化结果 ⑤ **只记不搬**：`devices` 留空对象，设备维度等期 4 的搬运插件填（不编假数据）。**测试**：cargo 59 → **62**（3 条：1 MiB / 1 MiB+1 边界、同文件去重、台账损坏报错）· vitest 1389 → **1394**（5 条阈值 / 提示 / `mdTarget`）。**实测**：插 2 MiB mp3 ⇒ 库内无副本 · 笔记写 `![](C:/…/big-clip.mp3)` · 台账 1 条（`sha256:5647f05e…` · 2097152 B · `storedInVault:null`）；插 800 KiB mp3 ⇒ 复制入库 `small-clip.mp3`（819200 B）· 笔记写 `![](small-clip.mp3)` · 台账仍 1 条。测完已还原笔记 + 删测试文件 / 台账 |
 | rev173.231 | 2026-10-28 · **核心能力接管（需求 §2.15 前半 · 排期 6）**（用户「做接管」）：① **新 `src/kernel/capability.ts`** —— 能力注册表：`provide(name, impl, {priority})` / `invoke` / `release` / `status` / `setChoice`；内核默认实现**永不参与竞争**，只在没有插件提供时兜底；同优先级取最早登记 + `needsChoice`，用户选择写 `localStorage['zn-capability-choice']`；**防重入**（实现执行期间再调能力 ⇒ 走默认，接管者靠它拿原始结果）② **契约**新增 `CapabilityApi` / `CapabilityName` / `CapabilityStatus`，`PluginContext.capability`；5 个能力：`search.query` + `storage.read/write/exists/list`（**不做 `editor.render`**，用户已拍板）③ **kernel 组装**：`index.query` → `capability.invoke('search.query')`（`scoped` 递归包装）；`fs` 只包读/写/存在/列清单四个消费侧方法（结构操作仍在内核）；默认实现 = 包装前的原链路（含索引跟随 + 事件）④ **plugin-host** `ctx.capability` + `usePluginHost` 三处卸载点调 `releaseCapabilities`（漏 dispose 也不留幽灵）⑤ **设置页**「插件」tab 新增「核心能力」折叠块（当前提供者 / 同级冲突提示）+ 选择对话框。**测试**：vitest 1379 → **1389**（+10 条注册表语义）· cargo 59 不变。**实测**（CDP 两个探针，同 priority 10，测完已删干净）：装 A ⇒ 搜索「验收」8 条全部 `[接管A]` · 装 B ⇒ 设置页「有同优先级冲突，请选择」+ 对话框两候选 · 选 B ⇒ 搜索变 `[接管B]` · 禁用 B ⇒ 自动回退 `[接管A]` · 禁用 A ⇒ 无前缀、仍是 8 条结果（内核默认）。截图 `_shots/rev173231-{capability-settings,capability-conflict,capability-pick,search-takeover,search-B,fallback-kernel}.png` |
 | rev173.230 | 2026-10-28 · **插件版本回滚（需求 §2.14 · 排期 5b）**（用户「继续」，先确认工作区与基线全绿）：① **安装时存档** —— `install_pack` 换目录**之前**把旧版本整目录复制到 `<应用数据目录>/.zn/plugin-versions/<id>/<version>-<ms>/`，只留最近 **3** 份（按目录名**尾部时间戳**排序，不按版本名）；存档失败只记日志、不阻断安装 ② **两条 Rust 命令** `list_plugin_versions` / `rollback_plugin`（`force` 两段式）+ `manifest.storeVersion`（数据格式代际，可选整数）③ **回滚**：① 备份当前 `store.json` 到 `_backup/<ms>-store.json`（保 10 份）② 当前版本**也存档**（回滚后能滚回来）③ 存档复制上位、删旧目录，失败恢复原版本 ④ **反向迁移**：当前代际 > 目标代际 ⇒ 先返回 `needConfirm`（**磁盘一个字节不动**）⇒ 带 `force` 再调时用**该版本存档里的 store** 替换（数据跟着回退），无快照则保留当前数据 + `warning`；内核**不调用插件代码**做 down-migration（插件不可信 / 回滚发生在加载前）⑤ **UI**：插件行「版本记录」按钮（History 图标）→ 对话框（版本 / 时间 / 体积 / 含数据 / 回滚）+ 插件行「回滚」；降级时红框「仍要回滚 / 取消」。**测试**：cargo 55 → **59**（4 条：保 3 份 / 回滚保数据+备份 / 降级确认+force 回退 / 非法 stamp）· vitest 1373 → **1379**（6 条：对话框列表 / 回滚成功 / 降级两段式 / formatBytes / formatVersionTime / 内置插件回滚标记）。**桌面实测**（CDP 造 `rollback-probe` v1/v2 探针，测完已删干净）：装 v1（store `{gen:1}`）→ 装 v2 ⇒ `.zn/plugin-versions/rollback-probe/1.0.0-…/` 出现（含 store）；打开版本对话框 ⇒「v1.0.0 · 04:11 · 426 B · 含数据」→ 点回滚 ⇒ 红框「第 2 代 vs 第 1 代」**磁盘未动**（仍 2.0.0 / gen 2）→「仍要回滚」⇒ 当前 **1.0.0** + `index.js` 是 v1 + `store.json` **`{gen:1}`** + 存档多一份 **2.0.0** + `_backup/` 2 份 + 日志「插件已卸载 → 插件已加载」。截图 `_shots/rev173230-{versions-dialog,need-confirm,rolled-back}.png` |
 | rev173.229 | 2026-10-28 · **开发者调试面板（§2.13 的一半）**（用户「继续」· 排期 5）：① **结构化日志** —— `PluginLogEntry { ts, pluginId, level, msg, stack }`（契约新增）；`PluginHostDeps.onLog` 多带归属插件与堆栈，`scopedHost` 包 `host.log`（error 时捕 `new Error().stack`，栈里有插件帧）；`kernel.audit()` 新增 `pluginTopics` ② **诊断表** —— 插件页新「调试」tab：插件 / 命令数 / 面板数 / 服务数 / 订阅 topic / 版本（18 个插件全列出，含纯样式）③ **模拟触发** —— topic + JSON payload → `event.emit` ④ **错误归属** —— 命令执行失败与事件处理器异常改记 `error` 并反推 `plugin:xxx` 归属 + 带堆栈 ⑤ 重载全部 / 清空日志 / 写测试日志 / 开发者模式开关（localStorage）。**未做**：单插件热重载 · 沙箱控制台 · 内存/CPU 监控 · 跳过权限确认（详见 ROADMAP §3.0）· **版本回滚（§2.14）本轮没做**，已拆成 §3.5 的 5b 作为下轮第一件事。实测：调试 tab 打开 · 统计「已安装 18 · 启用 17 · 命令 210 · topic 7」· 诊断表 18 行 · `zn:probe` 发射成功 · 测试日志的 error + 堆栈可展开（`_shots/rev173229-dev-panel.png`） |
@@ -127,6 +128,60 @@ revision: 173.231
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.232（2026-10-28 · 附件同步 · 期 1）
+>
+> 用户「继续」= ROADMAP §3.5 第 7 位（附件同步期 1：规则 + 1 MiB 阈值 + 台账骨架）。
+> 方案见 `docs/附件与同步-需求-2026-10-28.md`（accepted）。
+>
+> ### ① 分流规则（Rust `import_attachment`）
+>
+> - `ATTACHMENT_COPY_LIMIT = 1,048,576`（1 MiB，与系统文件属性同口径）
+> - **≤ 1 MiB** ⇒ 复制到笔记同目录（老行为），返回 `{mode:'copied', path:<相对路径>}`
+> - **> 1 MiB** ⇒ **不复制**：返回 `{mode:'referenced', path:<绝对路径>, ledgerId:'sha256:…'}`
+> - `import_attachment_b64`（剪贴板图片）**永远 copied** —— 内存字节没有原文件路径可引用
+> - 返回值从 `String` 改成结构化 `{ mode, path, size, ledgerId }`（前端 3 处调用同步改）
+>
+> ### ② 引用台账 `<库>/.zn-assets/manifest.json`
+>
+> - 库根**独立点目录**（不是 `.zn/` 子目录）：外部同步工具只需放行这一条
+> - 形状：`{version:1, entries:[{id:'sha256:…', original, size, storedInVault:null, devices:{}}]}`
+> - id 用**整文件 sha256**（内容身份）而不是路径：同一文件在不同设备路径不同
+> - 同 id 重复插入 ⇒ 更新原路径 / 大小，不追加
+> - **台账坏了明确报错**（不静默重建 —— 那会把文件身份整批扔掉）
+> - 新只读命令 `assets_ledger_read(vault)`（面板 / 诊断 / 期 4 搬运用）
+>
+> ### ③ 前端
+>
+> - `src/kernel/attachment.ts`：`AttachmentOutcome` / `attachmentHint`（引用型提示「超过 1 MiB 不复制进库」）/ `mdTarget`
+> - `mdTarget`：含空格 / 括号的绝对路径用 `<...>` 包起来（CommonMark 尖括号目标），
+>   否则 `![](D:/a b.mp3)` 会被截断
+> - App：插入链路消费结构化结果；引用型 toast 用「已引用原文件」覆盖默认的「已插入…」
+>
+> ### 实测（CDP · 测试库 `_tmp-vault-tb`）
+>
+> | 操作 | 结果 |
+> |---|---|
+> | 插 2 MiB mp3 | 库内**无副本** · 笔记写 `![](C:/…/_tmp-test/attach/big-clip.mp3)` · 台账 1 条（`sha256:5647f05e…` · 2097152 B · `storedInVault:null`）|
+> | 插 800 KiB mp3 | 复制入库 `small-clip.mp3`（819200 B）· 笔记写 `![](small-clip.mp3)` · 台账仍 **1** 条 |
+>
+> 测完已还原 `根笔记.md`、删测试文件与 `.zn-assets/`。
+>
+> **测试**：cargo 59 → **62**（3 条：1 MiB / 1 MiB+1 边界、同文件去重、台账损坏报错）·
+> vitest 1389 → **1394**（5 条：阈值 / 提示 / `formatSize` / `mdTarget` 边界）。
+>
+> ### 踩坑
+>
+> - **`serde_json::Value` 与 `&str` 比较只在 Value 本身是字符串时成立** —— 返回值改成对象后，
+>   旧测试的 `assert_eq!(rel, "sub/a.png")` 变成「对象 vs 字符串」静默不等；必须取 `r["path"]`
+> - 函数签名忘了跟着改（返回 `json!` 但签名还是 `Result<String, _>`）⇒ 编译报
+>   `type str cannot be indexed by &str`，报错点在**测试**里、根因在签名
+>
+> ### 未做（期 2–4）
+>
+> - 期 2：图片两模式 + 压缩（A 原图 / B 压到 ≤1 MiB）
+> - 期 3：库外路径渲染（图片 / 音频 / 视频 / 文件卡片；文件不在时明确提示）
+> - 期 4：跨设备搬运（本地文件夹 → WebDAV，手动触发 + 每次确认）
+>
 > ## 📌 rev173.231（2026-10-28 · 核心能力接管 §2.15 前半）
 >
 > 用户「做接管」= ROADMAP §3.5 第 6 位。范围按已拍板：只做 `search.query` + `storage.*`，

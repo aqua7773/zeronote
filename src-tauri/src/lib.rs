@@ -1618,13 +1618,117 @@ fn attachment_ext(ext: &str) -> String {
   ext.trim().trim_start_matches('.').to_ascii_lowercase()
 }
 
+/* ───────────── 附件分流 + 引用台账（rev173.232 · 附件同步期 1）───────────── */
+//
+// 规则（`docs/附件与同步-需求-2026-10-28.md` §1）：
+//   ≤ 1 MiB ⇒ 复制到笔记同目录（老行为）
+//   > 1 MiB ⇒ **不复制**，笔记里写绝对路径，文件身份记进引用台账（期 1 只记不搬）
+//
+// 为什么台账在 `<库>/.zn-assets/` 而不是 `.zn/` 下：外部同步工具只需放行这一条，
+// 不用改 `.zn/*` 的整目录排除规则（需求 §4 用户拍板）。
+
+/// 复制入库的阈值：**1 MiB = 1,048,576 字节**（需求 §6 定口径，与系统文件属性一致）。
+const ATTACHMENT_COPY_LIMIT: u64 = 1024 * 1024;
+
+/// 引用台账目录（库根下的独立点目录 —— 以 `.` 开头，`list_notes` 天然跳过）。
+const ASSETS_DIR: &str = ".zn-assets";
+const ASSETS_MANIFEST: &str = "manifest.json";
+
+fn assets_manifest_path(vault: &str) -> PathBuf {
+  Path::new(vault).join(ASSETS_DIR).join(ASSETS_MANIFEST)
+}
+
+/// 读引用台账。
+///
+/// 文件不存在 = 空台账（第一次插入的正常状态）；**读坏了要报错** ——
+/// 静默重建会把已经记下的条目整批扔掉（那正是「文件身份」唯一的落点）。
+fn read_assets_ledger(vault: &str) -> Result<serde_json::Value, String> {
+  let path = assets_manifest_path(vault);
+  if !path.is_file() {
+    return Ok(serde_json::json!({ "version": 1, "entries": [] }));
+  }
+  let raw =
+    fs::read_to_string(&path).map_err(|e| format!("读取引用台账失败（{}）：{e}", path.display()))?;
+  let v: serde_json::Value = serde_json::from_str(&raw)
+    .map_err(|e| format!("引用台账不是合法 JSON（{}）：{e}", path.display()))?;
+  if v.get("entries").and_then(|x| x.as_array()).is_none() {
+    return Err(format!("引用台账形状不对（缺 entries 数组）：{}", path.display()));
+  }
+  Ok(v)
+}
+
+fn write_assets_ledger(vault: &str, ledger: &serde_json::Value) -> Result<(), String> {
+  let path = assets_manifest_path(vault);
+  if let Some(dir) = path.parent() {
+    fs::create_dir_all(dir)
+      .map_err(|e| format!("创建引用台账目录失败（{}）：{e}", dir.display()))?;
+  }
+  let text =
+    serde_json::to_string_pretty(ledger).map_err(|e| format!("序列化引用台账失败：{e}"))?;
+  atomic_write(&path, &text)
+}
+
+/// 整文件 sha256（`sha256:<hex>`）。
+///
+/// 台账 id 用「文件内容」而不是路径：同一份文件在不同设备上路径不同，
+/// 在同一个库里也可能被移来移去 —— 只有内容摘要才是稳定身份。
+fn sha256_file(path: &Path) -> Result<String, String> {
+  use sha2::{Digest, Sha256};
+  use std::io::Read;
+  let mut f =
+    fs::File::open(path).map_err(|e| format!("打开文件失败（{}）：{e}", path.display()))?;
+  let mut hasher = Sha256::new();
+  let mut buf = vec![0u8; 64 * 1024];
+  loop {
+    let n = f.read(&mut buf).map_err(|e| format!("读取文件失败：{e}"))?;
+    if n == 0 {
+      break;
+    }
+    hasher.update(&buf[..n]);
+  }
+  Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+/// 记一条引用台账：同 id 已存在 ⇒ 更新原路径 / 大小（同一文件被再次插入很常见），不重复追加。
+fn ledger_record(vault: &str, id: &str, original: &str, size: u64) -> Result<(), String> {
+  let mut ledger = read_assets_ledger(vault)?;
+  let entries = ledger
+    .get_mut("entries")
+    .and_then(|x| x.as_array_mut())
+    .ok_or_else(|| "引用台账形状不对（缺 entries 数组）".to_string())?;
+  match entries
+    .iter_mut()
+    .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+  {
+    Some(entry) => {
+      entry["original"] = serde_json::json!(original);
+      entry["size"] = serde_json::json!(size);
+    }
+    None => entries.push(serde_json::json!({
+      "id": id,
+      "original": original,
+      "size": size,
+      "storedInVault": serde_json::Value::Null,
+      // 设备维度由期 4 的搬运插件填（本期「只记不搬」，不编造假数据）
+      "devices": {},
+    })),
+  }
+  write_assets_ledger(vault, &ledger)
+}
+
+/// 读引用台账（附件面板 / 诊断 / 将来的搬运插件用）。
+#[tauri::command]
+fn assets_ledger_read(vault: String) -> Result<serde_json::Value, String> {
+  read_assets_ledger(&vault)
+}
+
 #[tauri::command]
 fn import_attachment(
   vault: String,
   note_path: String,
   src: String,
   stem: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
   let src_path = PathBuf::from(&src);
   if !src_path.is_file() {
     return Err(format!("找不到图片：{src}"));
@@ -1644,10 +1748,37 @@ fn import_attachment(
   if BLOCKED_EXTS.contains(&ext.as_str()) {
     return Err(format!("不允许插入可执行 / 脚本文件（.{ext}）：{src}"));
   }
+
+  let size = fs::metadata(&src_path)
+    .map_err(|e| format!("读取文件大小失败（{src}）：{e}"))?
+    .len();
+
+  // 需求 §1：> 1 MiB **不复制**，笔记里写绝对路径，文件身份进引用台账
+  if size > ATTACHMENT_COPY_LIMIT {
+    let abs = src_path
+      .to_string_lossy()
+      .replace('\\', "/")
+      .trim_start_matches("//?/")
+      .to_string();
+    let id = sha256_file(&src_path)?;
+    ledger_record(&vault, &id, &abs, size)?;
+    return Ok(serde_json::json!({
+      "mode": "referenced",
+      "path": abs,
+      "size": size,
+      "ledgerId": id,
+    }));
+  }
+
   let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
   let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
   fs::copy(&src_path, &dst).map_err(|e| format!("复制图片失败：{e}"))?;
-  Ok(attachment_rel(&dir_rel, &name))
+  Ok(serde_json::json!({
+    "mode": "copied",
+    "path": attachment_rel(&dir_rel, &name),
+    "size": size,
+    "ledgerId": serde_json::Value::Null,
+  }))
 }
 
 /// 单张图片的服务端上限（前端 10 MB 时就会提示；这里兜底，防绕过前端塞超大 payload）。
@@ -1666,7 +1797,7 @@ fn import_attachment_b64(
   stem: String,
   ext: String,
   base64: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
   let ext = attachment_ext(&ext);
   if ext.is_empty() {
     return Err("缺少扩展名，无法判断文件类型".to_string());
@@ -1685,10 +1816,17 @@ fn import_attachment_b64(
       MAX_ATTACHMENT_BYTES / (1024 * 1024)
     ));
   }
+  let size = bytes.len();
   let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
   let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
   fs::write(&dst, &bytes).map_err(|e| format!("写入图片失败：{e}"))?;
-  Ok(attachment_rel(&dir_rel, &name))
+  // 内存字节没有「原文件路径」可引用 ⇒ 永远复制入库（期 1 的口径）
+  Ok(serde_json::json!({
+    "mode": "copied",
+    "path": attachment_rel(&dir_rel, &name),
+    "size": size,
+    "ledgerId": serde_json::Value::Null,
+  }))
 }
 
 /// 校验「导出落盘」的目标路径，并给出**能看懂**的错误。
@@ -3469,6 +3607,8 @@ pub fn run() {
       unwatch_vault,
       import_attachment,
       import_attachment_b64,
+      // rev173.232：附件同步期 1（引用台账）
+      assets_ledger_read,
       disable_accelerator_keys_for,
       write_absolute,
       write_absolute_b64,
@@ -4591,26 +4731,27 @@ mod tests {
     let v = vault.to_string_lossy().to_string();
     let s = src.to_string_lossy().to_string();
 
-    let rel = import_attachment(
+    let r = import_attachment(
       v.clone(),
       "sub/a.md".into(),
       s.clone(),
       "image-20261018-200000".into(),
     )
     .unwrap();
+    let rel = r["path"].as_str().unwrap().to_string();
     assert_eq!(rel, "sub/image-20261018-200000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
     // 同一秒再插一张 ⇒ 加 -1，绝不覆盖
     fs::write(&src, b"PNG2").unwrap();
-    let rel2 = import_attachment(
+    let r2 = import_attachment(
       v,
       "sub/a.md".into(),
       s,
       "image-20261018-200000".into(),
     )
     .unwrap();
-    assert_eq!(rel2, "sub/image-20261018-200000-1.png");
+    assert_eq!(r2["path"], "sub/image-20261018-200000-1.png");
     assert_eq!(
       fs::read(vault.join("sub/image-20261018-200000.png")).unwrap(),
       b"PNG1"
@@ -4628,9 +4769,9 @@ mod tests {
     fs::write(&src, b"x").unwrap();
     let v = vault.to_string_lossy().to_string();
     let s = src.to_string_lossy().to_string();
-    let rel = import_attachment(v, "a.md".into(), s, "../../evil".into()).unwrap();
+    let r = import_attachment(v, "a.md".into(), s, "../../evil".into()).unwrap();
     // 扩展名统一小写；文件仍落在库根
-    assert_eq!(rel, "evil.png");
+    assert_eq!(r["path"], "evil.png");
     assert!(vault.join("evil.png").is_file());
   }
 
@@ -4644,14 +4785,14 @@ mod tests {
     let src = d.join("报告.pdf");
     fs::write(&src, b"%PDF-1.4").unwrap();
     let v = vault.to_string_lossy().to_string();
-    let rel = import_attachment(
+    let r = import_attachment(
       v.clone(),
       "a.md".into(),
       src.to_string_lossy().to_string(),
       "报告 终版".into(),
     )
     .unwrap();
-    assert_eq!(rel, "报告-终版.pdf", "中文留在文件名里，空格转 -");
+    assert_eq!(r["path"], "报告-终版.pdf", "中文留在文件名里，空格转 -");
     assert!(vault.join("报告-终版.pdf").is_file());
 
     let bat = d.join("tool.bat");
@@ -4699,7 +4840,7 @@ mod tests {
     fs::write(vault.join("sub").join("a.md"), "x").unwrap();
     let v = vault.to_string_lossy().to_string();
 
-    let rel = import_attachment_b64(
+    let r = import_attachment_b64(
       v.clone(),
       "sub/a.md".into(),
       "image-20261020-093000".into(),
@@ -4707,10 +4848,11 @@ mod tests {
       "UE5HMQ==".into(), // "PNG1"
     )
     .unwrap();
+    let rel = r["path"].as_str().unwrap().to_string();
     assert_eq!(rel, "sub/image-20261020-093000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
-    let rel2 = import_attachment_b64(
+    let r2 = import_attachment_b64(
       v,
       "sub/a.md".into(),
       "image-20261020-093000".into(),
@@ -4718,6 +4860,7 @@ mod tests {
       "UE5HMg==".into(), // "PNG2"
     )
     .unwrap();
+    let rel2 = r2["path"].as_str().unwrap().to_string();
     assert_eq!(rel2, "sub/image-20261020-093000-1.png");
     assert_eq!(fs::read(vault.join(&rel2)).unwrap(), b"PNG2");
   }
@@ -4756,6 +4899,115 @@ mod tests {
     )
     .is_err());
     assert!(import_attachment_b64(v, "a.md".into(), "x".into(), "png".into(), "".into()).is_err());
+  }
+
+  /* ── 附件分流 + 引用台账（rev173.232 · 附件同步期 1）── */
+
+  #[test]
+  fn attachment_threshold_copies_small_and_references_large() {
+    let d = tmpdir("attach-threshold");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("note.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+
+    // 正好 1 MiB ⇒ **复制**（规则是「大于才引用」）
+    let small = d.join("small.bin");
+    fs::write(&small, vec![7u8; 1024 * 1024]).unwrap();
+    let r = import_attachment(
+      v.clone(),
+      "note.md".into(),
+      small.to_string_lossy().to_string(),
+      "small".into(),
+    )
+    .unwrap();
+    assert_eq!(r["mode"], "copied");
+    assert_eq!(r["size"], 1024u64 * 1024);
+    assert!(
+      vault.join(r["path"].as_str().unwrap()).is_file(),
+      "≤1 MiB 要复制进库"
+    );
+    assert_eq!(
+      read_assets_ledger(&v).unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .len(),
+      0,
+      "复制型附件不进引用台账"
+    );
+
+    // 1 MiB + 1 ⇒ **引用**：不复制、写绝对路径、台账有条目
+    let big = d.join("big.mp3");
+    fs::write(&big, vec![9u8; 1024 * 1024 + 1]).unwrap();
+    let r = import_attachment(
+      v.clone(),
+      "note.md".into(),
+      big.to_string_lossy().to_string(),
+      "big".into(),
+    )
+    .unwrap();
+    assert_eq!(r["mode"], "referenced");
+    let abs = r["path"].as_str().unwrap().to_string();
+    assert!(abs.ends_with("big.mp3"), "引用型写绝对路径：{abs}");
+    assert!(!vault.join("big.mp3").exists(), ">1 MiB 不复制进库");
+    let id = r["ledgerId"].as_str().unwrap().to_string();
+    assert!(id.starts_with("sha256:"), "台账 id 用内容摘要：{id}");
+    let ledger = read_assets_ledger(&v).unwrap();
+    let entries = ledger["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["id"], id.as_str());
+    assert_eq!(entries[0]["size"], 1024u64 * 1024 + 1);
+    assert_eq!(entries[0]["storedInVault"], serde_json::Value::Null);
+  }
+
+  #[test]
+  fn ledger_dedupes_same_file() {
+    let d = tmpdir("attach-ledger");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("note.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let big = d.join("clip.mp4");
+    fs::write(&big, vec![1u8; 1024 * 1024 + 5]).unwrap();
+
+    for _ in 0..2 {
+      let r = import_attachment(
+        v.clone(),
+        "note.md".into(),
+        big.to_string_lossy().to_string(),
+        "clip".into(),
+      )
+      .unwrap();
+      assert_eq!(r["mode"], "referenced");
+    }
+    assert_eq!(
+      read_assets_ledger(&v).unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .len(),
+      1,
+      "同一个文件插两次只记一条"
+    );
+  }
+
+  #[test]
+  fn ledger_corrupt_file_is_loud() {
+    let d = tmpdir("attach-corrupt");
+    let vault = d.join("vault");
+    fs::create_dir_all(vault.join(".zn-assets")).unwrap();
+    fs::write(vault.join(".zn-assets").join("manifest.json"), "{ not json").unwrap();
+    fs::write(vault.join("note.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let big = d.join("big.bin");
+    fs::write(&big, vec![1u8; 1024 * 1024 + 1]).unwrap();
+    let err = import_attachment(
+      v,
+      "note.md".into(),
+      big.to_string_lossy().to_string(),
+      "big".into(),
+    )
+    .unwrap_err();
+    assert!(err.contains("引用台账"), "台账坏了要明确报错：{err}");
   }
 
   /// 文件监听的事件过滤（rev173.59）：只放行库内 `.md` / `.markdown`；
