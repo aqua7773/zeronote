@@ -2,17 +2,17 @@
   "id": "ai",
   "name": "AI 管家",
   "author": "aqua7773",
-  "description": "对话式 AI 管家：用一句话定义任务，按事件 / 定时 / 手动触发自动干活（第四版：完成声明由宿主核对 —— 说「已完成」必须对应本轮真实的工具调用，否则界面直接标红）",
+  "description": "对话式 AI 管家：用一句话定义任务，按事件 / 定时 / 手动触发自动干活（第五版：完成声明连自动任务一起核对，模型伪造的工具记录会被界面剥掉）",
   "category": "tool",
   "platforms": [
     "desktop",
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.8.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/ai-0.8.0.znp",
-  "sha256": "22a7b167a300464bee16ab61e0800639bdcae1e7fc905a6df8c5195f5e7f1cfd",
-  "size": 152980,
+  "version": "0.9.0",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/ai-0.9.0.znp",
+  "sha256": "034f4c920305dca924c59eb0d2eaec9514f96ddf70cb5d800074a3f9670d216a",
+  "size": 154678,
   "files": [
     "index.js",
     "signature.json"

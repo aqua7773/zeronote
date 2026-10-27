@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "ai",
   "name": "AI 管家",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "对话式 AI 管家：用一句话定义任务，按事件 / 定时 / 手动触发自动干活（第四版：完成声明由宿主核对 —— 说「已完成」必须对应本轮真实的工具调用，否则界面直接标红）",
+  "description": "对话式 AI 管家：用一句话定义任务，按事件 / 定时 / 手动触发自动干活（第五版：完成声明连自动任务一起核对，模型伪造的工具记录会被界面剥掉）",
   "category": "tool",
   "capabilities": [
     "fs:read",
