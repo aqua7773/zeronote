@@ -135,6 +135,9 @@ revision: 173.214
 > - `scripts/verify.ps1` 六步全绿 · vitest **1311**（本轮没动代码，测试数不变）· 质量门 **7/7** ——
 >   其中市场索引校验：条目 version 与 `examples/ai/manifest.json` 一致 · 包真在 `market/packs/` ·
 >   整包 sha256 与条目一致
+> - **远程可达**（推送后当场从 `main` 拉）：raw **带代理** 2.5 s 下到 **144,783 B**、sha256 `fc42785f…` 与本地
+>   逐字节一致 · raw **直连此刻 502**（本机网络，不是包的问题）· `fastly.jsdelivr.net/gh/…@main` **直连 1.2 s /
+>   代理 0.4 s**，sha256 同样一致 · `cdn.jsdelivr.net` 直连与代理都 502（与 rev173.194 结论一致：这个域两端都断）
 >
 > ### 一个坑
 >
