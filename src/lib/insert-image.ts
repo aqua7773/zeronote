@@ -45,12 +45,47 @@ export function dirnamePosix(path: string): string {
 }
 
 /**
+ * Markdown 的**尖括号目标** `<路径>` → 内部路径（去掉尖括号与两侧空白）。
+ *
+ * CommonMark 用尖括号包住「含空格的路径」，我们插入引用型附件时也这么写
+ * （`![](<C:/Music/专辑 1/a b.mp3>)`）。atomic 的图片解析从 rev173.235 起支持它，
+ * 但别的入口（表格、预览、未来的渲染器）拿到的可能仍是带尖括号的原文 ——
+ * 剥掉比带着去当文件名安全（否则 `<` 会变成文件名的一部分）。
+ */
+export function stripAngleTarget(src: string): string {
+  const t = src.trim()
+  return t.length >= 2 && t.startsWith('<') && t.endsWith('>') ? t.slice(1, -1).trim() : t
+}
+
+/**
+ * 本地路径里的百分号转义 → 真字符（`%20` → 空格）。
+ *
+ * 为什么需要：`![](<a b.png>)` 是标准写法，但用户也可能写成 `a%20b.png`
+ * —— 而 `convertFileSrc` 会把 `%` **再编码一次**（`%20` → `%2520`）⇒ 文件找不到。
+ * rev173.235 实测：编码路径的图在编辑器里加载失败（`naturalWidth = 0`）。
+ *
+ * 只对本地路径调用（`http(s):` 在 `resolveImageAbsPath` 里已经提前返回 null）；
+ * 解不开（非法转义）就原样返回 —— 文件名里本来就可能真的有 `%`。
+ */
+export function decodeLocalPath(path: string): string {
+  if (!path.includes('%')) return path
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
+/**
  * 图片 src → **本机绝对路径**（供 `convertFileSrc`）。
  *
  * 返回 null 表示「不该由库内路径解析」：
  *  - 已经是 URL（`https:` / `data:` / `blob:` / `asset:`）；
  *  - 相对路径越出了库根（`../../x.png`）；
  *  - 库路径为空（vault 未就绪）。
+ *
+ * 宽容处理（rev173.235）：尖括号目标先剥掉、百分号转义先解码再解析 ——
+ * 「引用原文件」写出的 `<C:/…/截图 2026 10.png>` 与手写的 `%20` 形式都能落到真路径。
  *
  * Windows 绝对路径原样返回（调用方仍可 `convertFileSrc` 它）。
  */
@@ -59,7 +94,7 @@ export function resolveImageAbsPath(
   notePath: string | null | undefined,
   src: string,
 ): string | null {
-  const raw = src.trim()
+  const raw = decodeLocalPath(stripAngleTarget(src))
   if (!raw) return null
   // 盘符 + 斜杠先于 scheme 判定：`C:\x` 长得像 scheme，但它是本机绝对路径
   if (WIN_ABS_RE.test(raw)) return raw.replace(/\\/g, '/')

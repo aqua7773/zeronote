@@ -2946,3 +2946,21 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   background: var(--zn-bg-subtle, rgba(127, 127, 127, 0.08));
   border-radius: var(--zn-radius-sm);
 }
+
+/*
+ * 附件加载失败的提示（rev173.235 · 需求 §4「不静默破图」）。
+ *
+ * 图片与音视频共用一套：左边一道红条 + 灰色小字 + 明文路径。
+ * 「引用原文件」的原图被移动 / 删除 / 换机器之后要能立刻看出来，
+ * 而不是留个空白块让人以为笔记坏了。
+ */
+.zn-image-error,
+.zn-media-error {
+  margin: 4px 2px 0;
+  padding: 3px 8px;
+  border-left: 2px solid var(--zn-danger, #d9534f);
+  color: var(--zn-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}

@@ -12,7 +12,7 @@ import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
-import { resolveImageAbsPath } from '../lib/insert-image'
+import { resolveImageAbsPath, stripAngleTarget } from '../lib/insert-image'
 import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
 import { isPlainBracketLink, isPlainBracketSource, wikiLinkTarget } from '../lib/atomic-link'
@@ -120,8 +120,35 @@ function fixImageSrc(
     }
     // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
     if (img.src !== url) img.src = url
+    attachImageErrorHint(img, raw)
   }
   upgradeMediaWidgets(view, vault, notePath)
+}
+
+/**
+ * 图片加载失败 → 在 widget 里写一行明确说明（rev173.235 · 需求 §4「不静默破图」）。
+ *
+ * 典型场景就是「引用原文件」：原图在另一台机器上、或被移动 / 删除了 ——
+ * 只留一个空白块，用户会以为笔记坏了。提示里带上**原文路径**，
+ * 方便直接去文件管理器核对。
+ *
+ * `error` 可能在挂监听**之前**就发生（虚拟化重建 / 缓存命中），所以先看 `complete`。
+ * 用 `dataset` 标记保证同一个 `<img>` 只挂一次（`fixImageSrc` 会被 MutationObserver 反复调用）。
+ */
+function attachImageErrorHint(img: HTMLImageElement, raw: string) {
+  if (img.dataset.znErrorBound) return
+  img.dataset.znErrorBound = '1'
+  const show = () => {
+    const wrap = img.closest('.cm-atomic-image')
+    if (!wrap || wrap.querySelector('.zn-image-error')) return
+    const hint = document.createElement('div')
+    hint.className = 'zn-image-error'
+    hint.textContent = `图片不在本机：${stripAngleTarget(raw)}`
+    wrap.appendChild(hint)
+  }
+  img.addEventListener('error', show, { once: true })
+  // 失败在挂监听之前就结束的情形：`complete` 已经为真且没有解出尺寸
+  if (img.complete && img.naturalWidth === 0) show()
 }
 
 /**
@@ -152,7 +179,8 @@ function upgradeMediaWidgets(
     if (!img) continue
     const raw = img.getAttribute('src')
     if (!raw) continue
-    const kind = mediaKindOf(raw)
+    // 尖括号目标（`![](<a b.mp4>)`）：扩展名判定要看剥掉尖括号后的真路径
+    const kind = mediaKindOf(stripAngleTarget(raw))
     if (!kind) continue
     const url = mediaSourceUrl(raw, vault, notePath)
     if (!url) continue

@@ -1,3 +1,25 @@
+diff --git a/dist/image-blocks.js b/dist/image-blocks.js
+index e23cd282779279b2d46577a23faa089812f326f2..9fd0c91e3d7e1ddd4d1779a99b46acb2a4871c40 100644
+--- a/dist/image-blocks.js
++++ b/dist/image-blocks.js
+@@ -142,10 +142,15 @@ function buildImageBlocks(state) {
+             // (escaped parens etc.); the regex fails safely by skipping
+             // the widget.
+             const raw = state.doc.sliceString(node.from, node.to);
+-            const match = raw.match(/^!\[([^\]]*)\]\(([^\s)"']+)(?:\s+["'][^)]*["'])?\)$/);
++            // PATCH(ZeroNote): 支持 CommonMark 的**尖括号目标** `![](<路径 带空格.png>)`
++            // 与裸的含空格路径。原正则 `[^\s)"']+` 一遇空格就断，整行静默不渲染
++            // —— 而我们的「引用原文件」恰好会写出 `<C:/…/截图 2026 10.png>`（rev173.232/234）。
++            // 尖括号分支在前：它允许内部有空格，但不允许 `>` 与换行。
++            const match = raw.match(/^!\[([^\]]*)\]\(\s*(?:<([^>\n]*)>|([^\s)"']+))(?:\s+["'][^)]*["'])?\s*\)$/);
+             if (!match)
+                 return;
+-            const [, alt, src] = match;
++            const [, alt, angleSrc, bareSrc] = match;
++            const src = angleSrc ?? bareSrc;
+             if (!src)
+                 return;
+             const line = state.doc.lineAt(node.from);
 diff --git a/dist/inline-preview.js b/dist/inline-preview.js
 index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..4ef1a18475702d0697c1f0f9443458d00fb2b0a0 100644
 --- a/dist/inline-preview.js
@@ -70,7 +92,7 @@ index 67f18b3d3f9856530dd5cda94bb18d900657c8ca..4ef1a18475702d0697c1f0f9443458d0
                  // Detect a task item from the line text. ListMark is visited
                  // before the TaskMarker on its line, so a forward single-pass
 diff --git a/dist/table-widget.js b/dist/table-widget.js
-index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdda3791fef 100644
+index aee407c4aaa2eea5a46c0fa28831dcc80985c783..37155de7cc621ffdcb0ac72ec89d514eb12162d8 100644
 --- a/dist/table-widget.js
 +++ b/dist/table-widget.js
 @@ -45,6 +45,8 @@ export function splitRowCells(line) {
@@ -133,7 +155,37 @@ index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdd
  }
  // A cell's raw markdown lives in `dataset.raw` — the source of truth
  // that `readModelFromDom` reads when serializing the table back to
-@@ -561,6 +582,9 @@ class TableWidget extends WidgetType {
+@@ -174,13 +195,14 @@ function matchCellMarkAt(raw, from) {
+     }
+     // Link `[text](url)`. Reject empty text / url via `+` quantifiers.
+     // `]` and `)` can't appear unescaped inside their respective fields.
+-    m = rest.match(/^\[([^\]\n]+)\]\(([^\s)"'\n]+)\)/);
++    m = rest.match(/^\[([^\]\n]+)\]\(\s*(?:<([^>\n]*)>|([^\s)"'\n]+))\s*\)/);
+     if (m) {
+         return {
+             token: {
+                 type: 'link',
+                 textChildren: parseCellInline(m[1]),
+-                url: m[2],
++                // PATCH(ZeroNote): 尖括号目标（`[文字](<路径 带空格>)`）
++                url: m[2] ?? m[3],
+             },
+             end: from + m[0].length,
+         };
+@@ -431,9 +453,10 @@ function clearActiveMarksInSource(source) {
+ // malformed sources rather than embedding a broken preview.
+ function extractCellImages(text) {
+     const imgs = [];
+-    const re = /!\[([^\]]*)\]\(([^\s)"']+)(?:\s+["'][^)]*["'])?\)/g;
++    // PATCH(ZeroNote): 与 image-blocks.js 同一套规则 —— 尖括号目标优先（允许内部空格）
++    const re = /!\[([^\]]*)\]\(\s*(?:<([^>\n]*)>|([^\s)"']+))(?:\s+["'][^)]*["'])?\s*\)/g;
+     for (const match of text.matchAll(re)) {
+-        imgs.push({ alt: match[1] || '', src: match[2] });
++        imgs.push({ alt: match[1] || '', src: match[2] ?? match[3] });
+     }
+     return imgs;
+ }
+@@ -561,6 +584,9 @@ class TableWidget extends WidgetType {
              return false;
          if (other.model.rows.length !== this.model.rows.length)
              return false;
@@ -143,7 +195,7 @@ index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdd
          return true;
      }
      toDOM(view) {
-@@ -570,8 +594,9 @@ class TableWidget extends WidgetType {
+@@ -570,8 +596,9 @@ class TableWidget extends WidgetType {
          wrap.appendChild(table);
          const thead = document.createElement('thead');
          const headerRow = document.createElement('tr');
@@ -154,7 +206,7 @@ index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdd
          }
          thead.appendChild(headerRow);
          table.appendChild(thead);
-@@ -580,7 +605,7 @@ class TableWidget extends WidgetType {
+@@ -580,7 +607,7 @@ class TableWidget extends WidgetType {
          for (const row of this.model.rows) {
              const tr = document.createElement('tr');
              for (let c = 0; c < colCount; c++) {
@@ -163,7 +215,7 @@ index aee407c4aaa2eea5a46c0fa28831dcc80985c783..10a4dbfd7f396740c0902116df421cdd
              }
              tbody.appendChild(tr);
          }
-@@ -594,8 +619,11 @@ class TableWidget extends WidgetType {
+@@ -594,8 +621,11 @@ class TableWidget extends WidgetType {
          return true;
      }
  }

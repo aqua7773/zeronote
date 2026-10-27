@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@atomic-editor/editor@0.6.2':
-    hash: 9badb0f56bba8e9ce3b546ae4e41b0048f5188cdaec7fd24a76f2f96c6dae233
+    hash: 169931015f2313ad1ad45aa5c79f2f53e6ae491fdcb4f3a623cf458fae5c6742
     path: patches/@atomic-editor__editor@0.6.2.patch
 
 importers:
@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@atomic-editor/editor':
         specifier: ^0.6.2
-        version: 0.6.2(patch_hash=9badb0f56bba8e9ce3b546ae4e41b0048f5188cdaec7fd24a76f2f96c6dae233)(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.6.2(patch_hash=169931015f2313ad1ad45aa5c79f2f53e6ae491fdcb4f3a623cf458fae5c6742)(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@codemirror/lang-markdown':
         specifier: ^6.5.2
         version: 6.5.2
@@ -1631,7 +1631,7 @@ snapshots:
       package-manager-detector: 1.9.0
       tinyexec: 1.3.1
 
-  '@atomic-editor/editor@0.6.2(patch_hash=9badb0f56bba8e9ce3b546ae4e41b0048f5188cdaec7fd24a76f2f96c6dae233)(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@atomic-editor/editor@0.6.2(patch_hash=169931015f2313ad1ad45aa5c79f2f53e6ae491fdcb4f3a623cf458fae5c6742)(@codemirror/autocomplete@6.20.3)(@codemirror/commands@6.11.1)(@codemirror/lang-css@6.3.1)(@codemirror/lang-html@6.4.12)(@codemirror/lang-javascript@6.2.5)(@codemirror/lang-markdown@6.5.2)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.14)(@lezer/common@1.5.3)(@lezer/highlight@1.2.5)(@lezer/markdown@1.8.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@codemirror/autocomplete': 6.20.3
       '@codemirror/commands': 6.11.1

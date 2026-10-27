@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   attachmentStem,
+  decodeLocalPath,
   dirnamePosix,
   imageInsertion,
   linkInsertion,
@@ -17,6 +18,7 @@ import {
   pathFromNote,
   resolveImageAbsPath,
   stemFromFileName,
+  stripAngleTarget,
 } from '../src/lib/insert-image'
 
 describe('normalizePosix', () => {
@@ -83,6 +85,46 @@ describe('resolveImageAbsPath', () => {
 
   it('库路径尾部斜杠不会拼出双斜杠', () => {
     expect(resolveImageAbsPath('C:\\vault\\', 'a.md', 'x.png')).toBe('C:/vault/x.png')
+  })
+
+  /* rev173.235：库外引用写的是 `<C:/…/截 图.png>`（尖括号目标），原正则一遇空格整行不渲染 */
+
+  it('尖括号目标：绝对路径含空格也能解析（引用原文件的真实写法）', () => {
+    expect(resolveImageAbsPath(vault, 'a.md', '<C:/Music/专辑 1/a b.png>')).toBe(
+      'C:/Music/专辑 1/a b.png',
+    )
+  })
+
+  it('尖括号目标：库内相对路径同样生效', () => {
+    expect(resolveImageAbsPath(vault, 'sub/a.md', '<my pic.png>')).toBe('C:/vault/sub/my pic.png')
+  })
+
+  it('百分号编码：先解码再拼路径（否则 asset 协议会二次编码）', () => {
+    expect(resolveImageAbsPath(vault, 'sub/a.md', 'my%20pic.png')).toBe('C:/vault/sub/my pic.png')
+    expect(resolveImageAbsPath(vault, 'a.md', '<C:/x/%E6%88%AA%E5%9B%BE%201.png>')).toBe(
+      'C:/x/截图 1.png',
+    )
+  })
+})
+
+describe('stripAngleTarget', () => {
+  it('去掉尖括号与两侧空白；普通路径原样', () => {
+    expect(stripAngleTarget('<C:/a b/c.png>')).toBe('C:/a b/c.png')
+    expect(stripAngleTarget('  <a b.png>  ')).toBe('a b.png')
+    expect(stripAngleTarget('C:/a/c.png')).toBe('C:/a/c.png')
+    expect(stripAngleTarget('<>')).toBe('')
+  })
+})
+
+describe('decodeLocalPath', () => {
+  it('解 %20 / 中文转义', () => {
+    expect(decodeLocalPath('C:/a%20b/c.png')).toBe('C:/a b/c.png')
+    expect(decodeLocalPath('C:/%E5%9B%BE.png')).toBe('C:/图.png')
+  })
+
+  it('没有 % 或转义非法时原样返回（文件名里本来就可能有 %）', () => {
+    expect(decodeLocalPath('C:/a/c.png')).toBe('C:/a/c.png')
+    expect(decodeLocalPath('C:/100%/c.png')).toBe('C:/100%/c.png')
   })
 })
 
