@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-28（rev173.236 · 音视频块版式与图片统一）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-28（rev173.237 · 交接：附件期 2/3 + 音视频版式）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.236 · 0.6.0 · 2026-10-28 |
-| 测试基线 | vitest 1404 · cargo 67 · oxlint 3 warnings（2026-10-28） |
+| rev / 版本 | rev173.237 · 0.6.0 · 2026-10-28 |
+| 测试基线 | vitest 1404 · cargo 67 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-28 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -184,16 +184,21 @@ pwsh -File scripts\verify.ps1
 | `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
 | 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 16 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
 
-## 环境现状（活信息 · 2026-10-26）
+## 环境现状（活信息 · 2026-10-29）
 
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 本卡最后更新时 **dev 是开着的**（pid **38456** · 2026-10-28 05:16:26 启动 —— rev173.232 改 `lib.rs`
-  后 tauri CLI 自动重编重启；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 交接时 **dev 是开着的**（pid **32984** · 2026-10-28 06:06:20 启动 —— 换 atomic patch 后手动重启的那次；
+  **已跑 18.7 小时**，vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
+  结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
+- ⚠️ **编辑器 CSS 在一个 JS 模板字符串里**（`src/components/MarkdownEditor.tsx` 中段）—— 注释里写**反引号**会提前终止字符串 ⇒ 整页白屏（`vite:oxc` 报 "Try inserting a semicolon here"）。rev173.236 踩过一次。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
+  ⚠️ **交接时 adb 无设备**（2026-10-29 00:47 `adb devices` 空）⇒ 手机未验 230–236；234 动了
+  `Cargo.toml`（`image` 依赖 + dev profile）⇒ **重装 APK 才能验**。
   ⚠️ 交接时有**一个 watch 进程在跑**（AI 当后台 job 起的：`cmd /c android-dev.cmd`，03:12 起）——
   会话结束 job 被回收时它可能一起消失（app 是独立进程，不受影响）。**要再编就双击 `android-dev.cmd`**，
   编之前先清旧进程树（见下）。
