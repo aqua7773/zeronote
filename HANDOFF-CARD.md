@@ -169,7 +169,13 @@ pwsh -File scripts\verify.ps1
 >      （后端 `local-folder` / `webdav` · 云端临时区 `.zn-asset-staging/<sha16>/<文件名>` + `.zn-ack` ·
 >      状态按「云端目录 + ack」实时算）+ **7 条命令**（config / pending / upload / remote / land / cleanup / relink，
 >      上传与落地都校验 sha256）+ 设置页**「附件」tab**（上传 / 接收 / 清理，每次动作前 `window.confirm` 点名 + 写体积）。
->      桌面两库 + 共享目录实测全链路（上传 → 落地 + 引用改写 → 删云端）；cargo **76** · vitest **1419**
+>      桌面两库 + 共享目录实测全链路（上传 → 落地 + 引用改写 → 删云端）；cargo **76** · vitest **1419**。
+>      **手机端也已验**（33b676f6，APK 重编装 01:31）：配置 → 刷新云端 → 接收 6.9 MB → 落地逐字节一致 +
+>      引用改写 + 台账 devices + ack → 清理，全过
+>    · ⚠️ **已知平台限制（手机）**：**Android 上大视频播不了** —— `readyState 0 / networkState 2 / buffered 0`，
+>      小视频（320×240 / 11 KB）与 1.4 MB MP3 正常 ⇒ 根因是 **Tauri Android Custom Protocol 不支持 Range**
+>      （[tauri#12019](https://github.com/tauri-apps/tauri/issues/12019)），与期 4 无关；rev173.226 当时只验了小视频。
+>      **下一 rev 对策**：Rust 起本地 HTTP 媒体服务（支持 206）或调系统播放器
 >    · ⑨ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配

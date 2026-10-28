@@ -55,15 +55,6 @@ pub enum RelayBackend {
   },
 }
 
-impl RelayBackend {
-  fn kind(&self) -> &'static str {
-    match self {
-      RelayBackend::LocalFolder { .. } => "local-folder",
-      RelayBackend::WebDav { .. } => "webdav",
-    }
-  }
-}
-
 /// 读配置；文件不存在 = 没配过（正常状态，不是错误）。
 fn read_relay_config(vault: &str) -> Result<serde_json::Value, String> {
   let path = Path::new(vault).join(ASSETS_DIR).join("relay.json");

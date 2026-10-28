@@ -188,15 +188,44 @@ revision: 173.238
 > - **vitest 1404 → 1419**：状态机 6 条（local / absent / staged / landed / pulled / 别设备）·
 >   动作集合 3 条（可上传 / 可接收 / 可清理）· 确认文案 3 条 · 展示 3 条。
 >
+> ### 手机端实测（2026-10-29 · APK 重编装于 01:31）
+>
+> 手机 `33b676f6`（24069RA21C · `com.aqua.zeronote.debug` 0.6.0）。**旧包里没有新命令**
+> （`ERR: Command asset_relay_pending not found`）⇒ 重编
+> `pnpm tauri android build --debug --target aarch64`（Rust 2m46s + gradle；arm64 产物实际是 universal APK）。
+> 装后全部命令可用。
+>
+> | 步 | 结果 |
+> |---|---|
+> | 设置 → 附件 | 新 tab 出现，设备 `a4a832b8`，台账「源文件不在本机」判定正确 |
+> | 配置共享目录 `/storage/emulated/0/zn-relay-shared` | 保存成功；刷新云端看到 1 个文件「等对端」 |
+> | 接收（6.9 MB） | 确认文案正确 → `.zn-assets/external/8bd001ef-clip2.mp4` **7233900 B 逐字节一致** → `relay-test2.md` 引用改写为 `.zn-assets/external/…` → 台账 `devices[手机]` 写入 → `.zn-ack` = 手机设备 id |
+> | 清理 | 确认文案正确 → 云端 hash 目录删除（只剩空 `.zn-asset-staging`） |
+>
+> 截图 `_shots/rev173238-phone-{1-settings,2-assets-tab,3-landed}.png`。
+>
+> ⚠️ **顺带发现一条既有平台限制（与本期无关）**：**Android 上大视频播不了**。
+> `readyState 0 / networkState 2（LOADING）/ buffered 0`，等 12 秒零字节；而 11 KB 的 320×240 小视频
+> `readyState 4`、1.4 MB MP3 `readyState 4` 都正常 ⇒ 不是编码 / 体积 / 路径问题（`.zn-assets/external/` 与库根
+> 表现一致），根因是 **Tauri 的 Android Custom Protocol 不支持 Range 请求**
+> （[tauri#12019](https://github.com/tauri-apps/tauri/issues/12019)；参考[一篇 Tauri 2 实测](https://zenn.dev/oka_yu/articles/eabec3c0226585)）。
+> rev173.226 的手机验证用的是**小视频**（320×240 / 11 KB），所以一直没暴露。
+>
+> **下一 rev 的对策**（按成本）：① **Rust 起本地 HTTP 媒体服务**（`127.0.0.1` + 随机端口，只暴露库内路径，支持 206）
+> —— 桌面与手机统一；② 调系统播放器插件（`tauri-plugin-android-player`，全屏、不能内联）；③ 转码降分辨率（不解决根因）。
+> 本轮**只记录不修**（用户这一轮只要求「手机端测试」）。
+>
 > ### 遗留 / 下一步
 >
 > - **WebDAV 后端没真机测**：PROPFIND 解析、流式下载、Basic auth 都只过了编译与纯函数；
 >   要验得自建 DAV 桩（`rclone serve webdav` 或 `python -m http.server` 不够——它不支持 PROPFIND/PUT）。
 > - **三入口只接了「附件面板」**：需求 §5 的另两个（笔记里音视频「原文件不在本机 · 同步」、
 >   模式 B 图片的「同步原图」）还没接 —— 它们复用同一套 `landRelay` + `relinkRelay`，只是入口位置不同。
-> - **手机未验**：本 rev 全部在 Rust + 前端，`Cargo.toml` 没动 ⇒ 前端 reload 即生效；
->   手机 adb 当前无设备（2026-10-29 00:47 实测）。
+> - **手机端搬运已验**（见上）；但**大视频播放是平台限制**（tauri#12019），要单开 rev 做本地 HTTP 媒体服务。
 > - `asset_relay_cleanup` 是「全库已 ack 的一次清」——将来文件多时可加「只清选中」。
+> - **窄屏（手机）按钮挤成竖排**：附件面板的「保存 / 刷新云端 / 接收云端文件 / 清理已落地」在 444px 视口里
+>   每个字一行（`_shots/rev173238-phone-2-assets-tab.png` 实测）。与 `Settings.tsx` Row 的已知窄屏问题同类，
+>   修法：按钮组 `flex-wrap` + 短文案（「保存设置」→「保存」；「接收云端文件」→「接收」）。
 
 > ## 📌 rev173.237（2026-10-28 · 交接）
 >
