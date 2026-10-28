@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Info, Plug, Settings2 } from 'lucide-react'
+import { HardDrive, Info, Plug, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui'
 import { Button } from '@/components/ui'
 import { PluginPanel, type PluginRow } from './PluginPanel'
+import { AssetRelayPanel } from './AssetRelayPanel'
 import type { CapabilityName, CapabilityStatus, PluginLogEntry } from '../kernel/contract'
 import { CAPABILITY_LABELS } from '../kernel/capability'
 import type { KernelAudit } from '../kernel/kernel'
@@ -19,10 +20,12 @@ import type { ImageInsertMode } from '../kernel/attachment'
  * 差异：Lumina 有 6 个 tab（AI/同步/网络/账号…），ZeroNote 的内核只有三件自己的事 ——
  * 通用（库与外观）、插件、关于。其余能力按架构都该由插件提供，不进内核设置。
  */
-type TabId = 'general' | 'plugins' | 'about'
+type TabId = 'general' | 'assets' | 'plugins' | 'about'
 
 const TABS: { id: TabId; label: string; icon: typeof Settings2 }[] = [
   { id: 'general', label: '通用', icon: Settings2 },
+  // rev173.238：附件跨设备搬运（需求 §5）——配置云端临时区 + 上传 / 接收 / 清理
+  { id: 'assets', label: '附件', icon: HardDrive },
   { id: 'plugins', label: '插件', icon: Plug },
   { id: 'about', label: '关于', icon: Info },
 ]
@@ -299,6 +302,8 @@ export function Settings({
                 </Row>
               </>
             ) : null}
+
+            {tab === 'assets' ? <AssetRelayPanel vault={vault} /> : null}
 
             {tab === 'plugins' ? (
               /**

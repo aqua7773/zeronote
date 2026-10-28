@@ -25,6 +25,10 @@ use tauri::{Emitter, Manager};
 /// 这两组是**管道**不是功能，协议语义全在同步插件里。
 mod net;
 
+/// 附件跨设备搬运（rev173.238 · 附件同步期 4）—— 本地 → 云端临时 → 对端落地 → 清云端。
+/// 独立成模块：它需要同时碰「台账（lib.rs）」与「HTTP（net.rs）」，塞进 lib.rs 只会让它更厚。
+pub mod assets;
+
 /// Windows Hello（rev173.169 · 期 2c）：KeyCredentialManager + 带窗口 interop。
 #[cfg(windows)]
 mod hello;
@@ -3890,6 +3894,15 @@ pub fn run() {
       import_attachment_b64,
       // rev173.232：附件同步期 1（引用台账）
       assets_ledger_read,
+      // rev173.238：附件同步期 4（跨设备搬运）
+      assets::asset_relay_config,
+      assets::asset_relay_config_set,
+      assets::asset_relay_pending,
+      assets::asset_relay_upload,
+      assets::asset_relay_remote,
+      assets::asset_relay_land,
+      assets::asset_relay_cleanup,
+      assets::asset_relay_relink,
       disable_accelerator_keys_for,
       write_absolute,
       write_absolute_b64,

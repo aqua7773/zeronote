@@ -1,0 +1,230 @@
+/**
+ * **附件跨设备搬运**（rev173.238 · 附件同步期 4）。
+ *
+ * 链路（`docs/附件与同步-需求-2026-10-28.md` §5）：
+ *   本地 → 云端临时 → 另一端落地 → 引用本地原文件 → 云端删除
+ *   状态机：local → staged → landed → cleaned
+ *
+ * 触发是**用户主动 + 每次确认**（不自动搬）：启动 / 保存 / 定时 / 打开笔记都不搬。
+ * 后端两种：`local-folder`（共享目录）· `webdav`；Git 不做（大文件炸历史）。
+ *
+ * 这里只放类型、IPC 包装与**纯函数**（状态判定 / 确认文案 / 大小汇总）——
+ * 真正的搬运全在 Rust `assets.rs`（文件系统 + HTTP 在 WebView 里都不可靠）。
+ */
+import { invoke } from '@tauri-apps/api/core'
+import { formatSize } from './attachment'
+
+export type RelayBackend =
+  | { kind: 'local-folder'; root: string }
+  | { kind: 'webdav'; baseUrl: string; root: string; username: string }
+
+export type RelayConfig = {
+  version: number
+  backend: RelayBackend | null
+  hasPassword?: boolean
+}
+
+/** 本地可达的台账条目（`asset_relay_pending`） */
+export type RelayPendingItem = {
+  id: string
+  original: string
+  size: number
+  storedInVault: string | null
+  preview: string | null
+  /** 本机可用源文件（优先入库副本，其次原文件） */
+  localPath: string | null
+  exists: boolean
+  devices: Record<string, string | null>
+  /** 本机上传过、云端临时区已清理（relay 链走完的终态标记）；从未走过为 null */
+  relayCleanedAt?: number | null
+}
+
+/** 云端临时区里的一条（`asset_relay_remote`） */
+export type RelayRemoteItem = {
+  /** `sha256:` 之后的 16 位前缀（目录名） */
+  hash16: string
+  name: string
+  size: number
+  /** 对端已经落地 */
+  acked: boolean
+}
+
+export type RelayUploadItemResult = {
+  id: string
+  ok: boolean
+  size?: number
+  name?: string
+  error?: string
+}
+
+export type RelayUploadResult = {
+  uploaded: number
+  totalBytes: number
+  items: RelayUploadItemResult[]
+}
+
+export type RelayLandItemResult = {
+  id: string
+  ok: boolean
+  /** 落地后的**库内相对路径**（`external/<hash8>-<名>`） */
+  path?: string
+  /** 原文件绝对路径（改写引用时用） */
+  original?: string
+  error?: string
+}
+
+export type RelayLandResult = {
+  landed: number
+  totalBytes: number
+  items: RelayLandItemResult[]
+}
+
+export type RelayRemoteResult = { items: RelayRemoteItem[]; total: number }
+
+export type RelayCleanupResult = { cleaned: number; kept: number; errors: string[] }
+
+export type RelayRelinkResult = { changedNotes: number; hits: number }
+
+/** `sha256:abcd…` → `abcd…`（取前 16 位，与云端目录名一致） */
+export function hash16Of(id: string): string {
+  const hex = id.startsWith('sha256:') ? id.slice('sha256:'.length) : id
+  return hex.slice(0, 16).toLowerCase()
+}
+
+/**
+ * 一个文件现在的状态（**纯函数**，面板与测试共用）。
+ *
+ * - `absent`：本机与云端都没有（源文件被移走 / 删了、云端也清理了）
+ * - `local`：本机有，云端没有 ⇒ 可以上传
+ * - `staged`：云端有、对端还没落地 ⇒ 等对端
+ * - `landed`：对端已落地（有 ack）⇒ 可以清理云端
+ * - `pulled`：**本机**已经落地过（devices[本机] 有值），不需要再拉
+ */
+export type RelayState = 'absent' | 'local' | 'staged' | 'landed' | 'pulled'
+
+export function relayStateOf(
+  item: RelayPendingItem,
+  remote: RelayRemoteItem[],
+  deviceId: string | null,
+): RelayState {
+  const pulledHere = deviceId ? Boolean(item.devices?.[deviceId]) : false
+  const hits = remote.filter((r) => r.hash16 === hash16Of(item.id))
+  if (hits.some((r) => r.acked)) return pulledHere ? 'pulled' : 'landed'
+  if (hits.length > 0) return pulledHere ? 'pulled' : 'staged'
+  if (pulledHere) return 'pulled'
+  return item.exists ? 'local' : 'absent'
+}
+
+/** 可以上传的（本机有、且云端还没有这份） */
+export function uploadableIds(items: RelayPendingItem[], remote: RelayRemoteItem[], deviceId: string | null): string[] {
+  return items
+    .filter((it) => {
+      const state = relayStateOf(it, remote, deviceId)
+      return state === 'local'
+    })
+    .map((it) => it.id)
+}
+
+/** 可以接收的（云端有、本机还没落地） */
+export function receivableIds(items: RelayPendingItem[], remote: RelayRemoteItem[], deviceId: string | null): string[] {
+  return items
+    .filter((it) => {
+      const state = relayStateOf(it, remote, deviceId)
+      return state === 'staged' || state === 'landed'
+    })
+    .map((it) => it.id)
+}
+
+/** 可以清理的（云端有、且对端已 ack） */
+export function cleanable(remote: RelayRemoteItem[]): string[] {
+  const set = new Set<string>()
+  for (const r of remote) if (r.acked) set.add(r.hash16)
+  return [...set]
+}
+
+/** 一组条目的总字节数 */
+export function totalBytesOf(items: { size: number }[]): number {
+  return items.reduce((sum, it) => sum + (Number.isFinite(it.size) ? it.size : 0), 0)
+}
+
+/**
+ * 确认文案（需求 §5：每次触发前都要确认，且**点名 + 写体积**）。
+ * `kind` 决定动词与语气：上传 / 接收 / 清理。
+ */
+export function confirmText(
+  kind: 'upload' | 'land' | 'cleanup',
+  items: { size: number; original?: string; name?: string }[],
+): string {
+  const count = items.length
+  const bytes = totalBytesOf(items)
+  if (kind === 'upload') {
+    const names = items
+      .slice(0, 3)
+      .map((it) => it.original?.split(/[\\/]/).pop() ?? it.name ?? '')
+      .filter(Boolean)
+      .join('、')
+    const more = count > 3 ? ` 等 ${count} 个` : ''
+    return `即将把「${names}」${more}上传到云端临时区（共 ${formatSize(bytes)}），继续？`
+  }
+  if (kind === 'land') {
+    return `即将从云端接收 ${count} 个文件（共 ${formatSize(bytes)}）并落地到本库，继续？`
+  }
+  return `即将删除云端临时区里的 ${count} 份文件（共 ${formatSize(bytes)}）—— 对端都已落地，删除后不再可取回。继续？`
+}
+
+/** 状态的中文标签（面板用） */
+export function relayStateLabel(state: RelayState): string {
+  switch (state) {
+    case 'local':
+      return '待上传'
+    case 'staged':
+      return '云端暂存 · 等对端'
+    case 'landed':
+      return '对端已落地 · 可清理'
+    case 'pulled':
+      return '已在本机'
+    case 'absent':
+      return '源文件不在本机'
+  }
+}
+
+/* ───────────── IPC ───────────── */
+
+export function loadRelayConfig(vault: string): Promise<RelayConfig> {
+  return invoke<RelayConfig>('asset_relay_config', { vault })
+}
+
+export function saveRelayConfig(
+  vault: string,
+  backend: RelayBackend,
+  password?: string | null,
+): Promise<void> {
+  return invoke('asset_relay_config_set', { vault, backend, password: password ?? null })
+}
+
+export function loadRelayPending(
+  vault: string,
+): Promise<{ deviceId: string; items: RelayPendingItem[] }> {
+  return invoke('asset_relay_pending', { vault })
+}
+
+export function loadRelayRemote(vault: string): Promise<RelayRemoteResult> {
+  return invoke<RelayRemoteResult>('asset_relay_remote', { vault })
+}
+
+export function uploadRelay(vault: string, ids: string[]): Promise<RelayUploadResult> {
+  return invoke<RelayUploadResult>('asset_relay_upload', { vault, ids })
+}
+
+export function landRelay(vault: string, ids: string[]): Promise<RelayLandResult> {
+  return invoke<RelayLandResult>('asset_relay_land', { vault, ids })
+}
+
+export function cleanupRelay(vault: string): Promise<RelayCleanupResult> {
+  return invoke<RelayCleanupResult>('asset_relay_cleanup', { vault })
+}
+
+/** 把库内笔记里对 `from` 的引用改写成 `to`（库内相对路径） */
+export function relinkRelay(vault: string, from: string, to: string): Promise<RelayRelinkResult> {
+  return invoke<RelayRelinkResult>('asset_relay_relink', { vault, from, to })
+}

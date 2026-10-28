@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.237
-更新时间: 2026-10-28 · 最新 rev173.237
+revision: 173.238
+更新时间: 2026-10-29 · 最新 rev173.238
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.237
 
 | rev | 内容 |
 |---|---|
+| rev173.238 | 2026-10-29 · **附件同步 · 期 4（跨设备手动搬运）**（用户「继续zeronote」· 排期 9）：① **新模块 `src-tauri/src/assets.rs`** —— 配置 `<库>/.zn-assets/relay.json`（后端 + `updatedAt`；**密码只进系统凭据库** `zn-asset-relay`，不落 JSON）；设备 id `<私有根>/.zn/device-id`（跨库共用）；两种后端：`local-folder`（共享目录，先做）/ `webdav`（PROPFIND + PUT + GET 流式 + DELETE，Basic auth）；云端临时区 `<root>/.zn-asset-staging/<sha16>/<文件名>` + `.zn-ack`；状态机按「云端目录 + ack」**实时算**（local → staged → landed → cleaned，不另存会陈旧的副本）② **7 条命令** `asset_relay_config` / `config_set` / `pending` / `upload` / `remote` / `land` / `cleanup` / `relink` —— 上传前校验源文件存在 + sha256 与台账一致（文件被换过就拒绝）；落地校验下载内容 sha256，不符即丢弃；**只清已 ack 的**（对端没拿到就删 = 文件丢了）；清理后在台账标 `relayCleanedAt`（否则状态退回「待上传」，用户以为没传成）③ **改写引用** `asset_relay_relink`：正文 / 尖括号 / `%20` 编码三种形态 → 库内相对路径，落点按 `mdTarget` 规则（含空白才加尖括号）④ **UI** 设置页新「附件」tab（`AssetRelayPanel`）：共享目录 / WebDAV 配置 + 台账清单（5 种状态）+「上传选中 / 接收云端文件 / 清理已落地」，**每个动作前 `window.confirm` 点名 + 写总体积** ⑤ **测试**：cargo 67 → **76**（9 条：本地文件夹全链路 stage→land→ack→clean / 源文件缺失 / 内容变化 / 云端篡改 / 台账清单 / 未 ack 不删 / 三种引用形态 / 文件名清洗 / 百分号解码）· vitest 1404 → **1419**（15 条：状态机 6 / 动作集合 3 / 确认文案 3 / 展示 3）⑥ **实测**（CDP，`_tmp-vault-tb` ↔ `_tmp-asset-relay/vault-b` 两库当两台机、共享目录 `_tmp-asset-relay/shared`）：A 上传（确认文案「即将把「clip.mp4」上传到云端临时区（共 2.0 MB），继续？」）⇒ `.zn-asset-staging/6ea73b45c3b229e3/clip.mp4` 2097152 B · B 接收（「即将从云端接收 1 个文件（共 2.0 MB）并落地到本库，继续？」）⇒ `.zn-assets/external/6ea73b45-clip.mp4` 逐字节一致 + `note.md` 引用改写 + `.zn-ack` = B 设备 id + 台账 `devices` 两条 · A 清理（「即将删除云端临时区里的 1 份文件（共 2.0 MB）——对端都已落地，删除后不再可取回。继续？」）⇒ hash 目录删除、A 状态「已在本机」。截图 `_shots/rev173238-{1-panel-empty,2-uploaded,3-received,4-cleaned}.png`。⚠️ **WebDAV 后端只过编译与纯函数，没真机测**（要自建 DAV 桩）；三入口只接了「附件面板」，**媒体「原文件不在本机 · 同步」与模式 B「同步原图」未接** · verify 六步全绿 · 质量门 7/7 |
 | rev173.237 | 2026-10-28 · **交接**：本会话 **3 个 rev（234–236）** = 附件期 2 图片两模式 + 压缩（`72545ec`）· 库外路径渲染收口 + 破图不静默（`7a9d2ec`）· 音视频块版式与图片统一（`2796b08`）。交接时 HEAD `2796b08` · 与 origin 同步 · 工作区干净 · verify 全绿（06:18:43）· vitest **1404** · cargo **67** · dev pid **32984**（06:06:20 起，**18.7 小时**，1420 + 9222 都在）。**下个会话第一件事 = 附件同步 · 期 4**（跨设备手动搬运，1–2 天）。遗留：**手机未验 230–236**（234 动了 `Cargo.toml` 与 `image` 依赖 ⇒ 必须重装 APK）· 库外非媒体附件的「文件卡片」仍为普通链接 · 调试面板未做三项。本会话新坑：patch 后要重启 dev、编辑器 CSS 在模板字符串里别写反引号、`git push` 断线挂代理 `26561` |
 | rev173.236 | 2026-10-28 · **音视频块版式与正文图片统一**（用户「把视频、音频块的宽度和圆角统一成图片的样式」· 纯 CSS）：图片的规格 = atomic 的 `max-width:100% / height:auto / border-radius:0.4em` ＋ 本文件那条 `max-height: min(29vh, 280px)`（手机 23vh）；播放器此前各写各的 —— **视频** `max-height: min(60vh,420px)` + `var(--zn-radius)` + 黑底、**音频** `width: min(100%,420px)` 且**完全没有圆角** ⇒ 在正文里比图片大一圈、边角也不一致。改法（`MarkdownEditor.tsx` 的编辑器 CSS 块）：视频限高降到与图片同档 **min(29vh, 280px)**（手机 40vh → **23vh**）、圆角写 **0.4em**（与图片同源）；音频补 **0.4em** 圆角（宽度保留 420px 上限 —— 它没有宽高比，不能靠限高压宽）。**实测**：1080p 测试视频 445×250（改前会撑满 1458 列宽）· 音频圆角 6.8px（改前 0）· 图片 385×250 —— 三者同屏尺寸一致。⚠️ 坑：这段 CSS 位于 **JS 模板字符串**里，注释中写反引号会提前终止字符串 ⇒ 整页白屏（`vite:oxc` 报 "Try inserting a semicolon here"）。verify 六步全绿 · 质量门 7/7 · vitest 1404（无测试改动） |
 | rev173.235 | 2026-10-28 · **库外路径渲染收口（附件期 3 的剩余）+ 破图不静默**（用户「下一步」）：先核实上一版 HANDOFF 的「库外路径暂时不渲染」—— **半对半错**：无空格的绝对路径**本来就渲染**（`assetProtocol.scope = **`）；坏的是 **含空格 / 括号**的路径，因为 atomic 的 image 正则 `[^\s)"']+` 一遇空格就断，而「引用原文件」恰好写出 `<C:/…/截图 2026 10.png>`。① **patch atomic 三处正则**（`patches/@atomic-editor__editor@0.6.2.patch`）—— `image-blocks.js` 正文图片块、`table-widget.js` 的 `extractCellImages` 与表格内链接解析，统一支持 CommonMark 的**尖括号目标** `![](<路径 带空格.png>)`；且尖括号会被剥掉（原来 `<` `>` 会进文件名）。② **前端宽容层**（`insert-image.ts`）—— 新增 `stripAngleTarget` / `decodeLocalPath`，`resolveImageAbsPath` 先剥尖括号再解 `%20` 再解析（否则 `convertFileSrc` 会把 `%` 二次编码 ⇒ `%2520`，实测编码路径的图 `naturalWidth = 0`）。③ **破图不静默**（需求 §4）—— `MarkdownEditor` 的 `fixImageSrc` 给每张图挂 error 兜底，失败时在 widget 里写「图片不在本机：<路径>」（左边红条样式 `.zn-image-error`，音视频共用 `.zn-media-error`）。**实测**（根笔记五行对照）：无尖括号绝对路径 ✓ · 尖括号含空格 ✓ · 裸空格路径 ×（CommonMark 本身不认，必须尖括号或编码）· `%20` 编码 ✓（修复前 ×） · 文件不存在 ⇒ 提示文案 ✓。**测试**：vitest 1398 → **1404**（`stripAngleTarget` 4 条 / `decodeLocalPath` 3 条 / 尖括号与编码解析 5 条 —— 实际新增 6 条用例块）。⚠️ dev 必须**重启一次**才吃到新 patch（vite 预构建缓存，清 `node_modules/.vite` 后重启 dev.cmd）。verify 六步全绿 · 质量门 7/7 |
@@ -132,6 +133,70 @@ revision: 173.237
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.238（2026-10-29 · 附件同步 · 期 4：跨设备手动搬运）
+>
+> 用户：「继续 zeronote」。排期 9（`docs/ROADMAP.md` §3.5）——
+> 链路与状态机按需求 §5 落地：**本地 → 云端临时 → 对端落地 → 引用改本地 → 云端删除**，
+> 触发 = **用户主动 + 每次确认**（启动 / 保存 / 定时 / 打开都不自动搬）。
+>
+> ### 做了什么
+>
+> | 件 | 位置 | 要点 |
+> |---|---|---|
+> | 搬运引擎 | **新模块 `src-tauri/src/assets.rs`** | 独立成模块：它同时要碰台账（lib.rs）与 HTTP（net.rs），塞进 lib.rs 只会更厚 |
+> | 配置 | `<库>/.zn-assets/relay.json` | `{version, backend, updatedAt}`；**WebDAV 密码只进系统凭据库**（account `zn-asset-relay`），JSON 里绝不出现 |
+> | 设备 id | `<私有根>/.zn/device-id` | 跨库共用；时间 + 进程 id + 栈地址混 16 位十六进制（不引 rand） |
+> | 云端临时区 | `<root>/.zn-asset-staging/<sha16>/<文件名>` | 先写 `.zn-tmp-*` 再 rename（共享目录可能被同步工具盯着一半的文件） |
+> | ack | `<root>/.zn-asset-staging/<sha16>/.zn-ack` | 内容 = 落地设备的 id；**有 ack 才允许清理** |
+> | 状态机 | 前端 `relayStateOf`（纯函数） | 按「云端目录 + ack」实时算：`local / staged / landed / pulled / absent`，不另存会陈旧的副本 |
+>
+> **7 条新命令**（`lib.rs` 的 `invoke_handler` 已注册）：
+>
+> | 命令 | 作用 |
+> |---|---|
+> | `asset_relay_config` / `asset_relay_config_set` | 读配置（不含密码，只给 `hasPassword`）/ 写配置 + 密码进钥匙串 |
+> | `asset_relay_pending` | 台账清单（**不联网**，打开面板立刻有内容） |
+> | `asset_relay_upload` | 上传选中项：源文件存在 + **sha256 与台账一致** 才传（文件被换过 ⇒ 明确报错） |
+> | `asset_relay_remote` | 列云端临时区（联网） |
+> | `asset_relay_land` | 下载 → **sha256 校验**（不符即丢弃）→ `.zn-assets/external/<hash8>-<名>` → 台账 `devices[本机]=库内相对` → 写 ack |
+> | `asset_relay_cleanup` | 删已 ack 的云端目录 + 台账标 `relayCleanedAt`（**不标就会退回「待上传」**） |
+> | `asset_relay_relink` | 把笔记里指向原路径的引用改成库内相对路径（正文 / 尖括号 / `%20` 三种形态） |
+>
+> **UI**：设置页新「附件」tab（`src/components/AssetRelayPanel.tsx`）—— 共享目录 / WebDAV 切换 +
+> 台账清单（每种状态一行）+ 「上传选中 / 接收云端文件 / 清理已落地」。
+> 三个动作**执行前都 `window.confirm`**，文案点名文件、写总体积（`confirmText` 纯函数 + 单测）。
+>
+> ### 实测（桌面 CDP，两个库当两台机）
+>
+> 环境：A 库 `_tmp-vault-tb`（设备 `b04eace1…`）· B 库 `_tmp-asset-relay/vault-b`（设备 `57ba29c7…`）·
+> 共享目录 `_tmp-asset-relay/shared`（模拟 Syncthing 目录）· 源文件 2 MiB `clip.mp4`（库外）。
+>
+> | 步 | 确认文案（实际打出来的） | 结果 |
+> |---|---|---|
+> | A 上传 | 即将把「clip.mp4」上传到云端临时区（共 2.0 MB），继续？ | `.zn-asset-staging/6ea73b45c3b229e3/clip.mp4` **2097152 B**；A 台账状态「已在本机」 |
+> | B 接收 | 即将从云端接收 1 个文件（共 2.0 MB）并落地到本库，继续？ | `.zn-assets/external/6ea73b45-clip.mp4` 逐字节一致；`note.md` → `![](<.zn-assets/external/6ea73b45-clip.mp4>)`；`.zn-ack` = `57ba29c7cf54e093`；台账 `devices` 两条 |
+> | A 清理 | 即将删除云端临时区里的 1 份文件（共 2.0 MB）——对端都已落地，删除后不再可取回。继续？ | hash 目录删除（只剩空的 `.zn-asset-staging`）；A 面板「已在本机」、云端 0 |
+>
+> 截图：`_shots/rev173238-1-panel-empty.png` · `-2-uploaded.png` · `-3-received.png` · `-4-cleaned.png`。
+> 测完已把两个测试库与源文件从库内移除（`_tmp-*/` 本来就不入库）。
+>
+> ### 测试
+>
+> - **cargo 67 → 76**：本地文件夹全链路（stage → land → ack → clean）/ 源文件缺失 / 内容变化（sha 不符）/
+>   云端篡改（落地时丢弃）/ 台账清单（exists 判定）/ 未 ack 不删 / 三种引用形态 / 文件名清洗 / 百分号解码。
+> - **vitest 1404 → 1419**：状态机 6 条（local / absent / staged / landed / pulled / 别设备）·
+>   动作集合 3 条（可上传 / 可接收 / 可清理）· 确认文案 3 条 · 展示 3 条。
+>
+> ### 遗留 / 下一步
+>
+> - **WebDAV 后端没真机测**：PROPFIND 解析、流式下载、Basic auth 都只过了编译与纯函数；
+>   要验得自建 DAV 桩（`rclone serve webdav` 或 `python -m http.server` 不够——它不支持 PROPFIND/PUT）。
+> - **三入口只接了「附件面板」**：需求 §5 的另两个（笔记里音视频「原文件不在本机 · 同步」、
+>   模式 B 图片的「同步原图」）还没接 —— 它们复用同一套 `landRelay` + `relinkRelay`，只是入口位置不同。
+> - **手机未验**：本 rev 全部在 Rust + 前端，`Cargo.toml` 没动 ⇒ 前端 reload 即生效；
+>   手机 adb 当前无设备（2026-10-29 00:47 实测）。
+> - `asset_relay_cleanup` 是「全库已 ack 的一次清」——将来文件多时可加「只清选中」。
 
 > ## 📌 rev173.237（2026-10-28 · 交接）
 >
