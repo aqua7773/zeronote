@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.243
-更新时间: 2026-10-29 · 最新 rev173.243
+revision: 173.244
+更新时间: 2026-10-29 · 最新 rev173.244
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.243
 
 | rev | 内容 |
 |---|---|
+| rev173.244 | 2026-10-29 · **交接**：本会话 **2 个功能 rev（242–243）+ 2 个文档提交** = 安卓桌面组件三件（`7ba0b1d`）· 组件自动刷新修复（`a42869a`）· 补验证记录（`9cd14ad` / `c878807`）。**需求 §15 收口**，ROADMAP §3.5 十项全部完成。**交接时**：HEAD `c878807` · 与 origin 同步 · 工作区干净 · verify 全绿（21:08:29）· vitest **1456** · cargo **87** · Android JVM **20** · 手机 pid **32438**。**三件都过了真机**：快速记录（组件 → 对话框 → `收件箱/2026-10-29-201212.md`）· 最近笔记（7 行 + 建笔记 10 秒内自动刷新）· 今日打卡（两行计划 + 点击写回 store：跑步 3 条 / 早起 1 条 `20:56`，快照 `done` 同步 3/1）。**本会话最值钱的一件事是用户实测替我抓到了自己的盲区**：我自测只验了「快速记录」，另两个组件「没截图」就写成了「待验」——用户一句「今日打卡没有读取」直接暴露了「组件根本不自动刷新」这个设计漏洞（`onUpdate` 的三个时机里没有「数据变了」）。教训已写进 CARD 的「静默失效比报错危险」旁边：**组件类功能必须验「数据变化后组件是否跟着变」**，只验「能显示」等于没验。**下个会话第一件事**：§3.5 已清空 ⇒ 从 §3.4 小债挑（库外非媒体文件卡片 ~1h / `docs/guides/` 迁移 / 白屏兜底边界）或 §3.1 卡外部输入（`sync-git` 手机端 / Gitee 令牌 / WebDAV 真机要 DAV 桩 / 记账样本） |
 | rev173.243 | 2026-10-29 · **修：桌面组件不会自己刷新**（用户实测反馈「最近笔记可以显示，今日打卡没有读取」）：核实 —— 快照 `plans` 里**有**「跑步 / 早起」两条（20:34:56），组件却一直显示「今天没有要打卡的计划」；重启 Launcher 也不变 ⇒ 不是解析问题，是**刷新通道缺失**。根因：`AppWidgetProvider.onUpdate` 只在三个时机被系统调用（**添加组件时** / `updatePeriodMillis` 到点 / Launcher 重建 host），而内核写快照不在其中；打卡组件的 `updatePeriodMillis` 原来是 **0**（永不周期刷新）⇒ 「先加组件、后建计划」的用户永远停在空状态。修法：① 新 `WidgetRefresher.kt` —— `FileObserver` 盯 `<dataDir>/.zn/` 目录，快照是**原子替换**（写 `.tmp` 再 rename）⇒ 收到 `MOVED_TO`（path = `widget-data.json`）⇒ `cache` 里的两个组件 `refreshAll`；② 三个 provider 的 `onUpdate` 都调 `ensureWatching`（幂等，进程重启后第一次更新就接回来）；③ 打卡组件兜底 `updatePeriodMillis=1800000`（系统下限 30 分钟）。**真机验证**（pid 6956 · 20:39 重装）：在库里新建 `桌面刷新测试.md` ⇒ **没有重新添加组件、没有重启 Launcher**，最近笔记组件第一行在 10 秒内变成「20:44 · 桌面刷新测试 20:45」（`_shots/rev173243-widget-refresh.png`）—— 同一条 `WidgetRefresher` 同时刷打卡组件。⚠️ 打卡组件本体当时没截到图（重加时被 MIUI 放到了别的 host），**用户重加后已实测成功**（20:5x），**打卡点击也真机验过**（20:56：store 里跑步 3 条 / 早起 1 条 `20:56`，快照 `done` 同步 3/1 —— 点击 → 写 store → 快照 → 重绘全链路闭合）。verify 六步全绿（Android JVM 20 条不变） |
 | rev173.242 | 2026-10-29 · **安卓桌面组件三件（需求 §15）**（用户「继续 zeronote」· ROADMAP §3.5 第 10 项 = 最后一块大缺口）：① **数据通道** —— 组件活在 Launcher 里（没有 WebView / IPC / 内存态）⇒ 前端算快照（`src/kernel/widget-data.ts`：最近公开笔记 + 今日应打卡计划）→ Rust `widgets.rs` **原子写**（tmp+rename）`<app_data_dir>/.zn/widget-data.json` → Kotlin 只读渲染。「算」留在 JS 是因为 `isDueDay` 本来就在 `examples/habit/index.js`（`tests/widget-data.test.ts` **直接 import 插件那份逐条对照**，9 个计划 × 9 个日期，防两份实现漂移）。② **快速记录**（§15.1）= 组件是一个按钮 → 对话框样式 `QuickCaptureActivity`（不建 WebView）→ `QuickCaptureWriter` 写 `<库>/收件箱/<YYYY-MM-DD-HHmmss>.md`（同秒不覆盖 / 空输入不写）。③ **今日打卡**（§15.2）= 每行一个今日应打卡计划，点一行 ⇒ `HabitStore.checkIn` 往插件 `store.json` 的 `checks[planId][today]` 追加一条 `HH:mm` + 快照 `done` 同步 +1 + 写 `widget-habit-dirty` 标记；前端**回前台**时 `widget_take_habit_dirty` 取走标记并 `reloadPlugin('habit')`（插件内存态会覆盖磁盘，这一步是必需的一致性补丁）。④ **最近笔记**（§15.3）= 按组件高度分 1/3/5/7 档（`rowsForHeight`：标题 24dp + 每行 28dp），只出公开笔记（`.zn/` 与 `kind!=='note'` 一律过滤）。⑤ **测试**：vitest 1439 → **1456**（17 条）· cargo 82 → **87**（5 条：原子写/覆盖/tmp 清理/`.zn` 自建/脏标记取走）· **Android JVM 单测 20 条**（`gradlew :app:testArmDebugUnitTest`：落点 6 / 解析与分档 9 / 打卡 JSON 语义 5）。⑥ **真机**（`33b676f6` · APK 重编安装 20:06）：`dumpsys appwidget` 三个 provider 注册（380/381/382）· 「添加小部件」页按应用分组能看到三个组件（2x1 / 3x3 / 3x3）· **快速记录全链路走通** —— 桌面渲染 → 点击开对话框（键盘自动弹出）→ 输入 → 保存 ⇒ `收件箱/2026-10-29-201212.md`（内容 `quick capture from widget`）· 快照 `run-as cat .zn/widget-data.json` 内容正确（7 条笔记 + plans）。⚠️ **未验**：最近笔记 / 今日打卡的**组件本体截图**（Launcher 自动点卡片两次没命中，第三次只成功加了快速记录）· 打卡点击的真机写盘（逻辑已抽纯函数 + 5 条单测）。⚠️ **MIUI 入口分两层**：「全部应用 → 支持小部件应用」列表**不收录**本应用（加/不加 `previewImage`/`previewLayout` 都一样），要从「安卓小部件 → 添加小部件」进，按应用分组里才有。坑：AAPT 把样式名的点号当**隐式继承**（`Widget.Rn.Row` 找不到父样式 ⇒ 编译失败，必须 `parent=""`）· JVM 单测的 `org.json` 是 android.jar 的 stub（全抛 `RuntimeException: Stub!`）⇒ `testImplementation("org.json:json:20240303")` · 对话框主题默认还会画一遍窗口标题（「记一条」出现两次）⇒ `windowNoTitle=true` · `adb shell input tap` 吃**真实屏幕像素**（1220×2712），截图预览是缩放过的（838 宽），按预览坐标点全偏 · `exported="false"` 的 Activity 用 `am start` / `run-as` 都起不来（验证只能走组件点击） |
 | rev173.241 | 2026-10-29 · **调试面板：单插件热重载**（用户「后台盯，继续开发」· 补 §2.13 最后一项能做的）：① `PluginHost` 新增 **`reloadPlugin(id)`**（`src/hooks/usePluginHost.ts`）—— 只「卸这一个 → 装它」，别的插件不动；挂到 `pluginChainRef` **同一条串行链**（与整代加载并发会撞「命令 id 重复」）；卸完强制 `releaseServices` / `releaseEditorMarks` / `releaseCapabilities` ② UI：`PluginDevPane` 诊断表加第 6 列「操作」，每行「重载」按钮（`onReloadOne` 不传则不出现）+ 结果提示 + 重载中禁用；`PluginPanel` / `Settings` / `App` 一路接线 ③ CDP 出口 `window.__znReloadPlugin(id)` ④ **实测**（桌面）：基线 audit **210 命令 / 19 面板 / 3 服务** → 重载 `accounting` 后**仍是 210 / 19 / 3** 且 `accounting.*` 27 条仍在 → 再重载一次仍不变（无「命令 id 重复」）→ 不存在的 id 明确报「找不到插件目录」；**UI 路径**：插件页 → 调试 → 开发者模式 ⇒ 19 行诊断表 + **18 个「重载」按钮**，点第一行提示「已重载 accounting」且日志出现「插件已加载：记账」；截图 `_shots/rev173241-dev-reload.png` ⑤ 无新增单测（纯宿主 UI / 管线，按 ROADMAP §4.5 口径以 CDP 实测为准）。⚠️ 未做（且明确不做）：沙箱控制台（插件是独立 Blob 模块，宿主拿不到作用域）· 内存/CPU 监控（WebView 无对应 API）· 跳过权限确认（立场问题）。verify 六步全绿 · 质量门 7/7 |
@@ -139,6 +140,41 @@ revision: 173.243
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.244（2026-10-29 · 交接）
+>
+> 本会话 = **需求 §15 收口**。2 个功能 rev + 2 个文档提交：
+>
+> | 提交 | 内容 |
+> |---|---|
+> | `7ba0b1d` | rev173.242 桌面组件三件（数据通道 + 快速记录 + 今日打卡 + 最近笔记） |
+> | `a42869a` | rev173.243 组件自动刷新（`WidgetRefresher` / FileObserver） |
+> | `9cd14ad` / `c878807` | 文档：重加组件成功 / 打卡点击有效 |
+>
+> **交接时**：HEAD `c878807` · 与 origin 同步 · 工作区干净 ·
+> verify 全绿（21:08:29 · tsc 0 / oxlint 3 warnings / cargo **87** / vitest **1456** / 质量门 7/7）·
+> Android JVM 单测 **20** 条。
+>
+> ### 这个会话最该记住的一件事
+>
+> 我自测只验了「快速记录」，另两个组件「没截到图」就写成「待验」交出去了 ——
+> 用户一句「今日打卡没有读取」直接暴露了**组件根本不自动刷新**这个设计漏洞（rev173.243）。
+> 只验「能显示」等于没验：**组件类功能必须验「数据变了，组件跟不跟着变」。**
+>
+> ### 下个会话第一件事
+>
+> ROADMAP §3.5 十项**已全部完成** ⇒ 从 §3.4 小债里挑：库外非媒体附件的「文件卡片」（~1h）·
+> `docs/guides/` 迁移 · 白屏兜底边界。要外部输入的仍卡着：`sync-git` 手机端（token）·
+> Gitee 分支实测（令牌）· WebDAV 真机（自建 DAV 桩）· 记账文案校准（真实漏识别样本）。
+>
+> ### 环境（活信息）
+>
+> - 桌面 dev 开着：`zeronote.exe` pid **12812**（20:30:42）· vite 1420 · CDP 9222
+> - **android-dev watch 开着**（20:38:40 起的独立 cmd 进程，不是后台 job）——
+>   下次要编之前**先清它的进程树**（它占着 `.self-logs/android-dev.log`）
+> - 手机 `33b676f6` app pid **32438**；手机库里有「跑步 3 次 / 早起 1 次（20:56）」的打卡记录 ——
+>   是用户验点击产生的**真数据，别删**
+> - 手机桌面已布置：第一页「快速记录」· 第三页「最近笔记」· 第四页「今日打卡」
 
 > ## 📌 rev173.243（2026-10-29 · 修：桌面组件不会自己刷新）
 >

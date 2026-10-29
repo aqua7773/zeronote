@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.243 · 0.6.0 · 2026-10-29 |
+| rev / 版本 | rev173.244 · 0.6.0 · 2026-10-29 |
 | 测试基线 | vitest 1456 · cargo 87 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.6.0 |
@@ -42,6 +42,11 @@ pwsh -File scripts\verify.ps1
 > **已验（全部）**：快速记录全链路（渲染 → 点击 → 对话框 → 保存 → 文件）· 最近笔记渲染与**自动刷新**（新建笔记 10 秒内出现在组件上）·
 > **打卡组件用户删除重加后实测成功**（20:5x，显示「跑步 / 早起」两行）· **打卡点击有效**（20:56：store 里跑步 3 条 /
 > 早起 1 条 `20:56`，快照 `done` 同步 3/1 —— 点击 → 写插件 store → 快照 → 重绘全链路闭合）。
+>
+> **下个会话第一件事**：ROADMAP §3.5 的 **10 项已全部完成**（最后一项 = 安卓桌面组件，rev173.242–243 收口）⇒
+> 从 §3.4 小债或 §3.1 卡外部输入里挑。可立即做的：**库外非媒体附件的「文件卡片」**（约 1 小时，附件需求的最后一小块）·
+> `docs/guides/` 迁移 · 白屏兜底边界。要外部输入的：`sync-git` 手机端（没 token）· Gitee 分支实测（没令牌）·
+> WebDAV 后端真机验证（要自建 DAV 桩）· 记账文案校准（等真实漏识别样本）。
 
 > **「旧 `vault.json` 自己回来」已稳定（rev173.187），不用再追**：写回走内核 `write_note`（`vault.zn-tmp` 铁证），
 > 但它是**内存态** —— 一次 reload + 彻底删干净后就终止；桌面从不复现。手机现在反复删 + 60 s 观察都不复活。
@@ -227,22 +232,22 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（pid **37216** · 2026-10-29 19:10:40 启动 —— rev173.240 改 `tauri.conf.json` 后
-  被 `Start-Process cmd /c dev.cmd` 重新拉起的那次；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **12812** · 2026-10-29 20:30:42 —— rev173.243 改 `widgets.rs` /
+  Kotlin 后 tauri dev 自动重编重启的那次；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
   ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
   结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编并重启**（重编期间与 `cargo test` 争 `CARGO_TARGET_DIR`，verify 等几分钟是排队不是卡死）。dev 窗口「关于」的版本号由 **vite 启动时**求值，改 `package.json` 不热更新。
 - ⚠️ **编辑器 CSS 在一个 JS 模板字符串里**（`src/components/MarkdownEditor.tsx` 中段）—— 注释里写**反引号**会提前终止字符串 ⇒ 整页白屏（`vite:oxc` 报 "Try inserting a semicolon here"）。rev173.236 踩过一次。
 - **Android dev**：`android-dev.cmd`（日志 `.self-logs/android-dev.log`）· gradle wrapper 走腾讯镜像 · `rustup` 操作必须串行。
-  ⚠️ **交接时 adb 无设备**（2026-10-29 00:47 `adb devices` 空）⇒ 手机未验 230–236；234 动了
-  `Cargo.toml`（`image` 依赖 + dev profile）⇒ **重装 APK 才能验**。
-  ⚠️ 交接时有**一个 watch 进程在跑**（AI 当后台 job 起的：`cmd /c android-dev.cmd`，03:12 起）——
-  会话结束 job 被回收时它可能一起消失（app 是独立进程，不受影响）。**要再编就双击 `android-dev.cmd`**，
-  编之前先清旧进程树（见下）。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:18 又被 `android-dev` 重编重装**
-  （app pid **27843**；这次含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 7 个 + 3 套布局）+ rev173.238 的 `assets.rs` + rev173.240 的媒体服务）。
-  **Rust 侧现在到 rev173.242**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断。
+  ⚠️ **交接时有一个 watch 进程在跑**（AI 用 `Start-Process cmd /c android-dev.cmd` 起的独立进程，20:38:40 起）——
+  会话结束不会消失（不是后台 job），**下次要编之前先清它的进程树**（它占着 `.self-logs/android-dev.log`）。
+  ⚠️ **单拼 `gradlew :app:testArmDebugUnitTest` 可以**（rev173.242 起的 JVM 单测入口），但别与 watch 同时跑 ——
+  两者都碰同一条 rust/gradle 链。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:39 又被 `android-dev` 重编重装**
+  （交接时 app pid **32438**；这次含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 8 个 + 3 套布局）
+  + **rev173.243 的 `WidgetRefresher`** + rev173.238 的 `assets.rs` + rev173.240 的媒体服务）。
+  **Rust 侧现在到 rev173.243**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断。
   ⚠️ 手机库 = `/storage/emulated/0/Documents/ZeroNote`（**不是**私有 `files/`；`run-as ... ls` 根下的 `vault` 是旧的另一份）。
   ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
   新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
