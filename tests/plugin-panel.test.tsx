@@ -166,13 +166,28 @@ describe('零插件空态', () => {
     expect(screen.getByRole('button', { name: '浏览插件市场' })).toBeTruthy()
   })
 
-  it('3 条推荐是标签 / 反向链接 / 历史版本', () => {
+  it('推荐优先安装 9 条：基础体验 5 + 多设备同步 4（原预装清单，rev173.259 取消预装后改为推荐）', () => {
     const { container } = empty()
     const items = [...container.querySelectorAll('.zn-plugins-recommend-list li')]
-    expect(items).toHaveLength(3)
+    expect(items).toHaveLength(9)
     expect(
       items.map((li) => li.querySelector('.zn-plugins-recommend-name')?.textContent),
-    ).toEqual(['标签', '反向链接', '历史版本'])
+    ).toEqual([
+      '标签',
+      '反向链接',
+      '历史版本',
+      '导入导出',
+      '备份',
+      '同步 · 本地文件夹',
+      '同步 · WebDAV',
+      '同步 · S3',
+      '同步 · Git',
+    ])
+    const subs = [...container.querySelectorAll('.zn-plugins-recommend-sub')].map(
+      (e) => e.textContent ?? '',
+    )
+    expect(subs[0]).toContain('基础体验')
+    expect(subs[1]).toContain('多设备同步')
   })
 
   it('点「浏览插件市场」切到市场 tab', () => {

@@ -25,6 +25,7 @@ import {
   isPluginCategory,
   type PluginCategory,
 } from '../lib/plugin-category'
+import { RECOMMENDED_COUNT, RECOMMENDED_GROUPS } from '../lib/recommended-plugins'
 
 /**
  * 插件中心（M2；B3 从设置页独立成页）—— 「装上出现 / 卸下消失」的可视化开关。
@@ -81,19 +82,6 @@ export type PluginRow = {
 
 /** 插件页的说明最多显示 15 个字（用户 2026-10-19 要求；全文放悬停 title） */
 const DESC_MAX = 15
-
-/**
- * 零插件空态的 3 条推荐（B3 · 方案 §1.3 / §6）。
- *
- * 用**市场插件 id** 而不是写死面板 id：点「去安装」只是切到市场 tab，
- * 市场里有没有这一条由索引决定，这里不假装能装（离线时索引本来就可能拉不到）。
- * 顺序按「装上立刻有感」排：标签 → 反链 → 历史。
- */
-const RECOMMENDED: { id: string; name: string; why: string }[] = [
-  { id: 'tag-panel', name: '标签', why: '给笔记打标签，按标签浏览' },
-  { id: 'backlinks', name: '反向链接', why: '看哪些笔记引用了当前这篇' },
-  { id: 'history', name: '历史版本', why: '每次保存留一档，能回滚' },
-]
 
 /** 禁用一条插件后，撤销条最多挂多久（毫秒）—— 与删除笔记的撤销条同一心意：给一次后悔的机会 */
 const UNDO_DISABLE_MS = 12_000
@@ -507,23 +495,40 @@ export function PluginPanel({
           </div>
           {onMarketInstall && (
             <div className="zn-plugins-recommend">
-              <div className="zn-plugins-recommend-title">推荐先装这 3 个</div>
-              <ul className="zn-plugins-recommend-list">
-                {RECOMMENDED.map((r) => (
-                  <li key={r.id}>
-                    <span className="zn-plugins-recommend-name">{r.name}</span>
-                    <span className="zn-plugins-recommend-why">{r.why}</span>
-                    <button
-                      type="button"
-                      className="zn-plain-btn"
-                      onClick={() => setTab('discover')}
-                      title={`在「插件市场」里找 ${r.name}（索引里叫 ${r.id}）`}
-                    >
-                      去安装
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="zn-plugins-recommend-title">
+                推荐优先安装（{RECOMMENDED_COUNT} 个）
+              </div>
+              <p className="zn-plugins-recommend-hint">
+                应用不预装插件 —— 这些原来是随包带的，现在从
+                <strong className="font-semibold text-foreground">插件市场</strong> 装（需要联网；
+                离线时也可以用「安装插件包」装 <code>.znp</code>）。
+              </p>
+              {RECOMMENDED_GROUPS.map((g) => (
+                <div key={g.title} className="zn-plugins-recommend-group">
+                  <div className="zn-plugins-recommend-sub">
+                    {g.title}
+                    {g.hint ? (
+                      <span className="zn-plugins-recommend-subhint">{g.hint}</span>
+                    ) : null}
+                  </div>
+                  <ul className="zn-plugins-recommend-list">
+                    {g.items.map((r) => (
+                      <li key={r.id}>
+                        <span className="zn-plugins-recommend-name">{r.name}</span>
+                        <span className="zn-plugins-recommend-why">{r.why}</span>
+                        <button
+                          type="button"
+                          className="zn-plain-btn"
+                          onClick={() => setTab('discover')}
+                          title={`在「插件市场」里找 ${r.name}（索引里叫 ${r.id}）`}
+                        >
+                          去安装
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           )}
           <p className="zn-plugins-empty-hint">

@@ -2,8 +2,9 @@
  * 插件宿主（扫描 / 加载 / 懒激活 / `.znp` 安装）—— 从 `App.tsx` 原样迁出（rev128 · L3 第六刀）。
  *
  * 覆盖：
- *  - **加载链 effect**：两个来源（库内 + 全局插件根）扫描 → 预装内置插件 → 静态声明 /
+ *  - **加载链 effect**：全局插件根扫描 → 静态声明 /
  *    懒激活 / 立即加载 → 平台门 → 卡死兜底标记（`LS_LOADING`）。
+ *    （rev173.259 起**不再预装任何插件** —— 首次启动就是零插件。）
  *  - **串行链**：同一时刻只有一代在「卸上一代 / 装本代」（`pluginChainRef`），
  *    被取代的一代在每个检查点 `return` 退出。
  *  - **`.znp` 安装**：从路径安装（`installZnpFromPath`）+ 插件页按钮（`installZnp`）+
@@ -36,7 +37,6 @@ import {
   type PluginHostDeps,
 } from '../kernel/plugin-host'
 import { collectPluginDirs, globalPluginRoot, tryGlobalPluginRoot } from '../kernel/plugin-roots'
-import { ensureBuiltinPlugins } from '../kernel/builtin-plugins'
 import { installFromMarket, type MarketEntry } from '../kernel/market'
 import type { PluginManifest } from '../kernel/contract'
 import { LS_LOADING } from '../lib/boot-heal'
@@ -49,9 +49,8 @@ export type UsePluginHostArgs = {
    * **笔记独立窗口**（`?note=`，rev173.51）不需要插件 —— 它只画编辑器（rev173.53），
    * 面板 / 侧栏 / 时间流全都不渲染。false ⇒ 整个加载链不跑（rev173.60）。
    *
-   * 为什么值得单独一个开关：每个 `note-*` 窗口都曾跑一遍 `ensureBuiltinPlugins` +
-   * 扫描 + 加载 4 个立即执行的插件 —— 拆三个标签就是三份额外启动成本，还会与主窗口
-   * 并发写同一批内置插件文件。默认 `true`，只有笔记窗口传 false。
+   * 为什么值得单独一个开关：每个 `note-*` 窗口都曾跑一遍扫描 + 加载立即执行的插件 ——
+   * 拆三个标签就是三份额外启动成本，还会与主窗口并发写同一批插件文件。默认 `true`，只有笔记窗口传 false。
    */
   enabled?: boolean
   /**
@@ -157,7 +156,7 @@ export function usePluginHost({
 
   useEffect(() => {
     const k = kernel
-    // rev173.60：笔记独立窗口不需要插件（只画编辑器）⇒ 预装 / 扫描 / 加载整段跳过
+    // rev173.60：笔记独立窗口不需要插件（只画编辑器）⇒ 扫描 / 加载整段跳过
     if (!k || !vault || !enabled) return
     let cancelled = false
     // 用 ref 里那份（跨 effect 可见）：中途被打断时 cleanup 也能清到正在加载的插件
@@ -240,24 +239,11 @@ export function usePluginHost({
       setPluginError(null)
       try {
         // 2026-10-18 rev173.5：插件**只有全局一处**（用户「取消库内插件这种形式，
-        // 所有插件都是全局的」）—— 内置预装、扫描、安装、删除都落在 `appDataDir()/.zn/plugins/`。
+        // 所有插件都是全局的」）—— 扫描、安装、删除都落在 `appDataDir()/.zn/plugins/`。
         // 切库不再换插件；库内 `.zn/plugins/` 的旧副本由迁移脚本搬走。
-        // 0. 内置插件预装：先写进全局插件根，之后扫描才能看到它们。
+        // rev173.259：**不再预装任何插件**（用户「不设置内置插件，之前预装的改为推荐优先安装」）——
+        // 第一次启动就是零插件，装插件统一走 插件中心 → 插件市场（或手动装 .znp）。
         const globalRoot = await tryGlobalPluginRoot()
-        if (globalRoot) {
-          const builtin = await ensureBuiltinPlugins(globalRoot)
-          if (builtin.failed.length > 0 && !cancelled) {
-            /**
-             * 内置插件写不进去 = 界面上少掉导图/阅读器/导入导出/主题/记账，
-             * 但用户完全看不出原因（rev173.41 之前只有 console.warn）。
-             * 走 toast + 插件页错误两条通道：toast 保证"当场看见"，pluginError 留存可回看。
-             */
-            const first = builtin.failed[0]
-            const msg = `内置插件写入失败 ${builtin.failed.length} 个文件（${first.pluginId}/${first.rel}）：${first.error}`
-            setPluginError(msg)
-            setToast(msg)
-          }
-        }
         if (cancelled) return
         const entries = await collectPluginDirs((msg) => {
           // 读目录失败不再是"插件列表空着"的静默状态（rev173.41）：插件页会显示这条原因

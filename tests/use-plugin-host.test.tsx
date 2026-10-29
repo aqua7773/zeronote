@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   tryGlobalPluginRoot: vi.fn(async () => null),
   // rev173.5：插件只装全局根 —— 安装/迁移都要拿它（测试里固定一个路径）
   globalPluginRoot: vi.fn(async () => '/appdata'),
-  ensureBuiltinPlugins: vi.fn(async () => {}),
   invoke: vi.fn(),
   confirm: vi.fn(async () => true),
   open: vi.fn(async () => null),
@@ -33,7 +32,6 @@ vi.mock('../src/kernel/plugin-roots', () => ({
   tryGlobalPluginRoot: mocks.tryGlobalPluginRoot,
   globalPluginRoot: mocks.globalPluginRoot,
 }))
-vi.mock('../src/kernel/builtin-plugins', () => ({ ensureBuiltinPlugins: mocks.ensureBuiltinPlugins }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: mocks.confirm, open: mocks.open }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }))
 
@@ -118,13 +116,11 @@ describe('usePluginHost', () => {
     expect(args.setLoadedIds).toHaveBeenCalledWith(['p1'])
   })
 
-  it('enabled=false（笔记独立窗口）：预装 / 扫描 / 加载整段都不跑', async () => {
+  it('enabled=false（笔记独立窗口）：扫描 / 加载整段都不跑', async () => {
     mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'p1', source: 'vault' }])
     const args = makeArgs({ enabled: false })
     renderHook(() => usePluginHost(args))
     await settle()
-    // 不预装内置插件（每个 note 窗口都写一遍全局目录是无谓 IO，还会和主窗口并发写）
-    expect(mocks.ensureBuiltinPlugins).not.toHaveBeenCalled()
     expect(mocks.collectPluginDirs).not.toHaveBeenCalled()
     expect(mocks.loadPlugin).not.toHaveBeenCalled()
     expect(args.setManifests).not.toHaveBeenCalled()

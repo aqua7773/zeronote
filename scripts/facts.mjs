@@ -60,9 +60,9 @@ const readmeDate = /\*\*现状（(\d{4}-\d{2}-\d{2})/.exec(maybeRead('README.md'
 const changelog = maybeRead('CHANGELOG.md')
 const appVersion = /## 应用版本[\s\S]*?\n\| (\d+\.\d+\.\d+) \|/.exec(changelog)?.[1] ?? '?'
 const examples = listDirs('examples')
-const builtinSrc = maybeRead('src/kernel/builtin-plugins.ts')
-const builtinBlock = /export const BUILTIN_PLUGINS: BuiltinPlugin\[\] = \[([\s\S]*?)\n\]/.exec(builtinSrc)?.[1] ?? ''
-const builtins = [...builtinBlock.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1])
+// rev173.259：「不设置内置插件」—— 应用不再预装任何插件，插件一律走市场
+const market = JSON.parse(maybeRead('market/index.json') || '{"plugins":[]}')
+const marketCount = Array.isArray(market.plugins) ? market.plugins.length : 0
 const globalPluginsDir = process.env.APPDATA
   ? path.join(process.env.APPDATA, 'com.aqua.zeronote', '.zn', 'plugins')
   : ''
@@ -114,7 +114,7 @@ const block = [
   '|---|---|',
   `| rev / 版本 | rev${handoffRev} · ${pkg.version ?? '?'} · ${handoffDate} |`,
   `| 测试基线 | ${baselineLine} |`,
-  `| 插件 | 内置 ${builtins.length} · 示例 ${examples.length} |`,
+  `| 插件 | 市场 ${marketCount} · 示例 ${examples.length} |`,
   `| 文档 | README 现状 ${readmeDate}${stale ? '（落后）' : ''} · CHANGELOG ${appVersion} |`,
   '<!-- FACTS:END -->',
 ].join('\n')
@@ -182,4 +182,4 @@ if (problems.length) {
   for (const p of problems) console.error('  - ' + p)
   process.exit(1)
 }
-console.log(`\n✅ facts：rev${handoffRev} · HEAD ${head} · 内置 ${builtins.length} · 示例 ${examples.length}`)
+console.log(`\n✅ facts：rev${handoffRev} · HEAD ${head} · 市场 ${marketCount} · 示例 ${examples.length}`)

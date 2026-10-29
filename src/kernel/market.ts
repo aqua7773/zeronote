@@ -14,7 +14,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
-import { compareVersions } from './builtin-plugins'
+import { compareVersions } from './version'
 
 /** 索引里的一条插件（字段与 `scripts/pack-plugin.mjs` 产出的市场条目一一对应） */
 export type MarketEntry = {

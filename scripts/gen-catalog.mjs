@@ -19,9 +19,11 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8')
 const exists = (p) => fs.existsSync(path.join(root, p))
 const listDirs = (p) => fs.readdirSync(path.join(root, p), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
 
-const builtinSrc = read('src/kernel/builtin-plugins.ts')
-const builtinBlock = /export const BUILTIN_PLUGINS: BuiltinPlugin\[\] = \[([\s\S]*?)\n\]/.exec(builtinSrc)?.[1] ?? ''
-const builtins = new Set([...builtinBlock.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]))
+/**
+ * rev173.259：**不再有内置/预装插件**（用户「不设置内置插件，之前预装的改为推荐优先安装」）——
+ * 应用第一次启动就是零插件，装插件统一走 插件中心 → 插件市场，或手动装 `.znp`。
+ * 本表只描述「仓库里有哪些插件源码 / 市场包从哪来」。
+ */
 
 const plugins = []
 for (const dir of listDirs('examples').sort()) {
@@ -37,7 +39,6 @@ for (const dir of listDirs('examples').sort()) {
       caps: (m.capabilities ?? []).length,
       commands: (m.contributes?.commands ?? []).length,
       activation: (m.activationEvents ?? []).join(' / ') || '立即',
-      builtin: builtins.has(m.id ?? dir),
     })
   } catch (e) {
     console.error(`⚠️  examples/${dir}/manifest.json 解析失败：${e.message}`)
@@ -61,32 +62,28 @@ const table = (rows) => [
   '|---|---|---|---|---|---|---|',
   ...rows.map(
     (p) =>
-      `| ${p.builtin ? '★ ' : ''}${p.id} | ${p.name} | ${p.category} | ${p.platforms} | ${p.caps} | ${p.commands || '—'} | ${p.activation} |`,
+      `| ${p.id} | ${p.name} | ${p.category} | ${p.platforms} | ${p.caps} | ${p.commands || '—'} | ${p.activation} |`,
   ),
 ]
 
 const md = [
   '# 功能目录（自动生成）',
   '',
-  `> 状态：**generated** ｜来源：\`examples/*/manifest.json\` + \`src/kernel/builtin-plugins.ts\` + \`src-tauri/plugins/*/Cargo.toml\` ｜生成：\`node scripts/gen-catalog.mjs --write\`（勿手改）`,
-  '> 改功能请改 manifest / 内置清单，再重新生成；本文件由 `scripts/gen-catalog.mjs --check` 校验是否最新。',
+  `> 状态：**generated** ｜来源：\`examples/*/manifest.json\` + \`src-tauri/plugins/*/Cargo.toml\` ｜生成：\`node scripts/gen-catalog.mjs --write\`（勿手改）`,
+  '> 改功能请改 manifest，再重新生成；本文件由 `scripts/gen-catalog.mjs --check` 校验是否最新。',
+  '> **应用不预装任何插件**（rev173.259）：第一次启动是零插件，装插件一律走 插件中心 → 插件市场（或手动装 `.znp`）。',
   '',
   '## 概览',
   '',
   '| 项 | 数量 |',
   '|---|---|',
-  `| 内置插件（随包分发） | ${plugins.filter((p) => p.builtin).length} |`,
-  `| 示例插件 | ${plugins.length} |`,
+  `| 插件 | ${plugins.length} |`,
   `| 原生 Tauri 插件 | ${native.length} |`,
   ...['editor', 'reader', 'theme', 'tool', 'demo', '—'].filter((c) => byCategory.has(c)).map((c) => `| 分类 ${c} | ${byCategory.get(c)} |`),
   '',
-  '## 内置插件（★ 标记，启动时预装到全局插件根）',
+  '## 插件（`examples/` 是源码；市场包由 `scripts/pack-plugin.mjs` 从这里打）',
   '',
-  ...table(plugins.filter((p) => p.builtin)),
-  '',
-  '## 示例插件（`examples/`，按需复制到全局插件根）',
-  '',
-  ...table(plugins.filter((p) => !p.builtin)),
+  ...table(plugins),
   '',
   '## 原生 Tauri 插件（`src-tauri/plugins/`，随 App 编译）',
   '',
@@ -113,4 +110,4 @@ if (CHECK) {
 }
 
 fs.writeFileSync(path.join(root, OUT), md, 'utf8')
-console.log(`✅ 已生成 ${OUT}：${plugins.length} 个示例插件 / ${plugins.filter((p) => p.builtin).length} 个内置 / ${native.length} 个原生`)
+console.log(`✅ 已生成 ${OUT}：${plugins.length} 个插件 / ${native.length} 个原生（不再有内置预装）`)
