@@ -20,7 +20,7 @@ import type { PluginRow } from './PluginPanel'
 import { capabilityLabels } from '../lib/capability-label'
 
 /**
- * **发现**（插件市场阶段 1 · rev173.148）。
+ * **插件市场**（原「发现」· 插件市场阶段 1 · rev173.148）。
  *
  * 只做三件事：拉索引 → 列出来 → 点安装。安装本身在宿主（`onInstall` → Rust
  * `install_znp_from_url`：下载 + 整包 sha256 + 解包一步到位，失败不落盘）。

@@ -157,7 +157,7 @@ export function PluginPanel({
   onInstall?: () => void
   /**
    * 从市场安装 / 更新（rev173.148）—— App 传 hook 的实现：下载 + 整包 sha256 + 解包 + 重扫，
-   * 在 Rust 侧一次完成（失败不落盘）。不传 ⇒ 不显示「发现」tab（独立窗口 / 测试环境）。
+   * 在 Rust 侧一次完成（失败不落盘）。不传 ⇒ 不显示「插件市场」tab（独立窗口 / 测试环境）。
    */
   onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
   /**
