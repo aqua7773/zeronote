@@ -22,6 +22,21 @@
 
 ### Added
 
+- **文档工具条 + 状态栏瘦身 + 空态「最近 3 篇」**（rev173.260 · UI 重布局 **B4** · `docs/UI重布局-方案-2026-10-29.md` §2.1 / §6 / O1 / O10）：
+  - 新 `src/components/DocToolbar.tsx` —— 标签条下方、编辑区上方一条 32px 工具条：
+    左＝`location: 'editor-topbar'` 的插件面板（反向链接 / 历史版本），右＝内核固定「源码 / 预览」+「⋯ 更多」；
+    没有插件注册时左侧整块不渲染（零插件基线，不留空位）。
+  - **「源码」开关迁进工具条**（桌面）：`MarkdownEditor` 新增受控 `sourceMode` / `onToggleSourceMode`，
+    状态归宿主并沿用 `zeronote.sourceMode` 持久化；手机不传受控值 ⇒ 行为不变。「⋯ 更多」= 查找替换 /
+    在新窗口打开 / 关闭当前标签页 / 删除这篇笔记（均为内核已有动作）。
+  - **状态栏瘦身**：去掉「N 篇 · N 文档 · N 附件」统计（那是侧栏文件树的信息），
+    只剩 `location: 'statusbar'` 状态 chip（安全锁定等）+ 错误提示 + 当前字数；高度 22 → 26px、
+    可点 chip ≥24×24（WCAG 2.2 AA **2.5.8**）。
+  - **反向链接 / 历史版本从状态栏迁到文档工具条**：`backlinks` **0.2.2** / `history` **0.2.1**
+    （manifest `statusbar` → `editor-topbar`，capabilities 同步增加 `view:editor-topbar`；禁用即整块消失）。
+  - **空态补「最近 3 篇」**：`lib/recent-notes.ts` 新增 `pickRecentNotes` —— 最近打开优先、
+    不足按修改时间补齐、已删除路径过滤（不出死条目）；「从文件导入」仅在 `import-export` 启用时出现。
+
 - **推荐优先安装清单（应用不再预装任何插件）**（rev173.259 · `D-011` · 用户「不设置内置插件，之前预装的改为推荐优先安装」）：
   - 新 `src/lib/recommended-plugins.ts`：9 条推荐（基础体验 5 / 多设备同步 4），插件中心与插件市场共用（避免两组件互相 import 成环）。
   - 插件中心空态逐条列出（每条「去安装」跳市场）；插件市场顶部一条「推荐优先安装」提示 + 条目「推荐」标。

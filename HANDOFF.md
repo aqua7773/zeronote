@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.259
-更新时间: 2026-10-30 · 最新 rev173.259
+revision: 173.260
+更新时间: 2026-10-30 · 最新 rev173.260
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.259
 
 | rev | 内容 |
 |---|---|
+| rev173.260 | 2026-10-30 · **UI 重布局 B4（文档工具条 + 状态栏瘦身 + 空态「最近 3 篇」）落地**（用户「继续 zeronote」· 方案 §2.1 / §6 第四批 / O1 / O10）：① **新 `DocToolbar`** —— 标签条下方、编辑区上方 32px 工具条：左＝`location: 'editor-topbar'` 插件面板、右＝内核固定「源码 / 预览」+「⋯ 更多」；没有面板时左侧整块不渲染。② **源码开关受控化** —— `MarkdownEditor` 新增 `sourceMode` / `onToggleSourceMode`：桌面状态归 `App`（沿用 `zeronote.sourceMode`），编辑器右上角浮按钮此时不渲染；手机不传受控值 ⇒ 行为不变。「⋯ 更多」= 查找替换 / 在新窗口打开 / 关闭当前标签页 / 删除这篇笔记（`openDocMenu`，条目打开时现算，手机不出现「新窗口」）。③ **状态栏瘦身** —— `AppStatusBar` 删掉「N 篇 · N 文档 · N 附件」（`notes` prop 一并删除），只剩 statusbar 插件 chip + 错误 + 字数；高度 22 → **26px**，chip **≥24×24**（WCAG 2.2 AA 2.5.8）—— 覆盖 `zn-btn` 与 `zn-ui-link` 两种形态（安全锁是后者）。④ **反链 / 历史迁挂载位** —— `backlinks` 0.2.2 / `history` 0.2.1：`contributes.panels` 的 `statusbar` → `editor-topbar`，capabilities 加 `view:editor-topbar`；示例 `index.js` 与 `tests/backlinks|history` 断言同步。⑤ **空态「最近 3 篇」** —— `lib/recent-notes.ts` 新 `pickRecentNotes`（最近打开优先 / mtime 补齐 / 过滤已删除路径 / 只列 `kind==='note'`）；空态第三态在「新建」下展示，点击打开；「从文件导入」仅 `import-export` 启用时出现。**测试** vitest 1501 → **1515**（`doc-toolbar` 5 · `recent-notes` +6 · `app-empty-state` +4 · `app-status-bar` 重写 4）。**桌面实测**（CDP 9222，`_shots/b4-01..10`）：工具条「被 0 篇引用 · 历史版本 · 源码 · ⋯」→ 点「源码」⇒ `.zn-source-editor` 出现且按钮变「预览」→「⋯」弹出四项菜单 → 历史浮层与反链面板都从工具条打开；状态栏「🔒 安全 · 29 字」；CDP `getBoundingClientRect` 实测工具条按钮 24 高、状态栏 chip 52×24、工具条 32 高、状态栏 26 高；空态「最近 3 篇」3 条可点。**零插件回归**（临时改名 `plugins` → `plugins-b4-empty-bak`，reload 后恢复 18 个）：工具条只剩「源码 ⋯」· 状态栏只剩字数 · 空态仍有「新建 / 最近 3 篇」且**没有**「从文件导入」（`b4-07` / `b4-08`）。**已发市场**：`backlinks@0.2.2`（24.0 KB · 整包 sha256 `f57c483c…`）· `history@0.2.1`（28.7 KB · 整包 sha256 `6c31e077…`），keyId `aqua-2026`，索引仍 17 条；全局目录已改用 examples 覆盖验证（旧文件备份在 `_tmp-plugin-backup/b4-20261030-0245/`）。⚠️ 未做：手机端未走查（B4 只动桌面；手机上 `editor-topbar` 面板走旧渲染路径，位置在编辑器顶部）· 「最近 3 篇」标题里的 markdown 标记（`#` / `![...]`）来自笔记首行原文，未清洗。verify 六步全绿 · 质量门 8/8 |
 | rev173.259 | 2026-10-30 · **取消内置插件预装：9 个原预装改为「推荐优先安装」**（用户「不设置内置插件，之前预装的改为推荐优先安装」· 口径选定「**彻底删内置包，全部走市场下载**」）：① **删机制** —— `src/kernel/builtin-plugins.ts`（9 个插件 `?raw` 打包 + `ensureBuiltinPlugins` 启动写盘）、`usePluginHost` 的预装调用与「内置插件写入失败」提示、`tests/builtin-plugins.test.ts`；**首次启动 = 零插件**。② **`compareVersions` 迁 `src/kernel/version.ts`**（插件市场仍在用；原模块删掉）。③ **推荐清单** —— 新 `src/lib/recommended-plugins.ts`（9 条分两组：基础体验 5 = 标签 / 反向链接 / 历史版本 / 导入导出 / 备份；多设备同步 4 = 本地文件夹 / WebDAV / S3 / Git），插件中心空态从 3 条扩到 9 条、每条「去安装」切市场；**市场顶部「推荐优先安装」提示 + 条目「推荐」标**（描边样式，默认深色主题 accent 近白时也看得见 —— 实心底白字会隐形，已修）。④ **生成器** —— `gen-catalog.mjs` / `facts.mjs` 去掉内置来源；功能目录重生成（无「内置插件」节，概览「插件 42」）；CARD 事实块改「插件 · 市场 17 · 示例 42」。⑤ **决策与文档** —— 新增 **`D-011-不预装插件`**（取代 D-010；含代价如实写）、`D-010` 标 superseded、契约来源表 `builtin` 标取消、`系统总览` 启动流程去掉预装步骤、README（现状 / 插件行 / 技术栈）、使用手册（「默认预装 9 个」→ 零插件 + 推荐安装说明）、ROADMAP / 调研锚点同步。**实测**：临时移走 18 个插件目录 → 重扫 ⇒ **零插件空态**（已安装 0 / 安装 .znp / 浏览市场 / 9 条推荐 / 状态栏插件项全消失，`_shots/b3-24-zero-empty.png`）→ 恢复目录 → 重扫回 18（`b3-28`）；市场推荐提示与「推荐」标桌面 `b3-27` / 手机 `b3-phone-21`。**测试** vitest **1508 → 1501**（删 builtin 12 条，新增 `version` 3 条 + `plugin-panel` 空态改 9 条断言）。⚠️ **代价**：离线 / 首启没有插件，市场拉不到索引时只能手动装 `.znp`；已装环境不受影响（目录不删、只是不再自动写回）。verify 六步全绿 · 质量门 8/8 |
 | rev173.258 | 2026-10-30 · **UI 重布局 B3（插件中心独立页 + 设置瘦身）落地**（用户「zeronote继续 B3」· 方案 §5 / §6 第三批）：① **主区结构** —— `mainView='plugins'` 页顶栏改「插件中心」+ 重新扫描 + 返回（手机「‹ 返回」）；`.zn-main-panel` 在 `@media (max-width:820px)` 去掉桌面热区那 20px、内边距收窄。② **三 tab 命名统一** —— `PluginPanel`：已安装 / **插件市场**（原「发现」）/ 调试；tab 角标与行内「↑ 可更新」文案同步。③ **零插件空态** —— 标题 + 说明 + 「安装插件包（.znp）…」+「浏览插件市场」+ **3 条推荐**（标签 `tag-panel` / 反向链接 `backlinks` / 历史版本 `history`，每条「去安装」切市场 tab）+ 手动放置目录提示；已装时动作行单独一条（空态不重复画按钮）。④ **禁用可撤销** —— `lastDisabled` state + 12 s 自动消失；开关包装 `toggleWithUndo`；列表下方 `.zn-plugin-undo`（撤销 / ×），重新拨开同一开关也会清掉。⑤ **设置瘦身** —— `Settings` 删掉整块 `PluginPanel` / 能力块 / 全部插件 props，插件 tab 只剩「N 个已安装 · M 个可更新」+「打开插件中心」+「启动时检查更新」+ 同权限说明；新增 props `pluginCount / pluginUpdateCount / onOpenPluginCenter`；`Settings.tsx` 491 → 348 行。⑥ **核心能力接管从设置迁进插件中心**（`capabilities` / `onCapabilityChoice` + 选择对话框整段搬过去）。⑦ **命名统一到「插件中心」** —— ☰ 命令 `core.plugins` 标题、打开 .ext 失败 toast、手机「更多」页行（原「插件管理」）、AppRail / PluginPanel 注释。⑧ **手机市场源行换行** —— `.zn-market-source { flex-wrap: wrap }` + `.zn-market-url` 基线 240px / 最小 180px（此前窄屏地址只剩 `https:`）。**测试** vitest **1500 → 1508**（`plugin-panel` +5：空态两入口 / 3 条推荐 / 切市场 tab / 禁用撤销 / 重拨清条；新增 `settings-plugin-tab` 3：无列表 + 摘要入口 + 开关回传）。**桌面实测**（PrintWindow 抓窗口，`_shots/b3-*.png`）：图标栏 🧩 → 插件中心（三 tab + 动作行 + 核心能力块，`b3-03`）· 插件市场列索引并显示已安装（`b3-04`）· 设置 → 插件瘦身版（`b3-07`）· 拨掉「大纲·导图」出现撤销条（`b3-08`）· 点撤销恢复且条子消失（`b3-09`）。**手机实测**（`33b676f6` · `com.aqua.zeronote.debug` · 前端随桌面 vite，`am force-stop` 后补 `adb reverse tcp:1420`）：底栏 🧩 → 插件中心（三 tab / 安装按钮首屏可见 = 2 次点击，`b3-phone-03`）· 插件市场（`b3-phone-04/10`）· 更多页「插件中心」行（`b3-phone-05`）· 设置 → 插件瘦身版（`b3-phone-07`）· 点「打开插件中心」关设置并切主区（`b3-phone-08`）。**零插件空态只在单测里验**：本机 18 个插件目录 + `ensureBuiltinPlugins` 每次重扫会重写内置 9 个 ⇒ 真机「零插件」无法呈现（重命名目录会被预装自愈），未做真机截图。⚠️ 未验：手机设置页仍桌面 modal（方案 §5 说手机应全屏单列 → B7）· 平板宽度 · 浅色主题下插件中心对比度。verify 六步全绿 · 质量门 8/8 |
 | rev173.257 | 2026-10-30 · **UI 重布局 B2（手机底部四项）真机落地**（用户「开始」· 方案 §6 第二批）：① **`MobileTabBar`** —— 固定 4 项 `home/search/plugins/more`（验收点：顺序与 id 固定），`aria-current="page"` + 顶部短竖线，贴底 `env(safe-area-inset-bottom)`，只放点击目标不放拖拽；零插件下四项全成立。② **`MobileMorePage`** 全屏页（不是抽屉）—— 笔记组（回收站 / 切换笔记库 / 插件管理）+ 插件组（`tag-panel` / `import-export` 面板按 **pluginId 查**，禁用即**整组消失**）+ 其他（设置 / 关于直达「关于」页）。③ **搜索全屏页**：复用 B1 的 `SearchPanel.inline`，带「‹ 返回」头；手机不再弹浮层（桌面仍侧栏视图）。④ **编辑态**：底栏隐藏（`showTabBar` 三个条件：编辑态 / 工具页 / 回收站），顶栏 `‹ 返回 | 笔记名 | ⋯`（`TitleBar.menuIcon='back'` + `showMenuButton`）；‹ = 关笔记回列表，⋯ = 主菜单，长按 ☰ 保留。⑤ **返回键**：非首页 tab 先回首页（放「关笔记」之后、「退出」之前）；插件页 / 工具页返回也回首页（不叠返回栈）。⑥ **手机不再渲染 `AppStatusBar`**（方案 §10 风险表：底部让给四项；保存状态在顶栏）；回收站 onBack 回「更多」。⑦ 首页浮动 ＋ 与长按环形入口随底栏上移（`.zn-app.has-tabbar`：`bottom 120→80` / 环形 `148→108`、卡片流 padding 140）。**真机验收**（`33b676f6` · 前端随桌面 vite，`am force-stop` + `am start` + 先补 `adb reverse tcp:1420`，**未重编 APK**）：四项可切且选中态正确 · 搜索页（键盘弹出、输入框未被底栏遮）· 更多页全部入口 · 设置 / 关于直达 · 编辑态顶栏 ‹ + ⋯ 且底栏隐藏 · 搜索页返回回首页不退应用 · 首页返回退出应用（符合层级）· 长按 ☰ 开主菜单 · 关掉「标签 + 导入导出」⇒ 更多页插件组**整块消失**，恢复后回来（零插件规则手机端实测）。截图 `_shots/b2-{1..28}-*.png`。**测试** vitest **1493 → 1500**（`mobile-tab-bar` 3 + `mobile-more-page` 4）。⚠️ **长按 ＋ 环形入口**：本轮 CDP 点偏未命中 ⇒ **用户 2026-10-30 实测有效**（B2 只把它整体上移 56px，无回归）· 浅色主题下的底栏对比度 · 平板宽度。⚠️ **边界**：手机上的「☰」在非编辑态仍是抽屉开关（方案 §2.2 的底部导航已接管主入口，抽屉降级为加速手势，符合「每项有可见替代」）；「更多」里的「帮助」未做（应用内没有帮助页，手册在 `docs/guides/`）。 |
@@ -155,6 +156,44 @@ revision: 173.259
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.260（2026-10-30 · UI 重布局 B4：文档工具条 + 状态栏瘦身 + 空态「最近 3 篇」）
+
+> **触发**：用户「继续 zeronote」—— 按 `docs/UI重布局-方案-2026-10-29.md` §2.1 / §6 第四批（O1 / O10）落地。
+>
+> **做了什么**：
+> - 新 `src/components/DocToolbar.tsx`：标签条下方 32px 工具条 —— 左＝`location: 'editor-topbar'` 插件面板、
+>   右＝内核固定「源码 / 预览」+「⋯ 更多」；没有面板时左侧整块不渲染（零插件基线）。
+> - **源码开关受控化**：`MarkdownEditor` 加 `sourceMode` / `onToggleSourceMode`，桌面状态归 `App`
+>   （沿用 `zeronote.sourceMode`）；编辑器右上角浮按钮此时不渲染，手机不传受控值 ⇒ 行为不变。
+> - 「⋯ 更多」= 查找替换 / 在新窗口打开 / 关闭当前标签页 / 删除这篇笔记（`openDocMenu`，条目打开时现算）。
+> - **状态栏瘦身**：`AppStatusBar` 删「N 篇 · N 文档 · N 附件」（`notes` prop 一并删），只剩 statusbar chip +
+>   错误 + 字数；高度 22 → **26px**，chip **≥24×24**（2.5.8，覆盖 `zn-btn` / `zn-ui-link` 两种形态）。
+> - **反链 / 历史迁挂载位**：`backlinks` 0.2.2 / `history` 0.2.1 —— 面板 `statusbar` → `editor-topbar`，
+>   capabilities 加 `view:editor-topbar`；示例与单测断言同步。
+> - **空态「最近 3 篇」**：`lib/recent-notes.ts` 新 `pickRecentNotes`（最近打开优先 / mtime 补齐 / 过滤已删除 / 只列 note）；
+>   「从文件导入」仅 `import-export` 启用时出现。
+>
+> **测试**：vitest **1501 → 1515**（`doc-toolbar` 5 · `recent-notes` +6 · `app-empty-state` +4 · `app-status-bar` 重写 4）。
+>
+> **桌面实测**（CDP 9222；`_shots/b4-*.png`）：工具条「被 0 篇引用 · 历史版本 · 源码 · ⋯」→ 点「源码」⇒
+> `.zn-source-editor` 出现且按钮变「预览」→「⋯」四项菜单 → 历史浮层 / 反链面板都从工具条打开；
+> 状态栏「🔒 安全 · 29 字」；`getBoundingClientRect` 实测：工具条 32 高、按钮 24 高、状态栏 26 高、chip 52×24；
+> 空态「最近 3 篇」3 条可点（`b4-05`）。
+>
+> **零插件回归**（临时改名 `plugins` → `plugins-b4-empty-bak`，reload 后恢复 18 个）：工具条只剩「源码 ⋯」·
+> 状态栏只剩字数 · 空态仍有「新建 / 最近 3 篇」且**没有**「从文件导入」（`b4-07` / `b4-08`）。
+>
+> **手机回归**（`33b676f6` · reload）：`.zn-doc-toolbar` 不渲染、编辑器右上角「源码」按钮仍在
+> （`_shots/b4-11-phone-note.png`）；手机上 `editor-topbar` 面板仍走旧渲染路径
+> （当前手机装的 backlinks / history 是旧版 statusbar，面板不可见 —— 属预期）。
+>
+> **已发市场**：`backlinks@0.2.2`（24.0 KB · 整包 sha256 `f57c483c…`）· `history@0.2.1`
+> （28.7 KB · 整包 sha256 `6c31e077…`），keyId `aqua-2026`，索引仍 **17 条**。
+> 全局目录已改用 examples 覆盖验证（旧文件备份 `_tmp-plugin-backup/b4-20261030-0245/`）。
+>
+> **未做**：「最近 3 篇」标题里的 markdown 标记（`#` / `![...]`）来自笔记首行原文，未清洗。
+> **下一步 = B5（标签条 `＋` / `»` + 时间流入口 + 笔记窗口快速切换）**。
 
 > ## 📌 rev173.259（2026-10-30 · 取消内置插件预装：9 个原预装改为「推荐优先安装」）
 

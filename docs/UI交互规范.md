@@ -11,9 +11,13 @@
 ├ 侧栏 ─┬ 时间流 ─┬ 编辑区 ────────────────────────────────┤
 │ 文件树 │ 卡片流   │ 标签条（TabBar）                        │
 │ 插件   │ 300px   │ 编辑器 / 插件面板（同一块内容区，rev173.85）│
-│ 回收站 │ 可关    │ 状态栏（未保存 / 字数 / 位置）           │
+│ 回收站 │ 可关    │ 状态栏（字数 / 状态 chip；B4 瘦身）       │
 └───────┴─────────┴────────────────────────────────────────┘
 ```
+
+> ⚠️ 本图仍是 B1 之前的形态（时间流在中间栏、无图标栏）；目标态见
+> [`UI重布局-方案-2026-10-29.md`](UI重布局-方案-2026-10-29.md)，**B1–B4 已落地**（图标栏 / 侧栏视图容器 /
+> 插件中心 / 文档工具条 + 状态栏瘦身）。本文件在 B7 之后统一重写。
 
 | 区域 | 规则 | 代码锚点 |
 |---|---|---|
@@ -21,6 +25,8 @@
 | 侧栏 | 宽度可拖，记忆 `zeronote.sidebar.w` | `src/App.tsx` |
 | 时间流 | 侧栏与编辑区之间，默认 300px（160–560），可关，状态存 localStorage | `src/components/MobileNoteCards.tsx`（`variant="panel"`） |
 | 标签条 | 编辑器顶部；标题 + 未保存圆点 + ×；拖出=拆窗 | `src/components/TabBar.tsx` · `src/lib/tabs.ts` |
+| **文档工具条**（B4） | 标签条下方 32px：左＝`location: 'editor-topbar'` 插件面板（反链 / 历史，禁用即消失），右＝「源码 / 预览」+「⋯ 更多」；只在桌面 + 打开笔记时出现 | `src/components/DocToolbar.tsx` |
+| **状态栏**（B4） | 只放状态：`location: 'statusbar'` 插件 chip + 错误 + 当前字数（篇数统计已删）；高 26px，可点 chip ≥24×24 | `src/components/AppStatusBar.tsx` |
 | 插件面板 | **和编辑器同一块内容区**（标签条之下）——PDF / 导图默认开成主区标签（`panel:<id>`），拖出 / 右键 = 独立窗口；面板视图**侧栏照常显示**（rev173.85）· **每份文档一条标签**（title = 文件名，`doc-reader.view.<hash>`，面板标 `hidden` 不进 ☰ 菜单；rev173.86） | `src/components/PanelMount.tsx` · `view.registerPanel({ mount })` |
 | 浮层 | 命令面板 / 搜索 / 设置 / 替换均为遮罩浮层，**不推正文** | `CommandPalette.tsx` · `SearchPanel.tsx` · `ReplacePanel.tsx` |
 
