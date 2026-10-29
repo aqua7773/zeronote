@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.241
-更新时间: 2026-10-29 · 最新 rev173.241
+revision: 173.242
+更新时间: 2026-10-29 · 最新 rev173.242
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,7 +19,9 @@ revision: 173.241
 
 | rev | 内容 |
 |---|---|
+| rev173.242 | 2026-10-29 · **安卓桌面组件三件（需求 §15）**（用户「继续 zeronote」· ROADMAP §3.5 第 10 项 = 最后一块大缺口）：① **数据通道** —— 组件活在 Launcher 里（没有 WebView / IPC / 内存态）⇒ 前端算快照（`src/kernel/widget-data.ts`：最近公开笔记 + 今日应打卡计划）→ Rust `widgets.rs` **原子写**（tmp+rename）`<app_data_dir>/.zn/widget-data.json` → Kotlin 只读渲染。「算」留在 JS 是因为 `isDueDay` 本来就在 `examples/habit/index.js`（`tests/widget-data.test.ts` **直接 import 插件那份逐条对照**，9 个计划 × 9 个日期，防两份实现漂移）。② **快速记录**（§15.1）= 组件是一个按钮 → 对话框样式 `QuickCaptureActivity`（不建 WebView）→ `QuickCaptureWriter` 写 `<库>/收件箱/<YYYY-MM-DD-HHmmss>.md`（同秒不覆盖 / 空输入不写）。③ **今日打卡**（§15.2）= 每行一个今日应打卡计划，点一行 ⇒ `HabitStore.checkIn` 往插件 `store.json` 的 `checks[planId][today]` 追加一条 `HH:mm` + 快照 `done` 同步 +1 + 写 `widget-habit-dirty` 标记；前端**回前台**时 `widget_take_habit_dirty` 取走标记并 `reloadPlugin('habit')`（插件内存态会覆盖磁盘，这一步是必需的一致性补丁）。④ **最近笔记**（§15.3）= 按组件高度分 1/3/5/7 档（`rowsForHeight`：标题 24dp + 每行 28dp），只出公开笔记（`.zn/` 与 `kind!=='note'` 一律过滤）。⑤ **测试**：vitest 1439 → **1456**（17 条）· cargo 82 → **86**（4 条：原子写/覆盖/tmp 清理/脏标记取走）· **Android JVM 单测 20 条**（`gradlew :app:testArmDebugUnitTest`：落点 6 / 解析与分档 9 / 打卡 JSON 语义 5）。⑥ **真机**（`33b676f6` · APK 重编安装 20:06）：`dumpsys appwidget` 三个 provider 注册（380/381/382）· 「添加小部件」页按应用分组能看到三个组件（2x1 / 3x3 / 3x3）· **快速记录全链路走通** —— 桌面渲染 → 点击开对话框（键盘自动弹出）→ 输入 → 保存 ⇒ `收件箱/2026-10-29-201212.md`（内容 `quick capture from widget`）· 快照 `run-as cat .zn/widget-data.json` 内容正确（7 条笔记 + plans）。⚠️ **未验**：最近笔记 / 今日打卡的**组件本体截图**（Launcher 自动点卡片两次没命中，第三次只成功加了快速记录）· 打卡点击的真机写盘（逻辑已抽纯函数 + 5 条单测）。⚠️ **MIUI 入口分两层**：「全部应用 → 支持小部件应用」列表**不收录**本应用（加/不加 `previewImage`/`previewLayout` 都一样），要从「安卓小部件 → 添加小部件」进，按应用分组里才有。坑：AAPT 把样式名的点号当**隐式继承**（`Widget.Rn.Row` 找不到父样式 ⇒ 编译失败，必须 `parent=""`）· JVM 单测的 `org.json` 是 android.jar 的 stub（全抛 `RuntimeException: Stub!`）⇒ `testImplementation("org.json:json:20240303")` · 对话框主题默认还会画一遍窗口标题（「记一条」出现两次）⇒ `windowNoTitle=true` · `adb shell input tap` 吃**真实屏幕像素**（1220×2712），截图预览是缩放过的（838 宽），按预览坐标点全偏 · `exported="false"` 的 Activity 用 `am start` / `run-as` 都起不来（验证只能走组件点击） |
 | rev173.241 | 2026-10-29 · **调试面板：单插件热重载**（用户「后台盯，继续开发」· 补 §2.13 最后一项能做的）：① `PluginHost` 新增 **`reloadPlugin(id)`**（`src/hooks/usePluginHost.ts`）—— 只「卸这一个 → 装它」，别的插件不动；挂到 `pluginChainRef` **同一条串行链**（与整代加载并发会撞「命令 id 重复」）；卸完强制 `releaseServices` / `releaseEditorMarks` / `releaseCapabilities` ② UI：`PluginDevPane` 诊断表加第 6 列「操作」，每行「重载」按钮（`onReloadOne` 不传则不出现）+ 结果提示 + 重载中禁用；`PluginPanel` / `Settings` / `App` 一路接线 ③ CDP 出口 `window.__znReloadPlugin(id)` ④ **实测**（桌面）：基线 audit **210 命令 / 19 面板 / 3 服务** → 重载 `accounting` 后**仍是 210 / 19 / 3** 且 `accounting.*` 27 条仍在 → 再重载一次仍不变（无「命令 id 重复」）→ 不存在的 id 明确报「找不到插件目录」；**UI 路径**：插件页 → 调试 → 开发者模式 ⇒ 19 行诊断表 + **18 个「重载」按钮**，点第一行提示「已重载 accounting」且日志出现「插件已加载：记账」；截图 `_shots/rev173241-dev-reload.png` ⑤ 无新增单测（纯宿主 UI / 管线，按 ROADMAP §4.5 口径以 CDP 实测为准）。⚠️ 未做（且明确不做）：沙箱控制台（插件是独立 Blob 模块，宿主拿不到作用域）· 内存/CPU 监控（WebView 无对应 API）· 跳过权限确认（立场问题）。verify 六步全绿 · 质量门 7/7 |
+
 | rev173.240 | 2026-10-29 · **Android 大视频：本地媒体 HTTP 服务 + Range**（用户「后台盯，继续开发」· 修 rev173.238 抓到的平台缺口）：① **一手核实**：桌面 `tauri-2.12.3/src/protocol/asset.rs:98` **支持** Range（单段 206 + `Content-Range`，单次最多 1000 KiB、多段 `multipart/byteranges`）；Android `wry-0.55.1/src/android/kotlin/RustWebViewClient.kt:26` 走 `shouldInterceptRequest` 返回 `WebResourceResponse` ⇒ **没有 206** ⇒ 协议层取舍，不是编码/体积问题 ② **新模块 `src-tauri/src/media_server.rs`**（手写 HTTP/1.1，零新依赖）：只绑 `127.0.0.1` 随机端口 · URL 带随机 token（`/m/<token>/<percent-encoded 绝对路径>`）· **只允许白名单媒体扩展名** · 只 GET/HEAD · Range 三形态（`a-b` / `a-` / `-N`）⇒ 206 + `Content-Range` + `Accept-Ranges`，越界 416 + `bytes */len`，单次 1000 KiB ③ `media_server_start` 命令（`OnceLock` 幂等）④ **前端** `src/kernel/media-url.ts` + `MarkdownEditor.mediaSourceUrl`（服务就绪 ⇒ `http://127.0.0.1:<port>/…`，否则回落 asset）+ `mediaEpoch` 时序（服务异步启动，**只换已挂载播放器的 src**，不重建编辑器以免丢光标）+ CSP `media-src` 加 `http://127.0.0.1:*` ⑤ 桌面**不启用**（asset 协议本来支持 Range）⑥ **实测**：手机 APK 重编（19:51 · pid 3159）· `clip-big.mp4` 2,307,862 B / 6 s ⇒ `readyState **4**` · `networkState 1` · `play()` 后 `paused=false` · **seek 4.5 s ⇒ `currentTime 4.74` / `buffered 6.00`**（Range 铁证，对比 rev173.238 的 `0 / 2 / buffered 0`）· 桌面回归仍 `asset.localhost` + `readyState 4` · 从 node 直连服务核对 200/206/416 ⑦ **测试** cargo 77 → **82**（5 条，含真实 TCP 跑通 200/206/HEAD/403）· vitest 1432 → **1439**（7 条 URL 形态与开关）。⚠️ **release 包未验**：`usesCleartextTraffic` 只在 debug 为 true，loopback 理论上不受限；若被拦需加 `network_security_config.xml` 放行 localhost（未做）· verify 六步全绿 · 质量门 7/7 |
 | rev173.239 | 2026-10-29 · **附件同步 · 期 4 的两个正文入口**（用户「继续zeronote」· 排期 9 的遗留）：① **入口 1 · 媒体「原文件不在本机 · 同步」** —— `upgradeMediaWidgets` 的 `error` 分支在源是**库外绝对路径**时补一个按钮（`EXTERNAL_ABS_RE` 判定，文案就是需求 §5 原文），点击把 raw 交回宿主；② **入口 2 · 模式 B「同步原图」** —— 点开图片的浮层（App 的 `.zn-img-preview`）里加按钮；打开预览时查一次台账：`devices[本机]` 有值 ⇒ 直接显示**原图**（需求 §4「同步成功后点开默认原图」），没有 ⇒ 显示「同步原图（体积）」。正文图片点击改为**委托宿主**的 `openLocalLink`（编辑器不认识台账），`img.dataset.znRaw` 记住原文以便反推库内相对路径；③ **纯函数**（`kernel/asset-relay.ts`）：`normalizeRelayPath`（剥尖括号 / 解 `%xx` / 统一斜杠，**不折叠大小写** —— Android 库路径区分）、`findEntryForMedia`、`findEntryForStoredImage`、`localOriginalAbsPath`（`devices[本机]` 有**两种写法**：上传方记绝对路径、落地方记库内相对，别一律拼库根）、`syncConfirmText`；④ ⚠️ **修一个真 bug**：`upload_one` 原来优先用 `storedInVault`（模式 B 的**压缩版**）⇒ sha256 必然与台账 id（原图摘要）不符，**模式 B 的原图根本传不上去**（实测报「文件内容已变化」）；改为**优先 original**、原文件不在本机才退回副本；⑤ **测试**：vitest 1419 → **1432**（13 条：规范化 3 / 媒体匹配 2 / 图片匹配 3 / 本机原图 3 / 确认文案 2）；cargo 76 → **77**（`upload_prefers_original_over_compressed_copy`）；⑥ **实测**（CDP，`_tmp-vault-tb` ↔ `_tmp-asset-entry/vault-b` 两库当两台机）：**入口 1** 引用 1.5 MB `clip.mp4` → 源文件移走 ⇒ 红字 +「原文件不在本机 · 同步」→ 确认文案「即将同步大文件「clip.mp4」（1.4 MB），继续？」⇒ 落地 1,499,614 B · 引用改写 `.zn-assets/external/0b94e6ca-clip.mp4` · `readyState 4` · `play()` 后 `paused=false` · toast「已接收 1.4 MB · 引用已改写」；**入口 2** 模式 B 插 10.6 MB PNG ⇒ 压缩版 1,044,819 B 入库 · 原图上传云端 → 另一个库（设备 `c4e584fd…`）点开 ⇒ 浮层「同步原图（10.6 MB）」→ 确认文案「即将同步大文件「big.png」（10.6 MB），继续？」⇒ 落地 11,159,895 B（原图大小）· 预览切原图 · toast「已接收原图（10.6 MB）」。截图 `_shots/rev173239-{1-media-sync-btn,2-original-btn,3-original-lands}.png`。**剩** WebDAV 真机验证 · 库外非媒体的「文件卡片」 · 手机未验（Rust 改了 `assets.rs`，要重装 APK）· verify 六步全绿 · 质量门 7/7 |
 | rev173.238 | 2026-10-29 · **附件同步 · 期 4（跨设备手动搬运）**（用户「继续zeronote」· 排期 9）：① **新模块 `src-tauri/src/assets.rs`** —— 配置 `<库>/.zn-assets/relay.json`（后端 + `updatedAt`；**密码只进系统凭据库** `zn-asset-relay`，不落 JSON）；设备 id `<私有根>/.zn/device-id`（跨库共用）；两种后端：`local-folder`（共享目录，先做）/ `webdav`（PROPFIND + PUT + GET 流式 + DELETE，Basic auth）；云端临时区 `<root>/.zn-asset-staging/<sha16>/<文件名>` + `.zn-ack`；状态机按「云端目录 + ack」**实时算**（local → staged → landed → cleaned，不另存会陈旧的副本）② **7 条命令** `asset_relay_config` / `config_set` / `pending` / `upload` / `remote` / `land` / `cleanup` / `relink` —— 上传前校验源文件存在 + sha256 与台账一致（文件被换过就拒绝）；落地校验下载内容 sha256，不符即丢弃；**只清已 ack 的**（对端没拿到就删 = 文件丢了）；清理后在台账标 `relayCleanedAt`（否则状态退回「待上传」，用户以为没传成）③ **改写引用** `asset_relay_relink`：正文 / 尖括号 / `%20` 编码三种形态 → 库内相对路径，落点按 `mdTarget` 规则（含空白才加尖括号）④ **UI** 设置页新「附件」tab（`AssetRelayPanel`）：共享目录 / WebDAV 配置 + 台账清单（5 种状态）+「上传选中 / 接收云端文件 / 清理已落地」，**每个动作前 `window.confirm` 点名 + 写总体积** ⑤ **测试**：cargo 67 → **76**（9 条：本地文件夹全链路 stage→land→ack→clean / 源文件缺失 / 内容变化 / 云端篡改 / 台账清单 / 未 ack 不删 / 三种引用形态 / 文件名清洗 / 百分号解码）· vitest 1404 → **1419**（15 条：状态机 6 / 动作集合 3 / 确认文案 3 / 展示 3）⑥ **实测**（CDP，`_tmp-vault-tb` ↔ `_tmp-asset-relay/vault-b` 两库当两台机、共享目录 `_tmp-asset-relay/shared`）：A 上传（确认文案「即将把「clip.mp4」上传到云端临时区（共 2.0 MB），继续？」）⇒ `.zn-asset-staging/6ea73b45c3b229e3/clip.mp4` 2097152 B · B 接收（「即将从云端接收 1 个文件（共 2.0 MB）并落地到本库，继续？」）⇒ `.zn-assets/external/6ea73b45-clip.mp4` 逐字节一致 + `note.md` 引用改写 + `.zn-ack` = B 设备 id + 台账 `devices` 两条 · A 清理（「即将删除云端临时区里的 1 份文件（共 2.0 MB）——对端都已落地，删除后不再可取回。继续？」）⇒ hash 目录删除、A 状态「已在本机」。截图 `_shots/rev173238-{1-panel-empty,2-uploaded,3-received,4-cleaned}.png`。⚠️ **WebDAV 后端只过编译与纯函数，没真机测**（要自建 DAV 桩）；三入口只接了「附件面板」，**媒体「原文件不在本机 · 同步」与模式 B「同步原图」未接** · verify 六步全绿 · 质量门 7/7 |
@@ -136,6 +138,80 @@ revision: 173.241
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.242（2026-10-29 · 安卓桌面组件：快速记录 / 今日打卡 / 最近笔记）
+>
+> 用户：「继续 zeronote」。开工 ROADMAP §3.5 排期第 10 项 —— 需求 §15 的**最后一块大缺口**。
+>
+> ### 为什么中间要有一层「快照」
+>
+> 桌面组件活在 Launcher 的进程语义里：没有 WebView、没有 IPC、没有内存态。**它唯一能读的是磁盘。**
+> 所以数据流是单向的：
+>
+> ```text
+>   WebView（内核）──算好 JSON──▶ <app_data_dir>/.zn/widget-data.json ◀──只读── AppWidgetProvider
+> ```
+>
+> 「算」留在前端（`src/kernel/widget-data.ts`）：打卡的「今天该不该打」判定本来就在
+> `examples/habit/index.js` 的 `isDueDay` 里，同一门语言才能逐行对照。Rust 只负责**把字节可靠地落盘**
+> （`src-tauri/src/widgets.rs`：写 `.tmp` + `sync_all` + rename —— 组件与 WebView 可能同时在读这份文件）。
+>
+> ### 三件
+>
+> | 件 | 需求 | 实现 |
+> |---|---|---|
+> | 快速记录 | §15.1 点击弹轻输入框、不打开主应用、存临时收件箱、固定公开 | 组件只是一个按钮 → `QuickCaptureActivity`（**对话框样式**，不建 WebView）→ `QuickCaptureWriter` 写 `<库>/收件箱/<YYYY-MM-DD-HHmmss>.md`（UTF-8 无 BOM；同秒不覆盖；空输入不写） |
+> | 今日打卡 | §15.2 显示今日要打卡的计划、点一下直接打一次卡 | 一行一个计划（`✓ 标题` 或 `标题 · 1/3`），点击 = 广播 → `HabitStore.checkIn` 往插件 `store.json` 的 `checks[planId][today]` 追一条 `HH:mm` + 快照 `done` +1 + 写脏标记 |
+> | 最近笔记 | §15.3 只显示公开笔记、默认 5 条、可调 1/3/5/7 | 固定 7 个 TextView 按高度显隐（`rowsForHeight`：标题 24dp + 每行 28dp；180dp 默认 ⇒ 5 条），**不用 RemoteViewsService** —— 需求上限 7 条，为一个 ListView 背一套 Binder 生命周期不值 |
+>
+> ### 打卡的「一致性补丁」（这一条最容易漏）
+>
+> 组件在 Launcher 侧直接改了 `habit` 的 `store.json`，而插件在 WebView 里持有**加载时的内存态** ——
+> 用户切回 App 再点一次打卡就会把组件那一笔覆盖掉。所以 `HabitStore.markDirty` 写
+> `.zn/widget-habit-dirty`，前端**回到前台**时 `widget_take_habit_dirty`（取走语义）返回 true 就
+> `reloadPlugin('habit')`（重载 = 从磁盘重读）。⚠️ 仍是**尽力而为**：App 被系统冻住的极端时序下
+> 可能丢一次记录 —— 组件定位是「桌面快捷打卡」，不是事务。
+>
+> ### 测试
+>
+> | 层 | 新增 | 守什么 |
+> |---|---|---|
+> | vitest 1439 → **1456** | 17 条 | 本地日期键（不用 UTC）· `isDueDay` 与插件实现**逐条对照**（9 计划 × 9 日期）· `duePlans` 过滤与计数 · `recentPublicNotes` 排序/限量/**私密不外泄** |
+> | cargo 82 → **86** | 4 条 | 快照落在 `.zn/` · 覆盖是原子替换且不留 tmp · `.zn` 缺失自建 · 脏标记「取走一次」 |
+> | Android JVM **20 条**（`gradlew :app:testArmDebugUnitTest`） | 20 条 | 落点/同秒不覆盖/空输入不写（6）· 快照解析坏数据退化/条数分档/行文本/同日判定（9）· 打卡 JSON 语义（5：追加、多计划互不影响、坏层级重建、plans 不动） |
+>
+> ### 真机（`33b676f6` · APK 重编安装 20:06 · 三个 provider 注册 380/381/382）
+>
+> - **「添加小部件」页按应用分组能看到三个组件**：`快速记录 2x1` / `最近笔记 3x3` / `今日打卡 3x3`
+>   （`_shots/rev173242-widget-picker2.png`）
+> - **快速记录全链路**：拖到桌面渲染正确（`_shots/rev173242-widget-home.png`）→ 点击 ⇒ 对话框 +
+>   键盘自动弹出（`_shots/rev173242-quick-capture-dialog.png`）→ 输入 → 保存 ⇒
+>   `收件箱/2026-10-29-201212.md`，内容 `quick capture from widget`
+> - **快照**：`run-as cat .zn/widget-data.json` ⇒ 7 条最近笔记（收件箱那条排第一）+ plans
+> - ⚠️ **未验**：最近笔记 / 今日打卡的**组件本体截图**（Launcher 里自动点卡片两次没命中，
+>   第三次才成功加上快速记录）· 打卡点击的真机写盘（`HabitStore.addCheckIn` 已抽纯函数 + 5 条单测）
+>
+> ### 坑（都是花时间的）
+>
+> 1. **AAPT 把样式名里的点号当隐式继承** —— `<style name="Widget.Rn.Row">` 会去找父样式
+>    `Widget.Rn` ⇒ `resource style/Widget.Rn not found`。必须 `<style … parent="">`。
+> 2. **JVM 单测里的 `org.json` 是 android.jar 的 stub**（任何方法抛 `RuntimeException: Stub!`）⇒
+>    `testImplementation("org.json:json:20240303")`，只挂 test classpath。
+> 3. **对话框主题默认还会画一遍窗口标题** —— 布局里已有「记一条」，主题再画一次就重复 ⇒
+>    `windowNoTitle=true`。
+> 4. **`adb shell input tap` 吃真实屏幕像素**（1220×2712），而 `read_image` 的预览是缩放过的
+>    （838 宽）—— 按预览坐标点会整体偏 1.45 倍。
+> 5. **MIUI 的组件入口分两层**：「全部应用 → 支持小部件应用」列表**不收录**本应用
+>    （加/不加 `previewImage` / `previewLayout` 前后都一样），要从「安卓小部件 → 添加小部件」进，
+>    按应用分组的列表里才有。
+> 6. **`exported="false"` 的 Activity 起不来**：`adb shell am start` 报 `SecurityException`，
+>    `run-as` 也过不了包归属检查 ⇒ 只能通过组件点击验证。
+>
+> ### 没做的
+>
+> - `widget-habit-dirty` 只在「回到前台」消费；如果用户**从不切回 App**，插件内存态与磁盘的差异
+>   会在下次打开 App 时由重载消除，不需要额外处理。
+> - 组件没有「配置界面」（条数靠拉大小，计划数靠布局上限 5 行）—— 与 Android 原生习惯一致。
 
 > ## 📌 rev173.241（2026-10-29 · 调试面板：单插件热重载）
 >

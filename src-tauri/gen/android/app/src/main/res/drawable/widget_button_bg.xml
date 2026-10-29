@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 组件里那个按钮的底（RemoteViews 不支持 ripple / materialButtonStyle，只能给静态 shape） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_button" />
+    <corners android:radius="12dp" />
+</shape>

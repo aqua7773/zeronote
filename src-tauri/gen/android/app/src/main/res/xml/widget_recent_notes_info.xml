@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「最近笔记」桌面组件元数据（rev173.242 · 需求 §15.3）
+
+  `minHeight=180dp` 对应默认档 **5 条**（见 RecentNotesWidget.rowsForHeight：
+  24 + 32×5 = 184 ≈ 180）。用户拉高到 248dp 以上变 7 条，拉矮到 120dp 以下变 1 条。
+  `updatePeriodMillis=1800000` 是系统的下限（30 分钟）—— 组件不自己轮询。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_recent_notes"
+    android:label="@string/widget_recent_notes_title"
+    android:minHeight="180dp"
+    android:minWidth="160dp"
+    android:previewImage="@mipmap/ic_launcher"
+    android:previewLayout="@layout/widget_recent_notes"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="3"
+    android:targetCellWidth="3"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

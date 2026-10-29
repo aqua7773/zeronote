@@ -33,6 +33,10 @@ pub mod assets;
 /// 只读、只服务音视频、只绑 127.0.0.1；桌面不用它（桌面 asset 协议本来就支持 206）。
 mod media_server;
 
+/// 安卓桌面组件的数据通道（rev173.242 · 需求 §15）：WebView 算好快照 → 组件读磁盘。
+/// 只做「原子写一个 JSON」，业务判断留在前端（打卡的应打卡日逻辑本来就在 JS 里）。
+mod widgets;
+
 /// Windows Hello（rev173.169 · 期 2c）：KeyCredentialManager + 带窗口 interop。
 #[cfg(windows)]
 mod hello;
@@ -3909,6 +3913,9 @@ pub fn run() {
       // rev173.232：附件同步期 1（引用台账）
       assets_ledger_read,
       media_server_start,
+      // rev173.242：安卓桌面组件的数据通道（快照落 <app_data_dir>/.zn/widget-data.json）
+      widgets::widget_data_write,
+      widgets::widget_take_habit_dirty,
       // rev173.238：附件同步期 4（跨设备搬运）
       assets::asset_relay_config,
       assets::asset_relay_config_set,

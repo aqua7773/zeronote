@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「快速输入」桌面组件的元数据（rev173.242 · 需求 §15.1）
+
+  · `updatePeriodMillis=0`：本组件没有周期性数据要刷（不显示笔记/打卡），
+    改成每 30 分钟唤醒一次只为了重挂同一个按钮是纯耗电。
+  · `resizeMode`：允许拉宽拉高，但布局是居中的，任何尺寸都成立。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_quick_capture"
+    android:label="@string/widget_quick_capture_label"
+    android:minHeight="60dp"
+    android:minWidth="110dp"
+    android:previewImage="@mipmap/ic_launcher"
+    android:previewLayout="@layout/widget_quick_capture"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="1"
+    android:targetCellWidth="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

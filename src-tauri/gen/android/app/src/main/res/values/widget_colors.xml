@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面组件的配色（浅色）—— rev173.242 · 需求 §15
+     刻意不用主题属性（RemoteViews 拿不到 Material 主题色，Launcher 那边的 Context 也不一样），
+     深色模式由 `values-night/widget_colors.xml` 覆盖同一批 id。 -->
+<resources>
+    <color name="widget_bg">#FAFAF7</color>
+    <color name="widget_border">#E2E2DC</color>
+    <color name="widget_button">#ECECE6</color>
+    <color name="widget_text">#26261F</color>
+    <color name="widget_text_faint">#8A8A85</color>
+</resources>

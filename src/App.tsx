@@ -72,6 +72,8 @@ import {
 } from './lib/theme'
 import { setStatusBarVisible } from './lib/systemBar'
 import { requestAllFilesAccess } from './lib/androidPerm'
+/* rev173.242：安卓桌面组件的数据快照（最近笔记 + 今日打卡）—— 组件只读磁盘 */
+import { syncWidgetData, takeHabitWidgetDirty } from './kernel/widget-data'
 /* rev123 拆分 L3：文件操作域（剪贴板 / 回收站 / 删除）抽成 hook */
 import { useFileOps } from './hooks/useFileOps'
 /* rev124 拆分 L3：文档读写域（刷新 / 合并 / 保存 / 编辑器变更）抽成 hook */
@@ -1027,6 +1029,23 @@ export default function App() {
     autosaveMs: AUTOSAVE_MS,
     docChangeDebounceMs: DOC_CHANGE_DEBOUNCE_MS,
   })
+
+  /**
+   * 安卓桌面组件的数据快照（rev173.242 · 需求 §15）。
+   *
+   * 组件活在 Launcher 侧，**碰不到运行中的 WebView** ⇒ 只能读磁盘。所以笔记列表一变，
+   * 就把「最近公开笔记 + 今日应打卡计划」写到 `<app_data_dir>/.zn/widget-data.json`
+   * （Rust `widget_data_write` 原子替换；业务判断在 `kernel/widget-data.ts`）。
+   *
+   * 节流在 `syncWidgetData` 内部（同一份库 10 秒一次）—— 保存笔记会连续触发刷新，
+   * 组件不需要这么实时，而每写一次都是整份 JSON 落盘。
+   *
+   * 独立窗口（插件窗口 / 笔记窗口）不负责这件事：一个进程写就够，多写只会互相覆盖。
+   */
+  useEffect(() => {
+    if (pluginWindowId || noteWindowPath) return
+    void syncWidgetData({ vault, notes })
+  }, [vault, notes, pluginWindowId, noteWindowPath])
 
 
   /**
@@ -2962,6 +2981,11 @@ export default function App() {
       if (document.visibilityState === 'visible') {
         void invoke('zn_watchdog_resume').catch(() => {})
         beat()
+        // rev173.242：桌面「今日打卡」组件在 Launcher 侧直接改写了 habit 插件的 store，
+        // 插件内存态可能还是旧的 ⇒ 回到前台时取走脏标记并重载它（重载 = 从磁盘重读）。
+        void takeHabitWidgetDirty().then((dirty) => {
+          if (dirty) void reloadPlugin('habit')
+        })
       } else {
         void invoke('zn_watchdog_pause').catch(() => {})
       }
@@ -2987,7 +3011,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', syncVisibility)
       window.removeEventListener('pagehide', pause)
     }
-  }, [vault])
+  }, [vault, reloadPlugin])
 
   /**
    * Android 系统返回键接管。

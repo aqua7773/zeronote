@@ -115,5 +115,61 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- ── 桌面组件（rev173.242 · 需求 §15）──────────────────────────────
+             快速输入：组件本体是一个按钮，点击开对话框样式的 QuickCaptureActivity。
+
+             · receiver 用 exported="false"：更新广播来自系统，系统对非导出 receiver 有特权；
+               导出反而让任意应用能伪造 APPWIDGET_UPDATE（官方模板同样用 false）。
+             · Activity 也 exported="false"：只被本应用的 PendingIntent 启动。
+             · excludeFromRecents + theme=对话框 ⇒ 不在「最近任务」里留一张卡片。 -->
+        <receiver
+            android:name=".QuickCaptureWidget"
+            android:exported="false"
+            android:label="@string/widget_quick_capture_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_capture_info" />
+        </receiver>
+
+        <!-- 最近笔记：只显示公开笔记，条数随组件高度 1/3/5/7 档变化（需求 §15.3） -->
+        <receiver
+            android:name=".RecentNotesWidget"
+            android:exported="false"
+            android:label="@string/widget_recent_notes_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_recent_notes_info" />
+        </receiver>
+
+        <!-- 今日打卡：点一行 = 打一次卡（写回 habit 插件的 store，需求 §15.2）
+             ⚠️ 这个 receiver 同时收「点击」广播 ⇒ exported 仍为 false，
+             广播由本应用自己的 PendingIntent 发出，外部应用发不进来。 -->
+        <receiver
+            android:name=".HabitWidget"
+            android:exported="false"
+            android:label="@string/widget_habit_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_habit_info" />
+        </receiver>
+
+        <activity
+            android:name=".QuickCaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:label="@string/quick_capture_title"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.zeronote.Dialog"
+            android:windowSoftInputMode="stateVisible|adjustResize" />
     </application>
 </manifest>

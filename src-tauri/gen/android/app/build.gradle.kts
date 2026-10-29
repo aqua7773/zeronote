@@ -77,6 +77,10 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     testImplementation("junit:junit:4.13.2")
+    // rev173.242：JVM 单测要用**真的** org.json。android.jar 里那份是 stub
+    // （任何方法都抛 `RuntimeException: Stub!`），组件快照的解析单测跑不起来。
+    // 只挂 test classpath，不进 APK。
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }

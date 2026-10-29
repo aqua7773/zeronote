@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面组件配色的深色覆盖（rev173.242）—— id 与 `values/widget_colors.xml` 一一对应 -->
+<resources>
+    <color name="widget_bg">#1C1C1A</color>
+    <color name="widget_border">#33332E</color>
+    <color name="widget_button">#2A2A26</color>
+    <color name="widget_text">#EDEDE6</color>
+    <color name="widget_text_faint">#8F8F88</color>
+</resources>

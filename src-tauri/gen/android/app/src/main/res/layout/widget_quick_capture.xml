@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「快速输入」桌面组件（rev173.242 · 需求 §15.1）
+
+  RemoteViews 只支持很有限的一套控件 —— 这里刻意只放两行文本 + 一个按钮：
+  输入框不能放（API 26+ 才有的实验性 EditText，多数 Launcher 不弹键盘），
+  真正的输入在 QuickCaptureActivity（对话框样式）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_quick_capture_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_bg"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/widget_quick_capture_hint"
+        android:textColor="@color/widget_text_faint"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_quick_capture_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:minHeight="40dp"
+        android:text="@string/widget_quick_capture_button"
+        android:textAllCaps="false"
+        android:textColor="@color/widget_text"
+        android:textSize="14sp"
+        android:background="@drawable/widget_button_bg" />
+
+</LinearLayout>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面组件里的「一行笔记」样式（rev173.242）—— 纯文字、单行、超长省略 -->
+<resources>
+    <!-- ⚠️ `parent=""` 是必须的：AAPT 把样式名里的点号解释成**隐式继承**
+         （`Widget.Rn.Row` 会去找父样式 `Widget.Rn`），不写空 parent 直接
+         "resource style/Widget.Rn not found" 编译失败（2026-10-29 踩过）。 -->
+    <style name="Widget.Rn.Row" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingBottom">5dp</item>
+        <item name="android:textColor">@color/widget_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+</resources>

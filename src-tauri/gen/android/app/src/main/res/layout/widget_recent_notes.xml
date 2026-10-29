@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「最近笔记」桌面组件（rev173.242 · 需求 §15.3）
+
+  刻意**不用 ListView / RemoteViewsService**：需求上限就是 7 条，固定 7 个 TextView
+  + 按高度显隐已经够用，而 RemoteViewsService 会多一个 service、一个 Binder 回调、
+  一套「数据变了要 notifyAppWidgetViewDataChanged」的生命周期 —— 对 7 行文本是纯负担。
+
+  行文本 = 「时间 · 标题」；空状态用单独一行提示（不是把行留白）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_recent_notes_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_bg"
+    android:orientation="vertical"
+    android:paddingLeft="12dp"
+    android:paddingTop="10dp"
+    android:paddingRight="12dp"
+    android:paddingBottom="10dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_recent_notes_title"
+        android:textColor="@color/widget_text_faint"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_1"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_2"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_3"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_4"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_5"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_6"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_row_7"
+        style="@style/Widget.Rn.Row" />
+
+    <TextView
+        android:id="@+id/widget_rn_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/widget_recent_notes_empty"
+        android:textColor="@color/widget_text_faint"
+        android:textSize="12sp" />
+
+</LinearLayout>

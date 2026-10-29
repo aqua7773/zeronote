@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.241 · 调试面板：单插件热重载）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.242 · 安卓桌面组件三件）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.241 · 0.6.0 · 2026-10-29 |
-| 测试基线 | vitest 1439 · cargo 82 · oxlint 3 warnings（2026-10-29） |
+| rev / 版本 | rev173.242 · 0.6.0 · 2026-10-29 |
+| 测试基线 | vitest 1456 · cargo 87 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -30,6 +30,14 @@ pwsh -File scripts\verify.ps1
 ```
 
 ## 未决 / 下一步
+
+> **rev173.242 · 安卓桌面组件三件已落地（需求 §15 收口）**：**快速记录**（点组件 → 对话框 → 写 `<库>/收件箱/<时间戳>.md`，
+> 不打开主应用）· **今日打卡**（点一行 = 打一次卡，写回 `habit` 插件 store + `widget-habit-dirty` 让前端回前台重载插件）·
+> **最近笔记**（只出公开笔记，按组件高度 1/3/5/7 档）。数据通道 = 前端算快照（`src/kernel/widget-data.ts`）→
+> Rust 原子写 `<app_data_dir>/.zn/widget-data.json`（`src-tauri/src/widgets.rs`）→ Kotlin 只读渲染。
+> ⚠️ **真机入口**：MIUI 的「全部应用 → 支持小部件应用」列表**不收录**本应用，要从「安卓小部件 → 添加小部件」进去，
+> 按应用分组里才有三个组件。⚠️ 真机只验了「快速记录」全链路（渲染 → 点击 → 对话框 → 保存 → 文件）；
+> 最近笔记 / 今日打卡的组件本体截图与打卡点击的真机写盘**未验**（逻辑有 Android JVM 单测 20 条覆盖）。
 
 > **「旧 `vault.json` 自己回来」已稳定（rev173.187），不用再追**：写回走内核 `write_note`（`vault.zn-tmp` 铁证），
 > 但它是**内存态** —— 一次 reload + 彻底删干净后就终止；桌面从不复现。手机现在反复删 + 60 s 观察都不复活。
@@ -228,9 +236,9 @@ pwsh -File scripts\verify.ps1
   ⚠️ 交接时有**一个 watch 进程在跑**（AI 当后台 job 起的：`cmd /c android-dev.cmd`，03:12 起）——
   会话结束 job 被回收时它可能一起消失（app 是独立进程，不受影响）。**要再编就双击 `android-dev.cmd`**，
   编之前先清旧进程树（见下）。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 19:51 又被 `android-dev` 重编重装**
-  （app pid **3159**；这次含 rev173.238 的 `assets.rs` 与 **rev173.240 的媒体服务** —— 246 秒编译 + gradle）。
-  **Rust 侧现在到 rev173.240**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:18 又被 `android-dev` 重编重装**
+  （app pid **27843**；这次含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 7 个 + 3 套布局）+ rev173.238 的 `assets.rs` + rev173.240 的媒体服务）。
+  **Rust 侧现在到 rev173.242**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断。
   ⚠️ 手机库 = `/storage/emulated/0/Documents/ZeroNote`（**不是**私有 `files/`；`run-as ... ls` 根下的 `vault` 是旧的另一份）。
   ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
   新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
@@ -241,6 +249,10 @@ pwsh -File scripts\verify.ps1
     只有 canvas / video 画面抓不到（rev173.228 实测：video 截图是全黑但控制条有，`readyState/play()` 才是判据）。
   - 手机 `adb push` **多个中文名文件一次推**会 `failed to read copy response: EOF` ⇒ 逐个 push（rev173.228 实测）。
   - **手机插件根 = `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/`**（**不是** `files/.zn/`；`run-as ls files/` 只有 `profileInstalled`）。
+  - **桌面组件（rev173.242）**：三个 provider 已在系统注册（`dumpsys appwidget` 的 380/381/382）。⚠️ MIUI 的「全部应用 → 支持小部件应用」
+    列表**不收录**本应用（加不加 `previewImage`/`previewLayout` 都一样），要从「**安卓小部件 → 添加小部件**」进，按应用分组里才有。
+    数据快照 = `<dataDir>/.zn/widget-data.json`（`run-as cat .zn/widget-data.json` 可看内容；写入由前端 effect 节流 10 秒）。
+    ⚠️ `adb shell input tap` 吃**真实屏幕像素**（1220×2712），`read_image` 的预览是 838 宽 —— 按预览坐标点会整体偏 1.45 倍。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
   - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.9.0**（rev173.220 从 0.8.0 更新上来，带 `signature.json`，与源码 rev217 一致））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。

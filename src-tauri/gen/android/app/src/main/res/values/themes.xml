@@ -12,4 +12,18 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
+
+    <!--
+      快速输入对话框（rev173.242 · 需求 §15.1）：
+      用 AppCompat 的 Dialog 主题 —— 它自带 Material 圆角/浮层，且**没有任何装饰性标题栏**，
+      看起来就是「系统弹了个小框」，而不是「打开了另一个应用页面」。
+    -->
+    <style name="Theme.zeronote.Dialog" parent="Theme.AppCompat.DayNight.Dialog">
+        <!-- 关掉窗口标题栏：布局里已经有一行「记一条」，再让主题画一遍就是两条
+             （2026-10-29 真机看到「记一条」重复）。 -->
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowMinWidthMajor">72%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowSoftInputMode">stateVisible|adjustResize</item>
+    </style>
 </resources>
