@@ -29,6 +29,10 @@ mod net;
 /// 独立成模块：它需要同时碰「台账（lib.rs）」与「HTTP（net.rs）」，塞进 lib.rs 只会让它更厚。
 pub mod assets;
 
+/// 本地媒体 HTTP 服务（rev173.240）—— Android 上 asset 协议没有 Range，大视频播不了。
+/// 只读、只服务音视频、只绑 127.0.0.1；桌面不用它（桌面 asset 协议本来就支持 206）。
+mod media_server;
+
 /// Windows Hello（rev173.169 · 期 2c）：KeyCredentialManager + 带窗口 interop。
 #[cfg(windows)]
 mod hello;
@@ -1531,7 +1535,7 @@ const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg",
 /// 音视频附件的扩展名（小写；与前端 `src/lib/media-render.ts` 同一份口径 ——
 /// 那边分三组：能播的 video / audio，以及认得出但播不了的容器）。
 /// 这里合成一份：**只要认得出是音视频就进文件树**，能不能播由前端决定。
-const MEDIA_EXTS: &[&str] = &[
+pub(crate) const MEDIA_EXTS: &[&str] = &[
   // 视频（Chromium 能播）
   "mp4", "webm", "mov", "m4v", "ogv", // 音频
   "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba",
@@ -1766,6 +1770,16 @@ fn ledger_get_str(vault: &str, id: &str, key: &str) -> Option<String> {
 #[tauri::command]
 fn assets_ledger_read(vault: String) -> Result<serde_json::Value, String> {
   read_assets_ledger(&vault)
+}
+
+/// 启动（或取回）**本地媒体 HTTP 服务**（rev173.240）。
+///
+/// 前端在 Android 上拿 `{port, token}` 拼 `<video src>` —— 那里的 asset 协议没有 Range，
+/// 大视频 `readyState` 永远是 0（tauri#12019）。桌面不需要它，但调用也无害（幂等、只绑本机）。
+#[tauri::command]
+fn media_server_start() -> Result<serde_json::Value, String> {
+  let (port, token) = media_server::ensure_started()?;
+  Ok(serde_json::json!({ "port": port, "token": token }))
 }
 
 /* ───────────── 图片压缩（rev173.234 · 附件同步期 2）───────────── */
@@ -3894,6 +3908,7 @@ pub fn run() {
       import_attachment_b64,
       // rev173.232：附件同步期 1（引用台账）
       assets_ledger_read,
+      media_server_start,
       // rev173.238：附件同步期 4（跨设备搬运）
       assets::asset_relay_config,
       assets::asset_relay_config_set,

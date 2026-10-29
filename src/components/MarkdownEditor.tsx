@@ -13,6 +13,7 @@ import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath, stripAngleTarget } from '../lib/insert-image'
+import { mediaHttpUrl } from '../kernel/media-url'
 import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
 import { isPlainBracketLink, isPlainBracketSource, wikiLinkTarget } from '../lib/atomic-link'
@@ -194,6 +195,8 @@ function upgradeMediaWidgets(
 
     const el = document.createElement(kind === 'video' ? 'video' : 'audio')
     el.className = `${MEDIA_ELEMENT_CLASS} ${MEDIA_ELEMENT_CLASS}-${kind}`
+    // 记住原文（rev173.240）：本地媒体服务就绪后要按它重算 http URL
+    el.dataset.znRaw = raw
     el.src = url
     el.controls = true
     el.preload = 'metadata'
@@ -247,6 +250,13 @@ function mediaSourceUrl(
   if (/^(?:https?|data|blob|asset):/i.test(raw)) return raw
   const abs = resolveImageAbsPath(vault, notePath, raw)
   if (!abs) return null
+  /**
+   * Android：走内核的本地媒体服务（`media-url.ts` 有一手依据）。
+   * asset 协议在 Android 上走 `shouldInterceptRequest`，没有 206 分片 ⇒
+   * 大视频 `readyState` 永远 0。服务没就绪时返回 null，回落到 asset（桌面永远走 asset）。
+   */
+  const http = mediaHttpUrl(abs)
+  if (http) return http
   try {
     return convertFileSrc(abs)
   } catch {
@@ -337,6 +347,14 @@ type Props = {
    * 编辑器只把「哪个源失败了」交回去（与 `onLocalLinkOpen` 同一套边界）。
    */
   onExternalMediaSync?: (raw: string) => void
+  /**
+   * 本地媒体服务就绪信号（rev173.240 · Android 大视频 Range）。
+   *
+   * 服务要等 App 初始化时异步启动；在那之前媒体 src 只能是 asset URL（Android 上大视频播不了）。
+   * App 每拿到一次服务信息就把这个数字 +1，编辑器据此把已挂载播放器的 src 换成 http URL
+   * （不重建编辑器 —— 重建会丢光标与滚动位置）。
+   */
+  mediaEpoch?: number
   /**
    * 用户可见的提示出口（rev173.41）。之前"打开外部链接失败"只打 `console.warn`——
    * 手机上 `open_external` 本来就不支持（原生层直接拒绝），点链接等于**零反馈**。
@@ -666,12 +684,35 @@ export function MarkdownEditor({
   onWikiPreview,
   onLocalLinkOpen,
   onExternalMediaSync,
+  mediaEpoch = 0,
   onNotify,
   onPasteImage,
   layers,
   renderHtml = true,
 }: Props) {
   const viewRef = useRef<EditorView | null>(null)
+  /**
+   * 本地媒体服务就绪 ⇒ 把已挂载播放器的 src 换成 http URL（rev173.240 · Android 大视频 Range）。
+   *
+   * 为什么改 src 而不是重建编辑器：重建会丢光标、滚动位置与未保存的输入焦点；
+   * 而播放器元素的「原文」（`dataset.znRaw`）已经在 `upgradeMediaWidgets` 里记下了，
+   * 按它重算一次 src 就够。失败提示也要一起复位（旧 error 会让新 URL 看起来还是坏的）。
+   */
+  useEffect(() => {
+    if (!mediaEpoch) return
+    const view = viewRef.current
+    if (!view) return
+    for (const el of view.contentDOM.querySelectorAll<HTMLMediaElement>('video, audio')) {
+      const raw = el.dataset.znRaw
+      if (!raw) continue
+      const url = mediaSourceUrl(raw, vault, path)
+      if (!url || el.getAttribute('src') === url) continue
+      el.src = url
+      const hint = el.parentElement?.querySelector<HTMLElement>('.zn-media-error')
+      if (hint) hint.hidden = true
+      el.load()
+    }
+  }, [mediaEpoch, vault, path])
   /** 编辑器 DOM 根：观察 CM6 查找面板出现，往里补「替换」入口（rev173.71） */
   const editorRootRef = useRef<HTMLDivElement>(null)
   /**

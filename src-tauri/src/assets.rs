@@ -787,14 +787,12 @@ async fn upload_one(
     .unwrap_or_default()
     .to_string();
   let stored = entry.get("storedInVault").and_then(|x| x.as_str()).map(|s| s.to_string());
-  /**
-   * 源文件：**优先 `original`**，其次入库副本。
-   *
-   * 为什么不能只信 `local_source_path`（它优先入库副本）：模式 B（rev173.234 图片压缩）
-   * 的 `storedInVault` 是**压缩版**，而台账 id 是**原图**的内容摘要 ⇒ 拿压缩版去上传必然
-   * 卡在下面的 sha256 校验（rev173.239 实测：报「文件内容已变化」）。压缩版只是正文显示用的，
-   * 跨设备要搬的始终是原图。原文件不在本机时才退回副本 —— 那时 sha 不符是**正确**的报错。
-   */
+  // 源文件：**优先 `original`**，其次入库副本。
+  //
+  // 为什么不能只信 `local_source_path`（它优先入库副本）：模式 B（rev173.234 图片压缩）
+  // 的 `storedInVault` 是**压缩版**，而台账 id 是**原图**的内容摘要 ⇒ 拿压缩版去上传必然
+  // 卡在下面的 sha256 校验（rev173.239 实测：报「文件内容已变化」）。压缩版只是正文显示用的，
+  // 跨设备要搬的始终是原图。原文件不在本机时才退回副本 —— 那时 sha 不符是**正确**的报错。
   let original_path = PathBuf::from(&original);
   let src = if !original.is_empty() && original_path.is_file() {
     original_path

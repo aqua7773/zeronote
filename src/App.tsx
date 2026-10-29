@@ -152,6 +152,7 @@ import {
   relinkRelay,
   syncConfirmText,
 } from './kernel/asset-relay'
+import { setMediaServer } from './kernel/media-url'
 import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
@@ -290,6 +291,15 @@ export default function App() {
     relPath: string | null
     relay: { id: string; size: number; original: string } | null
   } | null>(null)
+  /**
+   * 本地媒体服务就绪计数（rev173.240 · Android 大视频 Range）。
+   *
+   * Android 上 asset 协议不支持 206 分片（wry 的 `shouldInterceptRequest` 只能整段返回），
+   * 几 MB 的视频 `readyState` 永远 0。对策 = 内核在 127.0.0.1 起只读媒体服务，
+   * 这里拿到 `{port, token}` 后递增计数，编辑器把已挂载播放器的 src 换成 http URL。
+   * 桌面不启用（asset 协议本来就支持 Range，没必要多一跳）。
+   */
+  const [mediaEpoch, setMediaEpoch] = useState(0)
   /** 移动端的「笔记库」面板（桌面走系统目录选择器，不用它） */
   const [vaultPanelOpen, setVaultPanelOpen] = useState(false)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
@@ -2624,6 +2634,30 @@ export default function App() {
     [vault, setToast, reloadActiveFromDisk],
   )
 
+  // Android：启动内核的本地媒体服务（rev173.240）。桌面跳过 —— asset 协议已支持 Range。
+  useEffect(() => {
+    if (kernel?.host.platform !== 'android') {
+      setMediaServer(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const info = await invoke<{ port: number; token: string }>('media_server_start')
+        if (cancelled) return
+        setMediaServer(info)
+        // 递增计数 ⇒ 编辑器把已挂载播放器的 src 换成 http（大视频这才播得动）
+        setMediaEpoch((e) => e + 1)
+      } catch (e) {
+        // 不静默吞：可能只是"服务起不来"，但会表现成"大视频还是播不了"，得留下线索
+        console.warn('本地媒体服务启动失败（大视频可能仍播不了）：', e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [kernel])
+
   // 图片预览：压进返回键层栈（Android 返回先关预览）+ Esc 关闭
   useEffect(() => {
     if (!imagePreview) return
@@ -3799,6 +3833,7 @@ export default function App() {
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
+              mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
@@ -4149,6 +4184,7 @@ export default function App() {
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
+              mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}

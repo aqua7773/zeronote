@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.239 · 附件同步期 4 的两个正文入口）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.240 · Android 大视频：本地媒体服务 + Range）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.239 · 0.6.0 · 2026-10-29 |
-| 测试基线 | vitest 1432 · cargo 77 · oxlint 3 warnings（2026-10-29） |
+| rev / 版本 | rev173.240 · 0.6.0 · 2026-10-29 |
+| 测试基线 | vitest 1439 · cargo 82 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -181,10 +181,13 @@ pwsh -File scripts\verify.ps1
 >      （`normalizeRelayPath` / `findEntryForMedia` / `findEntryForStoredImage` / `localOriginalAbsPath` /
 >      `syncConfirmText`）。cargo **77** · vitest **1432** · 桌面两库实测（媒体 readyState 4 + 引用改写；
 >      10.6 MB 原图落地逐字节一致 + 预览切原图）
->    · ⚠️ **已知平台限制（手机）**：**Android 上大视频播不了** —— `readyState 0 / networkState 2 / buffered 0`，
->      小视频（320×240 / 11 KB）与 1.4 MB MP3 正常 ⇒ 根因是 **Tauri Android Custom Protocol 不支持 Range**
->      （[tauri#12019](https://github.com/tauri-apps/tauri/issues/12019)），与期 4 无关；rev173.226 当时只验了小视频。
->      **下一 rev 对策**：Rust 起本地 HTTP 媒体服务（支持 206）或调系统播放器
+>    · ✅ **Android 大视频已修（rev173.240）**：asset 协议在 Android 上走 `shouldInterceptRequest`
+>      （无 206），桌面走 Rust 的 asset 响应器（有 206）—— 一手依据见 HANDOFF。对策 = 新模块
+>      `media_server.rs`（只绑 127.0.0.1 · 随机 token · 只服务媒体扩展名 · Range 三形态）+ 前端
+>      `media-url.ts` + `mediaEpoch` 换 src；桌面**不启用**。手机实测 2.3 MB / 6 s 视频 `readyState 4`
+>      + `play()` 后 `paused=false` + **seek 4.5 s 成功**（`currentTime 4.74` / `buffered 6.00`）。
+>      ⚠️ **release 包未验**（`usesCleartextTraffic` 只在 debug 为 true；loopback 理论不受限，
+>      若被拦需 `network_security_config.xml` 放行 localhost）
 >    · ⑨ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
@@ -223,9 +226,10 @@ pwsh -File scripts\verify.ps1
   ⚠️ 交接时有**一个 watch 进程在跑**（AI 当后台 job 起的：`cmd /c android-dev.cmd`，03:12 起）——
   会话结束 job 被回收时它可能一起消失（app 是独立进程，不受影响）。**要再编就双击 `android-dev.cmd`**，
   编之前先清旧进程树（见下）。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-28 03:16 已被 `android-dev` 重编重装**
-  （app pid **25184**，交接时仍存活、日志刷到 03:42）。**Rust 侧含 rev173.226 的 `kind=media`、227 的导入落点、228 的引用预览**；
-  **前端已随桌面 vite 的 HMR 更新到 rev173.229**（调试面板在手机上也能开）⇒ **别再按 0.5.0 的功能边界判断**。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 19:51 又被 `android-dev` 重编重装**
+  （app pid **3159**；这次含 rev173.238 的 `assets.rs` 与 **rev173.240 的媒体服务** —— 246 秒编译 + gradle）。
+  **Rust 侧现在到 rev173.240**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断。
+  ⚠️ 手机库 = `/storage/emulated/0/Documents/ZeroNote`（**不是**私有 `files/`；`run-as ... ls` 根下的 `vault` 是旧的另一份）。
   ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
   新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
   启动：`adb -s 33b676f6 shell am start -n com.aqua.zeronote.debug/com.aqua.zeronote.MainActivity`。

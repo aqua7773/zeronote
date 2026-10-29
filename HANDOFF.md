@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.239
-更新时间: 2026-10-29 · 最新 rev173.239
+revision: 173.240
+更新时间: 2026-10-29 · 最新 rev173.240
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.239
 
 | rev | 内容 |
 |---|---|
+| rev173.240 | 2026-10-29 · **Android 大视频：本地媒体 HTTP 服务 + Range**（用户「后台盯，继续开发」· 修 rev173.238 抓到的平台缺口）：① **一手核实**：桌面 `tauri-2.12.3/src/protocol/asset.rs:98` **支持** Range（单段 206 + `Content-Range`，单次最多 1000 KiB、多段 `multipart/byteranges`）；Android `wry-0.55.1/src/android/kotlin/RustWebViewClient.kt:26` 走 `shouldInterceptRequest` 返回 `WebResourceResponse` ⇒ **没有 206** ⇒ 协议层取舍，不是编码/体积问题 ② **新模块 `src-tauri/src/media_server.rs`**（手写 HTTP/1.1，零新依赖）：只绑 `127.0.0.1` 随机端口 · URL 带随机 token（`/m/<token>/<percent-encoded 绝对路径>`）· **只允许白名单媒体扩展名** · 只 GET/HEAD · Range 三形态（`a-b` / `a-` / `-N`）⇒ 206 + `Content-Range` + `Accept-Ranges`，越界 416 + `bytes */len`，单次 1000 KiB ③ `media_server_start` 命令（`OnceLock` 幂等）④ **前端** `src/kernel/media-url.ts` + `MarkdownEditor.mediaSourceUrl`（服务就绪 ⇒ `http://127.0.0.1:<port>/…`，否则回落 asset）+ `mediaEpoch` 时序（服务异步启动，**只换已挂载播放器的 src**，不重建编辑器以免丢光标）+ CSP `media-src` 加 `http://127.0.0.1:*` ⑤ 桌面**不启用**（asset 协议本来支持 Range）⑥ **实测**：手机 APK 重编（19:51 · pid 3159）· `clip-big.mp4` 2,307,862 B / 6 s ⇒ `readyState **4**` · `networkState 1` · `play()` 后 `paused=false` · **seek 4.5 s ⇒ `currentTime 4.74` / `buffered 6.00`**（Range 铁证，对比 rev173.238 的 `0 / 2 / buffered 0`）· 桌面回归仍 `asset.localhost` + `readyState 4` · 从 node 直连服务核对 200/206/416 ⑦ **测试** cargo 77 → **82**（5 条，含真实 TCP 跑通 200/206/HEAD/403）· vitest 1432 → **1439**（7 条 URL 形态与开关）。⚠️ **release 包未验**：`usesCleartextTraffic` 只在 debug 为 true，loopback 理论上不受限；若被拦需加 `network_security_config.xml` 放行 localhost（未做）· verify 六步全绿 · 质量门 7/7 |
 | rev173.239 | 2026-10-29 · **附件同步 · 期 4 的两个正文入口**（用户「继续zeronote」· 排期 9 的遗留）：① **入口 1 · 媒体「原文件不在本机 · 同步」** —— `upgradeMediaWidgets` 的 `error` 分支在源是**库外绝对路径**时补一个按钮（`EXTERNAL_ABS_RE` 判定，文案就是需求 §5 原文），点击把 raw 交回宿主；② **入口 2 · 模式 B「同步原图」** —— 点开图片的浮层（App 的 `.zn-img-preview`）里加按钮；打开预览时查一次台账：`devices[本机]` 有值 ⇒ 直接显示**原图**（需求 §4「同步成功后点开默认原图」），没有 ⇒ 显示「同步原图（体积）」。正文图片点击改为**委托宿主**的 `openLocalLink`（编辑器不认识台账），`img.dataset.znRaw` 记住原文以便反推库内相对路径；③ **纯函数**（`kernel/asset-relay.ts`）：`normalizeRelayPath`（剥尖括号 / 解 `%xx` / 统一斜杠，**不折叠大小写** —— Android 库路径区分）、`findEntryForMedia`、`findEntryForStoredImage`、`localOriginalAbsPath`（`devices[本机]` 有**两种写法**：上传方记绝对路径、落地方记库内相对，别一律拼库根）、`syncConfirmText`；④ ⚠️ **修一个真 bug**：`upload_one` 原来优先用 `storedInVault`（模式 B 的**压缩版**）⇒ sha256 必然与台账 id（原图摘要）不符，**模式 B 的原图根本传不上去**（实测报「文件内容已变化」）；改为**优先 original**、原文件不在本机才退回副本；⑤ **测试**：vitest 1419 → **1432**（13 条：规范化 3 / 媒体匹配 2 / 图片匹配 3 / 本机原图 3 / 确认文案 2）；cargo 76 → **77**（`upload_prefers_original_over_compressed_copy`）；⑥ **实测**（CDP，`_tmp-vault-tb` ↔ `_tmp-asset-entry/vault-b` 两库当两台机）：**入口 1** 引用 1.5 MB `clip.mp4` → 源文件移走 ⇒ 红字 +「原文件不在本机 · 同步」→ 确认文案「即将同步大文件「clip.mp4」（1.4 MB），继续？」⇒ 落地 1,499,614 B · 引用改写 `.zn-assets/external/0b94e6ca-clip.mp4` · `readyState 4` · `play()` 后 `paused=false` · toast「已接收 1.4 MB · 引用已改写」；**入口 2** 模式 B 插 10.6 MB PNG ⇒ 压缩版 1,044,819 B 入库 · 原图上传云端 → 另一个库（设备 `c4e584fd…`）点开 ⇒ 浮层「同步原图（10.6 MB）」→ 确认文案「即将同步大文件「big.png」（10.6 MB），继续？」⇒ 落地 11,159,895 B（原图大小）· 预览切原图 · toast「已接收原图（10.6 MB）」。截图 `_shots/rev173239-{1-media-sync-btn,2-original-btn,3-original-lands}.png`。**剩** WebDAV 真机验证 · 库外非媒体的「文件卡片」 · 手机未验（Rust 改了 `assets.rs`，要重装 APK）· verify 六步全绿 · 质量门 7/7 |
 | rev173.238 | 2026-10-29 · **附件同步 · 期 4（跨设备手动搬运）**（用户「继续zeronote」· 排期 9）：① **新模块 `src-tauri/src/assets.rs`** —— 配置 `<库>/.zn-assets/relay.json`（后端 + `updatedAt`；**密码只进系统凭据库** `zn-asset-relay`，不落 JSON）；设备 id `<私有根>/.zn/device-id`（跨库共用）；两种后端：`local-folder`（共享目录，先做）/ `webdav`（PROPFIND + PUT + GET 流式 + DELETE，Basic auth）；云端临时区 `<root>/.zn-asset-staging/<sha16>/<文件名>` + `.zn-ack`；状态机按「云端目录 + ack」**实时算**（local → staged → landed → cleaned，不另存会陈旧的副本）② **7 条命令** `asset_relay_config` / `config_set` / `pending` / `upload` / `remote` / `land` / `cleanup` / `relink` —— 上传前校验源文件存在 + sha256 与台账一致（文件被换过就拒绝）；落地校验下载内容 sha256，不符即丢弃；**只清已 ack 的**（对端没拿到就删 = 文件丢了）；清理后在台账标 `relayCleanedAt`（否则状态退回「待上传」，用户以为没传成）③ **改写引用** `asset_relay_relink`：正文 / 尖括号 / `%20` 编码三种形态 → 库内相对路径，落点按 `mdTarget` 规则（含空白才加尖括号）④ **UI** 设置页新「附件」tab（`AssetRelayPanel`）：共享目录 / WebDAV 配置 + 台账清单（5 种状态）+「上传选中 / 接收云端文件 / 清理已落地」，**每个动作前 `window.confirm` 点名 + 写总体积** ⑤ **测试**：cargo 67 → **76**（9 条：本地文件夹全链路 stage→land→ack→clean / 源文件缺失 / 内容变化 / 云端篡改 / 台账清单 / 未 ack 不删 / 三种引用形态 / 文件名清洗 / 百分号解码）· vitest 1404 → **1419**（15 条：状态机 6 / 动作集合 3 / 确认文案 3 / 展示 3）⑥ **实测**（CDP，`_tmp-vault-tb` ↔ `_tmp-asset-relay/vault-b` 两库当两台机、共享目录 `_tmp-asset-relay/shared`）：A 上传（确认文案「即将把「clip.mp4」上传到云端临时区（共 2.0 MB），继续？」）⇒ `.zn-asset-staging/6ea73b45c3b229e3/clip.mp4` 2097152 B · B 接收（「即将从云端接收 1 个文件（共 2.0 MB）并落地到本库，继续？」）⇒ `.zn-assets/external/6ea73b45-clip.mp4` 逐字节一致 + `note.md` 引用改写 + `.zn-ack` = B 设备 id + 台账 `devices` 两条 · A 清理（「即将删除云端临时区里的 1 份文件（共 2.0 MB）——对端都已落地，删除后不再可取回。继续？」）⇒ hash 目录删除、A 状态「已在本机」。截图 `_shots/rev173238-{1-panel-empty,2-uploaded,3-received,4-cleaned}.png`。⚠️ **WebDAV 后端只过编译与纯函数，没真机测**（要自建 DAV 桩）；三入口只接了「附件面板」，**媒体「原文件不在本机 · 同步」与模式 B「同步原图」未接** · verify 六步全绿 · 质量门 7/7 |
 | rev173.237 | 2026-10-28 · **交接**：本会话 **3 个 rev（234–236）** = 附件期 2 图片两模式 + 压缩（`72545ec`）· 库外路径渲染收口 + 破图不静默（`7a9d2ec`）· 音视频块版式与图片统一（`2796b08`）。交接时 HEAD `2796b08` · 与 origin 同步 · 工作区干净 · verify 全绿（06:18:43）· vitest **1404** · cargo **67** · dev pid **32984**（06:06:20 起，**18.7 小时**，1420 + 9222 都在）。**下个会话第一件事 = 附件同步 · 期 4**（跨设备手动搬运，1–2 天）。遗留：**手机未验 230–236**（234 动了 `Cargo.toml` 与 `image` 依赖 ⇒ 必须重装 APK）· 库外非媒体附件的「文件卡片」仍为普通链接 · 调试面板未做三项。本会话新坑：patch 后要重启 dev、编辑器 CSS 在模板字符串里别写反引号、`git push` 断线挂代理 `26561` |
@@ -135,6 +136,67 @@ revision: 173.239
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.240（2026-10-29 · Android 大视频：本地媒体 HTTP 服务 + Range）
+>
+> 用户：「后台盯，继续开发」（CI 全绿：run `40859269438` 13 步全过）。
+> 这次修的是 rev173.238 手机实测抓到的平台级缺口：**Android 上大视频播不了**。
+>
+> ### 一手依据（先核实再动手）
+>
+> | 侧 | 证据 | 结论 |
+> |---|---|---|
+> | 桌面 | `tauri-2.12.3/src/protocol/asset.rs:98-144` | asset 协议**实现**了 Range：单段 ⇒ 206 + `Content-Range`（每次最多 **1000 KiB**），多段 ⇒ `multipart/byteranges` |
+> | Android | `wry-0.55.1/src/android/kotlin/RustWebViewClient.kt:26` | 走 `shouldInterceptRequest` 返回 `WebResourceResponse` ⇒ **没有 206 分片** |
+>
+> 所以不是编码 / 体积 / 路径问题（rev173.238 已排除），是**协议层**取舍 ⇒ 在 Android 上绕开 asset 协议。
+>
+> ### 做了什么
+>
+> | 件 | 位置 | 要点 |
+> |---|---|---|
+> | 媒体服务 | **新模块 `src-tauri/src/media_server.rs`**（~330 行 + 5 单测） | 手写 HTTP/1.1（不引框架）：只绑 `127.0.0.1` **随机端口** · URL 带进程内随机 **token**（`/m/<token>/<percent-encoded 绝对路径>`）· **只允许白名单媒体扩展名**（复用内核 `MEDIA_EXTS`）· 只 GET / HEAD |
+> | Range | 同上 | `bytes=a-b` / `bytes=a-` / `bytes=-N`；单段 ⇒ 206 + `Content-Range` + `Accept-Ranges`；起点越界 ⇒ 416 + `bytes */len`；单次最多 **1000 KiB**（与桌面 asset 协议同口径，播放器会接着要下一段） |
+> | 命令 | `lib.rs` 的 `media_server_start` | 幂等启动，返回 `{port, token}`（`OnceLock`） |
+> | 前端 | **新 `src/kernel/media-url.ts`** + `MarkdownEditor.mediaSourceUrl` | 服务就绪就把媒体 src 换成 `http://127.0.0.1:<port>/m/<token>/<编码路径>`；没就绪回落到 asset |
+> | 时序 | `App.tsx` 的 `mediaEpoch` + `MarkdownEditor` 的 effect | 服务是异步启动的 ⇒ 拿到信息后**只换已挂载播放器的 `src`**（不重建编辑器：重建会丢光标与滚动位置）；播放器的原文记在 `dataset.znRaw` |
+> | CSP | `tauri.conf.json` | `media-src` 加 `http://127.0.0.1:*` |
+> | 桌面 | 无改动（`setMediaServer(null)`） | 桌面 asset 协议本来就支持 Range，没必要多一跳 HTTP |
+>
+> ### 实测
+>
+> **手机（33b676f6 · 24069RA21C · APK 重编装于 19:51 · app pid 3159）**，素材 `clip-big.mp4` **2,307,862 B / 6 秒**（rev173.238 那轮正是这个量级播不了）：
+>
+> | 项 | 结果 |
+> |---|---|
+> | `media_server_start` | `{port: 36259, token: 2515e11a…}` |
+> | `video.src` | `http://127.0.0.1:36259/m/2515e11a…/%2Fstorage%2F…/clip-big.mp4` ✅ |
+> | `readyState` / `networkState` / `duration` | **4** / 1（IDLE）/ **6** —— 对比 rev173.238 的 `0 / 2 / buffered 0` |
+> | `play()` | `paused=false` |
+> | **seek 到 4.5 s** | `currentTime 4.74` · `buffered 6.00`（**Range 生效的铁证**） |
+> | 无错误提示 | `.zn-media-error` 保持 hidden |
+>
+> 截图 `_shots/rev173240-phone-bigvideo.png`（0:00 / 0:06 播放器）。
+>
+> **桌面回归**（`_tmp-vault-tb` + 临时笔记 `![](test-clip.mp4)`）：`video.src` 仍是
+> `http://asset.localhost/…`（`http://` 判定为 false）、`readyState 4` ⇒ 桌面**没有**被这套改动带跑偏。
+> 桌面另用 CDP 直接调 `media_server_start`（`port 28990`）从 node 发请求核对：`200` + `Accept-Ranges` ·
+> `Range: bytes=100-199` ⇒ `206` + `bytes 100-199/11508` + 100 字节 · `bytes=99999999-` ⇒ `416` + `bytes */11508`。
+>
+> ### 测试
+>
+> - **cargo 77 → 82**（`media_server` 5 条）：`parse_range` 三种形态 + 越界 · **真实 TCP 跑一遍**
+>   （200 整段 / 206 + 正确字节 / HEAD 无体 / 坏 token 403）· 非媒体扩展名拒绝 · `percent_decode` UTF-8 · MIME 表。
+> - **vitest 1432 → 1439**（`tests/media-url.test.ts` 7 条）：没设服务 ⇒ null · 非法值 ⇒ 停用 ·
+>   URL 形态（端口 + token + `%2F`）· 反斜杠统一 · 中文/空格编码 · 空路径 · `mediaServerInfo` 返回副本。
+>
+> ### 已知边界
+>
+> - ⚠️ **release 包未验**：`gen/android/app/build.gradle.kts` 里 `usesCleartextTraffic` 只在 **debug** 置 true，
+>   release 是 false。`http://127.0.0.1` 属 loopback，理论上不受明文限制，但**没实测过 release**；
+>   若真被拦，正解是加 `network_security_config.xml` 显式放行 `localhost`（本轮未做，避免为一个假设改 Android 配置）。
+> - 服务只服务**音视频扩展名**（图片仍走 asset 协议 —— 图片不需要 seek）；多段 Range 直接返回 416（播放器实际不用）。
+> - 端口与 token 只活一个进程；重启 App 换新值（前端每次启动重新领）。
+>
 > ## 📌 rev173.239（2026-10-29 · 附件同步 · 期 4 的两个正文入口）
 >
 > 用户：「继续 zeronote」。排期 9（期 4）上一轮只接了「设置 → 附件」一个入口，
