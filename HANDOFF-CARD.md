@@ -186,8 +186,10 @@ pwsh -File scripts\verify.ps1
 >      `media_server.rs`（只绑 127.0.0.1 · 随机 token · 只服务媒体扩展名 · Range 三形态）+ 前端
 >      `media-url.ts` + `mediaEpoch` 换 src；桌面**不启用**。手机实测 2.3 MB / 6 s 视频 `readyState 4`
 >      + `play()` 后 `paused=false` + **seek 4.5 s 成功**（`currentTime 4.74` / `buffered 6.00`）。
->      ⚠️ **release 包未验**（`usesCleartextTraffic` 只在 debug 为 true；loopback 理论不受限，
->      若被拦需 `network_security_config.xml` 放行 localhost）
+>      ⚠️ **release 包验不了（2026-10-29 核实，别再排这一项）**：`gen/android/app/build.gradle.kts` 的
+>      release 块**没有 signingConfig / keystore**，仓库里也没有 `.jks` ⇒ 构建出的 release APK 未签名、
+>      装不上；再加上 `usesCleartextTraffic` 只在 debug 为 true。要验得先有 **Android 签名密钥**（用户资产），
+>      不是纯技术活。真被明文策略拦时正解是 `network_security_config.xml` 放行 `localhost`
 >    · ⑨ 安卓桌面组件
 >    ⚠️ **2026-10-28 更正**：安卓桌面组件**不是**「唯一大块缺口」—— §2.13 / §2.14 / §2.15 / 引用 hover / 导入目录 / 待办删除线 都没做（当日逐章核对，已全部进 §3.0 + §3.5）。
 >    ⚠️ **实现细节**：工具名用**下划线**（`note_write` 等）—— DeepSeek 要求 function name 匹配
