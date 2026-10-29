@@ -1,124 +1,106 @@
 /**
- * 侧栏（库名 + 文件树 + 回收站/切库按钮）—— 从 `App.tsx` 原样迁出（rev122 · L2）。
+ * 侧栏外壳（UI 重布局 B1 · 方案 §2.1）。
  *
- * 只做渲染：数据与回调全部由 `App` 传入，组件自身不持任何状态
- * （宽度拖拽在 `App` 的 resizer 里，状态仍在 App）。
+ * 两个形态，同一个组件：
+ *  - **桌面（视图容器）**：头部 = 搜索框 + 收起按钮（`«`）；中部 = `children`（文件树 /
+ *    搜索结果 / 时间流三选一，由 App 按 `view` 决定）；底部 = 回收站 + 库名（切库）。
+ *    **视图切换本身归图标栏**（AppRail）—— 这里不再放一排 tab，避免两个入口重复。
+ *  - **手机（抽屉，B2 前保持原样）**：头部 = 应用名 + 设置齿轮；中部 = `children`（文件树）。
+ *
+ * 只做渲染：状态与回调全部由 `App` 传入（宽度拖拽在 App 的 resizer 里）。
  */
-import type { MutableRefObject } from 'react'
-import { Settings } from 'lucide-react'
-import type { NoteMeta } from '../kernel/contract'
+import { ChevronLeft, Search, Settings } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
-import { FileTree } from './FileTree'
+
+export type AppSidebarView = 'notes' | 'search' | 'timeline'
 
 export type AppSidebarProps = {
   vault: string | null
-  notes: NoteMeta[]
-  dirs: string[]
-  activePath: string | null
   /** 移动端抽屉是否展开（桌面端恒为 false，宽度由 `width` 决定） */
   open: boolean
   width: number
-  /** 返回键层级栈 —— 由 App 维护，FileTree 反应用来注册"关闭一层" */
-  layers: MutableRefObject<Array<() => boolean>>
-  clipboard: { mode: 'cut' | 'copy'; paths: string[] } | null
-  onOpen: (path: string) => void
-  onNewFile: (dir: string) => Promise<string | null>
-  onNewDir: (dir: string) => Promise<string | null>
-  onRename: (from: string, to: string, isDir: boolean) => void
-  onDeleteMany: (paths: string[]) => void
-  onPurgeMany: (paths: string[]) => void
-  onCut: (paths: string[]) => void
-  onCopy: (paths: string[]) => void
-  onPaste: (dir: string) => void
-  onDuplicate: (path: string) => void
+  /** 桌面：侧栏当前视图；不传 = 抽屉模式（手机） */
+  view?: AppSidebarView
+  /** 桌面：视图内容（文件树 / 搜索 / 时间流） */
+  children?: React.ReactNode
+  /** 桌面：侧栏头搜索框（点/输入 → 切到搜索视图） */
+  onSearchIntent?: () => void
+  /** 桌面：收起侧栏（`«`） */
+  onCollapse?: () => void
+  /** 手机抽屉：设置入口（桌面走图标栏 ⚙，不再在侧栏里放） */
+  onOpenSettings?: () => void
   onOpenTrash: () => void
   /** 弹出「切换笔记库」菜单（坐标 = 按钮的 client 坐标） */
   onOpenVaultMenu: (x: number, y: number) => void
-  /** 打开设置（2026-10-18 用户要求：侧栏头部放一个设置图标，不必再进 ☰ 菜单） */
-  onOpenSettings: () => void
-  /** 桌面「时间流」入口（rev173.48）—— 文件树右键菜单用；手机端不传 */
-  onOpenTimeline?: () => void
 }
 
 export function AppSidebar({
   vault,
-  notes,
-  dirs,
-  activePath,
   open,
   width,
-  layers,
-  clipboard,
-  onOpen,
-  onNewFile,
-  onNewDir,
-  onRename,
-  onDeleteMany,
-  onPurgeMany,
-  onCut,
-  onCopy,
-  onPaste,
-  onDuplicate,
+  view,
+  children,
+  onSearchIntent,
+  onCollapse,
+  onOpenSettings,
   onOpenTrash,
   onOpenVaultMenu,
-  onOpenSettings,
-  onOpenTimeline,
 }: AppSidebarProps) {
+  /** 有 `view` = 桌面视图容器；没有 = 手机抽屉 */
+  const desktop = view !== undefined
   return (
     <aside className={`zn-sidebar${open ? ' is-open' : ''}`} style={{ width }}>
       <div className="zn-sidebar-head">
-        {/* 固定显示应用名；具体是哪个库看状态栏右侧的完整路径（那儿更准确）。
-            悬停在这行上仍能看到库路径，信息没丢。 */}
-        <span className="zn-vault-name" title={vault ?? ''}>
-          ZeroNote
-        </span>
-        {/* 设置入口（2026-10-18 用户要求）—— 图标放侧栏头部右侧，省掉「☰ 菜单 → 设置」两步；
-            ☰ 菜单里的「设置」项保留（两处入口不冲突）。 */}
-        <button
-          type="button"
-          className="zn-icon-btn"
-          onClick={onOpenSettings}
-          title="设置"
-          aria-label="设置"
-        >
-          <Settings size={15} />
-        </button>
+        {desktop ? (
+          <>
+            {/* 搜索视图里不再重复一个「搜索笔记…」按钮（视图内已有输入框） */}
+            {view === 'search' ? (
+              <span className="zn-sidebar-view-name">搜索</span>
+            ) : (
+              <button
+                type="button"
+                className="zn-sidebar-search"
+                onClick={onSearchIntent}
+                title="搜索笔记（Ctrl+Shift+F）"
+              >
+                <Search size={14} />
+                <span>搜索笔记…</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="zn-icon-btn zn-sidebar-collapse"
+              onClick={onCollapse}
+              title="收起笔记库栏（Ctrl+\）"
+              aria-label="收起笔记库栏"
+            >
+              <ChevronLeft size={15} />
+            </button>
+          </>
+        ) : (
+          <>
+            {/* 固定显示应用名；具体是哪个库看底部库名（完整路径在 tooltip 上） */}
+            <span className="zn-vault-name" title={vault ?? ''}>
+              ZeroNote
+            </span>
+            {onOpenSettings ? (
+              <button
+                type="button"
+                className="zn-icon-btn"
+                onClick={onOpenSettings}
+                title="设置"
+                aria-label="设置"
+              >
+                <Settings size={15} />
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
-      {vault ? (
-        <FileTree
-          // 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的）
-          key={vault}
-          vault={vault}
-          notes={notes}
-          dirs={dirs}
-          activePath={activePath}
-          onOpen={onOpen}
-          onNewFile={onNewFile}
-          onNewDir={onNewDir}
-          onRename={onRename}
-          onDeleteMany={onDeleteMany}
-          onPurgeMany={onPurgeMany}
-          clipboard={clipboard}
-          onCut={onCut}
-          onCopy={onCopy}
-          onPaste={onPaste}
-          onDuplicate={onDuplicate}
-          layers={layers}
-          onOpenTimeline={onOpenTimeline}
-        />
-      ) : (
-        <div
-          className="zn-tree"
-          style={{ fontSize: 'var(--zn-text-sm)', color: 'var(--zn-fg-subtle)' }}
-        >
-          还没选择笔记库
-        </div>
-      )}
-      {/* 库信息归侧栏底部（用户要求）；状态栏留给文档级信息。
-          这里显示库目录名，完整路径挂在 tooltip 上。
-          它是一个**按钮**：点一下弹「切换笔记库」（最近打开过的库 + 打开其它文件夹…），
-          不必再绕系统目录选择器。菜单贴在按钮上方展开（见 App 的 openVaultMenu）。 */}
-      {/* 回收站入口（常驻）—— 删除一直是进 `.zn/trash/` 的，这是唯一能再拿到它们的地方 */}
+
+      {children ? <div className="zn-sidebar-view">{children}</div> : null}
+
+      {/* 库信息归侧栏底部；状态栏留给文档级信息。库名是**按钮**：点一下弹「切换笔记库」。 */}
       <button
         type="button"
         className="zn-sidebar-foot"

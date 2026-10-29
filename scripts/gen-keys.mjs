@@ -25,15 +25,22 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8')
 const appSrc = read('src/App.tsx')
 const marksSrc = read('src/kernel/markdown-marks.ts')
 
+/**
+ * 源码里的键位是**字面量文本**（正则扫源码，不经过 JS 转义）——
+ * `'Mod+\\'`（源码两个字符）实际表示一个反斜杠，写进文档要去掉转义
+ * （B1 的 `Ctrl+\` 就是第一例）。
+ */
+const unescapeKey = (raw) => raw.replace(/\\\\/g, '\\')
+
 const core = [...appSrc.matchAll(/id:\s*'(core\.[^']+)',\s*title:\s*'([^']+)',\s*keybinding:\s*'([^']+)'/g)].map((m) => ({
   id: m[1],
   title: m[2],
-  key: m[3],
+  key: unescapeKey(m[3]),
 }))
 const marks = [...marksSrc.matchAll(/\{\s*id:\s*'(core\.mark\.[^']+)',\s*name:\s*'([^']+)'[^}]*?keybinding:\s*'([^']+)'/g)].map((m) => ({
   id: m[1],
   title: m[2],
-  key: m[3],
+  key: unescapeKey(m[3]),
 }))
 
 const win = (k) => k.replace(/Mod/g, 'Ctrl')

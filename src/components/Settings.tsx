@@ -102,6 +102,14 @@ export interface SettingsProps {
   pluginLog?: PluginLogEntry[]
   /** 调试面板数据源（rev173.229 · 需求 §2.13）—— 不传则不显示「调试」tab */
   pluginAudit?: KernelAudit | null
+  /**
+   * 打开时默认停在哪个 tab（B1）—— ☰ 主菜单的「关于」直接落到「关于」页。
+   * 宿主用 `key` 让它生效（切 tab 由内部 state 管，不反向受控）。
+   */
+  initialTab?: TabId
+  /** B1：设置页插件列表的「打开面板」入口（透传给 PluginPanel） */
+  panels?: { id: string; title: string; pluginId?: string; location?: string }[]
+  onOpenPanel?: (id: string) => void
   devMode?: boolean
   onToggleDevMode?: (on: boolean) => void
   onEmitEvent?: (topic: string, payload: unknown) => string | null
@@ -159,8 +167,10 @@ export function Settings({
   pluginError,
   pluginLog,
   pluginAudit,
-  devMode = false,
-  onToggleDevMode,
+  initialTab,
+  panels,
+  onOpenPanel,
+  devMode = false,  onToggleDevMode,
   onEmitEvent,
   onClearLogs,
   onTestLog,
@@ -176,7 +186,7 @@ export function Settings({
   capabilities = [],
   onCapabilityChoice,
 }: SettingsProps) {
-  const [tab, setTab] = useState<TabId>('general')
+  const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
   /** 正在为哪个能力挑提供者（null = 对话框关着）—— rev173.231 */
   const [pickFor, setPickFor] = useState<CapabilityName | null>(null)
   const pickStatus = pickFor ? capabilities.find((c) => c.name === pickFor) : null
@@ -398,6 +408,8 @@ export function Settings({
                     onReloadPlugins={onReloadPlugins}
                     onReloadPlugin={onReloadPlugin}
                     updates={updates}
+                    panels={panels}
+                    onOpenPanel={onOpenPanel}
                   />
                 </div>
               </div>

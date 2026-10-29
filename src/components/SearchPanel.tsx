@@ -27,6 +27,13 @@ export type SearchPanelProps = {
   index?: IndexApi | null
   /** 库里全部笔记（含 mtime）—— 只用于「按修改时间排序」，不参与检索 */
   notes?: { path: string; mtime: number }[]
+  /**
+   * 侧栏内联形态（UI 重布局 B1 · 方案 §3.3「搜索改为侧栏视图」）。
+   *
+   * `true` ⇒ 不套全屏遮罩，直接铺满父容器；挂载即聚焦；Esc 不关闭（侧栏视图由图标栏切换）。
+   * 与浮层形态共用同一份逻辑，避免两套搜索 UI。
+   */
+  inline?: boolean
 }
 
 /** 面板一次最多显示多少条（内核那边的硬上限是 200） */
@@ -55,6 +62,7 @@ export function SearchPanel({
   onOpenNote,
   index = null,
   notes = [],
+  inline = false,
 }: SearchPanelProps) {
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('relevance')
@@ -97,30 +105,33 @@ export function SearchPanel({
     }
   }, [index])
 
+  /** 面板是否在工作：浮层看 `open`，侧栏内联形态挂载即工作（B1） */
+  const active = open || inline
+
   /* 打开时聚焦并把上次的词整体选中，直接敲就能覆盖 */
   useEffect(() => {
-    if (!open) return
+    if (!active) return
     const timer = window.setTimeout(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [open])
+  }, [active])
 
   /* 首次打开（或换库后）自动建一次索引 */
   useEffect(() => {
-    if (!open || !index) return
+    if (!active || !index) return
     if (indexedRef.current === index) return
     indexedRef.current = index
     void rebuild()
-  }, [open, index, rebuild])
+  }, [active, index, rebuild])
 
   /**
    * 标签下拉的选项：重建后再拉一次（`index.tags()` 读的是内存索引，
    * 建库之前是空的）。`rebuildTick` 让「重建索引」按钮也能刷新它。
    */
   useEffect(() => {
-    if (!open || !index) return
+    if (!active || !index) return
     let alive = true
     index
       .tags()
@@ -133,7 +144,7 @@ export function SearchPanel({
     return () => {
       alive = false
     }
-  }, [open, index, rebuildTick])
+  }, [active, index, rebuildTick])
 
   /** 目录下拉选项：从笔记路径推**所有层级前缀**（`a/b/c.md` → `a`、`a/b`） */
   const dirOptions = useMemo(() => dirPrefixesOf(notes), [notes])
@@ -151,7 +162,7 @@ export function SearchPanel({
 
   /* 查询：防抖 + 竞态保护。空查询的清理放在输入事件里（effect 里同步 setState 会触发额外渲染） */
   useEffect(() => {
-    if (!open || !index) return
+    if (!active || !index) return
     const text = q.trim()
     const tag = tagFilter || undefined
     const dir = dirFilter || undefined
@@ -177,7 +188,7 @@ export function SearchPanel({
         })
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [open, index, q, rebuildTick, tagFilter, dirFilter, regexOn])
+  }, [active, index, q, rebuildTick, tagFilter, dirFilter, regexOn])
 
   /** 记一条最近搜索词（去重 + 封顶）；存不下也不影响搜索本身 */
   const rememberQuery = useCallback((text: string) => {
@@ -198,9 +209,10 @@ export function SearchPanel({
     (hit: SearchHit) => {
       rememberQuery(q)
       onOpenNote(hit.path)
-      onClose()
+      // 侧栏内联形态不关（搜索视图常驻，用户可以接着搜下一篇）；浮层形态关掉
+      if (!inline) onClose()
     },
-    [onOpenNote, onClose, rememberQuery, q],
+    [onOpenNote, onClose, rememberQuery, q, inline],
   )
 
   /**
@@ -218,6 +230,12 @@ export function SearchPanel({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
+      // 侧栏内联形态：Esc 不关（视图由图标栏切换）；停下来别让外层当成"关侧栏"
+      if (inline) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
       e.preventDefault()
       e.stopPropagation()
       onClose()
@@ -236,7 +254,7 @@ export function SearchPanel({
     }
   }
 
-  if (!open) return null
+  if (!active) return null
 
   const hasQuery = q.trim().length > 0 || Boolean(tagFilter) || Boolean(dirFilter)
 
@@ -327,16 +345,17 @@ export function SearchPanel({
             ? `已索引 ${stat.count} 篇 · ${stat.ms} ms`
             : '索引未建立'
 
-  return (
+  const card = (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-[10vh]"
-      onMouseDown={onClose}
+      className={cn(
+        'flex flex-col overflow-hidden bg-popover text-foreground',
+        inline
+          ? // 侧栏内联：铺满父容器，不带浮层的圆角 / 阴影 / 最大宽度
+            'min-h-0 flex-1 border-r border-border'
+          : 'relative w-full max-w-[42rem] rounded-ui-lg border border-border shadow-2xl',
+      )}
+      onMouseDown={inline ? undefined : (e) => e.stopPropagation()}
     >
-      <div className="absolute inset-0 bg-foreground/40" />
-      <div
-        className="relative flex w-full max-w-[42rem] flex-col overflow-hidden rounded-ui-lg border border-border bg-popover text-foreground shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
           <input
             ref={inputRef}
@@ -352,7 +371,7 @@ export function SearchPanel({
               }
             }}
             onKeyDown={onKeyDown}
-            placeholder="搜索笔记（空格分隔多个关键词，需全部命中）"
+            placeholder={inline ? '搜索笔记…' : '搜索笔记（空格分隔多个关键词，需全部命中）'}
             aria-label="搜索笔记"
             className="h-7 min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
@@ -398,9 +417,12 @@ export function SearchPanel({
           >
             重建索引
           </Button>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            关闭
-          </Button>
+          {/* 侧栏内联形态没有「关闭」这回事（视图由图标栏切）；浮层才有 */}
+          {inline ? null : (
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              关闭
+            </Button>
+          )}
         </div>
 
         {/* 筛选行（rev173.47 · 待办 #4）：标签 / 目录 / 正则 —— 三项都交给内核字段过滤 */}
@@ -463,12 +485,31 @@ export function SearchPanel({
           )}
         </div>
 
-        <div className="min-h-0 max-h-[55vh] flex-1 overflow-y-auto p-1">{body}</div>
+        <div
+          className={cn(
+            'min-h-0 flex-1 overflow-y-auto p-1',
+            // 浮层里限高，内联（侧栏）里撑满
+            !inline && 'max-h-[55vh]',
+          )}
+        >
+          {body}
+        </div>
 
         <div className="shrink-0 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
           {foot}
         </div>
       </div>
+    )
+
+  if (inline) return card
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-[10vh]"
+      onMouseDown={onClose}
+    >
+      <div className="absolute inset-0 bg-foreground/40" />
+      {card}
     </div>
   )
 }

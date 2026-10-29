@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-30（rev173.255 · UI 重布局方案定稿）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-30（rev173.256 · UI 重布局 B1 落地）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.254 · 0.7.1 · 2026-10-29 |
-| 测试基线 | vitest 1478 · cargo 87 · oxlint 3 warnings（2026-10-29） |
+| rev / 版本 | rev173.256 · 0.7.1 · 2026-10-30 |
+| 测试基线 | vitest 1493 · cargo 87 · oxlint 3 warnings（2026-10-30） |
 | 插件 | 内置 9 · 示例 42 |
-| 文档 | README 现状 2026-10-29 · CHANGELOG 0.7.1 |
+| 文档 | README 现状 2026-10-30 · CHANGELOG 0.7.1 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -73,9 +73,12 @@ pwsh -File scripts\verify.ps1
 > **手机端「插入附件 / 查找」入口已补（rev173.253）**：键盘上方工具栏 `⇤ ⇥ 📎 🔍 B …`（首屏可见）+ 长按 ☰ 菜单同样两项；
 > 顺手修了「查找面板开着按返回键会关笔记」的 bug。真机验过；手册第 2/6 节同步。
 >
-> **下个会话第一件事：UI 重布局 B1**（用户 2026-10-30 已同意方案）—— `docs/UI重布局-方案-2026-10-29.md`，
-> 开工前读 §2.1 / §4 / §9 与调研 §1.8；顺序 = 图标栏 → 侧栏视图容器 → 标题栏常驻 → ☰ 主菜单（2–3 天）；
-> 验收含「全部插件禁用」与 WCAG 2.5.8 / 2.5.7 / 2.4.11 四项门槛。§8 六问已按推荐拍板（明细见 HANDOFF rev173.255）。
+> **UI 重布局 B1 已落地（rev173.256）**：48px 图标栏（笔记 / 搜索 / 时间流 / 插件 / 设置）· 侧栏变视图容器
+> （文件树 / 搜索 / 时间流）· 标题栏常驻 · ☰ 改主菜单（含「最近打开」）· 分隔线键盘可调。
+> 截图 `_shots/ui-redesign-B1-*.png`；零插件回归（全禁用 + 恢复）已实测。手机端未动（仍是 ☰ 抽屉 + 文件树 + 搜索浮层）。
+> **下个会话第一件事：B2（手机底部四项）** —— `docs/UI重布局-方案-2026-10-29.md` §6：
+> 首页 / 搜索 / 插件 / 更多 + 悬浮 ＋ + 「更多」全屏页 + 编辑态返回；真机验收含「焦点不被底栏遮」（2.4.11）。
+> 其后：B3 插件中心 · B4 状态栏瘦身 · B5 标签条 `＋`/`»` · B6 `location: sidebar` · B7 视觉动效。
 > **卡外部输入**（排在其后）：`sync-git` 手机端（没 token）· Gitee 分支实测（没令牌）· WebDAV 后端真机验证（要自建 DAV 桩）·
 > 记账文案校准（等真实漏识别样本）· 性能基线（用户暂缓）。插件数涨到几十个时再换 CDN（现在 17 条，**不需要**）
 
@@ -263,8 +266,9 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **12812** · 2026-10-29 20:30:42 —— rev173.243 改 `widgets.rs` /
-  Kotlin 后 tauri dev 自动重编重启的那次；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **5216** · 2026-10-29 23:37:30 起；vite 1420 / CDP 9222 都在），
+  日志在 `.self-logs/desktop-dev.log`。**rev173.256（B1）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
+  没有重编 Rust、没有重启 dev；测完页面已回到笔记视图、`Emulation` 视口已清除。
   ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
   结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。

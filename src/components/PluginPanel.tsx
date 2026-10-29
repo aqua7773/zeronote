@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, History, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, History, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import { clampText } from '../lib/format'
@@ -123,6 +123,8 @@ export function PluginPanel({
   onEmitEvent,
   onClearLogs,
   onTestLog,
+  panels = [],
+  onOpenPanel,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -164,6 +166,14 @@ export function PluginPanel({
   onClearLogs?: () => void
   /** 写一条测试日志（验证日志面板与堆栈展开） */
   onTestLog?: () => void
+  /**
+   * 各插件注册的**页面面板**（B1）—— 行内「打开」按钮用。
+   * 菜单不再列插件面板（方案 §4 规则 2），入口改到这里 + 命令面板；
+   * B3 的插件中心会接管这块。
+   */
+  panels?: { id: string; title: string; pluginId?: string; location?: string }[]
+  /** 打开某个面板（App 的 `setMainView(panelId)`） */
+  onOpenPanel?: (id: string) => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
@@ -482,6 +492,35 @@ export function PluginPanel({
               >
                 <History size={14} />
               </button>
+              {/* 打开面板（B1）：菜单不再列插件面板，这里是主入口之一（另一个是命令面板）。
+                  没有任何页面面板的插件不渲染这个按钮（不留灰位）。 */}
+              {(() => {
+                const own = panels.filter(
+                  (pn) =>
+                    pn.pluginId === p.id &&
+                    pn.location !== 'statusbar' &&
+                    pn.location !== 'modal' &&
+                    pn.location !== 'editor-toolbar' &&
+                    pn.location !== 'editor-topbar',
+                )
+                const first = own[0]
+                if (!first || !onOpenPanel) return null
+                return (
+                  <button
+                    type="button"
+                    className="zn-plugin-hist"
+                    onClick={() => onOpenPanel(first.id)}
+                    title={
+                      own.length > 1
+                        ? `打开「${first.title}」（本插件共 ${own.length} 个面板，其余在命令面板）`
+                        : `打开「${first.title}」`
+                    }
+                    aria-label={`打开 ${first.title}`}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                )
+              })()}
               <button
                 type="button"
                 className="zn-plugin-del"

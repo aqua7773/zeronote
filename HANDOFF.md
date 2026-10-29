@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.255
-更新时间: 2026-10-30 · 最新 rev173.255
+revision: 173.256
+更新时间: 2026-10-30 · 最新 rev173.256
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.255
 
 | rev | 内容 |
 |---|---|
+| rev173.256 | 2026-10-30 · **UI 重布局 B1（桌面壳）落地**（用户「做 B1」· 方案 §6 第一批）：① **48px 图标栏** `src/components/AppRail.tsx` —— 5 项全是内核（笔记 / 搜索 / 时间流 / 插件 / 设置），选中态 = 2px 左侧竖条 + `aria-current="page"`，tooltip 带 `Ctrl+1/2/3`；点当前已展开的视图 = 收起侧栏（Obsidian 规则）；插件固定区默认空 ⇒ **整块不渲染**。② **侧栏 = 视图容器** `AppSidebar.tsx` 重写（外壳 + `children`，FileTree / 搜索 / 时间流由 App 决定）：头部搜索按钮 + `«` 收起；**搜索改侧栏视图**（`SearchPanel` 新增 `inline` 形态，浮层与视图共用一份逻辑，Esc 在视图里不关）；**时间流从中间一栏收进侧栏**（删 `timelineWidth` / `timelineOpen` / 第二个 resizer / `zeronote.timeline.*` 键）。③ **标题栏常驻**：删「鼠标离开顶部 500ms 收起」的 mousemove / focusin effect，`titlebarVisible` 恒 true。④ **☰ 改主菜单**（方案 §8-Q0）：新建 / 打开笔记库 / 打开文件 / **最近打开**（`lib/recent-notes.ts`，按库隔离、8 条、openNote 在 `onOpened` 登记）/ 搜索 / 全局替换 / 导入（`io.importFile` 命令存在才出现 = 插件禁用即消失）/ 命令面板 / 在新窗口打开 / 关闭标签 / 关于 / 退出；**不再列插件面板与设置**（规则 2）。⑤ **替代入口不丢**：`PluginPanel` 每行加「打开」按钮（有页面面板才渲染），插件页与设置页两处都接。⑥ 新命令 `core.sidebar.toggle`（`Ctrl+\`）/ `notes` / `search` / `timeline`（`Ctrl+1/2/3`），`core.search` 桌面改切侧栏视图。⑦ **WCAG 2.5.7**：`AppResizer` 可 Tab 聚焦 + `←/→/Home/End` 键盘调宽（`role="separator"` + `aria-valuenow`）；宽度上下限抽到 `lib/layout.ts`。⑧ `Settings` 加 `initialTab`（「关于」直达）；`gen-keys.mjs` 修 `\\` 反转义（键位表现在是 `Ctrl+\`）。**实测**（CDP，1920×1080 与模拟 1400×900）：5 项可点 · 3 视图切换 · 同一图标再点收起 · `Ctrl+P/O/Shift+F/1/2/3/\` 全通 · ☰ 菜单项齐全 · 「最近打开」录入与列项 · 分隔线 Tab+方向键。**零插件回归**（localStorage 全禁用 + reload + 截图 + 恢复 17/18 与初始一致）：图标栏 5 项 / 侧栏三视图 / 空态 / 插件页 / 菜单（无「导入外部文件」）全部成立，无灰按钮 · 无空容器。**测试** vitest **1478 → 1493**（新增 `app-rail` 7 + `recent-notes` 5 + `app-sidebar` 重写 2 → 5，净 +15）。截图 `_shots/ui-redesign-B1-{1400x900,1400x900-menu,search,timeline,zero-plugins,zero-plugins-notes,zero-plugins-menu}.png`。⚠️ **未做（B2/B3/B4/B5/B7）**：手机底部导航（手机 ☰ 仍是抽屉开关、抽屉仍是文件树）· 插件中心独立页（插件管理页暂留）· 智能分区（今天 / 最近 / 未打标签）· 标签条 `＋`/`»` · 状态栏瘦身 · 插件固定区的 pin 交互 · 专注模式（标题栏自动隐藏）· 动效 token。 |
 | rev173.255 | 2026-10-30 · **UI 重布局：调研 + 方案 + 事实复核 + 锚点门**（用户「调研成熟产品 UI 并重新布局」→ 多轮补充 →「同意方案」）。① **四份文档**：`_research/UI布局调研-2026-10-29.md`（现状测绘 + 11 家产品取证 + D1–D11 问题清单，400 行）· `docs/UI重布局-方案-2026-10-29.md`（目标 IA + 零插件约束 + 入口矩阵 + B1–B7 分批，300 行）· `_research/UI设计原则核对-2026-10-30.md`（NN/g 十项 / WCAG 2.2 / NavigationView 复核，O1–O12）· `_research/UI动效与页面转场-2026-10-30.md`（M3/Fluent 时长 token、四类转场、MO1–MO7）。② **零插件硬约束**：图标栏 5 项 / 手机底部 4 项只放内核能力，插件功能走「插件固定区」，禁用即整块消失（方案 §1.3）。③ **事实复核**：60 余条断言逐条回读，12 处修正（2 处硬错：`styles.css:1676` 实为进度条、空态行号指向编辑器容器），报告 `_research/UI文档事实审查-2026-10-30.md`。④ **锚点门**：新 `scripts/check-doc-anchors.mjs`（提取 `文件:行号` → 解析 → 查越界/倒序/缺失）接入 `check-gates` 第 8 门，`npm run check:anchors`；首跑 93 条有效。⑤ **方案已获同意**：§8 六问按推荐值执行（☰ 改主菜单 / 图标栏最左 / 时间流默认关 / 设置桌面 modal + 手机全屏 / `sidebar` 给真实载体 / 手机底部 首页·搜索·插件·更多）。⑥ **未做**：UI 代码零改动，B1–B7 未开工；零插件界面未真禁用实测；动效未实现。verify 六步全绿 · 质量门 **8/8** · vitest 1478 / cargo 87 不变 |
 | rev173.254 | 2026-10-29 · **发版 0.7.1**（用户「发」· 0.7.0 之后 4 个提交收口）：① **CHANGELOG** —— `[Unreleased]` 收成 **`[0.7.1] - 2026-10-29（rev173.249–253）`**，补 251（手册搬 `docs/guides/`）· 252（手册校对到 0.7.0）· 253（手机补「插入附件 / 查找」入口）三条，Fixed 保留 250（跨平台路径判据）；顶部版本表加行。② **README 现状行** 0.7.0 → 0.7.1；**ROADMAP §0** 版本 + 抬头复核日期，补「0.7.1 收尾」一行。③ 版本三处 `release.mjs 0.7.1`。④ verify 六步全绿 · tag `v0.7.1` · push · CI · GitHub Release。**不再有新版本号包袱**：0.7.1 = 0.7.0 的补丁集（手机侧 bug + 手册 + 两个入口），应用版本与插件版本仍是两套号。 |
 | rev173.253 | 2026-10-29 · **手机端补「插入附件 / 查找」入口**（用户「补入口」· 选 A+B）：① **底部工具栏**（`MarkToolbar`）加两个内置键 —— 📎 插入附件（`insertAttachment`，系统文件选择器）· 🔍 查找（`synthKey('f')` 开搜索面板），位置在 `⇤ ⇥` 之后（首屏可见，不把标记整体挤出屏）；只在 android 且打开了笔记时传（不传就不画）。② **长按 ☰ 菜单**（`menuItems`）补「插入附件…」「查找…」（`!isDesktop && activePath` 时出现）。③ 把 `synthKey` 上移到 `menuItems` 之前（`const` 必须先定义后使用）。④ **修一个真 bug**：查找面板开着按返回键会**直接关笔记**（面板没有层出口）⇒ `backRef` 加一层：`.cm-atomic-search-input` 存在 ⇒ 发 Escape 关面板并吃掉返回键。⑤ **真机验**（`33b676f6`，未重编）：工具栏两键首屏可见 · 🔍 开面板 · 返回键先关面板（笔记还在）· 📎 弹系统文件选择器（`com.android.fileexplorer/...PickMainNavigatorActivity`）· 长按 ☰ 菜单两项出现且「查找…」可用。⚠️ 已知小瑕疵：atomic 搜索面板窄屏把「替换」挤成竖排（面板 CSS 是 atomic 自带的，没改）。手册第 2/6 节与附录同步。 |
@@ -151,6 +152,41 @@ revision: 173.255
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.256（2026-10-30 · UI 重布局 B1：桌面壳落地）
+
+> **触发**：用户「做 B1」—— 按 `docs/UI重布局-方案-2026-10-29.md` §6 第一批（图标栏 → 侧栏视图容器 → 标题栏常驻 → ☰ 主菜单）落地。
+>
+> **做了什么**（全部桌面；手机保持原抽屉，B2 才动）：
+> - **图标栏 `AppRail`**：48px，5 项内核；点已展开的视图 = 收起侧栏；插件固定区默认空 ⇒ 不渲染。
+> - **侧栏视图容器 `AppSidebar`**：外壳 + `children`（FileTree / SearchPanel / MobileNoteCards 由 App 注入）；
+>   搜索改侧栏视图（`SearchPanel.inline`）；时间流从中间一栏收进侧栏。
+> - **标题栏常驻**：删自动隐藏 effect。
+> - **☰ 主菜单**：新增「最近打开」（`lib/recent-notes.ts`）与「导入外部文件…」（插件命令存在才出现）；
+>   去掉插件面板与设置项；插件面板入口改到 `PluginPanel` 行内「打开」。
+> - **命令**：`core.sidebar.toggle`（`Ctrl+\`）/ `notes` / `search` / `timeline`（`Ctrl+1/2/3`）。
+> - **WCAG 2.5.7**：分隔线可 Tab 聚焦 + 方向键调宽。
+>
+> **实测证据**（CDP · dev 1420/9222）：
+> - 截图：`_shots/ui-redesign-B1-1400x900.png`（模拟 1400×900 视口；窗口本身 1920×1080，
+>   `plugin:window|set_size` 无权限，用 `Emulation.setDeviceMetricsOverride` 等价）· `-menu.png` · `-search.png` · `-timeline.png`。
+> - 快捷键（真实 `Input.dispatchKeyEvent`）：`Ctrl+P` 开命令面板 · `Ctrl+O` 快速切换 · `Ctrl+Shift+F` 切侧栏搜索视图 ·
+>   `Ctrl+1/2/3` 三个视图 · 同一视图再按收起 · `Ctrl+\` 侧栏开关。
+> - **零插件回归**：把 18 个插件 id 写进 `localStorage['zeronote.plugins.disabled']` + reload ⇒
+>   图标栏 5 项 / 侧栏三视图 / 空态 / 插件管理页（18 个全未勾选）全成立，菜单里**没有**「导入外部文件」，
+>   状态栏的插件项（被引用 / 历史版本 / 安全）整块消失；随后写回原值 + reload，恢复 **17/18 启用**（与初始一致）。
+>   截图 `-zero-plugins{,-notes,-menu}.png`。
+>
+> **未做 / 边界**：
+> - 手机：☰ 仍是抽屉开关、抽屉里仍是文件树、搜索仍是浮层 —— B2 做底部四项时一起收口。
+> - 插件中心独立页、设置瘦身（B3）· 状态栏瘦身 / 文档工具条 / 空态最近 3 篇（B4）· 标签条 `＋`/`»`（B5）·
+>   `location: sidebar` 语义（B6）· 动效 token（B7）。
+> - 智能分区（今天 / 最近 / 未打标签）在方案 §2.1 属于文件树视图顶部，但 B1 验收不含它，**未做**。
+> - 专注模式（标题栏自动隐藏）未做；`Ctrl+,` 仍走命令表。
+> - 明暗三态截图只截了暗色（浅色未截）。
+>
+> **下一步 = B2（手机底部四项）**：`home / search / plugins / more` + 悬浮 ＋ + 「更多」全屏页 + 编辑态返回；
+> 真机验收 + 焦点不被底栏遮（2.4.11）。
 
 > ## 📌 rev173.255（2026-10-30 · UI 重布局调研 + 方案定稿；B1–B7 待开工）
 

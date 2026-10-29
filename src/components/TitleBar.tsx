@@ -138,12 +138,11 @@ export function TitleBar({
           onMenu({ x: 0, y: 32 })
         }}
         onContextMenu={(e) => {
-          // 菜单的唯一入口（桌面版左键被侧栏开关占用了）：右键 ☰ 弹同一份菜单
-          if (!onToggleSidebar) return
+          // 右键 ☰ 永远弹菜单（桌面：左键也是菜单；手机：左键是抽屉，右键罕见但仍给菜单）
           e.preventDefault()
           onMenu({ x: 0, y: 32 })
         }}
-        title={onToggleSidebar ? '切换文件树栏（右键或长按打开菜单）' : '菜单'}
+        title={onToggleSidebar ? '切换文件树栏（右键或长按打开菜单）' : '主菜单'}
         aria-label={onToggleSidebar ? '切换文件树栏' : '菜单'}
         aria-haspopup={onToggleSidebar ? undefined : 'menu'}
       >

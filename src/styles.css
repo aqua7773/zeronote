@@ -1960,9 +1960,142 @@ body.is-resizing * {
   z-index: 5;
 }
 
+/* ───────── 左侧图标栏（UI 重布局 B1 · 方案 §2.1）─────────
+   48px 常驻，不随侧栏收起；上半区 5 项全是内核能力（笔记 / 搜索 / 时间流），
+   插件与设置固定在下半区（NavigationView 惯例）。插件固定区默认为空，空则不渲染。 */
+.zn-rail {
+  flex: 0 0 auto;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  background: var(--zn-bg-subtle);
+  border-right: 1px solid var(--zn-border);
+  overflow: hidden;
+}
+
+.zn-rail-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-rail-btn:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-rail-btn:focus-visible {
+  outline: 2px solid var(--zn-accent);
+  outline-offset: -2px;
+}
+/* 选中态：图标加深 + 2px 左侧竖条（方案 §2.1）+ aria-current="page" 由组件给出 */
+.zn-rail-btn.is-active {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-rail-btn.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--zn-accent);
+}
+
+.zn-rail-sep {
+  width: 24px;
+  height: 1px;
+  flex: none;
+  margin: 4px 0;
+  background: var(--zn-border);
+}
+
+/* 插件 + 设置贴在图标栏底部 */
+.zn-rail-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 侧栏内的视图容器（文件树 / 搜索 / 时间流三选一）：占满剩余高度，各自内部滚动 */
+.zn-sidebar-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 侧栏头部的「搜索笔记」按钮（B1）：长得像输入框，点一下切到搜索视图 */
+.zn-sidebar-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg);
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-sm);
+  cursor: text;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.zn-sidebar-search:hover {
+  border-color: var(--zn-accent);
+  color: var(--zn-fg);
+}
+.zn-sidebar-search span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.zn-sidebar-collapse {
+  width: 24px;
+  height: 24px;
+}
+/* 侧栏底部提示（未选择笔记库） */
+.zn-sidebar-hint {
+  padding: var(--zn-space-3);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-subtle);
+}
+/* 搜索视图时侧栏头的视图名（取代搜索按钮，避免两个输入框并排） */
+.zn-sidebar-view-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+
+/* 分隔线键盘焦点（B1 · WCAG 2.5.7）：能 Tab 到、能看见 */
+.zn-resizer:focus-visible {
+  outline: 2px solid var(--zn-accent);
+  outline-offset: -2px;
+  opacity: 1;
+}
+
 /* ───────── 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）─────────
    侧栏与编辑区之间常驻一栏，内容 = 移动端起始页那套卡片（MobileNoteCards variant="panel"）。
-   宽度由 App.tsx 的 timelineWidth 内联给出；卡片样式直接复用 .zn-mobile-card。 */
+   宽度由 App.tsx 的 timelineWidth 内联给出；卡片样式直接复用 .zn-mobile-card。
+   ⚠️ B1 起改成**侧栏视图**（`.zn-timeline--rail`），宽度跟侧栏走、不再单独调。 */
 .zn-timeline {
   flex: 0 0 auto;
   min-height: 0;
@@ -1971,6 +2104,11 @@ body.is-resizing * {
   background: var(--zn-bg-subtle);
   border-right: 1px solid var(--zn-border);
   overflow: hidden;
+}
+.zn-timeline--rail {
+  flex: 1;
+  width: 100%;
+  border-right: 0;
 }
 /* 面板里没有手机那颗浮动 ＋（rev173.33 用户要求：时间流不要加号按钮）——
    卡片流底部只留 12px 空白；手机版给浮动按钮留的 96px 只在 mobile 形态出现。 */

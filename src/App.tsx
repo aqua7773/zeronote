@@ -57,6 +57,8 @@ import { TitleBar } from './components/TitleBar'
 import { TabBar } from './components/TabBar'
 /* rev122 拆分 L2：侧栏 / 回收站 / 空态 / 状态栏 —— 原样迁到 components/ */
 import { AppSidebar } from './components/AppSidebar'
+import { AppRail, type RailView } from './components/AppRail'
+import { FileTree } from './components/FileTree'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
 import { MobileNoteCards } from './components/MobileNoteCards'
@@ -102,6 +104,8 @@ import {
   RECENT_VAULTS_MAX,
   vaultExists,
 } from './lib/recent'
+/* UI 重布局 B1：☰ 主菜单的「最近打开」—— 最近打开过的笔记（按库隔离，见 lib 文件头） */
+import { loadRecentNotes, rememberRecentNote, type RecentNote } from './lib/recent-notes'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
@@ -473,66 +477,13 @@ export default function App() {
   )
 
   /**
-   * 标题栏自动隐藏。
+   * 标题栏常驻（UI 重布局 B1 · 方案 §2.1「标题栏默认常驻」）。
    *
-   * 鼠标靠近窗口顶部（≤6px）滑出显示，离开标题栏区域（>44px）再收起；
-   * 标题栏自己的 onMouseEnter / onFocus 也会把它按住不放（见 TitleBar 的 props）。
-   * 32px 的栏 + 12px 缓冲 = 44px，避免贴着边缘抖动。
+   * 旧行为（rev173.33 起）：鼠标离开顶部 500ms 就收起，靠 10px 热区唤出 ——
+   * 用户找不到「菜单在哪」。方案定为常驻，自动隐藏只在「专注模式」下启用（专注模式
+   * 属后续批次，这里还没做）。⇒ 状态只剩常量，`visible` 恒 true。
    */
-  const [titlebarVisible, setTitlebarVisible] = useState(true)
-  useEffect(() => {
-    // 鼠标离开顶部后**先停留 0.5 秒**再收（用户要求）——
-    // 期间只要回到顶部就取消，免得"手一抖就收走"。
-    let hideTimer: number | null = null
-    const cancelHide = () => {
-      if (hideTimer !== null) {
-        window.clearTimeout(hideTimer)
-        hideTimer = null
-      }
-    }
-    const onMove = (e: MouseEvent) => {
-      // 触屏设备（Android）没有鼠标指针：这套"指针接近顶部才显示标题栏"的逻辑不适用 ——
-      // 收不到 mousemove 时标题栏会永远停在初始状态，所以触屏上一律常驻显示。
-      if (window.matchMedia('(pointer: coarse)').matches) return
-      // 菜单开着时必须留着标题栏 —— 菜单挂在 ☰ 上，☰ 跟着收起的话菜单就"悬空"了。
-      if (menuAt) {
-        cancelHide()
-        setTitlebarVisible(true)
-        return
-      }
-      // 顶部 **10px** 内算"要标题栏"（用户要求减小触发距离）。
-      // 注意别低于这个量级：早先设过 6px —— 唤不出来，因为自绘窗口最上面几像素
-      // 收不到 WebView 的 mousemove（属系统边界）。64px 之下才算真正离开，中间是缓冲带。
-      if (e.clientY <= 10) {
-        cancelHide()
-        setTitlebarVisible(true)
-      } else if (e.clientY > 64 && hideTimer === null) {
-        hideTimer = window.setTimeout(() => {
-          hideTimer = null
-          setTitlebarVisible(false)
-        }, 500)
-      }
-    }
-    window.addEventListener('mousemove', onMove)
-    return () => {
-      cancelHide()
-      window.removeEventListener('mousemove', onMove)
-    }
-  }, [menuAt])
-
-  /**
-   * 键盘焦点进入标题栏时也保持显示。
-   * 用 document 级 `focusin` 而不是在 `<header>` 上挂 React 的 `onFocus` ——
-   * 实测后者在这个自绘标题栏上不触发（Tab 到 ☰ 后状态仍是 false）。
-   */
-  useEffect(() => {
-    const onFocusIn = (e: FocusEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t?.closest?.('.zn-titlebar')) setTitlebarVisible(true)
-    }
-    document.addEventListener('focusin', onFocusIn)
-    return () => document.removeEventListener('focusin', onFocusIn)
-  }, [])
+  const titlebarVisible = true
 
   /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
   useEffect(() => {
@@ -541,7 +492,47 @@ export default function App() {
     if (themePref !== 'system') return
     return watchSystemTheme(() => applyTheme('system'))
   }, [themePref])
-  /** 窄屏抽屉：宽屏侧栏常驻，窄屏由顶栏 ☰ 滑出 */
+  /**
+   * 桌面侧栏的**视图**（UI 重布局 B1 · 方案 §2.1）：文件树 / 搜索 / 时间流三选一。
+   *
+   * 取代了原来的「时间流常驻中间一栏」（rev173.33–48 的 `.zn-timeline`）：时间流收进侧栏
+   * 之后宽度回来，默认 `notes`（= 方案 §8-Q2「时间流默认关」）。持久化 —— 上次看的是
+   * 搜索结果，重开应用不该又跳回文件树。
+   */
+  const [sidebarView, setSidebarView] = useState<RailView>(() => {
+    try {
+      const v = window.localStorage.getItem('zeronote.sidebar.view')
+      return v === 'search' || v === 'timeline' ? v : 'notes'
+    } catch {
+      return 'notes'
+    }
+  })
+  /**
+   * 设置页初始 tab（B1）：☰ 菜单「关于」直接落到「关于」页。
+   * 配合 `<Settings key={settingsTab}>` 生效 —— 组件内 tab 由它自己的 state 管。
+   */
+  const [settingsTab, setSettingsTab] = useState<'general' | 'assets' | 'plugins' | 'about'>('general')
+
+  /** ☰ 菜单「最近打开」的数据源（B1）—— openNote 成功时在 onOpened 里登记 */
+  const [recentNotes, setRecentNotes] = useState<RecentNote[]>(() => loadRecentNotes())
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('zeronote.sidebar.view', sidebarView)
+    } catch {
+      /* 存不下就只在本次会话生效 */
+    }
+  }, [sidebarView])
+
+  /**
+   * 侧栏视图切换的**最新版本**（B1）—— 命令表（`core.sidebar.*`）的 run 里用。
+   *
+   * 命令表 effect 不能依赖 `selectRailView`（那个函数每次渲染重建 ⇒ 命令反复重注册），
+   * 所以用一个稳定 ref 指过去，由下面的 effect 每次渲染后同步。
+   */
+  const railSelectRef = useRef<(v: RailView) => void>(() => {})
+
+  /** 窄屏抽屉：宽屏侧栏常驻，窄屏由 ☰ 滑出 */
   const [sidebarOpen, setSidebarOpen] = useState(false)
   /** 桌面侧栏是否显示：进插件管理/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
@@ -549,28 +540,6 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const v = Number(window.localStorage.getItem('zeronote.sidebar.w'))
     return Number.isFinite(v) && v >= 160 && v <= 560 ? v : 260
-  })
-  /**
-   * 桌面「时间流」面板宽度（rev173.33 · 2026-10-19 用户要求：
-   * 侧栏与编辑区之间常驻一栏，放和移动端起始页一样的时间流卡片）。拖分隔线可调，持久化。
-   */
-  const [timelineWidth, setTimelineWidth] = useState<number>(() => {
-    const v = Number(window.localStorage.getItem('zeronote.timeline.w'))
-    return Number.isFinite(v) && v >= 200 && v <= 560 ? v : 300
-  })
-  /**
-   * 桌面「时间流」面板的**开关**（rev173.48 · 用户要求「时间流右键菜单里加关闭时间流」）。
-   *
-   * 之前它是个纯派生值（桌面 + 编辑器视图就一直显示），没有关掉的办法。
-   * 持久化到 localStorage —— 用户关掉之后，重开应用不该又自己弹回来。
-   * 默认开（与 rev173.33 的行为一致）。
-   */
-  const [timelineOpen, setTimelineOpen] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem('zeronote.timeline.open') !== '0'
-    } catch {
-      return true
-    }
   })
   /**
    * 主区右键菜单 —— 原生菜单已被禁用，编辑操作得自己提供。
@@ -593,18 +562,6 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
   }, [sidebarWidth])
-
-  useEffect(() => {
-    window.localStorage.setItem('zeronote.timeline.w', String(timelineWidth))
-  }, [timelineWidth])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('zeronote.timeline.open', timelineOpen ? '1' : '0')
-    } catch {
-      /* 存不下（隐私模式 / 配额）就只在本次会话生效 */
-    }
-  }, [timelineOpen])
 
   /**
    * 移动端：侧栏（抽屉）打开时隐藏状态栏、收起（首页）时显示。
@@ -1224,6 +1181,8 @@ export default function App() {
     onOpened: (p) => {
       if (platform !== 'android') setTabs((prev) => addTab(prev, p))
       setMainView('editor')
+      /* B1：☰ 菜单的「最近打开」—— 在这里登记（openNote 是所有打开路径的唯一入口） */
+      if (vault) setRecentNotes(rememberRecentNote(vault, p))
     },
     /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
     canOpen: canOpenNote,
@@ -2026,6 +1985,41 @@ export default function App() {
         keybinding: 'Mod+,',
         run: () => openOverlay('settings'),
       }),
+      /**
+       * B1 侧栏视图命令（桌面）—— 图标栏 5 项的键盘等价物。
+       * `Mod+\` 切侧栏（方案 §8-Q0 把 ☰ 让给主菜单后的替代入口）；
+       * `Mod+1/2/3` 直接落到 笔记 / 搜索 / 时间流 三个视图。
+       * 手机上 `Mod+1/2/3` 表现为「打开抽屉」（B2 底部导航上线后再细分）。
+       */
+      kernel.commands.api.register({
+        id: 'core.sidebar.toggle',
+        title: '显示 / 收起笔记库栏',
+        keybinding: 'Mod+\\',
+        run: () => {
+          // 这里用 `platform`（724 行定义的常量）而不是 `isDesktop`（`kernel.host` 派生、
+          // 定义在命令注册之后）—— 后者会被 React 编译规则判成「读未初始化的变量」。
+          if (platform !== 'android') setSidebarVisible((v) => !v)
+          else setSidebarOpen((v) => !v)
+        },
+      }),
+      kernel.commands.api.register({
+        id: 'core.sidebar.notes',
+        title: '笔记视图（侧栏）',
+        keybinding: 'Mod+1',
+        run: () => railSelectRef.current('notes'),
+      }),
+      kernel.commands.api.register({
+        id: 'core.sidebar.search',
+        title: '搜索视图（侧栏）',
+        keybinding: 'Mod+2',
+        run: () => railSelectRef.current('search'),
+      }),
+      kernel.commands.api.register({
+        id: 'core.sidebar.timeline',
+        title: '时间流视图（侧栏）',
+        keybinding: 'Mod+3',
+        run: () => railSelectRef.current('timeline'),
+      }),
       kernel.commands.api.register({
         id: 'core.search',
         title: '搜索笔记',
@@ -2038,6 +2032,12 @@ export default function App() {
         run: () => {
           if (noteWindowPath) {
             setToast('全库搜索请在主窗口使用')
+            return
+          }
+          // B1：桌面走侧栏搜索视图（不再弹浮层）；手机仍是浮层（B2 做全屏搜索页）
+          if (platform !== 'android') {
+            setSidebarVisible(true)
+            setSidebarView('search')
             return
           }
           openOverlay('search')
@@ -2161,6 +2161,8 @@ export default function App() {
     openOverlay,
     // rev173.74：core.search 要按窗口形态分叉（note 窗口里给提示，不开面板）
     noteWindowPath,
+    /* B1：core.search / core.sidebar.toggle 按平台分叉（侧栏视图 vs 抽屉） */
+    platform,
   ])
 
   /**
@@ -3291,48 +3293,72 @@ export default function App() {
     }
   }
 
-  /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
+  /**
+   * ☰ 主菜单（B1 · 方案 §2.1「☰ = 主菜单」/ §4 入口矩阵）。
+   *
+   * 规则（方案 §4）：
+   *  - 同一功能最多 1 个主入口 + 2 个加速入口；
+   *  - **不再列插件面板**（入口改到 插件管理页每行的「打开」+ 命令面板；B3 插件中心接管）；
+   *  - **设置不进菜单**（图标栏 ⚙ 是主入口，`Ctrl+,` 是加速键）；
+   *  - 来源=插件的行（导入 / 导出…）在插件未启用时**整行消失**，不留灰位。
+   *
+   * 手机端：B2（底部导航）之前保留抽屉开关与「插入附件 / 查找」两项 —— 删掉会让
+   * 手机上失去这两个入口（方案 B1 只管桌面）。
+   */
+  const importCommand = kernel?.commands.api.list().find((c) => c.id === 'io.importFile') ?? null
+  const recentOfVault = vault ? recentNotes.filter((n) => n.vault === vault).slice(0, 6) : []
+
   const menuItems: MenuItem[] = [
     { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void runCore('core.newNote') },
     { label: '打开笔记库…', onClick: () => void pickVault() },
     // 文件关联的**桌面验收入口**（不装安装包也能试）：选一个 .md → 把它的父目录当库打开并打开它
     { label: '打开文件…', onClick: () => void pickFile() },
-    // 笔记库栏的开关：
-    //  · 桌面 —— 侧栏常驻，收起后菜单这条是唯一的**重开**入口
-    //    （避免同一动作两处可点、让用户猜该用哪个）
-    //  · 移动端 —— 侧栏是抽屉，☰ 菜单就是它的主要入口（用户要求「侧栏集成到菜单」）
-    ...(isDesktop
-      ? sidebarVisible
-        ? []
-        : [{ label: '显示笔记库栏', onClick: () => setSidebarVisible(true) }]
-      : [
+    // 最近打开（B1 新）：当前库最近打开过的笔记
+    ...(recentOfVault.length > 0
+      ? [
+          {
+            label: '最近打开',
+            children: recentOfVault.map((n) => ({
+              label: n.path,
+              onClick: () => void openNote(n.path),
+            })),
+          },
+        ]
+      : []),
+    // 手机端：侧栏是抽屉，☰ 是它的主要入口（B2 之前保留）
+    ...(!isDesktop
+      ? [
           {
             label: sidebarOpen ? '关闭笔记库栏' : '笔记库',
             onClick: () => setSidebarOpen((v) => !v),
           },
-        ]),
-    { label: '搜索笔记', hint: 'Ctrl+Shift+F', divider: true, onClick: () => openOverlay('search') },
+        ]
+      : []),
+    {
+      label: '搜索笔记',
+      hint: 'Ctrl+Shift+F',
+      divider: true,
+      onClick: () => {
+        // 桌面：搜索是侧栏视图（B1）；手机仍是全屏浮层（B2 做全屏搜索页）
+        if (isDesktop) {
+          setSidebarVisible(true)
+          setSidebarView('search')
+        } else openOverlay('search')
+      },
+    },
     { label: '全局替换…', hint: 'Ctrl+Shift+H', onClick: () => setReplaceAllOpen(true) },
+    // 导入：来源是插件 import-export ⇒ 未启用时整行不出现（方案 §4 规则 3）
+    ...(importCommand
+      ? [
+          {
+            label: '导入外部文件…',
+            divider: true,
+            onClick: () => void kernel?.commands.api.execute(importCommand.id),
+          },
+        ]
+      : []),
     { label: '命令面板', hint: 'Ctrl+P', onClick: () => openOverlay('palette') },
-    { label: '设置', hint: 'Ctrl+,', divider: true, onClick: () => openOverlay('settings') },
-    // 右侧栏取消后，插件管理与各插件面板都在主区各占一个页面
-    { label: '插件管理', onClick: () => setMainView('plugins') },
-    ...panels
-      .filter(
-        (p) =>
-          /* rev173.86：动态实例面板（文档阅读器每份文档一个）不进菜单 —— 否则打开 10 份文档就多 10 项 */
-          !p.hidden &&
-          p.location !== 'statusbar' &&
-          /* 浮层面板（反链 / 历史）**不进菜单**（2026-10-24 用户：「菜单栏不用有」）——
-             它们的入口是状态栏按钮 / 命令面板；放菜单里会让菜单变长且语义含混 */
-          p.location !== 'modal' &&
-          // 工具栏 / 顶部提示条是"贴着编辑器"的辅助条，不该在菜单里单开一个页面
-          p.location !== 'editor-toolbar' &&
-          p.location !== 'editor-topbar',
-      )
-      .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
-    // 手机端：插入附件 / 查找（rev173.253）—— 长按 ☰ 的菜单里补这两项；
-    // 底部工具栏有同样的入口（📎 / 🔍）。桌面端这两个动作在右键菜单里（openMainMenu），别重复。
+    // 手机端：插入附件 / 查找（rev173.253）—— 底部工具栏有同样的入口（📎 / 🔍）
     ...(!isDesktop && activePath
       ? [
           { label: '插入附件…', divider: true, onClick: () => void insertAttachment() },
@@ -3345,10 +3371,34 @@ export default function App() {
     ...(activePath
       ? [
           {
+            label: '在新窗口打开',
+            divider: true,
+            onClick: () => void runCore('core.openInNewWindow'),
+          },
+          {
             label: '关闭当前标签页',
             hint: 'Ctrl+W',
-            divider: true,
             onClick: () => closeCurrentView(),
+          },
+        ]
+      : []),
+    {
+      label: '关于 ZeroNote',
+      divider: true,
+      onClick: () => {
+        setSettingsTab('about')
+        openOverlay('settings')
+      },
+    },
+    // 退出：只有桌面有这回事（Android 的"退出"= 返回键，交给系统）
+    ...(isDesktop
+      ? [
+          {
+            label: '退出',
+            onClick: () => {
+              // 走 close()（不是 destroy()）：onCloseRequested 里还要写草稿 / 广播 app:quit
+              void getCurrentWindow().close()
+            },
           },
         ]
       : []),
@@ -3587,14 +3637,16 @@ export default function App() {
       )
     }
 
-    // ── 时间流（桌面）：打开 / 关闭（rev173.48 · 用户要求「时间流右键菜单加关闭时间流」）──
-    // 时间流区域右键也走这个菜单 ⇒ 打开着的时候这里就是「关闭时间流」；
-    // 关掉之后在文件树 / 编辑器 / 起始页右键，同一项变成「打开时间流」。
+    // ── 时间流（桌面 · B1 起是侧栏视图）：打开 = 切到时间流视图 ──
+    // 时间流区域右键走另一条分支（「切换到笔记视图」）；这里给文件树 / 编辑器 / 起始页用。
     if (isDesktop && mainView === 'editor') {
       items.push({
-        label: timelineOpen ? '关闭时间流' : '打开时间流',
+        label: sidebarView === 'timeline' ? '切换到笔记视图' : '打开时间流',
         divider: true,
-        onClick: () => setTimelineOpen((v) => !v),
+        onClick: () => {
+          setSidebarVisible(true)
+          setSidebarView(sidebarView === 'timeline' ? 'notes' : 'timeline')
+        },
       })
     }
 
@@ -3696,12 +3748,51 @@ export default function App() {
   const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
 
   /**
-   * 桌面「时间流」面板（rev173.33 · 2026-10-19 用户要求）：
-   * 常驻在侧栏与编辑区之间（打开笔记时也在）；移动端没有这一栏，插件页/回收站也不显示。
-   * 侧栏用 ☰ 收起时它**还在** —— 它是独立的一栏，不跟着侧栏开关走。
-   * rev173.48 起多了**开关**：右键它（或主区菜单）可以关掉，右键文件树/编辑器可以再打开。
+   * 图标栏的三个视图按钮（B1）。
+   *
+   * - 点**当前已展开**的视图 ⇒ 收起侧栏（与 Obsidian Ribbon / VS Code 活动栏一致）；
+   * - 点别的视图 ⇒ 切视图并确保侧栏展开；
+   * - 主区正停在系统页（插件管理 / 回收站）时点视图图标 ⇒ 回编辑器（那里才有侧栏）。
+   * 手机不渲染图标栏（B2 才做底部导航），分支保留给 `Ctrl+1/2/3` 在手机上的安全行为。
    */
-  const showTimeline = isDesktop && mainView === 'editor' && timelineOpen
+  const selectRailView = (v: RailView) => {
+    if (!isDesktop) {
+      setSidebarOpen(true)
+      return
+    }
+    if (sidebarVisible && sidebarView === v) {
+      setSidebarVisible(false)
+      return
+    }
+    setSidebarVisible(true)
+    setSidebarView(v)
+    if (mainView !== 'editor' && !pagePanel) setMainView('editor')
+  }
+
+  /**
+   * 图标栏「插件」：打开插件管理页；再点回到进来之前那一页（方案 §2.1「再点 = 回到之前的文档」）。
+   * 用 ref 记上一页 —— 插件页里再点不会把 "plugins" 自己记成返回目标。
+   */
+  const pluginReturnRef = useRef<string>('editor')
+  const togglePluginsView = () => {
+    if (mainView === 'plugins') {
+      setMainView(pluginReturnRef.current || 'editor')
+      return
+    }
+    pluginReturnRef.current = mainView
+    setMainView('plugins')
+  }
+
+  /** 图标栏 ⚙：打开设置；再点关掉（与 ☰ 菜单里的入口共用同一个浮层） */
+  const toggleSettings = () => {
+    if (settingsOpen) setSettingsOpen(false)
+    else openOverlay('settings')
+  }
+
+  /* 命令表用到的最新版 selectRailView（每次渲染后同步，run 里经 ref 取到当前闭包） */
+  useEffect(() => {
+    railSelectRef.current = selectRailView
+  })
 
   /**
    * 起始页长按 ＋ 的环形快捷入口（rev173.20，调研见 `docs/快捷入口-调研-2026-10-19.md`）。
@@ -3943,12 +4034,11 @@ export default function App() {
         saveError={saveState === 'error'}
         saveDirty={dirty}
         onMenu={setMenuAt}
-        // 2026-10-18 用户要求：☰ = 文件树栏开关（桌面切常驻侧栏、移动端切抽屉）；
-        // 桌面用右键 ☰ 弹菜单。移动端「⋯」已按用户要求去掉（2026-10-18）。
-        onToggleSidebar={() => (isDesktop ? setSidebarVisible((v) => !v) : setSidebarOpen((v) => !v))}
+        /* B1：☰ 从「侧栏开关」改回**主菜单**（方案 §8-Q0）。侧栏开关交给图标栏 1–3 号
+           与 `Ctrl+\`。手机端 ☰ 仍是抽屉开关（B2 的底部导航落地后再统一）。 */
+        onToggleSidebar={isDesktop ? undefined : () => setSidebarOpen((v) => !v)}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
-        onHoverChange={setTitlebarVisible}
       />
 
       <div
@@ -3989,7 +4079,8 @@ export default function App() {
               x: e.clientX,
               y: e.clientY,
               items: [
-                { label: '关闭时间流', onClick: () => setTimelineOpen(false) },
+                // B1：时间流已收进侧栏视图 ⇒ 「关闭」= 切回文件树视图
+                { label: '切换到笔记视图', onClick: () => setSidebarView('notes') },
                 { label: '设置', divider: true, onClick: () => openOverlay('settings') },
               ],
             })
@@ -4009,95 +4100,129 @@ export default function App() {
           openMainMenu(e.clientX, e.clientY)
         }}
       >
-      {showSidebar && (
-        <AppSidebar
-          vault={vault}
-          notes={notes}
-          dirs={dirs}
-          activePath={activePath}
-          open={sidebarOpen}
-          width={sidebarWidth}
-          layers={layerExitsRef}
-          clipboard={clipboard}
-          onOpen={(p) => {
-            /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
-               走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
-            const meta = notes.find((n) => n.path === p)
-            if (meta?.kind === 'doc') {
-              /* rev173.85：手机上侧栏是抽屉，点文档后要收起来，否则抽屉盖在阅读器上
-                 （笔记那条走 `openNote`，它内部已经 `setSidebarOpen(false)`；文档不走它） */
-              setSidebarOpen(false)
-              runCore('core.openDocument', { path: p })
-            } else if (meta?.kind === 'image') openImagePreview(p)
-            else if (meta?.kind === 'media')
-              // rev173.226：音视频不独立开窗 —— 播放要放在笔记上下文里（正文内联）
-              setToast(`音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`)
-            else {
-              // rev173.85：已经在面板视图 / 点的是当前这篇（openNote 会早退）时也要回编辑器
-              setMainView('editor')
-              void openNote(p)
-            }
-          }}
-          onNewFile={newNoteIn}
-          onNewDir={newDirIn}
-          onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
-          onDeleteMany={(paths) => void deleteNotes(paths)}
-          onPurgeMany={(paths) => void purgeNotes(paths)}
-          onCut={cutPaths}
-          onCopy={copyPaths}
-          onPaste={(dir) => void pasteInto(dir)}
-          onDuplicate={(path) => void duplicateEntry(path)}
-          onOpenTrash={openTrash}
-          onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
-          onOpenSettings={() => openOverlay('settings')}
-          /* 时间流是桌面能力：手机端不传 ⇒ 文件树菜单里不出现这一项（rev173.48） */
-          onOpenTimeline={isDesktop ? () => setTimelineOpen(true) : undefined}
+      {/* 图标栏（B1 · 方案 §2.1）：固定 5 项**内核能力**，常驻不随侧栏收起。
+          插件固定区默认为空 ⇒ AppRail 内部整块不渲染（零插件不留灰位）。 */}
+      {isDesktop && (
+        <AppRail
+          activeView={sidebarView}
+          sidebarVisible={sidebarVisible}
+          pluginsOpen={mainView === 'plugins'}
+          settingsOpen={settingsOpen}
+          onSelectView={selectRailView}
+          onTogglePlugins={togglePluginsView}
+          onToggleSettings={toggleSettings}
         />
       )}
 
-      {showSidebar && isDesktop && (
-        /* 分隔线：拖它调左右占比（实现见 AppResizer，含 document 级事件与夹限） */
-        <AppResizer width={sidebarWidth} onResize={setSidebarWidth} />
-      )}
-
-      {showTimeline && (
-        <>
-          {/* 时间流面板（rev173.33 · 2026-10-19 用户要求）：
-              侧栏与编辑区之间常驻，卡片与移动端起始页同一套（MobileNoteCards variant="panel"）；
-              打开笔记/文档/图片都走与文件树相同的派发（doc 不能 readText）。 */}
-          <div className="zn-timeline" style={{ width: timelineWidth }}>
-            <MobileNoteCards
-              variant="panel"
-              layers={layerExitsRef}
+      {showSidebar && (
+        <AppSidebar
+          vault={vault}
+          open={sidebarOpen}
+          width={sidebarWidth}
+          /* 桌面 = 视图容器；不传 view = 手机抽屉（B2 之前保持原样） */
+          view={isDesktop ? sidebarView : undefined}
+          onSearchIntent={() => {
+            setSidebarView('search')
+            setSidebarVisible(true)
+          }}
+          onCollapse={() => setSidebarVisible(false)}
+          onOpenSettings={() => openOverlay('settings')}
+          onOpenTrash={openTrash}
+          onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
+        >
+          {!vault ? (
+            <div className="zn-tree zn-sidebar-hint">还没选择笔记库</div>
+          ) : !isDesktop || sidebarView === 'notes' ? (
+            <FileTree
+              /* 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的） */
+              key={vault}
+              vault={vault}
               notes={notes}
+              dirs={dirs}
+              activePath={activePath}
               onOpen={(p) => {
+                /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
+                   走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
                 const meta = notes.find((n) => n.path === p)
-                if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
-                else if (meta?.kind === 'image') openImagePreview(p)
+                if (meta?.kind === 'doc') {
+                  /* rev173.85：手机上侧栏是抽屉，点文档后要收起来，否则抽屉盖在阅读器上
+                     （笔记那条走 `openNote`，它内部已经 `setSidebarOpen(false)`；文档不走它） */
+                  setSidebarOpen(false)
+                  runCore('core.openDocument', { path: p })
+                } else if (meta?.kind === 'image') openImagePreview(p)
                 else if (meta?.kind === 'media')
-                  setToast(`音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`)
+                  // rev173.226：音视频不独立开窗 —— 播放要放在笔记上下文里（正文内联）
+                  setToast(
+                    `音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`,
+                  )
                 else {
-                  // rev173.85：手机没有标签条，从面板视图点卡片必须显式切回编辑器
+                  // rev173.85：已经在面板视图 / 点的是当前这篇（openNote 会早退）时也要回编辑器
                   setMainView('editor')
                   void openNote(p)
                 }
               }}
-              onNewNote={() => void runCore('core.newNote')}
-              readText={(p) =>
-                kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪'))
-              }
-              onDelete={(p) => void deleteNotes([p])}
-              onPurge={(p) => void purgeNotes([p])}
-              onRename={(from, to) => void renameNote(from, to, false)}
-              onCloseTimeline={() => setTimelineOpen(false)}
+              onNewFile={newNoteIn}
+              onNewDir={newDirIn}
+              onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
+              onDeleteMany={(paths) => void deleteNotes(paths)}
+              onPurgeMany={(paths) => void purgeNotes(paths)}
+              onCut={cutPaths}
+              onCopy={copyPaths}
+              onPaste={(dir) => void pasteInto(dir)}
+              onDuplicate={(path) => void duplicateEntry(path)}
+              layers={layerExitsRef}
+              clipboard={clipboard}
+              /* 时间流是桌面能力：手机端不传 ⇒ 文件树菜单里不出现这一项（rev173.48） */
+              onOpenTimeline={isDesktop ? () => selectRailView('timeline') : undefined}
             />
-          </div>
-          <AppResizer
-            width={timelineWidth}
-            onResize={setTimelineWidth}
-            label="拖动调整时间流宽度"
-          />
-        </>
+          ) : sidebarView === 'search' ? (
+            /* 侧栏搜索视图（B1 · 方案 §3.3「搜索改为侧栏视图」）：与浮层共用同一个组件 */
+            <SearchPanel
+              inline
+              open
+              onClose={() => setSidebarView('notes')}
+              onOpenNote={(p) => void openNote(p)}
+              index={kernel?.index ?? null}
+              notes={notes}
+            />
+          ) : (
+            /* 侧栏时间流视图（B1）：原「侧栏与主区之间常驻一栏」收进侧栏，卡片同一套组件 */
+            <div className="zn-timeline zn-timeline--rail">
+              <MobileNoteCards
+                variant="panel"
+                layers={layerExitsRef}
+                notes={notes}
+                onOpen={(p) => {
+                  const meta = notes.find((n) => n.path === p)
+                  if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
+                  else if (meta?.kind === 'image') openImagePreview(p)
+                  else if (meta?.kind === 'media')
+                    setToast(
+                      `音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`,
+                    )
+                  else {
+                    setMainView('editor')
+                    void openNote(p)
+                  }
+                }}
+                onNewNote={() => void runCore('core.newNote')}
+                readText={(p) =>
+                  kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪'))
+                }
+                onDelete={(p) => void deleteNotes([p])}
+                onPurge={(p) => void purgeNotes([p])}
+                onRename={(from, to) => void renameNote(from, to, false)}
+                onCloseTimeline={() => setSidebarView('notes')}
+              />
+            </div>
+          )}
+        </AppSidebar>
+      )}
+
+      {showSidebar && isDesktop && (
+        /* 分隔线：拖它调左右占比（实现见 AppResizer，含 document 级事件与夹限）；
+           B1 起支持键盘（←/→，WCAG 2.5.7「拖拽有替代」） */
+        <AppResizer width={sidebarWidth} onResize={setSidebarWidth} />
       )}
 
       <main className="zn-main">
@@ -4177,6 +4302,9 @@ export default function App() {
                 onInstall={() => void installZnp()}
                 onMarketInstall={installFromMarket}
                 updates={marketUpdates}
+                /* B1：菜单不再列插件面板 ⇒ 行内给「打开」入口（B3 插件中心接管） */
+                panels={panels}
+                onOpenPanel={(id) => setMainView(id)}
               />
             </div>
           </div>
@@ -4462,6 +4590,9 @@ export default function App() {
       )}
 
       <Settings
+        /* B1：菜单「关于」要直接落在「关于」页 —— 用 key 让组件重挂载，初始 tab 生效 */
+        key={settingsTab}
+        initialTab={settingsTab}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         vault={vault}
@@ -4494,6 +4625,9 @@ export default function App() {
         onMarketInstall={installFromMarket}
         updates={marketUpdates}
         autoCheckUpdates={autoCheckUpdates}
+        /* B1：设置里的插件列表同样给「打开面板」入口 */
+        panels={panels}
+        onOpenPanel={(id) => setMainView(id)}
         capabilities={kernel?.capabilityStatus() ?? []}
         onCapabilityChoice={(name, pluginId) => {
           kernel?.setCapabilityChoice(name, pluginId)
