@@ -168,6 +168,8 @@ revision: 173.256
 > - **WCAG 2.5.7**：分隔线可 Tab 聚焦 + 方向键调宽。
 >
 > **实测证据**（CDP · dev 1420/9222）：
+> - **已推送**：`94d444a..d956e44`（2026-10-30 01:15 · 直连，未挂代理）—— 远程 HEAD 已核对为 `d956e44`；
+>   **CI run `40919495803` success**（windows-latest · `verify.ps1` 六步 · 约 5 分钟，未命中 Rust 缓存）。
 > - 截图：`_shots/ui-redesign-B1-1400x900.png`（模拟 1400×900 视口；窗口本身 1920×1080，
 >   `plugin:window|set_size` 无权限，用 `Emulation.setDeviceMetricsOverride` 等价）· `-menu.png` · `-search.png` · `-timeline.png`。
 > - 快捷键（真实 `Input.dispatchKeyEvent`）：`Ctrl+P` 开命令面板 · `Ctrl+O` 快速切换 · `Ctrl+Shift+F` 切侧栏搜索视图 ·
