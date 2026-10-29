@@ -12,7 +12,7 @@
  * 真正的搬运全在 Rust `assets.rs`（文件系统 + HTTP 在 WebView 里都不可靠）。
  */
 import { invoke } from '@tauri-apps/api/core'
-import { formatSize } from './attachment'
+import { formatSize, isLocalAbsPath } from './attachment'
 
 export type RelayBackend =
   | { kind: 'local-folder'; root: string }
@@ -245,8 +245,8 @@ export function localOriginalAbsPath(
   const rel = deviceId ? item.devices?.[deviceId] : null
   if (!rel) return null
   const root = (vaultRoot ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
-  // 盘符 / UNC = 上传方记的绝对路径，原样用
-  if (/^(?:[a-zA-Z]:[\\/]|\\\\)/.test(rel)) return rel.replace(/\\/g, '/')
+  // 盘符 / UNC / Unix 绝对 = 上传方记的绝对路径，原样用
+  if (isLocalAbsPath(rel)) return rel.replace(/\\/g, '/')
   return root ? `${root}/${rel}` : null
 }
 

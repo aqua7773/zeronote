@@ -20,7 +20,7 @@
  * 就可能不在台账里，猜错比留白更糟（硬约束 4：静默失效比报错危险，但误报同样危险）。
  */
 import { StateEffect } from '@codemirror/state'
-import { formatSize } from './attachment'
+import { formatSize, isLocalAbsPath } from './attachment'
 
 /** 卡片的类型分组 —— 决定图标与底色，不发散到十几类 */
 export type FileCardKind = 'doc' | 'sheet' | 'slide' | 'archive' | 'ebook' | 'file'
@@ -134,15 +134,14 @@ export function normalizeCardPath(path: string): string {
 }
 
 /**
- * 库外绝对路径：盘符（`D:/` `D:\`）或 UNC（`\\host\share`）。
+ * 库外绝对路径：盘符（`D:/`）· UNC（`\\host` / `//host`）· Unix 绝对（`/storage/...`）。
  *
- * ⚠️ UNC 要在**归一化之前**判：`normalizeCardPath` 会把 `\\` 变成 `//`，
- * 那时再找反斜杠就永远找不到（既有代码 `EXTERNAL_ABS_RE` 只认 `\\`，对 `//` 形态漏判）。
+ * rev173.250 起委托 `isLocalAbsPath`（附件三处共用一份口径）—— 此前只认 Windows 形态，
+ * 手机上 `import_attachment` 写出的 `/storage/emulated/0/...` 一律不做卡片（手机走查实测）。
+ * ⚠️ UNC 的判据在**归一化之前**：`normalizeCardPath` 会把 `\\` 变成 `//`。
  */
 export function isExternalAbsPath(path: string): boolean {
-  const raw = (path ?? '').trim()
-  if (raw.startsWith('\\\\')) return true
-  return /^(?:[a-zA-Z]:[\\/]|\/\/)/.test(normalizeCardPath(path))
+  return isLocalAbsPath(path)
 }
 
 /**

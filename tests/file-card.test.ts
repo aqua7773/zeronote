@@ -34,14 +34,18 @@ describe('路径判定', () => {
     expect(normalizeCardPath('./D:/x.pdf')).toBe('D:/x.pdf')
   })
 
-  it('只认盘符与 UNC', () => {
+  it('认盘符 / UNC / Unix 绝对（rev173.250 手机走查补）', () => {
     expect(isExternalAbsPath('D:/a.pdf')).toBe(true)
     expect(isExternalAbsPath('d:\\a.pdf')).toBe(true)
     expect(isExternalAbsPath('\\\\nas\\共享\\a.pdf')).toBe(true)
+    // Android 的库外文件是 Unix 绝对路径 —— 此前只认 Windows 形态，手机上卡片静默不出现
+    expect(isExternalAbsPath('/storage/emulated/0/Download/a.pdf')).toBe(true)
+    expect(isExternalAbsPath('//nas/共享/a.pdf')).toBe(true)
     // 库内相对路径、绝对 URL、笔记链接都不是
     expect(isExternalAbsPath('附件/a.pdf')).toBe(false)
-    expect(isExternalAbsPath('/abs/a.pdf')).toBe(false)
+    expect(isExternalAbsPath('./附件/a.pdf')).toBe(false)
     expect(isExternalAbsPath('https://a.com/a.pdf')).toBe(false)
+    expect(isExternalAbsPath('/')).toBe(false)
   })
 
   it('扩展名小写、无扩展名为空串', () => {

@@ -26,6 +26,7 @@ import {
 import { SourceModeView } from './SourceModeView'
 import { TableToolbar, type TableInfo } from './TableToolbar'
 import { loadRelayPending } from '../kernel/asset-relay'
+import { isLocalAbsPath } from '../kernel/attachment'
 import { fileCardRefresh, setFileCardLedger } from '../kernel/file-card'
 
 /** 编辑器 state 缓存上限（篇）；超过按 LRU 淘汰，避免开过很多笔记后内存无限涨 */
@@ -39,9 +40,6 @@ const MAX_CACHED_STATES = 20
  * `zn-quote-dN`（样式在 styles.css 里逐级缩进）。
  */
 const QUOTE_LINE_RE = /^\s*(?:>\s*)+/
-
-/** 库外绝对路径（`D:\x` / `D:/x` / UNC）—— 媒体错误时据此判断「该不该给同步入口」 */
-const EXTERNAL_ABS_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
 
 function quoteDecorations(view: EditorView): DecorationSet {
   const decos: Range<Decoration>[] = []
@@ -221,7 +219,7 @@ function upgradeMediaWidgets(
       )
       // 库外绝对路径 = 「原文件在另一台机器上」的典型形态（需求 §5 入口 1）。
       // 点击后由宿主查台账 → 确认 → 从云端临时区接收 → 改写引用（编辑器不认识搬运逻辑）。
-      if (onExternalMediaSync && EXTERNAL_ABS_RE.test(stripAngleTarget(raw))) {
+      if (onExternalMediaSync && isLocalAbsPath(stripAngleTarget(raw))) {
         const btn = document.createElement('button')
         btn.type = 'button'
         btn.className = 'zn-media-sync'

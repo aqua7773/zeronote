@@ -217,6 +217,13 @@ describe('localOriginalAbsPath（本机原图在哪）', () => {
     expect(localOriginalAbsPath(item, 'dev-a', 'C:/vault')).not.toContain('C:/vault/D:')
   })
 
+  it('上传方在 Android 记 Unix 绝对路径 ⇒ 原样用（不能拼成 root/storage/…）', () => {
+    const item = pending({ devices: { 'dev-a': '/storage/emulated/0/Music/a.mp3' } })
+    expect(localOriginalAbsPath(item, 'dev-a', '/storage/emulated/0/Documents/ZeroNote')).toBe(
+      '/storage/emulated/0/Music/a.mp3',
+    )
+  })
+
   it('没设备 id / 别的设备落地过 ⇒ null（本机仍需同步）', () => {
     const item = pending({ devices: { 'dev-b': '.zn-assets/external/x.mp4' } })
     expect(localOriginalAbsPath(item, null, 'C:/vault')).toBeNull()

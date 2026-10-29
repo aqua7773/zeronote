@@ -80,6 +80,32 @@ export function formatSize(bytes: number): string {
 }
 
 /**
+ * **本地绝对路径判据**（rev173.250 · 手机走查发现三处各写一份、且都只认 Windows）。
+ *
+ * - 盘符：`D:/x` `D:\x`（桌面）
+ * - UNC / 网络：`\\host\share` `//host/share`
+ * - Unix 绝对：`/storage/emulated/0/...`（Android 的库外文件都是这个形态）
+ *
+ * **不认** Web URL（`https://a.com/a.pdf` 以字母开头，不匹配任何分支）与库内相对路径
+ * （`附件/a.pdf`、`./x`）⇒ 卡片 / 同步入口不会被误触发。
+ *
+ * 卡片（`file-card.ts`）· 媒体「原文件不在本机 · 同步」（`MarkdownEditor.tsx`）·
+ * 模式 B「同步原图」（`asset-relay.ts`）**共用这一份** —— 此前三份 Windows-only 判据
+ * 让手机上整片能力静默失效（卡片不出现、同步入口不出现、原图路径被拼成 `root/storage/...`）。
+ */
+export function isLocalAbsPath(path: string): boolean {
+  let raw = (path ?? '').trim()
+  // 尖括号目标（`<D:/a b.pdf>`，含空格路径的 CommonMark 写法）先剥掉再判
+  if (raw.length >= 2 && raw.startsWith('<') && raw.endsWith('>')) raw = raw.slice(1, -1).trim()
+  if (!raw) return false
+  if (raw.startsWith('\\\\')) return true
+  const p = raw.replace(/\\/g, '/')
+  if (/^[a-zA-Z]:\//.test(p)) return true
+  if (p.startsWith('//')) return true
+  return p.startsWith('/') && p.length > 1
+}
+
+/**
  * Markdown 链接目标：含空白 / 括号 / 尖括号时用 `<...>` 包起来。
  *
  * CommonMark 的尖括号目标正是为「路径里有空格」准备的；不包的话
