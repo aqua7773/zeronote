@@ -83,8 +83,8 @@
 
 | 项 | 说明 |
 |---|---|
-| `docs/guides/` 未落地 | `Android安装说明.md` 仍在 `docs/` 根（`docs/README.md`「欠账」已记） |
-| 白屏兜底边界 | 当前版本实测 `Page.crash` 与 `window.close()` 会让窗口壳一起消失 ⇒ 兜底实际覆盖的是「页面没起来 / JS 停了」，不是所有白屏 |
+| ~~`docs/guides/` 未落地~~ ✅ **rev173.246** | 用户向文档归 `docs/guides/`：`Android安装说明.md` 已移入（`README.md` / `docs/README.md` / `docs/文档编写规范.md` 引用同改）。⚠️ **`使用手册-移动端.md` 故意没搬** —— 内部 12 张 `images/manual-mobile/*` 相对图片 + `docs/manual-print.css` 都按老位置写，搬动要同步改一批路径，单独一轮做 |
+| ~~白屏兜底边界~~ ✅ **rev173.246 已查清并写进文档** | 结论在 `docs/卡死兜底方案-2026-10-13.md` **§11**：`Page.crash`（渲染进程崩溃）**窗口壳还在**、兜底**生效**（CDP 对照实验：`crash-test` 留 40 s+，`note-99` 被清掉）；只有 `window.close()` 会直接销毁窗口（wry `DestroyWindow`，不需要兜底）。**已知缺口**：主窗口自己「DOM 空但 JS 活」的白屏没兜底（Rust 看门狗只看心跳）—— 方案与代价在 §11，**未做，等用户拍板** |
 
 ### 3.5 建议排期（2026-10-28 定稿 · 用户「按合理开发顺序排」）
 

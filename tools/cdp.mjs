@@ -27,7 +27,13 @@
  *
  * 命令：`shot <path>` · `text [sel]` · `html [sel]` · `eval <js>` ·
  *       `click <sel|text:…>` · `clickat <x> <y>` · `dblclickat <x> <y>` · `type <sel|text:…> <值>` · `key <Enter|Escape|…>` ·
- *       `wait <ms>` · `waitfor <sel|text:…>` · `list`
+ *       `wait <ms>` · `waitfor <sel|text:…>` · `crash` · `list`
+ *
+ * `crash`（rev173.246）：对当前 target 发 CDP 的 `Page.crash`，**直接杀渲染进程** ——
+ * 页面不再响应、窗口壳还在。白屏兜底（`src/lib/window-guard.ts`）的验收就用它；
+ * 要崩别的窗口：`$env:ZN_TARGET="note="; node tools/cdp.mjs crash`。
+ * ⚠️ 崩掉的是真窗口，测完记得关（渲染进程已死时窗口关不掉，从主窗口
+ * `invoke('plugin:window|close', { label })` 可以关，详见 `docs/卡死兜底方案-2026-10-13.md` §11）。
  *
  * 环境变量 `ZN_CDP`（默认 `http://127.0.0.1:9222`）、`ZN_TARGET`（多页面时挑哪个）。
  *
@@ -358,6 +364,19 @@ async function main() {
       case 'waitfor':
         await waitFor(cdp, argv[i++])
         break
+      case 'crash': {
+        /**
+         * 杀渲染进程（rev173.246）：白屏兜底的验收手段（见 `docs/卡死兜底方案-2026-10-13.md` §11）。
+         *
+         * ⚠️ **不能 await `cdp.send('Page.crash')`**：渲染进程一死，这条命令的回执就永远不会来
+         * （实测 socket 挂着、Promise 不 resolve）⇒ 发出去就往下走，别等。
+         */
+        console.log(`crash  → ${target.url}`)
+        void cdp.send('Page.crash').catch(() => {})
+        await sleep(600)
+        console.log('crash  已发出（页面不再响应；窗口壳仍在，等主窗口的 reaper 处理）')
+        break
+      }
       default:
         throw new Error(`未知命令：${cmd}`)
     }

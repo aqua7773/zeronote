@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.245
-更新时间: 2026-10-29 · 最新 rev173.245
+revision: 173.246
+更新时间: 2026-10-29 · 最新 rev173.246
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.245
 
 | rev | 内容 |
 |---|---|
+| rev173.246 | 2026-10-29 · **§3.4 两条小债清零：`docs/guides/` 落地 + 白屏兜底边界查清**（用户「依次做」，接着 rev173.245 收尾）。**① `docs/guides/` 落地** —— `Android安装说明.md` 移进 `docs/guides/`（`git mv`），四处引用同改（`README.md` / `docs/README.md` 权威矩阵 + 欠账 / `docs/文档编写规范.md` 分类表 / `docs/ROADMAP.md` §3.4）。⚠️ **`使用手册-移动端.md` 故意没搬**：它内部 12 张 `images/manual-mobile/*` 相对图片 + `docs/manual-print.css` 都按老位置写，搬动要同步改一批路径 —— 单独一轮做，别顺手搬（已写进 `docs/README.md` 欠账）。**② 白屏兜底边界** —— 核实并**推翻** ROADMAP 长期那句「`Page.crash` 会让窗口壳一起消失」：**只对 `window.close()` 成立**。一手源码 `wry-0.55.1/src/webview2/mod.rs:615` 的 `add_WindowCloseRequested` 处理器直接 `DestroyWindow(hwnd)`（所以 JS 关窗 = 窗口立刻没了，不需要兜底）；而 **`Page.crash` 只杀渲染进程、窗口壳还在**，正是兜底要处理的形态。**CDP 对照实验**（只改 label 前缀一个变量）：`crash-test`（不在守护白名单）崩后 40 s+ **target 仍在**（`Runtime.enable` 超时 = 渲染进程已死）；`note-99`（在白名单）**被主窗口 reaper 清掉**（`/json/list` 只剩主窗口）⇒ 崩溃本身不关窗口，**是 reaper 关的**。另核实 wry-0.55.1 与 tauri-2.12.3 **都没有监听 WebView2 的 `ProcessFailed`**（grep 零命中）⇒ 渲染进程崩溃时宿主拿不到回调，这也解释了「为什么清理端必须在主窗口」。**③ 已知缺口（未做，等拍板）**：**主窗口自己「DOM 空但 JS 活」的白屏没有兜底** —— `domLooksAlive` 查的是子窗口根节点，主窗口不在守护范围；Rust 看门狗判的是心跳有没有到，JS 活着就一直发。方案（主窗口自检 + `location.reload()` + `sessionStorage` 防死循环）与代价写在文档 §11，**没实现**。**④ 工具**：`tools/cdp.mjs` 新增 `crash` 命令（发 CDP `Page.crash`，⚠️ 不能 await —— 渲染进程一死回执永远不来）⇒ 复核白屏兜底不用临时脚本了。结论落在 `docs/卡死兜底方案-2026-10-13.md` **§11**（含对照实验表 + 复核命令 + 崩溃窗口怎么关）。纯文档 + 工具改动，**零内核改动** ⇒ vitest 1471 / cargo 87 不变 · verify 六步全绿 · 质量门 7/7 |
 | rev173.245 | 2026-10-29 · **库外非媒体附件的「文件卡片」**（用户「继续 zeronote」· 附件需求**最后一小块**，ROADMAP §3.0 剩项）：正文里 `[名](D:/某个大文件.pdf)` 原来是普通链接，现在整行渲染成卡片 —— **图标 + 文件名 + `扩展名 · 大小` + 「源文件不在本机」+「打开」**。① **新模块 `src/kernel/file-card.ts`** —— 扩展名分组（doc / sheet / slide / archive / ebook / file；**图片与音视频故意不在内**，那是 `![]()` 的领域）· **只认库外绝对路径**（盘符 / UNC。⚠️ UNC 必须在归一化**之前**判：`normalizeCardPath` 把 `\\` 变 `//`，既有 `EXTERNAL_ABS_RE` 只认 `\\` ⇒ 对 `//` 形态漏判）· `parseSingleLinkLine`（**只认纯链接行**，不支持列表前缀 `- ` 与引用块 `> `：块级替换会吞掉圆点 / 竖线，宁可少做）· `fileCardModelOf` ② **大小与「在不在本机」从哪来** —— 库外绝对路径的非媒体附件**必然**是 > 1 MiB 的引用型（≤ 1 MiB 会复制入库、写相对路径），身份一定在引用台账 `<库>/.zn-assets/manifest.json` 里 ⇒ `MarkdownEditor` 用一次 `asset_relay_pending`（**10 秒缓存**）灌进模块级台账，`fileCardRefresh` StateEffect 让块装饰重算（台账晚于编辑器挂载到达的情形）。**台账里没这条 ⇒ 大小留空、不报「不在本机」**（不猜 —— 误报一次这条提示就没人信，与 `claimAudit` 同一取舍）③ **渲染** —— `editor-syntax.ts` 新 `FileCardWidget`，走**块级装饰**（`Decoration.replace({block:true})`，**必须由 StateField 提供**，与数学 / Mermaid 块同一套；换成替换 inline mark 的文本节点会与 CM6 状态脱节）。**光标在行内时显示源码**（与数学块一致）；点卡片主体 ⇒ 光标进这一行（`ignoreEvent` 返回 false），右上角「打开」⇒ 宿主 ④ **宿主** —— `App.openLocalLink` 加库外分支，如实说「库外文件：…（不在本库内，请用文件管理器打开）」：内核**没有**「用系统默认程序打开本地文件」的原语（`open_external` 只放行 http/https）⑤ **测试** vitest 1456 → **1471**（15 条：路径判定 / 分组边界 / 整行解析 / 台账三态 / `findFileCardLines` 多行扫描；装饰器渲染按 ROADMAP §4.5 口径由 CDP 实测覆盖）⑥ **实测**（CDP · `_tmp-vault-tb` + 伪造台账 + 库外 5 MiB 假 PDF + 一条指向已删文件的台账）：四张卡片各态正确 —— `PDF · 5.0 MB` / `ZIP · 2.0 MB · **源文件不在本机**`（红）/ `XLSX`（无大小）/ 尖括号含空格路径；**误伤对照全部保持普通链接**（库外图片 / 库内相对路径 / 行内混文字 / 列表前缀）；点「打开」⇒ toast 出现；点卡片主体 ⇒ 该行变源码且卡片 4→3，点别处 ⇒ 卡片回来；**新建笔记里实时敲一行链接 + 回车 ⇒ 卡片当场出现**。截图 `_shots/rev173245-{filecard,filecard-edit,live-input}.png`。测完已删两篇测试笔记 / 伪造台账 / 临时目录 · verify 六步全绿（21:36:34）· 质量门 7/7 · cargo 87 不变 |
 | rev173.244 | 2026-10-29 · **交接**：本会话 **2 个功能 rev（242–243）+ 2 个文档提交** = 安卓桌面组件三件（`7ba0b1d`）· 组件自动刷新修复（`a42869a`）· 补验证记录（`9cd14ad` / `c878807`）。**需求 §15 收口**，ROADMAP §3.5 十项全部完成。**交接时**：HEAD `c878807` · 与 origin 同步 · 工作区干净 · verify 全绿（21:08:29）· vitest **1456** · cargo **87** · Android JVM **20** · 手机 pid **32438**。**三件都过了真机**：快速记录（组件 → 对话框 → `收件箱/2026-10-29-201212.md`）· 最近笔记（7 行 + 建笔记 10 秒内自动刷新）· 今日打卡（两行计划 + 点击写回 store：跑步 3 条 / 早起 1 条 `20:56`，快照 `done` 同步 3/1）。**本会话最值钱的一件事是用户实测替我抓到了自己的盲区**：我自测只验了「快速记录」，另两个组件「没截图」就写成了「待验」——用户一句「今日打卡没有读取」直接暴露了「组件根本不自动刷新」这个设计漏洞（`onUpdate` 的三个时机里没有「数据变了」）。教训已写进 CARD 的「静默失效比报错危险」旁边：**组件类功能必须验「数据变化后组件是否跟着变」**，只验「能显示」等于没验。**下个会话第一件事**：§3.5 已清空 ⇒ 从 §3.4 小债挑（库外非媒体文件卡片 ~1h / `docs/guides/` 迁移 / 白屏兜底边界）或 §3.1 卡外部输入（`sync-git` 手机端 / Gitee 令牌 / WebDAV 真机要 DAV 桩 / 记账样本） |
 | rev173.243 | 2026-10-29 · **修：桌面组件不会自己刷新**（用户实测反馈「最近笔记可以显示，今日打卡没有读取」）：核实 —— 快照 `plans` 里**有**「跑步 / 早起」两条（20:34:56），组件却一直显示「今天没有要打卡的计划」；重启 Launcher 也不变 ⇒ 不是解析问题，是**刷新通道缺失**。根因：`AppWidgetProvider.onUpdate` 只在三个时机被系统调用（**添加组件时** / `updatePeriodMillis` 到点 / Launcher 重建 host），而内核写快照不在其中；打卡组件的 `updatePeriodMillis` 原来是 **0**（永不周期刷新）⇒ 「先加组件、后建计划」的用户永远停在空状态。修法：① 新 `WidgetRefresher.kt` —— `FileObserver` 盯 `<dataDir>/.zn/` 目录，快照是**原子替换**（写 `.tmp` 再 rename）⇒ 收到 `MOVED_TO`（path = `widget-data.json`）⇒ `cache` 里的两个组件 `refreshAll`；② 三个 provider 的 `onUpdate` 都调 `ensureWatching`（幂等，进程重启后第一次更新就接回来）；③ 打卡组件兜底 `updatePeriodMillis=1800000`（系统下限 30 分钟）。**真机验证**（pid 6956 · 20:39 重装）：在库里新建 `桌面刷新测试.md` ⇒ **没有重新添加组件、没有重启 Launcher**，最近笔记组件第一行在 10 秒内变成「20:44 · 桌面刷新测试 20:45」（`_shots/rev173243-widget-refresh.png`）—— 同一条 `WidgetRefresher` 同时刷打卡组件。⚠️ 打卡组件本体当时没截到图（重加时被 MIUI 放到了别的 host），**用户重加后已实测成功**（20:5x），**打卡点击也真机验过**（20:56：store 里跑步 3 条 / 早起 1 条 `20:56`，快照 `done` 同步 3/1 —— 点击 → 写 store → 快照 → 重绘全链路闭合）。verify 六步全绿（Android JVM 20 条不变） |
@@ -141,6 +142,59 @@ revision: 173.245
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.246（2026-10-29 · §3.4 两条小债：`docs/guides/` + 白屏兜底边界）
+>
+> 用户「依次做」—— 把 CARD 列的两条小债按顺序清掉。
+>
+> ### ① `docs/guides/` 落地（10 分钟的那种）
+>
+> `docs/Android安装说明.md` → `docs/guides/Android安装说明.md`（`git mv`），四处引用同改：
+> `README.md`（用户看到的安装入口）· `docs/README.md`（权威矩阵 + 欠账）·
+> `docs/文档编写规范.md`（文档分类表）· `docs/ROADMAP.md` §3.4。
+>
+> ⚠️ **`使用手册-移动端.md` 故意没搬**：它内部有 12 张 `images/manual-mobile/*` 相对图片，
+> `docs/manual-print.css` 也按老位置写 —— 搬动要同步改一批路径，值得单独一轮，不值得顺手。
+>
+> ### ② 白屏兜底边界：查出一条**旧结论是错的**
+>
+> ROADMAP §3.4 长期写着「实测 `Page.crash` 与 `window.close()` 会让窗口壳一起消失」。逐条核实后：
+>
+> | 情形 | 真相 | 依据 |
+> |---|---|---|
+> | `window.close()` | 窗口**立刻没了** | 一手源码 `wry-0.55.1/src/webview2/mod.rs:615`：`add_WindowCloseRequested` 处理器直接 `DestroyWindow(hwnd)` |
+> | `Page.crash` | **窗口壳还在**，只死渲染进程 | 本轮 CDP 实测（见下） |
+>
+> **对照实验**（只改 label 前缀这一个变量，两次都是从主窗口 `create_webview_window` 造的真窗口）：
+>
+> | 窗口 | label | 崩后 40 秒 |
+> |---|---|---|
+> | A | `crash-test`（不在 `plugin-` / `note-` 白名单） | **target 仍在**，`Runtime.enable` 超时（渲染进程已死、页面无响应） |
+> | B | `note-99` | **被清掉** —— `/json/list` 只剩主窗口 |
+>
+> ⇒ 崩溃本身**不**关窗口；关它的是主窗口的 reaper（`useStuckWindowReaper`：心跳停 12 s ⇒ `destroy()`）。
+> 所以 `Page.crash` 正好是兜底**覆盖到**的形态，不是覆盖不到。
+>
+> 顺带核实：`grep ProcessFailed` 在 `wry-0.55.1` 与 `tauri-2.12.3` 里**零命中** ⇒
+> 渲染进程崩溃时宿主拿不到任何回调 —— 这也解释了为什么清理端必须放在**另一个还活着的窗口**里。
+>
+> ### ③ 已知缺口（**没做**，等用户拍板）
+>
+> **主窗口自己的「DOM 空但 JS 还活着」白屏没有兜底**：
+> `domLooksAlive` 查的是 `.zn-plugin-window` / `.zn-note-window`（子窗口根节点），主窗口不在守护范围；
+> 而 Rust 看门狗判的是**心跳有没有到**，JS 活着就一直发 ⇒ 不触发。
+>
+> 方案与代价都写在 `docs/卡死兜底方案-2026-10-13.md` §11（主窗口自检 + `location.reload()` +
+> `sessionStorage` 记「这次启动已自救过一次」防死循环；代价是可能打断手改，且内核代码坏了那种白屏 reload 也没用）。
+> 按「不替用户扩权」，**只写方案不动代码**。
+>
+> ### ④ 工具：`tools/cdp.mjs` 加 `crash`
+>
+> 复核白屏兜底不该靠一次性脚本 ⇒ 加 `crash` 命令（`$env:ZN_TARGET='note='; node tools/cdp.mjs crash`）。
+> ⚠️ 坑：**不能 `await` 它** —— 渲染进程一死，`Page.crash` 的回执永远不来（实测 socket 挂着、Promise 不 resolve）。
+>
+> 零内核改动 ⇒ vitest **1471** / cargo **87** 不变 · verify 六步全绿 · 质量门 7/7 ·
+> 结论全文见文档 §11（含复核命令 + 崩溃窗口怎么关：主窗口 `invoke('plugin:window|close', { label })`）。
 
 > ## 📌 rev173.245（2026-10-29 · 库外非媒体附件的「文件卡片」）
 >

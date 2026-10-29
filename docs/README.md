@@ -35,7 +35,7 @@
 | UI / 交互规范（现行） | `docs/UI交互规范.md` | **active** | `docs/UI规划-v0.1.md`（2026-10-11 规划史，部分被本文取代） |
 | 键位表（自动生成） | `docs/键位表.md` | **generated**（`node scripts/gen-keys.mjs --write`） | — |
 | 数据与存储（库布局 / localStorage / 写入语义） | `docs/数据与存储.md` | **active** | — |
-| Android 安装（用户向） | `docs/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |
+| Android 安装（用户向） | `docs/guides/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |
 | 手机版使用手册（用户向） | `docs/使用手册-移动端.md` | **active** | 截图在 `docs/images/manual-mobile/`（真机 2026-10-19） |
 | 功能测试快照（rev92） | `docs/测试报告-2026-10-17.md` | **historical** | 部分结论已被 rev48/110/116 修复或推翻，见段内注记 |
 | 外部技术调研 | `_research/*` | **historical**（均带日期） | — |
@@ -57,6 +57,9 @@
 
 ## 欠账（明确记着，不假装没有）
 
-- `docs/guides/` 方向未落地：`Android安装说明.md` 仍在 `docs/` 根
+- ~~`docs/guides/` 方向未落地~~ ✅ **rev173.246 已建**：`docs/guides/Android安装说明.md`（用户向文档归这里，
+  见 `docs/文档编写规范.md` 的文档分类表）。⚠️ **`使用手册-移动端.md` 仍在 `docs/` 根** —— 它内部有 12 张
+  `images/manual-mobile/*` 相对图片，搬动要同步改图片路径（`docs/manual-print.css` 也按那个位置写的），
+  单独一轮做，别顺手搬。
 - 历史文档已统一归档到 `docs/archive/`（2026-10-17）
 - CHANGELOG 已建（2026-10-17，契约 v0.2）

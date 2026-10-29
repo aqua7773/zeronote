@@ -67,7 +67,7 @@ android-dev.cmd
 2. **`gradle-wrapper.properties` 指向腾讯镜像** —— 官方源在本机实测 5 分钟 0 字节
 3. **Android 默认库 = 公共存储 `Documents/ZeroNote`**（`/storage/emulated/0/Documents/ZeroNote`）；必须手动开「所有文件访问」（系统不弹窗）
 
-安装与权限步骤见 `docs/Android安装说明.md`。
+安装与权限步骤见 `docs/guides/Android安装说明.md`。
 
 ## 自检（提交前必过三条基线）
 
