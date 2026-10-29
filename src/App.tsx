@@ -2451,6 +2451,24 @@ export default function App() {
       // ① 最先：自持浮层（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单 / 文件树多选）
       const stack = layerExitsRef.current
       if (stack.length && stack[stack.length - 1]()) return true
+      /**
+       * 查找面板开着 ⇒ 返回键先关它（rev173.253）。
+       *
+       * 起因：把「查找」入口放进手机工具栏后，面板没有自己的层出口 ——
+       * 实测按返回键直接把**笔记**关了、面板留在起始页上。这里补一层：
+       * 往编辑器发一个 Escape（CodeMirror 搜索面板自己的关闭键）。
+       */
+      if (document.querySelector('.cm-atomic-search-input')) {
+        const dom = editorRef.current?.contentDOM
+        if (dom) {
+          for (const type of ['keydown', 'keyup'] as const) {
+            dom.dispatchEvent(
+              new KeyboardEvent(type, { key: 'Escape', bubbles: true, cancelable: true }),
+            )
+          }
+        }
+        return true
+      }
       if (settingsOpen) {
         setSettingsOpen(false)
         return true
@@ -3257,6 +3275,22 @@ export default function App() {
   /** 桌面端才画窗口控制按钮（移动端没有窗口装饰这回事） */
   const isDesktop = kernel?.host.platform !== 'android'
 
+  /**
+   * 给编辑器发一个合成按键。（rev173.253 从下方上移 —— ☰ 菜单的「查找…」要用它，
+   * `const` 在渲染函数体里必须先定义后使用。）
+   * 撤销/重做只能走这条路 —— `@codemirror/commands`（undo/redo 命令所在）不在顶层依赖里，
+   * 拿不到；而 CM6 的 keymap 本来就监听 keydown，合成事件同样有效。
+   */
+  const synthKey = (key: string) => {
+    const dom = editorRef.current?.contentDOM
+    if (!dom) return
+    for (const type of ['keydown', 'keyup'] as const) {
+      dom.dispatchEvent(
+        new KeyboardEvent(type, { key, ctrlKey: true, bubbles: true, cancelable: true }),
+      )
+    }
+  }
+
   /** 左上角 ☰ 菜单的条目 —— 把散落在顶栏的动作收进一个入口（记事本式布局） */
   const menuItems: MenuItem[] = [
     { label: '新建笔记', hint: 'Ctrl+N', onClick: () => void runCore('core.newNote') },
@@ -3297,6 +3331,14 @@ export default function App() {
           p.location !== 'editor-topbar',
       )
       .map((p) => ({ label: p.title, onClick: () => setMainView(p.id) })),
+    // 手机端：插入附件 / 查找（rev173.253）—— 长按 ☰ 的菜单里补这两项；
+    // 底部工具栏有同样的入口（📎 / 🔍）。桌面端这两个动作在右键菜单里（openMainMenu），别重复。
+    ...(!isDesktop && activePath
+      ? [
+          { label: '插入附件…', divider: true, onClick: () => void insertAttachment() },
+          { label: '查找…', hint: 'Ctrl+F', onClick: () => synthKey('f') },
+        ]
+      : []),
     ...(mainView === 'editor'
       ? []
       : [{ label: '返回编辑器', divider: true, onClick: () => setMainView('editor') }]),
@@ -3325,21 +3367,6 @@ export default function App() {
     document.addEventListener('contextmenu', onCtx, true)
     return () => document.removeEventListener('contextmenu', onCtx, true)
   }, [])
-
-  /**
-   * 给编辑器发一个合成按键。
-   * 撤销/重做只能走这条路 —— `@codemirror/commands`（undo/redo 命令所在）不在顶层依赖里，
-   * 拿不到；而 CM6 的 keymap 本来就监听 keydown，合成事件同样有效。
-   */
-  const synthKey = (key: string) => {
-    const dom = editorRef.current?.contentDOM
-    if (!dom) return
-    for (const type of ['keydown', 'keyup'] as const) {
-      dom.dispatchEvent(
-        new KeyboardEvent(type, { key, ctrlKey: true, bubbles: true, cancelable: true }),
-      )
-    }
-  }
 
   /**
    * 手机内部剪贴板缓存（rev173.91）。
@@ -4249,6 +4276,10 @@ export default function App() {
               <MarkToolbar
                 marks={platform === 'android' ? MARK_COMMANDS : []}
                 onRun={(id) => void kernel?.commands.api.execute(id)}
+                onInsertAttachment={
+                  platform === 'android' && activePath ? () => void insertAttachment() : undefined
+                }
+                onFind={platform === 'android' && activePath ? () => synthKey('f') : undefined}
               >
                 {toolbarPanels.map((p) => (
                   <PanelBoundary key={p.id}>

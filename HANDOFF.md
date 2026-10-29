@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.252
-更新时间: 2026-10-29 · 最新 rev173.252
+revision: 173.253
+更新时间: 2026-10-29 · 最新 rev173.253
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.252
 
 | rev | 内容 |
 |---|---|
+| rev173.253 | 2026-10-29 · **手机端补「插入附件 / 查找」入口**（用户「补入口」· 选 A+B）：① **底部工具栏**（`MarkToolbar`）加两个内置键 —— 📎 插入附件（`insertAttachment`，系统文件选择器）· 🔍 查找（`synthKey('f')` 开搜索面板），位置在 `⇤ ⇥` 之后（首屏可见，不把标记整体挤出屏）；只在 android 且打开了笔记时传（不传就不画）。② **长按 ☰ 菜单**（`menuItems`）补「插入附件…」「查找…」（`!isDesktop && activePath` 时出现）。③ 把 `synthKey` 上移到 `menuItems` 之前（`const` 必须先定义后使用）。④ **修一个真 bug**：查找面板开着按返回键会**直接关笔记**（面板没有层出口）⇒ `backRef` 加一层：`.cm-atomic-search-input` 存在 ⇒ 发 Escape 关面板并吃掉返回键。⑤ **真机验**（`33b676f6`，未重编）：工具栏两键首屏可见 · 🔍 开面板 · 返回键先关面板（笔记还在）· 📎 弹系统文件选择器（`com.android.fileexplorer/...PickMainNavigatorActivity`）· 长按 ☰ 菜单两项出现且「查找…」可用。⚠️ 已知小瑕疵：atomic 搜索面板窄屏把「替换」挤成竖排（面板 CSS 是 atomic 自带的，没改）。手册第 2/6 节与附录同步。 |
 | rev173.252 | 2026-10-29 · **手机使用手册校对到 0.7.0**（用户「校对」· 接 rev173.251 搬迁）：逐节按真机核对并改 11 处 —— ① 设置页从「通用 / 插件 / 关于 3 个 tab」改成 **4 个（+附件）**，通用补「内嵌 HTML」「图片插入模式」；插件页补 **发现（市场）/ 调试 / 启动时检查更新 / 重新扫描 / 签名标记 / 不自动升级**；② **预装 5 个 → 9 个**（标签 / 反链 / 历史 / 导入导出 / 同步 ×4 / 备份），记账 / 导图 / 阅读器 / 米色 / 打卡 / AI / 安全 / 密码库改为「从发现里装」；③ **快捷入口**「只有记账是亮的」→「5 格装了才亮，默认全空」；④ **第 6 节整节重写**：长按正文 = 复制/剪切/粘贴/全选（rev173.90 起），**长按 ☰ = 主菜单**（实测：新建/打开/搜索/全局替换/命令面板/设置/插件管理 + 插件入口）；如实写明手机上**没有「插入附件」「笔记内查找」**（电脑版做 / 用全库搜索）；⑤ 导图「整屏 + 释放接管」→「主区标签 / 可拖出独立窗口」；⑥ 记账加「先装插件」；⑦ 底部工具栏 9 键 → 14 键；⑧ 抽屉补「附件分组」；⑨ 计数示例加「附件」；⑩ 白屏补「15 秒自动刷新」；⑪ 附录速查同步。**图**：换 3 张（首页新计数 / 长按正文四键 / 长按 ☰ 主菜单新增 `13-hamburger-menu.png`），06/07/09/10/11 保留旧图（画面内容仍对）。只在真机验证过的部分改，未验的不动（卡片菜单 / 记账面板 / 桌面组件文案实测一致）。 |
 | rev173.251 | 2026-10-29 · **`使用手册-移动端.md` 搬进 `docs/guides/`**（用户「做」· §3.4 最后一条内部债）：`git mv docs/使用手册-移动端.md docs/guides/使用手册-移动端.md`；12 张相对图片 `images/manual-mobile/*` → `../images/manual-mobile/*`（用 `[IO.File]::WriteAllText` + UTF8 无 BOM 写回，避免 `Set-Content` 把整文件写成 CRLF —— 0.6.0 发版踩过）；状态行日期补「rev173.251 搬入」。引用四处同改：`docs/README.md` 矩阵行 + 欠账段（改为已完成）、`docs/ROADMAP.md` §3.4、`docs/manual-print.css` 注释；`HANDOFF-CARD.md` 的 §3.4 段与「自己就能开工的只剩两件 → 一件」。check-links **50 条全过**（`docs/guides/../images/…` 解析到 `docs/images/…`，12 张图全部命中）· check-docs 全过。⚠️ **手册内容没动**：仍停在 2026-10-19，其中「预装的 5 个」早已过时（现在预装 **9** 个：标签 / 反链 / 历史 / 导入导出 / 同步 ×4 / 备份）—— 属于用户向文案校对，单独一轮（要逐条对 0.7.0 的 UI）。verify 六步全绿 · vitest 1478 不变（纯文档） |
 | rev173.250 | 2026-10-29 · **手机走查 245–247 + 修「库外绝对路径只认 Windows」**（用户「1」· 交接剩余项第 1 条）：① **走查三件**（`33b676f6` · 前端随桌面 vite，reload 即生效，**没重编 APK**）—— **文件卡片**三态全对：无台账 ⇒ 副标题只 `PDF`（大小留空、不误报缺失）· 有台账 ⇒ `PDF · 5.0 MB`（title 带完整路径）· 源文件移走 ⇒ `PDF · 5.0 MB · 源文件不在本机` + `.zn-file-card.is-missing`；**主窗口自救**：隐藏 `.zn-app` 后 15 s 真 reload（`performance.timeOrigin` 变 + `sessionStorage['zn.main-rescue-done']='1'` + display 回 `flex`），再隐藏一次 19 s **不再刷新**（flag 防循环）。② **走查发现真缺口**：手机库里 `import_attachment` 写出的是 Unix 绝对 `/storage/emulated/0/…`，而三处判据都只认 Windows —— `file-card.ts` `isExternalAbsPath`（盘符/UNC）· `MarkdownEditor.tsx` `EXTERNAL_ABS_RE`（媒体「原文件不在本机 · 同步」入口）· `asset-relay.ts` `localOriginalAbsPath`（模式 B 原图，会把 `/storage/…` 拼成 `root/storage/…`）⇒ 手机上卡片不出现、同步入口不出现、原图路径错。修法：`attachment.ts` 新增 **`isLocalAbsPath`**（盘符 / UNC / Unix 绝对 `/[^/]`，剥尖括号；不认 URL 与库内相对路径），三处改用它（一份口径，呼应 rev173.245「副标题只走一份」）。③ **测试** vitest 1477 → **1478**（file-card 路径判定扩成「盘符 / UNC / Unix 绝对」+ 负例 `./附件`、单斜杠；asset-relay 加「Android 上传方记 `/storage/…` 原样用、不拼库根」）。⚠️ 三处判自此**共用** `isLocalAbsPath`，以后加平台先改它。**测完已复原**（删测试笔记 / 伪造台账 / 5 MB 假 PDF，reload 后 `.zn-app` 恢复）。verify 六步全绿（22:42:07）· 质量门 7/7 · cargo 87 |
@@ -148,6 +149,30 @@ revision: 173.252
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.253（2026-10-29 · 手机端补「插入附件 / 查找」入口）
+>
+> 用户「补入口」，选 **A+B**（工具栏图标 + 菜单项）。无插件改动，内核两个动作。
+>
+> | 位置 | 实现 |
+> |---|---|
+> | 底部工具栏 | `MarkToolbar` 新增 `onInsertAttachment` / `onFind` 两个可选键 → `⇤ ⇥ 📎 🔍 B I …`（首屏可见） |
+> | 长按 ☰ 菜单 | `menuItems` 在 `!isDesktop && activePath` 时补「插入附件…」「查找…」 |
+>
+> ### 顺手修的真 bug
+>
+> 查找面板没有层出口：面板开着按返回键会**直接关笔记**（实测：返回后回到卡片流，面板还挂在上面）。
+> `backRef` 补一层：`.cm-atomic-search-input` 存在 ⇒ 发 Escape 关面板并吃掉返回键。
+>
+> ### 真机验证（`33b676f6` · 未重编 APK）
+>
+> - 工具栏两个键首屏可见；🔍 打开搜索面板
+> - 返回键先关面板、笔记还在
+> - 📎 弹系统文件选择器（`com.android.fileexplorer/...PickMainNavigatorActivity`）
+> - 长按 ☰ 菜单出现「插入附件…」「查找…」，点「查找…」可用
+>
+> ⚠️ 已知小瑕疵：atomic 搜索面板在窄屏把「替换」两字挤成竖排 —— 面板 CSS 是 atomic 自带的，
+> 改它要覆盖样式，收益小，先记着。
 
 > ## 📌 rev173.252（2026-10-29 · 手机使用手册校对到 0.7.0）
 >

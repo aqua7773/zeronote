@@ -19,11 +19,18 @@ type Props = {
   marks: readonly MarkSpec[]
   /** 点按钮 → 交给宿主执行命令（这条栏只认命令 id，不自己动手） */
   onRun: (id: string) => void
+  /**
+   * 「插入附件」内置按钮（rev173.253 · 手机端）。
+   * 不传就不画 —— 桌面端这条栏本来就不渲染，宿主只在 android 传。
+   */
+  onInsertAttachment?: () => void
+  /** 「在正文里查找」内置按钮（rev173.253 · 手机端）；不传不画 */
+  onFind?: () => void
   /** 插件注册到同一位置的面板 */
   children?: ReactNode
 }
 
-export function MarkToolbar({ marks, onRun, children }: Props) {
+export function MarkToolbar({ marks, onRun, onInsertAttachment, onFind, children }: Props) {
   return (
     <div className="zn-editor-toolbar">
       {/* 手机键盘上没有 Tab 键 —— 缩进 / 反缩进用按钮补上（rev173.8）。
@@ -47,6 +54,28 @@ export function MarkToolbar({ marks, onRun, children }: Props) {
           >
             ⇥
           </button>
+          {onInsertAttachment ? (
+            <button
+              type="button"
+              className="zn-btn zn-ui-btn-ghost"
+              title="插入附件（图片 / 文件）"
+              aria-label="插入附件"
+              onClick={onInsertAttachment}
+            >
+              📎
+            </button>
+          ) : null}
+          {onFind ? (
+            <button
+              type="button"
+              className="zn-btn zn-ui-btn-ghost"
+              title="在正文里查找"
+              aria-label="查找"
+              onClick={onFind}
+            >
+              🔍
+            </button>
+          ) : null}
           {marks.map((m) => (
             <button
               key={m.id}
