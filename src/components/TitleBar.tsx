@@ -39,6 +39,11 @@ export interface TitleBarProps {
    * （手机没有右键，菜单必须有可见入口）。
    */
   showMenuButton?: boolean
+  /**
+   * 左键行为的图标（B2）：`menu`（默认 ☰）/ `back`（手机编辑态 ‹ = 返回列表）。
+   * 只影响图标字符与无障碍名，行为仍由 `onToggleSidebar` / `onMenu` 决定。
+   */
+  menuIcon?: 'menu' | 'back'
   /** 桌面端才渲染窗口控制按钮 */
   showWindowControls?: boolean
   /** 是否滑出显示（自动隐藏：鼠标靠近顶部、或键盘焦点进来时显示） */
@@ -54,6 +59,7 @@ export function TitleBar({
   saveDirty,
   onMenu,
   onToggleSidebar,
+  menuIcon = 'menu',
   showMenuButton = false,
   showWindowControls = true,
   visible = true,
@@ -142,11 +148,19 @@ export function TitleBar({
           e.preventDefault()
           onMenu({ x: 0, y: 32 })
         }}
-        title={onToggleSidebar ? '切换文件树栏（右键或长按打开菜单）' : '主菜单'}
-        aria-label={onToggleSidebar ? '切换文件树栏' : '菜单'}
+        title={
+          onToggleSidebar
+            ? menuIcon === 'back'
+              ? '返回列表'
+              : '切换文件树栏（右键或长按打开菜单）'
+            : '主菜单'
+        }
+        aria-label={
+          onToggleSidebar ? (menuIcon === 'back' ? '返回列表' : '切换文件树栏') : '菜单'
+        }
         aria-haspopup={onToggleSidebar ? undefined : 'menu'}
       >
-        ☰
+        {menuIcon === 'back' ? '‹' : '☰'}
       </button>
 
       {/* 移动端：☰ 已让给侧栏开关（手机没有右键），菜单改由这个「⋯」进 */}

@@ -58,6 +58,8 @@ import { TabBar } from './components/TabBar'
 /* rev122 拆分 L2：侧栏 / 回收站 / 空态 / 状态栏 —— 原样迁到 components/ */
 import { AppSidebar } from './components/AppSidebar'
 import { AppRail, type RailView } from './components/AppRail'
+import { MobileTabBar, type MobileTab } from './components/MobileTabBar'
+import { MobileMorePage, type MoreEntry } from './components/MobileMorePage'
 import { FileTree } from './components/FileTree'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
@@ -534,6 +536,13 @@ export default function App() {
 
   /** 窄屏抽屉：宽屏侧栏常驻，窄屏由 ☰ 滑出 */
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  /**
+   * 手机底部导航的当前项（B2 · 方案 §2.2）。
+   *
+   * 只是**导航意图**：编辑态 / 工具页 / 回收站属于「push 进来的一层」，底栏隐藏；
+   * 回到四项之一 = 回到该 tab 的根视图（切 tab 不叠加返回栈）。
+   */
+  const [mobileTab, setMobileTab] = useState<MobileTab>('home')
   /** 桌面侧栏是否显示：进插件管理/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
   /** 笔记库栏宽度 —— 拖分隔线可调，持久化 */
@@ -2489,10 +2498,20 @@ export default function App() {
       }
       if (mainView !== 'editor') {
         setMainView('editor')
+        // 手机（B2）：从插件页 / 工具页返回 ⇒ 回「首页」tab（返回栈不叠在 tab 上）
+        if (platform === 'android') setMobileTab('home')
         return true
       }
       if (sidebarOpen) {
         setSidebarOpen(false)
+        return true
+      }
+      /**
+       * 手机底部导航（B2）：非首页的 tab 先回首页，再考虑退出。
+       * 放在「关笔记」之后 —— 编辑态时 tab 仍是 home，关闭笔记优先。
+       */
+      if (platform === 'android' && mobileTab !== 'home' && !activeRef.current) {
+        setMobileTab('home')
         return true
       }
       if (activeRef.current) {
@@ -2501,7 +2520,17 @@ export default function App() {
       }
       return false
     }
-  }, [settingsOpen, searchOpen, switcherOpen, paletteOpen, sidebarOpen, mainView, closeCurrentView])
+  }, [
+    settingsOpen,
+    searchOpen,
+    switcherOpen,
+    paletteOpen,
+    sidebarOpen,
+    mainView,
+    closeCurrentView,
+    platform,
+    mobileTab,
+  ])
 
   /* App 自己持有的三个菜单（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单）也压进层出口栈 ——
      它们既是"返回键该先关掉的一层"，也是 rev68 补掉的那个缺口。 */
@@ -3748,6 +3777,72 @@ export default function App() {
   const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
 
   /**
+   * 手机底部导航（B2 · 方案 §2.2）。
+   *
+   * `showTabBar` = 当前停在「四项之一的根视图」。以下三种是 push 进来的一层 ⇒
+   * **隐藏底栏**（编辑态由键盘上方工具栏接管，工具页 / 回收站用顶栏 ‹ 返回）：
+   *  · 编辑态（`mainView === 'editor' && activePath`）
+   *  · 插件工具页（`pagePanel`）
+   *  · 回收站（`mainView === 'trash'`）
+   * 零插件下四项仍成立（全是内核能力）。
+   */
+  const showTabBar =
+    !isDesktop && !pagePanel && mainView !== 'trash' && !(mainView === 'editor' && activePath)
+  /** 「插件」tab 的选中态跟 `mainView` 走（插件页没有独立 tab state） */
+  const tabCurrent: MobileTab = mainView === 'plugins' ? 'plugins' : mobileTab
+
+  /** 底栏切换：切到哪一项就回到该项的根视图（不叠加返回栈） */
+  const switchMobileTab = (t: MobileTab) => {
+    setMobileTab(t)
+    if (t === 'plugins') {
+      setMainView('plugins')
+      return
+    }
+    if (mainView !== 'editor') setMainView('editor')
+  }
+
+  /**
+   * 「更多」页里的插件入口（方案 §2.2：标签 / 导入导出，启用才出现）。
+   * 按 **pluginId** 找面板而不是写死面板 id —— 插件改名 / 多面板时仍对得上。
+   */
+  const morePanelOf = (pluginId: string) =>
+    panels.find(
+      (p) =>
+        p.pluginId === pluginId &&
+        p.location !== 'statusbar' &&
+        p.location !== 'modal' &&
+        p.location !== 'editor-toolbar' &&
+        p.location !== 'editor-topbar',
+    ) ?? null
+  const tagPanelEntry = morePanelOf('tag-panel')
+  const ioPanelEntry = morePanelOf('import-export')
+  const morePluginEntries: MoreEntry[] = [
+    ...(tagPanelEntry
+      ? [
+          {
+            key: 'tag',
+            label: '标签',
+            hint: '按标签浏览',
+            plugin: true,
+            onClick: () => setMainView(tagPanelEntry.id),
+          },
+        ]
+      : []),
+    ...(ioPanelEntry
+      ? [
+          {
+            key: 'io',
+            label: '导入导出',
+            hint: '导入外部文件 / 导出笔记',
+            plugin: true,
+            onClick: () => setMainView(ioPanelEntry.id),
+          },
+        ]
+      : []),
+  ]
+
+
+  /**
    * 图标栏的三个视图按钮（B1）。
    *
    * - 点**当前已展开**的视图 ⇒ 收起侧栏（与 Obsidian Ribbon / VS Code 活动栏一致）；
@@ -4024,7 +4119,11 @@ export default function App() {
   // 编辑界面（打开了笔记）时顶栏标题居中 —— 移动端样式挂在 `.zn-app.is-editing` 上
   //（2026-10-18 用户要求：「编辑框笔记标题（笔记1）居中」；起始页的 ZeroNote 仍靠右）。
   return (
-    <div className={`zn-app${mainView === 'editor' && activePath ? ' is-editing' : ''}`}>
+    <div
+      className={`zn-app${mainView === 'editor' && activePath ? ' is-editing' : ''}${
+        showTabBar ? ' has-tabbar' : ''
+      }`}
+    >
       {/* 顶部热区：标题栏隐藏时，鼠标碰到窗口最上面几像素即可唤出；
           它同时兼任拖动区 —— 标题栏藏起来时窗口也要拖得动。 */}
       <div className="zn-titlebar-hotzone" data-tauri-drag-region />
@@ -4035,8 +4134,18 @@ export default function App() {
         saveDirty={dirty}
         onMenu={setMenuAt}
         /* B1：☰ 从「侧栏开关」改回**主菜单**（方案 §8-Q0）。侧栏开关交给图标栏 1–3 号
-           与 `Ctrl+\`。手机端 ☰ 仍是抽屉开关（B2 的底部导航落地后再统一）。 */
-        onToggleSidebar={isDesktop ? undefined : () => setSidebarOpen((v) => !v)}
+           与 `Ctrl+\`。
+           B2 手机：编辑态左键 = **返回列表**（方案 §2.2「〈 返回 | 笔记名 | ⋯」），
+           非编辑态仍是抽屉开关；⋮ = 菜单（长按 ☰ 保留为加速手势）。 */
+        onToggleSidebar={
+          isDesktop
+            ? undefined
+            : mainView === 'editor' && activePath
+              ? () => void closeCurrentView()
+              : () => setSidebarOpen((v) => !v)
+        }
+        menuIcon={!isDesktop && mainView === 'editor' && activePath ? 'back' : 'menu'}
+        showMenuButton={!isDesktop && mainView === 'editor' && !!activePath}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
       />
@@ -4255,7 +4364,11 @@ export default function App() {
             onRestore={(id) => void restoreTrashItem(id)}
             onPurge={(id) => void purgeTrashItem(id)}
             onConfirmPurge={(id) => setConfirmPurge(id)}
-            onBack={() => setMainView('editor')}
+            onBack={() => {
+              setMainView('editor')
+              // 手机：回收站是从「更多」push 进来的 ⇒ 返回回「更多」而不是首页（B2）
+              if (!isDesktop) setMobileTab('more')
+            }}
             fmtSize={fmtSize}
           />
         ) : mainView === 'plugins' ? (
@@ -4439,18 +4552,57 @@ export default function App() {
             )}
           </div>
         ) : !isDesktop ? (
-          /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
-          <MobileNoteCards
-            notes={notes}
-            layers={layerExitsRef}
-            onOpen={(p) => void openNote(p)}
-            onNewNote={() => void runCore('core.newNote')}
-            onQuickLaunch={() => setQuickOpen(true)}
-            readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
-            onDelete={(p) => void deleteNotes([p])}
-            onPurge={(p) => void purgeNotes([p])}
-            onRename={(from, to) => void renameNote(from, to, false)}
-          />
+          mobileTab === 'search' ? (
+            /* 搜索全屏页（B2 · 方案 §2.2）：与桌面侧栏搜索共用同一个组件（inline 形态） */
+            <div className="zn-mobile-page zn-mobile-search-page">
+              <div className="zn-mobile-page-head">
+                <button
+                  type="button"
+                  className="zn-mobile-back"
+                  onClick={() => switchMobileTab('home')}
+                  aria-label="返回首页"
+                >
+                  ‹ 返回
+                </button>
+                <span className="zn-mobile-page-title">搜索</span>
+              </div>
+              <SearchPanel
+                inline
+                open
+                onClose={() => switchMobileTab('home')}
+                onOpenNote={(p) => void openNote(p)}
+                index={kernel?.index ?? null}
+                notes={notes}
+              />
+            </div>
+          ) : mobileTab === 'more' ? (
+            <MobileMorePage
+              vault={vault}
+              noteCount={notes.length}
+              onOpenSettings={() => openOverlay('settings')}
+              onOpenTrash={() => openTrash()}
+              onOpenVaults={() => setVaultPanelOpen(true)}
+              onOpenPlugins={() => switchMobileTab('plugins')}
+              onAbout={() => {
+                setSettingsTab('about')
+                openOverlay('settings')
+              }}
+              pluginEntries={morePluginEntries}
+            />
+          ) : (
+            /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
+            <MobileNoteCards
+              notes={notes}
+              layers={layerExitsRef}
+              onOpen={(p) => void openNote(p)}
+              onNewNote={() => void runCore('core.newNote')}
+              onQuickLaunch={() => setQuickOpen(true)}
+              readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
+              onDelete={(p) => void deleteNotes([p])}
+              onPurge={(p) => void purgeNotes([p])}
+              onRename={(from, to) => void renameNote(from, to, false)}
+            />
+          )
         ) : (
           /* 空态：按 NN/g「空态三原则」组织 ——
              ① 说清当前状态（是"还没打开"，不是"加载中"）
@@ -4465,18 +4617,25 @@ export default function App() {
           />
         )}
 
-        <AppStatusBar
-          notes={notes}
-          statusPanels={statusPanels}
-          panelState={panelState}
-          error={error}
-          activePath={activePath}
-          charCount={charCount}
-          onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-          onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
-        />
+        {/* 状态栏只在桌面（B2 · 方案 §10 风险表：手机底部让给四项导航；
+            「保存状态」在顶栏已有）。插件 statusbar 项同理只在桌面出现。 */}
+        {isDesktop ? (
+          <AppStatusBar
+            notes={notes}
+            statusPanels={statusPanels}
+            panelState={panelState}
+            error={error}
+            activePath={activePath}
+            charCount={charCount}
+            onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+            onStateChange={(bind, value) => setPanelState((s) => ({ ...s, [bind]: value }))}
+          />
+        ) : null}
       </main>
       </div>
+
+      {/* 手机底部四项（B2 · 方案 §2.2）：编辑态 / 工具页 / 回收站时整条不渲染 */}
+      {showTabBar ? <MobileTabBar tab={tabCurrent} onChange={switchMobileTab} /> : null}
 
       {sidebarOpen && (
         <div className="zn-scrim" onClick={() => setSidebarOpen(false)} />

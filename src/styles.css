@@ -3140,3 +3140,163 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   line-height: 1.5;
   word-break: break-all;
 }
+
+/* ───────── 手机底部四项导航（UI 重布局 B2 · 方案 §2.2）─────────
+   固定 4 项、固定顺序（首页 / 搜索 / 插件 / 更多），全部内核能力；
+   编辑态 / 工具页 / 回收站时整条不渲染（键盘上方工具栏接管）。
+   只放点击目标不放拖拽 —— 避开 Android 底部手势区；贴底留 safe-area。 */
+.zn-tabbar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+  z-index: 40;
+}
+.zn-tabbar-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: 11px;
+  line-height: 1.1;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.zn-tabbar-btn:active {
+  background: var(--zn-bg-hover);
+}
+.zn-tabbar-btn.is-active {
+  color: var(--zn-accent);
+}
+/* 选中项顶部一条短竖线（与图标栏的左侧竖条同一套语义） */
+.zn-tabbar-btn.is-active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--zn-accent);
+}
+.zn-tabbar-btn {
+  position: relative;
+}
+
+/* 底部占位后，首页那颗浮动 ＋ 与长按环形入口整体上移 56px */
+.zn-app.has-tabbar .zn-mobile-compose {
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+.zn-app.has-tabbar .zn-quick-ring {
+  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+}
+/* 卡片流底部也要给 ＋ 与底栏留够空间 */
+.zn-app.has-tabbar .zn-mobile-cards {
+  padding-bottom: 140px;
+}
+
+/* 全屏页（搜索 / 更多）：铺满主区，自己滚动 */
+.zn-mobile-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--zn-bg);
+}
+.zn-mobile-page-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 var(--zn-space-3);
+  border-bottom: 1px solid var(--zn-border);
+}
+.zn-mobile-back {
+  border: 0;
+  background: transparent;
+  color: var(--zn-accent);
+  font-size: var(--zn-text-sm);
+  padding: 6px 4px;
+  cursor: pointer;
+}
+.zn-mobile-page-title {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+
+/* 搜索页里的 SearchPanel（inline 形态）要占满剩余高度 */
+.zn-mobile-search-page {
+  overflow: hidden;
+}
+
+/* 「更多」页 */
+.zn-more-page {
+  padding: 0 0 var(--zn-space-4);
+}
+.zn-more-head {
+  padding: var(--zn-space-4) var(--zn-space-4) var(--zn-space-3);
+}
+.zn-more-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--zn-fg);
+}
+.zn-more-sub {
+  margin-top: 2px;
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-subtle);
+}
+.zn-more-group-title {
+  padding: var(--zn-space-3) var(--zn-space-4) var(--zn-space-2);
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--zn-fg-subtle);
+}
+.zn-more-row {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--zn-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--zn-fg);
+  font-size: var(--zn-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.zn-more-row:active {
+  background: var(--zn-bg-hover);
+}
+.zn-more-icon {
+  display: flex;
+  color: var(--zn-fg-muted);
+}
+.zn-more-label {
+  flex: 1;
+  min-width: 0;
+}
+.zn-more-hint {
+  font-size: 12px;
+  color: var(--zn-fg-subtle);
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.zn-more-chev {
+  color: var(--zn-fg-subtle);
+  flex: none;
+}
