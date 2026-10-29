@@ -631,14 +631,16 @@ export default {
     }
 
     /**
-     * 状态栏入口（rev173.100）—— 用户：「历史版本没有入口啊，只能命令面板进入」。
-     * 状态栏在编辑器 / 起始页都在，比只留命令面板强；按钮极轻，不占版面。
+     * 文档工具条入口（rev173.100 起先挂在状态栏；rev173.260 B4 迁到 `editor-topbar`）——
+     * 用户：「历史版本没有入口啊，只能命令面板进入」。
+     * 这是**贴着当前文档**的动作（看的是这一篇的历史），所以归文档工具条：
+     * 与「源码 / 更多」同一行，只在该插件启用时出现（禁用即整块消失）。
      */
     api.subscriptions.push(
       api.view.registerPanel({
         id: 'history.status',
         title: '历史版本',
-        location: 'statusbar',
+        location: 'editor-topbar',
         render: () => ({
           type: 'button',
           label: '历史版本',

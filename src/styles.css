@@ -951,6 +951,71 @@ body.is-resizing * {
   color: var(--zn-fg-muted);
 }
 
+/* 文档工具条（UI 重布局 B4 · 方案 §2.1 / §3.3）—— 标签条下方、编辑区上方。
+   左＝插件 `editor-topbar` 面板（反链 / 历史这类贴着当前文档的东西，没有就整块空着），
+   右＝内核固定「源码 / 更多」。
+   高 32px：两个按钮 24 高、宽 ≥24（WCAG 2.2 AA 2.5.8），互留 4px 间隙。 */
+.zn-doc-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  height: 32px;
+  padding: 0 var(--zn-space-2);
+  border-bottom: 1px solid var(--zn-border);
+  background: var(--zn-bg-subtle);
+}
+.zn-doc-toolbar-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  overflow: hidden;
+}
+/* 插件面板在工具条里横排一行；行内按钮按"轻"规格给（与提示条一致） */
+.zn-doc-toolbar-left .zn-ui-root,
+.zn-doc-toolbar-left .zn-ui-stack { gap: var(--zn-space-1); }
+.zn-doc-toolbar-left .zn-ui-row { gap: var(--zn-space-2); }
+.zn-doc-toolbar-left .zn-btn {
+  min-height: 24px;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--zn-text-sm);
+}
+.zn-doc-toolbar-right {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.zn-doc-toolbar-btn {
+  min-width: 32px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  /* 以前这条按钮浮在正文右上角（opacity .45）；进了工具条就是正式控件，
+     用 muted 而不是 subtle —— 实测 subtle 在深色主题下几乎看不见（B4 截图） */
+  color: var(--zn-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-doc-toolbar-btn:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-doc-toolbar-btn.is-icon {
+  min-width: 24px;
+  padding: 0;
+  font-size: 14px;
+}
+
 /* 编辑器**顶部**提示条（`location: 'editor-topbar'`）—— 与底部工具栏同一套规矩：
    只在插件注册了该位置时才挂载，无插件时**一个 DOM 都没有**（"按需激活"在 CSS 这层）。
    竖排方向相反（border-bottom），横滑规则一致 —— 提示条内容通常比屏幕宽。 */
@@ -1177,6 +1242,72 @@ body.is-resizing * {
   }
 }
 
+/* 空态主行动组（B4）：新建 + 「从文件导入」（后者只在 import-export 启用时出现） */
+.zn-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--zn-space-2);
+}
+
+/* 空态「最近 3 篇」（B4 · 方案 §6 / O10）—— 回访入口。
+   三行，每行 = 标题（主）+ 路径（次，省略）；整行是按钮（≥24 高，2.5.8）。 */
+.zn-empty-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--zn-space-1);
+  margin-top: var(--zn-space-1);
+}
+.zn-empty-recent-title {
+  font-size: 12px;
+  color: var(--zn-fg-subtle);
+}
+.zn-empty-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(420px, calc(100% - 48px));
+}
+.zn-empty-recent-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font: inherit;
+  font-size: var(--zn-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-empty-recent-item:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-empty-recent-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--zn-fg);
+}
+.zn-empty-recent-path {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--zn-fg-subtle);
+  font-size: 12px;
+}
+
 /* 空态里的快捷键线索 —— NN/g：空态是「就地教学」的最佳位置 */
 .zn-empty-keys {
   display: flex;
@@ -1320,14 +1451,15 @@ body.is-resizing * {
   background: var(--zn-bg);
 }
 
-/* 状态栏：22px 高 / 12px 字号（VS Code 与 Obsidian 都是这个量级）。
-   只放「信息型」内容 —— 笔记数、库路径、插件注册的状态栏小部件。
-   配置类计数（插件 N/M）不放这儿，那是设置页的信息。 */
+/* 状态栏：**只放状态**（B4 瘦身 · 方案 §2.1 / 调研 D4）——
+   左＝插件状态 chip（同步 / 锁定）与错误，右＝当前文档字数；篇数统计已移走。
+   高 26px：状态栏里唯一可点的是 chip，WCAG 2.2 AA 2.5.8 要求目标 ≥24×24，
+   22px 那版 chip 只能撑到 22（O1 实测）。 */
 .zn-statusbar {
   display: flex;
   gap: 12px;
   align-items: center;
-  height: 22px;
+  height: 26px;
   flex: none;
   padding: 0 10px;
   border-top: 1px solid var(--zn-border);
@@ -1336,6 +1468,22 @@ body.is-resizing * {
   overflow: hidden;
   white-space: nowrap;
 }
+
+/* 状态栏内的插件 chip：命中区 ≥24 高、彼此留 ≥8 间距（2.5.8 的相邻目标条款）。
+   覆盖两种按钮形态：`zn-btn`（boxed）与 `zn-ui-link`（ghost 下划线，安全锁用这个）。 */
+.zn-statusbar .zn-btn,
+.zn-statusbar .zn-ui-link {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+.zn-statusbar .zn-btn {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.zn-statusbar .zn-ui-row { gap: 8px; }
 
 /* 状态栏左半（库信息 + 常驻小部件）；`margin-right: auto` 把右侧的收尾元素顶到最右 */
 .zn-statusbar-left {

@@ -2,13 +2,13 @@
   "manifestVersion": 1,
   "id": "history",
   "name": "历史版本",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "关闭笔记时自动存版本；给同步插件提供三方合并的 base",
   "category": "tool",
-  "capabilities": ["fs:read", "fs:write", "doc:read", "doc:write", "command", "view:modal", "host"],
+  "capabilities": ["fs:read", "fs:write", "doc:read", "doc:write", "command", "view:modal", "view:editor-topbar", "host"],
   "activationEvents": ["onStartup"],
   "contributes": {
     "commands": [
@@ -20,7 +20,7 @@
     ],
     "panels": [
       { "id": "history.board", "title": "历史版本", "location": "modal" },
-      { "id": "history.status", "title": "历史版本", "location": "statusbar" }
+      { "id": "history.status", "title": "历史版本", "location": "editor-topbar" }
     ]
   }
 }

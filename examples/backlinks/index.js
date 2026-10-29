@@ -23,7 +23,7 @@
  */
 
 const PANEL_ID = 'backlinks.board'
-/** 状态栏入口：显示「被 N 篇引用」（2026-10-24 用户要求） */
+/** 文档工具条入口：显示「被 N 篇引用」（2026-10-24 用户要求；B4 起挂 `editor-topbar`） */
 const STATUS_ID = 'backlinks.status'
 /**
  * 缓存键：`{ [path]: { mtime, at, refs: [{ name, line }] } }`
@@ -454,7 +454,8 @@ export default {
       }),
     )
 
-    /* ───────── 状态栏：被 N 篇引用（2026-10-24 用户：「给底部状态栏加一条」） ───────── */
+    /* ───────── 文档工具条：被 N 篇引用（2026-10-24 用户：「加一条」；
+       rev173.260 B4 从状态栏迁到 `editor-topbar` —— 这是「这一篇」的信息，贴着文档走） ───────── */
 
     /** 当前笔记被多少**篇**引用（去重后）、以及它的展示名 */
     let refCount = 0
@@ -462,7 +463,7 @@ export default {
     let countSeq = 0
 
     /**
-     * 重算状态栏计数。
+     * 重算工具条计数。
      *
      * rev173.134：**从内存缓存算**，不再 `scan()` 全库。以前每收到一个 `note:*` 事件
      * 就 `listNotes()` + 扫描一轮，大库上「每保存一次 = 一次全库 IO」。现在缓存由事件
@@ -495,7 +496,7 @@ export default {
       api.view.registerPanel({
         id: STATUS_ID,
         title: '反向链接',
-        location: 'statusbar',
+        location: 'editor-topbar',
         render: () => ({
           type: 'button',
           // 没有打开的笔记时给中性文字（点它会给"先打开一篇笔记"的提示）
@@ -513,7 +514,7 @@ export default {
       }),
     )
 
-    /** 有打开的笔记就顺手重算状态栏（缓存已经更新，这一步很便宜） */
+    /** 有打开的笔记就顺手重算工具条（缓存已经更新，这一步很便宜） */
     function touchCount() {
       const doc = api.doc.active()
       if (doc?.path) void updateCount(doc.path)

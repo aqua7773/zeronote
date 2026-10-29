@@ -381,6 +381,16 @@ type Props = {
    * 图片预览打开时压一层：返回键先关预览，而不是往下走把笔记关掉。
    */
   layers?: RefObject<Array<() => boolean>>
+  /**
+   * **源码模式受控值**（UI 重布局 B4 · 方案 §2.1）。
+   *
+   * 桌面把「源码 / 预览」挪进了文档工具条，开关状态因此归宿主 `App` 所有；
+   * 传了这个 prop 就是受控模式，编辑器内部的右上角按钮**不再渲染**。
+   * 手机上不传 ⇒ 行为与以前完全一致（按钮钉在编辑器右上角）。
+   */
+  sourceMode?: boolean
+  /** 受控切换回调（与 `sourceMode` 成对使用） */
+  onToggleSourceMode?: () => void
 }
 
 /**
@@ -746,7 +756,11 @@ export function MarkdownEditor({
   onPasteImage,
   layers,
   renderHtml = true,
+  sourceMode: controlledSourceMode,
+  onToggleSourceMode,
 }: Props) {
+  /** 受控标记：宿主传了 `sourceMode` 就由工具条负责开关，编辑器内不再画按钮 */
+  const sourceModeControlled = controlledSourceMode !== undefined
   const viewRef = useRef<EditorView | null>(null)
   /**
    * 本地媒体服务就绪 ⇒ 把已挂载播放器的 src 换成 http URL（rev173.240 · Android 大视频 Range）。
@@ -775,14 +789,22 @@ export function MarkdownEditor({
   /**
    * 源码模式开关（2026-10-17 用户：「增加切换源码模式」）。
    * 持久化在 localStorage —— 关掉应用再开，仍停在用户上次选的模式。
+   *
+   * B4：桌面由文档工具条受控（`sourceMode` prop），内部这份只在**不受控**时生效
+   * （手机 / 单测）。
    */
-  const [sourceMode, setSourceMode] = useState(() => {
+  const [innerSourceMode, setInnerSourceMode] = useState(() => {
     try {
       return localStorage.getItem('zeronote.sourceMode') === '1'
     } catch {
       return false
     }
   })
+  const sourceMode = controlledSourceMode ?? innerSourceMode
+  const toggleSourceMode = () => {
+    if (onToggleSourceMode) onToggleSourceMode()
+    else setInnerSourceMode((v) => !v)
+  }
   /** 表格工具条：当前编辑器 view + 光标所在表格的信息 */
   const [editorView, setEditorView] = useState<EditorView | null>(null)
   const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
@@ -1591,16 +1613,19 @@ export function MarkdownEditor({
           setTableInfo(computeTableInfoFromEvent(view, e.target as HTMLElement))
         }}
       >
-        <div className="zn-editor-modebar">
-          <button
-            type="button"
-            className="zn-mode-toggle"
-            onClick={() => setSourceMode((v) => !v)}
-            title={sourceMode ? '切回预览（Live Preview）' : '切换到源码模式（显示原始 markdown）'}
-          >
-            {sourceMode ? '预览' : '源码'}
-          </button>
-        </div>
+        {/* 桌面（B4）由文档工具条持有开关；不渲染这条浮按钮，免得同一动作两个位置 */}
+        {!sourceModeControlled && (
+          <div className="zn-editor-modebar">
+            <button
+              type="button"
+              className="zn-mode-toggle"
+              onClick={() => toggleSourceMode()}
+              title={sourceMode ? '切回预览（Live Preview）' : '切换到源码模式（显示原始 markdown）'}
+            >
+              {sourceMode ? '预览' : '源码'}
+            </button>
+          </div>
+        )}
         {sourceMode ? (
           <SourceModeView path={path} value={value} onChange={handleMarkdownChange} />
         ) : (

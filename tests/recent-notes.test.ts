@@ -9,6 +9,7 @@ import {
   LS_RECENT_NOTES,
   RECENT_NOTES_MAX,
   loadRecentNotes,
+  pickRecentNotes,
   recentNotesOf,
   rememberRecentNote,
 } from '../src/lib/recent-notes'
@@ -54,5 +55,54 @@ describe('recent-notes', () => {
   it('只取前 limit 条（菜单最多列 6 条）', () => {
     for (let i = 0; i < 8; i++) rememberRecentNote('/v', `n${i}.md`, 1000 + i)
     expect(recentNotesOf('/v', 3).length).toBe(3)
+  })
+})
+
+/**
+ * 空态「最近 3 篇」（B4 · 方案 §6 / O10）——
+ * 排序 = 最近打开优先，不足时按修改时间补齐；已删除 / 非笔记一律不出现在里面。
+ */
+describe('pickRecentNotes（空态最近 3 篇）', () => {
+  const notes = [
+    { path: 'a.md', title: 'A', kind: 'note', mtime: 100 },
+    { path: 'b.md', title: 'B', kind: 'note', mtime: 300 },
+    { path: 'c.md', title: 'C', kind: 'note', mtime: 200 },
+    { path: 'd.pdf', title: 'D', kind: 'doc', mtime: 900 },
+  ]
+
+  it('按「最近打开」排序（不是按 mtime）', () => {
+    rememberRecentNote('/v', 'c.md', 2000)
+    rememberRecentNote('/v', 'a.md', 3000)
+    const out = pickRecentNotes(notes, '/v', 3)
+    expect(out.map((n) => n.path)).toEqual(['a.md', 'c.md', 'b.md'])
+  })
+
+  it('打开记录里已不存在的笔记不出现（避免死条目）', () => {
+    rememberRecentNote('/v', 'gone.md', 5000)
+    rememberRecentNote('/v', 'b.md', 4000)
+    const out = pickRecentNotes(notes, '/v', 3)
+    expect(out[0].path).toBe('b.md') // 真打开过的排最前
+    expect(out.some((n) => n.path === 'gone.md')).toBe(false)
+  })
+
+  it('没打开过任何笔记 ⇒ 用修改时间倒序补齐', () => {
+    const out = pickRecentNotes(notes, '/v', 3)
+    expect(out.map((n) => n.path)).toEqual(['b.md', 'c.md', 'a.md'])
+  })
+
+  it('文档 / 图片不进「最近 3 篇」（只列笔记）', () => {
+    const out = pickRecentNotes(notes, '/v', 3)
+    expect(out.some((n) => n.path === 'd.pdf')).toBe(false)
+  })
+
+  it('跨库记录不算当前库', () => {
+    rememberRecentNote('/other', 'a.md', 9000)
+    const out = pickRecentNotes(notes, '/v', 3)
+    expect(out.map((n) => n.path)).toEqual(['b.md', 'c.md', 'a.md'])
+  })
+
+  it('没有库 / 没有笔记 ⇒ 空表', () => {
+    expect(pickRecentNotes(notes, null, 3)).toEqual([])
+    expect(pickRecentNotes([], '/v', 3)).toEqual([])
   })
 })

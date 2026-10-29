@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-27",
+  "updated": "2026-10-29",
   "plugins": [
     {
       "id": "accounting",
@@ -71,10 +71,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.1.znp",
-      "sha256": "0e4e03e35ff070ca80986a6da059ddd22b2aabcb2709dc9582e1d38dbae5dc94",
-      "size": 24420,
+      "version": "0.2.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backlinks-0.2.2.znp",
+      "sha256": "f57c483cb9ec530f3186211a4a85f87209ddb1110b3b32b3519ea1c37a12350f",
+      "size": 24594,
       "files": [
         "index.js",
         "signature.json"
@@ -85,7 +85,8 @@
         "store",
         "event",
         "command",
-        "view:modal"
+        "view:modal",
+        "view:editor-topbar"
       ]
     },
     {
@@ -179,10 +180,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.0",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.0.znp",
-      "sha256": "24aa63104e48e0492b66f27894b80f0d6b836f0ae972fff08f4c118e88021ad7",
-      "size": 29179,
+      "version": "0.2.1",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.1.znp",
+      "sha256": "6c31e077b05ddbdd0658ee12d5e58baaced4080c5c4aca77ae861c0a9f2a14bf",
+      "size": 29396,
       "files": [
         "index.js",
         "signature.json"
@@ -194,6 +195,7 @@
         "doc:write",
         "command",
         "view:modal",
+        "view:editor-topbar",
         "host"
       ]
     },

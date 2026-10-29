@@ -67,6 +67,8 @@ import { MobileNoteCards } from './components/MobileNoteCards'
 import { QuickLaunch, type QuickEntry } from './components/QuickLaunch'
 import { AppResizer } from './components/AppResizer'
 import { AppStatusBar } from './components/AppStatusBar'
+/* UI 重布局 B4：文档工具条（源码 / 更多 + editor-topbar 插件面板） */
+import { DocToolbar } from './components/DocToolbar'
 import {
   applyTheme,
   loadThemePref,
@@ -367,6 +369,41 @@ export default function App() {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   /** 编辑器顶部的替换栏（Ctrl+H）—— 它不是浮层，所以不参与 openOverlay 的互斥 */
   const [replaceOpen, setReplaceOpen] = useState(false)
+  /**
+   * 源码模式（UI 重布局 B4 · 方案 §2.1）。
+   *
+   * 桌面把开关挪进文档工具条 ⇒ 状态归宿主；手机不传受控值，仍由编辑器内部持有。
+   * 持久化 key 与编辑器内部那份一致（`zeronote.sourceMode`），切平台/重启都记得。
+   */
+  const [sourceMode, setSourceMode] = useState(() => {
+    try {
+      return localStorage.getItem('zeronote.sourceMode') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleSourceMode = useCallback(() => {
+    setSourceMode((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('zeronote.sourceMode', next ? '1' : '0')
+      } catch {
+        /* 隐私模式等拿不到 storage —— 忽略 */
+      }
+      return next
+    })
+  }, [])
+  /**
+   * 文档工具条「⋯ 更多」的菜单（B4）。
+   *
+   * 只列**内核已有**的当前文档动作（查找替换 / 拆窗 / 关闭 / 删除）；
+   * 插件动作（历史版本、导出…）各自有工具条 / 插件中心的入口，不在这里堆。
+   */
+  const [docMenu, setDocMenu] = useState<{
+    x: number
+    y: number
+    items: MenuItem[]
+  } | null>(null)
   /** 全局替换面板（Ctrl+Shift+H · rev173.49）—— 跨笔记批量替换，独立浮层 */
   const [replaceAllOpen, setReplaceAllOpen] = useState(false)
   /** 最近执行过的命令 id（命令面板置顶用；持久化在 localStorage） */
@@ -1922,6 +1959,37 @@ export default function App() {
     onPathsRemoved: dropTabsFor,
     onCurrentGone: handleCurrentGone,
   })
+
+  /**
+   * 文档工具条「⋯ 更多」（B4 · 方案 §2.1）。
+   *
+   * 条目在打开时现算（与 ☰ 主菜单同一套做法）—— 依赖平台与「当前是哪篇」。
+   * 只列**内核已有**的当前文档动作；插件动作（历史版本 / 导出…）不进这里：
+   * 它们各自有工具条挂载位或插件中心入口，堆进来会变成第二个"功能仓库"（调研 D2）。
+   */
+  const openDocMenu = useCallback(
+    (at: { x: number; y: number }) => {
+      const p = activeRef.current
+      if (!p) return
+      const items: MenuItem[] = [
+        { label: '查找替换', hint: 'Ctrl+H', onClick: () => setReplaceOpen(true) },
+        // 独立窗口只有桌面有（手机给提示也可以，但这里直接不出现更干净）
+        ...(platform === 'android'
+          ? []
+          : [
+              {
+                label: '在新窗口打开',
+                hint: '拆成独立窗口',
+                onClick: () => openInWindow(p),
+              },
+            ]),
+        { label: '关闭当前标签页', hint: 'Ctrl+W', onClick: () => closeCurrentView() },
+        { label: '删除这篇笔记', divider: true, onClick: () => void deleteNotes([p]) },
+      ]
+      setDocMenu({ x: at.x, y: at.y, items })
+    },
+    [platform, openInWindow, closeCurrentView, deleteNotes],
+  )
 
   /**
    * toast 到点自动消失（用户 2026-10-12 报：那个「已彻底删除」一直挂着不走）。
@@ -4468,11 +4536,25 @@ export default function App() {
         ) : activePath ? (
           <div className="zn-editor-wrap">
             {/*
-              编辑器**顶部**面板（`location: 'editor-topbar'`）—— 只放**插件**注册的东西。
-              内核自己**不往这儿放任何内容**（用户 2026-10-12 定：桌面端只有右键菜单的「标记」）。
-              仍然是"没人注册就一个 DOM 都不渲染"。
+              文档工具条（B4 · 方案 §2.1 / §3.3）——
+              桌面：内核固定「源码 / 更多」+ 插件 `editor-topbar` 面板（反链 / 历史这类
+              「贴着当前文档」的东西），禁用即整块消失；零插件时只剩两个内核动作。
+              手机：不开这条（「源码」仍钉在编辑器右上角，B2 已定），editor-topbar 面板
+              沿用旧渲染路径 —— 那时才有内容，没人注册就一个 DOM 都不渲染。
             */}
-            {topbarPanels.length > 0 && (
+            {isDesktop ? (
+              <DocToolbar
+                sourceMode={sourceMode}
+                onToggleSourceMode={toggleSourceMode}
+                onMore={openDocMenu}
+                panels={topbarPanels}
+                panelState={panelState}
+                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                onStateChange={(bind, value) =>
+                  setPanelState((s) => ({ ...s, [bind]: value }))
+                }
+              />
+            ) : topbarPanels.length > 0 ? (
               <div className="zn-editor-topbar">
                 {topbarPanels.map((p) => (
                   <PanelBoundary key={p.id}>
@@ -4487,7 +4569,7 @@ export default function App() {
                   </PanelBoundary>
                 ))}
               </div>
-            )}
+            ) : null}
             <MarkdownEditor
               // 内嵌 HTML 开关变化时重建编辑器 —— 扩展是 mount 时读 prop，
               // 不重建的话切换后要等下一次文档/选区变化才生效（rev173.39 实测）
@@ -4513,6 +4595,9 @@ export default function App() {
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
+              /* B4：桌面由文档工具条受控（编辑器内右上角按钮此时不渲染） */
+              sourceMode={isDesktop ? sourceMode : undefined}
+              onToggleSourceMode={isDesktop ? toggleSourceMode : undefined}
             />
             {/*
               编辑器底部工具栏 —— **内核那一条只有移动端有**（用户 2026-10-12 定：
@@ -4623,6 +4708,10 @@ export default function App() {
             notes={notes}
             onPickVault={() => void pickVault()}
             onNewNote={() => runCore('core.newNote')}
+            /* B4「最近 3 篇」（O10）：最近打开优先、修改时间补齐，实现见 lib/recent-notes.ts */
+            onOpenNote={(p) => void openNote(p)}
+            /* 「从文件导入」只在 import-export 启用时出现 —— 零插件基线不留死按钮 */
+            onImport={ioPanelEntry ? () => setMainView(ioPanelEntry.id) : undefined}
           />
         )}
 
@@ -4630,7 +4719,6 @@ export default function App() {
             「保存状态」在顶栏已有）。插件 statusbar 项同理只在桌面出现。 */}
         {isDesktop ? (
           <AppStatusBar
-            notes={notes}
             statusPanels={statusPanels}
             panelState={panelState}
             error={error}
@@ -4657,6 +4745,16 @@ export default function App() {
           y={mainMenu.y}
           items={mainMenu.items}
           onClose={() => setMainMenu(null)}
+        />
+      )}
+
+      {/* 文档工具条「⋯ 更多」（B4 · 方案 §2.1）—— 当前文档的内核动作 */}
+      {docMenu && (
+        <ContextMenu
+          x={docMenu.x}
+          y={docMenu.y}
+          items={docMenu.items}
+          onClose={() => setDocMenu(null)}
         />
       )}
 

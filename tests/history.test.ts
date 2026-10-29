@@ -294,11 +294,12 @@ function fakeApi() {
 }
 
 describe('apply：面板 / 命令 / 触发', () => {
-  it('面板：历史浮层 + 状态栏入口；5 条命令；订阅四个事件', () => {
+  it('面板：历史浮层 + 文档工具条入口；5 条命令；订阅四个事件', () => {
     const { api, commands, panels, handlers } = fakeApi()
     plugin.apply(api as never)
     expect(panels.map((p) => p.id)).toEqual(['history.status', 'history.board'])
-    expect(panels[0].location).toBe('statusbar')
+    // B4：历史是「这一篇」的动作 ⇒ 挂 editor-topbar（文档工具条），不再占底部状态栏
+    expect(panels[0].location).toBe('editor-topbar')
     expect(panels[1].location).toBe('modal')
     for (const id of [
       'history.show-for-current',

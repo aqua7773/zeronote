@@ -251,11 +251,12 @@ function fakeApi(
 }
 
 describe('apply：注册与接线', () => {
-  it('面板：浮层 + 状态栏；3 条命令都登记', () => {
+  it('面板：浮层 + 文档工具条；3 条命令都登记', () => {
     const { api, panels, commands } = fakeApi()
     plugin.apply(api as never)
     expect(panels.map((p) => p.id)).toEqual(['backlinks.board', 'backlinks.status'])
-    expect(panels[1].location).toBe('statusbar')
+    // B4：贴着当前文档的入口挂 editor-topbar（文档工具条），不再占底部状态栏
+    expect(panels[1].location).toBe('editor-topbar')
     expect(panels[0].location).toBe('modal')
     for (const id of ['backlinks.show-for-current', 'backlinks.rescan', 'backlinks.open']) {
       expect(commands.has(id)).toBe(true)

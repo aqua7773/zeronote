@@ -59,3 +59,42 @@ export function recentNotesOf(vault: string | null, limit = 5): RecentNote[] {
     .filter((n) => n.vault === vault)
     .slice(0, limit)
 }
+
+/**
+ * 空态「最近 3 篇」（UI 重布局 B4 · 方案 §6 / O10）。
+ *
+ * 排序规则，两步：
+ *  1. **最近打开过的**（`zeronote.notes.recent`）按时间倒序，只留当前库里**仍然存在**的笔记；
+ *  2. 不足 `limit` 时用**修改时间**倒序补齐 —— 新库 / 刚从别的设备同步过来时打开记录是空的，
+ *     这时「最近改过的」是最接近用户想法的回访入口。
+ *
+ * 现在打开记录里可能残留已删除 / 已改名的路径 ⇒ 必须用 `notes` 里真实存在的路径过滤，
+ * 不然后备列表会在空态里给出一个点了没反应的死条目。
+ */
+export function pickRecentNotes(
+  notes: Array<{ path: string; title?: string; kind?: string; mtime?: number }>,
+  vault: string | null,
+  limit = 3,
+): Array<{ path: string; title: string }> {
+  if (!vault) return []
+  const usable = new Map(
+    notes.filter((n) => n.kind === 'note').map((n) => [n.path, n] as const),
+  )
+  const picked: Array<{ path: string; title: string }> = []
+  const seen = new Set<string>()
+  for (const r of recentNotesOf(vault, 32)) {
+    const meta = usable.get(r.path)
+    if (!meta || seen.has(r.path)) continue
+    seen.add(r.path)
+    picked.push({ path: meta.path, title: meta.title || meta.path })
+    if (picked.length >= limit) return picked
+  }
+  const rest = [...usable.values()]
+    .filter((n) => !seen.has(n.path))
+    .sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
+  for (const meta of rest) {
+    if (picked.length >= limit) break
+    picked.push({ path: meta.path, title: meta.title || meta.path })
+  }
+  return picked
+}

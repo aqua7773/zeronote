@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.2.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.0.znp",
-  "sha256": "24aa63104e48e0492b66f27894b80f0d6b836f0ae972fff08f4c118e88021ad7",
-  "size": 29179,
+  "version": "0.2.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/history-0.2.1.znp",
+  "sha256": "6c31e077b05ddbdd0658ee12d5e58baaced4080c5c4aca77ae861c0a9f2a14bf",
+  "size": 29396,
   "files": [
     "index.js",
     "signature.json"
@@ -24,6 +24,7 @@
     "doc:write",
     "command",
     "view:modal",
+    "view:editor-topbar",
     "host"
   ]
 }
