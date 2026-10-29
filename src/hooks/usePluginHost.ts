@@ -91,6 +91,15 @@ export type PluginHost = {
   getWebviewBridge: (pluginId: string) => WebviewBridgeHandler | undefined
   /** 签名状态（rev173.77）：未加载的插件返回 undefined */
   getSignature: (pluginId: string) => 'signed' | 'unsigned' | undefined
+  /**
+   * **单插件热重载**（rev173.240 · 需求 §2.13 的未做项）：只卸这一个再装它，别的不动。
+   *
+   * 与 `setReloadToken(t+1)`（整代重载）的区别：整代会把十来个插件的状态一起重置
+   * （面板收起、定时器重排、store 重读）—— 调试一个插件时那是噪音。
+   * 实现挂在**同一条串行链**上：与整代加载互斥，否则两边同时注册同一条命令 id 会撞。
+   * 插件没加载（禁用 / 平台不符）⇒ 抛错（调用方给用户看文案）。
+   */
+  reloadPlugin: (pluginId: string) => Promise<void>
 }
 
 export function usePluginHost({
@@ -141,6 +150,10 @@ export function usePluginHost({
    * `return` 退出，链才前进。
    */
   const pluginChainRef = useRef<Promise<void>>(Promise.resolve())
+  /** 单插件热重载的实现（effect 里按「当前这一代」的目录表挂上；没挂上就报未就绪） */
+  const reloadOneRef = useRef<(pluginId: string) => Promise<void>>(async (pluginId: string) => {
+    throw new Error(`插件宿主未就绪，无法重载 ${pluginId}`)
+  })
 
   useEffect(() => {
     const k = kernel
@@ -267,6 +280,32 @@ export function usePluginHost({
         setManifests(list)
         setPluginEntries(byId)
         setGlobalRoot(globalRoot)
+        /**
+         * 单插件热重载（rev173.240）—— 必须在 `byId` 建好之后挂，
+         * 且整段排到串行链上：与整代加载并发就会撞「命令 id 重复」。
+         */
+        reloadOneRef.current = async (pluginId: string) => {
+          const entry = byId[pluginId]
+          if (!entry) throw new Error(`找不到插件目录：${pluginId}`)
+          pluginChainRef.current = pluginChainRef.current.then(async () => {
+            const idx = loaded.findIndex((l) => l.manifest.id === pluginId)
+            if (idx >= 0) {
+              const [old] = loaded.splice(idx, 1)
+              try {
+                await unloadPlugin(old, deps)
+              } catch {
+                // 卸载失败也继续重装：旧命令若真残留，loadPlugin 会明确报 id 重复（比静默好）
+              }
+              k.releaseServices(pluginId)
+              k.releaseEditorMarks(pluginId)
+              k.releaseCapabilities(pluginId)
+            }
+            const fresh = await loadPlugin(entry, deps)
+            loaded.push(fresh)
+            setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
+          })
+          await pluginChainRef.current
+        }
         const ids: string[] = []
         for (const m of list) {
           // 每轮都先看取消：**被取代就整轮退出**，绝不继续注册（继续只会跟新代撞 id）
@@ -600,5 +639,12 @@ export function usePluginHost({
     [],
   )
 
-  return { installZnpFromPath, installZnp, installZnpFromUrl, getWebviewBridge, getSignature }
+  return {
+    installZnpFromPath,
+    installZnp,
+    installZnpFromUrl,
+    getWebviewBridge,
+    getSignature,
+    reloadPlugin: (pluginId: string) => reloadOneRef.current(pluginId),
+  }
 }

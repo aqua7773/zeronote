@@ -2842,7 +2842,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
 }
 .zn-dev-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 52px 52px 52px minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 1.6fr) 52px 52px 52px minmax(0, 1.4fr) 60px;
   gap: 8px;
   padding: 6px 10px;
   font-size: var(--zn-text-sm);
@@ -2861,6 +2861,25 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 单插件重载按钮（rev173.240 · 需求 §2.13 的未做项之一）。
+   行高固定、按钮很小：它只服务调试，不该把诊断表撑高。 */
+.zn-dev-reload {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--zn-fg-muted);
+  background: transparent;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  cursor: pointer;
+}
+.zn-dev-reload:hover:not(:disabled) {
+  color: var(--zn-fg);
+  background: var(--zn-bg-hover);
+}
+.zn-dev-reload:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .zn-dev-id {
   margin-left: 6px;

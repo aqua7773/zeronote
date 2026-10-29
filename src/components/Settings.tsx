@@ -110,6 +110,8 @@ export interface SettingsProps {
   onTogglePlugin: (id: string, enabled: boolean) => void
   onDeletePlugin: (id: string) => void
   onReloadPlugins: () => void
+  /** 只重载一个插件（rev173.240 · 调试面板的单插件热重载） */
+  onReloadPlugin?: (id: string) => Promise<void>
   /**
    * 安装 `.znp` 插件包（2026-10-18 修：设置页的插件段复用了 PluginPanel，
    * 但漏传 `onInstall` ⇒ 手机从设置进插件页点「安装插件包」时 `onInstall?.()` 是空操作，
@@ -165,6 +167,7 @@ export function Settings({
   onTogglePlugin,
   onDeletePlugin,
   onReloadPlugins,
+  onReloadPlugin,
   onInstall,
   onMarketInstall,
   updates,
@@ -393,6 +396,7 @@ export function Settings({
                     onInstall={onInstall}
                     onMarketInstall={onMarketInstall}
                     onReloadPlugins={onReloadPlugins}
+                    onReloadPlugin={onReloadPlugin}
                     updates={updates}
                   />
                 </div>

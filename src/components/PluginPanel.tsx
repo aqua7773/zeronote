@@ -119,6 +119,7 @@ export function PluginPanel({
   devMode = false,
   onToggleDevMode,
   onReloadPlugins,
+  onReloadPlugin,
   onEmitEvent,
   onClearLogs,
   onTestLog,
@@ -155,6 +156,8 @@ export function PluginPanel({
   onToggleDevMode?: (on: boolean) => void
   /** 重载全部插件（就是 `setReloadToken` bump 一次） */
   onReloadPlugins?: () => void
+  /** 只重载一个插件（rev173.240 · 调试面板的单插件热重载） */
+  onReloadPlugin?: (id: string) => Promise<void>
   /** 模拟触发：把 topic + payload 交给内核 event.emit；返回错误文案或 null */
   onEmitEvent?: (topic: string, payload: unknown) => string | null
   /** 清空日志 */
@@ -360,6 +363,7 @@ export function PluginPanel({
           devMode={devMode}
           onToggleDevMode={(on) => onToggleDevMode?.(on)}
           onReload={() => onReloadPlugins?.()}
+          onReloadOne={onReloadPlugin}
           onEmit={(topic, payload) =>
             onEmitEvent ? onEmitEvent(topic, payload) : '宿主没有提供 event.emit'
           }

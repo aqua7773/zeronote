@@ -2308,7 +2308,7 @@ export default function App() {
   }, [pluginUsage])
 
   /* ── 插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）（rev128 · L3 第六刀）—— 见 hooks/usePluginHost.ts ── */
-  const { installZnp, installZnpFromUrl, getWebviewBridge, getSignature } = usePluginHost({
+  const { installZnp, installZnpFromUrl, getWebviewBridge, getSignature, reloadPlugin } = usePluginHost({
     kernel,
     vault,
     /**
@@ -2921,6 +2921,7 @@ export default function App() {
       __znInsertFile?: (src: string) => Promise<void>
       __znPasteImage?: (base64: string, ext: string) => Promise<void>
       __znOpenLocalLink?: (rel: string) => void
+      __znReloadPlugin?: (id: string) => Promise<void>
     }
     w.__znInsertFile = (src) => insertFileFromPath(src)
     /* 粘贴图片的脚本出口（rev173.46）：剪贴板事件本身没法从 CDP 伪造
@@ -2928,12 +2929,16 @@ export default function App() {
        走的是与 Ctrl+V **相同**的「写库 + 插入」链路，用于真机验证落盘。 */
     w.__znPasteImage = (base64, ext) => insertPastedImage({ base64, ext })
     w.__znOpenLocalLink = (rel) => openLocalLink(rel)
+    /* 单插件热重载的脚本出口（rev173.240）：调试面板里那条按钮点得到，
+       但 CDP 要验的是「重载后命令表/其他插件都没事」，直接调最省事。 */
+    w.__znReloadPlugin = (id) => reloadPlugin(id)
     return () => {
       delete w.__znInsertFile
       delete w.__znPasteImage
       delete w.__znOpenLocalLink
+      delete w.__znReloadPlugin
     }
-  }, [insertFileFromPath, insertPastedImage, openLocalLink])
+  }, [insertFileFromPath, insertPastedImage, openLocalLink, reloadPlugin])
 
   /**
    * 卡死兜底：**前端心跳**（判超时的一方在 Rust 的原生看门狗线程里，见 `src-tauri/src/lib.rs`
@@ -4094,6 +4099,7 @@ export default function App() {
                 onToggleDevMode={setDevMode}
                 onEmitEvent={emitDebugEvent}
                 onReloadPlugins={() => setReloadToken((t) => t + 1)}
+                onReloadPlugin={reloadPlugin}
                 onClearLogs={() => setPanelLog([])}
                 onTestLog={addTestLog}
                 globalRoot={globalRoot}
@@ -4408,6 +4414,7 @@ export default function App() {
         onTogglePlugin={togglePlugin}
         onDeletePlugin={(id) => void deletePlugin(id)}
         onReloadPlugins={() => setReloadToken((t) => t + 1)}
+        onReloadPlugin={reloadPlugin}
         // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
         onInstall={() => void installZnp()}
         // 同一个 PluginPanel ⇒ 透传市场通道后，设置页自动多出「发现」tab（rev173.152）

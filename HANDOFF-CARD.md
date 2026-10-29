@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.240 · Android 大视频：本地媒体服务 + Range）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.241 · 调试面板：单插件热重载）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.240 · 0.6.0 · 2026-10-29 |
+| rev / 版本 | rev173.241 · 0.6.0 · 2026-10-29 |
 | 测试基线 | vitest 1439 · cargo 82 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.6.0 |
@@ -213,8 +213,8 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（pid **32984** · 2026-10-28 06:06:20 启动 —— 换 atomic patch 后手动重启的那次；
-  **已跑 18.7 小时**，vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
+  ⚠️ 交接时 **dev 是开着的**（pid **37216** · 2026-10-29 19:10:40 启动 —— rev173.240 改 `tauri.conf.json` 后
+  被 `Start-Process cmd /c dev.cmd` 重新拉起的那次；vite 1420 / CDP 9222 都在），日志在 `.self-logs/desktop-dev.log`。
   ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
   结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。

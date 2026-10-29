@@ -40,6 +40,7 @@ export function PluginDevPane({
   devMode,
   onToggleDevMode,
   onReload,
+  onReloadOne,
   onEmit,
   onClearLogs,
   onTestLog,
@@ -50,6 +51,11 @@ export function PluginDevPane({
   devMode: boolean
   onToggleDevMode: (on: boolean) => void
   onReload: () => void
+  /**
+   * 只重载这一个插件（rev173.240 · 需求 §2.13 的未做项）。
+   * 不传 ⇒ 行内不出现按钮（笔记窗口等没有宿主的地方）。
+   */
+  onReloadOne?: (id: string) => Promise<void>
   /** 返回错误文案（JSON 解析失败等）；成功返回 null */
   onEmit: (topic: string, payload: unknown) => string | null
   onClearLogs?: () => void
@@ -60,6 +66,24 @@ export function PluginDevPane({
   const [topic, setTopic] = useState('')
   const [payloadText, setPayloadText] = useState('{}')
   const [emitNote, setEmitNote] = useState<string | null>(null)
+  /** 正在重载的插件 id（按钮禁用 + 显示省略号） */
+  const [reloadingId, setReloadingId] = useState<string | null>(null)
+  /** 重载结果（一次一行；插件多时不要刷屏） */
+  const [reloadNote, setReloadNote] = useState<string | null>(null)
+
+  const reloadOne = async (id: string) => {
+    if (!onReloadOne || reloadingId) return
+    setReloadingId(id)
+    setReloadNote(null)
+    try {
+      await onReloadOne(id)
+      setReloadNote(`已重载 ${id}`)
+    } catch (e) {
+      setReloadNote(`重载 ${id} 失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setReloadingId(null)
+    }
+  }
 
   /** 每插件的资源计数：命令 / 面板 / 服务 / 订阅 topic（全部从 audit 快照里数） */
   const diag = useMemo(() => {
@@ -163,6 +187,7 @@ export function PluginDevPane({
           </div>
 
           <h4 className="zn-dev-title">插件诊断（来自 kernel.audit 快照）</h4>
+          {reloadNote && <p className="zn-dev-hint">{reloadNote}</p>}
           {diag.length === 0 ? (
             <p className="zn-dev-hint">没有已加载的插件。</p>
           ) : (
@@ -173,6 +198,7 @@ export function PluginDevPane({
                 <span>面板</span>
                 <span>服务</span>
                 <span>事件订阅</span>
+                <span>操作</span>
               </div>
               {diag.map((d) => {
                 const row = plugins.find((p) => p.id === d.id)
@@ -188,6 +214,19 @@ export function PluginDevPane({
                     <span>{d.services}</span>
                     <span className="zn-dev-topics" title={d.topics.join('\n')}>
                       {d.topics.length ? d.topics.slice(0, 3).join('、') + (d.topics.length > 3 ? ` +${d.topics.length - 3}` : '') : '—'}
+                    </span>
+                    <span>
+                      {onReloadOne && (
+                        <button
+                          type="button"
+                          className="zn-dev-reload"
+                          title="只重载这个插件（别的插件状态不动）"
+                          disabled={reloadingId !== null}
+                          onClick={() => void reloadOne(d.id)}
+                        >
+                          {reloadingId === d.id ? '…' : '重载'}
+                        </button>
+                      )}
                     </span>
                   </div>
                 )
