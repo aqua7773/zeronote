@@ -172,6 +172,95 @@ export function confirmText(
   return `即将删除云端临时区里的 ${count} 份文件（共 ${formatSize(bytes)}）—— 对端都已落地，删除后不再可取回。继续？`
 }
 
+/* ───────────── 正文入口的匹配（rev173.239 · 期 4 的两个正文入口）───────────── */
+
+/**
+ * 比对用路径规范化（**只用于匹配台账，不用于读文件**）。
+ *
+ * 三件事：剥尖括号目标（`![](<a b.mp4>)`）、解 `%xx`、`\` → `/`。
+ * 不做大小写折叠 —— Android 的库路径区分大小写，折叠会把两个不同文件认成一个。
+ */
+export function normalizeRelayPath(path: string): string {
+  let raw = (path ?? '').trim()
+  if (raw.length >= 2 && raw.startsWith('<') && raw.endsWith('>')) raw = raw.slice(1, -1).trim()
+  if (raw.includes('%')) {
+    try {
+      raw = decodeURIComponent(raw)
+    } catch {
+      /* 非法转义按原样用（文件名里本来就可能真有 %） */
+    }
+  }
+  // `./` 前缀与反斜杠都是同一个文件的另一种写法（App 的 openLocalLink 也这么剥）
+  return raw.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
+}
+
+/**
+ * 正文里的**音视频源** → 台账条目（rev173.239）。
+ *
+ * 音视频超过 1 MiB 一律「引用原文件」⇒ 正文写的是**库外绝对路径**，台账 `original`
+ * 是同一串（Rust `absolute_posix`）。所以按路径精确匹配即可。
+ */
+export function findEntryForMedia(
+  items: RelayPendingItem[],
+  raw: string,
+): RelayPendingItem | null {
+  const target = normalizeRelayPath(raw)
+  if (!target) return null
+  return items.find((it) => normalizeRelayPath(it.original) === target) ?? null
+}
+
+/**
+ * 正文里的**库内相对路径**（模式 B 的压缩版 / 模式 A 的预览图）→ 台账条目（rev173.239）。
+ *
+ * 模式 B 的「同步原图」就靠它：正文引用的是压缩版，原图路径只在台账里。
+ */
+export function findEntryForStoredImage(
+  items: RelayPendingItem[],
+  relPath: string,
+): RelayPendingItem | null {
+  const target = normalizeRelayPath(relPath)
+  if (!target) return null
+  return (
+    items.find(
+      (it) =>
+        (it.storedInVault && normalizeRelayPath(it.storedInVault) === target) ||
+        (it.preview && normalizeRelayPath(it.preview) === target),
+    ) ?? null
+  )
+}
+
+/**
+ * 本机的原图在哪（可直接喂 `convertFileSrc` 的绝对路径）；本机没有 ⇒ null。
+ *
+ * ⚠️ `devices[本机]` 有**两种写法**（Rust 侧决定的，别当成一种）：
+ *  - 上传方：记的是**原文件绝对路径**（`D:/Music/a.mp3`）—— 这份文件本来就在本机；
+ *  - 落地方：记的是**库内相对路径**（`.zn-assets/external/6ea73b45-a.mp3`）—— 从云端收下来的。
+ * 直接拿它拼 `root + '/' + rel` 会把前一种拼成 `root/D:/...`（rev173.239 写第一版时差点踩）。
+ */
+export function localOriginalAbsPath(
+  item: RelayPendingItem,
+  deviceId: string | null,
+  vaultRoot: string,
+): string | null {
+  const rel = deviceId ? item.devices?.[deviceId] : null
+  if (!rel) return null
+  const root = (vaultRoot ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  // 盘符 / UNC = 上传方记的绝对路径，原样用
+  if (/^(?:[a-zA-Z]:[\\/]|\\\\)/.test(rel)) return rel.replace(/\\/g, '/')
+  return root ? `${root}/${rel}` : null
+}
+
+/**
+ * 「同步大文件」的确认文案（需求 §5 原文：「即将同步大文件「a.mp4」（52 MiB），继续？」）。
+ *
+ * 与面板的上传 / 接收文案分开：那两个是批量动作，这里是**单个文件、点名 + 体积**。
+ */
+export function syncConfirmText(item: { size: number; original?: string; name?: string }): string {
+  const name =
+    item.original?.split(/[\\/]/).pop() ?? item.name ?? '这个文件'
+  return `即将同步大文件「${name}」（${formatSize(item.size)}），继续？`
+}
+
 /** 状态的中文标签（面板用） */
 export function relayStateLabel(state: RelayState): string {
   switch (state) {

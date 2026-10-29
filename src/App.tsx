@@ -106,6 +106,7 @@ import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normali
 import {
   IMAGE_MODE_STORAGE_KEY,
   attachmentHint,
+  formatSize,
   loadImageMode,
   mdTarget,
   type AttachmentOutcome,
@@ -140,6 +141,17 @@ import {
   LS_LOADING,
 } from './lib/boot-heal'
 import { renderPanelSafe } from './kernel/panel-safe'
+import {
+  findEntryForMedia,
+  findEntryForStoredImage,
+  hash16Of,
+  landRelay,
+  loadRelayPending,
+  loadRelayRemote,
+  localOriginalAbsPath,
+  relinkRelay,
+  syncConfirmText,
+} from './kernel/asset-relay'
 import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
@@ -269,8 +281,15 @@ export default function App() {
   /**
    * 图片附件预览地址（rev173.3「附件的入口」）。
    * 文件树「附件」分组里点一张图 → 全屏看原图；null = 没开。
+   *
+   * rev173.239 起多带两样：`relPath`（库内相对路径，用来查引用台账）与 `relay`
+   * （模式 B 该图的原图还没到本机时才有值 → 浮层显示「同步原图」）。
    */
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imagePreview, setImagePreview] = useState<{
+    src: string
+    relPath: string | null
+    relay: { id: string; size: number; original: string } | null
+  } | null>(null)
   /** 移动端的「笔记库」面板（桌面走系统目录选择器，不用它） */
   const [vaultPanelOpen, setVaultPanelOpen] = useState(false)
   /** 删除后的「撤销」态 —— 记下原路径与回收站路径，几秒内可 rename 回来。
@@ -2473,18 +2492,136 @@ export default function App() {
    *
    * 文件树「附件」分组里点一张图 → 全屏看原图。**不能走 `openNote`**（那会按文本
    * 读二进制、必然失败），也不用插件：内核自己就能把它显示出来（asset 协议）。
+   *
+   * rev173.239（附件同步期 4 · 正文入口 2）：预览时**顺手查一次引用台账** ——
+   *  · 模式 B 的图正文引用的是压缩版（`storedInVault`）；原图若已从云端落地到本机
+   *    （`devices[本机]` 有值），直接显示**原图**（需求 §4「主动同步成功后点开默认显示原图」）；
+   *  · 原图还没到本机 ⇒ 浮层给「同步原图」按钮；点它就 `landRelay` 收这一份。
+   * 台账读不到（没配搬运后端 / 旧库没有 manifest）只是不显示按钮，**不影响预览本身**。
    */
   const openImagePreview = useCallback(
     (relPath: string) => {
       if (!vault) return
-      const abs = `${vault.replace(/\\/g, '/').replace(/\/+$/, '')}/${relPath}`
+      const root = vault.replace(/\\/g, '/').replace(/\/+$/, '')
+      const toSrc = (rel: string) => convertFileSrc(`${root}/${rel}`)
+      let src: string
       try {
-        setImagePreview(convertFileSrc(abs))
+        src = toSrc(relPath)
       } catch {
         setToast('图片预览不可用（当前环境没有 asset 协议）')
+        return
+      }
+      setImagePreview({ src, relPath, relay: null })
+      void (async () => {
+        try {
+          const local = await loadRelayPending(vault)
+          const hit = findEntryForStoredImage(local.items, relPath)
+          if (!hit) return
+          // devices[本机] 有两种写法（原文件绝对路径 / 落地后的库内相对路径），统一成一个绝对路径
+          const originAbs = localOriginalAbsPath(hit, local.deviceId, root)
+          if (originAbs) {
+            // 原图已在本机：优先显示原图（压缩版只在原图没有时才当正式版本）
+            let landedSrc: string
+            try {
+              landedSrc = convertFileSrc(originAbs)
+            } catch {
+              return
+            }
+            setImagePreview((prev) =>
+              prev && prev.relPath === relPath ? { ...prev, src: landedSrc, relay: null } : prev,
+            )
+            return
+          }
+          setImagePreview((prev) =>
+            prev && prev.relPath === relPath
+              ? { ...prev, relay: { id: hit.id, size: hit.size, original: hit.original } }
+              : prev,
+          )
+        } catch {
+          /* 台账读不到不影响预览 */
+        }
+      })()
+    },
+    [vault, setToast],
+  )
+
+  /**
+   * 「同步原图」（模式 B · 需求 §5 入口 2）：从云端临时区接收**这一张**原图并落地。
+   *
+   * 与附件面板的「接收云端文件」同一套 `landRelay`，区别只有三处：单个 id、在预览浮层里触发、
+   * **不改写正文引用**（模式 B 的正文本来就该显示压缩版 —— 原图是"点开才看"的那份）。
+   */
+  const syncOriginalImage = useCallback(async () => {
+    const prev = imagePreview
+    const relay = prev?.relay ?? null
+    if (!vault || !relay) return
+    try {
+      const remote = await loadRelayRemote(vault)
+      const hit = remote.items.find((r) => r.hash16 === hash16Of(relay.id))
+      if (!hit) {
+        setToast('另一台机器还没把这张原图上传到云端临时区（设置 → 附件 里上传）')
+        return
+      }
+      if (!window.confirm(syncConfirmText({ size: hit.size, original: relay.original }))) return
+      const r = await landRelay(vault, [relay.id])
+      const ok = r.items.find((x) => x.ok)
+      if (!ok?.path) {
+        setToast(`原图同步失败：${r.items[0]?.error ?? '未知错误'}`)
+        return
+      }
+      const root = vault.replace(/\\/g, '/').replace(/\/+$/, '')
+      setImagePreview({
+        src: convertFileSrc(`${root}/${ok.path}`),
+        relPath: prev?.relPath ?? null,
+        relay: null,
+      })
+      setToast(`已接收原图（${formatSize(r.totalBytes)}）`)
+    } catch (e) {
+      setToast(`原图同步失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [imagePreview, vault, setToast])
+
+  /**
+   * 正文里音视频播放失败时的「原文件不在本机 · 同步」（需求 §5 入口 1）。
+   *
+   * 链路与附件面板一致：查台账 → 云端必须有这一份 → 确认（点名 + 体积）→ 落地 → **改写引用**
+   * （播放器此时源是库外绝对路径，不改成库内相对路径的话，落地了也还是播不了）。
+   * 改写走 `relinkRelay`（只做精确字符串替换），改完让当前笔记从磁盘重载。
+   */
+  const syncExternalMedia = useCallback(
+    async (raw: string) => {
+      if (!vault) return
+      try {
+        const local = await loadRelayPending(vault)
+        const hit = findEntryForMedia(local.items, raw)
+        if (!hit) {
+          setToast('引用台账里没有这个文件 —— 它不是「引用原文件」插进来的附件')
+          return
+        }
+        const remote = await loadRelayRemote(vault)
+        const hitRemote = remote.items.find((r) => r.hash16 === hash16Of(hit.id))
+        if (!hitRemote) {
+          setToast('另一台机器还没把它上传到云端临时区（设置 → 附件 里上传）')
+          return
+        }
+        if (!window.confirm(syncConfirmText(hit))) return
+        const r = await landRelay(vault, [hit.id])
+        const ok = r.items.find((x) => x.ok)
+        if (!ok?.path) {
+          setToast(`同步失败：${r.items[0]?.error ?? '未知错误'}`)
+          return
+        }
+        await relinkRelay(vault, hit.original, ok.path)
+        const reloaded = await reloadActiveFromDisk()
+        setToast(
+          `已接收 ${formatSize(r.totalBytes)} · 引用已改写` +
+            (reloaded ? '' : '（重新打开这篇笔记后生效）'),
+        )
+      } catch (e) {
+        setToast(`同步失败：${e instanceof Error ? e.message : String(e)}`)
       }
     },
-    [vault],
+    [vault, setToast, reloadActiveFromDisk],
   )
 
   // 图片预览：压进返回键层栈（Android 返回先关预览）+ Esc 关闭
@@ -3661,6 +3798,7 @@ export default function App() {
               onWikiLinkOpen={openWikiLink}
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
+              onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
@@ -4010,6 +4148,7 @@ export default function App() {
               onWikiLinkOpen={openWikiLink}
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
+              onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
               layers={layerExitsRef}
@@ -4307,14 +4446,28 @@ export default function App() {
         </div>
       ) : null}
 
-      {/* 图片附件全屏预览（rev173.3）：点遮罩 / Esc / Android 返回键关闭 */}
+      {/* 图片附件全屏预览（rev173.3）：点遮罩 / Esc / Android 返回键关闭。
+          rev173.239：模式 B 的原图还没到本机时，浮层里给「同步原图」（需求 §5 入口 2）。 */}
       {imagePreview && (
         <div
           className="zn-img-preview"
           role="presentation"
           onClick={() => setImagePreview(null)}
         >
-          <img src={imagePreview} alt="" />
+          <img src={imagePreview.src} alt="" />
+          {imagePreview.relay && (
+            <button
+              type="button"
+              className="zn-img-sync"
+              onClick={(e) => {
+                // 遮罩上的 onClick 会关预览 —— 按钮不能把事件冒上去
+                e.stopPropagation()
+                void syncOriginalImage()
+              }}
+            >
+              同步原图（{formatSize(imagePreview.relay.size)}）
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -787,8 +787,21 @@ async fn upload_one(
     .unwrap_or_default()
     .to_string();
   let stored = entry.get("storedInVault").and_then(|x| x.as_str()).map(|s| s.to_string());
-  let src = local_source_path(vault, &original, stored.as_deref())
-    .ok_or_else(|| format!("源文件不存在，无法同步：{original}"))?;
+  /**
+   * 源文件：**优先 `original`**，其次入库副本。
+   *
+   * 为什么不能只信 `local_source_path`（它优先入库副本）：模式 B（rev173.234 图片压缩）
+   * 的 `storedInVault` 是**压缩版**，而台账 id 是**原图**的内容摘要 ⇒ 拿压缩版去上传必然
+   * 卡在下面的 sha256 校验（rev173.239 实测：报「文件内容已变化」）。压缩版只是正文显示用的，
+   * 跨设备要搬的始终是原图。原文件不在本机时才退回副本 —— 那时 sha 不符是**正确**的报错。
+   */
+  let original_path = PathBuf::from(&original);
+  let src = if !original.is_empty() && original_path.is_file() {
+    original_path
+  } else {
+    local_source_path(vault, &original, stored.as_deref())
+      .ok_or_else(|| format!("源文件不存在，无法同步：{original}"))?
+  };
 
   // 内容校验：台账 id 是内容摘要，源文件被换过/改过就必须明确报错，不能把错东西传上去
   let actual = sha256_file(&src)?;
@@ -1226,9 +1239,48 @@ mod tests {
     assert!(msg.contains("内容已变化"), "sha 不符要明确报错：{msg}");
   }
 
+  /// 模式 B（图片压缩）的条目：`storedInVault` 是**压缩版**，台账 id 是**原图**的内容摘要。
+  /// 上传必须挑原图 —— 拿压缩版去传会卡在 sha 校验（rev173.239 实测踩到，正文入口 2 靠它）。
   #[test]
-  fn land_rejects_tampered_remote_file() {
-    let d = tmpdir("tampered");
+  fn upload_prefers_original_over_compressed_copy() {
+    let d = tmpdir("compressed");
+    let shared = d.join("shared");
+    fs::create_dir_all(&shared).unwrap();
+    let a = make_vault(&d, "vault-a");
+    let src = d.join("big.png");
+    let original = vec![9u8; 1024 * 1024 + 11];
+    fs::write(&src, &original).unwrap();
+    let id = sha256_file(&src).unwrap();
+    // 压缩版入库：内容不同、小得多（模式 B 的正文引用就是它）
+    let stored_rel = "image-compressed.webp";
+    fs::write(Path::new(&a).join(stored_rel), vec![1u8; 4096]).unwrap();
+    let mut ledger = read_assets_ledger(&a).unwrap();
+    ledger["entries"].as_array_mut().unwrap().push(json!({
+      "id": id.clone(),
+      "original": src.to_string_lossy(),
+      "size": original.len(),
+      "storedInVault": stored_rel,
+      "storedSize": 4096,
+      "preview": null,
+      "devices": {},
+    }));
+    write_assets_ledger(&a, &ledger).unwrap();
+    set_local_backend(&a, &shared);
+
+    let payload =
+      tauri::async_runtime::block_on(asset_relay_upload(a.clone(), vec![id.clone()])).unwrap();
+    assert_eq!(payload["uploaded"], 1, "模式 B 上传原图应成功：{payload}");
+    let hash16 = hash16_of(&id).unwrap();
+    let staged = shared.join(STAGING_DIR).join(&hash16).join("big.png");
+    assert_eq!(
+      fs::read(&staged).unwrap(),
+      original,
+      "云端副本必须是原图，不能是压缩版"
+    );
+  }
+
+  #[test]
+  fn land_rejects_tampered_remote_file() {    let d = tmpdir("tampered");
     let shared = d.join("shared");
     fs::create_dir_all(&shared).unwrap();
     let a = make_vault(&d, "vault-a");

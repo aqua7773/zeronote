@@ -9,10 +9,15 @@ import { describe, expect, it } from 'vitest'
 import {
   cleanable,
   confirmText,
+  findEntryForMedia,
+  findEntryForStoredImage,
   hash16Of,
+  localOriginalAbsPath,
+  normalizeRelayPath,
   receivableIds,
   relayStateLabel,
   relayStateOf,
+  syncConfirmText,
   totalBytesOf,
   uploadableIds,
   type RelayPendingItem,
@@ -145,5 +150,88 @@ describe('展示辅助', () => {
     const labels = (['local', 'staged', 'landed', 'pulled', 'absent'] as const).map(relayStateLabel)
     expect(labels.every((l) => l.length > 0)).toBe(true)
     expect(new Set(labels).size).toBe(5)
+  })
+})
+
+/* ───────────── 正文入口的匹配（rev173.239）───────────── */
+
+describe('normalizeRelayPath', () => {
+  it('剥尖括号、解 %xx、统一斜杠', () => {
+    expect(normalizeRelayPath('<D:/Media/专辑 1/a b.mp4>')).toBe('D:/Media/专辑 1/a b.mp4')
+    expect(normalizeRelayPath("D:\\Music\\a.mp3")).toBe('D:/Music/a.mp3')
+    expect(normalizeRelayPath('D:/m/%E9%9F%B3%E4%B9%90.mp3')).toBe('D:/m/音乐.mp3')
+  })
+
+  it('不做大小写折叠（Android 库路径区分大小写）', () => {
+    expect(normalizeRelayPath('D:/A.mp4')).not.toBe(normalizeRelayPath('D:/a.mp4'))
+  })
+
+  it('空串返回空串', () => {
+    expect(normalizeRelayPath('   ')).toBe('')
+  })
+})
+
+describe('findEntryForMedia（媒体「原文件不在本机 · 同步」）', () => {
+  it('正文里的绝对路径 → 台账条目（尖括号 / 反斜杠 / %xx 都能命中）', () => {
+    const item = pending({ original: 'D:/Media/专辑 1/a b.mp4' })
+    expect(findEntryForMedia([item], 'D:/Media/专辑 1/a b.mp4')?.id).toBe(ID)
+    expect(findEntryForMedia([item], '<D:/Media/专辑 1/a b.mp4>')?.id).toBe(ID)
+    expect(findEntryForMedia([item], 'D:\\Media\\专辑 1\\a b.mp4')?.id).toBe(ID)
+    expect(findEntryForMedia([item], 'D:/Media/%E4%B8%93%E8%BE%91%201/a%20b.mp4')?.id).toBe(ID)
+  })
+
+  it('路径不一致 ⇒ null（不能把别的文件认成它）', () => {
+    expect(findEntryForMedia([pending()], 'D:/media/other.mp4')).toBeNull()
+    expect(findEntryForMedia([pending()], '')).toBeNull()
+  })
+})
+
+describe('findEntryForStoredImage（模式 B「同步原图」）', () => {
+  it('按压缩版路径命中', () => {
+    const item = pending({ original: 'D:/Pictures/大图.png', storedInVault: 'assets/image-1.webp' })
+    expect(findEntryForStoredImage([item], 'assets/image-1.webp')?.id).toBe(ID)
+    expect(findEntryForStoredImage([item], './assets/image-1.webp')?.id).toBe(ID)
+  })
+
+  it('按模式 A 的预览图也能命中', () => {
+    const item = pending({ original: 'D:/Pictures/大图.png', preview: 'assets/image-1-preview.webp' })
+    expect(findEntryForStoredImage([item], 'assets/image-1-preview.webp')?.id).toBe(ID)
+  })
+
+  it('不是台账里的图 ⇒ null', () => {
+    expect(findEntryForStoredImage([pending()], 'assets/other.png')).toBeNull()
+  })
+})
+
+describe('localOriginalAbsPath（本机原图在哪）', () => {
+  it('落地方记库内相对路径 ⇒ 拼到库根下', () => {
+    const item = pending({ devices: { 'dev-a': '.zn-assets/external/x.mp4' } })
+    expect(localOriginalAbsPath(item, 'dev-a', 'C:/vault')).toBe(
+      'C:/vault/.zn-assets/external/x.mp4',
+    )
+  })
+
+  it('上传方记绝对路径 ⇒ 原样用（不能拼库根，会变成 root/D:/…）', () => {
+    const item = pending({ devices: { 'dev-a': 'D:/Music/a.mp3' } })
+    expect(localOriginalAbsPath(item, 'dev-a', 'C:/vault')).toBe('D:/Music/a.mp3')
+    expect(localOriginalAbsPath(item, 'dev-a', 'C:/vault')).not.toContain('C:/vault/D:')
+  })
+
+  it('没设备 id / 别的设备落地过 ⇒ null（本机仍需同步）', () => {
+    const item = pending({ devices: { 'dev-b': '.zn-assets/external/x.mp4' } })
+    expect(localOriginalAbsPath(item, null, 'C:/vault')).toBeNull()
+    expect(localOriginalAbsPath(item, 'dev-a', 'C:/vault')).toBeNull()
+  })
+})
+
+describe('syncConfirmText（需求 §5 原文语气：点名 + 体积）', () => {
+  it('写文件名与体积', () => {
+    const text = syncConfirmText({ size: 52 * 1024 * 1024, original: 'D:/m/a.mp4' })
+    expect(text).toBe('即将同步大文件「a.mp4」（52.0 MB），继续？')
+  })
+
+  it('没有 original 时退回 name / 兜底文案', () => {
+    expect(syncConfirmText({ size: 1024, name: 'b.mp3' })).toContain('b.mp3')
+    expect(syncConfirmText({ size: 1024 })).toContain('这个文件')
   })
 })

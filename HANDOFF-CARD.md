@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.238 · 附件同步期 4：跨设备手动搬运）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.239 · 附件同步期 4 的两个正文入口）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.238 · 0.6.0 · 2026-10-29 |
-| 测试基线 | vitest 1419 · cargo 76 · oxlint 3 warnings（2026-10-29） |
+| rev / 版本 | rev173.239 · 0.6.0 · 2026-10-29 |
+| 测试基线 | vitest 1432 · cargo 77 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.6.0 |
 <!-- FACTS:END -->
@@ -161,8 +161,11 @@ pwsh -File scripts\verify.ps1
 >      GIF 不压 · EXIF 转正；设置页「图片插入模式」；期 3：**库外绝对路径可渲染** —— patch atomic 三处正则
 >      支持尖括号目标（含空格路径）、前端剥尖括号 + 解 `%xx`、破图显示「图片不在本机：<路径>」。
 >      cargo 67 · vitest 1404）
->    · **下个会话第一件事**：① **期 4 的两个正文入口** —— 笔记里音视频「原文件不在本机 · 同步」、模式 B 图片
->      「同步原图」（复用 `landRelay` + `relinkRelay`，只是入口位置不同）② **WebDAV 后端真机验证**（自建 DAV 桩）
+>    · **下个会话第一件事**：~~期 4 的两个正文入口~~ ✅ **已做（rev173.239）** ——
+>      媒体「原文件不在本机 · 同步」（播放失败时按钮 → 确认 → 落地 → **改写引用**）· 模式 B「同步原图」
+>      （预览浮层按钮；原图已在本机则直接显示原图）。顺带修 `upload_one` 的**模式 B 上传 bug**
+>      （原来优先传压缩版 ⇒ sha 必然不符，原图根本传不上去）。剩 ① **WebDAV 后端真机验证**（自建 DAV 桩）
+>      ② 手机未验（改了 `assets.rs` ⇒ 要重装 APK）③ 库外**非媒体**附件的「文件卡片」
 >    · ⚠️ **期 3 的边界**：媒体内联（173.226）与引用 hover（173.228）早于本期；本期补的是「库外绝对路径
 >      + 含空格路径 + 破图提示」。**文件卡片**（非媒体附件的库外引用）仍是普通链接，点开由宿主分流
 >    · ⑧ ✅ **附件同步 · 期 4（跨设备手动搬运）** 已完成（**rev173.238**）—— 新模块 `src-tauri/src/assets.rs`
@@ -172,6 +175,12 @@ pwsh -File scripts\verify.ps1
 >      桌面两库 + 共享目录实测全链路（上传 → 落地 + 引用改写 → 删云端）；cargo **76** · vitest **1419**。
 >      **手机端也已验**（33b676f6，APK 重编装 01:31）：配置 → 刷新云端 → 接收 6.9 MB → 落地逐字节一致 +
 >      引用改写 + 台账 devices + ack → 清理，全过
+>    · ✅ **期 4 的两个正文入口**（**rev173.239**）—— ① 媒体播放失败 ⇒「原文件不在本机 · 同步」按钮
+>      （`upgradeMediaWidgets` 的 error 分支，只在源是库外绝对路径时挂）② 图片预览浮层「同步原图」
+>      （打开预览查台账：`devices[本机]` 有值直接显示原图，没有才给按钮）。纯函数进 `kernel/asset-relay.ts`
+>      （`normalizeRelayPath` / `findEntryForMedia` / `findEntryForStoredImage` / `localOriginalAbsPath` /
+>      `syncConfirmText`）。cargo **77** · vitest **1432** · 桌面两库实测（媒体 readyState 4 + 引用改写；
+>      10.6 MB 原图落地逐字节一致 + 预览切原图）
 >    · ⚠️ **已知平台限制（手机）**：**Android 上大视频播不了** —— `readyState 0 / networkState 2 / buffered 0`，
 >      小视频（320×240 / 11 KB）与 1.4 MB MP3 正常 ⇒ 根因是 **Tauri Android Custom Protocol 不支持 Range**
 >      （[tauri#12019](https://github.com/tauri-apps/tauri/issues/12019)），与期 4 无关；rev173.226 当时只验了小视频。

@@ -37,6 +37,9 @@ const MAX_CACHED_STATES = 20
  */
 const QUOTE_LINE_RE = /^\s*(?:>\s*)+/
 
+/** 库外绝对路径（`D:\x` / `D:/x` / UNC）—— 媒体错误时据此判断「该不该给同步入口」 */
+const EXTERNAL_ABS_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
+
 function quoteDecorations(view: EditorView): DecorationSet {
   const decos: Range<Decoration>[] = []
   for (const { from, to } of view.visibleRanges) {
@@ -101,6 +104,7 @@ function fixImageSrc(
   view: EditorView,
   vault: string | null | undefined,
   notePath: string | null,
+  onExternalMediaSync?: (raw: string) => void,
 ) {
   for (const img of view.contentDOM.querySelectorAll('img')) {
     const raw = img.getAttribute('src')
@@ -109,6 +113,8 @@ function fixImageSrc(
     if (mediaKindOf(raw)) continue
     // 已经是可直接加载的 URL（网络图 / data: / plugin 的 asset:）就别碰
     if (/^(?:https?|data|blob|asset):/i.test(raw)) continue
+    // 原样记住（rev173.239）：点开预览时要靠它反推库内相对路径，再问台账「这张图有没有原图」
+    img.dataset.znRaw = raw
     const abs = resolveImageAbsPath(vault, notePath, raw)
     if (!abs) continue
     let url: string
@@ -122,7 +128,7 @@ function fixImageSrc(
     if (img.src !== url) img.src = url
     attachImageErrorHint(img, raw)
   }
-  upgradeMediaWidgets(view, vault, notePath)
+  upgradeMediaWidgets(view, vault, notePath, onExternalMediaSync)
 }
 
 /**
@@ -172,6 +178,7 @@ function upgradeMediaWidgets(
   view: EditorView,
   vault: string | null | undefined,
   notePath: string | null,
+  onExternalMediaSync?: (raw: string) => void,
 ) {
   for (const wrap of view.contentDOM.querySelectorAll<HTMLElement>('.cm-atomic-image')) {
     if (wrap.dataset.znMedia) continue
@@ -200,10 +207,28 @@ function upgradeMediaWidgets(
     hint.hidden = true
     el.addEventListener('error', () => {
       hint.hidden = false
-      hint.textContent =
-        kind === 'video'
-          ? '无法播放：文件可能不在库里，或容器/编码不被支持（MKV、AVI 请先转成 MP4）'
-          : '无法播放：文件可能不在库里，或格式不被支持（请先转成 MP3）'
+      hint.replaceChildren(
+        document.createTextNode(
+          kind === 'video'
+            ? '无法播放：文件可能不在库里，或容器/编码不被支持（MKV、AVI 请先转成 MP4）'
+            : '无法播放：文件可能不在库里，或格式不被支持（请先转成 MP3）',
+        ),
+      )
+      // 库外绝对路径 = 「原文件在另一台机器上」的典型形态（需求 §5 入口 1）。
+      // 点击后由宿主查台账 → 确认 → 从云端临时区接收 → 改写引用（编辑器不认识搬运逻辑）。
+      if (onExternalMediaSync && EXTERNAL_ABS_RE.test(stripAngleTarget(raw))) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'zn-media-sync'
+        btn.textContent = '原文件不在本机 · 同步'
+        btn.addEventListener('click', (e) => {
+          // wrap 上有 capture 阶段的 mousedown 拦截（防抢光标），点击要自己吃掉
+          e.preventDefault()
+          e.stopPropagation()
+          onExternalMediaSync(raw)
+        })
+        hint.append(btn)
+      }
     })
 
     wrap.dataset.znMedia = kind
@@ -229,18 +254,22 @@ function mediaSourceUrl(
   }
 }
 
-function imageAssetPlugin(vault: string | null | undefined, notePath: string | null) {
+function imageAssetPlugin(
+  vault: string | null | undefined,
+  notePath: string | null,
+  onExternalMediaSync?: (raw: string) => void,
+) {
   return ViewPlugin.fromClass(
     class {
       private readonly observer: MutationObserver
       constructor(view: EditorView) {
-        this.observer = new MutationObserver(() => fixImageSrc(view, vault, notePath))
+        this.observer = new MutationObserver(() => fixImageSrc(view, vault, notePath, onExternalMediaSync))
         this.observer.observe(view.contentDOM, { childList: true, subtree: true })
-        fixImageSrc(view, vault, notePath)
+        fixImageSrc(view, vault, notePath, onExternalMediaSync)
       }
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          fixImageSrc(update.view, vault, notePath)
+          fixImageSrc(update.view, vault, notePath, onExternalMediaSync)
         }
       }
       destroy() {
@@ -300,6 +329,14 @@ type Props = {
    * （`[报告](报告.pdf)`）以前点了完全没反应。
    */
   onLocalLinkOpen?: (relPath: string) => void
+  /**
+   * 正文里**音视频播放失败**时给出的同步出口（rev173.239 · 附件同步期 4 的正文入口 1）。
+   *
+   * 只在源是**库外绝对路径**时才挂按钮（那种路径只可能来自「引用原文件」）：
+   * 播放失败 ⇒ 原文件多半在另一台机器上。查台账 / 确认 / 接收 / 改写引用全在宿主，
+   * 编辑器只把「哪个源失败了」交回去（与 `onLocalLinkOpen` 同一套边界）。
+   */
+  onExternalMediaSync?: (raw: string) => void
   /**
    * 用户可见的提示出口（rev173.41）。之前"打开外部链接失败"只打 `console.warn`——
    * 手机上 `open_external` 本来就不支持（原生层直接拒绝），点链接等于**零反馈**。
@@ -411,6 +448,22 @@ const EDITOR_CSS = `
   margin-top: 6px;
   font-size: var(--zn-text-sm);
   color: var(--zn-danger);
+}
+/* 播放失败时给「原文件不在本机 · 同步」按钮（rev173.239 · 期 4 正文入口 1）。
+   只在源是库外绝对路径时才出现（见 upgradeMediaWidgets）—— 同一行里跟在提示文字后面。 */
+.zn-editor .cm-atomic-image .zn-media-sync {
+  display: block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: var(--zn-text-sm);
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius);
+  background: transparent;
+  color: var(--zn-fg);
+  cursor: pointer;
+}
+.zn-editor .cm-atomic-image .zn-media-sync:hover {
+  background: var(--zn-bg-hover);
 }
 @media (max-width: 640px) {
   .zn-editor .cm-atomic-image video {
@@ -612,6 +665,7 @@ export function MarkdownEditor({
   onWikiLinkOpen,
   onWikiPreview,
   onLocalLinkOpen,
+  onExternalMediaSync,
   onNotify,
   onPasteImage,
   layers,
@@ -1003,11 +1057,25 @@ export function MarkdownEditor({
       if (!content || !content.contains(img)) return
       ev.preventDefault()
       ev.stopPropagation()
+      /**
+       * 库内相对路径的图 ⇒ 交给宿主的预览（rev173.239）：
+       * 宿主那边会查引用台账，模式 B 的图能就地给「同步原图」——编辑器自己不认识台账。
+       * 宿主没传口 / 库外绝对路径 ⇒ 仍用本组件自己的预览（行为与 rev173.1 一致）。
+       */
+      const raw = img.dataset.znRaw
+      if (onLocalLinkOpen && raw) {
+        const abs = resolveImageAbsPath(vault, path, raw)
+        const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+        if (abs && root && abs.startsWith(`${root}/`)) {
+          onLocalLinkOpen(abs.slice(root.length + 1))
+          return
+        }
+      }
       setPreviewSrc(img.src)
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
-  }, [])
+  }, [onLocalLinkOpen, vault, path])
 
   // Esc 关闭图片预览
   useEffect(() => {
@@ -1182,7 +1250,7 @@ export function MarkdownEditor({
     // frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）—— 见 kernel/editor-frontmatter.ts
     frontmatterHide(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
-    imageAssetPlugin(vault, path),
+    imageAssetPlugin(vault, path, onExternalMediaSync),
   ]
 
   // 兜底（正常走不到）：万一将来 atomic 的内部实现不再触发我们注入的
