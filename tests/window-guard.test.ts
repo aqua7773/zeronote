@@ -12,7 +12,10 @@ import {
   domLooksAlive,
   GRACE_MS,
   isGuardedWindow,
+  MAIN_BAD_STREAK,
+  mainDomLooksAlive,
   pickStuckWindows,
+  shouldRescueMain,
   STALE_MS,
   type WindowBeat,
 } from '../src/lib/window-guard'
@@ -146,5 +149,56 @@ describe('domLooksAlive（窗口端自检）', () => {
   it('空输入不炸', () => {
     expect(domLooksAlive(null)).toBe(false)
     expect(domLooksAlive(undefined)).toBe(false)
+  })
+})
+
+/**
+ * 主窗口自救（rev173.247）—— 子窗口那套判据不覆盖主窗口，这里另起一套。
+ *
+ * 最怕两种错法：**误救**（正常加载中就被 reload，用户看到页面自己刷）与
+ * **救不了**（白屏了一直白着）。后者只是没修好，前者会让应用看起来"自己乱刷" —— 更糟，
+ * 所以阈值与「一次启动只救一次」这两条要钉死。
+ */
+describe('mainDomLooksAlive + shouldRescueMain（主窗口自救）', () => {
+  function fakeDoc(opts: { root: boolean; w?: number; h?: number; children?: number }) {
+    const el = opts.root
+      ? {
+          getBoundingClientRect: () => ({ width: opts.w ?? 1600, height: opts.h ?? 900 }),
+          childElementCount: opts.children ?? 4,
+        }
+      : null
+    return { querySelector: () => el } as unknown as Document
+  }
+
+  it('`.zn-app` 在 + 可见 + 有子元素 ⇒ 活着', () => {
+    expect(mainDomLooksAlive(fakeDoc({ root: true }))).toBe(true)
+  })
+
+  it('根节点消失 / 零尺寸 / 空壳 ⇒ 都算白屏', () => {
+    expect(mainDomLooksAlive(fakeDoc({ root: false }))).toBe(false)
+    expect(mainDomLooksAlive(fakeDoc({ root: true, w: 0 }))).toBe(false)
+    expect(mainDomLooksAlive(fakeDoc({ root: true, h: 0 }))).toBe(false)
+    expect(mainDomLooksAlive(fakeDoc({ root: true, children: 0 }))).toBe(false)
+  })
+
+  it('页面还活着 ⇒ 永远不救（哪怕 streak 已经很大）', () => {
+    expect(shouldRescueMain(true, 99, false)).toBe(false)
+  })
+
+  it('连续到阈值才救：第 1、2 次不动，第 3 次动手', () => {
+    // streak = 本次**之前**已连续的次数
+    expect(shouldRescueMain(false, 0, false)).toBe(false) // 第 1 次
+    expect(shouldRescueMain(false, 1, false)).toBe(false) // 第 2 次
+    expect(shouldRescueMain(false, MAIN_BAD_STREAK - 1, false)).toBe(true) // 第 3 次
+  })
+
+  it('这次启动已经救过 ⇒ 永不动作（防「白屏原因没解决 ⇒ 原地循环刷」）', () => {
+    expect(shouldRescueMain(false, 99, true)).toBe(false)
+    expect(shouldRescueMain(true, 99, true)).toBe(false)
+  })
+
+  it('空输入不炸', () => {
+    expect(mainDomLooksAlive(null)).toBe(false)
+    expect(mainDomLooksAlive(undefined)).toBe(false)
   })
 })

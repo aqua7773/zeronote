@@ -87,7 +87,7 @@ import { useExternalFile } from './hooks/useExternalFile'
 /* rev128 拆分 L3：插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）抽成 hook */
 import { usePluginHost } from './hooks/usePluginHost'
 /* rev173.104 白屏兜底：窗口报活 + 主窗口清扫卡死窗口（见 lib/window-guard.ts 文件头） */
-import { useStuckWindowReaper, useWindowHeartbeat } from './hooks/useWindowGuard'
+import { useMainWindowRescue, useStuckWindowReaper, useWindowHeartbeat } from './hooks/useWindowGuard'
 /* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
 import {
   baseName,
@@ -1185,6 +1185,13 @@ export default function App() {
     setToast(`已关闭无响应的窗口「${label}」`)
   }, [])
   useStuckWindowReaper(!standaloneWindow, onWindowReaped)
+  /**
+   * **主窗口自救**（rev173.247）：上面那对钩子守子窗口，主窗口白屏时没人能来关它 ——
+   * 只能页面自己每 5 秒自检，连续 3 次（15 秒）判定「`.zn-app` 没了」就 reload 一次。
+   * 一次启动最多救一次（`sessionStorage`），防「白屏原因没解决 ⇒ 原地循环刷」。
+   * 未落盘内容由 `useDocIO` 的 `beforeunload` 钩子写进草稿，reload 后走「恢复草稿」。
+   */
+  useMainWindowRescue(!standaloneWindow)
 
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
   const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({

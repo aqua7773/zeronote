@@ -18,8 +18,12 @@ import {
   applyBeat,
   BEAT_MS,
   domLooksAlive,
+  MAIN_CHECK_MS,
+  MAIN_RESCUE_FLAG,
+  mainDomLooksAlive,
   pickStuckWindows,
   SCAN_MS,
+  shouldRescueMain,
   WINDOW_BEAT_EVENT,
   type WindowBeat,
 } from '../lib/window-guard'
@@ -137,4 +141,53 @@ export function useStuckWindowReaper(enabled: boolean, onReaped: (label: string)
       unlisten?.()
     }
   }, [enabled, onReaped])
+}
+
+/**
+ * **主窗口自救**（rev173.247 · 见 `lib/window-guard.ts` 那段注释）。
+ *
+ * 与上面两个钩子的分工：那对钩子守**子窗口**（页面挂了由主窗口关掉它）；
+ * 这个守**主窗口自己** —— 主窗口白屏时没有"另一个窗口"能来关它，
+ * 只能页面自己发现问题后 reload（JS 还活着才有这一手）。
+ *
+ * 只在主窗口调（`!standaloneWindow`）；`sessionStorage` 保证一次启动只自救一次。
+ */
+export function useMainWindowRescue(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return
+    let alreadyRescued = false
+    try {
+      alreadyRescued = sessionStorage.getItem(MAIN_RESCUE_FLAG) === '1'
+    } catch {
+      /* 隐私模式 / 禁用存储：当作没自救过（宁可救一次，也不要永远不救） */
+    }
+    // 这次启动已经救过 ⇒ 不再 reload。白屏原因没解决时反复刷只会更难排查。
+    if (alreadyRescued) return
+
+    let streak = 0
+    let disposed = false
+    const timer = window.setInterval(() => {
+      if (disposed) return
+      const ok = mainDomLooksAlive(document)
+      if (shouldRescueMain(ok, streak, false)) {
+        disposed = true
+        window.clearInterval(timer)
+        try {
+          sessionStorage.setItem(MAIN_RESCUE_FLAG, '1')
+        } catch {
+          /* 存不了就救不了 —— 宁可这次不救，也不要变成死循环 */
+          return
+        }
+        console.warn('[zn] 主窗口连续', streak + 1, '次白屏，自动重载一次')
+        // 未落盘内容由 `useDocIO` 的 beforeunload 钩子写进草稿（reload 后走恢复）
+        location.reload()
+        return
+      }
+      streak = ok ? 0 : streak + 1
+    }, MAIN_CHECK_MS)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [enabled])
 }

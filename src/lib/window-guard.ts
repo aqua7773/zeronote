@@ -122,3 +122,54 @@ export function domLooksAlive(doc: Document | null | undefined): boolean {
   if (rect.width <= 0 || rect.height <= 0) return false
   return root.childElementCount > 0
 }
+
+/* ───────── 主窗口自救（rev173.247）─────────
+ *
+ * rev173.104 的守护只覆盖**子窗口**（`plugin-` / `note-`）：主窗口根节点不在判据里，
+ * 而 Rust 看门狗（`卡死兜底方案` §2.1）判的是**心跳有没有到** —— 「DOM 没了但 JS 还活着」
+ * 这种白屏心跳照发，两条通道都够不着。
+ *
+ * 这里的补法：主窗口自己每几秒自检一次，连续 `MAIN_BAD_STREAK` 次判定「页面没了」
+ * 就 `location.reload()` —— **整个页面重跑一遍**。
+ *
+ * 三个必守的约束：
+ *  1. **只自救一次**（`sessionStorage` 记）：白屏原因没解决时 reload 会原地循环，
+ *     那比白屏还糟（用户连菜单都点不到，每次刚起来又刷回去）。第二次起放手不管。
+ *  2. **阈值保守**：3 次 × 5 s = 15 秒才动手 —— 瞬时 DOM 重建（HMR / 切库重排）不算。
+ *  3. **reload 前的内容靠 `beforeunload` 兜**：`useDocIO` 已在那条事件上把未落盘内容写进
+ *     草稿（`rev173.65`），reload 后走「恢复草稿」。唯一例外是私密笔记（明文不进 localStorage），
+ *     那种情况下 800 ms 自动保存已覆盖绝大多数情形 —— 这条代价如实写在文档 §11。
+ */
+
+/** 主窗口根节点（`#root` 下那一层就是它；白屏 = 它不在 / 零尺寸 / 没有子元素） */
+export const MAIN_ROOT_SELECTOR = '.zn-app'
+
+/** 主窗口自检间隔（与子窗口扫描同一节奏，便于理解） */
+export const MAIN_CHECK_MS = 5000
+
+/** 连续几次「页面没了」才 reload（3 × 5 s = 15 s） */
+export const MAIN_BAD_STREAK = 3
+
+/** sessionStorage：这次启动已经自救过一次（防死循环） */
+export const MAIN_RESCUE_FLAG = 'zn.main-rescue-done'
+
+/** 主窗口的「页面看起来还在吗」—— 判据与子窗口同一套，只是换根节点 */
+export function mainDomLooksAlive(doc: Document | null | undefined): boolean {
+  if (!doc) return false
+  const root = doc.querySelector(MAIN_ROOT_SELECTOR) as HTMLElement | null
+  if (!root) return false
+  const rect = root.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false
+  return root.childElementCount > 0
+}
+
+/**
+ * 这一轮该不该 reload 主窗口（纯函数；`streak` 是**本次之前**已连续的次数）。
+ *
+ * 三条：这次启动没自救过（`alreadyRescued` 为假）· 这一轮判定白屏 · 累计到阈值。
+ */
+export function shouldRescueMain(ok: boolean, streak: number, alreadyRescued: boolean): boolean {
+  if (alreadyRescued) return false
+  if (ok) return false
+  return streak + 1 >= MAIN_BAD_STREAK
+}
