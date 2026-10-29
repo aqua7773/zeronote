@@ -283,6 +283,8 @@ pwsh -File scripts\verify.ps1
   ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **5216** · 2026-10-29 23:37:30 起；vite 1420 / CDP 9222 都在），
   日志在 `.self-logs/desktop-dev.log`。**rev173.256（B1）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
   没有重编 Rust、没有重启 dev；测完页面已回到笔记视图、`Emulation` 视口已清除。
+  ⚠️ **rev173.258/259 验证「零插件空态」**：临时把 `<appdata>\.zn\plugins` 改名 → 重扫 → 截图 → 改回 → 重扫；
+  已恢复（**18 个**、无 `plugins-b3-empty-bak` 残留）。手机重启过一次（`am force-stop` + `am start`，pid 已变；重启后补过 `adb reverse tcp:1420`）。
   ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
   结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
