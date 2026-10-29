@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.253 · 手机端补两项入口）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.254 · 0.7.1 发版）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.253 · 0.7.0 · 2026-10-29 |
+| rev / 版本 | rev173.254 · 0.7.1 · 2026-10-29 |
 | 测试基线 | vitest 1478 · cargo 87 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
-| 文档 | README 现状 2026-10-29 · CHANGELOG 0.7.0 |
+| 文档 | README 现状 2026-10-29 · CHANGELOG 0.7.1 |
 <!-- FACTS:END -->
 
 ## 是什么
