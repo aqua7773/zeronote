@@ -41,6 +41,8 @@ class RecentNotesWidget : AppWidgetProvider() {
     appWidgetManager: AppWidgetManager,
     appWidgetIds: IntArray,
   ) {
+    // 有组件在用 ⇒ 把「快照变了就刷新」的监听接回来（幂等；rev173.243）
+    WidgetRefresher.ensureWatching(context)
     for (id in appWidgetIds) {
       appWidgetManager.updateAppWidget(id, buildViews(context, id, appWidgetManager))
     }

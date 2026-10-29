@@ -4,8 +4,9 @@
 
   `minHeight=180dp` ⇒ 5 行（标题 24 + 5×28 = 164）。比这矮时行会被截掉一半 ——
   所以 `minHeight` 不往下缩：要更小就少加计划，而不是把组件拉成一条缝。
-  `updatePeriodMillis=0`：计划列表只在「应打卡日」变化时需要重算，而那是
-  内核写快照时的事（拉一次桌面 / 打开一次 App 就会刷新）。
+  `updatePeriodMillis=1800000`（系统下限 30 分钟）只是**兜底**：真正的刷新靠
+  `WidgetRefresher`（FileObserver 盯 `.zn/widget-data.json`，快照一变就重绘）。
+  2026-10-29 实测过「先加组件、后建计划」⇒ 只有 0 的话会永久停在空状态。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_habit"
@@ -17,5 +18,5 @@
     android:resizeMode="horizontal"
     android:targetCellHeight="3"
     android:targetCellWidth="3"
-    android:updatePeriodMillis="0"
+    android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen" />

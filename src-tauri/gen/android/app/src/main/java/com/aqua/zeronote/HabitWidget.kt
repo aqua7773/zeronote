@@ -60,6 +60,9 @@ class HabitWidget : AppWidgetProvider() {
     appWidgetManager: AppWidgetManager,
     appWidgetIds: IntArray,
   ) {
+    // 有组件在用 ⇒ 把「快照变了就刷新」的监听接回来（幂等；rev173.243）。
+    // 没有它，组件会停在「添加那一刻」的快照上：先加组件、后建计划的用户永远看到空状态。
+    WidgetRefresher.ensureWatching(context)
     for (id in appWidgetIds) {
       appWidgetManager.updateAppWidget(id, buildViews(context))
     }
