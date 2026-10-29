@@ -29,6 +29,13 @@ import {
 } from '@codemirror/view'
 import type { Extension, Range, Text } from '@codemirror/state'
 import { StateField, type EditorState } from '@codemirror/state'
+import {
+  fileCardModelOf,
+  fileCardRefresh,
+  parseSingleLinkLine,
+  type FileCardModel,
+} from './file-card'
+import { formatSize } from './attachment'
 
 /**
  * 内嵌 HTML 的渲染开关（设置页「内嵌 HTML」）：作为**参数**一路传下来，
@@ -565,7 +572,101 @@ export function findMermaidBlocks(doc: Text): MathBlock[] {
 }
 
 /**
- * 块级数学的装饰器。
+ * 库外非媒体附件的**文件卡片**（rev173.245 · 附件需求最后一小块）。
+ *
+ * 替换的是**整行** `[名](D:/某个大文件.pdf)`，与数学 / Mermaid 块同一套做法
+ * （block 装饰器只能由 StateField 提供，见 `syntaxBlockField` 的说明）。
+ *
+ * 为什么不用 atomic 的 `.cm-atomic-link` 做增强：那是行内 mark，替换它的
+ * 文本节点会与 CM6 的状态脱节（滚动 / 编辑时错位）；块级 widget 才是 CM6
+ * 自己的渲染单元，滚动出去再回来由它重建。
+ *
+ * 点击行为分两半：卡片主体把光标放进这一行（`ignoreEvent` 返回 false，与图片一致，
+ * 想看 / 改源码直接点），右上角「打开」按钮交给宿主分流（`onFileCardOpen`）。
+ */
+class FileCardWidget extends WidgetType {
+  model: FileCardModel
+  constructor(model: FileCardModel) {
+    super()
+    this.model = model
+  }
+  override eq(other: FileCardWidget) {
+    const a = this.model
+    const b = other.model
+    return (
+      a.name === b.name &&
+      a.kind === b.kind &&
+      a.ext === b.ext &&
+      a.size === b.size &&
+      a.missing === b.missing &&
+      a.hint === b.hint
+    )
+  }
+  override toDOM() {
+    const m = this.model
+    const card = document.createElement('div')
+    card.className = `zn-file-card${m.missing ? ' is-missing' : ''}`
+    card.dataset.kind = m.kind
+    card.title = m.hint
+
+    const icon = document.createElement('span')
+    icon.className = 'zn-file-card-icon'
+    icon.textContent = m.icon
+    icon.setAttribute('aria-hidden', 'true')
+
+    const body = document.createElement('span')
+    body.className = 'zn-file-card-body'
+    const name = document.createElement('span')
+    name.className = 'zn-file-card-name'
+    name.textContent = m.name
+    const sub = document.createElement('span')
+    sub.className = 'zn-file-card-sub'
+    // 副标题的三段各自可缺：没有扩展名 / 台账没这条（大小未知）/ 本机读不到
+    const bits: string[] = []
+    if (m.ext) bits.push(m.ext.toUpperCase())
+    if (m.size !== null) bits.push(formatSize(m.size))
+    if (m.missing) bits.push('源文件不在本机')
+    sub.textContent = bits.join(' · ')
+    body.append(name, sub)
+
+    const open = document.createElement('button')
+    open.type = 'button'
+    open.className = 'zn-file-card-open'
+    open.textContent = '打开'
+    // 路径进 dataset：domEventHandlers 里读它，widget 不需要持有回调
+    open.dataset.target = m.target
+
+    card.append(icon, body, open)
+    return card
+  }
+  /** 不吞点击：卡片主体点了就把光标放进这一行（与图片 widget 同一约定） */
+  override ignoreEvent() {
+    return false
+  }
+}
+
+/**
+ * 一行里只有一个库外附件链接 ⇒ 该行的卡片模型；否则 null。
+ *
+ * 导出是为了单测能直接锁「哪些行会被接管」（`tests/editor-syntax.test.ts`），
+ * 装饰器本身的渲染仍由 CDP 实测覆盖（`docs/ROADMAP.md` §4 第 5 条口径）。
+ */
+export function findFileCardLines(
+  doc: Text,
+): { from: number; to: number; model: FileCardModel }[] {
+  const out: { from: number; to: number; model: FileCardModel }[] = []
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i)
+    const link = parseSingleLinkLine(line.text)
+    if (!link) continue
+    const model = fileCardModelOf(link.label, link.target)
+    if (!model) continue
+    out.push({ from: line.from, to: line.to, model })
+  }
+  return out
+}
+
+/** 块级数学的装饰器。
  *
  * ⚠️ **必须由 StateField 提供**：CM6 禁止插件（ViewPlugin）提供 block 装饰器 ——
  * 实测会抛 `RangeError: Block decorations may not be specified via plugins` 并整页白屏。
@@ -586,6 +687,13 @@ function blockDecorations(state: EditorState): DecorationSet {
     if (touched(b)) continue
     decos.push(
       Decoration.replace({ block: true, widget: new MermaidWidget(b.tex) }).range(b.from, b.to),
+    )
+  }
+  // 文件卡片（rev173.245）：光标在行内时显示源码，与数学 / 图表块同一交互约定
+  for (const b of findFileCardLines(doc)) {
+    if (touched(b)) continue
+    decos.push(
+      Decoration.replace({ block: true, widget: new FileCardWidget(b.model) }).range(b.from, b.to),
     )
   }
   return Decoration.set(decos, true)
@@ -660,15 +768,26 @@ const syntaxBlockField = StateField.define<DecorationSet>({
     return blockDecorations(state)
   },
   update(value, tr) {
-    // 选区变化也要重算（光标进入/离开块时切换「渲染 ↔ 源码」）
-    if (tr.docChanged || tr.selection) return blockDecorations(tr.state)
+    // 选区变化也要重算（光标进入/离开块时切换「渲染 ↔ 源码」）；
+    // 台账到达 / 变化时由 `fileCardRefresh` 主动触发一次（rev173.245）
+    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(fileCardRefresh))) {
+      return blockDecorations(tr.state)
+    }
     return value
   },
   provide: (f) => EditorView.decorations.from(f),
 })
 
-/** 接入 `MarkdownEditor` 的 extensions 数组 */
-export function editorSyntaxExtensions(renderHtml = true): Extension {
+/**
+ * 接入 `MarkdownEditor` 的 extensions 数组。
+ *
+ * `onFileCardOpen`（rev173.245）：文件卡片右上角「打开」→ 交回宿主分流
+ * （与正文链接的 `onLocalLinkOpen` 同一层边界；编辑器不认文件系统）。
+ */
+export function editorSyntaxExtensions(
+  renderHtml = true,
+  onFileCardOpen?: (target: string) => void,
+): Extension {
   return [
     syntaxBlockField,
     ViewPlugin.fromClass(
@@ -688,6 +807,16 @@ export function editorSyntaxExtensions(renderHtml = true): Extension {
     // 脚注引用点击 → 跳到对应定义行（`[^1]` 的「块内跳转」）
     EditorView.domEventHandlers({
       mousedown(event, view) {
+        // 文件卡片的「打开」按钮（rev173.245）：卡片主体不拦，让 CM6 把光标放进这一行
+        const openBtn = (event.target as HTMLElement | null)?.closest?.(
+          '.zn-file-card-open',
+        ) as HTMLElement | null
+        if (openBtn) {
+          event.preventDefault()
+          const target = openBtn.dataset.target
+          if (target) onFileCardOpen?.(target)
+          return true
+        }
         const el = (event.target as HTMLElement | null)?.closest?.('.zn-footnote-ref')
         if (!el) return false
         event.preventDefault()

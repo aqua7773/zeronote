@@ -25,6 +25,8 @@ import {
 } from '../lib/paste-image'
 import { SourceModeView } from './SourceModeView'
 import { TableToolbar, type TableInfo } from './TableToolbar'
+import { loadRelayPending } from '../kernel/asset-relay'
+import { fileCardRefresh, setFileCardLedger } from '../kernel/file-card'
 
 /** 编辑器 state 缓存上限（篇）；超过按 LRU 淘汰，避免开过很多笔记后内存无限涨 */
 const MAX_CACHED_STATES = 20
@@ -488,6 +490,63 @@ const EDITOR_CSS = `
     max-height: 23vh;
   }
 }
+/* 文件卡片（rev173.245 · 附件需求最后一小块）：库外非媒体附件的正文形态。
+   整行由 CM6 的 block widget 替换（见 editor-syntax.ts 的 FileCardWidget），
+   视觉规格与图片 / 播放器同一套：圆角 0.4em、左对齐、hover 提亮。
+   「源文件不在本机」用 danger 色 —— 与破图提示同一口径，不静默。 */
+.zn-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--zn-border);
+  border-radius: 0.4em;
+  background: var(--zn-bg);
+  cursor: default;
+}
+.zn-file-card:hover {
+  background: var(--zn-bg-hover);
+}
+.zn-file-card-icon {
+  flex: none;
+  font-size: 20px;
+  line-height: 1;
+}
+.zn-file-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.zn-file-card-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--zn-fg);
+}
+.zn-file-card-sub {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+}
+.zn-file-card.is-missing .zn-file-card-sub {
+  color: var(--zn-danger);
+}
+.zn-file-card-open {
+  flex: none;
+  padding: 2px 10px;
+  font-size: var(--zn-text-sm);
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius);
+  background: transparent;
+  color: var(--zn-fg);
+  cursor: pointer;
+}
+.zn-file-card-open:hover {
+  background: var(--zn-bg-hover);
+}
 /* [[x]] 悬浮预览（rev173.228）：固定定位的小卡片，贴在链接下方 */
 .zn-wiki-tip {
   position: fixed;
@@ -729,6 +788,53 @@ export function MarkdownEditor({
   /** 表格工具条：当前编辑器 view + 光标所在表格的信息 */
   const [editorView, setEditorView] = useState<EditorView | null>(null)
   const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
+  /**
+   * 文件卡片的引用台账（rev173.245 · 附件需求最后一小块）。
+   *
+   * 卡片要显示「多大 / 源文件还在不在本机」—— 这两件事前端拿不到（WebView 不能 stat，
+   * 内核也没有 stat 原语），但库外绝对路径的非媒体附件**必然**是 > 1 MiB 的引用型
+   * （≤ 1 MiB 会复制进库、写相对路径），身份一定在引用台账 `<库>/.zn-assets/manifest.json`。
+   * 所以一次 `asset_relay_pending` 就够（Rust 顺手 stat 每个源文件）。
+   *
+   * 10 秒缓存：连续切笔记不反复走 IPC；源文件被移走后最多 10 秒反映到卡片上。
+   * 非 Tauri 环境 / 台账不存在 ⇒ 静默跳过，卡片退化成「只有名字」，不打扰用户。
+   */
+  const ledgerCacheRef = useRef<{
+    vault: string
+    at: number
+    entries: { original: string; size: number; exists: boolean }[]
+  } | null>(null)
+  useEffect(() => {
+    if (!vault || !editorView) return
+    let alive = true
+    const apply = (entries: { original: string; size: number; exists: boolean }[]) => {
+      setFileCardLedger(entries)
+      // 台账可能晚于编辑器挂载才到（首次打开笔记就是如此）⇒ 主动让块装饰重算一次
+      editorView.dispatch({ effects: fileCardRefresh.of(null) })
+    }
+    const cached = ledgerCacheRef.current
+    if (cached && cached.vault === vault && Date.now() - cached.at < 10_000) {
+      apply(cached.entries)
+      return
+    }
+    void loadRelayPending(vault)
+      .then((res) => {
+        if (!alive) return
+        const entries = res.items.map((it) => ({
+          original: it.original,
+          size: it.size,
+          exists: it.exists,
+        }))
+        ledgerCacheRef.current = { vault, at: Date.now(), entries }
+        apply(entries)
+      })
+      .catch(() => {
+        /* 非 Tauri（浏览器预览 / 单测）或库不可读：卡片只显示名字，不报错 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [vault, editorView])
   /** 正文图片的全屏预览地址（null = 没开）。rev173.1：正文里只显示缩略尺寸，点开看原图 */
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   /**
@@ -1287,7 +1393,8 @@ export function MarkdownEditor({
     // 笔记时读它，那时捕获到的就是当次渲染的回调，不需要 ref 中转。
     ...editorMarkExtensions((id, payload) => onCommand?.(id, payload)),
     // Markdown 语法增强（rev173.36）：上标 ^x^ / 下标 ~x~ / Emoji :name:
-    editorSyntaxExtensions(renderHtml),
+    // 第二个参数（rev173.245）= 文件卡片「打开」按钮 → 交回宿主分流
+    editorSyntaxExtensions(renderHtml, onLocalLinkOpen),
     // frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）—— 见 kernel/editor-frontmatter.ts
     frontmatterHide(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）

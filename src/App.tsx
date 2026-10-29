@@ -155,6 +155,7 @@ import {
   syncConfirmText,
 } from './kernel/asset-relay'
 import { setMediaServer } from './kernel/media-url'
+import { isExternalAbsPath } from './kernel/file-card'
 import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
@@ -2859,6 +2860,16 @@ export default function App() {
    */
   const openLocalLink = useCallback(
     (raw: string) => {
+      /**
+       * 库外绝对路径（rev173.245 · 文件卡片的「打开」按钮）：
+       * 它**不在库里**，走后面的相对路径归一化只会得到「库里没有这个附件」这种误导答案。
+       * 内核没有「用系统默认程序打开本地文件」的原语（`open_external` 只放行 http/https），
+       * 所以这里如实说出路径，由用户去文件管理器打开。
+       */
+      if (isExternalAbsPath(raw)) {
+        setToast(`库外文件：${raw}（不在本库内，请用文件管理器打开）`)
+        return
+      }
       let rel = raw.trim()
       try {
         rel = decodeURIComponent(rel)
