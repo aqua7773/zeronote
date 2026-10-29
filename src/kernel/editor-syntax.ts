@@ -32,10 +32,10 @@ import { StateField, type EditorState } from '@codemirror/state'
 import {
   fileCardModelOf,
   fileCardRefresh,
+  fileCardSubtitle,
   parseSingleLinkLine,
   type FileCardModel,
 } from './file-card'
-import { formatSize } from './attachment'
 
 /**
  * 内嵌 HTML 的渲染开关（设置页「内嵌 HTML」）：作为**参数**一路传下来，
@@ -621,12 +621,11 @@ class FileCardWidget extends WidgetType {
     name.textContent = m.name
     const sub = document.createElement('span')
     sub.className = 'zn-file-card-sub'
-    // 副标题的三段各自可缺：没有扩展名 / 台账没这条（大小未知）/ 本机读不到
-    const bits: string[] = []
-    if (m.ext) bits.push(m.ext.toUpperCase())
-    if (m.size !== null) bits.push(formatSize(m.size))
-    if (m.missing) bits.push('源文件不在本机')
-    sub.textContent = bits.join(' · ')
+    // 拼装口径只在 `fileCardSubtitle` 里有一份：没有扩展名 / 台账没这条（大小未知）/
+    // 本机读不到，三种情况各自可缺
+    sub.textContent = [fileCardSubtitle(m), m.missing ? '源文件不在本机' : '']
+      .filter(Boolean)
+      .join(' · ')
     body.append(name, sub)
 
     const open = document.createElement('button')
