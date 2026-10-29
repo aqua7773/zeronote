@@ -15,8 +15,9 @@ import {
   type PluginVersionsState,
 } from '../kernel/plugin-versions'
 import type { MarketEntry } from '../kernel/market'
-import type { PluginLogEntry } from '../kernel/contract'
+import type { CapabilityName, CapabilityStatus, PluginLogEntry } from '../kernel/contract'
 import type { KernelAudit } from '../kernel/kernel'
+import { CAPABILITY_LABELS } from '../kernel/capability'
 import {
   PLUGIN_CATEGORY_HINT,
   PLUGIN_CATEGORY_LABEL,
@@ -26,7 +27,7 @@ import {
 } from '../lib/plugin-category'
 
 /**
- * 插件管理面板（M2）—— 「装上出现 / 卸下消失」的可视化开关。
+ * 插件中心（M2；B3 从设置页独立成页）—— 「装上出现 / 卸下消失」的可视化开关。
  *
  * 注意：**进程内插件没有沙箱**（契约 §4）——所以这里把 capability 明明白白列出来，
  * 让用户知道这个插件能看到/改动什么。
@@ -81,6 +82,22 @@ export type PluginRow = {
 /** 插件页的说明最多显示 15 个字（用户 2026-10-19 要求；全文放悬停 title） */
 const DESC_MAX = 15
 
+/**
+ * 零插件空态的 3 条推荐（B3 · 方案 §1.3 / §6）。
+ *
+ * 用**市场插件 id** 而不是写死面板 id：点「去安装」只是切到市场 tab，
+ * 市场里有没有这一条由索引决定，这里不假装能装（离线时索引本来就可能拉不到）。
+ * 顺序按「装上立刻有感」排：标签 → 反链 → 历史。
+ */
+const RECOMMENDED: { id: string; name: string; why: string }[] = [
+  { id: 'tag-panel', name: '标签', why: '给笔记打标签，按标签浏览' },
+  { id: 'backlinks', name: '反向链接', why: '看哪些笔记引用了当前这篇' },
+  { id: 'history', name: '历史版本', why: '每次保存留一档，能回滚' },
+]
+
+/** 禁用一条插件后，撤销条最多挂多久（毫秒）—— 与删除笔记的撤销条同一心意：给一次后悔的机会 */
+const UNDO_DISABLE_MS = 12_000
+
 /** 分类折叠状态 —— 全局一份（插件本身就是全局的，不按库隔离） */
 const COLLAPSED_KEY = 'zn-plugin-groups-collapsed'
 
@@ -125,6 +142,8 @@ export function PluginPanel({
   onTestLog,
   panels = [],
   onOpenPanel,
+  capabilities = [],
+  onCapabilityChoice,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -174,6 +193,13 @@ export function PluginPanel({
   panels?: { id: string; title: string; pluginId?: string; location?: string }[]
   /** 打开某个面板（App 的 `setMainView(panelId)`） */
   onOpenPanel?: (id: string) => void
+  /**
+   * 核心能力接管状态（B3 · 需求 §2.15）—— **从设置页迁来**。
+   * 不传 / 空数组 ⇒ 不显示「核心能力」块（独立窗口 / 测试环境）。
+   */
+  capabilities?: CapabilityStatus[]
+  /** 同优先级冲突时记住用户的选择（`null` = 清除记忆，回到最早登记的） */
+  onCapabilityChoice?: (name: CapabilityName, pluginId: string | null) => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
@@ -192,10 +218,35 @@ export function PluginPanel({
     entry: PluginVersionEntry
     reason: string
   } | null>(null)
-  /** 当前 tab（rev173.148）：已安装 / 发现（插件市场）/ 调试（rev173.229，仅开发者模式） */
+  /** 当前 tab（rev173.148 / B3 改名）：已安装 / 插件市场 / 调试（rev173.229，仅开发者模式） */
   const [tab, setTab] = useState<'installed' | 'discover' | 'dev'>('installed')
   /** 删除的是不是全局那份 —— 决定确认框里说哪个路径 */
   const pendingIsGlobal = pending?.source === 'global'
+
+  /**
+   * 刚被禁用、还能撤销的那一条（B3 · 方案 §6 验收「禁用插件可撤销」）。
+   *
+   * 只记**用户刚拨掉的那一个**：插件中心的开关是即时生效的（会重建内核），
+   * 拨错一次就得翻列表拨回来；给一条 12 秒的撤销条，代价最小。
+   */
+  const [lastDisabled, setLastDisabled] = useState<{ id: string; name: string } | null>(null)
+
+  useEffect(() => {
+    if (!lastDisabled) return
+    const t = window.setTimeout(() => setLastDisabled(null), UNDO_DISABLE_MS)
+    return () => window.clearTimeout(t)
+  }, [lastDisabled])
+
+  /** 开关包装：禁用时记下撤销项；重新启用 / 撤销都把它清掉 */
+  const toggleWithUndo = (p: PluginRow, enabled: boolean) => {
+    onToggle(p.id, enabled)
+    if (!enabled) setLastDisabled({ id: p.id, name: p.name })
+    else setLastDisabled((prev) => (prev?.id === p.id ? null : prev))
+  }
+
+  /** 正在为哪个核心能力挑提供者（null = 对话框关着）—— 从设置页迁来（B3） */
+  const [pickFor, setPickFor] = useState<CapabilityName | null>(null)
+  const pickStatus = pickFor ? capabilities.find((c) => c.name === pickFor) : null
 
   /**
    * 折叠的分类（2026-10-19 用户「插件分类加折叠功能」）。
@@ -319,7 +370,7 @@ export function PluginPanel({
           用户要求去掉标题和横线，扫描按钮挪到主区顶栏（见 App 的 .zn-main-panel-bar）。 */}
       {error && <div className="zn-plugins-error">⚠ {error}</div>}
 
-      {/* tab（rev173.148）：已安装 / 发现（市场）；rev173.229 加「调试」（开发者模式） */}
+      {/* tab（rev173.148；B3 改名）：已安装 / 插件市场 / 调试（rev173.229） */}
       {(onMarketInstall || audit) && (
         <div className="zn-plugins-tabs" role="tablist">
           <button
@@ -333,7 +384,7 @@ export function PluginPanel({
             {updateCount > 0 && (
               <span
                 className="zn-plugin-update-count"
-                title={`${updateCount} 个插件在市场里有新版本（不会自动升级，去「发现」里手动更新）`}
+                title={`${updateCount} 个插件在市场里有新版本（不会自动升级，去「插件市场」里手动更新）`}
               >
                 ↑ {updateCount}
               </span>
@@ -347,7 +398,7 @@ export function PluginPanel({
               className={`zn-plugins-tab${tab === 'discover' ? ' is-active' : ''}`}
               onClick={() => setTab('discover')}
             >
-              发现
+              插件市场
             </button>
           )}
           {audit && (
@@ -392,15 +443,93 @@ export function PluginPanel({
 
       {tab === 'installed' && (
         <>
-      {/* 安装 .znp（2026-10-18 rev119）：确认框会列出它自称要的能力与签名状态 */}
-      <div style={{ display: 'flex', gap: 8, padding: '2px 0 10px' }}>
-        <Button onClick={() => onInstall?.()}>安装插件包（.znp）…</Button>
-      </div>
+      {/* 已装插件时：顶部一条动作行。空态自己带按钮组（同一套动作不重复画两次）。 */}
+      {plugins.length > 0 && (
+        <div className="zn-plugins-actions">
+          {/* 安装 .znp（2026-10-18 rev119）：确认框会列出它自称要的能力与签名状态 */}
+          <Button onClick={() => onInstall?.()}>安装插件包（.znp）…</Button>
+          {onMarketInstall && (
+            <Button variant="secondary" onClick={() => setTab('discover')}>
+              浏览插件市场
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* 核心能力接管（需求 §2.15 · rev173.231）—— B3 从设置页迁来，插件的事留在插件中心 */}
+      {capabilities.length > 0 && (
+        <details className="zn-capability-box">
+          <summary>
+            核心能力 · {capabilities.filter((c) => c.active !== 'kernel').length} 项被插件接管
+            {capabilities.some((c) => c.needsChoice) && (
+              <span className="zn-capability-need">有同优先级冲突，请选择</span>
+            )}
+          </summary>
+          <div className="zn-capability-list">
+            <p className="zn-capability-hint">
+              插件启用即接管、禁用即回退本体。多个插件同时提供时按优先级选；同级由你决定，选择会记住。
+            </p>
+            {capabilities.map((c) => (
+              <div key={c.name} className="zn-capability-row">
+                <div className="zn-capability-meta">
+                  <span className="zn-capability-label">{CAPABILITY_LABELS[c.name] ?? c.name}</span>
+                  <code className="zn-capability-name">{c.name}</code>
+                  <span className="zn-capability-active">
+                    {c.active === 'kernel' ? '本体' : c.active}
+                  </span>
+                  {c.needsChoice && <span className="zn-capability-warn">同级冲突</span>}
+                </div>
+                {c.providers.length > 0 && (
+                  <button type="button" className="zn-plain-btn" onClick={() => setPickFor(c.name)}>
+                    选择…
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {plugins.length === 0 ? (
         <div className="zn-plugins-empty">
-          还没有插件。把插件文件夹放到 <code>{globalRoot ?? '<应用数据目录>'}</code> 下的{' '}
-          <code>.zn/plugins/&lt;id&gt;/</code>，点「重新扫描」即可。
+          <div className="zn-plugins-empty-title">还没有安装插件</div>
+          <p className="zn-plugins-empty-text">
+            ZeroNote 的内核只做四件事，其余能力都由插件加进来 —— 标签、反向链接、历史版本、同步、AI。
+            装错了随时可以禁用或删除，不会动你的笔记。
+          </p>
+          <div className="zn-plugins-empty-actions">
+            <Button onClick={() => onInstall?.()}>安装插件包（.znp）…</Button>
+            {onMarketInstall && (
+              <Button variant="secondary" onClick={() => setTab('discover')}>
+                浏览插件市场
+              </Button>
+            )}
+          </div>
+          {onMarketInstall && (
+            <div className="zn-plugins-recommend">
+              <div className="zn-plugins-recommend-title">推荐先装这 3 个</div>
+              <ul className="zn-plugins-recommend-list">
+                {RECOMMENDED.map((r) => (
+                  <li key={r.id}>
+                    <span className="zn-plugins-recommend-name">{r.name}</span>
+                    <span className="zn-plugins-recommend-why">{r.why}</span>
+                    <button
+                      type="button"
+                      className="zn-plain-btn"
+                      onClick={() => setTab('discover')}
+                      title={`在「插件市场」里找 ${r.name}（索引里叫 ${r.id}）`}
+                    >
+                      去安装
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="zn-plugins-empty-hint">
+            也可以把插件文件夹放到 <code>{globalRoot ?? '<应用数据目录>'}</code> 下的{' '}
+            <code>.zn/plugins/&lt;id&gt;/</code>，点「重新扫描」。
+          </p>
         </div>
       ) : (
         <div className="zn-plugin-list">
@@ -432,7 +561,7 @@ export function PluginPanel({
                     ? '这个插件声明了只支持特定平台，当前平台不加载它'
                     : undefined
                 }
-                onChange={(e) => onToggle(p.id, e.target.checked)}
+                onChange={(e) => toggleWithUndo(p, e.target.checked)}
                 aria-label={`启用 ${p.name}`}
               />
               <div className="zn-plugin-meta">
@@ -445,7 +574,7 @@ export function PluginPanel({
                   {updates?.[p.id] && (
                     <span
                       className="zn-plugin-update"
-                      title={`市场里有 v${updates[p.id]}，去「发现」tab 手动更新（不会自动升级）`}
+                      title={`市场里有 v${updates[p.id]}，去「插件市场」tab 手动更新（不会自动升级）`}
                     >
                       ↑ 可更新 v{updates[p.id]}
                     </span>
@@ -562,6 +691,86 @@ export function PluginPanel({
           <span className="zn-plugins-globalroot-hint"> 所有笔记库共用这一份</span>
         </div>
       )}
+
+      {/* 禁用撤销条（B3 · 方案 §6 验收「禁用插件可撤销」）——
+          开关即时生效，拨错一次不该只能再翻一遍列表拨回来。条子在列表下方、随内容流，
+          不与 App 底部那条 fixed 撤销条抢位置。 */}
+      {lastDisabled && (
+        <div className="zn-plugin-undo" role="status">
+          <span>
+            已禁用「{lastDisabled.name}」
+          </span>
+          <button
+            type="button"
+            className="zn-undo-btn"
+            onClick={() => {
+              onToggle(lastDisabled.id, true)
+              setLastDisabled(null)
+            }}
+          >
+            撤销
+          </button>
+          <button
+            type="button"
+            className="zn-plugin-undo-close"
+            aria-label="关闭撤销条"
+            onClick={() => setLastDisabled(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* 同优先级冲突：让用户选一个并记住（需求 §2.15）—— B3 从设置页迁来 */}
+      <Dialog
+        open={pickFor !== null}
+        onOpenChange={(next) => {
+          if (!next) setPickFor(null)
+        }}
+        width={420}
+      >
+        <DialogHeader
+          title="选择核心能力的实现"
+          description={pickFor ? CAPABILITY_LABELS[pickFor] : undefined}
+        />
+        <DialogBody>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            同优先级的插件只能有一个生效；选中的那个会被记住。插件被禁用 / 卸载后自动回到本体。
+          </p>
+          <div className="zn-capability-pick">
+            {(pickStatus?.top ?? []).map((c) => (
+              <button
+                key={c.pluginId}
+                type="button"
+                className={`zn-capability-pick-row${c.chosen ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (pickFor) onCapabilityChoice?.(pickFor, c.pluginId)
+                  setPickFor(null)
+                }}
+              >
+                <span className="zn-capability-pick-id">{c.pluginId}</span>
+                <span className="zn-capability-pick-pri">优先级 {c.priority}</span>
+                {c.chosen && <span className="zn-capability-pick-now">当前</span>}
+              </button>
+            ))}
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => {
+              if (pickFor) onCapabilityChoice?.(pickFor, null)
+              setPickFor(null)
+            }}
+          >
+            清除记忆
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setPickFor(null)}>
+            关闭
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <Dialog
         open={pending !== null}

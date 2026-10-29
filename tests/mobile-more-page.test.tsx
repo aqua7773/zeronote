@@ -2,7 +2,7 @@
 /**
  * 手机「更多」全屏页（UI 重布局 B2 · 方案 §2.2）。
  *
- * 验收口径：内核入口恒在（设置 / 回收站 / 切换库 / 插件管理 / 关于）；
+ * 验收口径：内核入口恒在（设置 / 回收站 / 切换库 / 插件中心 / 关于）；
  * 插件类入口**传了才渲染**（零插件时整组消失，不留灰位）。
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -28,14 +28,14 @@ describe('MobileMorePage', () => {
   it('内核入口全在，且点击回调正确', () => {
     const props = makeProps()
     render(<MobileMorePage {...props} />)
-    for (const name of ['回收站', '切换笔记库', '插件管理', '设置', '关于 ZeroNote']) {
+    for (const name of ['回收站', '切换笔记库', '插件中心', '设置', '关于 ZeroNote']) {
       expect(screen.getByRole('button', { name: new RegExp(name) })).toBeTruthy()
     }
     fireEvent.click(screen.getByRole('button', { name: /设置/ }))
     expect(props.onOpenSettings).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: /回收站/ }))
     expect(props.onOpenTrash).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: /插件管理/ }))
+    fireEvent.click(screen.getByRole('button', { name: /插件中心/ }))
     expect(props.onOpenPlugins).toHaveBeenCalledTimes(1)
   })
 

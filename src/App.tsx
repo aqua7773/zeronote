@@ -233,7 +233,7 @@ export default function App() {
    * 插件独立窗口模式（U1 · 2026-10-13 rev50）：URL 带 `?pluginWindow=<panelId>`。
    *
    * 独立窗口是**新的 webview**（自己的 JS 上下文），所以它照样跑完整的插件加载流程 ——
-   * 只是渲染时**只画那一个面板**：没有侧栏、没有编辑器、没有插件管理页。
+   * 只是渲染时**只画那一个面板**：没有侧栏、没有编辑器、没有插件中心页。
    *
    * ⚠️ 定义必须放在组件**顶部**：下面几处 effect（尤其是"关窗前落盘"那个拦截器）
    * 要靠它判断当前是不是插件窗口 —— 放在渲染前定义就会踩 TDZ。
@@ -409,9 +409,9 @@ export default function App() {
    * 用一次 setState 同时决定四个开关，天然互斥，也不用在 effect 里 setState。
    */
   /**
-   * 主区当前显示的页面：`'editor'`（编辑器）| `'plugins'`（插件管理）| `<插件面板 id>`。
-   * 插件管理原先挂在右侧栏，用户要求「不做侧栏，单开一个页面」——
-   * 于是右侧栏取消，主区变成页面容器（编辑器 / 插件管理 / 插件面板 / 弹窗仍走 Dialog）。
+   * 主区当前显示的页面：`'editor'`（编辑器）| `'plugins'`（插件中心）| `<插件面板 id>`。
+   * 插件中心原先挂在右侧栏，用户要求「不做侧栏，单开一个页面」——
+   * 于是右侧栏取消，主区变成页面容器（编辑器 / 插件中心 / 插件面板 / 弹窗仍走 Dialog）。
    */
   const [mainView, setMainView] = useState<string>('editor')
   /**
@@ -543,7 +543,7 @@ export default function App() {
    * 回到四项之一 = 回到该 tab 的根视图（切 tab 不叠加返回栈）。
    */
   const [mobileTab, setMobileTab] = useState<MobileTab>('home')
-  /** 桌面侧栏是否显示：进插件管理/插件页面时自动让位，也可手动关掉 */
+  /** 桌面侧栏是否显示：进插件中心/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
   /** 笔记库栏宽度 —— 拖分隔线可调，持久化 */
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -898,7 +898,7 @@ export default function App() {
   /**
    * 接管期间的**内核逃生口**（U2）—— 键盘那半。
    *
-   * 接管状态下内核 UI 全部不在渲染树里（连插件管理页都点不到），所以必须留一条
+   * 接管状态下内核 UI 全部不在渲染树里（连插件中心页都点不到），所以必须留一条
    * "回到内核"的路：否则插件不给退出入口、或崩在半路，用户就被锁死了。
    * 另一半是右下角那颗可见的小按钮（见渲染分支）；两个入口覆盖"按钮被插件盖住"的情况。
    */
@@ -1985,7 +1985,7 @@ export default function App() {
       }),
       kernel.commands.api.register({
         id: 'core.plugins',
-        title: '打开插件管理',
+        title: '打开插件中心',
         run: () => setMainView('plugins'),
       }),
       kernel.commands.api.register({
@@ -2201,7 +2201,7 @@ export default function App() {
       run: (payload) => {
         const p = (payload ?? {}) as { path?: string }
         const ext = p.path ? p.path.slice(p.path.lastIndexOf('.') + 1).toLowerCase() : '该'
-        setToast(`没有能打开 .${ext} 的插件 —— 到「插件管理」装一个文档阅读器`)
+        setToast(`没有能打开 .${ext} 的插件 —— 到「插件中心」装一个文档阅读器`)
       },
     })
     return () => sub.dispose()
@@ -3327,7 +3327,7 @@ export default function App() {
    *
    * 规则（方案 §4）：
    *  - 同一功能最多 1 个主入口 + 2 个加速入口；
-   *  - **不再列插件面板**（入口改到 插件管理页每行的「打开」+ 命令面板；B3 插件中心接管）；
+   *  - **不再列插件面板**（入口改到 插件中心页每行的「打开」+ 命令面板；B3 插件中心接管）；
    *  - **设置不进菜单**（图标栏 ⚙ 是主入口，`Ctrl+,` 是加速键）；
    *  - 来源=插件的行（导入 / 导出…）在插件未启用时**整行消失**，不留灰位。
    *
@@ -3760,7 +3760,7 @@ export default function App() {
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
-  /* 侧栏只在编辑器视图里出现 —— 插件管理 / 插件页面跟笔记无关，让主区占满更清爽 */
+  /* 侧栏只在编辑器视图里出现 —— 插件中心 / 插件页面跟笔记无关，让主区占满更清爽 */
   /* 侧栏什么时候渲染：
       · 桌面 —— sidebarVisible（常驻，可手动收起）
       · 移动端 —— 只看抽屉开没开。
@@ -3772,7 +3772,7 @@ export default function App() {
    * rev173.85：**面板视图也保留侧栏** —— 用户把阅读器当"编辑区的内容"用（「pdf 等文档直接打开
    * 在编辑区同样的位置」），那侧栏就不该跟着消失：不然在读 PDF 时想换一篇笔记，得先点标签回
    * 编辑器、再从文件树点另一篇，绕一圈。面板页的侧栏点笔记 = `openNote`（会 `setMainView('editor')`）。
-   * 插件管理 / 回收站仍不显示侧栏：那是内侧页，不是"编辑区的内容"。
+   * 插件中心 / 回收站仍不显示侧栏：那是内侧页，不是"编辑区的内容"。
    */
   const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
 
@@ -3847,7 +3847,7 @@ export default function App() {
    *
    * - 点**当前已展开**的视图 ⇒ 收起侧栏（与 Obsidian Ribbon / VS Code 活动栏一致）；
    * - 点别的视图 ⇒ 切视图并确保侧栏展开；
-   * - 主区正停在系统页（插件管理 / 回收站）时点视图图标 ⇒ 回编辑器（那里才有侧栏）。
+   * - 主区正停在系统页（插件中心 / 回收站）时点视图图标 ⇒ 回编辑器（那里才有侧栏）。
    * 手机不渲染图标栏（B2 才做底部导航），分支保留给 `Ctrl+1/2/3` 在手机上的安全行为。
    */
   const selectRailView = (v: RailView) => {
@@ -3865,7 +3865,7 @@ export default function App() {
   }
 
   /**
-   * 图标栏「插件」：打开插件管理页；再点回到进来之前那一页（方案 §2.1「再点 = 回到之前的文档」）。
+   * 图标栏「插件」：打开插件中心页；再点回到进来之前那一页（方案 §2.1「再点 = 回到之前的文档」）。
    * 用 ref 记上一页 —— 插件页里再点不会把 "plugins" 自己记成返回目标。
    */
   const pluginReturnRef = useRef<string>('editor')
@@ -4372,10 +4372,11 @@ export default function App() {
             fmtSize={fmtSize}
           />
         ) : mainView === 'plugins' ? (
-          /* 插件管理 —— 内核页（不是标签内容），保留「重新扫描 / 返回编辑器」那条 bar */
+          /* 插件中心（B3）—— 内核页（不是标签内容），装/卸/升/市场/调试都在这里；
+             设置里不再有插件列表（方案 §6 B3 验收）。 */
           <div className="zn-main-panel">
             <div className="zn-main-panel-bar">
-              <span>插件管理</span>
+              <span>插件中心</span>
               <div className="zn-main-panel-actions">
                 <button
                   type="button"
@@ -4385,14 +4386,15 @@ export default function App() {
                 >
                   重新扫描
                 </button>
-                {/* 与编辑页那个「关闭」同款：纯净文字按钮 */}
+                {/* 与编辑页那个「关闭」同款：纯净文字按钮。手机底栏还在下面，
+                    所以文案短一点（方案 §2.2 的 iOS `‹ 返回` 惯例）。 */}
                 <button
                   type="button"
                   className="zn-plain-btn"
                   onClick={() => setMainView('editor')}
-                  title="返回编辑器"
+                  title={isDesktop ? '返回编辑器' : '返回首页'}
                 >
-                  返回编辑器
+                  {isDesktop ? '返回编辑器' : '‹ 返回'}
                 </button>
               </div>
             </div>
@@ -4418,6 +4420,13 @@ export default function App() {
                 /* B1：菜单不再列插件面板 ⇒ 行内给「打开」入口（B3 插件中心接管） */
                 panels={panels}
                 onOpenPanel={(id) => setMainView(id)}
+                /* B3：核心能力接管从设置页迁来这里 —— 插件的事只在一个地方管 */
+                capabilities={kernel?.capabilityStatus() ?? []}
+                onCapabilityChoice={(name, pluginId) => {
+                  kernel?.setCapabilityChoice(name, pluginId)
+                  // 内核不是 React state：选完 bump 一次，插件中心立刻显示新生效者
+                  setCapabilityTick((t) => t + 1)
+                }}
               />
             </div>
           </div>
@@ -4765,34 +4774,14 @@ export default function App() {
         onRenderHtmlChange={setRenderHtml}
         imageMode={imageMode}
         onImageModeChange={setImageMode}
-        plugins={rows}
-        pluginError={pluginError}
-        pluginLog={panelLog}
-        pluginAudit={kernel?.audit() ?? null}
-        devMode={devMode}
-        onToggleDevMode={setDevMode}
-        onEmitEvent={emitDebugEvent}
-        onClearLogs={() => setPanelLog([])}
-        onTestLog={addTestLog}
-        onTogglePlugin={togglePlugin}
-        onDeletePlugin={(id) => void deletePlugin(id)}
-        onReloadPlugins={() => setReloadToken((t) => t + 1)}
-        onReloadPlugin={reloadPlugin}
-        // 设置页的插件段也要能装 .znp（2026-10-18 修：之前漏传 ⇒ 手机点安装无反应）
-        onInstall={() => void installZnp()}
-        // 同一个 PluginPanel ⇒ 透传市场通道后，设置页自动多出「发现」tab（rev173.152）
-        onMarketInstall={installFromMarket}
-        updates={marketUpdates}
-        autoCheckUpdates={autoCheckUpdates}
-        /* B1：设置里的插件列表同样给「打开面板」入口 */
-        panels={panels}
-        onOpenPanel={(id) => setMainView(id)}
-        capabilities={kernel?.capabilityStatus() ?? []}
-        onCapabilityChoice={(name, pluginId) => {
-          kernel?.setCapabilityChoice(name, pluginId)
-          // 内核不是 React state：选完 bump 一次，设置页立刻显示新生效者
-          setCapabilityTick((t) => t + 1)
+        /* B3：设置里不再有插件列表 —— 只给摘要与「打开插件中心」入口 */
+        pluginCount={rows.length}
+        pluginUpdateCount={rows.filter((r) => marketUpdates[r.id]).length}
+        onOpenPluginCenter={() => {
+          setSettingsOpen(false)
+          setMainView('plugins')
         }}
+        autoCheckUpdates={autoCheckUpdates}
         onAutoCheckChange={(on) => {
           setAutoCheckEnabled(on)
           setAutoCheckUpdates(on)

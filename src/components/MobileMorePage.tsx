@@ -77,7 +77,7 @@ export function MobileMorePage({
         hint={vault ? baseName(vault) : '未选择'}
         onClick={onOpenVaults}
       />
-      <Row icon={<Settings2 size={18} />} label="插件管理" hint="安装 / 启用 / 市场" onClick={onOpenPlugins} />
+      <Row icon={<Settings2 size={18} />} label="插件中心" hint="安装 / 启用 / 插件市场" onClick={onOpenPlugins} />
 
       {/* 插件类入口：启用才出现（零插件时这一整组不存在） */}
       {pluginEntries.length > 0 ? (

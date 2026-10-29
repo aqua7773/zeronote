@@ -4,8 +4,19 @@
  *  · 说明只显示 15 个字（全文放悬停 title，manifest 原文不动）；
  *  · 分类标题可点击折叠，状态记 localStorage（重开应用仍是折叠的）。
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * 市场 tab 会拉索引（`invoke('net_request')`）—— 这里只要「切过去不炸」，
+ * 所以让 invoke 直接失败，MarketPane 自带错误态。
+ */
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(null),
+  convertFileSrc: (p: string) => p,
+}))
+
 import { PluginPanel, type PluginRow } from '../src/components/PluginPanel'
 import { clampText } from '../src/lib/format'
 
@@ -102,10 +113,11 @@ describe('插件分类折叠', () => {
 })
 
 /**
- * 「已安装 / 发现」两个 tab 的**唯一条件**是传了 `onMarketInstall`（rev173.152）。
+ * 「已安装 / 插件市场」两个 tab 的**唯一条件**是传了 `onMarketInstall`（rev173.152）。
  *
  * 这条是「设置页与菜单主区统一」的锁：两处都只是把同一条通道透传进同一个 `PluginPanel`，
  * 所以「设置里没市场」只可能是漏传 —— 而不是另写了一套 UI 慢慢漂移。
+ * （B3：市场叫「插件市场」；设置页已不再嵌这个面板，但条件本身仍是唯一入口。）
  */
 describe('插件页 tab（市场通道透传才有）', () => {
   it('不传 onMarketInstall ⇒ 不显示 tab（独立窗口 / 测试环境）', () => {
@@ -113,7 +125,7 @@ describe('插件页 tab（市场通道透传才有）', () => {
     expect(container.querySelector('.zn-plugins-tabs')).toBeNull()
   })
 
-  it('传了 ⇒ 出现「已安装 N / 发现」两个 tab，默认在已安装', () => {
+  it('传了 ⇒ 出现「已安装 N / 插件市场」两个 tab，默认在已安装', () => {
     const { container } = render(
       <PluginPanel
         plugins={[row({ id: 'a' }), row({ id: 'b' })]}
@@ -125,8 +137,95 @@ describe('插件页 tab（市场通道透传才有）', () => {
     const tabs = [...container.querySelectorAll('.zn-plugins-tab')].map((b) =>
       (b.textContent || '').trim(),
     )
-    expect(tabs).toEqual(['已安装 2', '发现'])
+    expect(tabs).toEqual(['已安装 2', '插件市场'])
     expect(container.querySelector('.zn-plugins-tab.is-active')?.textContent).toContain('已安装')
+  })
+})
+
+/**
+ * 零插件空态（B3 · 方案 §6 验收）：
+ * 安装 `.znp` + 浏览市场 + 3 条推荐。空页不是死路。
+ */
+describe('零插件空态', () => {
+  const empty = (onInstall = vi.fn()) =>
+    render(
+      <PluginPanel
+        plugins={[]}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        onInstall={onInstall}
+        onMarketInstall={vi.fn().mockResolvedValue(null)}
+        globalRoot="C:/appdata"
+      />,
+    )
+
+  it('给「安装 .znp」与「浏览插件市场」两个入口', () => {
+    empty()
+    expect(screen.getByText('还没有安装插件')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /安装插件包/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '浏览插件市场' })).toBeTruthy()
+  })
+
+  it('3 条推荐是标签 / 反向链接 / 历史版本', () => {
+    const { container } = empty()
+    const items = [...container.querySelectorAll('.zn-plugins-recommend-list li')]
+    expect(items).toHaveLength(3)
+    expect(
+      items.map((li) => li.querySelector('.zn-plugins-recommend-name')?.textContent),
+    ).toEqual(['标签', '反向链接', '历史版本'])
+  })
+
+  it('点「浏览插件市场」切到市场 tab', () => {
+    empty()
+    fireEvent.click(screen.getByRole('button', { name: '浏览插件市场' }))
+    expect(screen.getByRole('tab', { name: '插件市场' }).getAttribute('aria-selected')).toBe('true')
+  })
+})
+
+/**
+ * 禁用撤销（B3 · 方案 §6 验收「禁用插件可撤销」）：
+ * 拨掉开关 ⇒ 出现撤销条；点撤销 ⇒ 重新启用，条子消失。
+ */
+describe('禁用撤销条', () => {
+  it('拨掉开关出现撤销条，点「撤销」重新启用', () => {
+    const onToggle = vi.fn()
+    const { container } = render(
+      <PluginPanel
+        plugins={[row({ id: 'a', name: '标签' })]}
+        onToggle={onToggle}
+        onDelete={vi.fn()}
+      />,
+    )
+    fireEvent.click(container.querySelector('.zn-plugin-switch') as HTMLElement)
+    expect(onToggle).toHaveBeenCalledWith('a', false)
+
+    const bar = container.querySelector('.zn-plugin-undo') as HTMLElement
+    expect(bar).toBeTruthy()
+    expect(bar.textContent).toContain('已禁用「标签」')
+
+    fireEvent.click(within(bar).getByRole('button', { name: '撤销' }))
+    expect(onToggle).toHaveBeenLastCalledWith('a', true)
+    expect(container.querySelector('.zn-plugin-undo')).toBeNull()
+  })
+
+  it('重新拨开同一个开关也清掉撤销条（不需要再点撤销）', () => {
+    /* 受控小壳：开关状态真的跟着 onChange 变（真机上 App 就是这样驱动的） */
+    function Harness() {
+      const [enabled, setEnabled] = useState(true)
+      return (
+        <PluginPanel
+          plugins={[row({ id: 'a', name: '标签', enabled })]}
+          onToggle={(_id, next) => setEnabled(next)}
+          onDelete={vi.fn()}
+        />
+      )
+    }
+    const { container } = render(<Harness />)
+    const sw = container.querySelector('.zn-plugin-switch') as HTMLInputElement
+    fireEvent.click(sw)
+    expect(container.querySelector('.zn-plugin-undo')).toBeTruthy()
+    fireEvent.click(sw)
+    expect(container.querySelector('.zn-plugin-undo')).toBeNull()
   })
 })
 

@@ -2,14 +2,8 @@ import { useState } from 'react'
 import { HardDrive, Info, Plug, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
-import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui'
-import { Button } from '@/components/ui'
-import { PluginPanel, type PluginRow } from './PluginPanel'
+import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { AssetRelayPanel } from './AssetRelayPanel'
-import type { CapabilityName, CapabilityStatus, PluginLogEntry } from '../kernel/contract'
-import { CAPABILITY_LABELS } from '../kernel/capability'
-import type { KernelAudit } from '../kernel/kernel'
-import type { MarketEntry } from '../kernel/market'
 import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
@@ -19,6 +13,11 @@ import type { ImageInsertMode } from '../kernel/attachment'
  * 左侧导航 + 右侧内容、只让内容区滚动。
  * 差异：Lumina 有 6 个 tab（AI/同步/网络/账号…），ZeroNote 的内核只有三件自己的事 ——
  * 通用（库与外观）、插件、关于。其余能力按架构都该由插件提供，不进内核设置。
+ *
+ * **B3 瘦身**（`docs/UI重布局-方案-2026-10-29.md` §5）：插件列表、市场、调试、
+ * 核心能力接管全部搬到**插件中心**（图标栏 🧩 / 手机底栏 🧩）。
+ * 这里只留两条：启动检查更新开关 + 「打开插件中心」。设置里不再有插件列表 ——
+ * 同一份列表在两个地方各画一次，迟早会漂移。
  */
 type TabId = 'general' | 'assets' | 'plugins' | 'about'
 
@@ -96,51 +95,20 @@ export interface SettingsProps {
    */
   imageMode: ImageInsertMode
   onImageModeChange: (mode: ImageInsertMode) => void
-  /** 插件段：直接把现有 PluginPanel 复用进来，不重复实现 */
-  plugins: PluginRow[]
-  pluginError?: string | null
-  pluginLog?: PluginLogEntry[]
-  /** 调试面板数据源（rev173.229 · 需求 §2.13）—— 不传则不显示「调试」tab */
-  pluginAudit?: KernelAudit | null
   /**
    * 打开时默认停在哪个 tab（B1）—— ☰ 主菜单的「关于」直接落到「关于」页。
    * 宿主用 `key` 让它生效（切 tab 由内部 state 管，不反向受控）。
    */
   initialTab?: TabId
-  /** B1：设置页插件列表的「打开面板」入口（透传给 PluginPanel） */
-  panels?: { id: string; title: string; pluginId?: string; location?: string }[]
-  onOpenPanel?: (id: string) => void
-  devMode?: boolean
-  onToggleDevMode?: (on: boolean) => void
-  onEmitEvent?: (topic: string, payload: unknown) => string | null
-  onClearLogs?: () => void
-  onTestLog?: () => void
-  onTogglePlugin: (id: string, enabled: boolean) => void
-  onDeletePlugin: (id: string) => void
-  onReloadPlugins: () => void
-  /** 只重载一个插件（rev173.240 · 调试面板的单插件热重载） */
-  onReloadPlugin?: (id: string) => Promise<void>
   /**
-   * 安装 `.znp` 插件包（2026-10-18 修：设置页的插件段复用了 PluginPanel，
-   * 但漏传 `onInstall` ⇒ 手机从设置进插件页点「安装插件包」时 `onInstall?.()` 是空操作，
-   * 表现为「点击无法唤醒文件管理」）。由 App 传 `installZnp`。
+   * B3：插件页已独立成「插件中心」。
+   * 这里只显示摘要 + 一个入口；不传 ⇒ 插件 tab 只留一条说明（测试 / 独立窗口）。
    */
-  onInstall: () => void
-  /**
-   * 从市场安装 / 更新（rev173.152）—— 与主区插件页**同一个** `PluginPanel`：
-   * 只要把这条通道透传进去，设置页的插件段就自动多出「发现」tab，不需要第二套 UI。
-   * 不传 ⇒ 该处不显示「发现」（测试 / 独立窗口）。
-   */
-  onMarketInstall?: (entry: MarketEntry) => Promise<string | null>
-  /** 可更新项（rev173.156）：`{ [插件 id]: 最新版本 }` —— 只用于列表角标 */
-  updates?: Record<string, string>
-  /**
-   * 核心能力接管状态（rev173.231 · 需求 §2.15）—— 不传则不显示「核心能力」块
-   * （测试 / 独立窗口 / 内核还没建好时）。
-   */
-  capabilities?: CapabilityStatus[]
-  /** 同优先级冲突时记住用户的选择（`null` = 清除记忆，回到最早登记的） */
-  onCapabilityChoice?: (name: CapabilityName, pluginId: string | null) => void
+  pluginCount?: number
+  /** 可更新条目数（来自 24h 节流检查）—— 只用于摘要里的「N 个可更新」 */
+  pluginUpdateCount?: number
+  /** 打开插件中心（宿主负责关掉设置并切主区） */
+  onOpenPluginCenter?: () => void
   /**
    * 启动时静默检查插件更新（24 小时一次，只标角标、不下载不安装）。
    * 缺省 = 不显示这一行（测试 / 独立窗口）。
@@ -163,37 +131,17 @@ export function Settings({
   onRenderHtmlChange,
   imageMode = 'original',
   onImageModeChange,
-  plugins,
-  pluginError,
-  pluginLog,
-  pluginAudit,
   initialTab,
-  panels,
-  onOpenPanel,
-  devMode = false,  onToggleDevMode,
-  onEmitEvent,
-  onClearLogs,
-  onTestLog,
-  onTogglePlugin,
-  onDeletePlugin,
-  onReloadPlugins,
-  onReloadPlugin,
-  onInstall,
-  onMarketInstall,
-  updates,
+  pluginCount,
+  pluginUpdateCount,
+  onOpenPluginCenter,
   autoCheckUpdates,
   onAutoCheckChange,
-  capabilities = [],
-  onCapabilityChoice,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
-  /** 正在为哪个能力挑提供者（null = 对话框关着）—— rev173.231 */
-  const [pickFor, setPickFor] = useState<CapabilityName | null>(null)
-  const pickStatus = pickFor ? capabilities.find((c) => c.name === pickFor) : null
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange} width={640}>
+    <Dialog open={open} onOpenChange={onOpenChange} width={640}>
       <DialogHeader title="设置" />
       <DialogBody className="p-0">
         <div className="flex min-h-[360px]">
@@ -320,99 +268,59 @@ export function Settings({
 
             {tab === 'plugins' ? (
               /**
-               * **固定高度 + 内部滚动**（rev173.152）。
-               *
-               * `PluginPanel` 自己是 `height:100%` 的 flex 列（列表 / 市场列表靠 `flex:1` 内滚），
-               * 而这一格外层是 `overflow-y-auto` —— 没有高度约束时它会被内容整个撑开，
-               * 表现是「设置窗口长到屏幕外、底下的插件看不到」（加市场 tab 后尤其明显：13 条全展开 1000+ px）。
-               * 给它一个跟视口挂钩的高度，Dialog 就回到正常尺寸，列表在自己的区域里滚。
+               * B3：这里**不再有插件列表**。装 / 卸 / 升 / 市场 / 调试 / 核心能力接管
+               * 全在插件中心（同一份列表只画一次）。设置只留两件：
+               * 摘要 + 入口，以及那个只标角标的启动检查开关。
                */
-              <div className="flex h-[min(62vh,520px)] flex-col gap-2">
-                {/* 扫描按钮原本在 PluginPanel 的标题栏里，那边已按用户要求去掉标题与横线，
-                    这里补一个同款文字按钮，免得设置页里没法重新扫描。
-                    rev173.156：左边加「启动检查更新」开关（24h 节流、只标角标、不自动安装） */}
-                <div className="flex items-center justify-between gap-3">
-                  {onAutoCheckChange ? (
-                    <label
-                      className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
-                      title="启动时最多每 24 小时查一次市场索引；只标「可更新」角标，不会自动下载或安装"
+              <>
+                <SectionTitle>插件中心</SectionTitle>
+                <Row
+                  label="已安装插件"
+                  hint={
+                    pluginCount === undefined
+                      ? '装 / 卸 / 升级、插件市场、调试与核心能力接管都在插件中心'
+                      : [
+                          `${pluginCount} 个已安装`,
+                          pluginUpdateCount ? `${pluginUpdateCount} 个可更新` : null,
+                          '装 / 卸 / 升级与插件市场都在插件中心',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')
+                  }
+                >
+                  {onOpenPluginCenter ? (
+                    <button
+                      type="button"
+                      onClick={onOpenPluginCenter}
+                      className="rounded-ui-sm border border-border-strong bg-background px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent"
                     >
+                      打开插件中心
+                    </button>
+                  ) : null}
+                </Row>
+
+                {onAutoCheckChange ? (
+                  <Row
+                    label="启动时检查更新"
+                    hint="最多每 24 小时查一次市场索引；只标「可更新」角标，不会自动下载或安装"
+                  >
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
                       <input
                         type="checkbox"
                         checked={autoCheckUpdates ?? true}
                         onChange={(e) => onAutoCheckChange(e.target.checked)}
                         aria-label="启动时检查插件更新"
                       />
-                      启动时检查更新
+                      {autoCheckUpdates ?? true ? '开' : '关'}
                     </label>
-                  ) : (
-                    <span />
-                  )}
-                  <button type="button" className="zn-plain-btn" onClick={onReloadPlugins}>
-                    重新扫描
-                  </button>
-                </div>
+                  </Row>
+                ) : null}
 
-                {/* 核心能力接管（需求 §2.15 · rev173.231）：搜索 / 存储可被插件替换 */}
-                {capabilities.length > 0 && (
-                  <details className="zn-capability-box">
-                    <summary>
-                      核心能力 · {capabilities.filter((c) => c.active !== 'kernel').length} 项被插件接管
-                      {capabilities.some((c) => c.needsChoice) && (
-                        <span className="zn-capability-need">有同优先级冲突，请选择</span>
-                      )}
-                    </summary>
-                    <div className="zn-capability-list">
-                      <p className="zn-capability-hint">
-                        插件启用即接管、禁用即回退本体。多个插件同时提供时按优先级选；同级由你决定，选择会记住。
-                      </p>
-                      {capabilities.map((c) => (
-                        <div key={c.name} className="zn-capability-row">
-                          <div className="zn-capability-meta">
-                            <span className="zn-capability-label">{CAPABILITY_LABELS[c.name] ?? c.name}</span>
-                            <code className="zn-capability-name">{c.name}</code>
-                            <span className="zn-capability-active">
-                              {c.active === 'kernel' ? '本体' : c.active}
-                            </span>
-                            {c.needsChoice && <span className="zn-capability-warn">同级冲突</span>}
-                          </div>
-                          {c.providers.length > 0 && (
-                            <button
-                              type="button"
-                              className="zn-plain-btn"
-                              onClick={() => setPickFor(c.name)}
-                            >
-                              选择…
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-                <div className="min-h-0 flex-1">
-                  <PluginPanel
-                    plugins={plugins}
-                    error={pluginError}
-                    logs={pluginLog}
-                    audit={pluginAudit}
-                    devMode={devMode}
-                    onToggleDevMode={onToggleDevMode}
-                    onEmitEvent={onEmitEvent}
-                    onClearLogs={onClearLogs}
-                    onTestLog={onTestLog}
-                    onToggle={onTogglePlugin}
-                    onDelete={onDeletePlugin}
-                    onInstall={onInstall}
-                    onMarketInstall={onMarketInstall}
-                    onReloadPlugins={onReloadPlugins}
-                    onReloadPlugin={onReloadPlugin}
-                    updates={updates}
-                    panels={panels}
-                    onOpenPanel={onOpenPanel}
-                  />
-                </div>
-              </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+                  插件与内核<strong className="font-semibold text-foreground">同权限运行</strong>
+                  ：它能读你的笔记、也能发网络请求。装之前先确认作者；装错了随时在插件中心禁用或删除。
+                </p>
+              </>
             ) : null}
 
             {tab === 'about' ? (
@@ -435,57 +343,5 @@ export function Settings({
         </div>
       </DialogBody>
     </Dialog>
-
-      {/* 同优先级冲突：让用户选一个并记住（需求 §2.15「优先级相同弹窗让你选并记住」） */}
-      <Dialog
-        open={pickFor !== null}
-        onOpenChange={(next) => {
-          if (!next) setPickFor(null)
-        }}
-        width={420}
-      >
-        <DialogHeader
-          title="选择核心能力的实现"
-          description={pickFor ? CAPABILITY_LABELS[pickFor] : undefined}
-        />
-        <DialogBody>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            同优先级的插件只能有一个生效；选中的那个会被记住。插件被禁用 / 卸载后自动回到本体。
-          </p>
-          <div className="zn-capability-pick">
-            {(pickStatus?.top ?? []).map((c) => (
-              <button
-                key={c.pluginId}
-                type="button"
-                className={`zn-capability-pick-row${c.chosen ? ' is-active' : ''}`}
-                onClick={() => {
-                  if (pickFor) onCapabilityChoice?.(pickFor, c.pluginId)
-                  setPickFor(null)
-                }}
-              >
-                <span className="zn-capability-pick-id">{c.pluginId}</span>
-                <span className="zn-capability-pick-pri">优先级 {c.priority}</span>
-                {c.chosen && <span className="zn-capability-pick-now">当前</span>}
-              </button>
-            ))}
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={() => {
-              if (pickFor) onCapabilityChoice?.(pickFor, null)
-              setPickFor(null)
-            }}
-          >
-            清除记忆
-          </Button>
-          <Button variant="ghost" size="md" onClick={() => setPickFor(null)}>
-            关闭
-          </Button>
-        </DialogFooter>
-      </Dialog>
-    </>
   )
 }

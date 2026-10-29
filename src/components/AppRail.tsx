@@ -18,12 +18,12 @@ export type AppRailProps = {
   activeView: RailView
   /** 侧栏是否展开 —— 收起时三个视图按钮不显示选中态（点一下 = 回到该视图并展开） */
   sidebarVisible: boolean
-  /** 插件中心 / 插件管理页是否打开 */
+  /** 插件中心页是否打开 */
   pluginsOpen: boolean
   /** 设置是否打开 */
   settingsOpen: boolean
   onSelectView: (view: RailView) => void
-  /** 插件：打开插件管理页；再点回到之前的文档 */
+  /** 插件：打开插件中心页；再点回到之前的文档 */
   onTogglePlugins: () => void
   /** 设置：打开设置；再点关闭 */
   onToggleSettings: () => void

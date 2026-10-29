@@ -1741,15 +1741,19 @@ body.is-resizing * {
 
 /* ───────── 插件面板（M2）───────── */
 .zn-plugins { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-/* 插件页两个 tab（rev173.148）：「已安装」/「发现」（插件市场） */
+/* 插件页两个 tab（rev173.148；B3 改名）：「已安装」/「插件市场」（+ 调试） */
 .zn-plugins-tabs { display: flex; gap: 4px; padding: 2px 0 8px; border-bottom: 1px solid var(--zn-border); margin-bottom: 8px; }
 .zn-plugins-tab { padding: 4px 10px; border-radius: var(--zn-radius-sm); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); }
 .zn-plugins-tab:hover { color: var(--zn-fg); background: var(--zn-bg-hover); }
 .zn-plugins-tab.is-active { color: var(--zn-fg); background: var(--zn-bg-active); font-weight: 600; }
 .zn-plugins-tab-count { color: var(--zn-fg-subtle); font-weight: 400; margin-left: 2px; }
+/* 插件中心 · 已安装页顶部的动作行（安装 .znp / 浏览市场） */
+.zn-plugins-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 10px; }
 /* 发现（市场）：索引地址一行 + 条目列表 */
 .zn-market { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.zn-market-source { display: flex; gap: 6px; align-items: center; padding: 2px 0 8px; }
+/* B3：手机上这一行放不下（下拉 + 地址 + 测速 + 刷新 ⇒ 地址只剩 "https:" 几个字），
+   允许换行，地址框给一个能看清的底线宽度。桌面宽屏仍是一行。 */
+.zn-market-source { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 2px 0 8px; }
 /* 镜像下拉（rev173.194）：索引与包前缀成对切换 */
 .zn-market-mirror { flex: none; height: 26px; padding: 0 4px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
 .zn-market-mirror:focus { outline: none; border-color: var(--zn-accent); }
@@ -1760,7 +1764,7 @@ body.is-resizing * {
 .zn-market-probe.is-bad { color: var(--zn-danger); }
 /* 连不上时的下一步建议（rev173.194）：只报错不给路，用户不知道还能换源 */
 .zn-market-hint { margin-top: 2px; color: var(--zn-fg-muted); font-size: var(--zn-text-sm); }
-.zn-market-url { flex: 1; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
+.zn-market-url { flex: 1 1 240px; min-width: 180px; height: 26px; padding: 0 8px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius-sm); background: var(--zn-bg); color: var(--zn-fg); font-size: var(--zn-text-sm); }
 .zn-market-url:focus { outline: none; border-color: var(--zn-accent); }
 .zn-market-skipped { padding: 0 0 8px; color: var(--zn-warn); font-size: var(--zn-text-sm); }
 .zn-market-done { flex: none; color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); padding-top: 2px; }
@@ -1773,7 +1777,24 @@ body.is-resizing * {
    用户要求去掉标题与横线、扫描按钮挪到主区顶栏，故整块移除。
    .zn-plugins-title 也随之不再使用。 */
 .zn-plugins-error { padding: var(--zn-space-2) var(--zn-space-3); color: var(--zn-danger); font-size: var(--zn-text-sm); border-bottom: 1px solid var(--zn-border); }
+/* 零插件空态（B3 · 方案 §6）：安装 .znp + 浏览市场 + 3 条推荐 —— 空页不是死路 */
 .zn-plugins-empty { padding: var(--zn-space-4); color: var(--zn-fg-muted); font-size: var(--zn-text-sm); line-height: 1.7; }
+.zn-plugins-empty-title { margin-bottom: 4px; color: var(--zn-fg); font-size: var(--zn-text-sm); font-weight: 600; }
+.zn-plugins-empty-text { margin: 0 0 12px; max-width: 46em; }
+.zn-plugins-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.zn-plugins-recommend { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius); background: var(--zn-bg-subtle); }
+.zn-plugins-recommend-title { margin-bottom: 6px; color: var(--zn-fg); font-size: var(--zn-text-sm); font-weight: 600; }
+.zn-plugins-recommend-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.zn-plugins-recommend-list li { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.zn-plugins-recommend-name { flex: none; min-width: 4.5em; color: var(--zn-fg); font-weight: 500; }
+.zn-plugins-recommend-why { flex: 1; min-width: 0; color: var(--zn-fg-muted); }
+.zn-plugins-empty-hint { margin: 0; color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+/* 禁用撤销条（B3）：在列表下方随流，不与 App 底部那条 fixed 撤销条抢位置 */
+.zn-plugin-undo { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 6px 8px 6px 12px; border: 1px solid var(--zn-border); border-radius: var(--zn-radius); background: var(--zn-bg-active); color: var(--zn-fg); font-size: var(--zn-text-sm); }
+.zn-plugin-undo .zn-undo-btn { margin-left: auto; background: var(--zn-accent); color: #fff; }
+.zn-plugin-undo .zn-undo-btn:hover { background: var(--zn-accent-strong, var(--zn-accent)); opacity: .9; }
+.zn-plugin-undo-close { flex: none; width: 22px; height: 22px; border: 0; border-radius: var(--zn-radius-sm); background: transparent; color: var(--zn-fg-subtle); font-size: 15px; line-height: 1; cursor: pointer; }
+.zn-plugin-undo-close:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
 .zn-plugin-list { flex: 1; overflow: auto; }
 /* 插件分类分组（rev173.4）：标题吸顶 + 数量，行样式沿用原来的 .zn-plugin-row */
 .zn-plugin-group { margin-bottom: var(--zn-space-2); }
@@ -2325,6 +2346,12 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   .zn-titlebar { gap: var(--zn-space-2); padding: var(--zn-space-2) var(--zn-space-3); }
   .zn-path { font-size: var(--zn-text-sm); }
   .zn-main { width: 100%; }
+
+  /* 插件中心（B3）：手机没有桌面标题栏热区，去掉那 20px 让位；顶栏内边距也收一点，
+     让「已安装 / 插件市场 / 调试」三块尽量早出现在首屏。 */
+  .zn-main-panel { padding-top: 0; }
+  .zn-main-panel-bar { padding: 8px var(--zn-space-3); }
+  .zn-main-panel-body { padding: 10px var(--zn-space-3); }
 }
 
 /* ───────── 移动端安全区：避免顶栏被 Android 状态栏遮住（需 viewport-fit=cover）───────── */
