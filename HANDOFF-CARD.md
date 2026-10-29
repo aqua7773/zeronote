@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-29（rev173.251 · 手册搬进 guides）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-29（rev173.252 · 手册校对到 0.7.0）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.251 · 0.7.0 · 2026-10-29 |
+| rev / 版本 | rev173.252 · 0.7.0 · 2026-10-29 |
 | 测试基线 | vitest 1478 · cargo 87 · oxlint 3 warnings（2026-10-29） |
 | 插件 | 内置 9 · 示例 42 |
 | 文档 | README 现状 2026-10-29 · CHANGELOG 0.7.0 |
@@ -67,6 +67,9 @@ pwsh -File scripts\verify.ps1
 > **手机走查 245–247 已完成（rev173.250）**：文件卡片三态（无台账 / 有台账 / 源文件不在）与主窗口自救
 > （15 s reload + 不循环）全过；走查发现真缺口并修掉 —— 三处「库外绝对路径」判据都只认 Windows，
 > 手机上 `/storage/emulated/0/…` 全部静默失效 ⇒ 抽 `isLocalAbsPath`（`src/kernel/attachment.ts`）一份口径。
+>
+> **手机使用手册已校对到 0.7.0（rev173.252）**：设置 4 个 tab · 预装 9 个 · 长按正文与长按 ☰ 两个菜单分开写 ·
+> 如实写明手机暂无「插入附件 / 笔记内查找」· 换 3 张图。位置 `docs/guides/使用手册-移动端.md`。
 >
 > **下个会话第一件事**：§3.4 已清空、附件需求已收口 ⇒ 剩下基本全是**卡外部输入**的：
 > `sync-git` 手机端（没 token）· Gitee 分支实测（没令牌）· WebDAV 后端真机验证（要自建 DAV 桩）·
