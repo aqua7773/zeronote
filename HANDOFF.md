@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.250
-更新时间: 2026-10-29 · 最新 rev173.250
+revision: 173.251
+更新时间: 2026-10-29 · 最新 rev173.251
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.250
 
 | rev | 内容 |
 |---|---|
+| rev173.251 | 2026-10-29 · **`使用手册-移动端.md` 搬进 `docs/guides/`**（用户「做」· §3.4 最后一条内部债）：`git mv docs/使用手册-移动端.md docs/guides/使用手册-移动端.md`；12 张相对图片 `images/manual-mobile/*` → `../images/manual-mobile/*`（用 `[IO.File]::WriteAllText` + UTF8 无 BOM 写回，避免 `Set-Content` 把整文件写成 CRLF —— 0.6.0 发版踩过）；状态行日期补「rev173.251 搬入」。引用四处同改：`docs/README.md` 矩阵行 + 欠账段（改为已完成）、`docs/ROADMAP.md` §3.4、`docs/manual-print.css` 注释；`HANDOFF-CARD.md` 的 §3.4 段与「自己就能开工的只剩两件 → 一件」。check-links **50 条全过**（`docs/guides/../images/…` 解析到 `docs/images/…`，12 张图全部命中）· check-docs 全过。⚠️ **手册内容没动**：仍停在 2026-10-19，其中「预装的 5 个」早已过时（现在预装 **9** 个：标签 / 反链 / 历史 / 导入导出 / 同步 ×4 / 备份）—— 属于用户向文案校对，单独一轮（要逐条对 0.7.0 的 UI）。verify 六步全绿 · vitest 1478 不变（纯文档） |
 | rev173.250 | 2026-10-29 · **手机走查 245–247 + 修「库外绝对路径只认 Windows」**（用户「1」· 交接剩余项第 1 条）：① **走查三件**（`33b676f6` · 前端随桌面 vite，reload 即生效，**没重编 APK**）—— **文件卡片**三态全对：无台账 ⇒ 副标题只 `PDF`（大小留空、不误报缺失）· 有台账 ⇒ `PDF · 5.0 MB`（title 带完整路径）· 源文件移走 ⇒ `PDF · 5.0 MB · 源文件不在本机` + `.zn-file-card.is-missing`；**主窗口自救**：隐藏 `.zn-app` 后 15 s 真 reload（`performance.timeOrigin` 变 + `sessionStorage['zn.main-rescue-done']='1'` + display 回 `flex`），再隐藏一次 19 s **不再刷新**（flag 防循环）。② **走查发现真缺口**：手机库里 `import_attachment` 写出的是 Unix 绝对 `/storage/emulated/0/…`，而三处判据都只认 Windows —— `file-card.ts` `isExternalAbsPath`（盘符/UNC）· `MarkdownEditor.tsx` `EXTERNAL_ABS_RE`（媒体「原文件不在本机 · 同步」入口）· `asset-relay.ts` `localOriginalAbsPath`（模式 B 原图，会把 `/storage/…` 拼成 `root/storage/…`）⇒ 手机上卡片不出现、同步入口不出现、原图路径错。修法：`attachment.ts` 新增 **`isLocalAbsPath`**（盘符 / UNC / Unix 绝对 `/[^/]`，剥尖括号；不认 URL 与库内相对路径），三处改用它（一份口径，呼应 rev173.245「副标题只走一份」）。③ **测试** vitest 1477 → **1478**（file-card 路径判定扩成「盘符 / UNC / Unix 绝对」+ 负例 `./附件`、单斜杠；asset-relay 加「Android 上传方记 `/storage/…` 原样用、不拼库根」）。⚠️ 三处判自此**共用** `isLocalAbsPath`，以后加平台先改它。**测完已复原**（删测试笔记 / 伪造台账 / 5 MB 假 PDF，reload 后 `.zn-app` 恢复）。verify 六步全绿（22:42:07）· 质量门 7/7 · cargo 87 |
 | rev173.249 | 2026-10-29 · **发版 0.7.0**（用户「1」· 交接时列的下一步第 1 条）：0.6.0（10-26）之后 **89 个提交 / 75 个 rev（174–248）**一次收口。① **CHANGELOG 补账** —— `[Unreleased]` 收进 **`[0.7.0] - 2026-10-29`**，并补上此前完全没进 CHANGELOG 的 **196–221（AI 管家）**与 **230–247（版本回滚 / 能力接管 / 附件四期 / 桌面组件 / 单插件热重载 / 主窗口自救）**；新增 AI 管家 / 附件同步 / 桌面组件 / 版本回滚 / 能力接管 / 迁移链收尾 / 主窗口自救 / `docs/guides` 共 9 条，修一条真 bug 记录（模式 B 原图上传）。② **README 现状行** —— 去掉会过时的 `rev173.238`，改 0.7.0 并补 AI / 附件 / 桌面组件三条主线。③ **ROADMAP §0** —— 现状改 0.7.0 + 五条主线，契约最近改动改 `173.231`。④ **版本三处同步**（`release.mjs 0.7.0`：package.json / tauri.conf.json / Cargo.toml）。⑤ **verify 六步全绿**（tsc 0 / oxlint 3 / cargo 87 / vitest 1477 / 质量门 7/7）+ tag `v0.7.0` + push + CI。**发版口径**：0.7.0 = AI 管家第一版 + 附件同步四期 + 安卓桌面组件三件 + 私密文件夹三期 + 备份插件；应用层版本与插件版本是两套号（`ai@0.9.0` 是插件版本）。**遗留不变**：手机走查 245–247 · `使用手册-移动端.md` 搬 guides（12 张图）· 卡外部输入四项。 |
 | rev173.248 | 2026-10-29 · **交接**：本会话 **3 个功能 rev（245–247）+ 2 个补充提交** = 文件卡片（`53c51e4`）· 卡片副标题口径（`65bfcb0`）· 交接措辞（`cab25a9`）· `docs/guides` + 白屏兜底边界（`5a1d544`）· **主窗口自救**（`a3f25b6`）。**交接时**：HEAD `a3f25b6` · 与 origin 同步 · 工作区干净 · verify 全绿（22:04:12 · tsc 0 / oxlint 3 warnings / cargo **87** / vitest **1477** / 质量门 7/7）· dev pid **12812**（20:30:42 起）· vite 1420 + CDP 9222 都在 · android-dev watch 仍在（20:38:40 起，pid 22732/34348）· 手机 `33b676f6` 在线。**本会话最值钱的一件事**：把 ROADMAP 里挂了几天的「白屏兜底边界」当真核实了一遍，结果**推翻了它自己的结论** —— 「`Page.crash` 会让窗口壳一起消失」是错的（只有 `window.close()` 会，wry 里就是 `DestroyWindow`）；用 label 前缀做对照实验证明了「是主窗口的 reaper 关的，不是崩溃关的」。**教训与硬约束 1 同源：文档里的否定结论先核实，成本一条命令。** 三条交付：**文件卡片**（库外非媒体附件整行渲染成卡片，大小与「在不在本机」走引用台账，台账没这条就不猜）· **`docs/guides/` 落地**（`Android安装说明.md` 移入；`使用手册-移动端.md` 故意没搬，内部 12 张相对图片）· **主窗口自救**（`.zn-app` 每 5 s 自检，连续 3 次 = 15 s 判没了就 `reload()`；一次启动只救一次；独立窗口不参与 —— 实测那里根本没有 `.zn-app`）。**下个会话第一件事**：§3.4 已清空、附件需求已收口 ⇒ 候选**全是卡外部输入**（`sync-git` 手机端 token / Gitee 令牌 / WebDAV DAV 桩 / 记账真实样本 / 性能基线用户暂缓）。自己能开工的只剩：`使用手册-移动端.md` 搬进 guides（改 12 张图片路径，~30 分钟）· 插件数涨到几十个时换 CDN（现在 17 条，不需要）· **手机走查 245–247**（全是前端改动，reload 即生效，未走查） |
@@ -146,6 +147,28 @@ revision: 173.250
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.251（2026-10-29 · 使用手册搬进 docs/guides）
+>
+> 用户「做」（§3.4 最后一条内部债，交接卡列的两件之一）。
+>
+> | 动作 | 结果 |
+> |---|---|
+> | 移动 | `git mv docs/使用手册-移动端.md docs/guides/使用手册-移动端.md` |
+> | 12 张图片 | `](images/manual-mobile/` → `](../images/manual-mobile/` |
+> | 引用四处 | `docs/README.md` 矩阵 + 欠账 · `docs/ROADMAP.md` §3.4 · `docs/manual-print.css` 注释 · `HANDOFF-CARD.md` |
+> | 校验 | check-links **50 条全过** · check-docs 全过 |
+>
+> ### 坑
+>
+> 文本替换用 `[IO.File]::WriteAllText(... UTF8Encoding(false))` —— `Set-Content` 会把整文件写成 CRLF，
+> 仓库是 LF（0.6.0 发版时踩过一次）。
+>
+> ### 内容没动（故意）
+>
+> 手册正文仍停在 2026-10-19：「预装的 5 个」早已过时（现在预装 **9 个**：标签 / 反链 / 历史 / 导入导出 /
+> 同步 ×4 / 备份），「快捷入口只有记账」等也可能变了。这属于用户向文案校对，要逐条对 0.7.0 的 UI ——
+> 单独一轮，不在搬迁里顺手改。
 
 > ## 📌 rev173.250（2026-10-29 · 手机走查 245–247 + 跨平台路径判据）
 >

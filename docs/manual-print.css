@@ -1,4 +1,4 @@
-/* 使用手册 → PDF 的打印样式（配 `docs/使用手册-移动端.md`，重出 PDF 时用） */
+/* 使用手册 → PDF 的打印样式（配 `docs/guides/使用手册-移动端.md`；重出时在 `docs/` 下跑，命令见 archive/handoff/0.2.md rev173.24） */
 * { box-sizing: border-box; }
 body {
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;

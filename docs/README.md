@@ -36,7 +36,7 @@
 | 键位表（自动生成） | `docs/键位表.md` | **generated**（`node scripts/gen-keys.mjs --write`） | — |
 | 数据与存储（库布局 / localStorage / 写入语义） | `docs/数据与存储.md` | **active** | — |
 | Android 安装（用户向） | `docs/guides/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |
-| 手机版使用手册（用户向） | `docs/使用手册-移动端.md` | **active** | 截图在 `docs/images/manual-mobile/`（真机 2026-10-19） |
+| 手机版使用手册（用户向） | `docs/guides/使用手册-移动端.md` | **active** | 截图在 `docs/images/manual-mobile/`（真机 2026-10-19；rev173.251 搬进 guides） |
 | 功能测试快照（rev92） | `docs/测试报告-2026-10-17.md` | **historical** | 部分结论已被 rev48/110/116 修复或推翻，见段内注记 |
 | 外部技术调研 | `_research/*` | **historical**（均带日期） | — |
 | 插件市场 / 更新通道 | `docs/插件市场-调研-2026-10-25.md` | **active（阶段 1 已落地 · 仓库已开源 · rev173.152）**：应用内「发现」tab 能列 / 装 / 升，整包 sha256 不符不落盘（端到端验过）；**包入库 `market/packs/` 走 raw 分发**（`github.com:443` 国内直连不通，走 Release 会「能看不能装」）；手机真机走查通过；**设置与菜单两处插件页统一**（同一个 `PluginPanel`，市场 tab 一份代码）；**第二批 UX 也已落地（rev173.156：详情页含能力自述 / 更新角标 / 启动 24h 节流检查）**；待办只剩「插件数涨到几十个时换 CDN」。收口见 `docs/ROADMAP.md` §3.3 | [D-008](decisions/D-008-暂不做插件市场与更新通道.md)（状态已过时，重议条件「插件数 > 10」早满足：预装 13；进度以 `docs/ROADMAP.md` §3.3 为准） |
@@ -58,8 +58,7 @@
 ## 欠账（明确记着，不假装没有）
 
 - ~~`docs/guides/` 方向未落地~~ ✅ **rev173.246 已建**：`docs/guides/Android安装说明.md`（用户向文档归这里，
-  见 `docs/文档编写规范.md` 的文档分类表）。⚠️ **`使用手册-移动端.md` 仍在 `docs/` 根** —— 它内部有 12 张
-  `images/manual-mobile/*` 相对图片，搬动要同步改图片路径（`docs/manual-print.css` 也按那个位置写的），
-  单独一轮做，别顺手搬。
+  见 `docs/文档编写规范.md` 的文档分类表）。**`使用手册-移动端.md` 已于 rev173.251 搬入同一目录**（12 张
+  `../images/manual-mobile/*` 相对图片同改；`docs/manual-print.css` 留在 `docs/` 根，重出 PDF 时在 `docs/` 下跑）。
 - 历史文档已统一归档到 `docs/archive/`（2026-10-17）
 - CHANGELOG 已建（2026-10-17，契约 v0.2）
