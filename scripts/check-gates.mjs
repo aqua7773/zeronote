@@ -21,6 +21,9 @@ const gates = [
   // rev173.158：外部条目的格式门（**离线**，不联网）—— 脏 PR 一进来就红。
   // 联网那半（拉 entry / 下包核 sha256）只在人工审 PR 时跑，不进 CI：别让 CI 红在别人的服务器上。
   ['review', 'scripts/review-plugin.mjs'],
+  // 2026-10-30：文档里的 `文件:行号` 断言（只扫 draft 文档）——
+  // 行号写错不会让代码红，但会让下一个人按错位置读代码。
+  ['anchors', 'scripts/check-doc-anchors.mjs'],
 ]
 
 let failed = 0
