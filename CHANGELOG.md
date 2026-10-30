@@ -22,11 +22,24 @@
 
 ### Added
 
+- **插件面板 `location` 语义收口（`sidebar` 真载体）**（rev173.262 · UI 重布局 **B6** · `docs/UI重布局-方案-2026-10-29.md` §7.2 / §6）：
+  - `sidebar` 从「与 `main` 同路渲染在主区」变成**侧栏真载体**：桌面渲染在文件树下方
+    （新 `SidebarPlugins`：最多占侧栏 45%、内部滚动、面板标题做归属提示），与编辑器同屏；
+    **手机**没有常驻侧栏 ⇒ 回退主区（旧行为不变）。
+  - **零插件 / 面板全部禁用 ⇒ 整组不渲染**：`AppSidebar` 收不到 `pluginSlot` 时连边框都不出现。
+  - `statusbar` 明确约束为**纯状态 / chip**（B4 起；反链 / 历史已迁 `editor-topbar`）。
+  - `import-export` 的面板是完整工具页（导入 + 6 种导出）⇒ 由 `sidebar` 改成 `main`，
+    `import-export@0.1.1` 已签名发市场；`hello` / `raw-ipc-probe` 继续演示侧栏载体。
+  - 契约文档同步：`docs/内核契约-v0.2.md` 的六类位置表 + `src/kernel/contract.ts` 的 `PanelLocation` 注释。
+  - 新测试：`tests/sidebar-plugins.test.tsx`（渲染 / 命令回传 / 零插件不留空壳）、
+    `tests/example-manifests.test.ts`（42 个示例 manifest 的字段 / location / 命令 id 唯一性）。
+
 - **标签条 `＋` / `»` + 笔记窗口快速切换**（rev173.261 · UI 重布局 **B5** · `docs/UI重布局-方案-2026-10-29.md` §2.1 / §3.1 / §3.2）：
   - 标签条右侧固定两个 24×24 动作：**`＋`**（新建笔记 / 打开面板）与 **`»`**（全部标签）。
     没有标签时标签条也渲染 —— `＋` 就是「无标签也能新建」的入口（系统页如插件中心 / 回收站仍不显示）。
-  - `＋` 菜单：新建笔记（`Ctrl+N`）+ 逐个列出可打开的面板（`location: main / sidebar`；
-    零插件时只剩新建笔记）。打开面板走 `openPanelInTab` ⇒ 面板会进标签条，可切回。
+  - `＋` 菜单：新建笔记（`Ctrl+N`）+ 逐个列出可打开的面板（桌面是 `location: main`；
+    桌面 `sidebar` 面板自 B6 起有侧栏载体，不进这个列表）；零插件时只剩新建笔记。
+    打开面板走 `openPanelInTab` ⇒ 面板会进标签条，可切回。
   - `»` **常显**（不做「溢出才出现」的显隐）：给出全部标签的清单式替代入口；
     切换后按「元素左右边 vs 容器可视区」把目标标签滚进视野（`scrollLeft` 显式计算）。
   - **笔记独立窗口左上角「切换」**：打开 `QuickSwitcher`（与主窗口 `Ctrl+O` 同一个组件），

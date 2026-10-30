@@ -29,6 +29,7 @@
 | **文档工具条**（B4） | 标签条下方 32px：左＝`location: 'editor-topbar'` 插件面板（反链 / 历史，禁用即消失），右＝「源码 / 预览」+「⋯ 更多」；只在桌面 + 打开笔记时出现 | `src/components/DocToolbar.tsx` |
 | **状态栏**（B4） | 只放状态：`location: 'statusbar'` 插件 chip + 错误 + 当前字数（篇数统计已删）；高 26px，可点 chip ≥24×24 | `src/components/AppStatusBar.tsx` |
 | 插件面板 | **和编辑器同一块内容区**（标签条之下）——PDF / 导图默认开成主区标签（`panel:<id>`），拖出 / 右键 = 独立窗口；面板视图**侧栏照常显示**（rev173.85）· **每份文档一条标签**（title = 文件名，`doc-reader.view.<hash>`，面板标 `hidden` 不进 ☰ 菜单；rev173.86） | `src/components/PanelMount.tsx` · `view.registerPanel({ mount })` |
+| **侧栏插件分组**（B6） | `location: 'sidebar'` 的面板渲染在侧栏文件树下方（最多 45% 高、内部滚动）；手机没有常驻侧栏 ⇒ 回退主区；零插件 / 全禁用整块不渲染 | `src/components/SidebarPlugins.tsx` · `AppSidebar.pluginSlot` |
 | 浮层 | 命令面板 / 搜索 / 设置 / 替换均为遮罩浮层，**不推正文** | `CommandPalette.tsx` · `SearchPanel.tsx` · `ReplacePanel.tsx` |
 
 ## 2 手机布局
