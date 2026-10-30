@@ -69,6 +69,8 @@ import { AppResizer } from './components/AppResizer'
 import { AppStatusBar } from './components/AppStatusBar'
 /* UI 重布局 B4：文档工具条（源码 / 更多 + editor-topbar 插件面板） */
 import { DocToolbar } from './components/DocToolbar'
+/* UI 重布局 B6：侧栏插件分组（`location: 'sidebar'` 的真载体） */
+import { SidebarPlugins } from './components/SidebarPlugins'
 import {
   applyTheme,
   loadThemePref,
@@ -3817,22 +3819,28 @@ export default function App() {
   const toolbarPanels = panels.filter((p) => p.location === 'editor-toolbar')
   /* 插件注册到编辑器顶部提示条的面板 —— 内核自己不往那儿放东西（见下方渲染处的说明） */
   const topbarPanels = panels.filter((p) => p.location === 'editor-topbar')
-  /* 能在主区当页面渲染的面板：main 与 sidebar 都归主区
-     （右侧栏已取消，sidebar 不再有独立载体；契约里 location 仍然有效，只是宿主换了承载方式） */
+  /**
+   * 侧栏插件分组（B6 · 方案 §7.2 A 案）：`location: 'sidebar'` 的面板有**真载体**了。
+   * 桌面渲染在侧栏（文件树下方）；手机侧栏是抽屉、没有常驻空间 ⇒ 仍回退到主区（旧行为）。
+   */
+  const sidebarPanels = panels.filter((p) => p.location === 'sidebar')
+  /* 能在主区当页面渲染的面板：main（+ 手机上的 sidebar）
+     （桌面 sidebar 已有真载体，不再当主区页面 —— B6） */
   const pagePanel =
     activePanel &&
     activePanel.location !== 'statusbar' &&
     activePanel.location !== 'modal' &&
     activePanel.location !== 'editor-toolbar' &&
-    activePanel.location !== 'editor-topbar'
+    activePanel.location !== 'editor-topbar' &&
+    !(isDesktop && activePanel.location === 'sidebar')
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
   /**
    * 标签条 `＋` 菜单里的「打开面板」候选（B5 · 方案 §2.1）。
    *
-   * 判据与主区 `pagePanel` 完全一致（main / sidebar 才算页面面板），逐个列出来 ——
-   * 零插件时是空数组，`＋` 菜单里就只剩「新建笔记」（不留灰色的「打开面板」）。
+   * 判据与主区 `pagePanel` 一致，逐个列出来 —— 零插件时是空数组，`＋` 菜单里就只剩
+   * 「新建笔记」（不留灰色的「打开面板」）。B6 起桌面排除 `sidebar`（它有侧栏载体了）。
    */
   const openablePanels = useMemo(
     () =>
@@ -3842,10 +3850,11 @@ export default function App() {
             p.location !== 'statusbar' &&
             p.location !== 'modal' &&
             p.location !== 'editor-toolbar' &&
-            p.location !== 'editor-topbar',
+            p.location !== 'editor-topbar' &&
+            !(isDesktop && p.location === 'sidebar'),
         )
         .map((p) => ({ id: p.id, title: p.title })),
-    [panels],
+    [panels, isDesktop],
   )
   /* 侧栏只在编辑器视图里出现 —— 插件中心 / 插件页面跟笔记无关，让主区占满更清爽 */
   /* 侧栏什么时候渲染：
@@ -4358,6 +4367,19 @@ export default function App() {
           onOpenSettings={() => openOverlay('settings')}
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
+          /* B6：`location: 'sidebar'` 的插件面板进侧栏分组（桌面；零插件 / 全禁用 ⇒ 不传） */
+          pluginSlot={
+            isDesktop && sidebarPanels.length > 0 ? (
+              <SidebarPlugins
+                panels={sidebarPanels}
+                panelState={panelState}
+                onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                onStateChange={(bind, value) =>
+                  setPanelState((s) => ({ ...s, [bind]: value }))
+                }
+              />
+            ) : undefined
+          }
         >
           {!vault ? (
             <div className="zn-tree zn-sidebar-hint">还没选择笔记库</div>

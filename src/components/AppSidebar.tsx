@@ -23,6 +23,11 @@ export type AppSidebarProps = {
   view?: AppSidebarView
   /** 桌面：视图内容（文件树 / 搜索 / 时间流） */
   children?: React.ReactNode
+  /**
+   * 桌面：`location: 'sidebar'` 的插件面板分组（B6 · 方案 §7.2 A 案）。
+   * 不传 / 空 ⇒ 整块不渲染（零插件基线不留空壳）。手机不传。
+   */
+  pluginSlot?: React.ReactNode
   /** 桌面：侧栏头搜索框（点/输入 → 切到搜索视图） */
   onSearchIntent?: () => void
   /** 桌面：收起侧栏（`«`） */
@@ -40,6 +45,7 @@ export function AppSidebar({
   width,
   view,
   children,
+  pluginSlot,
   onSearchIntent,
   onCollapse,
   onOpenSettings,
@@ -99,6 +105,9 @@ export function AppSidebar({
       </div>
 
       {children ? <div className="zn-sidebar-view">{children}</div> : null}
+
+      {/* 侧栏插件分组（B6）：文件树下方、回收站上方；高度受限、内部滚动 */}
+      {pluginSlot ? <div className="zn-sidebar-plugin-slot">{pluginSlot}</div> : null}
 
       {/* 库信息归侧栏底部；状态栏留给文档级信息。库名是**按钮**：点一下弹「切换笔记库」。 */}
       <button

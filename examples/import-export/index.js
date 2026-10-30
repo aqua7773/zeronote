@@ -905,13 +905,13 @@ export default {
       )
     }
 
-    /* ── 侧栏面板 ── */
+    /* ── 工具页面板（B6 起 `main`：它是完整工具页，不是侧栏小部件） ── */
 
     subscriptions.push(
       view.registerPanel({
         id: 'io.panel',
         title: '导入导出',
-        location: 'sidebar',
+        location: 'main',
         render: () => ({
           type: 'stack',
           children: [

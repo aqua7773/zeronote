@@ -2,17 +2,17 @@
   "manifestVersion": 1,
   "id": "import-export",
   "name": "导入导出",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
   "description": "导入外部文件或导出笔记",
   "category": "tool",
-  "capabilities": ["fs:read", "fs:write", "command", "view:sidebar"],
+  "capabilities": ["fs:read", "fs:write", "command", "view:main"],
   "contributes": {
     "commands": [
       { "id": "io.importFile", "title": "导入外部文件…" }
     ],
-    "panels": [{ "id": "io.panel", "title": "导入导出", "location": "sidebar" }]
+    "panels": [{ "id": "io.panel", "title": "导入导出", "location": "main" }]
   }
 }
