@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.282
-更新时间: 2026-10-30 · 最新 rev173.282（0.9.0 发版）
+revision: 173.283
+更新时间: 2026-10-30 · 最新 rev173.283（真人测试二：文件树不刷新 / 冲突无法处理）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.282
 
 | rev | 内容 |
 |---|---|
+| rev173.283 | 2026-10-30 · **真人测试二：同步后文件树不刷新（#1）+ 冲突无法处理（#2）**（用户「继续zeronote，修bug」；两轮澄清：真人测试都在 **release** 环境、是**另一台手机**测的；明确要求「用 dev 复现问题去解决」）：① **#1 根因不在同步插件** —— 写盘是真的（文件落盘、搜索索引更新），断的是**刷新触发**：桌面 Rust watcher 对「本进程写过的路径」有 `SELF_WRITE_SILENCE_MS = 1500` 静默窗口（为免每次自动保存都全库扫一遍），插件 `fs.writeText`（`origin: 'plugin'`）的回响被吞 ⇒ `fs.watch` 那条刷新收不到「同步刚写进来几个文件」；手机更直接（`watch_vault` 返回错误、走 3 秒轮询）。**修法**：新 `src/hooks/useTreeRefresh.ts` —— 订阅内核 `note:created` / `note:changed` / `note:renamed` / `note:deleted`（**刻意不订 `note:saved`**：用户改正文不需要重扫列表），去抖 150ms 后调 useDocIO 的 `refresh`；`App.tsx` 一行接入。**dev 对照实验（CDP 9222）**：本地 DAV 桩 8899 放 `甲.md` / `乙.md` ⇒ 删本地 + `sync-webdav.sync`（pulled 2）—— **修复停用** ⇒ 磁盘有、文件树 `hasJia=false`（`len 968`）；**修复启用** ⇒ 同样流程 `hasJia=true`（`len 982`）。② **#2 冲突只有记录没法处理** —— 冲突条目原来只有「打开冲突副本」；现在每条两个动作 `sync-webdav.resolve-conflict`（`choice: local/remote`）：**用本机版** = 写回笔记 → **强制 PUT 远端 + 就地改 manifest 这一条**（不再走 `decideSync` 猜一遍，避免 manifest 过期 / 412 导致二次冲突）→ 对齐 baseline；**保留远端版** = 只删副本 + 清记录。顺带两件：**同一篇只留一条记录**（真机 8 条全是同一个文件；旧副本文件不删）；`keepConflict` 落盘前 `exists` 探一次磁盘，避免「重启后同一分钟同名覆盖」丢现场。③ **测试**：新 `tests/use-tree-refresh.test.tsx` **5** 条 · `tests/sync-webdav.test.ts` **+3**（用本机版推送 / 保留远端版 / 同篇去重）+ 命令表断言加 `resolve-conflict`；vitest 1688 → **1696**；tsc 0 · oxlint 5 warnings（全在既有文件，无新增）。④ **dev 实测**（`_shots/rev173283-conflict-ui.png` / `-ui2.png`）：拉两篇 ⇒ 文件树即时出现；造冲突 ⇒ 面板「冲突记录 · 1 条」+「用本机版 / 保留远端版 / 看副本」，点「用本机版」⇒ 本地与远端都变「本机版内容」、副本删除、记录清空；再造一次点「保留远端版」⇒ 笔记留远端版、副本与记录同样清空。⑤ **已打包发市**：`sync-webdav` 0.3.3 → **0.3.4**（`market/packs/sync-webdav-0.3.4.znp` · **104.5 KB** · 入口 sha256 `de256c46…` · 整包 `db5512e2…` · keyId `aqua-2026` · 索引 **17 条** · `verify-trust` **42/43**（theme-sepia 纯样式恒无签名））—— 用户要到「插件中心 → 插件市场 → 更新」才拿得到（**不自动升级**）。⚠️ 只修了 `sync-webdav`：`sync-s3` / `sync-git` / `sync-folder` 的冲突记录仍是「只能看不能处理」（同类缺口，留待下一批）。 |
 | rev173.282 | 2026-10-30 · **发版 0.9.0：插件版本迭代 + 双端安装包 + GitHub Release**（用户「签名，推送，插件的更新做插件版本迭代，内核的更新做 release 的版本迭代，编译推送」）：① **插件重打包签名 4 个**（`keyId aqua-2026`）：`import-export` 0.1.1 → **0.2.0** · `sync-webdav` 0.3.2 → **0.3.3** · `sync-s3` 0.4.2 → **0.4.3** · `sync-git` 0.5.2 → **0.5.3**；`pack-plugin` → `gen-market --write`（索引 17 条）→ `verify-trust` **41/42**（theme-sepia 纯样式）。② **应用 0.9.0**：`release.mjs 0.9.0`（三处版本）· CHANGELOG `[Unreleased]` → `[0.9.0] - 2026-10-30（rev173.269–282）` + 版本表 · README 现状行 · ROADMAP §0。③ **双端编译**：Windows `ZeroNote_0.9.0_x64_zh-CN.msi` **15.88 MB** + `…-setup.exe` **14.23 MB**；Android `--apk --split-per-abi` **四个签名包**（arm64 **32.57** / armv7 **26.40** / x86 **32.57** / x86_64 **32.28 MB**，均 `CN=ZeroNote` · `versionName 0.9.0`）—— release 编译 18m05s。④ **推送**：commit `2afe796` → tag `v0.9.0` → push（直连被 reset，挂本机代理通过）→ `gh release create`（**6 个附件全部 uploaded**）⇒ https://github.com/aqua7773/zeronote/releases/tag/v0.9.0 |
 | rev173.281 | 2026-10-30 · **J 批三件：条目菜单动作（#18）· 环形菜单 6 位（#9）· 系统分享（#13）**（用户「顺序做 #18 → #9 → #13」· 三件均按 2026-10-30 逐字拍板）：① **#18 内核「条目菜单动作」协议** —— 新 `src/kernel/item-menu.ts`（注册 / 静态声明 / 去重 / 卸载回收），契约 §2.1.3：`contributes.itemMenus`（**对所有插件**静态登记，插件没加载也进菜单）+ `ctx.itemMenu.register`（运行时覆盖静态）+ 点击 `commands.execute(action.command, {path, kind, where, paths?})`；`where` = `file-tree` / `timeline`、`kinds` = `note` / `dir` / `attachment`、一层子菜单 + `order`/`divider`/`danger`。宿主 `FileTree` / `MobileNoteCards` 只按 where/kinds 过滤并渲染，`App` 把 `itemMenus` 推到三处实例（桌面侧栏 / 时间流面板 / 手机卡片流）；`KernelAudit` 加 `itemMenus`（卸载后必须回空）。`import-export` → 「导出为…」6 子项（`contributes.itemMenus`），`exportActive` 新增第 4 参数 `path`（**按菜单点的条目现读**，不依赖 `doc.active()`）。**实测**（桌面 CDP + 手机 `33b676f6`）：两入口菜单都出现「导出为… ›」；`__znExec('io.exportTxt', {path:'工作/项目A/需求.md', probe:true})` = 15 字符（**没打开的那篇**）、`toVault` 落 89 B 与原文一致（测完删产物）；截图 `_shots/j18-02..05`。② **#9 环形菜单 6 位** —— `QuickLaunch` 中心「＋」固定 = **新建笔记**（原来 × 关闭），周围 5 格可配：新 `src/lib/quick-slots.ts`（默认 = 记账 · 搜索 · 回收站 · 插件中心 · 设置；`panel:<id>` / `builtin:*` 两种 key；localStorage 应用级）+ 设置 → 通用 5 个下拉 + 环底「换入口」。顺带修一个真机隐患：遮罩 `onPointerDown` 原来无条件 `preventDefault()`，会把**按钮上**的 pointerdown 也吞掉（现在判 `target === currentTarget`）。**真机实测**：环上五项正确、第 2 格改成「导入导出」后重开生效、中心 ＋ 进入编辑器（`新笔记-20-32-54`，测完删除）；截图 `_shots/j9-01..05`。⚠️ `adb input tap` 的坐标必须用 **DOM rect × dpr(3.125)** —— 按截图目测的 y 偏了 122px，白点两次。③ **#13 系统分享** —— 新原生插件 `src-tauri/plugins/tauri-plugin-share`（Rust 壳 + Kotlin `ACTION_SEND` / `text/plain` / `createChooser` + `permissions/default.toml` + `android/build.gradle.kts`；`Cargo.toml` path 依赖 + `lib.rs` 注册 + `capabilities/default.json` 的 `share:default`；**桌面返回 `desktop-no-share`**）。`import-export` 新命令 `io.share`（面板按钮 + 两入口菜单「分享…」）：Android 调系统分享面板，桌面**如实提示并复制到剪贴板**。**实测**（桌面）：`__znExec('io.share', {path:'工作/项目A/需求.md'})` ⇒ `{copied:true, chars:15}`，`clipboard-manager|read_text` = 「需求\n\n项目 A 的需求说明。」（又是没打开的那篇）。⚠️ 首次 Android 构建失败：**插件 android 模块缺 `build.gradle.kts`**（`No matching variant of project ':tauri-plugin-share'`）—— 补上后重编（见下）。④ **测试** vitest 1655 → **1688**（`item-menu` 10 · `quick-slots` 8 · `file-tree-menu` +7 · `mobile-note-cards` +3 · `use-plugin-host` +3 · `quick-launch` +4）。⑤ **构建** `cargo check` 通过 · Android universal debug APK 重编并真机安装（pid 11789）—— 真机 `io.share` ⇒ `{shared:true}` + **系统分享面板弹出**（`_shots/j13-01-android-share-sheet.png`）· `gen-catalog` 原生插件 4 → **5** · 契约 / CHANGELOG / 修复计划 / 系统总览同步。 | 2026-10-30 · **J 批开工前置：撤掉「推荐优先安装」+ 5 项拍板落档**（用户「10 和 16 已验收，继续剩下的修复」→ 拍板）：① **#1 推荐清单撤掉**（用户「不做推荐了」）—— 零插件空态那 9 条（基础体验 5 + 多设备同步 4）连同 `src/lib/recommended-plugins.ts`、市场顶部「推荐优先安装」提示、条目「推荐」标、以及它们全部 CSS 规则一起删。空态只留 **安装 .znp** 与 **浏览插件市场** 两个动作。测试 `plugin-panel` 的「9 条」用例改成「不再有推荐区」；D-011 / README / 内核契约 / 移动端手册 / `gen-catalog.mjs` 注释同步（**历史段落不改**，只在 D-011 末尾加「修订」）。② **#2 装完不弹入口提示**（用户「先不，入口要找更方便的办法解决」）—— 入口问题转由 #9 / #18 解决，记在 D-011 修订段。③ **5 项拍板结果（J 批开工依据）**：**#1** 不做推荐 ｜ **#2** 不弹提示、改入口 ｜ **#9** 「**5 个格子**，创建新笔记固定占一格，其余放功能入口」 ｜ **#13** 「**写 Android 系统分享插件**」（不是只做导出） ｜ **#18** 「**文件树右键 / 长按 + 时间流右键 / 长按**」加导出等动作（不是放笔记「⋯ 更多」）。 |
 | rev173.280 | 2026-10-30 · **J 批开工前置：撤掉「推荐优先安装」+ 5 项拍板落档**（用户「10 和 16 已验收，继续剩下的修复」→ 拍板）：① **#1 推荐清单撤掉**（用户「不做推荐了」）—— 零插件空态那 9 条（基础体验 5 + 多设备同步 4）连同 `src/lib/recommended-plugins.ts`、市场顶部「推荐优先安装」提示、条目「推荐」标、以及它们全部 CSS 规则一起删。空态只留 **安装 .znp** 与 **浏览插件市场** 两个动作。测试 `plugin-panel` 的「9 条」用例改成「不再有推荐区」；D-011 / README / 内核契约 / 移动端手册 / `gen-catalog.mjs` 注释同步（**历史段落不改**，只在 D-011 末尾加「修订」）。② **#2 装完不弹入口提示**（用户「先不，入口要找更方便的办法解决」）—— 入口问题转由 #9 / #18 解决，记在 D-011 修订段。③ **5 项拍板结果（J 批开工依据）**：**#1** 不做推荐 ｜ **#2** 不弹提示、改入口 ｜ **#9** 「**5 个格子**，创建新笔记固定占一格，其余放功能入口」 ｜ **#13** 「**写 Android 系统分享插件**」（不是只做导出） ｜ **#18** 「**文件树右键 / 长按 + 时间流右键 / 长按**」加导出等动作（不是放笔记「⋯ 更多」）。 |
@@ -178,6 +179,56 @@ revision: 173.282
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.283（2026-10-30 · 真人测试二：同步后文件树不刷新 · 冲突无法处理）
+
+> 用户原话：「1.两边都显示已同步，但是内容不一样，桌面端明显没有同步成功 2.只有冲突记录却没有办法处理冲突」。
+> 两轮澄清：真人测试都在 **release** 环境、是**另一台手机**测的（我一开始去翻 `33b676f6` 的 dev 数据，方向错了）；
+> 用户当时已经自己定位到一半：「桌面文件树不会自己更新，实际上同步成功了，但是文件树不显示，我刚在桌面端新建文件，
+> 就马上弹出一堆文件」。最后要求「用 dev 复现问题去解决」。
+>
+> ### #1 文件树不刷新（根因不在同步）
+>
+> 证据链：桌面库里 `.md` 的名字与手机写的对得上、mtime 也是刚才 ⇒ 写盘是真的；搜索索引也更新了
+> （`withFsEvents.writeText` 会 `index.upsert`）⇒ 断的是**刷新触发**。
+>
+> 触发链：同步插件 `api.fs.writeText` → 宿主 `withFsEvents` → Rust `write_note` → `atomic_write` →
+> **`mark_self_write(abs)`**（`SELF_WRITE_SILENCE_MS = 1500`）→ watcher 回调里 `is_self_write` 命中 ⇒
+> **不 emit `zn://fs-change`** ⇒ `fs.watch` 那条刷新收不到。这条静默窗口本来是为「自动保存每 800ms 一次，
+> 回响会让全库 `list_notes` + `list_dirs` 跟着输入频率跑」—— 对用户自己的编辑是对的，对同步插件「拉来几篇」是错的。
+>
+> 修法：新 `src/hooks/useTreeRefresh.ts` —— 订阅内核写盘事件（`note:created` / `note:changed` /
+> `note:renamed` / `note:deleted`），去抖 150ms 后调 `useDocIO.refresh`；`App.tsx` 一行接入。
+> **`note:saved` 不订**：用户改正文不需要重扫列表（否则每次自动保存都来一次全库扫描）。
+>
+> 对照实验（CDP 9222 · dev · 本地 DAV 桩 8899 · 测试库 `_tmp-vault-tb`）：远端放 `甲.md` / `乙.md` →
+> 删本地 → `sync-webdav.sync` 拉 2 篇：**修复停用** ⇒ 磁盘有文件、文件树 `hasJia=false`（innerText 968）；
+> **修复启用** ⇒ 同流程 `hasJia=true`（982）。
+>
+> ### #2 冲突只能看不能处理
+>
+> 以前冲突条目只有一个「打开冲突副本」—— 打开之后没有任何动作能把结果落定。
+> 现在每条给 `sync-webdav.resolve-conflict`（`choice: 'local' | 'remote'`）：
+> · **用本机版**：读副本 → 写回笔记 → **强制 PUT 远端 + 就地改 manifest 这一条**（不走 `decideSync` 再猜一遍，
+>   避免 manifest 过期 / 412 导致「点了两次还在冲突」）→ baseline 对齐；
+> · **保留远端版**：当前笔记本来就是远端版 ⇒ 删副本 + 清记录。
+> 顺带两件：**同一篇只留一条记录**（真机 8 条全是 `新笔记-17-50-26.md`；旧副本文件不删，现场还在）；
+> `keepConflict` 落盘前用 `fs.exists` 探一次，避免「重启后同一分钟同名覆盖」。
+>
+> ### 验证
+>
+> dev 实测（`_shots/rev173283-conflict-ui.png` / `-ui2.png`）：造冲突 ⇒ 面板「冲突记录 · 1 条」+
+> 「用本机版 / 保留远端版 / 看副本」；点「用本机版」⇒ 本地与远端都变「本机版内容」、副本删除、记录清空；
+> 再造一次点「保留远端版」⇒ 笔记留远端版、副本与记录同样清空。
+> 测试：新 `tests/use-tree-refresh.test.tsx` 5 条 · `tests/sync-webdav.test.ts` +3；vitest 1688 → **1696**。
+>
+> ### 发市
+>
+> `sync-webdav` 0.3.3 → **0.3.4**：`market/packs/sync-webdav-0.3.4.znp`（104.5 KB · 入口 sha256 `de256c46…` ·
+> 整包 `db5512e2…`）· 索引 17 条 · verify-trust **42/43**。用户要到「插件中心 → 插件市场 → 更新」。
+> verify 六步：tsc 0 · oxlint 3 warnings · cargo 87 · vitest 1696 · check-docs ✅ · 质量门 8/8。
+>
+> ⚠️ 只修了 `sync-webdav`；`sync-s3` / `sync-git` / `sync-folder` 的冲突记录仍是同类缺口。
 
 > ## 📌 rev173.282（2026-10-30 · 发版 0.9.0：插件版本迭代 + 双端安装包 + GitHub Release）
 

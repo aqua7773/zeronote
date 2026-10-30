@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "sync-webdav",
   "name": "同步 · WebDAV",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -18,6 +18,8 @@
       { "id": "sync-webdav.toggle-auto", "title": "同步：开关自动同步（前台每 5 秒）" },
       { "id": "sync-webdav.set-attachments", "title": "同步：设置附件同步方式（不同步 / 中转 / 永久）" },
       { "id": "sync-webdav.save", "title": "同步：保存 WebDAV 设置" },
+      { "id": "sync-webdav.open-conflict", "title": "同步：打开冲突副本" },
+      { "id": "sync-webdav.resolve-conflict", "title": "同步：处理一条冲突（保留本机版 / 远端版）" },
       { "id": "sync-webdav.disconnect", "title": "同步：断开并清除凭据" }
     ],
     "panels": [{ "id": "sync-webdav.status", "title": "同步 · WebDAV", "location": "main" }]

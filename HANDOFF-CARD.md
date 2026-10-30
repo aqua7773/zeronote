@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-30（rev173.282 · 0.9.0 发版 · 真人使用测试 20 条全修 + J 批三件 · 插件版本迭代 4 个）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-30（rev173.283 · 真人测试二两条：文件树不刷新 / 冲突无法处理 · 上一轮 rev173.282 = 0.9.0 发版）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.282 · 0.9.0 · 2026-10-30 |
-| 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-30） |
+| rev / 版本 | rev173.283 · 0.9.0 · 2026-10-30 |
+| 测试基线 | vitest 1696 · cargo 87 · oxlint 3 warnings（2026-10-30） |
 | 插件 | 市场 17 · 示例 42 |
 | 文档 | README 现状 2026-10-30 · CHANGELOG 0.9.0 |
 <!-- FACTS:END -->
@@ -33,7 +33,14 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下个会话第一件事（rev173.282 交接）**：**0.9.0 已发版**（真人使用测试 A–J 20 条全修 + J 批三件）。
+> **下个会话第一件事（rev173.283 交接 · 真人测试二）**：两条已修完、dev 实测过，**`sync-webdav` 0.3.4 已打包发市**
+> （市场索引 17 条 · verify-trust 42/43）。用户手上的 release 版要到「插件中心 → 插件市场 → 更新」才拿得到。
+> ① **同类缺口**：`sync-s3` / `sync-git` / `sync-folder` 的冲突记录仍只有「打开副本」——要不要按同一套
+>    （`resolve-conflict`：用本机版 / 保留远端版 + 同篇去重）补齐，等用户拍板。
+> ② **文件树刷新的面**：修的是「内核事件 → refresh」（全后端受益）；但 watcher 的 1.5 秒自写静默窗口
+>    仍在 —— 外部程序（网盘客户端）在窗口内改同一篇会被吞一次，这是已知代价（下一次改动仍会到）。
+>
+> **上一轮（rev173.282）交接**：**0.9.0 已发版**（真人使用测试 A–J 20 条全修 + J 批三件）。
 > 本轮四件：① 插件重打包签名 4 个（`import-export` **0.2.0** · `sync-webdav` **0.3.3** · `sync-s3` **0.4.3** ·
 > `sync-git` **0.5.3**）② 应用 **0.9.0**（`release.mjs` + CHANGELOG/README/ROADMAP）③ 双端 release 编译
 > ④ commit + tag `v0.9.0` + push + GitHub Release。

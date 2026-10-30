@@ -869,6 +869,20 @@ export default {
       let fileName = null
       if (localText != null) {
         fileName = conflictFileName(path, Date.now(), (n) => takenNames.has(n))
+        /**
+         * 重启 / 另一进程同分钟再冲突（rev173.283）：`takenNames` 只活在本进程，
+         * 文件名精确到分钟 ⇒ 第二次会**覆盖**同一分钟内上一次的副本，现场就没了。
+         * 落盘前问一次磁盘，已存在就顺延 `-2` / `-3`。
+         */
+        if (typeof api.fs.exists === 'function') {
+          for (let guard = 0; guard < 50; guard += 1) {
+            const exists = await api.fs.exists(`${conflictDir}/${fileName}`).catch(() => false)
+            if (!exists) break
+            takenNames.add(fileName)
+            fileName = conflictFileName(path, Date.now(), (n) => takenNames.has(n))
+          }
+        }
+        takenNames.add(fileName)
         takenNames.add(fileName)
         try {
           await api.fs.mkdir(conflictDir)
@@ -878,6 +892,15 @@ export default {
           fileName = null
         }
       }
+      /**
+       * 同一篇只留**最新一条**（rev173.283 · 真人测试二 #2）。
+       *
+       * 真机现场：一个文件反复冲突时面板被同一篇刷满（截图里 8 条全是
+       * `新笔记-17-50-26.md`），用户根本不知道该处理哪一条。旧副本文件**不删**
+       * （还在 `.zn/conflicts/<平台>/` 下，手动能看），只是记录不再重复占位。
+       */
+      const dupIdx = conflicts.findIndex((c) => c.path === path && c.platform === platform)
+      if (dupIdx >= 0) conflicts.splice(dupIdx, 1)
       conflicts.unshift({ path, file: fileName, platform, at: Date.now(), reason, lost: localText == null })
       if (conflicts.length > MAX_CONFLICTS) conflicts.length = MAX_CONFLICTS
       void api.store.set(KEY_CONFLICTS, conflicts).catch(() => {})
@@ -1937,32 +1960,78 @@ export default {
 
       if (conflicts.length > 0) {
         children.push({ type: 'divider' })
-        children.push({ type: 'text', value: '冲突记录', variant: 'title' })
+        children.push({ type: 'text', value: `冲突记录 · ${conflicts.length} 条`, variant: 'title' })
+        children.push({
+          type: 'text',
+          value: '两边都改过的文件：选一边保留即可。选「本机版」会立刻写回并推上云端；选「远端版」只清掉副本。',
+          variant: 'caption',
+          tone: 'muted',
+        })
         children.push({
           type: 'list',
           items: conflicts.slice(0, 8).map((c) => {
             const where = c.file ? `${CONFLICT_ROOT}/${c.platform}/${c.file}` : null
+            const base = { file: c.file, platform: c.platform, path: c.path }
             return {
               type: 'stack',
               gap: 'sm',
               children: [
                 {
                   type: 'text',
-                  value: `${new Date(c.at).toLocaleString()} · ${c.path}${where ? '' : '（本机版未留存）'}`,
+                  value: `${new Date(c.at).toLocaleString()} · ${c.path}`,
                 },
                 ...(where
                   ? [
-                      { type: 'text', value: where, variant: 'caption', tone: 'muted' },
-                      // rev173.113：一键打开副本（以前只有一行字，得自己去文件管理器找）
                       {
-                        type: 'button',
-                        label: '打开冲突副本',
-                        onClick: 'sync-webdav.open-conflict',
-                        payload: { file: c.file, platform: c.platform },
-                        variant: 'ghost',
+                        type: 'text',
+                        value: `${where} · ${c.reason || '双端修改'}`,
+                        variant: 'caption',
+                        tone: 'muted',
+                      },
+                      /**
+                       * **处理入口**（rev173.283 · 真人测试二 #2）。
+                       *
+                       * 以前这里只有「打开冲突副本」—— 打开之后没有任何动作能把结果落定，
+                       * 用户只能自己去文件管理器里复制粘贴。现在两个方向都能一键收尾：
+                       *   · 用本机版：把副本内容写回笔记 → 立刻推一轮（基线与远端对齐后判 push）
+                       *   · 保留远端版：当前笔记已经是远端版 → 删副本 + 清记录
+                       */
+                      {
+                        type: 'row',
+                        gap: 'sm',
+                        wrap: true,
+                        children: [
+                          {
+                            type: 'button',
+                            label: '用本机版',
+                            onClick: 'sync-webdav.resolve-conflict',
+                            payload: { ...base, choice: 'local' },
+                          },
+                          {
+                            type: 'button',
+                            label: '保留远端版',
+                            onClick: 'sync-webdav.resolve-conflict',
+                            payload: { ...base, choice: 'remote' },
+                            variant: 'ghost',
+                          },
+                          {
+                            type: 'button',
+                            label: '看副本',
+                            onClick: 'sync-webdav.open-conflict',
+                            payload: { file: c.file, platform: c.platform },
+                            variant: 'ghost',
+                          },
+                        ],
                       },
                     ]
-                  : []),
+                  : [
+                      {
+                        type: 'text',
+                        value: '（本机版没留下来，只能保留远端版）',
+                        variant: 'caption',
+                        tone: 'muted',
+                      },
+                    ]),
               ],
             }
           }),
@@ -2091,6 +2160,124 @@ export default {
       } catch (e) {
         api.host.notify(`打不开冲突副本：${String(e)}`, 'error')
       }
+    })
+    /**
+     * **收尾一条冲突**（rev173.283 · 真人测试二 #2「只有冲突记录却没有办法处理冲突」）。
+     *
+     * `choice: 'local'` —— 用本机版：把 `.zn/conflicts/<平台>/<文件>` 的内容写回笔记，
+     *   收尾后**立刻推一轮**。推送之所以成立：写回前先把基线对齐到「远端当前内容」，
+     *   于是 `decideSync` 看到「本地变了、远端没变」⇒ push（而不是又判一次冲突）。
+     *   远端这篇已经不在了 ⇒ 删基线 ⇒ 走 push-new（重新上传）。
+     *
+     * `choice: 'remote'` —— 保留远端版：冲突发生时本地已经被远端版覆盖过，当前笔记就是
+     *   远端版，所以只需要删副本 + 清记录。
+     *
+     * 两种都幂等：记录已经不在 ⇒ 明确说一句，不重复动文件。
+     */
+    register('sync-webdav.resolve-conflict', '同步：处理一条冲突（保留本机版 / 远端版）', async (payload) => {
+      const file = String(payload?.file ?? '')
+      const plat = String(payload?.platform || platform)
+      const path = String(payload?.path ?? '')
+      const choice = payload?.choice === 'remote' ? 'remote' : 'local'
+      const idx = conflicts.findIndex((c) => c.path === path && c.platform === plat)
+      if (idx < 0) {
+        api.host.notify('这条冲突已经不在了（可能刚刚处理过）', 'warn')
+        api.view.refresh()
+        return
+      }
+      const conflictPath = file ? `${CONFLICT_ROOT}/${plat}/${file}` : null
+      const dropRecord = async () => {
+        // 按 path 重新定位：这段是异步的，中途可能有新冲突 unshift 进来
+        const at = conflicts.findIndex((c) => c.path === path && c.platform === plat)
+        if (at >= 0) conflicts.splice(at, 1)
+        await api.store.set(KEY_CONFLICTS, conflicts).catch(() => {})
+      }
+      const dropCopy = async () => {
+        if (!conflictPath) return
+        try {
+          await api.fs.purgePrivate(conflictPath)
+        } catch (e) {
+          // 删不掉不算失败（下次还能再删）；不能因此把记录留着让用户以为没处理
+          api.host.log('warn', `冲突副本删除失败：${String(e)}`)
+        }
+      }
+
+      if (choice === 'remote') {
+        await dropCopy()
+        await dropRecord()
+        api.host.notify(`已保留远端版：${path}`)
+        api.view.refresh()
+        return
+      }
+
+      if (!conflictPath) {
+        api.host.notify('这条冲突没有留下本机副本，无法用本机版覆盖', 'warn')
+        api.view.refresh()
+        return
+      }
+      let localText = null
+      try {
+        localText = await api.fs.readText(conflictPath)
+      } catch {
+        localText = null
+      }
+      if (localText == null) {
+        api.host.notify('冲突副本读不到（可能已被清理）', 'error')
+        api.view.refresh()
+        return
+      }
+      if (!settings.baseUrl) {
+        api.host.notify('还没配置 WebDAV，先写回本机，配好后手动同步一次', 'warn')
+      }
+      // ① 先写回本机（这一步失败就什么都别做，副本还在）
+      try {
+        await api.fs.writeText(path, localText)
+      } catch (e) {
+        api.host.notify(`写回本机版失败：${String(e)}`, 'error')
+        api.view.refresh()
+        return
+      }
+      let pushed = false
+      try {
+        const client = createDavClient({ ...settings, password: await password(), net: api.net })
+        /**
+         * **不走 `runSync` 的方向判定，直接推**。
+         *
+         * 冲突收尾是"人已经做了决定"的动作，不该再让 `decideSync` 猜一遍：远端 manifest
+         * 里这一条可能已经过期（远端删过 / 412 场景），按普通判定会再判成一次冲突，
+         * 用户点了两次还是没结果。所以这里强制 PUT + 同步改 manifest 这一条 ——
+         * 结果确定：远端 = 本机版，基线与 manifest 一起对齐。
+         */
+        const res = await client.put(path, localText, undefined)
+        if (res.ok) {
+          const fp = fingerprint(localText)
+          baseline[path] = { fp, etag: res.etag ?? undefined }
+          try {
+            const remote = (await client.readManifest()) || {}
+            const files = { ...(remote.files || {}) }
+            files[path] = { fp, etag: res.etag ?? undefined, at: Date.now() }
+            await client.writeManifest({
+              files,
+              attachments: remote.attachments || {},
+              private: remote.private || {},
+              privateTree: remote.privateTree || {},
+            })
+          } catch (e) {
+            // manifest 没写进去不算失败（下一轮同步会按「本地变、远端没变」补齐）
+            api.host.log('warn', `冲突收尾后更新 manifest 失败：${String(e)}`)
+          }
+          pushed = true
+        } else {
+          api.host.notify(`写回了本机版，但上传失败（${res.status}），下一轮同步会重试`, 'warn')
+        }
+      } catch (e) {
+        api.host.notify(`写回了本机版，但上传失败：${String(e)}`, 'warn')
+      }
+      await dropCopy()
+      await dropRecord()
+      await api.store.set(KEY_BASELINE, baseline).catch(() => {})
+      api.host.notify(pushed ? `已用本机版覆盖并推送：${path}` : `已写回本机版：${path}`)
+      api.view.refresh()
     })
     register('sync-webdav.disconnect', '同步：断开并清除凭据', async () => {
       try {

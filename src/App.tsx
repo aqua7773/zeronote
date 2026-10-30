@@ -89,6 +89,7 @@ import { syncWidgetData, takeHabitWidgetDirty } from './kernel/widget-data'
 import { useFileOps } from './hooks/useFileOps'
 /* rev124 拆分 L3：文档读写域（刷新 / 合并 / 保存 / 编辑器变更）抽成 hook */
 import { useDocIO } from './hooks/useDocIO'
+import { useTreeRefresh } from './hooks/useTreeRefresh'
 /* rev125 拆分 L3：文档会话（打开 / 关闭 / [[链接]]）抽成 hook */
 import { useDocSession } from './hooks/useDocSession'
 /* rev126 拆分 L3：文档原语 + 事件广播（docApi / fireDoc / flushDocChange）抽成 hook */
@@ -1206,6 +1207,17 @@ export default function App() {
     autosaveMs: AUTOSAVE_MS,
     docChangeDebounceMs: DOC_CHANGE_DEBOUNCE_MS,
   })
+
+  /**
+   * **内核写盘事件 → 文件树刷新**（rev173.283 · 真人测试二 #1）。
+   *
+   * 症状（release 实测）：手机写进来的几篇笔记在桌面上"同步显示已成功"，但文件树里
+   * 一篇都看不到；用户在桌面端新建一篇，那几篇才一起冒出来。
+   *
+   * 细节与为什么是这个订阅面：见 `hooks/useTreeRefresh.ts` 的头注释（watcher 的
+   * `SELF_WRITE_SILENCE_MS` 会吞掉本进程写盘的回响，所以刷新必须另外听内核事件）。
+   */
+  useTreeRefresh(kernel, refresh)
 
   /**
    * 安卓桌面组件的数据快照（rev173.242 · 需求 §15）。

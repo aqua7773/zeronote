@@ -534,6 +534,7 @@ describe('插件接线', () => {
       'sync-webdav.disconnect',
       'sync-webdav.open',
       'sync-webdav.open-conflict',
+      'sync-webdav.resolve-conflict',
       'sync-webdav.save',
       'sync-webdav.set-attachments',
       'sync-webdav.sync',
@@ -1138,8 +1139,10 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     local: Map<string, Uint8Array>,
     mtimes: Map<string, number>,
     platform: string,
+    /** 预置 store（apply 之前写入 —— 插件初始化时读的就是这份） */
+    seed?: Record<string, unknown>,
   ) {
-    const store = new Map<string, unknown>()
+    const store = new Map<string, unknown>(Object.entries(seed ?? {}))
     const commands = new Map<string, (p?: unknown) => unknown>()
     const notices: string[] = []
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
@@ -1153,16 +1156,19 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
         secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
       },
       fs: {
+        // 真实内核的 listNotes 跳过 `.zn`（冲突副本 / 回收站不是笔记）
         listNotes: async () =>
-          [...local.keys()].map((p) => ({
-            path: p,
-            id: p,
-            title: p,
-            mtime: mtimes.get(p) ?? 0,
-            size: local.get(p)?.length ?? 0,
-            frontmatter: {},
-            kind: 'doc',
-          })),
+          [...local.keys()]
+            .filter((p) => !p.startsWith('.zn/'))
+            .map((p) => ({
+              path: p,
+              id: p,
+              title: p,
+              mtime: mtimes.get(p) ?? 0,
+              size: local.get(p)?.length ?? 0,
+              frontmatter: {},
+              kind: 'doc',
+            })),
         readText: async (p: string) => dec(local.get(p) ?? new Uint8Array()),
         writeText: async (p: string, text: string) => {
           local.set(p, enc(String(text)))
@@ -1174,6 +1180,11 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
           mtimes.set(p, Date.now())
         },
         mkdir: async () => {},
+        exists: async (p: string) => local.has(p),
+        /** 冲突副本清理走这条（只允许 `.zn/` 下） */
+        purgePrivate: async (p: string) => {
+          local.delete(p)
+        },
       },
       net,
       store: {
@@ -1203,6 +1214,7 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     return {
       commands,
       notices,
+      store,
       render: () => render,
       dispose: () => {
         for (const s of api.subscriptions) s.dispose?.()
@@ -1294,6 +1306,106 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     expect(A2.notices.some((m) => m.includes('同步冲突'))).toBe(false)
     expect([...local.keys()].some((k) => k.startsWith('.zn/conflicts/'))).toBe(false)
     A2.dispose()
+  })
+
+  /* ── 冲突收尾（rev173.283 · 真人测试二 #2）── */
+  /**
+   * 现场：冲突刚发生过 —— 远端 = 远端版，本地已被远端版覆盖（原流程），
+   * `.zn/conflicts/<平台>/` 里留着本机版，store 里一条冲突记录。
+   */
+  function seedConflict(
+    local: Map<string, Uint8Array>,
+    dav: Map<string, { bytes: Uint8Array; etag: string }>,
+  ) {
+    const conflictFile = '2026-10-30 2157-a.md'
+    const conflictPath = `.zn/conflicts/windows/${conflictFile}`
+    dav.set('a.md', { bytes: enc('远端版\n'), etag: '"r1"' })
+    local.set('a.md', enc('远端版\n'))
+    local.set(conflictPath, enc('本机版\n'))
+    return {
+      conflictPath,
+      record: {
+        path: 'a.md',
+        file: conflictFile,
+        platform: 'windows',
+        at: Date.now(),
+        reason: '双端修改',
+        lost: false,
+      },
+    }
+  }
+
+  it('冲突收尾：用本机版 ⇒ 写回笔记、删副本、清记录、立刻推回远端', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    const { conflictPath, record } = seedConflict(local, dav)
+    const A = makeDevice(net, local, mtimes, 'windows', { 'conflicts.v1': [record] })
+    await configure(A)
+
+    await A.commands.get('sync-webdav.resolve-conflict')!({ ...record, choice: 'local' })
+
+    // 本机版回到笔记
+    expect(dec(local.get('a.md')!)).toBe('本机版\n')
+    // 副本清理干净
+    expect(local.has(conflictPath)).toBe(false)
+    // 远端被本机版覆盖（不再等下一轮判定，也不会再判一次冲突）
+    expect(dec(dav.get('a.md')!.bytes)).toBe('本机版\n')
+    expect(A.notices.some((m) => m.includes('已用本机版覆盖并推送'))).toBe(true)
+    A.dispose()
+  })
+
+  it('冲突收尾：保留远端版 ⇒ 笔记不动、只删副本与记录', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    const { conflictPath, record } = seedConflict(local, dav)
+    const A = makeDevice(net, local, mtimes, 'windows', { 'conflicts.v1': [record] })
+    await configure(A)
+
+    await A.commands.get('sync-webdav.resolve-conflict')!({ ...record, choice: 'remote' })
+
+    expect(dec(local.get('a.md')!)).toBe('远端版\n')
+    expect(local.has(conflictPath)).toBe(false)
+    expect(dec(dav.get('a.md')!.bytes)).toBe('远端版\n')
+    expect(A.notices.some((m) => m.includes('已保留远端版'))).toBe(true)
+    A.dispose()
+  })
+
+  it('同一篇反复冲突只留一条记录（旧副本文件不删）', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    // ① 先让远端有这篇（同时建起 manifest）
+    local.set('x.md', enc('v1\n'))
+    mtimes.set('x.md', Date.now() - 60_000)
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync-webdav.sync')!({})
+    expect(dec(dav.get('x.md')!.bytes)).toBe('v1\n')
+    A.dispose()
+
+    // ② 本机改成 v2，而 store 丢了（= 换设备 / 清数据）⇒ 判冲突，留副本
+    local.set('x.md', enc('v2\n'))
+    const A2 = makeDevice(net, local, mtimes, 'windows')
+    await configure(A2)
+    await A2.commands.get('sync-webdav.sync')!({})
+    expect(((A2.store.get('conflicts.v1') as unknown[]) ?? []).length).toBe(1)
+    A2.dispose()
+
+    // ③ 本机再改成 v3，还是空基线 ⇒ 第二次冲突；记录里同一路径只留一条
+    local.set('x.md', enc('v3\n'))
+    const A3 = makeDevice(net, local, mtimes, 'windows', {
+      'conflicts.v1': A2.store.get('conflicts.v1'),
+    })
+    await configure(A3)
+    await A3.commands.get('sync-webdav.sync')!({})
+
+    const records = (A3.store.get('conflicts.v1') as Array<{ path: string }>) ?? []
+    expect(records.filter((r) => r.path === 'x.md')).toHaveLength(1)
+    // 旧副本文件仍然在盘上（现场没丢）
+    expect([...local.keys()].filter((k) => k.startsWith('.zn/conflicts/windows/')).length).toBe(2)
+    A3.dispose()
   })
 })
 
