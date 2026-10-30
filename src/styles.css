@@ -3677,6 +3677,21 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   word-break: break-all;
 }
 
+/* rev173.274 · #5：图片不在本机的占位现在可点（点开给出路），给它「能点」的样子。 */
+.zn-image-error[data-zn-clickable] {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color var(--zn-dur-hover) var(--zn-ease-standard);
+}
+.zn-image-error[data-zn-clickable]:hover {
+  background: var(--zn-bg-subtle, rgba(0, 0, 0, 0.04));
+  color: var(--zn-fg);
+}
+.zn-image-error[data-zn-clickable]:focus-visible {
+  outline: 2px solid var(--zn-fg);
+  outline-offset: 1px;
+}
+
 /* ───────── 手机底部四项导航（UI 重布局 B2 · 方案 §2.2）─────────
    固定 4 项、固定顺序（首页 / 搜索 / 插件 / 更多），全部内核能力；
    编辑态 / 工具页 / 回收站时整条不渲染（键盘上方工具栏接管）。

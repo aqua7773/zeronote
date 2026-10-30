@@ -173,6 +173,7 @@ import {
   localOriginalAbsPath,
   relinkRelay,
   syncConfirmText,
+  type RelayPendingItem,
 } from './kernel/asset-relay'
 import { setMediaServer } from './kernel/media-url'
 import { isExternalAbsPath } from './kernel/file-card'
@@ -189,9 +190,11 @@ import {
   writeText as nativeClipboardWriteText,
 } from '@tauri-apps/plugin-clipboard-manager'
 import {
+  Button,
   ContextMenu,
   Dialog,
   DialogBody,
+  DialogFooter,
   DialogHeader,
   type MenuItem,
 } from '@/components/ui'
@@ -2916,6 +2919,65 @@ export default function App() {
     [vault, setToast, reloadActiveFromDisk],
   )
 
+  /**
+   * 正文里「图片不在本机」占位被点（rev173.274 · 真人使用测试 #5）。
+   *
+   * 用户原话：「同步插件没有开启附件同步中转的时候，只有一个占位显示图片不在本机，点击之后没有后续。」
+   * 以前那行是死文字。现在点了就开一个说明框，按台账分两条路：
+   *  · 台账里有这张（引用原文件的大图 / 模式 B 的原图）⇒ 给「从云端接收」；
+   *  · 台账里没有（复制型附件、没跟着同步）⇒ 说明去开附件同步 / 用搬运通道。
+   */
+  const [missingImage, setMissingImage] = useState<string | null>(null)
+  const [missingImageRelay, setMissingImageRelay] = useState<{
+    item: RelayPendingItem
+    remote: boolean
+  } | null>(null)
+  const [missingImageBusy, setMissingImageBusy] = useState(false)
+
+  const openMissingImage = useCallback(
+    async (raw: string) => {
+      setMissingImage(raw)
+      setMissingImageRelay(null)
+      if (!vault) return
+      try {
+        const local = await loadRelayPending(vault)
+        const hit =
+          findEntryForStoredImage(local.items, raw) ?? findEntryForMedia(local.items, raw)
+        if (!hit) return
+        const remote = await loadRelayRemote(vault)
+        setMissingImageRelay({
+          item: hit,
+          remote: remote.items.some((r) => r.hash16 === hash16Of(hit.id)),
+        })
+      } catch {
+        /* 台账读不出来就只给指路；不把这一步的错弹给用户 */
+      }
+    },
+    [vault],
+  )
+
+  const receiveMissingImage = async () => {
+    if (!vault || !missingImageRelay) return
+    if (!window.confirm(syncConfirmText(missingImageRelay.item))) return
+    setMissingImageBusy(true)
+    try {
+      const r = await landRelay(vault, [missingImageRelay.item.id])
+      const ok = r.items.find((x) => x.ok)
+      if (!ok?.path) {
+        setToast(`接收失败：${r.items[0]?.error ?? '未知错误'}`)
+        return
+      }
+      await relinkRelay(vault, missingImageRelay.item.original, ok.path)
+      await reloadActiveFromDisk()
+      setToast(`已接收 ${formatSize(r.totalBytes)} · 引用已改写`)
+      setMissingImage(null)
+    } catch (e) {
+      setToast(`接收失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setMissingImageBusy(false)
+    }
+  }
+
   // Android：启动内核的本地媒体服务（rev173.240）。桌面跳过 —— asset 协议已支持 Range。
   useEffect(() => {
     if (kernel?.host.platform !== 'android') {
@@ -4446,6 +4508,8 @@ export default function App() {
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
+              /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
+              onMissingImage={(raw) => void openMissingImage(raw)}
               mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
@@ -4978,6 +5042,8 @@ export default function App() {
               onWikiPreview={wikiPreview}
               onLocalLinkOpen={openLocalLink}
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
+              /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
+              onMissingImage={(raw) => void openMissingImage(raw)}
               mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
@@ -5245,6 +5311,57 @@ export default function App() {
           onCreateNote={(n) => runCore('core.newNote', { name: n })}
         />
       )}
+
+      {/* 正文「图片不在本机」占位被点（rev173.274 · 真人使用测试 #5）：
+          以前点了没反应 —— 这里按台账给两条路（云端接收 / 去开附件同步）。 */}
+      <Dialog
+        open={missingImage !== null}
+        onOpenChange={(next) => {
+          if (!next) setMissingImage(null)
+        }}
+        width={460}
+      >
+        <DialogHeader title="这张图不在这台设备上" description={missingImage ?? undefined} />
+        <DialogBody>
+          {missingImageRelay ? (
+            <p className="text-xs text-muted-foreground">
+              {missingImageRelay.remote
+                ? '云端临时区里有这个文件 —— 点下面「从云端接收」，落地后笔记里的引用会自动改写。'
+                : '另一台设备还没把它上传到云端临时区。先在那边「设置 → 附件」里上传，再回来接收。'}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+              <p>这台设备上没有这个文件。笔记是文本，图片要单独同步过来。</p>
+              <p>
+                ① 在同步插件里把「附件（图片 / PDF）」设为「中转」或「永久」，另一台设备再同步一次；
+              </p>
+              <p>② 或者到「设置 → 附件」用搬运通道手动接收。</p>
+            </div>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setMissingImage(null)}>
+            知道了
+          </Button>
+          {missingImageRelay ? (
+            <Button
+              disabled={missingImageBusy || !missingImageRelay.remote}
+              onClick={() => void receiveMissingImage()}
+            >
+              {missingImageBusy ? '接收中…' : '从云端接收'}
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => {
+              setMissingImage(null)
+              setSettingsTab('assets')
+              openOverlay('settings')
+            }}
+          >
+            打开附件设置
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <Settings
         /* B1：菜单「关于」要直接落在「关于」页 —— 用 key 让组件重挂载，初始 tab 生效 */

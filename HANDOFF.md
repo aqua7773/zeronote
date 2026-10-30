@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.273
-更新时间: 2026-10-30 · 最新 rev173.273
+revision: 173.274
+更新时间: 2026-10-30 · 最新 rev173.274
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.273
 
 | rev | 内容 |
 |---|---|
+| rev173.274 | 2026-10-30 · **真人使用测试 C#5：「图片不在本机」占位补后续（#5）**（用户澄清：「同步插件没有开启附件同步中转的时候，只有一个占位显示图片不在本机，点击之后没有后续」）：① **占位可点** —— `attachImageErrorHint` 给 `.zn-image-error` 加 `role=button` / `tabIndex` / `data-zn-clickable`，拦截 `mousedown`（atomic 会先把光标挪到源码行）并监听 `click` / `Enter` / 空格 ⇒ 回调 `onMissingImage(raw)`。② **穿透** —— `fixImageSrc` / `imageAssetPlugin` / `MarkdownEditorProps` 新增 `onMissingImage`（与 `onExternalMediaSync` 同一条链）。③ **宿主的出路** —— App 新增 `missingImage` 状态 + Dialog「这张图不在这台设备上」：查台账（`findEntryForStoredImage` → `findEntryForMedia`），命中且云端有 ⇒「从云端接收」（`landRelay` + `relinkRelay` + `reloadActiveFromDisk`）；台账没有 ⇒ 说明附件要单独同步 +「打开附件设置」（`setSettingsTab('assets')` + `openOverlay('settings')`）。④ **样式** —— `.zn-image-error[data-zn-clickable]` hover / focus-visible（用 token，不写裸时长）。**实测**（CDP）：写 `![](附件/不存在.png)` 的笔记 ⇒ 占位出现且 `data-zn-clickable=1`；点击 ⇒ 弹框标题「这张图不在这台设备上」、正文含两条办法；点「打开附件设置」⇒ 设置打开在附件 tab（页面出现「云端临时区」）。截图 `_shots/rev173274-missing-image-dialog.png`。⚠️ 「从云端接收」分支没有可用的云端文件（本机 relay 未配）⇒ 只验了按钮存在与禁用逻辑，端到端未跑。 |
 | rev173.273 | 2026-10-30 · **真人使用测试 D 批：展示清理（#7 / #15）**（用户「继续zeronote，修bug」）：① **时间流 / 卡片流只列笔记** —— `MobileNoteCards` 的 `sorted` 加 `kind === 'note'` 过滤（原来附件也进列表，点开是「打开附件」/「音视频附件」提示）；桌面时间流与手机卡片流共用这一份。② **三处多余说明删除** —— 插件中心空态 `zn-plugins-recommend-hint`（「应用不预装插件…原来是随包带的」）、插件中心底部 `zn-plugins-globalroot`（「插件目录：…」）、插件市场底部同款（「插件来自索引里的下载地址；整包 sha256 对得上才安装…」）。③ **测试** `tests/mobile-note-cards.test.tsx` +1（附件不进卡片流，断言卡片数 = md 数、readText 只被笔记调用）；vitest 1583 → **1584**。④ **实测**（CDP）：桌面时间流 **38 张卡片 = 库里 38 个 `.md`**（库里另有 epub/jpg/mkv/mp3/mp4/png/txt 共 10 个附件，一张都没进）；插件中心无「插件目录：」、市场无「sha256 对得上才安装」。截图 `_shots/rev173273-market-clean.png`。 |
 | rev173.272 | 2026-10-30 · **真人使用测试 C 批（前半）：附件误报「库里没有」改为问磁盘（#4）**（用户「继续zeronote，修bug」）：① **判据** —— `openLocalLink` 原来只 `notes.find(...)`（前端列表落后于磁盘 ⇒ 同步 / 粘贴刚写盘的图**显示得出来、点开却报没有**）；现在列表没有就 `kernel.fs.exists(norm)` 问磁盘，命中后按扩展名现推类型。② **新模块** `src/lib/attachment-kind.ts` —— `kindOfPath` 四分类，口径与 Rust `list_notes`（`is_markdown` / `is_image` / `is_media_file`）一致，复用 `insert-image` 的 `IMAGE_EXTS` 与 `media-render` 的 `MEDIA_EXTS`、`DOC_EXTS` 单列。③ **主动刷新** —— `insertFileFromPath` / `insertPastedImage` 写盘后 `void refresh()`，不等 fs-events watcher。④ **测试** 新 `tests/attachment-kind.test.ts` 6 条；vitest 1577 → **1583**。⑤ **实测**（CDP，用 `.tmp-c4/` 点开头目录构造「磁盘有、列表没有」）：`__znOpenLocalLink('.tmp-c4/x.png')` ⇒ `.zn-img-preview` 打开、无错误 toast；对照不存在路径 ⇒ 仍报「库里没有这个附件」。截图 `_shots/rev173272-attachment-fallback.png`。⚠️ **#5（安卓「图片不在本机」）没有复现，按计划暂不动**。 |
 | rev173.271 | 2026-10-30 · **真人使用测试 B 批：抢输入三修（#6 / #8 / #17）**（用户「继续zeronote，修bug」）：① **输入框不再被应用级右键菜单吃掉** —— `document` 捕获阶段的 `contextmenu` 与 `onContextMenuCapture` 两处同步放行 `input / textarea / select / .zn-ui-field`，原生「粘贴 / 全选 / 复制」回来；`[contenteditable]` **有意不放行**（桌面编辑器正文就是 contenteditable，放行会冒出 WebView2 的「检查 / 刷新」）。② **手机搜索页不再自动弹键盘** —— `SearchPanel` 新增 `autoFocus`（默认 `true`），手机全屏页传 `false`；桌面侧栏视图 / 浮层行为不变。③ **重命名只选主名** —— `FileTree` 进入编辑态选中 `.md` 之前的文件名、光标落在主名末尾；目录仍整体选中。**测试** `tests/search-panel.test.tsx` +2（默认聚焦 / `autoFocus=false` 不聚焦）；vitest 1575 → **1577**。**实测**（CDP 桌面 + 手机 `33b676f6`）：同步面板 URL 框 `contextmenu` 事件 `defaultPrevented=false`、`body` 仍 `true`；手机点底栏「搜索」后 `activeElement=BODY`；桌面文件树重命名选中「笔记1」（`0–3`）、不含 `.md`。截图 `_shots/rev173270-phone-search.png` / `rev173270-rename-selection.png`。 |
@@ -169,6 +170,33 @@ revision: 173.273
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.274（2026-10-30 · C#5：「图片不在本机」占位补后续 · #5）
+
+> 用户澄清：「同步插件没有开启附件同步中转的时候，只有一个占位显示图片不在本机，点击之后没有后续。」
+>
+> ### 根因
+>
+> `.zn-image-error` 是 `attachImageErrorHint` 里 `appendChild` 的一段纯文本，**没有任何监听**。
+> 「同步原图」按钮只挂在图片**预览浮层**里 —— 图都破了，那条路也走不到。
+>
+> ### 改法
+>
+> 1. 占位变按钮：`role=button` / `tabIndex=0` / `data-zn-clickable`，拦 `mousedown`（atomic 会先
+>    把光标挪到源码行），监听 `click` / `Enter` / 空格 ⇒ `onMissingImage(raw)`。
+> 2. 回调穿透 `fixImageSrc` → `imageAssetPlugin` → `MarkdownEditorProps`（与 `onExternalMediaSync` 同一条链）。
+> 3. 宿主开 Dialog：查台账（`findEntryForStoredImage` → `findEntryForMedia`）—— 命中且云端有
+>    ⇒「从云端接收」；台账没有 ⇒ 说明附件要单独同步 +「打开附件设置」直达设置 → 附件。
+>
+> ### 验证
+>
+> - CDP：写一篇 `![](附件/不存在.png)` 的笔记 ⇒ 占位出现、`data-zn-clickable=1`；点击弹框；
+>   点「打开附件设置」⇒ 设置落在附件 tab（页面出现「云端临时区」）。截图 `_shots/rev173274-missing-image-dialog.png`。
+> - tsc 0 · oxlint 3 · vitest 1584（无新增单测：要渲染 CodeMirror 才测得到这段 DOM，成本高于收益）。
+>
+> ### 遗留
+>
+> - ⚠️ 「从云端接收」分支只验了按钮与禁用逻辑：本机 relay 没配、云端没有对应文件，端到端未跑。
 
 > ## 📌 rev173.273（2026-10-30 · D 批：展示清理 —— 时间流不列附件 + 删三处多余说明 · #7 / #15）
 

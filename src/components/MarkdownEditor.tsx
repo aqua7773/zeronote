@@ -106,6 +106,7 @@ function fixImageSrc(
   vault: string | null | undefined,
   notePath: string | null,
   onExternalMediaSync?: (raw: string) => void,
+  onMissingImage?: (raw: string) => void,
 ) {
   for (const img of view.contentDOM.querySelectorAll('img')) {
     const raw = img.getAttribute('src')
@@ -127,7 +128,7 @@ function fixImageSrc(
     }
     // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
     if (img.src !== url) img.src = url
-    attachImageErrorHint(img, raw)
+    attachImageErrorHint(img, raw, onMissingImage)
   }
   upgradeMediaWidgets(view, vault, notePath, onExternalMediaSync)
 }
@@ -142,7 +143,11 @@ function fixImageSrc(
  * `error` 可能在挂监听**之前**就发生（虚拟化重建 / 缓存命中），所以先看 `complete`。
  * 用 `dataset` 标记保证同一个 `<img>` 只挂一次（`fixImageSrc` 会被 MutationObserver 反复调用）。
  */
-function attachImageErrorHint(img: HTMLImageElement, raw: string) {
+function attachImageErrorHint(
+  img: HTMLImageElement,
+  raw: string,
+  onMissing?: (raw: string) => void,
+) {
   if (img.dataset.znErrorBound) return
   img.dataset.znErrorBound = '1'
   const show = () => {
@@ -151,6 +156,27 @@ function attachImageErrorHint(img: HTMLImageElement, raw: string) {
     const hint = document.createElement('div')
     hint.className = 'zn-image-error'
     hint.textContent = `图片不在本机：${stripAngleTarget(raw)}`
+    /**
+     * rev173.274 · 真人使用测试 #5：占位以前是**死文字**，点了没反应。
+     * 现在它是个按钮 —— 点一下由宿主给出路（接收台账里的文件 / 打开附件同步设置）。
+     * `mousedown` 也要拦：atomic 在 wrap 上挂了「点图把光标挪到源码行」，不拦会先跳走。
+     */
+    if (onMissing) {
+      hint.dataset.znClickable = '1'
+      hint.title = '点这里处理（接收附件 / 打开附件同步）'
+      hint.setAttribute('role', 'button')
+      hint.tabIndex = 0
+      const act = (e: Event) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onMissing(raw)
+      }
+      hint.addEventListener('mousedown', act)
+      hint.addEventListener('click', act)
+      hint.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') act(e)
+      })
+    }
     wrap.appendChild(hint)
   }
   img.addEventListener('error', show, { once: true })
@@ -268,18 +294,21 @@ function imageAssetPlugin(
   vault: string | null | undefined,
   notePath: string | null,
   onExternalMediaSync?: (raw: string) => void,
+  onMissingImage?: (raw: string) => void,
 ) {
   return ViewPlugin.fromClass(
     class {
       private readonly observer: MutationObserver
       constructor(view: EditorView) {
-        this.observer = new MutationObserver(() => fixImageSrc(view, vault, notePath, onExternalMediaSync))
+        this.observer = new MutationObserver(() =>
+          fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage),
+        )
         this.observer.observe(view.contentDOM, { childList: true, subtree: true })
-        fixImageSrc(view, vault, notePath, onExternalMediaSync)
+        fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage)
       }
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          fixImageSrc(update.view, vault, notePath, onExternalMediaSync)
+          fixImageSrc(update.view, vault, notePath, onExternalMediaSync, onMissingImage)
         }
       }
       destroy() {
@@ -347,6 +376,13 @@ type Props = {
    * 编辑器只把「哪个源失败了」交回去（与 `onLocalLinkOpen` 同一套边界）。
    */
   onExternalMediaSync?: (raw: string) => void
+  /**
+   * 正文里的**图片加载失败**时，用户点那行「图片不在本机：…」的出口（rev173.274 · #5）。
+   *
+   * 以前那行是死文字 —— 用户原话「点击之后没有后续」。宿主拿到原始路径后决定：
+   * 台账里有 ⇒ 从云端接收；没有 ⇒ 告诉他附件同步没开 / 去设置 → 附件。
+   */
+  onMissingImage?: (raw: string) => void
   /**
    * 本地媒体服务就绪信号（rev173.240 · Android 大视频 Range）。
    *
@@ -751,6 +787,7 @@ export function MarkdownEditor({
   onWikiPreview,
   onLocalLinkOpen,
   onExternalMediaSync,
+  onMissingImage,
   mediaEpoch = 0,
   onNotify,
   onPasteImage,
@@ -1418,7 +1455,7 @@ export function MarkdownEditor({
     // frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）—— 见 kernel/editor-frontmatter.ts
     frontmatterHide(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
-    imageAssetPlugin(vault, path, onExternalMediaSync),
+    imageAssetPlugin(vault, path, onExternalMediaSync, onMissingImage),
   ]
 
   // 兜底（正常走不到）：万一将来 atomic 的内部实现不再触发我们注入的
