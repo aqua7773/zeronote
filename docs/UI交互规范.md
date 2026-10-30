@@ -24,7 +24,8 @@
 | 标题条 | 自绘，菜单与窗口控制同一行；无系统标题栏 | `src/components/TitleBar.tsx` |
 | 侧栏 | 宽度可拖，记忆 `zeronote.sidebar.w` | `src/App.tsx` |
 | 时间流 | 侧栏与编辑区之间，默认 300px（160–560），可关，状态存 localStorage | `src/components/MobileNoteCards.tsx`（`variant="panel"`） |
-| 标签条 | 编辑器顶部；标题 + 未保存圆点 + ×；拖出=拆窗 | `src/components/TabBar.tsx` · `src/lib/tabs.ts` |
+| 标签条 | 编辑器顶部；标题 + 未保存圆点 + ×；拖出=拆窗。**B5**：右侧固定 `＋`（新建 / 打开面板）与 `»`（全部标签），无标签时也渲染 `＋` | `src/components/TabBar.tsx` · `src/lib/tabs.ts` |
+| **笔记独立窗口**（B5） | 只编辑器 + 标题条；左上「切换」打开 `QuickSwitcher`（换笔记），关闭 = 交回主窗口 | `src/App.tsx`（`noteWindowPath` 分支）· `src/components/QuickSwitcher.tsx` |
 | **文档工具条**（B4） | 标签条下方 32px：左＝`location: 'editor-topbar'` 插件面板（反链 / 历史，禁用即消失），右＝「源码 / 预览」+「⋯ 更多」；只在桌面 + 打开笔记时出现 | `src/components/DocToolbar.tsx` |
 | **状态栏**（B4） | 只放状态：`location: 'statusbar'` 插件 chip + 错误 + 当前字数（篇数统计已删）；高 26px，可点 chip ≥24×24 | `src/components/AppStatusBar.tsx` |
 | 插件面板 | **和编辑器同一块内容区**（标签条之下）——PDF / 导图默认开成主区标签（`panel:<id>`），拖出 / 右键 = 独立窗口；面板视图**侧栏照常显示**（rev173.85）· **每份文档一条标签**（title = 文件名，`doc-reader.view.<hash>`，面板标 `hidden` 不进 ☰ 菜单；rev173.86） | `src/components/PanelMount.tsx` · `view.registerPanel({ mount })` |
