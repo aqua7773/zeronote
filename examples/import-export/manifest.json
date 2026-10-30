@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "import-export",
   "name": "导入导出",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

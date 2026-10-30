@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.3.2",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.2.znp",
-  "sha256": "58f475a050c2865f05823fbdb26fd1fb8d31f716d6505448fa56e7bdc21134b3",
-  "size": 94899,
+  "version": "0.3.3",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.3.znp",
+  "sha256": "5584e26cb4d81e314b5aaf965e7f7b71cdc910a053778eb3f94faa3f6f72a33b",
+  "size": 97658,
   "files": [
     "index.js",
     "signature.json"

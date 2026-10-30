@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.281
-更新时间: 2026-10-30 · 最新 rev173.281
+revision: 173.282
+更新时间: 2026-10-30 · 最新 rev173.282（0.9.0 发版）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.281
 
 | rev | 内容 |
 |---|---|
+| rev173.282 | 2026-10-30 · **发版 0.9.0：插件版本迭代 + 双端安装包 + GitHub Release**（用户「签名，推送，插件的更新做插件版本迭代，内核的更新做 release 的版本迭代，编译推送」）：① **插件重打包签名 4 个**（`keyId aqua-2026`）：`import-export` 0.1.1 → **0.2.0** · `sync-webdav` 0.3.2 → **0.3.3** · `sync-s3` 0.4.2 → **0.4.3** · `sync-git` 0.5.2 → **0.5.3**；`pack-plugin` → `gen-market --write`（索引 17 条）→ `verify-trust` **41/42**（theme-sepia 纯样式）。② **应用 0.9.0**：`release.mjs 0.9.0`（三处版本）· CHANGELOG `[Unreleased]` → `[0.9.0] - 2026-10-30（rev173.269–282）` + 版本表 · README 现状行 · ROADMAP §0。③ **双端编译**：Windows `ZeroNote_0.9.0_x64_zh-CN.msi` **15.88 MB** + `…-setup.exe` **14.23 MB**；Android `--apk --split-per-abi` **四个签名包**（arm64 **32.57** / armv7 **26.40** / x86 **32.57** / x86_64 **32.28 MB**，均 `CN=ZeroNote` · `versionName 0.9.0`）—— release 编译 18m05s。④ **推送**：commit → tag `v0.9.0` → push → `gh release create`（产物 + notes）。 |
 | rev173.281 | 2026-10-30 · **J 批三件：条目菜单动作（#18）· 环形菜单 6 位（#9）· 系统分享（#13）**（用户「顺序做 #18 → #9 → #13」· 三件均按 2026-10-30 逐字拍板）：① **#18 内核「条目菜单动作」协议** —— 新 `src/kernel/item-menu.ts`（注册 / 静态声明 / 去重 / 卸载回收），契约 §2.1.3：`contributes.itemMenus`（**对所有插件**静态登记，插件没加载也进菜单）+ `ctx.itemMenu.register`（运行时覆盖静态）+ 点击 `commands.execute(action.command, {path, kind, where, paths?})`；`where` = `file-tree` / `timeline`、`kinds` = `note` / `dir` / `attachment`、一层子菜单 + `order`/`divider`/`danger`。宿主 `FileTree` / `MobileNoteCards` 只按 where/kinds 过滤并渲染，`App` 把 `itemMenus` 推到三处实例（桌面侧栏 / 时间流面板 / 手机卡片流）；`KernelAudit` 加 `itemMenus`（卸载后必须回空）。`import-export` → 「导出为…」6 子项（`contributes.itemMenus`），`exportActive` 新增第 4 参数 `path`（**按菜单点的条目现读**，不依赖 `doc.active()`）。**实测**（桌面 CDP + 手机 `33b676f6`）：两入口菜单都出现「导出为… ›」；`__znExec('io.exportTxt', {path:'工作/项目A/需求.md', probe:true})` = 15 字符（**没打开的那篇**）、`toVault` 落 89 B 与原文一致（测完删产物）；截图 `_shots/j18-02..05`。② **#9 环形菜单 6 位** —— `QuickLaunch` 中心「＋」固定 = **新建笔记**（原来 × 关闭），周围 5 格可配：新 `src/lib/quick-slots.ts`（默认 = 记账 · 搜索 · 回收站 · 插件中心 · 设置；`panel:<id>` / `builtin:*` 两种 key；localStorage 应用级）+ 设置 → 通用 5 个下拉 + 环底「换入口」。顺带修一个真机隐患：遮罩 `onPointerDown` 原来无条件 `preventDefault()`，会把**按钮上**的 pointerdown 也吞掉（现在判 `target === currentTarget`）。**真机实测**：环上五项正确、第 2 格改成「导入导出」后重开生效、中心 ＋ 进入编辑器（`新笔记-20-32-54`，测完删除）；截图 `_shots/j9-01..05`。⚠️ `adb input tap` 的坐标必须用 **DOM rect × dpr(3.125)** —— 按截图目测的 y 偏了 122px，白点两次。③ **#13 系统分享** —— 新原生插件 `src-tauri/plugins/tauri-plugin-share`（Rust 壳 + Kotlin `ACTION_SEND` / `text/plain` / `createChooser` + `permissions/default.toml` + `android/build.gradle.kts`；`Cargo.toml` path 依赖 + `lib.rs` 注册 + `capabilities/default.json` 的 `share:default`；**桌面返回 `desktop-no-share`**）。`import-export` 新命令 `io.share`（面板按钮 + 两入口菜单「分享…」）：Android 调系统分享面板，桌面**如实提示并复制到剪贴板**。**实测**（桌面）：`__znExec('io.share', {path:'工作/项目A/需求.md'})` ⇒ `{copied:true, chars:15}`，`clipboard-manager|read_text` = 「需求\n\n项目 A 的需求说明。」（又是没打开的那篇）。⚠️ 首次 Android 构建失败：**插件 android 模块缺 `build.gradle.kts`**（`No matching variant of project ':tauri-plugin-share'`）—— 补上后重编（见下）。④ **测试** vitest 1655 → **1688**（`item-menu` 10 · `quick-slots` 8 · `file-tree-menu` +7 · `mobile-note-cards` +3 · `use-plugin-host` +3 · `quick-launch` +4）。⑤ **构建** `cargo check` 通过 · Android universal debug APK 重编并真机安装（pid 11789）—— 真机 `io.share` ⇒ `{shared:true}` + **系统分享面板弹出**（`_shots/j13-01-android-share-sheet.png`）· `gen-catalog` 原生插件 4 → **5** · 契约 / CHANGELOG / 修复计划 / 系统总览同步。 | 2026-10-30 · **J 批开工前置：撤掉「推荐优先安装」+ 5 项拍板落档**（用户「10 和 16 已验收，继续剩下的修复」→ 拍板）：① **#1 推荐清单撤掉**（用户「不做推荐了」）—— 零插件空态那 9 条（基础体验 5 + 多设备同步 4）连同 `src/lib/recommended-plugins.ts`、市场顶部「推荐优先安装」提示、条目「推荐」标、以及它们全部 CSS 规则一起删。空态只留 **安装 .znp** 与 **浏览插件市场** 两个动作。测试 `plugin-panel` 的「9 条」用例改成「不再有推荐区」；D-011 / README / 内核契约 / 移动端手册 / `gen-catalog.mjs` 注释同步（**历史段落不改**，只在 D-011 末尾加「修订」）。② **#2 装完不弹入口提示**（用户「先不，入口要找更方便的办法解决」）—— 入口问题转由 #9 / #18 解决，记在 D-011 修订段。③ **5 项拍板结果（J 批开工依据）**：**#1** 不做推荐 ｜ **#2** 不弹提示、改入口 ｜ **#9** 「**5 个格子**，创建新笔记固定占一格，其余放功能入口」 ｜ **#13** 「**写 Android 系统分享插件**」（不是只做导出） ｜ **#18** 「**文件树右键 / 长按 + 时间流右键 / 长按**」加导出等动作（不是放笔记「⋯ 更多」）。 |
 | rev173.280 | 2026-10-30 · **J 批开工前置：撤掉「推荐优先安装」+ 5 项拍板落档**（用户「10 和 16 已验收，继续剩下的修复」→ 拍板）：① **#1 推荐清单撤掉**（用户「不做推荐了」）—— 零插件空态那 9 条（基础体验 5 + 多设备同步 4）连同 `src/lib/recommended-plugins.ts`、市场顶部「推荐优先安装」提示、条目「推荐」标、以及它们全部 CSS 规则一起删。空态只留 **安装 .znp** 与 **浏览插件市场** 两个动作。测试 `plugin-panel` 的「9 条」用例改成「不再有推荐区」；D-011 / README / 内核契约 / 移动端手册 / `gen-catalog.mjs` 注释同步（**历史段落不改**，只在 D-011 末尾加「修订」）。② **#2 装完不弹入口提示**（用户「先不，入口要找更方便的办法解决」）—— 入口问题转由 #9 / #18 解决，记在 D-011 修订段。③ **5 项拍板结果（J 批开工依据）**：**#1** 不做推荐 ｜ **#2** 不弹提示、改入口 ｜ **#9** 「**5 个格子**，创建新笔记固定占一格，其余放功能入口」 ｜ **#13** 「**写 Android 系统分享插件**」（不是只做导出） ｜ **#18** 「**文件树右键 / 长按 + 时间流右键 / 长按**」加导出等动作（不是放笔记「⋯ 更多」）。 |
 | rev173.279 | 2026-10-30 · **H 批（手机常驻沉浸式 #11）+ I 批（同步限流退避 #12）**（用户「10 和 16 已验收，继续剩下的修复」）：① **#11** —— `App.tsx` 的 `setStatusBarVisible(!sidebarOpen)` 改成**常隐**（`setStatusBarVisible(false)` + 卸载时显回来）。以前是「抽屉开才隐藏、收起就显示」⇒ 首页顶部一直挂一条系统状态栏（时间 / 电量），底色与应用顶栏对不上。**无需重编 APK**：原生 `tauri-plugin-statusbar` 早已支持 `hide(Type.statusBars())`，且有 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`（顶部下拉仍能临时唤出）。真机（`33b676f6`）：reload 后状态栏消失，首页与编辑器顶栏都贴在顶部、无遮挡（截图 `_shots/h11-reloaded.png` / `h11-editor.png`）。② **#12** —— `sync-webdav` / `sync-s3` / `sync-git` 三个后端的限流处理从「撞上 503/429 就 `stopAuto()` + 关开关 + 让人手动重开」改成**指数退避**（`BACKOFF_MS = [15000, 60000, 300000]`）：退避期内节拍照走但**跳过请求**，任意一轮成功立刻复位回 5 秒；面板 badge 在退避中显示「自动 · 限流退避中（N 秒后重试）」并用 warn 色（旧文案一直写「前台每 5 秒」，是谎报）。认证 / 签名错（401 / 403 / `SignatureDoesNotMatch` / `AccessDenied`）仍然立刻停 —— 重试只会让封禁更久。③ **测试** —— 新 `tests/system-bar-immersive.test.ts` 4 条（含「原生保留顶部下拉唤出」）· 新 `tests/sync-backoff.test.ts` 18 条（三后端 × 6：退避三档 / 退避期跳过 / 成功复位 / 面板会说 / **限流分支不停自动同步** / 认证仍停）。vitest 1633 → **1655**。⚠️ **I 批没做端到端实测**：要改用户全局插件（签名包换 junction）与已配好的 WebDAV 设置，风险与收益不成比例 —— 退避是纯逻辑、已被静态测试锁住关键结构，端到端留给 0.9.0 发市前在真机上验。 |
@@ -177,6 +178,50 @@ revision: 173.281
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.282（2026-10-30 · 发版 0.9.0：插件版本迭代 + 双端安装包 + GitHub Release）
+
+> 用户原话：「签名，推送，插件的更新做插件版本迭代，内核的更新做 release 的版本迭代，编译推送」。
+> 拆成四件事：**① 插件重打包签名（4 个）② 应用版本 0.9.0 ③ 双端 release 编译 ④ push + Release**。
+>
+> ### 插件版本迭代（4 个）
+>
+> | 插件 | 旧 → 新 | 本轮改了什么 |
+> |---|---|---|
+> | `import-export` | 0.1.1 → **0.2.0** | 条目菜单「导出为…」（6 格式）+「分享…」+ `io.share`（J#18 / J#13）· Markdown 内嵌导出（G#20） |
+> | `sync-webdav` | 0.3.2 → **0.3.3** | 密码框 `input.secret`（E#14）+ 限流指数退避（I#12） |
+> | `sync-s3` | 0.4.2 → **0.4.3** | 同上 |
+> | `sync-git` | 0.5.2 → **0.5.3** | 同上 |
+>
+> 流程：改 `examples/<id>/manifest.json` 的 version → `node scripts/pack-plugin.mjs <id> --key <私钥> --key-id aqua-2026`
+> （⚠️ **必须带 `--key-id aqua-2026`**，不带会写 `default`、`gen-market` 第⑤条校验直接红）→
+> `node scripts/gen-market.mjs --write`（索引 17 条）→ `node scripts/verify-trust.mjs` **41/42 通过**
+> （唯一 unsigned 是纯样式 `theme-sepia`，恒无签名）。
+> 包入库 `market/packs/`；用户端要「插件中心 → 插件市场 → 更新」才会拿到 —— **不自动升级**。
+>
+> ### 应用版本 0.9.0
+>
+> `node scripts/release.mjs 0.9.0` → package.json / tauri.conf.json / Cargo.toml 三处；
+> CHANGELOG `[Unreleased]` → `[0.9.0] - 2026-10-30（rev173.269–282）` + 顶部版本表加行（含插件版本迭代说明）；
+> README 现状行改「0.9.0 · 真人使用测试 20 条全修 + UI 重布局 B1–B7」并补 A–J 与 J 批；ROADMAP §0 重写。
+>
+> ### 构建与产物
+>
+> | 平台 | 命令 | 产物 |
+> |---|---|---|
+> | Windows | `pnpm tauri build` | `ZeroNote_0.9.0_x64_zh-CN.msi` **15.88 MB** + `ZeroNote_0.9.0_x64-setup.exe` **14.23 MB**（`zeronote.exe` 26.56 MB；release 首编约 8 分钟） |
+> | Android | `pnpm tauri android build --apk --split-per-abi` | `arm64-v8a` **32.57 MB** · `armeabi-v7a` **26.40 MB** · `x86` **32.57 MB** · `x86_64` **32.28 MB**（release 编译 18m05s —— 4 个 ABI 各编一遍 Rust；universal 包 118 MB **不发布**） |
+>
+> **签名验证**：`apksigner verify --print-certs` 四个包同为 `CN=ZeroNote` / SHA-256
+> `351adf8c…f080`（与 0.8.0 一致）；`aapt dump badging` = `versionName='0.9.0'` / `versionCode='9000'`。
+> ⚠️ **耗时复盘**（用户问「每次都要全量编译吗」）：新增原生 crate + 改 `Cargo.toml` 版本 ⇒ 依赖图顶层变化，
+> 4 个 ABI 的 release 缓存全部失效；release 与 debug profile 不共享产物。**下次只发 arm64 可用
+> `--target aarch64 --apk`（省 3/4）**；长期可上 sccache。
+>
+> ### 推送
+>
+> 提交 → `node scripts/release.mjs 0.9.0 --tag` → `git push origin main --tags` →
+> `gh release create v0.9.0 <产物> --title "ZeroNote v0.9.0" --notes-file ...`
 
 > ## 📌 rev173.281（2026-10-30 · J 批三件：#18 条目菜单动作 · #9 环形菜单 6 位 · #13 系统分享）
 
