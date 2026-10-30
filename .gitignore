@@ -55,6 +55,11 @@ scripts/.verify-baseline.json
 # Tauri Android 构建缓存（`gen/android/` 本身入库，但它的 Kotlin/Gradle 中间产物不入库）
 src-tauri/gen/android/.kotlin/
 
+# Android release 签名（rev173.268 起）。keystore 与密码都不入库 ——
+# 备份：C:\Users\AQUA\Apps\_logs\2026-10-30-发版0.8.0-keystore.md
+src-tauri/gen/android/keystore.properties
+src-tauri/gen/android/*.jks
+
 # 临时配置备份（rev112 release 构建用，不入库）
 src-tauri/tauri.conf.json.dev-backup
 

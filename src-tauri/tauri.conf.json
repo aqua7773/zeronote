@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ZeroNote",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "identifier": "com.aqua.zeronote",
   "build": {
     "frontendDist": "../dist",
@@ -48,6 +48,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
