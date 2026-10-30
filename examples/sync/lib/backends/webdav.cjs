@@ -150,6 +150,19 @@ function createDavClient(cfg) {
     },
 
     /**
+     * 读文本 + 它的 ETag（与 S3 后端的同名方法对应）。
+     *
+     * 412 冲突收尾时用它：把远端最新版对齐进本机基线，新基线要带上**远端真实 etag**，
+     * 否则下一轮又拿旧 etag 撞 412。
+     */
+    async getWithEtag(rel) {
+      const res = await request('GET', rel)
+      if (res.status === 404 || res.status === 409) return null
+      if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${rel}`)
+      return { text: res.text(), etag: res.headers?.etag ?? undefined }
+    },
+
+    /**
      * 写一个文件。返回 `{ ok, status, etag }`：
      * · `ok: true` = 写成功（201/204/200）
      * · `status: 412` = **乐观锁失败**（远端在我们读 manifest 之后又变了）⇒ 调用方按冲突处理

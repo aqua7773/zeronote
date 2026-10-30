@@ -1,16 +1,21 @@
 // @vitest-environment happy-dom
 /**
- * 同步 · 本地文件夹（`examples/sync-folder`）—— rev173.107
+ * 同步 · 本地文件夹后端（`examples/sync/lib/backends/folder.cjs`）—— rev173.286
+ *
+ * 从 `examples/sync-folder` 并入 `sync` 插件后，这里**继续测文件夹后端的行为**
+ * （纯函数来自 `lib/core.cjs`，事件接线走 `sync` 插件的 apply + `backend: 'folder'`）。
  *
  * 五层：
  *  1. 指纹：稳定 / 内容变了就变 / 空串 / 长度参与
- *  2. 判定 `classifyChange`：六种组合一条不落（这是整个插件的心脏，错了会静默丢字）
+ *  2. 判定 `classifyChange`：六种组合一条不落（这是整个后端的心脏，错了会静默丢字）
  *  3. 冲突文件名：格式 / 重名加序号 / 不含 Windows 非法字符
  *  4. 影子副本路径
  *  5. 接线：面板与命令登记 / 事件订阅 / **双端修改真的写出冲突副本**
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import plugin, {
+import plugin from '../examples/sync/index.cjs'
+/** CJS 模块的具名导出按解构取（纯函数挂在 `plugin` 上） */
+const {
   SECRET_DIRS,
   classifyChange,
   conflictFileName,
@@ -19,38 +24,38 @@ import plugin, {
   shortHash,
   snapshotPath,
   tryAutoMerge,
-} from '../examples/sync-folder/index.js'
+} = plugin as unknown as Record<string, never>
 import { mergeLines } from '../src/lib/merge3'
 
 /* ───────────────────────── 1. 指纹 ───────────────────────── */
 
 describe('fingerprint', () => {
-  it('同样的内容给同一个指纹', () => {
+  it('同样的内容给同一个指纹', async () => {
     expect(fingerprint('# 周报\n正文')).toBe(fingerprint('# 周报\n正文'))
   })
 
-  it('内容变一个字就变', () => {
+  it('内容变一个字就变', async () => {
     expect(fingerprint('a')).not.toBe(fingerprint('b'))
     expect(fingerprint('# 周报\n正文')).not.toBe(fingerprint('# 周报\n正文!'))
   })
 
-  it('空串与非字符串都有确定结果', () => {
+  it('空串与非字符串都有确定结果', async () => {
     expect(fingerprint('')).toBe(fingerprint(''))
     expect(fingerprint(null)).toBe(fingerprint(''))
     expect(fingerprint(undefined)).toBe(fingerprint(''))
   })
 
-  it('等长但不同的内容不会撞（长度不是唯一判据）', () => {
+  it('等长但不同的内容不会撞（长度不是唯一判据）', async () => {
     const a = 'x'.repeat(100)
     const b = 'x'.repeat(99) + 'y'
     expect(fingerprint(a)).not.toBe(fingerprint(b))
   })
 
-  it('换行差异算不同（CRLF vs LF）', () => {
+  it('换行差异算不同（CRLF vs LF）', async () => {
     expect(fingerprint('a\r\nb')).not.toBe(fingerprint('a\nb'))
   })
 
-  it('shortHash 只取散列段', () => {
+  it('shortHash 只取散列段', async () => {
     expect(shortHash('a.md')).toMatch(/^[0-9a-z]+$/)
     expect(fingerprint('a.md').endsWith(`:${shortHash('a.md')}`)).toBe(true)
   })
@@ -61,40 +66,40 @@ describe('fingerprint', () => {
 describe('classifyChange', () => {
   const base = { fp: 'base' }
 
-  it('从没见过 ⇒ new（外部新增）', () => {
+  it('从没见过 ⇒ new（外部新增）', async () => {
     expect(classifyChange({ base: null, pending: null, remoteFp: 'x' })).toBe('new')
   })
 
-  it('没 pending 且与基线一致 ⇒ noop', () => {
+  it('没 pending 且与基线一致 ⇒ noop', async () => {
     expect(classifyChange({ base, pending: null, remoteFp: 'base' })).toBe('noop')
   })
 
-  it('没 pending 但磁盘变了 ⇒ remote（只有别处改了）', () => {
+  it('没 pending 但磁盘变了 ⇒ remote（只有别处改了）', async () => {
     expect(classifyChange({ base, pending: null, remoteFp: 'remote' })).toBe('remote')
   })
 
-  it('pending 与磁盘一致 ⇒ noop（自己那版被同步工具搬回来了）', () => {
+  it('pending 与磁盘一致 ⇒ noop（自己那版被同步工具搬回来了）', async () => {
     const pending = { fp: 'mine' }
     expect(classifyChange({ base, pending, remoteFp: 'mine' })).toBe('noop')
   })
 
-  it('pending 与磁盘不一致 ⇒ conflict（这是唯一会写冲突副本的分支）', () => {
+  it('pending 与磁盘不一致 ⇒ conflict（这是唯一会写冲突副本的分支）', async () => {
     const pending = { fp: 'mine' }
     expect(classifyChange({ base, pending, remoteFp: 'theirs' })).toBe('conflict')
   })
 
-  it('外部改回了基线、本地还有改动 ⇒ local-pending（保留本地待同步）', () => {
+  it('外部改回了基线、本地还有改动 ⇒ local-pending（保留本地待同步）', async () => {
     const pending = { fp: 'mine' }
     expect(classifyChange({ base, pending, remoteFp: 'base' })).toBe('local-pending')
   })
 
-  it('本地删了、别处还有 ⇒ remote（恢复别处的，方案 A 的口径）', () => {
+  it('本地删了、别处还有 ⇒ remote（恢复别处的，方案 A 的口径）', async () => {
     const pending = { deleted: true }
     expect(classifyChange({ base, pending, remoteFp: 'theirs' })).toBe('remote')
     expect(classifyChange({ base, pending, remoteFp: 'base' })).toBe('remote')
   })
 
-  it('没有基线但有 pending（极端情况）也不会崩', () => {
+  it('没有基线但有 pending（极端情况）也不会崩', async () => {
     const pending = { fp: 'mine' }
     expect(classifyChange({ base: null, pending, remoteFp: 'theirs' })).toBe('conflict')
     expect(classifyChange({ base: null, pending, remoteFp: 'mine' })).toBe('noop')
@@ -106,37 +111,37 @@ describe('classifyChange', () => {
 describe('conflictFileName', () => {
   const at = new Date(2026, 9, 24, 20, 15, 30).getTime() // 本地时间 2026-10-24 20:15:30
 
-  it('格式 = `YYYY-MM-DD HHmm-原标题.md`', () => {
-    expect(conflictFileName({ path: '日记/周报.md', at })).toBe('2026-10-24 2015-周报.md')
+  it('格式 = `YYYY-MM-DD HHmm-原标题.md`', async () => {
+    expect(conflictFileName('日记/周报.md', at)).toBe('2026-10-24 2015-周报.md')
   })
 
-  it('不含 `:` 与 `/`（Windows 文件名非法 / 目录穿越）', () => {
-    const name = conflictFileName({ path: 'a/b/c.md', at })
+  it('不含 `:` 与 `/`（Windows 文件名非法 / 目录穿越）', async () => {
+    const name = conflictFileName('a/b/c.md', at)
     expect(name).not.toMatch(/[:/\\]/)
   })
 
-  it('没有 .md 后缀也补上', () => {
-    expect(conflictFileName({ path: '说明', at })).toBe('2026-10-24 2015-说明.md')
+  it('没有 .md 后缀也补上', async () => {
+    expect(conflictFileName('说明', at)).toBe('2026-10-24 2015-说明.md')
   })
 
-  it('同名已存在 ⇒ 追加 -2 / -3', () => {
+  it('同名已存在 ⇒ 追加 -2 / -3', async () => {
     const taken = new Set(['2026-10-24 2015-周报.md', '2026-10-24 2015-周报-2.md'])
-    expect(conflictFileName({ path: '周报.md', at }, (n) => taken.has(n))).toBe(
+    expect(conflictFileName('周报.md', at, (n) => taken.has(n))).toBe(
       '2026-10-24 2015-周报-3.md',
     )
   })
 
-  it('路径异常时给个能落盘的兜底名', () => {
-    expect(conflictFileName({ path: '', at })).toBe('2026-10-24 2015-note.md')
+  it('路径异常时给个能落盘的兜底名', async () => {
+    expect(conflictFileName('', at)).toBe('2026-10-24 2015-note.md')
   })
 })
 
 describe('snapshotPath', () => {
-  it('落在 `.zn/sync/last/<hash>.md`', () => {
+  it('落在 `.zn/sync/last/<hash>.md`', async () => {
     expect(snapshotPath('日记/周报.md')).toMatch(/^\.zn\/sync\/last\/[0-9a-z]+\.md$/)
   })
 
-  it('不同路径不同副本', () => {
+  it('不同路径不同副本', async () => {
     expect(snapshotPath('a.md')).not.toBe(snapshotPath('b.md'))
   })
 })
@@ -216,7 +221,7 @@ function fakeHost() {
   }
 }
 
-function harness(
+async function harness(
   initialFiles: Record<string, string> = {},
   initialStore: Record<string, unknown> = {},
   /** 注入的服务（`history` / `kernel.merge`）—— 不注就是"没装"，插件走降级 */
@@ -233,6 +238,15 @@ function harness(
   const renders = new Map<string, (ctx?: unknown) => unknown>()
   let refreshCount = 0
   const store = new Map<string, unknown>(Object.entries(initialStore))
+  /**
+   * 这个文件只测「本地文件夹」后端：默认把当前后端设成它（插件读 `settings.v1.backend`
+   * 决定要不要挂事件监听）。调用方显式给了 `settings.v1`（比如测「停用自动检查」）
+   * 就只补上 `backend` 字段，别的按调用方的来。
+   */
+  store.set('settings.v1', {
+    backend: 'folder',
+    ...((store.get('settings.v1') as Record<string, unknown>) ?? {}),
+  })
 
   const api = {
     fs: mem.api,
@@ -281,6 +295,11 @@ function harness(
   }
 
   plugin.apply(api as never)
+  /**
+   * 新插件把 folder 后端的初始化放在异步 IIFE 里（读 settings → `folder.load()` →
+   * `folder.attach()`）。等它跑完，事件监听才在表里 —— 这个文件测的就是这些监听。
+   */
+  await settle()
   return { mem, host, handlers, commands, runs, panels, api, store, renders, refresh: () => refreshCount }
 }
 
@@ -294,22 +313,28 @@ describe('接线', () => {
     vi.useRealTimers()
   })
 
-  it('注册主区面板 + 六条命令', () => {
-    const h = harness()
-    expect(h.panels).toEqual([{ id: 'sync-folder.status', location: 'main' }])
+  it('注册主区面板 + 十一条命令（一个插件，后端可换）', async () => {
+    const h = await harness()
+    expect(h.panels).toEqual([{ id: 'sync.status', location: 'main' }])
     expect(h.commands.sort()).toEqual([
-      'sync-folder.check-zn',
-      'sync-folder.mark-synced',
-      'sync-folder.open',
-      'sync-folder.open-conflict',
-      'sync-folder.scan',
-      'sync-folder.toggle',
+      'sync.disconnect',
+      'sync.mark-baseline',
+      'sync.open',
+      'sync.open-conflict',
+      'sync.resolve-conflict',
+      'sync.run',
+      'sync.save',
+      'sync.set-attachments',
+      'sync.set-backend',
+      'sync.set-provider',
+      'sync.test',
+      'sync.toggle-auto',
     ])
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
-  it('订阅五个内核事件', () => {
-    const h = harness()
+  it('订阅五个内核事件', async () => {
+    const h = await harness()
     expect(Object.keys(h.handlers).sort()).toEqual([
       'note:changed',
       'note:created',
@@ -320,36 +345,43 @@ describe('接线', () => {
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
+  it('webdav 后端下**不订阅**这五个事件（两种后端的自动检查互不干扰）', async () => {
+    // 只给 settings.v1 不够：harness 会补 backend:'folder'，这里显式覆盖成 webdav
+    const h = await harness({}, { 'settings.v1': { backend: 'webdav' } })
+    expect(Object.keys(h.handlers)).toEqual([])
+    h.api.subscriptions.forEach((s) => s.dispose())
+  })
+
   /* rev173.112 · 启用 / 停用开关 */
 
   it('toggle：写 settings.v1，来回切都落盘', async () => {
-    const h = harness()
+    const h = await harness()
     await settle()
-    const toggle = h.runs.get('sync-folder.toggle')!
+    const toggle = h.runs.get('sync.toggle-auto')!
     expect(toggle).toBeTypeOf('function')
 
     await toggle()
-    expect(h.store.get('settings.v1')).toEqual({ enabled: false })
+    expect(h.store.get('settings.v1')).toMatchObject({ backend: 'folder', auto: false })
     expect(h.host.notes.some((n) => n.msg.includes('自动检查已关闭'))).toBe(true)
 
     await toggle()
-    expect(h.store.get('settings.v1')).toEqual({ enabled: true })
+    expect(h.store.get('settings.v1')).toMatchObject({ backend: 'folder', auto: true })
     expect(h.host.notes.some((n) => n.msg.includes('自动检查已开启'))).toBe(true)
 
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
-  it('store 里 enabled:false ⇒ 启动读到「已停用」（toggle 一次就变 true）', async () => {
-    const h = harness({}, { 'settings.v1': { enabled: false } })
+  it('store 里 auto:false ⇒ 启动读到「已停用」（toggle 一次就变 true）', async () => {
+    const h = await harness({}, { 'settings.v1': { auto: false } })
     await settle()
-    await h.runs.get('sync-folder.toggle')!()
-    expect(h.store.get('settings.v1')).toEqual({ enabled: true })
+    await h.runs.get('sync.toggle-auto')!()
+    expect(h.store.get('settings.v1')).toMatchObject({ auto: true })
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
   /* rev173.114 · `.zn/` 排除检查 */
 
-  it('looksLikeSyncConflict：认得各家的冲突副本，不误伤自己的副本', () => {
+  it('looksLikeSyncConflict：认得各家的冲突副本，不误伤自己的副本', async () => {
     // Syncthing / OneDrive / 中文客户端
     expect(looksLikeSyncConflict('周报.sync-conflict-20261024-123456-ABC123.md')).toBe(true)
     expect(looksLikeSyncConflict('周报 (conflicted copy).md')).toBe(true)
@@ -359,26 +391,24 @@ describe('接线', () => {
     expect(looksLikeSyncConflict('')).toBe(false)
   })
 
-  it('check-zn：`.zn/` 里有同步冲突副本 ⇒ 报警并带出文件名', async () => {
-    const h = harness({
+  it('「测试连接」在文件夹后端 = 检查 .zn/：有同步冲突副本 ⇒ 报警并带出文件名', async () => {
+    const h = await harness({
       '.zn/sync/last/周报.sync-conflict-20261024-123456-ABCDEF.md': 'x',
     })
     await settle()
-    await h.runs.get('sync-folder.check-zn')!()
+    await h.runs.get('sync.test')!()
     await settle()
     const warn = h.host.notes.find((n) => n.level === 'warn' && n.msg.includes('.zn/'))
     expect(warn?.msg).toContain('sync-conflict')
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
-  it('check-zn：没痕迹时给「没发现」而不是沉默', async () => {
-    const h = harness({ '.zn/sync/last/abc123.md': 'x' })
+  it('「测试连接」没痕迹时给「没发现」而不是沉默', async () => {
+    const h = await harness({ '.zn/sync/last/abc123.md': 'x' })
     await settle()
-    await h.runs.get('sync-folder.check-zn')!()
+    await h.runs.get('sync.test')!()
     await settle()
-    expect(
-      h.host.notes.some((n) => n.msg.includes('没发现同步冲突痕迹')),
-    ).toBe(true)
+    expect(h.host.notes.some((n) => n.msg.includes('没发现同步冲突痕迹'))).toBe(true)
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 })
@@ -389,7 +419,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
   })
 
   it('本机保存 → 外部改成另一版 ⇒ 写 `.zn/conflicts/windows/…` 且 content 是本机版', async () => {
-    const h = harness({ '周报.md': '# 周报\n本机版' })
+    const h = await harness({ '周报.md': '# 周报\n本机版' })
     await settle() // 让 apply 的初始化（读 store）跑完
 
     // ① 本机保存（内核会发 note:saved）
@@ -414,7 +444,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
   })
 
   it('只有外部改动（本机没动）⇒ 不产生冲突，只是更新基线', async () => {
-    const h = harness({ 'a.md': 'v1' })
+    const h = await harness({ 'a.md': 'v1' })
     await settle()
     h.handlers['note:created']({ path: 'a.md' })
     await settle()
@@ -430,7 +460,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
   /* rev173.120 · 内核口子：插件写盘带 origin: 'plugin' */
 
   it('`note:changed` 带 origin:"plugin"（插件自己写盘）⇒ 完全忽略，不判冲突', async () => {
-    const h = harness({ 'c.md': '基线版' })
+    const h = await harness({ 'c.md': '基线版' })
     await settle()
     h.handlers['note:created']({ path: 'c.md' })
     await settle()
@@ -448,7 +478,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
   })
 
   it('插件写盘不再触发 note:saved ⇒ 不留僵尸 pending（rev173.120 根治）', async () => {
-    const h = harness({ 'd.md': '基线版' })
+    const h = await harness({ 'd.md': '基线版' })
     await settle()
     h.handlers['note:created']({ path: 'd.md' })
     await settle()
@@ -462,13 +492,13 @@ describe('冲突端到端（双端都改同一篇）', () => {
     h.handlers['note:changed']({ path: 'd.md', kind: 'modify', origin: 'plugin' })
     await settle()
 
-    const pending = (h.store.get('pending.v1') ?? {}) as Record<string, unknown>
+    const pending = (h.store.get('folder.pending.v1') ?? {}) as Record<string, unknown>
     expect(Object.keys(pending)).toHaveLength(0)
     h.api.subscriptions.forEach((s) => s.dispose())
   })
 
   it('外部删除 + 本地改过 ⇒ 本地版进冲突目录', async () => {
-    const h = harness({ 'b.md': '本机改过' })
+    const h = await harness({ 'b.md': '本机改过' })
     await settle()
     h.handlers['note:saved']({ path: 'b.md' })
     await settle()
@@ -485,7 +515,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
   })
 
   it('同步工具把自己那版搬回来（noop）⇒ 不冲突、不重复留副本', async () => {
-    const h = harness({ 'c.md': 'mine' })
+    const h = await harness({ 'c.md': 'mine' })
     await settle()
     h.handlers['note:saved']({ path: 'c.md' })
     await settle()
@@ -501,7 +531,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
     // 这是真实时序：本机保存 → Rust watcher 偶尔把这次写入也报成 note:changed
     // （自写抑制是 1500ms 窗口，不保证 100%）。若在 noop 分支清掉 pending，
     // 紧接着对端改同一篇就会被误判成"只有外部更新"，本地版静默丢失。
-    const h = harness({ 'd.md': 'v1' })
+    const h = await harness({ 'd.md': 'v1' })
     await settle()
     h.handlers['note:created']({ path: 'd.md' }) // 建基线 = v1
     await settle()
@@ -538,7 +568,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
      *
      * `slowNextRead` 只拖慢「saved 那次」读盘，回响那次照常立即返回 —— 精确重现抢跑。
      */
-    const h = harness({ 'f.md': 'v1' })
+    const h = await harness({ 'f.md': 'v1' })
     await settle()
     h.handlers['note:created']({ path: 'f.md' }) // 基线 = v1
     await settle()
@@ -569,7 +599,7 @@ describe('冲突端到端（双端都改同一篇）', () => {
      * rev173.135 内核随事件带 `text`：判定段同步完成，`slowNextRead` 根本不会被消费。
      */
     const snapshots: Array<{ path: string; text: string }> = []
-    const h = harness({ 'g.md': 'v1' }, {}, {
+    const h = await harness({ 'g.md': 'v1' }, {}, {
       history: {
         findBase: async () => null,
         snapshot: async (path: string, text: string) => {
@@ -612,7 +642,7 @@ describe('三方合并（rev173.116）', () => {
   })
 
   it('两边改不同段 ⇒ 自动合上，无冲突副本、两边改动都在', async () => {
-    const h = harness({ '周报.md': base }, {}, mergedServices(base))
+    const h = await harness({ '周报.md': base }, {}, mergedServices(base))
     await settle()
 
     // ① 首次外部事件 ⇒ 基线 = base（同时种同步点）
@@ -641,7 +671,7 @@ describe('三方合并（rev173.116）', () => {
   })
 
   it('两边改同一行 ⇒ 不合（退回留副本，副本 = 本机版）', async () => {
-    const h = harness({ '周报.md': base }, {}, mergedServices(base))
+    const h = await harness({ '周报.md': base }, {}, mergedServices(base))
     await settle()
     h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
     await settle()
@@ -664,7 +694,7 @@ describe('三方合并（rev173.116）', () => {
 
   it('没有 history 同步点 ⇒ 退回留副本（降级不丢字）', async () => {
     // 只给合并实现、不给 base：autoMerge 拿不到 base 直接返回 null
-    const h = harness({ '周报.md': base }, {}, { 'kernel.merge': { mergeLines } })
+    const h = await harness({ '周报.md': base }, {}, { 'kernel.merge': { mergeLines } })
     await settle()
     h.handlers['note:changed']({ path: '周报.md', kind: 'modify' })
     await settle()
@@ -686,18 +716,18 @@ describe('三方合并（rev173.116）', () => {
 describe('tryAutoMerge（与 sync-webdav 同一判据）', () => {
   const base = 'A\nB\nC\n'
 
-  it('两边改不同行 ⇒ 合上', () => {
+  it('两边改不同行 ⇒ 合上', async () => {
     const r = tryAutoMerge({ base, mine: 'A1\nB\nC\n', theirs: 'A\nB\nC1\n', mergeLines })
     expect(r?.text).toBe('A1\nB\nC1\n')
   })
 
-  it('同一行 ⇒ null；缺 base / 缺实现 ⇒ null', () => {
+  it('同一行 ⇒ null；缺 base / 缺实现 ⇒ null', async () => {
     expect(tryAutoMerge({ base, mine: 'A\nB1\nC\n', theirs: 'A\nB2\nC\n', mergeLines })).toBeNull()
     expect(tryAutoMerge({ base: null, mine: 'x', theirs: 'y', mergeLines })).toBeNull()
     expect(tryAutoMerge({ base, mine: 'x', theirs: 'y' })).toBeNull()
   })
 
-  it('两边改成同一内容 ⇒ null（不写盘，也不自触发 note:saved）', () => {
+  it('两边改成同一内容 ⇒ null（不写盘，也不自触发 note:saved）', async () => {
     expect(tryAutoMerge({ base, mine: 'A1\nB\nC\n', theirs: 'A1\nB\nC\n', mergeLines })).toBeNull()
   })
 })
@@ -714,9 +744,9 @@ function collectTexts(node: unknown, out: string[] = []): string[] {
 
 describe('扫描耗时（rev173.117）', () => {
   it('扫描后面板给「上次检查：HH:MM:SS（用时 …）」', async () => {
-    const h = harness({ 'a.md': '# 一\n' })
-    await h.runs.get('sync-folder.scan')!()
-    const render = h.renders.get('sync-folder.status')!
+    const h = await harness({ 'a.md': '# 一\n' })
+    await h.runs.get('sync.run')!()
+    const render = h.renders.get('sync.status')!
     const texts = collectTexts(render({ state: {} }))
     const line = texts.find((t) => t.startsWith('上次检查：'))
     expect(line).toBeTruthy()
@@ -724,9 +754,9 @@ describe('扫描耗时（rev173.117）', () => {
     expect(line).toContain('用时')
   })
 
-  it('没扫过时说「还没检查过」', () => {
-    const h = harness({ 'a.md': '# 一\n' })
-    const texts = collectTexts(h.renders.get('sync-folder.status')!({ state: {} }))
+  it('没扫过时说「还没检查过」', async () => {
+    const h = await harness({ 'a.md': '# 一\n' })
+    const texts = collectTexts(h.renders.get('sync.status')!({ state: {} }))
     expect(texts).toContain('上次检查：还没检查过')
   })
 })
@@ -740,18 +770,18 @@ describe('扫描耗时（rev173.117）', () => {
  *     含义是"两端都改过密码库"，必须人挑一份（密文没法自动合并）。
  */
 describe('密码库目录放行与冲突检测（rev173.164 · 期 1c）', () => {
-  it('SECRET_DIRS 正好是三个私有目录（密码库两处 + 私密笔记一棵树）', () => {
+  it('SECRET_DIRS 正好是三个私有目录（密码库两处 + 私密笔记一棵树）', async () => {
     // rev173.182 加 `.zn/private`：私密笔记也要能跨设备同步（每篇一个密文）
     expect(SECRET_DIRS).toEqual(['.zn/secrets', '.zn/security', '.zn/private'])
   })
 
   it('密码库出现同步冲突副本 ⇒ 明确报「密码库」并要人挑一份', async () => {
-    const h = harness({
+    const h = await harness({
       '.zn/secrets/secrets.zn': 'zn1.A.B',
       '.zn/secrets/secrets.sync-conflict-20261026-101010-ABCDEF.zn': 'zn1.C.D',
     })
     await settle()
-    await h.runs.get('sync-folder.check-zn')!()
+    await h.runs.get('sync.test')!()
     await settle()
     const last = h.host.notes.at(-1)
     expect(last?.msg).toContain('密码库')
@@ -760,20 +790,20 @@ describe('密码库目录放行与冲突检测（rev173.164 · 期 1c）', () =>
   })
 
   it('没有冲突副本 ⇒ 提示里带上放行规则（.zn/secrets/ 与 .zn/security/）', async () => {
-    const h = harness({ '.zn/secrets/secrets.zn': 'zn1.A.B' })
+    const h = await harness({ '.zn/secrets/secrets.zn': 'zn1.A.B' })
     await settle()
-    await h.runs.get('sync-folder.check-zn')!()
+    await h.runs.get('sync.test')!()
     await settle()
     const last = h.host.notes.at(-1)
     expect(last?.msg).toContain('.zn/secrets/ 与 .zn/security/')
   })
 
   it('.zn/ 别处的冲突痕迹仍然报「没排除 .zn/」（两条不能混）', async () => {
-    const h = harness({
+    const h = await harness({
       '.zn/sync/last/abc.sync-conflict-20261026-101010-ABCDEF.md': 'x',
     })
     await settle()
-    await h.runs.get('sync-folder.check-zn')!()
+    await h.runs.get('sync.test')!()
     await settle()
     const last = h.host.notes.at(-1)
     expect(last?.msg).toContain('同步工具没有排除它')

@@ -329,6 +329,112 @@ function conflictFileName(path, at, taken = () => false) {
   return name
 }
 
+/* ───────────────── 本地文件夹后端（`lib/backends/folder.cjs`）的纯函数 ───────────────── */
+
+/**
+ * 本机版本**影子副本**目录（rev173.286 · 从 sync-folder 并入）。
+ *
+ * 本地文件夹后端不搬文件：库放在 Syncthing / OneDrive / 坚果云目录里，搬运交给那个工具。
+ * 外部改了磁盘之后，**本机那一版就只剩这里** —— 所以 `note:saved` 时要另存一份。
+ * 放在 `.zn/` 下（不进文件树），且必须让外部工具排除。
+ */
+const SNAPSHOT_DIR = '.zn/sync/last'
+/**
+ * 静默期：本机保存后多久没人动过，就认为同步工具已经把它搬走了。
+ * 20 秒够 Syncthing 传一轮；短了会把「还没传出”当成”已同步」，双端改会被静默覆盖。
+ */
+const SETTLE_MS = 20_000
+/** 结算节拍（只看时间戳，不碰磁盘） */
+const TICK_MS = 5_000
+/** 本地文件夹后端的「本机改过、还没确认被搬走」记录 */
+const KEY_PENDING = 'pending.v1'
+/**
+ * **密码库私有目录**（rev173.164 · 期 1c）。要跨设备同步密码库，外部工具必须放行这三处
+ * （`.zn/` 其余部分继续排除）。这里只用来检查它们有没有被外部工具造出冲突副本。
+ */
+const SECRET_DIRS = ['.zn/secrets', '.zn/security', '.zn/private']
+
+/** 两位补零 */
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+/** 短散列（路径 → 影子副本文件名用），同一套实现，不为它引第二个算法 */
+function shortHash(s) {
+  return fingerprint(String(s ?? '')).split(':')[1] ?? '0'
+}
+
+/** 影子副本路径（`<库>/.zn/sync/last/<hash32>.md`） */
+function snapshotPath(path) {
+  return `${SNAPSHOT_DIR}/${shortHash(path)}.md`
+}
+
+/**
+ * 这条路径算不算要同步的笔记。
+ *
+ * **必须排掉 `.zn/`**：影子副本、冲突副本都是 `.md`，内核 rev173.107 已不再为它们发
+ * `note:saved`，插件这一侧也自己判一道 —— 一旦漏过来就**自我递归**
+ * （实测踩过：每写一份副本又触发一次保存，几秒内 1900 多次 writeText）。
+ */
+function isSyncable(path) {
+  const s = String(path ?? '')
+  if (!/\.md$/i.test(s)) return false
+  if (s.startsWith('.zn/') || s === '.zn') return false
+  return !s.split('/').includes('.zn')
+}
+
+/**
+ * 文件名像不像「外部同步工具自己造的冲突副本」——`.zn/` **没被排除**的痕迹（rev173.114）。
+ *
+ * 插件管不到 Syncthing / OneDrive / 坚果云的排除配置，但可以在私有目录里找它们留下的指纹：
+ * · Syncthing：`<名>.sync-conflict-20261024-123456-ABCDEF.md`
+ * · OneDrive / Windows：`<名>-主机名.md`、`<名> (conflicted copy).md`
+ * · 坚果云 / 中文客户端：`<名> (冲突副本).md`
+ *
+ * 注意：**不能**把 `2026-10-24 2053-双链验收.md` 这种我们自己的冲突副本当命中
+ * （没有「副本 / 冲突」关键词）。
+ */
+function looksLikeSyncConflict(name) {
+  const s = String(name ?? '')
+  if (!s) return false
+  return /\.sync-conflict-/i.test(s) || /conflicted copy/i.test(s) || /\(冲突/.test(s) || /冲突副本/.test(s)
+}
+
+/**
+ * 判定一次外部改动 —— **本地文件夹后端的心脏**（原 `sync-folder` 的 `classifyChange`）。
+ *
+ * 三种状态：`baseline[path]` = 双方一致的版本 · `pending[path]` = 本机改过、还没确认被搬走 ·
+ * `remoteFp` = 磁盘上现在的指纹。
+ *
+ * 为什么保存时不直接更新 baseline：那样「本机改完、同步还没传出去、对端又改了」会变成
+ * 「只有外部变了」⇒ 本地改动被静默覆盖。所以保存只写 pending，等 `SETTLE_MS` 静默期
+ * 才升为 baseline。
+ *
+ * | baseline | pending | 磁盘指纹 | 结论 |
+ * |---|---|---|---|
+ * | 无 | 无 | 任意 | `new` ⇒ 收下并记基线 |
+ * | 有 | 无 | == baseline | `noop` |
+ * | 有 | 无 | != baseline | `remote` ⇒ 别处更新，收下 |
+ * | 有 | 有（内容） | == pending | `noop`（自己那版被同步工具搬回来了） |
+ * | 有 | 有（内容） | != pending 且 != baseline | `conflict` ⇒ 留副本 |
+ * | 有 | 有（删除） | 任意 | `remote` ⇒ 本地删了但别处还有，**恢复别处的** |
+ *
+ * @param {{fp?: string} | null | undefined} base    基线版本
+ * @param {{fp?: string, deleted?: boolean} | null | undefined} pending 本机待同步版本
+ * @param {string} remoteFp                          磁盘上的当前指纹
+ * @returns {'new'|'noop'|'remote'|'conflict'|'local-pending'}
+ */
+function classifyChange({ base, pending, remoteFp }) {
+  const hasPending = !!(pending && (pending.deleted || pending.fp))
+  if (!base && !hasPending) return 'new'
+  if (!hasPending) return base.fp === remoteFp ? 'noop' : 'remote'
+  // 本机删过：别处还有这文件 ⇒ 恢复别处的（方案 A：本地删、外部改 ⇒ 恢复外部版）
+  if (pending.deleted) return 'remote'
+  if (pending.fp === remoteFp) return 'noop'
+  if (base && base.fp === remoteFp) return 'local-pending'
+  return 'conflict'
+}
+
 /** 远端 manifest 的形状校验（坏数据当作空，不让同步整个停摆） */
 function normalizeManifest(raw) {
   try {
@@ -338,7 +444,15 @@ function normalizeManifest(raw) {
     for (const [path, v] of Object.entries(files)) {
       if (!v || typeof v !== 'object') continue
       if (typeof v.fp !== 'string') continue
-      out[path] = { fp: v.fp, etag: typeof v.etag === 'string' ? v.etag : undefined, at: Number(v.at) || 0 }
+      out[path] = {
+        fp: v.fp,
+        /**
+         * `etag` 是统一后的字段名；**老 Git manifest 里叫 `sha`**（rev173.288 兼容）——
+         * 不认它的话，老仓库升上来首轮会丢掉乐观锁版本号（不会丢数据，但少了保护）。
+         */
+        etag: typeof v.etag === 'string' ? v.etag : typeof v.sha === 'string' ? v.sha : undefined,
+        at: Number(v.at) || 0,
+      }
     }
     // 附件段（rev173.109）：`cleaned` = 中转模式下云端副本已删（本地还留着）
     const atts = j && typeof j === 'object' && j.attachments && typeof j.attachments === 'object' ? j.attachments : {}
@@ -545,6 +659,17 @@ module.exports = {
   MAX_CONFLICTS,
   MAX_TIMING,
   SPARK,
+  SNAPSHOT_DIR,
+  SETTLE_MS,
+  TICK_MS,
+  KEY_PENDING,
+  SECRET_DIRS,
+  pad2,
+  shortHash,
+  snapshotPath,
+  isSyncable,
+  looksLikeSyncConflict,
+  classifyChange,
   decideTreeAction,
   fingerprint,
   encodeDavPath,

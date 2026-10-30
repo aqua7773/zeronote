@@ -46,7 +46,7 @@ describe('examples/*/manifest.json（B6 契约回归）', () => {
   it('示例目录数量与 manifest 数一致（每个插件都有 manifest）', () => {
     const allDirs = readdirSync(examplesDir, { withFileTypes: true }).filter((d) => d.isDirectory())
     expect(loaded.length).toBe(allDirs.length)
-    expect(loaded.length).toBeGreaterThanOrEqual(40)
+    expect(loaded.length).toBeGreaterThanOrEqual(39)
   })
 
   it('id / name / version / apiVersion / entry 齐全；id 全局唯一', () => {
@@ -114,16 +114,18 @@ describe('examples/*/manifest.json（B6 契约回归）', () => {
    * 密码类字段必须 `secret: true`（rev173.275 · 真人使用测试 #14）。
    *
    * 用户实测：WebDAV 保存后密码一直明文摊在输入框里。契约早就支持密码框
-   * （`input.secret`，rev173.163 为 `secrets` 加的），只是这三个插件没用。
+   * （`input.secret`，rev173.163 为 `secrets` 加的），只是那时的同步插件没用。
+   *
+   * rev173.288：四个后端并进 `sync` 一个插件 ⇒ 三处密码 / 密钥 / 令牌都在这份源码里。
    */
-  it('同步插件的密码 / 令牌字段用 secret（不明文显示）', () => {
+  it('同步插件的密码 / 密钥 / 令牌字段用 secret（不明文显示）', () => {
+    const src = readFileSync(join(examplesDir, 'sync', 'index.cjs'), 'utf8')
     const cases: [string, string][] = [
-      ['sync-webdav', "bind: 'sync.password'"],
-      ['sync-git', "bind: 'git.token'"],
-      ['sync-s3', "bind: 's3.password'"],
+      ['sync', "bind: 'sync.password'"],
+      ['sync', "bind: 'sync.s3.secret'"],
+      ['sync', "bind: 'sync.git.token'"],
     ]
     for (const [id, bind] of cases) {
-      const src = readFileSync(join(examplesDir, id, 'index.js'), 'utf8')
       const line = src.split('\n').find((l) => l.includes(bind))
       expect(line, `${id} 里找不到字段 ${bind}`).toBeTruthy()
       expect(line, `${id} 的 ${bind} 还是明文 input`).toContain('secret: true')

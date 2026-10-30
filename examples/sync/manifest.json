@@ -5,7 +5,13 @@
   "version": "0.1.0",
   "apiVersion": "^0.2.0",
   "entry": "index.cjs",
-  "files": ["lib/core.cjs", "lib/backends/webdav.cjs"],
+  "files": [
+    "lib/core.cjs",
+    "lib/backends/webdav.cjs",
+    "lib/backends/folder.cjs",
+    "lib/backends/s3.cjs",
+    "lib/backends/git.cjs"
+  ],
   "platforms": ["desktop", "android"],
   "description": "多后端同步：一个引擎，后端可换（WebDAV 已落地，S3 / Git / 本地文件夹陆续并入）；冲突在面板里直接处理",
   "category": "tool",

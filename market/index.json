@@ -312,116 +312,27 @@
       ]
     },
     {
-      "id": "sync-folder",
-      "name": "同步 · 本地文件夹",
+      "id": "sync",
+      "name": "同步",
       "author": "aqua7773",
-      "description": "库放在同步目录（Syncthing / OneDrive / 坚果云）里时，替你盯住双端冲突；双端改同一篇能自动合",
+      "description": "多后端同步：一个引擎，后端可换（WebDAV 已落地，S3 / Git / 本地文件夹陆续并入）；冲突在面板里直接处理",
       "category": "tool",
       "platforms": [
         "desktop",
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.3.4",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-folder-0.3.4.znp",
-      "sha256": "5e06e51c382a4e58a8be92ae730f24b2ea43271e4a123e498c00590be6c5a132",
-      "size": 47093,
+      "version": "0.1.0",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.0.znp",
+      "sha256": "5da3de6c67a817d6e42205d96df30b93f1594a6e113ef95fc977a65939ef9b91",
+      "size": 235009,
       "files": [
-        "index.js",
-        "signature.json"
-      ],
-      "capabilities": [
-        "fs:read",
-        "fs:write",
-        "doc:read",
-        "store",
-        "event",
-        "command",
-        "view:main",
-        "host"
-      ]
-    },
-    {
-      "id": "sync-git",
-      "name": "同步 · Git",
-      "author": "aqua7773",
-      "description": "用代码托管平台的 Contents API 同步（GitHub / Gitea / Gitee），sha 当乐观锁，双端改同一篇能自动合，附件可选中转或永久同步",
-      "category": "tool",
-      "platforms": [
-        "desktop",
-        "android"
-      ],
-      "apiVersion": "^0.2.0",
-      "version": "0.5.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-git-0.5.3.znp",
-      "sha256": "66f2a880d3b6e71d13895e715f3769395d6a81ade512f05a4999a4add0162456",
-      "size": 73581,
-      "files": [
-        "index.js",
-        "signature.json"
-      ],
-      "capabilities": [
-        "fs:read",
-        "fs:write",
-        "doc:read",
-        "store",
-        "event",
-        "command",
-        "view:main",
-        "host",
-        "net",
-        "service"
-      ]
-    },
-    {
-      "id": "sync-s3",
-      "name": "同步 · S3",
-      "author": "aqua7773",
-      "description": "直连 S3 兼容存储（AWS S3 / MinIO / R2 / B2），前台近实时双向同步，双端改同一篇能自动合，附件可选中转或永久同步",
-      "category": "tool",
-      "platforms": [
-        "desktop",
-        "android"
-      ],
-      "apiVersion": "^0.2.0",
-      "version": "0.4.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-s3-0.4.3.znp",
-      "sha256": "9bb0d82144bbb49dcaadd0db2f23d630fd176d9bd93a72442425477992767bae",
-      "size": 81465,
-      "files": [
-        "index.js",
-        "signature.json"
-      ],
-      "capabilities": [
-        "fs:read",
-        "fs:write",
-        "doc:read",
-        "store",
-        "event",
-        "command",
-        "view:main",
-        "host",
-        "net",
-        "service"
-      ]
-    },
-    {
-      "id": "sync-webdav",
-      "name": "同步 · WebDAV",
-      "author": "aqua7773",
-      "description": "直连自己的 WebDAV（坚果云 / Nextcloud / 群晖），前台近实时双向同步，双端改同一篇能自动合",
-      "category": "tool",
-      "platforms": [
-        "desktop",
-        "android"
-      ],
-      "apiVersion": "^0.2.0",
-      "version": "0.3.5",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-webdav-0.3.5.znp",
-      "sha256": "66adb1be7dff78249ea9dd1bae8ee2b6b59a7f8c78bfdaeeed849ad5de46db50",
-      "size": 108657,
-      "files": [
-        "index.js",
+        "index.cjs",
+        "lib/backends/folder.cjs",
+        "lib/backends/git.cjs",
+        "lib/backends/s3.cjs",
+        "lib/backends/webdav.cjs",
+        "lib/core.cjs",
         "signature.json"
       ],
       "capabilities": [

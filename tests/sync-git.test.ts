@@ -1,16 +1,21 @@
 // @vitest-environment happy-dom
 /**
- * 同步 · Git（`examples/sync-git`）—— rev173.122
+ * 同步 · Git 后端（`examples/sync/lib/backends/git.cjs`）—— rev173.288
  *
  * 六层：
  *  1. base64 往返（**中文 / 大文件换行** —— 这两个是最容易崩的地方）
- *  2. 路径编码 / 与另外三个同步插件的判据一致性
+ *  2. 路径编码 / 与另外三个后端的判据一致性
  *  3. Contents 响应解析（形状照**真实 GitHub 响应**写，见文件头注释）
  *  4. 客户端接线（mock `net`：404 / 200 / PUT 带 sha / 409 冲突 / DELETE）
- *  5. 插件接线（面板 + 七条命令）
+ *  5. 插件接线（面板 + 命令，后端由设置决定）
+ *
+ * 从 `examples/sync-git` 并入 `sync` 插件后，协议代码在 `lib/backends/git.cjs`，
+ * 判定与引擎共用 —— 端到端用例改由 `sync` 插件 + `backend: 'git'` 驱动。
  */
 import { describe, expect, it, vi } from 'vitest'
-import plugin, {
+import plugin from '../examples/sync/index.cjs'
+/** CJS 模块的具名导出按解构取（纯函数挂在 `plugin` 上） */
+const {
   PROVIDERS,
   b64decode,
   b64decodeBytes,
@@ -29,10 +34,8 @@ import plugin, {
   parseContents,
   relayName,
   tryAutoMerge,
-} from '../examples/sync-git/index.js'
+} = plugin as unknown as Record<string, never>
 import { mergeLines } from '../src/lib/merge3'
-import { fingerprint as s3Fingerprint, fingerprintBytes as s3FingerprintBytes } from '../examples/sync-s3/index.js'
-import { fingerprint as webdavFingerprint } from '../examples/sync-webdav/index.js'
 
 describe('base64（UTF-8 安全）', () => {
   it('中文往返不炸（btoa 直编会 InvalidCharacterError）', () => {
@@ -80,7 +83,8 @@ describe('附件（rev173.126）', () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
     expect(fingerprintBytes(bytes)).toMatch(/^[0-9a-z]+:[0-9a-z]+$/)
     // 三边必须互认（任一边改了字节算法都会红）
-    expect(fingerprintBytes(bytes)).toBe(s3FingerprintBytes(bytes))
+    // 四个后端共用同一套指纹（已并进 core.cjs，跨插件对比不再需要）
+    expect(fingerprintBytes(bytes)).toBe(fingerprintBytes(bytes))
     // 含高位字节：文本指纹（UTF-16 码元）与字节指纹不是同一回事
     expect(fingerprintBytes(bytes)).not.toBe(fingerprint(new TextDecoder().decode(bytes)))
   })
@@ -116,8 +120,7 @@ describe('路径与判据', () => {
   })
 
   it('指纹与另外两个同步插件互认（四边同一套）', () => {
-    expect(fingerprint('abc')).toBe(webdavFingerprint('abc'))
-    expect(fingerprint('abc')).toBe(s3Fingerprint('abc'))
+    // 四个后端共用同一套指纹（core.cjs）——统一后不再需要跨插件对比
   })
 
   it('decideSync：与 sync-webdav 逐字一致', () => {
@@ -140,7 +143,7 @@ describe('路径与判据', () => {
       'A1\nB\nC1\n',
     )
     expect(tryAutoMerge({ base, mine: 'A\nB1\nC\n', theirs: 'A\nB2\nC\n', mergeLines })).toBeNull()
-    expect(conflictFileName(new Date(2026, 9, 25, 0, 4), 'x.md')).toBe('2026-10-25 0004-x.md')
+    expect(conflictFileName('x.md', new Date(2026, 9, 25, 0, 4).getTime())).toBe('2026-10-25 0004-x.md')
     expect(fmtMs(320)).toBe('320 毫秒')
     expect(fmtMs(1200)).toBe('1.2 秒')
   })
@@ -181,7 +184,7 @@ describe('parseContents（形状照真实 GitHub 响应）', () => {
     const m = normalizeManifest(
       JSON.stringify({ files: { 'a.md': { fp: '1:p', sha: 's', at: 5 }, bad: {} } }),
     )
-    expect(m.files['a.md']).toEqual({ fp: '1:p', sha: 's', at: 5 })
+    expect(m.files['a.md']).toEqual({ fp: '1:p', etag: 's', at: 5 })
     expect(m.files.bad).toBeUndefined()
   })
 })
@@ -292,7 +295,7 @@ describe('Git Contents 客户端', () => {
 })
 
 describe('插件接线', () => {
-  it('注册主区面板与命令', () => {
+  it('Git 后端并入后只剩一套面板与命令（后端可换）', () => {
     const panels: string[] = []
     const commands: string[] = []
     const api = {
@@ -304,7 +307,10 @@ describe('插件接线', () => {
       },
       fs: { listNotes: async () => [], readText: async () => '', writeText: async () => {} },
       net: { fetch: async () => ({ status: 200, headers: {}, text: () => '', bytes: () => new Uint8Array() }) },
-      store: { get: async (_k: string, d: unknown) => d, set: async () => {} },
+      store: {
+        get: async (k: string, d: unknown) => (k === 'settings.v1' ? { backend: 'git' } : d),
+        set: async () => {},
+      },
       event: { on: () => ({ dispose: () => {} }) },
       command: {
         register: (c: { id: string }) => {
@@ -324,17 +330,13 @@ describe('插件接线', () => {
       subscriptions: [],
     }
     plugin.apply(api as never)
-    expect(panels).toEqual(['sync-git.status'])
-    expect(commands.sort()).toEqual([
-      'sync-git.disconnect',
-      'sync-git.open',
-      'sync-git.save',
-      'sync-git.set-attachments',
-      'sync-git.set-provider',
-      'sync-git.sync',
-      'sync-git.test',
-      'sync-git.toggle-auto',
-    ])
+    expect(panels).toEqual(['sync.status'])
+    // Git 没有专属命令：保存 / 测试 / 同步 / 选平台都是同一批
+    expect(commands).toContain('sync.save')
+    expect(commands).toContain('sync.test')
+    expect(commands).toContain('sync.run')
+    expect(commands).toContain('sync.set-provider')
+    expect(commands.filter((c) => c.startsWith('sync-git.'))).toEqual([])
   })
 })
 
@@ -364,16 +366,17 @@ describe('乐观锁失效的自愈（rev173.123）', () => {
     let putCalls = 0
 
     store.set('settings.v1', {
+      backend: 'git',
       provider: 'github',
       apiBase: '',
       owner: 'me',
       repo: 'notes',
       branch: 'main',
-      prefix: '',
+      repoPrefix: '',
       enabled: true,
       auto: false,
     })
-    store.set('baseline.v1', { 'a.md': { fp: fingerprint(BASE), sha: 'sha-old' } })
+    store.set('baseline.v1', { 'a.md': { fp: fingerprint(BASE), etag: 'sha-old' } })
 
     const net = {
       fetch: async (spec: { url: string; method: string; body?: string }) => {
@@ -456,7 +459,7 @@ describe('乐观锁失效的自愈（rev173.123）', () => {
     plugin.apply(api as never)
     await new Promise((r) => setTimeout(r, 20))
 
-    const s1 = (await commands.get('sync-git.sync')!()) as { merged?: number; conflicts?: number; pushed?: number }
+    const s1 = (await commands.get('sync.run')!()) as { merged?: number; conflicts?: number; pushed?: number }
     expect(putCalls).toBe(2) // 第一次 409 + 第二次推合并结果
     expect(s1.merged).toBe(1)
     expect(s1.conflicts ?? 0).toBe(0)
@@ -465,7 +468,7 @@ describe('乐观锁失效的自愈（rev173.123）', () => {
     expect(remote.text).toBe('L1（本机）\nL2\nL3（网页手改）\n')
 
     // 再跑一轮：不该再冲突 / 再合并（收口了）
-    const s2 = (await commands.get('sync-git.sync')!()) as { merged?: number; conflicts?: number; pushed?: number }
+    const s2 = (await commands.get('sync.run')!()) as { merged?: number; conflicts?: number; pushed?: number }
     expect(s2.merged ?? 0).toBe(0)
     expect(s2.conflicts ?? 0).toBe(0)
 
@@ -533,12 +536,13 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     const commands = new Map<string, (p?: unknown) => unknown>()
     const notices: string[] = []
     store.set('settings.v1', {
+      backend: 'git',
       provider: 'github',
       apiBase: '',
       owner: 'me',
       repo: 'notes',
       branch: 'main',
-      prefix: '',
+      repoPrefix: '',
       enabled: true,
       auto: false,
     })
@@ -595,11 +599,11 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     localA.set(SECRETS, enc('zn1.AAAA.BBBB'))
     localA.set(VAULT, enc('{"v":1,"rings":{"secrets":{"wrapped":{"secrets":"zn1.X.Y"}}}}'))
 
-    await A.commands.get('sync-git.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(repo.get(SECRETS)?.text).toBe('zn1.AAAA.BBBB')
     expect(repo.get(VAULT)?.text).toContain('wrapped')
 
-    await B.commands.get('sync-git.sync')!({})
+    await B.commands.get('sync.run')!({})
     expect(dec(localB.get(SECRETS))).toBe('zn1.AAAA.BBBB')
     expect(dec(localB.get(VAULT))).toContain('wrapped')
 
@@ -616,16 +620,16 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     await new Promise((r) => setTimeout(r, 20))
 
     localA.set(SECRETS, enc('zn1.v1'))
-    await A.commands.get('sync-git.sync')!({})
-    await B.commands.get('sync-git.sync')!({})
+    await A.commands.get('sync.run')!({})
+    await B.commands.get('sync.run')!({})
     expect(dec(localB.get(SECRETS))).toBe('zn1.v1')
 
     localB.set(SECRETS, enc('zn1.v2'))
-    await B.commands.get('sync-git.sync')!({})
+    await B.commands.get('sync.run')!({})
     expect(repo.get(SECRETS)?.text).toBe('zn1.v2')
 
     const before = requests.length
-    await A.commands.get('sync-git.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(dec(localA.get(SECRETS))).toBe('zn1.v2')
     const round = requests.slice(before).filter((r) => r.includes(SECRETS))
     expect(round.some((r) => r.startsWith('GET'))).toBe(true)
@@ -644,14 +648,14 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     await new Promise((r) => setTimeout(r, 20))
 
     localA.set(SECRETS, enc('zn1.v1'))
-    await A.commands.get('sync-git.sync')!({})
-    await B.commands.get('sync-git.sync')!({})
+    await A.commands.get('sync.run')!({})
+    await B.commands.get('sync.run')!({})
 
     localA.set(SECRETS, enc('zn1.v2'))
-    await A.commands.get('sync-git.sync')!({})
+    await A.commands.get('sync.run')!({})
 
     localB.set(SECRETS, enc('zn1.v3'))
-    await B.commands.get('sync-git.sync')!({})
+    await B.commands.get('sync.run')!({})
 
     const copies = [...localB.keys()].filter((k) => k.startsWith('.zn/conflicts/'))
     expect(copies).toHaveLength(1)

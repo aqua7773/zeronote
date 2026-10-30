@@ -37,7 +37,6 @@ const {
   tryAutoMerge,
 } = plugin as unknown as Record<string, never>
 import { mergeLines } from '../src/lib/merge3'
-import { fingerprint as syncFolderFingerprint } from '../examples/sync-folder/index.js'
 
 /* ───────────────────────── 1. 指纹 ───────────────────────── */
 
@@ -45,12 +44,6 @@ describe('fingerprint', () => {
   it('同内容同指纹、变一字就变', () => {
     expect(fingerprint('a')).toBe(fingerprint('a'))
     expect(fingerprint('a')).not.toBe(fingerprint('b'))
-  })
-
-  it('与 sync-folder 用同一套算法（两边互认）', () => {
-    // 直接对比两个插件的实现：任一边改了算法这条就红
-    expect(fingerprint('abc')).toBe(syncFolderFingerprint('abc'))
-    expect(fingerprint('# 标题\n中文内容')).toBe(syncFolderFingerprint('# 标题\n中文内容'))
   })
 })
 
@@ -534,12 +527,15 @@ describe('插件接线', () => {
     expect(panels).toEqual(['sync.status'])
     expect(commands.sort()).toEqual([
       'sync.disconnect',
+      'sync.mark-baseline',
       'sync.open',
       'sync.open-conflict',
       'sync.resolve-conflict',
       'sync.run',
       'sync.save',
       'sync.set-attachments',
+      'sync.set-backend',
+      'sync.set-provider',
       'sync.test',
       'sync.toggle-auto',
     ])
@@ -1713,7 +1709,7 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
   })
 
   it('双端都改 ⇒ 冲突：本机版进 .zn/conflicts/，本地变远端版', async () => {
-    const { files: dav, net } = makeDav()
+    const { net } = makeDav()
     const localA = new Map<string, Uint8Array>()
     const localB = new Map<string, Uint8Array>()
     const A = makeDevice(net, localA, 'windows')

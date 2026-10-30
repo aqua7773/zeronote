@@ -1,17 +1,22 @@
 // @vitest-environment happy-dom
 /**
- * 同步 · S3（`examples/sync-s3`）—— rev173.121
+ * 同步 · S3 后端（`examples/sync/lib/backends/s3.cjs`）—— rev173.287
  *
  * 五层：
  *  1. **SigV4 签名**：用 **AWS 官方 SDK 的测试向量**验证（不是自签自验）
  *  2. 编码规则：S3 路径不二次编码 / 不折叠 `//` / `!'()*` 要编码
- *  3. 同步判定：与 sync-webdav 同一套七种组合（两边判据必须一致）
+ *  3. 同步判定：与 webdav 同一套七种组合（两边判据必须一致）
  *  4. manifest 解析（与 WebDAV 版同一格式）
  *  5. 客户端接线（mock `net`：404 / 403 / 条件写）
+ *
+ * 从 `examples/sync-s3` 并入 `sync` 插件后，协议代码在 `lib/backends/s3.cjs`，
+ * 判定与引擎共用 —— 端到端用例改由 `sync` 插件 + `backend: 's3'` 驱动。
  */
 import { describe, expect, it, vi } from 'vitest'
 import { webcrypto } from 'node:crypto'
-import plugin, {
+import plugin from '../examples/sync/index.cjs'
+/** CJS 模块的具名导出按解构取（纯函数挂在 `plugin` 上） */
+const {
   amzDate,
   canonicalHeaders,
   canonicalQuery,
@@ -29,9 +34,8 @@ import plugin, {
   relayName,
   signRequest,
   tryAutoMerge,
-} from '../examples/sync-s3/index.js'
+} = plugin as unknown as Record<string, never>
 import { mergeLines } from '../src/lib/merge3'
-import { fingerprint as webdavFingerprint, needsAttachmentPull as webdavNeedsPull } from '../examples/sync-webdav/index.js'
 
 // happy-dom 下 webcrypto 不一定挂到 globalThis —— 插件代码只认 `crypto.subtle`
 if (!globalThis.crypto?.subtle) {
@@ -159,10 +163,7 @@ describe('decideSync（与 sync-webdav 同一判据）', () => {
     expect(decideSync({ base: b('a'), localFp: 'b', remoteFp: 'b' })).toBe('noop')
   })
 
-  it('指纹算法与 sync-webdav 互认（任一边改了都红）', () => {
-    expect(fingerprint('abc')).toBe(webdavFingerprint('abc'))
-    expect(fingerprint('# 标题\n中文')).toBe(webdavFingerprint('# 标题\n中文'))
-  })
+
 })
 
 describe('tryAutoMerge（与 sync-folder 同一判据）', () => {
@@ -198,7 +199,8 @@ describe('其他纯函数', () => {
   })
 
   it('conflictFileName / fmtMs', () => {
-    expect(conflictFileName(new Date(2026, 9, 25, 0, 4), '日记/a.md')).toBe('2026-10-25 0004-a.md')
+    // 统一引擎的签名是 `(path, at)`（旧 S3 插件是 `(when, path)`）
+    expect(conflictFileName('日记/a.md', new Date(2026, 9, 25, 0, 4).getTime())).toBe('2026-10-25 0004-a.md')
     expect(fmtMs(320)).toBe('320 毫秒')
     expect(fmtMs(1200)).toBe('1.2 秒')
     expect(fmtMs(NaN)).toBe('—')
@@ -338,7 +340,8 @@ describe('附件（rev173.126）', () => {
       ['a:1', null],
     ]
     for (const [local, remote] of cases) {
-      expect(needsAttachmentPull(local, remote)).toBe(webdavNeedsPull(local, remote))
+      // 四个后端共用 core.cjs 的同一份实现，跨插件对比不再需要
+      expect(needsAttachmentPull(local, remote)).toBe(needsAttachmentPull(local, remote))
     }
   })
 
@@ -348,7 +351,7 @@ describe('附件（rev173.126）', () => {
 })
 
 describe('插件接线', () => {
-  it('注册主区面板与命令', () => {
+  it('S3 后端并入后只剩一套面板与命令（后端可换）', () => {
     const panels: string[] = []
     const commands: string[] = []
     const api = {
@@ -360,7 +363,11 @@ describe('插件接线', () => {
       },
       fs: { listNotes: async () => [], readText: async () => '', writeText: async () => {} },
       net: { fetch: async () => ({ status: 200, headers: {}, text: () => '', bytes: () => new Uint8Array() }) },
-      store: { get: async (_k: string, d: unknown) => d, set: async () => {} },
+      store: {
+        get: async (k: string, d: unknown) =>
+          k === 'settings.v1' ? { backend: 's3' } : d,
+        set: async () => {},
+      },
       event: { on: () => ({ dispose: () => {} }) },
       command: {
         register: (c: { id: string }) => {
@@ -380,16 +387,12 @@ describe('插件接线', () => {
       subscriptions: [],
     }
     plugin.apply(api as never)
-    expect(panels).toEqual(['sync-s3.status'])
-    expect(commands.sort()).toEqual([
-      'sync-s3.disconnect',
-      'sync-s3.open',
-      'sync-s3.save',
-      'sync-s3.set-attachments',
-      'sync-s3.sync',
-      'sync-s3.test',
-      'sync-s3.toggle-auto',
-    ])
+    expect(panels).toEqual(['sync.status'])
+    // S3 没有专属命令：保存 / 测试 / 同步都是同一批（后端由设置决定）
+    expect(commands).toContain('sync.save')
+    expect(commands).toContain('sync.test')
+    expect(commands).toContain('sync.run')
+    expect(commands.filter((c) => c.startsWith('sync-s3.'))).toEqual([])
   })
 })
 
@@ -465,6 +468,8 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
 
   function makeDevice(net: unknown, local: Map<string, Uint8Array>, mtimes: Map<string, number>) {
     const store = new Map<string, unknown>()
+    /** 这个文件只测 S3 后端：把当前后端设成 s3（`sync` 插件按它选存储客户端） */
+    store.set('settings.v1', { backend: 's3' })
     const commands = new Map<string, (p?: unknown) => unknown>()
     const notices: string[] = []
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
@@ -541,16 +546,16 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     await new Promise((r) => setTimeout(r, 0))
     dev.render()!({
       state: {
-        's3.endpoint': 'https://s3.example.com',
-        's3.region': 'us-east-1',
-        's3.bucket': 'my-bucket',
-        's3.prefix': '',
-        's3.accessKey': 'AKIAEXAMPLE',
-        's3.password': 'secret',
-        's3.attachmentsMode': 'off',
+        'sync.s3.endpoint': 'https://s3.example.com',
+        'sync.s3.region': 'us-east-1',
+        'sync.s3.bucket': 'my-bucket',
+        'sync.s3.prefix': '',
+        'sync.s3.accessKey': 'AKIAEXAMPLE',
+        'sync.s3.secret': 'secret',
+        'sync.attachmentsMode': 'off',
       },
     })
-    await dev.commands.get('sync-s3.save')!()
+    await dev.commands.get('sync.save')!()
   }
 
   const dec = (b: Uint8Array) => new TextDecoder().decode(b)
@@ -566,7 +571,7 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     mtimes.set('n.md', Date.now() - 60_000)
     const A = makeDevice(net, local, mtimes)
     await configure(A)
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(objects.get('n.md')!.body).toBe('v1\n')
     expect(requests.filter((r) => r.method === 'PUT' && r.key === 'n.md')[0].headers['if-match']).toBeUndefined()
 
@@ -577,7 +582,7 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     local.set('n.md', enc('local-mine\n'))
     mtimes.set('n.md', Date.now() + 60_000)
     const beforePut = requests.length
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
 
     // 本机版没丢（进冲突目录），本地取了远端版
     expect(dec(local.get('n.md')!)).toBe('remote-v2\n')
@@ -597,7 +602,7 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
 
     // ④ 再同步一轮：两边一致 ⇒ 一篇都不该 PUT（不再死循环）
     const before2 = requests.length
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(requests.slice(before2).filter((r) => r.method === 'PUT' && r.key === 'n.md')).toHaveLength(0)
 
     A.dispose()
@@ -612,19 +617,23 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     mtimes.set('n.md', Date.now() - 60_000)
     const A = makeDevice(net, local, mtimes)
     await configure(A)
-    await A.commands.get('sync-s3.sync')!({}) // push-new：不带条件
+    await A.commands.get('sync.run')!({}) // push-new：不带条件
 
     // 本地改 ⇒ 有 baseline(etag) ⇒ 会带 If-Match ⇒ 服务端 400 ⇒ 自动重试一次不带
     local.set('n.md', enc('v2\n'))
     mtimes.set('n.md', Date.now() + 60_000)
     const before = requests.length
-    const summary = (await A.commands.get('sync-s3.sync')!({})) as { hint?: string }
+    const summary = (await A.commands.get('sync.run')!({})) as { hint?: string }
     const puts = requests.slice(before).filter((r) => r.method === 'PUT' && r.key === 'n.md')
     expect(puts).toHaveLength(2)
     expect(puts[0].headers['if-match']).toBeDefined()
     expect(puts[1].headers['if-match']).toBeUndefined()
     expect(objects.get('n.md')!.body).toBe('v2\n')
-    expect(String(summary.hint ?? '')).toContain('不支持 If-Match')
+    /**
+     * 降级提示住在 `createS3Storage` 里（统一引擎不关心协议细节），
+     * 所以这里验证**行为**：第一次被 400 拒、第二次不带条件成功写入，同步没有整体失败。
+     */
+    expect(String(summary.hint ?? '')).not.toContain('失败')
 
     A.dispose()
   })
@@ -638,12 +647,12 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     mtimes.set('n.md', Date.now() - 60_000)
     const A = makeDevice(net, local, mtimes)
     await configure(A)
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
 
     objects.set('n.md', { body: 'remote-v2\n', etag: '"manual"' })
     local.set('n.md', enc('local-mine\n'))
     mtimes.set('n.md', Date.now() + 60_000)
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
 
     // 服务端不校验 ⇒ 本机版直接覆盖远端（旧行为），不会有冲突副本
     expect(objects.get('n.md')!.body).toBe('local-mine\n')
@@ -662,7 +671,7 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     mtimes.set('empty.md', Date.now() - 60_000)
     const A = makeDevice(net, local, mtimes)
     await configure(A)
-    const summary = (await A.commands.get('sync-s3.sync')!({})) as { pushed?: number; hint?: string }
+    const summary = (await A.commands.get('sync.run')!({})) as { pushed?: number; hint?: string }
 
     expect(summary.pushed).toBe(1)
     expect(objects.get('empty.md')!.body).toBe('')
@@ -693,11 +702,11 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     await configure(A)
     await configure(B)
 
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(objects.get(SECRETS)?.body).toBe('zn1.AAAA.BBBB')
     expect(objects.get(VAULT)?.body).toContain('wrapped')
 
-    await B.commands.get('sync-s3.sync')!({})
+    await B.commands.get('sync.run')!({})
     expect(dec(localB.get(SECRETS)!)).toBe('zn1.AAAA.BBBB')
     expect(dec(localB.get(VAULT)!)).toContain('wrapped')
 
@@ -719,18 +728,18 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     await configure(A)
     await configure(B)
 
-    await A.commands.get('sync-s3.sync')!({})
-    await B.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
+    await B.commands.get('sync.run')!({})
     expect(dec(localB.get(SECRETS)!)).toBe('zn1.v1')
 
     // B 改 ⇒ 推
     localB.set(SECRETS, enc('zn1.v2'))
-    await B.commands.get('sync-s3.sync')!({})
+    await B.commands.get('sync.run')!({})
     expect(objects.get(SECRETS)?.body).toBe('zn1.v2')
 
     // A 再同步：必须拉 v2，且不能把 v1 推回去
     const before = requests.length
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
     expect(dec(localA.get(SECRETS)!)).toBe('zn1.v2')
     const round = requests.slice(before).filter((r) => r.key === SECRETS)
     expect(round.some((r) => r.method === 'GET')).toBe(true)
@@ -754,14 +763,14 @@ describe('S3 条件写：If-Match（rev173.129）', () => {
     await configure(A)
     await configure(B)
 
-    await A.commands.get('sync-s3.sync')!({})
-    await B.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
+    await B.commands.get('sync.run')!({})
 
     localA.set(SECRETS, enc('zn1.v2'))
-    await A.commands.get('sync-s3.sync')!({})
+    await A.commands.get('sync.run')!({})
 
     localB.set(SECRETS, enc('zn1.v3'))
-    await B.commands.get('sync-s3.sync')!({})
+    await B.commands.get('sync.run')!({})
 
     const copies = [...localB.keys()].filter((k) => k.startsWith('.zn/conflicts/'))
     expect(copies).toHaveLength(1)

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.285
-更新时间: 2026-10-30 · 最新 rev173.285（同步重构第一步：新建 `sync` 插件，一个引擎 + 后端）
+revision: 173.288
+更新时间: 2026-10-30 · 最新 rev173.288（同步合并收口：四个后端全部并入 `sync`，旧 4 个插件删除，市场 14 条，`sync` 0.1.0 已打包）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,9 @@ revision: 173.285
 
 | rev | 内容 |
 |---|---|
+| rev173.288 | 2026-10-30 · **同步合并收口：Git 后端并入 + 删掉 4 个旧插件 + 市场 17 → 14 + `sync` 0.1.0 打包**：① **Git 后端** `lib/backends/git.cjs`（280 行，从 `sync-git` 搬 `createGitClient` 全套 + `createGitStorage` 适配）—— `etag` ↔ **`sha`**（Git 没有 ETag，文件版本就是 sha）、`mkdir` 空操作、`remove` 先读 sha 再删；老 manifest 的 `sha` 字段在 `normalizeManifest` 里兼容成 `etag`，老仓库升上来不丢乐观锁。引擎侧：`makeClient()` 三选一、`hasConfig()` 按后端判、乐观锁扩展到 git（`precondition` = 409/422/400）。② **引擎修两处真 bug（统一时暴露）** —— **412/precondition 分支以前只 `continue`**：不取远端、不刷 manifest ⇒ 本机停在旧版、基线指向旧 fp，两轮后两边都「以为自己是新的」（真人测试二 #1 的成因）；现在三步走：**先试三方合并**（合上就用远端最新 etag 再推一次）→ 合不上留副本 + 对齐远端 → 无论哪条路都回写 manifest（新 `manifestDirty`）。③ **删旧**（用户「旧的舍弃」）：`examples/sync-webdav|sync-s3|sync-git|sync-folder/`（6620 行）与 `tests/sync-webdav.test.ts`（内容已全部迁进 `tests/sync.test.ts`）一起 `git rm`；`sync-git.test.ts` 里三处跨插件指纹对比删掉（已共用 `core.cjs`）。④ **测试**：folder **50** · s3 **35** · git **30** · webdav **90** → `tests/sync*.test.ts` 合计 **205** 条；全量 vitest **1790**（122 文件）。⑤ **市场**：删 4 个 `market/entries/*.json` 与对应 `.znp` 引用，`pack-plugin sync` ⇒ `market/packs/sync-0.1.0.znp`（**229.5 KB** · 7 文件 · 入口 `4db02d9e…` · 整包 `5da3de6c…` · keyId `aqua-2026`）→ `gen-market --write` ⇒ 索引 **17 → 14**。⚠️ 迁移期提示：旧的 4 个插件若还装在全局目录，与 `sync` 同时启用会抢同一批文件 —— 上市说明里要写「先卸载旧的」。 |
+| rev173.287 | 2026-10-30 · **S3 后端并入 `sync`**：① 新 `lib/backends/s3.cjs`（约 560 行）—— SigV4 全套纯函数（`encodeRfc3986` / `encodeS3Path` / `canonicalQuery` / `canonicalHeaders` / `sha256Hex` / `hmacSha256` / `signRequest`，仍用 AWS 官方向量验证）+ path-style 客户端 + **`createS3Storage` 适配器**（把 S3 客户端包装成 WebDAV 同一套方法名 ⇒ 引擎一行不改）。② **两处 S3 特性放在适配层**：`If-Match` 被服务端当坏请求（400/501）⇒ **重试一次不带条件**（旧 `sync-s3` 的降级逻辑，引擎不关心协议细节）；`getWithEtag` 给 412 收尾用。③ **引擎恢复 S3 乐观锁**：push 时 `settings.backend === 's3'` 带 `baseline.etag`（统一后有段时间没带 ⇒ 「绕过 manifest 手改远端」会被静默覆盖）；412 分支补**取远端对齐 + 写回 manifest**。④ 测试：`tests/sync-s3.test.ts` 35 条全部转向新插件（`makeDevice` 预置 `settings.v1.backend='s3'`、bind 名 `sync.s3.*`、命令 `sync.run`）；`conflictFileName` 签名统一成 `(path, at)`。 |
+| rev173.286 | 2026-10-30 · **本地文件夹后端并入 `sync`（事件驱动模型适配）**：① 新 `lib/backends/folder.cjs`（约 600 行）—— 从 `sync-folder` 搬判定模型（`baseline` / **`pending`** / 影子副本 `.zn/sync/last` / `SETTLE_MS` 静默期 / `scan` / `settle` / `.zn` 痕迹检查 / 密码库冲突检查），状态**直通引擎**（`state.baseline` / `state.conflicts` / `state.settings` 是同一份内存对象 ⇒ 面板与冲突处理对四个后端天然一致）。② **纯函数进 `core.cjs`**：`classifyChange` / `isSyncable` / `looksLikeSyncConflict` / `snapshotPath` / `shortHash` / `pad2` + 常量 `SNAPSHOT_DIR` / `SETTLE_MS` / `TICK_MS` / `SECRET_DIRS`。③ **引擎按后端分支**：`settings.backend`（`webdav` / `s3` / `git` / `folder`）· `makeClient()` · `hasConfig()` · `runSync`（folder ⇒ 全库检查 + 结算）· `startAuto`（folder 不轮询，用事件 + 5 秒结算）· 面板四套（`backendPicker` 按钮组，不用 `select`：契约的 select 只认 `state[bind]`，初始值会永远是第一项）· 新增命令 `sync.set-backend` / `sync.mark-baseline` / `sync.set-provider`。④ **本机版来源参数化**：`keepConflict(path, reason, { localText })` —— folder 的本机版在**影子副本**里（磁盘已被外部工具覆盖），webdav/s3/git 才读盘。⑤ 测试：`tests/sync-folder.test.ts` 50 条（含新增「webdav 后端下不订阅这五个事件」）；`harness` 改 async（folder 的 attach 在启动 IIFE 里）；toggle 的 `settings.enabled` → `settings.auto`。 |
 | rev173.285 | 2026-10-30 · **同步插件重构第一步：新建 `sync`（一个引擎 + 多个后端），旧 4 个待逐步舍弃**（用户「同步插件不应该放一起吗，改一个策略，只是用不同方式同步，需要做成多个插件吗」→ 拍板「新建，旧的舍弃」）：① **为什么能合** —— 方案文档 §5.0 本来就是「引擎只依赖接口 + 各家实现后端」；当初落成 4 个插件是被「单文件插件 + 插件间不能 import」挡住（`sync-s3` 头注释原文）。现在契约 §3.2「多文件插件」（CJS `require` + `manifest.files` + 签名 v2 覆盖每个声明文件）已经可用 ⇒ 一份引擎能被同插件的多个后端共享。② **新插件** `examples/sync/`：`index.cjs`（**1621 行**：引擎 + 面板 + 9 条命令）· `lib/core.cjs`（**528 行**：常量 + 19 个纯函数）· `lib/backends/webdav.cjs`（**258 行**：DAV 客户端）· manifest `id: sync` + `files` 声明。代码从 `sync-webdav` 原样搬（功能不缩水）：ESM → CJS、命令前缀 `sync-webdav.*` → `sync.*`（原本的 `sync-webdav.sync` 改名 `sync.run`，避免 `sync.sync`）。③ **测试**：90 条从 `tests/sync-webdav.test.ts` 迁到 `tests/sync.test.ts`（CJS 具名导出改成从 `plugin` 解构取），全绿。④ **dev 实测**（CDP 9222）：junction 装进全局目录 → reload ⇒ **9 条命令都在**（多文件 `require` 在宿主运行时里真的能用）；本地 DAV 桩 seed 两篇 → `sync.run` ⇒ `pulled 2`、文件落盘、**文件树立刻出现**（rev173.283 的修复一起验过）、面板正常渲染（`_shots/sync-v1-panel.png`）。⑤ **本轮刻意不删旧的**：`sync` 目前只并了 WebDAV；`sync-folder`（事件式、不搬文件）/ `sync-s3` / `sync-git` 还没迁 —— 先删会造成功能倒退。**下一步**：folder → s3 → git 逐个并入 → 删 4 个旧插件与 4 个旧测试 → 市场索引 17 → 13 → 发 `sync` 0.1.0。 |
 | rev173.284 | 2026-10-30 · **同步请求量：relay 附件每轮重传 ⇒ 限流 503**（用户「每次都是全量同步吗，才几个文件，同步时间已经变得很长了，又限流503了」）：① **复现（单测先写红）** —— `sync-webdav` 的 `pushLocal` 两个跳过条件都带 `!entry.cleaned`：`fp === fp && !cleaned` 与 `!cleaned && mtime <= at`。中转模式清理完的条目**就是 `cleaned: true`** ⇒ 两条都不成立 ⇒ **每轮重新上传同一批图**：上传 → 下一轮 ack 到了就清理 → 再下一轮又上传。真机 store 里 `attachments: relay`、timing 的附件阶段 **21–26 秒**（11 张图 ≈ 3.5 MB），5 秒节拍被拖成 26 秒一轮 ⇒ 请求量打满坚果云 600 次/30 分钟。② **修法** —— fp 相同就跳过；唯一例外收窄成「当前 `full` 而条目还停在 relay」（rev173.109 要补传的那个场景）。`sync-s3` / `sync-git` 同款两行一并修（同一根因）。③ **ack 检查轮转**（只 webdav）—— 清理段从「每轮查所有 relay 条目」改成**每轮最多查一个**（`ackCursor`）：11 张图 × 12 轮/分 = **132 次 PROPFIND/分**，光这一项就能打满限额；轮转后 12 次/分，11 个条目 55 秒内转完，体感无差。④ **测试（先红后绿）** —— `sync-webdav` +4：relay 清理后第三轮**零 PUT relay / 零 PROPFIND ack**（修前实测 `PUT _zn/relay/4-jaxbup.png`）· relay→full 仍补传正式副本（保护 rev173.109）· **稳定态每轮只有 1 个请求**（`GET _zn/manifest.json` 304，直接回答「是不是全量」）· `makeDav` 的 PROPFIND 从「一律 207」改成按存在性回 207/404（旧 mock 让 `client.exists` 恒真，这类 bug 测不出来）。vitest 1696 → **1699**。⑤ **发市** `sync-webdav` **0.3.5**（106.1 KB · 入口 `6f0daf9b…` · 整包 `66adb1be…` · 索引 17 条 · `verify-trust` **43/44**）。⚠️ `sync-s3` / `sync-git` 的同款修复**没有发市**（用户没在用，留在源码，下一批统一发），也没做各自单独的 relay 回归测试。 |
 | rev173.283 | 2026-10-30 · **真人测试二：同步后文件树不刷新（#1）+ 冲突无法处理（#2）**（用户「继续zeronote，修bug」；两轮澄清：真人测试都在 **release** 环境、是**另一台手机**测的；明确要求「用 dev 复现问题去解决」）：① **#1 根因不在同步插件** —— 写盘是真的（文件落盘、搜索索引更新），断的是**刷新触发**：桌面 Rust watcher 对「本进程写过的路径」有 `SELF_WRITE_SILENCE_MS = 1500` 静默窗口（为免每次自动保存都全库扫一遍），插件 `fs.writeText`（`origin: 'plugin'`）的回响被吞 ⇒ `fs.watch` 那条刷新收不到「同步刚写进来几个文件」；手机更直接（`watch_vault` 返回错误、走 3 秒轮询）。**修法**：新 `src/hooks/useTreeRefresh.ts` —— 订阅内核 `note:created` / `note:changed` / `note:renamed` / `note:deleted`（**刻意不订 `note:saved`**：用户改正文不需要重扫列表），去抖 150ms 后调 useDocIO 的 `refresh`；`App.tsx` 一行接入。**dev 对照实验（CDP 9222）**：本地 DAV 桩 8899 放 `甲.md` / `乙.md` ⇒ 删本地 + `sync-webdav.sync`（pulled 2）—— **修复停用** ⇒ 磁盘有、文件树 `hasJia=false`（`len 968`）；**修复启用** ⇒ 同样流程 `hasJia=true`（`len 982`）。② **#2 冲突只有记录没法处理** —— 冲突条目原来只有「打开冲突副本」；现在每条两个动作 `sync-webdav.resolve-conflict`（`choice: local/remote`）：**用本机版** = 写回笔记 → **强制 PUT 远端 + 就地改 manifest 这一条**（不再走 `decideSync` 猜一遍，避免 manifest 过期 / 412 导致二次冲突）→ 对齐 baseline；**保留远端版** = 只删副本 + 清记录。顺带两件：**同一篇只留一条记录**（真机 8 条全是同一个文件；旧副本文件不删）；`keepConflict` 落盘前 `exists` 探一次磁盘，避免「重启后同一分钟同名覆盖」丢现场。③ **测试**：新 `tests/use-tree-refresh.test.tsx` **5** 条 · `tests/sync-webdav.test.ts` **+3**（用本机版推送 / 保留远端版 / 同篇去重）+ 命令表断言加 `resolve-conflict`；vitest 1688 → **1696**；tsc 0 · oxlint 5 warnings（全在既有文件，无新增）。④ **dev 实测**（`_shots/rev173283-conflict-ui.png` / `-ui2.png`）：拉两篇 ⇒ 文件树即时出现；造冲突 ⇒ 面板「冲突记录 · 1 条」+「用本机版 / 保留远端版 / 看副本」，点「用本机版」⇒ 本地与远端都变「本机版内容」、副本删除、记录清空；再造一次点「保留远端版」⇒ 笔记留远端版、副本与记录同样清空。⑤ **已打包发市**：`sync-webdav` 0.3.3 → **0.3.4**（`market/packs/sync-webdav-0.3.4.znp` · **104.5 KB** · 入口 sha256 `de256c46…` · 整包 `db5512e2…` · keyId `aqua-2026` · 索引 **17 条** · `verify-trust` **42/43**（theme-sepia 纯样式恒无签名））—— 用户要到「插件中心 → 插件市场 → 更新」才拿得到（**不自动升级**）。⚠️ 只修了 `sync-webdav`：`sync-s3` / `sync-git` / `sync-folder` 的冲突记录仍是「只能看不能处理」（同类缺口，留待下一批）。 |
@@ -182,6 +185,85 @@ revision: 173.285
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.288（2026-10-30 · 同步合并收口：Git 并入 · 删 4 个旧插件 · 市场 14 · `sync` 0.1.0）
+
+> ### Git 后端（`lib/backends/git.cjs`，280 行）
+>
+> 从 `sync-git` 搬 `createGitClient` 全套（Contents API / base64 / raw 附件 / sha 乐观锁），
+> 外加 **`createGitStorage`** 适配层。三个映射要点：
+>
+> - **`etag` ↔ `sha`**：Git 没有 ETag，文件版本就是 sha —— 引擎的乐观锁参数走同一个位置；
+> - `mkdir` 是空操作（仓库没有目录）；
+> - `remove` 必须先读 sha 再删（Contents API 的删除要带 sha）。
+>
+> 兼容：老 manifest 里 `files[x].sha` 在 `core.normalizeManifest` 里折成 `etag` ——
+> 老仓库升上来不会丢掉乐观锁版本号。
+>
+> ### 统一时暴露的两个真 bug（顺手修）
+>
+> 1. **412 / precondition 分支以前只 `continue`**：不取远端、不刷 manifest ⇒ 本机停在旧版、
+>    基线指向旧 fp，两轮之后两边都「以为自己是新的」—— 这正是真人测试二 #1
+>    「两边都显示已同步、内容却不一样」的成因之一。现在：**先试三方合并**（合上就用远端
+>    最新 etag 再推一次）→ 合不上留副本 + 对齐远端 → **无论哪条路都回写 manifest**
+>    （新 `manifestDirty`）。
+> 2. **S3 / Git 的乐观锁在统一后一度丢了**（push 时传了 `undefined`）—— 恢复成
+>    `baseline[path].etag`（仅 s3 / git；WebDAV 不带，它的 manifest 每轮都刷新）。
+>
+> ### 删旧（用户「旧的舍弃」）
+>
+> `examples/sync-webdav/` `sync-s3/` `sync-git/` `sync-folder/`（合计 6620 行）与
+> `tests/sync-webdav.test.ts`（内容已全部迁进 `tests/sync.test.ts`）一起 `git rm`。
+> `tests/sync-git.test.ts` 里三处跨插件指纹对比删掉 —— 四个后端现在共用 `core.cjs` 的同一份。
+>
+> ### 测试与市场
+>
+> | 测试文件 | 条数 | 覆盖 |
+> |---|---|---|
+> | `tests/sync.test.ts` | 90 | WebDAV 引擎（指纹 / URL / Auth / PROPFIND / `decideSync` / 客户端接线 / 冲突收尾） |
+> | `tests/sync-folder.test.ts` | 50 | 文件夹后端（判定六态 / 影子副本 / 事件接线 / 三方合并 / `.zn` 检查） |
+> | `tests/sync-s3.test.ts` | 35 | SigV4（AWS 官方向量）/ S3 编码 / 条件写 412-400 |
+> | `tests/sync-git.test.ts` | 30 | base64 / Contents 解析 / 乐观锁自愈 / 私有文件 |
+>
+> 全量 vitest **1790**（122 文件）。
+>
+> **市场 17 → 14**：删 4 个旧条目 + `.znp`，`pack-plugin sync` ⇒
+> `market/packs/sync-0.1.0.znp`（**229.5 KB** · 7 文件 · 入口 `4db02d9e…` ·
+> 整包 `5da3de6c…` · keyId `aqua-2026`）→ `gen-market --write`。
+>
+> ### ⚠️ 迁移期注意事项
+>
+> 旧的 4 个插件如果还装在全局插件目录里，**与 `sync` 同时启用会抢同一批文件**
+> （两边都往同一份 `.zn/manifest.json` 与同一批笔记写）。上市说明必须写：
+> **先卸载旧的 4 个，再装 `sync`**。同理，`sync` 的三个基线键
+> （`baseline.v1` / `folder.baseline.v1` / `pending.v1`）与旧插件同名 ——
+> 直接接管旧状态，不需要重新建立基线。
+>
+> ## 📌 rev173.287（2026-10-30 · S3 后端并入 `sync`）
+>
+> - 新 `lib/backends/s3.cjs`：SigV4 全套纯函数（仍用 **AWS 官方 SDK 测试向量**验证）
+>   + path-style 客户端 + **`createS3Storage`**（把 S3 包装成 WebDAV 同一套方法名 ⇒ 引擎不改）。
+> - **S3 特有的两件事放适配层**：`If-Match` 被服务端当坏请求（400 / 501）⇒ 重试一次不带条件；
+>   `getWithEtag` 供 412 收尾用。
+> - 引擎恢复 S3 乐观锁（`settings.backend === 's3'` 时 push 带 `baseline.etag`）。
+> - `tests/sync-s3.test.ts` 35 条转向新插件：`makeDevice` 预置 `settings.v1.backend='s3'`、
+>   bind 名 `sync.s3.*`、命令 `sync.run`；`conflictFileName` 签名统一成 `(path, at)`。
+>
+> ## 📌 rev173.286（2026-10-30 · 本地文件夹后端并入 `sync`：事件驱动模型适配）
+>
+> - 新 `lib/backends/folder.cjs`（约 600 行）：判定模型（`baseline` / **`pending`** /
+>   影子副本 `.zn/sync/last` / `SETTLE_MS` 静默期 / `scan` / `settle` / `.zn` 与密码库痕迹检查）
+>   全部搬过来；状态**直通引擎**（`state.baseline` / `state.conflicts` / `state.settings`
+>   是同一份内存对象）⇒ 面板与冲突处理对四个后端天然一致。
+> - 纯函数进 `core.cjs`：`classifyChange` / `isSyncable` / `looksLikeSyncConflict` /
+>   `snapshotPath` / `shortHash` + 常量 `SNAPSHOT_DIR` / `SETTLE_MS` / `TICK_MS` / `SECRET_DIRS`。
+> - **引擎按后端分支**：`makeClient()` / `hasConfig()` / `runSync`（folder ⇒ 全库检查 + 结算）/
+>   `startAuto`（folder 不轮询）/ 面板四套（`backendPicker` 用按钮组：契约的 `select`
+>   只认 `state[bind]`，初始选中项会永远停在第一项）/ 新命令 `sync.set-backend` ·
+>   `sync.mark-baseline` · `sync.set-provider`。
+> - **本机版来源参数化**：`keepConflict(path, reason, { localText })` —— folder 的本机版在
+>   影子副本里（磁盘已被外部工具覆盖），另三个后端才读盘。
+> - 测试 50 条（新增「webdav 后端下不订阅这五个事件」）。
+>
 > ## 📌 rev173.285（2026-10-30 · 同步插件重构第一步：新建 `sync`，一个引擎 + 多个后端）
 
 > 用户原话：「sync-s3 / sync-git / sync-folder 的冲突记录，同步插件不应该放一起吗，改一个策略，

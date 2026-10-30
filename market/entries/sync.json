@@ -1,0 +1,36 @@
+{
+  "id": "sync",
+  "name": "同步",
+  "author": "aqua7773",
+  "description": "多后端同步：一个引擎，后端可换（WebDAV 已落地，S3 / Git / 本地文件夹陆续并入）；冲突在面板里直接处理",
+  "category": "tool",
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "apiVersion": "^0.2.0",
+  "version": "0.1.0",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.0.znp",
+  "sha256": "5da3de6c67a817d6e42205d96df30b93f1594a6e113ef95fc977a65939ef9b91",
+  "size": 235009,
+  "files": [
+    "index.cjs",
+    "lib/backends/folder.cjs",
+    "lib/backends/git.cjs",
+    "lib/backends/s3.cjs",
+    "lib/backends/webdav.cjs",
+    "lib/core.cjs",
+    "signature.json"
+  ],
+  "capabilities": [
+    "fs:read",
+    "fs:write",
+    "doc:read",
+    "store",
+    "event",
+    "command",
+    "view:main",
+    "host",
+    "net"
+  ]
+}

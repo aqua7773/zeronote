@@ -19,10 +19,16 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const read = (id: string) => readFileSync(join(root, `examples/${id}/index.js`), 'utf8')
+/**
+ * rev173.288：三个网络后端并进 `sync` 一个插件 —— 退避常量在 `lib/core.cjs`、
+ * 流程在 `index.cjs`，两份源码拼起来当作被测对象（断言的仍是同一批字符串）。
+ */
+const read = (_id: string) =>
+  readFileSync(join(root, 'examples/sync/lib/core.cjs'), 'utf8') +
+  readFileSync(join(root, 'examples/sync/index.cjs'), 'utf8')
 
-/** 三个网络后端（`sync-folder` 是本地磁盘，没有限流概念，不在范围内） */
-const NETWORK_BACKENDS = ['sync-webdav', 'sync-s3', 'sync-git'] as const
+/** 本地文件夹后端没有网络请求，也就不存在限流 */
+const NETWORK_BACKENDS = ['sync'] as const
 
 describe.each(NETWORK_BACKENDS)('%s 的限流退避', (id) => {
   const src = read(id)

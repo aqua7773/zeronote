@@ -32,7 +32,18 @@
   `index.cjs`（引擎 + 面板 + 9 条命令）· `lib/core.cjs`（常量 + 19 个纯函数）·
   `lib/backends/webdav.cjs`（DAV 客户端）。测试 90 条迁到 `tests/sync.test.ts`；
   dev 实测多文件 `require` 在宿主运行时可用、同步与文件树刷新都正常。
-  旧 4 个插件暂留（`folder` / `s3` / `git` 还没迁），迁移完成后统一删除、市场索引 17 → 13。
+- **同步合并收口：四个后端全部并入 `sync`**（rev173.286–288）：
+  - **本地文件夹后端**（`lib/backends/folder.cjs`）——事件驱动的判定模型（`baseline` / `pending` /
+    影子副本 `.zn/sync/last` / 20 秒静默期）搬进统一引擎；状态与引擎共享，冲突处理对四个后端一致。
+  - **S3 后端**（`lib/backends/s3.cjs`）——SigV4 全套（仍用 AWS 官方测试向量验证）+ `createS3Storage`
+    适配成 WebDAV 同一套方法名；`If-Match` 被服务端当坏请求（400 / 501）时自动降级重试。
+  - **Git 后端**（`lib/backends/git.cjs`）——Contents API（GitHub / Gitea / Gitee）；`etag` ↔ `sha`
+    映射，老 manifest 的 `sha` 字段兼容进 `etag`。
+  - **删除 4 个旧插件**（`sync-webdav` / `sync-s3` / `sync-git` / `sync-folder`，共 6620 行）——
+    引擎只此一份。**市场 17 → 14**，新条目 `sync@0.1.0`（229.5 KB · keyId `aqua-2026`）。
+  - 新增命令 `sync.set-backend` / `sync.mark-baseline` / `sync.set-provider`；面板按后端切换四套。
+  - 测试：`sync` 90 · `sync-folder` 50 · `sync-s3` 35 · `sync-git` 30（全量 vitest 1790）。
+  - ⚠️ **迁移说明**：旧的 4 个插件若还装着，与 `sync` 同时启用会抢同一批文件 —— 先卸载再装。
 
 ### Fixed
 
