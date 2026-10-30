@@ -123,7 +123,7 @@ ZeroNote\
 | 某个功能怎么做的、踩过什么坑 | `HANDOFF.md`（按 rev 查） |
 | 有哪些插件、各自声明了什么 | `docs/功能目录.md`（自动生成，勿手改） |
 | 界面布局 / 键位 / 手势 | `docs/UI交互规范.md`（键位表自动生成） |
-| 界面为什么要重排、往哪排 | `docs/UI重布局-方案-2026-10-29.md`（draft；调研在 `_research/UI布局调研-2026-10-29.md`） |
+| 界面为什么要重排、往哪排 | `docs/archive/UI重布局-方案-2026-10-29.md`（historical：B1–B7 已全部落地；调研在 `_research/UI布局调研-2026-10-29.md`） |
 | 数据存到哪、`.zn` 里有什么 | `docs/数据与存储.md` |
 | 为什么不做某件事（否决清单） | `docs/decisions/README.md` |
 | 任务卡 / 决策记录怎么写 | `docs/templates/TASK.md` · `docs/templates/ADR.md` |

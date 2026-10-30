@@ -12,3 +12,4 @@
 | `插件能力盘点-2026-10-12.md` | rev30 插件能力快照 | `HANDOFF-CARD.md` · 契约 §4 |
 | `能力对照-规格2.1-2.8.md` | rev2 能力对照快照 | `HANDOFF.md` 相关 rev |
 | `handoff/0.2.md` · `handoff/0.3.md` · `handoff/0.4.md` | `HANDOFF.md` 的旧 rev 正文（rev30 – rev173.124，261 段） | `HANDOFF.md` 只保留当前版本周期；查旧记录用 `git grep -n "rev号" -- docs/archive/handoff/` |
+| `UI重布局-方案-2026-10-29.md` | 2026-10-29 UI 重布局方案（B1–B7 分批 + 三项目标态；**已全部落地 rev173.256–264**） | `docs/UI交互规范.md`（2026-10-30 重写并接管） |
