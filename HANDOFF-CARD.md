@@ -338,7 +338,7 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **5216** · 2026-10-29 23:37:30 起 ≈ 13 小时；vite 1420 pid 40080 / CDP 9222 都在），
+  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **16476** · 2026-10-30 17:43:12 起；vite 1420 pid 40080 / CDP 9222 都在），
   日志在 `.self-logs/desktop-dev.log`。**rev173.256–262（B1–B6）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
   没有重编 Rust、没有重启 dev。
   ⚠️ **零插件验证做过四次**（B3 rev173.258 / B4 rev173.260 / B6 rev173.262）：临时把 `<appdata>\.zn\plugins` 改名
@@ -356,7 +356,7 @@ pwsh -File scripts\verify.ps1
   ⚠️ **单拼 `gradlew :app:testArmDebugUnitTest` 可以**（rev173.242 起的 JVM 单测入口），但别与 watch 同时跑 ——
   两者都碰同一条 rust/gradle 链。
 - **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:39 又被 `android-dev` 重编重装**
-  （**2026-10-30 12:40 交接时 app pid `25044`** —— B5/B6 全程只改前端、未重编 APK；10-30 上午那次 HMR 后偶发白屏由
+  （**2026-10-30 19:57 交接时 app pid `22846`** —— A–J#1 全程只改前端、未重编 APK；10-30 上午那次 HMR 后偶发白屏由
   `location.reload()` 恢复，属既有「手机 reload 后偶发退出」一类）。
   重启前**必须**先补 `adb reverse tcp:1420 tcp:1420`，否则 15 秒静默退出；那次 APK 仍是 10-29 20:39 编的，
   含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 8 个 + 3 套布局）+ **rev173.243 的 `WidgetRefresher`**
