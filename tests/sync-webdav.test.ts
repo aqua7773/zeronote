@@ -920,7 +920,15 @@ describe('双设备：附件方向（rev173.127）', () => {
         const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
         requests.push(`${method} ${p}`)
         const hdr = (etag: string) => ({ etag })
-        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'PROPFIND') {
+          /**
+           * 按「文件在不在」回 207 / 404（rev173.284）。
+           * 以前一律 207 ⇒ `client.exists` 永远 true ⇒ relay 的 ack 检查在 mock 里恒成立，
+           * 「清理之后还会不会重传」这类问题测不出来。
+           */
+          const rel = p.replace(/\/+$/, '')
+          return { status: files.has(rel) ? 207 : 404, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
         if (method === 'MKCOL') return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
         if (method === 'DELETE') {
           files.delete(p)
@@ -1023,7 +1031,7 @@ describe('双设备：附件方向（rev173.127）', () => {
     }
   }
 
-  async function configure(dev: ReturnType<typeof makeDevice>) {
+  async function configure(dev: ReturnType<typeof makeDevice>, mode: 'full' | 'relay' = 'full') {
     // 等启动 IIFE 读完 store，再走真实的「保存设置 / 设置附件模式」命令
     await new Promise((r) => setTimeout(r, 0))
     dev.render()!({
@@ -1031,11 +1039,11 @@ describe('双设备：附件方向（rev173.127）', () => {
         'sync.baseUrl': 'https://dav.example/dav/',
         'sync.username': 'u',
         'sync.root': 'ZeroNote',
-        'sync.attachmentsMode': 'full',
+        'sync.attachmentsMode': mode,
       },
     })
     await dev.commands.get('sync-webdav.save')!()
-    await dev.commands.get('sync-webdav.set-attachments')!({ value: 'full' })
+    await dev.commands.get('sync-webdav.set-attachments')!({ value: mode })
   }
 
   it('对端换图 ⇒ 本机拉新图，而不是把旧图推回去', async () => {
@@ -1074,6 +1082,107 @@ describe('双设备：附件方向（rev173.127）', () => {
 
     A.dispose()
     B.dispose()
+  })
+
+  /**
+   * rev173.284 · **清理过的附件不该每轮重传**。
+   *
+   * 真机症状（用户 2026-10-30 晚）：「才几个文件，同步时间已经变得很长了，又限流 503 了」——
+   * store 里 `attachments: relay`，每轮 timing 的附件阶段 21–26 秒（11 张图约 3.5 MB），
+   * 5 秒节拍被拖成 26 秒一轮，请求数直接打满坚果云 600 次/30 分钟。
+   *
+   * 根因：`pushLocal` 的两个跳过条件都带 `!entry.cleaned`：
+   *   ① `entry.fp === fp && !entry.cleaned` ② `!entry.cleaned && mtime <= entry.at`
+   * 中转模式清理后条目就是 `cleaned: true` ⇒ 两条都不成立 ⇒ **每轮重新上传同一批图**，
+   * 上传完又被下一轮清理、再下一轮再传，反复循环。
+   */
+  it('relay 清理过的附件不再重传（否则每轮都在传同一批图）', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const A = makeDevice(net, 'windows')
+    await configure(A, 'relay')
+
+    const img = new Uint8Array([7, 7, 7, 7])
+    A.setLocal('照片.png', img, Date.now() - 60_000)
+
+    // 第一轮：上传到 relay
+    await A.commands.get('sync-webdav.sync')!({})
+    expect([...dav.keys()].some((k) => k.startsWith('_zn/relay/'))).toBe(true)
+
+    // 对端收到 ⇒ 写 ack
+    const fp = fingerprintBytes(img)
+    dav.set(`_zn/relay-ack/${relayName(fp, '')}`, { bytes: new TextEncoder().encode('dev-b'), etag: '"a1"' })
+
+    // 第二轮：看到 ack ⇒ 删 relay + 标 cleaned
+    await A.commands.get('sync-webdav.sync')!({})
+    expect([...dav.keys()].some((k) => k.startsWith('_zn/relay/'))).toBe(false)
+
+    // 第三轮：本机没改过 ⇒ 一次 relay 上传都不该发生
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    const round = requests.slice(before)
+    expect(round.filter((r) => r.startsWith('PUT _zn/relay/'))).toEqual([])
+    // 也不该为「已经清理过」的条目反复查 ack（那是一次 PROPFIND）
+    expect(round.filter((r) => r.startsWith('PROPFIND _zn/relay-ack/'))).toEqual([])
+    A.dispose()
+  })
+
+  /**
+   * rev173.284 · 反向保护：**从 relay 切到 full 时要补传一份到正式路径**。
+   *
+   * 这是 rev173.109 实测踩过的坑（切 full 后附件一直不出现）—— 上面那条修复
+   * 把「cleaned 就重传」放宽不得，所以这里锁住「切换模式」这个真正的触发条件。
+   */
+  it('relay → full：切换后补传一份到正式路径', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const A = makeDevice(net, 'windows')
+    await configure(A, 'relay')
+
+    const img = new Uint8Array([5, 5, 5])
+    A.setLocal('切模式.png', img, Date.now() - 60_000)
+    await A.commands.get('sync-webdav.sync')!({})
+
+    // 对端 ack ⇒ 下一轮清理掉中转副本（条目变 cleaned，mode 仍是 relay）
+    const fp = fingerprintBytes(img)
+    dav.set(`_zn/relay-ack/${relayName(fp, '')}`, { bytes: new TextEncoder().encode('dev-b'), etag: '"a1"' })
+    await A.commands.get('sync-webdav.sync')!({})
+    expect([...dav.keys()].some((k) => k.startsWith('_zn/relay/'))).toBe(false)
+
+    // 切成永久模式 ⇒ 必须补传正式副本（否则别的设备取不到）
+    await A.commands.get('sync-webdav.set-attachments')!({ value: 'full' })
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    const round = requests.slice(before)
+    expect(round).toContain('PUT 切模式.png')
+    expect(dav.get('切模式.png')?.bytes).toEqual(img)
+    A.dispose()
+  })
+
+  /**
+   * rev173.284 · **稳定态一轮就该只有 1 个请求**（直接回答「是不是每次都全量同步」）。
+   *
+   * 笔记正文的指纹比对全在本地（`listNotes` + `readText` 是 IPC，不走网络），
+   * 只有「manifest 变了 / 文件真的不同」才会发请求。这条测试把这个承诺锁住：
+   * 一轮空转 = 1 次 `GET _zn/manifest.json`（带 If-None-Match，命中就 304）。
+   */
+  it('稳定态每轮只有 1 个请求（manifest 304），不是全量', async () => {
+    const { files: dav, net, requests } = makeDav()
+    const A = makeDevice(net, 'windows')
+    await configure(A, 'relay')
+
+    const img = new Uint8Array([3, 3, 3])
+    A.setLocal('稳定.png', img, Date.now() - 60_000)
+    await A.commands.get('sync-webdav.sync')!({})
+
+    const fp = fingerprintBytes(img)
+    dav.set(`_zn/relay-ack/${relayName(fp, '')}`, { bytes: new TextEncoder().encode('dev-b'), etag: '"a1"' })
+    await A.commands.get('sync-webdav.sync')!({}) // 清理中转副本
+    await A.commands.get('sync-webdav.sync')!({}) // 稳定态第一轮
+
+    const before = requests.length
+    await A.commands.get('sync-webdav.sync')!({})
+    const round = requests.slice(before)
+    expect(round).toEqual(['GET _zn/manifest.json'])
+    A.dispose()
   })
 })
 

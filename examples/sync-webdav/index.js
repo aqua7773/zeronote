@@ -808,6 +808,11 @@ export default {
      */
     const attEtag = new Map()
     /**
+     * relay ack 检查的轮转游标（rev173.284）：每轮只查一个条目。
+     * 每个条目一次 PROPFIND，条目多时（11 张图）全查会把坚果云 600 次/30 分钟打满。
+     */
+    let ackCursor = 0
+    /**
      * 最近若干次同步的耗时（rev173.119）：`{ at, total, manifest, notes, attachments }[]`。
      * 落 store，重启后趋势还在（面板画 sparkline + 平均 / 最慢）。
      */
@@ -1601,13 +1606,21 @@ export default {
           continue // 读不到就下一轮
         }
         /**
-         * 远端已有同一份就跳过 —— **但 `cleaned` 的不算**：那是中转模式清理过的
-         * （云端副本已删），切到「永久同步」后必须重新传一份上去
-         * （rev173.109 实测踩到：从 relay 切 full，附件一直不出现）。
+         * 远端已有**同一份内容**就跳过（rev173.284 修「relay 每轮重传」）。
+         *
+         * 旧写法把 `cleaned` 排除在跳过条件外 —— 本意是「从 relay 切到 full 要补传一份」，
+         * 但中转模式清理完的条目**本来就是 cleaned** ⇒ 每轮都重新上传同一批图：
+         * 上传 → 下一轮 ack 到了就清理 → 再下一轮又上传 …… 11 张图 ≈ 3.5 MB/轮，
+         * 5 秒节拍被拖成 26 秒一轮，请求数直接打满坚果云 600 次/30 分钟（真人测试二 503）。
+         *
+         * 现在的判据：
+         * · fp 相同 ⇒ 这份内容已经同步过了，跳过（relay 副本在不在由下面「ack 清理」那段管）；
+         * · **唯一例外**：当前是 `full`、而条目还停在 relay（云端只有中转区那份、而且可能已清理）
+         *   ⇒ 补传一次到正式路径（这就是 rev173.109 要修的那个场景，换成更精确的条件）。
          */
-        if (entry && entry.fp === fp && !entry.cleaned) continue
-        // 版本不同且本地不更新 ⇒ 远端更新，等下一轮/上一轮下载，不要拿旧版覆盖
-        if (entry && !entry.cleaned && Number(n.mtime ?? 0) <= Number(entry.at ?? 0)) continue
+        if (entry && entry.fp === fp && !(mode === 'full' && entry.mode !== 'full')) continue
+        // 内容不同、且本地不比远端新 ⇒ 远端那份更新，等下载，不要拿旧版覆盖
+        if (entry && entry.fp !== fp && Number(n.mtime ?? 0) <= Number(entry.at ?? 0)) continue
         // 指纹缓存命中时上一行没读过字节 ⇒ 上传前补读一次
         if (!bytes) {
           try {
@@ -1704,16 +1717,29 @@ export default {
       await pushLocal()
 
       // ③ relay 清理：有 ack 就删云端副本（任何端都能做，幂等）
-      for (const [path, entry] of Object.entries(nextAtt)) {
-        if (!entry || entry.cleaned) continue
+      /**
+       * **每轮最多查一个条目**（rev173.284 · 真人测试二「又限流 503」）。
+       *
+       * 每个 relay 条目一次 PROPFIND：11 张图 × 12 轮/分 = 132 次/分 —— 光这一项就能
+       * 打满坚果云 600 次/30 分钟的限额（对端没上线时条目会一直停在「未 ack」）。
+       * ack 是「对端取走附件」这种低频事件，轮转查的延迟（11 个条目 ≈ 55 秒）没有体感；
+       * 但请求量从 132 次/分降到 12 次/分。
+       */
+      const relayEntries = Object.entries(nextAtt).filter(([, e]) => {
+        if (!e || e.cleaned) return false
         // 只有「云端那份确实在 relay 路径上」的条目才有 ack 可等（full 条目永不清理）
-        const remoteMode = entry.mode === 'full' || entry.mode === 'relay' ? entry.mode : mode
-        if (remoteMode !== 'relay') continue
-        const acked = await client.exists(`_zn/relay-ack/${relayName(entry.fp, '')}`)
-        if (!acked) continue
-        await client.remove(`_zn/relay/${relayName(entry.fp, entry.ext || extOf(path))}`)
-        nextAtt[path] = { ...entry, mode: 'relay', cleaned: true }
-        changed = true
+        const m = e.mode === 'full' || e.mode === 'relay' ? e.mode : mode
+        return m === 'relay'
+      })
+      if (relayEntries.length > 0) {
+        const [ackPath, ackEntry] = relayEntries[ackCursor % relayEntries.length]
+        ackCursor += 1
+        const acked = await client.exists(`_zn/relay-ack/${relayName(ackEntry.fp, '')}`)
+        if (acked) {
+          await client.remove(`_zn/relay/${relayName(ackEntry.fp, ackEntry.ext || extOf(ackPath))}`)
+          nextAtt[ackPath] = { ...ackEntry, mode: 'relay', cleaned: true }
+          changed = true
+        }
       }
 
       return { attachments: nextAtt, changed }

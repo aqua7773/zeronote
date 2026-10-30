@@ -1162,10 +1162,16 @@ export default {
         } catch {
           continue // 读不到就下一轮
         }
-        // 远端已有同一份就跳过；`cleaned` 的不算（中转清理过，切「永久」后要重传）
-        if (entry && entry.fp === fp && !entry.cleaned) continue
-        // 版本不同且本地不更新 ⇒ 远端更新，等下一轮下载，不要拿旧版覆盖
-        if (entry && !entry.cleaned && !localIsNewer(n, entry)) continue
+        /**
+         * 远端已有**同一份内容**就跳过（rev173.284，与 sync-webdav 同一个坑）。
+         *
+         * 旧写法把 `cleaned` 排除在跳过条件外 ⇒ 中转模式清理完的条目每轮重传：
+         * 上传 → 下一轮清理 → 再下一轮又传 …… 请求量把服务商限额打满（S3 是计费，
+         * 更贵）。fp 相同就是同步过了；只有「当前 full、条目还停在 relay」才需要补传。
+         */
+        if (entry && entry.fp === fp && !(mode === 'full' && entry.mode !== 'full')) continue
+        // 内容不同且本地不更新 ⇒ 远端那份更新，等下载，不要拿旧版覆盖
+        if (entry && entry.fp !== fp && !localIsNewer(n, entry)) continue
         if (!bytes) {
           try {
             bytes = await api.fs.readBytes(n.path)
