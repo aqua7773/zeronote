@@ -18,7 +18,7 @@
       "desktop",
       "android"
     ],
-    "description": "多后端同步：一个引擎，后端可换（WebDAV 已落地，S3 / Git / 本地文件夹陆续并入）；冲突在面板里直接处理",
+    "description": "多后端同步：一个引擎，四种后端可换（WebDAV / S3 / Git / 本地文件夹）；冲突在面板里直接处理",
     "category": "tool",
     "capabilities": [
       "fs:read",
@@ -49,8 +49,20 @@
           "title": "同步：立即同步一次"
         },
         {
+          "id": "sync.set-backend",
+          "title": "同步：切换同步方式（WebDAV / S3 / Git / 本地文件夹）"
+        },
+        {
+          "id": "sync.mark-baseline",
+          "title": "同步：把当前状态设为基线（本地文件夹）"
+        },
+        {
+          "id": "sync.set-provider",
+          "title": "同步：选择 Git 平台（GitHub / Gitea / Gitee）"
+        },
+        {
           "id": "sync.toggle-auto",
-          "title": "同步：开关自动同步（前台每 5 秒）"
+          "title": "同步：开关自动同步"
         },
         {
           "id": "sync.set-attachments",
