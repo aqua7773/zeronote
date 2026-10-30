@@ -712,6 +712,186 @@ export function withImportFrontmatter(md, { source, created } = {}) {
   return `---\n${head}\n${add.join('\n')}\n---\n` + text.slice(m[0].length)
 }
 
+/* ─────────── 导出：Markdown 图片内嵌（rev173.278 · 真人使用测试 #20） ─────────── */
+
+/**
+ * 需求原文（`docs/真人使用测试-2026-10-30.md` 第 20 条）：「导出 Markdown 时要把图片一起带走」。
+ *
+ * 现状：六种导出都不内嵌图片 —— `![](attachments/a.png)` 发给别人就是断图。
+ * 方案 B（用户 2026-10-30 拍板）：**单文件 `.md`，图片 base64 内嵌**，不改现有六种格式。
+ *
+ * 规则与**附件同步的 1 MiB 分流**完全对齐（阈值 = `src/kernel/attachment.ts:15`）：
+ *  · ≤ 1 MiB ⇒ **原图** base64（无损，体积基本不变）；
+ *  · > 1 MiB ⇒ 台账里的**预览图**（1280 / q70，通常 100–300 KB）—— 台账没有就现场压一张；
+ *  · 视频 / 音频 / PDF ⇒ **不内嵌**，保留原引用，导出后如实提示「N 个附件未内嵌」。
+ *
+ * 两端行为（用户要求）：别的应用（Typora / VSCode / 微信）直接能看到图；
+ * ZeroNote 里点图读紧跟的 `<!-- zn-orig: 原引用 -->` 拿回原图。
+ *
+ * 为什么注释存「**原文那条引用**」而不是绝对路径：导出时正文里写的就是它，
+ * 不额外编造；用户手写库外绝对路径 / 库内相对路径都能原样带出去。
+ */
+export const EMBED_LIMIT = 1024 * 1024
+/** 与 Rust 预览图参数对齐（`src-tauri/src/lib.rs` 的 `PREVIEW_MAX_EDGE` / `PREVIEW_QUALITY`） */
+export const EMBED_PREVIEW_EDGE = 1280
+export const EMBED_PREVIEW_QUALITY = 70
+/** 台账（引用台账）在库内的位置 —— 与 Rust `ASSETS_DIR` / `ASSETS_MANIFEST` 一致 */
+export const ASSET_LEDGER_PATH = '.zn-assets/manifest.json'
+
+/** 图片扩展名 → MIME（非图片**不进**这张表 ⇒ 不内嵌） */
+const IMAGE_MIME = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  ico: 'image/x-icon',
+}
+
+const WIN_ABS_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
+const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+
+/** Markdown 的尖括号目标（`![](<a b.png>)`）→ 内部路径 */
+export function stripAngleRef(src) {
+  const t = String(src ?? '').trim()
+  return t.length >= 2 && t.startsWith('<') && t.endsWith('>') ? t.slice(1, -1).trim() : t
+}
+
+/** 本地路径里的百分号转义 → 真字符（与内核 `decodeLocalPath` 同一口径） */
+export function decodeLocalRef(path) {
+  const s = String(path ?? '')
+  if (!s.includes('%')) return s
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
+
+/** 路径 → 小写图片 MIME；不是图片 ⇒ `''` */
+export function imageMimeOf(path) {
+  const base = String(path ?? '').replace(/\\/g, '/').split('/').pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  if (dot < 0) return ''
+  return IMAGE_MIME[base.slice(dot + 1).toLowerCase()] ?? ''
+}
+
+/**
+ * 引用类型：
+ * - `abs`   盘符 / UNC / **Android 的 `/storage/...`**（库外绝对路径）
+ * - `rootrel` 以 `/` 开头、相对**库根**（桌面的写法）
+ * - `rel`   相对**笔记所在目录**
+ * - `remote` 已经是 URL（`http(s):` / `data:` / `blob:` / `asset:`）⇒ 不动（幂等）
+ */
+export function imageRefKind(src, platform) {
+  const raw = decodeLocalRef(stripAngleRef(src))
+  if (!raw) return 'empty'
+  if (WIN_ABS_RE.test(raw)) return 'abs'
+  if (SCHEME_RE.test(raw)) return 'remote'
+  if (raw.startsWith('/')) {
+    // Android 的库外文件全是 `/storage/...`；桌面上 `/x` 是「相对库根」
+    return platform === 'android' ? 'abs' : 'rootrel'
+  }
+  return 'rel'
+}
+
+/** 库内相对路径归一化（消 `.` / `..`）；越出库根 ⇒ `null` */
+export function normalizeRelPath(path) {
+  const parts = String(path ?? '').replace(/\\/g, '/').split('/')
+  const out = []
+  for (const p of parts) {
+    if (!p || p === '.') continue
+    if (p === '..') {
+      if (!out.length) return null
+      out.pop()
+      continue
+    }
+    out.push(p)
+  }
+  return out.join('/')
+}
+
+/** 台账比对用的路径（大小写、斜杠、`./`、尾斜杠都要抹平） */
+export function normalizeRefPath(path) {
+  let s = stripAngleRef(path)
+  if (!s) return ''
+  s = decodeLocalRef(s).replace(/\\/g, '/').replace(/\/+/g, '/')
+  if (s.startsWith('./')) s = s.slice(2)
+  return s.replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * 台账里找这一条：先按**原文件绝对路径**（`original`）比，再按**入库副本**
+ * （`storedInVault`：模式 B 的压缩版 / 模式 A 的预览图挂在这条上）比。
+ */
+export function findAssetEntry(entries, { abs, rel } = {}) {
+  const list = Array.isArray(entries) ? entries : []
+  const absKey = abs ? normalizeRefPath(abs) : ''
+  const relKey = rel ? normalizeRefPath(rel) : ''
+  if (absKey) {
+    for (const it of list) {
+      if (it && typeof it === 'object' && normalizeRefPath(it.original) === absKey) return it
+    }
+  }
+  if (relKey) {
+    for (const it of list) {
+      if (it && typeof it === 'object' && normalizeRefPath(it.storedInVault) === relKey) return it
+    }
+  }
+  return null
+}
+
+/**
+ * 扫正文里的图片引用：`![alt](target)` 与 `![alt](<target>)`（可带 `"title"`）。
+ *
+ * 只认 `![]()`：ZeroNote 的内嵌 HTML 白名单**不含 `img`**（属性一律剔除），
+ * 所以正文里不可能出现能渲染的 `<img src>`；`![[…]]` 内核也不支持。
+ */
+export function scanImageRefs(md) {
+  const text = String(md ?? '')
+  const re = /!\[([^\]]*)\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+["'][^"']*["'])?\s*\)/g
+  const out = []
+  let m
+  while ((m = re.exec(text)) !== null) {
+    out.push({ start: m.index, end: m.index + m[0].length, alt: m[1], target: m[2] })
+  }
+  return out
+}
+
+/** 内嵌图后面紧跟的原引用注释（`-->` 必须切掉，否则注释提前结束） */
+export function embedCommentOf(orig) {
+  return `<!-- zn-orig: ${String(orig ?? '').replace(/-->/g, '-- >')} -->`
+}
+
+/**
+ * 按命中区间拼回正文：`replacements[i]` 为 `null` ⇒ 这一段**原样保留**
+ * （非图片 / 已是 URL / 本机没有原文件）。
+ */
+export function rewriteImageRefs(md, hits, replacements) {
+  const text = String(md ?? '')
+  let out = ''
+  let cursor = 0
+  hits.forEach((h, i) => {
+    out += text.slice(cursor, h.start)
+    const rep = replacements[i]
+    out += rep == null ? text.slice(h.start, h.end) : rep
+    cursor = h.end
+  })
+  return out + text.slice(cursor)
+}
+
+/** 导出结果里给人看的那句话（空字符串 = 没什么可说的） */
+export function embedSummary(stats) {
+  const s = stats ?? {}
+  const parts = []
+  if (s.embedded > 0) parts.push(`${s.embedded} 张图片内嵌`)
+  if (s.keptCount > 0) parts.push(`${s.keptCount} 个附件保留引用`)
+  return parts.join(' · ')
+}
+
 /* ─────────── 插件本体 ─────────── */
 
 export default {
@@ -787,6 +967,184 @@ export default {
      * 导出当前笔记。`format`：`txt` / `html`；`toVault` 为真时**写进库内**（不弹保存框）——
      * 这条路径既给"导出到笔记库"用，也是**可自动验收**的那条（系统"另存为"没法脚本化）。
      */
+    /* ── 图片内嵌（rev173.278 · 真人使用测试 #20）── */
+
+    /** 库根（正斜杠、无尾斜杠）—— 台账比对与 `assetUrlAbs` 都要 */
+    function vaultRoot() {
+      return String(fs.vaultPath() ?? '')
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+    }
+
+    /**
+     * 读引用台账（`<库>/.zn-assets/manifest.json`）。
+     * 没有 / 读坏了都当**空台账**：只是少一层「用现成预览图」的优化，导出本身不受影响。
+     */
+    let ledgerCache = { at: 0, entries: [] }
+    async function loadAssetLedger() {
+      if (Date.now() - ledgerCache.at < 5000) return ledgerCache.entries
+      let entries = []
+      try {
+        const raw = await fs.readText(ASSET_LEDGER_PATH)
+        const v = JSON.parse(raw)
+        if (Array.isArray(v && v.entries)) entries = v.entries
+      } catch {
+        /* 没配附件同步 / 旧库没有台账 —— 正常状态，不打扰用户 */
+      }
+      ledgerCache = { at: Date.now(), entries }
+      return entries
+    }
+
+    /** 引用 → `{ rel, abs }`（库内才有 `rel`；`abs` 恒为可读的绝对路径） */
+    function locateRef(target, noteRel) {
+      const raw = decodeLocalRef(stripAngleRef(target))
+      const root = vaultRoot()
+      const kind = imageRefKind(target, host.platform)
+      if (kind === 'abs') return { kind, rel: null, abs: raw.replace(/\\/g, '/') }
+      const dir = noteRel.includes('/') ? noteRel.slice(0, noteRel.lastIndexOf('/')) : ''
+      const rel =
+        kind === 'rootrel'
+          ? normalizeRelPath(raw.replace(/^\/+/, ''))
+          : normalizeRelPath(dir ? `${dir}/${raw}` : raw)
+      if (!rel) return { kind, rel: null, abs: null }
+      return { kind, rel, abs: root ? `${root}/${rel}` : null }
+    }
+
+    /** 读一张图的字节：库内走内核（有路径校验），库外走 asset 协议 */
+    async function readRefBytes(loc) {
+      if (loc.rel) return await fs.readBytes(loc.rel)
+      if (!loc.abs) throw new Error('路径解析失败')
+      const res = await fetch(host.assetUrlAbs(loc.abs))
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return new Uint8Array(await res.arrayBuffer())
+    }
+
+    /** 字节 → `data:<mime>;base64,…` */
+    function dataUrlOf(bytes, mime) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'))
+        reader.readAsDataURL(new Blob([bytes], { type: mime }))
+      })
+    }
+
+    /**
+     * 现场压一张 1280 / q70 的 JPEG（台账没有预览图的 > 1 MiB 大图走这条）。
+     * 透明图**垫白底**：直接转 JPEG 会变黑，比不压更糟。
+     */
+    async function downscaleToDataUrl(bytes, mime) {
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime }))
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const el = new Image()
+          el.onload = () => resolve(el)
+          el.onerror = () => reject(new Error('图片解码失败'))
+          el.src = url
+        })
+        const longest = Math.max(img.naturalWidth, img.naturalHeight) || 1
+        const scale = Math.min(1, EMBED_PREVIEW_EDGE / longest)
+        const w = Math.max(1, Math.round(img.naturalWidth * scale))
+        const h = Math.max(1, Math.round(img.naturalHeight * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const g = canvas.getContext('2d')
+        g.fillStyle = '#ffffff'
+        g.fillRect(0, 0, w, h)
+        g.drawImage(img, 0, 0, w, h)
+        return canvas.toDataURL('image/jpeg', EMBED_PREVIEW_QUALITY / 100)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+
+    /**
+     * 正文里的本地图片 → base64 内嵌。返回 `{ md, stats }`。
+     *
+     * 「本机没有原文件」不是错误：台账里有入库副本就用它，没有就**保留原引用**并记进
+     * `stats.kept` —— 导出后如实告诉用户哪几个没带走（静默丢图比报错更糟）。
+     */
+    async function embedImagesInMarkdown(md, noteRel) {
+      const hits = scanImageRefs(md)
+      const stats = { embedded: 0, original: 0, preview: 0, downscaled: 0, kept: [] }
+      if (!hits.length) return { md, stats }
+      const entries = await loadAssetLedger()
+      const replacements = []
+      for (const hit of hits) {
+        replacements.push(await embedOneImage(hit, noteRel, entries, stats))
+      }
+      return { md: rewriteImageRefs(md, hits, replacements), stats }
+    }
+
+    async function embedOneImage(hit, noteRel, entries, stats) {
+      const target = hit.target
+      const orig = stripAngleRef(target)
+      const kind = imageRefKind(target, host.platform)
+      // 已经是 URL（含上一轮导出留下的 `data:` 图）⇒ 原样保留 —— 导出是幂等的
+      if (kind === 'remote' || kind === 'empty') return null
+      const mime = imageMimeOf(orig)
+      if (!mime) {
+        // 视频 / 音频 / PDF 等：base64 不现实，保留原引用
+        stats.kept.push(orig)
+        return null
+      }
+      const loc = locateRef(target, noteRel)
+      const entry = findAssetEntry(entries, { abs: loc.abs, rel: loc.rel })
+
+      let bytes = null
+      try {
+        bytes = await readRefBytes(loc)
+      } catch {
+        bytes = null
+      }
+
+      let dataUrl = ''
+      let used = ''
+      if (bytes && bytes.byteLength <= EMBED_LIMIT) {
+        dataUrl = await dataUrlOf(bytes, mime)
+        used = 'original'
+      }
+      // > 1 MiB 或本机读不到原图 ⇒ 台账里的入库副本（模式 A 预览图 / 模式 B 压缩版）
+      if (!dataUrl && entry) {
+        const copyRel =
+          typeof entry.preview === 'string' && entry.preview
+            ? entry.preview
+            : typeof entry.storedInVault === 'string' && entry.storedInVault
+              ? entry.storedInVault
+              : ''
+        if (copyRel) {
+          try {
+            const copy = await fs.readBytes(copyRel)
+            dataUrl = await dataUrlOf(copy, imageMimeOf(copyRel) || 'image/jpeg')
+            used = copyRel === entry.preview ? 'preview' : 'stored'
+          } catch {
+            /* 副本也不在本机 ⇒ 下面现场压 */
+          }
+        }
+      }
+      // 字节在手上（> 1 MiB 的库内大图 / 没有台账）⇒ 现场压一张
+      if (!dataUrl && bytes && mime !== 'image/svg+xml') {
+        try {
+          dataUrl = await downscaleToDataUrl(bytes, mime)
+          used = 'downscaled'
+          // 极端长图压完仍可能过大：宁可留引用，别把单文件 md 撑到几十兆
+          if (dataUrl.length > EMBED_LIMIT * 1.6) dataUrl = ''
+        } catch {
+          dataUrl = ''
+        }
+      }
+      if (!dataUrl) {
+        stats.kept.push(orig)
+        return null
+      }
+      stats.embedded += 1
+      if (used === 'original') stats.original += 1
+      else if (used === 'downscaled') stats.downscaled += 1
+      else stats.preview += 1
+      return `![${hit.alt}](${dataUrl})${embedCommentOf(orig)}`
+    }
+
     /** 导出格式表：`format` → `{ ext, render }`（`render` 返回字符串或 `Uint8Array`） */
     const EXPORTERS = {
       txt: { ext: 'txt', render: (md, stem) => mdToText(md, stem) },
@@ -795,6 +1153,8 @@ export default {
       docx: { ext: 'docx', render: (md, stem) => mdToDocx(md, stem) },
       // `pdf` 没有 `render` —— 它由**系统打印栈**生成（见上面 pdf 分支），这里只为通过格式校验
       pdf: { ext: 'pdf', render: null },
+      // `md-embed` 同样没有 `render` —— 它要笔记路径（解析相对引用）与统计，在 `exportActive` 里特判
+      'md-embed': { ext: 'md', render: null },
     }
 
     async function exportActive(format, toVault, probe) {
@@ -829,6 +1189,32 @@ export default {
         host.log('info', `PDF 走浏览器打印：已导出 ${rel}`)
         host.notify(`已导出「${rel}」—— 用浏览器打开它，「打印 → 另存为 PDF」就得到 PDF`)
         return { format: 'pdf', viaHtml: rel }
+      }
+
+      /**
+       * **导出为 Markdown（图片内嵌）**（rev173.278 · 真人使用测试 #20）：
+       * 单文件 `.md`，图片写成 `data:` —— 发给别人不用再传附件目录。
+       * 路径解析要相对**这篇笔记**（`d.path`），所以不能走上面的 `render(md, stem)`。
+       */
+      if (format === 'md-embed') {
+        const { md: out, stats } = await embedImagesInMarkdown(d.content, d.path)
+        const sum = stats.embedded ? `${stats.embedded} 张图片内嵌` : '没有可内嵌的图片'
+        const kept = stats.kept.length
+          ? `；未内嵌 ${stats.kept.length} 个：${stats.kept.slice(0, 3).join('、')}${
+              stats.kept.length > 3 ? ' 等' : ''
+            }`
+          : ''
+        host.log('info', `[导出] md-embed：${sum}${kept}（${out.length} 字符）`)
+        if (probe) return { format, size: out.length, stats }
+        if (toVault) {
+          const rel = await freeRelPath(stem, 'md')
+          await fs.createNote(rel, out)
+          host.notify(`已写入笔记库：「${rel}」（${sum}${kept}）`)
+          return rel
+        }
+        const saved = await host.saveFile({ defaultName: `${stem}.md`, content: out })
+        host.notify(saved ? `已导出：${saved}（${sum}${kept}）` : '已取消导出')
+        return saved
       }
 
       const content = await spec.render(d.content, stem)
@@ -889,6 +1275,7 @@ export default {
     for (const [id, fmt, title] of [
       ['io.exportTxt', 'txt', '导出当前笔记为纯文本（txt）…'],
       ['io.exportHtml', 'html', '导出当前笔记为网页（html）…'],
+      ['io.exportMdEmbed', 'md-embed', '导出为 Markdown（图片内嵌）…'],
       ['io.exportPng', 'png', '导出当前笔记为长图（PNG）…'],
       ['io.exportDocx', 'docx', '导出当前笔记为 Word（docx）…'],
       ['io.exportPdf', 'pdf', '导出当前笔记为 PDF…'],
@@ -922,6 +1309,7 @@ export default {
             { type: 'text', value: '导出当前笔记', variant: 'caption' },
             { type: 'button', label: '导出为 txt…', onClick: 'io.exportTxt' },
             { type: 'button', label: '导出为 html…', onClick: 'io.exportHtml' },
+            { type: 'button', label: '导出为 Markdown（图片内嵌）…', onClick: 'io.exportMdEmbed' },
             { type: 'button', label: '导出为长图 png…', onClick: 'io.exportPng' },
             { type: 'button', label: '导出为 Word docx…', onClick: 'io.exportDocx' },
             { type: 'button', label: '导出为 PDF（打印）…', onClick: 'io.exportPdf' },
@@ -931,7 +1319,8 @@ export default {
               value:
                 '导入支持：md / txt / html / docx（pdf / epub 在下一批）。\n' +
                 '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
-                '导出支持：txt / html（pdf / docx / 长图在后续批次）。\n' +
+                '导出支持：Markdown / txt / html / 长图 PNG / Word / PDF（PDF 经浏览器打印）。\n' +
+                '「图片内嵌」导出 = 单文件 .md，图片写成 data: —— 发给别人不用再传附件目录。\n' +
                 'Android 的"另存为"需要下一次构建才会生效（见 HANDOFF rev85）。',
               variant: 'caption',
             },

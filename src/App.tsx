@@ -123,6 +123,7 @@ import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from 
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
+import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
   IMAGE_MODE_STORAGE_KEY,
   attachmentHint,
@@ -2877,6 +2878,67 @@ export default function App() {
   }, [imagePreview, vault, setToast])
 
   /**
+   * 内嵌图点开拿回原图（rev173.278 · 真人使用测试 #20）。
+   *
+   * 导出时图片写成 `![](data:…)<!-- zn-orig: 原引用 -->` —— 别的应用只看到 base64，
+   * ZeroNote 认识注释：本机有原文件就直接显示**原图**，没有就落到浮层里给「同步原文件」
+   * （模式 B 已有的按钮）。
+   *
+   * 路径解析顺序（`orig` 存的是**导出时那篇笔记的引用**，可能相对它的目录）：
+   * ① 库外绝对路径 → 直接预览；② 相对当前笔记目录；③ 相对库根。
+   * 三处都读不到 ⇒ 如实说「原文件不在本机」，不假装打开。
+   */
+  const openEmbeddedImage = useCallback(
+    (orig: string) => {
+      if (!vault) return
+      const raw = orig.trim()
+      if (!raw) return
+      const root = vault.replace(/\\/g, '/').replace(/\/+$/, '')
+      void (async () => {
+        if (isEmbeddedOrigAbs(raw, platform)) {
+          let src: string
+          try {
+            src = convertFileSrc(raw.replace(/\\/g, '/'))
+          } catch {
+            setToast('图片预览不可用（当前环境没有 asset 协议）')
+            return
+          }
+          setImagePreview({ src, relPath: null, relay: null })
+          // 引用型大图的身份在台账 `original` 那一列；原图还没到本机 ⇒ 给「同步原文件」
+          try {
+            const local = await loadRelayPending(vault)
+            const hit = findEntryForMedia(local.items, raw)
+            if (!hit) return
+            if (localOriginalAbsPath(hit, local.deviceId, root)) return
+            setImagePreview((prev) =>
+              prev && prev.src === src
+                ? { ...prev, relay: { id: hit.id, size: hit.size, original: hit.original } }
+                : prev,
+            )
+          } catch {
+            /* 台账读不到不影响看内嵌那份 */
+          }
+          return
+        }
+        // 库内相对：先按**当前打开的笔记目录**，再按库根 —— 导出的 md 可能已被搬到别处
+        if (!kernel) return
+        for (const rel of znOrigCandidates(raw, activePath, platform)) {
+          try {
+            if (await kernel.fs.exists(rel)) {
+              openImagePreview(rel)
+              return
+            }
+          } catch {
+            /* 继续试下一个候选 */
+          }
+        }
+        setToast(`原文件不在本机：${raw}`)
+      })()
+    },
+    [vault, activePath, kernel, platform, openImagePreview, setToast],
+  )
+
+  /**
    * 正文里音视频播放失败时的「原文件不在本机 · 同步」（需求 §5 入口 1）。
    *
    * 链路与附件面板一致：查台账 → 云端必须有这一份 → 确认（点名 + 体积）→ 落地 → **改写引用**
@@ -4510,6 +4572,8 @@ export default function App() {
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
               onMissingImage={(raw) => void openMissingImage(raw)}
+              /* rev173.278 · #20：点内嵌图 ⇒ 本机有原图就看原图，没有给「同步原文件」 */
+              onEmbeddedImage={openEmbeddedImage}
               mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}
@@ -5044,6 +5108,8 @@ export default function App() {
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
               onMissingImage={(raw) => void openMissingImage(raw)}
+              /* rev173.278 · #20：点内嵌图 ⇒ 本机有原图就看原图，没有给「同步原文件」 */
+              onEmbeddedImage={openEmbeddedImage}
               mediaEpoch={mediaEpoch}
               onPasteImage={insertPastedImage}
               onNotify={(msg) => setToast(msg)}

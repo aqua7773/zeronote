@@ -13,6 +13,7 @@ import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
 import { resolveImageAbsPath, stripAngleTarget } from '../lib/insert-image'
+import { collectEmbeddedOrigins } from '../lib/embed-image'
 import { mediaHttpUrl } from '../kernel/media-url'
 import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
 import { ensureReplaceEntry } from '../lib/find-replace-entry'
@@ -114,7 +115,16 @@ function fixImageSrc(
     // 音视频不在这里处理 —— 交给 upgradeMediaWidgets（它会把整个 image 块换成播放器）
     if (mediaKindOf(raw)) continue
     // 已经是可直接加载的 URL（网络图 / data: / plugin 的 asset:）就别碰
-    if (/^(?:https?|data|blob|asset):/i.test(raw)) continue
+    if (/^(?:https?|data|blob|asset):/i.test(raw)) {
+      /**
+       * `data:` 图 = **从 ZeroNote 导出的内嵌图**（rev173.278 · 真人使用测试 #20）。
+       * 别的应用只看到这份 base64；紧跟其后的 `<!-- zn-orig: 原引用 -->` 才是原文件位置，
+       * 点图由宿主决定：本机有 ⇒ 显示原图，没有 ⇒ 给「同步原文件」。
+       * 没有注释的 data 图（用户自己贴的）不绑，保持原样。
+       */
+      if (/^data:/i.test(raw)) bindEmbeddedImage(view, img)
+      continue
+    }
     // 原样记住（rev173.239）：点开预览时要靠它反推库内相对路径，再问台账「这张图有没有原图」
     img.dataset.znRaw = raw
     const abs = resolveImageAbsPath(vault, notePath, raw)
@@ -182,6 +192,52 @@ function attachImageErrorHint(
   img.addEventListener('error', show, { once: true })
   // 失败在挂监听之前就结束的情形：`complete` 已经为真且没有解出尺寸
   if (img.complete && img.naturalWidth === 0) show()
+}
+
+/**
+ * 当前文档的 `dataUrl → 原引用` 表（按 doc 缓存）。
+ *
+ * 导出稿的 base64 动辄几十万字符：每张图各扫一遍整篇会明显卡，而打字时
+ * MutationObserver 会把 `fixImageSrc` 叫得很勤 —— 文档对象没变就直接复用上一份。
+ */
+function embeddedOrigins(view: EditorView): Map<string, string> {
+  const host = view.dom as HTMLElement & {
+    __znEmbedCache?: { doc: unknown; map: Map<string, string> }
+  }
+  const doc = view.state.doc
+  if (host.__znEmbedCache?.doc === doc) return host.__znEmbedCache.map
+  const map = collectEmbeddedOrigins(doc.toString())
+  host.__znEmbedCache = { doc, map }
+  return map
+}
+
+/**
+ * 内嵌图（`![](data:…)<!-- zn-orig: 原引用 -->`）的识别（rev173.278 · 真人使用测试 #20）。
+ *
+ * 这里只**标记**（`data-zn-orig` + 提示），点开由文档级 capture 监听处理 ——
+ * 那个监听在 capture 阶段就 `stopPropagation` 了，img 上挂 click 根本收不到（实测）。
+ *
+ * **按 data URL 配对**（`collectEmbeddedOrigins`）：文档里图片语法中的 URL 与这里
+ * `<img src>` 是同一串 base64，精确、与 CM6 虚拟化无关。
+ * ⚠️ 第一版按 `posAtDOM` 位置找注释，实测**整体错位一张图** —— 别再走那条路。
+ *
+ * ⚠️ **没有注释就不标记**：用户自己贴进来的 `data:` 图没有原文件，点了给不出任何东西。
+ */
+function bindEmbeddedImage(
+  view: EditorView,
+  img: HTMLImageElement,
+) {
+  if (img.dataset.znOrigBound) return
+  img.dataset.znOrigBound = '1'
+  const src = img.getAttribute('src') ?? ''
+  if (!src) return
+  const orig = embeddedOrigins(view).get(src)
+  if (!orig) return
+  img.dataset.znOrig = orig
+  img.title = `原文件：${orig}（点一下看原图）`
+  img.style.cursor = 'zoom-in'
+  img.tabIndex = 0
+  img.setAttribute('role', 'button')
 }
 
 /**
@@ -383,6 +439,14 @@ type Props = {
    * 台账里有 ⇒ 从云端接收；没有 ⇒ 告诉他附件同步没开 / 去设置 → 附件。
    */
   onMissingImage?: (raw: string) => void
+  /**
+   * 正文里的**内嵌图**（`![](data:…)` + 紧跟的 `<!-- zn-orig: 原引用 -->`）被点开时的出口
+   * （rev173.278 · 真人使用测试 #20）。
+   *
+   * 别的应用只看到 base64 那一份；ZeroNote 靠注释认识原文件 —— 本机有就直接显示原图，
+   * 没有就给「同步原文件」（复用模式 B 的浮层按钮）。查台账 / 解码路径全在宿主。
+   */
+  onEmbeddedImage?: (orig: string) => void
   /**
    * 本地媒体服务就绪信号（rev173.240 · Android 大视频 Range）。
    *
@@ -788,6 +852,7 @@ export function MarkdownEditor({
   onLocalLinkOpen,
   onExternalMediaSync,
   onMissingImage,
+  onEmbeddedImage,
   mediaEpoch = 0,
   onNotify,
   onPasteImage,
@@ -1262,6 +1327,15 @@ export function MarkdownEditor({
       ev.preventDefault()
       ev.stopPropagation()
       /**
+       * **内嵌图**（导出稿里的 `![](data:…)` + zn-orig 注释）⇒ 交给宿主找回原图
+       * （rev173.278 · 真人使用测试 #20）：本机有原文件就看原图，没有给「同步原文件」。
+       * 只有带 `data-zn-orig` 标记的才走这条（用户自己贴的 data 图仍走本组件预览）。
+       */
+      if (onEmbeddedImage && img.dataset.znOrig) {
+        onEmbeddedImage(img.dataset.znOrig)
+        return
+      }
+      /**
        * 库内相对路径的图 ⇒ 交给宿主的预览（rev173.239）：
        * 宿主那边会查引用台账，模式 B 的图能就地给「同步原图」——编辑器自己不认识台账。
        * 宿主没传口 / 库外绝对路径 ⇒ 仍用本组件自己的预览（行为与 rev173.1 一致）。
@@ -1279,7 +1353,7 @@ export function MarkdownEditor({
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
-  }, [onLocalLinkOpen, vault, path])
+  }, [onLocalLinkOpen, onEmbeddedImage, vault, path])
 
   // Esc 关闭图片预览
   useEffect(() => {
