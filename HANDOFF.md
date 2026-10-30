@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.284
-更新时间: 2026-10-30 · 最新 rev173.284（同步请求量：relay 附件每轮重传 → 限流 503）
+revision: 173.285
+更新时间: 2026-10-30 · 最新 rev173.285（同步重构第一步：新建 `sync` 插件，一个引擎 + 后端）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.284
 
 | rev | 内容 |
 |---|---|
+| rev173.285 | 2026-10-30 · **同步插件重构第一步：新建 `sync`（一个引擎 + 多个后端），旧 4 个待逐步舍弃**（用户「同步插件不应该放一起吗，改一个策略，只是用不同方式同步，需要做成多个插件吗」→ 拍板「新建，旧的舍弃」）：① **为什么能合** —— 方案文档 §5.0 本来就是「引擎只依赖接口 + 各家实现后端」；当初落成 4 个插件是被「单文件插件 + 插件间不能 import」挡住（`sync-s3` 头注释原文）。现在契约 §3.2「多文件插件」（CJS `require` + `manifest.files` + 签名 v2 覆盖每个声明文件）已经可用 ⇒ 一份引擎能被同插件的多个后端共享。② **新插件** `examples/sync/`：`index.cjs`（**1621 行**：引擎 + 面板 + 9 条命令）· `lib/core.cjs`（**528 行**：常量 + 19 个纯函数）· `lib/backends/webdav.cjs`（**258 行**：DAV 客户端）· manifest `id: sync` + `files` 声明。代码从 `sync-webdav` 原样搬（功能不缩水）：ESM → CJS、命令前缀 `sync-webdav.*` → `sync.*`（原本的 `sync-webdav.sync` 改名 `sync.run`，避免 `sync.sync`）。③ **测试**：90 条从 `tests/sync-webdav.test.ts` 迁到 `tests/sync.test.ts`（CJS 具名导出改成从 `plugin` 解构取），全绿。④ **dev 实测**（CDP 9222）：junction 装进全局目录 → reload ⇒ **9 条命令都在**（多文件 `require` 在宿主运行时里真的能用）；本地 DAV 桩 seed 两篇 → `sync.run` ⇒ `pulled 2`、文件落盘、**文件树立刻出现**（rev173.283 的修复一起验过）、面板正常渲染（`_shots/sync-v1-panel.png`）。⑤ **本轮刻意不删旧的**：`sync` 目前只并了 WebDAV；`sync-folder`（事件式、不搬文件）/ `sync-s3` / `sync-git` 还没迁 —— 先删会造成功能倒退。**下一步**：folder → s3 → git 逐个并入 → 删 4 个旧插件与 4 个旧测试 → 市场索引 17 → 13 → 发 `sync` 0.1.0。 |
 | rev173.284 | 2026-10-30 · **同步请求量：relay 附件每轮重传 ⇒ 限流 503**（用户「每次都是全量同步吗，才几个文件，同步时间已经变得很长了，又限流503了」）：① **复现（单测先写红）** —— `sync-webdav` 的 `pushLocal` 两个跳过条件都带 `!entry.cleaned`：`fp === fp && !cleaned` 与 `!cleaned && mtime <= at`。中转模式清理完的条目**就是 `cleaned: true`** ⇒ 两条都不成立 ⇒ **每轮重新上传同一批图**：上传 → 下一轮 ack 到了就清理 → 再下一轮又上传。真机 store 里 `attachments: relay`、timing 的附件阶段 **21–26 秒**（11 张图 ≈ 3.5 MB），5 秒节拍被拖成 26 秒一轮 ⇒ 请求量打满坚果云 600 次/30 分钟。② **修法** —— fp 相同就跳过；唯一例外收窄成「当前 `full` 而条目还停在 relay」（rev173.109 要补传的那个场景）。`sync-s3` / `sync-git` 同款两行一并修（同一根因）。③ **ack 检查轮转**（只 webdav）—— 清理段从「每轮查所有 relay 条目」改成**每轮最多查一个**（`ackCursor`）：11 张图 × 12 轮/分 = **132 次 PROPFIND/分**，光这一项就能打满限额；轮转后 12 次/分，11 个条目 55 秒内转完，体感无差。④ **测试（先红后绿）** —— `sync-webdav` +4：relay 清理后第三轮**零 PUT relay / 零 PROPFIND ack**（修前实测 `PUT _zn/relay/4-jaxbup.png`）· relay→full 仍补传正式副本（保护 rev173.109）· **稳定态每轮只有 1 个请求**（`GET _zn/manifest.json` 304，直接回答「是不是全量」）· `makeDav` 的 PROPFIND 从「一律 207」改成按存在性回 207/404（旧 mock 让 `client.exists` 恒真，这类 bug 测不出来）。vitest 1696 → **1699**。⑤ **发市** `sync-webdav` **0.3.5**（106.1 KB · 入口 `6f0daf9b…` · 整包 `66adb1be…` · 索引 17 条 · `verify-trust` **43/44**）。⚠️ `sync-s3` / `sync-git` 的同款修复**没有发市**（用户没在用，留在源码，下一批统一发），也没做各自单独的 relay 回归测试。 |
 | rev173.283 | 2026-10-30 · **真人测试二：同步后文件树不刷新（#1）+ 冲突无法处理（#2）**（用户「继续zeronote，修bug」；两轮澄清：真人测试都在 **release** 环境、是**另一台手机**测的；明确要求「用 dev 复现问题去解决」）：① **#1 根因不在同步插件** —— 写盘是真的（文件落盘、搜索索引更新），断的是**刷新触发**：桌面 Rust watcher 对「本进程写过的路径」有 `SELF_WRITE_SILENCE_MS = 1500` 静默窗口（为免每次自动保存都全库扫一遍），插件 `fs.writeText`（`origin: 'plugin'`）的回响被吞 ⇒ `fs.watch` 那条刷新收不到「同步刚写进来几个文件」；手机更直接（`watch_vault` 返回错误、走 3 秒轮询）。**修法**：新 `src/hooks/useTreeRefresh.ts` —— 订阅内核 `note:created` / `note:changed` / `note:renamed` / `note:deleted`（**刻意不订 `note:saved`**：用户改正文不需要重扫列表），去抖 150ms 后调 useDocIO 的 `refresh`；`App.tsx` 一行接入。**dev 对照实验（CDP 9222）**：本地 DAV 桩 8899 放 `甲.md` / `乙.md` ⇒ 删本地 + `sync-webdav.sync`（pulled 2）—— **修复停用** ⇒ 磁盘有、文件树 `hasJia=false`（`len 968`）；**修复启用** ⇒ 同样流程 `hasJia=true`（`len 982`）。② **#2 冲突只有记录没法处理** —— 冲突条目原来只有「打开冲突副本」；现在每条两个动作 `sync-webdav.resolve-conflict`（`choice: local/remote`）：**用本机版** = 写回笔记 → **强制 PUT 远端 + 就地改 manifest 这一条**（不再走 `decideSync` 猜一遍，避免 manifest 过期 / 412 导致二次冲突）→ 对齐 baseline；**保留远端版** = 只删副本 + 清记录。顺带两件：**同一篇只留一条记录**（真机 8 条全是同一个文件；旧副本文件不删）；`keepConflict` 落盘前 `exists` 探一次磁盘，避免「重启后同一分钟同名覆盖」丢现场。③ **测试**：新 `tests/use-tree-refresh.test.tsx` **5** 条 · `tests/sync-webdav.test.ts` **+3**（用本机版推送 / 保留远端版 / 同篇去重）+ 命令表断言加 `resolve-conflict`；vitest 1688 → **1696**；tsc 0 · oxlint 5 warnings（全在既有文件，无新增）。④ **dev 实测**（`_shots/rev173283-conflict-ui.png` / `-ui2.png`）：拉两篇 ⇒ 文件树即时出现；造冲突 ⇒ 面板「冲突记录 · 1 条」+「用本机版 / 保留远端版 / 看副本」，点「用本机版」⇒ 本地与远端都变「本机版内容」、副本删除、记录清空；再造一次点「保留远端版」⇒ 笔记留远端版、副本与记录同样清空。⑤ **已打包发市**：`sync-webdav` 0.3.3 → **0.3.4**（`market/packs/sync-webdav-0.3.4.znp` · **104.5 KB** · 入口 sha256 `de256c46…` · 整包 `db5512e2…` · keyId `aqua-2026` · 索引 **17 条** · `verify-trust` **42/43**（theme-sepia 纯样式恒无签名））—— 用户要到「插件中心 → 插件市场 → 更新」才拿得到（**不自动升级**）。⚠️ 只修了 `sync-webdav`：`sync-s3` / `sync-git` / `sync-folder` 的冲突记录仍是「只能看不能处理」（同类缺口，留待下一批）。 |
 | rev173.282 | 2026-10-30 · **发版 0.9.0：插件版本迭代 + 双端安装包 + GitHub Release**（用户「签名，推送，插件的更新做插件版本迭代，内核的更新做 release 的版本迭代，编译推送」）：① **插件重打包签名 4 个**（`keyId aqua-2026`）：`import-export` 0.1.1 → **0.2.0** · `sync-webdav` 0.3.2 → **0.3.3** · `sync-s3` 0.4.2 → **0.4.3** · `sync-git` 0.5.2 → **0.5.3**；`pack-plugin` → `gen-market --write`（索引 17 条）→ `verify-trust` **41/42**（theme-sepia 纯样式）。② **应用 0.9.0**：`release.mjs 0.9.0`（三处版本）· CHANGELOG `[Unreleased]` → `[0.9.0] - 2026-10-30（rev173.269–282）` + 版本表 · README 现状行 · ROADMAP §0。③ **双端编译**：Windows `ZeroNote_0.9.0_x64_zh-CN.msi` **15.88 MB** + `…-setup.exe` **14.23 MB**；Android `--apk --split-per-abi` **四个签名包**（arm64 **32.57** / armv7 **26.40** / x86 **32.57** / x86_64 **32.28 MB**，均 `CN=ZeroNote` · `versionName 0.9.0`）—— release 编译 18m05s。④ **推送**：commit `2afe796` → tag `v0.9.0` → push（直连被 reset，挂本机代理通过）→ `gh release create`（**6 个附件全部 uploaded**）⇒ https://github.com/aqua7773/zeronote/releases/tag/v0.9.0 |
@@ -181,6 +182,49 @@ revision: 173.284
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.285（2026-10-30 · 同步插件重构第一步：新建 `sync`，一个引擎 + 多个后端）
+
+> 用户原话：「sync-s3 / sync-git / sync-folder 的冲突记录，同步插件不应该放一起吗，改一个策略，
+> 只是用不同方式同步，需要做成多个插件吗」→ 看完证据后拍板「新建，旧的舍弃」。
+>
+> ### 为什么当初是 4 个插件（一手证据）
+>
+> - `docs/同步插件-调研与方案-2026-10-24.md` §5.0 设计的就是 `interface SyncBackend` +
+>   「引擎只依赖接口，各家实现各自的后端」—— 从一开始就是一个引擎。
+> - `examples/sync-s3/index.js` 头注释写明了落地时被迫拆开的原因：
+>   「不共享代码（插件之间不能 import），判定纯函数各存一份 —— 与 `sync-folder` 的做法一致」。
+> - 当时的宿主限制：v0.1 单文件插件，Blob URL 里解析不了相对导入。
+>
+> ### 现在能合的依据
+>
+> 契约 §3.2「多文件插件（`files`）」：`manifest.files` 里声明的文件与入口一起装进宿主的
+> 极简 CommonJS 运行时，`require('./lib/core.cjs')` 可用；签名 v2 覆盖每个声明文件（防替换）。
+> 示例 `cjs-multi` 是活证据。**只有 CJS 的 `require` 能被解析，ESM 相对导入不行** ⇒ 插件文件用 `.cjs`。
+>
+> ### 落地
+>
+> | 文件 | 行数 | 内容 |
+> |---|---|---|
+> | `examples/sync/index.cjs` | 1621 | 引擎（笔记循环 / 附件三段 / 私有文件 / 私密树）+ 面板 + 9 条命令 |
+> | `examples/sync/lib/core.cjs` | 528 | 常量 + 纯函数（指纹 / `decideSync` / 冲突副本 / 三方合并 / manifest 校验 / 格式化） |
+> | `examples/sync/lib/backends/webdav.cjs` | 258 | DAV 客户端（URL 编码 / Basic / PROPFIND / 乐观锁 PUT / manifest 读写） |
+>
+> 旧版 4 个插件共 6620 行，其中约一半是重复的引擎；这一版先把 WebDAV 完整搬过来，引擎只此一份。
+> 命令前缀从 `sync-webdav.*` 改成 `sync.*`（`sync-webdav.sync` → `sync.run`，避免 `sync.sync`）。
+>
+> ### 验证
+>
+> - `tests/sync.test.ts` **90 条**（从 `tests/sync-webdav.test.ts` 迁，CJS 具名导出改成从 `plugin` 解构）全绿。
+> - dev 实测（CDP 9222）：junction 装进全局目录 → reload ⇒ **9 条命令都在**（多文件 `require` 真的工作）；
+>   本地 DAV 桩 seed 两篇 → `sync.run` ⇒ **pulled 2**、文件落盘、**文件树立刻出现**
+>   （顺带验证 rev173.283 的修复）、面板正常渲染（`_shots/sync-v1-panel.png`）。
+>
+> ### 还没做（下一步）
+>
+> 1. **`sync-folder`**（事件驱动、不搬文件）—— 判定模型要适配进统一引擎
+> 2. **`sync-s3` / `sync-git`** —— 客户端迁移
+> 3. 4 个旧插件 + 4 个旧测试删除 · 市场索引 17 → 13 · `sync` **0.1.0** 打包发市
+> 4. ⚠️ 迁移期：旧插件与 `sync` 同时启用会抢同一批文件 —— 发市时市场条目要写明
 > ## 📌 rev173.284（2026-10-30 · 同步请求量：relay 附件每轮重传 ⇒ 限流 503）
 
 > 用户原话：「每次都是全量同步吗，才几个文件，同步时间已经变得很长了，又限流503了」。

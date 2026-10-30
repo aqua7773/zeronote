@@ -1,0 +1,28 @@
+{
+  "manifestVersion": 1,
+  "id": "sync",
+  "name": "同步",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.cjs",
+  "files": ["lib/core.cjs", "lib/backends/webdav.cjs"],
+  "platforms": ["desktop", "android"],
+  "description": "多后端同步：一个引擎，后端可换（WebDAV 已落地，S3 / Git / 本地文件夹陆续并入）；冲突在面板里直接处理",
+  "category": "tool",
+  "capabilities": ["fs:read", "fs:write", "doc:read", "store", "event", "command", "view:main", "host", "net"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "sync.open", "title": "同步：打开设置与状态" },
+      { "id": "sync.test", "title": "同步：测试连接" },
+      { "id": "sync.run", "title": "同步：立即同步一次" },
+      { "id": "sync.toggle-auto", "title": "同步：开关自动同步（前台每 5 秒）" },
+      { "id": "sync.set-attachments", "title": "同步：设置附件同步方式（不同步 / 中转 / 永久）" },
+      { "id": "sync.save", "title": "同步：保存设置" },
+      { "id": "sync.open-conflict", "title": "同步：打开冲突副本" },
+      { "id": "sync.resolve-conflict", "title": "同步：处理一条冲突（保留本机版 / 远端版）" },
+      { "id": "sync.disconnect", "title": "同步：断开并清除凭据" }
+    ],
+    "panels": [{ "id": "sync.status", "title": "同步", "location": "main" }]
+  }
+}
