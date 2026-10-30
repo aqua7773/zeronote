@@ -133,6 +133,8 @@ import {
   type ImageInsertMode,
 } from './kernel/attachment'
 import { mediaHint, mediaKindOf } from './lib/media-render'
+/* rev173.272：正文附件按扩展名现推 kind —— 列表落后于磁盘时（粘贴 / 同步刚写盘）仍能打开 */
+import { kindOfPath } from './lib/attachment-kind'
 import { findWikiNote, previewSnippet } from './lib/wiki-preview'
 import { categorizePlugin } from './lib/plugin-category'
 import { addTab, closeTab as closeTabInList, isPanelTab, panelIdOfTab, panelTabId, remapTabs, stepTab } from './lib/tabs'
@@ -3063,8 +3065,13 @@ export default function App() {
       if (hint && !refHint) setToast(`已按链接插入 ${out.path} —— ${hint}`)
       // 压缩失败这类「插入了但没按预期」的情况单独说一句（不静默降级，硬约束 4）
       if (out.note) setToast(`${refHint ? `${refHint} · ` : ''}${out.note}`)
+      /**
+       * 写盘后立刻刷一次列表（rev173.272 · 反馈 #4）：fs-events 的 watcher 要几百毫秒才回来，
+       * 这期间刚插入的图片不在 `notes` 里 —— 正文靠 asset 直读能显示，点开却找不到。
+       */
+      void refresh()
     },
-    [activePath, vault, imageMode, insertAttachmentSyntax],
+    [activePath, vault, imageMode, insertAttachmentSyntax, refresh],
   )
 
   /**
@@ -3087,11 +3094,13 @@ export default function App() {
         })
         // 内存字节没有原文件路径可引用 ⇒ 永远复制入库（Rust 侧返回 copied）
         insertAttachmentSyntax(out.path, 'image')
+        /* 同上（rev173.272 · #4）：粘贴后立刻刷列表，别让用户点开就报「没有这个附件」 */
+        void refresh()
       } catch (e) {
         setToast(`粘贴图片失败：${String(e)}`)
       }
     },
-    [activePath, vault, insertAttachmentSyntax],
+    [activePath, vault, insertAttachmentSyntax, refresh],
   )
 
   const insertAttachment = useCallback(async () => {
@@ -3119,7 +3128,7 @@ export default function App() {
    * 相对路径按**当前笔记所在目录**解析（与插入时写进 .md 的规则一致）。
    */
   const openLocalLink = useCallback(
-    (raw: string) => {
+    async (raw: string) => {
       /**
        * 库外绝对路径（rev173.245 · 文件卡片的「打开」按钮）：
        * 它**不在库里**，走后面的相对路径归一化只会得到「库里没有这个附件」这种误导答案。
@@ -3146,20 +3155,37 @@ export default function App() {
         setToast('附件路径越界，忽略')
         return
       }
+      /** 按 kind 分流（列表命中与磁盘兜底共用一份，免得两处口径漂） */
+      const openAttachment = (path: string, kind: string) => {
+        if (kind === 'image') openImagePreview(path)
+        else if (kind === 'doc') runCore('core.openDocument', { path })
+        else if (kind === 'media')
+          setToast(
+            `音视频附件：${path} —— 正文里用 \`![](${path.split('/').pop()})\` 会内联播放`,
+          )
+        else setToast(`附件：${path}（暂不支持直接打开）`)
+      }
       const meta = notes.find((n) => n.path === norm)
-      if (!meta) {
+      if (meta) {
+        openAttachment(norm, meta.kind)
+        return
+      }
+      /**
+       * 列表里没有它 ⇒ **直接问磁盘**（rev173.272 · 真人使用测试 #4）。
+       *
+       * 现场：同步 / 粘贴刚把图片写进库，asset 协议直读文件**渲染得出来**，而 `notes`
+       * 还没刷新 ⇒ 点开却报「库里没有这个附件」。判据以磁盘为准；问到了顺手刷一次列表，
+       * 把下一次的判断拉齐（不阻塞这次打开）。类型用 `kindOfPath` 现推，口径与 Rust 一致。
+       */
+      const exists = kernel ? await kernel.fs.exists(norm).catch(() => false) : false
+      if (!exists) {
         setToast(`库里没有这个附件：${norm}`)
         return
       }
-      if (meta.kind === 'image') openImagePreview(norm)
-      else if (meta.kind === 'doc') runCore('core.openDocument', { path: norm })
-      else if (meta.kind === 'media')
-        setToast(
-          `音视频附件：${norm} —— 正文里用 \`![](${norm.split('/').pop()})\` 会内联播放`,
-        )
-      else setToast(`附件：${norm}（暂不支持直接打开）`)
+      void refresh()
+      openAttachment(norm, kindOfPath(norm))
     },
-    [activePath, notes, openImagePreview, runCore],
+    [activePath, kernel, notes, openImagePreview, refresh, runCore],
   )
 
   /**

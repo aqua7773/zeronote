@@ -45,6 +45,11 @@
   手机全屏搜索页传 `false`；桌面侧栏视图 / 浮层仍自动聚焦。+2 测试。
 - **重命名把扩展名一起选中**（#17）：`FileTree` 进入编辑态只选中**主名**（`.md` 之前），
   光标落在主名末尾；目录仍整体选中。
+- **「库里没有这个附件」误报**（rev173.272 · 反馈 #4）：判据从「只查前端 `notes` 列表」改成
+  「列表没有就**问磁盘**（`fs.exists`）」，命中后按扩展名现推类型 —— 新模块 `src/lib/attachment-kind.ts`
+  （口径与 Rust `list_notes` 的 `is_markdown` / `is_image` / `is_media_file` 一致，复用前端已有的两份
+  扩展名常量）；`insertFileFromPath` / `insertPastedImage` 写盘后主动刷一次列表。
+  新增 `tests/attachment-kind.test.ts` 6 条。
 
 ## [0.8.0] - 2026-10-30（rev173.255 – rev173.268）
 
