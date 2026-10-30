@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.290 · 冲突合并进编辑页：两段两色 + 段首 ✔ 点选，`sync` 0.1.1 已签名发市；上一版那套 5 处硬错全部修掉并补了端到端测试）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.291 · **0.9.1 已发版**：桌面 msi/exe + Android arm64 APK 已上传 Release；上一轮 rev173.290 = 冲突合并进编辑页 + `sync` 0.1.1）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.290 · 0.9.0 · 2026-10-31 |
+| rev / 版本 | rev173.291 · 0.9.1 · 2026-10-31 |
 | 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.0 |
+| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.1 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -74,7 +74,7 @@ pwsh -File scripts\verify.ps1
 >
 > - 手机自动同步目前**是关着的**（测试时关的，避免刷屏）；要用就面板点「开启自动同步」。
 > - 手机冲突列表还剩 9 条旧记录（23:54 首轮同步时密码库 / 同篇差异产生，属测试噪声）。
-> - 应用 **0.9.1**（文件树刷新修复，rev173.283 的 `useTreeRefresh`）等用户自己安排 —— 已明确「先不发版」。
+> - ~~应用 0.9.1 等用户自己安排~~ ⇒ **已发（rev173.291）**：msi / exe / arm64 APK 都在 Release `v0.9.1`。
 > - 候选：S3 / Git 的 ack 清理轮转（S3 按请求计费）；`sync` 的 3 个后端都还没接真实远端做端到端。
 > - 用户桌面 vault（`C:\Users\AQUA\Documents\ZreoNote`）**没碰过** —— 本轮全部在 `_tmp-vault-tb`。
 >
