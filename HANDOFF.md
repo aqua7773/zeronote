@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.267
-更新时间: 2026-10-30 · 最新 rev173.267
+revision: 173.268
+更新时间: 2026-10-30 · 最新 rev173.268
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.267
 
 | rev | 内容 |
 |---|---|
+| rev173.268 | 2026-10-30 · **发版 0.8.0：首次编译双端安装包并上传 GitHub Release**（用户「编译双端release推到github」）：① **版本** —— `release.mjs 0.8.0`（package.json / tauri.conf.json / Cargo.toml）；CHANGELOG `[Unreleased]` → `[0.8.0] - 2026-10-30（rev173.255–268）` + 版本表加行；README 现状行（B1–B7）与 ROADMAP §0 同步。② **Android release 签名从零配** —— 此前只构建过 debug APK（`tauri android build --debug --apk`），release 无签名配置、无 keystore。按官方文档 `keytool` 生成 PKCS12（RSA 4096 / 10950 天 / alias `zeronote`）+ `gen/android/keystore.properties`（**不入库**，已进 .gitignore）+ `app/build.gradle.kts` 加 `signingConfigs.create("release")`（properties 缺失时不挂签名 ⇒ 别人 clone 下来仍可编 debug）；密钥与密码备份在 `_logs\2026-10-30-发版0.8.0-keystore.md`。③ **产物** —— 桌面 `pnpm tauri build` · Android `pnpm tauri android build --apk`（universal release），两个安装包上传 GitHub Release `v0.8.0`（**首个带附件的 Release**，此前 5 个 tag 都只有正文）。 |
 | rev173.267 | 2026-10-30 · **侧栏收起 / 展开过渡**（用户「过渡」· 调研 MO4；MO4 原本归 B1，B1 当年没做）：① **收起从「卸载」改成「宽度到 0」** —— 桌面 `showSidebar` 拆成 `sidebarAllowed`（页面是否放侧栏）+ 始终挂载；`AppSidebar` 新增 `collapsed`（inline `width: 0` + `is-collapsed` 去边框 + **`inert`** 挡 Tab/点击）。不卸载的好处：文件树滚动位置与展开状态保留、宽度动画才有对象。② **过渡** —— `.zn-sidebar { transition: width 220ms emphasized }`（`--zn-dur-panel`）；**拖拽中 0**（`body.is-resizing` 由 `AppResizer` 原有逻辑加，一行 CSS 覆盖）。③ 分隔线只在 `sidebarAllowed && isDesktop && sidebarVisible` 时渲染（收起不留 5px 悬空线）。**实测**（CDP，rAF 采样）：收起 `348 → 223 → 152 → … → 1px`（≈210ms）· 展开 `1 → 124 → 195 → … → 348`（≈220ms）· 收起后 `is-collapsed` + `inert=true` · 拖动 `pointerdown` 时 `transitionDuration 0s`、`pointerup` 后回 `0.22s`。截图 `_shots/b7-13-sidebar-collapsed.png`。ℹ️ 收起后宽度停在 **1px**（`box-sizing: border-box` + 1px 边框的最小宽度；边框已透明，不可见）。verify 六步全绿 · 质量门 8/8 · vitest 1572 不变（纯 CSS/组件属性 + 1 个 prop） |
 | rev173.266 | 2026-10-30 · **页面转场语义落地**（用户「转场」· 调研 §4；B7 当时明确划出去的那批）：① **实现骨架** —— 主区包一层 `.zn-swap`，`key={mainKey}`（只按**层级**变：`list` / `editor` / 系统页 / 面板 id ⇒ **同层级换笔记不重挂载**，否则每点一篇都滑一次）；入场动画 = keyframes（不引动画库、不用 JS 计时）。② **四类语义** —— **同级切换** 160ms 淡入 + 2px 上移（插件中心 / 回收站 / 面板）· **钻入 / 返回** 260ms 水平推入（手机 ≤640px：`data-main=editor` 从右 24px、`=list` 从左 12px）· **浮层** 遮罩 120ms 淡入 + 面板 140ms `scale(.98)→1`（`.zn-palette-*` 与 Dialog 共用，Dialog 加 `.zn-dialog-backdrop` / `.zn-dialog-panel`）· **高频不做**（标签切换保持 0）。③ **新 token** —— `--zn-dur-overlay: 140ms`（调研 §2「浮层出现 140ms」，与侧栏/抽屉的 `panel` 220ms 区分）；`tests/design-tokens.test.ts` +2 条（五种 keyframes / 动画必须引用 token / 钻入只在手机）。**实测**（CDP）：桌面换页 `data-main=plugins` + `zn-swap-in 0.16s` · 设置面板 `zn-dialog-in 0.14s` + 遮罩 `0.12s` · 手机列表 `zn-drill-back 0.26s`、点卡片进编辑器 `zn-drill-in 0.26s`（宽 390）· reduce-motion 下 `0.001s`，关闭后回 `0.16s` · 布局未坏（`main 1048` / `swap 1022` = 减去状态栏 26）。截图 `_shots/b7-11-phone-list.png` / `b7-12-desktop-swap.png`。⚠️ 未做：**退场动画**（条件渲染直接卸载，浮层消失/页面返回没有淡出）· 侧栏宽度过渡。verify 六步全绿 · 质量门 8/8 · vitest 1570 → **1572** |
 | rev173.265 | 2026-10-30 · **UI 重布局收口**（用户「收口」· 方案 §9）：① **`docs/UI交互规范.md` 重写**（114 → 约 190 行）—— 桌面（图标栏 5 项 + pin ≤3 / 侧栏视图 + 智能分区 / 标签条 ＋ » / 文档工具条 / 状态栏 / 标题栏与专注模式）· 手机（底部四项 / 更多页 / 搜索全屏页 / 编辑态顶栏 / 抽屉 / 返回层级）· 浮层与出口层级（含「toast 与撤销条 / 草稿条互斥」实测结论）· 手势 · 无障碍（焦点圈 / ≥24×24 / 2.5.7 / reduce-motion）· 视觉 token（时长六档 / 图标 16·20 / 间距 4-8-12 / 对比度实测）· 待做清单。② **方案转 historical** —— `git mv` 进 `docs/archive/`，状态头改「historical（B1–B7 + 三项目标态全部落地 rev173.256–264）」，**相对链接整体上移一层**（`../_research` → `../../_research`、`UI交互规范.md` → `../UI交互规范.md`）；`docs/README.md` 矩阵两行重写 · `docs/archive/README.md` 加行 · 根 `README.md` 状态 draft → historical；**全仓 21 处引用改新路径**（check-links 61 条全过）。③ **手机手册补底部导航** —— §1「底部四个图标」表（各自去哪 / 怎么回 / 插件没装也在）· §10 返回键层级细化。verify 六步全绿 · 质量门 8/8 · vitest 1570 不变（纯文档） |
@@ -163,6 +164,62 @@ revision: 173.267
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.268（2026-10-30 · 发版 0.8.0：首次编译双端安装包并上传 GitHub Release）
+>
+> 用户「编译双端release推到github」。开工前三个决策先问清（避免白做）：
+> **版本号 0.8.0**（`[Unreleased]` 全是新功能面）· **传到 GitHub Release**（此前 5 个 tag 都只有正文、无附件）·
+> **生成新 keystore**（仓库从无 release 签名；手机端此前只构建过 debug 包）。
+>
+> | 动作 | 结果 |
+> |---|---|
+> | 版本 | `node scripts/release.mjs 0.8.0` → package.json / tauri.conf.json / Cargo.toml |
+> | CHANGELOG | `[Unreleased]` → `[0.8.0] - 2026-10-30（rev173.255–268）`；顶部版本表加一行（B1–B7 · 三项目标态 · 转场 · 侧栏过渡 · `D-011`） |
+> | README | 现状行 `0.8.0 + UI 重布局 B1–B7`，补 B4–B7 一句 |
+> | ROADMAP | §0 现状改 0.8.0 + 抬头复核日期 + 新增「0.8.0 主内容」一行 |
+>
+> ### Android release 签名（从零配）
+>
+> 此前只构建过 **debug** APK（`tauri android build --debug --apk`），`app/build.gradle.kts` 的 `release`
+> 没有 signingConfig、仓库里没有 keystore。按 [Tauri 官方文档](https://v2.tauri.app/distribute/sign/android/)：
+>
+> 1. `keytool -genkeypair` —— PKCS12 / RSA 4096 / SHA384withRSA / 有效期 10950 天 / alias `zeronote`
+> 2. `src-tauri/gen/android/keystore.properties` —— 指向 keystore 绝对路径（**不入库**）
+> 3. `app/build.gradle.kts` —— `signingConfigs.create("release")` 读 properties；
+>    **文件不存在时不挂签名**（产出 unsigned 而不是构建失败）⇒ 别人 clone 下来照常能编 debug
+>
+> ⚠️ **这个 keystore 不能丢**：换了它，手机上要先卸旧版才能装新版（笔记在库里，不受影响）。
+> 密钥与密码备份在 `C:\Users\AQUA\Apps\_logs\2026-10-30-发版0.8.0-keystore.md`（含验证命令）。
+> `.gitignore` 加 `src-tauri/gen/android/keystore.properties` 与 `src-tauri/gen/android/*.jks`
+> （`gen/android/.gitignore` 原本也有一条 keystore.properties，双保险）。
+>
+> ### 构建与产物
+>
+> | 平台 | 命令 | 产物 |
+> |---|---|---|
+> | Android（分架构） | `pnpm tauri android build --apk --split-per-abi` | `arm64-v8a` **32.48 MB** · `armeabi-v7a` **26.34 MB** · `x86` **32.51 MB** · `x86_64` **32.21 MB**（universal 包 118.03 MB **不发布**） |
+> | Windows | `pnpm tauri build` | `ZeroNote_0.8.0_x64_zh-CN.msi` **15.83 MB** + `ZeroNote_0.8.0_x64-setup.exe` **14.18 MB**（首次编译 Rust 5m19s，修 WiX 语言后重跑 3m29s） |
+>
+> **签名验证**（`apksigner verify --print-certs`）：`Verifies` · v2 scheme `true` · 证书 `CN=ZeroNote` ·
+> SHA-256 `351adf8c61bf6e5a7d78aea44cab07a944c31d56fd79f2aa50a7d55e2701f080`（与 `keytool -list` 一致）⇒ 四个包同 key。
+>
+> **为什么分架构发**（用户「分开发」）：`universal` 把同一个 Rust 二进制按 4 个 ABI 各打一份
+> （x86 30.66 / arm64 30.64 / x86_64 30.37 / armeabi-v7a 24.49 MB，合计占 98%）⇒ 118 MB 安装包；
+> `--split-per-abi` 拆开后单包 26.34–32.51 MB。
+> ⚠️ 顺带发现 `vite.config.ts:80` 是 `sourcemap: true` ⇒ `dist` 38.48 MB 里 **23.39 MB 是 82 个 `.map`**，
+> 会被嵌进每个 `.so`。本轮**未改**（用户只要求分开发）；关掉能再省几 MB，而且不会把源码映射送进公开包 —— 记入待办。
+>
+> ### 踩坑：WiX 打包被中文 `fileAssociations` 挡住
+>
+> 第一次 `pnpm tauri build` 编译全过（`zeronote.exe` 已生成），**死在 msi 打包**：
+> `failed to run ...\WixTools314\light.exe` —— Tauri 只报这一行，不转 stderr。
+> 手动跑 `light.exe -loc locale.wxl ... main.wixobj` 才看到真因：
+> `error LGHT0311: A string was provided with characters that are not available in the specified database code page '1252'`。
+>
+> `tauri.conf.json` 的 `fileAssociations` 有 6 条中文 `name` / `description`（「Markdown 文档」「EPUB 电子书」…），
+> WiX 默认 `language: en-US` ⇒ locale codepage **1252**，编不进中文字符。
+> **修法**：`bundle.windows.wix { language: "zh-CN" }`（codepage 936）⇒ msi 一次过，产物名变 `_x64_zh-CN.msi`。
+> NSIS 不受影响（NSIS 3 是 Unicode）。
 
 > ## 📌 rev173.267（2026-10-30 · 侧栏收起 / 展开过渡：点击 220ms，拖动中 0）
 
