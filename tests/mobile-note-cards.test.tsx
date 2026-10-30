@@ -80,3 +80,27 @@ describe('MobileNoteCards 卡片菜单：返回键层栈', () => {
     expect(screen.getByText('重命名…')).toBeTruthy()
   })
 })
+
+/**
+ * 只列笔记（rev173.273 · 真人使用测试 #7）。
+ *
+ * `notes` 含附件（图片 / 文档 / 音视频）—— 文件树要按类型分组显示它们，但时间流 /
+ * 卡片流是「按时间看写过的东西」，一张 png 或 pdf 出现在那里点开还是「打开附件」。
+ */
+describe('MobileNoteCards 只列笔记', () => {
+  it('图片 / 文档 / 音视频不进卡片流', async () => {
+    const props = makeProps()
+    props.notes = [
+      note('笔记.md', '笔记甲'),
+      { ...note('附件/图.png', '图片乙'), kind: 'image' },
+      { ...note('附件/手册.pdf', '文档丙'), kind: 'doc' },
+      { ...note('附件/clip.mp4', '视频丁'), kind: 'media' },
+    ]
+    render(<MobileNoteCards {...props} />)
+    await act(async () => {})
+    // 卡片正文是笔记内容（readText 返回「正文」），所以按卡片数量 + 只读笔记正文来断言
+    expect(document.querySelectorAll('.zn-mobile-card')).toHaveLength(1)
+    expect(props.readText).toHaveBeenCalledTimes(1)
+    expect(props.readText).toHaveBeenCalledWith('笔记.md')
+  })
+})

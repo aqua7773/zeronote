@@ -509,11 +509,6 @@ export function PluginPanel({
               <div className="zn-plugins-recommend-title">
                 推荐优先安装（{RECOMMENDED_COUNT} 个）
               </div>
-              <p className="zn-plugins-recommend-hint">
-                应用不预装插件 —— 这些原来是随包带的，现在从
-                <strong className="font-semibold text-foreground">插件市场</strong> 装（需要联网；
-                离线时也可以用「安装插件包」装 <code>.znp</code>）。
-              </p>
               {RECOMMENDED_GROUPS.map((g) => (
                 <div key={g.title} className="zn-plugins-recommend-group">
                   <div className="zn-plugins-recommend-sub">
@@ -724,13 +719,8 @@ export function PluginPanel({
         </details>
       )}
 
-      {/* 全局插件根：告诉用户"拷到哪能全库生效"，且让"本库插件"有对照物（rev94） */}
-      {globalRoot && (
-        <div className="zn-plugins-globalroot">
-          插件目录：<code>{globalRoot}</code> 下的 <code>.zn/plugins/</code>
-          <span className="zn-plugins-globalroot-hint"> 所有笔记库共用这一份</span>
-        </div>
-      )}
+      {/* 全局插件根路径说明已删（rev173.273 · 真人使用测试 #15「多余的说明」）：
+          路径本身对普通用户没有信息量，需要时看「调试」tab 或文档。 */}
 
       {/* 禁用撤销条（B3 · 方案 §6 验收「禁用插件可撤销」）——
           开关即时生效，拨错一次不该只能再翻一遍列表拨回来。条子在列表下方、随内容流，

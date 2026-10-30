@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.272
-更新时间: 2026-10-30 · 最新 rev173.272
+revision: 173.273
+更新时间: 2026-10-30 · 最新 rev173.273
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.272
 
 | rev | 内容 |
 |---|---|
+| rev173.273 | 2026-10-30 · **真人使用测试 D 批：展示清理（#7 / #15）**（用户「继续zeronote，修bug」）：① **时间流 / 卡片流只列笔记** —— `MobileNoteCards` 的 `sorted` 加 `kind === 'note'` 过滤（原来附件也进列表，点开是「打开附件」/「音视频附件」提示）；桌面时间流与手机卡片流共用这一份。② **三处多余说明删除** —— 插件中心空态 `zn-plugins-recommend-hint`（「应用不预装插件…原来是随包带的」）、插件中心底部 `zn-plugins-globalroot`（「插件目录：…」）、插件市场底部同款（「插件来自索引里的下载地址；整包 sha256 对得上才安装…」）。③ **测试** `tests/mobile-note-cards.test.tsx` +1（附件不进卡片流，断言卡片数 = md 数、readText 只被笔记调用）；vitest 1583 → **1584**。④ **实测**（CDP）：桌面时间流 **38 张卡片 = 库里 38 个 `.md`**（库里另有 epub/jpg/mkv/mp3/mp4/png/txt 共 10 个附件，一张都没进）；插件中心无「插件目录：」、市场无「sha256 对得上才安装」。截图 `_shots/rev173273-market-clean.png`。 |
 | rev173.272 | 2026-10-30 · **真人使用测试 C 批（前半）：附件误报「库里没有」改为问磁盘（#4）**（用户「继续zeronote，修bug」）：① **判据** —— `openLocalLink` 原来只 `notes.find(...)`（前端列表落后于磁盘 ⇒ 同步 / 粘贴刚写盘的图**显示得出来、点开却报没有**）；现在列表没有就 `kernel.fs.exists(norm)` 问磁盘，命中后按扩展名现推类型。② **新模块** `src/lib/attachment-kind.ts` —— `kindOfPath` 四分类，口径与 Rust `list_notes`（`is_markdown` / `is_image` / `is_media_file`）一致，复用 `insert-image` 的 `IMAGE_EXTS` 与 `media-render` 的 `MEDIA_EXTS`、`DOC_EXTS` 单列。③ **主动刷新** —— `insertFileFromPath` / `insertPastedImage` 写盘后 `void refresh()`，不等 fs-events watcher。④ **测试** 新 `tests/attachment-kind.test.ts` 6 条；vitest 1577 → **1583**。⑤ **实测**（CDP，用 `.tmp-c4/` 点开头目录构造「磁盘有、列表没有」）：`__znOpenLocalLink('.tmp-c4/x.png')` ⇒ `.zn-img-preview` 打开、无错误 toast；对照不存在路径 ⇒ 仍报「库里没有这个附件」。截图 `_shots/rev173272-attachment-fallback.png`。⚠️ **#5（安卓「图片不在本机」）没有复现，按计划暂不动**。 |
 | rev173.271 | 2026-10-30 · **真人使用测试 B 批：抢输入三修（#6 / #8 / #17）**（用户「继续zeronote，修bug」）：① **输入框不再被应用级右键菜单吃掉** —— `document` 捕获阶段的 `contextmenu` 与 `onContextMenuCapture` 两处同步放行 `input / textarea / select / .zn-ui-field`，原生「粘贴 / 全选 / 复制」回来；`[contenteditable]` **有意不放行**（桌面编辑器正文就是 contenteditable，放行会冒出 WebView2 的「检查 / 刷新」）。② **手机搜索页不再自动弹键盘** —— `SearchPanel` 新增 `autoFocus`（默认 `true`），手机全屏页传 `false`；桌面侧栏视图 / 浮层行为不变。③ **重命名只选主名** —— `FileTree` 进入编辑态选中 `.md` 之前的文件名、光标落在主名末尾；目录仍整体选中。**测试** `tests/search-panel.test.tsx` +2（默认聚焦 / `autoFocus=false` 不聚焦）；vitest 1575 → **1577**。**实测**（CDP 桌面 + 手机 `33b676f6`）：同步面板 URL 框 `contextmenu` 事件 `defaultPrevented=false`、`body` 仍 `true`；手机点底栏「搜索」后 `activeElement=BODY`；桌面文件树重命名选中「笔记1」（`0–3`）、不含 `.md`。截图 `_shots/rev173270-phone-search.png` / `rev173270-rename-selection.png`。 |
 | rev173.270 | 2026-10-30 · **真人使用测试 A 批：插件面板进标签条（#19 / #3）**（用户「继续zeronote，修bug」· 修复计划 A 批，15 分钟档）：① **两处接线** —— 插件中心每行「打开」的 `onOpenPanel`（`App.tsx:4812` 区域）与内核 `onOpenPanelInMain`（插件 `view.openWindow` 在 Android 上的降级，`App.tsx:967`）从裸 `setMainView` 改走 `openPanelInTab`（= `addTab` + `setMainView`）；`openPanelInTab` 定义提到 `createKernel` 之前（回调闭包不越过 `const` 声明）。② **手机可见出口** —— 面板页顶栏此前只有 ☰（抽屉开关），唯一退路是系统返回键；现在 `pagePanel` 时 `menuIcon='back'` 并显示「‹ 返回列表」，行为与 Android 返回键完全一致（`setMainView('editor')` + `setMobileTab('home')`）。③ **测试** —— 新 `tests/panel-open-wiring.test.ts` 3 条（插件中心接线 / `onOpenPanelInMain` 接线 / 定义早于内核创建）；vitest 1572 → **1575**。④ **实测**（CDP 9222 桌面 + 手机 `33b676f6`）：桌面「打开 导入导出」⇒ `main=io.panel` + 标签「导入导出 ×」、点 × 回列表；「打开 同步 · WebDAV」同样（`main=sync-webdav.status` + 标签）；手机面板页顶栏 `‹`（aria `返回列表`），点击回首页列表且底栏四项回来。截图 `_shots/rev173270-desktop-panel-tab.png` / `rev173270-phone-panel.png` / `rev173270-phone-back-closed.png`。⚠️ 手机上打开面板不走标签条（无多标签），走新加的 ‹；`onOpenPanelInMain` 的接线只有单测 + 静态断言，真机未单独触发（导图插件是唯一调用方）。 |
@@ -168,6 +169,32 @@ revision: 173.272
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.273（2026-10-30 · D 批：展示清理 —— 时间流不列附件 + 删三处多余说明 · #7 / #15）
+
+> 修 [`真人使用测试-修复计划`](docs/真人使用测试-修复计划-2026-10-30.md) 的 **D 批**。
+>
+> ### 改了什么
+>
+> 1. **#7** `MobileNoteCards` 的 `sorted` 加 `kind === 'note'` 过滤 —— 附件（图片 / 文档 /
+>    音视频）也在 `notes` 里（文件树要按类型分组显示），但它们出现在时间流里点开是
+>    「打开附件 / 音视频附件」提示，不是用户要的「按时间看写过的东西」。
+> 2. **#15** 删三处说明：插件中心空态 `zn-plugins-recommend-hint`、插件中心底部
+>    `zn-plugins-globalroot`（插件目录路径）、插件市场底部同款（下载地址 / sha256 说明）。
+>
+> ### 验证
+>
+> - `tests/mobile-note-cards.test.tsx` +1：4 个 note（1 篇 md + png/pdf/mp4）⇒ 只渲染 1 张卡片、
+>   `readText` 只对 md 调用一次；vitest **1583 → 1584**。
+> - ⚠️ 过滤写成 `(n.kind ?? 'note') === 'note'`：`tests/app-smoke` 的移动端 fixture 没有 `kind` 字段，
+>   严格比较会让整条时间流空掉（真红过一次）；老 store 数据也一并兼容。
+> - CDP：桌面时间流 **38 张卡片 = 库里 38 个 `.md`**（另有 10 个附件文件，一张都没进）；
+>   插件中心 / 市场页面全文不再出现「插件目录：」与「整包 sha256 对得上才安装」。
+> - 截图 `_shots/rev173273-market-clean.png`。
+>
+> ### 遗留
+>
+> - ⚠️ 「推荐优先安装」那段只在**零插件空态**出现，本机有插件 ⇒ 只做了代码删除 + tsc，没截到空态图。
 
 > ## 📌 rev173.272（2026-10-30 · C 批前半：附件误报「库里没有」⇒ 问磁盘 · #4）
 

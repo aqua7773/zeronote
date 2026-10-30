@@ -80,8 +80,23 @@ export function MobileNoteCards({
   onCloseTimeline,
   layers,
 }: Props) {
-  /** 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件） */
-  const sorted = useMemo(() => [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, 100), [notes])
+  /**
+   * 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件）。
+   *
+   * 只列**笔记**（rev173.273 · 真人使用测试 #7）：附件（图片 / 文档 / 音视频）也会进
+   * `notes` 列表（文件树要按类型分组显示它们），但时间流 / 卡片流里出现一张 png
+   * 点的还是「打开附件」—— 用户要的是「按时间看写过的东西」，附件在文件树「附件」分组里。
+   */
+  const sorted = useMemo(
+    () =>
+      notes
+        /* `kind` 缺省按笔记算：内核现在每条都带，但老的 store / 测试 fixture 可能没有 —— 缺字段
+           不该让整条时间流空掉（app-smoke 的移动端用例就是这么炸出来的）。 */
+        .filter((n) => (n.kind ?? 'note') === 'note')
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 100),
+    [notes],
+  )
   const [contents, setContents] = useState<Record<string, string>>({})
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
 
