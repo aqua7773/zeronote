@@ -313,7 +313,7 @@ describe('接线', () => {
     vi.useRealTimers()
   })
 
-  it('注册主区面板 + 十一条命令（一个插件，后端可换）', async () => {
+  it('注册主区面板 + 十二条命令（一个插件，后端可换）', async () => {
     const h = await harness()
     expect(h.panels).toEqual([{ id: 'sync.status', location: 'main' }])
     expect(h.commands.sort()).toEqual([
@@ -321,6 +321,7 @@ describe('接线', () => {
       'sync.mark-baseline',
       'sync.open',
       'sync.open-conflict',
+      'sync.pick-conflict',
       'sync.resolve-conflict',
       'sync.run',
       'sync.save',

@@ -2,17 +2,17 @@
   "id": "sync",
   "name": "同步",
   "author": "aqua7773",
-  "description": "多后端同步：WebDAV / S3 / Git / 本地文件夹，一个插件搞定；冲突在面板里直接处理。⚠️ 装前请先卸载旧的 sync-webdav / sync-s3 / sync-git / sync-folder（同时启用会抢同一批文件）",
+  "description": "多后端同步：WebDAV / S3 / Git / 本地文件夹，一个插件搞定；冲突直接在编辑页里两段选一段。⚠️ 装前请先卸载旧的 sync-webdav / sync-s3 / sync-git / sync-folder（同时启用会抢同一批文件）",
   "category": "tool",
   "platforms": [
     "desktop",
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.1.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.0.znp",
-  "sha256": "6f7c356078ba3bf7cb2ebc09e25a59f7eefa07f927b05bba21f190b946bc2ab4",
-  "size": 235493,
+  "version": "0.1.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.1.znp",
+  "sha256": "bcd38efbc0d90cd16c811112d09ef1ed5e0ffd96f1b74b2867016a69ed8f4f92",
+  "size": 248808,
   "files": [
     "index.cjs",
     "lib/backends/folder.cjs",
@@ -20,17 +20,18 @@
     "lib/backends/s3.cjs",
     "lib/backends/webdav.cjs",
     "lib/core.cjs",
-    "signature.json"
+    "signature.json",
+    "styles.css"
   ],
   "capabilities": [
     "fs:read",
     "fs:write",
     "doc:read",
     "store",
-    "event",
     "command",
     "view:main",
-    "host",
+    "editor:line-action",
+    "editor:line-class",
     "net"
   ]
 }

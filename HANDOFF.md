@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.289
-更新时间: 2026-10-31 · 最新 rev173.289（手机端换 `sync` + 跨设备冲突实测通过；上一轮 rev173.288 = 四后端合并收口）
+revision: 173.290
+更新时间: 2026-10-31 · 最新 rev173.290（冲突合并进编辑页：两段两色 + 段首 ✔ 点选；上一轮 rev173.289 = 手机端换 `sync`）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.289
 
 | rev | 内容 |
 |---|---|
+| rev173.290 | 2026-10-31 · **冲突合并改在编辑页里两段选一段（A 方案落地 + 上一版全踩空修正 + `sync` 0.1.1 发市）**（用户「现在的冲突合并太繁琐，改成在编辑页面」→「冲突就是两段不同的文本，跟正文一样正常显示，只是颜色不同，选择一个之后，另一个就会被删除、留下的恢复成正文」→ 拍板 A）：① **上一版为什么一行都没生效（5 条硬错，逐条有源码依据）** —— **a** 测试 harness 没有 `editor` 桩 ⇒ 插件初始化 `api.editor.addLineClass` 抛 `TypeError: Cannot read properties of undefined` ⇒ 后面的命令一条都没注册（**54 条测试红**；改完没跑 verify 所以没人发现）；**b** `classAt` / `filter` 收到的 `doc` 是**整篇正文文本**（`src/kernel/editor-marks.ts:523` 传的是 `doc.toString()`），插件写 `p.path === doc` ⇒ 永不命中 ⇒ 颜色不出来；**c** 行首按钮 `pattern: '^'` **零宽**，内核 `buildDecorations` 对 `m[0].length === 0` 直接 `continue`（同文件 462 行）⇒ 一个 ✔ 都不生成；**d** 合并稿被 `continue` 跳过时**没 `localPaths.add`** ⇒ 同一轮「本地没有、远端有」那一遍把整篇写回远端版，合并稿 100% 被自己覆盖（这就是"看起来什么都没发生"）；**e** 点 ✔ 收尾用 `fs.writeText` 绕过编辑器 ⇒ 缓冲区里还是两段，下次保存原样写回。② **修正** —— `api.editor?.` 可选化（宿主没这个词就不注册，不中断初始化）+ 两条规则都 push 进 `ctx.subscriptions`；识别合并稿改成**比全文**（`pendingMerges.find(p => p.draftText === doc)`）；按钮正则改 `'^\\s*\\S'`（非零宽，`flags: 'm'`，真正哪些行出按钮交给 `filter`）；跳过分支补 `localPaths.add`；新 `writeBody(path, text)` 统一出口（打开着就走 `doc.replaceRange` 再补一次写盘，不依赖 state 同步时序）；pick 后**不再走 `runSync` 让方向判定猜** —— 新增 `pushOne()` 强制 PUT + 就地改 manifest 一条（与 `resolve-conflict` 同一套理由；单测现场抓到过"pick 完下一轮又判 pull 把用户选的版本盖掉"）。③ **测试** —— `tests/sync.test.ts` 三处 `makeDevice` 之外补 `editor` / `doc` 桩（`lineClasses` / `lineActions` / `setActive` / `replaceRange` 写回）+ 2 条新端到端（「合并稿上色：远端段红、本机段绿、公共段不着色、非合并稿一律不着色」「点 ✔ 保留本机段 ⇒ 另一段消失、恢复普通正文、推上远端」）+ 冲突用例改成断言**正文 = 合并稿**（`remote-v2\n\nlocal-mine`）并且**下一轮不被覆盖、也不把两段推上去**；命令表 12 → **13**（`sync.pick-conflict`）。sync 四文件 **205** 全绿，全量 vitest **1688**。④ **dev 实测（CDP 9222 + 本地 DAV 桩 8899）** —— ①冲突生成 ⇒ `n.md` 正文 = `共同的第一段 / 远端改的 v1 / 本机改的 v2`，逐行 class = `cm-line zn-conflict-remote` / `zn-conflict-local`，computed color `rgb(255,107,107)` / `rgb(81,207,102)` + 12% 背景 + 2px 左条（`_shots/merge-290-draft.png`）；②点本机段 ✔ ⇒ 正文只剩本机版、class 全消失、**远端同步变本机版**（`merge-290-resolved.png`）；③再造一次点远端段 ✔ ⇒ 本地与远端都是远端版；④造第三次冲突后 **`location.reload()`** ⇒ 重新打开 `n.md`，两段两色与两个 ✔ 全部恢复（合并稿存 store 生效，`merge-290-after-reload.png`）。⑤ **发市** `sync` 0.1.0 → **0.1.1**（`market/packs/sync-0.1.1.znp` · **243.0 KB** · 8 文件含 `styles.css` · 入口 `3a4d9fe4…` · 整包 `bcd38efb…` · keyId `aqua-2026`）→ `gen-market --write`（14 条）→ `verify-trust` **45/46**。⚠️ **两个已知边界（没做，别当成做过）**：**手机端未走查**（同一套 CM6 与插件代码，理论上一致，但没开真机）；**本地文件夹后端仍走旧行为**（`lib/backends/folder.cjs` 的冲突分支没接合并稿 —— 它磁盘已被外部工具覆盖、本机版在影子副本，要接得另给钩子）。⚠️ **dev 插件目录是副本不是 junction**：改源码后必须拷进 `<appdata>/.zn/plugins/sync/` 再 reload，否则跑的是旧代码（本轮先踩了这一步，白测两轮）。 |
 | rev173.289 | 2026-10-31 · **手机端换 `sync` 插件 + 跨设备冲突实测通过**（用户「测手机端，先把现在的测试文件都清一下，然后测一下冲突」）：① **清理**测试库 `_tmp-vault-tb` 16 项测试垃圾（5 个历史冲突副本 + 3 个 0 字节新笔记 + 6 个测试媒体 + 2 张测试图）→ 移到 `_tmp-trash-20261030-2350/`（可恢复），库剩 35 篇。② **手机换插件**：4 个旧同步插件卸载（备份 `_tmp-phone-backup/old-sync-plugins.tar` 295 KB）· `sync` 8 文件（含 `manifest.json`）push 到 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/sync` ⇒ 重启 app ⇒ **12 条命令 + `sync.status` 面板都在**。③ **双端同步环境**：桌面起本地 DAV 桩（`tools/dav-stub.mjs` · 8899 · 支持 PROPFIND/GET(304)/PUT(412)/MKCOL/DELETE/HEAD）+ `adb reverse tcp:8899` ⇒ 手机访问 `http://127.0.0.1:8899/dav/`。桌面先推 40 篇（37 次 MKCOL + 40 次 PUT）→ 手机拉下对齐。④ **冲突实测**：桌面推「桌面版 00-02」→ 手机本地是「手机版 00-02」、基线还是上一版 ⇒ 手机 `sync.run` **判 conflict** ⇒ `.zn/conflicts/android/2026-10-30 2358-需求.md`（**内容 = 手机版**）+ 本地取远端版 + 面板「冲突记录 · 10 条」⇒ 点「用本机版」⇒ 本机版写回、**推上远端**（远端变手机版）、记录降到 9 条（`_shots/phone-conflict-3.png` / `phone-conflict-resolved.png`）。⑤ **两个路径坑（记下来）**：手机 **vault 在 `/storage/emulated/0/Documents/ZeroNote`**（`localStorage['zeronote.vault']`），**不是** app 私有目录 `files/vault`（后者是 stale 数据，照着改会以为"同步没生效"）；**插件目录仍在 app data** `.zn/plugins`。⑥ **桩的坑**：旧桩进程占着 `127.0.0.1:8899`、新桩绑 `0.0.0.0:8899`，Windows 允许两者并存 ⇒ 请求命中旧桩、新桩日志空白（`Get-NetTCPConnection -LocalPort 8899` 两个监听才发现）；桩的路径穿越判断在 Windows 上不能用 `startsWith`（join 出反斜杠）—— 改 `path.relative`。 |
 | rev173.288 | 2026-10-30 · **同步合并收口：Git 后端并入 + 删掉 4 个旧插件 + 市场 17 → 14 + `sync` 0.1.0 打包**：① **Git 后端** `lib/backends/git.cjs`（280 行，从 `sync-git` 搬 `createGitClient` 全套 + `createGitStorage` 适配）—— `etag` ↔ **`sha`**（Git 没有 ETag，文件版本就是 sha）、`mkdir` 空操作、`remove` 先读 sha 再删；老 manifest 的 `sha` 字段在 `normalizeManifest` 里兼容成 `etag`，老仓库升上来不丢乐观锁。引擎侧：`makeClient()` 三选一、`hasConfig()` 按后端判、乐观锁扩展到 git（`precondition` = 409/422/400）。② **引擎修两处真 bug（统一时暴露）** —— **412/precondition 分支以前只 `continue`**：不取远端、不刷 manifest ⇒ 本机停在旧版、基线指向旧 fp，两轮后两边都「以为自己是新的」（真人测试二 #1 的成因）；现在三步走：**先试三方合并**（合上就用远端最新 etag 再推一次）→ 合不上留副本 + 对齐远端 → 无论哪条路都回写 manifest（新 `manifestDirty`）。③ **删旧**（用户「旧的舍弃」）：`examples/sync-webdav|sync-s3|sync-git|sync-folder/`（6620 行）与 `tests/sync-webdav.test.ts`（内容已全部迁进 `tests/sync.test.ts`）一起 `git rm`；`sync-git.test.ts` 里三处跨插件指纹对比删掉（已共用 `core.cjs`）。④ **测试**：folder **50** · s3 **35** · git **30** · webdav **90** → `tests/sync*.test.ts` 合计 **205** 条；全量 vitest **1790**（122 文件）。⑤ **市场**：删 4 个 `market/entries/*.json` 与对应 `.znp` 引用，`pack-plugin sync` ⇒ `market/packs/sync-0.1.0.znp`（**229.5 KB** · 7 文件 · 入口 `4db02d9e…` · 整包 `5da3de6c…` · keyId `aqua-2026`）→ `gen-market --write` ⇒ 索引 **17 → 14**。⚠️ 迁移期提示：旧的 4 个插件若还装在全局目录，与 `sync` 同时启用会抢同一批文件 —— 上市说明里要写「先卸载旧的」。 |
 | rev173.287 | 2026-10-30 · **S3 后端并入 `sync`**：① 新 `lib/backends/s3.cjs`（约 560 行）—— SigV4 全套纯函数（`encodeRfc3986` / `encodeS3Path` / `canonicalQuery` / `canonicalHeaders` / `sha256Hex` / `hmacSha256` / `signRequest`，仍用 AWS 官方向量验证）+ path-style 客户端 + **`createS3Storage` 适配器**（把 S3 客户端包装成 WebDAV 同一套方法名 ⇒ 引擎一行不改）。② **两处 S3 特性放在适配层**：`If-Match` 被服务端当坏请求（400/501）⇒ **重试一次不带条件**（旧 `sync-s3` 的降级逻辑，引擎不关心协议细节）；`getWithEtag` 给 412 收尾用。③ **引擎恢复 S3 乐观锁**：push 时 `settings.backend === 's3'` 带 `baseline.etag`（统一后有段时间没带 ⇒ 「绕过 manifest 手改远端」会被静默覆盖）；412 分支补**取远端对齐 + 写回 manifest**。④ 测试：`tests/sync-s3.test.ts` 35 条全部转向新插件（`makeDevice` 预置 `settings.v1.backend='s3'`、bind 名 `sync.s3.*`、命令 `sync.run`）；`conflictFileName` 签名统一成 `(path, at)`。 |
@@ -185,6 +186,58 @@ revision: 173.289
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.290（2026-10-31 · 冲突合并改在编辑页里两段选一段 · `sync` 0.1.1）
+
+> 用户：「现在的冲突合并太繁琐，改成在编辑页面」→「冲突就是两段不同的文本，跟正文一样正常显示，
+> 只是颜色不同，选择一个之后，另一个就会被删除、留下的恢复成正文」→ 拍板 A 方案。
+>
+> ### 1. 上一版为什么一行都没生效（5 处硬错）
+>
+> | # | 症状 | 根因（源码位置） |
+> |---|---|---|
+> | a | 命令一条都没注册 | 测试 harness 没有 `editor` 桩 ⇒ `api.editor.addLineClass` 抛 `TypeError`（54 条测试红；改完没跑 verify） |
+> | b | 颜色永远不出 | `classAt` 的 `doc` 是**整篇正文文本**，插件拿 `p.path === doc` 比对（`src/kernel/editor-marks.ts:523`） |
+> | c | ✔ 永远不出 | 行首按钮 `pattern: '^'` 零宽，`buildDecorations` 对 `m[0].length === 0` 直接跳过（同文件 462） |
+> | d | 合并稿刚写就被覆盖 | 跳过分支没 `localPaths.add` ⇒ 同一轮「本地没有、远端有」写回远端版 |
+> | e | 点完又变回两段 | 收尾 `fs.writeText` 绕过编辑器 ⇒ 缓冲区把两段原样写回 |
+>
+> ### 2. 修正
+>
+> - `api.editor?.` 可选化 + 两条规则 push 进 `ctx.subscriptions`（宿主没这个词就不注册，不中断初始化）
+> - 识别合并稿改成**比全文**：`pendingMerges.find(p => p.draftText === doc)`
+> - 按钮正则 `'^\\s*\\S'`（非零宽）+ `filter` 决定哪些行真出按钮
+> - 跳过分支补 `localPaths.add`
+> - 新 `writeBody(path, text)`：打开着走 `doc.replaceRange` 再补写一次盘（不依赖 state 时序）
+> - 新增 `pushOne()`：pick 后**不走 `runSync` 的方向判定**，强制 PUT + 就地改 manifest 一条
+>   （单测抓到过：pick 完下一轮判 pull，把用户选的版本又用远端版盖掉）
+>
+> ### 3. 测试
+>
+> `tests/sync.test.ts` 补 `editor` / `doc` 桩（`lineClasses` / `lineActions` / `setActive` / `replaceRange`）·
+> 新增 2 条端到端（上色逐行判 / 点 ✔ 后只剩一段且推上远端）· 冲突用例改成断言**正文 = 合并稿**且
+> 下一轮不被覆盖 · 命令表 12 → **13**。sync 四文件 **205** 全绿 · 全量 vitest **1688** ·
+> verify 六步全绿 + 质量门 **8/8**。
+>
+> ### 4. dev 实测（CDP 9222 + DAV 桩 8899）
+>
+> | 步 | 结果 | 截图 |
+> |---|---|---|
+> | ① 造冲突 | 正文 = 公共段 / 远端段红 `rgb(255,107,107)` / 本机段绿 `rgb(81,207,102)`，两段段首都有 ✔ | `_shots/merge-290-draft.png` |
+> | ② 点本机段 ✔ | 远端段消失、class 全清、远端同步变本机版 | `_shots/merge-290-resolved.png` |
+> | ③ 再造冲突点远端段 ✔ | 本地与远端都是远端版 | — |
+> | ④ `location.reload()` 后重开 | 两段两色与两个 ✔ 全部恢复（合并稿存 store） | `_shots/merge-290-after-reload.png` |
+>
+> ### 5. 发市与边界
+>
+> `sync` 0.1.0 → **0.1.1**（`market/packs/sync-0.1.1.znp` · 243.0 KB · 8 文件含 `styles.css` ·
+> 入口 `3a4d9fe4…` · 整包 `bcd38efb…` · keyId `aqua-2026`）→ `gen-market --write`（14 条）→
+> `verify-trust` **45/46**。
+>
+> ⚠️ **没做的两条**：**手机端未走查**（同一套 CM6 + 插件代码，理论上一致）·
+> **本地文件夹后端仍是旧行为**（`lib/backends/folder.cjs` 冲突分支没接合并稿 —— 磁盘已被外部工具覆盖，
+> 本机版在影子副本里，要接得另给钩子）。
+> ⚠️ **dev 插件目录是副本不是 junction**：改源码后必须拷进 `<appdata>/.zn/plugins/sync/` 再 reload。
 
 > ## 📌 rev173.289（2026-10-31 · 手机端换 `sync` + 跨设备冲突实测通过）
 

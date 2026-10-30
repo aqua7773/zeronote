@@ -76,6 +76,54 @@ const {
   sparkline,
   relayName,
 } = core
+/* ───────────────────────── 冲突合并稿 ───────────────────────── */
+
+/** 冲突合并稿的持久化键（切设备 / 重启后还要能继续选） */
+const KEY_PENDING = 'conflict.pending.v1'
+
+/** 按空行切段（trim 掉首尾空白，空段丢弃） */
+function splitParagraphs(text) {
+  return String(text || '')
+    .split(/\r?\n\s*\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 生成冲突合并稿：两版差异段都写进正文，像普通段落一样排版。
+ *
+ * 结构：公共段照旧 → 远端独有段（红）→ 本机独有段（绿）。
+ * 返回每段占用的**行号区间**（0 起、闭区间），供行着色与行首按钮使用。
+ */
+function buildMergeDraft(localText, remoteText) {
+  const local = splitParagraphs(localText)
+  const remote = splitParagraphs(remoteText)
+  const parts = []
+  for (const seg of remote) {
+    parts.push({ text: seg, kind: local.includes(seg) ? 'common' : 'remote' })
+  }
+  for (const seg of local) {
+    if (!remote.includes(seg)) parts.push({ text: seg, kind: 'local' })
+  }
+  const lines = []
+  const localRange = []
+  const remoteRange = []
+  for (const p of parts) {
+    if (lines.length) lines.push('')
+    const start = lines.length
+    lines.push(...p.text.split(/\r?\n/))
+    const end = lines.length - 1
+    if (p.kind === 'local') localRange.push([start, end])
+    if (p.kind === 'remote') remoteRange.push([start, end])
+  }
+  return { text: lines.join('\n'), localRange, remoteRange }
+}
+
+/** 行号是否落在任一段区间里 */
+function inRanges(ranges, line) {
+  return ranges.some(([s, e]) => line >= s && line <= e)
+}
+
 /* ───────────────────────── 插件本体 ───────────────────────── */
 
 const plugin = {
@@ -139,6 +187,14 @@ const plugin = {
      */
     let timingHistory = []
     let conflicts = []
+    /**
+     * 冲突合并稿（等用户在编辑页点选的一段）。
+     *
+     * 冲突时不再用远端版直接盖掉本机：把两版差异段都写进笔记正文
+     * （远端段红、本机段绿），用户点段首的 ✔ 保留一段，另一段删掉。
+     * 合并稿期间这篇**不能同步**（否则两段会一起推上去）。
+     */
+    let pendingMerges = []
     /**
      * 进程内已确认存在「同步点」的路径（rev173.115）。
      * 只放内存：丢了只是下一轮多写一次 base，不影响正确性。
@@ -330,6 +386,28 @@ const plugin = {
     }
 
     /**
+     * 把正文换成 `text` 的**唯一正确通道**。
+     *
+     * · 这篇正在编辑器里打开着 ⇒ 走 `doc.replaceRange`（一次编辑器事务）：
+     *   屏幕上的内容立刻变、随后的自动保存写的也是新内容。**不能**直接 `fs.writeText`——
+     *   编辑器缓冲区仍是旧内容，下一次保存（800 ms 防抖 / 切笔记 / 关窗）会把旧内容写回去。
+     * · 没打开（或宿主没给 doc 原语）⇒ 直接写盘。
+     *
+     * 写完立刻 `doc.save` 一次：同步流程接下来要读盘推远端，不能等 800 ms 防抖。
+     */
+    async function writeBody(path, text) {
+      const cur = api.doc?.active?.()
+      if (cur && cur.path === path && typeof api.doc.replaceRange === 'function') {
+        api.doc.replaceRange(0, String(cur.content ?? '').length, text)
+        /**
+         * 编辑器改完**再写一次盘**：不依赖"state 已同步"这种时序假设，也不依赖宿主
+         * 给我们 800 ms 防抖 —— 同步流程下面就要读盘推远端。两处内容相同，先写后写都无害。
+         */
+      }
+      await api.fs.writeText(path, text)
+    }
+
+    /**
      * 让 history 打一个**同步点**（rev173.115 三方合并的 base）。
      *
      * 时机：每次成功推 / 拉之后，两端内容一致 —— 这就是下次冲突时要用的「共同祖先」。
@@ -392,7 +470,7 @@ const plugin = {
     })
 
     /**
-     * 冲突时的三方合并：base 取自 history 同步点，mine = 本机，theirs = 远端。
+     * 三方合并：base 取自 history 同步点，mine = 本机，theirs = 远端。
      * 任何一环拿不到都返回 `null`（调用方走原「留两份」）。
      */
     async function autoMerge(client, path, localText) {
@@ -411,6 +489,40 @@ const plugin = {
         api.host.log('warn', `自动合并失败（${path}）：${String(e)}`)
         return null
       }
+    }
+
+    /**
+     * 把一篇的当前正文**直接推上远端**，并就地改 manifest 里这一条（rev173.290）。
+     *
+     * 与 `resolve-conflict` 里那段同一套理由：冲突收尾是"人已经做了决定"的动作，
+     * 不该再让 `decideSync` 猜方向 —— 远端 manifest 里这条可能已经过期，
+     * 按普通判定走会再判一次冲突（用户点了两次还是没结果）。
+     *
+     * 返回 false 的三种情况都**不是错误**：没配置远端 / 没网 / 上传失败 —— 调用方照常收尾，
+     * 下一轮同步会按「本地变、远端没变」补推。文件夹后端没有"推"这一步，同样返回 false。
+     */
+    async function pushOne(path, text) {
+      if (settings.backend === 'folder' || !hasConfig()) return false
+      const client = await makeClient()
+      const res = await client.put(path, text, undefined)
+      if (!res.ok) return false
+      const fp = fingerprint(text)
+      baseline[path] = { fp, etag: res.etag ?? undefined }
+      try {
+        const remote = (await client.readManifest()) || {}
+        const files = { ...(remote.files || {}) }
+        files[path] = { fp, etag: res.etag ?? undefined, at: Date.now() }
+        await client.writeManifest({
+          files,
+          attachments: remote.attachments || {},
+          private: remote.private || {},
+          privateTree: remote.privateTree || {},
+        })
+      } catch (e) {
+        // manifest 没写进去不算失败：下一轮按「本地变、远端没变」补齐
+        api.host.log('warn', `冲突收尾后更新 manifest 失败：${String(e)}`)
+      }
+      return true
     }
 
     /**
@@ -528,6 +640,17 @@ const plugin = {
         let processed = 0
         for (const n of notes) {
           if (!/\.md$/i.test(n.path)) continue
+          /**
+           * 冲突合并稿还没选：这篇本轮跳过，别把红绿两段一起推出去。
+           *
+           * ⚠️ 必须同时 `localPaths.add`：下面「本地没有、远端有」那一轮只认 localPaths，
+           * 漏加会让这篇在**同一轮里**被当作本地缺失 ⇒ 整篇写回远端版，合并稿刚写进去就没了
+           * （2026-10-31 实测：合并稿 100% 被这一轮覆盖，看起来"什么都没发生"）。
+           */
+          if (pendingMerges.some((p) => p.path === n.path)) {
+            localPaths.add(n.path)
+            continue
+          }
           if (processed >= MAX_FILES_PER_RUN) break
           processed += 1
           localPaths.add(n.path)
@@ -709,15 +832,43 @@ const plugin = {
             }
             await keepConflict(n.path, '双端修改')
             summary.conflicts += 1
-            // 取远端版（本机版已经进冲突目录）
-            const text = await client.get(n.path)
-            if (text != null) {
-              await api.fs.writeText(n.path, text)
-              const fp = fingerprint(text)
-              baseline[n.path] = { fp, etag: remoteEntry?.etag }
-              baseMarked.add(n.path)
-              await markBase(n.path, text)
-              summary.pulled += 1
+            /**
+             * 不再用远端版盖掉本机（旧行为：本机版进冲突目录、正文取远端版，
+             * 用户得去插件面板找记录再点按钮）。现在把两版差异段都写进正文：
+             * 远端段红、本机段绿，用户在编辑页点段首 ✔ 保留一段。
+             */
+            const remoteText = await client.get(n.path)
+            if (remoteText != null) {
+              const draft = buildMergeDraft(localText, remoteText)
+              /**
+               * **先登记 pending，再动编辑器**：行着色（addLineClass）与段首 ✔
+               * 都在编辑器事务里回调，登记晚了这一轮就渲染成普通正文。
+               */
+              pendingMerges = pendingMerges.filter((p) => p.path !== n.path)
+              pendingMerges.unshift({
+                path: n.path,
+                localText,
+                remoteText,
+                draftText: draft.text,
+                localRange: draft.localRange,
+                remoteRange: draft.remoteRange,
+                at: Date.now(),
+              })
+              void api.store.set(KEY_PENDING, pendingMerges).catch(() => {})
+              try {
+                /**
+                 * 写合并稿走**编辑器事务**（打开着的时候），不再 close → 写盘 → open。
+                 *
+                 * 为什么：close/open 那套要死死盯着时序 —— close 触发一次旧内容落盘、open
+                 * 再读回，中间任何一次自动保存（800 ms 防抖）都会把合并稿盖掉；实测得靠
+                 * 300 ms 睡眠赌运气。走 `doc.replaceRange` 时编辑器与磁盘是同一份内容，
+                 * 用户看到的就是他接下来要保存的东西。
+                 */
+                await writeBody(n.path, draft.text)
+                api.host.notify(`同步冲突：${n.path}（在正文里点 ✔ 保留一段）`, 'warn')
+              } catch (e) {
+                api.host.log('warn', `冲突合并稿写入失败（${n.path}）：${String(e)}`)
+              }
             }
             continue
           }
@@ -2225,6 +2376,96 @@ const plugin = {
       api.view.refresh()
     }
 
+    /* ───────── 编辑页冲突合并（A 方案）─────────
+     * 冲突时正文里已经写入两段（远端段红、本机段绿，见 buildMergeDraft）：
+     *   · 两段各自的行上色（class 见 styles.css）；
+     *   · 段首挂一个 ✔ —— 点哪段就保留哪段，另一段删掉、留下的恢复正文。
+     *
+     * ⚠️ 两个内核口径（2026-10-31 实测，别再踩）：
+     * · `classAt` / `filter` 收到的 `doc` 是**整篇正文文本**，不是路径
+     *   （`src/kernel/editor-marks.ts` 的 `buildDecorations` 传的是 `doc.toString()`）。
+     *   ⇒ "这是不是合并稿"要比对全文：合并稿是插件刚写进去的那份，一字不差。
+     * · 行首按钮的正则**不许零宽**：`buildDecorations` 对 `m[0].length === 0` 直接跳过，
+     *   写 `'^'` 时一个按钮都不会出现（上一版就是这样，看起来"点了没反应"）。
+     */
+    const mergeOf = (text) => pendingMerges.find((p) => p.draftText === text) ?? null
+
+    if (api.editor?.addLineClass) {
+      api.subscriptions.push(
+        api.editor.addLineClass({
+          id: 'conflict-lines',
+          classAt: ({ doc, line }) => {
+            const pm = mergeOf(doc)
+            if (!pm) return null
+            if (inRanges(pm.localRange, line)) return 'zn-conflict-local'
+            if (inRanges(pm.remoteRange, line)) return 'zn-conflict-remote'
+            return null
+          },
+        }),
+      )
+    }
+    if (api.editor?.addLineAction) {
+      api.subscriptions.push(
+        api.editor.addLineAction({
+          id: 'conflict-pick',
+          // 非零宽：命中"行首到第一个非空白字符"，按钮落在该行行首；哪些行真出按钮由 filter 定
+          pattern: '^\\s*\\S',
+          flags: 'm',
+          label: '✔',
+          title: '保留这一段（另一段会删掉）',
+          filter: ({ doc, line }) => {
+            const pm = mergeOf(doc)
+            if (!pm) return false
+            return inRanges(pm.localRange, line) || inRanges(pm.remoteRange, line)
+          },
+          onClick: 'sync.pick-conflict',
+        }),
+      )
+    }
+    register('sync.pick-conflict', '同步：保留冲突里的这一段', async (payload) => {
+      const line = Number(payload?.line ?? -1)
+      const cur = api.doc?.active?.()
+      if (!cur || line < 0) return
+      const pm = pendingMerges.find((p) => p.path === cur.path)
+      if (!pm) return
+      const isLocal = inRanges(pm.localRange, line)
+      const isRemote = inRanges(pm.remoteRange, line)
+      let text = null
+      let side = ''
+      if (isLocal && !isRemote) {
+        text = pm.localText
+        side = '本机版'
+      } else if (isRemote && !isLocal) {
+        text = pm.remoteText
+        side = '远端版'
+      }
+      if (text == null) return
+      /**
+       * 收尾走 `writeBody`（编辑器事务），**不能**只 `fs.writeText`：
+       * 屏幕上那两段就在编辑器缓冲区里，直接写盘只改了磁盘 ——
+       * 下一次自动保存（800 ms 防抖 / 切笔记 / 关窗）会把刚删掉的那段又写回去。
+       */
+      await writeBody(pm.path, text)
+      pendingMerges = pendingMerges.filter((p) => p.path !== pm.path)
+      await api.store.set(KEY_PENDING, pendingMerges).catch(() => {})
+      conflicts = conflicts.filter((c) => c.path !== pm.path)
+      await api.store.set(KEY_CONFLICTS, conflicts).catch(() => {})
+      /**
+       * 立刻把结果推上远端。**不能**交给下一轮 `runSync` 的方向判定：pick 之前
+       * 远端 manifest 里这篇的指纹还是「远端改的那版」，按普通判定会判成 pull，
+       * 把用户刚选的版本又用远端版盖掉（2026-10-31 单测现场抓到的就是这个）。
+       */
+      let pushed = false
+      try {
+        pushed = await pushOne(pm.path, text)
+      } catch (e) {
+        api.host.log('warn', `冲突收尾推送失败（${pm.path}）：${String(e)}`)
+      }
+      await api.store.set(KEY_BASELINE, baseline).catch(() => {})
+      api.host.notify(pushed ? `已保留${side}并推送：${pm.path}` : `已保留${side}：${pm.path}`)
+      api.view.refresh()
+    })
+
     api.view.registerPanel({ id: PANEL_ID, title: '同步', location: 'main', render })
     register('sync.open', '同步：打开设置与状态', () => openPanel())
     register('sync.save', '同步：保存 WebDAV 设置', () => {
@@ -2597,6 +2838,7 @@ const plugin = {
          */
         baseline = (await api.store.get(baselineKey(), {})) ?? {}
         conflicts = (await api.store.get(KEY_CONFLICTS, [])) ?? []
+        pendingMerges = (await api.store.get(KEY_PENDING, [])) ?? []
         timingHistory = (await api.store.get(KEY_TIMING, [])) ?? []
         if (settings.backend === 'folder') await folder.load()
       } catch (e) {

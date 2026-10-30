@@ -1,0 +1,19 @@
+/* 同步冲突 · 编辑页合并稿
+ *
+ * 冲突发生时插件把两版差异段都写进正文，行 class 由 `editor.addLineClass` 挂上：
+ *   · .zn-conflict-remote —— 远端（同步上来）那一版，红色
+ *   · .zn-conflict-local  —— 本机那一版，绿色
+ * 只改颜色与淡背景，字号 / 行高 / 字体跟正文完全一致；选完一段后 class 消失、
+ * 留下的那段就恢复成普通正文。
+ */
+.cm-line.zn-conflict-remote {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+  border-left: 2px solid rgba(255, 107, 107, 0.55);
+}
+
+.cm-line.zn-conflict-local {
+  color: #51cf66;
+  background: rgba(81, 207, 102, 0.12);
+  border-left: 2px solid rgba(81, 207, 102, 0.55);
+}

@@ -530,6 +530,7 @@ describe('插件接线', () => {
       'sync.mark-baseline',
       'sync.open',
       'sync.open-conflict',
+      'sync.pick-conflict',
       'sync.resolve-conflict',
       'sync.run',
       'sync.save',
@@ -1253,6 +1254,20 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     const commands = new Map<string, (p?: unknown) => unknown>()
     const notices: string[] = []
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    /**
+     * 编辑器原语桩（rev173.290）：冲突合并稿要靠 `editor.addLineClass` / `addLineAction`
+     * 上色与挂段首按钮。**必须有桩**：上一版没桩 ⇒ 插件初始化 `api.editor.addLineClass`
+     * 直接 TypeError ⇒ 54 条测试红、命令一条都没注册。
+     */
+    const lineClasses: Array<{ id: string; classAt: (c: { doc: string; line: number }) => string | null }> = []
+    const lineActions: Array<{
+      id: string
+      pattern: string
+      filter?: (c: { doc: string; line: number }) => boolean
+      onClick: string
+    }> = []
+    /** 当前打开的文档（`doc.active()` 的返回；测试用 `setActive` 摆状态） */
+    let activeDoc: { path: string; content: string } | null = null
     const api = {
       host: {
         platform,
@@ -1315,6 +1330,33 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
         },
         refresh: () => {},
       },
+      editor: {
+        addLineClass: (rule: { id: string; classAt: (c: { doc: string; line: number }) => string | null }) => {
+          lineClasses.push(rule)
+          return { dispose: () => {} }
+        },
+        addLineAction: (rule: {
+          id: string
+          pattern: string
+          filter?: (c: { doc: string; line: number }) => boolean
+          onClick: string
+        }) => {
+          lineActions.push(rule)
+          return { dispose: () => {} }
+        },
+      },
+      doc: {
+        active: () => activeDoc,
+        /** 真实语义：改编辑器缓冲区并随之写盘（见 App 的 replaceRange 接线） */
+        replaceRange: (from: number, to: number, text: string) => {
+          if (!activeDoc) return
+          const content = activeDoc.content.slice(0, from) + text + activeDoc.content.slice(to)
+          activeDoc = { ...activeDoc, content }
+          local.set(activeDoc.path, enc(content))
+          mtimes.set(activeDoc.path, Date.now())
+        },
+        save: async () => {},
+      },
       subscriptions: [] as Array<{ dispose?: () => void }>,
     }
     plugin.apply(api as never)
@@ -1323,6 +1365,13 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
       notices,
       store,
       render: () => render,
+      /** 摆一个"正打开着"的文档（pick 走 replaceRange 那条路要它） */
+      setActive: (d: { path: string; content: string } | null) => {
+        activeDoc = d
+      },
+      active: () => activeDoc,
+      lineClasses: () => lineClasses,
+      lineActions: () => lineActions,
       dispose: () => {
         for (const s of api.subscriptions) s.dispose?.()
       },
@@ -1342,7 +1391,7 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     await dev.commands.get('sync.save')!()
   }
 
-  it('本地改过 + store 丢了 + 远端也改过 ⇒ 本机版进冲突目录，本地取远端版', async () => {
+  it('本地改过 + store 丢了 + 远端也改过 ⇒ 本机版进冲突目录，正文变合并稿（两段都在）', async () => {
     const { files: dav, net, requests } = makeDav()
     const local = new Map<string, Uint8Array>()
     const mtimes = new Map<string, number>()
@@ -1377,8 +1426,11 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
 
     await A2.commands.get('sync.run')!({})
 
-    // 远端版回到本机 —— 这是原流程，不变
-    expect(dec(local.get('n.md')!)).toBe('remote-v2\n')
+    /**
+     * rev173.290 起：冲突不再「用远端版盖掉本机」，正文变成**合并稿** ——
+     * 远端段 + 本机段都在（用户要的就是"两段都按正文显示、颜色区分"）。
+     */
+    expect(dec(local.get('n.md')!)).toBe('remote-v2\n\nlocal-mine')
     // 走的是「冲突」而不是「静默拉取」：这一轮真的读了远端
     expect(requests.some((r) => r === 'GET n.md')).toBe(true)
     // 但本机改动**没有丢**：进了冲突目录（修前这里是 0 个文件）
@@ -1386,6 +1438,111 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     expect(conflictKeys).toHaveLength(1)
     expect(dec(local.get(conflictKeys[0])!)).toBe('local-mine\n')
     expect(A2.notices.some((m) => m.includes('同步冲突'))).toBe(true)
+    // 合并稿被记下来了（重启后还能接着选）
+    expect((A2.store.get('conflict.pending.v1') as Array<{ path: string }>).map((p) => p.path)).toEqual(['n.md'])
+
+    // 下一轮：合并稿还没选 ⇒ 整篇跳过 —— 不能再被「本地没有、远端有」那一轮覆盖回去
+    await A2.commands.get('sync.run')!({})
+    expect(dec(local.get('n.md')!)).toBe('remote-v2\n\nlocal-mine')
+    // 也不能把两段一起推上远端
+    expect(dec(dav.get('n.md')!.bytes)).toBe('remote-v2\n')
+
+    A2.dispose()
+  })
+
+  /* ── 编辑页合并：上色 + 段首 ✔ + 点选收尾（rev173.290）── */
+
+  it('合并稿上色：远端段红、本机段绿，其余行不着色', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+
+    local.set('n.md', enc('公共段\n\n本机改的\n'))
+    mtimes.set('n.md', Date.now() - 60_000)
+    await A.commands.get('sync.run')!({})
+
+    // 远端改成另一段，本机再改一次 ⇒ 判冲突（三方合并没有 history，降级留副本）
+    const other = new Map<string, Uint8Array>()
+    const om = new Map<string, number>()
+    const B = makeDevice(net, other, om, 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+    other.set('n.md', enc('公共段\n\n远端改的\n'))
+    om.set('n.md', Date.now() + 60_000)
+    await B.commands.get('sync.run')!({})
+    B.dispose()
+
+    local.set('n.md', enc('公共段\n\n本机改的\n'))
+    mtimes.set('n.md', Date.now() + 120_000)
+    const A2 = makeDevice(net, local, mtimes, 'windows')
+    await configure(A2)
+    await A2.commands.get('sync.run')!({})
+
+    const draft = dec(local.get('n.md')!)
+    expect(draft).toContain('远端改的')
+    expect(draft).toContain('本机改的')
+
+    // 逐行问：冲突段各有颜色，公共段没有
+    const classes = A2.lineClasses()
+    expect(classes.length).toBeGreaterThan(0)
+    const rule = classes[0]
+    const lines = draft.split('\n')
+    expect(rule.classAt({ doc: draft, line: lines.indexOf('远端改的') })).toBe('zn-conflict-remote')
+    expect(rule.classAt({ doc: draft, line: lines.indexOf('本机改的') })).toBe('zn-conflict-local')
+    expect(rule.classAt({ doc: draft, line: lines.indexOf('公共段') })).toBeNull()
+    // 正文不是合并稿（用户手动改过 / 别篇）⇒ 一律不着色
+    expect(rule.classAt({ doc: '随便一篇\n', line: 0 })).toBeNull()
+
+    A2.dispose()
+  })
+
+  it('点 ✔ 保留本机段 ⇒ 另一段从正文消失、留下的恢复普通正文，并推上远端', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+
+    local.set('n.md', enc('公共段\n\n本机改的\n'))
+    mtimes.set('n.md', Date.now() - 60_000)
+    await A.commands.get('sync.run')!({})
+
+    const other = new Map<string, Uint8Array>()
+    const om = new Map<string, number>()
+    const B = makeDevice(net, other, om, 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+    other.set('n.md', enc('公共段\n\n远端改的\n'))
+    om.set('n.md', Date.now() + 60_000)
+    await B.commands.get('sync.run')!({})
+    B.dispose()
+
+    local.set('n.md', enc('公共段\n\n本机改的\n'))
+    mtimes.set('n.md', Date.now() + 120_000)
+    const A2 = makeDevice(net, local, mtimes, 'windows')
+    await configure(A2)
+    await A2.commands.get('sync.run')!({})
+
+    const draft = dec(local.get('n.md')!)
+    const lines = draft.split('\n')
+    const localLine = lines.indexOf('本机改的')
+
+    // 用户此刻正打开着这篇（编辑器缓冲区 = 合并稿）—— pick 必须改编辑器而不仅是磁盘
+    A2.setActive({ path: 'n.md', content: draft })
+    await A2.commands.get('sync.pick-conflict')!({ line: localLine })
+
+    // 正文只剩本机版，且不再带任何冲突痕迹
+    expect(dec(local.get('n.md')!)).toBe('公共段\n\n本机改的\n')
+    expect(A2.active()?.content).toBe('公共段\n\n本机改的\n')
+    // 编辑器里已经不再是合并稿 ⇒ 着色规则全部失配（= 恢复成普通正文）
+    const rule = A2.lineClasses()[0]
+    expect(rule.classAt({ doc: A2.active()!.content, line: 0 })).toBeNull()
+    // 推上远端：远端变成用户选的那一版
+    expect(dec(dav.get('n.md')!.bytes)).toBe('公共段\n\n本机改的\n')
+    // 记录清空、pending 清空
+    expect((A2.store.get('conflict.pending.v1') as unknown[]) ?? []).toHaveLength(0)
 
     A2.dispose()
   })
