@@ -121,6 +121,15 @@ export interface SettingsProps {
    */
   autoCheckUpdates?: boolean
   onAutoCheckChange?: (on: boolean) => void
+  /**
+   * 环形快捷入口的 **5 格**（rev173.281 · J#9）：值 = 槽 key 或 `null`（空槽）。
+   * 中心 ＋ 固定是新建笔记，不在这里配。
+   * 不传 ⇒ 不显示这一块（测试 / 独立窗口不需要）。
+   */
+  quickSlots?: (string | null)[]
+  /** 可选入口（插件面板 + 内置动作） */
+  quickSlotOptions?: { key: string; label: string }[]
+  onQuickSlotChange?: (index: number, key: string | null) => void
 }
 
 export function Settings({
@@ -145,6 +154,9 @@ export function Settings({
   onOpenPluginCenter,
   autoCheckUpdates,
   onAutoCheckChange,
+  quickSlots,
+  quickSlotOptions = [],
+  onQuickSlotChange,
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
 
@@ -297,6 +309,33 @@ export function Settings({
                     ))}
                   </div>
                 </Row>
+                {/* J#9（rev173.281）：环形快捷入口的 5 格 —— 中心 ＋ 固定新建笔记 */}
+                {onQuickSlotChange ? (
+                  <>
+                    <SectionTitle>环形快捷入口</SectionTitle>
+                    <Row
+                      label="长按 ＋ 打开的 5 个入口"
+                      hint="中心 ＋ 固定是「新建笔记」；下面 5 格对应环上的位置（第 1 格在正上方）"
+                    />
+                    {(quickSlots ?? []).map((slot, i) => (
+                      <Row key={i} label={`第 ${i + 1} 格`}>
+                        <select
+                          aria-label={`第 ${i + 1} 格快捷入口`}
+                          value={slot ?? ''}
+                          onChange={(e) => onQuickSlotChange(i, e.target.value || null)}
+                          className="rounded-ui-sm border border-border-strong bg-background px-2 py-1 text-xs text-foreground"
+                        >
+                          <option value="">（空位）</option>
+                          {quickSlotOptions.map((o) => (
+                            <option key={o.key} value={o.key}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Row>
+                    ))}
+                  </>
+                ) : null}
               </>
             ) : null}
 

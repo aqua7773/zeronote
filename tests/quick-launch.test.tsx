@@ -143,11 +143,38 @@ describe('QuickLaunch 环', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('点中心 × 关闭', () => {
+  it('点中心 ＋ → 新建笔记并关闭（J#9：中心固定是新建，不是关闭）', () => {
     const onClose = vi.fn()
-    render(<QuickLaunch open onClose={onClose} entries={[entry()]} />)
-    fireEvent.click(screen.getByRole('button', { name: '关闭快捷入口' }))
+    const onNewNote = vi.fn()
+    render(<QuickLaunch open onClose={onClose} entries={[entry()]} onNewNote={onNewNote} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记' }))
+    expect(onNewNote).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('不传 onNewNote 时中心只关闭（兼容旧调用 / 单测）', () => {
+    const onClose = vi.fn()
+    render(<QuickLaunch open onClose={onClose} entries={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('「换入口」→ 调 onEdit（不进环的槽位）', () => {
+    const onEdit = vi.fn()
+    render(<QuickLaunch open onClose={vi.fn()} entries={[]} onEdit={onEdit} />)
+    fireEvent.click(screen.getByRole('button', { name: '换入口' }))
+    expect(onEdit).toHaveBeenCalledTimes(1)
+  })
+
+  it('null 槽位补虚线空位（5 格固定）', () => {
+    render(
+      <QuickLaunch
+        open
+        onClose={vi.fn()}
+        entries={[entry(), null, null, null, null]}
+      />,
+    )
+    expect(document.querySelectorAll('.zn-quick-item.is-empty')).toHaveLength(4)
   })
 
   it('未安装的入口灰化、不触发回调', () => {

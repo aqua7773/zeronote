@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-share"
+version = "0.1.0"
+description = "ZeroNote: 系统分享（Android ACTION_SEND 纯文本）"
+authors = ["AQUA"]
+license = "MIT"
+edition = "2021"
+build = "build.rs"
+links = "tauri-plugin-share"
+
+[lib]
+name = "tauri_plugin_share"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12.3" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

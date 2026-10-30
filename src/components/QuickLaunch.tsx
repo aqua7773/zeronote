@@ -1,19 +1,24 @@
 /**
- * 起始页「长按 ＋」的环形快捷入口（rev173.20 / rev173.21）。
+ * 起始页「长按 ＋」的环形快捷入口（rev173.20 / rev173.21 / rev173.281）。
  *
  * 形态借自手机「指纹一指直达」的**环形遮罩**（长按 → 弹一圈快捷 → 点一项进入），
  * 但入口全是**笔记内部功能**（插件面板 / 内置动作），不涉及指纹、支付、扫码。
  *
  * 2026-10-19 用户拿锁屏上的环形菜单当样子重做了两处：
  *   ① **圆心 = ＋ 按钮**（不是屏幕中心）—— ＋ 先上移到用户圈的位置，环就长在它周围；
- *   ② 角度照参考图「上三下二」：0° / ±40° / ±140°，不再 72° 均分。
+ *   ② 角度照参考图「上三下二」：0° / ±48° / ±96°，不再 72° 均分。
+ *
+ * **2026-10-30 用户拍板 J#9：共 6 个位置** ——
+ *   · 中心「＋」= **新建笔记（固定）**；
+ *   · 周围 5 格 = 功能入口（**可配**，配置存 `lib/quick-slots.ts`，入口在设置 → 通用）。
+ *   改造前中心是「× 关闭」，用户更正过：「本来那个加号就是新建笔记」。
  *
  * 定位做法：`--a` 决定方向，槽是 0×0 的定位容器（`rotate(θ) translateY(-R)`），
  * 条目再反向转 -θ 保持文字正立 —— 纯 CSS，不用量尺寸、不随屏幕宽度漂移。
  *
- * 关闭：点空白 → `pointerdown` 关闭（**必须 preventDefault**，否则遮罩卸载后
- * 浏览器补发的 click 会落到下面的卡片上，真机实测会直接打开后面的笔记）；
- * 点中心 × → click 关闭。Escape 也关。
+ * 关闭：点空白 → `pointerdown` 阻止默认、`click` 关闭（**必须 preventDefault**，否则
+ * 遮罩卸载后浏览器补发的 click 会落到下面的卡片上，真机实测会直接打开后面的笔记）；
+ * 点中心 ＋ / 「换入口」→ 各自动作后再关。Escape 也关。
  */
 import { useEffect, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
@@ -31,8 +36,18 @@ export type QuickEntry = {
 type Props = {
   open: boolean
   onClose: () => void
-  /** 最多 5 个；不足的补空位（虚线圆，不可点） */
-  entries: QuickEntry[]
+  /**
+   * 最多 5 个槽位；`null`（或数组不够长）⇒ 该位置补虚线空位，不可点。
+   * 槽位顺序 = `ANGLES` 的顺序（正上 → 右上 → 左上 → 右下 → 左下）。
+   */
+  entries: Array<QuickEntry | null>
+  /**
+   * 中心 ＋ 的动作：**新建笔记**（J#9 起固定）。
+   * 不传 ⇒ 中心只负责关闭（兼容旧调用方 / 单测）。
+   */
+  onNewNote?: () => void
+  /** 「换入口」→ 去设置里配置这 5 格（不传就不显示这个入口） */
+  onEdit?: () => void
 }
 
 /**
@@ -43,7 +58,7 @@ type Props = {
  */
 const ANGLES = [0, 48, -48, 96, -96]
 
-export function QuickLaunch({ open, onClose, entries }: Props) {
+export function QuickLaunch({ open, onClose, entries, onNewNote, onEdit }: Props) {
   // Escape 关闭（桌面快捷键顺手也能用；手机不依赖）
   useEffect(() => {
     if (!open) return
@@ -63,9 +78,14 @@ export function QuickLaunch({ open, onClose, entries }: Props) {
       aria-modal="true"
       aria-label="快捷入口"
       onPointerDown={(e) => {
-        // 只在遮罩空白处按下时**阻止默认**（别让长按选择/弹出系统菜单）；
-        // 真正关闭放到 click —— 见下面的注释。
-        e.preventDefault()
+        /**
+         * 只在**遮罩空白处**按下时阻止默认（别让长按选择/弹出系统菜单）。
+         *
+         * ⚠️ 必须判 `target === currentTarget`（rev173.281 J#9 真机发现）：
+         * 按钮上的 pointerdown 也会冒泡到这里，无条件 `preventDefault()` 会吞掉
+         * 中心 ＋ 的后续 click —— 表现为「环开着，点 ＋ 没反应」。
+         */
+        if (e.target === e.currentTarget) e.preventDefault()
       }}
       onClick={(e) => {
         /**
@@ -87,7 +107,7 @@ export function QuickLaunch({ open, onClose, entries }: Props) {
       {/* 0×0 定位容器：坐标原点 = ＋ 按钮的中心（CSS 与 .zn-mobile-compose 同一套 bottom） */}
       <div className="zn-quick-ring">
         {ANGLES.map((deg, i) => {
-          const entry = entries[i]
+          const entry = entries[i] ?? null
           const angle = `${deg}deg`
           return (
             <div
@@ -120,20 +140,40 @@ export function QuickLaunch({ open, onClose, entries }: Props) {
         })}
       </div>
 
-      {/* 中心圆：与 ＋ 按钮重合，点它 = 关闭 */}
+      {/*
+       * 中心圆：**与 ＋ 按钮重合**（同一套 bottom/尺寸）。
+       * J#9（2026-10-30 用户拍板）起它是**新建笔记**，不再是 × 关闭 ——
+       * 「本来那个加号就是新建笔记」。关闭走点空白 / Escape / 点任一入口。
+       */}
       <button
         type="button"
         className="zn-quick-center"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation()
+          onNewNote?.()
           onClose()
         }}
-        aria-label="关闭快捷入口"
+        aria-label="新建笔记"
+        title="新建笔记"
       >
-        ×
+        ＋
       </button>
-      <div className="zn-quick-hint">点空白关闭</div>
+      <div className="zn-quick-hint">
+        <span>点空白关闭</span>
+        {onEdit ? (
+          <button
+            type="button"
+            className="zn-quick-edit"
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit()
+            }}
+          >
+            换入口
+          </button>
+        ) : null}
+      </div>
     </div>,
     document.body,
   )

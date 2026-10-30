@@ -33,6 +33,7 @@ import type {
   FsApi,
   HostApi,
   IndexApi,
+  ItemMenuApi,
   Plugin,
   PluginContext,
   ServiceApi,
@@ -154,6 +155,8 @@ export type PluginHostDeps = {
   service: (pluginId: string) => ServiceApi
   /** 编辑器标记规则的注册表（按插件 id 视图化） */
   editor: (pluginId: string) => EditorApi
+  /** 条目菜单动作注册表（按插件 id 视图化 · rev173.281） */
+  itemMenu: (pluginId: string) => ItemMenuApi
   /** 核心能力接管（需求 §2.15 · rev173.231）；按插件 id 视图化，卸载时宿主调 release */
   capability: (pluginId: string) => CapabilityApi
   /**
@@ -401,6 +404,23 @@ function scopedCommand(
       return collect(subs, cmd.register({ ...spec, run: tagCommandImpl(spec.run, tag) }))
     },
     bind: (id, run) => collect(subs, cmd.bind(id, tagCommandImpl(run, tag))),
+  }
+}
+
+/**
+ * itemMenu 条目菜单动作（rev173.281 · J#18）：自动登记 + 打归属。
+ *
+ * 与 `command.register` 同一条理由：插件作者漏推返回值时，宿主按 pluginId
+ * 兜底回收（`releaseItemMenus`），不会在菜单里留下一条点了报「命令不存在」的项。
+ */
+function scopedItemMenu(
+  factory: (pluginId: string) => ItemMenuApi,
+  pluginId: string,
+  subs: Disposable[],
+): ItemMenuApi {
+  const api = factory(pluginId)
+  return {
+    register: (action) => collect(subs, api.register(action)),
   }
 }
 
@@ -945,6 +965,7 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     index: audit('index', deps.index),
     event: audit('event', scopedEvent(deps.event, manifest.id, subs)),
     command: audit('command', scopedCommand(deps.command, manifest.id, subs, ownedCommands)),
+    itemMenu: audit('itemMenu', scopedItemMenu(deps.itemMenu, manifest.id, subs)),
     view: audit('view', scopedView(deps.view, manifest.id, subs)),
     // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。

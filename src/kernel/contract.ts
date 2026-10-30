@@ -386,6 +386,87 @@ export interface CommandApi {
   list(): { id: string; title: string }[]
 }
 
+/* ───────────── 条目菜单动作（rev173.281 · J#18） ───────────── */
+
+/**
+ * 条目菜单出现的**宿主位置**：
+ * · `file-tree` —— 文件树右键 / 手机长按一个节点
+ * · `timeline` —— 时间流卡片右键 / 长按（桌面时间流面板与手机起始页同一套卡片）
+ *
+ * 为什么由内核定义位置、而不是插件自己往某个 DOM 里塞：菜单是宿主组件
+ * （`FileTree` / `MobileNoteCards`）自持的浮层，插件只能**声明动作**，
+ * 位置与外观由宿主统一负责。
+ */
+export type ItemMenuWhere = 'file-tree' | 'timeline'
+
+/**
+ * 条目类型 —— 宿主只暴露三档，**不让插件认识 png / pdf / epub 这些内核细节**：
+ * · `note` —— `.md` 笔记
+ * · `dir` —— 文件夹
+ * · `attachment` —— 其它文件（文档 / 图片 / 音视频）
+ */
+export type ItemMenuKind = 'note' | 'dir' | 'attachment'
+
+/**
+ * 一条**条目菜单动作**：宿主把它渲染进右键 / 长按菜单，点击时执行 `command`。
+ *
+ * 两种登记方式（与命令同构）：
+ * ① `manifest.contributes.itemMenus` —— 静态声明，插件没加载也能列出来；
+ * ② `ctx.itemMenu.register(action)` —— 运行时登记。
+ * 同一个插件对同一个 `command` 两处都写时，运行时那份覆盖静态那份（一个动作只出现一次）。
+ */
+export type ItemMenuAction = {
+  /**
+   * 点击时执行的命令 id —— 与 `contributes.commands` / `command.register` 同一套。
+   * 懒激活插件只要在 `contributes.commands` 里声明过它，点击时宿主会自动激活插件。
+   *
+   * **有 `children` 的父项不写**（它只展开子菜单，本身不是动作）。
+   */
+  command?: string
+  title: string
+  /** 出现在哪些菜单；不写 = 两处都出 */
+  where?: ItemMenuWhere[]
+  /** 只对哪些条目类型出现；不写 = `['note']`（目录 / 附件不会出现导出项） */
+  kinds?: ItemMenuKind[]
+  /** 在这一项**上方**画分隔线（它是第一项时不画） */
+  divider?: boolean
+  /** 危险动作（红字） */
+  danger?: boolean
+  /** 排序，小的在前；不写 = 100（同档按插件登记顺序） */
+  order?: number
+  /**
+   * 一层子菜单（父项自己不执行命令，只展开）。
+   * 典型：`导出为…` 下面挂 txt / html / md / docx 几条。
+   */
+  children?: ItemMenuAction[]
+}
+
+/**
+ * 宿主执行动作命令时传入的**唯一参数**（`commands.execute(action.command, ctx)`）。
+ * 插件按 `path` 取目标条目 —— 不要假设"就是当前打开的那篇"：
+ * 右键导出的可能是没打开的那一篇。
+ */
+export type ItemMenuContext = {
+  /** 库内相对路径（条目本身） */
+  path: string
+  kind: ItemMenuKind
+  where: ItemMenuWhere
+  /** 文件树多选时的全部路径（含 `path`）；单选 / 时间流不传 */
+  paths?: string[]
+}
+
+/** 宿主读取到的登记项（带归属插件，便于插件页 / 诊断） */
+export type ItemMenuRegistration = ItemMenuAction & { pluginId: string }
+
+/** 6. itemMenu —— 条目菜单动作（rev173.281） */
+export interface ItemMenuApi {
+  /**
+   * 登记一条动作。返回值收进 `ctx.subscriptions` 即可随插件卸载一起消失
+   * （宿主也会兜底按 pluginId 回收）。
+   */
+  register(action: ItemMenuAction): Disposable
+}
+
 /**
  * 懒激活触发条件（`manifest.activationEvents`）。
  *
@@ -1232,6 +1313,8 @@ export interface PluginContext {
   index: IndexApi
   event: EventApi
   command: CommandApi
+  /** 条目菜单动作（rev173.281）—— 文件树 / 时间流的右键与长按菜单 */
+  itemMenu: ItemMenuApi
   view: ViewApi
   store: StoreApi
   host: HostApi
@@ -1403,6 +1486,16 @@ export type PluginManifest = {
       title: string
       location: PanelLocation
     }[]
+    /**
+     * **条目菜单动作**（rev173.281 · J#18）：文件树 / 时间流右键长按菜单里的插件项。
+     *
+     * 写在 manifest 里 ⇒ 插件**不用加载**就能出现在菜单里（与 `contributes.commands`
+     * 的静态登记同一时机）；点击时命令执行器会自动激活懒激活插件。
+     * `command` 必须在 `contributes.commands` 里声明，或在 `apply()` 里
+     * `command.register` / `bind` 过 —— 否则点了会报「命令不存在」，宿主不做存在性过滤
+     * （静态阶段根本无法知道实现会不会在激活后补上）。
+     */
+    itemMenus?: ItemMenuAction[]
   }
 }
 

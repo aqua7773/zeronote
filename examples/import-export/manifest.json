@@ -8,10 +8,30 @@
   "platforms": ["desktop", "android"],
   "description": "导入外部文件或导出笔记",
   "category": "tool",
-  "capabilities": ["fs:read", "fs:write", "command", "view:main"],
+  "capabilities": ["fs:read", "fs:write", "command", "view:main", "proc"],
   "contributes": {
     "commands": [
       { "id": "io.importFile", "title": "导入外部文件…" }
+    ],
+    "itemMenus": [
+      {
+        "title": "导出为…",
+        "kinds": ["note"],
+        "children": [
+          { "command": "io.exportTxt", "title": "纯文本 txt" },
+          { "command": "io.exportHtml", "title": "网页 html" },
+          { "command": "io.exportMdEmbed", "title": "Markdown（图片内嵌）" },
+          { "command": "io.exportPng", "title": "长图 png" },
+          { "command": "io.exportDocx", "title": "Word docx" },
+          { "command": "io.exportPdf", "title": "PDF（打印）" }
+        ]
+      },
+      {
+        "command": "io.share",
+        "title": "分享…",
+        "kinds": ["note"],
+        "order": 110
+      }
     ],
     "panels": [{ "id": "io.panel", "title": "导入导出", "location": "main" }]
   }

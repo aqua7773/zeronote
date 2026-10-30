@@ -20,6 +20,7 @@ import type {
   FsApi,
   HostApi,
   IndexApi,
+  ItemMenuRegistration,
   NetApi,
   NoteMeta,
   PanelLocation,
@@ -38,6 +39,7 @@ import { createEventApi, type EventBus } from './event'
 import { createFsApi } from './fs'
 import { withFsEvents } from './fs-events'
 import { createIndexApi } from './index-api'
+import { createItemMenuRegistry, type ItemMenuRegistry } from './item-menu'
 import { allPluginTopics } from './plugin-host'
 import { createNetApi } from './net'
 import { createServiceRegistry } from './service'
@@ -104,6 +106,11 @@ export type KernelHooks = {
   ) => void
   /** 插件通过 `view.setState` 写面板状态时回调 */
   onPanelStateChange: (bind: string, value: unknown) => void
+  /**
+   * **条目菜单动作变了**（rev173.281）：静态声明 / 插件运行时注册 / 卸载回收都会触发。
+   * 宿主把它存进 state，再把当前清单传给 `FileTree` / `MobileNoteCards` 渲染菜单。
+   */
+  onItemMenusChange?: (list: ItemMenuRegistration[]) => void
   /** 服务登记表变了（宿主一般不需要处理 —— kernel 已经把它转成 event 广播） */
   onServicesChange?: (list: { name: string; pluginId: string; version?: string; loaded: boolean }[]) => void
   /**
@@ -148,6 +155,11 @@ export type KernelAudit = {
   pluginTopics: Record<string, string[]>
   /** 已登记面板：id / 位置 / 归属插件 */
   panels: { id: string; location: PanelLocation; pluginId?: string }[]
+  /**
+   * 已登记的**条目菜单动作**（rev173.281）—— 卸载插件后必须回空。
+   * 只收渲染要用到的稳定字段（`children` 扁平化为 `<父>/<子>` 命令名），便于逐字比较。
+   */
+  itemMenus: { command: string; title: string; where: string[]; kinds: string[]; pluginId: string }[]
   /** 服务表：名字 / 提供者 / 是否已实例化 */
   services: { name: string; pluginId: string; loaded: boolean }[]
   /** 编辑器标记规则（`pluginId/ruleId`） */
@@ -213,6 +225,15 @@ export type Kernel = {
   setCapabilityChoice: (name: CapabilityName, pluginId: string | null) => void
   /** 插件卸载时强制回收它接管的能力（兜底：Disposable 漏推也不会留下幽灵提供者） */
   releaseCapabilities: (pluginId: string) => void
+  /**
+   * **条目菜单动作注册表**（rev173.281 · J#18）。
+   *
+   * 宿主用它读当前清单（`list()`，随 `onItemMenusChange` 变化），插件宿主用它
+   * 按插件视图化（`scoped(id)`）与静态声明（`declare(...)`）。
+   */
+  itemMenu: ItemMenuRegistry
+  /** 插件卸载时强制回收它的条目菜单动作（静态声明 / 运行时登记都清） */
+  releaseItemMenus: (pluginId: string) => void
   /**
    * **宿主侧**的「把面板开成独立窗口」（rev173.83）—— 标签拖出 / 右键「在新窗口打开」用。
    *
@@ -280,6 +301,12 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
       err instanceof Error ? err.stack : undefined,
     )
   })
+
+  /**
+   * **条目菜单动作**（rev173.281 · J#18）：文件树 / 时间流的右键长按菜单。
+   * 变更即时通知宿主（App 把它存进 state，传给两个菜单组件）。
+   */
+  const itemMenus = createItemMenuRegistry((list) => hooks.onItemMenusChange?.(list))
 
   const panelMap = new Map<string, PanelRegistration>()
   /**
@@ -702,6 +729,8 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     index,
     event,
     commands,
+    itemMenu: itemMenus,
+    releaseItemMenus: (pluginId: string) => itemMenus.release(pluginId),
     view,
     host,
     net: createNetApi(),
@@ -741,6 +770,15 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
         id: p.id,
         location: p.location,
         pluginId: p.pluginId,
+      })),
+      itemMenus: itemMenus.list().map((m) => ({
+        // 父项没有 command：用「父标题/子命令」拼一个稳定可比较的名字
+        command:
+          m.command ?? `${m.title}/${(m.children ?? []).map((c) => c.command ?? c.title).join(',')}`,
+        title: m.title,
+        where: [...(m.where ?? ['file-tree', 'timeline'])],
+        kinds: [...(m.kinds ?? ['note'])],
+        pluginId: m.pluginId,
       })),
       services: services
         .snapshot()

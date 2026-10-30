@@ -38,7 +38,7 @@ import {
 } from '../kernel/plugin-host'
 import { collectPluginDirs, globalPluginRoot, tryGlobalPluginRoot } from '../kernel/plugin-roots'
 import { installFromMarket, type MarketEntry } from '../kernel/market'
-import type { PluginManifest } from '../kernel/contract'
+import type { Disposable, PluginManifest } from '../kernel/contract'
 import { LS_LOADING } from '../lib/boot-heal'
 import { dropBootPluginStyles } from '../lib/boot-plugin-styles'
 
@@ -165,6 +165,13 @@ export function usePluginHost({
     const pending = new Map<string, PluginDirEntry>()
     /** 本次静态声明过命令的插件 id —— 卸载时要把它们的命令元数据也清掉 */
     const declaredIds = new Set<string>()
+    /**
+     * 本次静态登记过的**条目菜单动作**（rev173.281 · J#18）。
+     *
+     * 与命令同一时机清理：插件可能从没被激活过，它声明的菜单项却已经挂在
+     * 文件树 / 时间流的右键菜单里了 —— 不清掉就是「点了报命令不存在」的幽灵项。
+     */
+    const declaredItemMenus: Disposable[] = []
     /** 本次因平台不符被跳过的插件 id（循环末尾交给 state，供插件页标「不适用」） */
     const platformSkippedIds: string[] = []
     /** 平台门的输入 —— 取 kernel 的 `host.platform`（单一真相），别另算一遍 UA */
@@ -183,6 +190,7 @@ export function usePluginHost({
       net: k.net,
       service: k.service,
       editor: k.editor,
+      itemMenu: (pluginId: string) => k.itemMenu.scoped(pluginId),
       capability: k.capability,
       // 能力使用审计（rev173.78）：App 侧传进来，没传就不记录
       usage,
@@ -209,6 +217,7 @@ export function usePluginHost({
         k.releaseServices(pluginId)
         k.releaseEditorMarks(pluginId)
         k.releaseCapabilities(pluginId)
+        k.releaseItemMenus(pluginId)
         return
       }
       setLoadedIds((ids) => (ids.includes(pluginId) ? ids : [...ids, pluginId]))
@@ -231,6 +240,7 @@ export function usePluginHost({
         k.releaseServices(l.manifest.id)
         k.releaseEditorMarks(l.manifest.id)
         k.releaseCapabilities(l.manifest.id)
+        k.releaseItemMenus(l.manifest.id)
       }
       if (cancelled) return
 
@@ -307,6 +317,21 @@ export function usePluginHost({
             continue
           }
           /**
+           * **条目菜单动作静态登记**（rev173.281 · J#18）。
+           *
+           * 对**所有**插件都登记（不只懒激活的）：manifest 里写了就应该出现在菜单里，
+           * 不需要插件先 apply 一次。非懒激活插件在 `apply()` 里再 `itemMenu.register`
+           * 同一个 command 时，注册表按 pluginId + command 去重 ⇒ 运行时那份覆盖静态这份，
+           * 菜单里仍然只有一项。
+           */
+          for (const action of m.contributes?.itemMenus ?? []) {
+            try {
+              declaredItemMenus.push(k.itemMenu.declare([action], m.id))
+            } catch (e) {
+              setPluginError(`插件 ${m.id} 的条目菜单声明无效：${String(e)}`)
+            }
+          }
+          /**
            * 懒激活判定：写了 `activationEvents` 且**不含** onStartup / onVaultOpen
            * ⇒ 只静态登记命令元数据，插件代码一行都不跑（命令面板照样列得出它）。
            * 没写（或写了 onStartup）⇒ **老行为**：立即 apply —— 现有插件零影响。
@@ -349,6 +374,7 @@ export function usePluginHost({
               k.releaseServices(m.id)
               k.releaseEditorMarks(m.id)
               k.releaseCapabilities(m.id)
+              k.releaseItemMenus(m.id)
               return
             }
             loaded.push(l)
@@ -362,6 +388,8 @@ export function usePluginHost({
             }
             // 被取代时不再报错：那些失败多半是取消造成的假象
             if (!cancelled) setPluginError(`插件 ${m.id} 加载失败：${String(e)}`)
+            // 加载失败 ⇒ 刚才静态登记的条目菜单动作要撤掉（否则菜单里留着点了报错的项）
+            k.releaseItemMenus(m.id)
           } finally {
             // 加载**走完**了（成功或失败）⇒ 标记使命结束。
             // 只有"进程在这里死掉"才会把它留下 —— 那正是启动自愈要认的那种卡死。
@@ -405,6 +433,8 @@ export function usePluginHost({
       k.commands.setActivator(async () => {})
       // 静态声明的命令元数据是同步资源，当场清（那些插件可能从没被激活过）
       for (const id of declaredIds) k.commands.release(id)
+      // 条目菜单动作同理（rev173.281）：卸载后菜单里不能留下点了报「命令不存在」的项
+      for (const d of declaredItemMenus.splice(0)) d.dispose()
       setLoadedIds([])
       setPlatformSkipped([])
       // 实例的卸载**不在这里做**：交给链上的下一代开头统一处理（run 的 ① 步）。

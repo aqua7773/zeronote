@@ -31,6 +31,8 @@ import {
 } from './kernel/market'
 import type {
   DocEvent,
+  ItemMenuContext,
+  ItemMenuRegistration,
   NoteDoc,
   NoteMeta,
   PluginLogEntry,
@@ -120,6 +122,8 @@ import {
   type SmartSection,
 } from './lib/smart-sections'
 import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from './lib/rail-pins'
+/* J#9（rev173.281）：环形快捷入口 5 格配置（中心 ＋ 固定新建笔记） */
+import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
@@ -357,6 +361,11 @@ export default function App() {
    */
   const [platformSkipped, setPlatformSkipped] = useState<string[]>([])
   const [panels, setPanels] = useState<PanelRegistration[]>([])
+  /**
+   * 条目菜单动作（rev173.281 · J#18）：插件对文件树 / 时间流右键长按菜单的贡献。
+   * 来源 = 内核 `itemMenu.list()`（静态声明 + 运行时注册），变更由 `onItemMenusChange` 推送。
+   */
+  const [itemMenus, setItemMenus] = useState<ItemMenuRegistration[]>([])
   /** 结构化插件日志（rev173.229 · 需求 §2.13）：带归属 / 级别 / 错误堆栈 */
   const [panelLog, setPanelLog] = useState<PluginLogEntry[]>([])
   /** 开发者模式（localStorage，插件页「调试」tab 的开关） */
@@ -472,6 +481,11 @@ export default function App() {
    * 与菜单 / 命令面板不同，它**不是浮层互斥组**的一员（只从手机上开，且自带遮罩）。
    */
   const [quickOpen, setQuickOpen] = useState(false)
+  /**
+   * 环形快捷入口的 **5 格**（J#9 · rev173.281）：`null` = 空槽。
+   * 配置存 localStorage（应用级，不跟库走），设置 → 通用里可改。
+   */
+  const [quickSlots, setQuickSlots] = useState<(string | null)[]>(() => readQuickSlots())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /** 左上角菜单栏的弹出位置；null = 关闭 */
@@ -985,6 +999,8 @@ export default function App() {
           onLog: (msg, level, pluginId, stack) =>
             setPanelLog((l) => [...l.slice(-499), { ts: Date.now(), pluginId: pluginId ?? null, level: level ?? 'info', msg, stack }]),
           onPanelStateChange: (bind, value) => setPanelState((s) => ({ ...s, [bind]: value })),
+          // 条目菜单动作（rev173.281）：静态声明 / 插件注册 / 卸载回收都推一次
+          onItemMenusChange: setItemMenus,
           // U2：整窗接管变化 ⇒ 触发一次重渲染（账在内核里，渲染时读 `kernel.shellOwner()`）
           onShellChange: () => setShellTick((t) => t + 1),
           /**
@@ -1974,6 +1990,21 @@ export default function App() {
   const runCore = useCallback(
     (id: string, payload?: Record<string, unknown>) => {
       void kernel?.commands.api.execute(id, payload).catch((e) => setError(String(e)))
+    },
+    [kernel],
+  )
+
+  /**
+   * 执行一条**条目菜单动作**（rev173.281 · J#18）。
+   *
+   * 菜单项由插件声明、内核登记，宿主只负责把「点的是哪个条目」作为参数传下去：
+   * `commands.execute(action.command, { path, kind, where, paths })`。
+   * 懒激活插件在这里被 `execute` 自动激活（命令表里没有实现时先加载插件）。
+   */
+  const runItemAction = useCallback(
+    (action: ItemMenuRegistration, ctx: ItemMenuContext) => {
+      if (!action.command) return
+      void kernel?.commands.api.execute(action.command, ctx).catch((e) => setError(String(e)))
     },
     [kernel],
   )
@@ -4361,20 +4392,59 @@ export default function App() {
   })
 
   /**
-   * 起始页长按 ＋ 的环形快捷入口（rev173.20，调研见 `docs/快捷入口-调研-2026-10-19.md`）。
-   * 入口**按面板 title 找 id**，不硬编码插件 id —— 插件换名 / 多面板时由内核的面板表决定；
-   * 还没装就灰化占位（标「未安装」），不报错。空位由 QuickLaunch 自己补到 5 个。
+   * 起始页长按 ＋ 的环形快捷入口（rev173.20；**J#9 rev173.281 改成「6 个位置」**）。
+   *
+   * 中心 ＋ 固定 = 新建笔记（在 `QuickLaunch` 里）；这里只算**周围 5 格**。
+   * 槽位来自 `lib/quick-slots.ts`（设置 → 通用里可配）；面板按 **id** 解析 ——
+   * 插件换名 / 多面板时由内核的面板表决定，不硬编码 title。
+   * 面板没了（插件卸载 / 禁用）⇒ 灰位占槽「未安装」，不画一个点不动的怪东西。
    */
-  const accountingPanel = panels.find((p) => p.title === '记账') ?? null
-  const quickEntries: QuickEntry[] = [
-    {
-      key: 'accounting',
-      label: '记账',
-      disabled: !accountingPanel,
-      hint: '未安装',
-      onClick: accountingPanel ? () => setMainView(accountingPanel.id) : undefined,
-    },
-  ]
+  const quickPanelOptions = panels.filter((p) => !p.hidden)
+  const quickSlotChoices = quickSlotOptions(quickPanelOptions)
+  const resolveQuickEntry = (key: string | null): QuickEntry | null => {
+    if (!key) return null
+    if (key.startsWith('panel:')) {
+      const panel = panels.find((p) => p.id === key.slice('panel:'.length))
+      if (!panel) {
+        return {
+          key,
+          label: quickSlotLabel(key, quickPanelOptions) ?? '插件',
+          disabled: true,
+          hint: '未安装',
+        }
+      }
+      return { key, label: panel.title, onClick: () => openPanelInTab(panel.id) }
+    }
+    switch (key) {
+      case 'builtin:search':
+        return { key, label: '搜索', onClick: () => switchMobileTab('search') }
+      case 'builtin:plugins':
+        return { key, label: '插件中心', onClick: () => switchMobileTab('plugins') }
+      case 'builtin:trash':
+        return { key, label: '回收站', onClick: () => openTrash() }
+      case 'builtin:settings':
+        return { key, label: '设置', onClick: () => openOverlay('settings') }
+      case 'builtin:vaults':
+        return { key, label: '切换笔记库', onClick: () => setVaultPanelOpen(true) }
+      case 'builtin:timeline':
+        return isDesktop
+          ? { key, label: '时间流', onClick: () => selectRailView('timeline') }
+          : { key, label: '时间流', disabled: true, hint: '仅桌面' }
+      default:
+        return null
+    }
+  }
+  const quickEntries: Array<QuickEntry | null> = quickSlots.map(resolveQuickEntry)
+
+  /** 设置页改一格：写 state + 落盘（顺序无关，5 格固定长度） */
+  const changeQuickSlot = useCallback((index: number, key: string | null) => {
+    setQuickSlots((prev) => {
+      const next = [...prev]
+      next[index] = key
+      writeQuickSlots(next)
+      return next
+    })
+  }, [])
 
   const saveLabel =
     saveState === 'saving'
@@ -4856,6 +4926,9 @@ export default function App() {
               clipboard={clipboard}
               /* 时间流是桌面能力：手机端不传 ⇒ 文件树菜单里不出现这一项（rev173.48） */
               onOpenTimeline={isDesktop ? () => selectRailView('timeline') : undefined}
+              /* 插件贡献的条目菜单动作（rev173.281 · J#18） */
+              itemActions={itemMenus}
+              onItemAction={runItemAction}
             />
               )}
             </>
@@ -4897,6 +4970,8 @@ export default function App() {
                 onPurge={(p) => void purgeNotes([p])}
                 onRename={(from, to) => void renameNote(from, to, false)}
                 onCloseTimeline={() => setSidebarView('notes')}
+                itemActions={itemMenus}
+                onItemAction={runItemAction}
               />
             </div>
           )}
@@ -5225,6 +5300,8 @@ export default function App() {
               onDelete={(p) => void deleteNotes([p])}
               onPurge={(p) => void purgeNotes([p])}
               onRename={(from, to) => void renameNote(from, to, false)}
+              itemActions={itemMenus}
+              onItemAction={runItemAction}
             />
           )
         ) : (
@@ -5341,7 +5418,19 @@ export default function App() {
 
       {/* 手机起始页长按 ＋ 的环形快捷入口（rev173.20）；桌面端留 v0.2。
           自带全屏遮罩，所以挂在这一层、与菜单同一个层级即可（内部 createPortal 到 body）。 */}
-      <QuickLaunch open={quickOpen} onClose={() => setQuickOpen(false)} entries={quickEntries} />
+      <QuickLaunch
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        entries={quickEntries}
+        /* 中心 ＋（J#9）：新建笔记 —— 用户 2026-10-30 拍板「本来那个加号就是新建笔记」 */
+        onNewNote={() => void runCore('core.newNote')}
+        /* 「换入口」→ 设置 → 通用里的 5 格配置 */
+        onEdit={() => {
+          setQuickOpen(false)
+          setSettingsTab('general')
+          openOverlay('settings')
+        }}
+      />
 
       {/* location: 'modal' 的面板以弹窗呈现（复用设置页同一个 Dialog 原语） */}
       <Dialog
@@ -5476,6 +5565,10 @@ export default function App() {
           setAutoCheckEnabled(on)
           setAutoCheckUpdates(on)
         }}
+        /* J#9（rev173.281）：环形快捷入口的 5 格配置 */
+        quickSlots={quickSlots}
+        quickSlotOptions={quickSlotChoices}
+        onQuickSlotChange={changeQuickSlot}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

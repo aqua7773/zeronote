@@ -46,6 +46,8 @@ tauri-plugin-notification-capture = { path = "plugins/tauri-plugin-notification-
 tauri-plugin-androidperm = { path = "plugins/tauri-plugin-androidperm" }
 # 读 Android SAF 的 content:// URI（系统「打开方式」递来的文件；std::fs 读不了它）
 tauri-plugin-uri-reader = { path = "plugins/tauri-plugin-uri-reader" }
+# J#13（rev173.281）：系统分享（Android ACTION_SEND 纯文本；桌面返回 desktop-no-share）
+tauri-plugin-share = { path = "plugins/tauri-plugin-share" }
 # 系统凭据库（同步插件凭据 · 2026-10-24 用户裁决「一开始就走钥匙串」）：
 # Windows Credential Manager / Android Keystore + SharedPreferences / macOS Keychain。
 # 关掉 crypto feature —— 内核只要「存 / 取一段字符串」，不要它的 SLIP10/BIP39/Ed25519。

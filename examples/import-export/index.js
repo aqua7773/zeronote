@@ -1157,8 +1157,25 @@ export default {
       'md-embed': { ext: 'md', render: null },
     }
 
-    async function exportActive(format, toVault, probe) {
-      const d = doc.active()
+    /**
+     * 导出**一篇笔记**。`path` 省略 ⇒ 导出当前打开的那篇（面板 / 命令面板入口）；
+     * 给了 ⇒ 导出指定条目（文件树右键 / 时间流卡片菜单入口 —— J#18）。
+     *
+     * ⚠️ 不能假设 `path` 就是当前打开的那篇：右键导出的很可能是没打开的另一篇，
+     * 所以这条路径一律 `fs.readText(path)` 现读，不碰 `doc.active()`。
+     */
+    async function exportActive(format, toVault, probe, path) {
+      let d
+      if (typeof path === 'string' && path) {
+        try {
+          d = { path, content: await fs.readText(path) }
+        } catch {
+          host.notify(`读不到这篇笔记：${path}`, 'error')
+          return null
+        }
+      } else {
+        d = doc.active()
+      }
       if (!d) {
         host.notify('没有打开的笔记', 'warn')
         return null
@@ -1247,6 +1264,58 @@ export default {
       return saved
     }
 
+    /**
+     * **系统分享**（J#13 · rev173.281，用户拍板「算到导入导出插件里面去」）。
+     *
+     * 把笔记压成**纯文本**交给系统分享面板（微信 / QQ / 邮件 / 备忘录都能收）：
+     *  · Android：原生插件 `tauri-plugin-share` 的 `share_text`（ACTION_SEND / text/plain）；
+     *  · 桌面：原生侧返回 `desktop-no-share` ⇒ **如实告知**并改为复制到剪贴板
+     *    （静默失败最糟：用户以为发出去了）。
+     *
+     * `path` 省略 = 当前打开的笔记（面板按钮）；条目菜单传 `{ path }`（不用先打开）。
+     */
+    async function shareNote(path) {
+      let d
+      if (typeof path === 'string' && path) {
+        try {
+          d = { path, content: await fs.readText(path) }
+        } catch {
+          host.notify(`读不到这篇笔记：${path}`, 'error')
+          return null
+        }
+      } else {
+        d = doc.active()
+      }
+      if (!d) {
+        host.notify('没有打开的笔记', 'warn')
+        return null
+      }
+      const stem = (d.path.split('/').pop() || 'note').replace(/\.[^.]+$/, '')
+      const text = mdToText(d.content)
+      const t = globalThis.__TAURI_INTERNALS__
+      if (!t || typeof t.invoke !== 'function') {
+        host.notify('这个环境没有原生通道，没法分享', 'error')
+        return null
+      }
+      try {
+        const r = await t.invoke('plugin:share|share_text', { title: stem, text })
+        if (!r || r.ok === false) {
+          host.notify('系统分享没有打开', 'warn')
+          return null
+        }
+        host.log('info', `[分享] ${stem}（${text.length} 字符）`)
+        return { shared: true, chars: text.length }
+      } catch (e) {
+        if (String(e).includes('desktop-no-share')) {
+          await t.invoke('plugin:clipboard-manager|write_text', { text })
+          host.notify(`桌面没有系统分享 —— 「${stem}」的纯文本已复制到剪贴板`, 'info')
+          return { copied: true, chars: text.length }
+        }
+        host.notify(`分享失败：${String(e)}`, 'error')
+        return null
+      }
+    }
+
     /* ── 命令 ── */
 
     const guard = (fn) => async (payload) => {
@@ -1286,11 +1355,29 @@ export default {
           title,
           run: guard(async (payload) => {
             const p = payload && typeof payload === 'object' ? payload : {}
-            return await exportActive(fmt, Boolean(p.toVault), Boolean(p.probe))
+            return await exportActive(
+              fmt,
+              Boolean(p.toVault),
+              Boolean(p.probe),
+              // 条目菜单入口（J#18）会传 `{ path, kind, where }`；面板按钮不传 ⇒ 当前笔记
+              typeof p.path === 'string' ? p.path : undefined,
+            )
           }),
         }),
       )
     }
+
+    /** 系统分享（J#13）：Android 走原生分享面板；桌面复制到剪贴板并如实说明 */
+    subscriptions.push(
+      command.register({
+        id: 'io.share',
+        title: '分享到其它应用…',
+        run: guard(async (payload) => {
+          const p = payload && typeof payload === 'object' ? payload : {}
+          return await shareNote(typeof p.path === 'string' ? p.path : undefined)
+        }),
+      }),
+    )
 
     /* ── 工具页面板（B6 起 `main`：它是完整工具页，不是侧栏小部件） ── */
 
@@ -1314,6 +1401,9 @@ export default {
             { type: 'button', label: '导出为 Word docx…', onClick: 'io.exportDocx' },
             { type: 'button', label: '导出为 PDF（打印）…', onClick: 'io.exportPdf' },
             { type: 'divider' },
+            { type: 'text', value: '分享', variant: 'caption' },
+            { type: 'button', label: '分享到其它应用…', onClick: 'io.share' },
+            { type: 'divider' },
             {
               type: 'text',
               value:
@@ -1321,6 +1411,8 @@ export default {
                 '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
                 '导出支持：Markdown / txt / html / 长图 PNG / Word / PDF（PDF 经浏览器打印）。\n' +
                 '「图片内嵌」导出 = 单文件 .md，图片写成 data: —— 发给别人不用再传附件目录。\n' +
+                '导出入口：文件树右键 / 长按 →「导出为…」，或时间流卡片菜单 —— 不用先打开那篇。\n' +
+                '分享：Android 打开系统分享面板（纯文本）；桌面没有系统分享，改为复制到剪贴板。\n' +
                 'Android 的"另存为"需要下一次构建才会生效（见 HANDOFF rev85）。',
               variant: 'caption',
             },

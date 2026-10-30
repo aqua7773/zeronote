@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ZeroNote 分享插件：纯文本分享不碰文件 / provider，manifest 留空即可。
+     分享面板由系统（Intent.createChooser）负责，不需要声明包可见性。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

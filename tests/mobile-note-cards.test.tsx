@@ -104,3 +104,73 @@ describe('MobileNoteCards 只列笔记', () => {
     expect(props.readText).toHaveBeenCalledWith('笔记.md')
   })
 })
+
+/**
+ * 条目菜单动作（rev173.281 · J#18）—— 时间流卡片菜单里的插件项。
+ *
+ * 与文件树共用同一套协议；这里只认 `where: 'timeline'`，条目类型恒为 `note`
+ * （卡片流本来就只列笔记）。
+ */
+describe('MobileNoteCards 卡片菜单：插件条目动作', () => {
+  const action = (over: Record<string, unknown> = {}) => ({
+    command: 'io.exportTxt',
+    title: '导出为 txt…',
+    pluginId: 'import-export',
+    ...over,
+  })
+
+  it('传了动作：菜单里出现并触发，参数带 path / kind / where', async () => {
+    const onItemAction = vi.fn()
+    const props = makeProps()
+    render(<MobileNoteCards {...props} itemActions={[action()]} onItemAction={onItemAction} />)
+    await act(async () => {})
+    fireEvent.click(screen.getByLabelText('更多'))
+    fireEvent.click(screen.getByText('导出为 txt…'))
+    expect(onItemAction).toHaveBeenCalledTimes(1)
+    expect(onItemAction.mock.calls[0][1]).toEqual({
+      path: 'a.md',
+      kind: 'note',
+      where: 'timeline',
+    })
+  })
+
+  it('只对 file-tree 声明的动作不出现在卡片菜单', async () => {
+    const props = makeProps()
+    render(
+      <MobileNoteCards
+        {...props}
+        itemActions={[action({ where: ['file-tree'] })]}
+        onItemAction={vi.fn()}
+      />,
+    )
+    await act(async () => {})
+    fireEvent.click(screen.getByLabelText('更多'))
+    expect(screen.queryByText('导出为 txt…')).toBeNull()
+  })
+
+  it('子菜单：父项展开、点子项执行', async () => {
+    const onItemAction = vi.fn()
+    const props = makeProps()
+    render(
+      <MobileNoteCards
+        {...props}
+        itemActions={[
+          action({
+            title: '导出为…',
+            children: [
+              { command: 'io.txt', title: '纯文本' },
+              { command: 'io.html', title: '网页' },
+            ],
+          }),
+        ]}
+        onItemAction={onItemAction}
+      />,
+    )
+    await act(async () => {})
+    fireEvent.click(screen.getByLabelText('更多'))
+    fireEvent.click(screen.getByText('导出为…'))
+    fireEvent.click(screen.getByText('网页'))
+    expect(onItemAction).toHaveBeenCalledTimes(1)
+    expect(onItemAction.mock.calls[0][0]).toMatchObject({ command: 'io.html' })
+  })
+})

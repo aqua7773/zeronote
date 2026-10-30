@@ -7,7 +7,7 @@
  * 桌面端不渲染（仍用 AppEmptyState 的起始页）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import type { NoteMeta } from '../kernel/contract'
+import type { ItemMenuContext, ItemMenuRegistration, NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { RenameDialog } from './RenameDialog'
 
@@ -41,6 +41,12 @@ type Props = {
    * 桌面 / 没有返回键的环境不传也能用。
    */
   layers?: RefObject<Array<() => boolean>>
+  /**
+   * **条目菜单动作**（rev173.281 · J#18）—— 与 `FileTree` 共用同一套协议，
+   * 这里消费 `where: 'timeline'` 的那些（手机卡片流 / 桌面时间流面板同一套）。
+   */
+  itemActions?: ItemMenuRegistration[]
+  onItemAction?: (action: ItemMenuRegistration, ctx: ItemMenuContext) => void
 }
 
 /** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
@@ -80,6 +86,8 @@ export function MobileNoteCards({
   variant = 'mobile',
   onCloseTimeline,
   layers,
+  itemActions = [],
+  onItemAction,
 }: Props) {
   /**
    * 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件）。
@@ -233,31 +241,69 @@ export function MobileNoteCards({
 
   /** 长按 / 右上「⋯」都能弹这张菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」） */
   const items: MenuItem[] = menu
-    ? [
-        { label: '打开', onClick: () => onOpen(menu.path) },
-        { label: '重命名…', divider: true, onClick: () => startRename(menu.path) },
-        { label: '删除（回收站）', danger: true, divider: true, onClick: () => onDelete(menu.path) },
-        {
+    ? (() => {
+        const list: MenuItem[] = [{ label: '打开', onClick: () => onOpen(menu.path) }]
+        /**
+         * ── 插件贡献的**条目菜单动作**（rev173.281 · J#18）──
+         * 位置：紧挨「打开」（都是对这篇笔记的入口），与下面的管理动作用分隔线隔开。
+         * 卡片流只列 `kind === 'note'` 的条目，所以这里恒为 `note`。
+         */
+        if (onItemAction) {
+          const ctx: ItemMenuContext = { path: menu.path, kind: 'note', where: 'timeline' }
+          const matches = itemActions
+            .filter((a) => (a.where ?? ['file-tree', 'timeline']).includes('timeline'))
+            .filter((a) => (a.kinds ?? ['note']).includes('note'))
+          for (const a of matches) {
+            list.push(
+              a.children?.length
+                ? {
+                    label: a.title,
+                    danger: a.danger,
+                    divider: true,
+                    children: a.children.map((c, i) => ({
+                      label: c.title,
+                      danger: c.danger,
+                      // 子菜单第一行上面就是父项，不再画线
+                      divider: i > 0 ? c.divider : undefined,
+                      onClick: () => onItemAction({ ...c, pluginId: a.pluginId }, ctx),
+                    })),
+                  }
+                : {
+                    label: a.title,
+                    danger: a.danger,
+                    divider: true,
+                    onClick: () => onItemAction(a, ctx),
+                  },
+            )
+          }
+        }
+        list.push({ label: '重命名…', divider: true, onClick: () => startRename(menu.path) })
+        list.push({
+          label: '删除（回收站）',
+          danger: true,
+          divider: true,
+          onClick: () => onDelete(menu.path),
+        })
+        list.push({
           label: '彻底删除…',
           danger: true,
           onClick: () => {
             if (window.confirm('彻底删除？不进回收站，永久抹掉 —— 撤不回来。')) onPurge(menu.path)
           },
-        },
+        })
         // 桌面时间流：卡片菜单也能关掉这一栏（rev173.48 · 用户要求「时间流右键菜单加关闭时间流」）
-        ...(onCloseTimeline
-          ? [
-              {
-                label: '关闭时间流',
-                divider: true,
-                onClick: () => {
-                  setMenu(null)
-                  onCloseTimeline()
-                },
-              } satisfies MenuItem,
-            ]
-          : []),
-      ]
+        if (onCloseTimeline) {
+          list.push({
+            label: '关闭时间流',
+            divider: true,
+            onClick: () => {
+              setMenu(null)
+              onCloseTimeline()
+            },
+          })
+        }
+        return list
+      })()
     : []
 
   return (

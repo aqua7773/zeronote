@@ -3839,6 +3839,7 @@ pub fn run() {
     .plugin(tauri_plugin_statusbar::init())
     .plugin(tauri_plugin_notification_capture::init())
     .plugin(tauri_plugin_uri_reader::init())
+    .plugin(tauri_plugin_share::init())
     .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
       app.manage(OpenedUrls::default());

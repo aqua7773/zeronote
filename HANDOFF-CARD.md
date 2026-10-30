@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-30（rev173.280 · 真人使用测试 A–I 全落地 · J 已拍板 · 交接）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-30（rev173.281 · 真人使用测试 A–J 20 条全部完成 · J 批收尾 · 交接）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.280 · 0.8.0 · 2026-10-30 |
-| 测试基线 | vitest 1655 · cargo 87 · oxlint 3 warnings（2026-10-30） |
+| rev / 版本 | rev173.281 · 0.8.0 · 2026-10-30 |
+| 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-30） |
 | 插件 | 市场 17 · 示例 42 |
 | 文档 | README 现状 2026-10-30 · CHANGELOG 0.8.0 |
 <!-- FACTS:END -->
@@ -16,7 +16,7 @@
 
 `C:\Users\AQUA\Documents\deepseek\ZeroNote` —— **空内核**本地 Markdown 笔记应用（Tauri 2 + React 19 + Rust）。
 一切功能靠插件：**全局目录** `<应用数据目录>/.zn/plugins/<id>/` —— 唯一位置（跨库共用；装卸＝放/删一个文件夹）。
-内核 **11 原语 + 21 种 UINode + 6 个挂载位** + 真窗口 / 整窗接管 / 面板 DOM。
+内核 **12 原语 + 21 种 UINode + 6 个挂载位** + 真窗口 / 整窗接管 / 面板 DOM。
 
 **内核自带**：文件树 · 回收站 · 搜索（增量索引 + 标签/目录/正则筛选）· 命令面板 · 多标签（`Ctrl+Tab`）与标签拆独立窗口 · 时间流 · 主窗口记忆 · 会话恢复 · 粘贴图片 · 全局替换 · Markdown 增强（数学 / 脚注 / Mermaid / 内嵌 HTML 白名单）· 白屏兜底。
 
@@ -33,25 +33,24 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下个会话第一件事（rev173.280 交接）**：**A 到 I 全部完成 + J 批已拍板**（H#11 状态栏常隐 ·
-> I#12 三后端限流指数退避；J#1 推荐清单已按用户要求撤掉）。
-> **剩 J 批三件（用户 2026-10-30 逐字拍板，照做别自行改方向）**：
-> ① **#9＋环形菜单** —— **共 6 个位置：中间「＋」= 新建笔记（固定）+ 周围 5 格功能入口（可配）**
->    （用户更正：「本来那个加号就是新建笔记，我的意思是其他五个放功能入口」；约 3 小时）
-> ② **#13 系统分享** —— **归 import-export 插件**（用户「算到导入导出插件里面去」）；
->    真系统分享仍要 Android Kotlin + 重编 APK（约 3 小时）
-> ③ **#18 导出入口** —— **也归 import-export**（用户「这个也是导入导出插件的事情」）：
->    入口 = **文件树右键/长按 + 时间流右键/长按**。需要内核先加「条目菜单动作」协议
->    （FileTree / MobileNoteCards 的菜单都在组件内部，靠 props 接；约 2 小时）
+> **下个会话第一件事（rev173.281 交接）**：**A–J 全部完成**（J 批三件本轮落地：#9 环形菜单 6 位 ·
+> #13 系统分享（原生 `tauri-plugin-share` + 重编 APK）· #18 内核「条目菜单动作」+ import-export 导出/分享入口）。
+> **剩 0.9.0 收口**（用户 2026-10-30 定：这 20 条修完作为下一个小版本发布）：
+> ① CHANGELOG / README / ROADMAP / HANDOFF 同步（CHANGELOG 的 Unreleased 已按本轮补三条）；
+> ② **重打包签名发市 `import-export`（0.1.1 → 0.2.0）** —— 现在带条目菜单（导出 6 格式 + 分享）与
+>    `io.share`；**桌面与手机的全局目录当前都是开发版（无签名）**，发市后要重装/更新；
+> ③ `sync-webdav` / `sync-s3` / `sync-git`（E#14 `secret` + I#12 退避）也要一起重打包；
+> ④ I#12 退避的**端到端真机验**留给发市前（本轮只做了静态测试）。
+> ⚠️ **`tauri-plugin-share` 是原生改动**：桌面不受影响（返回 `desktop-no-share` → 复制剪贴板），
+> 手机侧本轮已重编 APK 并真机验过（分享面板出现）；**下次改前端不需要再编 APK**。
 > ⚠️ **#2「装完插件怎么指路」用户说「先不，入口要找更方便的办法解决」** ⇒ 不再做安装后提示，
-> 由 ① / ③ 的入口解决。
-> F#16（原生 prompt 闪退）本轮未复现，**用户已验收 #10 与 #16**。
-> 计划全文 `docs/真人使用测试-修复计划-2026-10-30.md`（A–J 十批 ≈ 27 小时；A–I ✅ · J 剩三件）。
-> **用户已定：这 20 条修完作为下一个小版本 `0.9.0` 发布** —— 所以修完要一起收口 CHANGELOG / README / ROADMAP 再发。
+> 由 #9 / #18 的入口解决。
+> F#16（原生 prompt 闪退）未复现，用户已验收 #10 与 #16；E#10（抽屉遮罩）rev173.277 已修。
+> 计划全文 `docs/真人使用测试-修复计划-2026-10-30.md`（A–J 十批；状态已改「全部完成」）。
 > ⚠️ **插件源码改动要等 0.9.0 重新打包签名发市**：`sync-webdav` / `sync-git` / `sync-s3`
-> （E#14 的 `secret` + I#12 的限流退避）+ **`import-export`（G 批，版本仍 0.1.1 未 bump）**。
+> （E#14 的 `secret` + I#12 的限流退避）+ **`import-export`（G/J 批，版本仍 0.1.1 未 bump）**。
 > ⚠️ **I 批没有端到端实测**（要改用户的全局签名包与已配好的 WebDAV 设置，风险与收益不成比例）——
-> 真机验留给 0.9.0 发市前；H 批有真机截图。
+> 真机验留给 0.9.0 发市前；H 批有真机截图；J 批有桌面 + 手机双端截图。
 
 
 > **rev173.242–243 · 安卓桌面组件三件已落地（需求 §15 收口）**：**快速记录**（点组件 → 对话框 → 写 `<库>/收件箱/<时间戳>.md`，
@@ -338,9 +337,9 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **16476** · 2026-10-30 17:43:12 起；vite 1420 pid 40080 / CDP 9222 都在），
-  日志在 `.self-logs/desktop-dev.log`。**rev173.256–262（B1–B6）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
-  没有重编 Rust、没有重启 dev。
+  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **31932** · 2026-10-30 20:47:22 起；vite 1420 / CDP 9222 都在），
+  日志在 `.self-logs/desktop-dev.log`。**rev173.281 改了 Rust**（新原生插件 `tauri-plugin-share` + `Cargo.toml`）
+  ⇒ tauri CLI 自动重编并重启了 dev（所以 pid 从 16476 变成 31932）。之后改前端照常走 HMR + 手动 `location.reload()`。
   ⚠️ **零插件验证做过四次**（B3 rev173.258 / B4 rev173.260 / B6 rev173.262）：临时把 `<appdata>\.zn\plugins` 改名
   → reload → 截图 → 改回 → reload；每次都已恢复（**18 个**、无 `plugins-*-bak` 残留）。
   **B6 那次还额外验证了「禁用 → 启用 hello 不 reload 就回来」** —— ⚠️ 教训：当时在插件中心页面看侧栏，
@@ -355,13 +354,13 @@ pwsh -File scripts\verify.ps1
   会话结束不会消失（不是后台 job），**下次要编之前先清它的进程树**（它占着 `.self-logs/android-dev.log`）。
   ⚠️ **单拼 `gradlew :app:testArmDebugUnitTest` 可以**（rev173.242 起的 JVM 单测入口），但别与 watch 同时跑 ——
   两者都碰同一条 rust/gradle 链。
-- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:39 又被 `android-dev` 重编重装**
-  （**2026-10-30 19:57 交接时 app pid `22846`** —— A–J#1 全程只改前端、未重编 APK；10-30 上午那次 HMR 后偶发白屏由
-  `location.reload()` 恢复，属既有「手机 reload 后偶发退出」一类）。
-  重启前**必须**先补 `adb reverse tcp:1420 tcp:1420`，否则 15 秒静默退出；那次 APK 仍是 10-29 20:39 编的，
-  含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 8 个 + 3 套布局）+ **rev173.243 的 `WidgetRefresher`**
-  + rev173.238 的 `assets.rs` + rev173.240 的媒体服务）。
-  **Rust 侧现在到 rev173.243**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断（B1/B2 的 UI 已真机可见）。
+- **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-30 20:47 又被重编重装**
+  （`pnpm tauri android build --debug --target aarch64` → `gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
+  → `adb install -r`；**这次含 rev173.281 的 `tauri-plugin-share`**，app pid **11789**）。
+  重启前**必须**先补 `adb reverse tcp:1420 tcp:1420`，否则 15 秒静默退出。
+  该 APK 含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 8 个 + 3 套布局）+ **rev173.243 的 `WidgetRefresher`**
+  + rev173.238 的 `assets.rs` + rev173.240 的媒体服务 + rev173.281 的分享插件。
+  **Rust 侧现在到 rev173.281**；**前端随桌面 vite HMR** ⇒ 别再按 0.5.0 的功能边界判断（B1/B2 的 UI 已真机可见）。
   ⚠️ 手机库 = `/storage/emulated/0/Documents/ZeroNote`（**不是**私有 `files/`；`run-as ... ls` 根下的 `vault` 是旧的另一份）。
   ⚠️ 重编前先清**旧的 android-dev 进程树**：它占着 `.self-logs/android-dev.log` 与两个 `adb logcat`，
   新编译会报「The process cannot access the file」（rev173.228 踩过，见 HANDOFF 正文「踩坑」）。
@@ -375,7 +374,9 @@ pwsh -File scripts\verify.ps1
   - **桌面组件（rev173.242）**：三个 provider 已在系统注册（`dumpsys appwidget` 的 380/381/382）。⚠️ MIUI 的「全部应用 → 支持小部件应用」
     列表**不收录**本应用（加不加 `previewImage`/`previewLayout` 都一样），要从「**安卓小部件 → 添加小部件**」进，按应用分组里才有。
     数据快照 = `<dataDir>/.zn/widget-data.json`（`run-as cat .zn/widget-data.json` 可看内容；写入由前端 effect 节流 10 秒）。
-    ⚠️ `adb shell input tap` 吃**真实屏幕像素**（1220×2712），`read_image` 的预览是 838 宽 —— 按预览坐标点会整体偏 1.45 倍。
+    ⚠️ `adb shell input tap` 吃**真实屏幕像素**（1220×2712），而 WebView 的 CSS 视口是 **390×868 / dpr 3.125**
+    ⇒ 坐标 = **DOM rect × dpr**（`read_image` 预览是 838 宽，按预览目测会偏；rev173.281 因此白点两次，
+    y 偏了 122px —— 先 `cdp.mjs eval` 量 rect 再点）。
     装开发版：`adb push <文件> /data/local/tmp/x` → `adb shell run-as com.aqua.zeronote.debug cp /data/local/tmp/x .zn/plugins/<id>/<名>` → reload。
   - 现有插件 **17 个**（9 预装 + 记账 / 阅读器 / 打卡 / 导图 / 两个主题 + **`security` / `secrets` 开发版**，rev173.166 手装；`backup` 已是**市场签名包 0.3.1**（rev173.191 装、带 `signature.json`，此后内置不再覆盖它）；**`ai` 是市场签名包 0.9.0**（rev173.220 从 0.8.0 更新上来，带 `signature.json`，与源码 rev217 一致））。手机主库 `secrets` 环主密码 = `PhoneTest123`，**已绑指纹**（rev173.168）。手机市场源已切 **`jsDelivr · GCore`**（localStorage）。
   - ⚠️ **PowerShell 的 `$pid` 是只读变量** —— 存 app pid 要用 `$appPid`，否则 `adb forward` 会指向错误 socket（rev173.166 踩过）。
@@ -389,8 +390,12 @@ pwsh -File scripts\verify.ps1
 - **本会话手动更新过全局目录（2026-10-30）**：`backlinks` → **0.2.2**、`history` → **0.2.1**（B4 迁挂载位）、
   `import-export` → **0.1.1**（B6 改 `main`）；旧文件备份都在 `_tmp-plugin-backup/b4-20261030-0245/` 与
   `_tmp-plugin-backup/b6-20261030-1227/`。`hello` 用 junction 装过、验完已删（18 个插件无变化）。
-  ⚠️ 手机上的 `backlinks` / `history` / `import-export` 仍是旧版（market 签名包 0.1.0/0.2.x），
-  要从市场更新才会拿到新挂载位 / main 形态 —— 手机上它们目前走旧路径（状态栏 / sidebar 回退主区），不算坏。
+  ⚠️ **rev173.281 把 `import-export` 换成了开发版（无 `signature.json`）** —— 它带新条目菜单
+  （「导出为…」6 子项 + 「分享…」）与 `io.share`；桌面旧签名包备份在
+  `_tmp-plugin-backup/j18-20261030-2020/`，手机旧版备份在 `_tmp-plugin-backup/phone-import-export-j18/`。
+  **0.9.0 收口时必须重打包签名发市（0.1.1 → 0.2.0）**，否则用户拿不到这两个入口。
+  ⚠️ 手机上的 `backlinks` / `history` 仍是旧版（market 签名包 0.1.0/0.2.x），
+  要从市场更新才会拿到新挂载位 —— 手机上它们目前走旧路径（状态栏 / sidebar 回退主区），不算坏。
 - **测试库** `_tmp-vault-tb/`（不入库）· **插件只有全局目录一处**，测试插件只放 `examples/`、用完即删 · **开发中要试的插件 = 在 `<APPDATA>\com.aqua.zeronote\.zn\plugins\` 下建 junction 指向 `examples/<id>`**（库内 `.zn/plugins/` **不再被扫描**，rev173.5 起只有全局根 —— rev173.180 踩过：挂测试库后 reload 命令表里什么都没有）· 全局目录里的 `secrets` 是**开发版（无签名）**（rev173.163 实测拷入；市场版已签名，重装即覆盖）· 测试库 `secrets` 环测试主密码 **`TestPass123`**，库内有 1 个 `GitHub / aqua@example.com` 测试账号，**已绑 Windows Hello**（rev173.169）· 测试库 **`notes` 环主密码 `NotesTest123`**（rev173.180 建，私密笔记测试数据已清，环保留）· **AI 插件（rev173.196）已建 junction**：`ai` → `examples/ai`，改源码后 `location.reload()` 即生效。
 - ⚠️ **桌面全局目录的 `security` 也是开发版**（rev173.169 换成带 Hello 适配器的版本；旧文件备份在 `_tmp-plugin-backup/`）。手换插件 `index.js` 后**必须同步 `manifest.json` 的 `sha256`**（入口哈希），否则插件加载但命令全部不存在 —— 本会话踩过。
 - **Git**：GitHub `aqua7773`（gh 已登录、keyring）· `git push` **先直连，被 reset 再挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`**。

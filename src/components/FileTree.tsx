@@ -8,7 +8,12 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { NoteMeta } from '../kernel/contract'
+import type {
+  ItemMenuContext,
+  ItemMenuKind,
+  ItemMenuRegistration,
+  NoteMeta,
+} from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 
 type TreeNode = {
@@ -246,6 +251,17 @@ type MenuState = {
   multi: boolean
   x: number
   y: number
+}
+
+/**
+ * 把一个文件树条目换成**插件认识的三档类型**（rev173.281 · J#18）。
+ *
+ * 内核的 `NoteMeta.kind` 有 note / doc / image / media 四档，但插件不需要
+ * （也不该）认识这些细节：导出、分享这类动作只关心「这是笔记 / 文件夹 / 其它附件」。
+ */
+function itemKindOf(meta: NoteMeta | undefined, isDir: boolean): ItemMenuKind {
+  if (isDir) return 'dir'
+  return (meta?.kind ?? 'note') === 'note' ? 'note' : 'attachment'
 }
 
 function Node({
@@ -524,6 +540,8 @@ export function FileTree({
   onPurgeMany,
   layers,
   onOpenTimeline,
+  itemActions = [],
+  onItemAction,
 }: {
   notes: NoteMeta[]
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
@@ -570,6 +588,13 @@ export function FileTree({
    * 只有桌面由 App 传；手机端没有时间流 ⇒ 不传，菜单里就不出现这一项。
    */
   onOpenTimeline?: () => void
+  /**
+   * **条目菜单动作**（rev173.281 · J#18）—— 插件声明、内核登记的扩展项。
+   * 宿主只负责按 `where` / `kinds` 过滤并渲染；点击后把目标条目作为参数交给 App。
+   * 不传 ⇒ 菜单里没有插件项（单测 / 零插件都走这条路）。
+   */
+  itemActions?: ItemMenuRegistration[]
+  onItemAction?: (action: ItemMenuRegistration, ctx: ItemMenuContext) => void
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   /**
@@ -1155,6 +1180,52 @@ export function FileTree({
               },
             })
           }
+        }
+        /**
+         * ── 插件贡献的**条目菜单动作**（rev173.281 · J#18）──
+         *
+         * 位置：文件操作之后、视图开关之前。第一项强制画分隔线（与「彻底删除」
+         * 这类破坏性操作拉开距离）；插件自己也可以对后续项声明 `divider`。
+         * 空白处右键（`menu.path === null`）**不出现** —— 动作永远针对一个条目。
+         */
+        if (menu.path && onItemAction && itemActions.length) {
+          const path = menu.path
+          const kind = itemKindOf(
+            notes.find((n) => n.path === path),
+            menu.isDir,
+          )
+          // 多选时把整批路径一起给插件（含右键的那条）；单选只给一条
+          const picked = menu.multi ? dedupe([...selectedSet]) : [path]
+          const ctx: ItemMenuContext = {
+            path,
+            kind,
+            where: 'file-tree',
+            ...(picked.length > 1 ? { paths: picked } : {}),
+          }
+          const matches = itemActions
+            .filter((a) => (a.where ?? ['file-tree', 'timeline']).includes('file-tree'))
+            .filter((a) => (a.kinds ?? ['note']).includes(kind))
+          const toMenu = (a: ItemMenuRegistration, first: boolean): MenuItem =>
+            a.children?.length
+              ? {
+                  label: a.title,
+                  danger: a.danger,
+                  divider: first ? true : a.divider,
+                  children: a.children.map((c, i) => ({
+                    label: c.title,
+                    danger: c.danger,
+                    // 子菜单第一行上面就是父项，不再画线
+                    divider: i > 0 ? c.divider : undefined,
+                    onClick: () => onItemAction({ ...c, pluginId: a.pluginId }, ctx),
+                  })),
+                }
+              : {
+                  label: a.title,
+                  danger: a.danger,
+                  divider: first ? true : a.divider,
+                  onClick: () => onItemAction(a, ctx),
+                }
+          for (let i = 0; i < matches.length; i++) list.push(toMenu(matches[i], i === 0))
         }
         // ── 打开时间流（rev173.48 · 用户要求「文件树右键菜单加打开时间流」）──
         // 放在最后：它是"视图开关"，不是文件操作。空白处右键（menu.path === null）也能用。

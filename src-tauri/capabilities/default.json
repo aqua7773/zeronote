@@ -16,6 +16,7 @@
     "notification-capture:default",
     "androidperm:default",
     "uri-reader:default",
+    "share:default",
     "core:app:allow-exit",
     "core:window:default",
     "core:window:allow-start-dragging",

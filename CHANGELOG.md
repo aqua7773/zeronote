@@ -37,6 +37,28 @@
   base64（注释不渲染），ZeroNote 点图时按它找回原文件 —— 本机有就直接显示原图，
   台账有但还没落地就给「同步原文件」（浮层按钮，与模式 B 同一套）。
   新模块 `src/lib/embed-image.ts`；测试 `embed-image` 18 条 + `import-export` +12。
+- **条目菜单动作协议（`itemMenu`）**（rev173.281 · J#18 · 用户拍板「导出入口也归导入导出」）：
+  文件树右键 / 时间流卡片的菜单此前长在组件内部（`FileTree` / `MobileNoteCards`），插件没有入口。
+  内核补第三条扩展点：`contributes.itemMenus`（静态声明，插件没加载也出现在菜单里）
+  ＋ `ctx.itemMenu.register`（运行时登记），点击时按 `commands.execute(action.command, { path, kind, where, paths? })`
+  执行 —— 插件拿到的目标是**菜单里点的那个条目**，不是「当前打开的那篇」。
+  位置 `file-tree` / `timeline`、条目类型 `note` / `dir` / `attachment`、一层子菜单、
+  `order` / `divider` / `danger`；卸载即净（静态声明与运行时登记都回收）。
+  契约 §2.1.3；`import-export` 用它挂上「导出为…」（txt / html / Markdown 内嵌 / 长图 / Word / PDF）
+  —— 实测桌面与手机的**两个入口**都能导出没打开的那篇。测试 `item-menu` 10 条 +
+  `file-tree-menu` / `mobile-note-cards` / `use-plugin-host` 各补用例。
+- **环形快捷入口 6 个位置**（rev173.281 · J#9 · 用户 2026-10-30 拍板「中间 ＋ 是新建笔记，其他五个放功能入口」）：
+  中心「＋」固定 = **新建笔记**（改造前是 × 关闭）；周围 5 格 = 可配功能入口，
+  配置在 设置 → 通用 → 环形快捷入口（5 个下拉），存 `localStorage`（应用级，不跟库走），
+  另在环底加「换入口」直达。候选 = 已注册插件面板（`panel:<id>`）+ 内置动作
+  （搜索 / 插件中心 / 回收站 / 设置 / 切换笔记库 / 时间流·仅桌面）。未装的插件显示「未安装」灰位。
+  新模块 `src/lib/quick-slots.ts`；测试 `quick-slots` 8 条 + `quick-launch` 更新。
+- **系统分享**（rev173.281 · J#13 · 用户拍板「算到导入导出插件里面去」）：
+  新原生插件 `src-tauri/plugins/tauri-plugin-share`（Rust 壳 + Kotlin `Intent.ACTION_SEND` / `text/plain`
+  + `createChooser`，能力 `share:default`；**桌面端明确返回 `desktop-no-share`**，不静默成功）。
+  `import-export` 新增命令 `io.share`（面板按钮 + 文件树 / 时间流菜单「分享…」）：
+  笔记压成纯文本交给系统分享面板；桌面上如实提示并**复制到剪贴板**。
+  ⚠️ 这是原生改动，**要重编 APK**（`tauri-plugin-share` 进 `tauri.settings.gradle`）。
 
 ### Removed
 

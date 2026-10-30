@@ -60,6 +60,15 @@ function makeKernel() {
     // rev173.231 核心能力接管：deps 里会透传 `k.capability`，卸载时调 `releaseCapabilities`
     capability: vi.fn(() => ({ provide: vi.fn(), status: () => [] })),
     releaseCapabilities: vi.fn(),
+    // rev173.281 条目菜单动作：deps 里会透传 `k.itemMenu.scoped`，卸载时调 `releaseItemMenus`
+    itemMenu: {
+      api: { register: vi.fn() },
+      scoped: vi.fn(() => ({ register: vi.fn() })),
+      declare: vi.fn(() => ({ dispose: vi.fn() })),
+      list: vi.fn(() => []),
+      release: vi.fn(),
+    },
+    releaseItemMenus: vi.fn(),
   }
 }
 
@@ -162,6 +171,65 @@ describe('usePluginHost', () => {
     await settle()
     expect(mocks.loadPlugin).not.toHaveBeenCalled()
     expect(args.setPlatformSkipped).toHaveBeenCalledWith(['p4'])
+  })
+
+  /**
+   * 条目菜单动作的**静态登记**（rev173.281 · J#18）。
+   *
+   * 语义与 `contributes.commands` 一致：manifest 里写了就进菜单，插件代码不用跑；
+   * 点击时 `commands.execute` 才会激活懒插件。已被禁用 / 平台不符的插件不登记
+   * （否则菜单里会出现一条永远跑不通的项）。
+   */
+  it('条目菜单动作：懒激活插件也静态登记，且不加载插件', async () => {
+    mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'io', source: 'vault' }])
+    mocks.readManifest.mockResolvedValue(
+      manifest('io', {
+        activationEvents: ['onCommand:io.exportTxt'],
+        contributes: {
+          commands: [{ id: 'io.exportTxt', title: '导出为 txt…' }],
+          itemMenus: [{ command: 'io.exportTxt', title: '导出为 txt…' }],
+        },
+      }),
+    )
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    expect(mocks.loadPlugin).not.toHaveBeenCalled()
+    expect(args.kernel.itemMenu.declare).toHaveBeenCalledWith(
+      [{ command: 'io.exportTxt', title: '导出为 txt…' }],
+      'io',
+    )
+  })
+
+  it('条目菜单动作：非懒插件同样静态登记（manifest 声明即生效）', async () => {
+    mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'io2', source: 'vault' }])
+    mocks.readManifest.mockResolvedValue(
+      manifest('io2', {
+        contributes: { itemMenus: [{ command: 'io2.export', title: '导出' }] },
+      }),
+    )
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    expect(args.kernel.itemMenu.declare).toHaveBeenCalledWith(
+      [{ command: 'io2.export', title: '导出' }],
+      'io2',
+    )
+    expect(mocks.loadPlugin).toHaveBeenCalledTimes(1)
+  })
+
+  it('条目菜单动作：禁用 / 平台不符的插件不登记', async () => {
+    mocks.collectPluginDirs.mockResolvedValue([{ root: '/vault', dir: 'p9', source: 'vault' }])
+    mocks.readManifest.mockResolvedValue(
+      manifest('p9', { contributes: { itemMenus: [{ command: 'p9.x', title: 'X' }] } }),
+    )
+    // ⚠️ 用 Once：`clearAllMocks` 只清调用记录、不清实现 —— mockReturnValue(false)
+    // 会漏给后面的用例（「重扫」「LS_LOADING」会因此全部跳过加载）
+    mocks.supportsPlatform.mockImplementationOnce(() => false)
+    const args = makeArgs()
+    renderHook(() => usePluginHost(args))
+    await settle()
+    expect(args.kernel.itemMenu.declare).not.toHaveBeenCalled()
   })
 
   it('加载前落 LS_LOADING 标记、加载后清掉（卡死兜底）', async () => {

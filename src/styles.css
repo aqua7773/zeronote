@@ -2661,22 +2661,23 @@ body.is-resizing * {
   position: absolute;
   left: 0;
   top: 0;
-  width: 56px;
-  height: 56px;
-  margin: -28px 0 0 -28px;
+  /* 60px 宽 + 13px 字：4 个汉字（「插件中心」）一行放得下（56/15 会折成两行，J#9 实测） */
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  padding: 0;
+  padding: 0 2px;
   border: 0;
   border-radius: 50%;
   background: var(--zn-success);
   color: #fff;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
-  font-size: 15px;
-  line-height: 1.1;
+  font-size: 13px;
+  line-height: 1.15;
   /* 反向旋转：抵消槽的 θ，文字保持正立 */
   transform: rotate(calc(var(--a, 0deg) * -1));
   pointer-events: auto;
@@ -2733,16 +2734,40 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   -webkit-touch-callout: none;
 }
 
-/* 提示贴屏幕底（避开 ±140° 那两个圆） */
+/* 提示贴屏幕底（避开两侧那两个圆） */
 .zn-quick-hint {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.62);
   font-size: 11px;
   letter-spacing: 0.02em;
   user-select: none;
+}
+
+/*
+ * 「换入口」（rev173.281 · J#9）：去设置里配置周围 5 格。
+ * 触摸目标 ≥ 24px 高（WCAG 2.5.8）：11px 字 + 上下各 6px padding。
+ */
+.zn-quick-edit {
+  border: 0;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.zn-quick-edit:active {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 @keyframes zn-quick-in {
