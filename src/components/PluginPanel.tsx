@@ -550,7 +550,7 @@ export function PluginPanel({
                 aria-expanded={!collapsed.has(g.category)}
                 onClick={() => toggleGroup(g.category)}
               >
-                <ChevronDown size={14} className="zn-plugin-group-chevron" aria-hidden="true" />
+                <ChevronDown size={16} className="zn-plugin-group-chevron" aria-hidden="true" />
                 {g.label}
                 <span className="zn-plugin-group-count">{g.rows.length}</span>
               </button>
@@ -624,7 +624,7 @@ export function PluginPanel({
                 title={`版本记录 / 回滚（当前 v${p.version}，最多保留 3 份旧版）`}
                 aria-label={`查看 ${p.name} 的版本记录`}
               >
-                <History size={14} />
+                <History size={16} />
               </button>
               {/* 打开面板（B1）：菜单不再列插件面板，这里是主入口之一（另一个是命令面板）。
                   没有任何页面面板的插件不渲染这个按钮（不留灰位）。 */}
@@ -651,7 +651,7 @@ export function PluginPanel({
                     }
                     aria-label={`打开 ${first.title}`}
                   >
-                    <ChevronRight size={14} />
+                    <ChevronRight size={16} />
                   </button>
                 )
               })()}
@@ -662,7 +662,7 @@ export function PluginPanel({
                 title="删除插件"
                 aria-label={`删除插件 ${p.name}`}
               >
-                <Trash2 size={14} />
+                <Trash2 size={16} />
               </button>
             </div>
               ))}

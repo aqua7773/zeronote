@@ -81,7 +81,7 @@ export function AppRail({
   return (
     <nav className="zn-rail" aria-label="主导航">
       <RailButton label="笔记" hint="Ctrl+1" active={viewActive('notes')} onClick={() => onSelectView('notes')}>
-        <FileText size={18} />
+        <FileText size={20} />
       </RailButton>
       <RailButton
         label="搜索"
@@ -89,7 +89,7 @@ export function AppRail({
         active={viewActive('search')}
         onClick={() => onSelectView('search')}
       >
-        <Search size={18} />
+        <Search size={20} />
       </RailButton>
       <RailButton
         label="时间流"
@@ -97,7 +97,7 @@ export function AppRail({
         active={viewActive('timeline')}
         onClick={() => onSelectView('timeline')}
       >
-        <Clock size={18} />
+        <Clock size={20} />
       </RailButton>
 
       {/* 下半区：插件固定区。空 ⇒ 一条分隔线也不画（零插件不留视觉残迹） */}
@@ -113,7 +113,7 @@ export function AppRail({
                 active={false}
                 onClick={() => onPinClick?.(p.id)}
               >
-                {Icon ? <Icon size={18} /> : <Puzzle size={18} />}
+                {Icon ? <Icon size={20} /> : <Puzzle size={20} />}
               </RailButton>
             )
           })}
@@ -124,10 +124,10 @@ export function AppRail({
       <div className="zn-rail-sep" role="separator" aria-orientation="horizontal" />
       <div className="zn-rail-bottom">
         <RailButton label="插件" active={pluginsOpen} onClick={onTogglePlugins}>
-          <Puzzle size={18} />
+          <Puzzle size={20} />
         </RailButton>
         <RailButton label="设置" hint="Ctrl+," active={settingsOpen} onClick={onToggleSettings}>
-          <Settings size={18} />
+          <Settings size={20} />
         </RailButton>
       </div>
     </nav>

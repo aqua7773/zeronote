@@ -65,7 +65,10 @@
   --zn-border-strong: #d4d4d8;
   --zn-fg: #18181b;
   --zn-fg-muted: #71717a;
-  --zn-fg-subtle: #a1a1aa;
+  /* B7 对比度：原 #a1a1aa 在白底只有 2.56:1（低于 AA 4.5），加深到 #8a8a92 ≈ 3.43:1。
+     仍低于 AA 正文线 ⇒ **fg-subtle 只用于装饰性小字 / 图标 / 禁用态**；要传达信息的小字
+     一律用 --zn-fg-muted（4.83 on bg / 4.51 on bg-subtle）。实测见 `tests/design-tokens.test.ts`。 */
+  --zn-fg-subtle: #8a8a92;
   /* 主色：**中性深灰**。原先的紫 #4f46e5 已弃用 —— 用户反馈「紫底灰字，看不清」：
      紫做选中态底色时，文字若也用紫（同色系）对比度天然不足，观感就是一片糊。 */
   --zn-accent: #3f3f46;
@@ -87,6 +90,23 @@
   --zn-space-3: 12px;
   --zn-space-4: 16px;
   --zn-space-6: 24px;
+
+  /* ── 动效 token（B7 · rev173.263）─────────────────────────────
+     五档时长 + 四条缓动，依据 `_research/UI动效与页面转场-2026-10-30.md` §2/§6:
+     hover 80 · fast 120 · base 160 · panel 220 · drill 260。
+     标题栏单独一档 200ms（验收硬指标「标题栏 ≤200ms」，五档里没有合适的点）。
+     四条硬规则：只动 transform / opacity；同一时刻只允许一层做大动作；
+     高频 0–120ms；reduce-motion 下全部 ≤80ms（见文件末尾的全局降级）。 */
+  --zn-dur-hover: 80ms;
+  --zn-dur-fast: 120ms;
+  --zn-dur-base: 160ms;
+  --zn-dur-panel: 220ms;
+  --zn-dur-drill: 260ms;
+  --zn-dur-titlebar: 200ms;
+  --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --zn-ease-decel: cubic-bezier(0, 0, 0, 1);
+  --zn-ease-accel: cubic-bezier(0.3, 0, 1, 1);
+  --zn-ease-emph: cubic-bezier(0.2, 0, 0, 1);
 
   --zn-font: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   --zn-font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
@@ -129,7 +149,9 @@
   --zn-ol-line: #6b6b73;
   --zn-fg: #f4f4f5;
   --zn-fg-muted: #a1a1aa;
-  --zn-fg-subtle: #71717a;
+  /* B7 对比度：暗底比白底更伤眼 —— 原 #71717a 只有 3.67:1，提到 #86868f = 4.91:1（bg-subtle 上 4.55）达 AA。
+     浅色侧保留 3.4:1 的装饰档（白底低对比小字属可接受取舍），两侧不对称是有意的。 */
+  --zn-fg-subtle: #86868f;
   /* 暗色下把主色反相（浅底 + 深字），对比度同样拉满 */
   --zn-accent: #e4e4e7;
   --zn-accent-fg: #18181b;
@@ -202,7 +224,7 @@ button {
   z-index: 5;
   cursor: col-resize;
   background: transparent;
-  transition: background 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard);
   /* 触摸设备上别让浏览器把拖动解释成滚动/缩放，否则 pointermove 会被打断 */
   touch-action: none;
 }
@@ -243,7 +265,7 @@ body.is-resizing * {
   font-size: var(--zn-menu-btn-size);
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-icon-btn:hover {
   background: var(--zn-bg-hover);
@@ -390,7 +412,7 @@ body.is-resizing * {
 .zn-tree-item.is-drop-target {
   background: rgba(59, 130, 246, 0.14);
   box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.75);
-  transition: background 120ms ease, box-shadow 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), box-shadow var(--zn-dur-fast) var(--zn-ease-standard);
 }
 
 /* 被拖动的源行：淡出，表示"它正在被搬走" */
@@ -465,11 +487,11 @@ body.is-resizing * {
   flex: none;
   user-select: none;
   opacity: 0;
-  /* 动画时长由 TitleBar 按方向给内联值（展开 450ms / 收回 900ms）——
-     这里只作为没有内联时的兜底。 */
+  /* 动画时长与曲线走 token（B7：标题栏 450 → 200ms）。
+     TitleBar 用同一组 token 生成内联样式；这里只作兜底。 */
   transition:
-    margin-top 450ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 450ms cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top var(--zn-dur-titlebar) var(--zn-ease-emph),
+    opacity var(--zn-dur-titlebar) var(--zn-ease-emph);
 }
 
 /* 注意：显隐实际由 TitleBar 的**内联样式**控制 —— 这条规则在这台 WebView 上
@@ -490,8 +512,20 @@ body.is-resizing * {
   z-index: 59;
 }
 
+/* 全局 reduce-motion（B7 · rev173.263）。
+   原先只有 `.zn-titlebar` 一处降级，其余 27 处 transition 与 1 处 animation 不受控
+   （调研 §3 实测）。这里用 !important 统一压到 1ms：它**也覆盖组件内联 transition**
+   （如 TitleBar 的 200ms），所以不需要各组件自己判断 matchMedia。
+   依据：WCAG 2.3.3（交互触发的动效应可关闭）+ `_research/UI动效与页面转场-2026-10-30.md` §6。 */
 @media (prefers-reduced-motion: reduce) {
-  .zn-titlebar { transition: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* 标题文字本身也是拖动区（drag-region 不继承，要单独标） */
@@ -529,7 +563,7 @@ body.is-resizing * {
   background: transparent;
   color: var(--zn-fg-muted);
   cursor: pointer;
-  transition: background 100ms ease, color 100ms ease;
+  transition: background var(--zn-dur-hover) var(--zn-ease-standard), color var(--zn-dur-hover) var(--zn-ease-standard);
 }
 .zn-win-btn:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
 .zn-win-btn.is-close:hover { background: #e81123; color: #fff; }
@@ -593,7 +627,7 @@ body.is-resizing * {
   border-radius: 3px;
   background: rgba(120, 120, 132, 0.45);
   opacity: 0;
-  transition: opacity 0.18s;
+  transition: opacity var(--zn-dur-base) var(--zn-ease-standard);
   pointer-events: auto;
   will-change: transform;
 }
@@ -724,7 +758,7 @@ body.is-resizing * {
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-tabs-action:hover {
   background: var(--zn-bg-hover);
@@ -899,7 +933,7 @@ body.is-resizing * {
   line-height: 1;
   cursor: pointer;
   opacity: 0.45;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-editor-close:hover {
   opacity: 1;
@@ -931,7 +965,7 @@ body.is-resizing * {
   line-height: 1;
   cursor: pointer;
   opacity: 0.45;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-mode-toggle:hover {
   opacity: 1;
@@ -1103,7 +1137,7 @@ body.is-resizing * {
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-doc-toolbar-btn:hover {
   background: var(--zn-bg-hover);
@@ -1383,7 +1417,7 @@ body.is-resizing * {
   font-size: var(--zn-text-sm);
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-empty-recent-item:hover {
   background: var(--zn-bg-hover);
@@ -1488,7 +1522,7 @@ body.is-resizing * {
   line-height: 1;
   cursor: pointer;
   opacity: 0.45;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-plain-btn:hover {
   opacity: 1;
@@ -1556,13 +1590,13 @@ body.is-resizing * {
    22px 那版 chip 只能撑到 22（O1 实测）。 */
 .zn-statusbar {
   display: flex;
-  gap: 12px;
+  gap: var(--zn-space-3);
   align-items: center;
   height: 26px;
   flex: none;
-  padding: 0 10px;
+  padding: 0 var(--zn-space-2);
   border-top: 1px solid var(--zn-border);
-  font-size: 12px;
+  font-size: var(--zn-text-sm);
   color: var(--zn-fg-muted);
   overflow: hidden;
   white-space: nowrap;
@@ -1613,7 +1647,7 @@ body.is-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-sidebar-foot:hover {
   background: var(--zn-bg-hover);
@@ -1880,7 +1914,7 @@ body.is-resizing * {
   padding: var(--zn-space-2);
   border-radius: var(--zn-radius);
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-ui-list-item:hover { background: var(--zn-bg-hover); }
 .zn-ui-list-item:focus-visible { outline: 2px solid var(--zn-accent); outline-offset: -2px; }
@@ -1920,7 +1954,7 @@ body.is-resizing * {
   height: 100%;
   border-radius: 999px;
   background: var(--zn-accent);
-  transition: width 160ms ease;
+  transition: width var(--zn-dur-base) var(--zn-ease-standard);
 }
 .zn-ui-progress-label {
   margin-top: 4px;
@@ -2059,7 +2093,7 @@ body.is-resizing * {
    button 重置掉浏览器默认样式，sticky + 数量照旧；chevron 折叠时转 -90° */
 .zn-plugin-group-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px var(--zn-space-3); background: var(--zn-bg-subtle); border: 0; border-bottom: 1px solid var(--zn-border); color: var(--zn-fg-muted); font-family: inherit; font-size: var(--zn-text-sm); font-weight: 600; text-align: left; cursor: pointer; }
 .zn-plugin-group-head:hover { color: var(--zn-fg); }
-.zn-plugin-group-chevron { flex: none; transition: transform 120ms ease; }
+.zn-plugin-group-chevron { flex: none; transition: transform var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-plugin-group.is-collapsed .zn-plugin-group-chevron { transform: rotate(-90deg); }
 .zn-plugin-group-count { color: var(--zn-fg-subtle); font-weight: 400; }
 .zn-plugin-row { display: flex; gap: var(--zn-space-3); align-items: flex-start; padding: var(--zn-space-3); border-bottom: 1px solid var(--zn-border); }
@@ -2075,10 +2109,10 @@ body.is-resizing * {
 .zn-plugin-desc { color: var(--zn-fg-muted); font-size: var(--zn-text-sm); margin-top: 2px; }
 .zn-plugin-caps { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); margin-top: 4px; }
 /* 插件行的「删除」：平时只是个淡图标，hover 才显 danger —— 免得一排红叉吓人 */
-.zn-plugin-del { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }
+.zn-plugin-del { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), border-color var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-plugin-del:hover { color: var(--zn-danger); background: var(--zn-bg-hover); border-color: var(--zn-border); }
 /* 插件行的「版本记录」按钮（rev173.230 · 需求 §2.14）：跟删除同排，平时淡、hover 才亮 */
-.zn-plugin-hist { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color 120ms ease, background 120ms ease, border-color 120ms ease; }
+.zn-plugin-hist { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), border-color var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-plugin-hist:hover { color: var(--zn-fg); background: var(--zn-bg-hover); border-color: var(--zn-border); }
 /* 版本记录对话框：一份存档一行（版本 · 时间 · 大小 · 是否含数据 + 回滚按钮） */
 .zn-plugin-version-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
@@ -2144,7 +2178,7 @@ body.is-resizing * {
 .zn-toast { position: fixed; left: 50%; bottom: calc(32px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: #18181b; color: #f4f4f5; padding: 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; max-width: 70vw; }
 /* 撤销条：与 toast 同位，但带一个可点的动作 —— 删除是一步完成的，谁来兜底就靠它 */
 .zn-undo { position: fixed; left: 50%; bottom: calc(32px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #18181b; color: #f4f4f5; padding: 8px 10px 8px 16px; border-radius: var(--zn-radius); box-shadow: 0 8px 24px rgba(0,0,0,.32); font-size: var(--zn-text-sm); z-index: 200; }
-.zn-undo-btn { border: 0; border-radius: var(--zn-radius-sm); padding: 4px 10px; background: rgba(255,255,255,.14); color: #fff; font-size: var(--zn-text-sm); font-weight: 500; cursor: pointer; transition: background 120ms ease; }
+.zn-undo-btn { border: 0; border-radius: var(--zn-radius-sm); padding: 4px 10px; background: rgba(255,255,255,.14); color: #fff; font-size: var(--zn-text-sm); font-weight: 500; cursor: pointer; transition: background var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-undo-btn:hover { background: rgba(255,255,255,.26); }
 
 /* ───────── 移动端起始页：flomo 风卡片流（rev156，用户给截图要求）─────────
@@ -2247,8 +2281,8 @@ body.is-resizing * {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 0;
+  gap: var(--zn-space-1);
+  padding: var(--zn-space-2) 0;
   background: var(--zn-bg-subtle);
   border-right: 1px solid var(--zn-border);
   overflow: hidden;
@@ -2267,14 +2301,15 @@ body.is-resizing * {
   background: transparent;
   color: var(--zn-fg-muted);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-rail-btn:hover {
   background: var(--zn-bg-hover);
   color: var(--zn-fg);
 }
 .zn-rail-btn:focus-visible {
-  outline: 2px solid var(--zn-accent);
+  /* B7：焦点圈与全局基础层同色（--zn-fg），offset 取 -2 是因为按钮贴栏边 —— 外侧圈会被裁掉 */
+  outline: 2px solid var(--zn-fg);
   outline-offset: -2px;
 }
 /* 选中态：图标加深 + 2px 左侧竖条（方案 §2.1）+ aria-current="page" 由组件给出 */
@@ -2385,7 +2420,7 @@ body.is-resizing * {
   color: var(--zn-fg-muted);
   font-size: var(--zn-text-sm);
   cursor: text;
-  transition: border-color 120ms ease, color 120ms ease;
+  transition: border-color var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-sidebar-search:hover {
   border-color: var(--zn-accent);
@@ -2467,7 +2502,7 @@ body.is-resizing * {
   background: rgba(0, 0, 0, 0.58);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  animation: zn-quick-in 140ms ease-out;
+  animation: zn-quick-in var(--zn-dur-fast) var(--zn-ease-decel);
   /* 遮罩上不触发滚动/缩放；点空白在 JS 里 preventDefault，别让 click 穿透到卡片 */
   touch-action: none;
 }
@@ -2630,7 +2665,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
     width: min(80vw, 300px) !important;
     transform: translateX(-100%);
-    transition: transform .18s ease;
+    transition: transform var(--zn-dur-panel) var(--zn-ease-emph);
     box-shadow: 0 0 24px rgba(0,0,0,.18);
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -2816,7 +2851,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 .zn-note-window-switch:hover {
   background: var(--zn-bg-hover);
@@ -2900,7 +2935,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   line-height: 1.6;
   opacity: 0.45;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--zn-dur-fast) var(--zn-ease-standard);
 }
 
 .zn-shell-escape:hover {
@@ -3073,7 +3108,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
      单行 H2 dy = −14.5 → **+1.5**；折两行的列表行 dy = −14 → **+2.0**（dy = 按钮中心 − 首行文字中心）。 */
   transform: translate(-100%, calc(-50% + 16px));
   opacity: 0.65;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition: opacity var(--zn-dur-fast) var(--zn-ease-standard), color var(--zn-dur-fast) var(--zn-ease-standard);
 }
 
 .zn-line-action:hover {
@@ -3626,7 +3661,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   min-height: 48px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--zn-space-2);
   padding: 0 var(--zn-space-4);
   border: 0;
   background: transparent;

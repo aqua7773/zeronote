@@ -296,7 +296,7 @@ export function MarketPane({
           title="依次测各镜像：能不能拉到**真**索引（只看状态码会被错误页骗）"
           onClick={() => void probeAll()}
         >
-          <Gauge size={13} />
+          <Gauge size={16} />
           {probing ? '测速中' : '测速'}
         </Button>
         <Button
@@ -306,7 +306,7 @@ export function MarketPane({
           title="重新拉取索引"
           onClick={() => void refresh()}
         >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : undefined} />
+          <RefreshCw size={16} className={loading ? 'animate-spin' : undefined} />
           {loading ? '拉取中' : '刷新'}
         </Button>
       </div>

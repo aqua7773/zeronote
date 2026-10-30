@@ -70,14 +70,14 @@ export function MobileMorePage({
       </div>
 
       <div className="zn-more-group-title">笔记</div>
-      <Row icon={<Trash2 size={18} />} label="回收站" hint="删除的笔记可恢复" onClick={onOpenTrash} />
+      <Row icon={<Trash2 size={20} />} label="回收站" hint="删除的笔记可恢复" onClick={onOpenTrash} />
       <Row
-        icon={<Store size={18} />}
+        icon={<Store size={20} />}
         label="切换笔记库"
         hint={vault ? baseName(vault) : '未选择'}
         onClick={onOpenVaults}
       />
-      <Row icon={<Settings2 size={18} />} label="插件中心" hint="安装 / 启用 / 插件市场" onClick={onOpenPlugins} />
+      <Row icon={<Settings2 size={20} />} label="插件中心" hint="安装 / 启用 / 插件市场" onClick={onOpenPlugins} />
 
       {/* 插件类入口：启用才出现（零插件时这一整组不存在） */}
       {pluginEntries.length > 0 ? (
@@ -86,7 +86,7 @@ export function MobileMorePage({
           {pluginEntries.map((e) => (
             <Row
               key={e.key}
-              icon={<Puzzle size={18} />}
+              icon={<Puzzle size={20} />}
               label={e.label}
               hint={e.hint}
               onClick={e.onClick}
@@ -96,8 +96,8 @@ export function MobileMorePage({
       ) : null}
 
       <div className="zn-more-group-title">其他</div>
-      <Row icon={<Settings size={18} />} label="设置" hint="外观 / 编辑器 / 附件" onClick={onOpenSettings} />
-      <Row icon={<Info size={18} />} label="关于 ZeroNote" onClick={onAbout} />
+      <Row icon={<Settings size={20} />} label="设置" hint="外观 / 编辑器 / 附件" onClick={onOpenSettings} />
+      <Row icon={<Info size={20} />} label="关于 ZeroNote" onClick={onAbout} />
     </div>
   )
 }

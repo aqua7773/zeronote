@@ -158,7 +158,7 @@ export function Settings({
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
-                <Icon size={14} />
+                <Icon size={16} />
                 <span>{label}</span>
               </button>
             ))}

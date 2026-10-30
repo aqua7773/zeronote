@@ -565,7 +565,7 @@ const EDITOR_CSS = `
   border: 1px solid var(--zn-border-strong);
   background: var(--zn-bg);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-  animation: zn-wiki-in 120ms ease-out;
+  animation: zn-wiki-in var(--zn-dur-fast) var(--zn-ease-decel);
 }
 @keyframes zn-wiki-in {
   from { opacity: 0; transform: translateY(-2px); }

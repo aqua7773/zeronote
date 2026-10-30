@@ -69,7 +69,7 @@ export function AppSidebar({
                 onClick={onSearchIntent}
                 title="搜索笔记（Ctrl+Shift+F）"
               >
-                <Search size={14} />
+                <Search size={16} />
                 <span>搜索笔记…</span>
               </button>
             )}
@@ -80,7 +80,7 @@ export function AppSidebar({
               title="收起笔记库栏（Ctrl+\）"
               aria-label="收起笔记库栏"
             >
-              <ChevronLeft size={15} />
+              <ChevronLeft size={16} />
             </button>
           </>
         ) : (
@@ -97,7 +97,7 @@ export function AppSidebar({
                 title="设置"
                 aria-label="设置"
               >
-                <Settings size={15} />
+                <Settings size={16} />
               </button>
             ) : null}
           </>

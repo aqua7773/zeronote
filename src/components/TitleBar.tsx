@@ -75,11 +75,14 @@ export function TitleBar({
   //（实测过：1.5 秒就被收走了）。
   //
   // 展开与收回**同一时长**（用户要求「收回时间跟弹出时间保持一致」）。
-  const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)'
+  // 时长/曲线走 design token（B7：450 → 200ms）。内联 style 里可以直接写 var()，
+  // 与 styles.css 的 --zn-dur-titlebar / --zn-ease-emph 同源；
+  // reduce-motion 由 styles.css 的全局 !important 降级压到 1ms —— 它也覆盖这里的 inline。
   const barStyle = {
     marginTop: visible ? 0 : -32,
     opacity: visible ? 1 : 0,
-    transition: `margin-top 450ms ${EASE}, opacity 450ms ${EASE}`,
+    transition:
+      'margin-top var(--zn-dur-titlebar) var(--zn-ease-emph), opacity var(--zn-dur-titlebar) var(--zn-ease-emph)',
   }
 
   /**
