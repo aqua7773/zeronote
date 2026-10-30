@@ -551,7 +551,7 @@ describe('插件接线', () => {
  * 用户以为还在自动同步，实际已经停了 —— 手机上写的笔记 20 分钟没上传。
  */
 describe('限流后开关与实际一致（rev173.110）', () => {
-  it('503 停掉自动同步 ⇒ settings.auto 落盘为 false', async () => {
+  it('503 走指数退避 ⇒ settings.auto 保持 true（rev173.279 改）', async () => {
     const store = new Map<string, unknown>()
     let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
     const commands = new Map<string, (payload?: unknown) => unknown>()
@@ -613,7 +613,12 @@ describe('限流后开关与实际一致（rev173.110）', () => {
     expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(true)
 
     await commands.get('sync-webdav.sync')!()
-    expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(false)
+    /**
+     * rev173.279 · 真人使用测试 #12：503 不再**永久停**自动同步。
+     * 旧行为是 `stopAuto()` + 把 `auto` 落盘 false（用户得手动重开，重开后又 5 秒一轮很快再撞）；
+     * 现在改成指数退避（15 s → 60 s → 300 s），成功后自动恢复 ⇒ 开关保持开着。
+     */
+    expect((store.get('settings.v1') as { auto?: boolean }).auto).toBe(true)
 
     // apply 里 startAuto 挂的 interval 已经由 stopAuto 摘掉；保险起见全清
     for (const s of api.subscriptions) s.dispose?.()

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.278
-更新时间: 2026-10-30 · 最新 rev173.278
+revision: 173.279
+更新时间: 2026-10-30 · 最新 rev173.279
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.278
 
 | rev | 内容 |
 |---|---|
+| rev173.279 | 2026-10-30 · **H 批（手机常驻沉浸式 #11）+ I 批（同步限流退避 #12）**（用户「10 和 16 已验收，继续剩下的修复」）：① **#11** —— `App.tsx` 的 `setStatusBarVisible(!sidebarOpen)` 改成**常隐**（`setStatusBarVisible(false)` + 卸载时显回来）。以前是「抽屉开才隐藏、收起就显示」⇒ 首页顶部一直挂一条系统状态栏（时间 / 电量），底色与应用顶栏对不上。**无需重编 APK**：原生 `tauri-plugin-statusbar` 早已支持 `hide(Type.statusBars())`，且有 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`（顶部下拉仍能临时唤出）。真机（`33b676f6`）：reload 后状态栏消失，首页与编辑器顶栏都贴在顶部、无遮挡（截图 `_shots/h11-reloaded.png` / `h11-editor.png`）。② **#12** —— `sync-webdav` / `sync-s3` / `sync-git` 三个后端的限流处理从「撞上 503/429 就 `stopAuto()` + 关开关 + 让人手动重开」改成**指数退避**（`BACKOFF_MS = [15000, 60000, 300000]`）：退避期内节拍照走但**跳过请求**，任意一轮成功立刻复位回 5 秒；面板 badge 在退避中显示「自动 · 限流退避中（N 秒后重试）」并用 warn 色（旧文案一直写「前台每 5 秒」，是谎报）。认证 / 签名错（401 / 403 / `SignatureDoesNotMatch` / `AccessDenied`）仍然立刻停 —— 重试只会让封禁更久。③ **测试** —— 新 `tests/system-bar-immersive.test.ts` 4 条（含「原生保留顶部下拉唤出」）· 新 `tests/sync-backoff.test.ts` 18 条（三后端 × 6：退避三档 / 退避期跳过 / 成功复位 / 面板会说 / **限流分支不停自动同步** / 认证仍停）。vitest 1633 → **1655**。⚠️ **I 批没做端到端实测**：要改用户全局插件（签名包换 junction）与已配好的 WebDAV 设置，风险与收益不成比例 —— 退避是纯逻辑、已被静态测试锁住关键结构，端到端留给 0.9.0 发市前在真机上验。 |
 | rev173.278 | 2026-10-30 · **G 批：导出 Markdown 图片内嵌（#20）+ 点内嵌图拿回原图**（用户「10 和 16 已验收，继续剩下的修复」）：① **G1** —— `import-export` 新增「导出为 Markdown（图片内嵌）…」（`io.exportMdEmbed`）：扫 `![]()` ⇒ ≤1 MiB 内嵌**原图** / > 1 MiB 用台账 `preview` 或 `storedInVault` / 都没有就 canvas 现场压 **1280·q70**（透明图垫白底，否则转 JPEG 变黑）；视频音频 PDF 保留引用并在提示里点名。图片后紧跟 `<!-- zn-orig: 原引用 -->`。② **G2** —— 编辑器按 **data URL 精确配对**（第一版按 `posAtDOM` 找注释 **实测整体错位一张图**：1096×709 的图配上了 512×512 的路径）；点内嵌图 ⇒ 宿主：本机有原文件就直接显示原图，台账有但没落地 ⇒ 浮层给「同步原文件」。新模块 `src/lib/embed-image.ts`（`parseZnOrig` / `isEmbeddedOrigAbs` / `znOrigCandidates` / `collectEmbeddedOrigins`）。③ **测试** `import-export.test.ts` +12 · 新 `embed-image.test.ts` **18**；vitest 1592 → **1628**。④ **实测**（CDP，测试库）：探针 `{embedded:4, original:2, preview:1, downscaled:1, kept:["C:/Windows/notepad.exe"]}`；导出文件 687,511 B，解码后 **27,507 / 14,743 / 335,679（台账预览）/ 137,090（现场压）**，尺寸 1096×709 · 512×512 · 1280×720 · 1280×720；点内嵌图 ⇒ 预览 src 变 `http://asset.localhost/C:/…`，台账未落地那张出现「同步原图（2.3 MB）」。⚠️ **插件版本仍 0.1.1**：bump 会立刻要求重打包签名（质量门「市场索引」检查版本一致）⇒ 留给 **0.9.0 收口**：`node scripts/pack-plugin.mjs import-export --key …` + `gen-market --write`。 |
 | rev173.277 | 2026-10-30 · **E#10 定位并修好：抽屉遮罩不随抽屉卸载**（用户「直接截图手机，点击打开插件中心」）：① **复现** —— 手机先拉开文件树抽屉，再从设置点「打开插件中心」⇒ 插件中心整页变暗、点不动（用户截图 161613 同款）。抓 DOM：`.zn-scrim`（`z=50`、`rgba(0,0,0,.28)`、全屏）还在，`.zn-sidebar` 已经没了。② **根因** —— 抽屉本体 `showSidebar = sidebarAllowed && (isDesktop \\|\\| sidebarOpen)`，而遮罩只写 `sidebarOpen`：切到插件中心 / 回收站时 `sidebarAllowed` 变 false ⇒ 抽屉卸载、**遮罩留下**。③ **修法** —— 遮罩条件与抽屉同源：`{sidebarOpen && sidebarAllowed && <div className="zn-scrim"/>}`。④ **验证** —— 真机：抽屉开着切插件 ⇒ `scrim=false / sidebar=false / main=plugins`，截图无暗层；桌面 + 手机完整路径复测通过。⑤ **测试** `tests/app-smoke.test.tsx` +1（手机 UA：点 ☰ 开抽屉 ⇒ `.zn-scrim` 存在；点底栏「插件」⇒ 遮罩消失）；vitest 1591 → **1592**。⚠️ 之前「本机无法复现」的结论被推翻：**原因是我没走「抽屉先开着」这条路径**（从更多页进设置时不经过抽屉）—— 教训：复现失败先核对前提状态，别急着说不复现。 |
 | rev173.276 | 2026-10-30 · **F 批前半：卡片重命名改自绘对话框（#16 闪退 / #17 不预填）**（用户「继续做」）：① **根因（一手）** —— `MobileNoteCards` 的重命名是 `window.prompt`；wry 的 `onJsPrompt`（`RustWebChromeClient.kt`）**不传 `defaultValue`** ⇒ 对话框永远空框（#17「想改中间两个字只能重打」）；原生 AlertDialog 与 WebView 的交互出过「输入到一半闪退」（#16，本轮真机未复现，见下）。② **新组件** `src/components/RenameDialog.tsx` —— 内核 Dialog + input：**预填当前文件名**、只选中主名（`.md` 之前，与 #17 同一规则）、回车确认、空名禁用「确定」、取消/遮罩/Esc 归到 `onCancel`；不靠 effect 重置（宿主**条件渲染**，每次打开都是新实例）。③ **接线** —— 卡片菜单「重命名…」只置 `renameTarget`；对话框压进 Android 返回键层出口栈（与卡片菜单同一约定）；`window.prompt` 全仓清零。④ **测试** 新 `tests/rename-dialog.test.tsx` 4 条（预填 + 只选主名 / 回车提交 / 空名不提交 / 取消）；vitest 1587 → **1591**。⑤ **真机实测**（`33b676f6`）：点卡片 ⋯ → 重命名 ⇒ 自绘框出现、预填 `renamed.md`、`selectionStart 0 / End 7`（只选主名）、聚焦在输入框；点「确定」后对话框关闭、无崩溃（pid 3383 不变）。⚠️ **改名落盘那一步被自动同步覆盖**（远端有同名旧文件，5 秒一轮拉回），未在此环境单独验证；`#16` 的原生闪退本轮**未复现**（输入法 / 时机未知），换掉 prompt 是可控的那一半。 |
@@ -174,6 +175,58 @@ revision: 173.278
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.279（2026-10-30 · H 批：手机常驻沉浸式 · #11 ｜ I 批：同步限流退避 · #12）
+
+> ### H · #11「不需要留系统状态栏」
+>
+> 用户原话：「不需要留系统状态栏，要么就把系统状态栏颜色设置成跟下面衔接在一起」。
+>
+> 现状：`setStatusBarVisible(!sidebarOpen)` —— **抽屉开才隐藏、收起就显示**。
+> 首页顶部一直挂一条系统状态栏（时间 / 电量），底色与应用自己的顶栏对不上。
+>
+> 改法：**常隐**。`useEffect` 里直接 `setStatusBarVisible(false)`，卸载时显回来。
+> **不用重编 APK** —— 原生 `tauri-plugin-statusbar` 早就支持 `hide(Type.statusBars())`，
+> 而且设了 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`（从顶部下拉仍能临时唤出时间 / 电量）。
+>
+> 真机（`33b676f6`）：reload 后状态栏消失，首页与编辑器顶栏都贴在顶部、无遮挡
+> （`_shots/h11-reloaded.png` / `h11-editor.png`）。顶部那一小条是 Tauri 保留的 inset，
+> 显示的是应用底色 —— 「割裂感」正是它被消除的原因。
+>
+> ### I · #12「坚果云同步很容易触发限流」
+>
+> 用户截图：底部「同步失败：Error: 下载失败（503）」，面板还写着「自动 · 前台每 5 秒」。
+> 5 秒一轮 = 360 次 / 30 分钟，加上附件与 manifest 请求，撞上坚果云 600 次的上限很快。
+>
+> 旧行为最糟的一点：撞上就 `stopAuto()` + 把 `settings.auto` 置 false ⇒ **永久停**，
+> 用户必须手动重开；重开后又 5 秒一轮，很快再撞。
+>
+> 改成**指数退避**：`BACKOFF_MS = [15000, 60000, 300000]`
+> · 退避期内**节拍照走、请求不发**（保留节拍才能自动恢复，不用用户动手）；
+> · 任意一轮成功立刻复位回 5 秒；
+> · 面板 badge 退避中显示「自动 · 限流退避中（N 秒后重试）」+ warn 色
+>   （旧文案在退避时仍写「前台每 5 秒」，是谎报）；
+> · **退避那一轮强制刷面板** —— 否则静默轮不刷新，用户看不见。
+>
+> 认证 / 签名错（401 / 403 / `SignatureDoesNotMatch` / `AccessDenied`）**仍立刻停**：
+> 2026-10-24 实测 401 重试十几分钟后桌面 + 手机全被 503 挡了半小时，重试只会更糟。
+>
+> 三个后端同步改：`sync-webdav` · `sync-s3` · `sync-git`。
+> `sync-folder` 不在范围内（本地磁盘，没有限流概念）。
+>
+> ### 测试
+>
+> - `tests/system-bar-immersive.test.ts` **4 条**：挂载时隐藏 / 旧的 `!sidebarOpen` 接线已消失 /
+>   卸载时显回 / 原生保留顶部下拉唤出。
+> - `tests/sync-backoff.test.ts` **18 条**（三后端 × 6）：退避三档 / 退避期跳过 / 成功复位 /
+>   面板会说 / **限流分支不停自动同步** / 认证仍停。
+> - vitest 1633 → **1655**。
+>
+> ### 没做的事（如实记）
+>
+> I 批**没做端到端实测**：要改用户的全局签名包（换 junction）与已经配好的 WebDAV 设置，
+> 风险与收益不成比例。退避是纯逻辑、关键结构已被静态测试锁住 —— 端到端留给 0.9.0 发市前真机验。
+> H 批是**真机验过的**（有截图）。
 
 > ## 📌 rev173.278（2026-10-30 · G 批：导出 Markdown 图片内嵌 · #20）
 

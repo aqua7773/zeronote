@@ -3,11 +3,17 @@ import { invoke } from '@tauri-apps/api/core'
 /**
  * Android 状态栏的按需显隐。
  *
- * 需求（用户 2026-10-12）：**侧栏（抽屉）打开时隐藏状态栏，收起（首页）时显示**；
- * 导航栏不受影响。原生实现见 `src-tauri/plugins/tauri-plugin-statusbar/`。
+ * 需求变更（rev173.279 · 真人使用测试 #11，用户原话「不需要留系统状态栏」）：
+ * 现在是**常驻沉浸式** —— App 挂载时下发 `false`、卸载时显回来。
+ * 旧需求（2026-10-12「抽屉打开时隐藏、收起时显示」）已作废：
+ * 首页顶部一直挂一条系统状态栏，底色与应用顶栏对不上，视觉割裂。
+ *
+ * 导航栏不受影响；隐藏时原生设了 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`，
+ * 从屏幕顶部下拉仍能临时唤出时间 / 电量。
+ * 原生实现见 `src-tauri/plugins/tauri-plugin-statusbar/`。
  *
  * 平台判断放在这里而不是调用点：桌面端根本没有系统栏可控制，
- * 让调用方（App.tsx）无脑调用 `setStatusBarVisible(!sidebarOpen)` 更省心。
+ * 让调用方（App.tsx）无脑调用 `setStatusBarVisible(false)` 更省心。
  */
 const isAndroid =
   typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)

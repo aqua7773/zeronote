@@ -711,13 +711,22 @@ export default function App() {
   }, [sidebarWidth])
 
   /**
-   * 移动端：侧栏（抽屉）打开时隐藏状态栏、收起（首页）时显示。
-   * 桌面端由 systemBar.ts 用 Android UA 自行跳过，这里不必分支。
-   * 原生实现：src-tauri/plugins/tauri-plugin-statusbar/
+   * 移动端：**常驻沉浸式**，系统状态栏一直隐藏（rev173.279 · 真人使用测试 #11）。
+   *
+   * 用户原话：「不需要留系统状态栏，要么就把系统状态栏颜色设置成跟下面衔接在一起」。
+   * 以前是「抽屉开才隐藏、收起就显示」—— 首页顶部那条系统状态栏（黑/白底 + 时间电量）
+   * 与应用自己的顶栏颜色对不上，视觉割裂。
+   *
+   * 隐藏不丢功能：原生侧设了 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
+   * （`StatusBarPlugin.kt`），从屏幕顶部下拉仍能临时唤出时间 / 电量。
+   * 桌面端由 `systemBar.ts` 用 Android UA 自行跳过，这里不必分支。
+   *
+   * 卸载（HMR / 退出）时显回来，别把状态栏留在隐藏态。
    */
   useEffect(() => {
-    void setStatusBarVisible(!sidebarOpen)
-  }, [sidebarOpen])
+    void setStatusBarVisible(false)
+    return () => void setStatusBarVisible(true)
+  }, [])
 
   /**
    * 移动端抽屉手势（2026-10-18 用户要求「直接全局生效」）：

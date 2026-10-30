@@ -91,6 +91,13 @@ const MAX_CONFLICTS = 100
 const MAX_TIMING = 50
 const MAX_FILES_PER_RUN = 200
 const AUTO_MS = 5000
+/**
+ * **限流退避档位**（rev173.279 · 真人使用测试 #12「坚果云同步很容易触发限流」）：
+ * 旧行为是撞上 503 / 429 就永久停自动同步（要用户手动重开，重开后又 5 秒一轮很快再撞）。
+ * 改成 15 s → 60 s → 300 s 指数退避，任意一轮成功立刻复位回 5 秒。
+ * 认证类（401 / 403 / 签名错）仍然立刻停 —— 那种重试只会更糟。
+ */
+const BACKOFF_MS = [15000, 60000, 300000]
 /** 空 body 的 SHA-256（GET / HEAD / DELETE 的 payload hash） */
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 
@@ -1464,15 +1471,32 @@ export default {
         timing.write = lap()
         await api.store.set(KEY_BASELINE, baseline)
         summary.hint = summary.hint || `${reason}同步完成`
+        // 成功一轮 ⇒ 退避清零（限流是临时的）
+        backoffLevel = 0
+        backoffUntil = 0
       } catch (e) {
         summary.hint = `同步失败：${String(e)}`
-        if (/401|403|429|503|SignatureDoesNotMatch|AccessDenied/i.test(String(e))) {
+        const msg = String(e)
+        /**
+         * 两类失败分开（rev173.279 · #12）：认证 / 签名错立刻停（重试只会更糟）；
+         * 限流（429 / 503 / SlowDown）走**指数退避**，不永久停 —— 成功后自动回到 5 秒节拍。
+         * 旧行为是撞上就停、要用户手动重开，而重开后又 5 秒一轮，很快再撞。
+         */
+        if (/401|403|SignatureDoesNotMatch|AccessDenied|InvalidAccessKeyId/i.test(msg)) {
+          backoffLevel = 0
+          backoffUntil = 0
           stopAuto()
           if (settings.auto !== false) {
             settings.auto = false
             markDirty()
           }
-          summary.hint += '（认证失败或限流，已暂停自动同步）'
+          summary.hint += '（认证 / 签名失败，已暂停自动同步；改好配置后在面板上重新开启）'
+        } else if (/429|503|SlowDown|RequestLimitExceeded|rate.?limit/i.test(msg)) {
+          const wait = BACKOFF_MS[Math.min(backoffLevel, BACKOFF_MS.length - 1)]
+          backoffLevel = Math.min(backoffLevel + 1, BACKOFF_MS.length)
+          backoffUntil = Date.now() + wait
+          summary.backoffMs = wait
+          summary.hint += `（远端限流，已退避 ${Math.round(wait / 1000)} 秒 —— 成功一轮后自动恢复，不用手动开）`
         }
         if (!silent) api.host.notify(summary.hint, 'error')
         else api.host.log('warn', summary.hint)
@@ -1485,7 +1509,8 @@ export default {
           void api.store.set(KEY_TIMING, timingHistory).catch(() => {})
         }
         lastResult = { ...summary, at: Date.now() }
-        if (!silent || changed) api.view.refresh()
+        // 退避那一轮必须刷面板 —— 否则面板还写着「自动 · 前台每 5 秒」
+        if (!silent || changed || summary.backoffMs) api.view.refresh()
       }
       return summary
     }
@@ -1493,11 +1518,16 @@ export default {
     /* ── 自动同步 ── */
 
     let autoTimer = null
+    /** 限流退避状态（rev173.279 · #12）：撞几次限额、退避到哪个时间点；成功后清零 */
+    let backoffLevel = 0
+    let backoffUntil = 0
 
     function startAuto() {
       if (autoTimer || !settings.endpoint || !settings.bucket) return
       const timer = window.setInterval(() => {
         if (busy || !settings.endpoint) return
+        // 限流退避期：节拍照走、请求不发（成功后自动恢复）
+        if (Date.now() < backoffUntil) return
         if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
         void runSync('自动', { silent: true })
       }, AUTO_MS)
@@ -1616,8 +1646,13 @@ export default {
           children: [
             {
               type: 'badge',
-              text: settings.auto === false ? '手动同步' : '自动 · 前台每 5 秒',
-              tone: settings.auto === false ? 'muted' : 'success',
+              text:
+                settings.auto === false
+                  ? '手动同步'
+                  : backoffUntil > Date.now()
+                    ? `自动 · 限流退避中（${Math.ceil((backoffUntil - Date.now()) / 1000)} 秒后重试）`
+                    : '自动 · 前台每 5 秒',
+              tone: settings.auto === false ? 'muted' : backoffUntil > Date.now() ? 'warn' : 'success',
             },
             ...(busy ? [{ type: 'badge', text: '正在同步…', tone: 'warn' }] : []),
           ],

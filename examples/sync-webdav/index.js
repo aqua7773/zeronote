@@ -107,6 +107,17 @@ export function decideTreeAction(localFp, remoteFp, baseFp) {
 const MAX_FILES_PER_RUN = 200
 /** 自动同步节拍：前台每 5 秒跑一次（坚果云 600 次/30min ≈ 12 次/分钟，5 秒正好 12 次） */
 const AUTO_MS = 5000
+/**
+ * **限流退避档位**（rev173.279 · 真人使用测试 #12「坚果云同步很容易触发限流」）。
+ *
+ * 5 秒一轮 = 360 次 / 30 分钟，加上附件与 manifest 的请求，撞上坚果云 600 次的上限很快
+ * （真机截图：`下载失败（503）`）。旧行为是**撞上就永久停自动同步**（`stopAuto()` + 关开关 +
+ * 让用户手动重开）—— 用户以为同步坏了，而且重开后又 5 秒一轮，很快再撞。
+ *
+ * 改成**指数退避**：15 s → 60 s → 300 s，任何一轮成功立刻复位回 5 s。
+ * 认证失败（401 / 403）仍然立刻停 —— 那种情况重试只会让封禁更久。
+ */
+const BACKOFF_MS = [15000, 60000, 300000]
 /** 冲突记录上限 */
 const MAX_CONFLICTS = 100
 /**
@@ -1176,30 +1187,39 @@ export default {
         }
         await api.store.set(KEY_BASELINE, baseline)
         summary.hint = summary.hint || `${reason}同步完成${summary.manifest304 ? '（manifest 304）' : ''}`
+        // 成功一轮 ⇒ 退避清零（限流是临时的，恢复后立刻回到 5 秒节拍）
+        backoffLevel = 0
+        backoffUntil = 0
       } catch (e) {
         summary.hint = `同步失败：${String(e)}`
+        const msg = String(e)
         /**
-         * 认证类错误（401 / 403）与**限流 / 临时封禁**（429 / 503 / `BlockedTemporarily`）
-         * ⇒ **立刻停自动同步**。
+         * 两类失败分开处理（rev173.279 · 真人使用测试 #12）：
          *
-         * 真实理由：坚果云对连续失败与高频请求会「临时封号」（响应体里
-         * `<s:exception>BlockedTemporarily</s:exception>`，HTTP 503）。自动同步每 5 秒一次，
-         * 一旦被限流还继续打，封禁只会一次比一次久（2026-10-24 实测：401 重试十几分钟后
-         * 桌面 + 手机全被 503 挡了半小时）。停下来让用户等一会再手动试。
+         * · **认证错**（401 / 403）⇒ 立刻停自动同步。重试只会让封禁更久
+         *   （2026-10-24 实测：401 重试十几分钟后桌面 + 手机全被 503 挡了半小时）。
+         *   开关显示必须与**实际**一致：`stopAuto()` 只清定时器、不动 `settings.auto`，
+         *   不置 false 面板会一直显示「自动 · 前台每 5 秒」—— 用户以为还在同步（真机踩过）。
+         *
+         * · **限流 / 临时封禁**（429 / 503 / `BlockedTemporarily`）⇒ **指数退避，不永久停**。
+         *   旧行为是撞上就停、要用户手动重开；重开后又 5 秒一轮，很快再撞。
+         *   现在 15 s → 60 s → 300 s，任何一轮成功立刻复位回 5 s。
          */
-        if (/401|403|429|503|unauthorized|forbidden|blocked/i.test(String(e))) {
+        if (/401|403|unauthorized|forbidden/i.test(msg)) {
+          backoffLevel = 0
+          backoffUntil = 0
           stopAuto()
-          /**
-           * 开关显示必须与**实际**一致：`stopAuto()` 只清定时器、不动 `settings.auto`，
-           * 不补这一行面板会一直显示「关闭自动同步 / 自动 · 前台每 5 秒」——
-           * 用户以为还在自动同步，实际已经停了（2026-10-24 真机实测踩到：
-           * 22:27 被 503 停掉后，手机上写的笔记一直没上传）。
-           */
           if (settings.auto !== false) {
             settings.auto = false
             markDirty()
           }
-          summary.hint += '（认证失败或远端限流，已暂停自动同步；稍等 10–30 分钟再手动试）'
+          summary.hint += '（认证失败，已暂停自动同步；改好账号或密码后在面板上重新开启）'
+        } else if (/429|503|blocked|rate.?limit|too many/i.test(msg)) {
+          const wait = BACKOFF_MS[Math.min(backoffLevel, BACKOFF_MS.length - 1)]
+          backoffLevel = Math.min(backoffLevel + 1, BACKOFF_MS.length)
+          backoffUntil = Date.now() + wait
+          summary.backoffMs = wait
+          summary.hint += `（远端限流，已退避 ${Math.round(wait / 1000)} 秒 —— 成功一轮后自动恢复，不用手动开）`
         }
         if (!silent) api.host.notify(summary.hint, 'error')
         else api.host.log('warn', summary.hint)
@@ -1218,8 +1238,11 @@ export default {
           void api.store.set(KEY_TIMING, timingHistory).catch((e) => api.host.log('warn', `耗时历史写入失败：${String(e)}`))
         }
         lastResult = { ...summary, at: Date.now() }
-        // 自动轮询下「什么都没变」不刷面板（每 5 秒重渲染会把用户正在填的表单刷掉）
-        if (!silent || changed) api.view.refresh()
+        /**
+         * 自动轮询下「什么都没变」不刷面板（每 5 秒重渲染会把用户正在填的表单刷掉）；
+         * **退避那一轮例外** —— 用户必须看见「已退避到 N 秒」，否则面板还写着「自动 · 前台每 5 秒」。
+         */
+        if (!silent || changed || summary.backoffMs) api.view.refresh()
       }
       return summary
     }
@@ -1676,6 +1699,14 @@ export default {
     /* ── 自动同步（「无感」就是这一段） ── */
 
     let autoTimer = null
+    /**
+     * 限流退避状态（rev173.279 · #12）：
+     * `backoffLevel` = 已连撞几次限额（0 = 正常），`backoffUntil` = 退避到哪个时间点。
+     * 退避期间 5 秒的节拍照跑，但**跳过不发请求** —— 保留节拍是为了成功后能自动恢复，
+     * 不用用户手动重开。
+     */
+    let backoffLevel = 0
+    let backoffUntil = 0
 
     /**
      * 开自动同步：前台每 `AUTO_MS` 跑一次。
@@ -1690,6 +1721,8 @@ export default {
       if (autoTimer || !settings.baseUrl) return
       const timer = window.setInterval(() => {
         if (busy || !settings.baseUrl) return
+        // 限流退避期：节拍照走、请求不发（成功后自动恢复，见 runSync 的 catch）
+        if (Date.now() < backoffUntil) return
         if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
         void runSync('自动', { silent: true })
       }, AUTO_MS)
@@ -1814,8 +1847,17 @@ export default {
           children: [
             {
               type: 'badge',
-              text: settings.auto === false ? '手动同步' : '自动 · 前台每 5 秒',
-              tone: settings.auto === false ? 'muted' : 'success',
+              /**
+               * 限流退避中要**说出来**（rev173.279 · #12）：否则面板一直写「自动 · 前台每 5 秒」，
+               * 而实际已经拉到 60 秒一轮 —— 用户会以为同步还在高频打远端。
+               */
+              text:
+                settings.auto === false
+                  ? '手动同步'
+                  : backoffUntil > Date.now()
+                    ? `自动 · 限流退避中（${Math.ceil((backoffUntil - Date.now()) / 1000)} 秒后重试）`
+                    : '自动 · 前台每 5 秒',
+              tone: settings.auto === false ? 'muted' : backoffUntil > Date.now() ? 'warn' : 'success',
             },
             ...(busy ? [{ type: 'badge', text: '正在同步…', tone: 'warn' }] : []),
           ],
