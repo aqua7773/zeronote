@@ -102,6 +102,9 @@ pwsh -File scripts\verify.ps1
 > **下个会话第一件事：B7（视觉与动效统一）** —— `docs/UI重布局-方案-2026-10-29.md` §2.4 / §6：
 > 图标 16/20px · 间距 4/8/12 · 焦点圈 · 暗色对比 · 动效 token 5 档 + `prefers-reduced-motion` 全局降级；
 > 验收 = 对照截图 + 键盘全流程可达 + 零插件 / 全插件两套截图。
+> **B7 之后还有三项目标态没被批次表覆盖**（方案 §2.1 / §6 没分配，别当已完成）：
+> ① 侧栏**智能分区**（今天 / 最近 7 天 / 未打标签）② 图标栏**插件固定区 pin 交互**（最多 3 个）③ **专注模式**（标题栏自动隐藏 + 设置项）。
+> UI 重布局收口后按方案 §9 重写 `docs/UI交互规范.md`、方案转 historical。
 > **B3 已落地（rev173.258）**：插件中心独立页（已安装 / 插件市场 / 调试）+ 设置瘦身（只剩摘要 +「打开插件中心」+
 > 启动检查更新）；禁用可撤销（12 秒）；命名统一。证据 `_shots/b3-*` 与 `_shots/b3-phone-*`。
 > **取消内置预装（rev173.259）**：应用**不再预装任何插件**，**首次启动 = 零插件**；原来预装的 9 个改为插件中心空态里的
@@ -290,16 +293,18 @@ pwsh -File scripts\verify.ps1
 | `D-008` 插件市场 / 更新通道 | ✅ **已完成**（rev173.142–158 落地，不需要服务端）：形态 §4.4 + 开发者流程 §4.5 见 `docs/插件市场-调研-2026-10-25.md`。 |
 | 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 16 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
 
-## 环境现状（活信息 · 2026-10-29）
+## 环境现状（活信息 · 2026-10-30）
 
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **5216** · 2026-10-29 23:37:30 起；vite 1420 / CDP 9222 都在），
-  日志在 `.self-logs/desktop-dev.log`。**rev173.256（B1）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
-  没有重编 Rust、没有重启 dev；测完页面已回到笔记视图、`Emulation` 视口已清除。
-  ⚠️ **rev173.258/259 验证「零插件空态」**：临时把 `<appdata>\.zn\plugins` 改名 → 重扫 → 截图 → 改回 → 重扫；
-  已恢复（**18 个**、无 `plugins-b3-empty-bak` 残留）。手机重启过一次（`am force-stop` + `am start`，pid 已变；重启后补过 `adb reverse tcp:1420`）。
+  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **5216** · 2026-10-29 23:37:30 起 ≈ 13 小时；vite 1420 pid 40080 / CDP 9222 都在），
+  日志在 `.self-logs/desktop-dev.log`。**rev173.256–262（B1–B6）全程只改前端** ⇒ 走 HMR + 手动 `location.reload()`，
+  没有重编 Rust、没有重启 dev。
+  ⚠️ **零插件验证做过四次**（B3 rev173.258 / B4 rev173.260 / B6 rev173.262）：临时把 `<appdata>\.zn\plugins` 改名
+  → reload → 截图 → 改回 → reload；每次都已恢复（**18 个**、无 `plugins-*-bak` 残留）。
+  **B6 那次还额外验证了「禁用 → 启用 hello 不 reload 就回来」** —— ⚠️ 教训：当时在插件中心页面看侧栏，
+  一直看不到是**正常的**（系统页不渲染侧栏），别误判成「热启用失效」。
   ⚠️ **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**（vite 预构建缓存在内存里，删文件也不重建）：
   结束 dev 进程树 → 删 `node_modules/.vite` → `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`。
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（`target` 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
@@ -311,7 +316,8 @@ pwsh -File scripts\verify.ps1
   ⚠️ **单拼 `gradlew :app:testArmDebugUnitTest` 可以**（rev173.242 起的 JVM 单测入口），但别与 watch 同时跑 ——
   两者都碰同一条 rust/gradle 链。
 - **手机 `33b676f6` = 测试机，只跑已装的 dev 包**：`versionName` 仍写 **0.5.0**，但 **2026-10-29 20:39 又被 `android-dev` 重编重装**
-  （**2026-10-30 01:2x 交接时 app pid `5218`** —— rev173.257（B2）真机验收时 `am force-stop` + `am start` 重启过一次，
+  （**2026-10-30 12:40 交接时 app pid `25044`** —— B5/B6 全程只改前端、未重编 APK；10-30 上午那次 HMR 后偶发白屏由
+  `location.reload()` 恢复，属既有「手机 reload 后偶发退出」一类）。
   重启前**必须**先补 `adb reverse tcp:1420 tcp:1420`，否则 15 秒静默退出；那次 APK 仍是 10-29 20:39 编的，
   含 **rev173.242 的桌面组件**（`gen/android/.../Widget*.kt` 8 个 + 3 套布局）+ **rev173.243 的 `WidgetRefresher`**
   + rev173.238 的 `assets.rs` + rev173.240 的媒体服务）。
@@ -340,6 +346,11 @@ pwsh -File scripts\verify.ps1
   `examples/` 里的源码**不会**自动生效，要么删掉那份再建 junction，要么在插件页重装。本会话实测：
   测试库的 `security` 里仍是 0.1.x（不含 vault 按环拆），所以**换设备验证 vault 迁移前先把 `security`
   同步进全局目录**。
+- **本会话手动更新过全局目录（2026-10-30）**：`backlinks` → **0.2.2**、`history` → **0.2.1**（B4 迁挂载位）、
+  `import-export` → **0.1.1**（B6 改 `main`）；旧文件备份都在 `_tmp-plugin-backup/b4-20261030-0245/` 与
+  `_tmp-plugin-backup/b6-20261030-1227/`。`hello` 用 junction 装过、验完已删（18 个插件无变化）。
+  ⚠️ 手机上的 `backlinks` / `history` / `import-export` 仍是旧版（market 签名包 0.1.0/0.2.x），
+  要从市场更新才会拿到新挂载位 / main 形态 —— 手机上它们目前走旧路径（状态栏 / sidebar 回退主区），不算坏。
 - **测试库** `_tmp-vault-tb/`（不入库）· **插件只有全局目录一处**，测试插件只放 `examples/`、用完即删 · **开发中要试的插件 = 在 `<APPDATA>\com.aqua.zeronote\.zn\plugins\` 下建 junction 指向 `examples/<id>`**（库内 `.zn/plugins/` **不再被扫描**，rev173.5 起只有全局根 —— rev173.180 踩过：挂测试库后 reload 命令表里什么都没有）· 全局目录里的 `secrets` 是**开发版（无签名）**（rev173.163 实测拷入；市场版已签名，重装即覆盖）· 测试库 `secrets` 环测试主密码 **`TestPass123`**，库内有 1 个 `GitHub / aqua@example.com` 测试账号，**已绑 Windows Hello**（rev173.169）· 测试库 **`notes` 环主密码 `NotesTest123`**（rev173.180 建，私密笔记测试数据已清，环保留）· **AI 插件（rev173.196）已建 junction**：`ai` → `examples/ai`，改源码后 `location.reload()` 即生效。
 - ⚠️ **桌面全局目录的 `security` 也是开发版**（rev173.169 换成带 Hello 适配器的版本；旧文件备份在 `_tmp-plugin-backup/`）。手换插件 `index.js` 后**必须同步 `manifest.json` 的 `sha256`**（入口哈希），否则插件加载但命令全部不存在 —— 本会话踩过。
 - **Git**：GitHub `aqua7773`（gh 已登录、keyring）· `git push` **先直连，被 reset 再挂本机代理 `$env:HTTPS_PROXY='http://127.0.0.1:26561'`**。
