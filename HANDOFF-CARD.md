@@ -33,17 +33,31 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **下个会话第一件事（rev173.288 交接 · 同步合并已收口）**：`sync` 一个插件、四个后端
-> （`webdav` / `s3` / `git` / `folder`），旧 4 个插件已删，市场 **14 条**，
-> `market/packs/sync-0.1.0.znp`（229.5 KB · keyId `aqua-2026`）已打包。
-> **待做**：① **dev 端到端实测**（四个后端各跑一轮；**folder 后端还没真机验过事件流**）
-> ② **发市验证**（`verify-trust` · 市场里能装 · 装完四套面板能切）
-> ③ **上市说明写清「先卸载旧 4 个插件再装 `sync`」**（同时启用会抢同一批文件）
-> ④ 应用 0.9.1（文件树刷新修复）等用户自己安排 —— rev173.283 已明确「先不发版」。
+> **下个会话第一件事（rev173.288 交接 · 同步合并已收口 + 桌面已测）**：`sync` 一个插件、四个后端
+> （`webdav` / `s3` / `git` / `folder`），旧 4 个插件源码已删，市场 **14 条**，
+> `market/packs/sync-0.1.0.znp`（229.9 KB · keyId `aqua-2026`）已打包并 push（raw URL 已可下载）。
+> **桌面 dev 端到端实测已通过**（2026-10-30 23:35：12 条命令加载 · 四套面板 · folder 冲突全流程
+> 「基线 38 → 外部覆盖 → 冲突副本 = 本机版 → 用本机版 → 冲突归零」，截图 `_shots/sync-288-*.png`）。
+>
+> ### ⚠️ 最高优先级：手机端还装着 4 个旧插件（两端插件不一致）
+>
+> 实测（2026-10-30 23:41 · adb `33b676f6` · dev 包 pid 11789 · CDP 查命令表）：
+> 手机上仍是 `sync-folder` / `sync-s3` / `sync-git` / `sync-webdav` 四套命令，**没有 `sync.*`**。
+> 而桌面已换成 `sync`（基线键 `folder.baseline.v1`，旧插件用 `baseline.v1`）——
+> **两端同时开同步会各按自己的逻辑写同一批文件**。下一步：
+> 1. 手机插件中心**卸载 4 个旧同步插件**
+> 2. 装 `sync`（市场里已有；或 `adb push` 解包，包在 `market/packs/sync-0.1.0.znp`）
+> 3. 两端各跑一轮 WebDAV，确认「下载/上传计数」与文件树都对
+>
+> ### 其余待办
+>
+> - 应用 **0.9.1**（文件树刷新修复，rev173.283 的 `useTreeRefresh`）等用户自己安排 —— 已明确「先不发版」。
+> - 候选：S3 / Git 的 ack 清理轮转（S3 按请求计费）；`sync` 的 3 个后端都还没接真实远端做端到端。
+> - 用户桌面 vault（`C:\Users\AQUA\Documents\ZreoNote`）**没碰过** —— 本轮全部在 `_tmp-vault-tb`。
 >
 > **上一轮（rev173.285）交接**：`sync` 初版（引擎 + WebDAV，90 条测试）；余下三步已在 rev173.286–288 完成。
 >
-> **上一轮（rev173.284）交接**：`sync-webdav` **0.3.5 已发市**（修「中转附件每轮重传」，稳定态一轮只剩 1 个请求）。
+> **上一轮（rev173.284）交接**：`sync-webdav` **0.3.5 已发市**（修「中转附件每轮重传」）。
 > s3 / git 的同款修复已随 `sync` 合并，但 ack 清理**没有**按 webdav 的 `ackCursor` 轮转改
 > （S3 按请求计费，条目多时仍是全扫）—— 下一批候选。
 >
@@ -348,9 +362,12 @@ pwsh -File scripts\verify.ps1
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
-  ⚠️ 交接时 **dev 是开着的**（`zeronote.exe` pid **31932** · 2026-10-30 20:47:22 起；vite 1420 / CDP 9222 都在），
-  日志在 `.self-logs/desktop-dev.log`。**rev173.281 改了 Rust**（新原生插件 `tauri-plugin-share` + `Cargo.toml`）
-  ⇒ tauri CLI 自动重编并重启了 dev（所以 pid 从 16476 变成 31932）。之后改前端照常走 HMR + 手动 `location.reload()`。
+  ⚠️ **交接时 dev 是关着的**（rev173.288 测完主动关的：`zeronote.exe` 与 dev.cmd 的 cmd 都已停）。
+  要起就按上一行命令；起完 12 秒左右 CDP 9222 就绪（增量编译）。
+  ⚠️ **桌面全局插件目录现在是 `import-export` + `sync`（市场签名包解出来的 7 文件 + signature.json）** ——
+  旧的 `sync-webdav` / `sync-folder` 被移到 `_tmp-plugin-backup/consolidation-20261030-2335/`
+  （要退回就从那里移回，别删这个目录）。
+  ⚠️ **手机端（adb `33b676f6`）还是 4 个旧同步插件**，dev 包 pid 11789 在跑 —— 见「下个会话第一件事」。
   ⚠️ **零插件验证做过四次**（B3 rev173.258 / B4 rev173.260 / B6 rev173.262）：临时把 `<appdata>\.zn\plugins` 改名
   → reload → 截图 → 改回 → reload；每次都已恢复（**18 个**、无 `plugins-*-bak` 残留）。
   **B6 那次还额外验证了「禁用 → 启用 hello 不 reload 就回来」** —— ⚠️ 教训：当时在插件中心页面看侧栏，
