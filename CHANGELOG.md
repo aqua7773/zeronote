@@ -22,6 +22,19 @@
 
 ### Added
 
+- **视觉与动效统一（UI 重布局 B7）**（rev173.263 · `docs/UI重布局-方案-2026-10-29.md` §6 / `_research/UI动效与页面转场-2026-10-30.md`）：
+  - **动效 token**：`:root` 新增六档时长（hover 80 / fast 120 / base 160 / panel 220 / drill 260 / 标题栏 200ms）
+    与四条缓动（standard / decel / accel / emph）；27 处 `transition` + 2 处 `animation` 全部改为引用 token
+    （唯一例外是文件树拖动的 40ms 跟手）。
+  - **全局 reduce-motion**：`@media (prefers-reduced-motion: reduce)` 对 `*` 统一把
+    `animation-duration` / `transition-duration` 压到 1ms（此前只有 `.zn-titlebar` 一条降级）。
+  - **标题栏显隐 450 → 200ms**（高频交互上限）；`TitleBar` 内联与 CSS 兜底共用 `--zn-dur-titlebar`。
+  - **图标两档**：导航级 20px（图标栏 / 手机「更多」）、行内级 16px（侧栏 / 市场 / 插件面板 / 设置）。
+  - **间距回 4/8/12 网格**（图标栏 padding、状态栏 padding、更多页 gap）。
+  - **焦点圈统一**：图标栏 `:focus-visible` 与全局基础层同色（`--zn-fg`）。
+  - **暗色对比**：`--zn-fg-subtle` 暗色 3.67 → 4.91:1（bg-subtle 上 4.55，达 AA），浅色 2.56 → 3.43:1。
+  - 新测试 `tests/design-tokens.test.ts`（token 齐全 / 无裸时长 / 图标只 16·20 / 全局降级）。
+
 - **插件面板 `location` 语义收口（`sidebar` 真载体）**（rev173.262 · UI 重布局 **B6** · `docs/UI重布局-方案-2026-10-29.md` §7.2 / §6）：
   - `sidebar` 从「与 `main` 同路渲染在主区」变成**侧栏真载体**：桌面渲染在文件树下方
     （新 `SidebarPlugins`：最多占侧栏 45%、内部滚动、面板标题做归属提示），与编辑器同屏；
