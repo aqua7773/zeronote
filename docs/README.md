@@ -35,6 +35,8 @@
 | UI / 交互规范（**现行·唯一权威**） | `docs/UI交互规范.md` | **active（2026-10-30 重写：桌面 / 手机 / 浮层 / 手势四节 + 视觉 token）** | `docs/UI规划-v0.1.md`（2026-10-11 规划史）、`docs/archive/UI重布局-方案-2026-10-29.md`（B1–B7 方案，已落地转 historical） |
 | UI 重布局（入口 / 页面 / 窗口怎么排 · **设计史**） | `docs/archive/UI重布局-方案-2026-10-29.md` | **historical（B1–B7 + 三项目标态全部落地 · rev173.256–264）** | 调研：`_research/UI布局调研-2026-10-29.md`（现状测绘 + 11 家产品取证）· `_research/UI设计原则核对-2026-10-30.md`（NN/g / WCAG 2.2 复核，O1–O12）· `_research/UI动效与页面转场-2026-10-30.md`（时长 token / 四类转场，MO1–MO7）· `_research/UI文档事实审查-2026-10-30.md`（60 余条断言复核，12 处修正）；现行规范见上一行 |
 | 键位表（自动生成） | `docs/键位表.md` | **generated**（`node scripts/gen-keys.mjs --write`） | — |
+| 用户首次使用反馈（20 条实测问题） | `docs/真人使用测试-2026-10-30.md` | **open（2026-10-30 收录，排期中）** | 修复排期见 `docs/真人使用测试-修复计划-2026-10-30.md`；原始材料 `C:\Users\AQUA\Downloads\真人使用测试.zip`（11 张截图，不入库） |
+| 反馈修复计划（批次 / 成本 / 依赖 / 待拍板） | `docs/真人使用测试-修复计划-2026-10-30.md` | **active（2026-10-30，A–J 十批，约 27 小时）** | 输入见上一行 |
 | 数据与存储（库布局 / localStorage / 写入语义） | `docs/数据与存储.md` | **active** | — |
 | Android 安装（用户向） | `docs/guides/Android安装说明.md` | **active** | `_build/revNN/安装说明.md`（某个随包版本的说明） |
 | 手机版使用手册（用户向） | `docs/guides/使用手册-移动端.md` | **active** | 截图在 `docs/images/manual-mobile/`（真机 2026-10-19；rev173.251 搬进 guides） |

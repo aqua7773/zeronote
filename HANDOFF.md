@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.268
-更新时间: 2026-10-30 · 最新 rev173.268
+revision: 173.269
+更新时间: 2026-10-30 · 最新 rev173.269
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.268
 
 | rev | 内容 |
 |---|---|
+| rev173.269 | 2026-10-30 · **真人使用测试 20 条归档 + A–J 修复计划（交接）**（用户「交接」· 输入 = 首次真机使用反馈 zip：1 个 md + 11 张截图）：① **归档** —— `docs/真人使用测试-2026-10-30.md` 按 7 组记下 20 条（现象 / 代码定位 / 类型），其中 **7 条给到文件行号**；截图不入库、材料路径写在文首。② **计划** —— `docs/真人使用测试-修复计划-2026-10-30.md`：A 关不掉（15 分钟）· B 抢输入 · C 误报 · D 展示 · E 安全与遮挡 · F 闪退（真机 logcat）· G 导出内嵌 · H 沉浸式 · I 限流 · J 新功能，合计约 27 小时；排序按「被挡住的频率 × 修起来的确定性」，不按原文编号。③ **三个已定位根因** —— 插件面板只 `setMainView` 不进 `panelTabs`（`App.tsx:4812` / `967`）· 「库里没有这个附件」判据只查前端 `notes` 列表（`App.tsx:3142`）· 长按处理器没排除输入框（`App.tsx:4482`）。④ **版本规划（用户定）** —— 这 20 条修完作为**下一个小版本 0.9.0** 发布（含导出内嵌图片、系统分享这类新功能，不是纯补丁）。本轮**没改产品代码**，纯文档 + 排期。`docs/README.md` 矩阵两行 + `docs/ROADMAP.md` §3 置顶引用同步。 |
 | rev173.268 | 2026-10-30 · **发版 0.8.0：首次编译双端安装包并上传 GitHub Release**（用户「编译双端release推到github」）：① **版本** —— `release.mjs 0.8.0`（package.json / tauri.conf.json / Cargo.toml）；CHANGELOG `[Unreleased]` → `[0.8.0] - 2026-10-30（rev173.255–268）` + 版本表加行；README 现状行（B1–B7）与 ROADMAP §0 同步。② **Android release 签名从零配** —— 此前只构建过 debug APK（`tauri android build --debug --apk`），release 无签名配置、无 keystore。按官方文档 `keytool` 生成 PKCS12（RSA 4096 / 10950 天 / alias `zeronote`）+ `gen/android/keystore.properties`（**不入库**，已进 .gitignore）+ `app/build.gradle.kts` 加 `signingConfigs.create("release")`（properties 缺失时不挂签名 ⇒ 别人 clone 下来仍可编 debug）；密钥与密码备份在 `_logs\2026-10-30-发版0.8.0-keystore.md`。③ **产物** —— 桌面 `pnpm tauri build` · Android `pnpm tauri android build --apk`（universal release），两个安装包上传 GitHub Release `v0.8.0`（**首个带附件的 Release**，此前 5 个 tag 都只有正文）。 |
 | rev173.267 | 2026-10-30 · **侧栏收起 / 展开过渡**（用户「过渡」· 调研 MO4；MO4 原本归 B1，B1 当年没做）：① **收起从「卸载」改成「宽度到 0」** —— 桌面 `showSidebar` 拆成 `sidebarAllowed`（页面是否放侧栏）+ 始终挂载；`AppSidebar` 新增 `collapsed`（inline `width: 0` + `is-collapsed` 去边框 + **`inert`** 挡 Tab/点击）。不卸载的好处：文件树滚动位置与展开状态保留、宽度动画才有对象。② **过渡** —— `.zn-sidebar { transition: width 220ms emphasized }`（`--zn-dur-panel`）；**拖拽中 0**（`body.is-resizing` 由 `AppResizer` 原有逻辑加，一行 CSS 覆盖）。③ 分隔线只在 `sidebarAllowed && isDesktop && sidebarVisible` 时渲染（收起不留 5px 悬空线）。**实测**（CDP，rAF 采样）：收起 `348 → 223 → 152 → … → 1px`（≈210ms）· 展开 `1 → 124 → 195 → … → 348`（≈220ms）· 收起后 `is-collapsed` + `inert=true` · 拖动 `pointerdown` 时 `transitionDuration 0s`、`pointerup` 后回 `0.22s`。截图 `_shots/b7-13-sidebar-collapsed.png`。ℹ️ 收起后宽度停在 **1px**（`box-sizing: border-box` + 1px 边框的最小宽度；边框已透明，不可见）。verify 六步全绿 · 质量门 8/8 · vitest 1572 不变（纯 CSS/组件属性 + 1 个 prop） |
 | rev173.266 | 2026-10-30 · **页面转场语义落地**（用户「转场」· 调研 §4；B7 当时明确划出去的那批）：① **实现骨架** —— 主区包一层 `.zn-swap`，`key={mainKey}`（只按**层级**变：`list` / `editor` / 系统页 / 面板 id ⇒ **同层级换笔记不重挂载**，否则每点一篇都滑一次）；入场动画 = keyframes（不引动画库、不用 JS 计时）。② **四类语义** —— **同级切换** 160ms 淡入 + 2px 上移（插件中心 / 回收站 / 面板）· **钻入 / 返回** 260ms 水平推入（手机 ≤640px：`data-main=editor` 从右 24px、`=list` 从左 12px）· **浮层** 遮罩 120ms 淡入 + 面板 140ms `scale(.98)→1`（`.zn-palette-*` 与 Dialog 共用，Dialog 加 `.zn-dialog-backdrop` / `.zn-dialog-panel`）· **高频不做**（标签切换保持 0）。③ **新 token** —— `--zn-dur-overlay: 140ms`（调研 §2「浮层出现 140ms」，与侧栏/抽屉的 `panel` 220ms 区分）；`tests/design-tokens.test.ts` +2 条（五种 keyframes / 动画必须引用 token / 钻入只在手机）。**实测**（CDP）：桌面换页 `data-main=plugins` + `zn-swap-in 0.16s` · 设置面板 `zn-dialog-in 0.14s` + 遮罩 `0.12s` · 手机列表 `zn-drill-back 0.26s`、点卡片进编辑器 `zn-drill-in 0.26s`（宽 390）· reduce-motion 下 `0.001s`，关闭后回 `0.16s` · 布局未坏（`main 1048` / `swap 1022` = 减去状态栏 26）。截图 `_shots/b7-11-phone-list.png` / `b7-12-desktop-swap.png`。⚠️ 未做：**退场动画**（条件渲染直接卸载，浮层消失/页面返回没有淡出）· 侧栏宽度过渡。verify 六步全绿 · 质量门 8/8 · vitest 1570 → **1572** |
@@ -164,6 +165,42 @@ revision: 173.268
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.269（2026-10-30 · 真人使用测试：20 条反馈归档 + A–J 修复计划 · 交接）
+>
+> 用户发来 `真人使用测试.zip`（1 个 md + 11 张截图）= **首次真机使用**发现的问题，共 20 条。
+> 本轮只做**归档 + 定位 + 排期**，没有改任何产品代码。
+>
+> | 产出 | 位置 |
+> |---|---|
+> | 20 条现象与代码定位（7 条给到文件行号） | `docs/真人使用测试-2026-10-30.md` |
+> | 10 批修复计划（A–J · 约 27 小时） | `docs/真人使用测试-修复计划-2026-10-30.md` |
+> | 矩阵登记 + ROADMAP §3 置顶 | `docs/README.md` · `docs/ROADMAP.md` |
+>
+> ### 已定位的三个根因（本轮最值钱的部分）
+>
+> 1. **插件面板关不掉**（#19 / #3）：`App.tsx:4812` 的 `onOpenPanel={(id) => setMainView(id)}` 与
+>    `App.tsx:967` 的 `onOpenPanelInMain` —— 只切主区、**不进 `panelTabs`** ⇒ 面板出现但标签条空着、
+>    没有 ×。旁边的 `openPanelInTab`（`App.tsx:1453`，会 `addTab` + `setMainView`）是对的，这两处没走它。
+> 2. **「库里没有这个附件」**（#4）：判据 `App.tsx:3142` 的 `notes.find((n) => n.path === norm)`
+>    **只查前端列表、不查磁盘**；粘贴/同步写盘后列表没刷新，就落到 3144 的提示。
+>    图靠 asset 协议直读文件 ⇒ **能渲染、点开却报没有**（用户原话：同步来的图"显示出来但没有附件"）。
+> 3. **长按抢文本菜单**（#6）：`App.tsx:4482` 的 `onContextMenuCapture` 排除了树项 / 时间流卡片 /
+>    `.zn-mobile-home` / `.zn-tabs` / `.zn-filetree`，**没排除输入框** ⇒ 同步设置页长按弹出「新建笔记 / 设置」，
+>    用户拿不到原生的全选 / 复制。
+>
+> ### 另外查清的两件
+>
+> - **`window.prompt` 在 Android 是有实现的**（wry `RustWebChromeClient.kt:208` 的 `onJsPrompt` →
+>   AlertDialog + EditText），但**没用 `defaultValue`** ⇒ 重命名对话框不预填当前文件名。
+>   #16「输入到一半闪退」要真机 logcat 才能定，不猜。
+> - **导出六种格式都不内嵌图片**：`examples/import-export/index.js:338` 的 `mdToHtml` 让 `<img>` 保持相对路径
+>   ⇒ 发给别人就是断图；长图 PNG 是唯一能把图带走的，但不可编辑。这直接引出 #20。
+>
+> ### 版本规划（用户 2026-10-30 定）
+>
+> **这 20 条修完作为下一个小版本 0.9.0 发布**（含「导出 md 内嵌图片 + `zn-orig` 回读原图」「系统分享」这类新功能，
+> 所以不是纯补丁版本）。交接时**未开工**：A 批（15 分钟、两行代码）是下个会话的入口。
 
 > ## 📌 rev173.268（2026-10-30 · 发版 0.8.0：首次编译双端安装包并上传 GitHub Release）
 >
