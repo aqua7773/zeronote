@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.265
-更新时间: 2026-10-30 · 最新 rev173.265
+revision: 173.266
+更新时间: 2026-10-30 · 最新 rev173.266
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.265
 
 | rev | 内容 |
 |---|---|
+| rev173.266 | 2026-10-30 · **页面转场语义落地**（用户「转场」· 调研 §4；B7 当时明确划出去的那批）：① **实现骨架** —— 主区包一层 `.zn-swap`，`key={mainKey}`（只按**层级**变：`list` / `editor` / 系统页 / 面板 id ⇒ **同层级换笔记不重挂载**，否则每点一篇都滑一次）；入场动画 = keyframes（不引动画库、不用 JS 计时）。② **四类语义** —— **同级切换** 160ms 淡入 + 2px 上移（插件中心 / 回收站 / 面板）· **钻入 / 返回** 260ms 水平推入（手机 ≤640px：`data-main=editor` 从右 24px、`=list` 从左 12px）· **浮层** 遮罩 120ms 淡入 + 面板 140ms `scale(.98)→1`（`.zn-palette-*` 与 Dialog 共用，Dialog 加 `.zn-dialog-backdrop` / `.zn-dialog-panel`）· **高频不做**（标签切换保持 0）。③ **新 token** —— `--zn-dur-overlay: 140ms`（调研 §2「浮层出现 140ms」，与侧栏/抽屉的 `panel` 220ms 区分）；`tests/design-tokens.test.ts` +2 条（五种 keyframes / 动画必须引用 token / 钻入只在手机）。**实测**（CDP）：桌面换页 `data-main=plugins` + `zn-swap-in 0.16s` · 设置面板 `zn-dialog-in 0.14s` + 遮罩 `0.12s` · 手机列表 `zn-drill-back 0.26s`、点卡片进编辑器 `zn-drill-in 0.26s`（宽 390）· reduce-motion 下 `0.001s`，关闭后回 `0.16s` · 布局未坏（`main 1048` / `swap 1022` = 减去状态栏 26）。截图 `_shots/b7-11-phone-list.png` / `b7-12-desktop-swap.png`。⚠️ 未做：**退场动画**（条件渲染直接卸载，浮层消失/页面返回没有淡出）· 侧栏宽度过渡。verify 六步全绿 · 质量门 8/8 · vitest 1570 → **1572** |
 | rev173.265 | 2026-10-30 · **UI 重布局收口**（用户「收口」· 方案 §9）：① **`docs/UI交互规范.md` 重写**（114 → 约 190 行）—— 桌面（图标栏 5 项 + pin ≤3 / 侧栏视图 + 智能分区 / 标签条 ＋ » / 文档工具条 / 状态栏 / 标题栏与专注模式）· 手机（底部四项 / 更多页 / 搜索全屏页 / 编辑态顶栏 / 抽屉 / 返回层级）· 浮层与出口层级（含「toast 与撤销条 / 草稿条互斥」实测结论）· 手势 · 无障碍（焦点圈 / ≥24×24 / 2.5.7 / reduce-motion）· 视觉 token（时长六档 / 图标 16·20 / 间距 4-8-12 / 对比度实测）· 待做清单。② **方案转 historical** —— `git mv` 进 `docs/archive/`，状态头改「historical（B1–B7 + 三项目标态全部落地 rev173.256–264）」，**相对链接整体上移一层**（`../_research` → `../../_research`、`UI交互规范.md` → `../UI交互规范.md`）；`docs/README.md` 矩阵两行重写 · `docs/archive/README.md` 加行 · 根 `README.md` 状态 draft → historical；**全仓 21 处引用改新路径**（check-links 61 条全过）。③ **手机手册补底部导航** —— §1「底部四个图标」表（各自去哪 / 怎么回 / 插件没装也在）· §10 返回键层级细化。verify 六步全绿 · 质量门 8/8 · vitest 1570 不变（纯文档） |
 | rev173.264 | 2026-10-30 · **UI 重布局三项目标态落地（侧栏智能分区 / 插件 pin / 专注模式）**（用户「依次做」· 方案 §2.1 里没分配批次的三项）：① **侧栏智能分区** —— 文件树视图顶部一行 chip（今天 / 最近 7 天 / 未打标签），点中 ⇒ 文件树区域换成扁平列表（mtime 倒序）、`‹` 返回；内核新增 `IndexApi.query('', { untagged: true })`（`IndexApi` 契约 md + `contract.ts` 同步），**未打标签首次打开时先 `rebuild()`**（索引生命周期原本只在搜索面板建立 —— 不补就永远 0 篇，实测）；纯函数 `lib/smart-sections.ts`（`startOfDay` / `weekStart` / `pickByRecency` / `relativeTime` / `displayTitle`），列表标题剥 `#` / `![](…)` / `[[路径|别名]]`。② **图标栏插件固定区** —— 插件中心每行 📌 切换、最多 3 个（`lib/rail-pins.ts`：上限 / 去重 / 坏数据容错）；只存插件 id ⇒ 禁用后 pin 自动消失、启用自动回来；满 3 个后未固定的按钮**置灰 + tooltip**（toast 在这个场景被后续重渲染清掉，实测 120ms 有值 / 600ms 为 null）；点 pin 打开该插件第一个页面面板（`openPanelInTab` 进标签条）。③ **专注模式** —— 设置 → 通用开关（默认关）：开启后标题栏自动隐藏，鼠标进顶部 20px / 键盘 Tab 到标题栏滑回、`y > 64` 收起。**测试** vitest 1540 → **1570**（`smart-sections` 17 · `rail-pins` 10 · `index-filters` +3）。**实测**（CDP 9222，`_shots/b7-06..10.png`）：分区计数 今天 1 / 7 天 38 / 未打标签 32（38 篇里 6 篇有标签）· 列表项可打开 · pin 记账/标签/AI ⇒ 图标栏「记 标 A」· 禁用标签 ⇒ pin 消失、启用回来 · 满额后 15 个按钮 disabled · 专注模式开 ⇒ 标题栏 `opacity 0 / margin-top -32px`，mousemove `y=10` ⇒ `1 / 0px`、`y=200` ⇒ `0 / -32px`。⚠️ 手机未走查（智能分区只桌面渲染）。verify 六步全绿 · 质量门 8/8 |
 | rev173.263 | 2026-10-30 · **UI 重布局 B7（视觉与动效统一）落地**（用户「继续 zeronote」· 方案 §6 第七批 / `_research/UI动效与页面转场-2026-10-30.md` §2·§6）：① **动效 token** —— `:root` 六档时长（`--zn-dur-hover` 80 / `fast` 120 / `base` 160 / `panel` 220 / `drill` 260 / `titlebar` 200）+ 四条缓动（standard / decel / accel / emph）；**27 处 transition + 2 处 animation 全部换成 token**（含 `MarkdownEditor` 模板串里的 `zn-wiki-in`），唯一保留裸值 = 树拖动的 40ms 跟手（`transition` 会让落点提示「滑」过去）。② **全局 reduce-motion** —— `*, *::before, *::after` 的 animation / transition 一律 1ms `!important`（原来只有 `.zn-titlebar` 一条）；CDP `Emulation.setEmulatedMedia` 实测标题栏 / 图标按钮 / 滚动条全 **0.001s**，清除后回 0.2 / 0.12 / 0.16s。③ **标题栏 450 → 200ms**（MO1 · 验收 ≤200ms）：`TitleBar.tsx` 内联改读 `var(--zn-dur-titlebar)`，CSS 兜底同步。④ **图标两档 16/20** —— 图标栏 18→**20** · 手机「更多」18→**20** · 侧栏 / 市场 / 插件面板 / 设置 13/14/15→**16**；扫全部组件后只剩 16（行内）与 20（导航级）。⑤ **间距回 4/8/12 网格** —— rail padding 6→8 · 状态栏 10→8（gap 12 走 token）· 更多页 gap 10→8。⑥ **焦点圈统一** —— `.zn-rail-btn:focus-visible` 由 `--zn-accent` 改 `--zn-fg`（与 `@layer base` 同色），offset -2 因贴栏边。⑦ **暗色对比** —— `--zn-fg-subtle` 浅 `#a1a1aa`→`#8a8a92`（2.56→3.43:1）、暗 `#71717a`→`#86868f`（3.67→**4.91:1**，bg-subtle 上 4.55 达 AA），并写明 fg-subtle 只用于装饰性小字（信息小字用 fg-muted）。**测试** 新 `tests/design-tokens.test.ts` **8 条**（token 齐全 / 标题栏 ≤200 / 四条缓动 / 全局 reduce / 无裸时长 / 编辑器 animation / TitleBar 读 token / 图标只 16·20）；vitest 1532 → **1540**。**实测**（CDP 9222 + 手机 `33b676f6`，`_shots/b7-*.png`）：浅色全插件 `b7-01` · 暗色 `b7-02` · 零插件（临时改名 plugins ⇒ rail 5 项与空态照常、无「从文件导入」；恢复 18 个）`b7-03`/`b7-04` · 手机「更多」页 7 行图标 20px `b7-05` · 键盘 Tab 走查（标题栏 ☰ → ⋯ → 窗口按钮 → rail 按钮）每档 2px 实心圈。⚠️ 未做：页面转场语义（M1 钻入 260ms / 同级 160ms 淡入）与侧栏宽度过渡（MO4 归 B1）不在本批；手机底栏切 tab 仍硬切。verify 六步全绿 · 质量门 8/8 |
@@ -161,6 +162,44 @@ revision: 173.265
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.266（2026-10-30 · 页面转场语义：同级 160ms / 钻入 260ms / 浮层 140ms）
+
+> **触发**：用户「转场」—— 调研 §4 那套「四种页面转场语义」（Windows Page transitions 的划分）。
+> B7 当时只做 token 与降级，明确把转场划出去；这轮补上。
+>
+> **骨架**
+> - `<main>` 里包一层 `.zn-swap`，`key={mainKey}`。key 只按**层级**变 —— `list` / `editor` /
+>   系统页（`plugins` / `trash`）/ 面板 id；**同层级换笔记不重挂载**（否则每点一篇都滑一次，
+>   比没动画更吵）。
+> - 入场动画 = keyframes，不引动画库、不用 JS 计时；reduce-motion 由已有的全局 `*` 规则压 1ms。
+>
+> **四类语义**
+> | 语义 | 用在哪 | 运动 | 时长 |
+> |---|---|---|---|
+> | 同级切换 | 插件中心 / 回收站 / 面板 | 淡入 + 2px 上移 | 160ms（`--zn-dur-base`） |
+> | 钻入 / 返回 | 手机「列表 ↔ 编辑器」（≤640px） | 进入右 24px、返回左 12px | 260ms（`--zn-dur-drill`） |
+> | 浮层 | 设置 / 命令面板 / 快速切换 | 遮罩淡入 + 面板 `scale(.98)→1` | 遮罩 120ms · 面板 140ms |
+> | 高频（不做） | 标签切换 | — | 0 |
+>
+> - 桌面「列表 → 编辑器」用**同级淡入**（桌面上本来就是同屏切换，横滑反而像在切窗口）。
+> - **新 token `--zn-dur-overlay: 140ms`**：调研 §2 的「浮层出现 140ms」；`panel`（220ms）留给
+>   侧栏 / 抽屉那种大幅面位移 —— 两者语义不同，别混用。
+>
+> **测试**：`tests/design-tokens.test.ts` +2 条（五种 keyframes 齐全 / 主区动画必须引用 token /
+> 钻入只在手机）。vitest 1570 → **1572**。
+>
+> **实测**（CDP 9222 + 手机 `33b676f6`）：
+> - 桌面换页：`data-main=plugins`、`animationName zn-swap-in`、`0.16s`、`cubic-bezier(0.2,0,0,1)`。
+> - 设置浮层：面板 `zn-dialog-in 0.14s`（decel），遮罩 `0.12s`。
+> - 手机：列表 `zn-drill-back 0.26s` → 点卡片 `data-main=editor` `zn-drill-in 0.26s`（`innerWidth 390`）
+>   → 返回 `zn-drill-back`。
+> - reduce-motion（`Emulation.setEmulatedMedia`）：`0.001s`；清除后回 `0.16s`。
+> - 布局：`main` 1048 / `swap` 1022（差 = 状态栏 26）—— wrapper 没破坏 flex。
+> - 截图：`_shots/b7-11-phone-list.png` / `b7-12-desktop-swap.png`。
+>
+> **未做**：**退场动画**（条件渲染直接卸载 —— 浮层关闭、返回列表没有淡出）· 侧栏宽度过渡。
+> 两条都写进 `docs/UI交互规范.md` §8。
 
 > ## 📌 rev173.265（2026-10-30 · UI 重布局收口：交互规范重写 + 方案转 historical + 手机手册补导航）
 
