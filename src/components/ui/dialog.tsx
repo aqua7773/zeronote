@@ -70,14 +70,14 @@ export function Dialog({
       aria-modal="true"
     >
       <div
-        className="absolute inset-0 bg-foreground/40"
+        className="zn-dialog-backdrop absolute inset-0 bg-foreground/40"
         onClick={dismissOnBackdropClick ? () => onOpenChange(false) : undefined}
       />
       <div
         ref={panelRef}
         style={{ width }}
         className={cn(
-          'relative flex max-h-[calc(100vh-4rem)] max-w-[calc(100vw-2rem)] flex-col',
+          'zn-dialog-panel relative flex max-h-[calc(100vh-4rem)] max-w-[calc(100vw-2rem)] flex-col',
           'rounded-ui-lg border border-border bg-popover text-popover-foreground shadow-2xl',
           className,
         )}

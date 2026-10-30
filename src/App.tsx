@@ -4048,6 +4048,17 @@ export default function App() {
   const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
 
   /**
+   * 主区换页动画的 key（方案 §4 转场语义；rev173.266）。
+   *
+   * 只按**层级**变：列表 / 编辑器 / 系统页（插件中心、回收站）/ 面板 id。
+   * 同层级换笔记**不**重挂载 —— 换笔记是「内容变化」，不是「页面转场」；
+   * 否则每点一篇笔记整块都滑一次，比没有动画更吵。
+   *
+   * key 变 ⇒ 子树重挂载 ⇒ `.zn-swap` 的入场动画从 `from` 帧开始（CSS 不需要 JS 计时）。
+   */
+  const mainKey = mainView === 'editor' ? (activePath ? 'editor' : 'list') : mainView
+
+  /**
    * 手机底部导航（B2 · 方案 §2.2）。
    *
    * `showTabBar` = 当前停在「四项之一的根视图」。以下三种是 push 进来的一层 ⇒
@@ -4719,6 +4730,9 @@ export default function App() {
             onOpenPanel={openPanelInTab}
           />
         )}
+        {/* 主区换页（方案 §4 转场语义）：key 按层级变 ⇒ 子树重挂载 ⇒ CSS 入场动画。
+            同级（插件中心 / 回收站 / 面板）160ms 淡入 + 2px 上移；手机列表 ↔ 编辑器 260ms 水平推入。 */}
+        <div className="zn-swap" key={mainKey} data-main={mainKey}>
         {mainView === 'trash' ? (
           <AppTrashView
             trash={trash}
@@ -5013,6 +5027,8 @@ export default function App() {
             onImport={ioPanelEntry ? () => setMainView(ioPanelEntry.id) : undefined}
           />
         )}
+
+        </div>
 
         {/* 状态栏只在桌面（B2 · 方案 §10 风险表：手机底部让给四项导航；
             「保存状态」在顶栏已有）。插件 statusbar 项同理只在桌面出现。 */}

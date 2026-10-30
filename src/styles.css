@@ -102,6 +102,9 @@
   --zn-dur-base: 160ms;
   --zn-dur-panel: 220ms;
   --zn-dur-drill: 260ms;
+  /* 浮层专用（调研 §2「浮层出现 140ms」）：菜单 / 命令面板 / 设置 —— 比 base 慢一点显得稳，
+     又明显短于 panel（220 是侧栏 / 抽屉那种大幅面位移）。 */
+  --zn-dur-overlay: 140ms;
   --zn-dur-titlebar: 200ms;
   --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --zn-ease-decel: cubic-bezier(0, 0, 0, 1);
@@ -3823,3 +3826,46 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   color: var(--zn-fg-subtle);
   flex: none;
 }
+
+/* ───────── 页面转场（UI 重布局 · 调研 §4 转场语义）─────────
+   四种语义，全部走动效 token：
+     · 同级切换（Sibling）—— 主区换系统页 / 面板：160ms 淡入 + 2px 上移；
+     · 钻入 / 返回（Drill）—— 手机「列表 ↔ 编辑器」：260ms 水平推入（返回反向 12px）；
+     · 浮层（Overlay）—— 设置 / 命令面板 / 快速切换：遮罩 120ms 淡入 + 面板 140ms scale .98→1；
+     · 高频（Suppress）—— 标签切换：**不做**（调研 §4 的 Suppress 语义；标签是同一页内换内容）。
+   实现 = React `key` 重挂载 + keyframes，不引动画库、不用 JS 计时。
+   reduce-motion 由本文件 `*` 的全局规则统一压到 1ms（含内联 transition）。 */
+@keyframes zn-fade-in {
+  from { opacity: 0; }
+}
+@keyframes zn-dialog-in {
+  from { opacity: 0; transform: scale(0.98); }
+}
+@keyframes zn-swap-in {
+  from { opacity: 0; transform: translateY(2px); }
+}
+@keyframes zn-drill-in {
+  from { opacity: 0; transform: translateX(24px); }
+}
+@keyframes zn-drill-back {
+  from { opacity: 0; transform: translateX(-12px); }
+}
+
+/* 主区换页（系统页 / 面板 / 手机列表 ↔ 编辑器）：key 变才重挂载，换笔记不触发 */
+.zn-swap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: zn-swap-in var(--zn-dur-base) var(--zn-ease-standard);
+}
+@media (max-width: 640px) {
+  .zn-swap[data-main='editor'] { animation: zn-drill-in var(--zn-dur-drill) var(--zn-ease-emph); }
+  .zn-swap[data-main='list'] { animation: zn-drill-back var(--zn-dur-drill) var(--zn-ease-emph); }
+}
+
+/* 浮层：命令面板 / 快速切换（.zn-palette-*）与 Dialog（设置 / 关于 / 确认框） */
+.zn-palette-mask { animation: zn-fade-in var(--zn-dur-fast) var(--zn-ease-standard); }
+.zn-palette { animation: zn-dialog-in var(--zn-dur-overlay) var(--zn-ease-decel); }
+.zn-dialog-backdrop { animation: zn-fade-in var(--zn-dur-fast) var(--zn-ease-standard); }
+.zn-dialog-panel { animation: zn-dialog-in var(--zn-dur-overlay) var(--zn-ease-decel); }

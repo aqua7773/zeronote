@@ -18,8 +18,8 @@ const css = readFileSync(join(root, 'src/styles.css'), 'utf8')
 const editor = readFileSync(join(root, 'src/components/MarkdownEditor.tsx'), 'utf8')
 const titleBar = readFileSync(join(root, 'src/components/TitleBar.tsx'), 'utf8')
 
-/** 五档 + 标题栏专用档（调研 §2 / §6） */
-const DURATIONS = ['hover', 'fast', 'base', 'panel', 'drill', 'titlebar']
+/** 五档 + 浮层专用 + 标题栏专用（调研 §2 / §6；rev173.266 加 overlay） */
+const DURATIONS = ['hover', 'fast', 'base', 'panel', 'drill', 'overlay', 'titlebar']
 /** 四条缓动（M3 / Fluent 收敛值） */
 const EASES = ['standard', 'decel', 'accel', 'emph']
 
@@ -94,5 +94,21 @@ describe('设计 token：动效（B7）', () => {
     }
     expect([...sizes].sort((a, b) => a - b)).toEqual([16, 20])
     expect(offenders).toEqual([])
+  })
+
+  /** 页面转场（调研 §4）：四种语义 → keyframes + 重挂载，时长/缓动一律走 token */
+  it('页面转场：五种入场 keyframes 都在，动画全部引用 token', () => {
+    for (const kf of ['zn-fade-in', 'zn-dialog-in', 'zn-swap-in', 'zn-drill-in', 'zn-drill-back']) {
+      expect(css, `@keyframes ${kf}`).toContain(`@keyframes ${kf}`)
+    }
+    expect(css).toContain('animation: zn-swap-in var(--zn-dur-base)')
+    expect(css).toContain('animation: zn-drill-in var(--zn-dur-drill)')
+    expect(css).toContain('animation: zn-dialog-in var(--zn-dur-overlay)')
+    expect(css).toContain('animation: zn-fade-in var(--zn-dur-fast)')
+  })
+
+  it('钻入只在手机上做（桌面同级切换用淡入）', () => {
+    expect(css).toMatch(/@media \(max-width: 640px\) \{\s*\.zn-swap\[data-main='editor'\]/)
+    expect(css).toMatch(/\.zn-swap\[data-main='list'\]/)
   })
 })
