@@ -1354,7 +1354,8 @@ export default {
           type: 'field',
           label: '令牌',
           hint: 'GitHub: repo 权限的 PAT；Gitee: 私人令牌。只写在这里，保存后进系统凭据库',
-          children: { type: 'input', bind: 'git.token', placeholder: '不改就留空' },
+          /* rev173.275 · 同 #14：令牌也是密码类，别明文摊着（契约 `secret: true`） */
+          children: { type: 'input', bind: 'git.token', secret: true, placeholder: '不改就留空' },
         },
         {
           type: 'field',

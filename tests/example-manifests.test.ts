@@ -109,4 +109,24 @@ describe('examples/*/manifest.json（B6 契约回归）', () => {
     )
     expect(withSidebar.map((x) => x.dir).sort()).toEqual(['hello-plugin', 'raw-ipc-probe'])
   })
+
+  /**
+   * 密码类字段必须 `secret: true`（rev173.275 · 真人使用测试 #14）。
+   *
+   * 用户实测：WebDAV 保存后密码一直明文摊在输入框里。契约早就支持密码框
+   * （`input.secret`，rev173.163 为 `secrets` 加的），只是这三个插件没用。
+   */
+  it('同步插件的密码 / 令牌字段用 secret（不明文显示）', () => {
+    const cases: [string, string][] = [
+      ['sync-webdav', "bind: 'sync.password'"],
+      ['sync-git', "bind: 'git.token'"],
+      ['sync-s3', "bind: 's3.password'"],
+    ]
+    for (const [id, bind] of cases) {
+      const src = readFileSync(join(examplesDir, id, 'index.js'), 'utf8')
+      const line = src.split('\n').find((l) => l.includes(bind))
+      expect(line, `${id} 里找不到字段 ${bind}`).toBeTruthy()
+      expect(line, `${id} 的 ${bind} 还是明文 input`).toContain('secret: true')
+    }
+  })
 })

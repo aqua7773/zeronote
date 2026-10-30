@@ -1765,7 +1765,9 @@ export default {
           type: 'field',
           label: '密码 / 应用密码',
           hint: '只写在这里；保存后存进系统凭据库',
-          children: { type: 'input', bind: 'sync.password', placeholder: '不改就留空' },
+          /* rev173.275 · 真人使用测试 #14：以前是明文 input，保存后密码就摊在屏幕上。
+             契约里的 `secret: true` 渲染成密码框（圆点），是对齐 `secrets` 密码库的做法。 */
+          children: { type: 'input', bind: 'sync.password', secret: true, placeholder: '不改就留空' },
         },
         {
           type: 'field',

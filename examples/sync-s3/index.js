@@ -1574,7 +1574,8 @@ export default {
           type: 'field',
           label: 'Secret Access Key',
           hint: '只写在这里；保存后存进系统凭据库',
-          children: { type: 'input', bind: 's3.password', placeholder: '不改就留空' },
+          /* rev173.275 · 同 #14：secret 也是密码，别明文摊着（契约 `secret: true`） */
+          children: { type: 'input', bind: 's3.password', secret: true, placeholder: '不改就留空' },
         },
         {
           type: 'field',
