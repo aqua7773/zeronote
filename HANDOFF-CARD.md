@@ -6,10 +6,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.288 · 0.9.0 · 2026-10-30 |
-| 测试基线 | vitest 1686 · cargo 87 · oxlint 3 warnings（2026-10-30） |
+| rev / 版本 | rev173.289 · 0.9.0 · 2026-10-31 |
+| 测试基线 | vitest 1686 · cargo 87 · oxlint 3 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-10-30 · CHANGELOG 0.9.0 |
+| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.0 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -39,18 +39,25 @@ pwsh -File scripts\verify.ps1
 > **桌面 dev 端到端实测已通过**（2026-10-30 23:35：12 条命令加载 · 四套面板 · folder 冲突全流程
 > 「基线 38 → 外部覆盖 → 冲突副本 = 本机版 → 用本机版 → 冲突归零」，截图 `_shots/sync-288-*.png`）。
 >
-> ### ⚠️ 最高优先级：手机端还装着 4 个旧插件（两端插件不一致）
+> ### ✅ 手机端已换 `sync` + 跨设备冲突实测通过（rev173.289 · 2026-10-31 00:02）
 >
-> 实测（2026-10-30 23:41 · adb `33b676f6` · dev 包 pid 11789 · CDP 查命令表）：
-> 手机上仍是 `sync-folder` / `sync-s3` / `sync-git` / `sync-webdav` 四套命令，**没有 `sync.*`**。
-> 而桌面已换成 `sync`（基线键 `folder.baseline.v1`，旧插件用 `baseline.v1`）——
-> **两端同时开同步会各按自己的逻辑写同一批文件**。下一步：
-> 1. 手机插件中心**卸载 4 个旧同步插件**
-> 2. 装 `sync`（市场里已有；或 `adb push` 解包，包在 `market/packs/sync-0.1.0.znp`）
-> 3. 两端各跑一轮 WebDAV，确认「下载/上传计数」与文件树都对
+> 手机（`33b676f6`）：4 个旧同步插件已卸载（备份 `_tmp-phone-backup/old-sync-plugins.tar`）·
+> `sync` 8 文件已 push 到 `.zn/plugins/sync` ⇒ 重启后 **12 条命令全在**。
+> 双端都连本地 DAV 桩（桌面 8899 + `adb reverse tcp:8899`），桌面推 40 篇 → 手机拉下。
+> **冲突实测**：桌面推「桌面版 00-02」→ 手机本地是「手机版 00-02」且基线还是上一版 ⇒ 手机同步
+> **判冲突** ⇒ 写 `.zn/conflicts/android/2026-10-30 2358-需求.md`（内容 = 手机版）、本地取远端版、
+> 面板「冲突记录 · 10 条」⇒ 点「用本机版」⇒ 本机版写回 + 推上远端 + 记录降到 9 条
+> （截图 `_shots/phone-conflict-3.png` / `phone-conflict-resolved.png`）。
+>
+> ⚠️ 两个路径坑（下次别再踩）：
+> - **手机 vault = `/storage/emulated/0/Documents/ZeroNote`**，不是 app 私有目录 `files/vault`
+>   （后者是 stale 数据；`localStorage['zeronote.vault']` 才是真路径）
+> - 手机**插件目录仍在 app data**：`/data/user/0/com.aqua.zeronote.debug/.zn/plugins`
 >
 > ### 其余待办
 >
+> - 手机自动同步目前**是关着的**（测试时关的，避免刷屏）；要用就面板点「开启自动同步」。
+> - 手机冲突列表还剩 9 条旧记录（23:54 首轮同步时密码库 / 同篇差异产生，属测试噪声）。
 > - 应用 **0.9.1**（文件树刷新修复，rev173.283 的 `useTreeRefresh`）等用户自己安排 —— 已明确「先不发版」。
 > - 候选：S3 / Git 的 ack 清理轮转（S3 按请求计费）；`sync` 的 3 个后端都还没接真实远端做端到端。
 > - 用户桌面 vault（`C:\Users\AQUA\Documents\ZreoNote`）**没碰过** —— 本轮全部在 `_tmp-vault-tb`。

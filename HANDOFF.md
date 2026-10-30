@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.288
-更新时间: 2026-10-30 · 最新 rev173.288（同步合并收口：四后端并入 `sync` · 旧 4 个删除 · 市场 14 条 · 0.1.0 已打包并 dev 端到端实测）
+revision: 173.289
+更新时间: 2026-10-31 · 最新 rev173.289（手机端换 `sync` + 跨设备冲突实测通过；上一轮 rev173.288 = 四后端合并收口）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.288
 
 | rev | 内容 |
 |---|---|
+| rev173.289 | 2026-10-31 · **手机端换 `sync` 插件 + 跨设备冲突实测通过**（用户「测手机端，先把现在的测试文件都清一下，然后测一下冲突」）：① **清理**测试库 `_tmp-vault-tb` 16 项测试垃圾（5 个历史冲突副本 + 3 个 0 字节新笔记 + 6 个测试媒体 + 2 张测试图）→ 移到 `_tmp-trash-20261030-2350/`（可恢复），库剩 35 篇。② **手机换插件**：4 个旧同步插件卸载（备份 `_tmp-phone-backup/old-sync-plugins.tar` 295 KB）· `sync` 8 文件（含 `manifest.json`）push 到 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/sync` ⇒ 重启 app ⇒ **12 条命令 + `sync.status` 面板都在**。③ **双端同步环境**：桌面起本地 DAV 桩（`tools/dav-stub.mjs` · 8899 · 支持 PROPFIND/GET(304)/PUT(412)/MKCOL/DELETE/HEAD）+ `adb reverse tcp:8899` ⇒ 手机访问 `http://127.0.0.1:8899/dav/`。桌面先推 40 篇（37 次 MKCOL + 40 次 PUT）→ 手机拉下对齐。④ **冲突实测**：桌面推「桌面版 00-02」→ 手机本地是「手机版 00-02」、基线还是上一版 ⇒ 手机 `sync.run` **判 conflict** ⇒ `.zn/conflicts/android/2026-10-30 2358-需求.md`（**内容 = 手机版**）+ 本地取远端版 + 面板「冲突记录 · 10 条」⇒ 点「用本机版」⇒ 本机版写回、**推上远端**（远端变手机版）、记录降到 9 条（`_shots/phone-conflict-3.png` / `phone-conflict-resolved.png`）。⑤ **两个路径坑（记下来）**：手机 **vault 在 `/storage/emulated/0/Documents/ZeroNote`**（`localStorage['zeronote.vault']`），**不是** app 私有目录 `files/vault`（后者是 stale 数据，照着改会以为"同步没生效"）；**插件目录仍在 app data** `.zn/plugins`。⑥ **桩的坑**：旧桩进程占着 `127.0.0.1:8899`、新桩绑 `0.0.0.0:8899`，Windows 允许两者并存 ⇒ 请求命中旧桩、新桩日志空白（`Get-NetTCPConnection -LocalPort 8899` 两个监听才发现）；桩的路径穿越判断在 Windows 上不能用 `startsWith`（join 出反斜杠）—— 改 `path.relative`。 |
 | rev173.288 | 2026-10-30 · **同步合并收口：Git 后端并入 + 删掉 4 个旧插件 + 市场 17 → 14 + `sync` 0.1.0 打包**：① **Git 后端** `lib/backends/git.cjs`（280 行，从 `sync-git` 搬 `createGitClient` 全套 + `createGitStorage` 适配）—— `etag` ↔ **`sha`**（Git 没有 ETag，文件版本就是 sha）、`mkdir` 空操作、`remove` 先读 sha 再删；老 manifest 的 `sha` 字段在 `normalizeManifest` 里兼容成 `etag`，老仓库升上来不丢乐观锁。引擎侧：`makeClient()` 三选一、`hasConfig()` 按后端判、乐观锁扩展到 git（`precondition` = 409/422/400）。② **引擎修两处真 bug（统一时暴露）** —— **412/precondition 分支以前只 `continue`**：不取远端、不刷 manifest ⇒ 本机停在旧版、基线指向旧 fp，两轮后两边都「以为自己是新的」（真人测试二 #1 的成因）；现在三步走：**先试三方合并**（合上就用远端最新 etag 再推一次）→ 合不上留副本 + 对齐远端 → 无论哪条路都回写 manifest（新 `manifestDirty`）。③ **删旧**（用户「旧的舍弃」）：`examples/sync-webdav|sync-s3|sync-git|sync-folder/`（6620 行）与 `tests/sync-webdav.test.ts`（内容已全部迁进 `tests/sync.test.ts`）一起 `git rm`；`sync-git.test.ts` 里三处跨插件指纹对比删掉（已共用 `core.cjs`）。④ **测试**：folder **50** · s3 **35** · git **30** · webdav **90** → `tests/sync*.test.ts` 合计 **205** 条；全量 vitest **1790**（122 文件）。⑤ **市场**：删 4 个 `market/entries/*.json` 与对应 `.znp` 引用，`pack-plugin sync` ⇒ `market/packs/sync-0.1.0.znp`（**229.5 KB** · 7 文件 · 入口 `4db02d9e…` · 整包 `5da3de6c…` · keyId `aqua-2026`）→ `gen-market --write` ⇒ 索引 **17 → 14**。⚠️ 迁移期提示：旧的 4 个插件若还装在全局目录，与 `sync` 同时启用会抢同一批文件 —— 上市说明里要写「先卸载旧的」。 |
 | rev173.287 | 2026-10-30 · **S3 后端并入 `sync`**：① 新 `lib/backends/s3.cjs`（约 560 行）—— SigV4 全套纯函数（`encodeRfc3986` / `encodeS3Path` / `canonicalQuery` / `canonicalHeaders` / `sha256Hex` / `hmacSha256` / `signRequest`，仍用 AWS 官方向量验证）+ path-style 客户端 + **`createS3Storage` 适配器**（把 S3 客户端包装成 WebDAV 同一套方法名 ⇒ 引擎一行不改）。② **两处 S3 特性放在适配层**：`If-Match` 被服务端当坏请求（400/501）⇒ **重试一次不带条件**（旧 `sync-s3` 的降级逻辑，引擎不关心协议细节）；`getWithEtag` 给 412 收尾用。③ **引擎恢复 S3 乐观锁**：push 时 `settings.backend === 's3'` 带 `baseline.etag`（统一后有段时间没带 ⇒ 「绕过 manifest 手改远端」会被静默覆盖）；412 分支补**取远端对齐 + 写回 manifest**。④ 测试：`tests/sync-s3.test.ts` 35 条全部转向新插件（`makeDevice` 预置 `settings.v1.backend='s3'`、bind 名 `sync.s3.*`、命令 `sync.run`）；`conflictFileName` 签名统一成 `(path, at)`。 |
 | rev173.286 | 2026-10-30 · **本地文件夹后端并入 `sync`（事件驱动模型适配）**：① 新 `lib/backends/folder.cjs`（约 600 行）—— 从 `sync-folder` 搬判定模型（`baseline` / **`pending`** / 影子副本 `.zn/sync/last` / `SETTLE_MS` 静默期 / `scan` / `settle` / `.zn` 痕迹检查 / 密码库冲突检查），状态**直通引擎**（`state.baseline` / `state.conflicts` / `state.settings` 是同一份内存对象 ⇒ 面板与冲突处理对四个后端天然一致）。② **纯函数进 `core.cjs`**：`classifyChange` / `isSyncable` / `looksLikeSyncConflict` / `snapshotPath` / `shortHash` / `pad2` + 常量 `SNAPSHOT_DIR` / `SETTLE_MS` / `TICK_MS` / `SECRET_DIRS`。③ **引擎按后端分支**：`settings.backend`（`webdav` / `s3` / `git` / `folder`）· `makeClient()` · `hasConfig()` · `runSync`（folder ⇒ 全库检查 + 结算）· `startAuto`（folder 不轮询，用事件 + 5 秒结算）· 面板四套（`backendPicker` 按钮组，不用 `select`：契约的 select 只认 `state[bind]`，初始值会永远是第一项）· 新增命令 `sync.set-backend` / `sync.mark-baseline` / `sync.set-provider`。④ **本机版来源参数化**：`keepConflict(path, reason, { localText })` —— folder 的本机版在**影子副本**里（磁盘已被外部工具覆盖），webdav/s3/git 才读盘。⑤ 测试：`tests/sync-folder.test.ts` 50 条（含新增「webdav 后端下不订阅这五个事件」）；`harness` 改 async（folder 的 attach 在启动 IIFE 里）；toggle 的 `settings.enabled` → `settings.auto`。 |
@@ -185,6 +186,62 @@ revision: 173.288
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.289（2026-10-31 · 手机端换 `sync` + 跨设备冲突实测通过）
+
+> 用户：「测手机端，先把现在的测试文件都清一下，然后测一下冲突」。
+>
+> ### 1. 清理测试库（16 项，全部移到 `_tmp-trash-20261030-2350/`，可恢复）
+>
+> 5 个历史冲突副本（`.zn/conflicts/windows/`）· 3 个 0 字节 `新笔记-*.md` ·
+> 6 个测试媒体（`test-clip*.mp4` / `test-old*.mkv` / `test-tone*.mp3`）· 2 张测试图（`image-*.jpg/png`）。
+> 库从 51 项降到 35 篇 md。
+>
+> ### 2. 手机端换插件
+>
+> | 步骤 | 结果 |
+> |---|---|
+> | 备份 4 个旧插件 | `adb exec-out run-as … tar` ⇒ `_tmp-phone-backup/old-sync-plugins.tar`（295 KB） |
+> | 卸载 | `run-as … rm -rf .zn/plugins/sync-{folder,git,s3,webdav}` |
+> | 装 `sync` | 本地解 `.znp`（**8 文件含 `manifest.json`**）→ `adb push` → `run-as … cp -r` |
+> | 重启 app | `am force-stop` + `monkey`（pid 11789 → 30487），重新 forward CDP |
+> | 验证 | **12 条 `sync.*` 命令 + `sync.status` 面板都在** |
+>
+> ### 3. 双端同步环境（本地 DAV 桩，不碰真实坚果云）
+>
+> - 桌面：`tools/dav-stub.mjs`（8899 · PROPFIND / GET+304 / PUT+412 / MKCOL / DELETE / HEAD）
+> - 手机：`adb reverse tcp:8899 tcp:8899` ⇒ 访问 `http://127.0.0.1:8899/dav/`
+> - 桌面先推 **40 篇**（37 次 MKCOL + 40 次 PUT + manifest）→ 手机同步拉下、基线对齐
+>
+> ### 4. 跨设备冲突（本轮的核心验证）
+>
+> | 步 | 动作 | 结果 |
+> |---|---|---|
+> | ① | 桌面改 `工作/项目A/需求.md` = 「桌面版 00-02」并同步 | 远端 = 桌面版；手机基线还停在上一版 |
+> | ② | 手机真实 vault 改成「手机版 00-02」（`adb shell cat >`） | 手机本地 = 手机版 |
+> | ③ | 手机 `sync.run` | **判 conflict** ⇒ 写 `.zn/conflicts/android/2026-10-30 2358-需求.md`（**内容 = 手机版**）· 本地取远端版 · 面板「冲突记录 · 10 条」 |
+> | ④ | 手机点「用本机版」 | 本机版写回 · **推上远端**（远端变手机版）· 记录降到 **9** 条 · toast「已用本机版覆盖并推送」 |
+>
+> 截图：`_shots/phone-conflict-3.png`（冲突记录 + 三个按钮）· `_shots/phone-conflict-resolved.png`
+> （处理完 + toast）。这正是真人测试二 #2「只有冲突记录却没有办法处理冲突」在**手机端**的验证。
+>
+> ### 5. 踩到的坑（都记进交接卡）
+>
+> 1. **手机 vault 不在 app 私有目录**：真实路径 `/storage/emulated/0/Documents/ZeroNote`
+>    （`localStorage['zeronote.vault']`）；`files/vault` 是 stale 数据 —— 照着它改文件会以为
+>    「同步没生效」（我第一次就踩了，应用视角读到的和 `run-as cat` 到的不是同一份）。
+> 2. **手机插件目录仍在 app data**：`.zn/plugins`（run-as 可读写）。
+> 3. **DAV 桩被旧进程抢占**：`127.0.0.1:8899`（10/25 的旧桩）与 `0.0.0.0:8899`（新桩）
+>    在 Windows 上可以共存，请求命中旧桩 ⇒ 新桩日志空白、同步「0 上传」。
+>    用 `Get-NetTCPConnection -LocalPort 8899` 发现两个监听，杀掉旧的才通。
+> 4. **桩的路径穿越判断**：Windows 上 `join` 出反斜杠，`full.startsWith(ROOT)` 永远 false
+>    （全部请求 400）。改 `path.relative(ROOT, full)` 判 `..`。
+>
+> ### 6. 现状
+>
+> - 桌面 dev 开着（`zeronote.exe` pid 28956）· 手机 dev 包在跑（pid 30487）
+> - 双端都连本地 DAV 桩；**手机自动同步已关**（测试时关的）
+> - 手机冲突列表还剩 **9 条旧记录**（23:54 首轮同步时密码库 / 同篇差异产生，属测试噪声）
+>
 > ## 📌 rev173.288（2026-10-30 · 同步合并收口：Git 并入 · 删 4 个旧插件 · 市场 14 · `sync` 0.1.0）
 
 > ### Git 后端（`lib/backends/git.cjs`，280 行）
