@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.263
-更新时间: 2026-10-30 · 最新 rev173.263
+revision: 173.264
+更新时间: 2026-10-30 · 最新 rev173.264
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.263
 
 | rev | 内容 |
 |---|---|
+| rev173.264 | 2026-10-30 · **UI 重布局三项目标态落地（侧栏智能分区 / 插件 pin / 专注模式）**（用户「依次做」· 方案 §2.1 里没分配批次的三项）：① **侧栏智能分区** —— 文件树视图顶部一行 chip（今天 / 最近 7 天 / 未打标签），点中 ⇒ 文件树区域换成扁平列表（mtime 倒序）、`‹` 返回；内核新增 `IndexApi.query('', { untagged: true })`（`IndexApi` 契约 md + `contract.ts` 同步），**未打标签首次打开时先 `rebuild()`**（索引生命周期原本只在搜索面板建立 —— 不补就永远 0 篇，实测）；纯函数 `lib/smart-sections.ts`（`startOfDay` / `weekStart` / `pickByRecency` / `relativeTime` / `displayTitle`），列表标题剥 `#` / `![](…)` / `[[路径|别名]]`。② **图标栏插件固定区** —— 插件中心每行 📌 切换、最多 3 个（`lib/rail-pins.ts`：上限 / 去重 / 坏数据容错）；只存插件 id ⇒ 禁用后 pin 自动消失、启用自动回来；满 3 个后未固定的按钮**置灰 + tooltip**（toast 在这个场景被后续重渲染清掉，实测 120ms 有值 / 600ms 为 null）；点 pin 打开该插件第一个页面面板（`openPanelInTab` 进标签条）。③ **专注模式** —— 设置 → 通用开关（默认关）：开启后标题栏自动隐藏，鼠标进顶部 20px / 键盘 Tab 到标题栏滑回、`y > 64` 收起。**测试** vitest 1540 → **1570**（`smart-sections` 17 · `rail-pins` 10 · `index-filters` +3）。**实测**（CDP 9222，`_shots/b7-06..10.png`）：分区计数 今天 1 / 7 天 38 / 未打标签 32（38 篇里 6 篇有标签）· 列表项可打开 · pin 记账/标签/AI ⇒ 图标栏「记 标 A」· 禁用标签 ⇒ pin 消失、启用回来 · 满额后 15 个按钮 disabled · 专注模式开 ⇒ 标题栏 `opacity 0 / margin-top -32px`，mousemove `y=10` ⇒ `1 / 0px`、`y=200` ⇒ `0 / -32px`。⚠️ 手机未走查（智能分区只桌面渲染）。verify 六步全绿 · 质量门 8/8 |
 | rev173.263 | 2026-10-30 · **UI 重布局 B7（视觉与动效统一）落地**（用户「继续 zeronote」· 方案 §6 第七批 / `_research/UI动效与页面转场-2026-10-30.md` §2·§6）：① **动效 token** —— `:root` 六档时长（`--zn-dur-hover` 80 / `fast` 120 / `base` 160 / `panel` 220 / `drill` 260 / `titlebar` 200）+ 四条缓动（standard / decel / accel / emph）；**27 处 transition + 2 处 animation 全部换成 token**（含 `MarkdownEditor` 模板串里的 `zn-wiki-in`），唯一保留裸值 = 树拖动的 40ms 跟手（`transition` 会让落点提示「滑」过去）。② **全局 reduce-motion** —— `*, *::before, *::after` 的 animation / transition 一律 1ms `!important`（原来只有 `.zn-titlebar` 一条）；CDP `Emulation.setEmulatedMedia` 实测标题栏 / 图标按钮 / 滚动条全 **0.001s**，清除后回 0.2 / 0.12 / 0.16s。③ **标题栏 450 → 200ms**（MO1 · 验收 ≤200ms）：`TitleBar.tsx` 内联改读 `var(--zn-dur-titlebar)`，CSS 兜底同步。④ **图标两档 16/20** —— 图标栏 18→**20** · 手机「更多」18→**20** · 侧栏 / 市场 / 插件面板 / 设置 13/14/15→**16**；扫全部组件后只剩 16（行内）与 20（导航级）。⑤ **间距回 4/8/12 网格** —— rail padding 6→8 · 状态栏 10→8（gap 12 走 token）· 更多页 gap 10→8。⑥ **焦点圈统一** —— `.zn-rail-btn:focus-visible` 由 `--zn-accent` 改 `--zn-fg`（与 `@layer base` 同色），offset -2 因贴栏边。⑦ **暗色对比** —— `--zn-fg-subtle` 浅 `#a1a1aa`→`#8a8a92`（2.56→3.43:1）、暗 `#71717a`→`#86868f`（3.67→**4.91:1**，bg-subtle 上 4.55 达 AA），并写明 fg-subtle 只用于装饰性小字（信息小字用 fg-muted）。**测试** 新 `tests/design-tokens.test.ts` **8 条**（token 齐全 / 标题栏 ≤200 / 四条缓动 / 全局 reduce / 无裸时长 / 编辑器 animation / TitleBar 读 token / 图标只 16·20）；vitest 1532 → **1540**。**实测**（CDP 9222 + 手机 `33b676f6`，`_shots/b7-*.png`）：浅色全插件 `b7-01` · 暗色 `b7-02` · 零插件（临时改名 plugins ⇒ rail 5 项与空态照常、无「从文件导入」；恢复 18 个）`b7-03`/`b7-04` · 手机「更多」页 7 行图标 20px `b7-05` · 键盘 Tab 走查（标题栏 ☰ → ⋯ → 窗口按钮 → rail 按钮）每档 2px 实心圈。⚠️ 未做：页面转场语义（M1 钻入 260ms / 同级 160ms 淡入）与侧栏宽度过渡（MO4 归 B1）不在本批；手机底栏切 tab 仍硬切。verify 六步全绿 · 质量门 8/8 |
 | rev173.262 | 2026-10-30 · **UI 重布局 B6（面板 location 语义收口：`sidebar` 真载体）落地**（用户「开工」· 方案 §7.2 A 案 / §6）：① **侧栏插件分组** —— 新 `SidebarPlugins.tsx` + `AppSidebar.pluginSlot`：`location: 'sidebar'` 的面板渲染在文件树下方（最多占侧栏 45%、内部滚动、面板标题做归属提示），**零插件 / 全禁用 ⇒ 整块不渲染**（连边框都没有）。② **平台分流** —— 桌面 `sidebar` 进侧栏、`pagePanel` 与 `openablePanels` 都不再收它；**手机**没有常驻侧栏 ⇒ 回退主区（旧行为不变）。③ **`import-export` 改 `main`**（它是完整工具页：导入 + 6 种导出）→ `0.1.1` 签名发市；`hello` / `raw-ipc-probe` 继续演示 `sidebar`。④ **契约同步** —— `docs/内核契约-v0.2.md` 六类位置表重写（`sidebar` = 侧栏插件分组 / 手机回退；`statusbar` = 一行状态 chip）、`contract.ts` 的 `PanelLocation` 注释更新（并明写 2026-10-13 那条「没有载体」已作废）。⑤ **测试** —— 新 `tests/sidebar-plugins.test.tsx` 5 条（渲染 / 命令回传 / 零插件无槽位 / 槽位在文件树下方）+ `tests/example-manifests.test.ts` 6 条（数量 / 字段 / location 六类 / 命令 id 唯一 / import-export=main / 仍有 sidebar 示例）。**实测**（CDP 9222；`_shots/b6-*.png`）：临时 junction 装 hello ⇒ 侧栏出现「Hello 插件」（`b6-01`，同时看到旧版 import-export 也在侧栏）→ 全局 import-export 覆盖成 0.1.1 ⇒ 侧栏只剩 Hello（`b6-02`）、`＋` 菜单「打开 · 导入导出」进**主区标签**（`b6-03`）→ 临时改名 plugins 目录（零插件）⇒ 侧栏分组消失、空态与 ＋ 照常（`b6-04`）→ 恢复目录 ⇒ 插件中心禁用 hello → 返回编辑器侧栏消失 → 重新启用 ⇒ **不 reload 就回来**（`b6-05`；⚠️ 这一步先前误判为「热启用不生效」，实际是当时页面停在插件中心、侧栏本就不渲染 —— 假象）→ 删 hello junction 恢复 18 个插件。⚠️ 手机未走查（`sidebar` 在手机回退主区）；手机上的 `import-export` 仍是 0.1.0（sidebar 版，回退主区照常可用），要从市场更新才变成 main。verify 六步全绿 · 质量门 8/8 · vitest 1521 → **1532** |
 | rev173.261 | 2026-10-30 · **UI 重布局 B5（标签条 ＋/» + 笔记窗口快速切换）落地**（用户「开工」· 方案 §2.1 / §3.1 / §3.2）：① **标签条常在** —— 渲染条件由 `tabs.length > 0` 改为「桌面 + 文档页 / 工具页」（插件中心 / 回收站这类系统页仍不显示）；没有标签时也画一条，右侧 `＋` = 无标签也能新建（验收点）。② **`＋` / `»`** —— 右侧两个 24×24 动作（WCAG 2.5.8）：`＋` 弹菜单（新建笔记 `Ctrl+N` + 可打开面板逐条；零插件只剩新建），`»` **常显**列全部标签、点即切换。标签条结构改成「外层定位基准 + 横滑区 + 动作区」—— 两个 popover 必须放在横滑容器**外面**，否则被 `overflow-x: auto` 裁掉。③ **打开面板走 `openPanelInTab`** —— 实测发现只 `setMainView(panelId)` 会让面板出现但标签条里**没有**对应标签（用户没法切回来）；现在面板进标签条（`b5-09`）。④ **切换后滚进视野** —— 手算 `scrollLeft`（`offsetLeft/offsetWidth` vs 容器可视区）；`scrollIntoView` 在 B5 的新结构下不再生效（旧版靠整条即滚动容器）。⑤ **笔记窗口左上「切换」** —— 打开 `QuickSwitcher`（与主窗口 `Ctrl+O` 同一个组件），窗口内可换笔记；仍在关闭时把当前这篇交回主窗口。**测试** vitest **1515 → 1521**（`tab-bar` 原 10 条 + 新 6 条：空标签也有 ＋ / ＋ 菜单新建 / 面板项回调 / 零插件只有新建 / » 列表切换 / 点外关菜单）。**桌面实测**（CDP 9222，`_shots/b5-01..09`）：＋ 菜单「新建笔记 + 13 个面板」· 新建后标签出现且 `»` 出现 · `»` 列 12 条（`MAX_TABS`）并切换 · 空态标签条只有 ＋ · 「打开 · 标签」⇒ 面板进标签条 · 笔记窗口「切换」→ 列出笔记 → 点「笔记1」→ 窗口标题变「笔记1」。**溢出验证（如实写）**：1920 宽、12 个标签时标签条仍不溢出（内容 1464 < 可用 1612）⇒ 用临时 CSS 把横滑区压到 560px 复现溢出（scrollW 1324 > 560），`»` 列表 12 条、切换后 `scrollLeft` 156（≈ max 162）。⚠️ WebView2 不响应 CDP `Emulation.setDeviceMetricsOverride`（`innerWidth` 不变），所以溢出是 CSS 注入验证、不是真实窄窗。⚠️ 手机端无多标签（B2 已定），未走查。verify 六步全绿 · 质量门 8/8 |
@@ -159,6 +160,54 @@ revision: 173.263
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.264（2026-10-30 · UI 重布局三项目标态：侧栏智能分区 / 插件 pin / 专注模式）
+
+> **触发**：用户「依次做」—— 方案 §2.1 / §6 里**没有分配批次**的三项目标态（B7 收尾时点名的）。
+>
+> **① 侧栏智能分区**
+> - 文件树上方一行 chip（今天 / 最近 7 天 / 未打标签）；点中后文件树区域换成扁平列表
+>   （按 mtime 倒序），`‹` 回文件树。**分区是视图不是目录** —— 不往文件树里插虚拟分组，
+>   否则同一篇会有「树里点一次、分区里点一次」两个入口，且目录折叠状态按路径存会串。
+> - 内核：`IndexApi.query` 新增 `untagged` 过滤（`q` 为空 + `untagged` 也算合法查询；
+>   与 `tag` 同时给以 `tag` 为准）。`contract.ts` 与契约 md 同步。
+> - **踩坑（实测）**：索引生命周期原本是「搜索面板首次打开时 `rebuild()`」。不补这一步，
+>   打开「未打标签」会拿到空表 —— 界面上显示 0 篇，而库里 38 篇大半没标签。
+>   现在按 kernel 实例记一次 `rebuild()`，之后靠 `fs-events` 的增量 upsert。
+> - 列表标题剥 Markdown（`#` / `![](…)` / `[[路径|别名]]` / 强调）—— B4 空态「最近 3 篇」
+>   的同一问题，这里修在**显示层**（文件树 / 搜索仍用原文标题，它们是内容的一部分）。
+>
+> **② 图标栏插件固定区**
+> - 插件中心每行 📌 切换，最多 3 个；**只存插件 id**（标题 / 可用性每次从 rows 现算）⇒
+>   插件禁用后 pin 自动消失、重新启用自动回来，不会留一个点不开的死按钮。
+> - **满 3 个时未固定的按钮直接置灰 + tooltip 说明**，不靠 toast —— 实测 `setToast` 在这个场景
+>   120ms 时有值、600ms 时为 null（被后续重渲染清掉），所以改成「一眼能看见的状态」。
+> - 图标 = 插件名首字（manifest 没有 icon 字段；统一 Puzzle 三个 pin 分不清）。
+> - 点 pin = 打开该插件**第一个可打开的页面面板**（`openPanelInTab`，进标签条）；
+>   一个面板都没有就如实提示，不静默。
+>
+> **③ 专注模式**
+> - 设置 → 通用 →「专注模式」（默认关，持久化 `zeronote.focusMode`）。
+> - 开启后标题栏自动隐藏；鼠标进顶部 20px 热区 / 键盘 Tab 到标题栏时滑回，`y > 64` 收起
+>   （阈值 20 / 64 沿用 2026-10-13 的实测值：窗口顶边几像素收不到 mousemove）。
+> - 复用 B1 保留的 `TitleBar.visible` 内联过渡（B7 已改为 `--zn-dur-titlebar` 200ms）。
+>
+> **测试**：`tests/smart-sections.test.ts` **17 条**（本地日期边界 / 跨月 / kind 过滤 /
+> 相对时间 / 标题清洗）· `tests/rail-pins.test.ts` **10 条**（上限 3 / 坏 JSON / 切换 / overflow）·
+> `tests/index-filters.test.ts` **+3**（untagged / tag 优先 / 正文 `#标签` 也算）。
+>
+> **实测**（CDP 9222；`_shots/b7-06..10.png`）：
+> - 分区：今天 1 · 最近 7 天 38 · 未打标签 32（38 篇里 6 篇有标签）；列表项点击打开笔记；`‹` 回文件树。
+> - pin：记账 / 标签 / AI 管家 ⇒ 图标栏「记 标 A」；点「记」打开记账面板并进标签条；
+>   禁用「标签」⇒ 图标消失、启用 ⇒ 回来；满 3 个后其余 15 个按钮 `disabled`。
+> - 专注模式：开 ⇒ 标题栏 `opacity 0 / margin-top -32px`；派发 mousemove `clientY=10`
+>   ⇒ `1 / 0px`；`clientY=200` ⇒ `0 / -32px`；关 ⇒ 常驻。设置页开关截图 `b7-10`。
+>
+> **未做**：手机未走查（智能分区只在桌面渲染；pin / 专注模式在 Touch 上没有对应交互）。
+>
+> **下一步 = UI 重布局收口**：B1–B7 与三项目标态全部落地 ⇒ 按方案 §9 重写
+> `docs/UI交互规范.md`（桌面 / 手机 / 浮层 / 手势四节）、方案转 historical、
+> `使用手册-移动端.md` 补底部导航、CHANGELOG 记 B1–B7。
 
 > ## 📌 rev173.263（2026-10-30 · UI 重布局 B7：视觉与动效统一 —— 动效 token + 全局 reduce-motion + 图标/间距/焦点圈/对比度）
 

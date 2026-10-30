@@ -22,6 +22,16 @@
 
 ### Added
 
+- **UI 重布局三项目标态**（rev173.264 · `docs/UI重布局-方案-2026-10-29.md` §2.1 里未分配批次的三项）：
+  - **侧栏智能分区**：文件树视图顶部「今天 / 最近 7 天 / 未打标签」，点中后换成按时间倒序的扁平列表
+    （分区是视图不是目录，`‹` 返回）。「未打标签」走内核新增的 `IndexApi.query(..., { untagged: true })`；
+    打开该分区时才建索引（首次 `rebuild()` 一次，之后靠增量 upsert）。列表标题剥掉 Markdown 标记。
+  - **图标栏插件固定区**：插件中心每行 📌，最多 3 个，只存插件 id ⇒ 插件禁用自动消失、启用自动回来；
+    满 3 个后未固定的按钮置灰并说明原因；点 pin 打开该插件第一个页面面板（进标签条）。
+  - **专注模式**：设置 → 通用 →「专注模式」（默认关）。开启后标题栏自动隐藏，鼠标移到窗口顶部 /
+    键盘 Tab 到标题栏时滑回。默认状态仍是标题栏常驻。
+  - 测试：`tests/smart-sections.test.ts`（17）· `tests/rail-pins.test.ts`（10）· `tests/index-filters.test.ts`（+3）。
+
 - **视觉与动效统一（UI 重布局 B7）**（rev173.263 · `docs/UI重布局-方案-2026-10-29.md` §6 / `_research/UI动效与页面转场-2026-10-30.md`）：
   - **动效 token**：`:root` 新增六档时长（hover 80 / fast 120 / base 160 / panel 220 / drill 260 / 标题栏 200ms）
     与四条缓动（standard / decel / accel / emph）；27 处 `transition` + 2 处 `animation` 全部改为引用 token
