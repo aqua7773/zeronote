@@ -62,6 +62,10 @@
   `sync-s3` 的 Secret Access Key 都还是普通 `input` ⇒ 保存后密码一直摊在屏幕上。
   三处改为契约里的 `input.secret`（密码框 / 圆点）。测试：`ui-secret-input` 2 条（渲染锁）+
   `example-manifests` +1（三个插件的字段必须声明 secret）。
+- **卡片重命名对话框换成自绘**（rev173.276 · 反馈 #16 / #17）：`window.prompt` 在 Android 上
+  wry 的 `onJsPrompt` 不用 `defaultValue`（永远空框），原生 AlertDialog 还出过「输入到一半闪退」。
+  新 `RenameDialog`：预填当前文件名、只选中主名（与 #17 同一规则）、回车确认、空名不提交、
+  取消/返回键/遮罩归一；卡片菜单、返回键层栈都已接上。测试 `rename-dialog` 4 条。
 
 ## [0.8.0] - 2026-10-30（rev173.255 – rev173.268）
 

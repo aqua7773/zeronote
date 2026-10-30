@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
+import { RenameDialog } from './RenameDialog'
 
 type Props = {
   notes: NoteMeta[]
@@ -192,23 +193,49 @@ export function MobileNoteCards({
     }
   }, [sorted, readText])
 
-  /** 重命名：prompt 输入新文件名（同目录）；`.md` 笔记没写后缀时自动补 */
-  const rename = (path: string) => {
-    const base = path.slice(path.lastIndexOf('/') + 1)
-    const next = window.prompt('重命名（新文件名）', base)
-    if (!next) return
-    const name = next.trim()
+  /**
+   * 重命名：自绘对话框，**预填当前文件名**（rev173.276 · 反馈 #16 / #17）。
+   *
+   * 以前是 `window.prompt`：wry 的 `onJsPrompt` 不用 `defaultValue` ⇒ 永远空框；
+   * Android 原生对话框还出过「输入到一半闪退」。现在不经过原生壳。
+   */
+  const [renameTarget, setRenameTarget] = useState<{ path: string; base: string } | null>(null)
+
+  const startRename = (path: string) => {
+    setRenameTarget({ path, base: path.slice(path.lastIndexOf('/') + 1) })
+  }
+
+  const submitRename = (raw: string) => {
+    if (!renameTarget) return
+    const { path, base } = renameTarget
+    setRenameTarget(null)
+    const name = raw.trim()
     if (!name || name === base) return
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
     const finalName = /\.md$/i.test(path) && !/\.[a-z0-9]+$/i.test(name) ? `${name}.md` : name
     onRename(path, dir ? `${dir}/${finalName}` : finalName)
   }
 
+  /* 重命名对话框压进 Android 返回键的层出口栈 —— 与卡片菜单同一套约定 */
+  useEffect(() => {
+    const stack = layers?.current
+    if (!renameTarget || !stack) return
+    const close = () => {
+      setRenameTarget(null)
+      return true
+    }
+    stack.push(close)
+    return () => {
+      const i = stack.indexOf(close)
+      if (i >= 0) stack.splice(i, 1)
+    }
+  }, [renameTarget, layers])
+
   /** 长按 / 右上「⋯」都能弹这张菜单（2026-10-18 用户要求「长按卡片可以重命名和删除」） */
   const items: MenuItem[] = menu
     ? [
         { label: '打开', onClick: () => onOpen(menu.path) },
-        { label: '重命名…', divider: true, onClick: () => rename(menu.path) },
+        { label: '重命名…', divider: true, onClick: () => startRename(menu.path) },
         { label: '删除（回收站）', danger: true, divider: true, onClick: () => onDelete(menu.path) },
         {
           label: '彻底删除…',
@@ -291,6 +318,15 @@ export function MobileNoteCards({
         </button>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+      {/* 条件渲染（不是 open 开关）：每次打开都是新实例，初值由 useState 拿到，不靠 effect 重置 */}
+      {renameTarget && (
+        <RenameDialog
+          open
+          initial={renameTarget.base}
+          onCancel={() => setRenameTarget(null)}
+          onConfirm={submitRename}
+        />
+      )}
     </div>
   )
 }
