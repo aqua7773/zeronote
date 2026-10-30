@@ -401,6 +401,10 @@ pwsh -File scripts\verify.ps1
   走 Release 会「能看不能送」）。打包 `node scripts/pack-plugin.mjs <id> --key <私钥>`（默认就写 `market/packs/` + raw url）→
   `node scripts/gen-market.mjs --write`（会校验「包在不在 + sha256 对不对」）→ 提交 `market/`。
   `dist/*.znp` 仍是不入库的构建产物；Release `plugins-v0.5.0` 那 13 个包**留着当镜像**，索引不再指向它。
+- **0.9.0 已发版（rev173.282 · 2026-10-30）**：GitHub Release
+  https://github.com/aqua7773/zeronote/releases/tag/v0.9.0 —— 6 个附件（Windows `setup.exe` 14.23 MB / `msi` 15.88 MB +
+  Android `arm64-v8a` 32.57 / `armeabi-v7a` 26.40 / `x86` 32.57 / `x86_64` 32.28 MB，签名 `CN=ZeroNote`）；
+  本机留底 `_build/v0.9.0/`（**不入库**；重出步骤见 HANDOFF rev173.282）。插件市场同轮迭代 4 个（见上「插件包与市场」）。
 - **仓库已开源**（2026-10-25 · MIT）：https://github.com/aqua7773/zeronote（public）。`LICENSE` + README 顶部免责已补。
   **topics** 14 个（2026-10-25 加，便于搜索发现）；描述已在。改：`gh repo edit aqua7773/zeronote --add-topic <t>`。
 - **CI**：`.github/workflows/verify.yml`（windows-latest，push / PR 都跑）＝ `verify.ps1` 六步，质量门走
