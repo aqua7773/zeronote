@@ -66,6 +66,10 @@
   wry 的 `onJsPrompt` 不用 `defaultValue`（永远空框），原生 AlertDialog 还出过「输入到一半闪退」。
   新 `RenameDialog`：预填当前文件名、只选中主名（与 #17 同一规则）、回车确认、空名不提交、
   取消/返回键/遮罩归一；卡片菜单、返回键层栈都已接上。测试 `rename-dialog` 4 条。
+- **从设置进插件中心后整页变暗、点不动**（rev173.277 · 反馈 #10）：手机抽屉的遮罩 `.zn-scrim`
+  只看 `sidebarOpen`，而抽屉本体还看 `sidebarAllowed` —— 切到插件中心 / 回收站时抽屉卸载了、
+  **遮罩留在屏幕上**。遮罩条件改成与抽屉同源（`sidebarOpen && sidebarAllowed`）。
+  测试 `app-smoke` +1（手机 UA：开抽屉 → 切插件 ⇒ 遮罩消失）。
 
 ## [0.8.0] - 2026-10-30（rev173.255 – rev173.268）
 

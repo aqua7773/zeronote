@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.276
-更新时间: 2026-10-30 · 最新 rev173.276
+revision: 173.277
+更新时间: 2026-10-30 · 最新 rev173.277
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.276
 
 | rev | 内容 |
 |---|---|
+| rev173.277 | 2026-10-30 · **E#10 定位并修好：抽屉遮罩不随抽屉卸载（用户「直接截图手机，点击打开插件中心」）**：① **复现** —— 手机先拉开文件树抽屉，再从设置点「打开插件中心」⇒ 插件中心整页变暗、点不动（用户截图 161613 同款）。抓 DOM：`.zn-scrim`（`z=50`、`rgba(0,0,0,.28)`、全屏）还在，`.zn-sidebar` 已经没了。② **根因** —— 抽屉本体 `showSidebar = sidebarAllowed && (isDesktop \\|\\| sidebarOpen)`，而遮罩只写 `sidebarOpen`：切到插件中心 / 回收站时 `sidebarAllowed` 变 false ⇒ 抽屉卸载、**遮罩留下**。③ **修法** —— 遮罩条件与抽屉同源：`{sidebarOpen && sidebarAllowed && <div className="zn-scrim"/>}`。④ **验证** —— 真机：抽屉开着切插件 ⇒ `scrim=false / sidebar=false / main=plugins`，截图无暗层；桌面 + 手机完整路径复测通过。⑤ **测试** `tests/app-smoke.test.tsx` +1（手机 UA：点 ☰ 开抽屉 ⇒ `.zn-scrim` 存在；点底栏「插件」⇒ 遮罩消失）；vitest 1591 → **1592**。⚠️ 之前「本机无法复现」的结论被推翻：**原因是我没走「抽屉先开着」这条路径**（从更多页进设置时不经过抽屉）—— 教训：复现失败先核对前提状态，别急着说不复现。 |
 | rev173.276 | 2026-10-30 · **F 批前半：卡片重命名改自绘对话框（#16 闪退 / #17 不预填）**（用户「继续做」）：① **根因（一手）** —— `MobileNoteCards` 的重命名是 `window.prompt`；wry 的 `onJsPrompt`（`RustWebChromeClient.kt`）**不传 `defaultValue`** ⇒ 对话框永远空框（#17「想改中间两个字只能重打」）；原生 AlertDialog 与 WebView 的交互出过「输入到一半闪退」（#16，本轮真机未复现，见下）。② **新组件** `src/components/RenameDialog.tsx` —— 内核 Dialog + input：**预填当前文件名**、只选中主名（`.md` 之前，与 #17 同一规则）、回车确认、空名禁用「确定」、取消/遮罩/Esc 归到 `onCancel`；不靠 effect 重置（宿主**条件渲染**，每次打开都是新实例）。③ **接线** —— 卡片菜单「重命名…」只置 `renameTarget`；对话框压进 Android 返回键层出口栈（与卡片菜单同一约定）；`window.prompt` 全仓清零。④ **测试** 新 `tests/rename-dialog.test.tsx` 4 条（预填 + 只选主名 / 回车提交 / 空名不提交 / 取消）；vitest 1587 → **1591**。⑤ **真机实测**（`33b676f6`）：点卡片 ⋯ → 重命名 ⇒ 自绘框出现、预填 `renamed.md`、`selectionStart 0 / End 7`（只选主名）、聚焦在输入框；点「确定」后对话框关闭、无崩溃（pid 3383 不变）。⚠️ **改名落盘那一步被自动同步覆盖**（远端有同名旧文件，5 秒一轮拉回），未在此环境单独验证；`#16` 的原生闪退本轮**未复现**（输入法 / 时机未知），换掉 prompt 是可控的那一半。 |
 | rev173.275 | 2026-10-30 · **真人使用测试 E 批：同步密码框改 `secret`（#14）· #10 本机无法复现**（用户「继续做」）：① **#14** —— `examples/sync-webdav`（`sync.password`）· `sync-git`（`git.token`）· `sync-s3`（`s3.password`）三处 `input` 加 `secret: true`（契约 rev173.163 就有，只是插件没用）⇒ 渲染成 `type=password` + `autocomplete=off`。⚠️ **只改了源码**：本机全局目录里是市场签名包（改 index.js 会让签名失效），手机上是 0.3.2 市场包 —— 要等 0.9.0 重打包发市才到用户手里。② **测试** —— 新 `tests/ui-secret-input.test.tsx` 2 条（`secret:true` ⇒ password + autocomplete off；不写仍是 text）+ `tests/example-manifests.test.ts` +1（三个插件的字段必须声明 `secret: true`，防回退）；vitest 1584 → **1587**。③ **#10（设置 → 插件 → 打开插件中心后遮罩残留、无法操作）本机无法复现** —— 桌面与手机（`33b676f6`）各走一遍：`[role=dialog]` 与 `.zn-dialog-backdrop` 都随关闭卸载、`main=plugins`，且手机点「重新扫描」列表从 1 → 18（可操作）。截图 `_shots/rev173275-phone-settings-to-plugins.png`。**待用户复测 / 给步骤**，未做「猜着改」。 |
 | rev173.274 | 2026-10-30 · **真人使用测试 C#5：「图片不在本机」占位补后续（#5）**（用户澄清：「同步插件没有开启附件同步中转的时候，只有一个占位显示图片不在本机，点击之后没有后续」）：① **占位可点** —— `attachImageErrorHint` 给 `.zn-image-error` 加 `role=button` / `tabIndex` / `data-zn-clickable`，拦截 `mousedown`（atomic 会先把光标挪到源码行）并监听 `click` / `Enter` / 空格 ⇒ 回调 `onMissingImage(raw)`。② **穿透** —— `fixImageSrc` / `imageAssetPlugin` / `MarkdownEditorProps` 新增 `onMissingImage`（与 `onExternalMediaSync` 同一条链）。③ **宿主的出路** —— App 新增 `missingImage` 状态 + Dialog「这张图不在这台设备上」：查台账（`findEntryForStoredImage` → `findEntryForMedia`），命中且云端有 ⇒「从云端接收」（`landRelay` + `relinkRelay` + `reloadActiveFromDisk`）；台账没有 ⇒ 说明附件要单独同步 +「打开附件设置」（`setSettingsTab('assets')` + `openOverlay('settings')`）。④ **样式** —— `.zn-image-error[data-zn-clickable]` hover / focus-visible（用 token，不写裸时长）。**实测**（CDP）：写 `![](附件/不存在.png)` 的笔记 ⇒ 占位出现且 `data-zn-clickable=1`；点击 ⇒ 弹框标题「这张图不在这台设备上」、正文含两条办法；点「打开附件设置」⇒ 设置打开在附件 tab（页面出现「云端临时区」）。截图 `_shots/rev173274-missing-image-dialog.png`。⚠️ 「从云端接收」分支没有可用的云端文件（本机 relay 未配）⇒ 只验了按钮存在与禁用逻辑，端到端未跑。 |
@@ -172,6 +173,32 @@ revision: 173.276
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.277（2026-10-30 · E#10 复现并修好：抽屉遮罩不随抽屉卸载）
+
+> 用户让我「直接截图手机，点击打开插件中心」—— 一进就复现了。
+>
+> ### 现场
+>
+> 手机先拉开文件树抽屉，再从设置点「打开插件中心」⇒ 插件中心整页发暗、点什么都没反应。
+> DOM 里 `.zn-scrim`（z=50、`rgba(0,0,0,.28)`、全屏）还挂着，而 `.zn-sidebar` 已经卸载。
+>
+> ### 根因
+>
+> 抽屉本体：`showSidebar = sidebarAllowed && (isDesktop || sidebarOpen)`；
+> 遮罩：`{sidebarOpen && <div className="zn-scrim"/>}` —— **少了一半条件**。
+> 切到插件中心 / 回收站时 `sidebarAllowed` 变 false，抽屉走了、遮罩留了。
+>
+> ### 修法 + 验证
+>
+> 遮罩改成 `sidebarOpen && sidebarAllowed`。真机：抽屉开着切插件 ⇒ `scrim=false`、
+> `sidebar=false`、`main=plugins`；截图 `_shots/phone-e10-4-fixed.png` / `-7-fixed-path.png`
+> （复现图 `-2-after-tap.png`）。测试 `app-smoke` +1（手机 UA 开抽屉 → 切插件 → 遮罩消失）。
+>
+> ### 教训
+>
+> 上一轮我判「本机无法复现」是**错的** —— 我从「更多页 → 设置」进，没经过「抽屉先开着」。
+> 复现失败先核对**前提状态**（用户的截图里左边那半截文件树就是线索），别急着写「不复现」。
 
 > ## 📌 rev173.276（2026-10-30 · F 批前半：卡片重命名改自绘对话框 · #16 / #17）
 

@@ -159,4 +159,41 @@ describe('App 集成冒烟', () => {
       Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
     }
   })
+
+  /**
+   * 抽屉遮罩跟着抽屉本体卸载（rev173.277 · 真人使用测试 #10）。
+   *
+   * 现场：手机先拉开文件树抽屉，再从设置里点「打开插件中心」⇒ 抽屉 DOM 卸载了，
+   * 但 `.zn-scrim` 只看 `sidebarOpen` ⇒ 整页变暗、点不动。用户截图 161613。
+   */
+  it('移动端：抽屉开着切到插件中心 ⇒ 遮罩跟着消失', async () => {
+    const ua = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0',
+      configurable: true,
+    })
+    try {
+      localStorage.setItem('zeronote.vault', '/vault')
+      setupInvoke([{ path: 'a.md', title: '第一篇', id: 'n1' }])
+      render(<App />)
+      await settle()
+
+      // ☰ = 抽屉开关（手机起始页不是编辑态）
+      fireEvent.click(screen.getByLabelText('切换文件树栏'))
+      await settle()
+      expect(document.querySelector('.zn-scrim')).not.toBeNull()
+
+      // 底栏「插件」⇒ mainView=plugins，`sidebarAllowed` 变 false
+      const pluginsTab = [...document.querySelectorAll('.zn-tabbar button, .zn-mobile-tab-bar button')].find(
+        (b) => (b.textContent ?? '').trim() === '插件',
+      ) as HTMLElement
+      fireEvent.click(pluginsTab)
+      await settle()
+
+      expect(document.querySelector('.zn-swap')?.getAttribute('data-main')).toBe('plugins')
+      expect(document.querySelector('.zn-scrim')).toBeNull()
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
+    }
+  })
 })

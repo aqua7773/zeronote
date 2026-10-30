@@ -5191,7 +5191,14 @@ export default function App() {
       {/* 手机底部四项（B2 · 方案 §2.2）：编辑态 / 工具页 / 回收站时整条不渲染 */}
       {showTabBar ? <MobileTabBar tab={tabCurrent} onChange={switchMobileTab} /> : null}
 
-      {sidebarOpen && (
+      {/**
+        * 抽屉遮罩：渲染条件必须与**抽屉本体**同源（rev173.277 · 真人使用测试 #10）。
+        *
+        * 现场：手机上先拉开文件树抽屉、再从设置里点「打开插件中心」⇒ 主区切到插件中心，
+        * `sidebarAllowed` 变 false、抽屉 DOM 卸载，但这里只看 `sidebarOpen` ⇒ **遮罩留在屏幕上**，
+        * 整页变暗、点什么都没反应（用户截图 161613）。
+        */}
+      {sidebarOpen && sidebarAllowed && (
         <div className="zn-scrim" onClick={() => setSidebarOpen(false)} />
       )}
 
