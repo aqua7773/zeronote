@@ -20,7 +20,8 @@ const exists = (p) => fs.existsSync(path.join(root, p))
 const listDirs = (p) => fs.readdirSync(path.join(root, p), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
 
 /**
- * rev173.259：**不再有内置/预装插件**（用户「不设置内置插件，之前预装的改为推荐优先安装」）——
+ * rev173.259：**不再有内置/预装插件**（用户「不设置内置插件」；当时的「推荐优先安装」清单已在
+ * rev173.280 按用户要求撤掉）——
  * 应用第一次启动就是零插件，装插件统一走 插件中心 → 插件市场，或手动装 `.znp`。
  * 本表只描述「仓库里有哪些插件源码 / 市场包从哪来」。
  */

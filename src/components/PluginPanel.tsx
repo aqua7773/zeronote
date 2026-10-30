@@ -25,7 +25,6 @@ import {
   isPluginCategory,
   type PluginCategory,
 } from '../lib/plugin-category'
-import { RECOMMENDED_COUNT, RECOMMENDED_GROUPS } from '../lib/recommended-plugins'
 
 /**
  * 插件中心（M2；B3 从设置页独立成页）—— 「装上出现 / 卸下消失」的可视化开关。
@@ -504,39 +503,6 @@ export function PluginPanel({
               </Button>
             )}
           </div>
-          {onMarketInstall && (
-            <div className="zn-plugins-recommend">
-              <div className="zn-plugins-recommend-title">
-                推荐优先安装（{RECOMMENDED_COUNT} 个）
-              </div>
-              {RECOMMENDED_GROUPS.map((g) => (
-                <div key={g.title} className="zn-plugins-recommend-group">
-                  <div className="zn-plugins-recommend-sub">
-                    {g.title}
-                    {g.hint ? (
-                      <span className="zn-plugins-recommend-subhint">{g.hint}</span>
-                    ) : null}
-                  </div>
-                  <ul className="zn-plugins-recommend-list">
-                    {g.items.map((r) => (
-                      <li key={r.id}>
-                        <span className="zn-plugins-recommend-name">{r.name}</span>
-                        <span className="zn-plugins-recommend-why">{r.why}</span>
-                        <button
-                          type="button"
-                          className="zn-plain-btn"
-                          onClick={() => setTab('discover')}
-                          title={`在「插件市场」里找 ${r.name}（索引里叫 ${r.id}）`}
-                        >
-                          去安装
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
           <p className="zn-plugins-empty-hint">
             也可以把插件文件夹放到 <code>{globalRoot ?? '<应用数据目录>'}</code> 下的{' '}
             <code>.zn/plugins/&lt;id&gt;/</code>，点「重新扫描」。

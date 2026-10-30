@@ -18,7 +18,7 @@ import {
 } from '../kernel/market'
 import type { PluginRow } from './PluginPanel'
 import { capabilityLabels } from '../lib/capability-label'
-import { RECOMMENDED_COUNT, RECOMMENDED_IDS } from '../lib/recommended-plugins'
+
 
 /**
  * **插件市场**（原「发现」· 插件市场阶段 1 · rev173.148）。
@@ -348,16 +348,6 @@ export function MarketPane({
         <div className="zn-plugins-empty">这个索引里没有可安装的插件。</div>
       )}
 
-      {/* rev173.259：应用不再预装插件 —— 原来的预装清单在这里是「推荐优先安装」 */}
-      {entries.length > 0 && (
-        <div className="zn-market-recommend" role="note">
-          <span className="zn-market-recommend-title">推荐优先安装</span>
-          <span>
-            原来随包预装的那 {RECOMMENDED_COUNT} 个（标签 / 反向链接 / 历史版本 / 导入导出 / 备份 / 同步 ×4）
-            现在都在这里装，下面带「推荐」标。
-          </span>
-        </div>
-      )}
 
       {entries.length > 0 && (
         <div className="zn-plugin-list">
@@ -365,13 +355,13 @@ export function MarketPane({
             const action = marketAction(e, installedVersion.get(e.id))
             const size = formatSize(e.size)
             const busy = busyId === e.id
-            const recommended = RECOMMENDED_IDS.includes(e.id)
+
             return (
               <div className="zn-plugin-row" key={e.id}>
                 <div className="zn-plugin-meta">
                   <div className="zn-plugin-name">
                     {e.name} <span className="zn-plugin-ver">v{e.version}</span>
-                    {recommended && <span className="zn-market-recommended">推荐</span>}
+
                     {e.author && <span className="zn-plugin-ver"> · {e.author}</span>}
                     {size && <span className="zn-plugin-ver"> · {size}</span>}
                     {installedVersion.get(e.id) && action === 'update' && (
