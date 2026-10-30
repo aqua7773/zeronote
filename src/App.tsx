@@ -936,6 +936,19 @@ export default function App() {
     setDirty,
   })
 
+  /**
+   * 打开一个面板并把它放进标签条（`core.panel.<id>` 命令、☰ 菜单、插件中心「打开」、
+   * 标签条 `＋` 都走这里）。
+   *
+   * ⚠️ 定义必须在内核创建之前：`createKernel` 的 `onOpenPanelInMain`（插件 `view.openWindow`
+   * 在手机上的降级）也要用它。rev173.270 之前那里是裸 `setMainView`，面板会出现但**不进
+   * `panelTabs`** ⇒ 标签条里没有它、也没有 ×（用户反馈 #19「导入导出窗口无法关闭」/ #3 同因）。
+   */
+  const openPanelInTab = useCallback((panelId: string) => {
+    setPanelTabs((prev) => addTab(prev, panelTabId(panelId)))
+    setMainView(panelId)
+  }, [])
+
   /* ── 内核（库变了才重建）── */
   /**
    * 内核实例用 **state 懒初始化 + 换库时调整**，而不是 `useMemo`（rev136–137 排查结论）。
@@ -964,7 +977,7 @@ export default function App() {
            * 插件不用写平台分支（outline-map 的那条 `platform === 'android'` 可以删了）。
            */
           platform: platform === 'android' ? 'android' : 'windows',
-          onOpenPanelInMain: (id) => setMainView(id),
+          onOpenPanelInMain: (id) => openPanelInTab(id),
         })
       : null
 
@@ -1447,12 +1460,6 @@ export default function App() {
      */
     setMainView('editor')
     void openNoteRef.current(key)
-  }, [])
-
-  /** 打开一个面板并把它放进标签条（`core.panel.<id>` 命令、☰ 菜单都走这里） */
-  const openPanelInTab = useCallback((panelId: string) => {
-    setPanelTabs((prev) => addTab(prev, panelTabId(panelId)))
-    setMainView(panelId)
   }, [])
 
   const closeTabOf = useCallback(
@@ -3687,7 +3694,20 @@ export default function App() {
    * 「如果有原生的，手机可以不做长按菜单」）。所以这里不拦，交给 WebView 原生处理。
    */
   useEffect(() => {
-    const onCtx = (e: MouseEvent) => e.preventDefault()
+    const onCtx = (e: MouseEvent) => {
+      /**
+       * 原生输入控件 / 插件面板表单字段 ⇒ **放行系统菜单**（rev173.270 · 真人使用测试 #6）。
+       *
+       * 用户反馈：同步设置页长按密码 / 地址输入框，弹出来的是应用级「新建笔记」——
+       * 没有「粘贴 / 全选 / 复制」。输入框该由系统管，不该被应用级右键菜单吃掉。
+       *
+       * ⚠️ 不放行 `[contenteditable]`：桌面编辑器正文（CodeMirror）就是 contenteditable，
+       * 一旦放行，WebView2 的「检查 / 刷新」原生菜单会从正文里冒出来。
+       */
+      const t = e.target
+      if (t instanceof HTMLElement && t.closest('input, textarea, select, .zn-ui-field')) return
+      e.preventDefault()
+    }
     document.addEventListener('contextmenu', onCtx, true)
     return () => document.removeEventListener('contextmenu', onCtx, true)
   }, [])
@@ -4467,9 +4487,18 @@ export default function App() {
             ? undefined
             : mainView === 'editor' && activePath
               ? () => void closeCurrentView()
-              : () => setSidebarOpen((v) => !v)
+              : /* 手机面板页（rev173.270 · 用户反馈 #3「同步插件无法关闭」）：
+                   之前这里只有 ☰ = 抽屉开关，界面里**没有**任何回到笔记的可见入口，
+                   只能凭系统返回键（用户不知道）。现在给一个「‹ 返回」，
+                   行为与 Android 返回键那条完全一致（回编辑器 + 首页 tab）。 */
+                pagePanel
+                ? () => {
+                    setMainView('editor')
+                    setMobileTab('home')
+                  }
+                : () => setSidebarOpen((v) => !v)
         }
-        menuIcon={!isDesktop && mainView === 'editor' && activePath ? 'back' : 'menu'}
+        menuIcon={!isDesktop && (!!pagePanel || (mainView === 'editor' && activePath)) ? 'back' : 'menu'}
         showMenuButton={!isDesktop && mainView === 'editor' && !!activePath}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
@@ -4495,6 +4524,12 @@ export default function App() {
             setMobileEditBar({ x: e.clientX, y: e.clientY })
             return
           }
+          /**
+           * 原生输入控件 / 插件面板表单字段 ⇒ 放行（rev173.270 · 反馈 #6）。
+           * 名单必须与上面 document 捕获那条**一致** —— 那里放行了原生菜单，这里再
+           * preventDefault 会把它吃掉、还照样弹应用级菜单（用户看到的正是那个）。
+           */
+          if (el instanceof HTMLElement && el.closest('input, textarea, select, .zn-ui-field')) return
           // 侧栏与主区统一走自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
           // 用 **Capture** 版是必需的：CodeMirror 会处理 contentDOM 上的 contextmenu，
           // 挂在冒泡阶段的话在编辑器正文里右键根本收不到。
@@ -4807,9 +4842,11 @@ export default function App() {
                 onInstall={() => void installZnp()}
                 onMarketInstall={installFromMarket}
                 updates={marketUpdates}
-                /* B1：菜单不再列插件面板 ⇒ 行内给「打开」入口（B3 插件中心接管） */
+                /* B1：菜单不再列插件面板 ⇒ 行内给「打开」入口（B3 插件中心接管）
+                   rev173.270：必须走 openPanelInTab —— 裸 setMainView 只切主区、不进标签条，
+                   面板就没有 × 可关（用户反馈 #19 / #3） */
                 panels={panels}
-                onOpenPanel={(id) => setMainView(id)}
+                onOpenPanel={openPanelInTab}
                 pinnedPlugins={railPins}
                 onTogglePin={togglePin}
                 /* B3：核心能力接管从设置页迁来这里 —— 插件的事只在一个地方管 */
@@ -4987,6 +5024,8 @@ export default function App() {
               <SearchPanel
                 inline
                 open
+                /* 手机全屏搜索页不自动聚焦（rev173.270 · 反馈 #8）：一进来就弹软键盘会盖住结果区 */
+                autoFocus={false}
                 onClose={() => switchMobileTab('home')}
                 onOpenNote={(p) => void openNote(p)}
                 index={kernel?.index ?? null}

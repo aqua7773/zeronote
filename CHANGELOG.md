@@ -26,6 +26,26 @@
 > [`真人使用测试-2026-10-30.md`](docs/真人使用测试-2026-10-30.md) ·
 > [`真人使用测试-修复计划-2026-10-30.md`](docs/真人使用测试-修复计划-2026-10-30.md)
 
+### Fixed
+
+- **插件面板没有关闭入口**（rev173.270 · 真人使用测试 #19「导入导出窗口无法关闭」/ #3 同因）：
+  插件中心每行「打开」（`App.tsx` 的 `onOpenPanel`）与内核 `onOpenPanelInMain`（插件
+  `view.openWindow` 在 Android 上的降级）原来只 `setMainView` —— 面板会出现，但**不进 `panelTabs`**
+  ⇒ 桌面上标签条是空的、没有 ×，用户关不掉。两处改走 `openPanelInTab`（`addTab` + `setMainView`），
+  并把它的定义提到 `createKernel` 之前。
+- **手机面板页没有可见出口**（同一条反馈）：手机顶栏此前只有 ☰（抽屉开关），面板页唯一退路是
+  系统返回键；现在面板页顶栏显示「‹ 返回列表」，行为与 Android 返回键一致（回编辑器 + 首页 tab）。
+- 新增 `tests/panel-open-wiring.test.ts`（3 条）：锁住三条入口都走 `openPanelInTab`，并锁住
+  「定义必须早于内核创建」的顺序约束。
+- **长按输入框弹的是应用级菜单**（rev173.271 · 反馈 #6）：`document` 捕获阶段的 `contextmenu`
+  一律 `preventDefault`，连 `input / textarea / select / .zn-ui-field` 也吃掉 ⇒ 同步设置页长按
+  地址 / 密码框弹「新建笔记」，拿不到「粘贴 / 全选」。全局捕获与 `onContextMenuCapture` 两处
+  名单同步放行；`[contenteditable]` **有意不放行**（桌面 CodeMirror 正文会冒出 WebView2 原生菜单）。
+- **手机搜索页一进来就弹软键盘**（#8）：`SearchPanel` 新增 `autoFocus`（默认 `true`），
+  手机全屏搜索页传 `false`；桌面侧栏视图 / 浮层仍自动聚焦。+2 测试。
+- **重命名把扩展名一起选中**（#17）：`FileTree` 进入编辑态只选中**主名**（`.md` 之前），
+  光标落在主名末尾；目录仍整体选中。
+
 ## [0.8.0] - 2026-10-30（rev173.255 – rev173.268）
 
 > 首个**同时上传桌面安装包与 Android APK**的版本（此前的 GitHub Release 都没有附件）。

@@ -34,6 +34,13 @@ export type SearchPanelProps = {
    * 与浮层形态共用同一份逻辑，避免两套搜索 UI。
    */
   inline?: boolean
+  /**
+   * 挂载 / 打开时是否自动聚焦输入框（默认 `true`）。
+   *
+   * 手机全屏搜索页传 `false`（rev173.270 · 真人使用测试 #8）：页面一出现就 focus 会把
+   * 软键盘顶上来，盖掉半个结果区；手机上点输入框再弹才符合预期。
+   */
+  autoFocus?: boolean
 }
 
 /** 面板一次最多显示多少条（内核那边的硬上限是 200） */
@@ -63,6 +70,7 @@ export function SearchPanel({
   index = null,
   notes = [],
   inline = false,
+  autoFocus = true,
 }: SearchPanelProps) {
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('relevance')
@@ -108,15 +116,15 @@ export function SearchPanel({
   /** 面板是否在工作：浮层看 `open`，侧栏内联形态挂载即工作（B1） */
   const active = open || inline
 
-  /* 打开时聚焦并把上次的词整体选中，直接敲就能覆盖 */
+  /* 打开时聚焦并把上次的词整体选中，直接敲就能覆盖（手机全屏页传 autoFocus=false，见 props） */
   useEffect(() => {
-    if (!active) return
+    if (!active || !autoFocus) return
     const timer = window.setTimeout(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [active])
+  }, [active, autoFocus])
 
   /* 首次打开（或换库后）自动建一次索引 */
   useEffect(() => {

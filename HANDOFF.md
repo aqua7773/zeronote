@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.269
-更新时间: 2026-10-30 · 最新 rev173.269
+revision: 173.271
+更新时间: 2026-10-30 · 最新 rev173.271
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,8 @@ revision: 173.269
 
 | rev | 内容 |
 |---|---|
+| rev173.271 | 2026-10-30 · **真人使用测试 B 批：抢输入三修（#6 / #8 / #17）**（用户「继续zeronote，修bug」）：① **输入框不再被应用级右键菜单吃掉** —— `document` 捕获阶段的 `contextmenu` 与 `onContextMenuCapture` 两处同步放行 `input / textarea / select / .zn-ui-field`，原生「粘贴 / 全选 / 复制」回来；`[contenteditable]` **有意不放行**（桌面编辑器正文就是 contenteditable，放行会冒出 WebView2 的「检查 / 刷新」）。② **手机搜索页不再自动弹键盘** —— `SearchPanel` 新增 `autoFocus`（默认 `true`），手机全屏页传 `false`；桌面侧栏视图 / 浮层行为不变。③ **重命名只选主名** —— `FileTree` 进入编辑态选中 `.md` 之前的文件名、光标落在主名末尾；目录仍整体选中。**测试** `tests/search-panel.test.tsx` +2（默认聚焦 / `autoFocus=false` 不聚焦）；vitest 1575 → **1577**。**实测**（CDP 桌面 + 手机 `33b676f6`）：同步面板 URL 框 `contextmenu` 事件 `defaultPrevented=false`、`body` 仍 `true`；手机点底栏「搜索」后 `activeElement=BODY`；桌面文件树重命名选中「笔记1」（`0–3`）、不含 `.md`。截图 `_shots/rev173270-phone-search.png` / `rev173270-rename-selection.png`。 |
+| rev173.270 | 2026-10-30 · **真人使用测试 A 批：插件面板进标签条（#19 / #3）**（用户「继续zeronote，修bug」· 修复计划 A 批，15 分钟档）：① **两处接线** —— 插件中心每行「打开」的 `onOpenPanel`（`App.tsx:4812` 区域）与内核 `onOpenPanelInMain`（插件 `view.openWindow` 在 Android 上的降级，`App.tsx:967`）从裸 `setMainView` 改走 `openPanelInTab`（= `addTab` + `setMainView`）；`openPanelInTab` 定义提到 `createKernel` 之前（回调闭包不越过 `const` 声明）。② **手机可见出口** —— 面板页顶栏此前只有 ☰（抽屉开关），唯一退路是系统返回键；现在 `pagePanel` 时 `menuIcon='back'` 并显示「‹ 返回列表」，行为与 Android 返回键完全一致（`setMainView('editor')` + `setMobileTab('home')`）。③ **测试** —— 新 `tests/panel-open-wiring.test.ts` 3 条（插件中心接线 / `onOpenPanelInMain` 接线 / 定义早于内核创建）；vitest 1572 → **1575**。④ **实测**（CDP 9222 桌面 + 手机 `33b676f6`）：桌面「打开 导入导出」⇒ `main=io.panel` + 标签「导入导出 ×」、点 × 回列表；「打开 同步 · WebDAV」同样（`main=sync-webdav.status` + 标签）；手机面板页顶栏 `‹`（aria `返回列表`），点击回首页列表且底栏四项回来。截图 `_shots/rev173270-desktop-panel-tab.png` / `rev173270-phone-panel.png` / `rev173270-phone-back-closed.png`。⚠️ 手机上打开面板不走标签条（无多标签），走新加的 ‹；`onOpenPanelInMain` 的接线只有单测 + 静态断言，真机未单独触发（导图插件是唯一调用方）。 |
 | rev173.269 | 2026-10-30 · **真人使用测试 20 条归档 + A–J 修复计划（交接）**（用户「交接」· 输入 = 首次真机使用反馈 zip：1 个 md + 11 张截图）：① **归档** —— `docs/真人使用测试-2026-10-30.md` 按 7 组记下 20 条（现象 / 代码定位 / 类型），其中 **7 条给到文件行号**；截图不入库、材料路径写在文首。② **计划** —— `docs/真人使用测试-修复计划-2026-10-30.md`：A 关不掉（15 分钟）· B 抢输入 · C 误报 · D 展示 · E 安全与遮挡 · F 闪退（真机 logcat）· G 导出内嵌 · H 沉浸式 · I 限流 · J 新功能，合计约 27 小时；排序按「被挡住的频率 × 修起来的确定性」，不按原文编号。③ **三个已定位根因** —— 插件面板只 `setMainView` 不进 `panelTabs`（`App.tsx:4812` / `967`）· 「库里没有这个附件」判据只查前端 `notes` 列表（`App.tsx:3142`）· 长按处理器没排除输入框（`App.tsx:4482`）。④ **版本规划（用户定）** —— 这 20 条修完作为**下一个小版本 0.9.0** 发布（含导出内嵌图片、系统分享这类新功能，不是纯补丁）。本轮**没改产品代码**，纯文档 + 排期。`docs/README.md` 矩阵两行 + `docs/ROADMAP.md` §3 置顶引用同步。 |
 | rev173.268 | 2026-10-30 · **发版 0.8.0：首次编译双端安装包并上传 GitHub Release**（用户「编译双端release推到github」）：① **版本** —— `release.mjs 0.8.0`（package.json / tauri.conf.json / Cargo.toml）；CHANGELOG `[Unreleased]` → `[0.8.0] - 2026-10-30（rev173.255–268）` + 版本表加行；README 现状行（B1–B7）与 ROADMAP §0 同步。② **Android release 签名从零配** —— 此前只构建过 debug APK（`tauri android build --debug --apk`），release 无签名配置、无 keystore。按官方文档 `keytool` 生成 PKCS12（RSA 4096 / 10950 天 / alias `zeronote`）+ `gen/android/keystore.properties`（**不入库**，已进 .gitignore）+ `app/build.gradle.kts` 加 `signingConfigs.create("release")`（properties 缺失时不挂签名 ⇒ 别人 clone 下来仍可编 debug）；密钥与密码备份在 `_logs\2026-10-30-发版0.8.0-keystore.md`。③ **产物** —— 桌面 `pnpm tauri build` · Android `pnpm tauri android build --apk`（universal release），两个安装包上传 GitHub Release `v0.8.0`（**首个带附件的 Release**，此前 5 个 tag 都只有正文）。 |
 | rev173.267 | 2026-10-30 · **侧栏收起 / 展开过渡**（用户「过渡」· 调研 MO4；MO4 原本归 B1，B1 当年没做）：① **收起从「卸载」改成「宽度到 0」** —— 桌面 `showSidebar` 拆成 `sidebarAllowed`（页面是否放侧栏）+ 始终挂载；`AppSidebar` 新增 `collapsed`（inline `width: 0` + `is-collapsed` 去边框 + **`inert`** 挡 Tab/点击）。不卸载的好处：文件树滚动位置与展开状态保留、宽度动画才有对象。② **过渡** —— `.zn-sidebar { transition: width 220ms emphasized }`（`--zn-dur-panel`）；**拖拽中 0**（`body.is-resizing` 由 `AppResizer` 原有逻辑加，一行 CSS 覆盖）。③ 分隔线只在 `sidebarAllowed && isDesktop && sidebarVisible` 时渲染（收起不留 5px 悬空线）。**实测**（CDP，rAF 采样）：收起 `348 → 223 → 152 → … → 1px`（≈210ms）· 展开 `1 → 124 → 195 → … → 348`（≈220ms）· 收起后 `is-collapsed` + `inert=true` · 拖动 `pointerdown` 时 `transitionDuration 0s`、`pointerup` 后回 `0.22s`。截图 `_shots/b7-13-sidebar-collapsed.png`。ℹ️ 收起后宽度停在 **1px**（`box-sizing: border-box` + 1px 边框的最小宽度；边框已透明，不可见）。verify 六步全绿 · 质量门 8/8 · vitest 1572 不变（纯 CSS/组件属性 + 1 个 prop） |
@@ -165,6 +167,63 @@ revision: 173.269
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.271（2026-10-30 · B 批：抢输入三修 —— 长按输入框 / 手机搜索弹键盘 / 重命名全选）
+
+> 修 [`真人使用测试-修复计划`](docs/真人使用测试-修复计划-2026-10-30.md) 的 **B 批**（#6 / #8 / #17）。
+>
+> ### 改了什么
+>
+> 1. **#6 长按输入框弹的是应用级菜单**：`document` 捕获阶段的 `contextmenu` 一律 preventDefault，
+>    `onContextMenuCapture` 又补一刀 ⇒ 同步设置页的地址 / 密码框长按只能拿到「新建笔记」。
+>    两处名单同步放行 `input / textarea / select / .zn-ui-field`。
+>    ⚠️ `[contenteditable]` **有意不放行**：桌面正文（CodeMirror）就是 contenteditable，
+>    放行会让 WebView2 的「检查 / 刷新」原生菜单从正文里冒出来。
+> 2. **#8 手机搜索页一进来就弹软键盘**：`SearchPanel` 新增 `autoFocus`（默认 `true`）；
+>    手机全屏搜索页传 `false`，桌面侧栏视图 / 浮层不变。
+> 3. **#17 重命名把扩展名一起选中**：`FileTree` 进入编辑态只选中 `.md` 之前的主名、
+>    光标落在主名末尾（用户常顺手把 `.md` 删掉，变出一个没扩展名的文件）；目录仍整体选中。
+>
+> ### 验证
+>
+> - `tests/search-panel.test.tsx` +2（默认聚焦 / `autoFocus=false` 不聚焦）；vitest **1575 → 1577**。
+> - CDP：桌面同步面板 URL 框派发 `contextmenu` ⇒ `defaultPrevented=false`，`body` 上仍 `true`；
+>   手机点底栏「搜索」⇒ `activeElement=BODY`；桌面文件树重命名 ⇒ 选中「笔记1」(`0–3`)、不含 `.md`。
+> - 截图 `_shots/rev173270-phone-search.png` / `rev173270-rename-selection.png`。
+>
+> ### 遗留
+>
+> - ⚠️ #6 的手机长按只验证了「事件不被 preventDefault」这一层（CDP 合成不出系统长按菜单）；
+>   Android 原生菜单本身要真人手指长按才算走查。
+> - ⚠️ FileTree 的选择范围没有单测（组件内 effect + 内联输入框，渲染成本高）—— 靠 CDP 实测。
+
+> ## 📌 rev173.270（2026-10-30 · A 批：插件面板进标签条 + 手机面板页「‹ 返回列表」 · #19 / #3）
+
+> 用户「继续zeronote，修bug」⇒ 修 [`真人使用测试-修复计划`](docs/真人使用测试-修复计划-2026-10-30.md) 的 **A 批**。
+>
+> ### 根因与修法
+>
+> 插件中心每行「打开」走 `onOpenPanel`，与内核 `onOpenPanelInMain`（插件 `view.openWindow`
+> 在 Android 上的降级）都只 `setMainView` —— 面板出现，但**不进 `panelTabs`** ⇒ 桌面标签条是空的、
+> 没有 ×。两处改走 `openPanelInTab`（`addTab` + `setMainView`）；后者定义提到 `createKernel` 之前
+> （回调闭包引用更晚的 `const` 属于隐性 TDZ 风险）。
+>
+> **手机另有缺口**（用户就是手机测的）：面板页顶栏只有 ☰（抽屉开关），唯一出口是系统返回键。
+> 现在 `pagePanel` 时 `menuIcon='back'` 并显示「‹ 返回列表」，行为与 Android 返回键完全一致
+> （`setMainView('editor')` + `setMobileTab('home')`）。
+>
+> ### 验证
+>
+> - 新 `tests/panel-open-wiring.test.ts` 3 条：锁两条接线 + 锁「定义早于内核创建」；vitest **1572 → 1575**。
+> - 桌面 CDP：「打开 导入导出」⇒ `main=io.panel`、标签「导入导出 ×」；点 × 回列表。
+>   「打开 同步 · WebDAV」⇒ `main=sync-webdav.status`、标签「同步 · WebDAV ×」。
+> - 手机（`33b676f6`）真机：面板页顶栏 `‹`（`aria-label=返回列表`），点击回首页列表、底栏四项回来。
+> - 截图 `_shots/rev173270-desktop-panel-tab.png` / `rev173270-phone-panel.png` / `rev173270-phone-back-closed.png`。
+>
+> ### 遗留
+>
+> - ⚠️ `onOpenPanelInMain` 只有单测 + 静态断言，真机未单独触发（唯一调用方 = 导图插件的 `openWindow`）。
+> - ⚠️ 手机上打开面板仍不进标签条（手机本来没有多标签），出口 = 新的 ‹。
 
 > ## 📌 rev173.269（2026-10-30 · 真人使用测试：20 条反馈归档 + A–J 修复计划 · 交接）
 >

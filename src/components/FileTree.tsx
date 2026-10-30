@@ -307,10 +307,24 @@ function Node({
   const pad = { paddingLeft: 'var(--zn-space-2)' }
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  // 进入内联编辑态时全选，直接敲新名字即可覆盖
+  /**
+   * 进入内联编辑态：笔记只选中**主名**（不含 `.md`），光标落在末尾；目录整体选中。
+   *
+   * rev173.270 · 真人使用测试 #17：以前一律整体 `select()`，想改中间一个字只能全删重打；
+   * 且扩展名一起选中，用户常常顺手把它删掉 ⇒ 变出一个没扩展名的文件。
+   */
   useEffect(() => {
-    if (renaming?.path === node.path) inputRef.current?.select()
-  }, [renaming, node.path])
+    if (renaming?.path !== node.path) return
+    const input = inputRef.current
+    if (!input) return
+    const base = node.name.replace(/\.md$/i, '')
+    if (base !== node.name && base.length > 0) {
+      input.focus()
+      input.setSelectionRange(0, base.length)
+    } else {
+      input.select()
+    }
+  }, [renaming, node.path, node.name])
 
   // 新建/重命名落在本节点子树里 ⇒ 自动展开（否则输入框在折叠目录里，看着像"没反应"）
   // 只在「确实折着」时动一次：toggle 是切换语义，不拦 open 反而会把它折上。

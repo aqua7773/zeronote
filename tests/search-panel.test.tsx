@@ -111,3 +111,27 @@ describe('SearchPanel 筛选行', () => {
     )
   })
 })
+
+/**
+ * 自动聚焦开关（rev173.270 · 真人使用测试 #8）。
+ *
+ * 手机全屏搜索页传 `autoFocus={false}` —— 页面一出现就 focus 会把软键盘顶上来，
+ * 盖掉半个结果区。桌面（侧栏视图 / 浮层）保持默认 `true`，打开即可打字。
+ */
+describe('SearchPanel 自动聚焦', () => {
+  it('默认（桌面）打开即聚焦搜索框', async () => {
+    const { index } = makeIndex()
+    render(<SearchPanel {...baseProps} index={index} />)
+    const input = screen.getByLabelText('搜索笔记')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+  })
+
+  it('autoFocus=false（手机全屏页）不聚焦，软键盘不弹', async () => {
+    const { index } = makeIndex()
+    render(<SearchPanel {...baseProps} index={index} autoFocus={false} />)
+    const input = screen.getByLabelText('搜索笔记')
+    // 聚焦在 setTimeout(0) 里做；等一轮宏任务再断言「仍然没聚焦」
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.activeElement).not.toBe(input)
+  })
+})
