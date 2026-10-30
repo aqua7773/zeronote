@@ -257,6 +257,14 @@ revision: 173.288
 > 测完清理：测试库那篇恢复原文 · 影子副本清空 · `examples/sync/store.json`（junction 写进源码的）删掉 ·
 > 全局目录改用**市场签名包**（解 `.znp` 的 7 文件 + `signature.json`）· dev 已关（pid 40780）。
 >
+> **⚠️ 更正（2026-10-30 23:46 · 用户「起dev」时暴露）**：上面那次「改装签名包」**装错了** ——
+> 只写了 `files` 里的 7 个文件，**漏了 `manifest.json`**（`.znp` 是 `{ znp, manifest, files }`，
+> `manifest` 是顶层字段、不在 `files` 里）⇒ 内核报「读取插件文件失败 C:\…\.zn\plugins\sync」、
+> 插件中心显示 0 插件。补写 `manifest.json` 后点「重新扫描」⇒ **已安装 2**、`同步 v0.1.0 已签名`、
+> 12 条命令全在、文件树与面板都正常（`_shots/sync-288-dev-after-fix.png`）。
+> 教训：`.znp` 不是 zip；手动装包时 `manifest.json` 要单独写。
+> 应用内「插件市场 → 安装」不走这条路，没这个问题。
+>
 > ⚠️ **未测**：S3 / Git 两个后端没有真实远端（只验了面板渲染与客户端单测）；
 > WebDAV 未在 dev 里跑新一轮往返（rev173.285 验过同一引擎，本轮改动集中在 412 分支，已有单测）。
 >

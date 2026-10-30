@@ -364,9 +364,12 @@ pwsh -File scripts\verify.ps1
   **别用管理员跑**（污染 WebView2 UDF ⇒ `0x800700AA`，已污染就用 `scripts\dev.ps1` 绕开）。
   ⚠️ **交接时 dev 是关着的**（rev173.288 测完主动关的：`zeronote.exe` 与 dev.cmd 的 cmd 都已停）。
   要起就按上一行命令；起完 12 秒左右 CDP 9222 就绪（增量编译）。
-  ⚠️ **桌面全局插件目录现在是 `import-export` + `sync`（市场签名包解出来的 7 文件 + signature.json）** ——
+  ⚠️ **桌面全局插件目录现在是 `import-export` + `sync`（市场签名包：8 个文件 = `manifest.json` + 7 个 `files`）** ——
   旧的 `sync-webdav` / `sync-folder` 被移到 `_tmp-plugin-backup/consolidation-20261030-2335/`
   （要退回就从那里移回，别删这个目录）。
+  ⚠️ **手动解 `.znp` 装插件时别漏 `manifest.json`**：`.znp` 是 JSON 包
+  `{ znp:1, manifest, files:{路径:内容} }` —— `manifest` 是**顶层字段、不在 `files` 里**。
+  第一次装 sync 时只写了 `files` ⇒ 内核报「读取插件文件失败」、插件中心显示 0 插件（rev173.288 踩过）。
   ⚠️ **手机端（adb `33b676f6`）还是 4 个旧同步插件**，dev 包 pid 11789 在跑 —— 见「下个会话第一件事」。
   ⚠️ **零插件验证做过四次**（B3 rev173.258 / B4 rev173.260 / B6 rev173.262）：临时把 `<appdata>\.zn\plugins` 改名
   → reload → 截图 → 改回 → reload；每次都已恢复（**18 个**、无 `plugins-*-bak` 残留）。
