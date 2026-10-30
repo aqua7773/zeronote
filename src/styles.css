@@ -213,6 +213,16 @@ button {
   background: var(--zn-bg-subtle);
   border-right: 1px solid var(--zn-border);
   overflow: hidden;
+  /* 收起 / 展开（rev173.267）：宽度滑 220ms；拖动分隔线时禁用（见下方 body.is-resizing） */
+  transition: width var(--zn-dur-panel) var(--zn-ease-emph);
+}
+/* 收起态：宽度 0（inline style 给）、边框让开、内容不接收指针（inert 由组件加） */
+.zn-sidebar.is-collapsed {
+  border-right-color: transparent;
+}
+/* 拖拽中：宽度必须实时跟手，过渡会让手感「拖不动」（AppResizer 给 body 加这个 class） */
+body.is-resizing .zn-sidebar {
+  transition: none;
 }
 
 /* 侧栏与主区之间的分隔线：左右拖动调整占比。

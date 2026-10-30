@@ -18,6 +18,11 @@ export type AppSidebarProps = {
   vault: string | null
   /** 移动端抽屉是否展开（桌面端恒为 false，宽度由 `width` 决定） */
   open: boolean
+  /**
+   * 桌面收起态（rev173.267）：**不卸载**，宽度滑到 0 —— 这样「点击收起/展开」才有 220ms 过渡，
+   * 文件树的滚动位置与展开状态也不会因为卸载而丢。收起时加 `inert`（不可 Tab / 不可点）。
+   */
+  collapsed?: boolean
   width: number
   /** 桌面：侧栏当前视图；不传 = 抽屉模式（手机） */
   view?: AppSidebarView
@@ -42,6 +47,7 @@ export type AppSidebarProps = {
 export function AppSidebar({
   vault,
   open,
+  collapsed = false,
   width,
   view,
   children,
@@ -55,7 +61,13 @@ export function AppSidebar({
   /** 有 `view` = 桌面视图容器；没有 = 手机抽屉 */
   const desktop = view !== undefined
   return (
-    <aside className={`zn-sidebar${open ? ' is-open' : ''}`} style={{ width }}>
+    <aside
+      className={`zn-sidebar${open ? ' is-open' : ''}${collapsed ? ' is-collapsed' : ''}`}
+      style={{ width: collapsed ? 0 : width }}
+      /* 收起时整块不可交互：不能 Tab 进去，也不能点到看不见的按钮 */
+      inert={collapsed || undefined}
+      aria-hidden={collapsed || undefined}
+    >
       <div className="zn-sidebar-head">
         {desktop ? (
           <>

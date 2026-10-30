@@ -4045,7 +4045,17 @@ export default function App() {
    * 编辑器、再从文件树点另一篇，绕一圈。面板页的侧栏点笔记 = `openNote`（会 `setMainView('editor')`）。
    * 插件中心 / 回收站仍不显示侧栏：那是内侧页，不是"编辑区的内容"。
    */
-  const showSidebar = (mainView === 'editor' || !!pagePanel) && (isDesktop ? sidebarVisible : sidebarOpen)
+  /** 侧栏**允许出现**的页面：编辑器 / 面板页（插件中心 / 回收站是系统页，不放侧栏，B1 起） */
+  const sidebarAllowed = mainView === 'editor' || !!pagePanel
+  /**
+   * 侧栏 DOM 是否挂载。
+   * · 桌面 —— **始终挂载**：收起改成宽度过渡（rev173.267），`collapsed` 时 width 0；
+   *   卸载会让宽度动画无从谈起，而且文件树的滚动位置 / 展开状态会跟着丢。
+   * · 手机 —— 抽屉，仍是条件渲染（展开/收起是 transform，见 `.zn-sidebar` 的媒体查询）。
+   */
+  const showSidebar = sidebarAllowed && (isDesktop || sidebarOpen)
+  /** 桌面收起态：宽度滑到 0、去边框、`inert` 挡住 Tab 与点击 */
+  const sidebarCollapsed = isDesktop && !sidebarVisible
 
   /**
    * 主区换页动画的 key（方案 §4 转场语义；rev173.266）。
@@ -4546,6 +4556,7 @@ export default function App() {
         <AppSidebar
           vault={vault}
           open={sidebarOpen}
+          collapsed={sidebarCollapsed}
           width={sidebarWidth}
           /* 桌面 = 视图容器；不传 view = 手机抽屉（B2 之前保持原样） */
           view={isDesktop ? sidebarView : undefined}
@@ -4694,7 +4705,7 @@ export default function App() {
         </AppSidebar>
       )}
 
-      {showSidebar && isDesktop && (
+      {sidebarAllowed && isDesktop && sidebarVisible && (
         /* 分隔线：拖它调左右占比（实现见 AppResizer，含 document 级事件与夹限）；
            B1 起支持键盘（←/→，WCAG 2.5.7「拖拽有替代」） */
         <AppResizer width={sidebarWidth} onResize={setSidebarWidth} />
