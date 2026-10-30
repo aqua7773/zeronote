@@ -238,6 +238,28 @@ revision: 173.288
 > （`baseline.v1` / `folder.baseline.v1` / `pending.v1`）与旧插件同名 ——
 > 直接接管旧状态，不需要重新建立基线。
 >
+> ### dev 端到端实测（用户「测一下」，2026-10-30 23:35）
+>
+> 环境：`dev.cmd`（vite 1420 · CDP 9222）· 测试库 `_tmp-vault-tb` · 全局插件目录先移走旧的
+> `sync-webdav` / `sync-folder`（备份在 `_tmp-plugin-backup/consolidation-20261030-2335/`）再 junction 新插件。
+>
+> | 验证项 | 结果 |
+> |---|---|
+> | 多文件加载 | `__znKernelAudit()` ⇒ **sync 12 条命令全在** + 面板 `sync.status`（6 个 `require` 在真实宿主的极简 CJS 运行时里成立） |
+> | WebDAV 面板 | 默认视图：说明 + 后端按钮组（当前：WebDAV）+ 地址/账号/密码（圆点）/目录/附件 + 按钮行（`_shots/sync-288-webdav-panel.png`） |
+> | folder 面板 | 「本插件不搬文件」+ `.zn/` 排除提醒 + 基线/待同步/冲突徽章 + 三个按钮（`_shots/sync-288-folder-panel.png`） |
+> | 「设为基线」 | 38 篇 → 面板 `基线 38 篇` · 用时 167 毫秒（`_shots/sync-288-folder-baseline.png`） |
+> | S3 面板 | Endpoint / 区域 / 桶 / Access Key / Secret（圆点）/ 前缀（`_shots/sync-288-s3-panel.png`） |
+> | Git 面板 | 平台按钮（GitHub 实心）/ API 根（placeholder 用平台预设）/ 所有者 / 仓库 / 分支（`_shots/sync-288-git-panel.png`） |
+> | **folder 冲突端到端** | 编辑器输入 + `core.save`（pending + 影子副本）→ 3 秒内 PowerShell 覆盖磁盘（模拟同步工具）⇒ Rust watcher 发 `note:changed` ⇒ 判 conflict ⇒ 写 `.zn/conflicts/windows/2026-10-30 2337-需求.md`（**内容 = 本机版**）· 面板「冲突记录 · 1 条」+ 三个按钮（`_shots/sync-288-conflict.png`） |
+> | **冲突处理** | 点「用本机版」⇒ 磁盘恢复本机版内容、冲突副本删除、`冲突 0`、toast「已用本机版覆盖」（`_shots/sync-288-resolved.png`） |
+>
+> 测完清理：测试库那篇恢复原文 · 影子副本清空 · `examples/sync/store.json`（junction 写进源码的）删掉 ·
+> 全局目录改用**市场签名包**（解 `.znp` 的 7 文件 + `signature.json`）· dev 已关（pid 40780）。
+>
+> ⚠️ **未测**：S3 / Git 两个后端没有真实远端（只验了面板渲染与客户端单测）；
+> WebDAV 未在 dev 里跑新一轮往返（rev173.285 验过同一引擎，本轮改动集中在 412 分支，已有单测）。
+>
 > ## 📌 rev173.287（2026-10-30 · S3 后端并入 `sync`）
 >
 > - 新 `lib/backends/s3.cjs`：SigV4 全套纯函数（仍用 **AWS 官方 SDK 测试向量**验证）
