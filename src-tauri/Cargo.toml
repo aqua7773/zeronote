@@ -1,6 +1,6 @@
 [package]
 name = "zeronote"
-version = "0.9.0"
+version = "0.9.1"
 description = "ZeroNote —— 空内核的本地 Markdown 笔记应用"
 authors = ["aqua"]
 license = "MIT"
