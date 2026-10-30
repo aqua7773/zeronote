@@ -228,15 +228,30 @@ revision: 173.290
 > | ③ 再造冲突点远端段 ✔ | 本地与远端都是远端版 | — |
 > | ④ `location.reload()` 后重开 | 两段两色与两个 ✔ 全部恢复（合并稿存 store） | `_shots/merge-290-after-reload.png` |
 >
-> ### 5. 发市与边界
+> ### 5. 手机端实测（真机 24069RA21C · `com.aqua.zeronote.debug`）
+>
+> 把 `sync-0.1.1.znp` 解包后的 8 个文件 `adb push` + `run-as cp` 覆盖到
+> `.zn/plugins/sync/`（**保留 store.json**）→ 重启 app → `sync.pick-conflict` 存在。
+>
+> | 步 | 结果 | 截图 |
+> |---|---|---|
+> | 手机推 `_tmp-conflict.md` = 手机版 v1 | pushed 1 | — |
+> | 桌面侧脚本改远端 = 桌面版 v1、手机本地改 = 手机改了这一段 | `conflicts: 1`，手机正文 = 公共段 / 桌面版 v1 / 手机改了这一段 | `_shots/phone-merge-290-real.png` |
+> | 手机点本机段 ✔ | 另一段消失、颜色全清、**远端同步变手机版** | `_shots/phone-merge-290-resolved.png` |
+>
+> ⚠️ **CDP 的 `Page.captureScreenshot` 在移动 WebView 上会裁字**（同一张 1222×2713 里红绿行只露上半截，
+> 布局实测行高 29px 全正常）—— 真机验收要用 `adb exec-out screencap -p`，别拿 CDP 截图当"渲染坏了"。
+> 测完清理：手机 vault 里同步下来的测试文件全部删除 + 远端 manifest 归零 + `pending` 清空；
+> 手机**自动同步保持关闭**（测试期间关的，面板「开启自动同步」可开）。
+
+> ### 6. 发市与边界
 >
 > `sync` 0.1.0 → **0.1.1**（`market/packs/sync-0.1.1.znp` · 243.0 KB · 8 文件含 `styles.css` ·
 > 入口 `3a4d9fe4…` · 整包 `bcd38efb…` · keyId `aqua-2026`）→ `gen-market --write`（14 条）→
 > `verify-trust` **45/46**。
 >
-> ⚠️ **没做的两条**：**手机端未走查**（同一套 CM6 + 插件代码，理论上一致）·
-> **本地文件夹后端仍是旧行为**（`lib/backends/folder.cjs` 冲突分支没接合并稿 —— 磁盘已被外部工具覆盖，
-> 本机版在影子副本里，要接得另给钩子）。
+> ⚠️ **没做的一条**：**本地文件夹后端仍是旧行为**（`lib/backends/folder.cjs` 冲突分支没接合并稿 ——
+> 磁盘已被外部工具覆盖，本机版在影子副本里，要接得另给钩子）。
 > ⚠️ **dev 插件目录是副本不是 junction**：改源码后必须拷进 `<appdata>/.zn/plugins/sync/` 再 reload。
 
 > ## 📌 rev173.289（2026-10-31 · 手机端换 `sync` + 跨设备冲突实测通过）

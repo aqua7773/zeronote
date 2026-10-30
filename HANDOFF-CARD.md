@@ -40,11 +40,14 @@ pwsh -File scripts\verify.ps1
 > `sync` **0.1.1** 已打包签名（`market/packs/sync-0.1.1.znp` · 243.0 KB · keyId `aqua-2026`），
 > 用户要到「插件中心 → 插件市场 → 更新」才拿到（**不自动升级**）。
 >
-> 余下两条边界（**明确没做，别当成做过**）：
-> - **手机端未走查**：同一套 CM6 + 插件代码，理论上一致；要验就 adb 连上后开一篇冲突稿看颜色与 ✔。
+> 余下边界（**明确没做，别当成做过**）：
 > - **本地文件夹后端仍是旧行为**：`lib/backends/folder.cjs` 的冲突分支没接合并稿
 >   （它磁盘已被外部工具覆盖、本机版在影子副本里）—— 要接得给它加 `writeBody` / `buildMergeDraft` 钩子。
 > - ⚠️ **dev 插件目录是副本不是 junction**：改源码后必须拷进 `<appdata>/.zn/plugins/sync/` 再 reload。
+> - ⚠️ **CDP 截图在移动 WebView 上会裁字**：真机验收用 `adb exec-out screencap -p`，别当渲染坏了。
+>
+> 手机端已实测（真机 24069RA21C · debug 版 · `_shots/phone-merge-290-real.png` / `-resolved.png`）：
+> 两段两色 + ✔、点本机段 ⇒ 另一段消失且**推上远端**。手机**自动同步仍关着**（测试期间关的）。
 
 > **下个会话第一件事（rev173.288 交接 · 同步合并已收口 + 桌面已测）**：`sync` 一个插件、四个后端
 > （`webdav` / `s3` / `git` / `folder`），旧 4 个插件源码已删，市场 **14 条**，
