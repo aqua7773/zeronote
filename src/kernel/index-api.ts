@@ -500,7 +500,7 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
        */
       async query(
         q: string,
-        opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean },
+        opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean; untagged?: boolean },
       ): Promise<SearchHit[]> {
         if (part.docs.size === 0) return []
 
@@ -508,6 +508,12 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
         const limit = resolveLimit(opts?.limit)
         // 字段过滤：按标签精确命中（大小写不敏感，与正文搜索的语义保持一致）
         const wantTag = opts?.tag?.trim().toLowerCase()
+        /**
+         * 「未打标签」（rev173.264 · 侧栏智能分区）：`tags` 为空即命中。
+         * 与 `tag` 同时给时**以 tag 为准** —— 两个条件互斥，同时生效只会永远返回空表，
+         * 调用方真正的意图显然是按标签筛。
+         */
+        const wantUntagged = opts?.untagged === true && !wantTag
 
         // 正则模式：整串当表达式（`i` 忽略大小写、`m` 让 ^ / $ 按行匹配、`u` 正确处理中文）
         let re: RegExp | null = null
@@ -525,13 +531,14 @@ export function createIndexApi(deps: IndexDeps): IndexApi {
          * 正是 `query('', { tag })` / `query('', { dir })` 的用法（真实踩到：之前这里
          * 直接 return [] 导致按标签筛选永远 0 篇）。什么条件都没给才是真的空查询。
          */
-        if (!re && tokens.length === 0 && !wantTag && !dirPrefix) return []
+        if (!re && tokens.length === 0 && !wantTag && !dirPrefix && !wantUntagged) return []
 
         const scored: { entry: Entry; score: number }[] = []
 
         for (const entry of part.docs.values()) {
           if (dirPrefix && !inDir(entry.path, dirPrefix)) continue
           if (wantTag && !entry.tags.some((t) => t.toLowerCase() === wantTag)) continue
+          if (wantUntagged && entry.tags.length > 0) continue
 
           // 正则模式：正文或标题命中即算（`re` 不带 `g`，`test` 不改变匹配状态）
           if (re) {

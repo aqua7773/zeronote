@@ -2114,6 +2114,11 @@ body.is-resizing * {
 /* 插件行的「版本记录」按钮（rev173.230 · 需求 §2.14）：跟删除同排，平时淡、hover 才亮 */
 .zn-plugin-hist { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--zn-fg-subtle); background: transparent; border: 1px solid transparent; transition: color var(--zn-dur-fast) var(--zn-ease-standard), background var(--zn-dur-fast) var(--zn-ease-standard), border-color var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-plugin-hist:hover { color: var(--zn-fg); background: var(--zn-bg-hover); border-color: var(--zn-border); }
+/* 已固定到图标栏（目标态 ②）：底色常亮一档，一眼看出状态 */
+.zn-plugin-hist.is-pinned { color: var(--zn-accent); background: var(--zn-bg-active); border-color: var(--zn-border-strong); }
+/* 固定区已满（3 个）：不可再固定 —— 置灰 + tooltip 说明，不靠 toast */
+.zn-plugin-hist:disabled { opacity: .4; cursor: not-allowed; }
+.zn-plugin-hist:disabled:hover { background: transparent; border-color: transparent; }
 /* 版本记录对话框：一份存档一行（版本 · 时间 · 大小 · 是否含数据 + 回滚按钮） */
 .zn-plugin-version-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
 .zn-plugin-version-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--zn-border); border-radius: 8px; }
@@ -2336,6 +2341,15 @@ body.is-resizing * {
   background: var(--zn-border);
 }
 
+/* 插件固定区的字符图标（目标态 ②）：用插件名首字 —— manifest 没有 icon 字段，
+   统一画 Puzzle 的话三个 pin 看起来一模一样。16px 是 B7 的两档之一。 */
+.zn-rail-pin-char {
+  font-size: var(--zn-text-lg);
+  font-weight: 600;
+  line-height: 1;
+  color: inherit;
+}
+
 /* 插件 + 设置贴在图标栏底部 */
 .zn-rail-bottom {
   margin-top: auto;
@@ -2352,6 +2366,122 @@ body.is-resizing * {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* ───────── 智能分区（UI 重布局目标态 ① · 方案 §2.1）─────────
+   搜索框下方一行 chip（今天 / 最近 7 天 / 未打标签）；点中后文件树区域换成扁平列表。
+   桌面专用 —— 手机抽屉里空间不够，且手机主入口是底部四项。 */
+.zn-smart-bar {
+  flex: none;
+  display: flex;
+  gap: var(--zn-space-1);
+  padding: var(--zn-space-2) var(--zn-space-2) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.zn-smart-bar::-webkit-scrollbar { display: none; }
+.zn-smart-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* WCAG 2.5.8：可点目标 ≥24px */
+  height: 24px;
+  padding: 0 var(--zn-space-2);
+  border: 1px solid var(--zn-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-sm);
+  cursor: pointer;
+  transition:
+    background var(--zn-dur-fast) var(--zn-ease-standard),
+    color var(--zn-dur-fast) var(--zn-ease-standard),
+    border-color var(--zn-dur-fast) var(--zn-ease-standard);
+}
+.zn-smart-chip:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
+.zn-smart-chip.is-active {
+  background: var(--zn-bg-active);
+  border-color: var(--zn-border-strong);
+  color: var(--zn-fg);
+}
+.zn-smart-count { color: var(--zn-fg-subtle); font-size: var(--zn-text-sm); }
+.zn-smart-chip.is-active .zn-smart-count { color: var(--zn-fg-muted); }
+
+/* 分区列表：与 .zn-tree 同一套「占满 + 内部滚动」规则 */
+.zn-smart-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--zn-space-2);
+}
+.zn-smart-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-1);
+  padding: 0 0 var(--zn-space-2);
+  margin-bottom: var(--zn-space-2);
+  border-bottom: 1px solid var(--zn-border);
+}
+.zn-smart-back {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font-size: var(--zn-text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.zn-smart-back:hover { background: var(--zn-bg-hover); color: var(--zn-fg); }
+.zn-smart-title {
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.zn-smart-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.zn-smart-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--zn-space-2);
+  width: 100%;
+  padding: 5px var(--zn-space-2);
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg);
+  font-size: var(--zn-text);
+  text-align: left;
+  cursor: pointer;
+}
+.zn-smart-item:hover { background: var(--zn-bg-hover); }
+.zn-smart-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.zn-smart-item-time { flex: none; font-size: var(--zn-text-sm); color: var(--zn-fg-subtle); }
+.zn-smart-empty {
+  padding: var(--zn-space-3) var(--zn-space-2);
+  font-size: var(--zn-text-sm);
+  color: var(--zn-fg-subtle);
 }
 
 /* 侧栏插件分组（B6 · 方案 §7.2 A 案）：`location: 'sidebar'` 的面板住在这里。

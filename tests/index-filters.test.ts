@@ -142,4 +142,28 @@ describe('index.query：标签 / 目录（空关键词）', () => {
     // 目录不同 ⇒ 同样命中不了
     expect(paths(await k.index.query('^# 待办', { regex: true, dir: '学习' }))).toEqual([])
   })
+
+  /**
+   * 「未打标签」（rev173.264 · 侧栏智能分区）：`tags` 为空的笔记。
+   * 标签来源是 frontmatter **加正文 `#标签`** —— 所以这里同时覆盖两种写法的排除。
+   */
+  it('空关键词 + untagged ⇒ 只列没有标签的笔记', async () => {
+    const k = makeKernel()
+    await k.index.rebuild()
+    expect(paths(await k.index.query('', { untagged: true }))).toEqual(['c.md', '学习/b.md'])
+  })
+
+  it('untagged 与 tag 同时给 ⇒ 以 tag 为准（不返回空表）', async () => {
+    const k = makeKernel()
+    await k.index.rebuild()
+    expect(paths(await k.index.query('', { untagged: true, tag: '工作' }))).toEqual(['a.md'])
+  })
+
+  it('正文里的 #标签 也算标签（untagged 要排除它）', async () => {
+    files['e.md'] = '# 随手记\n#灵感 今天想到一件事'
+    notes.push({ path: 'e.md', title: '随手记' })
+    const k = makeKernel()
+    await k.index.rebuild()
+    expect(paths(await k.index.query('', { untagged: true }))).toEqual(['c.md', '学习/b.md'])
+  })
 })

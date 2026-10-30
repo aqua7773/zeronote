@@ -306,15 +306,17 @@ export interface IndexApi {
    *  · `opts.tag` —— 只返回带该标签的笔记（标签来自 frontmatter 的 `tags`/`标签`，
    *    以及正文里的 `#标签`）；
    *  · `opts.dir` —— 只返回该目录（含子目录）下的笔记；
+   *  · `opts.untagged` —— 只返回**没有任何标签**的笔记（rev173.264 · 侧栏「智能分区」用）；
+   *    与 `tag` 同时给时以 `tag` 为准（互相矛盾，返回空表更有用）；
    *  · `opts.regex` —— `q` 整个当作**正则表达式**（不切词、忽略大小写、`^`/`$` 按行匹配）；
    *    语法错误时返回空表，**不抛错**（由 UI 提示「正则无效」）。
    *
-   * `q` 为空时，带 `tag` / `dir` 也算合法查询（"列出这个标签下的全部笔记"）；
+   * `q` 为空时，带 `tag` / `dir` / `untagged` 也算合法查询（"列出这个标签下的全部笔记"）；
    * 什么条件都没给才返回空表。
    */
   query(
     q: string,
-    opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean },
+    opts?: { limit?: number; dir?: string; tag?: string; regex?: boolean; untagged?: boolean },
   ): Promise<SearchHit[]>
   upsert(path: string, text: string): Promise<void>
   remove(path: string): Promise<void>

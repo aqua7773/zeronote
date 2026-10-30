@@ -84,6 +84,12 @@ export interface SettingsProps {
   themePref: ThemePref
   onThemeChange: (pref: ThemePref) => void
   /**
+   * 专注模式（目标态 ③ · 方案 §2.1）：开启后标题栏自动隐藏，
+   * 鼠标移到窗口顶部或键盘 Tab 到标题栏时滑回。默认关（标题栏常驻）。
+   */
+  focusMode: boolean
+  onFocusModeChange: (on: boolean) => void
+  /**
    * 内嵌 HTML 是否渲染（rev173.39）：开 = 白名单标签（ins/strong/kbd 等）渲染成真样式，
    * 关 = 编辑器里显示源码。属性一律剔除，脚本/iframe 永不渲染。
    */
@@ -127,6 +133,8 @@ export function Settings({
   onPickVault,
   themePref,
   onThemeChange,
+  focusMode = false,
+  onFocusModeChange,
   renderHtml,
   onRenderHtmlChange,
   imageMode = 'original',
@@ -252,6 +260,34 @@ export function Settings({
                         className={cn(
                           'px-2.5 py-1 text-xs transition-colors',
                           themePref === value
+                            ? 'bg-primary zn-on-accent'
+                            : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                {/* 目标态 ③ · 方案 §2.1：自动隐藏只在专注模式下启用；默认常驻 */}
+                <Row
+                  label="专注模式"
+                  hint="标题栏自动隐藏；鼠标移到窗口顶部、或键盘 Tab 到标题栏时滑回"
+                >
+                  <div className="flex overflow-hidden rounded-ui-sm border border-border-strong">
+                    {(
+                      [
+                        [true, '开'],
+                        [false, '关'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={String(value)}
+                        type="button"
+                        onClick={() => onFocusModeChange(value)}
+                        className={cn(
+                          'px-2.5 py-1 text-xs transition-colors',
+                          focusMode === value
                             ? 'bg-primary zn-on-accent'
                             : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
                         )}

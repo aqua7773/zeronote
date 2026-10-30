@@ -7,7 +7,6 @@
  *
  * 状态全部由 App 持有：组件只收 props，不读 localStorage、不读 kernel。
  */
-import type { ComponentType } from 'react'
 import { Clock, FileText, Puzzle, Search, Settings } from 'lucide-react'
 
 /** 侧栏三个内核视图 —— 图标栏上半区前 3 项与侧栏视图容器一一对应 */
@@ -29,11 +28,18 @@ export type AppRailProps = {
   onToggleSettings: () => void
   /**
    * 插件固定区（分隔线以下），最多 3 个；默认空数组 ⇒ **整块不渲染**（零插件不留灰位）。
-   * B1 只保留结构，pin 的交互在 B3 插件中心里做。
+   * 目标态 ②（rev173.264）：pin 的交互在插件中心里做；这里只负责渲染。
+   * 图标用**插件名首字**（manifest 没有 icon 字段，统一 Puzzle 分不清是哪个插件）。
    */
-  pins?: { id: string; title: string; icon?: ComponentType<{ size?: number }> }[]
+  pins?: { id: string; title: string }[]
   /** 点 pin 项 */
   onPinClick?: (id: string) => void
+}
+
+/** pin 的字符图标：取插件名第一个非空白字符（英文转大写） */
+function pinChar(title: string): string {
+  const ch = [...title.trim()][0] ?? ''
+  return ch ? ch.toUpperCase() : '•'
 }
 
 /** 图标栏按钮：tooltip 里带快捷键（方案 §2.1 / 验收：tooltip 带快捷键） */
@@ -104,19 +110,18 @@ export function AppRail({
       {pins.length > 0 ? (
         <>
           <div className="zn-rail-sep" role="separator" aria-orientation="horizontal" />
-          {pins.slice(0, 3).map((p) => {
-            const Icon = p.icon
-            return (
-              <RailButton
-                key={p.id}
-                label={p.title}
-                active={false}
-                onClick={() => onPinClick?.(p.id)}
-              >
-                {Icon ? <Icon size={20} /> : <Puzzle size={20} />}
-              </RailButton>
-            )
-          })}
+          {pins.slice(0, 3).map((p) => (
+            <RailButton
+              key={p.id}
+              label={p.title}
+              active={false}
+              onClick={() => onPinClick?.(p.id)}
+            >
+              <span className="zn-rail-pin-char" aria-hidden="true">
+                {pinChar(p.title)}
+              </span>
+            </RailButton>
+          ))}
         </>
       ) : null}
 

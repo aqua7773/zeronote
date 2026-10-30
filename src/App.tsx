@@ -61,6 +61,7 @@ import { AppRail, type RailView } from './components/AppRail'
 import { MobileTabBar, type MobileTab } from './components/MobileTabBar'
 import { MobileMorePage, type MoreEntry } from './components/MobileMorePage'
 import { FileTree } from './components/FileTree'
+import { SmartSectionBar, SmartSectionList } from './components/SmartSections'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
 import { MobileNoteCards } from './components/MobileNoteCards'
@@ -112,6 +113,13 @@ import {
 } from './lib/recent'
 /* UI 重布局 B1：☰ 主菜单的「最近打开」—— 最近打开过的笔记（按库隔离，见 lib 文件头） */
 import { loadRecentNotes, rememberRecentNote, type RecentNote } from './lib/recent-notes'
+import {
+  pickByRecency,
+  startOfDay,
+  weekStart,
+  type SmartSection,
+} from './lib/smart-sections'
+import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from './lib/rail-pins'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
@@ -521,10 +529,9 @@ export default function App() {
    * 标题栏常驻（UI 重布局 B1 · 方案 §2.1「标题栏默认常驻」）。
    *
    * 旧行为（rev173.33 起）：鼠标离开顶部 500ms 就收起，靠 10px 热区唤出 ——
-   * 用户找不到「菜单在哪」。方案定为常驻，自动隐藏只在「专注模式」下启用（专注模式
-   * 属后续批次，这里还没做）。⇒ 状态只剩常量，`visible` 恒 true。
+   * 用户找不到「菜单在哪」。方案定为常驻 —— 自动隐藏只在**专注模式**下启用
+   * （目标态 ③，已实现：`focusMode` + `titlebarPinned`，见下方 state）。
    */
-  const titlebarVisible = true
 
   /** 主题：偏好一变就应用 + 持久化；选「跟随系统」时还要订阅系统深浅色变化 */
   useEffect(() => {
@@ -548,6 +555,92 @@ export default function App() {
       return 'notes'
     }
   })
+  /**
+   * 侧栏**智能分区**（UI 重布局目标态 ① · 方案 §2.1）：`null` = 显示文件树。
+   * 分区是视图不是目录 —— 选中时文件树区域整块换成扁平列表（见 `SmartSections` 文件头）。
+   */
+  const [treeSection, setTreeSection] = useState<SmartSection | null>(null)
+  /** 「未打标签」的路径表（要查内核索引 —— 标签来源含正文 `#标签`，`notes` 里没有）。 */
+  const [untaggedPaths, setUntaggedPaths] = useState<string[] | null>(null)
+  /**
+   * 相对时间基准。**打开分区时刷新一次**，不在渲染期调 `Date.now()`（React 编译器把它当
+   * impure：渲染必须可重放，否则同一份 state 会渲染出不同结果）。
+   */
+  const [smartNow, setSmartNow] = useState<number>(() => Date.now())
+
+  const smartToday = useMemo(() => pickByRecency(notes, startOfDay(smartNow)), [notes, smartNow])
+  const smartWeek = useMemo(() => pickByRecency(notes, weekStart(smartNow)), [notes, smartNow])
+  const smartUntagged = useMemo(() => {
+    if (!untaggedPaths) return []
+    const tagged = new Set(untaggedPaths)
+    return notes
+      .filter((n) => n.kind === 'note' && tagged.has(n.path))
+      .sort((a, b) => b.mtime - a.mtime)
+  }, [notes, untaggedPaths])
+
+  /**
+   * 切换分区。**state 更新集中在事件里**：刷新相对时间基准、切视图、清掉旧的
+   * 「未打标签」查询结果（真正的查询写在下面的 effect 里，那里不再同步 setState ——
+   * `set-state-in-effect` 会让 lint 基线从 3 涨到 4）。
+   */
+  const selectTreeSection = useCallback(
+    (s: SmartSection) => {
+      setSmartNow(Date.now())
+      if (treeSection === s) {
+        setTreeSection(null)
+        return
+      }
+      setTreeSection(s)
+      if (s === 'untagged') setUntaggedPaths(null)
+    },
+    [treeSection],
+  )
+
+  /**
+   * 标题栏显隐（目标态 ③「专注模式」· 方案 §2.1）。
+   *
+   * B1 起标题栏默认**常驻**（用户当时要求「常驻」）；专注模式是它的可选项：
+   * 开启后自动隐藏，鼠标进入顶部 20px 热区 / 标题栏本身 / 键盘焦点进入标题栏时滑回，
+   * 移到 y > 64 收起。阈值 20 / 64 是 2026-10-13 的实测值 —— 窗口顶边几像素
+   * 收不到 WebView 的 mousemove，热区再窄就唤不出来。
+   */
+  const [focusMode, setFocusMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('zeronote.focusMode') === '1'
+    } catch {
+      return false
+    }
+  })
+  const [titlebarPinned, setTitlebarPinned] = useState(false)
+  const titlebarVisible = !focusMode || titlebarPinned
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zeronote.focusMode', focusMode ? '1' : '0')
+    } catch {
+      /* 隐私模式：只在本次会话生效 */
+    }
+  }, [focusMode])
+
+  useEffect(() => {
+    if (!focusMode) return
+    const onMove = (e: MouseEvent) => {
+      if (e.clientY <= 20) setTitlebarPinned(true)
+      else if (e.clientY > 64) setTitlebarPinned(false)
+    }
+    /* 键盘 Tab 到标题栏里的按钮时也要能看见 —— 否则焦点落在看不见的条上 */
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('.zn-titlebar')) setTitlebarPinned(true)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('focusin', onFocusIn)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('focusin', onFocusIn)
+    }
+  }, [focusMode])
+
   /**
    * 设置页初始 tab（B1）：☰ 菜单「关于」直接落到「关于」页。
    * 配合 `<Settings key={settingsTab}>` 生效 —— 组件内 tab 由它自己的 state 管。
@@ -883,6 +976,40 @@ export default function App() {
     setKernelSlot({ vault, kernel: makeKernel(vault) })
   }
   const kernel = kernelSlot.vault === vault ? kernelSlot.kernel : null
+
+  /**
+   * 侧栏「智能分区 · 未打标签」的数据源（目标态 ①）：只在打开该分区时才碰索引 ——
+   * 索引重建要扫全库，不该在每次启动时为它白跑一趟。
+   *
+   * ⚠️ 必须先确认索引**已经建过**：内核的索引生命周期是「搜索面板首次打开时 rebuild 一次」，
+   * 没打开过搜索就直接查会拿到空表（实测：未打标签显示 0 篇，而库里 38 篇笔记大半没标签）。
+   * 用 `indexReadyRef` 记住「这个 kernel 实例已经 rebuild 过」—— 换库（kernel 换实例）会重新建。
+   * 依赖 `notes` 而不只是 length：笔记内容变动时标签可能增减，结果要跟着变；
+   * 之后的变动靠 `fs-events` 的增量 upsert，不用每改一个字就重建全库。
+   */
+  const indexRef = kernel?.index ?? null
+  const indexReadyRef = useRef<unknown>(null)
+  useEffect(() => {
+    if (treeSection !== 'untagged' || !indexRef) return
+    let alive = true
+    const run = async () => {
+      try {
+        if (indexReadyRef.current !== indexRef) {
+          await indexRef.rebuild()
+          indexReadyRef.current = indexRef
+        }
+        const hits = await indexRef.query('', { untagged: true, limit: 1000 })
+        if (alive) setUntaggedPaths(hits.map((h) => h.path))
+      } catch {
+        /* 索引不可用不该让侧栏炸掉：给空态（「所有笔记都打过标签了」）比报错更有用 */
+        if (alive) setUntaggedPaths([])
+      }
+    }
+    void run()
+    return () => {
+      alive = false
+    }
+  }, [treeSection, indexRef, notes])
 
   /** 开发者模式落盘（rev173.229）：刷新 / 重启后保持 */
   useEffect(() => {
@@ -3285,6 +3412,54 @@ export default function App() {
     rowsRef.current = rows
   })
 
+  /* ── 图标栏「插件固定区」（目标态 ② · 方案 §2.1）──────────────────
+     只存插件 id；标题 / 可用性每次从 `rows` 现算 —— 插件禁用或卸载后**自然消失**，
+     不做灰色占位。点击 pin = 打开该插件第一个可打开的页面面板；一个面板都没有就
+     如实提示（不留一个点不动的死按钮）。 */
+  const [railPins, setRailPins] = useState<string[]>(() => loadRailPins())
+  const railPinItems = useMemo(
+    () =>
+      railPins
+        .map((id) => rows.find((r) => r.id === id))
+        .filter((r): r is PluginRow => !!r && r.enabled)
+        .map((r) => ({ id: r.id, title: r.name })),
+    [railPins, rows],
+  )
+  const pinPlugin = useCallback(
+    (id: string) => {
+      const first = panels.find(
+        (pn) =>
+          pn.pluginId === id &&
+          pn.location !== 'statusbar' &&
+          pn.location !== 'modal' &&
+          pn.location !== 'editor-toolbar' &&
+          pn.location !== 'editor-topbar',
+      )
+      if (!first) {
+        setToast(`「${rows.find((r) => r.id === id)?.name ?? id}」没有可打开的面板`)
+        return
+      }
+      openPanelInTab(first.id)
+    },
+    [panels, rows, openPanelInTab],
+  )
+  /**
+   * 切换 pin。⚠️ 判定放在 updater **外面**：在 `setRailPins` 的 updater 里调 `setToast`
+   * 属于「渲染期更新另一个组件」—— React 会丢弃这次更新（实测：满 3 个时点第 4 个，
+   * 按钮不报错、toast 也不出现，用户完全不知道发生了什么）。
+   */
+  const togglePin = useCallback(
+    (id: string) => {
+      const { pins, overflow } = toggleRailPinState(railPins, id)
+      if (overflow) {
+        setToast('图标栏最多固定 3 个插件 —— 先取消一个')
+        return
+      }
+      setRailPins(saveRailPins(pins))
+    },
+    [railPins],
+  )
+
   /**
    * 启动检查更新：**24 小时最多一次**，只记录「谁有新版」，失败完全静默。
    *
@@ -4277,6 +4452,8 @@ export default function App() {
         showMenuButton={!isDesktop && mainView === 'editor' && !!activePath}
         showWindowControls={isDesktop}
         visible={titlebarVisible}
+        /* 鼠标进标题栏本身也保持显示（否则从热区移进条里就自己收起） */
+        onHoverChange={setTitlebarPinned}
       />
 
       <div
@@ -4349,6 +4526,8 @@ export default function App() {
           onSelectView={selectRailView}
           onTogglePlugins={togglePluginsView}
           onToggleSettings={toggleSettings}
+          pins={railPinItems}
+          onPinClick={pinPlugin}
         />
       )}
 
@@ -4384,7 +4563,39 @@ export default function App() {
           {!vault ? (
             <div className="zn-tree zn-sidebar-hint">还没选择笔记库</div>
           ) : !isDesktop || sidebarView === 'notes' ? (
-            <FileTree
+            <>
+              {/* 智能分区（目标态 ① · 方案 §2.1）：只在桌面出现；手机抽屉空间不够 */}
+              {isDesktop ? (
+                <SmartSectionBar
+                  active={treeSection}
+                  counts={{
+                    today: smartToday.length,
+                    week: smartWeek.length,
+                    untagged: untaggedPaths ? smartUntagged.length : undefined,
+                  }}
+                  onSelect={selectTreeSection}
+                />
+              ) : null}
+              {isDesktop && treeSection ? (
+                <SmartSectionList
+                  section={treeSection}
+                  notes={
+                    treeSection === 'today'
+                      ? smartToday
+                      : treeSection === 'week'
+                        ? smartWeek
+                        : smartUntagged
+                  }
+                  now={smartNow}
+                  loading={treeSection === 'untagged' && untaggedPaths === null}
+                  onOpen={(p) => {
+                    setMainView('editor')
+                    void openNote(p)
+                  }}
+                  onBack={() => setTreeSection(null)}
+                />
+              ) : (
+                <FileTree
               /* 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的） */
               key={vault}
               vault={vault}
@@ -4426,6 +4637,8 @@ export default function App() {
               /* 时间流是桌面能力：手机端不传 ⇒ 文件树菜单里不出现这一项（rev173.48） */
               onOpenTimeline={isDesktop ? () => selectRailView('timeline') : undefined}
             />
+              )}
+            </>
           ) : sidebarView === 'search' ? (
             /* 侧栏搜索视图（B1 · 方案 §3.3「搜索改为侧栏视图」）：与浮层共用同一个组件 */
             <SearchPanel
@@ -4572,6 +4785,8 @@ export default function App() {
                 /* B1：菜单不再列插件面板 ⇒ 行内给「打开」入口（B3 插件中心接管） */
                 panels={panels}
                 onOpenPanel={(id) => setMainView(id)}
+                pinnedPlugins={railPins}
+                onTogglePin={togglePin}
                 /* B3：核心能力接管从设置页迁来这里 —— 插件的事只在一个地方管 */
                 capabilities={kernel?.capabilityStatus() ?? []}
                 onCapabilityChoice={(name, pluginId) => {
@@ -4952,6 +5167,8 @@ export default function App() {
         onPickVault={() => void pickVault()}
         themePref={themePref}
         onThemeChange={setThemePref}
+        focusMode={focusMode}
+        onFocusModeChange={setFocusMode}
         renderHtml={renderHtml}
         onRenderHtmlChange={setRenderHtml}
         imageMode={imageMode}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, History, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, History, Pin, PinOff, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from './ui/dialog'
 import { clampText } from '../lib/format'
@@ -130,6 +130,8 @@ export function PluginPanel({
   onTestLog,
   panels = [],
   onOpenPanel,
+  pinnedPlugins,
+  onTogglePin,
   capabilities = [],
   onCapabilityChoice,
 }: {
@@ -182,6 +184,13 @@ export function PluginPanel({
   /** 打开某个面板（App 的 `setMainView(panelId)`） */
   onOpenPanel?: (id: string) => void
   /**
+   * 图标栏「插件固定区」（目标态 ② · 方案 §2.1）：已固定的插件 id。
+   * 不传 ⇒ 行内不出现 📌 按钮（独立窗口 / 测试环境）。
+   */
+  pinnedPlugins?: string[]
+  /** 切换固定状态（满 3 个时 App 会提示） */
+  onTogglePin?: (id: string) => void
+  /**
    * 核心能力接管状态（B3 · 需求 §2.15）—— **从设置页迁来**。
    * 不传 / 空数组 ⇒ 不显示「核心能力」块（独立窗口 / 测试环境）。
    */
@@ -191,6 +200,8 @@ export function PluginPanel({
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
+  /** 图标栏已固定的数量（目标态 ②）：满 3 个时 pin 按钮置灰，不靠 toast 提示 */
+  const pinCount = pinnedPlugins?.length ?? 0
   /**
    * 版本记录对话框（rev173.230 · 需求 §2.14）。
    *
@@ -554,7 +565,9 @@ export function PluginPanel({
                 {g.label}
                 <span className="zn-plugin-group-count">{g.rows.length}</span>
               </button>
-              {!collapsed.has(g.category) && g.rows.map((p) => (
+              {!collapsed.has(g.category) && g.rows.map((p) => {
+                const pinned = pinnedPlugins?.includes(p.id) ?? false
+                return (
             <div className="zn-plugin-row" key={p.id}>
               <input
                 type="checkbox"
@@ -655,6 +668,27 @@ export function PluginPanel({
                   </button>
                 )
               })()}
+              {/* 固定到图标栏（目标态 ② · 方案 §2.1）：最多 3 个。
+                  不传 `onTogglePin` 的环境（独立窗口 / 测试）不渲染这个按钮。 */}
+              {onTogglePin ? (
+                <button
+                  type="button"
+                  className={`zn-plugin-hist${pinned ? ' is-pinned' : ''}`}
+                  onClick={() => onTogglePin(p.id)}
+                  disabled={!pinned && pinCount >= 3}
+                  title={
+                    pinned
+                      ? '从图标栏取消固定'
+                      : pinCount >= 3
+                        ? '图标栏已固定 3 个 —— 先取消一个再固定'
+                        : '固定到图标栏（最多 3 个）'
+                  }
+                  aria-label={pinned ? `取消固定 ${p.name}` : `固定 ${p.name} 到图标栏`}
+                  aria-pressed={pinned}
+                >
+                  {pinned ? <PinOff size={16} /> : <Pin size={16} />}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="zn-plugin-del"
@@ -665,7 +699,8 @@ export function PluginPanel({
                 <Trash2 size={16} />
               </button>
             </div>
-              ))}
+                )
+              })}
             </section>
           ))}
         </div>
