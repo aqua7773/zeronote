@@ -43,11 +43,88 @@ describe('TabBar', () => {
     expect(dots).toHaveLength(1)
   })
 
-  it('没有标签时整条不渲染', () => {
+  it('没有标签、也没有「＋」入口时整条不渲染', () => {
     const { container } = render(
       <TabBar tabs={[]} activePath={null} onSelect={() => {}} onClose={() => {}} />,
     )
     expect(container.querySelector('.zn-tabs')).toBeNull()
+  })
+
+  /* ── B5（rev173.261 · 方案 §2.1）：＋ 新建 / 选面板 · » 全部标签 ── */
+
+  it('有 onNewNote 时没有标签也渲染标签条（＋ 常在 = 无标签也能新建）', () => {
+    const onNew = vi.fn()
+    const { container } = render(
+      <TabBar tabs={[]} activePath={null} onSelect={() => {}} onClose={() => {}} onNewNote={onNew} />,
+    )
+    expect(container.querySelector('.zn-tabs')).toBeTruthy()
+    const plus = screen.getByRole('button', { name: '新建笔记或打开面板' })
+    expect(plus).toBeTruthy()
+    // 没有标签时 «» 不出现（没东西可列）
+    expect(screen.queryByRole('button', { name: '全部标签' })).toBeNull()
+  })
+
+  it('点 ＋ → 菜单有「新建笔记」，点它回调 onNewNote', () => {
+    const onNew = vi.fn()
+    render(
+      <TabBar tabs={tabs} activePath="a.md" onSelect={() => {}} onClose={() => {}} onNewNote={onNew} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记或打开面板' }))
+    const item = screen.getByRole('menuitem', { name: /新建笔记/ })
+    fireEvent.click(item)
+    expect(onNew).toHaveBeenCalledTimes(1)
+  })
+
+  it('＋ 菜单列出可打开的面板，点它回调 onOpenPanel(id)', () => {
+    const onOpenPanel = vi.fn()
+    render(
+      <TabBar
+        tabs={tabs}
+        activePath="a.md"
+        onSelect={() => {}}
+        onClose={() => {}}
+        onNewNote={() => {}}
+        panelItems={[
+          { id: 'tag-panel.board', title: '标签' },
+          { id: 'accounting.panel', title: '记账' },
+        ]}
+        onOpenPanel={onOpenPanel}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记或打开面板' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /打开 · 记账/ }))
+    expect(onOpenPanel).toHaveBeenCalledWith('accounting.panel')
+  })
+
+  it('零插件（没有面板）⇒ ＋ 菜单只有「新建笔记」，不留空组', () => {
+    render(
+      <TabBar tabs={tabs} activePath="a.md" onSelect={() => {}} onClose={() => {}} onNewNote={() => {}} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '新建笔记或打开面板' }))
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+  })
+
+  it('点 » → 列出全部标签，点一项切换', () => {
+    const onSelect = vi.fn()
+    render(
+      <TabBar tabs={tabs} activePath="a.md" onSelect={onSelect} onClose={() => {}} onNewNote={() => {}} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '全部标签' }))
+    // 菜单里两条都在（含当前那条，带 is-active）
+    const items = screen.getAllByRole('menuitem')
+    expect(items).toHaveLength(2)
+    fireEvent.click(items[1])
+    expect(onSelect).toHaveBeenCalledWith('dir/b.md')
+  })
+
+  it('点菜单外 = 关菜单（不误切标签）', () => {
+    render(
+      <TabBar tabs={tabs} activePath="a.md" onSelect={() => {}} onClose={() => {}} onNewNote={() => {}} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '全部标签' }))
+    expect(screen.getByRole('menu', { name: '全部标签' })).toBeTruthy()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menu', { name: '全部标签' })).toBeNull()
   })
 
   /**

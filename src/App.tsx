@@ -3828,6 +3828,25 @@ export default function App() {
       ? activePanel
       : null
   const modalPanel = activePanel?.location === 'modal' ? activePanel : null
+  /**
+   * 标签条 `＋` 菜单里的「打开面板」候选（B5 · 方案 §2.1）。
+   *
+   * 判据与主区 `pagePanel` 完全一致（main / sidebar 才算页面面板），逐个列出来 ——
+   * 零插件时是空数组，`＋` 菜单里就只剩「新建笔记」（不留灰色的「打开面板」）。
+   */
+  const openablePanels = useMemo(
+    () =>
+      panels
+        .filter(
+          (p) =>
+            p.location !== 'statusbar' &&
+            p.location !== 'modal' &&
+            p.location !== 'editor-toolbar' &&
+            p.location !== 'editor-topbar',
+        )
+        .map((p) => ({ id: p.id, title: p.title })),
+    [panels],
+  )
   /* 侧栏只在编辑器视图里出现 —— 插件中心 / 插件页面跟笔记无关，让主区占满更清爽 */
   /* 侧栏什么时候渲染：
       · 桌面 —— sidebarVisible（常驻，可手动收起）
@@ -4122,6 +4141,21 @@ export default function App() {
          * 不再挂 pointer 手势：收回改为关闭按钮（见下）。
          */}
         <div className="zn-plugin-window-bar" data-tauri-drag-region="deep">
+          {/*
+            B5（rev173.261 · 方案 §3.2）：笔记窗口的「快速切换」——
+            笔记窗口不回复侧栏（用户 2026-10-20 已定），只补这一颗按钮：
+            左上角 → `QuickSwitcher`（与主窗口 `Ctrl+O` 同一个组件）。
+            放在标题左侧；标题仍居中（`.zn-plugin-window-bar` 的 flex 布局见 CSS）。
+          */}
+          <button
+            type="button"
+            className="zn-note-window-switch"
+            title="快速切换笔记（Ctrl+O）"
+            aria-label="快速切换笔记"
+            onClick={() => setSwitcherOpen(true)}
+          >
+            切换
+          </button>
           <span className="zn-plugin-window-title">{titleText}</span>
           <span
             className={
@@ -4173,6 +4207,24 @@ export default function App() {
             </div>
           )}
         </div>
+        {/*
+          B5：快速切换（`Ctrl+O` 同一个组件）。条件渲染 ⇒ 关掉即卸载、query 归零。
+          在窗口里换笔记只是换当前编辑的这篇（URL 仍指向它启动时那篇，不影响交回主窗口）。
+        */}
+        {switcherOpen && (
+          <QuickSwitcher
+            notes={notes}
+            onClose={() => setSwitcherOpen(false)}
+            onOpenNote={(p) => {
+              setSwitcherOpen(false)
+              void openNote(p)
+            }}
+            onCreateNote={(n) => {
+              setSwitcherOpen(false)
+              runCore('core.newNote', { name: n })
+            }}
+          />
+        )}
         {/* toast（rev173.74）：这个窗口以前没有 toast 渲染处 —— 任何 `setToast` 都落空，
             于是 `core.search` 之类的提示「执行了但看不见」。样式与主窗口同一份。 */}
         {toast ? (
@@ -4410,7 +4462,11 @@ export default function App() {
           起始页**没有标签条** ⇒ 剩下那几个文档标签全都看不见了（看起来像"一起关掉"）。
           提到 `<main>` 顶部后，标签条与"下面显示什么"解耦：只要有标签就一直在。
         */}
-        {isDesktop && tabItems.length > 0 && (
+        {/*
+          B5（rev173.261 · 方案 §2.1）：标签条**常在**（文档页 / 工具页；系统页如插件中心、
+          回收站不显示）—— 没有标签时也渲染，右侧 `＋` 就是「无标签也能新建」的入口。
+        */}
+        {isDesktop && (mainView === 'editor' || !!pagePanel) && (
           <TabBar
             tabs={tabItems}
             activePath={activeTabKey}
@@ -4420,6 +4476,12 @@ export default function App() {
             onContextMenu={openTabMenu}
             /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52）/ 面板标签 ⇒ 面板窗口（rev173.83） */
             onDragEnd={handleTabDragEnd}
+            /* B5：＋ = 新建 / 选面板；» = 全部标签
+               「打开面板」必须走 openPanelInTab —— 只 setMainView 会让面板出现却没有标签，
+               用户没法从标签条切回来（也不符合方案 §3.1「工具页进标签条」）。 */
+            onNewNote={() => runCore('core.newNote')}
+            panelItems={openablePanels}
+            onOpenPanel={openPanelInTab}
           />
         )}
         {mainView === 'trash' ? (

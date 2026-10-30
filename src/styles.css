@@ -677,21 +677,120 @@ body.is-resizing * {
 
 /* ── 多标签页的标签条（rev173.50 · 用户待办 #2）──
    一行横滑；当前标签与底色同色、站起来一点（浏览器式）。
-   手机上它是唯一的切换入口，所以点击区按手指尺寸给（高度 = 整条）。 */
+   手机上它是唯一的切换入口，所以点击区按手指尺寸给（高度 = 整条）。
+
+   B5（rev173.261）：结构改成「外层（定位基准）+ 横滑区 + 右侧动作区」——
+   右侧 ＋/» 的 popover 若留在横滑容器里会被 `overflow-x: auto` 裁掉。 */
 .zn-tabs {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
-  gap: 2px;
   height: var(--zn-tabbar-h);
+  background: var(--zn-bg-subtle);
+  border-bottom: 1px solid var(--zn-border);
+}
+.zn-tabs-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
   /* rev173.69：左侧不留间隔 —— 第一条标签贴编辑区左缘（用户截图红框）；
      右侧留 6px 给滚动 / 拖拽提示。 */
   padding: 0 6px 0 0;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--zn-bg-subtle);
-  border-bottom: 1px solid var(--zn-border);
   scrollbar-width: thin;
+}
+/* 右侧固定动作（B5）：＋ 新建 / 选面板 · » 全部标签；24×24（WCAG 2.5.8） */
+.zn-tabs-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px 0 2px;
+}
+.zn-tabs-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-subtle);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-tabs-action:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-tabs-action[aria-expanded='true'] {
+  background: var(--zn-bg-active);
+  color: var(--zn-fg);
+}
+/* ＋/» 的菜单：绝对定位在标签条正下方（不被横滑裁剪） */
+.zn-tabs-pop {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 4px;
+  z-index: 40;
+  min-width: 190px;
+  max-width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background: var(--zn-bg);
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.zn-tabs-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.zn-tabs-pop-item:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
+}
+.zn-tabs-pop-item.is-active {
+  color: var(--zn-fg);
+}
+.zn-tabs-pop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zn-tabs-pop-hint {
+  flex: none;
+  font-size: 11px;
+  color: var(--zn-fg-subtle);
+}
+.zn-tabs-pop-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--zn-border);
 }
 .zn-tab {
   display: flex;
@@ -2648,6 +2747,29 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   transform: translateX(-50%);
   max-width: calc(100% - 220px); /* 给右侧状态 / 三键留位置，窄窗口截断 */
   justify-content: center;
+}
+/* B5（rev173.261 · 方案 §3.2）：笔记窗口左上角「快速切换」——
+   标题条是 `justify-content: flex-end`，靠 `margin-right: auto` 把按钮钉在最左；
+   标题仍绝对居中，两者不重叠（按钮 ≈ 56px，标题左边界 ≈ 110px）。 */
+.zn-note-window-switch {
+  flex: none;
+  margin-right: auto;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--zn-border-strong);
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  color: var(--zn-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zn-note-window-switch:hover {
+  background: var(--zn-bg-hover);
+  color: var(--zn-fg);
 }
 .zn-note-window-body {
   flex: 1;
