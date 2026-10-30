@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.266
-更新时间: 2026-10-30 · 最新 rev173.266
+revision: 173.267
+更新时间: 2026-10-30 · 最新 rev173.267
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.266
 
 | rev | 内容 |
 |---|---|
+| rev173.267 | 2026-10-30 · **侧栏收起 / 展开过渡**（用户「过渡」· 调研 MO4；MO4 原本归 B1，B1 当年没做）：① **收起从「卸载」改成「宽度到 0」** —— 桌面 `showSidebar` 拆成 `sidebarAllowed`（页面是否放侧栏）+ 始终挂载；`AppSidebar` 新增 `collapsed`（inline `width: 0` + `is-collapsed` 去边框 + **`inert`** 挡 Tab/点击）。不卸载的好处：文件树滚动位置与展开状态保留、宽度动画才有对象。② **过渡** —— `.zn-sidebar { transition: width 220ms emphasized }`（`--zn-dur-panel`）；**拖拽中 0**（`body.is-resizing` 由 `AppResizer` 原有逻辑加，一行 CSS 覆盖）。③ 分隔线只在 `sidebarAllowed && isDesktop && sidebarVisible` 时渲染（收起不留 5px 悬空线）。**实测**（CDP，rAF 采样）：收起 `348 → 223 → 152 → … → 1px`（≈210ms）· 展开 `1 → 124 → 195 → … → 348`（≈220ms）· 收起后 `is-collapsed` + `inert=true` · 拖动 `pointerdown` 时 `transitionDuration 0s`、`pointerup` 后回 `0.22s`。截图 `_shots/b7-13-sidebar-collapsed.png`。ℹ️ 收起后宽度停在 **1px**（`box-sizing: border-box` + 1px 边框的最小宽度；边框已透明，不可见）。verify 六步全绿 · 质量门 8/8 · vitest 1572 不变（纯 CSS/组件属性 + 1 个 prop） |
 | rev173.266 | 2026-10-30 · **页面转场语义落地**（用户「转场」· 调研 §4；B7 当时明确划出去的那批）：① **实现骨架** —— 主区包一层 `.zn-swap`，`key={mainKey}`（只按**层级**变：`list` / `editor` / 系统页 / 面板 id ⇒ **同层级换笔记不重挂载**，否则每点一篇都滑一次）；入场动画 = keyframes（不引动画库、不用 JS 计时）。② **四类语义** —— **同级切换** 160ms 淡入 + 2px 上移（插件中心 / 回收站 / 面板）· **钻入 / 返回** 260ms 水平推入（手机 ≤640px：`data-main=editor` 从右 24px、`=list` 从左 12px）· **浮层** 遮罩 120ms 淡入 + 面板 140ms `scale(.98)→1`（`.zn-palette-*` 与 Dialog 共用，Dialog 加 `.zn-dialog-backdrop` / `.zn-dialog-panel`）· **高频不做**（标签切换保持 0）。③ **新 token** —— `--zn-dur-overlay: 140ms`（调研 §2「浮层出现 140ms」，与侧栏/抽屉的 `panel` 220ms 区分）；`tests/design-tokens.test.ts` +2 条（五种 keyframes / 动画必须引用 token / 钻入只在手机）。**实测**（CDP）：桌面换页 `data-main=plugins` + `zn-swap-in 0.16s` · 设置面板 `zn-dialog-in 0.14s` + 遮罩 `0.12s` · 手机列表 `zn-drill-back 0.26s`、点卡片进编辑器 `zn-drill-in 0.26s`（宽 390）· reduce-motion 下 `0.001s`，关闭后回 `0.16s` · 布局未坏（`main 1048` / `swap 1022` = 减去状态栏 26）。截图 `_shots/b7-11-phone-list.png` / `b7-12-desktop-swap.png`。⚠️ 未做：**退场动画**（条件渲染直接卸载，浮层消失/页面返回没有淡出）· 侧栏宽度过渡。verify 六步全绿 · 质量门 8/8 · vitest 1570 → **1572** |
 | rev173.265 | 2026-10-30 · **UI 重布局收口**（用户「收口」· 方案 §9）：① **`docs/UI交互规范.md` 重写**（114 → 约 190 行）—— 桌面（图标栏 5 项 + pin ≤3 / 侧栏视图 + 智能分区 / 标签条 ＋ » / 文档工具条 / 状态栏 / 标题栏与专注模式）· 手机（底部四项 / 更多页 / 搜索全屏页 / 编辑态顶栏 / 抽屉 / 返回层级）· 浮层与出口层级（含「toast 与撤销条 / 草稿条互斥」实测结论）· 手势 · 无障碍（焦点圈 / ≥24×24 / 2.5.7 / reduce-motion）· 视觉 token（时长六档 / 图标 16·20 / 间距 4-8-12 / 对比度实测）· 待做清单。② **方案转 historical** —— `git mv` 进 `docs/archive/`，状态头改「historical（B1–B7 + 三项目标态全部落地 rev173.256–264）」，**相对链接整体上移一层**（`../_research` → `../../_research`、`UI交互规范.md` → `../UI交互规范.md`）；`docs/README.md` 矩阵两行重写 · `docs/archive/README.md` 加行 · 根 `README.md` 状态 draft → historical；**全仓 21 处引用改新路径**（check-links 61 条全过）。③ **手机手册补底部导航** —— §1「底部四个图标」表（各自去哪 / 怎么回 / 插件没装也在）· §10 返回键层级细化。verify 六步全绿 · 质量门 8/8 · vitest 1570 不变（纯文档） |
 | rev173.264 | 2026-10-30 · **UI 重布局三项目标态落地（侧栏智能分区 / 插件 pin / 专注模式）**（用户「依次做」· 方案 §2.1 里没分配批次的三项）：① **侧栏智能分区** —— 文件树视图顶部一行 chip（今天 / 最近 7 天 / 未打标签），点中 ⇒ 文件树区域换成扁平列表（mtime 倒序）、`‹` 返回；内核新增 `IndexApi.query('', { untagged: true })`（`IndexApi` 契约 md + `contract.ts` 同步），**未打标签首次打开时先 `rebuild()`**（索引生命周期原本只在搜索面板建立 —— 不补就永远 0 篇，实测）；纯函数 `lib/smart-sections.ts`（`startOfDay` / `weekStart` / `pickByRecency` / `relativeTime` / `displayTitle`），列表标题剥 `#` / `![](…)` / `[[路径|别名]]`。② **图标栏插件固定区** —— 插件中心每行 📌 切换、最多 3 个（`lib/rail-pins.ts`：上限 / 去重 / 坏数据容错）；只存插件 id ⇒ 禁用后 pin 自动消失、启用自动回来；满 3 个后未固定的按钮**置灰 + tooltip**（toast 在这个场景被后续重渲染清掉，实测 120ms 有值 / 600ms 为 null）；点 pin 打开该插件第一个页面面板（`openPanelInTab` 进标签条）。③ **专注模式** —— 设置 → 通用开关（默认关）：开启后标题栏自动隐藏，鼠标进顶部 20px / 键盘 Tab 到标题栏滑回、`y > 64` 收起。**测试** vitest 1540 → **1570**（`smart-sections` 17 · `rail-pins` 10 · `index-filters` +3）。**实测**（CDP 9222，`_shots/b7-06..10.png`）：分区计数 今天 1 / 7 天 38 / 未打标签 32（38 篇里 6 篇有标签）· 列表项可打开 · pin 记账/标签/AI ⇒ 图标栏「记 标 A」· 禁用标签 ⇒ pin 消失、启用回来 · 满额后 15 个按钮 disabled · 专注模式开 ⇒ 标题栏 `opacity 0 / margin-top -32px`，mousemove `y=10` ⇒ `1 / 0px`、`y=200` ⇒ `0 / -32px`。⚠️ 手机未走查（智能分区只桌面渲染）。verify 六步全绿 · 质量门 8/8 |
@@ -162,6 +163,40 @@ revision: 173.266
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.267（2026-10-30 · 侧栏收起 / 展开过渡：点击 220ms，拖动中 0）
+
+> **触发**：用户「过渡」—— 调研 MO4（「侧栏展开/收起硬切、拖动无跟手」）。这条原本归 B1，
+> B1 当年没做，B7 也没补。
+>
+> **为什么先改结构**
+> 原来桌面侧栏是**条件渲染**（`showSidebar && <AppSidebar/>`）—— 收起 = 卸载，宽度动画根本没有对象，
+> 而且文件树的滚动位置与展开状态每次收起都会丢。
+> - 拆成 `sidebarAllowed`（页面是否放侧栏：编辑器 / 面板页）+ **始终挂载**；`AppSidebar` 新增 `collapsed`。
+> - 收起态：inline `width: 0`、`is-collapsed`（边框透明）、**`inert`**（Tab 与点击都进不去）。
+> - 分隔线只在「允许 + 桌面 + 展开」时渲染 —— 收起后不留一条 5px 悬空线。
+>
+> **过渡**
+> - `.zn-sidebar { transition: width var(--zn-dur-panel) var(--zn-ease-emph) }` —— 220ms。
+> - `body.is-resizing .zn-sidebar { transition: none }` —— `AppResizer` 拖拽时本来就会给 body 加
+>   `is-resizing`（rev122 起，用来锁文字选中），这里直接复用，**一行 CSS**。
+>
+> **实测**（CDP + `requestAnimationFrame` 采样 —— 用 node 起进程测「60ms 后」会被进程启动时间污染，
+> 采样必须在页面内做）：
+> - 收起：`348 → 223 → 152 → 106 → … → 1px`，约 210ms（220ms 过渡）；
+> - 展开：`1 → 124 → 195 → … → 348`，约 220ms；
+> - 收起后 `class=zn-sidebar is-collapsed`、`inert=true`；展开后两者都清掉；
+> - 拖动：`pointerdown` 时 `transitionDuration 0s`，`pointerup` 后回 `0.22s`。
+> - 截图 `_shots/b7-13-sidebar-collapsed.png`（收起后主区占满、图标栏仍在）。
+>
+> **已知细节**：收起后宽度停在 **1px** 而不是 0 —— `box-sizing: border-box` 下 1px 边框撑出了最小宽度；
+> 边框已透明、视觉上看不见，不影响布局（主区仍然拿到全部剩余宽度）。
+>
+> **测试**：无新增单测（纯 CSS + 一个 prop；`design-tokens` 的「transition 必须引用 token」已兜住时长）。
+> vitest 1572 不变。
+>
+> **下一步**：调研的 MO1–MO7 与三项目标态**全部清零**；剩下的都是积压项 ——
+> 卡外部输入四项 + 性能基线（用户暂缓）+ 退场动画（未做，已记录在 `UI交互规范.md` §8）。
 
 > ## 📌 rev173.266（2026-10-30 · 页面转场语义：同级 160ms / 钻入 260ms / 浮层 140ms）
 
