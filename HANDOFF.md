@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.300
-更新时间: 2026-10-31 · 最新 rev173.300（**更新渠道对齐插件市场**：5 渠道可选 + 逐条测速 + 安装包按渠道路由；0.9.2 → 0.9.3 真装验到「检查通过、ghproxy 下载仅 ~10 KB/s」）
+revision: 173.301
+更新时间: 2026-10-31 · 最新 rev173.301（**0.9.4 发版中**：应用更新多渠道 + 测速；产物构建与 Release 上传见下段）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.300
 
 | rev | 内容 |
 |---|---|
+| rev173.301 | 2026-10-31 · **0.9.4 发版**（用户「发新版本」）：内容 = rev173.300 的**应用更新多渠道 + 测速**。① `release.mjs 0.9.4`（三处版本）· CHANGELOG `[0.9.4]` 段 + 版本表 · README 现状行 · ROADMAP §0；② `build-release.mjs` 双端产物（见正文段的大小与耗时）；③ `gen-update-manifest.mjs` 出 `update/latest.json` + `update/android.json`；④ `gh release create v0.9.4`（带 `HTTPS_PROXY`）；⑤ commit `update/` 并 push —— 客户端从仓库读清单。 |
 | rev173.300 | 2026-10-31 · **更新渠道对齐插件市场（多渠道 + 测速）**（用户「更新渠道也和插件渠道一样做多渠道测试分发」）：① **实测病根** —— 本机 0.9.2 点检查 ✅ 拿到 0.9.3，但下载 **~10 KB/s**（15 MB 要 20 分钟以上；`curl` 带系统代理 9.8 KB/s、直连 8 秒 0 字节；`HEAD` 两个方向都 200 ⇒ **HEAD ≠ 速度**）。② **Rust** —— `MIRRORS` 扩到与市场同一套 5 渠道（raw / jsdelivr-gcore / jsdelivr-testingcf / jsdelivr / ghproxy）+ 每渠道 `AssetRoute`（Direct / Prefix；**jsDelivr 只服务仓库文件、拿不到 Release 附件** ⇒ 安装包退回直链）+ `canonical_asset_url`（剥掉清单里旧的 ghproxy 前缀）/ `rewrite_asset_url`（按渠道路由）/ `asset_candidates`（去重候选）；`check_app_update(mirrorId)` 支持指定渠道（不传 = 自动探测）；`install_desktop_update` **改写 `update.download_url`** 再装（签名校验仍由官方 updater 做）；新命令 `probe_update_mirror`（拉清单解析版本 + 桌面 HEAD 安装包）。③ **前端** —— `UPDATE_MIRRORS` + `localStorage['zn-app-update-mirror']` + 关于页**渠道下拉与测速**（逐条显示 ms / 版本 / 安装包大小）。④ **脚本** —— 清单**刻意仍写 ghproxy 前缀**（≤0.9.3 旧客户端只会原样用清单 url，改直链会让它们下不动），客户端剥前缀后按渠道路由。⑤ **验证** —— `cargo test --lib updates::` 4 条（+2）· `tests/app-update.test.ts` 10 条（+3）· tsc 0；⚠️ 新客户端切渠道的端到端未验（要等含本改动的新版本）。⚠️ 本机 `cargo test --lib` 会**挂死**（`net::tests` 的 loopback 桩 accept 不到，13 分钟无进展），基线用 `--skip net::tests --skip install_znp_from_url`（85 passed）。 |
 | rev173.299 | 2026-10-31 · **0.9.3 已发版（删除传播 + 拉取 mtime = 推送时间）**（用户「发新版，发完交接」）：① **构建** —— `node scripts/build-release.mjs`（两端，**8 分 14 秒**：桌面 4m03s / Android arm64 4m11s；sccache 命中 0，`release` 全量重编）⇒ `ZeroNote_0.9.3_x64_zh-CN.msi` **16.93 MiB** + `ZeroNote_0.9.3_x64-setup.exe` **15.02 MiB** + 两个 `.sig`（436 B）+ `ZeroNote_0.9.3_arm64.apk` **32.87 MiB**。② **清单** —— `gen-update-manifest.mjs` 生成 `update/latest.json`（Windows 走 ghproxy 镜像 URL，签名 436 字节）与 `update/android.json`（APK sha256 `7d5bdee3…` · 34,471,803 B）。③ **踩坑** —— Gradle 产出的 APK 原名 `app-universal-release.apk`（**不含版本号**，脚本会提示）⇒ 先 `Copy-Item` 成 `ZeroNote_0.9.3_arm64.apk` 再生成清单，否则 Release 里三个版本的同名 APK 分不清。④ **发布** —— `gh release create v0.9.3`（带 `HTTPS_PROXY` 才连得上）⇒ **5 个资产全部 uploaded**：https://github.com/aqua7773/zeronote/releases/tag/v0.9.3 ；commit `9b72173` 已 push。⑤ **意义** —— `set_mtime` 是内核命令，0.9.2 及更早的安装包里没有 ⇒ 只升 `sync` 0.1.6 不生效；**本版起 mtime 修复才真正到用户手里**。⚠️ 端到端仍未真装验证（装 0.9.2 → 点「检查更新」→ 真下载安装 0.9.3）。 |
 | rev173.298 | 2026-10-31 · **交接（下一版 = 0.9.3）**：① **本轮（292–297）成果** —— 0.9.2 应用本体更新发版（Release 5 资产）· 删除传播三轮（`sync` 0.1.3 本机删不再拉回 → 0.1.4 删除=搬进云端回收站 `_zn/trash/` → 0.1.5 删除优先，消除无按钮的死记录）· **拉取 mtime = 推送时间**（内核 `set_mtime` + 契约 `fs.setMtime` + `sync` **0.1.6** 已打包发市，桌面 dev 与手机真机双端实测：两端拉下来都是 **11:17:00.350**，不是同步时刻）。② **下个会话第一件事 = 发 0.9.3**：`set_mtime` 是**内核命令**，老安装包（≤0.9.2）里没有 ⇒ 市场用户升 `sync` 0.1.6 后 mtime 修复**不生效**（插件侧 `typeof api.fs.setMtime` 判不出来，只能运行到 catch）。发版才把能力送到用户手里 —— 顺序照 `update/README.md`：`release.mjs 0.9.3` → CHANGELOG 版本段 → `build-release.mjs`（两端）→ `gen-update-manifest.mjs` → `gh release create` → commit `update/` 并 push。③ **本机环境** —— dev 在跑（vite 1420 + CDP 9222，`zeronote.exe` 11:58 启动）；手机（`33b676f6`）debug 包**已是本轮新内核**（重编 APK，含 `set_mtime`），`sync` 0.1.6 已装、**自动同步已关回 false**；本地 DAV 桩（8899）已关。④ **仍欠的端到端** —— 0.9.2「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。 |
@@ -194,6 +195,39 @@ revision: 173.300
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.301（2026-10-31 · 0.9.4 发版）
+
+> 用户「发新版本」。
+
+> ### 发了什么
+>
+> | 产物 | 字节 | 大小 |
+> |---|---|---|
+> | `ZeroNote_0.9.4_x64_zh-CN.msi` + `.sig`(436 B) | 17,752,064 | 16.93 MiB |
+> | `ZeroNote_0.9.4_x64-setup.exe` + `.sig`(436 B) | 15,754,712 | 15.02 MiB |
+> | `ZeroNote_0.9.4_arm64.apk` | 34,502,563 | 32.90 MiB |
+>
+> - 构建 **8 分 5 秒**（桌面 4m14s / Android 3m51s；sccache 命中 0 = 全量重编）
+> - 清单：`update/latest.json`（Windows 的 url **仍写 ghproxy 前缀** —— 客户端剥前缀后按渠道路由）·
+>   `update/android.json`（sha256 `7aa7aaf8…`）
+> - Release：https://github.com/aqua7773/zeronote/releases/tag/v0.9.4
+>
+> ### 顺序（下次照抄）
+>
+> 1. `release.mjs 0.9.4` → CHANGELOG `[0.9.4]` 段 + 版本表 → README 现状行 → ROADMAP §0
+> 2. `node scripts/build-release.mjs`（两端，约 8 分钟）
+> 3. ⚠️ **APK 改名**：Gradle 产出 `app-universal-release.apk`（不含版本号）⇒
+>    `Copy-Item` 成 `ZeroNote_0.9.4_arm64.apk`（**别用 `*.apk` 通配符上传** —— 目录里两个 apk 会一起传）
+> 4. `node scripts/gen-update-manifest.mjs`
+> 5. `gh release create v0.9.4`（必须带 `HTTPS_PROXY=http://127.0.0.1:26561`）
+> 6. `git add update && git commit -m "chore(update): v0.9.4" && git push`
+
+> ### 一个要紧的推论
+>
+> **0.9.3 → 0.9.4 的自动更新仍由「0.9.3 的旧代码」执行** ⇒ 下载还是原样用清单里的 ghproxy 前缀
+> （可能像本轮实测那样 40% 断流）。**多渠道从 0.9.4 装上之后才生效**。也就是说这一版本身要靠
+> 手动下载 / 或 ghproxy 侥幸下完才能进到「可选渠道」的世界 —— 老用户升级第一次仍可能卡在 ghproxy。
 
 > ## 📌 rev173.300（2026-10-31 · 更新渠道对齐插件市场）
 
