@@ -51,6 +51,12 @@ pwsh -File scripts\verify.ps1
 > 备选：
 > - 删除传播的端到端：删一篇 → 看云端 `_zn/trash/` → 清空回收站 → 看那份消失。
 >
+> ### ✅ 0.9.6 已发版（rev173.307 · 2026-10-31 · 5 个资产全部 uploaded）
+>
+> 提交 `8f8ea43` · tag `v0.9.6`（`gh release create` 先建了个指向旧 HEAD 的 tag，已 force 更新到该提交）·
+> 清单 `update/latest.json` + `android.json` 已推送，**raw 已读到 0.9.6** ·
+> verify 全绿（cargo 92 / vitest 1708 / 质量门 8/8，20:47:02）。
+>
 > ### ✅ 代理策略修复（rev173.306 · 2026-10-31）
 >
 > 用户「关掉代理后所有渠道都显示安装包不可达」→ 量出：**直连时 GitHub 直链 200、ghproxy 超时**；
