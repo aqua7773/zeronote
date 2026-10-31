@@ -17,6 +17,7 @@ const {
   basicAuth,
   conflictFileName,
   createDavClient,
+  decideDeletion,
   decideSync,
   decideTreeAction,
   dirOf,
@@ -206,6 +207,33 @@ describe('decideSync', () => {
   it('远端有、本地没基线 ⇒ 相同 noop / 不同 conflict（rev173.128：不再静默覆盖本地）', () => {
     expect(decideSync({ base: null, localFp: 'same', remoteFp: 'same' })).toBe('noop')
     expect(decideSync({ base: null, localFp: 'x', remoteFp: 'y' })).toBe('conflict')
+  })
+})
+
+/**
+ * rev173.293 删除传播：本机删了、远端还在时，删不删云端。
+ *
+ * 用户原话：「我本地删掉的大小，一同步又回来了，正确做法是把最新的状态同步云端」。
+ * 判定必须与 `remote-deleted` 对称 —— 远端没改过才删；远端改过说明另一端在我删之后
+ * 又写了内容，拿删除去覆盖别人的新内容就是丢数据。
+ */
+describe('decideDeletion（rev173.293 删除传播）', () => {
+  const base = { fp: 'base' }
+
+  it('远端没改过 ⇒ 删远端', () => {
+    expect(decideDeletion({ base, remoteFp: 'base' })).toBe('delete-remote')
+  })
+
+  it('远端改过 ⇒ 不删，恢复远端版', () => {
+    expect(decideDeletion({ base, remoteFp: 'theirs' })).toBe('restore-remote')
+  })
+
+  it('没有基线（换设备 / store 丢了）⇒ 不能当删除，恢复远端版', () => {
+    expect(decideDeletion({ base: null, remoteFp: 'x' })).toBe('restore-remote')
+  })
+
+  it('远端也没有 ⇒ noop', () => {
+    expect(decideDeletion({ base, remoteFp: null })).toBe('noop')
   })
 })
 
@@ -1307,6 +1335,15 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
         purgePrivate: async (p: string) => {
           local.delete(p)
         },
+        /**
+         * 内核的删除 = **移进回收站**（不是物理删，rev173.293 删除传播会调用它）。
+         * 桩里直接从"笔记"里移走、并返回一个 `.zn/trash/...` 路径（与真实内核返回一致）。
+         */
+        delete: async (p: string) => {
+          local.delete(p)
+          mtimes.delete(p)
+          return `.zn/trash/${Date.now()}/${p}`
+        },
       },
       net,
       store: {
@@ -1962,5 +1999,130 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
     expect(Object.keys(mf.privateTree).sort()).toEqual([IDX, N1, N2].sort())
     A.dispose()
+  })
+})
+
+/**
+ * rev173.293 删除传播（集成）。
+ *
+ * 用户原话：「我本地删掉的大小，一同步又回来了，正确做法是把最新的状态同步云端」。
+ * 判据两条：① 这一轮发出 `DELETE n.md`；② **没有**把 `n.md` 再写回本地
+ * （否则「删了又回来」的老毛病还在）。
+ */
+describe('删除传播（rev173.293）', () => {
+  it('本机删了、远端没改 ⇒ 云端 DELETE，且不拉回来', async () => {
+    const requests: string[] = []
+    const remoteFiles = new Map<string, string>([['n.md', 'hello']])
+    let manifest = JSON.stringify({
+      files: { 'n.md': { fp: fingerprint('hello'), at: 1 } },
+      attachments: {},
+      private: {},
+      privateTree: {},
+    })
+    const wrote: string[] = []
+    const emptyBytes = () => new Uint8Array()
+    const emptyText = () => ''
+    const net = {
+      fetch: async (spec: { url: string; method?: string; headers?: Record<string, string>; body?: unknown }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
+        requests.push(`${method} ${p}`)
+        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'GET' && p === '_zn/manifest.json') {
+          return {
+            status: 200,
+            headers: { etag: '"m1"' },
+            text: () => manifest,
+            bytes: () => new TextEncoder().encode(manifest),
+          }
+        }
+        if (method === 'GET') {
+          const t = remoteFiles.get(p)
+          if (t == null) return { status: 404, headers: {}, text: emptyText, bytes: emptyBytes }
+          return {
+            status: 200,
+            headers: { etag: '"e1"' },
+            text: () => t,
+            bytes: () => new TextEncoder().encode(t),
+          }
+        }
+        if (method === 'DELETE') {
+          remoteFiles.delete(p)
+          return { status: 204, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
+        if (method === 'PUT') {
+          if (p === '_zn/manifest.json') {
+            manifest = String(spec.body ?? '')
+            return { status: 201, headers: { etag: '"m2"' }, text: emptyText, bytes: emptyBytes }
+          }
+          remoteFiles.set(p, String(spec.body ?? ''))
+          return { status: 201, headers: { etag: '"e2"' }, text: emptyText, bytes: emptyBytes }
+        }
+        return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
+      },
+    }
+    const store = new Map<string, unknown>([
+      // 基线 = 远端当前指纹 ⇒ 远端没改过，删除可以传播
+      ['baseline.v1', { 'n.md': { fp: fingerprint('hello') } }],
+    ])
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      // 本地已经删了：listNotes 返回空（内核扫描跳过 `.zn/trash`，所以看不到它）
+      fs: {
+        listNotes: async () => [],
+        readText: async () => '',
+        writeText: async (p: string) => {
+          wrote.push(p)
+        },
+        mkdir: async () => {},
+        exists: async () => false,
+        delete: async (p: string) => p,
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 0))
+    render!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+      },
+    })
+    await commands.get('sync.save')!()
+    await commands.get('sync.run')!()
+
+    expect(requests).toContain('DELETE n.md')
+    expect(remoteFiles.has('n.md')).toBe(false)
+    expect(wrote).not.toContain('n.md')
   })
 })

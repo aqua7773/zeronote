@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "plugins": [
     {
       "id": "accounting",
@@ -322,10 +322,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.1.znp",
-      "sha256": "bcd38efbc0d90cd16c811112d09ef1ed5e0ffd96f1b74b2867016a69ed8f4f92",
-      "size": 248808,
+      "version": "0.1.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.2.znp",
+      "sha256": "a55c48945c41f1877f15c3a7950cbbc412b55ae84094b0637a29ee26d6c329b6",
+      "size": 257212,
       "files": [
         "index.cjs",
         "lib/backends/folder.cjs",

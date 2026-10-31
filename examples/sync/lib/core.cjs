@@ -284,6 +284,32 @@ function decideSync({ base, localFp, remoteFp }) {
 }
 
 /**
+ * 判定「本地已经删了、远端还留着」这一篇怎么处理（rev173.293 · 删除传播）。
+ *
+ * 为什么要有它：删除走内核的软删除（移进 `.zn/trash/`），而 `.zn/` 不参与同步 ⇒
+ * 同步插件只看到「本地没有这篇」，旧逻辑一律当成「拉下来」，于是删掉的东西下一轮就复活
+ * （用户 2026-10-31 原话：「我本地删掉的大小，一同步又回来了」）。
+ *
+ * 与 `decideSync` 的 `remote-deleted` 完全对称 —— 一边删、一边改时**不猜**：
+ *
+ * | 情形 | 结论 | 理由 |
+ * |---|---|---|
+ * | 远端没变（`remoteFp === base.fp`） | `delete-remote` | 本地删除就是最新状态，删远端 |
+ * | 远端改过（`remoteFp !== base.fp`） | `restore-remote` | 另一端在我删之后又写了 —— 删不删说不清，保守恢复 |
+ * | 没有基线（换设备 / store 丢了） | `restore-remote` | 不能假定「本地没有」= 用户删的 |
+ * | 远端也没有 | `noop` | 本来就不存在 |
+ *
+ * @param {{fp: string} | null} base  上次同步时的版本
+ * @param {string | null} remoteFp    远端当前指纹
+ * @returns {'noop'|'delete-remote'|'restore-remote'}
+ */
+function decideDeletion({ base, remoteFp }) {
+  if (remoteFp == null) return 'noop'
+  if (!base) return 'restore-remote'
+  return remoteFp === base.fp ? 'delete-remote' : 'restore-remote'
+}
+
+/**
  * 冲突时尝试**三方合并**（rev173.115）。
  *
  * 输入是三方：`base` = 上次成功同步时的内容（history 插件打的同步点）、
@@ -677,6 +703,7 @@ module.exports = {
   joinUrl,
   parsePropfind,
   decideSync,
+  decideDeletion,
   tryAutoMerge,
   conflictFileName,
   normalizeManifest,
