@@ -837,14 +837,17 @@ export default function App() {
     setReplaceOpen(false)
     if (!replaceFromSearchRef.current) return
     replaceFromSearchRef.current = false
-    // 与 `synthKey('f')` 同一做法：往编辑器派发 Ctrl+F（atomic 的查找面板自己接）
-    const dom = editorRef.current?.contentDOM
-    if (!dom) return
-    for (const type of ['keydown', 'keyup'] as const) {
-      dom.dispatchEvent(
-        new KeyboardEvent(type, { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }),
-      )
-    }
+    // 与 `openFindPanel` 同一个理由：等替换栏从 DOM 卸掉再派发 Ctrl+F，
+    // 否则会撞上「替换栏开着时拦 Ctrl+F」那条守卫（见下面那个 useEffect）。
+    window.setTimeout(() => {
+      const dom = editorRef.current?.contentDOM
+      if (!dom) return
+      for (const type of ['keydown', 'keyup'] as const) {
+        dom.dispatchEvent(
+          new KeyboardEvent(type, { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }),
+        )
+      }
+    }, 0)
   }, [])
   const timerRef = useRef<number | null>(null)
   /**
@@ -3858,16 +3861,43 @@ export default function App() {
    *
    * 替换栏开着时**先把它收掉**再开查找面板：用户实测两者可以同时挂在屏幕上半部分，
    * 手机上直接叠成两层（图里一个「Search」浮层压在替换栏上）。
-   * 收替换栏用 `setReplaceOpen(false)` 而不是 `closeReplace()` —— 后者会把查找面板
-   * 还回去（那是「关掉替换」的语义），这里是要**开**查找面板。
+   *
+   * 判据用 DOM 而不是 `replaceOpen`：`setReplaceOpen(false)` 是异步的，而紧接着派发的
+   * Ctrl+F 会被下面的守卫再拦一次（闭包里 state 还是旧值）—— 见 `setTimeout`。
    */
   const openFindPanel = () => {
-    if (replaceOpen) {
+    if (document.querySelector('.zn-replace-bar')) {
       replaceFromSearchRef.current = false
       setReplaceOpen(false)
+      // 等 React 把替换栏卸掉再派发，否则守卫仍会拦（且 state 闭包还是旧值）
+      window.setTimeout(() => synthKey('f'), 0)
+      return
     }
     synthKey('f')
   }
+
+  /**
+   * 替换栏开着时拦下 Ctrl/⌘+F（rev173.303 · #4 的键盘路径）。
+   *
+   * 工具栏 🔍 与菜单「查找…」都走 `openFindPanel`，但 **Ctrl+F 是 atomic 自己的快捷键**：
+   * 它直接在编辑器里开查找面板，绕过了上面那条路 —— 实测（2026-10-31 dev）
+   * 替换栏开着按 Ctrl+F 会变成 `search:true + replace:true` 两层叠着。
+   * 捕获阶段拦：抢在 CodeMirror 的处理器之前，收掉替换栏再交给 `openFindPanel`。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if ((e.key || '').toLowerCase() !== 'f') return
+      if (!document.querySelector('.zn-replace-bar')) return
+      e.preventDefault()
+      e.stopPropagation()
+      openFindPanel()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // openFindPanel 每次渲染都是新函数，但只读 DOM + ref —— 用不着进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /**
    * ☰ 主菜单（B1 · 方案 §2.1「☰ = 主菜单」/ §4 入口矩阵）。

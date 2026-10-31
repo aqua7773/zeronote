@@ -358,6 +358,33 @@ async function main() {
       case 'key':
         await key(cdp, argv[i++])
         break
+      /**
+       * 模拟窄屏视口（rev173.303）：只影响页面渲染（媒体查询按它算），**不动窗口**。
+       *
+       *   node tools/cdp.mjs viewport 390 844
+       *   node tools/cdp.mjs viewport off          # 恢复真实视口
+       *
+       * 用途：验「手机上才生效」的 CSS（替换栏两行、底部四项…），桌面窗口不必缩到 390。
+       * ⚠️ 它与真机仍有差异：UA 不变（`platform` 判据仍按桌面走）、触摸事件也要另造。
+       */
+      case 'viewport': {
+        const arg = argv[i++]
+        if (arg === 'off') {
+          await cdp.send('Emulation.clearDeviceMetricsOverride', {})
+          console.log('viewport 恢复')
+          break
+        }
+        const w = Number(arg)
+        const h = Number(argv[i++] ?? 844)
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: w,
+          height: h || 844,
+          deviceScaleFactor: 2,
+          mobile: true,
+        })
+        console.log(`viewport ${w}x${h || 844}`)
+        break
+      }
       case 'wait':
         await sleep(Number(argv[i++]) || 300)
         break
