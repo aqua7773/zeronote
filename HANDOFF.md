@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.304
-更新时间: 2026-10-31 · 最新 rev173.304（**0.9.5 发版**：第三次真人测试四条 + 「替换」竖排修复；构建 9m09s）
+revision: 173.305
+更新时间: 2026-10-31 · 最新 rev173.305（**应用内更新通道首次端到端跑通**：0.9.4 → 0.9.5，渠道 `jsdelivr`，安装包走 GitHub 直链 + 系统代理）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.304
 
 | rev | 内容 |
 |---|---|
+| rev173.305 | 2026-10-31 · **应用内更新通道首次端到端跑通**（用户「更新成功」）：桌面 0.9.4 → **0.9.5**，注册表 `DisplayVersion=0.9.5`、`zeronote.exe` ProductVersion 0.9.5、进程正常。**渠道 = `jsdelivr`**（从 localStorage `zn-app-update-mirror` 读到）—— 按 rev173.300 的 `AssetRoute` 设计，jsDelivr 只镜像**清单**，**安装包退回 GitHub 直链**，本轮靠系统代理（Steam++）把直链拉通。⇒ 0.9.2 → 0.9.3 那次「ghproxy 40% 断流」的失败路径被绕开，多渠道（rev173.300）的价值得到实证。⚠️ 未记录下载耗时与是否用其它渠道。 |
 | rev173.304 | 2026-10-31 · **0.9.5 发版**（用户「发新版本」）：内容 = rev173.303 的第三次真人测试四条 +「查找面板替换按钮竖排」修复。① `release.mjs 0.9.5`（三处版本）· CHANGELOG `[0.9.5]` 段 + 版本表 · README 现状行 · ROADMAP §0；② `build-release.mjs` 双端 **9m09s**（桌面 4m10s / Android 4m59s）；③ APK 改名 `ZeroNote_0.9.5_arm64.apk` + `gen-update-manifest.mjs`；④ `gh release create v0.9.5`（带 `HTTPS_PROXY`，5 资产）；⑤ commit `update/` 并 push。 |
 | rev173.303 | 2026-10-31 · **第三次真人测试四条**（用户转来 `真人测试3.md`，4 条 + 5 张截图）：① **环形快捷入口下架「时间流（仅桌面）」** —— 桌面有图标栏 / `Ctrl+3` / 菜单三处入口，手机上它只能是个灰位（用户「设置这个没有意义」）；候选表删掉、`resolveQuickEntry` 不再认，老存档该槽回落成空槽。②③ **遮罩上屏蔽抽屉手势** —— `swipeIntent` 新增 `overlay` 判据 + `hasBlockingOverlay()`（图片预览 `.zn-img-preview` / 环形菜单 `.zn-quick-overlay` / 命令面板 `.zn-palette-mask` / 对话框 `.zn-dialog-backdrop`），浮层开着时**左右滑动两个方向都**不开关侧栏（用户「看照片时左右滑能开关左侧栏」「这个遮罩也是，建议检查一下其他的遮罩」）。④ **替换栏** —— 窄屏（≤640px）改两行（输入各半、按钮 `nowrap`，不再竖排压住「源码」）；返回键与手机顶栏 `‹` 补 `replaceOpen` 层出口；**从查找面板进来的**替换栏关掉后把查找面板还回去（返回层级 = 替换 → 搜索 → 编辑）；打开查找面板前先收掉替换栏，不再两层叠加。测试 vitest **1708**(+4) · tsc 0 · oxlint 4 warnings。⚠️ 手势与返回键只能在真机验（静态测试锁住判定，端到端待手机）。 |
 | rev173.301 | 2026-10-31 · **0.9.4 发版**（用户「发新版本」）：内容 = rev173.300 的**应用更新多渠道 + 测速**。① `release.mjs 0.9.4`（三处版本）· CHANGELOG `[0.9.4]` 段 + 版本表 · README 现状行 · ROADMAP §0；② `build-release.mjs` 双端产物（见正文段的大小与耗时）；③ `gen-update-manifest.mjs` 出 `update/latest.json` + `update/android.json`；④ `gh release create v0.9.4`（带 `HTTPS_PROXY`）；⑤ commit `update/` 并 push —— 客户端从仓库读清单。 |
@@ -197,6 +198,28 @@ revision: 173.304
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.305（2026-10-31 · 应用内更新通道首次端到端跑通）
+
+> 用户：「更新成功」。桌面 0.9.4 → **0.9.5**，全程在应用内完成，没有手动下安装包。
+
+> ### 证据
+>
+> | 检查 | 读数 |
+> |---|---|
+> | 注册表 `DisplayVersion` | **0.9.5** |
+> | `%LOCALAPPDATA%\ZeroNote\zeronote.exe` | ProductVersion **0.9.5** · 30,561,792 B |
+> | 进程 | `zeronote` 在跑（20:06 起） |
+> | 渠道（localStorage `zn-app-update-mirror`，leveldb 里读到的） | **`jsdelivr`** |
+>
+> ### 为什么这次能成（对照 0.9.3 那次 40% 断流）
+>
+> rev173.300 的 `AssetRoute` 把渠道拆成两层：**清单**能全渠道镜像，**安装包**只有「GitHub 直链 / 反代」两条路。
+> 用户选的是 `jsdelivr` ⇒ 安装包按设计**退回 GitHub 直链**，而本机开着系统代理（Steam++ `127.0.0.1:26561`）⇒ 直链拉通。
+> 0.9.2 → 0.9.3 时客户端**没有**渠道逻辑、安装包写死 ghproxy，于是断在 40% —— 多渠道的价值就此实证。
+>
+> ⚠️ **没记录**：下载耗时、是否试过其它渠道、断流是否复现。要完整回答「多渠道能否替代 ghproxy」，
+> 还得在**无代理**环境里分别选 `ghproxy` / `jsdelivr-*` 各跑一次。
 
 > ## 📌 rev173.304（2026-10-31 · 0.9.5 发版）
 
