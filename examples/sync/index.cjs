@@ -320,15 +320,12 @@ const plugin = {
     const takenNames = new Set()
 
     /**
-     * 删除传播的安全阀（rev173.293）。
+     * 删除传播**不设上限**（2026-10-31 用户明确要求：「不用设置安全上限」）。
      *
-     * 为什么必须有：删除一旦推上去就是**不可逆**的（远端是纯文件，没有回收站）。
-     * 而「本地少了一批文件」不一定等于用户删的 —— 库被外部工具清空、盘符没挂上、
-     * 用户换了个空目录…… 这些情况下无脑传播会把云端也清掉。抄 rclone 的 `--max-delete`：
-     * 单轮要删的篇数 > `max(3, 远端篇数 × 20%)` ⇒ **整轮不删**，只报给用户。
+     * 取舍：删除推上去不可逆，所以「库没挂上 / 被外部工具清空」时无脑传播会把云端也清掉。
+     * 用户要求以本机状态为准 ⇒ 去掉 rclone 式的 `--max-delete` 闸门；
+     * 兜底只剩 `keepDeleted` 的本地留底（`.zn/sync/deleted/`）—— 万一误删，内容还在本机、能手工放回。
      */
-    const DELETE_RATIO = 0.2
-    const DELETE_MIN = 3
 
     /** 删除传播的本地留底目录（`.zn/` 不在同步范围，所以放这里不会被推上去） */
     const DELETED_DIR = '.zn/sync/deleted'
@@ -669,13 +666,7 @@ const plugin = {
         const notes = await api.fs.listNotes()
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
-        /**
-         * 删除传播的计数与上限（rev173.293）：
-         * 「本地删 / 远端删」两个方向共用同一个上限，且都按**远端总篇数**算 ——
-         * 库越大越宽容，但小库也不会因为 3 篇就被卡住。
-         */
-        const deleteLimit = Math.max(DELETE_MIN, Math.ceil(Object.keys(remote.files).length * DELETE_RATIO))
-        let batchDeleted = 0
+        // 删除传播不设上限（2026-10-31 用户要求）—— 本机删多少就同步删多少
         /**
          * manifest 需要回写（rev173.287）：`summary.pushed` 只统计「我们推上去的」，
          * 但 412 分支会把**远端**最新版对齐进 `nextFiles` —— 那种情况也必须写回，
@@ -925,20 +916,13 @@ const plugin = {
              * 旧行为只清基线、不动本地文件 ⇒ 下一轮当 `push-new` 重新上传，
              * 「在另一台设备删了它、这边又冒出来」。现在走 `api.fs.delete`（**进回收站**，
              * 不是物理删）—— 万一是对端误删，用户在本地回收站还能恢复。
-             *
-             * 也受安全阀约束：本轮已删到上限就只清基线，下一轮再看（不一次性删光本地）。
              */
-            if (batchDeleted >= deleteLimit) {
-              summary.hint = `云端删了 ${batchDeleted} 篇，已达本轮安全上限 ${deleteLimit} —— 剩余的下一轮再删`
-              continue
-            }
             try {
               await api.fs.delete(n.path)
               delete baseline[n.path]
               delete nextFiles[n.path]
               summary.removed += 1
               summary.deletedLocal += 1
-              batchDeleted += 1
             } catch (e) {
               api.host.log('warn', `跟随远端删除本地失败（${n.path}）：${String(e)}`)
             }
@@ -961,36 +945,27 @@ const plugin = {
         )
         /** 本轮已经推上去的删除 —— 拉取段要跳过，否则刚删完又被拉回来 */
         const deletedRemotely = new Set()
-        if (localDeleted.length > 0) {
-          if (localDeleted.length > deleteLimit) {
-            // 安全阀：可能整库没挂上 / 被外部工具清空 —— 不删云端，也**不拉回本地**
-            for (const p of localDeleted) deletedRemotely.add(p)
-            summary.hint = `本机有 ${localDeleted.length} 篇在云端还在，超过本轮安全上限 ${deleteLimit} —— 已中止删除传播（库没挂上 / 被外部工具清空都会这样）`
-          } else {
-            for (const p of localDeleted) {
-              const action = decideDeletion({
-                base: baseline[p] ?? null,
-                remoteFp: remote.files[p]?.fp ?? null,
-              })
-              if (action !== 'delete-remote') {
-                // 远端改过：保留远端版（拉取段会写回本地），记一条冲突让用户知道
-                summary.conflicts += 1
-                await keepConflict(p, '本机删了但远端改过（已恢复远端版）').catch(() => {})
-                continue
-              }
-              try {
-                const remoteText = await client.get(p)
-                if (remoteText != null) await keepDeleted(p, remoteText)
-                await client.remove(p)
-                delete nextFiles[p]
-                delete baseline[p]
-                deletedRemotely.add(p)
-                summary.deletedToRemote += 1
-                batchDeleted += 1
-              } catch (e) {
-                summary.hint = `删除远端失败 ${p}：${String(e)}`
-              }
-            }
+        for (const p of localDeleted) {
+          const action = decideDeletion({
+            base: baseline[p] ?? null,
+            remoteFp: remote.files[p]?.fp ?? null,
+          })
+          if (action !== 'delete-remote') {
+            // 远端改过：保留远端版（拉取段会写回本地），记一条冲突让用户知道
+            summary.conflicts += 1
+            await keepConflict(p, '本机删了但远端改过（已恢复远端版）').catch(() => {})
+            continue
+          }
+          try {
+            const remoteText = await client.get(p)
+            if (remoteText != null) await keepDeleted(p, remoteText)
+            await client.remove(p)
+            delete nextFiles[p]
+            delete baseline[p]
+            deletedRemotely.add(p)
+            summary.deletedToRemote += 1
+          } catch (e) {
+            summary.hint = `删除远端失败 ${p}：${String(e)}`
           }
         }
 
