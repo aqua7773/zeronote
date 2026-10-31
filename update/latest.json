@@ -1,11 +1,11 @@
 {
-  "version": "0.9.5",
-  "notes": "Changed\n\n- 浮层遮罩上不再触发侧栏滑动手势（rev173.303 · 第三次真人测试 #2 #3）：\n  看附件照片、开着环形快捷入口 / 命令面板 / 对话框时，左右滑动两个方向都不动作\n  （以前看照片时左右滑会把笔记库抽屉开出来）。判定见 `src/lib/swipe.ts` 的 `hasBlockingOverlay()`。\n- 替换栏移动端重排 + 返回层级（rev173.303 · #4）：窄屏（≤640px）改为两行 ——\n  「查找」「替换为」各占一半，「替换 / 全部替换 / ✕」落第二行（以前按钮被挤成竖排、压住「源码」）；\n  返回键与手机顶栏 `‹` 的层级变成 替换 → 搜索 → 编辑（从查找面板点「替换」进来的，\n  关掉替换栏会把查找面板还回去），且替换栏开着时打开查找面板会先收掉它，不再两层叠加。\n- 查找面板里的「替换」按钮不再竖排（#5）：它复用了 atomic 的 32×32 图标尺寸，\n  中文两个字放不下就逐字换行 —— 现在宽度自适应 + 不换行。\n\nRemoved\n\n- 环形快捷入口里的「时间流（仅桌面）」槽位（#1）：桌面有图标栏 / `Ctrl+3` / 菜单三处入口，\n  手机上它只能是个灰位。候选表已删，老配置里这一格变空槽。",
-  "pub_date": "2026-10-31T11:51:17.811Z",
+  "version": "0.9.6",
+  "notes": "Fixed\n\n- 关掉系统代理后所有更新渠道都报「安装包不可达」（rev173.306 · 用户 2026-10-31 实测）：\n  根因不在渠道表，而在 Cargo 特性合并 —— `tauri-plugin-updater` 打开了 reqwest 的\n  `system-proxy` 特性，整个二进制（插件下载 / 清单拉取 / 测速 HEAD）的请求都改走系统代理，\n  代理一关这些请求就全失败（`cargo tree -e features -i reqwest` 可复现）。\n  现在本机 / 内网一律直连，公网请求走系统代理但失败后直连重试一次\n  （`net_request` / `fetch_json` / 测速 HEAD / 插件包下载四处）。\n- `cargo test --lib` 不再需要 `--skip`：同根因曾让 `net::tests` 两条与\n  `install_znp_from_url_rejects_*` 在系统代理开着时挂死（本地桩永远 accept 不到请求）。\n  现在 92 passed / 0 failed / 0 filtered。\n\n说明\n\n- 端到端未验（把系统代理指向死端口 → 点测速看是否回退直连）：dev 与已安装的 0.9.5\n  共用 WebView 数据目录，0.9.5 在跑时 dev 起不来 —— 留到装上 0.9.6 后验一次。",
+  "pub_date": "2026-10-31T12:45:01.038Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.5/ZeroNote_0.9.5_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzZXQ0ViaUhYYitMZVFvZ2pXNWRIZ2YxcURhSFp4eVJLM3pHU1lpNEhQcUxTbmI5Nm1sd2NxYWFWNDlzaVdHdlE4ejE2OGl5cDlKTkY0am1ROUNXYmd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDQ3MTcwCWZpbGU6WmVyb05vdGVfMC45LjVfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS41CnN2SVBpMVZCYkpkWkpqQ29VYWVXUTgvYXc5RzIwRmRrWGh6ejc4WkhVZGFQK0tIUi9BcTZSM0pmQUVoYVNrNjRSMGp2RTE4aWtEYmM0U1pub2IzYkN3PT0K"
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.6/ZeroNote_0.9.6_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzV6a0lsRnorbGd2ckxxMjl0dUkwVTBxLzkrSTMyU0l3MytGdGtNVFYvekwrcmJjaU5DSkxQeUtPRTIralIrN0EzMnFIVEJUVEZmekRWOHA4RXRZMHdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDUwNDQwCWZpbGU6WmVyb05vdGVfMC45LjZfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS42CkUrQ2hodWVNd0Zxd1NSTWt5UVEzMFk4RXFZb3VBVnZyZ005ZWtvU01tdHkvempnWUxnZmZQazhIYnhtK3loZHZTM0g0eTNYMlVtbUQxNVo3b25iT0J3PT0K"
     }
   }
 }
