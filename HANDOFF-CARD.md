@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.297 · **拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 写回 manifest 的 `at`；插件待打包 0.1.6 发市）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.297 · **拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 写回 manifest 的 `at`，**`sync` 0.1.6 已打包发市**）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
@@ -33,19 +33,18 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.297 交接 · 2026-10-31）· `sync` 0.1.6 打包发市 + 真机验 mtime
+> ### 📌 下个会话第一件事（rev173.297 交接 · 2026-10-31）· 真机验「拉下来的时间 = 推送时间」
 >
-> **rev173.297 已把代码改完**（内核 `set_mtime` + 契约 `fs.setMtime` + `sync` 六处 pull 写回
-> manifest 的 `at`；单测 `tests/sync.test.ts` 97 条绿）。剩下的是**发市**和**真机验**：
+> **代码 + 发市都已完成**（内核 `set_mtime` + 契约 `fs.setMtime` + `sync` 六处 pull 写回
+> manifest 的 `at`；单测 `tests/sync.test.ts` 97 条绿；`sync` **0.1.6** 已打包签名
+> `market/packs/sync-0.1.6.znp` · 256.9 KB · keyId `aqua-2026` · 索引 14 条 · 验签 50/51）。
+> 剩下两件：
 >
-> 1. **先升版本**：`examples/sync/manifest.json` 的 `version` **0.1.5 → 0.1.6**
->    （质量门「市场索引」要求 manifest 版本与 `market/packs/*.znp` 一致）。
-> 2. **打包签名 + 索引**（约 10 分钟）：`node scripts/pack-plugin.mjs sync --key <私钥>` →
->    `node scripts/gen-market.mjs --write` → `node scripts/verify-trust.mjs`（命令原样照 rev173.295 那次）。
-> 3. **本机先验（不用等发市）**：dev 插件目录是**副本不是 junction** ⇒
->    `examples/sync/` 五个文件拷进 `<appdata>/.zn/plugins/sync/` → reload →
+> 1. **本机生效**：dev 插件目录是**副本不是 junction** ⇒
+>    `examples/sync/` 六个文件拷进 `<appdata>/.zn/plugins/sync/` → reload →
 >    同步一次 → 时间流里拉下来的笔记时间应当是**远端推送时刻**，不是刚才。
-> 4. **真机端到端**：A 写一篇 → 等 1 分钟 → B 拉下来 → **B 的文件 mtime = A 推送时间**；
+>    （市场用户走「插件中心 → 插件市场 → 更新」，不自动升级。）
+> 2. **真机端到端**：A 写一篇 → 等 1 分钟 → B 拉下来 → **B 的文件 mtime = A 推送时间**；
 >    顺带回归「删一篇 → 等一轮 → 云端也删」（0.1.5 的行为不能被这轮碰坏）。
 >
 > ⚠️ 更早 rev 欠的端到端：0.9.2 的「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。

@@ -1,7 +1,7 @@
 # 项目交接
 
 revision: 173.297
-更新时间: 2026-10-31 · 最新 rev173.297（**拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 落盘后写回 manifest 的 `at`。⚠️ 插件待打包 0.1.6 发市、真机端到端待验）
+更新时间: 2026-10-31 · 最新 rev173.297（**拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 落盘后写回 manifest 的 `at`。`sync` **0.1.6** 已打包发市；⚠️ 真机端到端待验）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,7 +19,7 @@ revision: 173.297
 
 | rev | 内容 |
 |---|---|
-| rev173.297 | 2026-10-31 · **拉下来的笔记 mtime = 远端推送时间**（用户「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖」）：① **现象** —— 从云端拉的笔记时间流里全挤在同一分钟，且「云端永远比本机新」，本机删了下一轮还是以云端为准。② **根因（一手）** —— `api.fs.writeText` 走内核原子写（临时文件 + rename）⇒ `mtime` 永远是**写入那一刻**；manifest 每条里本来就有 `at`（推送时间）但 pull 之后没人用它，插件侧也没有「设置文件时间」的原语（契约只读 `mtime`）。③ **修法三层** —— **a** `src-tauri/src/lib.rs` 新增 `#[tauri::command] set_mtime(vault, path, mtime_ms)`：用 std 的 `File::set_modified`（Rust **1.75 起稳定**，Windows 走 `SetFileTime` / Unix+Android 走 `utimensat`）⇒ **不需要 `filetime` crate**；`mtime_ms == 0` 幂等成功（旧 manifest 没有 `at` 时别写成 1970）；文件不存在报错（先写盘再设时间）。**b** 契约 `fs.setMtime(path, mtime)`（契约修订说明写在方法文档里）+ `src/kernel/fs.ts` 转发 `invoke('set_mtime', { mtimeMs })`（Tauri 参数 camelCase）；`withFsEvents` / `scopedFs` 都是 spread ⇒ 自动透传，无需改 `plugin-host.ts`。**c** `examples/sync/index.cjs` 新增 `applyRemoteMtime(path, at)`（`typeof api.fs.setMtime` 兜底 + `at` 非法跳过 + 失败只 warn），**六处** pull 后调用：主循环 `pull` / `pull-new`（L784 区）· 「本地没有、远端有 ⇒ 拉下来」（L1058 区）· 412 乐观锁失败后对齐远端 · 私密树 `syncPrivateTree` 的 pull · 私密文件④冲突取远端（两处冲突共同点：磁盘上留的是**远端版**，时间也该归远端）。④ **测试** —— `tests/sync.test.ts` `makeDevice` 的 fs 桩加 `setMtime`（改 `mtimes` 表 + 记 `mtimeCalls` 流水，文件不存在抛错，与真实内核同序）+ 新集成用例「拉下来的笔记 mtime = 远端推送时间，不是本机此刻」：A 推一篇 → 把远端 manifest 的 `at` 改成 2 小时前 → B 空库拉下来 ⇒ 断言 `setMtime` 只调 1 次、参数 = manifest 的 `at`、B 的 `mtimes` 落成推送时刻且 < 现在 60s。sync 四文件 **205** 条全绿（sync.test.ts 97，+1）。⑤ **本机生效方式** —— dev 插件目录是**副本**不是 junction ⇒ 源码改完要拷进 `<appdata>/.zn/plugins/sync/` 再 reload；市场用户要等 `sync` **0.1.6** 打包发市。⚠️ 真机端到端（A 写 → 等 1 分钟 → B 拉 → B 的文件时间 = A 推送时间）**尚未验**。 |
+| rev173.297 | 2026-10-31 · **拉下来的笔记 mtime = 远端推送时间**（用户「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖」）：① **现象** —— 从云端拉的笔记时间流里全挤在同一分钟，且「云端永远比本机新」，本机删了下一轮还是以云端为准。② **根因（一手）** —— `api.fs.writeText` 走内核原子写（临时文件 + rename）⇒ `mtime` 永远是**写入那一刻**；manifest 每条里本来就有 `at`（推送时间）但 pull 之后没人用它，插件侧也没有「设置文件时间」的原语（契约只读 `mtime`）。③ **修法三层** —— **a** `src-tauri/src/lib.rs` 新增 `#[tauri::command] set_mtime(vault, path, mtime_ms)`：用 std 的 `File::set_modified`（Rust **1.75 起稳定**，Windows 走 `SetFileTime` / Unix+Android 走 `utimensat`）⇒ **不需要 `filetime` crate**；`mtime_ms == 0` 幂等成功（旧 manifest 没有 `at` 时别写成 1970）；文件不存在报错（先写盘再设时间）。**b** 契约 `fs.setMtime(path, mtime)`（契约修订说明写在方法文档里）+ `src/kernel/fs.ts` 转发 `invoke('set_mtime', { mtimeMs })`（Tauri 参数 camelCase）；`withFsEvents` / `scopedFs` 都是 spread ⇒ 自动透传，无需改 `plugin-host.ts`。**c** `examples/sync/index.cjs` 新增 `applyRemoteMtime(path, at)`（`typeof api.fs.setMtime` 兜底 + `at` 非法跳过 + 失败只 warn），**六处** pull 后调用：主循环 `pull` / `pull-new`（L784 区）· 「本地没有、远端有 ⇒ 拉下来」（L1058 区）· 412 乐观锁失败后对齐远端 · 私密树 `syncPrivateTree` 的 pull · 私密文件④冲突取远端（两处冲突共同点：磁盘上留的是**远端版**，时间也该归远端）。④ **测试** —— `tests/sync.test.ts` `makeDevice` 的 fs 桩加 `setMtime`（改 `mtimes` 表 + 记 `mtimeCalls` 流水，文件不存在抛错，与真实内核同序）+ 新集成用例「拉下来的笔记 mtime = 远端推送时间，不是本机此刻」：A 推一篇 → 把远端 manifest 的 `at` 改成 2 小时前 → B 空库拉下来 ⇒ 断言 `setMtime` 只调 1 次、参数 = manifest 的 `at`、B 的 `mtimes` 落成推送时刻且 < 现在 60s。sync 四文件 **205** 条全绿（sync.test.ts 97，+1）。⑤ **本机生效方式** —— dev 插件目录是**副本**不是 junction ⇒ 源码改完要拷进 `<appdata>/.zn/plugins/sync/` 再 reload；市场用户已可通过插件市场更新到 `sync` **0.1.6**（`market/packs/sync-0.1.6.znp` · 256.9 KB · keyId `aqua-2026`，同轮已打包签名并发市）。⚠️ 真机端到端（A 写 → 等 1 分钟 → B 拉 → B 的文件时间 = A 推送时间）**尚未验**。 |
 | rev173.296 | 2026-10-31 · **交接（mtime 待修）**：用户「交接到新会话改」。① 本轮成果 —— **0.9.2 发版**（应用本体更新，Release 5 资产）· 删除传播三轮演进（0.1.3 本机删不再拉回 → 0.1.4 删除=搬进云端回收站 `_zn/trash/`、彻底删除/30 天过期才真删、去掉本地留底 → 0.1.5 删除优先：有基线就删远端，消除「没有按钮的存在状态冲突死记录」）；② **下个会话第一件事** —— 拉下来的笔记 **mtime = 同步时刻**（时间流全是同分钟、且「云端永远最新」）：修法 = 内核加 `set_mtime` 命令（标准库没有，用 `filetime` crate 或 Windows `SetFileTime`）→ 契约 `fs.setMtime` + 插件宿主转发 → sync 三处 pull 后用 manifest 的 `at` 写回；验收 = A 写 → B 拉，B 的 mtime 等于 A 的推送时间；③ ⚠️ **端到端真机都没验**（0.9.2 点检查下载安装 / 删除传播看云端 `_zn/trash/`）；④ 本机环境：`sync` 0.1.5 已拷入插件目录需重启，手机端要从市场更新。 |
 | rev173.293 | 2026-10-31 · **删除传播（`sync` 0.1.5）**（用户「我本地删掉的大小，一同步又回来了，正确做法是把最新的状态同步云端」）：① 旧语义 —— 本机删除只进 `.zn/trash/`（不参与同步）⇒ 插件只看到「本地没有这篇」⇒ 一律当「拉下来」，删掉的东西 5 秒后又回来；② 新纯函数 `decideDeletion`（与 `remote-deleted` 对称）：远端没改过 ⇒ **连云端一起删**；远端在我删之后又写了 ⇒ 恢复远端版 + 记一条冲突；③ 反向补齐 —— 云端删了 ⇒ 本地 `api.fs.delete`（**进回收站**，可恢复）；④ 一道兜底 —— **不设单轮删除上限**（用户明确「不用设置安全上限」）· 删云端前把远端内容留底 `.zn/sync/deleted/<日期>/<原路径>`；⑤ 验证 —— `tests/sync.test.ts` **96 条**（+1 集成：断言发出 `DELETE n.md` 且没有写回本地），tsc / oxlint 0 error，全量 vitest 绿；⑥ `sync` **0.1.3**（249.7 KB · keyId `aqua-2026`，`verify-trust` 通过）· 本机插件目录已直接拷入（备份 `_tmp-plugin-backup/sync-before-delete-prop-20261031/`）—— **重启应用生效**；之前被拉回来的笔记要**再删一次**才会传播。 |
 | rev173.292 | 2026-10-31 · **应用本体更新：桌面自动装 + 手机下载即装**（用户「给 zeronote 添加内置更新功能」→ 拍板「两端都做 + 密钥我生成」）：① **两端必须不同路** —— 官方 `tauri-plugin-updater` 的支持表（README 2.14.1）只有 Linux / Windows / macOS；桌面用它（minisign 签名**不可关** + NSIS 安装器 + 装完自动重启），Android 自己下 APK（`net::download_client`，**不设总超时**：`http_client` 的 120s 是整体超时，几十 MB 的 APK 会被截断）→ sha256 核对 → 新原生插件 **`tauri-plugin-apk-install`** 起 `ACTION_VIEW`（复用主工程 FileProvider 的 `cache-path .`；Android 8+ 先查 `canRequestPackageInstalls` —— 不检查的话系统**不弹窗也不报错**，用户只会觉得点了没用，没授权就给「去授权」按钮跳设置）。② **清单与镜像** —— 仓库里的 `update/latest.json`（桌面 static JSON，`platforms.windows-x86_64`）/ `update/android.json`（`apk.{url,sha256,size}`），由 `scripts/gen-update-manifest.mjs` 生成（按**版本号**挑 nsis 产物、按 mtime 挑 APK —— 初版脚本取「第一个 .exe」直接抓到 0.8.0 的旧包）；镜像 raw → ghproxy → jsDelivr×2 **由 Rust 自己探测**：`plugins.updater.endpoints` 只在**非 2xx** 时试下一个，而手机直连 raw 是 TLS 阶段被 RST（网络错误）⇒ 不会回退（2026-10-27 真机 6/6 失败）。③ **签名** —— `tauri signer generate`（无密码）→ 公钥进 `tauri.conf.json`（152 字符）+ `bundle.createUpdaterArtifacts: true`；私钥 `~/.tauri/zeronote.key` **不进仓库**，`scripts/build-release.mjs` 自动注入（漏了会报「找到公钥但没私钥」）。**私钥丢了 = 所有老用户永远收不到自动更新**（签名校验关不掉）。④ **UI** —— 设置 → 关于 → 更新（检查 / 版本说明 / 进度条 / 安装）；启动 24h 节流静默提示（只提示不下载；`zn-app-update-auto` / `zn-app-update-last-check`）—— 与插件市场那条 24h 检查是两个东西。⑤ **验证** —— `cargo check` 仅剩既有 3 警告 · `cargo test --lib`（含 `is_newer` 2 条）· vitest **1695**（+7 条 `tests/app-update.test.ts`）· `check-docs` ✅ · 质量门 **8/8** · **桌面 release 构建 6m17s 产出 `.exe.sig` / `.msi.sig` 各 436 字节**，`gen-update-manifest --dry` 已读到真实签名并拼出 Release URL。⚠️ ⑥ **已发布 v0.9.2**（2026-10-31）：桌面构建 3m18s / Android 6m23s；Release **5 个资产**（`setup.exe` 15.02 MiB + `.sig` · `msi` 16.93 MiB + `.sig` · `arm64 APK` 32.87 MiB）→ https://github.com/aqua7773/zeronote/releases/tag/v0.9.2 。⚠️ **下载地址走 ghproxy**：国内直连 `github.com:443` 不通（本轮 `git push` 实测 `curl 28`），清单的 `platforms.windows-x86_64.url` 由脚本写成 ghproxy 前缀（`NO_GH_MIRROR=1` 可退回原始地址）；ghproxy 对 raw 有几分钟缓存、jsDelivr 更久 ⇒ 镜像顺序 raw 第一。⚠️ **端到端（装一版 → 点检查 → 真下载安装）尚未做** —— 需真装一次 0.9.2 后点「检查更新」；⚠️ **0.9.1 及更早的包没有签名产物，收不到这条通道** —— 内置更新从 0.9.2 起才成立。 |
@@ -222,10 +222,18 @@ revision: 173.297
 > - sync 四文件 **205** 条绿（`sync.test.ts` 97，+1）· `tsc -b` 0 错误 ·
 >   `cargo test --lib`（跳过 4 条网络测试）**85 passed** · `check-docs` ✅。
 >
-> ⚠️ 待办：`sync` **0.1.6** 打包签名 + 市场索引（`examples/sync/manifest.json` 版本
-> 先 0.1.5 → 0.1.6，质量门要求与 `market/packs/*.znp` 一致）；本机 dev 插件目录是
-> **副本不是 junction** ⇒ 要拷进 `<appdata>/.zn/plugins/sync/` 才生效；
-> 真机端到端（A 写 → 等 1 分钟 → B 拉 → B 的文件时间 = A 推送时间）尚未验。
+> ### 已发市（同轮）
+>
+> `examples/sync/manifest.json` 版本 0.1.5 → **0.1.6** ⇒
+> `node scripts/pack-plugin.mjs sync --key C:\Users\AQUA\.zeronote-keys\aqua-2026.key.pem --key-id aqua-2026`
+> ⇒ `market/packs/sync-0.1.6.znp`（**256.9 KB** · 8 文件 · 入口 sha256 `16188b56…` ·
+> 整包 sha256 `235b3ce7…` · keyId `aqua-2026`）→ `gen-market --write`（索引 **14 条**，
+> sync 记 0.1.6）→ `verify-trust` **50/51**（唯一未签的 `theme-sepia` 是纯样式）→
+> 质量门 **8/8**。用户要到「插件中心 → 插件市场 → 更新」才拿得到（**不自动升级**）。
+>
+> ⚠️ 仍待办：本机 dev 插件目录是**副本不是 junction** ⇒ 要拷进
+> `<appdata>/.zn/plugins/sync/` 才生效；真机端到端（A 写 → 等 1 分钟 → B 拉 →
+> B 的文件时间 = A 推送时间）尚未验。
 
 > ## 📌 rev173.296（2026-10-31 · 交接：mtime 待修）
 
