@@ -84,6 +84,27 @@ pub fn ensure_tls_provider() {
 /// 两处各写一份的话，下面 Android 那段「必须自己给根证书」的修法一定会漏在第二处 ——
 /// 表现是「手机上下载插件永远 pending」，而且和同步时的症状一模一样、极难认。
 pub fn http_client(timeout_ms: u64) -> Result<reqwest::Client, String> {
+  build_client(timeout_ms, false)
+}
+
+/**
+ * **不跟随系统代理**的客户端（rev173.306）。
+ *
+ * 为什么得有：`tauri-plugin-updater` 在 Cargo.toml 里打开了 reqwest 的 `system-proxy` feature，
+ * 而 Cargo 的特性是**全局合并**的 —— 于是本文件建的 client 也会读系统代理
+ * （`cargo tree -e features -i reqwest` 可复现：`reqwest feature "system-proxy"` ←
+ * `tauri-plugin-updater feature "system-proxy"`）。后果两件：
+ * ① 本地回环 / 局域网请求被代理吞掉 —— `cargo test --lib` 的 net 测试因此**挂死**（桩 accept 不到），
+ *    同步插件的本地 DAV 桩一个请求也收不到；
+ * ② 系统代理「开着但不可用」时（例如只关了加速器、代理进程还在监听），整个应用断网。
+ *
+ * 所以：loopback / 私网请求一律走这个，公网请求仍用 `http_client`（跟随系统代理）。
+ */
+pub fn http_client_direct(timeout_ms: u64) -> Result<reqwest::Client, String> {
+  build_client(timeout_ms, true)
+}
+
+fn build_client(timeout_ms: u64, direct: bool) -> Result<reqwest::Client, String> {
   let timeout = timeout_ms.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   // 桌面上 `mut` 用不到（只有 Android 的 cfg 段会改它），但去掉会让 Android 编译不过
@@ -92,6 +113,10 @@ pub fn http_client(timeout_ms: u64) -> Result<reqwest::Client, String> {
     .timeout(Duration::from_millis(timeout))
     // 有些 WebDAV 服务端（如旧版 Nextcloud 反代）会拒空 UA。
     .user_agent(concat!("ZeroNote/", env!("CARGO_PKG_VERSION")));
+
+  if direct {
+    cb = cb.no_proxy();
+  }
 
   /**
    * **Android 上必须自己给根证书**（rev173.108 真机实测）。
@@ -115,6 +140,48 @@ pub fn http_client(timeout_ms: u64) -> Result<reqwest::Client, String> {
 
   cb.build()
     .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))
+}
+
+/// 按 URL 挑客户端：本机 / 内网 ⇒ 直连（别让系统代理吞掉），其余 ⇒ 跟随系统代理
+pub fn client_for_url(url: &str, timeout_ms: u64) -> Result<reqwest::Client, String> {
+  if is_local_url(url) {
+    http_client_direct(timeout_ms)
+  } else {
+    http_client(timeout_ms)
+  }
+}
+
+/// 是不是「本机 / 内网」地址（loopback · 私网段 · 链路本地 · `.local`）
+pub fn is_local_url(raw: &str) -> bool {
+  let host = match reqwest::Url::parse(raw)
+    .ok()
+    .and_then(|u| u.host_str().map(str::to_string))
+  {
+    Some(h) => h,
+    None => return false,
+  };
+  is_local_host(&host)
+}
+
+fn is_local_host(host: &str) -> bool {
+  let h = host.trim_start_matches('[').trim_end_matches(']');
+  if h.eq_ignore_ascii_case("localhost") || h == "::1" || h.ends_with(".local") {
+    return true;
+  }
+  if h.starts_with("127.")
+    || h.starts_with("10.")
+    || h.starts_with("192.168.")
+    || h.starts_with("169.254.")
+  {
+    return true;
+  }
+  // 172.16.0.0/12
+  if let Some(rest) = h.strip_prefix("172.") {
+    if let Ok(n) = rest.split('.').next().unwrap_or("").parse::<u8>() {
+      return (16..=31).contains(&n);
+    }
+  }
+  false
 }
 
 /**
@@ -166,30 +233,53 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
     .unwrap_or(DEFAULT_TIMEOUT_MS)
     .clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
-  let client = http_client(timeout)?;
-
   let url = req.url;
-  let mut rb = client.request(method, &url);
-  for (k, v) in req.headers.unwrap_or_default() {
-    rb = rb.header(k, v);
-  }
-  if let Some(b64) = req.body_b64 {
-    let bytes = base64::engine::general_purpose::STANDARD
-      .decode(b64.as_bytes())
-      .map_err(|e| format!("请求体不是合法 base64：{e}"))?;
-    // 显式带 Content-Length（**含 0**）。
-    //
-    // reqwest 对 `Vec::new()` 不发 CL、也不发 Transfer-Encoding —— 2026-10-25 抓包实测
-    // `cl=null te=null bytes=0`；rclone `serve s3` 对没有长度的 PUT 回 411 Length Required，
-    // 表现为「同步到一篇空笔记就永远卡住、每 5 秒重试同一篇」。
-    // 长度与实际 body 一致，reqwest 发送阶段不会拒绝。
-    let len = bytes.len();
-    rb = rb
-      .body(bytes)
-      .header(reqwest::header::CONTENT_LENGTH, len.to_string());
+  // 本机 / 内网直接绕开系统代理（rev173.306），公网跟随它
+  let client = client_for_url(&url, timeout)?;
+
+  let headers: Vec<(String, String)> = req.headers.unwrap_or_default().into_iter().collect();
+  let body: Option<Vec<u8>> = match req.body_b64 {
+    Some(b64) => Some(
+      base64::engine::general_purpose::STANDARD
+        .decode(b64.as_bytes())
+        .map_err(|e| format!("请求体不是合法 base64：{e}"))?,
+    ),
+    None => None,
+  };
+
+  let make = |c: &reqwest::Client| {
+    let mut rb = c.request(method.clone(), &url);
+    for (k, v) in &headers {
+      rb = rb.header(k.as_str(), v.as_str());
+    }
+    if let Some(bytes) = &body {
+      // 显式带 Content-Length（**含 0**）。
+      //
+      // reqwest 对 `Vec::new()` 不发 CL、也不发 Transfer-Encoding —— 2026-10-25 抓包实测
+      // `cl=null te=null bytes=0`；rclone `serve s3` 对没有长度的 PUT 回 411 Length Required，
+      // 表现为「同步到一篇空笔记就永远卡住、每 5 秒重试同一篇」。
+      // 长度与实际 body 一致，reqwest 发送阶段不会拒绝。
+      rb = rb
+        .body(bytes.clone())
+        .header(reqwest::header::CONTENT_LENGTH, bytes.len().to_string());
+    }
+    rb
+  };
+
+  let mut attempt = make(&client).send().await;
+  /**
+   * 代理「开着但不可用」时（只关了加速器、代理进程还在监听），公网请求会直接失败 ——
+   * 换直连再试一次（rev173.306）。这正是 2026-10-31 用户「关掉代理后所有渠道都显示
+   * 安装包不可达」的场景：应用全走系统代理，而代理已经不转发。
+   * 本机地址本来就用直连 client，不重复试。
+   */
+  if attempt.is_err() && !is_local_url(&url) {
+    if let Ok(direct) = http_client_direct(timeout) {
+      attempt = make(&direct).send().await;
+    }
   }
 
-  let resp = rb.send().await.map_err(|e| {
+  let resp = attempt.map_err(|e| {
     // 把**错误源链**一起打出来（rev173.192 真机排障需要）。
     // reqwest 的 Display 只有「error sending request for url」，真正原因（DNS / TCP / TLS / 证书）
     // 全在 source 链里 —— 排障时没有它等于没信息。桌面与 Android 走的 TLS 栈不同
@@ -359,5 +449,31 @@ mod tests {
       lower.contains("content-length: 1"),
       "非空 body 应带 Content-Length: 1，实际请求：{req}"
     );
+  }
+
+  /// 本机 / 内网判定（rev173.306）：这些地址必须走**直连**客户端，
+  /// 否则系统代理（Steam++）会把它们吞掉 —— 本地 DAV 桩收不到请求、net 测试挂死。
+  #[test]
+  fn local_urls_are_detected() {
+    for u in [
+      "http://127.0.0.1:8899/dav/",
+      "http://localhost:1420/",
+      "http://192.168.1.5:8080/x",
+      "http://10.0.0.7/x",
+      "http://172.16.0.1/x",
+      "http://172.31.255.1/x",
+      "http://[::1]:9000/x",
+      "http://nas.local/x",
+    ] {
+      assert!(is_local_url(u), "{u} 应判为本机/内网");
+    }
+    for u in [
+      "https://github.com/aqua7773/zeronote",
+      "https://ghproxy.net/https://github.com/a/x",
+      "http://172.32.0.1/x",
+      "https://example.com/127.0.0.1",
+    ] {
+      assert!(!is_local_url(u), "{u} 不应判为本机");
+    }
   }
 }

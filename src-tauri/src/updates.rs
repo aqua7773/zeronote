@@ -255,9 +255,23 @@ fn is_newer(current: &str, remote: &str) -> bool {
   b > a
 }
 
-/// 拉一份 JSON（带大小上限）
+/// 拉一份 JSON（带大小上限）。
+///
+/// 先按默认策略（公网请求跟随系统代理）发；失败且不是本机地址时**直连再试一次** ——
+/// 与 `net::net_request` 同一套回退（rev173.306）：系统代理「开着但不可用」时
+/// （只关了加速器、代理进程还在监听），检查更新会直接报错，其实直连是通的。
 async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
-  let client = crate::net::http_client(CHECK_TIMEOUT_MS)?;
+  let first = fetch_json_with(crate::net::http_client(CHECK_TIMEOUT_MS)?, url).await;
+  if first.is_ok() || crate::net::is_local_url(url) {
+    return first;
+  }
+  match crate::net::http_client_direct(CHECK_TIMEOUT_MS) {
+    Ok(c) => fetch_json_with(c, url).await.or(first),
+    Err(_) => first,
+  }
+}
+
+async fn fetch_json_with(client: reqwest::Client, url: &str) -> Result<serde_json::Value, String> {
   let resp = client
     .get(url)
     .send()
@@ -463,18 +477,33 @@ pub async fn probe_update_mirror(mirror_id: String) -> Result<PathProbe, String>
     Some(u) => {
       let asset_url = rewrite_asset_url(m.id, &u.url);
       let t = std::time::Instant::now();
-      match crate::net::http_client(8_000) {
-        Ok(c) => match c.head(&asset_url).send().await {
-          Ok(r) if r.status().is_success() => {
-            let size = r
-              .content_length()
-              .map(human_size)
-              .unwrap_or_else(|| "未知大小".to_string());
-            format!(" · 安装包 {size} {}ms", t.elapsed().as_millis())
-          }
-          Ok(r) => format!(" · 安装包 HTTP {}", r.status().as_u16()),
-          Err(e) => format!(" · 安装包不可达（{}）", short_error(&e.to_string())),
-        },
+      // 与 fetch_json 同一套回退（rev173.306）：系统代理不可用时换直连再问一次
+      let mut res: Result<reqwest::Response, String> = match crate::net::http_client(8_000) {
+        Ok(c) => c
+          .head(&asset_url)
+          .send()
+          .await
+          .map_err(|e| short_error(&e.to_string())),
+        Err(e) => Err(e),
+      };
+      if res.is_err() && !crate::net::is_local_url(&asset_url) {
+        if let Ok(c) = crate::net::http_client_direct(8_000) {
+          res = c
+            .head(&asset_url)
+            .send()
+            .await
+            .map_err(|e| short_error(&e.to_string()));
+        }
+      }
+      match res {
+        Ok(r) if r.status().is_success() => {
+          let size = r
+            .content_length()
+            .map(human_size)
+            .unwrap_or_else(|| "未知大小".to_string());
+          format!(" · 安装包 {size} {}ms", t.elapsed().as_millis())
+        }
+        Ok(r) => format!(" · 安装包 HTTP {}", r.status().as_u16()),
         Err(e) => format!(" · 安装包不可达（{e}）"),
       }
     }

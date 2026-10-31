@@ -3035,7 +3035,8 @@ async fn install_znp_from_url(
 ) -> Result<String, String> {
   use sha2::{Digest, Sha256};
   require_plugin_pack_url(&url)?;
-  let client = crate::net::http_client(60_000)?;
+  // 本机 / 内网地址（测试桩、自建源）走直连，别让系统代理吞掉 —— 见 `net::is_local_url`（rev173.306）
+  let client = crate::net::client_for_url(url.trim(), 60_000)?;
   let resp = client
     .get(url.trim())
     .send()
