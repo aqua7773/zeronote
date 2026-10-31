@@ -48,6 +48,10 @@ tauri-plugin-androidperm = { path = "plugins/tauri-plugin-androidperm" }
 tauri-plugin-uri-reader = { path = "plugins/tauri-plugin-uri-reader" }
 # J#13（rev173.281）：系统分享（Android ACTION_SEND 纯文本；桌面返回 desktop-no-share）
 tauri-plugin-share = { path = "plugins/tauri-plugin-share" }
+# APK 安装（rev173.292 · 应用本体更新）：官方 updater 不支持 Android，下载完的 APK
+# 要由 Kotlin 侧起系统安装器（ACTION_VIEW + FileProvider）。桌面构建也编这个 crate，
+# 但命令返回 `desktop-no-apk-install`（桌面的更新走 tauri-plugin-updater）。
+tauri-plugin-apk-install = { path = "plugins/tauri-plugin-apk-install" }
 # 系统凭据库（同步插件凭据 · 2026-10-24 用户裁决「一开始就走钥匙串」）：
 # Windows Credential Manager / Android Keystore + SharedPreferences / macOS Keychain。
 # 关掉 crypto feature —— 内核只要「存 / 取一段字符串」，不要它的 SLIP10/BIP39/Ed25519。
@@ -61,6 +65,10 @@ tauri-plugin-keyring-store = { version = "0.2", default-features = false }
 # Android 上整个 crate 是空的（引用它的 `init()` 会编译失败）。
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+# 应用本体更新（rev173.292）：官方 updater —— minisign 签名校验 + 起 NSIS/MSI 安装器。
+# ⚠️ README 支持表只有 Linux / Windows / macOS ⇒ 必须挂桌面专属段（Android 上编译不过）。
+#    手机端走 `src/updates.rs` 的自下载 + `tauri-plugin-apk-install`。
+tauri-plugin-updater = "2"
 # 文件监听（rev173.59）：桌面走系统级 watcher（Windows ReadDirectoryChangesW /
 # macOS FSEvents / Linux inotify），改盘即发 `zn://fs-change`。
 # ⚠️ 移动端**不装**：Android 的 /storage/emulated/0 是 FUSE 挂载，inotify 漏报是常态，

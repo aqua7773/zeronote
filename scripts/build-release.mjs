@@ -49,6 +49,50 @@ const pathWithCargo = [
   process.env.PATH ?? '',
 ].join(';')
 
+/**
+ * updater 签名密钥（rev173.292）。
+ *
+ * `tauri.conf.json` 里 `bundle.createUpdaterArtifacts: true` 之后，**每次打包都会给安装包签名**
+ * —— 找不到私钥就直接构建失败（`A public key has been found, but no private key`）。
+ * 私钥默认放 `~/.tauri/zeronote.key`（`pnpm tauri signer generate` 的产物，不进仓库）；
+ * 已经在环境变量里设了的不覆盖（CI / 换机场景）。
+ */
+const signingKeyPath = join(process.env.USERPROFILE ?? '', '.tauri', 'zeronote.key')
+const signingEnv = (() => {
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY) return {}
+  if (existsSync(signingKeyPath)) {
+    console.log(`· updater 签名密钥：${signingKeyPath}`)
+    return { TAURI_SIGNING_PRIVATE_KEY: signingKeyPath }
+  }
+  console.warn(
+    '⚠️ 没找到 updater 签名密钥（~/.tauri/zeronote.key）—— 打包会在签名阶段失败。\n' +
+      '   生成：pnpm tauri signer generate -w ~/.tauri/zeronote.key',
+  )
+  return {}
+})()
+
+/**
+ * sccache（可选，2026-10-31 装）：跨构建复用**依赖**的编译产物。
+ *
+ * 说清楚它救什么、不救什么（别指望它让发版飞起来）：
+ * · **救**：`cargo clean` / 换 target 目录 / 换机器之后，tauri、image、rustls 这些依赖
+ *   不必重编（实测单个依赖 crate 动辄 30–90 秒）。
+ * · **不救**：改自己的代码（`zeronote` crate 本身、新增原生插件）—— 输入变了就必须重编，
+ *   这部分是发版的固定成本（增量时约 1.5–3 分钟/端）。
+ *
+ * 装了就用；没装静默跳过（不因为缺一个可选工具让构建挂掉）。
+ */
+const sccacheEnv = (() => {
+  if (process.env.RUSTC_WRAPPER) {
+    console.log(`· sccache：沿用已有 RUSTC_WRAPPER=${process.env.RUSTC_WRAPPER}`)
+    return {}
+  }
+  const probe = spawnSync('where', ['sccache'], { shell: process.platform === 'win32', encoding: 'utf8' })
+  if (probe.status !== 0 || !probe.stdout?.trim()) return {}
+  console.log('· sccache：已启用（依赖编译产物跨构建复用）')
+  return { RUSTC_WRAPPER: 'sccache' }
+})()
+
 function run(label, args, opts = {}) {
   const t0 = Date.now()
   console.log(`\n▶ ${label}`)
@@ -56,7 +100,7 @@ function run(label, args, opts = {}) {
   const r = spawnSync(opts.cmd ?? 'pnpm', args, {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, PATH: pathWithCargo },
+    env: { ...process.env, PATH: pathWithCargo, ...signingEnv, ...sccacheEnv },
     shell: process.platform === 'win32',
   })
   const sec = Math.round((Date.now() - t0) / 1000)
@@ -126,3 +170,20 @@ for (const [k, v] of Object.entries(timing)) {
 }
 const tm = Math.floor(total / 60)
 console.log(`  合计：${tm ? `${tm} 分 ` : ''}${total % 60} 秒`)
+
+if (sccacheEnv.RUSTC_WRAPPER) {
+  const st = spawnSync('sccache', ['--show-stats'], {
+    shell: process.platform === 'win32',
+    encoding: 'utf8',
+  })
+  if (st.status === 0 && st.stdout) {
+    const hit = /Cache hits\s+(\d+)/.exec(st.stdout)?.[1]
+    const miss = /Cache misses\s+(\d+)/.exec(st.stdout)?.[1]
+    if (hit != null && miss != null) {
+      const n = Number(hit)
+      const m = Number(miss)
+      const rate = n + m > 0 ? Math.round((n / (n + m)) * 100) : 0
+      console.log(`  sccache：命中 ${hit} · 未命中 ${miss} · 命中率 ${rate}%`)
+    }
+  }
+}

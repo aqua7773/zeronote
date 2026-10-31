@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { AssetRelayPanel } from './AssetRelayPanel'
+import { AppUpdatePanel } from './AppUpdatePanel'
 import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
@@ -404,6 +405,12 @@ export function Settings({
                 <Row label="ZeroNote" hint={appVersion ?? '0.1.0'} />
                 <Row label="内核契约" hint={apiVersion ?? '—'} />
                 <Row label="运行平台" hint={platform ?? '—'} />
+                {/**
+                 * 应用本体更新（rev173.292）：检查 / 下载 / 安装的状态全在这里。
+                 * 与「插件」tab 里那个「启动时检查更新」不是一回事 —— 那个查市场索引角标。
+                 */}
+                <SectionTitle>更新</SectionTitle>
+                <AppUpdatePanel appVersion={appVersion} />
                 <SectionTitle>内核只做四件事</SectionTitle>
                 <div className="text-[11px] leading-relaxed text-muted-foreground">
                   <b className="text-foreground">.md 读写</b> · <b className="text-foreground">编辑</b> ·{' '}

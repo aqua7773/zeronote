@@ -41,6 +41,11 @@ mod widgets;
 #[cfg(windows)]
 mod hello;
 
+/// 应用本体更新（rev173.292）：桌面走官方 updater（签名校验 + 安装器），
+/// Android 自己下 APK 再交给 `tauri-plugin-apk-install`。清单是仓库里的静态 JSON
+/// （`update/latest.json` / `update/android.json`），没有服务端。
+mod updates;
+
 /// 库内私有目录：不进文件树、不进 git
 const PRIVATE_DIR: &str = ".zn";
 
@@ -3827,6 +3832,11 @@ pub fn run() {
         )
         .build(),
     );
+
+    // 应用本体更新（rev173.292）：只在桌面注册。插件本身做签名校验（pubkey 在
+    // tauri.conf.json 的 plugins.updater 里）+ 下载安装包；endpoints **在这里不写死** ——
+    // `updates::install_desktop_update` 会按探测到的可用镜像在运行时传进来。
+    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
   }
 
   // 生物识别（期 2b 前置验证）：只在 android 目标编译并注册，桌面构建不引用该 crate。
@@ -3840,6 +3850,7 @@ pub fn run() {
     .plugin(tauri_plugin_notification_capture::init())
     .plugin(tauri_plugin_uri_reader::init())
     .plugin(tauri_plugin_share::init())
+    .plugin(tauri_plugin_apk_install::init())
     .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
       app.manage(OpenedUrls::default());
@@ -3962,7 +3973,11 @@ pub fn run() {
       net::net_request,
       net::secret_get,
       net::secret_set,
-      net::secret_delete
+      net::secret_delete,
+      // rev173.292：应用本体更新（桌面 updater / Android 自下载 + 系统安装器）
+      updates::check_app_update,
+      updates::install_desktop_update,
+      updates::download_android_update
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

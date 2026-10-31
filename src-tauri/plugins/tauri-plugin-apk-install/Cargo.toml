@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-apk-install"
+version = "0.1.0"
+description = "ZeroNote: 用系统安装器安装下载好的 APK（Android）"
+authors = ["AQUA"]
+license = "MIT"
+edition = "2021"
+build = "build.rs"
+links = "tauri-plugin-apk-install"
+
+[lib]
+name = "tauri_plugin_apk_install"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12.3" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

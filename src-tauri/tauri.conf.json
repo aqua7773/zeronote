@@ -48,6 +48,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "windows": {
       "wix": {
         "language": "zh-CN"
@@ -113,6 +114,17 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCODQwMjlFNUE1OTA3MEEKUldRS0IxbGFuZ0tFRzM4SWF1bzR0dnpOTnh1elBoRnRKbDhteG9lMXE0RGtHUU9iQU9IekZOK3oK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/aqua7773/zeronote/main/update/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

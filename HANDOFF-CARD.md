@@ -33,6 +33,26 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
+> **本轮（rev173.292 · 2026-10-31）· 应用本体更新已落地（代码全绿，待发版做端到端）**：
+> 用户「给 zeronote 添加内置更新功能」→ 拍板「两端都做 + 密钥我生成」。
+> **桌面** = 官方 `tauri-plugin-updater`（minisign 签名**不可关** · NSIS 安装器 · 装完自动重启）；
+> **Android** = 自下载 APK → sha256 核对 → 系统安装器（新原生插件 `tauri-plugin-apk-install`）——
+> 官方 updater 的支持表**没有 Android**（README 2.14.1：Linux / Windows / macOS only）。
+> 清单 = 仓库里的静态 JSON：`update/latest.json`（桌面，Tauri static 格式）/
+> `update/android.json`（`apk.{url,sha256,size}`），由 `scripts/gen-update-manifest.mjs` 生成。
+> **镜像顺序由 Rust 自己探测**（raw → ghproxy → jsDelivr ×2）：`plugins.updater.endpoints` 只在
+> **非 2xx** 时试下一个，而手机直连 raw 是 TLS 阶段被 RST（网络错误）⇒ 不会回退
+> （2026-10-27 真机 6/6 失败；见 `src-tauri/src/updates.rs` 头部）。
+> 入口：**设置 → 关于 → 更新**（手动检查 / 版本说明 / 进度 / 安装）+ 启动 24h 节流静默提示
+> （只提示，不下载不安装）。开关 `zn-app-update-auto`，时间戳 `zn-app-update-last-check`。
+> ⚠️ **0.9.1 及更早的安装收不到这条通道** —— 旧包没有 `.sig`、也没有 updater 插件；
+> 内置更新从**下一个版本**起生效，老用户需手动装一次。
+> ⚠️ **私钥 `~/.tauri/zeronote.key` 丢了 = 所有老用户永远收不到自动更新**（签名校验关不掉）
+> —— 必须离线备份；`build-release.mjs` 会自动带上它，CI 不出签名包。
+> 发版顺序（别搞反）：`release.mjs <ver>` → `build-release.mjs` → `gen-update-manifest.mjs` →
+> `gh release create`（上传产物 + `.sig`）→ **commit `update/` 并 push**（客户端从仓库读清单，
+> 不是从 Release 读）。步骤见 `update/README.md`，原因见 `docs/应用本体更新-方案-2026-10-31.md`。
+
 > **下个会话第一件事（rev173.290 交接 · 冲突合并已进编辑页 + 已发市）**：冲突时**正文里直接出现两段** ——
 > 远端段红（`#ff6b6b`）/ 本机段绿（`#51cf66`），带淡背景与左侧色条，字号行高与正文一致，段首各一个 ✔。
 > **点哪段就留哪段**：另一段删除、留下的那段恢复普通正文，并立刻推上远端。合并稿存在插件 store，

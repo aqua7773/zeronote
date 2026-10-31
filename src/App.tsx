@@ -186,6 +186,7 @@ import { isExternalAbsPath } from './kernel/file-card'
 import { applyExternalChange } from './kernel/fs-events'
 import { bindCommandKeybindings, keyLabel } from './kernel/keybindings'
 import { MARK_COMMANDS, registerMarkdownMarks } from './kernel/markdown-marks'
+import { checkAppUpdate, markChecked, shouldAutoCheck } from './kernel/app-update'
 import { SearchPanel } from './components/SearchPanel'
 import { ReplacePanel } from './components/ReplacePanel'
 import { WebViewFrame } from './components/WebViewFrame'
@@ -895,6 +896,35 @@ export default function App() {
   const platform: 'android' | 'windows' = /Android/i.test(navigator.userAgent)
     ? 'android'
     : 'windows'
+
+  /**
+   * 应用本体更新（rev173.292）：**启动时静默检查一次**（24h 节流）。
+   *
+   * 只提示、不下载不安装 —— 与插件市场那条「启动时检查更新」同一克制程度：
+   * 用户没点之前，不许有任何文件被写、任何进程被起。
+   * 详情页与手动检查在「设置 → 关于 → 更新」。
+   *
+   * 失败一律静默：断网、dev web 模式（没有 Tauri invoke）、清单还没建出来，都不该
+   * 变成一个启动就弹的错误。
+   */
+  useEffect(() => {
+    if (!shouldAutoCheck()) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await checkAppUpdate()
+        markChecked()
+        if (!cancelled && r.hasUpdate && r.latest) {
+          setToast(`应用有新版本 ${r.latest.version}：设置 → 关于 → 更新`)
+        }
+      } catch {
+        /* 静默：不影响启动 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /**
    * 软键盘弹起时，把根容器钉到**可见视口**的高度。

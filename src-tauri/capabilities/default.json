@@ -17,6 +17,7 @@
     "androidperm:default",
     "uri-reader:default",
     "share:default",
+    "apk-install:default",
     "core:app:allow-exit",
     "core:window:default",
     "core:window:allow-start-dragging",

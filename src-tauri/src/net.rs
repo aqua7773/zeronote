@@ -117,6 +117,41 @@ pub fn http_client(timeout_ms: u64) -> Result<reqwest::Client, String> {
     .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))
 }
 
+/**
+ * 大文件下载用的客户端（rev173.292 · 应用本体更新）。
+ *
+ * 为什么不复用 `http_client`：它的超时是 reqwest 的**整体**超时（连接 + 读完 body），
+ * 上限 120 秒（`MAX_TIMEOUT_MS`）—— APK 几十 MB，手机流量下 120 秒必然被截断，
+ * 表现为「下载到最后一段总是失败」。
+ *
+ * 这里只限制**连接**阶段，读完 body 的时间由调用方自己的分块循环掌握
+ * （块与块之间可以报进度、也可以判断「卡住」）。TLS 配置与 `http_client` 完全一致 ——
+ * 道理同上面那段注释：两处各写一份，Android 的根证书修法一定会漏。
+ *
+ * 目前只有 Android 的 APK 下载用它（桌面走 `tauri-plugin-updater`，下载在插件内部）。
+ */
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn download_client() -> Result<reqwest::Client, String> {
+  // 桌面上 `mut` 用不到（只有 Android 的 cfg 段会改它）
+  #[allow(unused_mut)]
+  let mut cb = reqwest::Client::builder()
+    .connect_timeout(Duration::from_secs(20))
+    .user_agent(concat!("ZeroNote/", env!("CARGO_PKG_VERSION")));
+
+  #[cfg(target_os = "android")]
+  {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let tls = rustls::ClientConfig::builder()
+      .with_root_certificates(roots)
+      .with_no_client_auth();
+    cb = cb.use_preconfigured_tls(tls);
+  }
+
+  cb.build()
+    .map_err(|e| format!("初始化下载客户端失败：{e}"))
+}
+
 /// 发一次 HTTP 请求。成功与否只看「请求有没有发出去」，HTTP 错误码（401/404/500）
 /// 一律走 `Ok(status)` —— 调用方要能读到 `WWW-Authenticate` 这类头来判断怎么重试。
 #[tauri::command]

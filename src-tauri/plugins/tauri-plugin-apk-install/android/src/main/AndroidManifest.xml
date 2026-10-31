@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ZeroNote APK 安装插件。
+     · REQUEST_INSTALL_PACKAGES：Android 8.0+ 安装 APK 的准入开关（用户还要在系统设置里
+       单独「允许安装未知应用」，那是按应用授权的，权限声明只解决「能不能申请」）。
+     · <queries>：Android 11 起包可见性受限；不加的话 startActivity 可能找不到安装器 Activity，
+       表现为「点了没反应」。
+     provider（FileProvider）在主工程 manifest 里，本插件复用它（authorities 为
+     `${applicationId}.fileprovider`，`res/xml/file_paths.xml` 已放开 cache-path）。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
+        </intent>
+    </queries>
+</manifest>

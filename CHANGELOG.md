@@ -23,6 +23,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **应用本体更新**（rev173.292 · 用户「给 zeronote 添加内置更新功能」）：桌面走官方
+  `tauri-plugin-updater`（minisign 签名校验 + NSIS 安装器，装完自动重启），Android 走
+  「自己下 APK → sha256 核对 → 系统安装器」（官方 updater 不支持移动端）。清单 = 仓库里的
+  `update/latest.json` / `update/android.json`（`scripts/gen-update-manifest.mjs` 生成）；镜像按
+  raw → ghproxy → jsDelivr 顺序探测（手机直连 raw 在 TLS 阶段被 RST，且 updater 的 endpoint
+  回退语义不覆盖网络错误）。入口：**设置 → 关于 → 更新**（检查 / 版本说明 / 进度 / 安装）+
+  启动时 24h 节流静默提示（只提示，不自动下载）。新增原生插件 `tauri-plugin-apk-install`。
+  ⚠️ **0.9.1 及更早的安装收不到这条通道**（旧包没有签名产物），从下一个版本起生效。
+
 （暂无）
 
 ## [0.9.1] - 2026-10-31（rev173.283 – rev173.290）
