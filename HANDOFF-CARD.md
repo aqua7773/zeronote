@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.297 · **拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 写回 manifest 的 `at`，**`sync` 0.1.6 已打包发市**，**桌面 dev + 手机真机双端实测通过**（拉下来 mtime = 推送时间 11:17:00.350））** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.298 · **交接** —— 本轮 292–297 收口：0.9.2 发版 · 删除传播三轮 · **拉取 mtime = 推送时间**并双端实测通过 · `sync` 0.1.6 已发市；**下个会话第一件事 = 发 0.9.3**，把内核 `set_mtime` 送到市场用户手里）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.297 · 0.9.2 · 2026-10-31 |
-| 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-31） |
+| rev / 版本 | rev173.298 · 0.9.2 · 2026-10-31 |
+| 测试基线 | vitest 1701 · cargo 85 · oxlint 4 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.2 |
 <!-- FACTS:END -->
@@ -33,24 +33,33 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### ✅ rev173.297 全链路已验完（2026-10-31 11:57 · 桌面 dev + 手机真机）
+> ### 📌 下个会话第一件事（rev173.298 交接 · 2026-10-31）· 发 **0.9.3**
 >
-> **代码**：内核 `set_mtime` + 契约 `fs.setMtime` + `sync` 六处 pull 写回 manifest 的 `at`
-> （单测 `sync.test.ts` 97 条绿）。**发市**：`sync` **0.1.6**（`market/packs/sync-0.1.6.znp` ·
-> 256.9 KB · keyId `aqua-2026` · 索引 14 条 · 验签 50/51）。
-> **双端实测**（云端 `at` 手工设成 11:17:00.350，比实测早 40 分钟）：
-> 桌面 dev `sync.run` ⇒ pulled 1，文件 `LastWriteTime` = **11:17:00.350**；
-> 手机（`33b676f6`，本轮重编 debug APK）⇒ `stat` = **11:17:00.350000000**。两端都拿推送时间。
+> **为什么必须发应用版本**：`set_mtime` 是**内核命令**，0.9.2 及更早的安装包里没有 ⇒
+> 市场用户升了 `sync` 0.1.6 之后，插件照常调 `api.fs.setMtime`（`fs.ts` 总提供），
+> 但 Rust 侧没有这条命令 ⇒ 抛错被 `catch` 吞掉 ⇒ **mtime 修复静默不生效**。
+> （通用规律：**新增内核原语必须配一次应用发版**，否则只发插件等于没修。）
 >
-> **踩过的三个坑**（详见 HANDOFF.md 的 rev173.297 正文段）：
-> 1. 系统代理（Steam++）吞 **loopback** 请求 ⇒ 桩零请求、插件误判「远端已删」（绕法：baseUrl 用 LAN IP）
-> 2. `adb shell` stdin 在 ~128 KB 处截断（8 KB 分块也截）⇒ 插件文件走 `/data/local/tmp` + `run-as cat`
-> 3. `typeof api.fs.setMtime` 判不出内核命令是否存在 ⇒ 旧 APK 上静默失败，要先确认 APK 是新的
+> 顺序照 `update/README.md`，别搞反：
+> 1. `node scripts/release.mjs 0.9.3`（同步三处版本）
+> 2. CHANGELOG：292–297 的条目搬进 `[0.9.3]` 段 + 版本表；README 现状行 / ROADMAP §0
+> 3. `node scripts/build-release.mjs`（两端：桌面 ≈3 分钟 / Android ≈5–14 分钟）
+> 4. `node scripts/gen-update-manifest.mjs`
+> 5. `gh release create v0.9.3`（msi/exe/+`.sig` + APK）→ **commit `update/` 并 push**
+> 6. ⚠️ 私钥 `C:\Users\AQUA\.tauri\zeronote.key` 必须在；⚠️ push 直连 github 时通时不通，
+>    不行就加 `-c http.proxy=http://127.0.0.1:26561`
 >
-> **剩下的（都不阻塞发布）**：
-> - 市场用户要到「插件中心 → 插件市场 → 更新」才拿得到 0.1.6（不自动升级）；**老安装包**（0.9.2）里的内核没有
->   `set_mtime` ⇒ 只升插件仍不生效，要等下一个应用版本 —— 这是 `fs.setMtime` 这类内核命令的通用限制。
-> - 更早 rev 欠的端到端：0.9.2 的「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。
+> ### ✅ rev173.297 已全链路验完（2026-10-31 11:57 · 桌面 dev + 手机真机）
+>
+> 内核 `set_mtime` + 契约 `fs.setMtime` + `sync` 六处 pull 写回 `at`（`sync.test.ts` 97 条绿）；
+> `sync` **0.1.6** 已发市（256.9 KB · keyId `aqua-2026` · 索引 14 条 · 验签 50/51）。
+> 双端实测（云端 `at` 设成 11:17:00.350）：桌面 `LastWriteTime` 与手机 `stat` **都是 11:17:00.350**。
+>
+> **三个坑**（详见 HANDOFF.md rev173.297 正文段）：① 系统代理吞 **loopback**（桩零请求，插件误判「远端已删」，
+> 绕法：baseUrl 用 LAN IP）② `adb shell` stdin **128 KB 截断**（走 `/data/local/tmp` + `run-as cat`）
+> ③ `typeof api.fs.setMtime` **判不出内核命令是否存在**（旧 APK 上看不出异常）。
+>
+> **仍欠的端到端**：0.9.2 的「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。
 >
 > ### 本轮（rev173.292–297）做完的
 >
