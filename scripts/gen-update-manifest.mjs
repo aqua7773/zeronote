@@ -52,6 +52,13 @@ const releaseBase = `https://github.com/${REPO}/releases/download/${tag}/`
  * 代价：ghproxy 是第三方反代，可能限速或临时不可用 —— 所以要保留「手动下载」
  * （Release 页面），见 UI 与 `update/README.md` 的说明。
  * 环境变量 `NO_GH_MIRROR=1` 可退回原始 GitHub 地址（海外 / 自建反代时用）。
+ *
+ * ⚠️ **从 rev173.300 起这层前缀是有意保留的**：客户端会把它**剥回 GitHub 直链**，
+ * 再按用户在「关于 → 更新」里选的渠道重新路由（`updates.rs` 的 `canonical_asset_url` /
+ * `rewrite_asset_url`）。原因：
+ *  · 旧客户端（≤0.9.3）只会用清单里的 url 原样下载 ⇒ 这里写直链会让它们下不动；
+ *  · 新客户端剥掉前缀后按渠道走 ⇒ 不受影响。
+ * **换渠道是客户端的事，别把这里改成直链。**
  */
 const GH_MIRROR = 'https://ghproxy.net/'
 const downloadBase = process.env.NO_GH_MIRROR ? releaseBase : GH_MIRROR + releaseBase

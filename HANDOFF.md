@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.299
-更新时间: 2026-10-31 · 最新 rev173.299（**0.9.3 已发版**：桌面 msi/exe + Android arm64 APK 上传 Release · 清单已提交 · 内核 `set_mtime` 从此对所有安装包生效）
+revision: 173.300
+更新时间: 2026-10-31 · 最新 rev173.300（**更新渠道对齐插件市场**：5 渠道可选 + 逐条测速 + 安装包按渠道路由；0.9.2 → 0.9.3 真装验到「检查通过、ghproxy 下载仅 ~10 KB/s」）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.299
 
 | rev | 内容 |
 |---|---|
+| rev173.300 | 2026-10-31 · **更新渠道对齐插件市场（多渠道 + 测速）**（用户「更新渠道也和插件渠道一样做多渠道测试分发」）：① **实测病根** —— 本机 0.9.2 点检查 ✅ 拿到 0.9.3，但下载 **~10 KB/s**（15 MB 要 20 分钟以上；`curl` 带系统代理 9.8 KB/s、直连 8 秒 0 字节；`HEAD` 两个方向都 200 ⇒ **HEAD ≠ 速度**）。② **Rust** —— `MIRRORS` 扩到与市场同一套 5 渠道（raw / jsdelivr-gcore / jsdelivr-testingcf / jsdelivr / ghproxy）+ 每渠道 `AssetRoute`（Direct / Prefix；**jsDelivr 只服务仓库文件、拿不到 Release 附件** ⇒ 安装包退回直链）+ `canonical_asset_url`（剥掉清单里旧的 ghproxy 前缀）/ `rewrite_asset_url`（按渠道路由）/ `asset_candidates`（去重候选）；`check_app_update(mirrorId)` 支持指定渠道（不传 = 自动探测）；`install_desktop_update` **改写 `update.download_url`** 再装（签名校验仍由官方 updater 做）；新命令 `probe_update_mirror`（拉清单解析版本 + 桌面 HEAD 安装包）。③ **前端** —— `UPDATE_MIRRORS` + `localStorage['zn-app-update-mirror']` + 关于页**渠道下拉与测速**（逐条显示 ms / 版本 / 安装包大小）。④ **脚本** —— 清单**刻意仍写 ghproxy 前缀**（≤0.9.3 旧客户端只会原样用清单 url，改直链会让它们下不动），客户端剥前缀后按渠道路由。⑤ **验证** —— `cargo test --lib updates::` 4 条（+2）· `tests/app-update.test.ts` 10 条（+3）· tsc 0；⚠️ 新客户端切渠道的端到端未验（要等含本改动的新版本）。⚠️ 本机 `cargo test --lib` 会**挂死**（`net::tests` 的 loopback 桩 accept 不到，13 分钟无进展），基线用 `--skip net::tests --skip install_znp_from_url`（85 passed）。 |
 | rev173.299 | 2026-10-31 · **0.9.3 已发版（删除传播 + 拉取 mtime = 推送时间）**（用户「发新版，发完交接」）：① **构建** —— `node scripts/build-release.mjs`（两端，**8 分 14 秒**：桌面 4m03s / Android arm64 4m11s；sccache 命中 0，`release` 全量重编）⇒ `ZeroNote_0.9.3_x64_zh-CN.msi` **16.93 MiB** + `ZeroNote_0.9.3_x64-setup.exe` **15.02 MiB** + 两个 `.sig`（436 B）+ `ZeroNote_0.9.3_arm64.apk` **32.87 MiB**。② **清单** —— `gen-update-manifest.mjs` 生成 `update/latest.json`（Windows 走 ghproxy 镜像 URL，签名 436 字节）与 `update/android.json`（APK sha256 `7d5bdee3…` · 34,471,803 B）。③ **踩坑** —— Gradle 产出的 APK 原名 `app-universal-release.apk`（**不含版本号**，脚本会提示）⇒ 先 `Copy-Item` 成 `ZeroNote_0.9.3_arm64.apk` 再生成清单，否则 Release 里三个版本的同名 APK 分不清。④ **发布** —— `gh release create v0.9.3`（带 `HTTPS_PROXY` 才连得上）⇒ **5 个资产全部 uploaded**：https://github.com/aqua7773/zeronote/releases/tag/v0.9.3 ；commit `9b72173` 已 push。⑤ **意义** —— `set_mtime` 是内核命令，0.9.2 及更早的安装包里没有 ⇒ 只升 `sync` 0.1.6 不生效；**本版起 mtime 修复才真正到用户手里**。⚠️ 端到端仍未真装验证（装 0.9.2 → 点「检查更新」→ 真下载安装 0.9.3）。 |
 | rev173.298 | 2026-10-31 · **交接（下一版 = 0.9.3）**：① **本轮（292–297）成果** —— 0.9.2 应用本体更新发版（Release 5 资产）· 删除传播三轮（`sync` 0.1.3 本机删不再拉回 → 0.1.4 删除=搬进云端回收站 `_zn/trash/` → 0.1.5 删除优先，消除无按钮的死记录）· **拉取 mtime = 推送时间**（内核 `set_mtime` + 契约 `fs.setMtime` + `sync` **0.1.6** 已打包发市，桌面 dev 与手机真机双端实测：两端拉下来都是 **11:17:00.350**，不是同步时刻）。② **下个会话第一件事 = 发 0.9.3**：`set_mtime` 是**内核命令**，老安装包（≤0.9.2）里没有 ⇒ 市场用户升 `sync` 0.1.6 后 mtime 修复**不生效**（插件侧 `typeof api.fs.setMtime` 判不出来，只能运行到 catch）。发版才把能力送到用户手里 —— 顺序照 `update/README.md`：`release.mjs 0.9.3` → CHANGELOG 版本段 → `build-release.mjs`（两端）→ `gen-update-manifest.mjs` → `gh release create` → commit `update/` 并 push。③ **本机环境** —— dev 在跑（vite 1420 + CDP 9222，`zeronote.exe` 11:58 启动）；手机（`33b676f6`）debug 包**已是本轮新内核**（重编 APK，含 `set_mtime`），`sync` 0.1.6 已装、**自动同步已关回 false**；本地 DAV 桩（8899）已关。④ **仍欠的端到端** —— 0.9.2「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。 |
 | rev173.297 | 2026-10-31 · **拉下来的笔记 mtime = 远端推送时间**（用户「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖」）：① **现象** —— 从云端拉的笔记时间流里全挤在同一分钟，且「云端永远比本机新」，本机删了下一轮还是以云端为准。② **根因（一手）** —— `api.fs.writeText` 走内核原子写（临时文件 + rename）⇒ `mtime` 永远是**写入那一刻**；manifest 每条里本来就有 `at`（推送时间）但 pull 之后没人用它，插件侧也没有「设置文件时间」的原语（契约只读 `mtime`）。③ **修法三层** —— **a** `src-tauri/src/lib.rs` 新增 `#[tauri::command] set_mtime(vault, path, mtime_ms)`：用 std 的 `File::set_modified`（Rust **1.75 起稳定**，Windows 走 `SetFileTime` / Unix+Android 走 `utimensat`）⇒ **不需要 `filetime` crate**；`mtime_ms == 0` 幂等成功（旧 manifest 没有 `at` 时别写成 1970）；文件不存在报错（先写盘再设时间）。**b** 契约 `fs.setMtime(path, mtime)`（契约修订说明写在方法文档里）+ `src/kernel/fs.ts` 转发 `invoke('set_mtime', { mtimeMs })`（Tauri 参数 camelCase）；`withFsEvents` / `scopedFs` 都是 spread ⇒ 自动透传，无需改 `plugin-host.ts`。**c** `examples/sync/index.cjs` 新增 `applyRemoteMtime(path, at)`（`typeof api.fs.setMtime` 兜底 + `at` 非法跳过 + 失败只 warn），**六处** pull 后调用：主循环 `pull` / `pull-new`（L784 区）· 「本地没有、远端有 ⇒ 拉下来」（L1058 区）· 412 乐观锁失败后对齐远端 · 私密树 `syncPrivateTree` 的 pull · 私密文件④冲突取远端（两处冲突共同点：磁盘上留的是**远端版**，时间也该归远端）。④ **测试** —— `tests/sync.test.ts` `makeDevice` 的 fs 桩加 `setMtime`（改 `mtimes` 表 + 记 `mtimeCalls` 流水，文件不存在抛错，与真实内核同序）+ 新集成用例「拉下来的笔记 mtime = 远端推送时间，不是本机此刻」：A 推一篇 → 把远端 manifest 的 `at` 改成 2 小时前 → B 空库拉下来 ⇒ 断言 `setMtime` 只调 1 次、参数 = manifest 的 `at`、B 的 `mtimes` 落成推送时刻且 < 现在 60s。sync 四文件 **205** 条全绿（sync.test.ts 97，+1）。⑤ **本机生效方式** —— dev 插件目录是**副本**不是 junction ⇒ 源码改完要拷进 `<appdata>/.zn/plugins/sync/` 再 reload；市场用户已可通过插件市场更新到 `sync` **0.1.6**（`market/packs/sync-0.1.6.znp` · 256.9 KB · keyId `aqua-2026`，同轮已打包签名并发市）。✅ **双端实测通过**（2026-10-31 11:57）：云端 `at` 设成 11:17:00.350，桌面 dev 与手机（`33b676f6`）拉下来后文件时间都是 **11:17:00.350**（不是同步时刻）。 |
@@ -193,6 +194,61 @@ revision: 173.299
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.300（2026-10-31 · 更新渠道对齐插件市场）
+
+> 用户「更新渠道也和插件渠道一样做多渠道测试分发」。
+
+> ### 实测先把病根钉住（0.9.2 → 0.9.3 真装）
+>
+> 本机正好装着 **0.9.2**（`C:\Users\AQUA\AppData\Local\ZeroNote\zeronote.exe`）。点「重新检查」后：
+>
+> 1. 检查 ✅ 拿到 **0.9.3**（清单走 ghproxy —— `raw.githubusercontent.com` 本机 20 s 超时）；
+> 2. 下载 ❌ **下了约 5 分钟后在 40% 左右断流**：界面报「下载或安装更新失败：error decoding response body」，
+>    版本仍是 0.9.2（截图 `_shots/verify-update-300-0*.png`，失败那帧是 `-09`）；
+> 3. 对照：`curl` 带系统代理（Steam++ `127.0.0.1:26561`）**9.8 KB/s**、直连 8 秒 **0 字节**；
+>    `HEAD` 两个方向都 200 ⇒ **HEAD 可达 ≠ 下载得完**，测速文案必须写清楚。
+>
+> 结论：安装包地址写死 ghproxy（`scripts/gen-update-manifest.mjs` 的 `GH_MIRROR`）是瓶颈 ——
+> 用户既不能选渠道、也不能测，而且**这条通道在本机网络下根本下不完**。
+> 这就是「多渠道」不是锦上添花、而是必须做的直接证据。
+
+> ### 改了什么
+>
+> **Rust（`src-tauri/src/updates.rs`）**
+> - `MIRRORS` 扩到与插件市场同一套 **5 条**（`raw` / `jsdelivr-gcore` / `jsdelivr-testingcf` /
+>   `jsdelivr` / `ghproxy`），带 `label`；
+> - 每渠道带 `AssetRoute`：`Direct`（GitHub 直链）/ `Prefix`（反代前缀）——
+>   **jsDelivr 只服务仓库文件、拿不到 Release 附件**，所以它的安装包退回直链；
+> - 新纯函数 `canonical_asset_url`（把清单里旧的 ghproxy 前缀剥回直链）、
+>   `rewrite_asset_url`（按渠道改写）、`asset_candidates`（去重候选，给 Android 逐个试）；
+> - `check_app_update(mirrorId)`：给了就只用该渠道；不给（启动静默检查）按表顺序自动探测；
+> - `install_desktop_update`：`updater.check()` 之后**改写 `update.download_url`** 再
+>   `download_and_install` —— 签名校验仍由官方 updater 做（不自己验）；
+> - 新命令 **`probe_update_mirror`**：拉清单并解析出 `version`（只看状态码会被错误页骗），
+>   桌面再 HEAD 一下安装包，返回 `{id, label, ok, ms, detail}`。
+>
+> **前端**
+> - `src/kernel/app-update.ts`：`UPDATE_MIRRORS`（同 5 条，与 Rust 逐字一致）+ `zn-app-update-mirror`
+>   存取 + `probeUpdateMirror`；
+> - `src/components/AppUpdatePanel.tsx`：关于页加**渠道下拉 + 测速**（逐条 `label ms · v0.9.3 · 安装包 15.0 MB …`），
+>   hint 里标出当前渠道。
+>
+> **脚本**：`gen-update-manifest.mjs` **刻意继续写 ghproxy 前缀** —— 客户端会剥回直链再按渠道
+> 路由；改成直链会让 ≤0.9.3 的旧客户端（只会原样用清单 url）下不动。
+
+> ### 验证
+>
+> - `cargo test --lib updates::` **4 条**（+2：`asset_url_routes_by_mirror` / `asset_candidates_dedupes_by_channel`）
+> - `tests/app-update.test.ts` **10 条**（+3 渠道：顺序 / 存取 / 与市场 key 分开）；`tsc -b` 0 错误
+> - ⚠️ **未验**：新客户端切渠道的端到端（要先装上含本改动的新版本；0.9.3 安装包里没有它）
+
+> ### 顺带发现（本机基线坑）
+>
+> `cargo test --lib` 在本机会**挂死而不是失败**：`net::tests` 的 loopback 桩 + `install_znp_from_url_*`
+> 的本地服务 accept 不到请求（系统代理开着），13 分钟无进展。基线用
+> `cargo test --lib -- --skip net::tests --skip install_znp_from_url`（**85 passed**）。
+> 根治仍是「`http_client` 对 loopback / 私网不走系统代理」那条备选（HANDOFF-CARD 里记着）。
 
 > ## 📌 rev173.299（2026-10-31 · 0.9.3 已发版）
 

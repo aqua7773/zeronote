@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Download, Loader2, RefreshCw, ShieldAlert } from 'lucide-react'
 import {
+  UPDATE_MIRRORS,
   canInstallApk,
   checkAppUpdate,
   downloadAndroidUpdate,
@@ -22,10 +23,15 @@ import {
   isAndroidApp,
   isAppAutoCheckEnabled,
   lastCheckedAt,
+  loadUpdateMirror,
   markChecked,
   openInstallSettings,
+  probeUpdateMirror,
+  saveUpdateMirror,
   setAppAutoCheckEnabled,
+  type PathProbe,
   type UpdateCheck,
+  type UpdateMirror,
 } from '../kernel/app-update'
 
 type Phase =
@@ -62,6 +68,10 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const [canInstall, setCanInstall] = useState<boolean>(true)
   const [autoCheck, setAutoCheck] = useState(() => isAppAutoCheckEnabled())
   const [lastAt, setLastAt] = useState(() => lastCheckedAt())
+  /** 更新渠道（rev173.300）：与插件市场同款下拉 + 测速；存下来下次还用 */
+  const [mirror, setMirror] = useState<UpdateMirror>(() => loadUpdateMirror())
+  const [probes, setProbes] = useState<PathProbe[] | null>(null)
+  const [probing, setProbing] = useState(false)
 
   const latest = check?.latest ?? null
   const current = check?.currentVersion ?? appVersion ?? '—'
@@ -70,7 +80,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     setPhase('checking')
     setError('')
     try {
-      const r = await checkAppUpdate()
+      const r = await checkAppUpdate(mirror.id)
       markChecked()
       setLastAt(Date.now())
       setCheck(r)
@@ -84,6 +94,37 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
       setError(String(e))
       setPhase('error')
     }
+  }, [mirror.id])
+
+  /** 换渠道：立刻存下来，下次启动检查也用它 */
+  const switchMirror = (id: string) => {
+    const next = UPDATE_MIRRORS.find((m) => m.id === id)
+    if (!next) return
+    setMirror(next)
+    saveUpdateMirror(next.id)
+    setProbes(null)
+  }
+
+  /** 依次测各渠道（与插件市场「测速」同款：一条一条显示，不阻塞整页） */
+  const probeAll = useCallback(async () => {
+    setProbing(true)
+    setProbes([])
+    const acc: PathProbe[] = []
+    for (const m of UPDATE_MIRRORS) {
+      try {
+        acc.push(await probeUpdateMirror(m.id))
+      } catch (e) {
+        acc.push({
+          id: m.id,
+          label: m.label,
+          ok: false,
+          ms: 0,
+          detail: String(e).slice(0, 80),
+        })
+      }
+      setProbes([...acc])
+    }
+    setProbing(false)
   }, [])
 
   const startInstall = useCallback(async () => {
@@ -207,6 +248,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         `发现新版本 ${latest.version}（当前 ${current}）`,
         size ? `安装包 ${size}` : null,
         latest.pubDate ? `发布于 ${latest.pubDate}` : null,
+        `渠道 ${mirror.label}`,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -217,7 +259,8 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         : '已下载完成，但本应用还没有「安装未知应用」权限 —— 点「去授权」开启后再回来'
     }
     if (phase === 'installing') return '安装器已调起，应用会自动重启'
-    if (phase === 'latest') return `已是最新${check?.remoteVersion ? `（远端 ${check.remoteVersion}）` : ''} · 上次检查 ${fmtTime(lastAt)}`
+    if (phase === 'latest')
+      return `已是最新${check?.remoteVersion ? `（远端 ${check.remoteVersion}）` : ''} · 渠道 ${mirror.label} · 上次检查 ${fmtTime(lastAt)}`
     if (phase === 'checking') return '正在拉更新清单…'
     return `上次检查 ${fmtTime(lastAt)}`
   })()
@@ -256,6 +299,53 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
       {phase === 'available' && latest?.notes ? (
         <div className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-ui-sm bg-accent/40 p-2 text-[11px] leading-relaxed text-muted-foreground">
           {latest.notes}
+        </div>
+      ) : null}
+
+      {/* 更新渠道（rev173.300）：与插件市场的镜像下拉同款 —— 清单与安装包都从这条渠道走 */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+        <label htmlFor="zn-app-update-mirror" className="shrink-0">
+          更新渠道
+        </label>
+        <select
+          id="zn-app-update-mirror"
+          className="rounded-ui-sm border border-border-strong bg-background px-1 py-0.5 text-[11px] text-foreground"
+          value={mirror.id}
+          onChange={(e) => switchMirror(e.target.value)}
+          title="清单与安装包都从这条渠道走 —— jsDelivr 只能镜像清单，安装包在 Release 附件里它拿不到"
+        >
+          {UPDATE_MIRRORS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="rounded-ui-sm border border-border-strong bg-background px-1.5 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+          onClick={() => void probeAll()}
+          disabled={probing}
+          title="依次测各渠道：能不能拉到真清单（会解析版本），桌面再 HEAD 一下安装包"
+        >
+          {probing ? '测速中…' : '测速'}
+        </button>
+      </div>
+
+      {probes && probes.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {probes.map((p) => (
+            <span
+              key={p.id}
+              className={
+                p.ok
+                  ? 'rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-600'
+                  : 'rounded bg-red-500/10 px-1 py-0.5 text-[10px] text-red-500'
+              }
+              title={p.detail}
+            >
+              {p.label} {p.ok ? `${p.ms}ms` : '✗'} · {p.detail}
+            </span>
+          ))}
         </div>
       ) : null}
 

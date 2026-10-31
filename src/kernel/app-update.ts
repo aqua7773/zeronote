@@ -62,8 +62,64 @@ export function isAndroidApp(): boolean {
 }
 
 /** 检查有没有新版本。网络失败不抛异常 —— 结果里的 `error` 会说明原因 */
-export async function checkAppUpdate(): Promise<UpdateCheck> {
-  return invoke<UpdateCheck>('check_app_update')
+export async function checkAppUpdate(mirrorId?: string): Promise<UpdateCheck> {
+  return invoke<UpdateCheck>('check_app_update', { mirrorId: mirrorId ?? null })
+}
+
+/* ───── 更新渠道（rev173.300）：与插件市场同一套 id ───── */
+
+/** 一条更新渠道（清单与安装包都按它路由；安装包的实际能力见 Rust `AssetRoute`） */
+export type UpdateMirror = { id: string; label: string }
+
+/**
+ * 内置渠道。**id / label 与 `src-tauri/src/updates.rs` 的 `MIRRORS` 逐字一致**，
+ * 也与插件市场 `MARKET_MIRRORS` 同序（raw 第一）。
+ *
+ * 两处各有一份，改要一起改 —— 没有跨语言测试能兜住；但用户看到的名字混了，
+ * 至少比「后端不认这个 id」好查（后者会直接报「不认识的更新渠道」）。
+ */
+export const UPDATE_MIRRORS: UpdateMirror[] = [
+  { id: 'raw', label: 'GitHub raw' },
+  { id: 'jsdelivr-gcore', label: 'jsDelivr · GCore' },
+  { id: 'jsdelivr-testingcf', label: 'jsDelivr · Cloudflare' },
+  { id: 'jsdelivr', label: 'jsDelivr（cdn，国内常断）' },
+  { id: 'ghproxy', label: 'ghproxy.net（第三方）' },
+]
+
+/** 选中的更新渠道存这里（与插件市场的 `zn-market-mirror` 分开存） */
+export const APP_UPDATE_MIRROR_KEY = 'zn-app-update-mirror'
+
+/** 当前渠道：存过且认识用存的，否则第一条（raw） */
+export function loadUpdateMirror(): UpdateMirror {
+  try {
+    const id = window.localStorage.getItem(APP_UPDATE_MIRROR_KEY)?.trim() ?? ''
+    return UPDATE_MIRRORS.find((m) => m.id === id) ?? UPDATE_MIRRORS[0]
+  } catch {
+    return UPDATE_MIRRORS[0]
+  }
+}
+
+export function saveUpdateMirror(id: string): void {
+  try {
+    window.localStorage.setItem(APP_UPDATE_MIRROR_KEY, id)
+  } catch {
+    /* 存不下就只在本次会话生效 */
+  }
+}
+
+/** 一条渠道的探测结果（Rust `PathProbe`） */
+export type PathProbe = {
+  id: string
+  label: string
+  ok: boolean
+  ms: number
+  /** 给人看的一句话（成功 = 版本 + 安装包大小；失败 = 原因） */
+  detail: string
+}
+
+/** 测一条渠道：拉清单（桌面再 HEAD 一下安装包） */
+export async function probeUpdateMirror(mirrorId: string): Promise<PathProbe> {
+  return invoke<PathProbe>('probe_update_mirror', { mirrorId })
 }
 
 /**

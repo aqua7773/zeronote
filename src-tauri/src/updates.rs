@@ -30,27 +30,77 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 
 /// 一条镜像：id + 基址（清单与安装包都从这里拼）
+///
+/// id / label 与前端插件市场（`src/kernel/market.ts` 的 `MARKET_MIRRORS`）**同一套** ——
+/// 用户在「关于 → 更新」里选渠道时，看到的顺序与插件市场一致（rev173.300）。
 struct Mirror {
   id: &'static str,
+  /// 给人看的名字（与 market.ts 的 label 逐字一致）
+  label: &'static str,
+  /// `update/<平台>.json` 的基址
   base: &'static str,
+  /// 安装包（GitHub Release 附件）走法 —— 见 `AssetRoute`
+  asset: AssetRoute,
 }
 
+/// 安装包（Release 附件）的渠道能力。
+///
+/// **为什么和清单分开**：清单是仓库里的文件，5 个渠道都能镜像；安装包在
+/// GitHub Release 附件里，而 jsDelivr **只服务仓库文件、拿不到 Release 附件** ——
+/// 这些渠道只能镜像清单，安装包退回 GitHub 直链（或反代）。
+#[derive(Clone, Copy)]
+enum AssetRoute {
+  /// 原样（GitHub 直连）
+  Direct,
+  /// `https://github.com/…` 前加反代前缀
+  Prefix(&'static str),
+}
+
+impl AssetRoute {
+  /// 反代前缀（没有就是空串）
+  fn prefix(self) -> &'static str {
+    match self {
+      AssetRoute::Direct => "",
+      AssetRoute::Prefix(p) => p,
+    }
+  }
+}
+
+/// 渠道表。**顺序 = 自动探测顺序**，与插件市场同序（raw 第一）。
+///
+/// 实测（2026-10-27 手机 / 2026-10-31 桌面）：raw 常被 TLS RST 或超时，jsDelivr 节点稳；
+/// ghproxy 通但下载只有 ~10 KB/s（15 MB 装包要 20 分钟以上）。所以渠道**必须能选、能测**，
+/// 不能替用户拍一个（rev173.300 用户要求「和插件渠道一样做多渠道测试分发」）。
 const MIRRORS: &[Mirror] = &[
   Mirror {
     id: "raw",
+    label: "GitHub raw",
     base: "https://raw.githubusercontent.com/aqua7773/zeronote/main/",
-  },
-  Mirror {
-    id: "ghproxy",
-    base: "https://ghproxy.net/https://raw.githubusercontent.com/aqua7773/zeronote/main/",
+    asset: AssetRoute::Direct,
   },
   Mirror {
     id: "jsdelivr-gcore",
+    label: "jsDelivr · GCore",
     base: "https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/",
+    asset: AssetRoute::Direct,
   },
   Mirror {
-    id: "jsdelivr-cf",
+    id: "jsdelivr-testingcf",
+    label: "jsDelivr · Cloudflare",
     base: "https://testingcf.jsdelivr.net/gh/aqua7773/zeronote@main/",
+    asset: AssetRoute::Direct,
+  },
+  Mirror {
+    id: "jsdelivr",
+    label: "jsDelivr（cdn，国内常断）",
+    base: "https://cdn.jsdelivr.net/gh/aqua7773/zeronote@main/",
+    asset: AssetRoute::Direct,
+  },
+  Mirror {
+    id: "ghproxy",
+    label: "ghproxy.net（第三方）",
+    base: "https://ghproxy.net/https://raw.githubusercontent.com/aqua7773/zeronote/main/",
+    asset: AssetRoute::Prefix("https://ghproxy.net/"),
   },
 ];
 
@@ -127,10 +177,63 @@ fn platform_key() -> String {
   tauri_plugin_updater::target().unwrap_or_else(|| "windows-x86_64".to_string())
 }
 
-/// 拿一条镜像（按 id）。只有桌面的安装命令用它（Android 直接拼下载地址）
+/// 拿一条镜像（按 id）
 #[cfg_attr(target_os = "android", allow(dead_code))]
 fn mirror(id: &str) -> Option<&'static Mirror> {
   MIRRORS.iter().find(|m| m.id == id)
+}
+
+/// 已知反代前缀。清单历史上写死过 ghproxy 地址（0.9.2 / 0.9.3 的生成脚本就是这么写的），
+/// 客户端要能把它剥回 GitHub 直链，否则「选了 raw 也还是走 ghproxy」。
+const ASSET_PROXY_PREFIXES: &[&str] = &["https://ghproxy.net/"];
+
+/// 把安装包地址规范化成 **GitHub 直链**（剥掉已知反代前缀）
+fn canonical_asset_url(url: &str) -> String {
+  for p in ASSET_PROXY_PREFIXES {
+    if let Some(rest) = url.strip_prefix(p) {
+      return rest.to_string();
+    }
+  }
+  url.to_string()
+}
+
+/// 按渠道改写安装包地址（纯函数，方便测）。
+///
+/// 规则：
+///  · 非本仓库的地址（外部 / 自建源）**原样**，不瞎改
+///  · 渠道不认识 / 该渠道拿不到 Release 附件（jsDelivr）⇒ 回 GitHub 直链
+///  · 反代渠道 ⇒ `<前缀><GitHub 直链>`（清单已带前缀时不会叠两层）
+fn rewrite_asset_url(mirror_id: &str, url: &str) -> String {
+  let canonical = canonical_asset_url(url);
+  if !canonical.starts_with("https://github.com/") {
+    return canonical;
+  }
+  match mirror(mirror_id).map(|m| m.asset.prefix()) {
+    Some(p) if !p.is_empty() => format!("{p}{canonical}"),
+    _ => canonical,
+  }
+}
+
+/// 各渠道下的安装包地址（去重，首项 = 清单里的直链）——「手动下载」与逐个试都用它
+fn asset_candidates(url: &str) -> Vec<String> {
+  let mut out = vec![canonical_asset_url(url)];
+  for m in MIRRORS {
+    let u = rewrite_asset_url(m.id, url);
+    if !out.contains(&u) {
+      out.push(u);
+    }
+  }
+  out
+}
+
+/// 字节数 → 人读的大小（探针 detail 用）
+fn human_size(bytes: u64) -> String {
+  let mib = bytes as f64 / 1024.0 / 1024.0;
+  if mib >= 1.0 {
+    format!("{mib:.1} MB")
+  } else {
+    format!("{} KB", std::cmp::max(1, bytes / 1024))
+  }
 }
 
 /// 三段数字比较：`is_newer("1.10.0", "1.9.0") == true`。
@@ -183,8 +286,6 @@ fn parse_manifest(v: &serde_json::Value) -> Option<AppUpdate> {
     .and_then(|x| x.as_str())
     .map(str::to_string);
 
-  let mut mirrors: Vec<String> = Vec::new();
-
   #[cfg(desktop)]
   {
     let key = platform_key();
@@ -194,9 +295,8 @@ fn parse_manifest(v: &serde_json::Value) -> Option<AppUpdate> {
       .get("signature")
       .and_then(|x| x.as_str())
       .map(str::to_string);
-    if url.starts_with("https://github.com/") {
-      mirrors.push(format!("https://ghproxy.net/{url}"));
-    }
+    // 首项是清单里的直链本身，mirrors 只留其余渠道（给「手动下载 / 逐个试」）
+    let mirrors = asset_candidates(&url).into_iter().skip(1).collect();
     return Some(AppUpdate {
       version,
       notes,
@@ -218,9 +318,8 @@ fn parse_manifest(v: &serde_json::Value) -> Option<AppUpdate> {
       .and_then(|x| x.as_str())
       .map(str::to_string);
     let size = apk.get("size").and_then(|x| x.as_u64());
-    if url.starts_with("https://github.com/") {
-      mirrors.push(format!("https://ghproxy.net/{url}"));
-    }
+    // 首项是清单里的直链本身，mirrors 只留其余渠道（Android 下载时逐个试）
+    let mirrors = asset_candidates(&url).into_iter().skip(1).collect();
     Some(AppUpdate {
       version,
       notes,
@@ -234,14 +333,33 @@ fn parse_manifest(v: &serde_json::Value) -> Option<AppUpdate> {
   }
 }
 
-/// 检查有没有新版本。**只在所有镜像都失败时才把 error 填上**。
+/// 检查有没有新版本。**只在候选渠道全失败时才把 error 填上**。
+///
+/// `mirror_id`：指定渠道（用户在下拉里选的）就只试它；不给（启动静默检查）就按
+/// `MIRRORS` 顺序自动探测 —— 保证「用户没选」时仍能找到一条通的。
 #[tauri::command]
-pub async fn check_app_update() -> Result<UpdateCheck, String> {
+pub async fn check_app_update(mirror_id: Option<String>) -> Result<UpdateCheck, String> {
   let current = env!("CARGO_PKG_VERSION").to_string();
   let file = manifest_file();
+  let candidates: Vec<&'static Mirror> = match mirror_id.as_deref() {
+    Some(id) => match mirror(id) {
+      Some(m) => vec![m],
+      None => {
+        return Ok(UpdateCheck {
+          current_version: current,
+          has_update: false,
+          remote_version: None,
+          latest: None,
+          mirror: String::new(),
+          error: Some(format!("不认识的更新渠道：{id}")),
+        })
+      }
+    },
+    None => MIRRORS.iter().collect(),
+  };
   let mut last_err = String::new();
 
-  for m in MIRRORS {
+  for m in candidates {
     let url = format!("{}update/{}", m.base, file);
     match fetch_json(&url).await {
       Ok(v) => {
@@ -277,6 +395,106 @@ pub async fn check_app_update() -> Result<UpdateCheck, String> {
   })
 }
 
+/// 一条渠道的探测结果（「关于 → 更新」的测速用，rev173.300）
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PathProbe {
+  pub id: String,
+  pub label: String,
+  pub ok: bool,
+  pub ms: u64,
+  /// 给人看的一句话（成功 = 版本 + 安装包大小；失败 = 原因）
+  pub detail: String,
+}
+
+/// 错误文本的最后一小段（Rust 侧错误常带「… —— 原因」，最后一段最有信息量）
+fn short_error(e: &str) -> String {
+  e.rsplit("——")
+    .next()
+    .unwrap_or(e)
+    .trim()
+    .chars()
+    .take(80)
+    .collect()
+}
+
+/// 测一条渠道：拉清单，桌面再顺手 HEAD 一下安装包。
+///
+/// **只看状态码会被骗**（2026-10-27 实测某反代回 200 但只有 508 字节的错误页），
+/// 所以「可用」= 200 **且**能解析出 version。安装包那一问只看**可达性**（HEAD），
+/// 不代表下载速度 —— 文案里写「安装包 15.0 MB 320ms」，别让人把「可达」当「快」。
+#[tauri::command]
+pub async fn probe_update_mirror(mirror_id: String) -> Result<PathProbe, String> {
+  let Some(m) = mirror(&mirror_id) else {
+    return Ok(PathProbe {
+      id: mirror_id.clone(),
+      label: mirror_id,
+      ok: false,
+      ms: 0,
+      detail: "不认识的渠道".to_string(),
+    });
+  };
+
+  let started = std::time::Instant::now();
+  let url = format!("{}update/{}", m.base, manifest_file());
+  let parsed = match fetch_json(&url).await {
+    Ok(v) => v,
+    Err(e) => {
+      return Ok(PathProbe {
+        id: m.id.to_string(),
+        label: m.label.to_string(),
+        ok: false,
+        ms: started.elapsed().as_millis() as u64,
+        detail: short_error(&e),
+      })
+    }
+  };
+
+  let version = parsed
+    .get("version")
+    .and_then(|x| x.as_str())
+    .unwrap_or("?")
+    .to_string();
+  let latest = parse_manifest(&parsed);
+  let manifest_ms = started.elapsed().as_millis() as u64;
+
+  #[cfg(desktop)]
+  let asset_note = match latest.as_ref() {
+    Some(u) => {
+      let asset_url = rewrite_asset_url(m.id, &u.url);
+      let t = std::time::Instant::now();
+      match crate::net::http_client(8_000) {
+        Ok(c) => match c.head(&asset_url).send().await {
+          Ok(r) if r.status().is_success() => {
+            let size = r
+              .content_length()
+              .map(human_size)
+              .unwrap_or_else(|| "未知大小".to_string());
+            format!(" · 安装包 {size} {}ms", t.elapsed().as_millis())
+          }
+          Ok(r) => format!(" · 安装包 HTTP {}", r.status().as_u16()),
+          Err(e) => format!(" · 安装包不可达（{}）", short_error(&e.to_string())),
+        },
+        Err(e) => format!(" · 安装包不可达（{e}）"),
+      }
+    }
+    None => " · 本平台无安装包".to_string(),
+  };
+  #[cfg(not(desktop))]
+  let asset_note = latest
+    .as_ref()
+    .map(|u| u.size.map(|s| format!(" · {}", human_size(s))).unwrap_or_default())
+    .unwrap_or_else(|| " · 本平台无安装包".to_string());
+
+  Ok(PathProbe {
+    id: m.id.to_string(),
+    label: m.label.to_string(),
+    ok: true,
+    ms: manifest_ms,
+    detail: format!("v{version}{asset_note}"),
+  })
+}
+
 /// 桌面：下载并安装更新（调官方 updater，签名校验由它做）。
 ///
 /// ⚠️ Windows 上这个函数**不会正常返回** —— updater 在起安装器之前会 `exit(0)`，
@@ -301,14 +519,22 @@ pub async fn install_desktop_update(
       .build()
       .map_err(|e| format!("初始化更新器失败：{e}"))?;
 
-    let Some(update) = updater.check().await.map_err(|e| format!("检查更新失败：{e}"))? else {
+    let Some(mut update) = updater.check().await.map_err(|e| format!("检查更新失败：{e}"))? else {
       return Err("已经是最新版本".to_string());
     };
 
+    // 安装包按用户选的渠道改写（清单里的 url 可能是 GitHub 直链，也可能带着旧的反代前缀）
+    let rewritten = rewrite_asset_url(&mirror_id, update.download_url.as_str());
+    if rewritten != update.download_url.as_str() {
+      update.download_url = tauri::Url::parse(&rewritten)
+        .map_err(|e| format!("安装包渠道地址不合法（{rewritten}）：{e}"))?;
+    }
+
     log::info!(
-      "开始下载更新 {} → {}",
+      "开始下载更新 {} → {}（渠道 {mirror_id} · {}）",
       update.current_version,
-      update.version
+      update.version,
+      update.download_url
     );
 
     let ch = on_event.clone();
@@ -471,5 +697,42 @@ mod tests {
     assert!(is_newer("0.9.1", "v0.9.2"));
     assert!(is_newer("0.9.1", "0.9.2-beta"));
     assert!(!is_newer("0.9.1", "0.9.1+build5"));
+  }
+
+  /// 渠道改写（rev173.300）：直连渠道原样、反代渠道加前缀、旧清单的反代前缀先剥回直链。
+  #[test]
+  fn asset_url_routes_by_mirror() {
+    let gh = "https://github.com/aqua7773/zeronote/releases/download/v0.9.3/ZeroNote_0.9.3_x64-setup.exe";
+    // jsDelivr / raw 拿不到 Release 附件 ⇒ 回 GitHub 直链
+    assert_eq!(rewrite_asset_url("raw", gh), gh);
+    assert_eq!(rewrite_asset_url("jsdelivr-gcore", gh), gh);
+    assert_eq!(rewrite_asset_url("jsdelivr-testingcf", gh), gh);
+    assert_eq!(rewrite_asset_url("jsdelivr", gh), gh);
+    // 反代渠道
+    assert_eq!(
+      rewrite_asset_url("ghproxy", gh),
+      format!("https://ghproxy.net/{gh}")
+    );
+    // 清单里已带反代前缀（0.9.2 / 0.9.3 就是这么写的）：任何渠道都先剥回直链，不叠两层
+    let prefixed = format!("https://ghproxy.net/{gh}");
+    assert_eq!(rewrite_asset_url("raw", &prefixed), gh);
+    assert_eq!(rewrite_asset_url("ghproxy", &prefixed), prefixed);
+    // 外部 / 自建源的地址不瞎改
+    assert_eq!(
+      rewrite_asset_url("ghproxy", "https://example.com/x.exe"),
+      "https://example.com/x.exe"
+    );
+    // 不认识的渠道 ⇒ 原样
+    assert_eq!(rewrite_asset_url("nope", gh), gh);
+  }
+
+  /// 候选地址：首项 = 直链；jsDelivr 三条 + raw 全落同一地址 ⇒ 去重后只剩 2 条。
+  #[test]
+  fn asset_candidates_dedupes_by_channel() {
+    let gh = "https://github.com/aqua7773/zeronote/releases/download/v0.9.3/a.exe";
+    let c = asset_candidates(gh);
+    assert_eq!(c.len(), 2, "实际 {c:?}");
+    assert_eq!(c[0], gh);
+    assert_eq!(c[1], format!("https://ghproxy.net/{gh}"));
   }
 }

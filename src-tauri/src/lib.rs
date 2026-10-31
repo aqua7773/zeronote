@@ -4011,7 +4011,9 @@ pub fn run() {
       // rev173.292：应用本体更新（桌面 updater / Android 自下载 + 系统安装器）
       updates::check_app_update,
       updates::install_desktop_update,
-      updates::download_android_update
+      updates::download_android_update,
+      // rev173.300：更新渠道测速（与插件市场的 probeMirror 同款）
+      updates::probe_update_mirror
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

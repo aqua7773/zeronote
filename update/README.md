@@ -30,7 +30,7 @@ gh release create v0.9.2 --title "..." --notes "..." `
 git add update && git commit -m "chore(update): v0.9.2" && git push
 ```
 
-**第 5 步不能省**：客户端按 `raw / ghproxy / jsDelivr` 的镜像顺序读**仓库里**的清单；
+**第 5 步不能省**：客户端按用户选的渠道（默认按表顺序自动探测）读**仓库里**的清单；
 Release 上那份只是给人下载用的备份。
 
 ## 为什么清单不进 Release
@@ -38,7 +38,8 @@ Release 上那份只是给人下载用的备份。
 `plugins.updater.endpoints` 的语义是「非 2xx 才试下一个」，连接被 RST 属于网络错误 ——
 它会直接失败、不会换镜像（详见 `src-tauri/src/updates.rs` 头部注释）。
 所以镜像选择必须在我们自己的代码里做，清单也就必须能在**任意一个可达的静态地址**上取到。
-仓库 raw 镜像列表（raw / ghproxy / jsDelivr ×2）已经覆盖国内网络。
+仓库 raw 镜像列表（raw / jsDelivr ×3 / ghproxy）已经覆盖国内网络；用户还能在「关于 → 更新」
+里选渠道或跑一次测速。
 
 ## 安装包地址为什么是 `ghproxy.net/...`
 
@@ -54,6 +55,26 @@ reqwest 能借代理出去，一关代理就必然失败。ghproxy 前缀那条�
 
 * 想在海外 / 自建反代环境用原始地址：`$env:NO_GH_MIRROR=1; node scripts/gen-update-manifest.mjs`
 * ghproxy 挂了怎么办：应用内更新会报错，用户到 Release 页面手动下（浏览器可配代理）。
+
+## 渠道（rev173.300）：和插件市场同一套
+
+「关于 → 更新」里有 **更新渠道下拉 + 测速**，渠道表与插件市场 `MARKET_MIRRORS` 同一套
+id 与顺序（前端 `src/kernel/app-update.ts` 的 `UPDATE_MIRRORS` / Rust `updates.rs` 的 `MIRRORS`）：
+
+| 渠道 | 清单 | 安装包 |
+|---|---|---|
+| `raw`（GitHub raw） | ✅ | GitHub 直链 |
+| `jsdelivr-gcore` · `jsdelivr-testingcf` · `jsdelivr` | ✅ | GitHub 直链（**jsDelivr 只服务仓库文件，拿不到 Release 附件**） |
+| `ghproxy`（第三方反代） | ✅ | ✅ `https://ghproxy.net/<Release 地址>` |
+
+* 选中的渠道存 `localStorage['zn-app-update-mirror']`，检查与下载都按它走；
+  启动时的静默检查**不指定渠道**（按表顺序自动探测，谁先 200 用谁）。
+* 清单里的 `url` 仍写成 ghproxy 前缀 —— 客户端先 `canonical_asset_url()` 剥回 GitHub
+  直链，再按渠道 `rewrite_asset_url()` 路由。这样 ≤0.9.3 的旧客户端（只会原样用清单
+  url）不会被改坏；**别把脚本改成直链**。
+* 测速命令 `probe_update_mirror`：拉清单并**解析出版本**（只看状态码会被错误页骗），
+  桌面再 HEAD 一下安装包。**HEAD 可达 ≠ 下载快**：2026-10-31 实测 ghproxy HEAD 200，
+  但 15 MB 装包只有 ~10 KB/s（20 分钟以上）。
 
 ## 改了清单后，镜像会有一段时间是旧的
 

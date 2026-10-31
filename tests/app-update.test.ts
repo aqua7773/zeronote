@@ -10,11 +10,15 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   APP_UPDATE_AUTO_KEY,
   APP_UPDATE_LAST_CHECK_KEY,
+  APP_UPDATE_MIRROR_KEY,
   APP_UPDATE_TTL_MS,
+  UPDATE_MIRRORS,
   isAndroidApp,
   isAppAutoCheckEnabled,
   lastCheckedAt,
+  loadUpdateMirror,
   markChecked,
+  saveUpdateMirror,
   setAppAutoCheckEnabled,
   shouldAutoCheck,
 } from '../src/kernel/app-update'
@@ -73,5 +77,31 @@ describe('平台判据', () => {
     expect(isAndroidApp()).toBe(true)
     spy('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
     expect(isAndroidApp()).toBe(false)
+  })
+})
+
+describe('更新渠道（rev173.300）', () => {
+  it('缺省 = 第一条（raw），id 顺序与 Rust MIRRORS / 插件市场一致', () => {
+    expect(loadUpdateMirror().id).toBe('raw')
+    expect(UPDATE_MIRRORS.map((m) => m.id)).toEqual([
+      'raw',
+      'jsdelivr-gcore',
+      'jsdelivr-testingcf',
+      'jsdelivr',
+      'ghproxy',
+    ])
+  })
+
+  it('存过且认识 ⇒ 用它；存了个不认识的 ⇒ 回默认（不报错）', () => {
+    saveUpdateMirror('ghproxy')
+    expect(loadUpdateMirror().id).toBe('ghproxy')
+    saveUpdateMirror('nope')
+    expect(loadUpdateMirror().id).toBe('raw')
+  })
+
+  it('与插件市场的渠道各存各的（互不覆盖）', () => {
+    saveUpdateMirror('ghproxy')
+    expect(window.localStorage.getItem(APP_UPDATE_MIRROR_KEY)).toBe('ghproxy')
+    expect(window.localStorage.getItem('zn-market-mirror')).toBeNull()
   })
 })
