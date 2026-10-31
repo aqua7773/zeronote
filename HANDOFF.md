@@ -237,6 +237,30 @@ revision: 173.303
 >
 > **仍只能真机验的**：抽屉滑动手势（#2 #3）—— 那段 `useEffect` 只在 `/Android/i` 的 UA 下注册，桌面根本不跑；返回键（#4 的 `backRef` 分支）同理。
 
+> ### 真机验收（2026-10-31 19:1x–19:2x · 24069RA21C · dev 包 `com.aqua.zeronote.debug`）
+>
+> **两个前置坑**：① 手机上原来装的包跑的是 **APK 里打包的前端**（`assets/index-*.js`），改动不在里面 ——
+> 先用 `android-dev.cmd`（WMI 脱离会话）重装 dev 包；日志里出现 `http://tauri.localhost/src/kernel/fs.ts`
+> 才说明它连的是 dev server（不是打包产物）。② 手机 WebView 的 CDP：
+> `adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>`（**注意别挑到 `browser_webview_devtools_remote_`**），
+> 之后 `ZN_CDP=http://127.0.0.1:9223 ZN_TARGET=tauri.localhost node tools/cdp.mjs …`。
+>
+> | # | 验法 | 结果 |
+> |---|---|---|
+> | 1 | 长按 ＋（派发 PointerEvent 长按） | ✅ 环上只有「插件 ×2 / 回收站 / 插件中心 / 设置 / ＋」—— **没有时间流** |
+> | 3 | 环开着 → `adb shell input swipe 100 1200 380 1200 300` | ✅ `sidebarOpen:false`（**修复前在同一台机器、同一个旧包上实测是 `true`** —— 现象复现过） |
+> | — | 对照：关掉环再右划 | ✅ `sidebarOpen:true`（手势本身没被误禁） |
+> | 2 | 打开带图笔记 → 点图 ⇒ `.zn-img-preview` → 右划 | ✅ 预览还在、`sidebarOpen:false` |
+> | 4a | 查找 → 替换 | ✅ `flexWrap:wrap` · 栏高 **67px**（两行）· 三个按钮同 `top=108` · 无横向溢出（`_shots/rt3-phone-05-replacebar.png`） |
+> | 4b | 返回键 ×1 → ×2 | ✅ ①关替换、**查找面板回来** ②关查找、编辑器还在 |
+> | 4b′ | 顶栏 `‹` | ✅ 替换栏开着点它 ⇒ 关替换 + 回查找面板，**没关笔记** |
+> | 4c | 替换栏开着点 🔍 | ✅ 替换栏收起、查找面板打开（`replace:false + search:true`），不叠加 |
+> | 5 | 用户追加：「移动端搜索栏的替换是竖排的」 | ❌→✅ 指的是**查找面板**里注入的那个「替换」按钮：它复用了 atomic 的 **32×32 正方形图标尺寸**，中文两个字放不下就逐字换行（`rt3-phone-09-findpanel.png`）。单独放平（`width:auto` + `min-width:2.75rem` + `nowrap`）后横排（`rt3-phone-10-findpanel-fixed.png` · `c5254db`） |
+>
+> 手机库当时是空的（`/storage/emulated/0/Documents/ZeroNote` 只有 `.zn`）—— 验照片那条是自己
+> `adb push` 了 `test-photo.md` + `test-photo.png` 进库再打开。
+
+
 
 > ## 📌 rev173.301（2026-10-31 · 0.9.4 发版）
 
