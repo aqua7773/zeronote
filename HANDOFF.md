@@ -189,6 +189,49 @@ revision: 173.292
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.292（2026-10-31 · 0.9.2 发版：应用本体更新）
+
+> 用户：「给 zeronote 添加内置更新功能」→ 拍板「两端都做 + 密钥我生成」→ 最后一句「发布」。
+>
+> ### 做了什么
+>
+> 桌面走官方 `tauri-plugin-updater`（minisign 签名不可关 + NSIS 安装器 + 装完自动重启）；Android 走
+> 「自己下 APK（不设总超时）→ sha256 核对 → `tauri-plugin-apk-install` 起 `ACTION_VIEW`」——
+> 官方 updater 的支持表**没有 Android**。清单 = 仓库里 `update/latest.json`（桌面 static JSON）/
+> `update/android.json`，由 `scripts/gen-update-manifest.mjs` 生成。镜像 raw → ghproxy → jsDelivr×2
+> 由 Rust 自己探测（`endpoints` 只在非 2xx 时回退；手机 raw 是 TLS RST = 网络错误，不会回退）。
+> UI：设置 → 关于 → 更新 + 启动 24h 节流静默提示（只提示不下载）。
+>
+> ### 产物与发布
+>
+> | 平台 | 文件 | 大小 |
+> |---|---|---|
+> | Windows | `ZeroNote_0.9.2_x64-setup.exe` + `.sig` | 15.02 MiB / 436 B |
+> | Windows | `ZeroNote_0.9.2_x64_zh-CN.msi` + `.sig` | 16.93 MiB / 436 B |
+> | Android | `ZeroNote_0.9.2_arm64.apk` | 32.87 MiB |
+>
+> 构建耗时：桌面 **3m18s** / Android **6m23s**（aarch64，含新插件 Kotlin 首次编译）。
+> Release https://github.com/aqua7773/zeronote/releases/tag/v0.9.2 · tag `v0.9.2` 指向 `e0f7f61`。
+>
+> ### 本轮踩到的三个真问题
+>
+> 1. **国内直连 `github.com:443` 不通** —— 第一次 `git push` 就撞上 `curl 28 Failed to connect`；
+>    走本机系统代理（Steam++ `127.0.0.1:26561`）才推上去。⇒ 顺手把清单里的安装包地址改成
+>    **ghproxy 前缀**（`NO_GH_MIRROR=1` 可退回原始地址），否则关掉代理的用户下载必失败。
+> 2. **镜像缓存不同步** —— 改完清单立刻验证：raw 实时、ghproxy 几分钟、jsDelivr 小时级。
+>    所以镜像顺序必须 raw 第一（应用内探测也是这个顺序）。
+> 3. **3 条既有网络测试挂起**（`net::tests` ×2 + `install_znp_from_url_rejects_*`）：系统代理开着时
+>    reqwest 的 loopback 请求被代理吞掉、本地桩 accept 不到 ⇒ 挂死。`git stash` 基线可复现，
+>    **不是本轮引入**。验收办法：`cargo test --lib -- --skip net::tests --skip install_znp_from_url`
+>    （85 条全绿）。
+>
+> ### 验证与未验证
+>
+> 已验：清单三个源可拉（version=0.9.2）· ghproxy 下载地址 HEAD 200（15,749,093 字节一致）·
+> tsc / oxlint / vitest 1695 / check-docs / 质量门 8/8 · 两端 release 构建出 `.sig`。
+> **未验**：真装一次 0.9.2 → 点「检查更新」→ 走完下载与安装（需要一台机器装 release 版，
+> dev 模式没有安装目录，updater 会拒绝）。这是这一版唯一的空白。
+
 > ## 📌 rev173.291（2026-10-31 · 0.9.1 发版：桌面 + Android arm64）
 
 > 用户：「推送版本更新」+「编译有没有办法减少时间，每次编译时间都很长」。
