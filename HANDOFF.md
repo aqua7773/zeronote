@@ -204,6 +204,36 @@ revision: 173.310
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.310（2026-10-31 · 0.9.8 发版：导入导出面板重做 + 分享带图片的 Markdown 文件）
+
+> 用户转来 `Downloads/真人测试4.md` 两条（① 手机上面板「导出当前笔记」永远是空的；② 分享要带图片的 markdown 文件），
+> 改完又追加一条 UI 要求（三个按钮竖排等宽），然后一句「发」。
+
+> **改了什么**
+>
+> | # | 改法 |
+> |---|---|
+> | 1 | 面板三态：**首页（导出笔记… / 分享笔记… / 导入文件… 三个等宽竖排按钮）→ 选笔记（标题 + 所在目录 + 关键词筛选，最近优先）→ 选格式**。根因：`main` 面板占满主区时编辑器**已卸载**（契约 §2.2），旧按钮在手机上永远是空的 |
+> | 2 | 分享从纯文本改成**带图片的 Markdown 文件**（图片内嵌 `data:`，落 `<库>/.zn/share/`）⇒ **新原生命令 `share_file`**（Kotlin FileProvider `content://` + `EXTRA_STREAM` + `ClipData` + `GRANT_READ`）；另可分享长图 PNG / 纯文本 |
+> | 3 | 长图渲染前先内嵌图片（原来离屏 DOM 里 `![](相对路径)` 必 404 ⇒ 图上空白） |
+> | 4 | 旧应用包（≤0.9.7 没有 `share_file`）**自动降级为纯文本分享** + 提示，不静默失败 |
+
+> | 步 | 结果 |
+> |---|---|
+> | 版本 | `node scripts/release.mjs 0.9.8`（三处，`Cargo.lock` 跟随） |
+> | 构建 | 双端 **18 分 12 秒**（桌面 **8m49s** / Android aarch64 **9m22s**；sccache 命中 0） |
+> | 产物 | `ZeroNote_0.9.8_x64_zh-CN.msi` **16.96 MiB** · `…-setup.exe` **15.07 MiB**（各带 `.sig` 436 B）· `ZeroNote_0.9.8_arm64.apk` **33.00 MiB**（sha256 `dd06705e…`） |
+> | 清单 | APK 先 `Copy-Item` 成带版本号的名字 ⇒ `gen-update-manifest.mjs` 写 `update/latest.json` + `android.json` |
+> | 发布 | `gh release create v0.9.8`（`HTTPS_PROXY`）⇒ 5 个资产 |
+
+> **验证**：tsc 0 · oxlint 4 warnings · cargo 92 · vitest **1729** · 质量门 8/8；
+> 真机（24069RA21C · debug 包）分享 md = `test-photo.md` 85.3 KB（1 张 `data:image` 内嵌）· 分享长图 PNG 76,676 B 带图。
+>
+> ⚠️ **构建路径坑（本轮踩到）**：`build-release.mjs` 用 `CARGO_TARGET_DIR=~\cargo-targets\zeronote`，产物落在
+> `~\cargo-targets\zeronote\release\bundle\{nsis,msi}\`，而 `gen-update-manifest.mjs` 只读仓库内
+> `src-tauri/target/release/bundle/nsis` ⇒ **必须先把 0.9.8 的 exe/sig 与 msi/sig 复制过去**再生成清单，否则清单会
+> 报「nsis 目录里没有 0.9.8 的 exe」或错误地拿上一版。
+
 > ## 📌 rev173.309（2026-10-31 · 0.9.7 发版：手机端去底栏 + 右侧「更多」抽屉）
 
 > 用户一句「发」⇒ 把 rev173.308 的改动发出去（在此之前它只在源码与 debug 包里）。
