@@ -52,6 +52,11 @@ pwsh -File scripts\verify.ps1
 > 发版顺序（别搞反）：`release.mjs <ver>` → `build-release.mjs` → `gen-update-manifest.mjs` →
 > `gh release create`（上传产物 + `.sig`）→ **commit `update/` 并 push**（客户端从仓库读清单，
 > 不是从 Release 读）。步骤见 `update/README.md`，原因见 `docs/应用本体更新-方案-2026-10-31.md`。
+> ⚠️ **本机 3 条既有网络测试会挂**（`net::tests` ×2 + `install_znp_from_url_rejects_*`）：
+> 系统代理开着时（Steam++ `127.0.0.1:26561`）reqwest 的 loopback 请求被代理吞掉、
+> 本地桩永远 accept 不到 ⇒ 挂在 `--test-threads=1` 也一样，`stash` 基线可复现（**不是本轮引入**）。
+> 验收办法：`cargo test --lib -- --skip net::tests --skip install_znp_from_url`（85 条全绿），
+> 或先关掉系统代理；根治要把 `http_client` 的代理策略改成「loopback / 私网不走代理」。
 
 > **下个会话第一件事（rev173.290 交接 · 冲突合并已进编辑页 + 已发市）**：冲突时**正文里直接出现两段** ——
 > 远端段红（`#ff6b6b`）/ 本机段绿（`#51cf66`），带淡背景与左侧色条，字号行高与正文一致，段首各一个 ✔。
