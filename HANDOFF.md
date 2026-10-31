@@ -224,7 +224,7 @@ revision: 173.310
 > | 构建 | 双端 **18 分 12 秒**（桌面 **8m49s** / Android aarch64 **9m22s**；sccache 命中 0） |
 > | 产物 | `ZeroNote_0.9.8_x64_zh-CN.msi` **16.96 MiB** · `…-setup.exe` **15.07 MiB**（各带 `.sig` 436 B）· `ZeroNote_0.9.8_arm64.apk` **33.00 MiB**（sha256 `dd06705e…`） |
 > | 清单 | APK 先 `Copy-Item` 成带版本号的名字 ⇒ `gen-update-manifest.mjs` 写 `update/latest.json` + `android.json` |
-> | 发布 | `gh release create v0.9.8`（`HTTPS_PROXY`）⇒ 5 个资产 |
+> | 发布 | `gh release create v0.9.8`（`HTTPS_PROXY`）⇒ 5 个资产 ⇒ https://github.com/aqua7773/zeronote/releases/tag/v0.9.8 |
 
 > **验证**：tsc 0 · oxlint 4 warnings · cargo 92 · vitest **1729** · 质量门 8/8；
 > 真机（24069RA21C · debug 包）分享 md = `test-photo.md` 85.3 KB（1 张 `data:image` 内嵌）· 分享长图 PNG 76,676 B 带图。
