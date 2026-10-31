@@ -46,6 +46,11 @@ pwsh -File scripts\verify.ps1
 > 另外仍欠一条端到端：**把系统代理指向死端口 → 关于页点一次「测速」** —— 验 rev173.306 的失败回退直连
 > （0.9.6 起就带着这段代码，一直没验）。
 >
+> **环境现状（交接时刻）**：桌面 dev 在跑（`dev.cmd`，vite 1420 + CDP 9222，pid 17996，22:06 起）·
+> 手机 `24069RA21C`（`33b676f6`）上装的是 **debug 包** `com.aqua.zeronote.debug`（连局域网 dev server）——
+> 它和正式包 `com.aqua.zeronote` **包名不同，会共存**；试用 0.9.7 时别把两个搞混（debug 包的图标/入口和正式版一样）。
+> 本轮验 UI 就是靠它：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>` + `ZN_CDP=http://127.0.0.1:9333`。
+>
 > 可选（30–60 分钟，价值在回答「多渠道能不能替代 ghproxy」）：
 > - 在**关掉系统代理**的环境里，分别选 `ghproxy` / `jsdelivr-gcore` 各跑一次「下载并安装」，
 >   记下载速度与是否断流。
