@@ -41,6 +41,22 @@ const REPO = 'aqua7773/zeronote'
 const releaseBase = `https://github.com/${REPO}/releases/download/${tag}/`
 
 /**
+ * 桌面清单里的下载地址**走 ghproxy 反代**（2026-10-31 实测得出）。
+ *
+ * 为什么：`tauri-plugin-updater` 从清单的 `platforms.windows-x86_64.url` 直接下载安装包，
+ * 而这里填的通常是 `github.com/releases/download/...`。国内网络直连 `github.com:443`
+ * 是不通的（本轮 `git push` 就撞过一次 `curl 28 Failed to connect`）；用户开着系统代理
+ * （如 Steam++）时 reqwest 能借代理出去，关掉代理就必然失败。ghproxy 前缀的同一地址
+ * 两端实测都能下（200 + 字节数一致），且不依赖本机代理。
+ *
+ * 代价：ghproxy 是第三方反代，可能限速或临时不可用 —— 所以要保留「手动下载」
+ * （Release 页面），见 UI 与 `update/README.md` 的说明。
+ * 环境变量 `NO_GH_MIRROR=1` 可退回原始 GitHub 地址（海外 / 自建反代时用）。
+ */
+const GH_MIRROR = 'https://ghproxy.net/'
+const downloadBase = process.env.NO_GH_MIRROR ? releaseBase : GH_MIRROR + releaseBase
+
+/**
  * 产物名过滤：**必须按版本号挑，不能取第一个 .exe**。
  * `target/release/bundle/nsis/` 里常年躺着历史版本的安装包（第一次跑这条脚本就撞上
  * 0.8.0 的 exe，差点把 0.8.0 的包当成 0.9.1 发出去）。
@@ -105,7 +121,7 @@ if (existsSync(nsisDir)) {
       )
     } else {
       const signature = readFileSync(sigPath, 'utf-8').trim()
-      const url = releaseBase + encodeURIComponent(exe)
+      const url = downloadBase + encodeURIComponent(exe)
       writeJson('update/latest.json', {
         version,
         notes,

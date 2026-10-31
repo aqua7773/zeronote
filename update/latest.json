@@ -1,10 +1,10 @@
 {
   "version": "0.9.2",
   "notes": "应用本体更新：桌面下载后签名校验 + 静默安装并重启；手机下载 APK 交给系统安装器（首次需允许「安装未知应用」）。入口：设置 → 关于 → 更新。0.9.1 及更早的版本收不到这条通道，需手动装一次。",
-  "pub_date": "2026-10-31T02:39:26.341Z",
+  "pub_date": "2026-10-31T02:43:01.292Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.2/ZeroNote_0.9.2_x64-setup.exe",
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.2/ZeroNote_0.9.2_x64-setup.exe",
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzB5bEpHRzh2Q1U2Z1VKMEVEK1BUUXVweFNidTk5MS91UURkOGpxcnM3VnlQYVhPeGdmcTM3TXpVSzh3OUVqdXU4aCtpQVZYUWwvSWhNSjlrZTFGVHdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDEzODE2CWZpbGU6WmVyb05vdGVfMC45LjJfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS4yCm1VbVRraFFhRko5NDE4K3pMSzBhZ3NJTHNVcUFvK1FOQlhqQ3lFYk9ydnNMZ0F2NWs0eHBJNFhScExHVWNvQ3JFTDRlWnF0ejl1Q0toaVdpY0hUd0JBPT0K"
     }
   }

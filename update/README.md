@@ -40,6 +40,21 @@ Release 上那份只是给人下载用的备份。
 所以镜像选择必须在我们自己的代码里做，清单也就必须能在**任意一个可达的静态地址**上取到。
 仓库 raw 镜像列表（raw / ghproxy / jsDelivr ×2）已经覆盖国内网络。
 
+## 安装包地址为什么是 `ghproxy.net/...`
+
+`latest.json` 里 `platforms.windows-x86_64.url` 由脚本写成 **ghproxy 反代前缀 + 原始 Release 地址**：
+
+```
+https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.2/ZeroNote_0.9.2_x64-setup.exe
+```
+
+原因：updater 拿到这个 URL 就直接下载安装包，而国内网络**直连 `github.com:443` 不通**
+（2026-10-31 本机 `git push` 实测 `curl 28 Failed to connect`）；用户开着系统代理时
+reqwest 能借代理出去，一关代理就必然失败。ghproxy 前缀那条实测两端都 200、字节数一致。
+
+* 想在海外 / 自建反代环境用原始地址：`$env:NO_GH_MIRROR=1; node scripts/gen-update-manifest.mjs`
+* ghproxy 挂了怎么办：应用内更新会报错，用户到 Release 页面手动下（浏览器可配代理）。
+
 ## 私钥在哪
 
 `~/.tauri/zeronote.key`（**不进仓库**，`bundle.createUpdaterArtifacts: true` 后每次打包都要它）。
