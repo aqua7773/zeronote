@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.291 · **0.9.1 已发版**：桌面 msi/exe + Android arm64 APK 已上传 Release；上一轮 rev173.290 = 冲突合并进编辑页 + `sync` 0.1.1）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.297 · **拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 写回 manifest 的 `at`；插件待打包 0.1.6 发市）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.292 · 0.9.2 · 2026-10-31 |
+| rev / 版本 | rev173.297 · 0.9.2 · 2026-10-31 |
 | 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.2 |
@@ -33,30 +33,24 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.296 交接 · 2026-10-31）· 修「拉下来的笔记 mtime = 同步时刻」
+> ### 📌 下个会话第一件事（rev173.297 交接 · 2026-10-31）· `sync` 0.1.6 打包发市 + 真机验 mtime
 >
-> **现象**：从云端拉下来的笔记，时间流里全是同一分钟（2026-10-31 11:13:09 连着四条），
-> 且「云端永远比本机新」—— 本机删了、同步还是以云端为准。用户原话：
-> 「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖」。
+> **rev173.297 已把代码改完**（内核 `set_mtime` + 契约 `fs.setMtime` + `sync` 六处 pull 写回
+> manifest 的 `at`；单测 `tests/sync.test.ts` 97 条绿）。剩下的是**发市**和**真机验**：
 >
-> **原因**：`api.fs.writeText` 走内核写盘，mtime = **写入那一刻**；manifest 每条里有 `at`（推送时间）
-> 但 pull 之后没人用它。插件侧也没有「设置文件时间」的原语（`contract.ts` 只有 `mtime` 读）。
+> 1. **先升版本**：`examples/sync/manifest.json` 的 `version` **0.1.5 → 0.1.6**
+>    （质量门「市场索引」要求 manifest 版本与 `market/packs/*.znp` 一致）。
+> 2. **打包签名 + 索引**（约 10 分钟）：`node scripts/pack-plugin.mjs sync --key <私钥>` →
+>    `node scripts/gen-market.mjs --write` → `node scripts/verify-trust.mjs`（命令原样照 rev173.295 那次）。
+> 3. **本机先验（不用等发市）**：dev 插件目录是**副本不是 junction** ⇒
+>    `examples/sync/` 五个文件拷进 `<appdata>/.zn/plugins/sync/` → reload →
+>    同步一次 → 时间流里拉下来的笔记时间应当是**远端推送时刻**，不是刚才。
+> 4. **真机端到端**：A 写一篇 → 等 1 分钟 → B 拉下来 → **B 的文件 mtime = A 推送时间**；
+>    顺带回归「删一篇 → 等一轮 → 云端也删」（0.1.5 的行为不能被这轮碰坏）。
 >
-> **修法（三层，约 20–30 分钟）**：
-> 1. `src-tauri/src/lib.rs` 新增命令 `set_mtime(vault, path, mtime_ms)` —— Rust 标准库没有 set mtime，
->    用 `filetime` crate（或 Windows `SetFileTime`，项目已有 `windows` crate）；加到 `invoke_handler`。
-> 2. `src/kernel/contract.ts` 的 `fs` 加 `setMtime(path, mtime): Promise<void>`；`src/kernel/plugin-host.ts`
->    里转发（照 `readText` 那条写）；`src-tauri` 的 capabilities 不用动（内核自己的命令）。
-> 3. `examples/sync/index.cjs` 三处拉取写完文件后调用：
->    · 主循环 pull 分支（`await api.fs.writeText(n.path, text)` 之后）
->    · `remote-deleted` 之后不需要（那是删）
->    · 私密树 `syncPrivateTree` 的 pull 分支（`.zn/private/...` 也照做）
->    mtime 取 `remote.files[path]?.at || Date.now()`（manifest 里的推送时间）。
+> ⚠️ 更早 rev 欠的端到端：0.9.2 的「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。
 >
-> **验收**：A 设备写一篇 → 等 1 分钟 → B 设备拉下来 → B 的文件 mtime **= A 推送的时间**（不是 B 的当前时间）；
-> 时间流排序正确；单测补一条（`tests/sync.test.ts` 用桩断言 `setMtime` 被调用且参数 = manifest.at）。
->
-> ### 本轮（rev173.292–295）做完的
+> ### 本轮（rev173.292–297）做完的
 >
 > | rev | 内容 |
 > |---|---|
@@ -64,9 +58,8 @@ pwsh -File scripts\verify.ps1
 > | 173.293 | 删除传播（`sync` 0.1.3）：本机删了不再被拉回 |
 > | 173.294 | 删除 = 搬进**云端回收站** `_zn/trash/`；彻底删除 / 30 天过期才真删；去掉本地留底 |
 > | 173.295 | **删除优先**（`sync` 0.1.5）：有基线就删远端，消除「没有按钮的存在状态冲突死记录」 |
+> | 173.297 | **拉下来的笔记 mtime = 远端推送时间**：内核 `set_mtime`（std `File::set_modified`，无需新依赖）+ 契约 `fs.setMtime` + `sync` 六处 pull 写回 `at` |
 >
-> ⚠️ 端到端都**没在真机验证过**：0.9.2 的「点检查 → 下载安装」需要真装一次；删除传播需要
-> 「删一篇 → 看云端 `_zn/trash/` → 清空回收站 → 看那份消失」。
 
 > **rev173.293（2026-10-31）· 删除会传播了（`sync` 0.1.3）**：用户「我本地删掉的大小，一同步又回来了，
 > 正确做法是把最新的状态同步云端」。旧语义：本机删除只进 `.zn/trash/`（不参与同步）⇒ 插件只看到

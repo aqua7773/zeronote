@@ -503,6 +503,29 @@ const plugin = {
     }
 
     /**
+     * 拉取落盘后，把文件的**修改时间**对齐远端推送时间（rev173.297）。
+     *
+     * 为什么必须有这一步：`api.fs.writeText` 走内核原子写（临时文件 + rename），
+     * mtime 永远是**写入那一刻** ⇒ 从云端拉下来的笔记在时间流里全挤在同一分钟，
+     * 而且下一轮判方向时「云端永远比本机新」，本机删掉 / 本机新写的内容都盖不过它。
+     * manifest 每条里本来就记了推送时间 `at`，文件写完把它写回磁盘，
+     * 文件的「新旧」才反映**内容是哪一端、什么时候**产生的。
+     *
+     * 兼容性：老内核没有 `setMtime`（`typeof` 兜底，与 `listFiles` 同一口径）；
+     * `at` 缺失 / 非法时**跳过** —— 写成 1970 年比不写更糟（笔记会沉到时间流底部）。
+     */
+    async function applyRemoteMtime(path, at) {
+      if (typeof api.fs.setMtime !== 'function') return
+      const ms = Number(at ?? 0)
+      if (!Number.isFinite(ms) || ms <= 0) return
+      try {
+        await api.fs.setMtime(path, ms)
+      } catch (e) {
+        api.host.log('warn', `对齐修改时间失败 ${path}：${String(e)}`)
+      }
+    }
+
+    /**
      * 让 history 打一个**同步点**（rev173.115 三方合并的 base）。
      *
      * 时机：每次成功推 / 拉之后，两端内容一致 —— 这就是下次冲突时要用的「共同祖先」。
@@ -782,6 +805,8 @@ const plugin = {
             const text = await client.get(n.path)
             if (text == null) continue
             await api.fs.writeText(n.path, text)
+            // rev173.297：拉下来的是**远端推送那一刻**的内容 ⇒ 时间也按那一刻算
+            await applyRemoteMtime(n.path, remoteEntry?.at)
             const fp = fingerprint(text)
             baseline[n.path] = { fp, etag: remoteEntry?.etag }
             baseMarked.add(n.path)
@@ -864,6 +889,8 @@ const plugin = {
                 summary.conflicts += 1
                 try {
                   await api.fs.writeText(n.path, theirs)
+                  // rev173.297：乐观锁失败后磁盘对齐的是**远端最新版**，时间同源
+                  await applyRemoteMtime(n.path, remoteEntry?.at)
                   const fp = fingerprint(theirs)
                   baseline[n.path] = { fp, etag: got?.etag }
                   nextFiles[n.path] = { fp, etag: got?.etag, at: Date.now() }
@@ -1056,6 +1083,8 @@ const plugin = {
           if (text == null) continue
           try {
             await api.fs.writeText(path, text)
+            // rev173.297：新设备首拉 / 本机没有这篇 —— 时间是远端推送时间
+            await applyRemoteMtime(path, entry.at)
           } catch (e) {
             summary.hint = `写入失败 ${path}：${String(e)}`
             continue
@@ -1313,6 +1342,8 @@ const plugin = {
             if (text == null) continue
             await keepConflict(rel, '密码库双端修改')
             await api.fs.writeText(rel, text)
+            // rev173.297：冲突后留的是远端版 ⇒ 时间取远端推送时间
+            await applyRemoteMtime(rel, entry?.at)
             baseline[rel] = { fp: fingerprint(text), at: entry?.at ?? 0 }
             summary.conflicts += 1
           } catch (e) {
@@ -1391,6 +1422,8 @@ const plugin = {
             if (text == null) continue
             await api.fs.mkdir(parent).catch(() => {})
             await api.fs.writeText(rel, text)
+            // rev173.297：私密树同样按远端推送时间落盘
+            await applyRemoteMtime(rel, entry?.at)
             baseline[rel] = { fp: fingerprint(text), at: entry?.at ?? 0 }
             summary.pulled += 1
           } catch (e) {
@@ -1447,6 +1480,8 @@ const plugin = {
           if (text == null) continue
           await keepConflict(rel, '私密笔记双端修改')
           await api.fs.writeText(rel, text)
+          // rev173.297：冲突后磁盘上留的是**远端版** ⇒ 时间也用远端的
+          await applyRemoteMtime(rel, entry?.at)
           baseline[rel] = { fp: fingerprint(text), at: entry?.at ?? 0 }
           summary.conflicts += 1
         } catch (e) {

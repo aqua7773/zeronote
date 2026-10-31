@@ -135,6 +135,20 @@ export interface FsApi {
    * 插件侧不用记得传：`ctx.fs.writeText` 由宿主强制标 `origin: 'plugin'`。
    */
   writeText(path: string, content: string, opts?: FsWriteOptions): Promise<void>
+  /**
+   * 设置文件的**修改时间**（rev173.297）。
+   *
+   * 为什么插件需要它：内核写盘走原子写（临时文件 + rename）⇒ mtime 永远是「写入那一刻」。
+   * 从云端拉下来的笔记因此挤在同一个时间点（时间流里同一分钟连着好几条），
+   * 而且下一轮判方向时「云端永远比本机新」，本机删除覆盖不了它。
+   * 同步插件手里有 manifest 的 `at`（推送时间）—— 拉下来之后把它写回磁盘，
+   * 文件的「新旧」才反映**内容是哪一端、什么时候**产生的。
+   *
+   * 参数 `mtime` 是**毫秒**时间戳（与 `NoteMeta.mtime` 同一口径）。
+   * 传 `0` 是合法的"什么都没发生"：Rust 侧按幂等成功返回（旧 manifest 没有 `at`）。
+   * 文件不存在 ⇒ 报错（先写盘再设时间，顺序反了就是调用方的 bug）。
+   */
+  setMtime(path: string, mtime: number): Promise<void>
   createNote(path: string, content?: string): Promise<void>
   rename(from: string, to: string): Promise<void>
   /**

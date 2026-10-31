@@ -1296,6 +1296,8 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     }> = []
     /** 当前打开的文档（`doc.active()` 的返回；测试用 `setActive` 摆状态） */
     let activeDoc: { path: string; content: string } | null = null
+    /** `setMtime` 调用流水（rev173.297：断言「拉下来的时间 = 远端推送时间」） */
+    const mtimeCalls: Array<{ path: string; ms: number }> = []
     const api = {
       host: {
         platform,
@@ -1323,6 +1325,16 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
         writeText: async (p: string, text: string) => {
           local.set(p, enc(String(text)))
           mtimes.set(p, Date.now())
+        },
+        /**
+         * rev173.297：拉取落盘后把**远端推送时间**写回磁盘。
+         * 真实内核走 Rust `set_mtime`；桩里改 mtimes 表并记流水（断言用）。
+         * 文件不存在就抛 —— 与真实内核一致（先写盘、再设时间，顺序反了是调用方 bug）。
+         */
+        setMtime: async (p: string, ms: number) => {
+          if (!local.has(p)) throw new Error(`文件不存在：${p}`)
+          mtimes.set(p, ms)
+          mtimeCalls.push({ path: p, ms })
         },
         readBytes: async (p: string) => local.get(p) ?? new Uint8Array(),
         writeBytes: async (p: string, b: Uint8Array) => {
@@ -1409,6 +1421,8 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
       active: () => activeDoc,
       lineClasses: () => lineClasses,
       lineActions: () => lineActions,
+      /** rev173.297：拉取后设 mtime 的调用流水 */
+      mtimeCalls: () => mtimeCalls,
       dispose: () => {
         for (const s of api.subscriptions) s.dispose?.()
       },
@@ -1427,6 +1441,51 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     })
     await dev.commands.get('sync.save')!()
   }
+
+  /**
+   * rev173.297：从云端拉下来的笔记，mtime 必须是**远端推送时间**。
+   *
+   * 现象（用户 2026-10-31）：时间流里从云端拉的四条挤在同一分钟，
+   * 而且「云端永远比本机新」—— 本机删了、下一轮还是以云端为准。
+   * 根因：`writeText` 走内核原子写，mtime = 写入那一刻；manifest 的 `at` 没人用。
+   */
+  it('拉下来的笔记 mtime = 远端推送时间，不是本机此刻（rev173.297）', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    local.set('n.md', enc('v1\n'))
+    mtimes.set('n.md', Date.now() - 3_600_000)
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync.run')!({})
+    expect(dec(dav.get('n.md')!.bytes)).toBe('v1\n')
+
+    // manifest 里的 `at` 是**推送时间**，也就是 B 端该写回的 mtime。
+    // 手工改成「两小时前推的」—— 否则推送时刻≈B 写入时刻，两者分不出来。
+    const manifest = JSON.parse(dec(dav.get('_zn/manifest.json')!.bytes)) as {
+      files: Record<string, { at: number }>
+    }
+    const pushedAt = Date.now() - 7_200_000
+    manifest.files['n.md'].at = pushedAt
+    dav.set('_zn/manifest.json', { bytes: enc(JSON.stringify(manifest)), etag: '"m2"' })
+    A.dispose()
+
+    // B 端空库 ⇒ 走「本地没有、远端有 ⇒ 拉下来」那条路
+    const other = new Map<string, Uint8Array>()
+    const otherMtimes = new Map<string, number>()
+    const B = makeDevice(net, other, otherMtimes, 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+
+    expect(dec(other.get('n.md')!)).toBe('v1\n')
+    const calls = B.mtimeCalls().filter((c) => c.path === 'n.md')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].ms).toBe(pushedAt)
+    // 磁盘上真的生效了：写回的是推送时刻，不是 B 同步的那一刻
+    expect(otherMtimes.get('n.md')).toBe(pushedAt)
+    expect(otherMtimes.get('n.md')!).toBeLessThan(Date.now() - 60_000)
+    B.dispose()
+  })
 
   it('本地改过 + store 丢了 + 远端也改过 ⇒ 本机版进冲突目录，正文变合并稿（两段都在）', async () => {
     const { files: dav, net, requests } = makeDav()

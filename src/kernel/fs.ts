@@ -42,6 +42,13 @@ export function createFsApi(
     writeText: (path: string, content: string) =>
       invoke<void>('write_note', { vault, path, content }),
 
+    /**
+     * 设置修改时间（rev173.297）—— 同步插件拉取后对齐远端推送时间。
+     * Rust 侧参数 `mtime_ms`，Tauri 的 camelCase 约定 ⇒ 这里传 `mtimeMs`。
+     */
+    setMtime: (path: string, mtime: number) =>
+      invoke<void>('set_mtime', { vault, path, mtimeMs: mtime }),
+
     /** 读二进制（附件 / 图片 / PDF）—— base64 过桥，rev173.106 */
     readBytes: async (path: string): Promise<Uint8Array> => {
       const b64 = await invoke<string>('read_note_bytes', { vault, path })

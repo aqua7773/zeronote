@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.292
-更新时间: 2026-10-31 · 最新 rev173.292（**应用本体更新：桌面自动装 + 手机下载即装**；代码 + 桌面构建已验证，端到端待发版。线上最新仍是 **0.9.1**，更新通道从下一版起生效）
+revision: 173.297
+更新时间: 2026-10-31 · 最新 rev173.297（**拉下来的笔记 mtime = 远端推送时间**：内核新增 `set_mtime` 命令 + 契约 `fs.setMtime`，`sync` 六处 pull 落盘后写回 manifest 的 `at`。⚠️ 插件待打包 0.1.6 发市、真机端到端待验）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.292
 
 | rev | 内容 |
 |---|---|
+| rev173.297 | 2026-10-31 · **拉下来的笔记 mtime = 远端推送时间**（用户「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖」）：① **现象** —— 从云端拉的笔记时间流里全挤在同一分钟，且「云端永远比本机新」，本机删了下一轮还是以云端为准。② **根因（一手）** —— `api.fs.writeText` 走内核原子写（临时文件 + rename）⇒ `mtime` 永远是**写入那一刻**；manifest 每条里本来就有 `at`（推送时间）但 pull 之后没人用它，插件侧也没有「设置文件时间」的原语（契约只读 `mtime`）。③ **修法三层** —— **a** `src-tauri/src/lib.rs` 新增 `#[tauri::command] set_mtime(vault, path, mtime_ms)`：用 std 的 `File::set_modified`（Rust **1.75 起稳定**，Windows 走 `SetFileTime` / Unix+Android 走 `utimensat`）⇒ **不需要 `filetime` crate**；`mtime_ms == 0` 幂等成功（旧 manifest 没有 `at` 时别写成 1970）；文件不存在报错（先写盘再设时间）。**b** 契约 `fs.setMtime(path, mtime)`（契约修订说明写在方法文档里）+ `src/kernel/fs.ts` 转发 `invoke('set_mtime', { mtimeMs })`（Tauri 参数 camelCase）；`withFsEvents` / `scopedFs` 都是 spread ⇒ 自动透传，无需改 `plugin-host.ts`。**c** `examples/sync/index.cjs` 新增 `applyRemoteMtime(path, at)`（`typeof api.fs.setMtime` 兜底 + `at` 非法跳过 + 失败只 warn），**六处** pull 后调用：主循环 `pull` / `pull-new`（L784 区）· 「本地没有、远端有 ⇒ 拉下来」（L1058 区）· 412 乐观锁失败后对齐远端 · 私密树 `syncPrivateTree` 的 pull · 私密文件④冲突取远端（两处冲突共同点：磁盘上留的是**远端版**，时间也该归远端）。④ **测试** —— `tests/sync.test.ts` `makeDevice` 的 fs 桩加 `setMtime`（改 `mtimes` 表 + 记 `mtimeCalls` 流水，文件不存在抛错，与真实内核同序）+ 新集成用例「拉下来的笔记 mtime = 远端推送时间，不是本机此刻」：A 推一篇 → 把远端 manifest 的 `at` 改成 2 小时前 → B 空库拉下来 ⇒ 断言 `setMtime` 只调 1 次、参数 = manifest 的 `at`、B 的 `mtimes` 落成推送时刻且 < 现在 60s。sync 四文件 **205** 条全绿（sync.test.ts 97，+1）。⑤ **本机生效方式** —— dev 插件目录是**副本**不是 junction ⇒ 源码改完要拷进 `<appdata>/.zn/plugins/sync/` 再 reload；市场用户要等 `sync` **0.1.6** 打包发市。⚠️ 真机端到端（A 写 → 等 1 分钟 → B 拉 → B 的文件时间 = A 推送时间）**尚未验**。 |
 | rev173.296 | 2026-10-31 · **交接（mtime 待修）**：用户「交接到新会话改」。① 本轮成果 —— **0.9.2 发版**（应用本体更新，Release 5 资产）· 删除传播三轮演进（0.1.3 本机删不再拉回 → 0.1.4 删除=搬进云端回收站 `_zn/trash/`、彻底删除/30 天过期才真删、去掉本地留底 → 0.1.5 删除优先：有基线就删远端，消除「没有按钮的存在状态冲突死记录」）；② **下个会话第一件事** —— 拉下来的笔记 **mtime = 同步时刻**（时间流全是同分钟、且「云端永远最新」）：修法 = 内核加 `set_mtime` 命令（标准库没有，用 `filetime` crate 或 Windows `SetFileTime`）→ 契约 `fs.setMtime` + 插件宿主转发 → sync 三处 pull 后用 manifest 的 `at` 写回；验收 = A 写 → B 拉，B 的 mtime 等于 A 的推送时间；③ ⚠️ **端到端真机都没验**（0.9.2 点检查下载安装 / 删除传播看云端 `_zn/trash/`）；④ 本机环境：`sync` 0.1.5 已拷入插件目录需重启，手机端要从市场更新。 |
 | rev173.293 | 2026-10-31 · **删除传播（`sync` 0.1.5）**（用户「我本地删掉的大小，一同步又回来了，正确做法是把最新的状态同步云端」）：① 旧语义 —— 本机删除只进 `.zn/trash/`（不参与同步）⇒ 插件只看到「本地没有这篇」⇒ 一律当「拉下来」，删掉的东西 5 秒后又回来；② 新纯函数 `decideDeletion`（与 `remote-deleted` 对称）：远端没改过 ⇒ **连云端一起删**；远端在我删之后又写了 ⇒ 恢复远端版 + 记一条冲突；③ 反向补齐 —— 云端删了 ⇒ 本地 `api.fs.delete`（**进回收站**，可恢复）；④ 一道兜底 —— **不设单轮删除上限**（用户明确「不用设置安全上限」）· 删云端前把远端内容留底 `.zn/sync/deleted/<日期>/<原路径>`；⑤ 验证 —— `tests/sync.test.ts` **96 条**（+1 集成：断言发出 `DELETE n.md` 且没有写回本地），tsc / oxlint 0 error，全量 vitest 绿；⑥ `sync` **0.1.3**（249.7 KB · keyId `aqua-2026`，`verify-trust` 通过）· 本机插件目录已直接拷入（备份 `_tmp-plugin-backup/sync-before-delete-prop-20261031/`）—— **重启应用生效**；之前被拉回来的笔记要**再删一次**才会传播。 |
 | rev173.292 | 2026-10-31 · **应用本体更新：桌面自动装 + 手机下载即装**（用户「给 zeronote 添加内置更新功能」→ 拍板「两端都做 + 密钥我生成」）：① **两端必须不同路** —— 官方 `tauri-plugin-updater` 的支持表（README 2.14.1）只有 Linux / Windows / macOS；桌面用它（minisign 签名**不可关** + NSIS 安装器 + 装完自动重启），Android 自己下 APK（`net::download_client`，**不设总超时**：`http_client` 的 120s 是整体超时，几十 MB 的 APK 会被截断）→ sha256 核对 → 新原生插件 **`tauri-plugin-apk-install`** 起 `ACTION_VIEW`（复用主工程 FileProvider 的 `cache-path .`；Android 8+ 先查 `canRequestPackageInstalls` —— 不检查的话系统**不弹窗也不报错**，用户只会觉得点了没用，没授权就给「去授权」按钮跳设置）。② **清单与镜像** —— 仓库里的 `update/latest.json`（桌面 static JSON，`platforms.windows-x86_64`）/ `update/android.json`（`apk.{url,sha256,size}`），由 `scripts/gen-update-manifest.mjs` 生成（按**版本号**挑 nsis 产物、按 mtime 挑 APK —— 初版脚本取「第一个 .exe」直接抓到 0.8.0 的旧包）；镜像 raw → ghproxy → jsDelivr×2 **由 Rust 自己探测**：`plugins.updater.endpoints` 只在**非 2xx** 时试下一个，而手机直连 raw 是 TLS 阶段被 RST（网络错误）⇒ 不会回退（2026-10-27 真机 6/6 失败）。③ **签名** —— `tauri signer generate`（无密码）→ 公钥进 `tauri.conf.json`（152 字符）+ `bundle.createUpdaterArtifacts: true`；私钥 `~/.tauri/zeronote.key` **不进仓库**，`scripts/build-release.mjs` 自动注入（漏了会报「找到公钥但没私钥」）。**私钥丢了 = 所有老用户永远收不到自动更新**（签名校验关不掉）。④ **UI** —— 设置 → 关于 → 更新（检查 / 版本说明 / 进度条 / 安装）；启动 24h 节流静默提示（只提示不下载；`zn-app-update-auto` / `zn-app-update-last-check`）—— 与插件市场那条 24h 检查是两个东西。⑤ **验证** —— `cargo check` 仅剩既有 3 警告 · `cargo test --lib`（含 `is_newer` 2 条）· vitest **1695**（+7 条 `tests/app-update.test.ts`）· `check-docs` ✅ · 质量门 **8/8** · **桌面 release 构建 6m17s 产出 `.exe.sig` / `.msi.sig` 各 436 字节**，`gen-update-manifest --dry` 已读到真实签名并拼出 Release URL。⚠️ ⑥ **已发布 v0.9.2**（2026-10-31）：桌面构建 3m18s / Android 6m23s；Release **5 个资产**（`setup.exe` 15.02 MiB + `.sig` · `msi` 16.93 MiB + `.sig` · `arm64 APK` 32.87 MiB）→ https://github.com/aqua7773/zeronote/releases/tag/v0.9.2 。⚠️ **下载地址走 ghproxy**：国内直连 `github.com:443` 不通（本轮 `git push` 实测 `curl 28`），清单的 `platforms.windows-x86_64.url` 由脚本写成 ghproxy 前缀（`NO_GH_MIRROR=1` 可退回原始地址）；ghproxy 对 raw 有几分钟缓存、jsDelivr 更久 ⇒ 镜像顺序 raw 第一。⚠️ **端到端（装一版 → 点检查 → 真下载安装）尚未做** —— 需真装一次 0.9.2 后点「检查更新」；⚠️ **0.9.1 及更早的包没有签名产物，收不到这条通道** —— 内置更新从 0.9.2 起才成立。 |
@@ -181,7 +182,7 @@ revision: 173.292
 | rev173.136 | 2026-10-25 · **`sync-folder` 真双端合并冲突验收（Syncthing 2.1.7 两实例）**：装便携版 `Apps\Portable\Syncthing`（winget 两条路都卡：msstore 证书 `0x8a15005e` / GitHub 42 KB/s ⇒ `gh release download` + 本机代理）· 同机两实例（GUI 8384/8385 · 监听 22001/22002）REST 配对共享 folder `zn`，A = `_tmp-vault-tb`、B = `_tmp-sync\peer-b`，两端 `.stignore` 排除 `.zn` · 编辑器加 `A-SIDE-1521` 后 **1.7 s** 在对端加 `B-SIDE-1521` ⇒ **4 s 后** Syncthing 生成 `笔记1.sync-conflict-20261025-151226-SLX52RS.md` ⇒ **三方合并成功**：主文件两边改动都在、`pending` 清空、面板「合并 1」· 实例已停（不常驻）；Syncthing 已登记 `_View\网络与传输\`（55 条）+ `_软件清单.md`（7 → 8） |
 | rev173.135 | 2026-10-25 · **`note:created` 也带正文（收掉 rev173.133 的 ⚠️）+ 三处终端验收**：`fs.createNote` 的 payload 带 `text`（= `content` 参数，零成本）；`fs.restoreTrash` 读一次盘后也带（读失败不带，订阅方退回读盘）· `sync-folder` 的 `note:created` 有 `text` 就**同步**种基线 / 同步点，旧内核回退读盘 · 契约 §1.4 表 `{ path }` → `{ path, text }` · 单测 921 → **923**（restoreTrash 带 `restored`+`text` / 新建零读盘且同步点用事件正文）· **反向验证**：`given = null` ⇒ 新用例红（1 failed / 44 passed）· 验收：`history` 右键 ☰ 菜单入口（modal 打开、标签条不加、Esc 关）· `outline-map` 手机主区面板 5 节点 + 返回键（**同轮修环境**：`adb reverse tcp:1420` 丢失导致启动 15 秒后无声退出）· `sync-webdav` 附件方向（本机 DAV 桩：远端改 ⇒ 拉取；本地 mtime 更新 ⇒ 不覆盖且推远端；配置已恢复坚果云 / off · `sync-folder` 0.3.1 → **0.3.2**（`note:created` 行为变了）） |
 | rev173.134 | 2026-10-25 · **反向链接升级为全库持久索引**（技术债 #2；ROADMAP 原标「❌ 要改契约，另议」—— 证明**不用动契约**，全在插件层）：`backlinks` 以前只扫**最近 30 天**改过的笔记（rev173.95 的性能折中），老笔记里的引用一律看不见 · 现在放开到全库，成本靠三条压住：① `mtime` 缓存（原有）② **`at` 信任窗口** —— `note:saved` 现在带 `text`（rev173.133），保存后**零读盘**就能更新这篇的 refs；`at >= mtime` 表示手里的内容不比磁盘旧，别处再改会让 mtime 越过 `at` ⇒ 自动失效重读 ③ **事件增量** —— `note:saved`（带 text 零读盘）/ `note:changed`（读盘，`origin:'plugin'` 跳过）/ `note:deleted`（淘汰）/ `note:renamed`（迁移）· 内存缓存 `cache`（启动从 store 恢复），状态栏 `updateCount` 从「每次事件全库扫描」改成「内存算 + 一次 listNotes」· `ensureCaughtUp()` 后台补齐全库一次，`updateCount` 等它（否则冷启动先显示「被 0 篇引用」再跳数字）· 首次全扫每读 25 篇让出一次事件循环 · 面板摘要换成 `全库 N 篇 · 本轮读盘 M 篇 · 时刻`（缓存命中率直接可见）· 单测 26 → **30**：120 天前老笔记也命中 / `note:saved` 带正文零读盘 / `at` 信任窗口 / `note:deleted` 淘汰计数归零 · **反向验证**：把 `freshEnough` 的 `at` 分支改成 `return false` ⇒ 信任窗口那条红（1 failed / 29 passed）· 实测 dev `_tmp-vault-tb`：`笔记1.md` 写 `参见 [[标签验收-周报]]` → 打开 `标签验收-周报.md` ⇒ 状态栏 **「被 1 篇引用」** → 点开面板 ⇒ **`全库 30 篇 · 本轮读盘 0 篇 · 14:06:24`** · 契约 / 内核未改，`backlinks` 0.1.0 → **0.2.0**（新增 `event` 能力声明） |
-| rev173.133 | 2026-10-25 · **修「本机保存可能永远同步不出去」**（`note:saved` 与 Rust watcher 回响的竞争，= rev173.116 记下的观察项）：根因不在 Rust 的 1500 ms 自写抑制（它本就只是尽力而为），而在**同步插件自己的判定窗口** —— `note:saved` 的处理体以 `await api.fs.readText` 开头，回响 `note:changed` 若在这段 `await` 中间跑完判定，pending 还没建立、磁盘已是新内容、基线还是旧内容 ⇒ `classifyChange` 判 `remote`（当成"别处更新"）把基线对齐新内容；随后 saved 醒来看到 `baseline.fp === 当前 fp` **直接早退** ⇒ 这次改动既没有 pending 也没有影子副本，永远同步不出去 · 修法三条：① 内核 `note:saved` 的 payload 带 **`text`**（刚写盘的正文，同一 JS 上下文不序列化）② sync-folder 判定段搬进**同步段**（有 text 就不 `await` 读盘），回响插不进来 ③ 旧内核不带 text 时退回读盘版本（不因版本差异静默失效）· 另加**内存影子副本** `shadowMem`（影子落盘是异步的，这段窗口里来真冲突时 `readShadow` 优先读内存，不再误标 `lost`；keepConflict / applyMerged / changed / scan / settle / rename 六处清 pending 的路径一并清）· 单测 916 → **917**：新增「保存的判定被回响抢跑（读盘慢）⇒ pending 仍留下，本机版不丢」，给 `memoryFs` 加 `slowNextRead(path)`（**只拖慢下一次**读盘）：保存那次慢、回响那次正常 ⇒ 精确重现抢跑；断言对端再改成 v3 时**判得出冲突**且副本 = 本机版 v2 · **反向验证**：把「用内核正文」分支改成 `given = null` ⇒ 1 failed / 43 passed，改回即全绿 · 契约 §1.4 payload 表 `{ path }` → `{ path, text }` · ⚠️ `note:created` 的 payload 未带 `content`（同样的窗口还在，但新建的影响只是"同步点没种下"，冲突判定仍正确）· ⚠️ 真机端到端没做（纯 JS 时序修复；sync-folder 的端到端要真实双端），证据到「红 → 绿 → 反向红」 |
+| rev173.133 | 2026-10-25 · **修「本机保存可能永远同步不出去」**（`note:saved` 与 Rust watcher 回响的竞争，= rev173.116 记下的观察项）：根因不在 Rust 的 1500 ms 自写抑制（它本就只是尽力而为），而在**同步插件自己的判定窗口** —— `note:saved` 的处理体以 `await api.fs.readText` 开头，回响 `note:changed` 若在这段 `await` 中间跑完判定，pending 还没建立、磁盘已是新内容、基线还是旧内容 ⇒ `classifyChange` 判 `remote`（当成"别处更新"）把基线对齐新内容；随后 saved 醒来看到 `baseline.fp === 当前 fp` **直接早退** ⇒ 这次改动既没有 pending 也没有影子副本，永远同步不出去 · 修法三条：① 内核 `note:saved` 的 payload 带 **`text`**（刚写盘的正文，同一 JS 上下文不序列化）② sync-folder 判定段搬进**同步段**（有 text 就不 `await` 读盘），回响插不进来 ③ 旧内核不带 text 时退回读盘版本（不因版本差异静默失效）· 另加**内存影子副本** `shadowMem`（影子落盘是异步的，这段窗口里来真冲突时 `readShadow` 优先读内存，不再误标 `lost`；keepConflict / applyMerged / changed / scan / settle / rename 五处清 pending 的路径一并清）· 单测 916 → **917**：新增「保存的判定被回响抢跑（读盘慢）⇒ pending 仍留下，本机版不丢」，给 `memoryFs` 加 `slowNextRead(path)`（**只拖慢下一次**读盘）：保存那次慢、回响那次正常 ⇒ 精确重现抢跑；断言对端再改成 v3 时**判得出冲突**且副本 = 本机版 v2 · **反向验证**：把「用内核正文」分支改成 `given = null` ⇒ 1 failed / 43 passed，改回即全绿 · 契约 §1.4 payload 表 `{ path }` → `{ path, text }` · ⚠️ `note:created` 的 payload 未带 `content`（同样的窗口还在，但新建的影响只是"同步点没种下"，冲突判定仍正确）· ⚠️ 真机端到端没做（纯 JS 时序修复；sync-folder 的端到端要真实双端），证据到「红 → 绿 → 反向红」 |
 | rev173.132 | 2026-10-25 · **`net.rs` 的 Content-Length 修复补 Rust 回归测试**：根因原先只有插件层兜底测试 —— 把 Rust 那行改回去也没有测试会红 · 做法与平台无关：`std::net::TcpListener` 起一个只接一次的本地服务器 + `tauri::async_runtime::block_on`，**读出服务器真正收到的请求头**再断言 · 两条：空 body 必须 `Content-Length: 0`、非空 body 长度匹配 · **反向验证**：删掉 `.header(CONTENT_LENGTH, …)` ⇒ `empty_body…` 失败、`non_empty…` 仍过 · cargo 38 → **40** |
 | rev173.131 | 2026-10-25 · **S3 手机端实测 → 抓到并修「空笔记永远同步不上」（411）**：手机配 rclone（`192.168.1.5:8898`）连接 / 签名通过，同步到 **0 字节笔记**时 `PUT` 回 **411 Length Required**，自动同步每 5 秒重试同一篇、整轮中止 · **抓包证据**：reqwest 对空 `Vec` body 既不发 `Content-Length` 也不发 `Transfer-Encoding`（`cl=null te=null bytes=0`）· 修两处：**内核 `net.rs`** 对 body 显式带 CL（含 0，根因，重编生效）+ **`sync-s3` 兜底**空文本 PUT 带 `content-length: 0`（旧内核/已装 app 立即生效）· 手机热更新后同步过（桶 32 文件含 0 字节那篇）；删本地一篇 ⇒ 自动拉回（拉取方向通）· 单测 914 → **916** |
 | rev173.130 | 2026-10-25 · **坚果云附件真机回归（桌面 ↔ 云端 ↔ 手机，双向）**：页面 reload 拿 rev173.127 新代码 → 附件模式 off→full · 桌面放 27,507 B png + 52 B txt → 同步上传（`attachments 392ms` 轮）· **删本地两份再同步 ⇒ pulled=2、字节数原样回来** · 手机（33b676f6 · dev 包 pid 14629）开 full ⇒ pulled=3 / pushed=3，手机 `list_notes` 出现两个「附件回归」文件 · 桌面再同步 ⇒ 出现手机推的 `image-20261020-011045.jpg`（89 KB） · 两端模式已恢复 off · 坑：手机 `pidof` 要等几秒、CDP forward 必须按当前 pid 重建 · **无代码改动** |
@@ -190,6 +191,41 @@ revision: 173.292
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.297（2026-10-31 · 拉下来的笔记 mtime = 远端推送时间）
+
+> 用户：「云端笔记的时间应该标记为推送时的时间才能被新的写入或者删除覆盖。」
+> （rev173.296 交接的第一件事，本轮做完）
+
+> ### 改法（三层 · 6 处调用）
+>
+> 1. **内核** —— `src-tauri/src/lib.rs` 新增 `set_mtime(vault, path, mtime_ms)`。Rust 标准库
+>    从 **1.75** 起就有 `File::set_modified`（Windows 走 `SetFileTime`、Unix / Android 走
+>    `utimensat`）⇒ **没有引 `filetime` crate**（交接卡原计划要引，实测不必）。
+>    `mtime_ms == 0` 幂等成功（旧 manifest 没有 `at`，写成 1970 更糟）；文件不存在报错
+>    （先写盘、再设时间）。
+> 2. **契约** —— `contract.ts` 的 `fs` 加 `setMtime(path, mtime)` + `fs.ts` 转发
+>    `invoke('set_mtime', { mtimeMs })`（Tauri 参数 camelCase）。`withFsEvents` / `scopedFs`
+>    都是 `{ ...raw }` 展开 ⇒ 自动透传，**没有改 `plugin-host.ts`**。
+> 3. **插件** —— `examples/sync/index.cjs` 新增 `applyRemoteMtime(path, at)`
+>    （`typeof api.fs.setMtime` 兜底老内核 · `at` 非法跳过 · 失败只 `warn`），
+>    **六处**远端内容落盘后调用：主循环 `pull`/`pull-new` · 新设备首拉 · 412 乐观锁失败后
+>    对齐远端 · 密码库冲突取远端 · 私密树 `pull` · 私密树冲突取远端。
+>    六处的共同点：磁盘上最后留下的是**远端版**，时间就该归远端。
+
+> ### 验证
+>
+> - `tests/sync.test.ts`：`makeDevice` 的 fs 桩加 `setMtime`（改 `mtimes` + 记 `mtimeCalls`
+>   流水，文件不存在抛错，与真实内核同序）+ 新用例「拉下来的笔记 mtime = 远端推送时间」：
+>   A 推一篇 → 把远端 manifest 的 `at` 手工改成 2 小时前 → B 空库拉下来 ⇒ 断言
+>   `setMtime` 只调 1 次、参数 = manifest 的 `at`、B 的 mtimes 落成推送时刻。
+> - sync 四文件 **205** 条绿（`sync.test.ts` 97，+1）· `tsc -b` 0 错误 ·
+>   `cargo test --lib`（跳过 4 条网络测试）**85 passed** · `check-docs` ✅。
+>
+> ⚠️ 待办：`sync` **0.1.6** 打包签名 + 市场索引（`examples/sync/manifest.json` 版本
+> 先 0.1.5 → 0.1.6，质量门要求与 `market/packs/*.znp` 一致）；本机 dev 插件目录是
+> **副本不是 junction** ⇒ 要拷进 `<appdata>/.zn/plugins/sync/` 才生效；
+> 真机端到端（A 写 → 等 1 分钟 → B 拉 → B 的文件时间 = A 推送时间）尚未验。
 
 > ## 📌 rev173.296（2026-10-31 · 交接：mtime 待修）
 
@@ -4379,7 +4415,7 @@ revision: 173.292
 
 > | rev | 一句话 |
 > |---|---|
-> | 188 | ROADMAP 现状段纠错（0.5.0 → 0.6.0，六处「已完成」还标着待办） |
+> | 188 | ROADMAP 现状段纠错（0.5.0 → 0.6.0，五处「已完成」还标着待办） |
 > | 189 | 备份插件发市场（`backup` 0.3.1 · 索引 16 条 · 实测「签名包不被内置覆盖」） |
 > | 190 | 修市场安装清掉 `store.json`（整目录交换前搬回用户数据 · cargo 53 → 55） |
 > | 191 | 手机端市场走查（5 项全过；顺带发现手机 APK 已被 `android-dev` 悄悄重编成最新代码） |
@@ -4638,7 +4674,7 @@ revision: 173.292
 
 > 用户「改roadmap」。本会话开头汇报进度时指出 `docs/ROADMAP.md` §0 还停在 0.5.0 / rev173.139（用户选了这个而不是先做安卓组件）。
 
-> ### 改了六处
+> ### 改了五处
 
 > 1. **抬头复核日期**：2026-10-25（rev173.139）→ **2026-10-27（rev173.188）**。
 > 2. **§0 版本**：**0.5.0 → 0.6.0**（tag `v0.6.0`，2026-10-26）；补 0.6.0 两条主线（安全 / 密码库 · 插件市场闭环，rev173.137–173 · 57 个提交）与 0.6.0 之后的两块（私密文件夹三期 rev173.180–182 · 备份插件 rev173.175–178）。
@@ -7022,7 +7058,7 @@ revision: 173.292
 >    不因版本差异静默失效（已装的 app / 热更新只换前端时都可能只有旧内核）。
 > 4. **内存影子副本 `shadowMem`**：影子副本落盘是异步的，这段窗口里若真来冲突，
 >    `readShadow` 优先读内存 ⇒ `keepConflict` 不再误标「本机版未留存」（假 `lost`）。
->    `writeShadow` 成功后清；六处会丢 pending / 对齐基线的路径
+>    `writeShadow` 成功后清；五处会丢 pending / 对齐基线的路径
 >    （`keepConflict` / `applyMerged` / `note:changed` / `scan` / `settle` / `note:renamed`）一并清。
 >    `sync-folder` 0.3.0 → **0.3.1**。
 >

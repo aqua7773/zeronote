@@ -1068,6 +1068,38 @@ fn write_note(vault: String, path: String, content: String) -> Result<(), String
   atomic_write(&abs, &content)
 }
 
+/// 设置文件的**修改时间**（rev173.297 · 同步插件拉取后对齐远端推送时间）。
+///
+/// 为什么需要这条：`write_note` 走原子写（临时文件 + rename）⇒ mtime 永远是
+/// **写入那一刻**。从云端拉下来的笔记因此全部挤在「本机同步时刻」上 —— 时间流里
+/// 同一分钟连着好几条，"云端永远比本机新"（用户 2026-10-31 报的现象）。
+/// manifest 每条里有 `at`（推送时间），拿到它之后要能把这时间**写回磁盘**。
+///
+/// 实现用 std 的 `File::set_modified`（Rust 1.75 起稳定；Windows 走 `SetFileTime`、
+/// Unix / Android 走 `utimensat`）—— 不引 `filetime` 之类的额外依赖。
+///
+/// `mtime_ms == 0` 直接返回成功：调用方的 manifest 可能是旧格式（没有 `at`），
+/// 那种情况写成 1970 年只会更糟，跳过即可（幂等，不是错误）。
+#[tauri::command]
+fn set_mtime(vault: String, path: String, mtime_ms: u64) -> Result<(), String> {
+  let abs = resolve(&vault, &path)?;
+  if mtime_ms == 0 {
+    return Ok(());
+  }
+  if !abs.exists() {
+    return Err(format!("文件不存在：{path}"));
+  }
+  // 必须拿到**可写**句柄：Windows 的 SetFileTime 要 FILE_WRITE_ATTRIBUTES，
+  // 只读打开的句柄在部分平台会被拒（Unix 的 futimens 也要 fd 有写权限）。
+  let f = fs::OpenOptions::new()
+    .write(true)
+    .open(&abs)
+    .map_err(|e| format!("打开 {path} 失败：{e}"))?;
+  let t = UNIX_EPOCH + std::time::Duration::from_millis(mtime_ms);
+  f.set_modified(t)
+    .map_err(|e| format!("设置 {path} 的修改时间失败：{e}"))
+}
+
 /// 读**二进制**（rev173.106 · 同步插件上传附件用）：base64 过桥。
 ///
 /// 与 `read_note` 的区别只在编解码 —— 同样过 `resolve` 的库内路径校验，
@@ -3905,6 +3937,8 @@ pub fn run() {
       purge_backup,
       read_note,
       write_note,
+      // rev173.297：拉取后把远端推送时间写回磁盘（时间流排序 / 「谁更新」判定）
+      set_mtime,
       read_note_bytes,
       write_note_bytes,
       create_note,
