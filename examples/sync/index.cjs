@@ -1014,9 +1014,12 @@ const plugin = {
             remoteFp: remote.files[p]?.fp ?? null,
           })
           if (action !== 'delete-remote') {
-            // 远端改过：保留远端版（拉取段会写回本地），记一条冲突让用户知道
-            summary.conflicts += 1
-            await keepConflict(p, '本机删了但远端改过（已恢复远端版）').catch(() => {})
+            /**
+             * 只剩「没有基线」这一种（换设备 / store 丢了）：不能当删除处理，
+             * 交给下面的拉取段把远端版本拉回来。
+             * ⚠️ 不再记冲突 —— 本机已经删了，没有本机版可留，记出来就是**一条没有按钮的死记录**
+             * （2026-10-31 真机截图：「本机版没留下来，只能保留另一边」）。
+             */
             continue
           }
           try {

@@ -301,20 +301,19 @@ function decideSync({ base, localFp, remoteFp }) {
 }
 
 /**
- * 判定「本地已经删了、远端还留着」这一篇怎么处理（rev173.293 · 删除传播）。
+ * 判定「本地已经删了、远端还留着」这一篇怎么处理（rev173.295）。
  *
  * 为什么要有它：删除走内核的软删除（移进 `.zn/trash/`），而 `.zn/` 不参与同步 ⇒
  * 同步插件只看到「本地没有这篇」，旧逻辑一律当成「拉下来」，于是删掉的东西下一轮就复活
  * （用户 2026-10-31 原话：「我本地删掉的大小，一同步又回来了」）。
  *
- * 与 `decideSync` 的 `remote-deleted` 完全对称 —— 一边删、一边改时**不猜**：
+ * **删除优先**（2026-10-31 真机反馈后的定稿）：只要本地删过（有基线），就删远端 ——
+ * 不再看「远端改没改」。旧版对「远端改过」走 `restore-remote`，结果是：本机已经删了、
+ * 没有本机版可留 ⇒ 冲突记录变成**一条没有按钮的死记录**（面板显示「本机版没留下来，
+ * 只能保留另一边」，用户连选项都点不到），而且云端版又被拉回本地 ⇒ 感觉"删了没用"。
  *
- * | 情形 | 结论 | 理由 |
- * |---|---|---|
- * | 远端没变（`remoteFp === base.fp`） | `delete-remote` | 本地删除就是最新状态，删远端 |
- * | 远端改过（`remoteFp !== base.fp`） | `restore-remote` | 另一端在我删之后又写了 —— 删不删说不清，保守恢复 |
- * | 没有基线（换设备 / store 丢了） | `restore-remote` | 不能假定「本地没有」= 用户删的 |
- * | 远端也没有 | `noop` | 本来就不存在 |
+ * 唯一不删的情形是**没有基线**（换设备 / store 丢了）：那时「本地没有」不一定是用户删的，
+ * 交给拉取段把远端版本拉下来。
  *
  * @param {{fp: string} | null} base  上次同步时的版本
  * @param {string | null} remoteFp    远端当前指纹
@@ -323,7 +322,7 @@ function decideSync({ base, localFp, remoteFp }) {
 function decideDeletion({ base, remoteFp }) {
   if (remoteFp == null) return 'noop'
   if (!base) return 'restore-remote'
-  return remoteFp === base.fp ? 'delete-remote' : 'restore-remote'
+  return 'delete-remote'
 }
 
 /**

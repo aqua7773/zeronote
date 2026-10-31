@@ -224,8 +224,8 @@ describe('decideDeletion（rev173.293 删除传播）', () => {
     expect(decideDeletion({ base, remoteFp: 'base' })).toBe('delete-remote')
   })
 
-  it('远端改过 ⇒ 不删，恢复远端版', () => {
-    expect(decideDeletion({ base, remoteFp: 'theirs' })).toBe('restore-remote')
+  it('远端改过 ⇒ 仍然删远端（删除优先，rev173.295）', () => {
+    expect(decideDeletion({ base, remoteFp: 'theirs' })).toBe('delete-remote')
   })
 
   it('没有基线（换设备 / store 丢了）⇒ 不能当删除，恢复远端版', () => {

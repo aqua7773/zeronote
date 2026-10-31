@@ -322,10 +322,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.4",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.4.znp",
-      "sha256": "4886109d6fc3f60c3da9d41a63858c1d629431ebff0b0e4e106906ad509815d6",
-      "size": 260586,
+      "version": "0.1.5",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.5.znp",
+      "sha256": "b230a9b69a7fd197ac70b78a00988e3b6e4ca16b0860a8a3bb0c5dae1c0b5d43",
+      "size": 260826,
       "files": [
         "index.cjs",
         "lib/backends/folder.cjs",
