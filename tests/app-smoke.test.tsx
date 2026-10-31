@@ -183,15 +183,25 @@ describe('App 集成冒烟', () => {
       await settle()
       expect(document.querySelector('.zn-scrim')).not.toBeNull()
 
-      // 底栏「插件」⇒ mainView=plugins，`sidebarAllowed` 变 false
-      const pluginsTab = [...document.querySelectorAll('.zn-tabbar button, .zn-mobile-tab-bar button')].find(
-        (b) => (b.textContent ?? '').trim() === '插件',
+      // 左抽屉头部的「更多」（rev173.308 起；原来是设置齿轮）⇒ 左抽屉收起、右侧更多抽屉出现
+      // 必须限定在 `.zn-sidebar` 内：卡片流每张卡片的 ⋯ 也叫「更多」
+      const moreBtn = document.querySelector('.zn-sidebar [aria-label="更多"]') as HTMLElement
+      fireEvent.click(moreBtn)
+      await settle()
+      expect(document.querySelector('.zn-sidebar')).toBeNull()
+      expect(document.querySelector('.zn-more-drawer')).not.toBeNull()
+
+      // 更多抽屉里的「插件中心」⇒ mainView=plugins，`sidebarAllowed` 变 false
+      const drawer = document.querySelector('.zn-more-drawer') as HTMLElement
+      const pluginsRow = [...drawer.querySelectorAll('button')].find((b) =>
+        (b.textContent ?? '').includes('插件中心'),
       ) as HTMLElement
-      fireEvent.click(pluginsTab)
+      fireEvent.click(pluginsRow)
       await settle()
 
       expect(document.querySelector('.zn-swap')?.getAttribute('data-main')).toBe('plugins')
       expect(document.querySelector('.zn-scrim')).toBeNull()
+      expect(document.querySelector('.zn-more-drawer')).toBeNull()
     } finally {
       Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
     }

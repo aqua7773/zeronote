@@ -60,8 +60,7 @@ import { TabBar } from './components/TabBar'
 /* rev122 拆分 L2：侧栏 / 回收站 / 空态 / 状态栏 —— 原样迁到 components/ */
 import { AppSidebar } from './components/AppSidebar'
 import { AppRail, type RailView } from './components/AppRail'
-import { MobileTabBar, type MobileTab } from './components/MobileTabBar'
-import { MobileMorePage, type MoreEntry } from './components/MobileMorePage'
+import { MobileMoreDrawer, type MoreEntry } from './components/MobileMoreDrawer'
 import { FileTree } from './components/FileTree'
 import { SmartSectionBar, SmartSectionList } from './components/SmartSections'
 import { AppTrashView } from './components/AppTrashView'
@@ -126,7 +125,7 @@ import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from 
 /* J#9（rev173.281）：环形快捷入口 5 格配置（中心 ＋ 固定新建笔记） */
 import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
 import { failMsg, type SaveState } from './lib/fail-msg'
-import { hasBlockingOverlay, isTypingNow, swipeIntent } from './lib/swipe'
+import { hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
@@ -691,12 +690,15 @@ export default function App() {
   /** 窄屏抽屉：宽屏侧栏常驻，窄屏由 ☰ 滑出 */
   const [sidebarOpen, setSidebarOpen] = useState(false)
   /**
-   * 手机底部导航的当前项（B2 · 方案 §2.2）。
+   * 手机主区停在哪一页（rev173.308 · 用户 2026-10-31「移动端不做底部导航栏」）。
    *
-   * 只是**导航意图**：编辑态 / 工具页 / 回收站属于「push 进来的一层」，底栏隐藏；
-   * 回到四项之一 = 回到该 tab 的根视图（切 tab 不叠加返回栈）。
+   * 底栏四项删掉后只剩两种：`home` = 笔记流（默认页，用户「首页就是默认的时间流」）、
+   * `search` = 全屏搜索页（入口搬进「更多」抽屉）。
+   * 「更多」不再是页面 —— 它是右侧抽屉（`moreOpen`），弹出时主区不动。
    */
-  const [mobileTab, setMobileTab] = useState<MobileTab>('home')
+  const [mobilePage, setMobilePage] = useState<'home' | 'search'>('home')
+  /** 右侧「更多」抽屉（rev173.308）：右边缘左滑 / 左侧抽屉头部的「更多」按钮打开 */
+  const [moreOpen, setMoreOpen] = useState(false)
   /** 桌面侧栏是否显示：进插件中心/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
   /** 笔记库栏宽度 —— 拖分隔线可调，持久化 */
@@ -772,11 +774,39 @@ export default function App() {
       tracking = false
       const t = e.changedTouches[0]
       if (!t) return
-      const action = swipeIntent(t.clientX - sx, t.clientY - sy, {
+      const dx = t.clientX - sx
+      const dy = t.clientY - sy
+      // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归任何抽屉管（rev173.303）
+      const overlay = hasBlockingOverlay()
+      /**
+       * 右侧「更多」抽屉（rev173.308）：**屏幕右边缘起手 + 左划**打开、右划关闭。
+       * 先判它，且打开时只认「关闭」—— 否则抽屉开着时左划会顺着再开左抽屉，两个抽屉叠一起。
+       */
+      if (moreOpen) {
+        const act = moreSwipeIntent(dx, dy, {
+          startX: sx,
+          viewportWidth: window.innerWidth,
+          open: true,
+          overlay,
+        })
+        if (act === 'close') setMoreOpen(false)
+        return
+      }
+      if (
+        moreSwipeIntent(dx, dy, {
+          startX: sx,
+          viewportWidth: window.innerWidth,
+          open: false,
+          overlay,
+        }) === 'open'
+      ) {
+        setMoreOpen(true)
+        return
+      }
+      const action = swipeIntent(dx, dy, {
         sidebarOpen,
         typing: isTypingNow(),
-        // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归抽屉管（rev173.303）
-        overlay: hasBlockingOverlay(),
+        overlay,
       })
       if (action === 'open') setSidebarOpen(true)
       else if (action === 'close') setSidebarOpen(false)
@@ -787,7 +817,7 @@ export default function App() {
       window.removeEventListener('touchstart', onStart, true)
       window.removeEventListener('touchend', onEnd, true)
     }
-  }, [sidebarOpen])
+  }, [sidebarOpen, moreOpen])
 
   const contentRef = useRef(content)
   const activeRef = useRef(activePath)
@@ -2793,6 +2823,14 @@ export default function App() {
       const stack = layerExitsRef.current
       if (stack.length && stack[stack.length - 1]()) return true
       /**
+       * 手机右侧「更多」抽屉（rev173.308）：它盖在主区之上，返回键先关它。
+       * 放在主区切页之前 —— 否则按返回会先跳回笔记流，抽屉还留在屏幕上。
+       */
+      if (moreOpen) {
+        setMoreOpen(false)
+        return true
+      }
+      /**
        * 查找面板开着 ⇒ 返回键先关它（rev173.253）。
        *
        * 起因：把「查找」入口放进手机工具栏后，面板没有自己的层出口 ——
@@ -2838,8 +2876,8 @@ export default function App() {
       }
       if (mainView !== 'editor') {
         setMainView('editor')
-        // 手机（B2）：从插件页 / 工具页返回 ⇒ 回「首页」tab（返回栈不叠在 tab 上）
-        if (platform === 'android') setMobileTab('home')
+        // 手机：从插件页 / 工具页返回 ⇒ 回笔记流首页（返回栈不叠在页上）
+        if (platform === 'android') setMobilePage('home')
         return true
       }
       if (sidebarOpen) {
@@ -2847,11 +2885,11 @@ export default function App() {
         return true
       }
       /**
-       * 手机底部导航（B2）：非首页的 tab 先回首页，再考虑退出。
-       * 放在「关笔记」之后 —— 编辑态时 tab 仍是 home，关闭笔记优先。
+       * 手机页（rev173.308 · 底栏删除后只剩 home / search）：非首页先回首页，再考虑退出。
+       * 放在「关笔记」之后 —— 编辑态时这一层不生效（编辑态没有底栏页概念）。
        */
-      if (platform === 'android' && mobileTab !== 'home' && !activeRef.current) {
-        setMobileTab('home')
+      if (platform === 'android' && mobilePage !== 'home' && !activeRef.current) {
+        setMobilePage('home')
         return true
       }
       if (activeRef.current) {
@@ -2867,11 +2905,12 @@ export default function App() {
     searchOpen,
     switcherOpen,
     paletteOpen,
+    moreOpen,
     sidebarOpen,
     mainView,
     closeCurrentView,
     platform,
-    mobileTab,
+    mobilePage,
   ])
 
   /* App 自己持有的三个菜单（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单）也压进层出口栈 ——
@@ -4414,27 +4453,23 @@ export default function App() {
   const mainKey = mainView === 'editor' ? (activePath ? 'editor' : 'list') : mainView
 
   /**
-   * 手机底部导航（B2 · 方案 §2.2）。
-   *
-   * `showTabBar` = 当前停在「四项之一的根视图」。以下三种是 push 进来的一层 ⇒
-   * **隐藏底栏**（编辑态由键盘上方工具栏接管，工具页 / 回收站用顶栏 ‹ 返回）：
-   *  · 编辑态（`mainView === 'editor' && activePath`）
-   *  · 插件工具页（`pagePanel`）
-   *  · 回收站（`mainView === 'trash'`）
-   * 零插件下四项仍成立（全是内核能力）。
+   * 手机笔记流底部留白（rev173.308）：底栏已删，但 ＋ 按钮仍在右下角 ——
+   * 卡片流要留出它 + 安全区的高度。编辑 / 工具页 / 回收站不需要。
    */
-  const showTabBar =
+  const mobileBottomPad =
     !isDesktop && !pagePanel && mainView !== 'trash' && !(mainView === 'editor' && activePath)
-  /** 「插件」tab 的选中态跟 `mainView` 走（插件页没有独立 tab state） */
-  const tabCurrent: MobileTab = mainView === 'plugins' ? 'plugins' : mobileTab
 
-  /** 底栏切换：切到哪一项就回到该项的根视图（不叠加返回栈） */
-  const switchMobileTab = (t: MobileTab) => {
-    setMobileTab(t)
-    if (t === 'plugins') {
-      setMainView('plugins')
-      return
-    }
+  /**
+   * 手机页切换（rev173.308 · 底栏删除后只剩两页）。
+   *
+   * 用户 2026-10-31：「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面」。
+   * · `home` = 笔记流（默认页，也是唯一常驻页）
+   * · `search` = 全屏搜索页（入口搬进右侧「更多」抽屉）
+   * 两者都是根视图，不叠加返回栈；切页时顺手收起「更多」抽屉。
+   */
+  const switchMobilePage = (p: 'home' | 'search') => {
+    setMobilePage(p)
+    setMoreOpen(false)
     if (mainView !== 'editor') setMainView('editor')
   }
 
@@ -4461,7 +4496,10 @@ export default function App() {
             label: '标签',
             hint: '按标签浏览',
             plugin: true,
-            onClick: () => setMainView(tagPanelEntry.id),
+            onClick: () => {
+              setMoreOpen(false)
+              setMainView(tagPanelEntry.id)
+            },
           },
         ]
       : []),
@@ -4472,7 +4510,10 @@ export default function App() {
             label: '导入导出',
             hint: '导入外部文件 / 导出笔记',
             plugin: true,
-            onClick: () => setMainView(ioPanelEntry.id),
+            onClick: () => {
+              setMoreOpen(false)
+              setMainView(ioPanelEntry.id)
+            },
           },
         ]
       : []),
@@ -4552,9 +4593,9 @@ export default function App() {
     }
     switch (key) {
       case 'builtin:search':
-        return { key, label: '搜索', onClick: () => switchMobileTab('search') }
+        return { key, label: '搜索', onClick: () => switchMobilePage('search') }
       case 'builtin:plugins':
-        return { key, label: '插件中心', onClick: () => switchMobileTab('plugins') }
+        return { key, label: '插件中心', onClick: () => setMainView('plugins') }
       case 'builtin:trash':
         return { key, label: '回收站', onClick: () => openTrash() }
       case 'builtin:settings':
@@ -4836,7 +4877,7 @@ export default function App() {
   return (
     <div
       className={`zn-app${mainView === 'editor' && activePath ? ' is-editing' : ''}${
-        showTabBar ? ' has-tabbar' : ''
+        mobileBottomPad ? ' has-mobile-pad' : ''
       }`}
     >
       {/* 顶部热区：标题栏隐藏时，鼠标碰到窗口最上面几像素即可唤出；
@@ -4891,7 +4932,7 @@ export default function App() {
                 pagePanel
                 ? () => {
                     setMainView('editor')
-                    setMobileTab('home')
+                    setMobilePage('home')
                   }
                 : () => setSidebarOpen((v) => !v)
         }
@@ -4997,7 +5038,11 @@ export default function App() {
             setSidebarVisible(true)
           }}
           onCollapse={() => setSidebarVisible(false)}
-          onOpenSettings={() => openOverlay('settings')}
+          /* 手机抽屉头部：点「更多」先收起文件树抽屉，再开右侧「更多」（rev173.308） */
+          onOpenMore={() => {
+            setSidebarOpen(false)
+            setMoreOpen(true)
+          }}
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
           /* B6：`location: 'sidebar'` 的插件面板进侧栏分组（桌面；零插件 / 全禁用 ⇒ 不传） */
@@ -5193,8 +5238,8 @@ export default function App() {
             onConfirmPurge={(id) => setConfirmPurge(id)}
             onBack={() => {
               setMainView('editor')
-              // 手机：回收站是从「更多」push 进来的 ⇒ 返回回「更多」而不是首页（B2）
-              if (!isDesktop) setMobileTab('more')
+              // 手机：回收站从右侧「更多」抽屉进来 ⇒ 返回回笔记流首页（rev173.308 底栏已删）
+              if (!isDesktop) setMobilePage('home')
             }}
             fmtSize={fmtSize}
           />
@@ -5413,14 +5458,14 @@ export default function App() {
             )}
           </div>
         ) : !isDesktop ? (
-          mobileTab === 'search' ? (
-            /* 搜索全屏页（B2 · 方案 §2.2）：与桌面侧栏搜索共用同一个组件（inline 形态） */
+          mobilePage === 'search' ? (
+            /* 搜索全屏页（rev173.308 起入口搬到右侧「更多」抽屉）：与桌面侧栏搜索共用同一个组件 */
             <div className="zn-mobile-page zn-mobile-search-page">
               <div className="zn-mobile-page-head">
                 <button
                   type="button"
                   className="zn-mobile-back"
-                  onClick={() => switchMobileTab('home')}
+                  onClick={() => switchMobilePage('home')}
                   aria-label="返回首页"
                 >
                   ‹ 返回
@@ -5432,26 +5477,12 @@ export default function App() {
                 open
                 /* 手机全屏搜索页不自动聚焦（rev173.270 · 反馈 #8）：一进来就弹软键盘会盖住结果区 */
                 autoFocus={false}
-                onClose={() => switchMobileTab('home')}
+                onClose={() => switchMobilePage('home')}
                 onOpenNote={(p) => void openNote(p)}
                 index={kernel?.index ?? null}
                 notes={notes}
               />
             </div>
-          ) : mobileTab === 'more' ? (
-            <MobileMorePage
-              vault={vault}
-              noteCount={notes.length}
-              onOpenSettings={() => openOverlay('settings')}
-              onOpenTrash={() => openTrash()}
-              onOpenVaults={() => setVaultPanelOpen(true)}
-              onOpenPlugins={() => switchMobileTab('plugins')}
-              onAbout={() => {
-                setSettingsTab('about')
-                openOverlay('settings')
-              }}
-              pluginEntries={morePluginEntries}
-            />
           ) : (
             /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
             <MobileNoteCards
@@ -5504,8 +5535,48 @@ export default function App() {
       </main>
       </div>
 
-      {/* 手机底部四项（B2 · 方案 §2.2）：编辑态 / 工具页 / 回收站时整条不渲染 */}
-      {showTabBar ? <MobileTabBar tab={tabCurrent} onChange={switchMobileTab} /> : null}
+      {/**
+        * 手机右侧「更多」抽屉（rev173.308）。
+        *
+        * 用户 2026-10-31：「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面，
+        * 插件本来就在更多有入口，更多改成右滑出现的右侧栏」。
+        * 入口 = 屏幕**右边缘往左滑**（`lib/swipe.ts` 的 `moreSwipeIntent`）
+        * 或左侧文件树抽屉头部的「更多」按钮（那里原来放的是设置齿轮，而设置本来就在这一页里）。
+        * 遮罩与抽屉本体同源（同 rev173.277 的教训），点遮罩关闭。
+        */}
+      {moreOpen ? (
+        <>
+          <div className="zn-scrim" onClick={() => setMoreOpen(false)} />
+          <MobileMoreDrawer
+            vault={vault}
+            noteCount={notes.length}
+            onClose={() => setMoreOpen(false)}
+            onOpenSearch={() => switchMobilePage('search')}
+            onOpenSettings={() => {
+              setMoreOpen(false)
+              openOverlay('settings')
+            }}
+            onOpenTrash={() => {
+              setMoreOpen(false)
+              openTrash()
+            }}
+            onOpenVaults={() => {
+              setMoreOpen(false)
+              setVaultPanelOpen(true)
+            }}
+            onOpenPlugins={() => {
+              setMoreOpen(false)
+              setMainView('plugins')
+            }}
+            onAbout={() => {
+              setMoreOpen(false)
+              setSettingsTab('about')
+              openOverlay('settings')
+            }}
+            pluginEntries={morePluginEntries}
+          />
+        </>
+      ) : null}
 
       {/**
         * 抽屉遮罩：渲染条件必须与**抽屉本体**同源（rev173.277 · 真人使用测试 #10）。

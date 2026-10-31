@@ -5,11 +5,12 @@
  *  - **桌面（视图容器）**：头部 = 搜索框 + 收起按钮（`«`）；中部 = `children`（文件树 /
  *    搜索结果 / 时间流三选一，由 App 按 `view` 决定）；底部 = 回收站 + 库名（切库）。
  *    **视图切换本身归图标栏**（AppRail）—— 这里不再放一排 tab，避免两个入口重复。
- *  - **手机（抽屉，B2 前保持原样）**：头部 = 应用名 + 设置齿轮；中部 = `children`（文件树）。
+ *  - **手机（抽屉）**：头部 = 应用名 + 「更多」（rev173.308 起；原来是设置齿轮，
+ *    但设置本来就在「更多」里，用户要求这里改开「更多」抽屉）；中部 = `children`（文件树）。
  *
  * 只做渲染：状态与回调全部由 `App` 传入（宽度拖拽在 App 的 resizer 里）。
  */
-import { ChevronLeft, Search, Settings } from 'lucide-react'
+import { ChevronLeft, MoreHorizontal, Search } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
 
 export type AppSidebarView = 'notes' | 'search' | 'timeline'
@@ -37,8 +38,8 @@ export type AppSidebarProps = {
   onSearchIntent?: () => void
   /** 桌面：收起侧栏（`«`） */
   onCollapse?: () => void
-  /** 手机抽屉：设置入口（桌面走图标栏 ⚙，不再在侧栏里放） */
-  onOpenSettings?: () => void
+  /** 手机抽屉：「更多」入口（桌面走图标栏，不再在侧栏里放） */
+  onOpenMore?: () => void
   onOpenTrash: () => void
   /** 弹出「切换笔记库」菜单（坐标 = 按钮的 client 坐标） */
   onOpenVaultMenu: (x: number, y: number) => void
@@ -54,7 +55,7 @@ export function AppSidebar({
   pluginSlot,
   onSearchIntent,
   onCollapse,
-  onOpenSettings,
+  onOpenMore,
   onOpenTrash,
   onOpenVaultMenu,
 }: AppSidebarProps) {
@@ -101,15 +102,15 @@ export function AppSidebar({
             <span className="zn-vault-name" title={vault ?? ''}>
               ZeroNote
             </span>
-            {onOpenSettings ? (
+            {onOpenMore ? (
               <button
                 type="button"
                 className="zn-icon-btn"
-                onClick={onOpenSettings}
-                title="设置"
-                aria-label="设置"
+                onClick={onOpenMore}
+                title="更多"
+                aria-label="更多"
               >
-                <Settings size={16} />
+                <MoreHorizontal size={16} />
               </button>
             ) : null}
           </>

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.307
-更新时间: 2026-10-31 · 最新 rev173.307（**0.9.6 已发版**：rev173.306 的网络代理策略修复进正式包 —— 本机 / 内网直连 + 公网失败回退直连；Release 5 资产）
+revision: 173.308
+更新时间: 2026-10-31 · 最新 rev173.308（**手机端去掉底部导航栏**：启动停在笔记流；「更多」变成右侧抽屉 —— 右边缘左滑 / 左抽屉头部 ⋯；搜索搬进抽屉）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.307
 
 | rev | 内容 |
 |---|---|
+| rev173.308 | 2026-10-31 · **手机端去掉底部导航栏，「更多」变右侧抽屉**（用户 2026-10-31 新需求：「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面，插件本来就在更多有入口，更多改成右滑出现的右侧栏」+ 追加「把左侧栏现在放的那个设置入口，改成更多」）：① **删底栏** —— `MobileTabBar.tsx` 与 `App.tsx` 的 `mobileTab`/`showTabBar`/`tabCurrent`/`switchMobileTab` 全删，`mobilePage` 只剩 `home` / `search` 两页；CSS 的 `.zn-tabbar` 系列与 `.has-tabbar` 三条位移规则一起删（卡片流底部 96px 留白本来就在 `.zn-mobile-cards` 里）。② **新 `MobileMoreDrawer.tsx`（右侧抽屉）** 取代 `MobileMorePage.tsx`：搜索 / 回收站 / 切换笔记库 / 插件中心 + 插件组（启用才出现）+ 设置 / 关于；宽 `min(78vw,320px)`、贴右、吃安全区、右上 ✕。③ **手势** —— `swipe.ts` 新增 `moreSwipeIntent`：**距右边缘 64px 内起手 + 左滑**打开、右划关闭；左抽屉（任意位置右划）不变，两者方向相反互不干扰。⚠️ **32px 门槛在真机被 Android 系统返回手势抢走**（`input swipe` 从最右边起手 ⇒ App 直接退出），实测 54px 起手可用 ⇒ 定 64。④ **左抽屉头部的设置齿轮改成「⋯ 更多」**（用户「更多界面本来就有一个设置入口了」），点击先关左抽屉再开右抽屉。⑤ **返回键**：更多抽屉最先关（在 `layerExits` 之后），搜索页回首页。⑥ 测试：`swipe.test.ts` +8（右边缘判定 / 64px 边界 / 与左抽屉互不干扰）· 新 `mobile-more-drawer.test.tsx` 5 条 · `app-sidebar` 三条改写 · `app-smoke` 的 E#10 回归改成「左抽屉 ⋯ → 更多抽屉 → 插件中心」；删除 `mobile-tab-bar.test.tsx` 与 `mobile-more-page.test.tsx`；全量 vitest **1715**。⑦ **真机实测（24069RA21C · debug · CDP 9333 + adb）**：首页无底栏 ✓ · 右边缘左滑出抽屉 ✓ · 左抽屉右滑仍正常 ✓ · 抽屉「搜索」进全屏搜索页且抽屉自动关 ✓ · 返回键先关抽屉（App 不退）✓。证据 `_shots/rev308-11..22-*.png`；手册三张图已更新（`01-home` / `04-sidebar` / 新 `15-more-drawer`）。 |
 | rev173.307 | 2026-10-31 · **0.9.6 发版（代理策略修复进正式包）**（用户「继续 zeronote」⇒ 交接卡第一件事）：① `release.mjs 0.9.6`（三处版本，`Cargo.lock` 跟随）· CHANGELOG `[0.9.6]` 段 + 版本表 · README 现状行 · ROADMAP §0；② `build-release.mjs` 双端 **7m51s**（桌面 **3m36s** / Android aarch64 **4m15s**，sccache 命中 0）；③ APK 先 `Copy-Item` 成 `ZeroNote_0.9.6_arm64.apk`（Gradle 原名不含版本号）⇒ `gen-update-manifest.mjs`；④ `gh release create v0.9.6`（带 `HTTPS_PROXY`）5 资产；⑤ commit `update/` 并 push。⚠️ 端到端（代理指向死端口 → 点测速看回退）仍未验，留到装上 0.9.6。⚠️ release 构建报 6 条既有警告，其中 `net.rs:121` / `net.rs:270` 两处是 `/** */` 写在语句前（`unused doc comment`），改 `//` 即可，本轮没动。 |
 | rev173.306 | 2026-10-31 · **网络代理策略：本机直连 + 公网失败回退**（用户报告「关掉代理后所有渠道都显示安装包不可达」）：① **根因（一手）** —— `cargo tree -e features -i reqwest` 显示 `reqwest feature "system-proxy"` ← `tauri-plugin-updater feature "system-proxy"`：Cargo 特性**全局合并**，所以连我们自己建的 `reqwest::Client` 也读系统代理。后果：本地回环被代理吞（`cargo test --lib` 的 net 测试挂死、同步插件本地 DAV 桩收不到请求）＋ 代理「开着但不可用」时整个应用断网。② **改法** —— `net.rs` 拆出 `build_client(timeout, direct)`；新增 `http_client_direct()`（`.no_proxy()`）、`client_for_url()`、`is_local_url()`（loopback / 10 / 172.16–31 / 192.168 / 169.254 / `.local`）；`net_request` 用 `client_for_url`，**公网请求失败再直连重试一次**；`updates.rs` 的 `fetch_json` 与「测速」的 HEAD 同款回退。③ **实测** —— 无代理时 GitHub 直链 200、ghproxy.net 超时；走系统代理时两者都 200。 |
 | rev173.305 | 2026-10-31 · **应用内更新通道首次端到端跑通**（用户「更新成功」）：桌面 0.9.4 → **0.9.5**，注册表 `DisplayVersion=0.9.5`、`zeronote.exe` ProductVersion 0.9.5、进程正常。**渠道 = `jsdelivr`**（从 localStorage `zn-app-update-mirror` 读到）—— 按 rev173.300 的 `AssetRoute` 设计，jsDelivr 只镜像**清单**，**安装包退回 GitHub 直链**，本轮靠系统代理（Steam++）把直链拉通。⇒ 0.9.2 → 0.9.3 那次「ghproxy 40% 断流」的失败路径被绕开，多渠道（rev173.300）的价值得到实证。⚠️ 未记录下载耗时与是否用其它渠道。 |
@@ -200,6 +201,66 @@ revision: 173.307
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.308（2026-10-31 · 手机端去掉底部导航栏，「更多」变右侧抽屉）
+
+> 用户原话（`C:\Users\AQUA\Downloads\新需求.md` ＋ 一张手机截图）：
+> 「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面，插件本来就在更多有入口，更多改成右滑出现的右侧栏。」
+> 追加：「把左侧栏现在放的那个设置入口，改成更多，因为更多界面本来就有一个设置入口了」。
+
+> ### 先问清的四条（都按用户选择落地）
+>
+> | 问题 | 用户选择 |
+> |---|---|
+> | 「右侧栏」怎么滑出来 | **从屏幕右边缘往左滑**，贴右侧拉出；左抽屉留给文件树 |
+> | 「首页就是默认的时间流」 | **只是描述** —— 页面内容不动，启动停在现有笔记流（卡片流与时间流本来同一个组件） |
+> | 文件树入口 | **保留**，左右抽屉并存、各自手势 |
+> | 插件中心入口 | **只留「更多」里那条**（底栏 tab 删掉） |
+
+> ### 改了什么
+>
+> | 文件 | 改动 |
+> |---|---|
+> | `MobileTabBar.tsx` / `MobileMorePage.tsx` | **删除**（底栏四项 / 全屏更多页） |
+> | `MobileMoreDrawer.tsx` | **新增**：右侧抽屉，条目 = 搜索 / 回收站 / 切换笔记库 / 插件中心 + 插件组（启用才出现）+ 设置 / 关于 |
+> | `AppSidebar.tsx` | 手机抽屉头部 **设置齿轮 → ⋯「更多」**（设置本来就在「更多」里） |
+> | `lib/swipe.ts` | 新增 `moreSwipeIntent`（右边缘左滑开、右划关）；`MORE_DRAWER_EDGE_PX = 64` |
+> | `App.tsx` | 删 `mobileTab` / `showTabBar` / `tabCurrent` / `switchMobileTab` ⇒ `mobilePage`（`home` / `search`）+ `moreOpen`；更多抽屉的 6 个条目都会先关抽屉；返回键把「更多抽屉」放在 `layerExits` 之后第一位 |
+> | `styles.css` | 删 `.zn-tabbar` 系列与 `.has-tabbar` 三条位移规则；新增 `.zn-more-drawer`（媒体查询内，贴右 `min(78vw,320px)`、滑入动画） |
+>
+> ⚠️ **CSS 顺序坑**：抽屉的 `display: flex` 写在媒体的查询块里（文件前部），我在文件后部又写了一条
+> `.zn-more-drawer { display: none }` 兜底 —— 同特异性下后写的赢，**抽屉永远看不见**（实测第一版就是这样）。
+> 已删掉那条兜底并就地留了注释：组件只在 `moreOpen` 时渲染，桌面没有任何入口，不需要隐藏规则。
+
+> ### 真机踩坑：右边缘手势会被 Android 系统抢
+>
+> 第一版门槛 **32px**。真机 `adb shell input swipe 1200 1300 300 1300 220`（从最右边起手）——
+> **App 直接被退掉了**：Android 全面屏手势把「右边缘内滑」判成**系统返回**，我们的 `touchstart/touchend` 根本收不到。
+> 同样地，左边缘 38px 起手的右滑也会触发返回（左抽屉不受影响是因为它本来就允许**任意位置**右划）。
+> 把门槛改成 **64px** 后同一条 swipe（起点距边 54px）**正常打开抽屉且 App 存活**。
+> ⇒ 结论写进 `swipe.ts` 的注释：**32 不行，64 是实测下限**；用户从「离最右边半个指头宽」的地方起手即可。
+
+> ### 验证
+>
+> - 全量 `vitest` **1715**（+7 净：`swipe` 新增 8 条、`mobile-more-drawer` 5 条、`app-sidebar` 三条改写、
+>   `app-smoke` 一条改写；删掉 `mobile-tab-bar` 4 条与 `mobile-more-page` 4 条）· `tsc` 0 · `oxlint` 4 warnings（= 基线）
+> - **真机（24069RA21C · debug 包 · `adb` + WebView CDP `tcp:9333`）**：
+>   ① 首页**没有底栏**（`tabbar:false`，卡片流 + ＋ 位置正确 `bottom≈120px`）
+>   ② 右边缘左滑 ⇒ 抽屉出现（遮罩同时出现）
+>   ③ 左抽屉「区间右滑」仍正常
+>   ④ 抽屉「搜索」⇒ 全屏搜索页、抽屉自动关
+>   ⑤ 返回键 ⇒ 先关抽屉、App 不退
+> - ⚠️ **CDP 连接方式**：`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`（pid 用 `adb shell pidof com.aqua.zeronote.debug`，
+>   **App 重启后 pid 会变、forward 要重做**）。`$env:ZN_CDP` 只在**同一条 pwsh 命令内**有效 —— 忘了设就会连到桌面的 9222，
+>   于是「手机上看到的」其实是桌面布局（本轮因此误判过一次）。
+> - 证据 `_shots/rev308-11-phone-home.png` / `-13-more-drawer` / `-20-edge-swipe` / `-21-left-drawer` / `-22-search.png`
+
+> ### 文档
+>
+> `docs/UI交互规范.md` §2 重写（无底栏 + 右侧抽屉 + 两抽屉手势分工）· `docs/guides/使用手册-移动端.md`
+> 首页表格 / 手势表 / 快捷入口表 / 记账与设置与插件中心的路径描述全改，并换了三张图
+> （`01-home` / `04-sidebar` 重截，新增 `15-more-drawer`）· `docs/guides/Android安装说明.md` 一处 ·
+> `README.md` 现状行的「手机壳」段。
 
 > ## 📌 rev173.307（2026-10-31 · 0.9.6 发版：代理策略修复进正式包）
 

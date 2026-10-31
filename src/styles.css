@@ -2840,6 +2840,23 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     background: rgba(0,0,0,.28);
   }
 
+  /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动；条件渲染 ⇒ 出现即从右滑入 */
+  .zn-more-drawer {
+    display: flex; flex-direction: column;
+    position: fixed; top: 0; bottom: 0; right: 0; z-index: 60;
+    width: min(78vw, 320px);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--zn-bg);
+    border-left: 1px solid var(--zn-border);
+    box-shadow: 0 0 24px rgba(0,0,0,.18);
+    overflow-y: auto;
+    animation: zn-more-in var(--zn-dur-panel) var(--zn-ease-emph);
+  }
+  @keyframes zn-more-in {
+    from { transform: translateX(100%); }
+  }
+
   /* 顶栏压缩，把宽度让给路径与按钮 */
   .zn-titlebar { gap: var(--zn-space-2); padding: var(--zn-space-2) var(--zn-space-3); }
   .zn-path { font-size: var(--zn-text-sm); }
@@ -3704,68 +3721,23 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   outline-offset: 1px;
 }
 
-/* ───────── 手机底部四项导航（UI 重布局 B2 · 方案 §2.2）─────────
-   固定 4 项、固定顺序（首页 / 搜索 / 插件 / 更多），全部内核能力；
-   编辑态 / 工具页 / 回收站时整条不渲染（键盘上方工具栏接管）。
-   只放点击目标不放拖拽 —— 避开 Android 底部手势区；贴底留 safe-area。 */
-.zn-tabbar {
-  flex: none;
+/* ───────── 手机右侧「更多」抽屉（rev173.308）─────────
+   用户 2026-10-31：「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面，
+   插件本来就在更多有入口，更多改成右滑出现的右侧栏」。
+   原来那条底部四项导航（`.zn-tabbar`）已整块删除。
+
+   ⚠️ **不要在这里写 `display: none` 兜底**：手机专属的媒体查询块在文件更前面，
+   同特异性下后写的规则会赢 —— 那样抽屉永远显示不出来（rev173.308 实测踩过）。
+   组件本身只在 `moreOpen` 时渲染，桌面没有任何入口，不需要隐藏规则。 */
+.zn-more-head-row {
   display: flex;
-  align-items: stretch;
-  height: calc(56px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  border-top: 1px solid var(--zn-border);
-  background: var(--zn-bg-subtle);
-  z-index: 40;
-}
-.zn-tabbar-btn {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--zn-fg-muted);
-  font-size: 11px;
-  line-height: 1.1;
-  padding: 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.zn-tabbar-btn:active {
-  background: var(--zn-bg-hover);
-}
-.zn-tabbar-btn.is-active {
-  color: var(--zn-accent);
-}
-/* 选中项顶部一条短竖线（与图标栏的左侧竖条同一套语义） */
-.zn-tabbar-btn.is-active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 20px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--zn-accent);
-}
-.zn-tabbar-btn {
-  position: relative;
+  justify-content: space-between;
+  gap: var(--zn-space-2);
 }
 
-/* 底部占位后，首页那颗浮动 ＋ 与长按环形入口整体上移 56px */
-.zn-app.has-tabbar .zn-mobile-compose {
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-}
-.zn-app.has-tabbar .zn-quick-ring {
-  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
-}
-/* 卡片流底部也要给 ＋ 与底栏留够空间 */
-.zn-app.has-tabbar .zn-mobile-cards {
-  padding-bottom: 140px;
-}
+/* 卡片流底部给浮动 ＋ 留空间 —— 基础规则 `.zn-mobile-cards` 本身已有 `padding-bottom: 96px`，
+   底栏删掉后不再需要额外覆盖（rev173.308）。 */
 
 /* 全屏页（搜索 / 更多）：铺满主区，自己滚动 */
 .zn-mobile-page {

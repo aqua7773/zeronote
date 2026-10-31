@@ -5,7 +5,7 @@
  * 两个形态：
  *  - 桌面（传 `view`）= 视图容器：头部是搜索框 + 收起按钮，中部渲染 `children`；
  *    搜索视图里头部不再出现第 2 个搜索入口（避免两个输入框并排）。
- *  - 手机（不传 `view`）= 抽屉：头部仍是应用名 + 设置齿轮（B2 之前保持原样）。
+ *  - 手机（不传 `view`）= 抽屉：头部仍是应用名 + 「更多」（rev173.308 起；原来是设置齿轮）。
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,18 +25,23 @@ function makeProps(over: Record<string, unknown> = {}) {
 }
 
 describe('AppSidebar 抽屉形态（手机）', () => {
-  it('设置图标在侧栏头部，点击打开设置', () => {
-    const props = makeProps({ onOpenSettings: vi.fn() })
+  it('「更多」按钮在侧栏头部，点击打开右侧更多抽屉（rev173.308）', () => {
+    const props = makeProps({ onOpenMore: vi.fn() })
     render(<AppSidebar {...props} />)
-    const btn = screen.getByRole('button', { name: '设置' })
+    const btn = screen.getByRole('button', { name: '更多' })
     expect(btn.closest('.zn-sidebar-head')).toBeTruthy()
     fireEvent.click(btn)
-    expect(props.onOpenSettings).toHaveBeenCalledTimes(1)
+    expect(props.onOpenMore).toHaveBeenCalledTimes(1)
   })
 
-  it('没有库时设置图标也在（不依赖库）', () => {
-    render(<AppSidebar {...makeProps({ vault: null, onOpenSettings: vi.fn() })} />)
-    expect(screen.getByRole('button', { name: '设置' })).toBeTruthy()
+  it('没有库时「更多」按钮也在（不依赖库）', () => {
+    render(<AppSidebar {...makeProps({ vault: null, onOpenMore: vi.fn() })} />)
+    expect(screen.getByRole('button', { name: '更多' })).toBeTruthy()
+  })
+
+  it('手机抽屉里不再有设置入口（设置本来就在「更多」里）', () => {
+    render(<AppSidebar {...makeProps({ onOpenMore: vi.fn() })} />)
+    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
   })
 })
 

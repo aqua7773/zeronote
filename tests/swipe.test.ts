@@ -9,7 +9,7 @@
  *  · 位移不足 / 更偏纵向 ⇒ 不动作（交给滚动与选字）。
  */
 import { describe, expect, it } from 'vitest'
-import { hasBlockingOverlay, isTypingNow, swipeIntent } from '../src/lib/swipe'
+import { hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from '../src/lib/swipe'
 
 const idle = { sidebarOpen: false, typing: false }
 
@@ -80,5 +80,53 @@ describe('isTypingNow', () => {
     document.body.append(btn)
     btn.focus()
     expect(isTypingNow()).toBe(false)
+  })
+})
+
+/**
+ * 右侧「更多」抽屉（rev173.308 · 用户 2026-10-31「更多改成右滑出现的右侧栏」）。
+ *
+ * 与左抽屉的分工：左抽屉 = 任意位置**右划**；右抽屉 = **右边缘起手 + 左划**。
+ * 两条判据方向相反、起点不同，所以同一次滑动不可能同时命中 —— 这正是这里要锁住的。
+ */
+describe('moreSwipeIntent', () => {
+  const base = { startX: 390, viewportWidth: 400, open: false }
+
+  it('右边缘起手 + 左划 ⇒ open', () => {
+    expect(moreSwipeIntent(-120, 10, base)).toBe('open')
+  })
+
+  it('不在右边缘（从屏幕中间左划）⇒ 不开（那是选字 / 翻页）', () => {
+    expect(moreSwipeIntent(-120, 10, { ...base, startX: 120 })).toBeNull()
+  })
+
+  it('门槛 = 距右边缘 64px（32 会被 Android 系统返回手势抢走，不能更小）', () => {
+    expect(moreSwipeIntent(-120, 10, { startX: 400 - 64, viewportWidth: 400, open: false })).toBe('open')
+    expect(moreSwipeIntent(-120, 10, { startX: 400 - 65, viewportWidth: 400, open: false })).toBeNull()
+  })
+
+  it('右边缘起手但**右划** ⇒ 不归它管（右划开的是左边文件树抽屉）', () => {
+    expect(moreSwipeIntent(120, 10, base)).toBeNull()
+    expect(swipeIntent(120, 10, { sidebarOpen: false, typing: false })).toBe('open')
+  })
+
+  it('右边缘左划时左抽屉不动作（互不干扰）', () => {
+    expect(swipeIntent(-120, 10, { sidebarOpen: false, typing: false })).toBeNull()
+    expect(moreSwipeIntent(-120, 10, base)).toBe('open')
+  })
+
+  it('抽屉已打开：右划关闭、左划不管、再点右边缘也不重开', () => {
+    expect(moreSwipeIntent(120, 10, { ...base, open: true })).toBe('close')
+    expect(moreSwipeIntent(-120, 10, { ...base, open: true })).toBeNull()
+  })
+
+  it('位移不足或更偏纵向 ⇒ null', () => {
+    expect(moreSwipeIntent(-40, 5, base)).toBeNull()
+    expect(moreSwipeIntent(-80, 90, base)).toBeNull()
+  })
+
+  it('浮层开着 ⇒ 打开与关闭两个方向都不动作', () => {
+    expect(moreSwipeIntent(-120, 10, { ...base, overlay: true })).toBeNull()
+    expect(moreSwipeIntent(120, 10, { ...base, open: true, overlay: true })).toBeNull()
   })
 })
