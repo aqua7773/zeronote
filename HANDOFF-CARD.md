@@ -33,7 +33,7 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> **本轮（rev173.292 · 2026-10-31）· 应用本体更新已落地（代码全绿，待发版做端到端）**：
+> **本轮（rev173.292 · 2026-10-31）· 应用本体更新已发布 v0.9.2（两端产物 + Release 已上传；端到端待真装一次验证）**：
 > 用户「给 zeronote 添加内置更新功能」→ 拍板「两端都做 + 密钥我生成」。
 > **桌面** = 官方 `tauri-plugin-updater`（minisign 签名**不可关** · NSIS 安装器 · 装完自动重启）；
 > **Android** = 自下载 APK → sha256 核对 → 系统安装器（新原生插件 `tauri-plugin-apk-install`）——

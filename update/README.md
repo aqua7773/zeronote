@@ -55,6 +55,20 @@ reqwest 能借代理出去，一关代理就必然失败。ghproxy 前缀那条�
 * 想在海外 / 自建反代环境用原始地址：`$env:NO_GH_MIRROR=1; node scripts/gen-update-manifest.mjs`
 * ghproxy 挂了怎么办：应用内更新会报错，用户到 Release 页面手动下（浏览器可配代理）。
 
+## 改了清单后，镜像会有一段时间是旧的
+
+2026-10-31 实测：改完 `latest.json` 并 push 后立刻验证 ——
+
+| 源 | 立刻拿到新内容？ |
+|---|---|
+| `raw.githubusercontent.com` | ✅ 几乎实时（偶发限流，会返回非 JSON） |
+| `ghproxy.net` | ⏱ 缓存几分钟 |
+| jsDelivr `@main` | ⏱ 缓存较长（小时级） |
+
+所以镜像顺序把 **raw 放第一**（应用内探测也是这个顺序）：内容一更新，桌面端立刻就能拿到新清单；
+ghproxy / jsDelivr 只在前两个都不通时才用，滞后可接受。
+急的时候别反复请求 raw（触发限流），等一两分钟再验。
+
 ## 私钥在哪
 
 `~/.tauri/zeronote.key`（**不进仓库**，`bundle.createUpdaterArtifacts: true` 后每次打包都要它）。
