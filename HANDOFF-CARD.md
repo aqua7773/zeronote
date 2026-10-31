@@ -33,30 +33,32 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.300 · 2026-10-31）· 把新渠道装到机器上再验一次
+> ### 📌 下个会话第一件事（rev173.301 · 2026-10-31）· 装 0.9.4 验多渠道
 >
-> **0.9.2 → 0.9.3 的真装验完了：检查 ✅、下载 ❌** —— 本机装的就是 0.9.2，点「重新检查」拿到 0.9.3，
-> 但点「下载并安装」后 ghproxy 下了约 5 分钟、**40% 处断流**，界面报
-> 「下载或安装更新失败：error decoding response body」（证据 `_shots/verify-update-300-09.png`）。
-> 本机仍是 **0.9.2**，没装成。直连 `github.com` 8 秒 0 字节、走系统代理 9.8 KB/s。
+> **0.9.4 已发版**（5 个资产 uploaded · 见下面「已发版」）。本机仍装着 **0.9.2** —— 0.9.3 那次自动更新
+> 下到 40% 断流（`error decoding response body`），没装成。
 >
-> **已落地多渠道（rev173.300）**：关于页 5 条渠道下拉 + 测速，安装包按渠道改写 URL。
-> 但它只在新版本里生效，下一件要做的是：
-> 1. 起 dev（或装一版含本改动的 release）→ 关于页选 `jsdelivr-gcore` / `ghproxy` 各点一次「测速」，看读数；
-> 2. 选 `ghproxy` 跑一次「下载并安装」，确认断流是否复现（记下断在第几 %）；
-> 3. 若仍断 → 加第 6 条反代，或把桌面改成 Android 那套「自己下载 + 逐个候选试」。
+> 下一步（30–60 分钟）：
+> 1. **手动装一次 0.9.4**（Release 页面下 msi / exe，双击装）—— 别指望 0.9.2 自己更新成功（走 ghproxy，会断）；
+> 2. 设置 → 关于 → 更新：选 `jsdelivr-gcore` / `ghproxy` 各点一次「测速」，应看到 v0.9.4 + 安装包大小；
+> 3. 选 `ghproxy` 再跑一次「下载并安装」，看断流是否复现（记下断在第几 %）—— 这一步决定要不要加第 6 条反代，
+>    或把桌面改成 Android 那套「自己下载 + 逐个候选试」。
+>
+> ⚠️ **要紧的前提**：`0.9.3 → 0.9.4` 的自动更新**由 0.9.3 的旧代码执行** ⇒ 下载仍走清单里的 ghproxy 前缀。
+> 多渠道是**装上 0.9.4 之后**才生效，所以这一版必须**手动**装一次。
 >
 > 备选（成本各约 30–60 分钟）：
 > - **修 `http_client` 代理策略**（loopback / 私网不走系统代理）：治本 —— 现在 `cargo test --lib` 会**挂死**
 >   （`net::tests` 的桩 accept 不到），基线只能 `cargo test --lib -- --skip net::tests --skip install_znp_from_url`。
 > - 删除传播的端到端：删一篇 → 看云端 `_zn/trash/` → 清空回收站 → 看那份消失。
 >
-> ### ✅ rev173.300 已落地（2026-10-31 · 更新渠道对齐插件市场）
+> ### ✅ 0.9.4 已发版（2026-10-31 · 5 个资产全部 uploaded）
 >
-> 5 渠道（raw / jsdelivr-gcore / jsdelivr-testingcf / jsdelivr / ghproxy）· 新命令 `probe_update_mirror` 测速 ·
-> `install_desktop_update` 改写 `update.download_url`（签名校验仍官方 updater）· 清单脚本**刻意仍写 ghproxy 前缀**
-> （≤0.9.3 旧客户端兼容，客户端剥前缀后按渠道路由）· 测试 cargo 4 条（+2）/ `app-update.test.ts` 10 条（+3）/ tsc 0。
-> ⚠️ 未端到端验（见上面第一步）。
+> `ZeroNote_0.9.4_x64_zh-CN.msi` **16.93 MiB** · `…-setup.exe` **15.02 MiB**（各带 `.sig` 436 B）·
+> `ZeroNote_0.9.4_arm64.apk` **32.90 MiB**（sha256 `7aa7aaf8…`）⇒ https://github.com/aqua7773/zeronote/releases/tag/v0.9.4
+> 构建 **8 分 5 秒**（桌面 4m14s / Android 3m51s）· 清单已提交（`99ed594`）· raw / ghproxy 都已读到 0.9.4
+> （**jsDelivr 还是 0.9.2** —— `@main` 小时级缓存，已知）。
+> **内容**：更新渠道 = 与插件市场同一套 5 条 + 逐条测速 + 安装包按渠道路由（rev173.300）。
 >
 > ### ✅ 0.9.3 已发版（2026-10-31 · 5 个资产全部 uploaded）
 >
@@ -90,6 +92,7 @@ pwsh -File scripts\verify.ps1
 > | 173.297 | **拉下来的笔记 mtime = 远端推送时间**：内核 `set_mtime`（std `File::set_modified`，无需新依赖）+ 契约 `fs.setMtime` + `sync` 六处 pull 写回 `at` |
 > | 173.299 | **0.9.3 发版**：桌面 msi/exe + arm64 APK 共 5 个资产；清单已提交 |
 > | 173.300 | **更新渠道对齐插件市场**：5 渠道可选 + 逐条测速 + 安装包按渠道路由（`rewrite_asset_url`）；真装实测抓到 ghproxy 40% 断流 |
+> | 173.301 | **0.9.4 发版**：桌面 msi/exe（带签名）+ arm64 APK 共 5 资产；清单已提交，raw / ghproxy 已读到 0.9.4 |
 >
 
 > **rev173.293（2026-10-31）· 删除会传播了（`sync` 0.1.3）**：用户「我本地删掉的大小，一同步又回来了，
