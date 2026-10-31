@@ -1,10 +1,10 @@
 {
-  "version": "0.9.6",
-  "notes": "Fixed\n\n- 关掉系统代理后所有更新渠道都报「安装包不可达」（rev173.306 · 用户 2026-10-31 实测）：\n  根因不在渠道表，而在 Cargo 特性合并 —— `tauri-plugin-updater` 打开了 reqwest 的\n  `system-proxy` 特性，整个二进制（插件下载 / 清单拉取 / 测速 HEAD）的请求都改走系统代理，\n  代理一关这些请求就全失败（`cargo tree -e features -i reqwest` 可复现）。\n  现在本机 / 内网一律直连，公网请求走系统代理但失败后直连重试一次\n  （`net_request` / `fetch_json` / 测速 HEAD / 插件包下载四处）。\n- `cargo test --lib` 不再需要 `--skip`：同根因曾让 `net::tests` 两条与\n  `install_znp_from_url_rejects_*` 在系统代理开着时挂死（本地桩永远 accept 不到请求）。\n  现在 92 passed / 0 failed / 0 filtered。\n\n说明\n\n- 端到端未验（把系统代理指向死端口 → 点测速看是否回退直连）：dev 与已安装的 0.9.5\n  共用 WebView 数据目录，0.9.5 在跑时 dev 起不来 —— 留到装上 0.9.6 后验一次。",
-  "pub_date": "2026-10-31T12:45:01.038Z",
+  "version": "0.9.7",
+  "notes": "Changed\n\n- 手机端不再有底部导航栏（用户「移动端不做底部导航栏，首页就是默认的时间流，搜索放进更多里面，\n  插件本来就在更多有入口，更多改成右滑出现的右侧栏」）：\n  - 启动直接停在笔记流（手机卡片流与桌面时间流本来就是同一个组件，内容未改）；\n    原底部四项（首页 / 搜索 / 插件 / 更多）整条删除。\n  - 「更多」变成右侧抽屉：屏幕右边缘往左滑（距边 64px 内起手），或点左侧文件树抽屉头部的 ⋯。\n    抽屉内容 = 搜索 / 回收站 / 切换笔记库 / 插件中心 + 已启用插件的入口 + 设置 / 关于。\n  - 搜索从底栏搬进抽屉；插件中心也只从这里进。\n  - 左侧文件树抽屉（任意位置右划）手势不变 —— 两个抽屉方向相反、起点不同，同一次滑动不会同时命中。\n- 左抽屉头部的「设置」齿轮换成「⋯ 更多」（用户「更多界面本来就有一个设置入口了」）：\n  点击先收起左抽屉、再开右抽屉。\n\nFixed\n\n- 右边缘手势门槛 32px → 64px：真机实测从屏幕最右边起手时，Android 全身手势把「右边缘内滑」\n  判成系统返回，我们的监听收不到、App 直接被退掉；64px 起手正常打开抽屉且 App 存活。\n\n说明\n\n- 桌面端不受影响：更多抽屉只在手机渲染，桌面没有任何入口。",
+  "pub_date": "2026-10-31T13:59:40.550Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.6/ZeroNote_0.9.6_arm64.apk",
-    "sha256": "16ce97ee74f0af2ec5973a89d4be180c7df2688e27f75e1da3410b3e18dd59ef",
-    "size": 34523923
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.7/ZeroNote_0.9.7_arm64.apk",
+    "sha256": "71a88454b0063b6309f9545b04f5d7f39aba2a84f8b33f3f261d35ed8fefc2a8",
+    "size": 34524687
   }
 }
