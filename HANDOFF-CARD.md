@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.298 · **交接** —— 本轮 292–297 收口：0.9.2 发版 · 删除传播三轮 · **拉取 mtime = 推送时间**并双端实测通过 · `sync` 0.1.6 已发市；**下个会话第一件事 = 发 0.9.3**，把内核 `set_mtime` 送到市场用户手里）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.299 · **0.9.3 已发版** —— 删除会传播 + 拉下来的笔记 mtime = 推送时间；桌面 msi/exe + Android arm64 APK 共 5 个资产已上传 Release，清单已提交；⚠️ 端到端（点检查 → 下载安装）仍未真装验证）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.298 · 0.9.2 · 2026-10-31 |
+| rev / 版本 | rev173.299 · 0.9.3 · 2026-10-31 |
 | 测试基线 | vitest 1701 · cargo 85 · oxlint 4 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.2 |
+| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.3 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -33,21 +33,27 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.298 交接 · 2026-10-31）· 发 **0.9.3**
+> ### 📌 下个会话第一件事（rev173.299 · 2026-10-31）· 真装一次，验更新通道
 >
-> **为什么必须发应用版本**：`set_mtime` 是**内核命令**，0.9.2 及更早的安装包里没有 ⇒
-> 市场用户升了 `sync` 0.1.6 之后，插件照常调 `api.fs.setMtime`（`fs.ts` 总提供），
-> 但 Rust 侧没有这条命令 ⇒ 抛错被 `catch` 吞掉 ⇒ **mtime 修复静默不生效**。
-> （通用规律：**新增内核原语必须配一次应用发版**，否则只发插件等于没修。）
+> **0.9.3 已发版**（详见下面「已发版」）。现在唯一还欠的是**端到端**：
+> 在装 0.9.2 的机器上 → 设置 → 关于 → 更新 → 点「检查」→ 真下载并安装 0.9.3。
+> 这条通道从 0.9.2 起才存在（0.9.1 及更早没有签名产物），所以 0.9.2 → 0.9.3 是**第一次有机会跑通**。
+> 验的时候盯三处：① 检查拿到 0.9.3 与版本说明；② 下载进度与 sha256/签名校验；③ 装完自动重启且版本号变 0.9.3。
 >
-> 顺序照 `update/README.md`，别搞反：
-> 1. `node scripts/release.mjs 0.9.3`（同步三处版本）
-> 2. CHANGELOG：292–297 的条目搬进 `[0.9.3]` 段 + 版本表；README 现状行 / ROADMAP §0
-> 3. `node scripts/build-release.mjs`（两端：桌面 ≈3 分钟 / Android ≈5–14 分钟）
-> 4. `node scripts/gen-update-manifest.mjs`
-> 5. `gh release create v0.9.3`（msi/exe/+`.sig` + APK）→ **commit `update/` 并 push**
-> 6. ⚠️ 私钥 `C:\Users\AQUA\.tauri\zeronote.key` 必须在；⚠️ push 直连 github 时通时不通，
->    不行就加 `-c http.proxy=http://127.0.0.1:26561`
+> 备选（同一次会话里可做，成本各约 30–60 分钟）：
+> - **修 `http_client` 代理策略**：本轮实测确认「系统代理（Steam++）会把 loopback 请求吃掉」，
+>   本地同步开发时桩一个请求都收不到、插件还会误判「远端已删」。改成「loopback / 私网不走代理」。
+> - 删除传播的端到端：删一篇 → 看云端 `_zn/trash/` → 清空回收站 → 看那份消失。
+>
+> ### ✅ 0.9.3 已发版（2026-10-31 · 5 个资产全部 uploaded）
+>
+> `ZeroNote_0.9.3_x64_zh-CN.msi` **16.93 MiB** · `…-setup.exe` **15.02 MiB**（各带 `.sig` 436 B）·
+> `ZeroNote_0.9.3_arm64.apk` **32.87 MiB** ⇒ https://github.com/aqua7773/zeronote/releases/tag/v0.9.3
+> 构建 8m14s（桌面 4m03s / Android 4m11s）· 清单 `update/latest.json` + `update/android.json` 已提交（`9b72173`）
+> **内容**：删除会传播（云端回收站 `_zn/trash/`）· 拉下来的笔记 mtime = 推送时间（`set_mtime` 内核命令 + `sync` 0.1.6）
+>
+> **两个发版坑**：① Gradle 产出的 APK 不含版本号（`app-universal-release.apk`）⇒ 要先 `Copy-Item` 成
+> `ZeroNote_0.9.3_arm64.apk` 再生成清单；② `gh release create` 要带 `HTTPS_PROXY=http://127.0.0.1:26561`。
 >
 > ### ✅ rev173.297 已全链路验完（2026-10-31 11:57 · 桌面 dev + 手机真机）
 >
@@ -59,8 +65,7 @@ pwsh -File scripts\verify.ps1
 > 绕法：baseUrl 用 LAN IP）② `adb shell` stdin **128 KB 截断**（走 `/data/local/tmp` + `run-as cat`）
 > ③ `typeof api.fs.setMtime` **判不出内核命令是否存在**（旧 APK 上看不出异常）。
 >
-> **仍欠的端到端**：0.9.2 的「点检查 → 下载安装」要真装一次；删除传播要看云端 `_zn/trash/`。
->
+
 > ### 本轮（rev173.292–297）做完的
 >
 > | rev | 内容 |
