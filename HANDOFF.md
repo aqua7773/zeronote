@@ -224,6 +224,20 @@ revision: 173.303
 > - `vitest` **1708 passed**（+4：`overlay` 两方向都不动作 · `hasBlockingOverlay` 四类遮罩 · 候选里没有 `builtin:timeline` …）
 > - ⚠️ **手势与返回键只能在真机验**：桌面没有 Android 返回键、也没有抽屉手势。静态测试锁住的是判定函数，不是端到端。
 
+> ### dev 实测（2026-10-31 19:0x · CDP 9222 · 库 `_tmp-vault-tb`）
+>
+> | # | 验法 | 结果 |
+> |---|---|---|
+> | 1 | 命令面板 → 打开设置 → 读 5 个「换入口」下拉的 options | ✅ 只有 `（空位）/ 同步 / 搜索 / 插件中心 / 回收站 / 设置 / 切换笔记库` —— **没有时间流** |
+> | 4a | `tools/cdp.mjs viewport 390 844`（新命令，Emulation 只改渲染不动窗口） | ✅ `flexWrap:wrap` · 替换栏高 **67px**（两行）· 输入框各 **160px** · 按钮 `whiteSpace:nowrap` · 无横向溢出（`_shots/rt3-verify-05-replace-390.png`） |
+> | 4b | 合成 Ctrl+F → 点「替换」⇒ 替换栏；再 Esc | ✅ 点替换后 `search:false + replace:true`；Esc 后 `search:true + replace:false` —— 关替换**回到搜索**，与用户要求一致 |
+> | 4c | 替换栏开着时**再按 Ctrl+F** | ❌→✅ 第一次实测**叠成了两层**（`search:true + replace:true`）：我只拦了按钮路径，`Ctrl+F` 是 atomic 自己的快捷键，绕过了 `openFindPanel`。补了 window 捕获阶段守卫（`b25f30e`）后复测：`search:true + replace:false` |
+>
+> **顺手加的验收工具**：`tools/cdp.mjs viewport <w> <h>` / `viewport off` —— 验「只在手机上生效」的 CSS 不必把窗口缩到 390（`Emulation.setDeviceMetricsOverride`）。⚠️ 它与真机仍有差异：UA 不变（`platform` 仍按桌面走）、触摸事件要另造。
+>
+> **仍只能真机验的**：抽屉滑动手势（#2 #3）—— 那段 `useEffect` 只在 `/Android/i` 的 UA 下注册，桌面根本不跑；返回键（#4 的 `backRef` 分支）同理。
+
+
 > ## 📌 rev173.301（2026-10-31 · 0.9.4 发版）
 
 > 用户「发新版本」。
