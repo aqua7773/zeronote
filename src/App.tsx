@@ -126,7 +126,7 @@ import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from 
 /* J#9（rev173.281）：环形快捷入口 5 格配置（中心 ＋ 固定新建笔记） */
 import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
 import { failMsg, type SaveState } from './lib/fail-msg'
-import { isTypingNow, swipeIntent } from './lib/swipe'
+import { hasBlockingOverlay, isTypingNow, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
@@ -775,6 +775,8 @@ export default function App() {
       const action = swipeIntent(t.clientX - sx, t.clientY - sy, {
         sidebarOpen,
         typing: isTypingNow(),
+        // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归抽屉管（rev173.303）
+        overlay: hasBlockingOverlay(),
       })
       if (action === 'open') setSidebarOpen(true)
       else if (action === 'close') setSidebarOpen(false)
@@ -813,6 +815,37 @@ export default function App() {
   const dirtyRef = useRef(dirty)
   const disabledRef = useRef(disabled)
   const editorRef = useRef<EditorView | null>(null)
+  /**
+   * 替换栏是不是**从查找面板的点「替换」进来的**（rev173.303 · 第三次真人测试 #4）。
+   * 决定关掉替换栏之后回哪儿：搜索进来 ⇒ 把查找面板还回去；命令面板 / Ctrl+H ⇒ 直接回编辑。
+   */
+  const replaceFromSearchRef = useRef(false)
+
+  /** 打开替换栏；`fromSearch` 见上面的 ref 注释 */
+  const openReplace = useCallback((fromSearch = false) => {
+    replaceFromSearchRef.current = fromSearch
+    setReplaceOpen(true)
+  }, [])
+
+  /**
+   * 关闭替换栏 —— ✕ / Esc / 返回键都走这一个出口。
+   *
+   * 用户原话（第三次真人测试 #4）：「这个替换是从搜索进入的，逻辑应该是
+   * 返回会关闭替换回到搜索，再返回关闭搜索回到编辑」。
+   */
+  const closeReplace = useCallback(() => {
+    setReplaceOpen(false)
+    if (!replaceFromSearchRef.current) return
+    replaceFromSearchRef.current = false
+    // 与 `synthKey('f')` 同一做法：往编辑器派发 Ctrl+F（atomic 的查找面板自己接）
+    const dom = editorRef.current?.contentDOM
+    if (!dom) return
+    for (const type of ['keydown', 'keyup'] as const) {
+      dom.dispatchEvent(
+        new KeyboardEvent(type, { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }),
+      )
+    }
+  }, [])
   const timerRef = useRef<number | null>(null)
   /**
    * `doc.on` 订阅表（U3b）。
@@ -2196,7 +2229,7 @@ export default function App() {
       const p = activeRef.current
       if (!p) return
       const items: MenuItem[] = [
-        { label: '查找替换', hint: 'Ctrl+H', onClick: () => setReplaceOpen(true) },
+        { label: '查找替换', hint: 'Ctrl+H', onClick: () => openReplace() },
         // 独立窗口只有桌面有（手机给提示也可以，但这里直接不出现更干净）
         ...(platform === 'android'
           ? []
@@ -2212,7 +2245,7 @@ export default function App() {
       ]
       setDocMenu({ x: at.x, y: at.y, items })
     },
-    [platform, openInWindow, closeCurrentView, deleteNotes],
+    [platform, openInWindow, closeCurrentView, deleteNotes, openReplace],
   )
 
   /**
@@ -2348,7 +2381,7 @@ export default function App() {
         id: 'core.replace',
         title: '查找并替换…',
         keybinding: 'Mod+H',
-        run: () => setReplaceOpen(true),
+        run: () => openReplace(),
       }),
       /**
        * 全局替换（跨笔记 · rev173.49 · 用户待办 #3）：
@@ -2464,6 +2497,8 @@ export default function App() {
     noteWindowPath,
     /* B1：core.search / core.sidebar.toggle 按平台分叉（侧栏视图 vs 抽屉） */
     platform,
+    // rev173.303：core.replace 的 run 走 openReplace（从查找面板进来才算「可回到搜索」）
+    openReplace,
   ])
 
   /**
@@ -2772,6 +2807,16 @@ export default function App() {
         }
         return true
       }
+      /**
+       * 替换栏开着 ⇒ 返回键先关它（rev173.303 · 第三次真人测试 #4）。
+       * 用户在手机上实测：替换栏没有层出口，返回键直接把**笔记**关了。
+       * 从查找面板点「替换」进来的，`closeReplace` 还会把查找面板还回去 ——
+       * 于是返回键层级是「替换 → 搜索 → 编辑」，与用户要求一致。
+       */
+      if (replaceOpen) {
+        closeReplace()
+        return true
+      }
       if (settingsOpen) {
         setSettingsOpen(false)
         return true
@@ -2813,6 +2858,8 @@ export default function App() {
       return false
     }
   }, [
+    replaceOpen,
+    closeReplace,
     settingsOpen,
     searchOpen,
     switcherOpen,
@@ -3807,6 +3854,22 @@ export default function App() {
   }
 
   /**
+   * 打开编辑器的查找面板（= Ctrl+F）—— rev173.303 · 第三次真人测试 #4。
+   *
+   * 替换栏开着时**先把它收掉**再开查找面板：用户实测两者可以同时挂在屏幕上半部分，
+   * 手机上直接叠成两层（图里一个「Search」浮层压在替换栏上）。
+   * 收替换栏用 `setReplaceOpen(false)` 而不是 `closeReplace()` —— 后者会把查找面板
+   * 还回去（那是「关掉替换」的语义），这里是要**开**查找面板。
+   */
+  const openFindPanel = () => {
+    if (replaceOpen) {
+      replaceFromSearchRef.current = false
+      setReplaceOpen(false)
+    }
+    synthKey('f')
+  }
+
+  /**
    * ☰ 主菜单（B1 · 方案 §2.1「☰ = 主菜单」/ §4 入口矩阵）。
    *
    * 规则（方案 §4）：
@@ -3875,7 +3938,7 @@ export default function App() {
     ...(!isDesktop && activePath
       ? [
           { label: '插入附件…', divider: true, onClick: () => void insertAttachment() },
-          { label: '查找…', hint: 'Ctrl+F', onClick: () => synthKey('f') },
+          { label: '查找…', hint: 'Ctrl+F', onClick: () => openFindPanel() },
         ]
       : []),
     ...(mainView === 'editor'
@@ -4118,7 +4181,7 @@ export default function App() {
           },
         },
         { label: '插入附件…', onClick: () => void insertAttachment() },
-        { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => synthKey('f') },
+        { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => openFindPanel() },
       )
 
       /**
@@ -4468,10 +4531,12 @@ export default function App() {
         return { key, label: '设置', onClick: () => openOverlay('settings') }
       case 'builtin:vaults':
         return { key, label: '切换笔记库', onClick: () => setVaultPanelOpen(true) }
-      case 'builtin:timeline':
-        return isDesktop
-          ? { key, label: '时间流', onClick: () => selectRailView('timeline') }
-          : { key, label: '时间流', disabled: true, hint: '仅桌面' }
+      /**
+       * 刻意**不认** `builtin:timeline`（rev173.303 · 第三次真人测试 #1）：
+       * 桌面有图标栏 / `Ctrl+3` / 菜单三处入口，手机上它只能是个「仅桌面」灰位 ——
+       * 用户「设置这个没有意义」。候选表里已删；老存档里若还留着这个 key，这里落到
+       * `null` ⇒ 环上就是一个空槽（干净，不是点不动的怪东西）。
+       */
       default:
         return null
     }
@@ -4684,8 +4749,8 @@ export default function App() {
                 editorRef.current = v
               }}
               replaceOpen={replaceOpen}
-              onCloseReplace={() => setReplaceOpen(false)}
-              onRequestReplace={() => setReplaceOpen(true)}
+              onCloseReplace={closeReplace}
+              onRequestReplace={(fromSearch) => openReplace(fromSearch)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onWikiPreview={wikiPreview}
@@ -4761,7 +4826,34 @@ export default function App() {
           isDesktop
             ? undefined
             : mainView === 'editor' && activePath
-              ? () => void closeCurrentView()
+              ? () => {
+                  /**
+                   * 手机顶栏「‹ 返回」与 Android 返回键**同一套层级**（rev173.303 · #4）：
+                   * 替换栏开着先关替换栏（从查找面板进来的还会把查找面板还回去），
+                   * 查找面板开着先关面板，最后才关笔记 —— 以前是一路直接 `closeCurrentView()`，
+                   * 用户实测「返回直接退出编辑了」。
+                   */
+                  if (replaceOpen) {
+                    closeReplace()
+                    return
+                  }
+                  if (document.querySelector('.cm-atomic-search-input')) {
+                    const dom = editorRef.current?.contentDOM
+                    if (dom) {
+                      for (const type of ['keydown', 'keyup'] as const) {
+                        dom.dispatchEvent(
+                          new KeyboardEvent(type, {
+                            key: 'Escape',
+                            bubbles: true,
+                            cancelable: true,
+                          }),
+                        )
+                      }
+                    }
+                    return
+                  }
+                  void closeCurrentView()
+                }
               : /* 手机面板页（rev173.270 · 用户反馈 #3「同步插件无法关闭」）：
                    之前这里只有 ☰ = 抽屉开关，界面里**没有**任何回到笔记的可见入口，
                    只能凭系统返回键（用户不知道）。现在给一个「‹ 返回」，
@@ -5225,8 +5317,8 @@ export default function App() {
                 editorRef.current = v
               }}
               replaceOpen={replaceOpen}
-              onCloseReplace={() => setReplaceOpen(false)}
-              onRequestReplace={() => setReplaceOpen(true)}
+              onCloseReplace={closeReplace}
+              onRequestReplace={(fromSearch) => openReplace(fromSearch)}
               onCommand={(id, payload) => void kernel?.commands.api.execute(id, payload)}
               onWikiLinkOpen={openWikiLink}
               onWikiPreview={wikiPreview}
@@ -5259,7 +5351,7 @@ export default function App() {
                 onInsertAttachment={
                   platform === 'android' && activePath ? () => void insertAttachment() : undefined
                 }
-                onFind={platform === 'android' && activePath ? () => synthKey('f') : undefined}
+                onFind={platform === 'android' && activePath ? () => openFindPanel() : undefined}
               >
                 {toolbarPanels.map((p) => (
                   <PanelBoundary key={p.id}>

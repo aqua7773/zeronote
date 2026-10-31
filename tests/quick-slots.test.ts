@@ -71,4 +71,8 @@ describe('quick-slots 5 格配置', () => {
   it('内置候选里没有「新建笔记」—— 它固定在中心 ＋，不占 5 格', () => {
     expect(BUILTIN_QUICK_OPTIONS.map((o) => o.key)).not.toContain('builtin:newNote')
   })
+
+  it('内置候选里也没有「时间流」—— 桌面不需要手机 ＋ 环里的这个入口（rev173.303）', () => {
+    expect(BUILTIN_QUICK_OPTIONS.map((o) => o.key)).not.toContain('builtin:timeline')
+  })
 })

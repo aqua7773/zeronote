@@ -18,14 +18,16 @@ export const QUICK_SLOTS_KEY = 'zeronote.quickSlots'
 export type QuickSlotOption = {
   key: string
   label: string
-  /** 只在桌面可用（手机上环里显示灰位「仅桌面」） */
-  onlyDesktop?: boolean
 }
 
 /**
  * 内置动作候选。
  *
  * **刻意不放「新建笔记」**：中心那个 ＋ 就是它，重复放一格只浪费位置。
+ *
+ * **也刻意不放「时间流」（rev173.303 · 第三次真人测试 #1）**：时间流是桌面专属功能，
+ * 桌面自己有图标栏 / `Ctrl+3` / 菜单三处入口，不需要绕一圈手机的 ＋ 环形菜单；
+ * 而手机上它只能是个「仅桌面」的灰位 —— 用户原话「设置这个没有意义」。
  */
 export const BUILTIN_QUICK_OPTIONS: QuickSlotOption[] = [
   { key: 'builtin:search', label: '搜索' },
@@ -33,7 +35,6 @@ export const BUILTIN_QUICK_OPTIONS: QuickSlotOption[] = [
   { key: 'builtin:trash', label: '回收站' },
   { key: 'builtin:settings', label: '设置' },
   { key: 'builtin:vaults', label: '切换笔记库' },
-  { key: 'builtin:timeline', label: '时间流', onlyDesktop: true },
 ]
 
 /**
@@ -42,7 +43,7 @@ export const BUILTIN_QUICK_OPTIONS: QuickSlotOption[] = [
  * 第一格保留改造前的「记账」：装了就是入口，没装就是「未安装」灰位
  * （与改造前行为一致，用户熟悉）。注意**面板 id** 是 `accounting.ledger`
  * （插件 id 是 `accounting`，但面板挂在 `.ledger` 上 —— 2026-10-30 手机实测发现）。
- * 其余四格都是手机上真能用的内置入口 —— 不放 `builtin:timeline`（手机没有时间流）。
+ * 其余四格都是手机上真能用的内置入口 —— 不放 `builtin:timeline`（rev173.303 起候选里也没有它）。
  */
 export const DEFAULT_QUICK_SLOTS: (string | null)[] = [
   'panel:accounting.ledger',

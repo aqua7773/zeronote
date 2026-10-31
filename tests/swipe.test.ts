@@ -9,7 +9,7 @@
  *  · 位移不足 / 更偏纵向 ⇒ 不动作（交给滚动与选字）。
  */
 import { describe, expect, it } from 'vitest'
-import { isTypingNow, swipeIntent } from '../src/lib/swipe'
+import { hasBlockingOverlay, isTypingNow, swipeIntent } from '../src/lib/swipe'
 
 const idle = { sidebarOpen: false, typing: false }
 
@@ -33,6 +33,33 @@ describe('swipeIntent', () => {
 
   it('抽屉已开着时右划 ⇒ 不动作', () => {
     expect(swipeIntent(120, 10, { sidebarOpen: true, typing: false })).toBeNull()
+  })
+
+  /**
+   * rev173.303（2026-10-31 第三次真人测试 #2 #3）：看图 / 环形菜单这类遮罩上，
+   * 左右滑动**两个方向都不归抽屉管** —— 用户原话「看照片的时候可以通过左右滑动
+   * 打开收起左侧栏」「这个遮罩也是，建议检查一下其他的遮罩」。
+   */
+  it('浮层开着 ⇒ 打开与关闭两个方向都不动作', () => {
+    expect(swipeIntent(120, 10, { sidebarOpen: false, typing: false, overlay: true })).toBeNull()
+    expect(swipeIntent(-120, 10, { sidebarOpen: true, typing: false, overlay: true })).toBeNull()
+  })
+})
+
+describe('hasBlockingOverlay', () => {
+  it('没有任何遮罩 ⇒ false', () => {
+    expect(hasBlockingOverlay(document)).toBe(false)
+  })
+
+  it('图片预览 / 环形菜单 / 命令面板 / 对话框 —— 四类遮罩各一个都算「开着」', () => {
+    for (const cls of ['zn-img-preview', 'zn-quick-overlay', 'zn-palette-mask', 'zn-dialog-backdrop']) {
+      const el = document.createElement('div')
+      el.className = cls
+      document.body.append(el)
+      expect(hasBlockingOverlay(document), cls).toBe(true)
+      el.remove()
+      expect(hasBlockingOverlay(document), cls).toBe(false)
+    }
   })
 })
 

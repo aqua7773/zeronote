@@ -393,8 +393,11 @@ type Props = {
    *
    * 为什么不让编辑器自己开：替换栏的开关是**宿主的状态**（`replaceOpen`，App 里由
    * `core.replace` 命令控制）—— 编辑器只把「用户想替换、关键词是这个」交回去。
+   *
+   * `fromSearch`（rev173.303）：这次是从**查找面板**点进来的 ⇒ 关替换栏时宿主会
+   * 把查找面板还回去（返回键层级 = 替换 → 搜索 → 编辑，第三次真人测试 #4）。
    */
-  onRequestReplace?: () => void
+  onRequestReplace?: (fromSearch?: boolean) => void
   /**
    * 插件登记的编辑器标记被点击时，把命令 id 交回宿主执行。
    * 编辑器本身**不认识任何插件** —— 它只知道"这段文本要执行这个命令"。
@@ -782,6 +785,30 @@ const EDITOR_CSS = `
 .zn-replace-btn:hover { background: var(--zn-bg-hover); }
 .zn-replace-btn.is-icon { padding: 0 7px; color: var(--zn-fg-muted); }
 .zn-replace-msg { margin-left: auto; font-size: 12px; color: var(--zn-fg-muted); }
+
+/* 手机窄屏（≤640px）：一行放不下「两个输入 + 两个按钮 + ✕」。
+   2026-10-31 第三次真人测试 #4 实测：按钮被挤成竖排（「替/换」「全/部/替/换」）还压住
+   文档工具条的「源码」。改成两行 —— 输入各占一半，按钮 + ✕ 落第二行；按钮一律 nowrap。 */
+@media (max-width: 640px) {
+  .zn-replace-bar {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .zn-replace-input {
+    width: auto;
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+  }
+  .zn-replace-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .zn-replace-msg {
+    flex-basis: 100%;
+    margin-left: 0;
+    order: 10;
+  }
+}
 `
 
 /**
@@ -1606,7 +1633,8 @@ export function MarkdownEditor({
       ensureReplaceEntry(panel, (keyword) => {
         if (keyword) setFindText(keyword)
         setReplaceMsg('')
-        onRequestReplace()
+        // 来自查找面板 ⇒ 记下来：关替换栏时宿主会把查找面板还回去（rev173.303）
+        onRequestReplace(true)
       })
     }
     const mo = new MutationObserver(scan)
