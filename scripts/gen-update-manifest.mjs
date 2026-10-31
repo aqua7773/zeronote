@@ -135,13 +135,22 @@ let androidOk = false
 for (const rel of apkDirs) {
   const dir = join(root, rel)
   if (!existsSync(dir)) continue
-  // Gradle 的输出名固定是 `app-universal-release.apk`（不含版本号），目录里会留历史产物
-  // ⇒ 取**最新修改时间**的那个（刚跑完 build-release 时它就是本次的）。
-  const apk = readdirSync(dir)
-    .filter((f) => f.endsWith('.apk'))
-    .map((f) => ({ f, t: statSync(join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.t - a.t)[0]?.f
+  // Gradle 的输出名固定是 `app-universal-release.apk`（不含版本号），目录里会留历史产物。
+  // 优先用**人工重命名**成 `ZeroNote_<版本>_*.apk` 的那份（名字与上传资产一致、肉眼可核对）；
+  // 没有才退回「最新修改时间」的那个。
+  const apks = readdirSync(dir).filter((f) => f.endsWith('.apk'))
+  const preferred = apks.find((f) => f.startsWith(exePrefix))
+  const apk =
+    preferred ??
+    apks
+      .map((f) => ({ f, t: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t)[0]?.f
   if (!apk) continue
+  if (!preferred) {
+    console.warn(
+      `· 提示：APK 用的是 Gradle 原名 ${apk}（不含版本号）。建议先复制成 ${exePrefix}arm64.apk，发布后更好认。`,
+    )
+  }
   const full = join(dir, apk)
   const sha256 = sha256Of(full)
   const size = readFileSync(full).length

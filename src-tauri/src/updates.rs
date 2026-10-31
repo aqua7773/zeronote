@@ -127,7 +127,8 @@ fn platform_key() -> String {
   tauri_plugin_updater::target().unwrap_or_else(|| "windows-x86_64".to_string())
 }
 
-/// 拿一条镜像（按 id）
+/// 拿一条镜像（按 id）。只有桌面的安装命令用它（Android 直接拼下载地址）
+#[cfg_attr(target_os = "android", allow(dead_code))]
 fn mirror(id: &str) -> Option<&'static Mirror> {
   MIRRORS.iter().find(|m| m.id == id)
 }
