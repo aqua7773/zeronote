@@ -6,10 +6,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.291 · 0.9.1 · 2026-10-31 |
+| rev / 版本 | rev173.292 · 0.9.2 · 2026-10-31 |
 | 测试基线 | vitest 1688 · cargo 87 · oxlint 3 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.1 |
+| 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.2 |
 <!-- FACTS:END -->
 
 ## 是什么
