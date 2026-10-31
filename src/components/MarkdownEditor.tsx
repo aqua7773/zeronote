@@ -750,6 +750,16 @@ const EDITOR_CSS = `
 }
 .zn-editor .cm-search .cm-atomic-search-btn svg { width: 16px !important; height: 16px !important; }
 
+/* 注入的「替换」入口是**文字按钮**，atomic 那几个都是正方形图标（32×32）——
+   跟着那个尺寸走，中文两个字就被挤成竖排（2026-10-31 手机实测：面板左侧竖着「替 / 换」）。
+   这里单独放平：宽度自适应 + 不换行 + 留出手指点按的宽度。 */
+.zn-editor .cm-search .zn-find-replace-entry {
+  width: auto !important;
+  min-width: 2.75rem;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+}
+
 /* 自带替换栏 —— atomic 的查找面板没有替换行（见下方 extensions 的说明）。
    它渲染在 .zn-editor 之外、.zn-editor-wrap（flex column）之内，
    所以跟编辑器是「栏 + 占满剩余高度」的正常关系。 */
