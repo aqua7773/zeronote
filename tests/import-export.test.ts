@@ -315,7 +315,7 @@ describe('embedSummary', () => {
  */
 describe('面板：首页', () => {
   const view = buildHomeView() as any
-  /** 递归收集（首页的两个入口在 `row` 里，不在顶层） */
+  /** 递归收集（按钮是 stack 直接子节点，但别把嵌套写死进测试） */
   const collect = (node: any, type: string): any[] => {
     const out: any[] = []
     if (!node || typeof node !== 'object') return out
@@ -329,6 +329,12 @@ describe('面板：首页', () => {
   it('两个入口：导出 / 分享', () => {
     expect(entries.map((n: any) => n.payload.mode)).toEqual(['export', 'share'])
     expect(entries.map((n: any) => n.label)).toEqual(['导出笔记…', '分享笔记…'])
+  })
+
+  it('三个按钮竖排等宽：都是 stack 的直接子节点，没有任何 row 包着', () => {
+    const direct = view.children.filter((n: any) => n.type === 'button')
+    expect(direct.map((n: any) => n.label)).toEqual(['导出笔记…', '分享笔记…', '导入文件…'])
+    expect(collect(view, 'row')).toHaveLength(0)
   })
 
   it('不再有「导出当前笔记」这种前提（面板运行时编辑器已卸载）', () => {

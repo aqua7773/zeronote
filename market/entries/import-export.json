@@ -11,8 +11,8 @@
   "apiVersion": "^0.1.0",
   "version": "0.2.1",
   "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.1.znp",
-  "sha256": "8b955d7807c855331205773aa1f5b0745db88d841fcf20aedc03142ea5a71dce",
-  "size": 78474,
+  "sha256": "78a77cf87bd78aa557e2ac2e0c939174f431c46c0a40cf07b0413ff03bb2ab5f",
+  "size": 78496,
   "files": [
     "index.js",
     "signature.json"

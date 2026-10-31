@@ -936,7 +936,7 @@ export function shareFileName(stem, ext) {
   return `${safe}.${ext}`
 }
 
-/** 首页：两个入口 + 导入（"当前笔记"这个假设在这里彻底消失） */
+/** 首页：三个入口竖排等宽（导出 / 分享 / 导入）—— 「当前笔记」这个假设在这里彻底消失 */
 export function buildHomeView() {
   return {
     type: 'stack',
@@ -947,15 +947,9 @@ export function buildHomeView() {
         value: '把外部文件变成库内笔记；把任意一篇笔记导出或分享成别的格式。',
         variant: 'caption',
       },
-      {
-        type: 'row',
-        gap: 'sm',
-        children: [
-          { type: 'button', label: '导出笔记…', onClick: 'io.panel.pick', payload: { mode: 'export' } },
-          { type: 'button', label: '分享笔记…', onClick: 'io.panel.pick', payload: { mode: 'share' } },
-        ],
-      },
-      { type: 'divider' },
+      // 三个按钮都直接挂在 stack 上（宿主会把 stack 里的按钮拉满宽）⇒ 三行等长竖排
+      { type: 'button', label: '导出笔记…', onClick: 'io.panel.pick', payload: { mode: 'export' } },
+      { type: 'button', label: '分享笔记…', onClick: 'io.panel.pick', payload: { mode: 'share' } },
       { type: 'button', label: '导入文件…', onClick: 'io.importFile' },
       { type: 'divider' },
       {
