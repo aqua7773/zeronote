@@ -2123,6 +2123,8 @@ describe('删除传播（rev173.293）', () => {
 
     expect(requests).toContain('DELETE n.md')
     expect(remoteFiles.has('n.md')).toBe(false)
+    // rev173.294：删除是「搬进云端回收站 + 删原文件」，不是直接抹掉
+    expect(requests.some((r) => r.startsWith('PUT _zn/trash/') && r.endsWith('/n.md'))).toBe(true)
     expect(wrote).not.toContain('n.md')
   })
 })

@@ -45,6 +45,8 @@ const {
   PANEL_ID,
   KEY_SETTINGS,
   KEY_BASELINE,
+  REMOTE_TRASH_DIR,
+  TRASH_KEEP_MS,
   KEY_CONFLICTS,
   KEY_DEVICE,
   KEY_TIMING,
@@ -320,34 +322,95 @@ const plugin = {
     const takenNames = new Set()
 
     /**
-     * 删除传播**不设上限**（2026-10-31 用户明确要求：「不用设置安全上限」）。
+     * 删除传播**不设上限**（2026-10-31 用户要求：「不用设置安全上限」）。
      *
-     * 取舍：删除推上去不可逆，所以「库没挂上 / 被外部工具清空」时无脑传播会把云端也清掉。
-     * 用户要求以本机状态为准 ⇒ 去掉 rclone 式的 `--max-delete` 闸门；
-     * 兜底只剩 `keepDeleted` 的本地留底（`.zn/sync/deleted/`）—— 万一误删，内容还在本机、能手工放回。
+     * 也不再在本地留底（`keepDeleted` 已删，同日用户「不用特别把每个删除都留底，不然区分开有什么意义」）——
+     * 兜底就是**回收站本身**：本机 `.zn/trash/` 留着内容，云端对应 `_zn/trash/` 也留一份。
+     * 「删除」和「彻底删除」在两端各走各的：前者只搬家，后者才真删。
      */
 
-    /** 删除传播的本地留底目录（`.zn/` 不在同步范围，所以放这里不会被推上去） */
-    const DELETED_DIR = '.zn/sync/deleted'
+    /** 本机已经推上远端回收站的条目（`<stamp>` → `{ path, at }`）—— 彻底删除时按它清远端 */
+    const KEY_REMOTE_TRASH = 'trash.pushed.v1'
 
     /**
-     * 删云端之前，把远端那份内容在本地留一份（rev173.293）。
+     * 把内容写进**云端回收站**（`_zn/trash/<stamp>/<原路径>`）。
      *
-     * 只是为了「误删还能捞回来」：`.zn/sync/deleted/<YYYY-MM-DD>/<原路径>`，不平铺、保留目录结构。
-     * 写失败不阻断删除（留底是保险，不是前置条件），但要留一条 warn —— 不然用户以为有备份。
+     * 返回 false = 没写进去（调用方**不该**再删原文件，否则内容就真没了）。
+     * 用 put/get/remove 三件套而不是 MOVE：四个后端对 MOVE 的支持不一致（Git 根本没有），
+     * 「读出来 → 写一份 → 删原文件」在哪个后端都成立。
      */
-    async function keepDeleted(path, text) {
+    async function putRemoteTrash(client, stamp, path, text) {
+      if (text == null) return false
+      const dest = `${REMOTE_TRASH_DIR}/${stamp}/${path}`
       try {
-        const stamp = new Date().toISOString().slice(0, 10)
-        const sub = dirOf(path)
-        if (sub) await api.fs.mkdir(`${DELETED_DIR}/${stamp}/${sub}`).catch(() => {})
-        const dest = `${DELETED_DIR}/${stamp}/${path}`
-        await api.fs.writeText(dest, text)
-        return dest
+        const dir = dirOf(dest)
+        if (dir) await client.mkdir(dir).catch(() => {})
+        const res = await client.put(dest, text, undefined)
+        return !!res?.ok
       } catch (e) {
-        api.host.log('warn', `删除留底失败（${path}）：${String(e)}`)
-        return null
+        api.host.log('warn', `写入云端回收站失败（${dest}）：${String(e)}`)
+        return false
       }
+    }
+
+    /** 记下「这条已推到云端回收站」—— 彻底删除 / 过期清理时按它删远端 */
+    async function rememberRemoteTrash(stamp, path) {
+      try {
+        const list = await api.store.get(KEY_REMOTE_TRASH, [])
+        const next = Array.isArray(list) ? list : []
+        next.push({ stamp, path, at: Date.now() })
+        await api.store.set(KEY_REMOTE_TRASH, next.slice(-500))
+      } catch (e) {
+        api.host.log('warn', `记录云端回收站条目失败：${String(e)}`)
+      }
+    }
+
+    /**
+     * 云端回收站的清理（rev173.294）：**彻底删除**与**过期**两条路。
+     *
+     * · 本机回收站里已经没有这个 `<stamp>` ⇒ 用户在本机彻底删了（或恢复出来了）⇒ 删远端那份；
+     * · 超过 `TRASH_KEEP_MS`（30 天）⇒ 删远端那份（云端只当跨设备恢复窗口）。
+     *
+     * ⚠️ 拿不到 `api.fs.listTrash`（老宿主 / 测试桩）时不按「彻底删除」处理 —— 宁可留一份，
+     * 也不能在不知道本机回收站状态的情况下删掉用户唯一还能恢复的副本。
+     */
+    async function syncRemoteTrash(client) {
+      let entries = []
+      try {
+        const list = await api.store.get(KEY_REMOTE_TRASH, [])
+        entries = Array.isArray(list) ? list : []
+      } catch {
+        entries = []
+      }
+      if (entries.length === 0) return { changed: false }
+
+      let localStamps = null
+      try {
+        const t = typeof api.fs.listTrash === 'function' ? await api.fs.listTrash() : null
+        if (Array.isArray(t)) localStamps = new Set(t.map((x) => String(x.id)))
+      } catch {
+        localStamps = null
+      }
+
+      const keep = []
+      let changed = false
+      const now = Date.now()
+      for (const e of entries) {
+        const expired = now - Number(e.at || 0) > TRASH_KEEP_MS
+        const purgedLocally = localStamps ? !localStamps.has(String(e.stamp)) : false
+        if (!expired && !purgedLocally) {
+          keep.push(e)
+          continue
+        }
+        try {
+          await client.remove(`${REMOTE_TRASH_DIR}/${e.stamp}/${e.path}`)
+          changed = true
+        } catch {
+          keep.push(e)
+        }
+      }
+      if (changed) await api.store.set(KEY_REMOTE_TRASH, keep).catch(() => {})
+      return { changed }
     }
 
     /**
@@ -957,13 +1020,25 @@ const plugin = {
             continue
           }
           try {
+            /**
+             * **删除 = 搬家，不是抹掉**（rev173.294）：先把远端内容放进云端回收站
+             * `_zn/trash/<stamp>/<原路径>`，再删原文件。这样「删除」与「彻底删除」在两端
+             * 语义一致 —— 前者还能捞回来（本机 `.zn/trash/` + 云端 `_zn/trash/`），
+             * 后者才真删。也正因为回收站本身就是留底，本地不再另存一份副本。
+             */
             const remoteText = await client.get(p)
-            if (remoteText != null) await keepDeleted(p, remoteText)
+            const stamp = String(Date.now())
+            const trashed = await putRemoteTrash(client, stamp, p, remoteText)
+            if (!trashed) {
+              summary.hint = `删除远端失败 ${p}：写入云端回收站没成功`
+              continue
+            }
             await client.remove(p)
             delete nextFiles[p]
             delete baseline[p]
             deletedRemotely.add(p)
             summary.deletedToRemote += 1
+            await rememberRemoteTrash(stamp, p)
           } catch (e) {
             summary.hint = `删除远端失败 ${p}：${String(e)}`
           }
@@ -1001,6 +1076,15 @@ const plugin = {
         // 私密文件夹目录树（rev173.182 · 期 3）—— 数量可变，逐文件比对
         const privTree = await syncPrivateTree(client, remote, summary)
         timing.privateTree = lap()
+
+        /**
+         * 云端回收站清理（rev173.294）：彻底删除（本机回收站里没这个 stamp 了）与
+         * 超过 30 天的条目 ⇒ 删远端 `_zn/trash/...` 那份。删除传播只负责「搬进去」，
+         * 真正抹掉永远由这一步负责 —— 与用户说的「回收站和彻底删除各按各的逻辑」一致。
+         */
+        const trashSweep = await syncRemoteTrash(client)
+        if (trashSweep.changed) manifestDirty = true
+        timing.trash = lap()
 
         // manifest 回写（本轮有 .md / 附件 / 私有文件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
         // ⚠️ 删除传播也要回写（rev173.293）：条目已经从 nextFiles 里删了，不写回 manifest

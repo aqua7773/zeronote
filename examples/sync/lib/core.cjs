@@ -37,6 +37,23 @@
 const PANEL_ID = 'sync.status'
 const KEY_SETTINGS = 'settings.v1'
 const KEY_BASELINE = 'baseline.v1'
+/**
+ * 远端回收站（rev173.294）。
+ *
+ * 删除在两端都该是「先搬进回收站」而不是把内容抹掉：
+ * 本机是 `.zn/trash/<stamp>/<文件名>`（内核 `delete_note`），云端对应 `_zn/trash/<stamp>/<原路径>`。
+ * 于是「删除」与「彻底删除」各走各的：删除只是搬家，彻底删除（清空回收站 / 单项真删）
+ * 才把远端那份也真删。以前的做法是「删掉远端 + 本地另存一份留底」—— 留底重复且和回收站语义冲突。
+ */
+const REMOTE_TRASH_DIR = '_zn/trash'
+/**
+ * 远端回收站保留期：超过就真删。
+ *
+ * 本机回收站不自动清（用户自己决定），但云端必须有个上限 —— 否则只增不减，
+ * 多设备各自删一轮，云端会积一堆没人会去看的旧副本。30 天 = 本机留多久都行、
+ * 云端只当「跨设备恢复窗口」。
+ */
+const TRASH_KEEP_MS = 30 * 24 * 60 * 60 * 1000
 const KEY_CONFLICTS = 'conflicts.v1'
 const KEY_DEVICE = 'device.v1'
 /** 最近若干次同步的耗时（rev173.119，画趋势用） */
@@ -673,6 +690,8 @@ module.exports = {
   PANEL_ID,
   KEY_SETTINGS,
   KEY_BASELINE,
+  REMOTE_TRASH_DIR,
+  TRASH_KEEP_MS,
   KEY_CONFLICTS,
   KEY_DEVICE,
   KEY_TIMING,
