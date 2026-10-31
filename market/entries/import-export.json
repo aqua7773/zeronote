@@ -2,17 +2,17 @@
   "id": "import-export",
   "name": "导入导出",
   "author": "aqua7773",
-  "description": "导入外部文件或导出笔记",
+  "description": "导入外部文件；导出 / 分享任意一篇笔记",
   "category": "tool",
   "platforms": [
     "desktop",
     "android"
   ],
   "apiVersion": "^0.1.0",
-  "version": "0.2.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.0.znp",
-  "sha256": "0b7bfab5b0d30fa1b360b91f6110e16cbba40e4c56ba951cb959810752324ab3",
-  "size": 63842,
+  "version": "0.2.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.1.znp",
+  "sha256": "8b955d7807c855331205773aa1f5b0745db88d841fcf20aedc03142ea5a71dce",
+  "size": 78474,
   "files": [
     "index.js",
     "signature.json"

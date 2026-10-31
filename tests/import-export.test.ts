@@ -10,7 +10,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  EXPORT_BUTTONS,
   IMPORT_ROOT,
+  NOTE_PICK_LIMIT,
+  buildHomeView,
+  buildPickFormatView,
+  buildPickNoteView,
   embedCommentOf,
   embedSummary,
   findAssetEntry,
@@ -24,6 +29,7 @@ import {
   rewriteImageRefs,
   sanitizeDirName,
   scanImageRefs,
+  shareFileName,
   withImportFrontmatter,
 } from '../examples/import-export/index.js'
 
@@ -294,3 +300,132 @@ describe('embedSummary', () => {
     expect(embedSummary({ embedded: 0, keptCount: 0 })).toBe('')
   })
 })
+
+/**
+ * 面板三态（rev173.310 · 真人测试4 #1/#2）。
+ *
+ * 判据（每条对应一次真实失败模式）：
+ *  · 首页只有「导出笔记…」「分享笔记…」两个入口 —— 不能再有「导出当前笔记」这类
+ *    依赖 `doc.active()` 的按钮：`main` 面板占满主区时编辑器已卸载，那按钮永远是空的；
+ *  · 选笔记列表的 key 必须是**完整库内路径**（宿主的 `list.onClick` 回传 key）；
+ *  · 列表上限 200 行 + 提示「只显示前 200 篇」，否则几百篇会把 DOM 撑爆；
+ *  · 筛选对**标题与路径**都生效（手机上路径是唯一可靠线索）；
+ *  · 选格式：分享第一项必须是 Markdown 文件（用户点名的格式），且每个按钮 payload 都带 path
+ *    —— 这是「不再回落 doc.active()」的硬保证。
+ */
+describe('面板：首页', () => {
+  const view = buildHomeView() as any
+  /** 递归收集（首页的两个入口在 `row` 里，不在顶层） */
+  const collect = (node: any, type: string): any[] => {
+    const out: any[] = []
+    if (!node || typeof node !== 'object') return out
+    if (node.type === type) out.push(node)
+    for (const c of Array.isArray(node.children) ? node.children : []) out.push(...collect(c, type))
+    return out
+  }
+  const buttons = collect(view, 'button')
+  const entries = buttons.filter((n: any) => n.payload && n.payload.mode)
+
+  it('两个入口：导出 / 分享', () => {
+    expect(entries.map((n: any) => n.payload.mode)).toEqual(['export', 'share'])
+    expect(entries.map((n: any) => n.label)).toEqual(['导出笔记…', '分享笔记…'])
+  })
+
+  it('不再有「导出当前笔记」这种前提（面板运行时编辑器已卸载）', () => {
+    const labels = buttons.map((n: any) => String(n.label ?? ''))
+    expect(labels.some((l: string) => l.includes('当前笔记'))).toBe(false)
+    expect(labels).toContain('导入文件…')
+  })
+})
+
+describe('面板：选笔记', () => {
+  const notes = [
+    { path: '工作/周报.md', dir: '工作', title: '周报' },
+    { path: '日记/2026-10-31.md', dir: '日记', title: '十月最后一天' },
+    { path: '收件箱/untitled.md', dir: '', title: '没有目录的一篇' },
+  ]
+
+  it('列表 key = 完整路径，标题在前、目录在后', () => {
+    const view = buildPickNoteView({ notes, mode: 'export' }) as any
+    const list = view.children.find((n: any) => n.type === 'list')
+    expect(list.items.map((it: any) => it.key)).toEqual(notes.map((n) => n.path))
+    expect(list.items[0].node.children[0].value).toBe('周报')
+    expect(list.items[0].node.children[1].value).toBe('工作')
+    // 目录为空 ⇒ 不渲染那行（手机窄屏没必要留一行空）
+    expect(list.items[2].node.children).toHaveLength(1)
+  })
+
+  it('空库 / 筛不到 ⇒ 有明确空态文案', () => {
+    const empty = buildPickNoteView({ notes: [] }) as any
+    expect(empty.children.find((n: any) => n.type === 'list').empty).toBe('库里还没有笔记')
+    const miss = buildPickNoteView({ notes, filter: '不存在的词' }) as any
+    expect(miss.children.find((n: any) => n.type === 'list').empty).toBe('没有匹配的笔记')
+  })
+
+  it('筛选对标题与路径都生效（大小写不敏感）', () => {
+    const m1 = buildPickNoteView({ notes, filter: '周报' }) as any
+    expect(m1.children.find((n: any) => n.type === 'list').items).toHaveLength(1)
+    const m2 = buildPickNoteView({ notes, filter: 'DIARY' }) as any // 路径里是大写才有
+    expect(m2.children.find((n: any) => n.type === 'list').items).toHaveLength(0)
+    const m3 = buildPickNoteView({ notes, filter: '日记' }) as any // 只有路径含"日记"
+    expect(m3.children.find((n: any) => n.type === 'list').items).toHaveLength(1)
+  })
+
+  it('超过上限：只渲染前 200 行，并提示可筛选', () => {
+    const many = Array.from({ length: NOTE_PICK_LIMIT + 30 }, (_, i) => ({
+      path: `批量/${i}.md`,
+      dir: '批量',
+      title: `第 ${i} 篇`,
+    }))
+    const view = buildPickNoteView({ notes: many }) as any
+    const list = view.children.find((n: any) => n.type === 'list')
+    expect(list.items).toHaveLength(NOTE_PICK_LIMIT)
+    const count = view.children.find((n: any) => n.type === 'text' && String(n.value).includes('篇'))
+    expect(String(count.value)).toContain(`只显示前 ${NOTE_PICK_LIMIT} 篇`)
+  })
+
+  it('标题文案区分导出 / 分享', () => {
+    expect(JSON.stringify(buildPickNoteView({ notes, mode: 'export' }))).toContain('选择要导出的笔记')
+    expect(JSON.stringify(buildPickNoteView({ notes, mode: 'share' }))).toContain('选择要分享的笔记')
+  })
+})
+
+describe('面板：选格式', () => {
+  it('分享：第一项是 Markdown 文件（用户点名的「带图片的 md」）', () => {
+    const view = buildPickFormatView({ mode: 'share', notePath: 'a/b.md', noteTitle: 'B' }) as any
+    const buttons = view.children.filter((n: any) => n.type === 'button' && n.onClick !== 'io.panel.back')
+    expect(buttons[0].onClick).toBe('io.shareMd')
+    expect(buttons[0].label).toContain('Markdown')
+    expect(buttons.map((b: any) => b.onClick)).toEqual(['io.shareMd', 'io.sharePng', 'io.shareTxt'])
+  })
+
+  it('导出：六种格式都在，且每个按钮都带选中的 path（不回落到 doc.active()）', () => {
+    const view = buildPickFormatView({ mode: 'export', notePath: 'a/b.md' }) as any
+    const buttons = view.children.filter((n: any) => n.type === 'button' && n.onClick !== 'io.panel.back')
+    expect(buttons.map((b: any) => b.onClick)).toEqual(EXPORT_BUTTONS.map(([id]: any) => id))
+    for (const b of buttons) expect(b.payload.path).toBe('a/b.md')
+  })
+
+  it('显示选中那篇的标题；没标题就退回路径', () => {
+    const withTitle = buildPickFormatView({ notePath: 'a/b.md', noteTitle: '周报' }) as any
+    expect(withTitle.children[1].value).toBe('周报')
+    const noTitle = buildPickFormatView({ mode: 'export', notePath: 'a/b.md' }) as any
+    expect(noTitle.children[1].value).toBe('a/b.md')
+  })
+})
+
+describe('shareFileName', () => {
+  it('普通名字原样带扩展名', () => {
+    expect(shareFileName('周报', 'md')).toBe('周报.md')
+  })
+
+  it('路径分隔符 / Windows 非法字符全部洗掉（FileProvider 找不到会直接抛）', () => {
+    expect(shareFileName('a/b\\c:d?e*f', 'md')).toBe('abcdef.md')
+  })
+
+  it('空 / 全脏 ⇒ note 保底', () => {
+    expect(shareFileName('', 'png')).toBe('note.png')
+    expect(shareFileName('...', 'md')).toBe('note.md')
+  })
+})
+

@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the share_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-share-file",
+          "markdownDescription": "Enables the share_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the share_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-share-file",
+          "markdownDescription": "Denies the share_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the share_text command without any pre-configured scope.",
           "type": "string",
           "const": "allow-share-text",
@@ -307,10 +319,10 @@
           "markdownDescription": "Denies the share_text command without any pre-configured scope."
         },
         {
-          "description": "ZeroNote 分享插件：把一段**纯文本**交给 Android 系统分享面板\n（`Intent.ACTION_SEND` / `text/plain`）—— 微信 / QQ / 邮件 / 备忘录都能接收。\n\n桌面端**没有系统分享**，调用会返回 `desktop-no-share` 错误（调用方据此改走剪贴板），\n不做静默成功。\n#### This default permission set includes:\n\n- `allow-share-text`",
+          "description": "ZeroNote 分享插件：把一段**纯文本**或**一个文件**交给 Android 系统分享面板\n（`Intent.ACTION_SEND`；文件走 FileProvider 的 `content://`）—— 微信 / QQ / 邮件 / 备忘录都能接收。\n\n桌面端**没有系统分享**，调用会返回 `desktop-no-share` 错误（调用方据此改走剪贴板），\n不做静默成功。\n#### This default permission set includes:\n\n- `allow-share-text`\n- `allow-share-file`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "ZeroNote 分享插件：把一段**纯文本**交给 Android 系统分享面板\n（`Intent.ACTION_SEND` / `text/plain`）—— 微信 / QQ / 邮件 / 备忘录都能接收。\n\n桌面端**没有系统分享**，调用会返回 `desktop-no-share` 错误（调用方据此改走剪贴板），\n不做静默成功。\n#### This default permission set includes:\n\n- `allow-share-text`"
+          "markdownDescription": "ZeroNote 分享插件：把一段**纯文本**或**一个文件**交给 Android 系统分享面板\n（`Intent.ACTION_SEND`；文件走 FileProvider 的 `content://`）—— 微信 / QQ / 邮件 / 备忘录都能接收。\n\n桌面端**没有系统分享**，调用会返回 `desktop-no-share` 错误（调用方据此改走剪贴板），\n不做静默成功。\n#### This default permission set includes:\n\n- `allow-share-text`\n- `allow-share-file`"
         }
       ]
     }

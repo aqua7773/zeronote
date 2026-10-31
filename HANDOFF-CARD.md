@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-10-31（rev173.309 · **0.9.7 已发版**：手机端去掉底部导航栏 ——「更多」变右侧抽屉、搜索搬进抽屉；⚠️ 边缘手势门槛 32 → **64px**，32px 起手会被 Android 系统返回手势抢走）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-10-31（rev173.310 · **真人测试4 两条已修**：导入导出面板改成「导出 / 分享 → 选笔记 → 选格式」（`main` 面板下编辑器已卸载，「导出当前笔记」在手机上永远是空的）；分享改**带图片的 Markdown 文件**，走新原生命令 `share_file` + FileProvider。⚠️ 还没发版 —— 正式包 0.9.7 用户用不了文件分享，要 0.9.8）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
 | rev / 版本 | rev173.309 · 0.9.7 · 2026-10-31 |
-| 测试基线 | vitest 1715 · cargo 92 · oxlint 4 warnings（2026-10-31） |
+| 测试基线 | vitest 1728 · cargo 92 · oxlint 4 warnings（2026-10-31） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-10-31 · CHANGELOG 0.9.7 |
 <!-- FACTS:END -->
@@ -32,6 +32,25 @@ pwsh -File scripts\verify.ps1
 ```
 
 ## 未决 / 下一步
+
+> ### ✅ 真人测试4 两条已改（rev173.310 · 2026-10-31 · 双端实测通过）
+>
+> 用户报：① 手机导入导出面板「导出当前笔记」**永远显示"没有打开的笔记"** —— 根因是 `main` 面板占满主区时
+> 编辑器**已经卸载**（契约 §2.2）；② 分享是纯文本，要的是**带图片的 markdown 文件**。
+> **改法**：面板改三态 **首页（导出 / 分享两个入口）→ 选笔记（标题+目录+关键词筛选）→ 选格式**，
+> 全程按 `path` 现读文件；分享默认 **Markdown 文件（图片内嵌 `data:`，落 `<库>/.zn/share/`）**，
+> 经**新原生命令 `share_file`**（FileProvider `content://` + `EXTRA_STREAM`）交给系统分享面板；
+> 另可分享**长图 PNG**（同样先内嵌图片）与纯文本。`import-export` **0.2.1** · 新增 11 条单测。
+>
+> **真机（24069RA21C · debug 包 22:29:50 重装）**：面板三态正常 · 选笔记只列 `note` ·
+> 分享 md 弹系统面板 `test-photo.md` **85.3 KB**（1 张 `data:image` 内嵌）· 分享长图 PNG **76 KB** 带图。
+> 证据 `_shots/rev310-01..04`（桌面）· `rev310-phone-01..07`（真机）。
+>
+> ⚠️ **还没发版** ⇒ 用户手上的**正式包 0.9.7 用不了文件分享**：`share_file` 是新原生命令，
+> 要 0.9.8 才带。桌面 dev 插件是**开发版（无签名）**，已拷进
+> `%APPDATA%\com.aqua.zeronote\.zn\plugins\import-export\`；手机 debug 包同插件在 `run-as` 的 `.zn/plugins/`。
+> 发版顺序照旧：`release.mjs 0.9.8` → `pack-plugin import-export --key … --key-id aqua-2026`（0.2.1）→
+> `gen-market --write` → `build-release.mjs` → `gen-update-manifest.mjs` → `gh release create` → commit `update/`。
 
 > ### 📌 下个会话第一件事（rev173.309 · 2026-10-31）· 装上 0.9.7 走一遍手机端
 >

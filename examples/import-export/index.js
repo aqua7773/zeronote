@@ -12,9 +12,14 @@
  *
  * ```
  * 导入：host.pickFile() → host.readContentUri() → fetch(host.assetUrlAbs()) → 转换 → fs.createNote()
- * 导出：doc.active() → 渲染 → host.saveFile({ defaultName, content })
+ * 导出：面板「导出笔记…」选一篇 → 按 path 现读 → 渲染 → host.saveFile({ defaultName, content })
  *      （桌面写绝对路径；Android 走 SAF 的 content://，需要 uri-reader 的 write_content_uri —— 见文件尾注释）
+ * 分享：面板「分享笔记…」选一篇 → 渲染成文件（图片内嵌 md / 长图 png）→ 落 `<库>/.zn/share/`
+ *      → `plugin:share|share_file`（原生 FileProvider）→ 系统分享面板；纯文本仍走 `share_text`
  * ```
+ *
+ * ⚠️ **面板为什么先选笔记**（rev173.310 · 真人测试4 #1）：`main` 位置的面板占满主区时
+ * 编辑器**已经卸载**（契约 §2.2），旧版「导出当前笔记」在手机上永远显示"没有打开的笔记"。
  *
  * ## 转换库从哪来
  *
@@ -892,6 +897,169 @@ export function embedSummary(stats) {
   return parts.join(' · ')
 }
 
+/* ─────────── 面板视图（纯函数，可测 —— rev173.310） ───────────
+ *
+ * 三态：`home`（导出 / 分享两个入口）→ `note`（选笔记）→ `format`（选格式）。
+ *
+ * ⚠️ **为什么必须「先选笔记」**：`main` 位置的面板占满主区时编辑器**已经卸载**
+ * （契约 §2.2 六种挂载位置表：`main` / `modal` 都不能与编辑器同屏）⇒ 旧面板
+ * 「导出当前笔记」在手机上**永远是「没有打开的笔记」**（用户实测原话）。
+ * 选完笔记后一律按 `path` **现读文件**（与右键菜单同一条路），不依赖 `doc.active()`。
+ */
+
+/** 选笔记列表最多渲染多少行（再多给搜索框，而不是把 DOM 撑爆） */
+export const NOTE_PICK_LIMIT = 200
+
+/** 面板上的导出格式表（顺序 = 用户直觉：先最常用的 md，最后 PDF） */
+export const EXPORT_BUTTONS = [
+  ['io.exportMdEmbed', 'Markdown（图片内嵌）'],
+  ['io.exportTxt', '纯文本 txt'],
+  ['io.exportHtml', '网页 html'],
+  ['io.exportPng', '长图 png'],
+  ['io.exportDocx', 'Word docx'],
+  ['io.exportPdf', 'PDF（经浏览器打印）'],
+]
+
+/** 面板上的分享格式表 —— md 排第一（用户点名的就是「带图片的 markdown 文件」） */
+export const SHARE_BUTTONS = [
+  ['io.shareMd', 'Markdown 文件（图片内嵌）'],
+  ['io.sharePng', '长图 PNG'],
+  ['io.shareTxt', '纯文本'],
+]
+
+/**
+ * 分享文件的落点文件名：去掉路径分隔符与 Windows 非法字符（`sanitizeDirName` 同一口径）。
+ * 为什么必须洗：FileProvider 找不到带 `:` / `?` 的路径会直接抛，分享就静默失败。
+ */
+export function shareFileName(stem, ext) {
+  const safe = sanitizeDirName(stem) || 'note'
+  return `${safe}.${ext}`
+}
+
+/** 首页：两个入口 + 导入（"当前笔记"这个假设在这里彻底消失） */
+export function buildHomeView() {
+  return {
+    type: 'stack',
+    children: [
+      { type: 'text', value: '导入导出', variant: 'title' },
+      {
+        type: 'text',
+        value: '把外部文件变成库内笔记；把任意一篇笔记导出或分享成别的格式。',
+        variant: 'caption',
+      },
+      {
+        type: 'row',
+        gap: 'sm',
+        children: [
+          { type: 'button', label: '导出笔记…', onClick: 'io.panel.pick', payload: { mode: 'export' } },
+          { type: 'button', label: '分享笔记…', onClick: 'io.panel.pick', payload: { mode: 'share' } },
+        ],
+      },
+      { type: 'divider' },
+      { type: 'button', label: '导入文件…', onClick: 'io.importFile' },
+      { type: 'divider' },
+      {
+        type: 'text',
+        value:
+          '导入支持：md / txt / html / docx。\n' +
+          '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
+          '「图片内嵌」= 单文件 .md，图片写成 data: —— 发给别人不用再传附件目录。\n' +
+          '分享：Android 打开系统分享面板（默认就是带图片的 markdown 文件）；' +
+          '桌面没有系统分享，改为复制到剪贴板 / 另存为。',
+        variant: 'caption',
+      },
+    ],
+  }
+}
+
+/**
+ * 选笔记：搜索框 + 列表（标题 / 所在目录）。
+ * 点一行由宿主发 `{ index, key }`，命令按 **key = path** 取（index 只是渲染下标）。
+ */
+export function buildPickNoteView({ notes = [], mode = 'export', filter = '' } = {}) {
+  const raw = String(filter ?? '')
+  const q = raw.trim().toLowerCase()
+  const all = Array.isArray(notes) ? notes : []
+  const hit = q ? all.filter((n) => `${n.title}\n${n.path}`.toLowerCase().includes(q)) : all
+  const shown = hit.slice(0, NOTE_PICK_LIMIT)
+  return {
+    type: 'stack',
+    children: [
+      {
+        type: 'row',
+        gap: 'sm',
+        align: 'center',
+        children: [
+          { type: 'button', label: '‹ 返回', variant: 'ghost', onClick: 'io.panel.back' },
+          { type: 'text', value: mode === 'share' ? '选择要分享的笔记' : '选择要导出的笔记', variant: 'title' },
+        ],
+      },
+      { type: 'input', bind: 'io.filter', placeholder: '筛选：标题或路径关键词' },
+      {
+        type: 'text',
+        value:
+          `${hit.length} 篇` +
+          (hit.length !== all.length ? `（共 ${all.length}）` : '') +
+          (hit.length > shown.length ? ` · 只显示前 ${NOTE_PICK_LIMIT} 篇，可输入关键词缩小` : ''),
+        variant: 'caption',
+      },
+      {
+        type: 'list',
+        onClick: 'io.panel.note',
+        empty: q ? '没有匹配的笔记' : '库里还没有笔记',
+        items: shown.map((n) => ({
+          key: n.path,
+          node: {
+            type: 'stack',
+            gap: 'sm',
+            children: [
+              { type: 'text', value: n.title },
+              ...(n.dir ? [{ type: 'text', value: n.dir, variant: 'caption', tone: 'muted' }] : []),
+            ],
+          },
+        })),
+      },
+    ],
+  }
+}
+
+/** 选格式：显示选中那篇 + 格式按钮（payload 带 `path`，绝不回落到 `doc.active()`） */
+export function buildPickFormatView({ mode = 'export', notePath = '', noteTitle = '' } = {}) {
+  const buttons = mode === 'share' ? SHARE_BUTTONS : EXPORT_BUTTONS
+  return {
+    type: 'stack',
+    children: [
+      {
+        type: 'row',
+        gap: 'sm',
+        align: 'center',
+        children: [
+          { type: 'button', label: '‹ 返回', variant: 'ghost', onClick: 'io.panel.back' },
+          { type: 'text', value: mode === 'share' ? '分享为…' : '导出为…', variant: 'title' },
+        ],
+      },
+      { type: 'text', value: noteTitle || notePath, variant: 'body' },
+      { type: 'text', value: notePath, variant: 'caption', tone: 'muted' },
+      { type: 'divider' },
+      ...buttons.map(([id, label]) => ({
+        type: 'button',
+        label,
+        onClick: id,
+        payload: { path: notePath },
+      })),
+      { type: 'divider' },
+      {
+        type: 'text',
+        value:
+          mode === 'share'
+            ? '分享走系统分享面板（微信 / QQ / 邮件…）。目标应用收不到时，改用「导出」存到本机再发送。'
+            : 'PDF 这条：先导出 html，再用浏览器「打印 → 另存为 PDF」（WebView2 里 window.print 静默无效）。',
+        variant: 'caption',
+      },
+    ],
+  }
+}
+
 /* ─────────── 插件本体 ─────────── */
 
 export default {
@@ -1234,7 +1402,17 @@ export default {
         return saved
       }
 
-      const content = await spec.render(d.content, stem)
+      /**
+       * **长图：图片必须先内嵌**（rev173.310）。
+       *
+       * `mdToLongImage` 把 Markdown 渲进一个离屏 DOM —— 里面 `![](相对路径)` 是相对
+       * **宿主 origin** 解析的，指向库里那张图必然 404 ⇒ 长图上图片位置是空白。
+       * `embedImagesInMarkdown` 先把引用换成 `data:`（幂等：已经是 data: 的原样保留），
+       * 长图才有图。其它格式不受影响（txt / html / docx 走各自渲染器）。
+       */
+      const mdForRender =
+        format === 'png' ? (await embedImagesInMarkdown(d.content, d.path)).md : d.content
+      const content = await spec.render(mdForRender, stem)
 
       /**
        * **探针**：只渲染、不落盘，回报字节数（给自动化验收用）。
@@ -1265,16 +1443,24 @@ export default {
     }
 
     /**
-     * **系统分享**（J#13 · rev173.281，用户拍板「算到导入导出插件里面去」）。
+     * **系统分享**（J#13 · rev173.281；rev173.310 按真人测试4 #2 重做）。
      *
-     * 把笔记压成**纯文本**交给系统分享面板（微信 / QQ / 邮件 / 备忘录都能收）：
-     *  · Android：原生插件 `tauri-plugin-share` 的 `share_text`（ACTION_SEND / text/plain）；
-     *  · 桌面：原生侧返回 `desktop-no-share` ⇒ **如实告知**并改为复制到剪贴板
-     *    （静默失败最糟：用户以为发出去了）。
+     * 旧版只把笔记压成**纯文本** —— 图片全丢，用户要的是「直接分享带图片的 markdown 文件」。
+     * 现在三种格式：
+     *  · `md`  = **Markdown（图片内嵌）**：单文件 `.md`，图片写成 `data:` ⇒ 落到
+     *    `<库>/.zn/share/<名>.md`（`.zn` 不进文件树 / 不进同步），再交给系统分享面板
+     *    （Android `plugin:share|share_file` → FileProvider 的 `content://`）；
+     *  · `png` = **长图**：同一套 `mdToLongImage` 渲染成 PNG 再分享；
+     *  · `txt` = **纯文本**（旧通道 `share_text`）：接收方直接显示，不需要能打开文件。
      *
-     * `path` 省略 = 当前打开的笔记（面板按钮）；条目菜单传 `{ path }`（不用先打开）。
+     * 桌面**没有系统分享**：md / txt 复制到剪贴板、png 走「另存为」，并**如实说明**
+     * （静默成功最糟 —— 用户会以为发出去了）。
+     *
+     * `path` 省略 = 当前打开的笔记（命令入口）；面板入口一律显式传选中的那篇。
      */
-    async function shareNote(path) {
+    const SHARE_DIR = '.zn/share'
+
+    async function shareNote(format, path) {
       let d
       if (typeof path === 'string' && path) {
         try {
@@ -1291,25 +1477,96 @@ export default {
         return null
       }
       const stem = (d.path.split('/').pop() || 'note').replace(/\.[^.]+$/, '')
-      const text = mdToText(d.content)
       const t = globalThis.__TAURI_INTERNALS__
       if (!t || typeof t.invoke !== 'function') {
         host.notify('这个环境没有原生通道，没法分享', 'error')
         return null
       }
+
+      /* ── 纯文本：旧通道，接收方直接显示 ── */
+      if (format === 'txt') {
+        const text = mdToText(d.content)
+        try {
+          const r = await t.invoke('plugin:share|share_text', { title: stem, text })
+          if (!r || r.ok === false) {
+            host.notify('系统分享没有打开', 'warn')
+            return null
+          }
+          host.log('info', `[分享] ${stem}（纯文本 ${text.length} 字符）`)
+          return { shared: true, chars: text.length }
+        } catch (e) {
+          if (String(e).includes('desktop-no-share')) {
+            await t.invoke('plugin:clipboard-manager|write_text', { text })
+            host.notify(`桌面没有系统分享 —— 「${stem}」的纯文本已复制到剪贴板`, 'info')
+            return { copied: true, chars: text.length }
+          }
+          host.notify(`分享失败：${String(e)}`, 'error')
+          return null
+        }
+      }
+
+      /* ── md / png：先渲染成**文件**，再分享文件 ── */
+      let rel = ''
+      let mime = ''
+      let bytes = null
+      let text = ''
+      let summary = ''
+      if (format === 'png') {
+        // 与 exportActive 同一条：长图渲染前先把图片换成 `data:`，否则离屏 DOM 里全是 404
+        const r = await embedImagesInMarkdown(d.content, d.path)
+        bytes = await mdToLongImage(r.md, stem)
+        rel = `${SHARE_DIR}/${shareFileName(stem, 'png')}`
+        await fs.writeBytes(rel, bytes)
+        mime = 'image/png'
+        summary = `${Math.round(bytes.byteLength / 1024)} KB 长图`
+      } else {
+        const r = await embedImagesInMarkdown(d.content, d.path)
+        text = r.md
+        const sum = r.stats.embedded ? `${r.stats.embedded} 张图片内嵌` : '没有可内嵌的图片'
+        const kept = r.stats.kept.length ? `；${r.stats.kept.length} 个附件保留引用` : ''
+        rel = `${SHARE_DIR}/${shareFileName(stem, 'md')}`
+        await fs.writeText(rel, text)
+        mime = 'text/markdown'
+        summary = `${sum}${kept}（${text.length} 字符）`
+      }
+
+      const abs = `${vaultRoot()}/${rel}`
       try {
-        const r = await t.invoke('plugin:share|share_text', { title: stem, text })
+        const r = await t.invoke('plugin:share|share_file', { title: stem, path: abs, mime })
         if (!r || r.ok === false) {
           host.notify('系统分享没有打开', 'warn')
           return null
         }
-        host.log('info', `[分享] ${stem}（${text.length} 字符）`)
-        return { shared: true, chars: text.length }
+        host.log('info', `[分享] ${stem}（${summary} → ${abs}）`)
+        host.notify(`已调起系统分享：${shareFileName(stem, format === 'png' ? 'png' : 'md')}`)
+        return { shared: true, file: abs, summary }
       } catch (e) {
         if (String(e).includes('desktop-no-share')) {
+          // 桌面：图片走「另存为」，文本复制到剪贴板 —— 两条都要如实说
+          if (format === 'png') {
+            const saved = await host.saveFile({ defaultName: shareFileName(stem, 'png'), content: bytes })
+            host.notify(saved ? `桌面没有系统分享 —— 已另存为：${saved}` : '已取消分享')
+            return saved ? { saved } : null
+          }
           await t.invoke('plugin:clipboard-manager|write_text', { text })
-          host.notify(`桌面没有系统分享 —— 「${stem}」的纯文本已复制到剪贴板`, 'info')
-          return { copied: true, chars: text.length }
+          host.notify(`桌面没有系统分享 —— 「${stem}」的 Markdown 已复制到剪贴板（${summary}）`, 'info')
+          return { copied: true, summary }
+        }
+        /**
+         * **旧应用包降级**（≤ 0.9.7 没有 `share_file` 命令）：退回旧的纯文本分享通道，
+         * 别让用户点了没反应。插件先于应用发版是常态（市场更新比应用本体快）。
+         */
+        try {
+          const r = await t.invoke('plugin:share|share_text', { title: stem, text: mdToText(d.content) })
+          if (r && r.ok !== false) {
+            host.notify(
+              `这台设备的应用版本还不支持分享文件 —— 已改为分享纯文本；应用更新到 0.9.8 后可分享带图片的 Markdown`,
+              'warn',
+            )
+            return { shared: true, fallback: 'text' }
+          }
+        } catch {
+          /* 下面统一报错 */
         }
         host.notify(`分享失败：${String(e)}`, 'error')
         return null
@@ -1341,6 +1598,93 @@ export default {
       }),
     )
 
+    /* ── 面板 UI 状态（rev173.310 · 真人测试4 #1/#2）────────────────────────
+     *
+     * 三态：`home`（导出 / 分享两个入口）→ `note`（选笔记）→ `format`（选格式）。
+     *
+     * ⚠️ **为什么必须「先选笔记」**：`main` 位置的面板会占满主区，**编辑器当场卸载**
+     * （契约 §2.2 六种挂载位置表：`main` / `modal` 都不能与编辑器同屏）⇒ 旧面板
+     * 「导出当前笔记」在手机上永远是「没有打开的笔记」—— 用户实测原话。
+     * 选完笔记后一律按 `path` **现读文件**（与右键菜单同一条路），不再依赖 `doc.active()`。
+     */
+    const ui = { step: 'home', mode: 'export', notes: [], notePath: '', noteTitle: '' }
+
+    const backToHome = () => {
+      ui.step = 'home'
+      view.refresh('io.panel')
+    }
+
+    /** 面板入口 ①：读库内笔记清单（只要 `note`，按 mtime 倒序）→ 进「选笔记」 */
+    subscriptions.push(
+      command.register({
+        id: 'io.panel.pick',
+        title: '导出 / 分享：选择笔记',
+        run: guard(async (payload) => {
+          const p = payload && typeof payload === 'object' ? payload : {}
+          const mode = p.mode === 'share' ? 'share' : 'export'
+          const list = await fs.listNotes()
+          ui.notes = (Array.isArray(list) ? list : [])
+            .filter((n) => n && n.kind === 'note' && typeof n.path === 'string')
+            .map((n) => {
+              const path = n.path
+              return {
+                path,
+                dir: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '',
+                title:
+                  typeof n.title === 'string' && n.title.trim()
+                    ? n.title.trim()
+                    : path.split('/').pop() || path,
+                mtime: typeof n.mtime === 'number' ? n.mtime : 0,
+              }
+            })
+            .sort((a, b) => b.mtime - a.mtime)
+          ui.mode = mode
+          ui.step = 'note'
+          ui.notePath = ''
+          ui.noteTitle = ''
+          view.setState('io.filter', '')
+          view.refresh('io.panel')
+          return { count: ui.notes.length }
+        }),
+      }),
+    )
+
+    /** 面板入口 ②：选中一篇（`list.onClick` 的 payload 带 `{ index, key }`，用 key = path） */
+    subscriptions.push(
+      command.register({
+        id: 'io.panel.note',
+        title: '导出 / 分享：选中这篇',
+        run: guard(async (payload) => {
+          const p = payload && typeof payload === 'object' ? payload : {}
+          const path = typeof p.key === 'string' ? p.key : ''
+          if (!path) return null
+          const hit = ui.notes.find((n) => n.path === path)
+          if (!hit) {
+            host.notify('这篇笔记已经不在了 —— 返回列表重选一次', 'warn')
+            return null
+          }
+          ui.notePath = hit.path
+          ui.noteTitle = hit.title
+          ui.step = 'format'
+          view.refresh('io.panel')
+          return hit.path
+        }),
+      }),
+    )
+
+    /** 面板入口 ③：返回（格式 → 笔记列表 → 首页） */
+    subscriptions.push(
+      command.register({
+        id: 'io.panel.back',
+        title: '导出 / 分享：返回',
+        run: guard(async () => {
+          ui.step = ui.step === 'format' ? 'note' : 'home'
+          view.refresh('io.panel')
+          return ui.step
+        }),
+      }),
+    )
+
     for (const [id, fmt, title] of [
       ['io.exportTxt', 'txt', '导出当前笔记为纯文本（txt）…'],
       ['io.exportHtml', 'html', '导出当前笔记为网页（html）…'],
@@ -1355,26 +1699,52 @@ export default {
           title,
           run: guard(async (payload) => {
             const p = payload && typeof payload === 'object' ? payload : {}
-            return await exportActive(
+            const r = await exportActive(
               fmt,
               Boolean(p.toVault),
               Boolean(p.probe),
-              // 条目菜单入口（J#18）会传 `{ path, kind, where }`；面板按钮不传 ⇒ 当前笔记
+              // 条目菜单入口（J#18）会传 `{ path, kind, where }`；面板入口传选中的 path
               typeof p.path === 'string' ? p.path : undefined,
             )
+            // 面板入口：做完回首页（探针是自动化验收，不动 UI）
+            if (!p.probe) backToHome()
+            return r
           }),
         }),
       )
     }
 
-    /** 系统分享（J#13）：Android 走原生分享面板；桌面复制到剪贴板并如实说明 */
+    /** 分享三种格式：md（图片内嵌文件）/ png（长图）/ txt（纯文本） */
+    for (const [id, fmt, title] of [
+      ['io.shareMd', 'md', '分享为 Markdown 文件（图片内嵌）…'],
+      ['io.sharePng', 'png', '分享为长图（PNG）…'],
+      ['io.shareTxt', 'txt', '分享为纯文本…'],
+    ]) {
+      subscriptions.push(
+        command.register({
+          id,
+          title,
+          run: guard(async (payload) => {
+            const p = payload && typeof payload === 'object' ? payload : {}
+            const r = await shareNote(fmt, typeof p.path === 'string' ? p.path : undefined)
+            if (!p.keepPanel) backToHome()
+            return r
+          }),
+        }),
+      )
+    }
+
+    /**
+     * 条目菜单的「分享…」（manifest `itemMenus`）—— 菜单里没有"选格式"这一层，
+     * 直接给默认格式：**带图片的 Markdown 文件**（真人测试4 #2 的口径）。
+     */
     subscriptions.push(
       command.register({
         id: 'io.share',
         title: '分享到其它应用…',
         run: guard(async (payload) => {
           const p = payload && typeof payload === 'object' ? payload : {}
-          return await shareNote(typeof p.path === 'string' ? p.path : undefined)
+          return await shareNote('md', typeof p.path === 'string' ? p.path : undefined)
         }),
       }),
     )
@@ -1386,46 +1756,28 @@ export default {
         id: 'io.panel',
         title: '导入导出',
         location: 'main',
-        render: () => ({
-          type: 'stack',
-          children: [
-            { type: 'text', value: '导入导出', variant: 'title' },
-            { type: 'text', value: '把外部文件变成库内笔记，把笔记导出成别的格式。', variant: 'caption' },
-            { type: 'button', label: '导入文件…', onClick: 'io.importFile' },
-            { type: 'divider' },
-            { type: 'text', value: '导出当前笔记', variant: 'caption' },
-            { type: 'button', label: '导出为 txt…', onClick: 'io.exportTxt' },
-            { type: 'button', label: '导出为 html…', onClick: 'io.exportHtml' },
-            { type: 'button', label: '导出为 Markdown（图片内嵌）…', onClick: 'io.exportMdEmbed' },
-            { type: 'button', label: '导出为长图 png…', onClick: 'io.exportPng' },
-            { type: 'button', label: '导出为 Word docx…', onClick: 'io.exportDocx' },
-            { type: 'button', label: '导出为 PDF（打印）…', onClick: 'io.exportPdf' },
-            { type: 'divider' },
-            { type: 'text', value: '分享', variant: 'caption' },
-            { type: 'button', label: '分享到其它应用…', onClick: 'io.share' },
-            { type: 'divider' },
-            {
-              type: 'text',
-              value:
-                '导入支持：md / txt / html / docx（pdf / epub 在下一批）。\n' +
-                '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
-                '导出支持：Markdown / txt / html / 长图 PNG / Word / PDF（PDF 经浏览器打印）。\n' +
-                '「图片内嵌」导出 = 单文件 .md，图片写成 data: —— 发给别人不用再传附件目录。\n' +
-                '导出入口：文件树右键 / 长按 →「导出为…」，或时间流卡片菜单 —— 不用先打开那篇。\n' +
-                '分享：Android 打开系统分享面板（纯文本）；桌面没有系统分享，改为复制到剪贴板。\n' +
-                'Android 的"另存为"需要下一次构建才会生效（见 HANDOFF rev85）。',
-              variant: 'caption',
-            },
-          ],
-        }),
+        render: (ctx) => {
+          if (ui.step === 'note') {
+            return buildPickNoteView({
+              notes: ui.notes,
+              mode: ui.mode,
+              filter: (ctx && ctx.state && ctx.state['io.filter']) ?? '',
+            })
+          }
+          if (ui.step === 'format') {
+            return buildPickFormatView({ mode: ui.mode, notePath: ui.notePath, noteTitle: ui.noteTitle })
+          }
+          return buildHomeView()
+        },
       }),
     )
+
 
     /** 卸载时把注入的 vendor script 摘掉（内核记不了这笔账 ⇒ 自己申报） */
     host.onRollback(() => {
       document.querySelectorAll('script[data-zn-plugin-vendor]').forEach((s) => s.remove())
     })
 
-    host.log('info', '导入导出插件已就绪（批 2：html / docx 导入 ＋ txt / html 导出）')
+    host.log('info', '导入导出插件已就绪（0.2.1：选笔记 → 导出六种格式 / 分享 md·png·txt）')
   },
 }

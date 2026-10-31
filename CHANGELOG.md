@@ -29,6 +29,20 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **导入导出面板改成「选笔记 → 选格式」**（rev173.310 · 真人测试4 #1/#2）：
+  - 根因：`main` 位置的面板占满主区时**编辑器已经卸载**（契约 §2.2），旧面板的「导出当前笔记」
+    在手机上**永远是空的**。现在面板只有两个入口 —— **导出笔记…** / **分享笔记…**，
+    点进去先**选一篇**（列表带标题 / 所在目录 / 关键词筛选），再选格式；全程按 `path` 现读文件。
+  - **分享不再是纯文本**：默认给**带图片的 Markdown 文件**（图片内嵌 `data:`，落 `<库>/.zn/share/`，
+    经原生 `share_file` → FileProvider `content://` 交给系统分享面板），另可分享**长图 PNG** 与纯文本。
+  - 新原生命令 `share_file`（`tauri-plugin-share`）：`Intent.ACTION_SEND` + `EXTRA_STREAM` +
+    `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION`；路径不在 `file_paths` 覆盖范围时自动复制进
+    `cacheDir/share/` 再分享。桌面照旧返回 `desktop-no-share`（md / txt 复制剪贴板、png 另存为）。
+  - 条目菜单「分享…」= 默认 Markdown 文件（菜单里没有"选格式"这一层）。
+  - `import-export` **0.2.1**；新增 11 条单测（面板三态 / 格式按钮都带 path / 文件名清洗）。
+
 ## [0.9.7] - 2026-10-31（rev173.308）
 
 ### Changed

@@ -1,4 +1,4 @@
-//! ZeroNote 分享插件 —— 把一段**纯文本**交给 Android 的系统分享面板。
+//! ZeroNote 分享插件 —— 把一段**纯文本**或**一个文件**交给 Android 的系统分享面板。
 //!
 //! ## 为什么需要原生
 //!
@@ -6,10 +6,18 @@
 //! J#13（2026-10-30 用户拍板）把系统分享归 `import-export` 插件：插件把笔记转成纯文本，
 //! 再 `invoke('plugin:share|share_text', { title, text })` 交给这里。
 //!
+//! **rev173.310（真人测试4 #2）加 `share_file`**：用户要的是"直接分享带图片的 markdown 文件"，
+//! 纯文本会把图片丢掉。文件通道走 FileProvider（manifest 已注册 `${applicationId}.fileprovider`）——
+//! 见 `android/src/main/java/SharePlugin.kt` 的 `shareFile`。
+//!
 //! ```text
 //! JS invoke('plugin:share|share_text', { title, text })
 //!   → 本 crate 命令 → JNI → Kotlin SharePlugin.shareText
 //!   → Intent.ACTION_SEND / text/plain + createChooser
+//!
+//! JS invoke('plugin:share|share_file', { title, path, mime })
+//!   → 本 crate 命令 → JNI → Kotlin SharePlugin.shareFile
+//!   → FileProvider content:// + ACTION_SEND / EXTRA_STREAM + createChooser
 //! ```
 //!
 //! ## 桌面端
@@ -76,6 +84,41 @@ async fn share_text<R: Runtime>(
   }
 }
 
+/// 调起系统分享面板（一个文件，`ACTION_SEND` / `EXTRA_STREAM`）。
+///
+/// - `path`：**绝对路径**（调用方负责把内容落盘）
+/// - `mime`：空串 ⇒ 由 Kotlin 侧按扩展名推断
+///
+/// 返回 `true` = 面板已调起（用户选哪个应用由系统面板决定，这里不追踪结果）。
+#[tauri::command]
+async fn share_file<R: Runtime>(
+  app: tauri::AppHandle<R>,
+  title: String,
+  path: String,
+  mime: String,
+) -> Result<ShareResult, String> {
+  #[cfg(mobile)]
+  {
+    use tauri::Manager;
+    let v = app
+      .state::<Share<R>>()
+      .handle
+      .run_mobile_plugin::<serde_json::Value>(
+        "shareFile",
+        serde_json::json!({ "title": title, "path": path, "mime": mime }),
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(ShareResult {
+      ok: v.get("ok").and_then(|x| x.as_bool()).unwrap_or(true),
+    })
+  }
+  #[cfg(not(mobile))]
+  {
+    let _ = (app, title, path, mime);
+    Err("desktop-no-share".to_string())
+  }
+}
+
 /// 初始化插件。
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   tauri::plugin::Builder::<R>::new("share")
@@ -100,6 +143,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![share_text])
+    .invoke_handler(tauri::generate_handler![share_text, share_file])
     .build()
 }

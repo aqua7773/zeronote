@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-share"
 version = "0.1.0"
-description = "ZeroNote: 系统分享（Android ACTION_SEND 纯文本）"
+description = "ZeroNote: 系统分享（Android ACTION_SEND —— 纯文本 / 文件）"
 authors = ["AQUA"]
 license = "MIT"
 edition = "2021"

@@ -2,11 +2,11 @@
   "manifestVersion": 1,
   "id": "import-export",
   "name": "导入导出",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "^0.1.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
-  "description": "导入外部文件或导出笔记",
+  "description": "导入外部文件；导出 / 分享任意一篇笔记",
   "category": "tool",
   "capabilities": ["fs:read", "fs:write", "command", "view:main", "proc"],
   "contributes": {
@@ -28,7 +28,7 @@
       },
       {
         "command": "io.share",
-        "title": "分享…",
+        "title": "分享（Markdown 文件）…",
         "kinds": ["note"],
         "order": 110
       }
