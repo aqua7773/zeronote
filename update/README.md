@@ -94,9 +94,13 @@ id 与顺序（前端 `src/kernel/app-update.ts` 的 `UPDATE_MIRRORS` / Rust `up
 | `ghproxy` | `https://ghproxy.net/<Release 地址>` | ✅ 270 KB/s |
 | `gh-proxy-com` | `https://gh-proxy.com/<Release 地址>` | ✅ 144 KB/s |
 
-* **点「检查更新」就测**（`Range: bytes=0-65535` 拉 64 KB 算速度，三条并发；**全灭**才换
+* **点「检查更新」就测**（`Range: bytes=0-262143` 拉 256 KB 算速度，三条并发；**全灭**才换
   直连再测一轮 —— 系统代理「开着但不可用」时第一轮会全灭）。结果在 `UpdateCheck.routes`
   里按速度降序，前端「下载通道」一行显示。
+* ⚠️ **只有「有新版本」时才测路、才显示「下载通道」**（`check_app_update` 里
+  `match (has_update, latest)`）。已是最新时 `routes` 为空，那一行整块不渲染。
+  2026-11-01 用户验证 0.9.9 时把这条当成「功能没生效」，实为有意取舍 —— 不为一个
+  不会下载的场景多花几秒。**想随时看到三路速度就放开这个条件**（代价：每次检查多 1–3 秒）。
 * **点「安装」直接用** `routes[0]`（或用户在「下载通道」下拉里手选的那条），不再等测速。
   Rust 侧仍做白名单校验（只认候选三条），桌面另加 minisign、Android 另加 sha256。
 * 直连不是「有墙才用反代」：`release-assets` 的 DNS 是**间歇性**被污染 —— 直连优先、

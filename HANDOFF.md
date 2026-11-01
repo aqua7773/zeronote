@@ -245,6 +245,11 @@ revision: 173.311
 
 > ⚠️ **没做**：第四条路 —— 安装包当**仓库文件**发（`raw.githubusercontent.com` 实测 **941 KB/s**，与 `release-assets` 不同域名 = 独立故障域），代价是每版仓库 +50 MB。用户明确「2 先不做」。
 
+> ⚠️ **「下载通道」只在有新版时出现**：`routes` 由 `check_app_update` 的 `match (has_update, latest)` 填充，
+> 已是最新时为空、那一行整块不渲染。2026-11-01 用户装 0.9.9 后在手机上检查（20:18）看不到它，问是不是没生效 ——
+> **是设计取舍**（不为不会下载的场景多花几秒）。用户看过两个选项后选「等下次有内容一起发」，所以**本轮没改**；
+> 想随时看到三路速度就放开那个条件（代价每次检查多 1–3 秒）。
+
 > ⚠️ **推送中途断过 3 次**（11:10–11:15，`git push` 报 `Failed to connect to github.com:443 after 21113 ms` / `Recv failure: Connection was reset`），
 > 而同时刻 `api.github.com` 一直通（200 · 0.35s · `20.205.243.168`），本机也没有任何代理在监听（`26561` 未 LISTEN）。
 > 11:18 链路自己恢复，`git push` + `gh release create` 一次成功（65 MB 资产全部上传）。
