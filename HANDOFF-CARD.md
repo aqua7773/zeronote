@@ -75,15 +75,40 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.316 · 2026-11-01）
+> ### 📌 下个会话第一件事（rev173.322 · 2026-11-02）
 >
-> 1. **手机上验一次热重载** —— `pnpm dev`（只起 vite，**不要** `dev.ps1`）→ 改一行 `src/` 下的文案 → 手机 1–3 秒后变。
->    真机 24069RA21C 上装的是 **debug 0.9.11**（22:41 装），dev 模式已确认（页面脚本来自 `/@vite/client`）。
-> 2. **桌面升 0.9.11** —— 跑 `src-tauri\target\release\bundle\nsis\ZeroNote_0.9.11_x64-setup.exe`。
->    桌面现在还是 **0.9.9**（快捷方式 `C:\Users\AQUA\Desktop\ZeroNote.lnk` → `AppData\Local\ZeroNote\zeronote.exe`）。
-> 3. **正式包上端到端验一次应用内更新**（另一台手机）—— 本轮的五道护栏（并发闸 / Content-Range 起点 / 长度严格 /
->    失败换路 / 缓存包复核）只在 **debug 包**上编译验证过，**没在正式包上真跑过一次「下载 → 校验 → 安装」**。
->    ⚠️ 用户明确：**adb 这台机只跑 dev/debug，正式包用另一台手机测**，别往这台装 release。
+> **左抽屉唤出/收回提速** —— 用户原话：「做侧栏唤出收回都比右侧栏快，右侧栏效果很好，先交接，下个会话做」。
+>
+> - **右抽屉保持 340ms**（用户认可）。`--zn-dur-drawer: 340ms` 现在被**左右共用**，所以要拆：
+>   新增一个左抽屉专用的 token（建议 `--zn-dur-drawer-left: 220ms`，跟 `--zn-dur-panel` 同档），
+>   只改 `styles.css` 里 `@media (max-width: 820px)` 的 `.zn-sidebar { transition: transform ... }`，
+>   别动 `.zn-more-drawer` / `.zn-scrim`。
+> - 顺手核对：`docs/UI交互规范.md` 的「动效 token」表要加这一档（`tests/design-tokens.test.ts` 的 `DURATIONS` 列表也要加）。
+> - 验法：真机左右各划一次，左应明显更快；用**页面内 `requestAnimationFrame` 采样**读 `transitionDuration` 与 transform 帧
+>   （⚠️ 别用 `cdp.mjs` 两次调用夹 sleep 测时序 —— 每次起 node 就几百 ms，会误判）。
+>
+> **环境现状（交接时刻）**：vite **1420** 在跑（`pnpm dev`，手机 debug 包连它）·
+> **桌面 dev 窗口开着**（`pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`，复用同一个 vite）·
+> 桌面正式版 **0.9.9 已被关掉**（本轮为起 dev），要用就从桌面快捷方式重开 —— 它与 dev 抢单实例，只能开一个。
+> 手机 `24069RA21C`（`33b676f6`）debug 版，CDP `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`。
+>
+> **仍欠（不阻塞）**：
+> 1. **桌面升 0.9.11** —— `src-tauri\target\release\bundle\nsis\ZeroNote_0.9.11_x64-setup.exe`。
+> 2. **正式包端到端验一次应用内更新**（另一台手机）—— 五道护栏只在 debug 包上编译验证过。
+>    ⚠️ 用户明确：**adb 这台机只跑 dev/debug**，正式包用另一台手机测。
+>
+> ### ✅ 真人测试5 + 后续五轮全修（rev173.317–322 · 2026-11-01/02 · 真机 + 桌面 dev 实测）
+>
+> | rev | 内容 |
+> |---|---|
+> | 317 | 真人测试5 五条：多选入口、双层菜单（`ContextMenu` 全局互斥）、时间流长按禁选字 + 手机不弹桌面菜单、抽屉仅首页且互斥、触摸拖拽（按住 240ms） |
+> | 318 | 多选改成**每行一个勾选框**（删顶栏）；勾文件夹连带里面全部条目；取消子项 ⇒ 文件夹变回未勾；批量操作与「退出多选」进长按菜单 |
+> | 319 | 拖拽落点：**栏内空白 = 库根**、**栏外 = 不动作**；`.is-drop-root` 描边提示 |
+> | 320 | 手机拖拽失败根因：长按弹出的菜单遮罩把落点吃掉 ⇒ 拖拽开始即 `setMenu(null)` |
+> | 321 | **手机所有长按改成松手才触发**（文件行 / 卡片 / ＋ / ☰ / 编辑区四键条） |
+> | 322 | 两侧抽屉动画补齐 340ms（右抽屉退场 + 遮罩淡入淡出 + 左抽屉 220→340） |
+>
+> 测试 1741 → **1756**；tsc 0 · oxlint 4 warnings（= 基线）· 质量门 8/8。证据 `_shots/rt5-*.png`。
 
 > ### ✅ 真人测试4 两条已改（rev173.310 · 2026-10-31 · 双端实测通过）
 >
