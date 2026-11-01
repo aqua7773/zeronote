@@ -336,36 +336,30 @@ body.is-resizing * {
   background: var(--zn-bg-hover);
 }
 
-/* 多选态的批量栏（rev173.317 · 真人测试5 #1）——
-   贴在列表顶部，**不覆盖列表**：多选时用户要能一直往下点。
-   与顶栏「新建笔记 / 新建文件夹」同一套视觉，只是整体更紧凑。 */
-.zn-tree-batchbar {
-  display: flex;
+/* 多选态的勾选框（rev173.318）——
+   行首原来那个 ● 圆点 / ▾ 三角在多选时换成它，位置与宽高一致，列表不跳。
+   点击由整行承担（按钮里不能再套 input），所以它只是视觉。 */
+.zn-check {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: var(--zn-space-2);
-  flex-wrap: wrap;
-  padding: 6px 8px;
-  margin-bottom: var(--zn-space-2);
-  border-radius: var(--zn-radius-sm);
-  background: var(--zn-bg-active);
-  font-size: var(--zn-text-sm);
-}
-.zn-tree-batchbar-count {
-  color: var(--zn-fg-muted);
-  margin-right: auto;
-  white-space: nowrap;
-}
-/* 批量栏里的按钮要一眼看得见（`.zn-plain-btn` 默认 0.45 透明度，是「悬停才亮」的桌面口味；
-   触摸屏没有 hover，灰着会像禁用） */
-.zn-tree-batchbar .zn-plain-btn {
-  opacity: 1;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  border: 1.5px solid var(--zn-border-strong, var(--zn-fg-subtle));
+  border-radius: 5px;
   background: var(--zn-bg);
-  color: var(--zn-fg-muted);
-  height: 26px;
-  padding: 0 10px;
+  color: var(--zn-accent-fg, #fff);
+  font-size: 12px;
+  line-height: 1;
 }
-.zn-tree-batchbar .zn-plain-btn:hover { color: var(--zn-fg); background: var(--zn-bg-hover); }
-.zn-tree-batchbar .zn-plain-btn.is-danger { color: var(--zn-danger, #dc2626); }
+.zn-check.is-on {
+  border-color: var(--zn-accent, #3f3f46);
+  background: var(--zn-accent, #3f3f46);
+  /* 勾号必须跟「底色」反着来：暗色主题下 accent 是浅色（#e4e4e7），写死白色会看不见 */
+  color: var(--zn-accent-fg, #fff);
+}
 
 /* 子级容器（2026-10-17 用户逐条确认的规则）——
    **同时满足**「该文件夹后面还有同级条目」+「它自己有子项」才画竖线：

@@ -264,6 +264,15 @@ function itemKindOf(meta: NoteMeta | undefined, isDir: boolean): ItemMenuKind {
   return (meta?.kind ?? 'note') === 'note' ? 'note' : 'attachment'
 }
 
+/** 多选态的勾选框（纯视觉；点击由整行承担，避免按钮套按钮） */
+function CheckBox({ on }: { on: boolean }) {
+  return (
+    <span className={`zn-check${on ? ' is-on' : ''}`} aria-hidden="true">
+      {on ? '✓' : ''}
+    </span>
+  )
+}
+
 function Node({
   node,
   depth,
@@ -276,6 +285,7 @@ function Node({
   onToggleOpen,
   onPick,
   onContextMenu,
+  selectMode,
   renaming,
   draft,
   setDraft,
@@ -297,9 +307,11 @@ function Node({
   collapsed: Set<string>
   /** 切换某个目录的展开 / 折叠 */
   onToggleOpen: (path: string) => void
-  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围（多选态下=加/减选） */
-  onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
+  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
+  onPick: (path: string, isDir: boolean, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
+  /** 多选态：行首画勾选框，点行 = 勾选 / 取消（不打开、不折叠） */
+  selectMode: boolean
   renaming: Renaming | null
   draft: string
   setDraft: (v: string) => void
@@ -376,7 +388,12 @@ function Node({
             }${dragging === node.path ? ' is-dragging' : ''}`}
             style={pad}
             data-zn-path={node.path}
-            onClick={() => onToggleOpen(node.path)}
+            /* 多选态：点目录 = 勾选它（连带里面全部条目），不再折叠 */
+            onClick={() =>
+              selectMode
+                ? onPick(node.path, true, { toggle: false, range: false })
+                : onToggleOpen(node.path)
+            }
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -390,7 +407,11 @@ function Node({
                 : `${node.path}（右键：新建 / 重命名 / 删除）`
             }
           >
-            <span className="zn-tree-caret">{open ? '▾' : '▸'}</span>
+            {selectMode ? (
+              <CheckBox on={selected.has(node.path)} />
+            ) : (
+              <span className="zn-tree-caret">{open ? '▾' : '▸'}</span>
+            )}
             <span className="zn-tree-label">{node.name}</span>
             {node.virtual && <span className="zn-ext">{node.children.length}</span>}
           </button>
@@ -417,6 +438,7 @@ function Node({
                 dragging={dragging}
                 onPick={onPick}
                 onContextMenu={onContextMenu}
+                selectMode={selectMode}
                 renaming={renaming}
                 draft={draft}
                 setDraft={setDraft}
@@ -492,7 +514,7 @@ function Node({
         style={pad}
         data-zn-path={node.path}
         onClick={(e) =>
-          onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })
+          onPick(node.path, false, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })
         }
       onContextMenu={(e) => {
         e.preventDefault()
@@ -503,10 +525,15 @@ function Node({
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
     >
       {/* 圆点：与目录行的三角同宽同高，垂直居中 —— 让文件行也有"项目符号"，
-          且名字与同级文件夹名对齐（用户 2026-10-17：「笔记前面加圆点，大小与三角一致」） */}
-      <span className="zn-tree-caret zn-tree-dot" aria-hidden="true">
-        ●
-      </span>
+          且名字与同级文件夹名对齐（用户 2026-10-17：「笔记前面加圆点，大小与三角一致」）。
+          多选态换成勾选框（rev173.318）。 */}
+      {selectMode ? (
+        <CheckBox on={selected.has(node.path)} />
+      ) : (
+        <span className="zn-tree-caret zn-tree-dot" aria-hidden="true">
+          ●
+        </span>
+      )}
       <span className="zn-tree-label">{label}</span>
       {(isDoc || isImage || isMedia) && <span className="zn-ext">.{ext}</span>}
       </button>
@@ -676,15 +703,20 @@ export function FileTree({
   /* 用「派生」而不是 effect 同步：外部（搜索面板、快速打开）打开别的笔记时，
      activePath 会变，这里直接把它当作唯一选中项，不必写 setState-in-effect。
      注意依赖必须是 selected / activePath 本身 —— 若在外面先算出 "effectiveSelected"
-     数组再依赖它，那个数组每次渲染都是新的，memo 就白做了（lint 也会报）。 */
+     数组再依赖它，那个数组每次渲染都是新的，memo 就白做了（lint 也会报）。
+
+     ⚠️ **多选态不回退**（rev173.318）：多选时勾选集合就是用户真正勾的那些，
+     空集合就是"一个都没勾"。回退到 activePath 会让人看到"打开的那篇还亮着却没勾"。 */
   const selectedSet = useMemo(() => {
-    const eff = selected.length
+    const eff = selectMode
       ? selected
-      : !selectionCleared && activePath
-        ? [activePath]
-        : []
+      : selected.length
+        ? selected
+        : !selectionCleared && activePath
+          ? [activePath]
+          : []
     return new Set(eff)
-  }, [selected, activePath, selectionCleared])
+  }, [selected, activePath, selectionCleared, selectMode])
 
   /* 换了笔记（外部打开 / 搜索跳转）⇒ 恢复"回退到 activePath"的行为 */
   useEffect(() => {
@@ -719,16 +751,62 @@ export function FileTree({
     : 'pointer'
 
   /**
-   * **点选模式的界面**（rev173.317 · 真人测试5 #1「手机端多选功能残废」）。
-   *
-   * 旧行为：多选态下每选到第 2 项就**自动弹出批量菜单**（rev173.71 的老要求）。
-   * 菜单带全屏透明遮罩（`.zn-menu-scrim`，点外面只关菜单、点击不穿透）⇒
-   * 选第二项后列表被菜单盖住，再点第三项实际点在遮罩上、只关了菜单；
-   * 用户看到的正是「只选中一个，再点其他的文件就取消了」。
-   *
-   * 现在：多选态**不再弹菜单**，改为列表顶部一条批量栏（已选 N 项 · 移入 / 删除 /
-   * 彻底删除 / 完成）。列表全程可见、可以一直加选；操作完点「完成」退出。
+   * **目录 → 它的全部子孙**（含子目录与文件）—— 多选时"勾文件夹 = 勾里面的东西"要用。
+   * 虚拟分组（「文档」/「附件」）也在内：用户眼里它就是一组条目。
    */
+  const descendantsMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    const walk = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        if (!n.isDir) continue
+        const all: string[] = []
+        const collect = (kids: TreeNode[]) => {
+          for (const c of kids) {
+            all.push(c.path)
+            if (c.isDir) collect(c.children)
+          }
+        }
+        collect(n.children)
+        map.set(n.path, all)
+        walk(n.children)
+      }
+    }
+    walk(tree)
+    return map
+  }, [tree])
+
+  /**
+   * **多选：切换一项的勾选**（rev173.318 · 用户 2026-11-01 定的规则）。
+   *
+   * 用户原话：「进入多选时，在每条笔记/文件夹前加一个勾选框，勾选文件夹时一并勾选其中的文件」，
+   * 以及「取消一个，文件夹就变成未勾选，其余文件依旧被选中」。
+   *
+   * 所以三条规则：
+   *  ① 勾一项 ⇒ 勾上自己；**目录**还把自己全部子孙一起勾上；
+   *  ② 取消一项 ⇒ 取消自己与自己的全部子孙；
+   *  ③ 取消任何一项时，**它的祖先目录也一并取消** —— 否则会出现"目录勾着、里面却没全勾"
+   *     这种自相矛盾的状态（用户要的是"文件夹变回未勾选"）。
+   * 反过来：逐个勾子项**不会**自动把父目录勾上（父目录只有"被直接勾"才进集合）。
+   */
+  const toggleSelect = (path: string, isDir: boolean) => {
+    setSelectionCleared(false)
+    setSelected((prev) => {
+      const set = new Set(prev)
+      if (set.has(path)) {
+        for (const p of [...set]) {
+          if (p === path || p.startsWith(`${path}/`)) set.delete(p)
+          else if (path.startsWith(`${p}/`)) set.delete(p) // 祖先不再"全选"
+        }
+      } else {
+        set.add(path)
+        if (isDir) for (const d of descendantsMap.get(path) ?? []) set.add(d)
+      }
+      return [...set]
+    })
+    setAnchor(path)
+  }
+
+  /** 「移入…」子菜单的坐标（null = 没开） */
   const [moveMenu, setMoveMenu] = useState<{ x: number; y: number } | null>(null)
 
   /** 批量「移入…」的目标目录：库根 + 所有真实目录 */
@@ -737,7 +815,7 @@ export function FileTree({
     return all.sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b, 'zh')))
   }, [dirs])
 
-  /** 把当前选中集合整体搬进 `target`（`''` = 库根） */
+  /** 把当前勾选的条目整体搬进 `target`（`''` = 库根），搬完退出多选 */
   const moveSelectedTo = (target: string) => {
     const paths = dedupe([...selectedSet])
     for (const p of paths) {
@@ -752,20 +830,16 @@ export function FileTree({
     setSelectMode(false)
   }
 
-  const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
-    // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
-    setSelectionCleared(false)
-    // 点选模式（右键菜单「多选」进的）：点一行 = 加/减选，**不打开**笔记 ——
+  const pick = (path: string, isDir: boolean, mods: { toggle: boolean; range: boolean }) => {
+    // 点选模式（右键菜单「多选」进的）：点一行 = 勾选/取消，**不打开**笔记 ——
     // 否则一开编辑器就把抽屉收起来，多选根本做不下去。
-    // ⚠️ 不再自动弹菜单（rev173.317）：菜单的遮罩会把列表盖住，多选没法连续点。
+    // ⚠️ 不自动弹菜单（rev173.317）：菜单的遮罩会把列表盖住，多选没法连续点。
     if (selectMode) {
-      const next = selected.includes(path)
-        ? selected.filter((p) => p !== path)
-        : [...selected, path]
-      setSelected(next)
-      setAnchor(path)
+      toggleSelect(path, isDir)
       return
     }
+    // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
+    setSelectionCleared(false)
     if (mods.range && anchor) {
       const a = flatPaths.indexOf(anchor)
       const b = flatPaths.indexOf(path)
@@ -1214,6 +1288,14 @@ export function FileTree({
     setSelectMode(false)
   }
 
+  /** 退出多选：清空勾选、回到普通浏览（返回键同样走这一条） */
+  const exitSelectMode = () => {
+    setSelectMode(false)
+    setSelected([])
+    setSelectionCleared(true)
+    setMenu(null)
+  }
+
   const items: MenuItem[] = menu
     ? (() => {
         const list: MenuItem[] = []
@@ -1224,8 +1306,14 @@ export function FileTree({
         list.push({ label: '新建文件夹', onClick: () => void createIn(menu.dir, true) })
         if (menu.path) {
           const path = menu.path
-          const multi = menu.multi
-          const picked = multi ? dedupe([...selectedSet]) : [path]
+          /**
+           * **多选态的批量组**（rev173.318 · 用户 2026-11-01）：
+           * 顶栏去掉之后，批量操作全在这里。判据是 `selectMode`（不是 `menu.multi`）——
+           * 右键的那一条**不一定在勾选集合里**（比如勾了 A/B 却右键 C），那种情况也该给批量项。
+           */
+          const batchPaths = selectMode ? dedupe([...selectedSet]) : []
+          const batch = batchPaths.length > 0
+          const picked = batch ? batchPaths : [path]
           // 与 NoteGen 同序：新建 → 剪切 / 复制 / 创建副本 / 粘贴 → 重命名 → 删除
           list.push({
             label: '剪切',
@@ -1270,50 +1358,57 @@ export function FileTree({
             onClick: () => startRename(path, menu.isDir),
           })
           list.push({
-            label: multi
-              ? `删除选中的 ${selectedSet.size} 项`
+            label: batch
+              ? `删除选中的 ${batchPaths.length} 项`
               : menu.isDir
                 ? '删除文件夹'
                 : '删除',
             danger: true,
-            onClick: () => deletePaths(multi ? [...selectedSet] : [path]),
+            onClick: () => deletePaths(batch ? batchPaths : [path]),
           })
           // 彻底删除（不进回收站）—— 单独一项，且**必须二次确认**（`setPurgeConfirm`）
           list.push({
-            label: multi ? `彻底删除选中的 ${selectedSet.size} 项…` : '彻底删除…',
+            label: batch ? `彻底删除选中的 ${batchPaths.length} 项…` : '彻底删除…',
             danger: true,
             onClick: () => {
-              const targets = multi ? [...selectedSet] : [path]
+              const targets = batch ? batchPaths : [path]
               setMenu(null)
               setPurgeConfirm({ paths: targets, x: menu.x, y: menu.y })
             },
           })
-          // 右键的是选中项之外的一条时，额外给一个「删除选中的 N 项」入口
-          if (!multi && selectedSet.size > 1) {
+          /**
+           * 批量组：移入… / 退出多选（顶栏去掉后，这里是多选态仅有的操作入口）
+           */
+          if (batch) {
             list.push({
-              label: `删除选中的 ${selectedSet.size} 项`,
-              danger: true,
+              label: '移入…',
               divider: true,
-              onClick: () => deletePaths([...selectedSet]),
+              onClick: () => {
+                const at = { x: menu.x, y: menu.y }
+                setMenu(null)
+                setMoveMenu(at)
+              },
             })
+            list.push({ label: '退出多选', onClick: () => exitSelectMode() })
           }
           /**
            * 「多选」入口（rev173.317 改了行为）。
            *
-           * 以前：点完菜单**不关**、原地切成多选菜单，靠"选到第 2 项自动弹批量菜单"接力。
-           * 现在：点完**直接关菜单**，切到"列表 + 顶部批量栏"的多选形态 —— 用户要的是
+           * 点完**直接关菜单**，切到"每行前面一个勾选框"的多选形态 —— 用户要的是
            * "进入多选列表"（真人测试5 #1）。菜单留着的话，第一下点其他行会落在菜单遮罩上，
            * 只会把菜单关掉，看起来就是"点了没选中"。
+           *
+           * rev173.318：**文件夹也能进多选**（勾上它 = 连带里面全部条目），
+           * 所以不再限制 `!menu.isDir`。
            */
-          // 只对**文件**给多选入口 —— 现有选择集合的语义是「只含文件」（见上面 onKeyDown 注释）
-          if (!multi && !menu.isDir) {
+          if (!selectMode) {
             list.push({
               label: '多选',
               divider: true,
               onClick: () => {
                 setSelectMode(true)
-                setSelected([path])
-                setAnchor(path)
+                // 走同一个 toggle：勾的是文件夹就**连带里面全部条目**
+                toggleSelect(path, menu.isDir)
                 setMenu(null)
               },
             })
@@ -1333,7 +1428,7 @@ export function FileTree({
             menu.isDir,
           )
           // 多选时把整批路径一起给插件（含右键的那条）；单选只给一条
-          const picked = menu.multi ? dedupe([...selectedSet]) : [path]
+          const picked = selectMode ? dedupe([...selectedSet]) : [path]
           const ctx: ItemMenuContext = {
             path,
             kind,
@@ -1421,58 +1516,9 @@ export function FileTree({
       }}
     >
       {toolbar}
-      {/* 多选态的批量栏（rev173.317）—— 取代原来"选到 2 项就弹菜单"的做法：
-          菜单的遮罩会盖住列表，多选根本点不下去。这里只在顶部占一行。 */}
-      {selectMode && (
-        <div
-          className="zn-tree-batchbar"
-          role="toolbar"
-          aria-label="批量操作"
-          /* 点栏里的任何地方都不能冒泡成"点空白 = 取消选中" */
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span className="zn-tree-batchbar-count">已选 {selectedSet.size} 项</span>
-          <button
-            type="button"
-            className="zn-plain-btn"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              setMoveMenu({ x: r.left, y: r.bottom })
-            }}
-          >
-            移入…
-          </button>
-          <button
-            type="button"
-            className="zn-plain-btn is-danger"
-            onClick={() => deletePaths([...selectedSet])}
-          >
-            删除
-          </button>
-          <button
-            type="button"
-            className="zn-plain-btn is-danger"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              setPurgeConfirm({ paths: dedupe([...selectedSet]), x: r.left, y: r.bottom })
-            }}
-          >
-            彻底删除
-          </button>
-          <button
-            type="button"
-            className="zn-plain-btn"
-            onClick={() => {
-              setSelectMode(false)
-              setSelected([])
-              setSelectionCleared(true)
-            }}
-          >
-            完成
-          </button>
-        </div>
-      )}
-      {/* 批量「移入…」的目标目录列表 */}
+      {/* 多选态**不占布局**（rev173.318 · 用户 2026-11-01：「多选的形式，不要添加顶栏」）——
+          勾选框直接画在每行行首，批量操作走长按 / 右键菜单。
+          这里只留「移入…」弹出的目标目录列表。 */}
       {moveMenu && (
         <ContextMenu
           x={moveMenu.x}
@@ -1515,6 +1561,7 @@ export function FileTree({
           reveal={reveal}
           dragging={draggingPath}
           onPick={pick}
+          selectMode={selectMode}
           onContextMenu={(path, isDir, x, y) =>
             setMenu({
               path,

@@ -60,29 +60,30 @@ describe('FileTree 顶栏', () => {
     expect(screen.getByRole('button', { name: '新建文件夹' })).toBeTruthy()
   })
 
-  it('rev173.317：点「多选」进多选态（菜单关闭 + 顶部批量栏），再点第二行只加选不弹菜单', () => {
+  it('rev173.318：点「多选」进多选态（菜单关闭 + 每行前面勾选框），再点第二行只加勾不弹菜单', () => {
     const props = makeProps({ notes: [note('a.md', 'a'), note('b.md', 'b')] })
     const { container } = render(<FileTree {...(props as never)} />)
 
-    // 顶栏只剩两个新建按钮；多选批量栏不存在
+    // 顶栏只剩两个新建按钮；多选时没有批量栏、没有勾选框
     expect(screen.queryByRole('button', { name: '多选' })).toBeNull()
     expect(container.querySelector('.zn-tree-batchbar')).toBeNull()
+    expect(container.querySelectorAll('.zn-check').length).toBe(0)
 
     const rows = container.querySelectorAll('.zn-tree-item')
     expect(rows.length).toBe(2)
 
-    // 右键 → 点「多选」：菜单**关掉**，切到「列表 + 顶部批量栏」
+    // 右键 → 点「多选」：菜单**关掉**，切到「每行前面一个勾选框」
     fireEvent.contextMenu(rows[0])
     const menu = document.querySelector('[role="menu"]') as HTMLElement
     expect(menu).toBeTruthy()
     fireEvent.click(within(menu).getByText('多选'))
     expect(document.querySelector('[role="menu"]')).toBeNull()
-    expect(screen.getByText('已选 1 项')).toBeTruthy()
+    expect(container.querySelectorAll('.zn-check').length).toBe(2)
 
-    // 点第二行 = 加选（不打开笔记），而且**不再自动弹菜单**（旧行为会弹 2 项菜单盖住列表）
+    // 点第二行 = 加勾（不打开笔记），而且**不再自动弹菜单**
     fireEvent.click(rows[1])
     expect(props.onOpen).not.toHaveBeenCalled()
-    expect(screen.getByText('已选 2 项')).toBeTruthy()
+    expect(container.querySelectorAll('.zn-check.is-on').length).toBe(2)
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 })
