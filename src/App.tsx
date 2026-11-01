@@ -52,7 +52,7 @@ import { PanelMount } from './components/PanelMount'
 import { PanelBoundary } from './components/PanelBoundary'
 import { ShellMount } from './components/ShellMount'
 import { WindowControls } from './components/WindowControls'
-import { Settings } from './components/Settings'
+import { Settings, type SettingsSectionProps } from './components/Settings'
 import { VaultPanel } from './components/VaultPanel'
 import { TitleBar } from './components/TitleBar'
 /* rev173.50：多标签页（用户待办 #2）—— 标签条只渲染，规则在 lib/tabs.ts（纯函数、有单测） */
@@ -699,6 +699,36 @@ export default function App() {
   const [mobilePage, setMobilePage] = useState<'home' | 'search'>('home')
   /** 右侧「更多」抽屉（rev173.308）：右边缘左滑 / 左侧抽屉头部的「更多」按钮打开 */
   const [moreOpen, setMoreOpen] = useState(false)
+  /**
+   * 右侧「更多」抽屉当前停在**哪一屏**（rev173.313）：`menu` = 条目表，
+   * 其余 = 某一组设置（单栏钻入）。受控放在这里是因为返回键要先「回菜单」再「关抽屉」。
+   */
+  const [moreTab, setMoreTab] = useState<'menu' | 'general' | 'assets' | 'plugins' | 'about'>(
+    'menu',
+  )
+
+  /**
+   * 打开「更多」页 —— **同一页两种外壳**（rev173.313）。
+   *
+   * · 手机：右侧抽屉（`MobileMoreDrawer`），落到 `tab`，**不再弹设置浮窗**；
+   * · 桌面：悬浮窗（`Settings`），落到 `tab`。
+   *
+   * 用户 2026-11-01：「设置现在移动端还是悬浮窗口……这个页面在桌面端的形态是悬浮窗口，
+   * 在移动端的形态就是右侧栏」。
+   */
+  const openMore = useCallback(
+    (tab?: 'menu' | 'general' | 'assets' | 'plugins' | 'about') => {
+      const android = /Android/i.test(navigator.userAgent)
+      if (android) {
+        setMoreTab(tab ?? 'menu')
+        setMoreOpen(true)
+        return
+      }
+      setSettingsTab(tab && tab !== 'menu' ? tab : 'general')
+      setSettingsOpen(true)
+    },
+    [],
+  )
   /** 桌面侧栏是否显示：进插件中心/插件页面时自动让位，也可手动关掉 */
   const [sidebarVisible, setSidebarVisible] = useState(true)
   /** 笔记库栏宽度 —— 拖分隔线可调，持久化 */
@@ -790,6 +820,8 @@ export default function App() {
         return
       }
       if (moreSwipeIntent(dx, dy, { open: false, typing: typingNow, overlay }) === 'open') {
+        // 从手势进来总是回菜单首屏（rev173.313：上次可能停在某一组设置里）
+        setMoreTab('menu')
         setMoreOpen(true)
         return
       }
@@ -2340,7 +2372,7 @@ export default function App() {
         id: 'core.settings',
         title: '打开设置',
         keybinding: 'Mod+,',
-        run: () => openOverlay('settings'),
+        run: () => openMore(),
       }),
       /**
        * B1 侧栏视图命令（桌面）—— 图标栏 5 项的键盘等价物。
@@ -2522,6 +2554,8 @@ export default function App() {
     platform,
     // rev173.303：core.replace 的 run 走 openReplace（从查找面板进来才算「可回到搜索」）
     openReplace,
+    // rev173.313：Ctrl+, 与「打开设置」命令都开「更多」页（桌面浮窗 / 手机右侧栏）
+    openMore,
   ])
 
   /**
@@ -2817,6 +2851,11 @@ export default function App() {
        * 放在主区切页之前 —— 否则按返回会先跳回笔记流，抽屉还留在屏幕上。
        */
       if (moreOpen) {
+        // 二级页（某一组设置）先回菜单，再关抽屉 —— 单栏钻入的返回语义（rev173.313）
+        if (moreTab !== 'menu') {
+          setMoreTab('menu')
+          return true
+        }
         setMoreOpen(false)
         return true
       }
@@ -2896,6 +2935,7 @@ export default function App() {
     switcherOpen,
     paletteOpen,
     moreOpen,
+    moreTab,
     sidebarOpen,
     mainView,
     closeCurrentView,
@@ -4021,8 +4061,7 @@ export default function App() {
       label: '关于 ZeroNote',
       divider: true,
       onClick: () => {
-        setSettingsTab('about')
-        openOverlay('settings')
+        openMore('about')
       },
     },
     // 退出：只有桌面有这回事（Android 的"退出"= 返回键，交给系统）
@@ -4303,7 +4342,7 @@ export default function App() {
       label: '设置',
       hint: 'Ctrl+,',
       divider: true,
-      onClick: () => openOverlay('settings'),
+      onClick: () => openMore(),
     })
 
     // ── 侧栏：开关项 ──
@@ -4546,10 +4585,11 @@ export default function App() {
     setMainView('plugins')
   }
 
-  /** 图标栏 ⚙：打开设置；再点关掉（与 ☰ 菜单里的入口共用同一个浮层） */
+  /** 图标栏 ⚙：打开「更多」页（桌面浮窗 / 手机右侧抽屉）；再点关掉 */
   const toggleSettings = () => {
     if (settingsOpen) setSettingsOpen(false)
-    else openOverlay('settings')
+    else if (moreOpen) setMoreOpen(false)
+    else openMore()
   }
 
   /* 命令表用到的最新版 selectRailView（每次渲染后同步，run 里经 ref 取到当前闭包） */
@@ -4589,7 +4629,7 @@ export default function App() {
       case 'builtin:trash':
         return { key, label: '回收站', onClick: () => openTrash() }
       case 'builtin:settings':
-        return { key, label: '设置', onClick: () => openOverlay('settings') }
+        return { key, label: '更多', onClick: () => openMore() }
       case 'builtin:vaults':
         return { key, label: '切换笔记库', onClick: () => setVaultPanelOpen(true) }
       /**
@@ -4862,6 +4902,43 @@ export default function App() {
     )
   }
 
+  /**
+   * 「更多」页的内容 props —— 桌面浮窗（`Settings`）与手机右侧抽屉（`MobileMoreDrawer`）
+   * **共用这一份**（rev173.313）。两处各写一遍迟早漂移。
+   */
+  const moreSectionProps: SettingsSectionProps = {
+    vault,
+    apiVersion: kernel?.host.apiVersion,
+    appVersion: kernel?.host.appVersion,
+    platform: kernel?.host.platform,
+    onPickVault: () => void pickVault(),
+    themePref,
+    onThemeChange: setThemePref,
+    focusMode,
+    onFocusModeChange: setFocusMode,
+    renderHtml,
+    onRenderHtmlChange: setRenderHtml,
+    imageMode,
+    onImageModeChange: setImageMode,
+    /* B3：这里不再有插件列表 —— 只给摘要与「打开插件中心」入口 */
+    pluginCount: rows.length,
+    pluginUpdateCount: rows.filter((r) => marketUpdates[r.id]).length,
+    onOpenPluginCenter: () => {
+      setSettingsOpen(false)
+      setMoreOpen(false)
+      setMainView('plugins')
+    },
+    autoCheckUpdates,
+    onAutoCheckChange: (on) => {
+      setAutoCheckEnabled(on)
+      setAutoCheckUpdates(on)
+    },
+    /* J#9（rev173.281）：环形快捷入口的 5 格配置 */
+    quickSlots,
+    quickSlotOptions: quickSlotChoices,
+    onQuickSlotChange: changeQuickSlot,
+  }
+
   // 编辑界面（打开了笔记）时顶栏标题居中 —— 移动端样式挂在 `.zn-app.is-editing` 上
   //（2026-10-18 用户要求：「编辑框笔记标题（笔记1）居中」；起始页的 ZeroNote 仍靠右）。
   return (
@@ -4980,7 +5057,7 @@ export default function App() {
               items: [
                 // B1：时间流已收进侧栏视图 ⇒ 「关闭」= 切回文件树视图
                 { label: '切换到笔记视图', onClick: () => setSidebarView('notes') },
-                { label: '设置', divider: true, onClick: () => openOverlay('settings') },
+                { label: '更多', divider: true, onClick: () => openMore() },
               ],
             })
             return
@@ -5031,6 +5108,7 @@ export default function App() {
           /* 手机抽屉头部：点「更多」先收起文件树抽屉，再开右侧「更多」（rev173.308） */
           onOpenMore={() => {
             setSidebarOpen(false)
+            setMoreTab('menu')
             setMoreOpen(true)
           }}
           onOpenTrash={openTrash}
@@ -5538,27 +5616,17 @@ export default function App() {
         <>
           <div className="zn-scrim" onClick={() => setMoreOpen(false)} />
           <MobileMoreDrawer
-            vault={vault}
+            {...moreSectionProps}
             noteCount={notes.length}
+            view={moreTab}
+            onViewChange={setMoreTab}
             onClose={() => setMoreOpen(false)}
-            onOpenSearch={() => switchMobilePage('search')}
-            onOpenSettings={(tab) => {
+            onAction={(id) => {
               setMoreOpen(false)
-              // 落到指定分组：`<Settings key={settingsTab}>` 会因 key 变化重挂载，initialTab 生效
-              setSettingsTab(tab)
-              openOverlay('settings')
-            }}
-            onOpenTrash={() => {
-              setMoreOpen(false)
-              openTrash()
-            }}
-            onOpenVaults={() => {
-              setMoreOpen(false)
-              setVaultPanelOpen(true)
-            }}
-            onOpenPlugins={() => {
-              setMoreOpen(false)
-              setMainView('plugins')
+              if (id === 'search') switchMobilePage('search')
+              else if (id === 'trash') openTrash()
+              else if (id === 'vaults') setVaultPanelOpen(true)
+              else setMainView('plugins')
             }}
             pluginEntries={morePluginEntries}
           />
@@ -5649,8 +5717,7 @@ export default function App() {
         /* 「换入口」→ 设置 → 通用里的 5 格配置 */
         onEdit={() => {
           setQuickOpen(false)
-          setSettingsTab('general')
-          openOverlay('settings')
+          openMore('general')
         }}
       />
 
@@ -5747,8 +5814,7 @@ export default function App() {
           <Button
             onClick={() => {
               setMissingImage(null)
-              setSettingsTab('assets')
-              openOverlay('settings')
+              openMore('assets')
             }}
           >
             打开附件设置
@@ -5757,40 +5823,19 @@ export default function App() {
       </Dialog>
 
       <Settings
-        /* B1：菜单「关于」要直接落在「关于」页 —— 用 key 让组件重挂载，初始 tab 生效 */
+        /* B1：菜单「关于」要直接落在「关于」页 —— 用 key 让组件重挂载，初始分组生效 */
         key={settingsTab}
         initialTab={settingsTab}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        vault={vault}
-        apiVersion={kernel?.host.apiVersion}
-        appVersion={kernel?.host.appVersion}
-        platform={kernel?.host.platform}
-        onPickVault={() => void pickVault()}
-        themePref={themePref}
-        onThemeChange={setThemePref}
-        focusMode={focusMode}
-        onFocusModeChange={setFocusMode}
-        renderHtml={renderHtml}
-        onRenderHtmlChange={setRenderHtml}
-        imageMode={imageMode}
-        onImageModeChange={setImageMode}
-        /* B3：设置里不再有插件列表 —— 只给摘要与「打开插件中心」入口 */
-        pluginCount={rows.length}
-        pluginUpdateCount={rows.filter((r) => marketUpdates[r.id]).length}
-        onOpenPluginCenter={() => {
+        {...moreSectionProps}
+        onAction={(id) => {
           setSettingsOpen(false)
-          setMainView('plugins')
+          if (id === 'search') openOverlay('search')
+          else if (id === 'trash') openTrash()
+          else if (id === 'vaults') setVaultPanelOpen(true)
+          else setMainView('plugins')
         }}
-        autoCheckUpdates={autoCheckUpdates}
-        onAutoCheckChange={(on) => {
-          setAutoCheckEnabled(on)
-          setAutoCheckUpdates(on)
-        }}
-        /* J#9（rev173.281）：环形快捷入口的 5 格配置 */
-        quickSlots={quickSlots}
-        quickSlotOptions={quickSlotChoices}
-        onQuickSlotChange={changeQuickSlot}
       />
 
       {/* 移动端的「笔记库」面板：手机没有目录选择器，改用应用内多库 */}

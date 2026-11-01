@@ -125,13 +125,15 @@ export function AppRail({
         </>
       ) : null}
 
-      {/* 底部分组：插件 + 设置（NavigationView 惯例：设置固定在底部） */}
+      {/* 底部分组：插件 + 更多（NavigationView 惯例：固定在底部）。
+          rev173.313：这一页不再只是设置 —— 搜索 / 回收站 / 切换库 / 插件中心都在里面，
+          所以名字跟着用户的话改成「更多」。 */}
       <div className="zn-rail-sep" role="separator" aria-orientation="horizontal" />
       <div className="zn-rail-bottom">
         <RailButton label="插件" active={pluginsOpen} onClick={onTogglePlugins}>
           <Puzzle size={20} />
         </RailButton>
-        <RailButton label="设置" hint="Ctrl+," active={settingsOpen} onClick={onToggleSettings}>
+        <RailButton label="更多" hint="Ctrl+," active={settingsOpen} onClick={onToggleSettings}>
           <Settings size={20} />
         </RailButton>
       </div>

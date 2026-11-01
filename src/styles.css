@@ -3782,6 +3782,22 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
 .zn-more-head {
   padding: var(--zn-space-4) var(--zn-space-4) var(--zn-space-3);
 }
+/* 二级页头部（rev173.313）：返回 + 分组名 + 关闭 一行排开 */
+.zn-more-head-back {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-1);
+  padding: var(--zn-space-2) var(--zn-space-2);
+}
+.zn-more-head-back .zn-more-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+}
+/* 二级页内容：设置各行的左右边距对齐菜单行的 16px */
+.zn-more-body {
+  padding: 0 var(--zn-space-4) var(--zn-space-6);
+}
 .zn-more-title {
   font-size: 20px;
   font-weight: 600;

@@ -25,9 +25,9 @@ function makeProps(over: Partial<Parameters<typeof AppRail>[0]> = {}) {
 }
 
 describe('AppRail 图标栏', () => {
-  it('固定 5 项内核入口都在（笔记 / 搜索 / 时间流 / 插件 / 设置）', () => {
+  it('固定 5 项内核入口都在（笔记 / 搜索 / 时间流 / 插件 / 更多）', () => {
     render(<AppRail {...makeProps()} />)
-    for (const name of ['笔记', '搜索', '时间流', '插件', '设置']) {
+    for (const name of ['笔记', '搜索', '时间流', '插件', '更多']) {
       expect(screen.getByRole('button', { name })).toBeTruthy()
     }
   })
@@ -37,7 +37,7 @@ describe('AppRail 图标栏', () => {
     expect(screen.getByRole('button', { name: '笔记' }).getAttribute('title')).toContain('Ctrl+1')
     expect(screen.getByRole('button', { name: '搜索' }).getAttribute('title')).toContain('Ctrl+2')
     expect(screen.getByRole('button', { name: '时间流' }).getAttribute('title')).toContain('Ctrl+3')
-    expect(screen.getByRole('button', { name: '设置' }).getAttribute('title')).toContain('Ctrl+,')
+    expect(screen.getByRole('button', { name: '更多' }).getAttribute('title')).toContain('Ctrl+,')
   })
 
   it('点三个视图按钮回调携带对应视图', () => {
@@ -62,10 +62,10 @@ describe('AppRail 图标栏', () => {
     expect(screen.getByRole('button', { name: '搜索' }).getAttribute('aria-current')).toBeNull()
   })
 
-  it('插件页 / 设置打开时对应按钮给选中态', () => {
+  it('插件页 / 更多打开时对应按钮给选中态', () => {
     render(<AppRail {...makeProps({ pluginsOpen: true, settingsOpen: true })} />)
     expect(screen.getByRole('button', { name: '插件' }).getAttribute('aria-current')).toBe('page')
-    expect(screen.getByRole('button', { name: '设置' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: '更多' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('插件固定区为空时整块不渲染（零插件不留灰位）', () => {
@@ -88,3 +88,4 @@ describe('AppRail 图标栏', () => {
     expect(onPinClick).toHaveBeenCalledWith('b')
   })
 })
+
