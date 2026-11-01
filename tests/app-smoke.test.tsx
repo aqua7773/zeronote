@@ -181,14 +181,16 @@ describe('App 集成冒烟', () => {
       // ☰ = 抽屉开关（手机起始页不是编辑态）
       fireEvent.click(screen.getByLabelText('切换文件树栏'))
       await settle()
-      expect(document.querySelector('.zn-scrim')).not.toBeNull()
+      expect(document.querySelector('.zn-scrim.is-open')).not.toBeNull()
 
       // 左抽屉头部的「更多」（rev173.308 起；原来是设置齿轮）⇒ 左抽屉收起、右侧更多抽屉出现
       // 必须限定在 `.zn-sidebar` 内：卡片流每张卡片的 ⋯ 也叫「更多」
       const moreBtn = document.querySelector('.zn-sidebar [aria-label="更多"]') as HTMLElement
       fireEvent.click(moreBtn)
       await settle()
-      expect(document.querySelector('.zn-sidebar')).toBeNull()
+      // rev173.323：抽屉改为常驻挂载（DOM 留着、靠 `is-open` 切 transform），所以断言类名而不是卸载
+      expect(document.querySelector('.zn-sidebar.is-open')).toBeNull()
+      expect(document.querySelector('.zn-sidebar')).not.toBeNull()
       expect(document.querySelector('.zn-more-drawer')).not.toBeNull()
 
       // 更多抽屉里的「插件中心」⇒ mainView=plugins，`sidebarAllowed` 变 false

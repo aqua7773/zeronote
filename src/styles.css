@@ -2866,12 +2866,16 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
     width: min(80vw, 300px) !important;
     transform: translateX(-100%);
+    /* rev173.323：抽屉改为**常驻挂载**（`showSidebar = sidebarAllowed`），过渡才播得出来；
+       关闭态整体在屏外，`box-shadow` 挪到 `.is-open` 上 —— 否则阴影会从屏幕左边缘漏 24px 出来。 */
     transition: transform var(--zn-dur-drawer) var(--zn-ease-emph);
-    box-shadow: 0 0 24px rgba(0,0,0,.18);
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  .zn-sidebar.is-open { transform: translateX(0); }
+  .zn-sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 0 0 24px rgba(0,0,0,.18);
+  }
   .zn-resizer { display: none; }
 
   /* 右栏 → 右侧抽屉（它是条件渲染的，出现即打开） */
@@ -2895,6 +2899,20 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   @keyframes zn-scrim-in {
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  /* 左抽屉遮罩（rev173.323）：**常驻 + `is-open` 过渡** —— 与右抽屉「抽屉滑、背景同时渐变」同一节奏。
+     基础 `.zn-scrim` 是条件渲染 + 挂载播 `zn-scrim-in`；左抽屉遮罩改成常驻后不能再用 animation
+     （挂载那一帧就是最终态，animation 也不会播），改用 opacity transition，`is-open` 切换即生效。 */
+  .zn-scrim.is-sidebar {
+    animation: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--zn-dur-drawer) var(--zn-ease-standard);
+  }
+  .zn-scrim.is-sidebar.is-open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动；条件渲染 ⇒ 出现即从右滑入 */

@@ -1,6 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.322（2026-11-02）—— 两侧抽屉动画补齐，统一 340ms**（用户先问「移动端左右侧栏划出时有动画效果吗」，
+> **最新：rev173.323（2026-11-02）—— 左抽屉动画补齐：根因是「条件渲染」**（用户「做侧栏唤出收回都比右侧栏快，右侧栏效果很好」）：
+> 真机 rAF 采样证实**左抽屉原本根本没有动画**（7ms 无 DOM → 54ms 已是 `translateX(0)`，零中间帧）；根因是
+> `showSidebar = sidebarAllowed && (isDesktop || sidebarOpen)` 条件渲染、挂载即带 `is-open` ⇒ `transition` 没有起点。
+> 改法：`showSidebar = sidebarAllowed`（手机也**常驻挂载**，关闭只是 `translateX(-100%)` 挪到屏外，文件树状态顺带保住）；
+> `box-shadow` 挪到 `.is-open`（否则屏外阴影从左缘漏 24px）；左遮罩改 `.zn-scrim.is-sidebar` **常驻 + `is-open` 过渡**。
+> 真机复测：开 34ms -300 → 375ms 0 · 关 0 → 46 → 180 → 239 → 288 → 300 · 遮罩 opacity 0↔1 各 ≈340ms。证据 `_shots/rev323-01..02`。
+>
+> **rev173.322（2026-11-02）—— 两侧抽屉动画补齐，统一 340ms**（用户先问「移动端左右侧栏划出时有动画效果吗」，
 > 答完"右抽屉硬切、遮罩无过渡"后说「补，然后时间拉到340ms」）：新 token `--zn-dur-drawer: 340ms`；
 > **右抽屉补退场**（`moreOpen` 拆成 open + closing，播完 `zn-more-out` 才卸载）· **遮罩淡入淡出** ·
 > 左抽屉 220 → 340ms。真机用页面内 `requestAnimationFrame` 逐帧采样验过（transform 0→301px / opacity 1→0→卸载）。
@@ -42,14 +49,14 @@
 >
 > **rev173.315（2026-11-01）：条目去重** —— 删「设置 → 插件」，插件只留「插件中心」一条并挪进「设置」组；「启动时检查插件更新」搬进插件中心「已安装」tab。条目表现在是 3 组 7 项（笔记 3 · 设置 4 · 插件动态）。
 >
-> 最后更新 **2026-11-01（rev173.312 · **0.9.10 已发版**：**手机左右手势对称** —— 右划开左边文件树、左划开右边「更多」，两边都全屏（去掉 rev173.308 的 64px 右边缘限制），输入状态下不弹「更多」；**设置并进「更多」** —— 抽屉里不再有「设置」中间层，直接铺四行（通用 / 附件 / 插件 / 关于），点哪行落到对应设置页）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-11-02（rev173.323 · 左抽屉动画补齐：根因是条件渲染 —— 常驻挂载 + 遮罩 `is-sidebar` 过渡，真机实测 ≈340ms）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.322 · 0.9.11 · 2026-11-02 |
-| 测试基线 | vitest 1736 · cargo 94 · oxlint 4 warnings（2026-11-01，落后于 rev173.322） |
+| rev / 版本 | rev173.323 · 0.9.11 · 2026-11-02 |
+| 测试基线 | vitest 1756 · cargo 96 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.11 |
 <!-- FACTS:END -->
@@ -75,34 +82,25 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.322 · 2026-11-02）
+> ### 📌 下个会话第一件事（rev173.323 · 2026-11-02）
 >
-> **现象（用户实测，不是需求）**：**左侧栏唤出/收回动画偏快**，和右侧栏不一致；**右侧栏的效果用户认可**。
-> 用户原话：「做侧栏唤出收回都比右侧栏快，右侧栏效果很好，先交接，下个会话做」—— 即"左边更快"是**测出来的问题**，
-> 目标是让左抽屉的手感和右边一致。
->
-> ⚠️ **先复测再改**：当前代码里左右都是 340ms（`--zn-dur-drawer`），真机实测 `.zn-sidebar` 的
-> `transitionDuration` 也读得到 `0.34s` —— 所以"看起来更快"另有原因，候选：
-> 1. **实现机制不同**：左用 `transition`（`transform`），右用 `@keyframes`（`animation`）；同样时长，起手观感会差；
-> 2. **遮罩只在右抽屉时有淡入**（右 340ms 淡入把"整体变暗"的过程拉长了，主观更慢）；
-> 3. 宽度不同：左 `min(80vw,300px)` vs 右 `min(78vw,320px)`，位移距离只差 ~20px，不足以解释。
-> 量法：页面内 `requestAnimationFrame` 采样，分别记录左右 `transform` 帧序列与 `getComputedStyle(...).transitionDuration / animationDuration`，
-> 对比到 100%/200%/300ms 时的位移百分比（⚠️ 别用 `cdp.mjs` 两次调用夹 sleep 测时序 —— 每次起 node 就几百 ms）。
->
-> 改法方向（等复测结果定）：给左抽屉单独一个 token（`--zn-dur-drawer-left`），要么把左调慢到观感与右一致，
-> 要么把右的机制换成同样的 transition；同步 `docs/UI交互规范.md` 的 token 表与 `tests/design-tokens.test.ts` 的 `DURATIONS`。
->
-> **环境现状（交接时刻）**：vite **1420** 在跑（`pnpm dev`，手机 debug 包连它）·
-> **桌面 dev 窗口开着**（`pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`，复用同一个 vite）·
-> 桌面正式版 **0.9.9 已被关掉**（本轮为起 dev），要用就从桌面快捷方式重开 —— 它与 dev 抢单实例，只能开一个。
-> 手机 `24069RA21C`（`33b676f6`）debug 版，CDP `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`。
+> **rev173.322 的「左抽屉偏快」已查清并修好**：根因不是时长，是**条件渲染** —— 挂载那一帧就带 `is-open`，
+> `transition: transform` 没有起点 ⇒ 左抽屉**原本根本没有动画**（真机 rAF：54ms 直接到 `translateX(0)`）。
+> 改法 = 常驻挂载 + 遮罩 `.zn-scrim.is-sidebar` 常驻过渡（细节见文首）。真机复测开/关/遮罩均 ≈340ms。
+> 遗留判断：如果用户**仍**觉得左快右慢，先看遮罩起手曲线（左 = opacity transition、右 = `zn-scrim-in` animation），
+> **别再改时长** —— 已实测两边一致。
 >
 > **仍欠（不阻塞）**：
 > 1. **桌面升 0.9.11** —— `src-tauri\target\release\bundle\nsis\ZeroNote_0.9.11_x64-setup.exe`。
 > 2. **正式包端到端验一次应用内更新**（另一台手机）—— 五道护栏只在 debug 包上编译验证过。
 >    ⚠️ 用户明确：**adb 这台机只跑 dev/debug**，正式包用另一台手机测。
 >
-> ### ✅ 真人测试5 + 后续五轮全修（rev173.317–322 · 2026-11-01/02 · 真机 + 桌面 dev 实测）
+> **环境现状（交接时刻）**：vite **1420** 在跑（`pnpm dev`，手机 debug 包连它）·
+> 手机 `24069RA21C`（`33b676f6`）debug 版，CDP `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`
+> （重开应用 / 换机型后 pid 会变，先 `adb shell "cat /proc/net/unix" | findstr webview_devtools` 再 forward）·
+> 桌面 dev 窗口若已被关：`pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`，它与正式版 0.9.9 抢单实例，只能开一个。
+>
+> ### ✅ 真人测试5 + 后续六轮全修（rev173.317–323 · 2026-11-01/02 · 真机 + 桌面 dev 实测）
 >
 > | rev | 内容 |
 > |---|---|
@@ -112,6 +110,7 @@ pwsh -File scripts\verify.ps1
 > | 320 | 手机拖拽失败根因：长按弹出的菜单遮罩把落点吃掉 ⇒ 拖拽开始即 `setMenu(null)` |
 > | 321 | **手机所有长按改成松手才触发**（文件行 / 卡片 / ＋ / ☰ / 编辑区四键条） |
 > | 322 | 两侧抽屉动画补齐 340ms（右抽屉退场 + 遮罩淡入淡出 + 左抽屉 220→340） |
+> | 323 | **左抽屉动画补齐**：根因 = 条件渲染（挂载即 `is-open`、transition 无起点）⇒ 常驻挂载 + 遮罩 `is-sidebar` 常驻过渡；真机实测开/关/遮罩 ≈340ms |
 >
 > 测试 1741 → **1756**；tsc 0 · oxlint 4 warnings（= 基线）· 质量门 8/8。证据 `_shots/rt5-*.png`。
 

@@ -4573,9 +4573,12 @@ export default function App() {
    * 侧栏 DOM 是否挂载。
    * · 桌面 —— **始终挂载**：收起改成宽度过渡（rev173.267），`collapsed` 时 width 0；
    *   卸载会让宽度动画无从谈起，而且文件树的滚动位置 / 展开状态会跟着丢。
-   * · 手机 —— 抽屉，仍是条件渲染（展开/收起是 transform，见 `.zn-sidebar` 的媒体查询）。
+   * · 手机 —— rev173.323 起**也始终挂载**（`sidebarAllowed` 时）：抽屉靠 `.is-open` 切 transform，
+   *   条件渲染会在挂载那一帧就带 `is-open` ⇒ `transition` 没有起点、**动画永远不播**
+   *   （用户实测「左侧栏唤出收回比右侧栏快」，rAF 采样：54ms 时已是 translateX(0)）。
+   *   常驻后关闭只是 translateX(-100%) 挪到屏外，滚动位置与展开状态也一起保住了。
    */
-  const showSidebar = sidebarAllowed && (isDesktop || sidebarOpen)
+  const showSidebar = sidebarAllowed
   /** 桌面收起态：宽度滑到 0、去边框、`inert` 挡住 Tab 与点击 */
   const sidebarCollapsed = isDesktop && !sidebarVisible
 
@@ -5800,9 +5803,15 @@ export default function App() {
         * 现场：手机上先拉开文件树抽屉、再从设置里点「打开插件中心」⇒ 主区切到插件中心，
         * `sidebarAllowed` 变 false、抽屉 DOM 卸载，但这里只看 `sidebarOpen` ⇒ **遮罩留在屏幕上**，
         * 整页变暗、点什么都没反应（用户截图 161613）。
+        *
+        * rev173.323：遮罩也改成**常驻 + `is-open`**（`is-sidebar` 变体）—— 与右抽屉同一份视觉节奏：
+        * 抽屉是 transition、遮罩也跟着 opacity 过渡，关闭时不再「抽屉在滑、背景瞬间变亮」。
         */}
-      {sidebarOpen && sidebarAllowed && (
-        <div className="zn-scrim" onClick={() => setSidebarOpen(false)} />
+      {sidebarAllowed && (
+        <div
+          className={`zn-scrim is-sidebar${sidebarOpen ? ' is-open' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       {/* 左上角菜单栏（记事本式 ☰，点击位置就地弹出） */}
