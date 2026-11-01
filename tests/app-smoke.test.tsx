@@ -200,6 +200,8 @@ describe('App 集成冒烟', () => {
       await settle()
 
       expect(document.querySelector('.zn-swap')?.getAttribute('data-main')).toBe('plugins')
+      // rev173.322：抽屉关闭要先播 340ms 退场动画，到点才卸载 —— 等它跑完再断言
+      await new Promise((resolve) => setTimeout(resolve, 400))
       expect(document.querySelector('.zn-scrim')).toBeNull()
       expect(document.querySelector('.zn-more-drawer')).toBeNull()
     } finally {

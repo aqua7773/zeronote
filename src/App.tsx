@@ -221,6 +221,13 @@ const AUTOSAVE_MS = 800
  */
 const DOC_CHANGE_DEBOUNCE_MS = 200
 
+/**
+ * 抽屉进出场时长（rev173.322 · 用户 2026-11-02 定 **340ms**）。
+ * 与 `styles.css` 的 `--zn-dur-drawer` 同值 —— 退场动画靠这个值决定"什么时候真正卸载"，
+ * 两边不一致就会出现"动画播完还多停一拍"或"还没播完就被卸掉"。
+ */
+const DRAWER_MS = 340
+
 export default function App() {
   /* ── 库与文档 ── */
   // 库路径优先级：URL 参数 `?vault=<绝对路径>`（开发/快捷方式用） > 上次记住的
@@ -698,7 +705,36 @@ export default function App() {
    */
   const [mobilePage, setMobilePage] = useState<'home' | 'search'>('home')
   /** 右侧「更多」抽屉（rev173.308）：右边缘左滑 / 左侧抽屉头部的「更多」按钮打开 */
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [moreOpen, setMoreOpenRaw] = useState(false)
+  /**
+   * **关闭时的退场动画**（rev173.322 · 用户「补，然后时间拉到340ms」）。
+   *
+   * 抽屉是条件渲染的，直接置 false 会**瞬间消失**（对比左抽屉有 220ms 的 transform 过渡，
+   * 右边一直是硬切）。这里拆成两步：先 `moreClosing = true` 播 340ms 退场，到点才真正卸载。
+   * `setMoreOpen` 这个名字保留给调用点用（16 处），内部换成"带动画"的版本。
+   */
+  const [moreClosing, setMoreClosing] = useState(false)
+  const moreCloseTimer = useRef<number | null>(null)
+  const setMoreOpen = (next: boolean) => {
+    if (next) {
+      // 打开：取消还没跑完的退场，立刻上屏
+      if (moreCloseTimer.current !== null) {
+        window.clearTimeout(moreCloseTimer.current)
+        moreCloseTimer.current = null
+      }
+      setMoreClosing(false)
+      setMoreOpenRaw(true)
+      return
+    }
+    // 关闭：先播退场，到点再卸载（重复调用只算一次）
+    setMoreClosing(true)
+    if (moreCloseTimer.current !== null) return
+    moreCloseTimer.current = window.setTimeout(() => {
+      moreCloseTimer.current = null
+      setMoreClosing(false)
+      setMoreOpenRaw(false)
+    }, DRAWER_MS)
+  }
   /**
    * 右侧「更多」抽屉当前停在**哪一屏**（rev173.313）：`menu` = 条目表，
    * 其余 = 某一组设置（单栏钻入）。受控放在这里是因为返回键要先「回菜单」再「关抽屉」。
@@ -5729,14 +5765,19 @@ export default function App() {
         * 或左侧文件树抽屉头部的「更多」按钮（那里原来放的是设置齿轮，而设置本来就在这一页里）。
         * 遮罩与抽屉本体同源（同 rev173.277 的教训），点遮罩关闭。
         */}
-      {moreOpen ? (
+      {moreOpen || moreClosing ? (
         <>
-          <div className="zn-scrim" onClick={() => setMoreOpen(false)} />
+          {/* 遮罩跟着抽屉一起淡出（`is-closing`），否则抽屉还在滑、背景已经瞬间变亮 */}
+          <div
+            className={`zn-scrim${moreClosing ? ' is-closing' : ''}`}
+            onClick={() => setMoreOpen(false)}
+          />
           <MobileMoreDrawer
             {...moreSectionProps}
             noteCount={notes.length}
             view={moreTab}
             onViewChange={setMoreTab}
+            closing={moreClosing}
             onClose={() => setMoreOpen(false)}
             onAction={(id) => {
               setMoreOpen(false)

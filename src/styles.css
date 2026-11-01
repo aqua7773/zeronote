@@ -106,6 +106,10 @@
      又明显短于 panel（220 是侧栏 / 抽屉那种大幅面位移）。 */
   --zn-dur-overlay: 140ms;
   --zn-dur-titlebar: 200ms;
+  /* 两侧抽屉的进出场（rev173.322 · 用户 2026-11-02 定 340ms）：
+     左抽屉靠 transform 过渡、右抽屉靠 in/out 两段 keyframes，遮罩跟着一起淡。
+     比 panel 慢一档是有意的 —— 整屏宽度的位移，快了会像"闪一下"。 */
+  --zn-dur-drawer: 340ms;
   --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --zn-ease-decel: cubic-bezier(0, 0, 0, 1);
   --zn-ease-accel: cubic-bezier(0.3, 0, 1, 1);
@@ -2862,7 +2866,7 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
     width: min(80vw, 300px) !important;
     transform: translateX(-100%);
-    transition: transform var(--zn-dur-panel) var(--zn-ease-emph);
+    transition: transform var(--zn-dur-drawer) var(--zn-ease-emph);
     box-shadow: 0 0 24px rgba(0,0,0,.18);
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -2880,6 +2884,17 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   .zn-scrim {
     display: block; position: fixed; inset: 0; z-index: 50;
     background: rgba(0,0,0,.28);
+    /* 遮罩跟着抽屉淡入淡出（rev173.322）：进场用 animation，退场由 `is-closing` 的 transition 负责 */
+    animation: zn-scrim-in var(--zn-dur-drawer) var(--zn-ease-standard);
+    transition: opacity var(--zn-dur-drawer) var(--zn-ease-standard);
+  }
+  .zn-scrim.is-closing {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @keyframes zn-scrim-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动；条件渲染 ⇒ 出现即从右滑入 */
@@ -2893,10 +2908,20 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     border-left: 1px solid var(--zn-border);
     box-shadow: 0 0 24px rgba(0,0,0,.18);
     overflow-y: auto;
-    animation: zn-more-in var(--zn-dur-panel) var(--zn-ease-emph);
+    animation: zn-more-in var(--zn-dur-drawer) var(--zn-ease-emph);
   }
   @keyframes zn-more-in {
     from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  /* 退场（rev173.322）：宿主先置 `is-closing` 播完再卸载，否则条件渲染一关就是硬切 */
+  .zn-more-drawer.is-closing {
+    animation: zn-more-out var(--zn-dur-drawer) var(--zn-ease-emph) forwards;
+    pointer-events: none;
+  }
+  @keyframes zn-more-out {
+    from { transform: translateX(0); }
+    to { transform: translateX(100%); }
   }
 
   /* 顶栏压缩，把宽度让给路径与按钮 */

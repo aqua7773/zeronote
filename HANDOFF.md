@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.321
-更新时间: 2026-11-02 · 最新 rev173.321（**手机所有长按改成松手才触发** —— 文件行菜单 / 卡片菜单 / ＋ 环形入口 / ☰ 主菜单 / 编辑区四键条，按住期间界面保持干净）
+revision: 173.322
+更新时间: 2026-11-02 · 最新 rev173.322（**两侧抽屉动画补齐 340ms** —— 右抽屉补退场、遮罩补淡入淡出、左抽屉同步 340ms）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.321
 
 | rev | 内容 |
 |---|---|
+| rev173.322 | 2026-11-02 · **两侧抽屉动画补齐：340ms**（用户「移动端左右侧栏划出时有动画效果吗」→「补，然后时间拉到340ms」）：原来左抽屉有 `transform` 过渡（220ms）、**右「更多」抽屉只有进场动画、关闭瞬间消失**（条件渲染直接卸载）、**遮罩两边都没有过渡**。现在：① 新增 token `--zn-dur-drawer: 340ms`（左右抽屉 + 遮罩统一 → 时长同 `App` 的 `DRAWER_MS`）；② **右抽屉退场** —— `moreOpen` 拆成 `moreOpen` + `moreClosing`，关闭时先置 closing 播 `zn-more-out` 340ms，到点才真正卸载（`setMoreOpen` 这个名字保留给 16 处调用点，内部换成"带动画"版）；③ **遮罩淡入淡出** —— 进场 `zn-scrim-in` 340ms，退场靠 `.is-closing` 的 `opacity` transition；④ 左抽屉时长 220 → 340ms。**真机逐帧采样验证**（页面内 `requestAnimationFrame` 记录）：右抽屉 `is-closing` + `zn-more-out`，transform 从 0 逐帧推到 301px（320px 宽）后卸载；遮罩 opacity `1.00 → 0.93 → 0.51 → 0.29 → 0.16 → 0.09 → 0.04 → 0.01 → gone`（≈357ms）；左抽屉 `transitionDuration = 0.34s`。⚠️ 采样必须**在页面里做**（`rAF` 循环存数组）—— 用 CDP 往返读会因 node 启动开销（~500ms/次）误判成"立刻消失"。 |
 | rev173.321 | 2026-11-02 · **手机上所有长按改成「松手才触发」**（用户：「移动端菜单改成长按时不弹，在长按释放的时候弹菜单」+「普通长按也是释放弹」）：五个长按入口统一成**按住期间什么都不弹、抬起才出结果** —— ① 文件树行 → 行的右键菜单（`.zn-tree-item` 的 `onContextMenu` 在 Android 上只 `preventDefault`，弹菜单改由触摸通道 `touchend` 判：按住 ≥500ms 且位移 <8px）；② 时间流卡片 → 卡片菜单（同口径，另加 `suppressClick` 吃掉松手补发的 click，否则会顺手打开笔记）；③ **＋** → 环形快捷入口（定时器到点只"上膛"，`pointerup` 才开）；④ **☰** → 主菜单（同样上膛 + `pointerup` 才弹）；⑤ 编辑正文 → 横向四键条（App 的 `onContextMenuCapture` 只挡系统菜单，`touchend` 里按住 ≥500ms 且未移动才 `setMobileEditBar`）。**真机逐条验过**（`input motionevent` DOWN → 800ms 查无菜单 → UP 查菜单出现）：文件行 ✓ / 卡片 ✓ / ＋ ✓（overlay 从 0 变 1）/ ☰ ✓ / 正文四键条 ✓；**拖拽回归** ✓（按住再移动仍能拖进 `归档/`，全程不弹菜单）。 |
 | rev173.320 | 2026-11-02 · **手机拖拽失败的真正原因：长按弹出的菜单遮住了落点**（用户：「手机拖拽放入文件夹失败」）：CDP 探针在真实触摸序列上抓到三件事 —— ① `.zn-filetree` 的 `touchstart` 有时收不到（触摸落在菜单遮罩上）；② 每次 `touchmove` 的 `elementFromPoint` 都返回 **`.zn-menu-scrim`**；③ 触摸序列里 `touchstart/move/end` 各一次、没有 cancel。结论：Android 按住 ~500ms 会派发 `contextmenu`，行的菜单连同**全屏遮罩**弹出来；用户「按住再拖」慢半拍就变成"在遮罩上拖" ⇒ 落点永远判不出来。改法：**拖拽一开始就 `setMenu(null)`**（收掉菜单），并且每次落点判定若命中 `.zn-menu-scrim` 就再收一次、本帧不判（setState 异步，遮罩要下一帧才卸载）。三条落点规则（栏内空白 = 库根 / 栏外 = 不动作 / 目录 = 进目录）**用 `adb shell input motionevent` 的真实触摸序列逐条验过**。 |
 | rev173.319 | 2026-11-01 · **拖拽落点：栏内空白 = 库根，栏外 = 不动作**（用户：「再加一个，拖到文件树栏空白处，就放根目录，拖出文件树栏外不做动作」）：抽 `resolveDropTarget(x, y, fromPath)` —— 落在**目录行**⇒ 进那个目录；落在**文件树栏内的空白** ⇒ 库根（返回 `''`）；落在**栏外** / 文件行 / 自己或自己的子目录 ⇒ `null`（松手就是取消）。三处配套：① 判定从 `!== null` 改起（`''` 是有效落点，旧代码 `if (!target) return` 会把库根当成"没落点"）；② 目标路径拼接 `target ? \`${target}/${name}\` : name`，否则会出现 `/name`；③ 拖到根时没有具体行可高亮 ⇒ 树容器加 `.is-drop-root`（整栏蓝色描边）。触摸通道（按住 240ms）同口径，因为 effect 只挂一次、拿不到渲染期闭包，内联了一份判定。测试 **1752 → 1756**（`file-tree-drag` 4 条：栏内空白→根 / 目录行→进目录 / 栏外→不动作 / 文件行→不动作）。**桌面 dev 实测**：拖出栏外文件树零变化；拖到栏内空白 ⇒ `归档/新建文件夹/n.md` 变 `n.md`（随后拖回验证目录落点仍正常）。 |
@@ -214,6 +215,31 @@ revision: 173.321
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.322（2026-11-02 · 两侧抽屉动画补齐，统一 340ms）
+
+> 用户先问「移动端左右侧栏划出时有动画效果吗」，答完"左右不对称、右抽屉硬切、遮罩无过渡"后：
+> 「补，然后时间拉到 340ms」。
+
+> **改法**
+> - 新 token `--zn-dur-drawer: 340ms`（左右抽屉 + 遮罩共用）；`App.tsx` 的 `DRAWER_MS = 340` 与它同值 ——
+>   一份决定"动画多久"，一份决定"什么时候真正卸载"，两边不一致就会多停一拍或提前切掉。
+> - **右抽屉退场**：`moreOpen` 拆成 `moreOpen` + `moreClosing`；关闭时先 `moreClosing = true` 播
+>   `zn-more-out`，`DRAWER_MS` 之后才 `setMoreOpenRaw(false)`。`setMoreOpen` 这个名字保留给原来的
+>   16 处调用点（内部换成带动画的版本，调用点一行没改）。
+> - **遮罩**：进场 `zn-scrim-in` 340ms；退场靠 `.zn-scrim.is-closing { opacity: 0 }` 的 transition，
+>   与抽屉同帧卸载。
+> - 左抽屉 `transition` 220 → 340ms。
+
+> **验证（页面内 rAF 采样，不用 CDP 往返读）**
+> - 右抽屉：`class = "zn-more-drawer is-closing"`、`animationName = zn-more-out`，
+>   `transform: matrix(..., 0→1.8→8.6→22.6→104→182→226→255→274→287→296→301)`，340ms 后 `gone`。
+> - 遮罩：`opacity 1.00 → 0.93 → 0.51 → 0.29 → 0.16 → 0.09 → 0.04 → 0.01 → gone`（≈357ms）。
+> - 左抽屉：`transitionDuration = 0.34s`。
+>
+> ⚠️ **测量方法**：一开始用 `cdp.mjs` 两次调用夹一个 `Start-Sleep 150`，读到"150ms 后抽屉已消失"，
+> 差点误判成动画没走 —— 实际每次 `cdp.mjs` 都要起一个 node 进程（几百 ms）。时序类验证必须在**页面里**
+> 用 `requestAnimationFrame` 采样存数组，再一次性读回。
 
 > ## 📌 rev173.321（2026-11-02 · 手机长按统一改成「松手才触发」）
 

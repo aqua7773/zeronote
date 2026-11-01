@@ -48,6 +48,11 @@ export type MobileMoreDrawerProps = SettingsSectionProps & {
   onViewChange: (next: 'menu' | TabId) => void
   /** 插件提供的入口（标签 / 导入导出 / …）—— 只传「当前已启用」的 */
   pluginEntries?: MoreEntry[]
+  /**
+   * 正在播**退场动画**（rev173.322）。宿主先置 true 播 340ms，到点才真正卸载 ——
+   * 否则条件渲染一关就是硬切（对比左抽屉有 transform 过渡）。
+   */
+  closing?: boolean
 }
 
 function Row({
@@ -96,12 +101,13 @@ export function MobileMoreDrawer({
   onViewChange,
   pluginEntries = [],
   vault,
+  closing = false,
   ...sections
 }: MobileMoreDrawerProps) {
   const tabLabel = view === 'menu' ? null : MORE_GROUPS.flatMap((g) => g.items).find((i) => i.kind === 'tab' && i.id === view)?.label
 
   return (
-    <aside className="zn-more-drawer" aria-label="更多">
+    <aside className={`zn-more-drawer${closing ? ' is-closing' : ''}`} aria-label="更多">
       {view === 'menu' ? (
         <>
           <div className="zn-more-head">
