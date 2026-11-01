@@ -708,6 +708,18 @@ export default function App() {
   )
 
   /**
+   * 「从更多抽屉钻进去的整页」标记（rev173.314）。
+   *
+   * 用户 2026-11-01：「右侧栏点搜索进全屏搜索后，返回会回到编辑页，理论上返回应该是回到
+   * 上一个窗口（右侧栏），其他的全屏窗口也是这种情况」。
+   *
+   * 抽屉必须先关掉，整页才能盖住主区；所以要记住「用户是从抽屉进来的」——
+   * 有标记 ⇒ 返回先回抽屉（菜单首屏）；没有 ⇒ 照旧回笔记流。
+   * 用 ref 不用 state：返回键的 effect 每次渲染都重建，不需要它触发重渲染。
+   */
+  const returnToMoreRef = useRef(false)
+
+  /**
    * 打开「更多」页 —— **同一页两种外壳**（rev173.313）。
    *
    * · 手机：右侧抽屉（`MobileMoreDrawer`），落到 `tab`，**不再弹设置浮窗**；
@@ -2860,6 +2872,35 @@ export default function App() {
         return true
       }
       /**
+       * 模态对话框（`ui/dialog.tsx` 的 Dialog 原语）开着 ⇒ 返回键先关它（rev173.314）。
+       *
+       * Dialog 本身只监听 document 的 Escape，**不参与返回键栈**；手机上按返回会直接
+       * 落到「关笔记 / 退页」，看着像「没回上一层」。这里代它收一次返回：
+       * 派发一个 Escape，走与按键盘 Esc 完全相同的关闭路径（对话框自己的 onOpenChange）。
+       */
+      if (document.querySelector('[role="dialog"]')) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        return true
+      }
+      /**
+       * 从「更多」抽屉钻进去的整页（搜索 / 回收站 / 插件中心）：返回**先回抽屉**，
+       * 而不是直接回笔记流（rev173.314 · 用户：「返回应该是回到上一个窗口（右侧栏）」）。
+       *
+       * 已经回到主页时顺手把标记作废 —— 否则下次从别处进搜索，返回会莫名弹抽屉。
+       */
+      if (platform === 'android' && returnToMoreRef.current && !activeRef.current) {
+        if (mobilePage !== 'home' || mainView !== 'editor') {
+          returnToMoreRef.current = false
+          // 抽屉是从主页拉开的 ⇒ 背景也回主页（否则抽屉会盖在搜索页上）
+          setMobilePage('home')
+          setMainView('editor')
+          setMoreTab('menu')
+          setMoreOpen(true)
+          return true
+        }
+        returnToMoreRef.current = false
+      }
+      /**
        * 查找面板开着 ⇒ 返回键先关它（rev173.253）。
        *
        * 起因：把「查找」入口放进手机工具栏后，面板没有自己的层出口 ——
@@ -4503,6 +4544,34 @@ export default function App() {
   }
 
   /**
+   * 回到「更多」抽屉的菜单首屏（rev173.314：从抽屉钻进的整页，返回先到这里）。
+   *
+   * 顺手把页面复位成主页 —— 抽屉是从**主页**拉开的，返回时背景也该是主页，
+   * 否则会看到「抽屉盖在搜索页上」，关掉抽屉又落到搜索页，层级绕成一圈。
+   */
+  const backToMore = () => {
+    returnToMoreRef.current = false
+    setMobilePage('home')
+    setMainView('editor')
+    setMoreTab('menu')
+    setMoreOpen(true)
+  }
+
+  /**
+   * 整页（搜索 / 回收站 / 插件中心）的「返回」（rev173.314）。
+   *
+   * 从「更多」抽屉钻进来的 ⇒ 回抽屉（用户要的「上一个窗口」）；
+   * 从别处进来的（命令面板 / 文件树 / 快捷键）⇒ 照旧回笔记流首页。
+   */
+  const leaveFullPage = () => {
+    if (returnToMoreRef.current) {
+      backToMore()
+      return
+    }
+    switchMobilePage('home')
+  }
+
+  /**
    * 「更多」页里的插件入口（方案 §2.2：标签 / 导入导出，启用才出现）。
    * 按 **pluginId** 找面板而不是写死面板 id —— 插件改名 / 多面板时仍对得上。
    */
@@ -4527,6 +4596,8 @@ export default function App() {
             plugin: true,
             onClick: () => {
               setMoreOpen(false)
+              // rev173.314：从抽屉钻进去的插件面板，返回也先回抽屉
+              returnToMoreRef.current = true
               setMainView(tagPanelEntry.id)
             },
           },
@@ -4541,6 +4612,8 @@ export default function App() {
             plugin: true,
             onClick: () => {
               setMoreOpen(false)
+              // rev173.314：同上，返回先回抽屉
+              returnToMoreRef.current = true
               setMainView(ioPanelEntry.id)
             },
           },
@@ -5305,9 +5378,12 @@ export default function App() {
             onPurge={(id) => void purgeTrashItem(id)}
             onConfirmPurge={(id) => setConfirmPurge(id)}
             onBack={() => {
+              // 手机：从「更多」抽屉进来的回抽屉（rev173.314），否则回笔记流首页
+              if (!isDesktop) {
+                leaveFullPage()
+                return
+              }
               setMainView('editor')
-              // 手机：回收站从右侧「更多」抽屉进来 ⇒ 返回回笔记流首页（rev173.308 底栏已删）
-              if (!isDesktop) setMobilePage('home')
             }}
             fmtSize={fmtSize}
           />
@@ -5533,7 +5609,7 @@ export default function App() {
                 <button
                   type="button"
                   className="zn-mobile-back"
-                  onClick={() => switchMobilePage('home')}
+                  onClick={() => leaveFullPage()}
                   aria-label="返回首页"
                 >
                   ‹ 返回
@@ -5545,7 +5621,7 @@ export default function App() {
                 open
                 /* 手机全屏搜索页不自动聚焦（rev173.270 · 反馈 #8）：一进来就弹软键盘会盖住结果区 */
                 autoFocus={false}
-                onClose={() => switchMobilePage('home')}
+                onClose={() => leaveFullPage()}
                 onOpenNote={(p) => void openNote(p)}
                 index={kernel?.index ?? null}
                 notes={notes}
@@ -5623,6 +5699,9 @@ export default function App() {
             onClose={() => setMoreOpen(false)}
             onAction={(id) => {
               setMoreOpen(false)
+              // rev173.314：记住「是从抽屉钻进去的」—— 返回时先回抽屉而不是笔记流。
+              // 浮层（切换笔记库）也算：关掉它之后应当回到抽屉，见 VaultPanel 的 onOpenChange。
+              returnToMoreRef.current = true
               if (id === 'search') switchMobilePage('search')
               else if (id === 'trash') openTrash()
               else if (id === 'vaults') setVaultPanelOpen(true)
@@ -5842,7 +5921,12 @@ export default function App() {
       {platform === 'android' && (
         <VaultPanel
           open={vaultPanelOpen}
-          onOpenChange={setVaultPanelOpen}
+          onOpenChange={(open) => {
+            setVaultPanelOpen(open)
+            // rev173.314：从「更多」抽屉打开的切库面板，关掉后回抽屉（上一层），
+            // 而不是把用户丢回笔记流。
+            if (!open && returnToMoreRef.current) backToMore()
+          }}
           root={ANDROID_VAULT}
           current={vault ?? ANDROID_VAULT}
           onPick={(p) => void applyVault(p)}
