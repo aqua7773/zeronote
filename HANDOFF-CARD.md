@@ -77,15 +77,20 @@ pwsh -File scripts\verify.ps1
 
 > ### 📌 下个会话第一件事（rev173.322 · 2026-11-02）
 >
-> **左抽屉唤出/收回提速** —— 用户原话：「做侧栏唤出收回都比右侧栏快，右侧栏效果很好，先交接，下个会话做」。
+> **现象（用户实测，不是需求）**：**左侧栏唤出/收回动画偏快**，和右侧栏不一致；**右侧栏的效果用户认可**。
+> 用户原话：「做侧栏唤出收回都比右侧栏快，右侧栏效果很好，先交接，下个会话做」—— 即"左边更快"是**测出来的问题**，
+> 目标是让左抽屉的手感和右边一致。
 >
-> - **右抽屉保持 340ms**（用户认可）。`--zn-dur-drawer: 340ms` 现在被**左右共用**，所以要拆：
->   新增一个左抽屉专用的 token（建议 `--zn-dur-drawer-left: 220ms`，跟 `--zn-dur-panel` 同档），
->   只改 `styles.css` 里 `@media (max-width: 820px)` 的 `.zn-sidebar { transition: transform ... }`，
->   别动 `.zn-more-drawer` / `.zn-scrim`。
-> - 顺手核对：`docs/UI交互规范.md` 的「动效 token」表要加这一档（`tests/design-tokens.test.ts` 的 `DURATIONS` 列表也要加）。
-> - 验法：真机左右各划一次，左应明显更快；用**页面内 `requestAnimationFrame` 采样**读 `transitionDuration` 与 transform 帧
->   （⚠️ 别用 `cdp.mjs` 两次调用夹 sleep 测时序 —— 每次起 node 就几百 ms，会误判）。
+> ⚠️ **先复测再改**：当前代码里左右都是 340ms（`--zn-dur-drawer`），真机实测 `.zn-sidebar` 的
+> `transitionDuration` 也读得到 `0.34s` —— 所以"看起来更快"另有原因，候选：
+> 1. **实现机制不同**：左用 `transition`（`transform`），右用 `@keyframes`（`animation`）；同样时长，起手观感会差；
+> 2. **遮罩只在右抽屉时有淡入**（右 340ms 淡入把"整体变暗"的过程拉长了，主观更慢）；
+> 3. 宽度不同：左 `min(80vw,300px)` vs 右 `min(78vw,320px)`，位移距离只差 ~20px，不足以解释。
+> 量法：页面内 `requestAnimationFrame` 采样，分别记录左右 `transform` 帧序列与 `getComputedStyle(...).transitionDuration / animationDuration`，
+> 对比到 100%/200%/300ms 时的位移百分比（⚠️ 别用 `cdp.mjs` 两次调用夹 sleep 测时序 —— 每次起 node 就几百 ms）。
+>
+> 改法方向（等复测结果定）：给左抽屉单独一个 token（`--zn-dur-drawer-left`），要么把左调慢到观感与右一致，
+> 要么把右的机制换成同样的 transition；同步 `docs/UI交互规范.md` 的 token 表与 `tests/design-tokens.test.ts` 的 `DURATIONS`。
 >
 > **环境现状（交接时刻）**：vite **1420** 在跑（`pnpm dev`，手机 debug 包连它）·
 > **桌面 dev 窗口开着**（`pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`，复用同一个 vite）·

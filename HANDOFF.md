@@ -241,11 +241,10 @@ revision: 173.322
 > 差点误判成动画没走 —— 实际每次 `cdp.mjs` 都要起一个 node 进程（几百 ms）。时序类验证必须在**页面里**
 > 用 `requestAnimationFrame` 采样存数组，再一次性读回。
 
-> **下个会话第一件事（用户 2026-11-02 交接时定）**：**左抽屉唤出/收回要比右抽屉快** ——
-> 「做侧栏唤出收回都比右侧栏快，右侧栏效果很好」。右抽屉保持 340ms；给左抽屉拆一个更短的 token
-> （建议 220ms，与 `--zn-dur-panel` 同档），只改媒体查询里 `.zn-sidebar` 的 `transition`，
-> 别动 `.zn-more-drawer` / `.zn-scrim`；`docs/UI交互规范.md` 的 token 表与 `tests/design-tokens.test.ts`
-> 的 `DURATIONS` 一起同步。
+> **下个会话第一件事（用户 2026-11-02 交接时定）**：**左侧栏唤出/收回动画偏快**是用户**实测出来的现象**（不是需求），
+> 右侧栏的效果用户认可。当前代码里左右都是 340ms（真机读 `.zn-sidebar` 的 `transitionDuration = 0.34s`），
+> 所以"左更快"另有原因 —— 先复测再改：左走 `transition`、右走 `@keyframes`，机制不同，起手观感有差；
+> 遮罩淡入只在右抽屉时明显。量法用页面内 `requestAnimationFrame` 采样对比左右 transform 帧序列。
 
 > ## 📌 rev173.321（2026-11-02 · 手机长按统一改成「松手才触发」）
 
