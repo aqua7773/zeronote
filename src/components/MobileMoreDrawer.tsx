@@ -12,8 +12,9 @@
  * 规则沿用 B2（方案 §4 规则 3）：来源是插件的行，插件未启用时**整行消失**，不留灰位；
  * 每条入口一个可点行，最少 44px 高（触摸目标）。
  */
-import { ChevronRight, Info, Puzzle, Search, Settings, Settings2, Store, Trash2, X } from 'lucide-react'
+import { ChevronRight, HardDrive, Info, Plug, Puzzle, Search, Settings2, Store, Trash2, X } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
+import type { TabId } from './Settings'
 
 export type MoreEntry = {
   key: string
@@ -29,11 +30,17 @@ export type MobileMoreDrawerProps = {
   noteCount: number
   onClose: () => void
   onOpenSearch: () => void
-  onOpenSettings: () => void
+  /**
+   * 打开设置并**落到指定分组**（rev173.312）。
+   *
+   * 2026-11-01 用户：「设置跟更多页面合并，现在更多下面有设置，设置里面又有通用、附件、
+   * 插件、关于」—— 两层结构冗余。现在「更多」本身就是那一页：设置不再单独一行，
+   * 四个分组直接铺在这里，点哪行进哪个 tab。
+   */
+  onOpenSettings: (tab: TabId) => void
   onOpenTrash: () => void
   onOpenVaults: () => void
   onOpenPlugins: () => void
-  onAbout: () => void
   /** 插件提供的入口（标签 / 导入导出 / …）—— 只传「当前已启用」的 */
   pluginEntries?: MoreEntry[]
 }
@@ -68,7 +75,6 @@ export function MobileMoreDrawer({
   onOpenTrash,
   onOpenVaults,
   onOpenPlugins,
-  onAbout,
   pluginEntries = [],
 }: MobileMoreDrawerProps) {
   return (
@@ -106,9 +112,32 @@ export function MobileMoreDrawer({
         </>
       ) : null}
 
-      <div className="zn-more-group-title">其他</div>
-      <Row icon={<Settings size={20} />} label="设置" hint="外观 / 编辑器 / 附件" onClick={onOpenSettings} />
-      <Row icon={<Info size={20} />} label="关于 ZeroNote" onClick={onAbout} />
+      {/* 设置分组（rev173.312）：不再有「设置」中间层，四个 tab 直接铺在这里 */}
+      <div className="zn-more-group-title">设置</div>
+      <Row
+        icon={<Settings2 size={20} />}
+        label="通用"
+        hint="笔记库 / 外观 / 编辑器"
+        onClick={() => onOpenSettings('general')}
+      />
+      <Row
+        icon={<HardDrive size={20} />}
+        label="附件"
+        hint="临时区 / 跨设备搬运"
+        onClick={() => onOpenSettings('assets')}
+      />
+      <Row
+        icon={<Plug size={20} />}
+        label="插件"
+        hint="已安装 / 启动检查更新"
+        onClick={() => onOpenSettings('plugins')}
+      />
+      <Row
+        icon={<Info size={20} />}
+        label="关于"
+        hint="版本 / 应用更新"
+        onClick={() => onOpenSettings('about')}
+      />
     </aside>
   )
 }

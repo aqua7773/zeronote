@@ -20,7 +20,8 @@ import type { ImageInsertMode } from '../kernel/attachment'
  * 这里只留两条：启动检查更新开关 + 「打开插件中心」。设置里不再有插件列表 ——
  * 同一份列表在两个地方各画一次，迟早会漂移。
  */
-type TabId = 'general' | 'assets' | 'plugins' | 'about'
+/** 设置分组 id。**导出**是因为手机「更多」抽屉要按 tab 直达（rev173.312）。 */
+export type TabId = 'general' | 'assets' | 'plugins' | 'about'
 
 const TABS: { id: TabId; label: string; icon: typeof Settings2 }[] = [
   { id: 'general', label: '通用', icon: Settings2 },

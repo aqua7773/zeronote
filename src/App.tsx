@@ -778,34 +778,24 @@ export default function App() {
       const dy = t.clientY - sy
       // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归任何抽屉管（rev173.303）
       const overlay = hasBlockingOverlay()
+      // 输入状态只算一次：左抽屉与「更多」抽屉同一口径（rev170 / rev173.312）
+      const typingNow = isTypingNow()
       /**
-       * 右侧「更多」抽屉（rev173.308）：**屏幕右边缘起手 + 左划**打开、右划关闭。
+       * 右侧「更多」抽屉（rev173.308，rev173.312 去掉边缘限制）：**任意位置左划**打开、右划关闭。
        * 先判它，且打开时只认「关闭」—— 否则抽屉开着时左划会顺着再开左抽屉，两个抽屉叠一起。
        */
       if (moreOpen) {
-        const act = moreSwipeIntent(dx, dy, {
-          startX: sx,
-          viewportWidth: window.innerWidth,
-          open: true,
-          overlay,
-        })
+        const act = moreSwipeIntent(dx, dy, { open: true, overlay })
         if (act === 'close') setMoreOpen(false)
         return
       }
-      if (
-        moreSwipeIntent(dx, dy, {
-          startX: sx,
-          viewportWidth: window.innerWidth,
-          open: false,
-          overlay,
-        }) === 'open'
-      ) {
+      if (moreSwipeIntent(dx, dy, { open: false, typing: typingNow, overlay }) === 'open') {
         setMoreOpen(true)
         return
       }
       const action = swipeIntent(dx, dy, {
         sidebarOpen,
-        typing: isTypingNow(),
+        typing: typingNow,
         overlay,
       })
       if (action === 'open') setSidebarOpen(true)
@@ -5552,8 +5542,10 @@ export default function App() {
             noteCount={notes.length}
             onClose={() => setMoreOpen(false)}
             onOpenSearch={() => switchMobilePage('search')}
-            onOpenSettings={() => {
+            onOpenSettings={(tab) => {
               setMoreOpen(false)
+              // 落到指定分组：`<Settings key={settingsTab}>` 会因 key 变化重挂载，initialTab 生效
+              setSettingsTab(tab)
               openOverlay('settings')
             }}
             onOpenTrash={() => {
@@ -5567,11 +5559,6 @@ export default function App() {
             onOpenPlugins={() => {
               setMoreOpen(false)
               setMainView('plugins')
-            }}
-            onAbout={() => {
-              setMoreOpen(false)
-              setSettingsTab('about')
-              openOverlay('settings')
             }}
             pluginEntries={morePluginEntries}
           />

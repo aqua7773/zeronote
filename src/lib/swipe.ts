@@ -61,36 +61,41 @@ export function isTypingNow(doc: Document = document): boolean {
 }
 
 /**
- * **右侧「更多」抽屉**的手势判定（rev173.308 · 用户 2026-10-31「更多改成右滑出现的右侧栏」）。
+ * **右侧「更多」抽屉**的手势判定（rev173.308，rev173.312 去掉边缘限制）。
  *
- * 与左侧文件树抽屉（`swipeIntent`）互补、互不干扰：
- *  · 左抽屉 —— **任意位置右划**打开（dx > 0），与旧行为完全一致；
- *  · 右抽屉 —— **屏幕右边缘起手 + 左划**打开（dx < 0 且 startX 贴右边）。
- * 两者方向相反、起点不同，同一次滑动不可能同时命中。
+ * 与左侧文件树抽屉（`swipeIntent`）互补、互不干扰 —— **方向决定抽屉**：
+ *  · 右划（dx > 0）⇒ 左边文件树；
+ *  · 左划（dx < 0）⇒ 右边「更多」。
+ * 两者方向相反，同一次滑动不可能同时命中。
  *
- * 打开状态下右划关闭 —— 与左抽屉对称（拉出来的那一侧划回去）。
+ * 打开状态下反向划关闭 —— 拉出来的那一侧划回去。
  * 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）时同左抽屉：不归抽屉管。
  *
- * ⚠️ **边缘宽度 64 不是随便定的**（rev173.308 真机实测 · 24069RA21C · Android 手势导航）：
- * 最初写 32，`adb shell input swipe` 从屏幕最右边 20px 起手时 —— **App 直接被退掉了**，
- * 因为 Android 全面屏手势把「右边缘内滑」判成了**系统返回**，我们的监听根本收不到。
- * 改成距右边缘 64px 起手后同一条 swipe 不再被系统抢（App 存活、logcat 无返回）。
- * 32→64 的代价只是「必须从靠右一点的地方起手」，换来的是这套手势在真机上真的能用。
+ * ⚠️ **rev173.312 用户要求「两边都全屏」**：2026-11-01 手机实测，「右划随处能开左侧栏、
+ * 左划只有贴右边缘那一小片能开右侧栏」两条规则不对称，用着别扭。现在左划也全屏生效。
+ *
+ * 代价与底线：
+ *  · 正文里左划本来可能被当成选字 / 翻页 —— 60px 门槛 + 「横向明显大于纵向」仍在，
+ *    小位移、斜向滑动都不会触发；
+ *  · **输入状态下不打开**（`typing`），与左抽屉同一口径（rev170 用户要求打字时别弹抽屉）。
+ *
+ * 历史：边缘宽度 64px 是 rev173.308 真机实测出来的（32px 时 `input swipe` 从最右 20px
+ * 起手会被 Android 全面屏手势判成系统返回、App 直接退出）。**改成全屏后这条不再适用** ——
+ * 只有当起手点真落在系统手势区时才可能被抢，而那种情况系统本来就会拦。
  */
-export const MORE_DRAWER_EDGE_PX = 64
-
 export type MoreSwipeAction = 'open' | 'close' | null
 
 export function moreSwipeIntent(
   dx: number,
   dy: number,
-  opts: { startX: number; viewportWidth: number; open: boolean; overlay?: boolean },
+  opts: { open: boolean; typing?: boolean; overlay?: boolean },
 ): MoreSwipeAction {
   if (opts.overlay) return null
   if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return null
   if (opts.open) return dx > 0 ? 'close' : null
-  // 未打开：只认右边缘起手的左划（在正文中间左划是选择文字 / 翻页，不该开抽屉）
+  // 未打开：右划归左抽屉，不归它管
   if (dx > 0) return null
-  const fromRightEdge = opts.startX >= opts.viewportWidth - MORE_DRAWER_EDGE_PX
-  return fromRightEdge ? 'open' : null
+  // 输入状态下不打开（与左抽屉同口径）
+  if (opts.typing) return null
+  return 'open'
 }
