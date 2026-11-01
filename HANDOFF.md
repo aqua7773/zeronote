@@ -226,8 +226,11 @@ revision: 173.311
 > | 步 | 结果 |
 > |---|---|
 > | 实测 | 本机无代理：直连 **1.16 MB/s** · ghproxy **270 KB/s** · gh-proxy **144 KB/s**；16 条候选只活这 2 条反代 |
-> | 验证 | tsc 0 · oxlint src **4 warnings（= 基线）** · vitest **1735**（+6）· cargo test --lib **94 passed**（+3）· `live_route_pick` 真网络 5 轮 |
+> | 验证 | tsc 0 · oxlint src **4 warnings（= 基线）** · vitest **1735**（+6）· cargo test --lib **94 passed**（+3）· `live_route_pick` 真网络 5 轮 · `verify.ps1` 质量门 **8/8** |
 > | 版本 | `node scripts/release.mjs 0.9.9`（三处，`Cargo.lock` 跟随） |
+> | 构建 | 桌面 **15.06 MiB exe + 16.98 MiB msi**（各带 `.sig`）；Android 第一次挂在 `E0433`，修完重编 **6m50s** → APK **33.18 MiB / 34,795,259 B** |
+> | 发布 | Release **5 资产**已上传 → https://github.com/aqua7773/zeronote/releases/tag/v0.9.9 ；tag `v0.9.9` → `07006b9` |
+> | 端到端 | 发布后复验：`HEAD 200`（1.39s，`185.199.110.133`）· 1 MB Range **483 KB/s** · `update/android.json` 走 raw **200** |
 
 > **踩到的坑：三条测速算法都被真网络推翻过**
 >
@@ -241,6 +244,11 @@ revision: 173.311
 > 另有：五轮 live 里 `ghproxy.net` **两轮直接 `error sending request`**、一轮首包 5.9–6.3 秒 —— 单路客户端在这些时刻就是「全线不可达」。
 
 > ⚠️ **没做**：第四条路 —— 安装包当**仓库文件**发（`raw.githubusercontent.com` 实测 **941 KB/s**，与 `release-assets` 不同域名 = 独立故障域），代价是每版仓库 +50 MB。用户明确「2 先不做」。
+
+> ⚠️ **推送中途断过 3 次**（11:10–11:15，`git push` 报 `Failed to connect to github.com:443 after 21113 ms` / `Recv failure: Connection was reset`），
+> 而同时刻 `api.github.com` 一直通（200 · 0.35s · `20.205.243.168`），本机也没有任何代理在监听（`26561` 未 LISTEN）。
+> 11:18 链路自己恢复，`git push` + `gh release create` 一次成功（65 MB 资产全部上传）。
+> —— **这就是本 rev 在修的那个现象本身**：断的是**特定域名**，不是网络；换 IP / 换域名能躲过去，加机器上「重试 + 多路」才是解法。
 
 > ## 📌 rev173.310（2026-10-31 · 0.9.8 发版：导入导出面板重做 + 分享带图片的 Markdown 文件）
 
