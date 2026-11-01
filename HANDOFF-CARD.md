@@ -1,6 +1,8 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.313（2026-11-01）—— 手机应用内更新下载的 APK 校验不过已修**（同一时刻只许一个下载任务 / 续传核对 `Content-Range` 起点 / 长度严格相等 / 校验失败换路从零重下 / 缓存里「看着下完」的包也复核 sha256）。实测排除：Release digest = 清单 = 本地产物三处一致，手机 `curl` 整包与分段拼接 sha256 均正确 ⇒ 问题在客户端并发写同一个 `.part`。**0.9.11 已发布**（Release `v0.9.11` · 5 资产 · APK sha256 `acf2ecf7…`）；用户手上的 0.9.9 / 0.9.10 更新页仍可能报同样的校验失败（旧代码），手动下一次 0.9.11 之后就好了。
+> **最新：rev173.316（2026-11-01）—— 真机 HMR 连不上已修**：`vite.config.ts` 只注入了 `hmr.host`、没注 `port` —— 手机页面 origin 是 `http://tauri.localhost/`（**无端口**），vite 客户端据此拼出 `ws://<ip>:/`，HMR 永远连不上（服务端照样打印 `[vite] (client) hmr update`，极易误判成「推了没生效」）。现在 `{ host: hmrHost, port }` 一起钉死；用 CDP 逐次读计算样式验证：改 CSS 1–3 秒后生效、删掉后恢复。**手机 dev server 用 `pnpm dev`（只起 vite）**，别用 `dev.ps1`（它会起桌面 tauri，被桌面上跑着的 0.9.9 单实例踢掉、连带把 vite 也结束）。
+>
+> **rev173.313（2026-11-01）—— 手机应用内更新下载的 APK 校验不过已修**（同一时刻只许一个下载任务 / 续传核对 `Content-Range` 起点 / 长度严格相等 / 校验失败换路从零重下 / 缓存里「看着下完」的包也复核 sha256）。实测排除：Release digest = 清单 = 本地产物三处一致，手机 `curl` 整包与分段拼接 sha256 均正确 ⇒ 问题在客户端并发写同一个 `.part`。**0.9.11 已发布**（Release `v0.9.11` · 5 资产 · APK sha256 `acf2ecf7…`）；用户手上的 0.9.9 / 0.9.10 更新页仍可能报同样的校验失败（旧代码），手动下一次 0.9.11 之后就好了。
 >
 > **同版还有：「更多」页一页两壳**（rev173.313）—— 桌面浮窗（`Settings`）/ 手机右侧栏（`MobileMoreDrawer`）共用同一份内容（`SettingsSections`）与同一张 8 项条目表（`components/more-items.ts`：搜索 / 回收站 / 切换库 / 插件中心 + 通用 / 附件 / 插件 / 关于）。手机点设置分组**在栏内钻入**（单栏 + 返回），不再弹设置浮窗；`Ctrl+,` / ☰ / 环形入口 / 缺图提示全部走 `openMore()`；名字统一改「更多」。测试：`mobile-more-drawer` 重写 8 条 · `app-rail` 改标签。
 >
@@ -14,7 +16,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.311 · 0.9.11 · 2026-11-01 |
+| rev / 版本 | rev173.316 · 0.9.11 · 2026-11-01 |
 | 测试基线 | vitest 1736 · cargo 94 · oxlint 4 warnings（2026-11-01） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-11-01 · CHANGELOG 0.9.11 |
@@ -40,6 +42,16 @@ pwsh -File scripts\verify.ps1
 ```
 
 ## 未决 / 下一步
+
+> ### 📌 下个会话第一件事（rev173.316 · 2026-11-01）
+>
+> 1. **手机上验一次热重载** —— `pnpm dev`（只起 vite，**不要** `dev.ps1`）→ 改一行 `src/` 下的文案 → 手机 1–3 秒后变。
+>    真机 24069RA21C 上装的是 **debug 0.9.11**（22:41 装），dev 模式已确认（页面脚本来自 `/@vite/client`）。
+> 2. **桌面升 0.9.11** —— 跑 `src-tauri\target\release\bundle\nsis\ZeroNote_0.9.11_x64-setup.exe`。
+>    桌面现在还是 **0.9.9**（快捷方式 `C:\Users\AQUA\Desktop\ZeroNote.lnk` → `AppData\Local\ZeroNote\zeronote.exe`）。
+> 3. **正式包上端到端验一次应用内更新**（另一台手机）—— 本轮的五道护栏（并发闸 / Content-Range 起点 / 长度严格 /
+>    失败换路 / 缓存包复核）只在 **debug 包**上编译验证过，**没在正式包上真跑过一次「下载 → 校验 → 安装」**。
+>    ⚠️ 用户明确：**adb 这台机只跑 dev/debug，正式包用另一台手机测**，别往这台装 release。
 
 > ### ✅ 真人测试4 两条已改（rev173.310 · 2026-10-31 · 双端实测通过）
 >

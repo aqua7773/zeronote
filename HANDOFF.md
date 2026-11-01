@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.311
-更新时间: 2026-11-01 · 最新 rev173.311（**应用更新：多策略选路 + 断点续传 + 状态持久化** —— 直连 / 两条反代并发测速，检查时就定最优，安装直接用；`.part` 续传；关面板不再重下 34 MB）
+revision: 173.316
+更新时间: 2026-11-01 · 最新 rev173.316（**真机 HMR 修复** —— `hmr.port` 未注入导致 ws 地址端口为空；本轮还把「更多」页做成一页两壳、条目去重、返回层级修正，并发了 **0.9.11**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,10 @@ revision: 173.311
 
 | rev | 内容 |
 |---|---|
+| rev173.316 | 2026-11-01 · **真机 HMR 连不上 —— 注入 `hmr.port`**（用户「切回热重载」+「debug 能正常用于测试就行，不用一定要求版本一样，反复编译比较费时间」）：① **先纠正一个误判** —— 手机上页面 origin 是 `http://tauri.localhost/`，据此曾判定「加载的是打包资源（build 模式）」；用 CDP 查页面脚本才对上：`/@vite/client` + `/src/main.tsx` 都来自 dev server ⇒ **`tauri.localhost` 是 Tauri Android 的 dev origin，dev 模式一直是好的**。② **真正的病** —— 该 origin **没有端口**，vite 客户端按 `hmrPort \|\| importMetaUrl.port` 拼 ws 地址得到 `ws://192.168.1.3:/`（端口空）⇒ HMR 永远连不上（vite 服务端照样打印 `[vite] (client) hmr update`，极易误判成「推了但没生效」）。`vite.config.ts` 原来只注入 `hmr.host`，现在 `{ host: hmrHost, port }` 一起钉死。③ **验证（CDP 逐次读计算样式）** —— 加探针 `.zn-titlebar{background:red}` → 变红；改绿 / 改蓝 → 逐次生效（**有 1–3 秒延迟**）；删掉探针 → 恢复原色。④ **口径** —— 改 `src/` 下的东西，手机 1–3 秒后变，**不用重编 APK**；dev server 用 `pnpm dev`（只起 vite），不要用 `dev.ps1`（它会起桌面 tauri，被桌面上跑着的 0.9.9 单实例踢掉、连带把 vite 一起结束）。⚠️ `android-dev.cmd` 仍要整编才能装包，但装完就是 dev 模式，之后改前端不再需要它。 |
+| rev173.315 | 2026-11-01 · **「更多」页条目去重：插件只留一条**（用户「更多页面里同时存在笔记-插件中心，和设置-插件，两个同类项目没有合并」，确认「挪到设置组」+「开关搬进插件中心页」）：① 删掉「设置 → 插件」整页（它只是插件中心的摘要 + 一个开关）；② 「插件中心」从「笔记」组挪到「设置」组；③ 唯一独有项「启动时检查插件更新」搬进插件中心「已安装」tab（`PluginPanel` 新增 `autoCheckUpdates` / `onAutoCheckChange`，样式 `.zn-plugins-autocheck`）；④ 条目表收敛为 **3 组 7 项**（`more-items.ts` 的 `MORE_GROUPS`：笔记 3 · 设置 4 · 插件组动态），`SettingsSectionProps` 删掉 `pluginCount` / `pluginUpdateCount` / `onOpenPluginCenter` / `autoCheckUpdates`；⑤ 测试：`settings-plugin-tab.test.tsx` → 改写为 `plugin-center-autocheck.test.tsx`（2 条），`mobile-more-drawer` 改「设置三分组」；tsc 0 · oxlint 4 warnings · vitest 1736。**真机验过**布局与开关。 |
+| rev173.314 | 2026-11-01 · **手机返回键按「上一层」走**（用户「右侧栏点搜索进全屏搜索后，返回会回到编辑页，理论上返回应该是回到上一个窗口（右侧栏），其他的全屏窗口也是这种情况」+「再排查一下其他子级页面的返回逻辑」）：① **`returnToMoreRef`** —— 从「更多」抽屉钻进去的整页/浮层记住来源，返回时**先回抽屉**并**把背景复位主页**（否则会看到「抽屉盖在搜索页上」，关掉抽屉又落回搜索页，层级绕一圈）；覆盖：搜索全屏页 · 回收站 · 插件中心 · 插件面板（标签 / 导入导出）· 切换笔记库浮层（`VaultPanel.onOpenChange` 关掉时回抽屉）。② **模态 Dialog 纳入返回键** —— `ui/dialog.tsx` 只监听 document 的 Escape、不参与返回键栈，手机上按返回会**跳过对话框直接关笔记**；`backRef` 里加一层：检测到 `[role="dialog"]` 就先派发 Escape（与按键盘 Esc 同一条关闭路径）。③ **搜索页的页内「‹ 返回」与回收站 `onBack`** 都改走 `leaveFullPage()`。④ **真机逐条验过**（24069RA21C debug）：搜索 / 回收站 / 插件中心 → 返回都在抽屉上、背景是主页；切库面板按系统返回键关闭后回抽屉；头部「‹」回菜单、系统返回先回菜单再关抽屉。⑤ 测试：vitest 1737 全绿（`mobile-more-drawer` 8 条）。 |
+| rev173.313 | 2026-11-01 · **手机更新下载的 APK 校验不过（真机）＋「更多」页一页两壳 ＋ 发版 0.9.11**（用户发来截图「APK 校验失败：清单记 sha256=b8d999c7…，实际 86a97f4f… —— 已删除，不安装」并称之为「签名冲突」）：① **逐项排除**（实测）—— Release 资产 `digest = b8d999c7…`、清单同值、本地产物同值；手机同一网络 `curl` 整包 sha256 正确；手机 `curl` 分两段（0–10 MB + 10 MB–）拼接也正确 ⇒ 服务端 / 反代 / Range 协议都没问题；keystore 10-30 创建、0.9.9 与 0.9.10 同用它 ⇒ **不是签名冲突**。② **主因** —— `download_android_update` 是 async 命令，**关掉设置面板不会取消它**（Channel 发不出去只是被忽略），重开面板 effect 再发一次 ⇒ 两个任务各持一个「已下载字节数」同时 append 同一个 `.part`，长度的账还大体对得上、内容已经错位。③ **五道护栏**（`updates.rs`）—— 并发闸 `APK_DOWNLOAD_GATE`（`try_apk_download_gate()`，抢不到直接报「上一次还没结束」）；续传核对 `Content-Range` 起点（`content_range_start()`，不等于本地字节数就删半成品重来）；长度**严格相等**（原来只判「少于」）；校验失败**不再判死** —— 删半成品换下一条候选从零重下，全试完才报错；**缓存里「看着下完」的包也复核 sha256**（`sha256_file_hex`，原来只比大小 —— 坏包直接进安装器，用户看到的就是「签名冲突 / 应用未安装」）。④ **「更多」页一页两壳** —— 内容一份 `SettingsSections`、条目一份 `components/more-items.ts`；桌面 `Settings` 浮窗、手机 `MobileMoreDrawer` 右侧栏（**单栏钻入**：点设置分组在栏里展开 + 顶部返回，不再弹第二个浮窗）；`openMore()` 统一入口（`Ctrl+,` / ☰ / 环形快捷 / 缺图提示）；返回键先回菜单再关抽屉；名字统一「更多」。⑤ **发版 0.9.11** —— `release.mjs 0.9.11` → 桌面（setup.exe 15.79 MB + msi 17.81 MB，各带 `.sig`）→ Android（APK 34.80 MB，sha256 `acf2ecf7…`）→ `gen-update-manifest` → commit `ba07803` → tag `v0.9.11` → `gh release create`（5 资产，digest 与清单核对一致）。⑥ **验证** —— cargo test --lib **96**（+2 单测）· vitest **1737** · tsc 0 · oxlint 4 warnings · 真机逐项截图。 |
 | rev173.312 | 2026-11-01 · **手机手势对称 + 设置并进「更多」**（用户：「移动端现在右划唤出左侧栏和左划唤出右侧栏逻辑不一样，右划是整个首页生效的，左划只在靠近右侧的一小片区域生效，然后设置跟更多页面合并，现在更多下面有设置，设置里面又有通用、附件、插件、关于」）：① **手势按方向分，两边都全屏** —— `moreSwipeIntent` 去掉 `MORE_DRAWER_EDGE_PX`（64px 右边缘限制）与 `startX/viewportWidth` 参数：右划 = 左边文件树、左划 = 右边「更多」，同一次滑动方向互斥；**输入态不打开**「更多」（`typing` 与左抽屉同口径，打字时不弹抽屉）；60px 位移门槛 + 「横向明显大于纵向」保留，挡掉选字 / 翻页。⚠️ 原 64px 是 rev173.308 真机实测的（32px 时起手会被 Android 全面屏手势判成系统返回、App 直接退出）—— 全屏后只有起手点真落在系统手势区才会被抢，那是系统本来就要拦的。② **设置不再单独一层** —— 「更多」抽屉删掉「设置」「关于 ZeroNote」两行，改在「设置」分组下直接铺**四行**（通用 / 附件 / 插件 / 关于），`onOpenSettings(tab: TabId)` 把分组 id 带到 App；`<Settings key={settingsTab} initialTab={settingsTab}>` 靠 key 变化重挂载落到对应 tab（复用 B1 已有的机制，没新增状态机）。`Settings.tsx` 的 `TabId` 从私有改 `export`。③ **测试** —— `swipe.test.ts` 17 条（删「边缘 64px 两条」，加「输入态不开」，其余按方向重写）· `mobile-more-drawer.test.tsx` 7 条（+「四个 tab 各自传对 id」+「设置中间层与重复的关于行已不存在」）；tsc 0 · oxlint src **4 warnings（= 基线）** · vitest **1736**。⚠️ **真机未验**（手势与抽屉高度都要手机上看）；抽屉 `overflow-y: auto` 已有，四行新增后靠它滚动。 |
 | rev173.311 | 2026-11-01 · **应用更新重做：多策略选路 + 断点续传 + 状态持久化**（用户「现有更新渠道在没有代理的情况下几乎不可用；手机下载完没安装就切走，回来要重新检查、重新下载」→ 拍板「做多策略，哪种能用走哪条」「点检查更新就直接测出最优」「B 方案同意，断点续传也做」）：① **实测病根（2026-11-01 本机 `ProxyEnable=0`，16 条候选）** —— 安装包只有 2 条反代活着：`ghproxy.net` **270 KB/s**、`gh-proxy.com` **144 KB/s**；腾讯云那篇「2026 最新收集」里的 7 条（`ghproxy.homeboyc` / `github.akams` / `gh.xxooo` / `gh-proxy.net` / `cf.ghproxy.cc` / `gh.nodeku` / `gh.072103`）**全部不可用**（`github.akams` 是 404，要先选节点子域）。**但直连 GitHub Release 是最快的**：`github.com` 302 → `release-assets.githubusercontent.com`（185.199.109.133）HEAD 200、2 MB 实测 **1.16 MB/s**（比最好的反代快 4.3 倍）。⇒ 真缺陷不是「缺镜像」，是**一条路绑死**：`install_desktop_update` 把渠道改写后的 URL 直接交给官方 updater（失败不降级），检查时也不测路。② **Rust 多策略** —— 新表 `ASSET_ROUTES`（直连 / ghproxy / gh-proxy）**与 5 条清单渠道 `MIRRORS` 解耦**：渠道只决定清单从哪拉，安装包永远三路实测；`asset_routes()` 剥旧反代前缀再拼、非本仓库地址原样一条；`probe_route()` 用 `Range: bytes=0-262143` **流式读够就停**（不能 `bytes()` —— 有的反代无视 Range 回整包）且**速度扣掉 TTFB**；`pick_routes()` 并发测速、**全灭才换直连再测一轮**（系统代理「开着但不可用」）；`UpdateCheck.routes` 带回前端。③ **检查就测好、安装直接下** —— `check_app_update` **只在 hasUpdate 时**测三路（已是最新不测，检查不该变慢）；`install_desktop_update(assetUrl)` / `download_android_update(preferred)` 收前端选的 URL，**给了就不测**；白名单只认候选三条（手改 localStorage 也装不了野包），桌面另有 minisign、Android 另有 sha256。④ **断点续传（Android）** —— 写 `zeronote-<版本>.apk.part`，`sha256` 通过才 `rename` 成正式文件（半成品永不冒充完整包）；有 `.part` 就发 `Range: bytes=<已有>-`，**206 追加 / 200 从头**；续传时 hasher 先把已落盘部分读完再算；**换路也接着续**（直连断 → ghproxy 从断点继续）。⑤ **状态持久化（B）** —— `localStorage['zn-app-update-last-result']` 存上次 check（关面板再开不必重拉清单）；新命令 **`find_apk_cache(version)`** 返回 `{path, size, partial}` ⇒ 下完的直接进「安装」、下到一半的显示「已下载 x%，点一下从断点续」。⑥ **UI** —— 「更新渠道」（清单，5 条）下新增 **「下载通道」**（自动最快 / 手选某条，每条显示实测速度，存 `zn-app-update-route`）；`probe_update_mirror` 桌面**不再 HEAD 安装包** —— jsDelivr 本来就不镜像 Release 附件，那条 HEAD 必然红，把好好的清单渠道显示成「安装包不可达」，正是这轮截图的误导源。⑦ **验证** —— tsc 0 · **oxlint src 4 warnings（= 基线）** · **vitest 1735**（121 文件，+6：结果持久化 4 + `fmtSpeed` 2）· **cargo test --lib updates 6 passed**（+3：三路顺序 / 外部地址原样 / 剥前缀不叠两层）· **`live_route_pick` 真网络跑了 5 轮**（`--ignored` 手动，不进 CI），抓出三个真问题并定稿：**(a)** 64 KB 平均 ⇒ 握手 + TTFB 把 1.16 MB/s 的直连压成 **42 KB/s**（数量级全错）⇒ 改 256 KB 且扣掉 TTFB；**(b)** 试「末段瞬时速度」更糟 —— `ghproxy` 首包 6.3 秒后数据一次性灌入，最后 64 KB 只用几毫秒 ⇒ 算出 **28.6 MB/s**、把直连挤到第三 ⇒ 改回平均 + 20 MB/s 上限；**(c)** 256 KB 样本下直连稳定只有 ~350 KB/s（curl 拉 2 MB 是 1.16 MB/s —— TCP 没爬满 / 小 Range 在 CDN 上被限速）⇒ **最终口径：可达性判「能不能下」，直连能通就直接用直连，速度只在同类反代之间排序**；**(d)** 五轮里 `ghproxy.net` 两轮直接 `error sending request`、一轮首包 5.9–6.3 秒 —— **多策略的价值当场被验证**（单路客户端在这些时刻就是「全线不可达」）。⑧ **没做 / 没验** —— 真机没装；桌面端到端没真跑一次「检查 → 下载 → 安装」；**第四条路未做**：把安装包当**仓库文件**发（`raw.githubusercontent.com` 实测 **941 KB/s**，与 `release-assets` 不同域名 = 独立故障域），代价是每版仓库 +50 MB（APK 34.6 + exe 15.1），要拍板。 |
 | rev173.310 | 2026-10-31 · **真人测试4 两条：导入导出面板重做 + 分享带图片的 Markdown 文件**（用户转来 `Downloads/真人测试4.md`）：① **#1 根因** —— 面板挂在 `main`，占满主区时**编辑器已经卸载**（契约 §2.2 六种挂载位置表）⇒ 旧面板「导出当前笔记」在手机上**永远显示"没有打开的笔记"**（用户原话）。**改法**：面板三态 **首页（导出笔记… / 分享笔记…）→ 选笔记 → 选格式**；选笔记 = `fs.listNotes()` 过滤 `kind === 'note'`、按 `mtime` 倒序、列表带标题 + 所在目录 + 关键词筛选（`bind: io.filter`，实时过滤）、上限 200 行并提示；选中后一律按 **`path` 现读文件**（与右键菜单同一条路），格式按钮 `payload.path` 带过去。② **#2 分享重做** —— 旧版只发**纯文本**（图片全丢）；现在默认 **Markdown 文件（图片内嵌）**：`embedImagesInMarkdown` → 落 `<库>/.zn/share/<名>.md`（`.zn` 不进树、sync 白名单也不含它）→ 新原生命令 **`share_file`**。另可分享**长图 PNG**（同样先内嵌图片再渲）与纯文本（旧 `share_text` 通道）。③ **原生 `share_file`**（`src-tauri/plugins/tauri-plugin-share`）：Kotlin `shareFile` 用 manifest 已注册的 `androidx.core.content.FileProvider`（authority `${applicationId}.fileprovider`，paths = external-path + cache-path）把路径换成 `content://`，`ACTION_SEND` + `EXTRA_STREAM` + **`ClipData`**（部分接收方只认它）+ `FLAG_GRANT_READ_URI_PERMISSION`；路径不在覆盖范围时兜底复制进 `cacheDir/share/`（不把异常甩给用户）。Rust 加 `share_file` 命令 + `permissions/autogenerated/commands/share_file.toml` + default 权限 `allow-share-file`（autogenerated 的 `reference.md` / `schema.json` 由构建自动更新）。桌面照旧 `desktop-no-share` ⇒ md/txt 复制剪贴板、png「另存为」。④ **顺带修**：长图导出/分享原来直接 `marked.parse(原始 md)` —— 离屏 DOM 里 `![](相对路径)` 按宿主 origin 解析必然 404 ⇒ 图上空白；现在**先内嵌图片**再渲染（`exportActive` 的 png 分支 + `shareNote` 的 png 分支同一口径）。⑤ **测试** —— `tests/import-export.test.ts` **+13**（首页两入口 / 列表 key=path 与目录行 / 空态 / 筛选 / 200 上限 / 分享第一项是 md / 每个按钮都带 path / `shareFileName` 清洗）；tsc 0 · oxlint 4 warnings · cargo 92 · **vitest 1728** · 质量门 8/8。⑥ **桌面 dev 实测**（CDP）：首页 / 选笔记（4 篇）/ 选格式（6 格）截图 `_shots/rev310-01..04`；`probe` 三格式（md 64 字符 / png 50846 B / txt 61 字符）证明**按 path 现读**、不依赖 `doc.active()`；分享 md 落盘 `.zn/share/mt-297.md` 104 B + 剪贴板 fallback 返回 `{copied:true}`。⑦ **真机实测**（24069RA21C · debug 包 22:29:50 重装，Kotlin 改动生效）：面板三态（`rev310-phone-01..04`）· 选笔记只列 note（png 被过滤）· **分享 md 弹系统分享面板，卡片 `test-photo.md` 85.3 KB**（`rev310-phone-05`），文件里 1 张 `data:image` 内嵌（`grep -c` 实测）· **分享长图 PNG 76,676 B 带图**（`rev310-phone-06/07`，修图前是 13 KB 空白图）。⑧ **插件发市** —— `import-export` **0.2.1** 已签名打包（`market/packs/import-export-0.2.1.znp` · 75.9 KB · 整包 sha256 `057a19a4…` · keyId `aqua-2026`）+ `gen-market --write`（索引 14 条）+ `verify-trust` 51/52。⑨ **用户复查追加**：首页要「导出 / 分享 / 导入」**三个按钮竖排等宽**（原来导出+分享挤在一行、只有导入是全宽）⇒ 三个 `button` 直接挂 `stack`（宿主会把 stack 里的按钮拉满宽），测试加一条「都是 stack 直接子节点、没有 row 包着」，双端截图复验（`rev310-09` / `rev310-phone-09`），vitest **1729**，包重打。⚠️ **应用本体没发版**：`share_file` 是新原生命令 ⇒ **正式包 0.9.7 用户装了 0.2.1 也分享不了文件**（会**自动降级为纯文本分享**并提示），要发 0.9.8 才通。 |
@@ -205,6 +209,71 @@ revision: 173.311
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.316（2026-11-01 · 真机 HMR 连不上：注入 `hmr.port`）
+
+> 用户：「切回热重载」+「debug 能正常用于测试就行，不用一定要求版本一样，反复编译比较费时间」。
+
+> **踩到的两个坑**
+>
+> 1. **误判**：手机页面 origin 是 `http://tauri.localhost/`，据此判定「加载的是打包资源」——错。
+>    用 CDP 查页面脚本才看清 `/@vite/client` 与 `/src/main.tsx` 都来自 dev server：
+>    **`tauri.localhost` 是 Tauri Android 的 dev origin**，dev 模式一直是好的。
+> 2. **真病**：该 origin 没有端口，vite 客户端按 `hmrPort || importMetaUrl.port` 拼出
+>    `ws://192.168.1.3:/`（端口空）⇒ HMR 永远连不上。而 vite 服务端**照样**打印
+>    `[vite] (client) hmr update`，所以从日志看像是「推了但没生效」。
+>
+> **改法**：`vite.config.ts` 的 `hmr: hmrHost ? { host: hmrHost, port } : undefined`（原来只有 host）。
+>
+> **验证**（CDP 逐次读 `getComputedStyle`）：加 `.zn-titlebar{background:red}` → 变红；改绿、改蓝 → 逐次生效
+> （**1–3 秒延迟**）；删掉探针 → 恢复原色。
+>
+> ⚠️ **dev server 用 `pnpm dev`（只起 vite）**。`dev.ps1` 会 `pnpm tauri dev` 起桌面窗口，
+> 桌面上 0.9.9 正开着 ⇒ 单实例插件把新进程踢掉、`pnpm tauri dev` 退出，**连带把 vite 一起结束**（本轮踩过）。
+
+> ## 📌 rev173.315（2026-11-01 · 「更多」页条目去重：插件只留一条）
+
+> 用户：「更多页面里同时存在笔记-插件中心，和设置-插件，两个同类项目没有合并」。
+> 问清两件事后动手：合并后放**设置组**、开关**搬进插件中心页**。
+
+> - 删「设置 → 插件」整页；「插件中心」挪到「设置」组；「启动时检查插件更新」进 `PluginPanel`「已安装」tab
+> - 条目表 `more-items.ts` 收敛为 **3 组 7 项**：笔记 3 · 设置 4 · 插件组（动态，零插件时消失）
+> - `SettingsSectionProps` 删 `pluginCount` / `pluginUpdateCount` / `onOpenPluginCenter` / `autoCheckUpdates`
+> - 测试：`settings-plugin-tab` → `plugin-center-autocheck`（2 条）；真机验过布局与开关
+
+> ## 📌 rev173.314（2026-11-01 · 手机返回键按「上一层」走）
+
+> 用户：「右侧栏点搜索进全屏搜索后，返回会回到编辑页，理论上返回应该是回到上一个窗口（右侧栏），
+> 其他的全屏窗口也是这种情况」+「再排查一下其他子级页面的返回逻辑」。
+
+> - **`returnToMoreRef`**：从抽屉钻进去的整页/浮层记住来源，返回先回抽屉，并**把背景复位主页**
+>   （否则「抽屉盖在搜索页上」→ 关抽屉又落回搜索页，层级绕一圈）
+> - 覆盖：搜索 / 回收站 / 插件中心 / 插件面板（标签·导入导出）/ 切库浮层（`VaultPanel.onOpenChange`）
+> - **模态 Dialog 纳入返回键**：`ui/dialog.tsx` 只监听 document Escape、不参与返回键栈，
+>   返回会被跳过直接关笔记 ⇒ `backRef` 里检测 `[role="dialog"]` 先派发 Escape
+> - 真机逐条验过；vitest 1737
+
+> ## 📌 rev173.313（2026-11-01 · APK 下载校验修复 + 「更多」页一页两壳 + 0.9.11 发版）
+
+> 用户发来截图「APK 校验失败：清单记 sha256=b8d999c7…，实际 86a97f4f… —— 已删除，不安装」，称之「签名冲突」。
+
+> **排除**（都实测）：Release 资产 digest = 清单 = 本地产物；手机同网络 `curl` 整包与分段拼接 sha256 都正确；
+> keystore 10-30 创建、0.9.9 / 0.9.10 同用它 ⇒ 不是签名冲突、不是文件坏、不是反代。
+>
+> **主因**：`download_android_update` 是 async 命令，**关设置面板不会取消它**；重开面板再发一次 ⇒
+> 两个任务同时 append 同一个 `.part`，长度对、内容错。
+>
+> **五道护栏**：并发闸 `APK_DOWNLOAD_GATE` / `Content-Range` 起点核对 / 长度严格相等 /
+> 校验失败删半成品换路从零重下 / 缓存里「看着下完」的包也复核 sha256（原来只比大小 ——
+> 坏包直接进安装器，用户看到的就是「签名冲突 / 应用未安装」）。
+>
+> **「更多」页一页两壳**：内容 `SettingsSections`、条目 `more-items.ts`；桌面浮窗 / 手机右侧栏
+> （单栏钻入）；`openMore()` 统一入口；名字统一「更多」。
+>
+> **发版 0.9.11**：release.mjs → 桌面（setup 15.79 MB + msi 17.81 MB，各带 sig）→ Android
+> （APK 34.80 MB，sha256 `acf2ecf7…`）→ 清单 → commit `ba07803` → tag → `gh release create`（5 资产）。
+>
+> **验证**：cargo 96 · vitest 1737 · tsc 0 · oxlint 4 warnings · 真机逐项截图。
 
 > ## 📌 rev173.312（2026-11-01 · 手机手势对称 + 设置并进「更多」）
 
