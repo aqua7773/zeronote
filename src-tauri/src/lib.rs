@@ -4014,7 +4014,9 @@ pub fn run() {
       updates::install_desktop_update,
       updates::download_android_update,
       // rev173.300：更新渠道测速（与插件市场的 probeMirror 同款）
-      updates::probe_update_mirror
+      updates::probe_update_mirror,
+      // rev173.311：捡回「已下好 / 下到一半」的 APK（关掉设置面板后前端状态会丢）
+      updates::find_apk_cache
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

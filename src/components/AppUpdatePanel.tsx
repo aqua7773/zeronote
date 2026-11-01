@@ -11,25 +11,30 @@
  *    没授权时系统**不弹窗也不报错**，用户会以为点了没反应。
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Download, Loader2, RefreshCw, ShieldAlert } from 'lucide-react'
 import {
   UPDATE_MIRRORS,
   canInstallApk,
   checkAppUpdate,
   downloadAndroidUpdate,
+  findApkCache,
+  fmtSpeed,
   installApk,
   installDesktopUpdate,
   isAndroidApp,
   isAppAutoCheckEnabled,
   lastCheckedAt,
+  loadLastCheck,
   loadUpdateMirror,
   markChecked,
   openInstallSettings,
   probeUpdateMirror,
+  saveLastCheck,
   saveUpdateMirror,
   setAppAutoCheckEnabled,
   type PathProbe,
+  type RouteProbe,
   type UpdateCheck,
   type UpdateMirror,
 } from '../kernel/app-update'
@@ -59,8 +64,13 @@ function fmtTime(ms: number): string {
 
 export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const android = isAndroidApp()
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [check, setCheck] = useState<UpdateCheck | null>(null)
+  /* rev173.311：先把上次的检查结果铺上 —— 关掉设置面板再打开不必重拉一遍清单，
+   * 也不会把「发现新版本」这一屏白白丢掉。 */
+  const [check, setCheck] = useState<UpdateCheck | null>(() => loadLastCheck())
+  const [phase, setPhase] = useState<Phase>(() => {
+    const c = loadLastCheck()
+    return c?.hasUpdate && c.latest ? 'available' : 'idle'
+  })
   const [error, setError] = useState<string>('')
   const [downloaded, setDownloaded] = useState(0)
   const [total, setTotal] = useState<number | null>(null)
@@ -73,8 +83,30 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const [probes, setProbes] = useState<PathProbe[] | null>(null)
   const [probing, setProbing] = useState(false)
 
+  /* ── 安装包路径（rev173.311）──
+   * 「检查更新」时就把直连 / 两条反代都实测一遍，结果存在 `check.routes` 里。
+   * 这里只负责显示与「用户想手动指定走哪条」；默认跟最快的走。 */
+  const [routes, setRoutes] = useState<RouteProbe[]>(() => loadLastCheck()?.routes ?? [])
+  const [routeId, setRouteId] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem('zn-app-update-route') ?? ''
+    } catch {
+      return ''
+    }
+  })
+  /** 断点续传：上次下到一半的字节数（0 = 没有） */
+  const [partial, setPartial] = useState(0)
+
   const latest = check?.latest ?? null
   const current = check?.currentVersion ?? appVersion ?? '—'
+
+  /** 实际要走的下载路径：用户手选优先，否则用实测最快的那条 */
+  const chosenRoute = useMemo(() => {
+    const usable = routes.filter((r) => r.ok)
+    if (usable.length === 0) return null
+    if (routeId) return usable.find((r) => r.id === routeId) ?? usable[0]
+    return usable[0]
+  }, [routes, routeId])
 
   const runCheck = useCallback(async () => {
     setPhase('checking')
@@ -84,6 +116,8 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
       markChecked()
       setLastAt(Date.now())
       setCheck(r)
+      saveLastCheck(r)
+      setRoutes(r.routes ?? [])
       if (r.error) {
         setError(r.error)
         setPhase('error')
@@ -129,21 +163,25 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
 
   const startInstall = useCallback(async () => {
     if (!latest || !check) return
-    setDownloaded(0)
+    // 断点续传：从上次断的地方显示进度，而不是又从 0 开始
+    setDownloaded(partial)
     setTotal(latest.size ?? null)
     setPhase('downloading')
+    // 检查阶段已经测好路了 —— 用户点安装就直接下，不再等一轮测速
+    const target = chosenRoute?.url ?? null
     try {
       if (android) {
-        const path = await downloadAndroidUpdate(latest, (p) => {
+        const path = await downloadAndroidUpdate(latest, target, (p) => {
           setDownloaded(p.downloaded)
           if (p.total) setTotal(p.total)
         })
         setApkPath(path)
+        setPartial(0)
         setCanInstall(await canInstallApk())
         setPhase('downloaded')
       } else {
         setPhase('installing')
-        await installDesktopUpdate(check.mirror, (p) => {
+        await installDesktopUpdate(check.mirror, target, (p) => {
           setDownloaded(p.downloaded)
           if (p.total) setTotal(p.total)
         })
@@ -153,8 +191,14 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     } catch (e) {
       setError(String(e))
       setPhase('error')
+      // 失败后问一下断点落在哪：下次点「继续下载」进度条才从真实位置开始
+      if (android) {
+        void findApkCache(latest.version).then((c) => {
+          if (c.partial > 0) setPartial(c.partial)
+        })
+      }
     }
-  }, [android, check, latest])
+  }, [android, check, latest, partial, chosenRoute])
 
   const doInstallApk = useCallback(async () => {
     try {
@@ -170,6 +214,40 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     if (phase !== 'idle') return
     if (!lastAt) return void runCheck()
   }, [phase, lastAt, runCheck])
+
+  /* rev173.311：面板一打开就问 Rust「这一版下到哪一步了」。
+   *
+   * 两种情况以前都要从头来，现在都能捡回来：
+   *  · 已经下完（关面板前没点安装）⇒ 直接进「安装」，不再重下 34 MB
+   *  · 下到一半（断网 / 切后台）⇒ 记下半成品大小，点下载时从断点续 */
+  useEffect(() => {
+    if (!android) return
+    const v = check?.latest?.version
+    if (!v) return
+    let alive = true
+    void findApkCache(v).then((c) => {
+      if (!alive) return
+      // 大小对不上 = 上次没下完，别拿半包去装（sha256 仍会在 Rust 侧兜底）
+      const want = check?.latest?.size ?? 0
+      if (c.path && (want <= 0 || c.size === want)) {
+        setApkPath(c.path)
+        setPartial(0)
+        // 正在下载/安装的不要被覆盖回去
+        setPhase((p) => (p === 'downloading' || p === 'installing' ? p : 'downloaded'))
+        void canInstallApk().then((ok) => {
+          if (alive) setCanInstall(ok)
+        })
+        return
+      }
+      if (c.partial > 0) {
+        setPartial(c.partial)
+        setDownloaded(c.partial)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [android, check?.latest?.version, check?.latest?.size])
 
   const pct = total && total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null
 
@@ -199,7 +277,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
       case 'available':
         return (
           <button type="button" className={base} onClick={() => void startInstall()}>
-            {android ? '下载安装包' : '下载并安装'}
+            {android ? (partial > 0 ? '继续下载' : '下载安装包') : '下载并安装'}
           </button>
         )
       case 'downloaded':
@@ -244,11 +322,16 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     }
     if (phase === 'available' && latest) {
       const size = fmtSize(latest.size)
+      const pctText =
+        partial > 0 && latest.size
+          ? `已下 ${Math.round((partial / latest.size) * 100)}%，点一下从断点续`
+          : null
       return [
         `发现新版本 ${latest.version}（当前 ${current}）`,
         size ? `安装包 ${size}` : null,
+        pctText,
         latest.pubDate ? `发布于 ${latest.pubDate}` : null,
-        `渠道 ${mirror.label}`,
+        `清单渠道 ${mirror.label}`,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -330,6 +413,44 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
           {probing ? '测速中…' : '测速'}
         </button>
       </div>
+
+      {/* 安装包路径（rev173.311）：检查更新时就实测好了，这里让人看得见、也能手选。
+          清单渠道管「从哪拉清单」，下载通道管「从哪拉安装包」—— 两件事分开。 */}
+      {latest && routes.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          <label htmlFor="zn-app-update-route" className="shrink-0">
+            下载通道
+          </label>
+          <select
+            id="zn-app-update-route"
+            className="rounded-ui-sm border border-border-strong bg-background px-1 py-0.5 text-[11px] text-foreground"
+            value={routeId}
+            onChange={(e) => {
+              const next = e.target.value
+              setRouteId(next)
+              try {
+                window.localStorage.setItem('zn-app-update-route', next)
+              } catch {
+                /* 存不下就只在本次会话生效 */
+              }
+            }}
+            title="检查更新时已经实测过各条路径的速度；默认用最快的那条"
+          >
+            <option value="">自动（最快）</option>
+            {routes.map((r) => (
+              <option key={r.id} value={r.id} disabled={!r.ok}>
+                {r.label}
+                {r.ok ? ` · ${fmtSpeed(r.bps)}` : ' · 不可用'}
+              </option>
+            ))}
+          </select>
+          {chosenRoute ? (
+            <span className="text-[10px] text-emerald-600">走 {chosenRoute.label}</span>
+          ) : (
+            <span className="text-[10px] text-red-500">三条都测不通，下载时会逐条试</span>
+          )}
+        </div>
+      ) : null}
 
       {probes && probes.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">

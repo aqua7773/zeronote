@@ -145,6 +145,11 @@ pub struct UpdateCheck {
   /// 命中的镜像 id（桌面安装时要传回来，保证与检查走同一镜像）
   pub mirror: String,
   pub error: Option<String>,
+  /// 安装包各条路径的**实测速度**（rev173.311，按降序）。
+  ///
+  /// 空 = 没什么可测的：已是最新 / 本平台没发 / 清单拉不到。
+  /// 「检查更新」时顺便测掉，安装就不用再等一轮 —— 用户点「安装」时直接拿 `[0]`。
+  pub routes: Vec<RouteProbe>,
 }
 
 /// 下载进度事件（桌面 updater 与 Android 自下载共用同一条 channel 协议）
@@ -185,7 +190,60 @@ fn mirror(id: &str) -> Option<&'static Mirror> {
 
 /// 已知反代前缀。清单历史上写死过 ghproxy 地址（0.9.2 / 0.9.3 的生成脚本就是这么写的），
 /// 客户端要能把它剥回 GitHub 直链，否则「选了 raw 也还是走 ghproxy」。
-const ASSET_PROXY_PREFIXES: &[&str] = &["https://ghproxy.net/"];
+const ASSET_PROXY_PREFIXES: &[&str] = &["https://ghproxy.net/", "https://gh-proxy.com/"];
+
+/**
+ * **安装包**的可达路径（rev173.311）—— 与 5 条「清单渠道」是两张表。
+ *
+ * 为什么分开：清单是仓库文件，5 条渠道都能镜像；安装包在 Release 附件里，
+ * jsDelivr 拿不到，所以「渠道」对安装包没有意义。用户选的渠道只决定**清单**从哪拉
+ * （`MIRRORS`），安装包永远按这张表逐条试。
+ *
+ * ## 2026-11-01 本机无代理（`ProxyEnable=0`）实测 · 16 条候选
+ *
+ * | 路径 | 结果 | 速度 |
+ * |---|---|---|
+ * | GitHub 直连 → `release-assets.githubusercontent.com` | ✅ | **1.16 MB/s** |
+ * | `ghproxy.net` | ✅ | 270 KB/s |
+ * | `gh-proxy.com` | ✅ | 144 KB/s |
+ * | ghfast / gh.llkk / github.moeyy / ghproxy.homeboyc / gh.nodeku | ❌ 12s 超时 | — |
+ * | ghproxy.cc / gh.xxooo / gh-proxy.net / cf.ghproxy.cc / gh.072103 | ❌ 立即失败 | — |
+ * | ghp.ci / hub.gitmirror / gh.api.99988866 | ❌ 立即失败 | — |
+ * | github.akams.cn | ❌ 404（要先选节点子域，不能直接拼） | — |
+ *
+ * 结论：**直连是最快的一条**（比最好的反代还快 4.3 倍），但它对
+ * `release-assets.githubusercontent.com` 的 DNS 是**间歇性**被污染的 —— 所以
+ * 不是「有墙才用反代」，而是「直连优先、断了自动降级」。这正是这张表 + `pick_routes`
+ * 存在的理由；只配一条路（无论哪条）都会在特定时刻整段不可用。
+ *
+ * 反代只留实测活的 2 条：多加一条死链只会让「逐个试」多等一个超时。
+ */
+#[derive(Debug)]
+struct AssetRoute2 {
+  /// 日志与 UI 里的短名
+  id: &'static str,
+  label: &'static str,
+  /// 空串 = 直连
+  prefix: &'static str,
+}
+
+const ASSET_ROUTES: &[AssetRoute2] = &[
+  AssetRoute2 {
+    id: "direct",
+    label: "GitHub 直连（最快）",
+    prefix: "",
+  },
+  AssetRoute2 {
+    id: "ghproxy",
+    label: "ghproxy.net",
+    prefix: "https://ghproxy.net/",
+  },
+  AssetRoute2 {
+    id: "gh-proxy-com",
+    label: "gh-proxy.com",
+    prefix: "https://gh-proxy.com/",
+  },
+];
 
 /// 把安装包地址规范化成 **GitHub 直链**（剥掉已知反代前缀）
 fn canonical_asset_url(url: &str) -> String {
@@ -216,11 +274,25 @@ fn rewrite_asset_url(mirror_id: &str, url: &str) -> String {
 
 /// 各渠道下的安装包地址（去重，首项 = 清单里的直链）——「手动下载」与逐个试都用它
 fn asset_candidates(url: &str) -> Vec<String> {
-  let mut out = vec![canonical_asset_url(url)];
-  for m in MIRRORS {
-    let u = rewrite_asset_url(m.id, url);
-    if !out.contains(&u) {
-      out.push(u);
+  asset_routes(url).into_iter().map(|(_, u)| u).collect()
+}
+
+/// 安装包的全部可达路径（带 id / label，供测速与日志用）。首项恒为直连。
+fn asset_routes(url: &str) -> Vec<(&'static AssetRoute2, String)> {
+  let canonical = canonical_asset_url(url);
+  // 外部 / 自建源（不是本仓库的 GitHub 地址）：不瞎拼反代，原样一条
+  if !canonical.starts_with("https://github.com/") {
+    return vec![(&ASSET_ROUTES[0], canonical)];
+  }
+  let mut out: Vec<(&'static AssetRoute2, String)> = Vec::new();
+  for r in ASSET_ROUTES {
+    let u = if r.prefix.is_empty() {
+      canonical.clone()
+    } else {
+      format!("{}{canonical}", r.prefix)
+    };
+    if !out.iter().any(|(_, x)| *x == u) {
+      out.push((r, u));
     }
   }
   out
@@ -234,6 +306,167 @@ fn human_size(bytes: u64) -> String {
   } else {
     format!("{} KB", std::cmp::max(1, bytes / 1024))
   }
+}
+
+/* ───── 多策略选路（rev173.311） ───── */
+
+/// 一条可达路径的测速结果（`pick_routes` 的产出，也直接序列化给 UI）
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteProbe {
+  pub id: String,
+  pub label: String,
+  pub url: String,
+  pub ok: bool,
+  pub ms: u64,
+  /// 实测字节/秒（0 = 没测成）
+  pub bps: u64,
+  pub detail: String,
+}
+
+/// 测速拉这么多。
+///
+/// **64 KB 不够**（2026-11-01 live 实测教训）：握手 + TTFB 占了大头，把 2 MB 实测
+/// 1.16 MB/s 的直连压成 42 KB/s、把 144 KB/s 的 gh-proxy 压成 25 KB/s —— 排序虽然没反，
+/// 但数量级全错，靠它「看哪条快」就没意义了。256 KB 在 1 MB/s 下 0.25 秒、
+/// 在 100 KB/s 下 2.5 秒，既能跑出真实带宽又不至于让「检查更新」明显变慢。
+const PROBE_BYTES: usize = 256 * 1024;
+/// 单条路线的测速超时（整条请求：连接 + 读满 `PROBE_BYTES`）
+const ROUTE_TIMEOUT_MS: u64 = 8_000;
+
+/// 测一条路线：Range 拉 64 KB，用**实际耗时**算速度。
+///
+/// ⚠️ 用 `chunk()` 流式读到够数就停，**不能用 `bytes()`** —— 有的反代无视 `Range`
+/// 头、直接回整包（34 MB 的 APK），`bytes()` 会老实等它下完，测速变成真下载。
+async fn probe_route(
+  client: reqwest::Client,
+  r: &'static AssetRoute2,
+  url: String,
+) -> RouteProbe {
+  let started = std::time::Instant::now();
+  let fail = |detail: String| RouteProbe {
+    id: r.id.to_string(),
+    label: r.label.to_string(),
+    url: url.clone(),
+    ok: false,
+    ms: started.elapsed().as_millis() as u64,
+    bps: 0,
+    detail,
+  };
+
+  let mut resp = match client
+    .get(&url)
+    .header(reqwest::header::RANGE, format!("bytes=0-{}", PROBE_BYTES - 1))
+    .send()
+    .await
+  {
+    Ok(r) => r,
+    Err(e) => return fail(short_error(&e.to_string())),
+  };
+  // 响应头到手 = 连接 + 握手 + TTFB 都吃完了；下面这段才是真正的**传输**耗时。
+  // 不把它扣掉，测出来的速度会被握手开销拉低一个数量级（见 PROBE_BYTES 的注释）。
+  let ttfb = started.elapsed();
+  if !resp.status().is_success() {
+    return fail(format!("HTTP {}", resp.status().as_u16()));
+  }
+
+  let mut got = 0usize;
+  loop {
+    match resp.chunk().await {
+      Ok(Some(chunk)) => {
+        got += chunk.len();
+        if got >= PROBE_BYTES {
+          break;
+        }
+      }
+      Ok(None) => break,
+      Err(e) => {
+        // 已经读到一些字节：断在尾巴上不代表这条路不能用，按已读的算速度
+        if got == 0 {
+          return fail(short_error(&e.to_string()));
+        }
+        break;
+      }
+    }
+  }
+  if got == 0 {
+    return fail("0 字节".to_string());
+  }
+
+  // 速度 = 字节 / **扣掉 TTFB 的传输耗时**。
+  //
+  // 试过的两种更「精确」的算法都被实测推翻，别再走回头路：
+  //  · **末段瞬时速度**：ghproxy 首包 6.3 秒后数据一次性灌进来，最后 64 KB 只用了几毫秒
+  //    ⇒ 算出 **28.6 MB/s** 并把直连挤到第三（第三次 live 实测）。
+  //  · **只扣 TTFB 的平均值**：快路被 TCP 慢启动低估（直连 502 KB/s vs curl 2 MB 实测
+  //    1.16 MB/s），但**不会给出荒谬值**，排序靠下面的「直连优先」兜底。
+  //
+  // 结论：测速只用来判「通不通」和「大致量级」，几百 KB 的样本撑不起精确带宽。
+  let elapsed = started.elapsed();
+  let transfer = elapsed.saturating_sub(ttfb).as_secs_f64().max(0.001);
+  // 上限保护：超过 20 MB/s 只可能是缓冲/压缩假象，不是真带宽
+  let bps = ((got as f64 / transfer) as u64).min(20 * 1024 * 1024);
+  RouteProbe {
+    id: r.id.to_string(),
+    label: r.label.to_string(),
+    url,
+    ok: true,
+    ms: elapsed.as_millis() as u64,
+    bps,
+    detail: format!("{}/s · 首包 {}ms", human_size(bps), ttfb.as_millis()),
+  }
+}
+
+/// 并发测一批路线（`direct` = 绕开系统代理）
+async fn probe_all(
+  routes: &[(&'static AssetRoute2, String)],
+  direct: bool,
+) -> Vec<RouteProbe> {
+  let built = if direct {
+    crate::net::http_client_direct(ROUTE_TIMEOUT_MS)
+  } else {
+    crate::net::http_client(ROUTE_TIMEOUT_MS)
+  };
+  let Ok(client) = built else {
+    return Vec::new();
+  };
+  let futs = routes
+    .iter()
+    .map(|(r, u)| probe_route(client.clone(), r, u.clone()));
+  futures::future::join_all(futs).await
+}
+
+/**
+ * 并发测所有可达路径，**按实测速度降序**返回（不可用的沉底，`ok=false`）。
+ *
+ * 两轮：第一轮跟随系统代理；**全部失败**才换直连再测一轮 —— 与 `fetch_json`
+ * 同一套回退（rev173.306）。系统代理「开着但不可用」时（只关了加速器、
+ * 代理进程还在监听）第一轮会全灭，其实直连是通的。
+ *
+ * 调用方约定：`[0]` 就是要走的那条；下载/安装失败时按顺序试 `[1..]`。
+ */
+async fn pick_routes(url: &str) -> Vec<RouteProbe> {
+  let routes = asset_routes(url);
+  let mut out = probe_all(&routes, false).await;
+  if out.iter().all(|r| !r.ok) {
+    out = probe_all(&routes, true).await;
+  }
+  out.sort_by(|a, b| b.bps.cmp(&a.bps));
+
+  // **直连能通就直接用直连**，不比速度；反代之间才按实测速度排。
+  //
+  // 依据（2026-11-01 同一台机的两套实测）：
+  //  · `curl` 拉 **2 MB**：直连 1.16 MB/s、ghproxy.net 270 KB/s、gh-proxy.com 144 KB/s；
+  //  · `probe_route` 拉 **256 KB**：直连常常只有 350 KB/s 上下（TCP 还没爬满、小 Range
+  //    在 CDN 上被限速），于是四轮 live 里直连有三次被排到第二、第三。
+  //
+  // 小样本的绝对值撑不起排序，但「通不通」是可靠的 —— 所以只拿它做可达性判断，
+  // 速度只在**同类**反代之间比较（它们都是同一个转发层，可比）。
+  if let Some(i) = out.iter().position(|r| r.id == "direct" && r.ok) {
+    let d = out.remove(i);
+    out.insert(0, d);
+  }
+  out
 }
 
 /// 三段数字比较：`is_newer("1.10.0", "1.9.0") == true`。
@@ -366,6 +599,7 @@ pub async fn check_app_update(mirror_id: Option<String>) -> Result<UpdateCheck, 
           latest: None,
           mirror: String::new(),
           error: Some(format!("不认识的更新渠道：{id}")),
+          routes: Vec::new(),
         })
       }
     },
@@ -386,6 +620,20 @@ pub async fn check_app_update(mirror_id: Option<String>) -> Result<UpdateCheck, 
           .as_deref()
           .map(|r| is_newer(&current, r))
           .unwrap_or(false);
+        // rev173.311：**有新版才测安装包路径**。已是最新时没人会下载，
+        // 不该为「哪条路快」多花几秒 —— 检查更新不该变慢。
+        let routes = match (has_update, latest.as_ref()) {
+          (true, Some(u)) => pick_routes(&u.url).await,
+          _ => Vec::new(),
+        };
+        for r in &routes {
+          log::info!(
+            "安装包路径：{} {} {}",
+            r.label,
+            if r.ok { "可用" } else { "不可用" },
+            r.detail
+          );
+        }
         return Ok(UpdateCheck {
           current_version: current,
           has_update,
@@ -393,6 +641,7 @@ pub async fn check_app_update(mirror_id: Option<String>) -> Result<UpdateCheck, 
           latest,
           mirror: m.id.to_string(),
           error: None,
+          routes,
         });
       }
       Err(e) => last_err = e,
@@ -406,6 +655,7 @@ pub async fn check_app_update(mirror_id: Option<String>) -> Result<UpdateCheck, 
     latest: None,
     mirror: String::new(),
     error: Some(last_err),
+    routes: Vec::new(),
   })
 }
 
@@ -472,47 +722,26 @@ pub async fn probe_update_mirror(mirror_id: String) -> Result<PathProbe, String>
   let latest = parse_manifest(&parsed);
   let manifest_ms = started.elapsed().as_millis() as u64;
 
+  // rev173.311：桌面不再在这里 HEAD 安装包。
+  //
+  // 原因：jsDelivr / raw 这类渠道**本来就不镜像 Release 附件**，它的安装包地址一定退回
+  // GitHub 直链 —— 于是一条好好的清单渠道会被显示成「安装包不可达」，看着像全线故障。
+  // 安装包现在由 `pick_routes` 单独测（直连 / ghproxy / gh-proxy），结果在
+  // `check_app_update` 的 `routes` 里，「下载通道」那一行显示。
   #[cfg(desktop)]
-  let asset_note = match latest.as_ref() {
-    Some(u) => {
-      let asset_url = rewrite_asset_url(m.id, &u.url);
-      let t = std::time::Instant::now();
-      // 与 fetch_json 同一套回退（rev173.306）：系统代理不可用时换直连再问一次
-      let mut res: Result<reqwest::Response, String> = match crate::net::http_client(8_000) {
-        Ok(c) => c
-          .head(&asset_url)
-          .send()
-          .await
-          .map_err(|e| short_error(&e.to_string())),
-        Err(e) => Err(e),
-      };
-      if res.is_err() && !crate::net::is_local_url(&asset_url) {
-        if let Ok(c) = crate::net::http_client_direct(8_000) {
-          res = c
-            .head(&asset_url)
-            .send()
-            .await
-            .map_err(|e| short_error(&e.to_string()));
-        }
-      }
-      match res {
-        Ok(r) if r.status().is_success() => {
-          let size = r
-            .content_length()
-            .map(human_size)
-            .unwrap_or_else(|| "未知大小".to_string());
-          format!(" · 安装包 {size} {}ms", t.elapsed().as_millis())
-        }
-        Ok(r) => format!(" · 安装包 HTTP {}", r.status().as_u16()),
-        Err(e) => format!(" · 安装包不可达（{e}）"),
-      }
-    }
-    None => " · 本平台无安装包".to_string(),
+  let asset_note = if latest.is_some() {
+    " · 清单可用（安装包走下载通道）".to_string()
+  } else {
+    " · 本平台无安装包".to_string()
   };
   #[cfg(not(desktop))]
   let asset_note = latest
     .as_ref()
-    .map(|u| u.size.map(|s| format!(" · {}", human_size(s))).unwrap_or_default())
+    .map(|u| {
+      u.size
+        .map(|s| format!(" · {}", human_size(s)))
+        .unwrap_or_default()
+    })
     .unwrap_or_else(|| " · 本平台无安装包".to_string());
 
   Ok(PathProbe {
@@ -532,6 +761,9 @@ pub async fn probe_update_mirror(mirror_id: String) -> Result<PathProbe, String>
 pub async fn install_desktop_update(
   app: tauri::AppHandle,
   mirror_id: String,
+  // 检查阶段选好的安装包地址（前端传 `check.routes[0].url`，或用户手选的那条）。
+  // `None` / 不在白名单里 ⇒ 这里自己再测一轮（rev173.311）。
+  asset_url: Option<String>,
   on_event: Channel<Progress>,
 ) -> Result<(), String> {
   #[cfg(desktop)]
@@ -552,15 +784,49 @@ pub async fn install_desktop_update(
       return Err("已经是最新版本".to_string());
     };
 
-    // 安装包按用户选的渠道改写（清单里的 url 可能是 GitHub 直链，也可能带着旧的反代前缀）
-    let rewritten = rewrite_asset_url(&mirror_id, update.download_url.as_str());
-    if rewritten != update.download_url.as_str() {
-      update.download_url = tauri::Url::parse(&rewritten)
-        .map_err(|e| format!("安装包渠道地址不合法（{rewritten}）：{e}"))?;
+    // ① 先按用户选的渠道改写（清单里的 url 可能是 GitHub 直链，也可能带着旧的反代前缀）
+    let by_channel = rewrite_asset_url(&mirror_id, update.download_url.as_str());
+
+    // ② 用「检查更新」时测出来的那条（用户点安装就直接下，不再等一轮测速）；
+    //    没传 / 传了个白名单外的地址 ⇒ 现测一轮兜底。
+    let allowed = asset_candidates(&by_channel);
+    let chosen = asset_url
+      .as_deref()
+      .map(str::trim)
+      .filter(|u| !u.is_empty())
+      .filter(|u| allowed.iter().any(|a| a == u))
+      .map(str::to_string);
+
+    let best = match chosen {
+      Some(u) => {
+        log::info!("按检查阶段选定的路径下载：{u}");
+        u
+      }
+      None => {
+        let picked = pick_routes(&by_channel).await;
+        for p in &picked {
+          log::info!(
+            "更新路径测速：{} {} {}",
+            p.label,
+            if p.ok { "可用" } else { "不可用" },
+            p.detail
+          );
+        }
+        picked
+          .iter()
+          .find(|r| r.ok)
+          .map(|r| r.url.clone())
+          // 一条都测不通（比如只是慢过 6 秒）：保持渠道改写后的地址，照常下载
+          .unwrap_or(by_channel)
+      }
+    };
+    if best != update.download_url.as_str() {
+      update.download_url = tauri::Url::parse(&best)
+        .map_err(|e| format!("安装包地址不合法（{best}）：{e}"))?;
     }
 
     log::info!(
-      "开始下载更新 {} → {}（渠道 {mirror_id} · {}）",
+      "开始下载更新 {} → {}（渠道 {mirror_id} · 走 {}）",
       update.current_version,
       update.version,
       update.download_url
@@ -590,14 +856,35 @@ pub async fn install_desktop_update(
 
   #[cfg(not(desktop))]
   {
-    let _ = (&app, &mirror_id, &on_event);
+    let _ = (&app, &mirror_id, &asset_url, &on_event);
     Err("desktop-only".to_string())
+  }
+}
+
+/// 「完整文件」判定：存在、非空、（已知大小则）大小对得上。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn complete_size(path: &std::path::Path, want: Option<u64>) -> Option<u64> {
+  let meta = std::fs::metadata(path).ok()?;
+  if !meta.is_file() || meta.len() == 0 {
+    return None;
+  }
+  match want {
+    Some(w) if meta.len() != w => None,
+    _ => Some(meta.len()),
   }
 }
 
 /// Android：把 APK 下到缓存目录，顺便算 sha256 并与清单核对。
 ///
 /// 返回落盘路径，交给 `plugin:apk-install|install_apk` 起系统安装器。
+///
+/// ## 断点续传（rev173.311）
+///
+/// 数据先写进 `zeronote-<版本>.apk.part`，sha256 校验通过才改名成正式文件 ——
+/// 所以「半成品」永远不会被当成完整包交给安装器。
+///
+/// **三条路之间还能互相续**：直连下到一半被 RST，换 ghproxy 发 `Range: bytes=<已有>-`
+/// 接着下。34 MB 的包在手机上断一次就要重来，这个代价太高。
 #[tauri::command]
 pub async fn download_android_update(
   app: tauri::AppHandle,
@@ -605,6 +892,11 @@ pub async fn download_android_update(
   mirrors: Vec<String>,
   sha256: Option<String>,
   version: String,
+  // 清单里的整包大小：判断「下完没」「半成品还有没有用」都靠它
+  size: Option<u64>,
+  // 检查阶段选好的路径（前端传 `routes[0].url` 或用户手选的那条）。
+  // 给了就不测速、直接开下；没给才现测一轮。
+  preferred: Option<String>,
   on_event: Channel<Progress>,
 ) -> Result<String, String> {
   #[cfg(target_os = "android")]
@@ -620,15 +912,79 @@ pub async fn download_android_update(
       .join("updates");
     std::fs::create_dir_all(&dir).map_err(|e| format!("建缓存目录失败：{e}"))?;
     // 版本号进文件名：装完新版后旧文件还躺着时，下一次下载不会覆盖正在被安装器读取的那个
-    let path = dir.join(format!("zeronote-{version}.apk"));
+    let final_path = dir.join(format!("zeronote-{version}.apk"));
+    // 半成品单独一个名字 —— 只有校验通过才改名，所以「有正式文件」= 真的下完了
+    let part_path = dir.join(format!("zeronote-{version}.apk.part"));
 
-    let mut candidates = vec![url];
-    candidates.extend(mirrors);
+    // ① 上次已经下完了（「下载完没点安装 → 切走 → 回来」就是这条）：
+    //    别再下一遍 34 MB，直接把路径交回去。
+    if let Some(have) = complete_size(&final_path, size) {
+      log::info!(
+        "APK 已存在，跳过下载：{}（{have} 字节）",
+        final_path.display()
+      );
+      let _ = on_event.send(Progress::Progress {
+        chunk: 0,
+        downloaded: have,
+        total: size,
+      });
+      let _ = on_event.send(Progress::Finished);
+      return Ok(final_path.to_string_lossy().to_string());
+    }
+
+    // ② 排候选。给了 preferred 就直接拿它打头（检查阶段已经测过，安装别再等一轮）；
+    //    没给才现测一圈按实测速度排。
+    let mut candidates: Vec<String> = Vec::new();
+    let preferred = preferred
+      .map(|u| u.trim().to_string())
+      .filter(|u| !u.is_empty());
+    match preferred {
+      Some(u) => {
+        candidates.push(u);
+        for c in std::iter::once(url.clone()).chain(mirrors.iter().cloned()) {
+          if !candidates.contains(&c) {
+            candidates.push(c);
+          }
+        }
+      }
+      None => {
+        let picked = pick_routes(&url).await;
+        for p in &picked {
+          log::info!(
+            "APK 路径测速：{} {} {}",
+            p.label,
+            if p.ok { "可用" } else { "不可用" },
+            p.detail
+          );
+        }
+        candidates.extend(picked.iter().filter(|r| r.ok).map(|r| r.url.clone()));
+        // 清单里的 url / mirrors 可能指向本仓库以外的源（自建反代 / 自建服务器），
+        // 测速拼不出来，也要留在后面兜底
+        for u in std::iter::once(url.clone()).chain(mirrors.iter().cloned()) {
+          if !candidates.contains(&u) {
+            candidates.push(u);
+          }
+        }
+      }
+    }
+
     let client = crate::net::download_client()?;
     let mut last_err = String::new();
 
     for candidate in candidates {
-      let resp = match client.get(&candidate).send().await {
+      // 已经落了多少字节 —— 换路也接着它续
+      let mut have = std::fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0);
+      if have > 0 && size.map(|w| have > w).unwrap_or(false) {
+        // 半成品比整包还大：肯定不对劲，丢掉重来
+        let _ = std::fs::remove_file(&part_path);
+        have = 0;
+      }
+
+      let mut req = client.get(&candidate);
+      if have > 0 {
+        req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
+      }
+      let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => {
           last_err = format!("下载 APK 失败：{candidate} —— {e}");
@@ -636,18 +992,46 @@ pub async fn download_android_update(
         }
       };
       let status = resp.status();
+      // 206 = 服务器认了 Range，接着写；200 = 它不支持续传，只能从头来
+      let resume = have > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
+      if have > 0 && !resume {
+        let _ = std::fs::remove_file(&part_path);
+        have = 0;
+      }
       if !status.is_success() {
         last_err = format!("下载 APK 失败：HTTP {status}（{candidate}）");
         continue;
       }
-      let total = resp.content_length();
+
+      let total = resp.content_length().map(|n| n + have).or(size);
       let mut body = resp;
-      let mut file = match std::fs::File::create(&path) {
+
+      // 续传时 hasher 必须把已落盘的部分也算进去，否则 sha256 必然对不上
+      let mut hasher = Sha256::new();
+      if resume {
+        if let Ok(mut f) = std::fs::File::open(&part_path) {
+          let mut buf = [0u8; 64 * 1024];
+          loop {
+            match std::io::Read::read(&mut f, &mut buf) {
+              Ok(0) | Err(_) => break,
+              Ok(n) => hasher.update(&buf[..n]),
+            }
+          }
+        }
+      }
+
+      let opened = if resume {
+        std::fs::OpenOptions::new().append(true).open(&part_path)
+      } else {
+        std::fs::File::create(&part_path)
+      };
+      let mut file = match opened {
         Ok(f) => f,
         Err(e) => return Err(format!("创建 APK 文件失败：{e}")),
       };
-      let mut hasher = Sha256::new();
-      let mut downloaded: u64 = 0;
+
+      let mut downloaded = have;
+      let mut complete = true;
       loop {
         match body.chunk().await {
           Ok(Some(chunk)) => {
@@ -671,8 +1055,22 @@ pub async fn download_android_update(
           Ok(None) => break,
           Err(e) => {
             last_err = format!("读取 APK 失败：{candidate} —— {e}");
+            complete = false;
             break;
           }
+        }
+      }
+      // 关掉再换路：否则下一条候选读 part 长度时可能还没落盘
+      drop(file);
+
+      if !complete {
+        log::warn!("APK 下到 {downloaded} 字节断了，换下一条路从断点续");
+        continue;
+      }
+      if let Some(want) = size {
+        if downloaded < want {
+          last_err = format!("下载不完整：{downloaded}/{want}（{candidate}）");
+          continue;
         }
       }
       if downloaded == 0 {
@@ -682,16 +1080,20 @@ pub async fn download_android_update(
       if let Some(want) = sha256.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let got = format!("{:x}", hasher.finalize());
         if !got.eq_ignore_ascii_case(want) {
-          let _ = std::fs::remove_file(&path);
+          let _ = std::fs::remove_file(&part_path);
           return Err(format!(
             "APK 校验失败：清单记 sha256={want}，实际 {got} —— 已删除，不安装"
           ));
         }
       }
 
+      // 校验通过才改成正式名字：半成品永不冒充完整包
+      std::fs::rename(&part_path, &final_path)
+        .map_err(|e| format!("APK 落盘改名失败：{e}"))?;
+
       let _ = on_event.send(Progress::Finished);
-      log::info!("APK 已落盘：{} ({downloaded} 字节)", path.display());
-      return Ok(path.to_string_lossy().to_string());
+      log::info!("APK 已落盘：{}（{downloaded} 字节）", final_path.display());
+      return Ok(final_path.to_string_lossy().to_string());
     }
 
     Err(if last_err.is_empty() {
@@ -703,8 +1105,70 @@ pub async fn download_android_update(
 
   #[cfg(not(target_os = "android"))]
   {
-    let _ = (&app, &url, &mirrors, &sha256, &version, &on_event);
+    let _ = (
+      &app, &url, &mirrors, &sha256, &version, &size, &preferred, &on_event,
+    );
     Err("android-only".to_string())
+  }
+}
+
+/// 缓存目录里跟「这个版本」有关的 APK 状态（rev173.311）。
+///
+/// 为什么需要：`phase` / `apkPath` 全是前端组件的 `useState`，关掉设置面板
+/// （或切到别的应用被系统回收）就没了 —— 但文件还在缓存目录里躺着。于是
+/// 「下载完 → 没点安装 → 切走 → 回来」会重新拉清单、重新下 34 MB。
+/// 这条命令让前端一打开面板就能把**下完的**捡回来、把**下到一半的**接着下。
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApkCache {
+  /// 已经下完的正式文件（空串 = 没有）
+  pub path: String,
+  /// 正式文件大小（0 = 没有）
+  pub size: u64,
+  /// 半成品已下载的字节数（0 = 没有半成品，或半成品属于别的版本）
+  pub partial: u64,
+}
+
+/// Android：查「这个版本」的 APK 缓存状态。桌面恒为空（桌面更新由官方 updater 管）。
+#[tauri::command]
+pub async fn find_apk_cache(app: tauri::AppHandle, version: String) -> ApkCache {
+  #[cfg(target_os = "android")]
+  {
+    use tauri::Manager;
+    let Ok(dir) = app.path().app_cache_dir().map(|d| d.join("updates")) else {
+      return ApkCache::default();
+    };
+    // 文件名规则与 download_android_update 逐字一致
+    let final_path = dir.join(format!("zeronote-{version}.apk"));
+    let part_path = dir.join(format!("zeronote-{version}.apk.part"));
+    let size = std::fs::metadata(&final_path)
+      .ok()
+      .filter(|m| m.is_file())
+      .map(|m| m.len())
+      .unwrap_or(0);
+    let partial = if size > 0 {
+      0
+    } else {
+      std::fs::metadata(&part_path)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+        .unwrap_or(0)
+    };
+    ApkCache {
+      path: if size > 0 {
+        final_path.to_string_lossy().to_string()
+      } else {
+        String::new()
+      },
+      size,
+      partial,
+    }
+  }
+  #[cfg(not(target_os = "android"))]
+  {
+    let _ = (&app, &version);
+    ApkCache::default()
   }
 }
 
@@ -755,13 +1219,63 @@ mod tests {
     assert_eq!(rewrite_asset_url("nope", gh), gh);
   }
 
-  /// 候选地址：首项 = 直链；jsDelivr 三条 + raw 全落同一地址 ⇒ 去重后只剩 2 条。
+  /// 候选地址（rev173.311）：首项恒为直连，后面两条是实测活着的反代，且不重复。
   #[test]
-  fn asset_candidates_dedupes_by_channel() {
+  fn asset_candidates_lists_direct_then_live_proxies() {
     let gh = "https://github.com/aqua7773/zeronote/releases/download/v0.9.3/a.exe";
     let c = asset_candidates(gh);
-    assert_eq!(c.len(), 2, "实际 {c:?}");
-    assert_eq!(c[0], gh);
+    assert_eq!(c.len(), 3, "实际 {c:?}");
+    assert_eq!(c[0], gh, "直连必须排第一（它是最快的一条）");
     assert_eq!(c[1], format!("https://ghproxy.net/{gh}"));
+    assert_eq!(c[2], format!("https://gh-proxy.com/{gh}"));
+  }
+
+  /// 非本仓库的地址（自建源 / 外部）不拼反代：`asset_routes` 只回一条。
+  #[test]
+  fn asset_routes_leave_foreign_urls_alone() {
+    let url = "https://example.com/ZeroNote_1.0.0_arm64.apk";
+    let r = asset_routes(url);
+    assert_eq!(r.len(), 1, "实际 {r:?}");
+    assert_eq!(r[0].1, url);
+    assert_eq!(r[0].0.id, "direct");
+  }
+
+  /// 清单里已经带着反代前缀（0.9.2 / 0.9.3 的产物）：先剥回直链再按表拼，不叠两层。
+  #[test]
+  fn asset_routes_strip_then_repack() {
+    let gh = "https://github.com/aqua7773/zeronote/releases/download/v0.9.3/a.exe";
+    let prefixed = format!("https://ghproxy.net/{gh}");
+    let r = asset_routes(&prefixed);
+    assert_eq!(r[0].1, gh, "直连要剥回原始 GitHub 地址");
+    assert_eq!(r[1].1, prefixed, "ghproxy 那条不叠两层前缀");
+    assert_eq!(r[2].1, format!("https://gh-proxy.com/{gh}"));
+  }
+
+  /// **真网络**验证多策略选路（不跑 CI）。手动：
+  /// `cargo test --lib live_route_pick -- --ignored --nocapture`
+  ///
+  /// 期望：三条都发一次 `Range: bytes=0-65535`，按实测速度降序；至少一条 `ok`。
+  /// 用来确认「检查更新时测出来的路」在真实网络下确实能拿到字节、速度排序合理。
+  #[test]
+  #[ignore]
+  fn live_route_pick() {
+    let url = concat!(
+      "https://github.com/aqua7773/zeronote/releases/download/v0.9.8/",
+      "ZeroNote_0.9.8_x64-setup.exe"
+    );
+    let picked = tauri::async_runtime::block_on(pick_routes(url));
+    for p in &picked {
+      println!(
+        "{:<10} ok={:<5} {:>9} B/s  {}",
+        p.label, p.ok, p.bps, p.detail
+      );
+    }
+    assert!(!picked.is_empty(), "候选为空");
+    assert!(
+      picked.iter().any(|p| p.ok),
+      "三条路径全不通（连不上就别指望客户端能更新）：{picked:?}"
+    );
+    // 降序：第一条只能是可用里最快的那条
+    assert!(picked[0].ok, "排序后第一条必须可用：{picked:?}");
   }
 }

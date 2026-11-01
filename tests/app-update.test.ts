@@ -13,11 +13,14 @@ import {
   APP_UPDATE_MIRROR_KEY,
   APP_UPDATE_TTL_MS,
   UPDATE_MIRRORS,
+  fmtSpeed,
   isAndroidApp,
   isAppAutoCheckEnabled,
   lastCheckedAt,
+  loadLastCheck,
   loadUpdateMirror,
   markChecked,
+  saveLastCheck,
   saveUpdateMirror,
   setAppAutoCheckEnabled,
   shouldAutoCheck,
@@ -103,5 +106,67 @@ describe('更新渠道（rev173.300）', () => {
     saveUpdateMirror('ghproxy')
     expect(window.localStorage.getItem(APP_UPDATE_MIRROR_KEY)).toBe('ghproxy')
     expect(window.localStorage.getItem('zn-market-mirror')).toBeNull()
+  })
+})
+
+describe('检查结果持久化（rev173.311）', () => {
+  const sample = {
+    currentVersion: '0.9.8',
+    hasUpdate: true,
+    remoteVersion: '0.9.9',
+    latest: {
+      version: '0.9.9',
+      url: 'https://github.com/aqua7773/zeronote/releases/download/v0.9.9/a.apk',
+      mirrors: [],
+    },
+    mirror: 'raw',
+    routes: [
+      {
+        id: 'direct',
+        label: 'GitHub 直连',
+        url: 'https://github.com/aqua7773/zeronote/releases/download/v0.9.9/a.apk',
+        ok: true,
+        ms: 900,
+        bps: 1_100_000,
+        detail: '1.1 MB/s · 900ms',
+      },
+    ],
+  }
+
+  it('存了能读回来（关掉设置面板再打开不必重拉清单）', () => {
+    saveLastCheck(sample)
+    expect(loadLastCheck()?.latest?.version).toBe('0.9.9')
+    expect(loadLastCheck()?.routes?.[0].id).toBe('direct')
+  })
+
+  it('没存过 ⇒ null', () => {
+    expect(loadLastCheck()).toBeNull()
+  })
+
+  it('坏 JSON ⇒ null（不抛）', () => {
+    window.localStorage.setItem('zn-app-update-last-result', '{oops')
+    expect(loadLastCheck()).toBeNull()
+  })
+
+  it('缺 currentVersion 的结果当作无效（旧格式 / 手改过）', () => {
+    window.localStorage.setItem(
+      'zn-app-update-last-result',
+      JSON.stringify({ at: 1, check: {} }),
+    )
+    expect(loadLastCheck()).toBeNull()
+  })
+})
+
+describe('路径测速展示（rev173.311）', () => {
+  it('0 / 空 ⇒ 短横（= 这条路没测通）', () => {
+    expect(fmtSpeed(0)).toBe('—')
+    expect(fmtSpeed(null)).toBe('—')
+    expect(fmtSpeed(undefined)).toBe('—')
+  })
+
+  it('KB / MB 分档（1 MB 以上才换单位）', () => {
+    expect(fmtSpeed(1024)).toBe('1 KB/s')
+    expect(fmtSpeed(300 * 1024)).toBe('300 KB/s')
+    expect(fmtSpeed(1.2 * 1024 * 1024)).toBe('1.2 MB/s')
   })
 })

@@ -36,6 +36,29 @@ export type UpdateCheck = {
   /** 命中的镜像 id（桌面安装要传回 Rust，保证检查与下载走同一镜像） */
   mirror: string
   error?: string | null
+  /**
+   * 安装包各条路径的**实测速度**（rev173.311，降序）。
+   *
+   * 「检查更新」时顺便测掉 —— 用户点「安装」直接用 `[0]`，不用再等一轮。
+   * 空数组 = 没什么可测的（已是最新 / 本平台没发 / 清单拉不到）。
+   */
+  routes?: RouteProbe[]
+}
+
+/**
+ * 一条安装包路径的测速结果（Rust `RouteProbe`）。
+ *
+ * 目前三条：`direct`（GitHub 直连，实测最快）、`ghproxy`、`gh-proxy-com`。
+ * `bps` = 实测字节/秒，0 表示没测成。
+ */
+export type RouteProbe = {
+  id: string
+  label: string
+  url: string
+  ok: boolean
+  ms: number
+  bps: number
+  detail: string
 }
 
 /** 下载进度 */
@@ -125,11 +148,16 @@ export async function probeUpdateMirror(mirrorId: string): Promise<PathProbe> {
 /**
  * 桌面：下载并安装。
  *
+ * `assetUrl` = 检查阶段测出来的那条路径（`check.routes[0].url`，或用户手选的）。
+ * 传了就**不再测速**，直接按它下 —— 用户点安装就该立刻开始。
+ * 不传 / 传了个不被认的地址时，Rust 会自己再测一轮。
+ *
  * ⚠️ Windows 上**不会正常返回**：官方 updater 在起安装器之前就退出进程
  * （安装器接管）。调用方把「进度 finished」当成终点，别再等这个 Promise 做 UI 收尾。
  */
 export async function installDesktopUpdate(
   mirrorId: string,
+  assetUrl: string | null,
   onProgress: (p: UpdateProgress) => void,
 ): Promise<void> {
   const channel = new Channel<ProgressEvent>()
@@ -138,17 +166,20 @@ export async function installDesktopUpdate(
       onProgress({ downloaded: e.data.downloaded, total: e.data.total })
     }
   }
-  await invoke('install_desktop_update', { mirrorId, onEvent: channel })
+  await invoke('install_desktop_update', { mirrorId, assetUrl, onEvent: channel })
 }
 
 /**
  * Android：把 APK 下到缓存目录，返回落盘路径。
  *
- * `mirrors` 里是备用地址（ghproxy 前缀版）—— raw / GitHub Release 在国内手机网络上
- * 经常连不上，Rust 侧会逐个试。
+ * 支持**断点续传**（rev173.311）：上次没下完的部分留在 `.part` 里，
+ * 这次从断点接着下；换路径也会接着续（直连断了换 ghproxy 续）。
+ *
+ * `assetUrl` 同桌面：检查阶段选好的那条，省掉安装前再测一轮。
  */
 export async function downloadAndroidUpdate(
   update: AppUpdate,
+  assetUrl: string | null,
   onProgress: (p: UpdateProgress) => void,
 ): Promise<string> {
   const channel = new Channel<ProgressEvent>()
@@ -162,6 +193,8 @@ export async function downloadAndroidUpdate(
     mirrors: update.mirrors,
     sha256: update.sha256 ?? null,
     version: update.version,
+    size: update.size ?? null,
+    preferred: assetUrl,
     onEvent: channel,
   })
 }
@@ -233,4 +266,77 @@ export function lastCheckedAt(): number {
   } catch {
     return 0
   }
+}
+
+/* ───── 状态持久化（rev173.311） ─────
+ *
+ * 解决两个「白做一遍」：
+ *  ① 关掉设置面板再打开 ⇒ 重新拉清单（这里存上次的检查结果）
+ *  ② 下载完没点安装就切走 ⇒ 重新下 34 MB（Rust `find_downloaded_apk` 捡回缓存里的包）
+ *
+ * ⚠️ 存的是**展示用的结果**，不是信任凭据：真安装时 Android 还核 sha256、
+ * 桌面还走 minisign。所以这里被手动改坏最多显示错个版本号，装不上。
+ */
+
+const APP_UPDATE_LAST_RESULT_KEY = 'zn-app-update-last-result'
+
+/** 记下本次检查结果（打开面板时先拿它铺满界面，不必再等一轮网络） */
+export function saveLastCheck(check: UpdateCheck): void {
+  try {
+    window.localStorage.setItem(
+      APP_UPDATE_LAST_RESULT_KEY,
+      JSON.stringify({ at: Date.now(), check }),
+    )
+  } catch {
+    /* 存不下就只在本次会话生效 */
+  }
+}
+
+/** 上次的检查结果；没有 / 坏掉 / 没有版本号 ⇒ null */
+export function loadLastCheck(): UpdateCheck | null {
+  try {
+    const raw = window.localStorage.getItem(APP_UPDATE_LAST_RESULT_KEY)
+    if (!raw) return null
+    const v = JSON.parse(raw) as { at?: number; check?: UpdateCheck }
+    // 没有 latest 的结果（「已是最新」或「查不到」）也能用，但至少要有版本号
+    if (!v?.check?.currentVersion) return null
+    return v.check
+  } catch {
+    return null
+  }
+}
+
+/** 缓存目录里跟「这个版本」有关的 APK 状态（Rust `ApkCache`） */
+export type ApkCache = {
+  /** 已经下完的正式文件；空串 = 没有 */
+  path: string
+  /** 正式文件大小；0 = 没有 */
+  size: number
+  /** 半成品已下载的字节数；0 = 没有半成品（或属于别的版本） */
+  partial: number
+}
+
+/**
+ * Android：查「这个版本」的 APK 缓存状态。
+ *
+ * - `path` 非空 ⇒ 已经下完，直接进「安装」按钮
+ * - `partial > 0` ⇒ 上次下到一半，点下载会从断点续
+ *
+ * 桌面恒为空（桌面更新由官方 updater 管，进程会被安装器接管）。
+ */
+export async function findApkCache(version: string): Promise<ApkCache> {
+  const empty: ApkCache = { path: '', size: 0, partial: 0 }
+  try {
+    return (await invoke<ApkCache>('find_apk_cache', { version })) ?? empty
+  } catch {
+    return empty
+  }
+}
+
+/** 字节/秒 → 人读的「1.2 MB/s」（路径测速结果用） */
+export function fmtSpeed(bps: number | null | undefined): string {
+  if (!bps || bps <= 0) return '—'
+  const mb = bps / 1024 / 1024
+  if (mb >= 1) return `${mb.toFixed(1)} MB/s`
+  return `${Math.max(1, Math.round(bps / 1024))} KB/s`
 }
