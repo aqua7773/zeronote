@@ -247,6 +247,13 @@ revision: 173.323
 > - 文档：`docs/UI交互规范.md` 手机左抽屉条目 + 动效表 `drawer` 340ms。
 > - verify：tsc 0 · oxlint 4 warnings · cargo 96 · vitest 1756 · 质量门 8/8（01:20:41）。
 > - 证据：`_shots/rev323-01-leftdrawer-open.png` / `rev323-02-leftdrawer-closed.png`。
+>
+> **已发版 0.9.12（2026-11-02）**
+> - 内容 = rev173.317–323（真人测试5 五条 + 多选勾选框 + 拖拽落点 + 拖拽根因 + 长按松手 + 两侧抽屉 340ms + 左抽屉动画）。
+> - `release.mjs 0.9.12` → 双端构建 **9m08s**（桌面 4m18s / Android aarch64 4m50s，sccache 命中 0）→
+>   APK 改名 `ZeroNote_0.9.12_arm64.apk` → `gen-update-manifest` → commit `622f975` + tag `v0.9.12` →
+>   `gh release create`（5 资产全 uploaded：exe 15.80 MB + `.sig` · msi 17.82 MB + `.sig` · APK 34.80 MB）。
+> - 清单 `update/latest.json`（签名 440 B）与 `update/android.json`（sha256 `4063fe49…`）已入库并推送。
 
 > ## 📌 rev173.322（2026-11-02 · 两侧抽屉动画补齐，统一 340ms）
 
