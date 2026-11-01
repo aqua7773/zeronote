@@ -19,7 +19,7 @@ revision: 173.317
 
 | rev | 内容 |
 |---|---|
-| rev173.317 | 2026-11-01 · **真人测试5 五条**（用户转来 `Downloads/真人测试5.md`，5 条 + 8 张真机截图）：① **多选残废** —— 两个根因叠在一起：菜单带全屏遮罩（`.zn-menu-scrim`，点外面只关菜单、点击不穿透）**吃掉后续每次点击**；且「选到第 2 项就自动弹批量菜单」（rev173.71 的老要求）把列表整个盖住。改法：点「多选」**直接关菜单**，列表顶部出**批量栏**（已选 N 项 · 移入… / 删除 / 彻底删除 / 完成），点行只加/减选、**永不自动弹菜单**；「移入…」列目录整批搬家（手机不好拖时的可靠归类路径）。② **侧栏双层菜单** —— `FileTree` 的 `menu`、`App` 的 `mainMenu`、卡片的 `menu` 是**三套独立 state**，谁也不知道谁开着（长按文件弹一层，再长按空白又弹一层）。修法收进**原语**：`ContextMenu` 模块级单例，新菜单挂载时先关上一个 —— 各调用点一行不改，以后新增菜单自动纳入。③ **时间流长按** —— 卡片没有 `user-select:none`（长按先触发系统选字 / 复制粘贴浮层），且手机空白处长按会弹**桌面式主菜单**；改：卡片禁选字 + `-webkit-touch-callout`，**手机端不再弹 `openMainMenu`**（触摸屏没有对应手势，各功能都有可见入口）。④ **抽屉只在首页** —— 手势 effect 原来**任何页面**都生效，且左抽屉开着时左划还能把右抽屉也拉出来叠两层；改：`drawersOpenOnlyOnHome(mainView, mobilePage, activePath)`（编辑器视图 + home + 没打开笔记；编辑页按用户要求也禁止），抽屉开着时**只认关闭**，两个抽屉方向互斥。⑤ **拖拽归类** —— 旧代码只认 `pointerType === 'mouse'`，手机根本拖不动；桌面「多选后拖不动」也是 ② 的遮罩害的。新增**触摸拖拽**：按住 **240ms**（短于系统长按 500ms）后移动 = 拖拽，240ms 内就移动 = 用户在滚动（直接放弃），拖拽期间 `touchmove` 一律 `preventDefault`，松手落到文件夹 = 整批搬。**测试 1741 → 1747**（新增 `file-tree-multiselect` 5 · `context-menu-singleton` 2 · `swipe` +4；改写 `file-tree-toolbar` / `file-tree-menu` 里两条"选 2 项自动弹菜单"的旧约定）。**真机实测（24069RA21C · debug · dev server）**：多选连点 3 项全高亮、列表不被盖 · 批量「移入…」把 aaa/bbb/ccc 搬进 `归档/`（磁盘核对）· 长按文件后再长按空白只剩一层菜单 · 时间流长按只有卡片菜单、`user-select:none` · 首页左右划各开各的不叠加 · 搜索页左右划都不开 · **触摸拖拽**把 ccc.md 拖进 `归档/`。 |
+| rev173.317 | 2026-11-01 · **真人测试5 五条**（用户转来 `Downloads/真人测试5.md`，5 条 + 8 张真机截图）：① **多选残废** —— 两个根因叠在一起：菜单带全屏遮罩（`.zn-menu-scrim`，点外面只关菜单、点击不穿透）**吃掉后续每次点击**；且「选到第 2 项就自动弹批量菜单」（rev173.71 的老要求）把列表整个盖住。改法：点「多选」**直接关菜单**，列表顶部出**批量栏**（已选 N 项 · 移入… / 删除 / 彻底删除 / 完成），点行只加/减选、**永不自动弹菜单**；「移入…」列目录整批搬家（手机不好拖时的可靠归类路径）。② **侧栏双层菜单** —— `FileTree` 的 `menu`、`App` 的 `mainMenu`、卡片的 `menu` 是**三套独立 state**，谁也不知道谁开着（长按文件弹一层，再长按空白又弹一层）。修法收进**原语**：`ContextMenu` 模块级单例，新菜单挂载时先关上一个 —— 各调用点一行不改，以后新增菜单自动纳入。③ **时间流长按** —— 卡片没有 `user-select:none`（长按先触发系统选字 / 复制粘贴浮层），且手机空白处长按会弹**桌面式主菜单**；改：卡片禁选字 + `-webkit-touch-callout`，**手机端不再弹 `openMainMenu`**（触摸屏没有对应手势，各功能都有可见入口）。④ **抽屉只在首页** —— 手势 effect 原来**任何页面**都生效，且左抽屉开着时左划还能把右抽屉也拉出来叠两层；改：`drawersOpenOnlyOnHome(mainView, mobilePage, activePath)`（编辑器视图 + home + 没打开笔记；编辑页按用户要求也禁止），抽屉开着时**只认关闭**，两个抽屉方向互斥。⑤ **拖拽归类** —— 旧代码只认 `pointerType === 'mouse'`，手机根本拖不动；桌面「多选后拖不动」也是 ② 的遮罩害的。新增**触摸拖拽**：按住 **240ms**（短于系统长按 500ms）后移动 = 拖拽，240ms 内就移动 = 用户在滚动（直接放弃），拖拽期间 `touchmove` 一律 `preventDefault`，松手落到文件夹 = 整批搬。**测试 1741 → 1747**（新增 `file-tree-multiselect` 5 · `context-menu-singleton` 2 · `swipe` +4；改写 `file-tree-toolbar` / `file-tree-menu` 里两条"选 2 项自动弹菜单"的旧约定）。**真机实测（24069RA21C · debug · dev server）**：多选连点 3 项全高亮、列表不被盖 · 批量「移入…」把 aaa/bbb/ccc 搬进 `归档/`（磁盘核对）· 长按文件后再长按空白只剩一层菜单 · 时间流长按只有卡片菜单、`user-select:none` · 首页左右划各开各的不叠加 · 搜索页左右划都不开 · **触摸拖拽**把 ccc.md 拖进 `归档/`。**桌面 dev 也验过**（0.9.9 让位给 dev）：多选 2 篇不再弹菜单、拖其中一行 ⇒ 两篇一起进 `归档/`（磁盘核对）；验完 dev 已退出、测试库已还原。 |
 | rev173.316 | 2026-11-01 · **真机 HMR 连不上 —— 注入 `hmr.port`**（用户「切回热重载」+「debug 能正常用于测试就行，不用一定要求版本一样，反复编译比较费时间」）：① **先纠正一个误判** —— 手机上页面 origin 是 `http://tauri.localhost/`，据此曾判定「加载的是打包资源（build 模式）」；用 CDP 查页面脚本才对上：`/@vite/client` + `/src/main.tsx` 都来自 dev server ⇒ **`tauri.localhost` 是 Tauri Android 的 dev origin，dev 模式一直是好的**。② **真正的病** —— 该 origin **没有端口**，vite 客户端按 `hmrPort \|\| importMetaUrl.port` 拼 ws 地址得到 `ws://192.168.1.3:/`（端口空）⇒ HMR 永远连不上（vite 服务端照样打印 `[vite] (client) hmr update`，极易误判成「推了但没生效」）。`vite.config.ts` 原来只注入 `hmr.host`，现在 `{ host: hmrHost, port }` 一起钉死。③ **验证（CDP 逐次读计算样式）** —— 加探针 `.zn-titlebar{background:red}` → 变红；改绿 / 改蓝 → 逐次生效（**有 1–3 秒延迟**）；删掉探针 → 恢复原色。④ **口径** —— 改 `src/` 下的东西，手机 1–3 秒后变，**不用重编 APK**；dev server 用 `pnpm dev`（只起 vite），不要用 `dev.ps1`（它会起桌面 tauri，被桌面上跑着的 0.9.9 单实例踢掉、连带把 vite 一起结束）。⚠️ `android-dev.cmd` 仍要整编才能装包，但装完就是 dev 模式，之后改前端不再需要它。 |
 | rev173.315 | 2026-11-01 · **「更多」页条目去重：插件只留一条**（用户「更多页面里同时存在笔记-插件中心，和设置-插件，两个同类项目没有合并」，确认「挪到设置组」+「开关搬进插件中心页」）：① 删掉「设置 → 插件」整页（它只是插件中心的摘要 + 一个开关）；② 「插件中心」从「笔记」组挪到「设置」组；③ 唯一独有项「启动时检查插件更新」搬进插件中心「已安装」tab（`PluginPanel` 新增 `autoCheckUpdates` / `onAutoCheckChange`，样式 `.zn-plugins-autocheck`）；④ 条目表收敛为 **3 组 7 项**（`more-items.ts` 的 `MORE_GROUPS`：笔记 3 · 设置 4 · 插件组动态），`SettingsSectionProps` 删掉 `pluginCount` / `pluginUpdateCount` / `onOpenPluginCenter` / `autoCheckUpdates`；⑤ 测试：`settings-plugin-tab.test.tsx` → 改写为 `plugin-center-autocheck.test.tsx`（2 条），`mobile-more-drawer` 改「设置三分组」；tsc 0 · oxlint 4 warnings · vitest 1736。**真机验过**布局与开关。 |
 | rev173.314 | 2026-11-01 · **手机返回键按「上一层」走**（用户「右侧栏点搜索进全屏搜索后，返回会回到编辑页，理论上返回应该是回到上一个窗口（右侧栏），其他的全屏窗口也是这种情况」+「再排查一下其他子级页面的返回逻辑」）：① **`returnToMoreRef`** —— 从「更多」抽屉钻进去的整页/浮层记住来源，返回时**先回抽屉**并**把背景复位主页**（否则会看到「抽屉盖在搜索页上」，关掉抽屉又落回搜索页，层级绕一圈）；覆盖：搜索全屏页 · 回收站 · 插件中心 · 插件面板（标签 / 导入导出）· 切换笔记库浮层（`VaultPanel.onOpenChange` 关掉时回抽屉）。② **模态 Dialog 纳入返回键** —— `ui/dialog.tsx` 只监听 document 的 Escape、不参与返回键栈，手机上按返回会**跳过对话框直接关笔记**；`backRef` 里加一层：检测到 `[role="dialog"]` 就先派发 Escape（与按键盘 Esc 同一条关闭路径）。③ **搜索页的页内「‹ 返回」与回收站 `onBack`** 都改走 `leaveFullPage()`。④ **真机逐条验过**（24069RA21C debug）：搜索 / 回收站 / 插件中心 → 返回都在抽屉上、背景是主页；切库面板按系统返回键关闭后回抽屉；头部「‹」回菜单、系统返回先回菜单再关抽屉。⑤ 测试：vitest 1737 全绿（`mobile-more-drawer` 8 条）。 |
@@ -210,6 +210,64 @@ revision: 173.317
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.317（2026-11-01 · 真人测试5 五条：多选 / 叠菜单 / 长按 / 抽屉 / 拖拽）
+
+> 用户转来 `Downloads/真人测试5.md`（5 条 + 8 张真机截图）。五条分别落到四个文件：
+> `FileTree.tsx`（多选、触摸拖拽）、`ui/context-menu.tsx`（全局互斥）、`App.tsx`（手势、手机不弹主菜单）、
+> `styles.css`（卡片禁选字、批量栏）。
+
+> ### 1 多选为什么"只选中一个"
+>
+> 两个机制叠在一起，都不是"多选坏了"，而是**点不进去**：
+> - `ContextMenu` 自带全屏透明遮罩 `.zn-menu-scrim`（z-69），语义是"点外面只关菜单、点击不穿透"。
+>   点「多选」后菜单**不关**（`keepOpen`），于是之后每一次点行都先被遮罩吃掉 —— 只关掉了菜单。
+> - 就算关掉菜单，`pick()` 在选中 ≥2 项时会**自动弹批量菜单**（rev173.71 用户要求），又盖住列表。
+> - 还有第三条：portal 到 body 的遮罩/菜单在 **React 树**上仍在 `FileTree` 内部，点击冒泡到根的
+>   `onClick` 被判成"点了空白"⇒ `setSelected([])` + `setSelectMode(false)`。以前只挡了 `[role="menu"]`，
+>   没挡遮罩。
+>
+> **改法**：点「多选」**直接关菜单**；顶部出**批量栏**（已选 N 项 · 移入… / 删除 / 彻底删除 / 完成）；
+> `pick()` 在多选态只加/减选、**永不弹菜单**；根容器的 `onClick` 先用
+> `rootRef.current.contains(target)` 把 portal 产物全部排除。
+> 「移入…」= 列库根 + 全部目录，点了整批 `onRename` 搬过去（手机不好拖时的可靠路径）。
+
+> ### 2 / 3 叠菜单与时间流长按
+>
+> - 菜单互斥：`FileTree.menu` / `App.mainMenu` / `MobileNoteCards.menu` / 标签页 / 库名 —— **六处独立 state**，
+>   谁也不知道谁开着。修在原语：`context-menu.tsx` 模块级 `activeMenuClose`，新菜单**挂载时**先关上一个
+>   （`onClose` 走 ref 取最新，避免每帧内联箭头把 effect 冲掉）。以后新增菜单自动纳入。
+> - 时间流：`.zn-mobile-card` 没有 `user-select:none` ⇒ 长按先触发系统选字 + 「复制/粘贴/分享」浮层；
+>   现在禁选字 + `-webkit-touch-callout:none`。
+> - 另外**手机端不再弹 `openMainMenu`**：那套「新建笔记 / 设置 / 打开笔记库栏」是桌面右键菜单，
+>   手机各功能都有可见入口（☰ / 更多 / 卡片 ⋯ / 编辑区四键条），留着只会和组件自己的菜单叠。
+
+> ### 4 抽屉只在首页
+>
+> `swipe.ts` 新增 `drawersOpenOnlyOnHome(mainView, mobilePage, activePath)`：
+> 只有「编辑器视图 + home tab + 没打开笔记」能用手势**打开**；搜索页 / 插件中心 / 回收站 / 面板页 /
+> 编辑页一律不响应（用户确认按字面：编辑页也禁止）。
+> 结构上重排成三段：右抽屉开着 ⇒ 只认关闭；左抽屉开着 ⇒ 只认关闭；都关着 ⇒ 首页才判打开。
+> 顺带治好「左抽屉开着时左划会把右抽屉也拉出来叠两层」。
+
+> ### 5 拖拽归类
+>
+> - 旧代码：`onPointerDown` 只认 `pointerType === 'mouse'` ⇒ 手机上**根本没有拖拽**。
+> - 桌面「多选后拖不动」= 第 1 条的遮罩挡着，多选一弹菜单就再也按不下去。
+> - 新增**触摸拖拽**（`FileTree.tsx` 里独立的 `useEffect`，原生 `touchstart/touchmove/touchend`）：
+>   **按住 240ms**（短于系统长按 500ms）后移动 ⇒ 拖拽；240ms 内就移动 ⇒ 用户在滚动，**直接放弃**；
+>   拖拽期间 `touchmove` 一律 `preventDefault`（`passive:false`）挡住列表滚动；松手落到文件夹 = 整批搬。
+>   ⚠️ 该 effect **只挂一次**（最新 `selectedSet` / `dirPathSet` / `onRename` 走 ref）——
+>   否则拖拽每帧 setState 会触发卸载重挂、把自己 reset 掉。
+
+> ### 验证（真机 + 桌面 dev）
+>
+> 真机 24069RA21C · debug · dev server：多选连点 3 项全高亮、列表不被盖 · 批量「移入…」把 3 篇搬进
+> `归档/`（`adb shell ls` 核对）· 长按文件后再长按空白只剩一层菜单 · 时间流长按只有卡片菜单、
+> `getComputedStyle(card).userSelect === 'none'` · 首页左右划各开各的、不叠加 · 搜索页左右划都不开 ·
+> 触摸拖拽把 `ccc.md` 拖进 `归档/`。桌面 dev（0.9.9 让位）：多选 2 篇不弹菜单、拖一行两篇一起进 `归档/`。
+> 证据 `_shots/rt5-*.png`。测试 **1741 → 1747**（新 `file-tree-multiselect` 5 · `context-menu-singleton` 2 ·
+> `swipe` +4），tsc 0 · oxlint 4 warnings（= 基线）。
 
 > ## 📌 rev173.316（2026-11-01 · 真机 HMR 连不上：注入 `hmr.port`）
 
