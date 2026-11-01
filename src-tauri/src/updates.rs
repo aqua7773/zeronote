@@ -861,6 +861,82 @@ pub async fn install_desktop_update(
   }
 }
 
+/* ───── APK 下载的并发与完整性护栏（rev173.313） ─────
+ *
+ * 2026-11-01 真机故障：0.9.9 里点「下载安装包」下 0.9.10，34.7 MB 下完，sha256 却对不上
+ * （清单 `b8d9…`，落盘 `86a9…`），包被删、装不上。
+ *
+ * 同一天逐项排除过（都是真的跑过的，不是推的）：
+ *  · GitHub Release 资产 digest = 清单 sha256 = 本地构建产物（三处一致）
+ *  · 手机在同一网络下 `curl` 整包下载 → sha256 正确
+ *  · 手机 `curl` 分段（0–10 MB + 10 MB–）拼起来 → sha256 正确（说明服务端 Range 没问题）
+ *
+ * 剩下的解释只有一个：**两个下载任务同时往同一个 `.part` 里写**。前端面板卸载不会取消
+ * Rust 侧的 async 命令（Channel 发不出去只是被忽略），关掉设置面板再打开、或换渠道重开，
+ * effect 就会把下载再发一次 —— 两个任务各持一个 `have`，append 交错，长度的账还大体对得上，
+ * 内容已经错了。
+ *
+ * 所以加三道闸：
+ *  ① 同一时刻只跑一个下载任务（这里）；
+ *  ② 续传必须**服务器认了 Range 且起点等于本地已有字节数**，否则从头下；
+ *  ③ 校验失败不再直接判死：删掉半成品、换下一条候选**从零重下一次**，全试完才报错。
+ */
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+static APK_DOWNLOAD_GATE: std::sync::atomic::AtomicBool =
+  std::sync::atomic::AtomicBool::new(false);
+
+/// 出作用域自动放行（含 `?` / `return` 提前退出）
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+struct ApkDownloadGate;
+
+impl Drop for ApkDownloadGate {
+  fn drop(&mut self) {
+    APK_DOWNLOAD_GATE.store(false, std::sync::atomic::Ordering::SeqCst);
+  }
+}
+
+/// 抢下载闸：抢到返回 guard，抢不到返回 `None`（已有任务在跑）
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn try_apk_download_gate() -> Option<ApkDownloadGate> {
+  match APK_DOWNLOAD_GATE.compare_exchange(
+    false,
+    true,
+    std::sync::atomic::Ordering::SeqCst,
+    std::sync::atomic::Ordering::SeqCst,
+  ) {
+    Ok(_) => Some(ApkDownloadGate),
+    Err(_) => None,
+  }
+}
+
+/// `Content-Range: bytes 1234-5678/9012` → 起点 `1234`。
+///
+/// 续传时**必须**拿它跟本地已有字节数比对：反代忽略 Range 直接回整包（实测有），
+/// 万一它回的 206 起点不是我们要求的那个，拼出来的包长度照样对、内容全错。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn content_range_start(v: Option<&reqwest::header::HeaderValue>) -> Option<u64> {
+  let raw = v?.to_str().ok()?;
+  let rest = raw.trim().strip_prefix("bytes")?;
+  rest.split('-').next()?.trim().parse::<u64>().ok()
+}
+
+/// 整文件 sha256（hex）—— 缓存里「看起来下完了」的包也要过这一关再交给安装器
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn sha256_file_hex(path: &std::path::Path) -> std::io::Result<String> {
+  use sha2::{Digest, Sha256};
+  let mut f = std::fs::File::open(path)?;
+  let mut hasher = Sha256::new();
+  let mut buf = [0u8; 64 * 1024];
+  loop {
+    let n = std::io::Read::read(&mut f, &mut buf)?;
+    if n == 0 {
+      break;
+    }
+    hasher.update(&buf[..n]);
+  }
+  Ok(format!("{:x}", hasher.finalize()))
+}
+
 /// 「完整文件」判定：存在、非空、（已知大小则）大小对得上。
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn complete_size(path: &std::path::Path, want: Option<u64>) -> Option<u64> {
@@ -905,6 +981,12 @@ pub async fn download_android_update(
     use std::io::Write;
     use tauri::Manager;
 
+    // 并发闸（rev173.313）：同一时刻只允许一个下载任务写 `.part`。
+    // 抢不到说明上一次下载还在跑（面板关了它也没停）—— 直接告诉用户稍等，别开第二份。
+    let Some(_gate) = try_apk_download_gate() else {
+      return Err("上一次下载还没结束（关掉设置面板不会取消它）—— 等它下完再试".to_string());
+    };
+
     let dir = app
       .path()
       .app_cache_dir()
@@ -918,18 +1000,36 @@ pub async fn download_android_update(
 
     // ① 上次已经下完了（「下载完没点安装 → 切走 → 回来」就是这条）：
     //    别再下一遍 34 MB，直接把路径交回去。
+    //
+    //    rev173.313：**大小对不等于内容对**。这份文件是以前某个任务写出来的，
+    //    若那次是被并发踩坏的（见 `APK_DOWNLOAD_GATE` 的注释），大小刚好对得上、
+    //    sha256 却是错的 —— 直接交给安装器就是「签名冲突 / 应用未安装」。
+    //    所以有清单 sha256 就复核一遍，不符就删掉当没下过。
     if let Some(have) = complete_size(&final_path, size) {
-      log::info!(
-        "APK 已存在，跳过下载：{}（{have} 字节）",
-        final_path.display()
-      );
-      let _ = on_event.send(Progress::Progress {
-        chunk: 0,
-        downloaded: have,
-        total: size,
-      });
-      let _ = on_event.send(Progress::Finished);
-      return Ok(final_path.to_string_lossy().to_string());
+      let mut trusted = true;
+      if let Some(want) = sha256.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        match sha256_file_hex(&final_path) {
+          Ok(got) if got.eq_ignore_ascii_case(want) => {}
+          _ => {
+            log::warn!("缓存里的 APK 校验不过，删掉重下：{}", final_path.display());
+            let _ = std::fs::remove_file(&final_path);
+            trusted = false;
+          }
+        }
+      }
+      if trusted {
+        log::info!(
+          "APK 已存在，跳过下载：{}（{have} 字节）",
+          final_path.display()
+        );
+        let _ = on_event.send(Progress::Progress {
+          chunk: 0,
+          downloaded: have,
+          total: size,
+        });
+        let _ = on_event.send(Progress::Finished);
+        return Ok(final_path.to_string_lossy().to_string());
+      }
     }
 
     // ② 排候选。给了 preferred 就直接拿它打头（检查阶段已经测过，安装别再等一轮）；
@@ -994,6 +1094,18 @@ pub async fn download_android_update(
       let status = resp.status();
       // 206 = 服务器认了 Range，接着写；200 = 它不支持续传，只能从头来
       let resume = have > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
+      // rev173.313：206 还得核对**起点**。
+      // 反代忽略/改写 Range 时可能回「206 + 从 0 开始」—— 拼出来的包长度照样对、
+      // 内容全错（就是 2026-11-01 那次 86a9… 的一种可能路径）。宁可删掉从头下。
+      if resume {
+        let start = content_range_start(resp.headers().get(reqwest::header::CONTENT_RANGE));
+        if start != Some(have) {
+          last_err = format!("续传起点对不上（要 {have}，服务器给 {start:?}）：{candidate}");
+          log::warn!("{last_err} —— 丢掉半成品，换路从头下");
+          let _ = std::fs::remove_file(&part_path);
+          continue;
+        }
+      }
       if have > 0 && !resume {
         let _ = std::fs::remove_file(&part_path);
         have = 0;
@@ -1068,8 +1180,12 @@ pub async fn download_android_update(
         continue;
       }
       if let Some(want) = size {
-        if downloaded < want {
-          last_err = format!("下载不完整：{downloaded}/{want}（{candidate}）");
+        // rev173.313：**多也是错**。原来只判 `downloaded < want`，于是「206 回错起点、
+        // 或半成品被重复追加」造成的超长文件会一路走到 sha256 才炸 —— 现在提前拦下，
+        // 顺便把半成品清掉，好让下一条候选从零开始。
+        if downloaded != want {
+          last_err = format!("下载长度不符：{downloaded}/{want}（{candidate}）");
+          let _ = std::fs::remove_file(&part_path);
           continue;
         }
       }
@@ -1080,10 +1196,15 @@ pub async fn download_android_update(
       if let Some(want) = sha256.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let got = format!("{:x}", hasher.finalize());
         if !got.eq_ignore_ascii_case(want) {
+          // rev173.313：不再直接判死 —— 删掉半成品，换下一条候选**从零重下一次**。
+          // 一次下载里拼坏了（并发/反代异常），换条路重来往往就好了；
+          // 全部候选都试完才把最后那条错误报给用户。
+          last_err = format!(
+            "APK 校验失败：清单记 sha256={want}，实际 {got} —— 已删除，换路重下"
+          );
+          log::warn!("{last_err}（{candidate}）");
           let _ = std::fs::remove_file(&part_path);
-          return Err(format!(
-            "APK 校验失败：清单记 sha256={want}，实际 {got} —— 已删除，不安装"
-          ));
+          continue;
         }
       }
 
@@ -1249,6 +1370,47 @@ mod tests {
     assert_eq!(r[0].1, gh, "直连要剥回原始 GitHub 地址");
     assert_eq!(r[1].1, prefixed, "ghproxy 那条不叠两层前缀");
     assert_eq!(r[2].1, format!("https://gh-proxy.com/{gh}"));
+  }
+
+  /// 续传起点解析：只认 `bytes <start>-<end>/<total>`。
+  ///
+  /// 2026-11-01 那次「大小对、sha256 错」的兜底就靠它 —— 反代若回一个起点不对的
+  /// 206，这里必须能认出来（认不出的按「不可续传」处理 = 从头下，宁可多下一遍）。
+  #[test]
+  fn content_range_parses_start_from_bytes_form_only() {
+    let hv = |s: &str| reqwest::header::HeaderValue::from_str(s).unwrap();
+    assert_eq!(
+      content_range_start(Some(&hv("bytes 1234-5678/9012"))),
+      Some(1234)
+    );
+    assert_eq!(content_range_start(Some(&hv("bytes 0-0/100"))), Some(0));
+    assert_eq!(
+      content_range_start(Some(&hv("bytes */100"))),
+      None,
+      "缺起点（416 那种）不能当成 0"
+    );
+    assert_eq!(
+      content_range_start(Some(&hv("1024-2048/4096"))),
+      None,
+      "没有 bytes 前缀就不认"
+    );
+    assert_eq!(content_range_start(None), None, "没这个头 = 不是续传响应");
+  }
+
+  /// 并发闸：同时只许一个下载任务；出作用域（含提前 return）自动放行。
+  ///
+  /// 这是 2026-11-01 真机故障的直接护栏 —— 两个任务同时 append 同一个 `.part`
+  /// 会拼出「长度对、sha256 错」的包。
+  #[test]
+  fn apk_download_gate_allows_only_one_at_a_time() {
+    let first = try_apk_download_gate().expect("第一次应该抢得到");
+    assert!(
+      try_apk_download_gate().is_none(),
+      "已有任务在跑时不能再开第二份"
+    );
+    drop(first);
+    let again = try_apk_download_gate().expect("放行后应该能再抢");
+    drop(again);
   }
 
   /// **真网络**验证多策略选路（不跑 CI）。手动：
