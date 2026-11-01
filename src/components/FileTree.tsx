@@ -1086,6 +1086,14 @@ export function FileTree({
         }
         dragging = true
         setDraggingPath(fromPath)
+        /**
+         * **拖拽开始 ⇒ 先把菜单收掉**（rev173.320 · 真机实测）。
+         *
+         * 病根：Android 在按住 ~500ms 时会派发 `contextmenu`，行的菜单（连同全屏遮罩
+         * `.zn-menu-scrim`）就这么弹出来 —— 用户"按住再拖"的节奏一旦慢半拍，之后的
+         * 每次 `elementFromPoint` 都命中遮罩，落点永远判不出来 ⇒ 看起来"拖不进文件夹"。
+         */
+        setMenu(null)
       }
       // 拖拽中不许列表跟着滚（必须 passive:false 才生效）
       e.preventDefault()
@@ -1098,7 +1106,11 @@ export function FileTree({
       const rootEl = rootRef.current
       const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null
       let next: string | null = null
-      if (rootEl && under && rootEl.contains(under)) {
+      if (under && under.closest('.zn-menu-scrim')) {
+        // 遮罩这一帧还没卸载（setState 异步）⇒ 再收一次，落点下一帧再判
+        setMenu(null)
+        next = null
+      } else if (rootEl && under && rootEl.contains(under)) {
         const over = under.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
         if (!over) next = ''
         else if (over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)) next = over
