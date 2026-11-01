@@ -60,33 +60,29 @@ describe('FileTree 顶栏', () => {
     expect(screen.getByRole('button', { name: '新建文件夹' })).toBeTruthy()
   })
 
-  it('rev143：点「多选」菜单原地切换成多选菜单，再点第二行直接换成 2 项菜单', () => {
+  it('rev173.317：点「多选」进多选态（菜单关闭 + 顶部批量栏），再点第二行只加选不弹菜单', () => {
     const props = makeProps({ notes: [note('a.md', 'a'), note('b.md', 'b')] })
     const { container } = render(<FileTree {...(props as never)} />)
 
-    // 顶栏只剩两个新建按钮；批量条不存在
+    // 顶栏只剩两个新建按钮；多选批量栏不存在
     expect(screen.queryByRole('button', { name: '多选' })).toBeNull()
-    expect(container.querySelector('.zn-select-bar')).toBeNull()
+    expect(container.querySelector('.zn-tree-batchbar')).toBeNull()
 
     const rows = container.querySelectorAll('.zn-tree-item')
     expect(rows.length).toBe(2)
 
-    // 右键 → 点「多选」：菜单不关，原地切换成多选菜单（「删除选中的 1 项」）
+    // 右键 → 点「多选」：菜单**关掉**，切到「列表 + 顶部批量栏」
     fireEvent.contextMenu(rows[0])
     const menu = document.querySelector('[role="menu"]') as HTMLElement
     expect(menu).toBeTruthy()
     fireEvent.click(within(menu).getByText('多选'))
-    const menu1 = document.querySelector('[role="menu"]') as HTMLElement
-    expect(menu1).toBeTruthy()
-    expect(within(menu1).getByText('删除选中的 1 项')).toBeTruthy()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(screen.getByText('已选 1 项')).toBeTruthy()
 
-    // 点第二行 = 加选（不打开笔记），菜单直接换成 2 项版本
+    // 点第二行 = 加选（不打开笔记），而且**不再自动弹菜单**（旧行为会弹 2 项菜单盖住列表）
     fireEvent.click(rows[1])
     expect(props.onOpen).not.toHaveBeenCalled()
-    const menu2 = document.querySelector('[role="menu"]') as HTMLElement
-    expect(menu2).toBeTruthy()
-    expect(within(menu2).getByText('删除选中的 2 项')).toBeTruthy()
-    // 批量条始终不出现
-    expect(container.querySelector('.zn-select-bar')).toBeNull()
+    expect(screen.getByText('已选 2 项')).toBeTruthy()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 })

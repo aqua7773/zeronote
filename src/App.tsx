@@ -125,7 +125,7 @@ import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from 
 /* J#9（rev173.281）：环形快捷入口 5 格配置（中心 ＋ 固定新建笔记） */
 import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
 import { failMsg, type SaveState } from './lib/fail-msg'
-import { hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
+import { drawersOpenOnlyOnHome, hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
@@ -789,6 +789,19 @@ export default function App() {
   }, [])
 
   /**
+   * **只有首页（时间流卡片页）允许用左右滑呼出抽屉**（rev173.317 · 真人测试5 #4）。
+   *
+   * 用户：搜索 / 插件中心 / 回收站这些页面也能左右滑拉出侧栏，甚至能在左抽屉开着时
+   * 再左划把右抽屉也拉出来，两个抽屉叠在一起。侧栏呼出应当**仅限首页**。
+   *
+   * 用 ref 而不是 effect 依赖：judge 只跟当前 state 有关，effect 不必因此重挂。
+   * 判据 = 编辑器视图 + 手机首页 tab + 没打开任何笔记（打开笔记就是编辑页，按用户
+   * 这次的要求编辑页也禁止；插件中心 / 搜索页的 `mainView` / `mobilePage` 都不是这个组合）。
+   */
+  const drawerHomeRef = useRef(false)
+  drawerHomeRef.current = drawersOpenOnlyOnHome(mainView, mobilePage, activePath)
+
+  /**
    * 移动端抽屉手势（2026-10-18 用户要求「直接全局生效」）：
    *  · 任意界面上 左→右滑 → 打开笔记库侧栏（不限定起点区域）；
    *  · 抽屉打开时 右→左滑 → 关闭。
@@ -823,27 +836,31 @@ export default function App() {
       // 输入状态只算一次：左抽屉与「更多」抽屉同一口径（rev170 / rev173.312）
       const typingNow = isTypingNow()
       /**
-       * 右侧「更多」抽屉（rev173.308，rev173.312 去掉边缘限制）：**任意位置左划**打开、右划关闭。
-       * 先判它，且打开时只认「关闭」—— 否则抽屉开着时左划会顺着再开左抽屉，两个抽屉叠一起。
+       * ⚠️ 两个抽屉**互斥**，且**只有首页能开**（rev173.317 · 真人测试5 #4）：
+       *  ① 右抽屉开着 ⇒ 只认关闭（反向划回）；
+       *  ② 左抽屉开着 ⇒ 只认关闭（以前这里会让左划把右抽屉也拉出来，叠两层）；
+       *  ③ 都关着 ⇒ 只有首页才允许打开，其它页面滑动一律不管（交给页面自己滚动）。
        */
       if (moreOpen) {
-        const act = moreSwipeIntent(dx, dy, { open: true, overlay })
-        if (act === 'close') setMoreOpen(false)
+        if (moreSwipeIntent(dx, dy, { open: true, overlay }) === 'close') setMoreOpen(false)
         return
       }
+      if (sidebarOpen) {
+        if (swipeIntent(dx, dy, { sidebarOpen: true, typing: typingNow, overlay }) === 'close') {
+          setSidebarOpen(false)
+        }
+        return
+      }
+      if (!drawerHomeRef.current) return
       if (moreSwipeIntent(dx, dy, { open: false, typing: typingNow, overlay }) === 'open') {
         // 从手势进来总是回菜单首屏（rev173.313：上次可能停在某一组设置里）
         setMoreTab('menu')
         setMoreOpen(true)
         return
       }
-      const action = swipeIntent(dx, dy, {
-        sidebarOpen,
-        typing: typingNow,
-        overlay,
-      })
-      if (action === 'open') setSidebarOpen(true)
-      else if (action === 'close') setSidebarOpen(false)
+      if (swipeIntent(dx, dy, { sidebarOpen: false, typing: typingNow, overlay }) === 'open') {
+        setSidebarOpen(true)
+      }
     }
     window.addEventListener('touchstart', onStart, { passive: true, capture: true })
     window.addEventListener('touchend', onEnd, { passive: true, capture: true })
@@ -5099,6 +5116,18 @@ export default function App() {
           // 用 **Capture** 版是必需的：CodeMirror 会处理 contentDOM 上的 contextmenu，
           // 挂在冒泡阶段的话在编辑器正文里右键根本收不到。
           e.preventDefault()
+          /**
+           * **手机上不再弹桌面式主菜单**（rev173.317 · 真人测试5 #3）。
+           *
+           * 现场：时间流页长按卡片，卡片的菜单出来了，左上角又冒出一个
+           * 「新建笔记 / 设置 / 打开笔记库栏 / 切换笔记库」；点一下灰光标再点，
+           * 又冒一次。桌面这套右键菜单在触摸屏上本来就没有对应手势（手机各功能
+           * 都有可见入口：☰ / 更多 / 卡片 ⋯ / 编辑区四键条），留着只会互相叠。
+           *
+           * 树项、卡片、编辑区、输入框都在上面各自 return 了；走到这里的都是
+           * "手机上的其它空白区域" ⇒ 直接不弹。
+           */
+          if (!isDesktop) return
           // 树项自带「重命名 / 删除」菜单，别抢它
           if (el instanceof HTMLElement && el.closest('.zn-tree-item')) return
           /**

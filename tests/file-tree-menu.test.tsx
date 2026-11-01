@@ -187,14 +187,17 @@ describe('FileTree 右键菜单：插件条目动作', () => {
         onItemAction={onItemAction}
       />,
     )
-    // 右键 a → 点「多选」→ 再点 b ⇒ 选中 ≥2 项直接弹批量菜单
+    // 右键 a → 点「多选」→ 再点 b ⇒ **不再自动弹菜单**（rev173.317），改为顶部批量栏
     fireEvent.contextMenu(screen.getByText('a.md'))
     fireEvent.click(screen.getByText('多选'))
     fireEvent.click(screen.getByText('b.md'))
+    expect(screen.queryByText('导出为 txt…')).toBeNull()
+    // 需要对整批操作时再长按 / 右键一次
+    fireEvent.contextMenu(screen.getByText('b.md'))
     fireEvent.click(screen.getByText('导出为 txt…'))
     expect(onItemAction).toHaveBeenCalledTimes(1)
     expect(onItemAction.mock.calls[0][1]).toMatchObject({
-      // 批量菜单的 focus = 最后点的那条（openBatchMenu），整批路径一起交给插件
+      // 右键的那条是 focus，整批路径一起交给插件
       path: 'b.md',
       paths: ['a.md', 'b.md'],
     })

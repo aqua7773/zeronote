@@ -9,7 +9,13 @@
  *  · 位移不足 / 更偏纵向 ⇒ 不动作（交给滚动与选字）。
  */
 import { describe, expect, it } from 'vitest'
-import { hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from '../src/lib/swipe'
+import {
+  drawersOpenOnlyOnHome,
+  hasBlockingOverlay,
+  isTypingNow,
+  moreSwipeIntent,
+  swipeIntent,
+} from '../src/lib/swipe'
 
 const idle = { sidebarOpen: false, typing: false }
 
@@ -126,5 +132,31 @@ describe('moreSwipeIntent', () => {
   it('浮层开着 ⇒ 打开与关闭两个方向都不动作', () => {
     expect(moreSwipeIntent(-120, 10, { ...base, overlay: true })).toBeNull()
     expect(moreSwipeIntent(120, 10, { ...base, open: true, overlay: true })).toBeNull()
+  })
+})
+
+/**
+ * rev173.317 · 真人测试5 #4：「搜索、插件中心这些页面也可以呼起左侧栏和右侧栏，
+ * 甚至还能先呼出左侧栏然后再呼出右侧栏叠加，侧栏呼出应该是一个仅限首页可以进行的操作」。
+ *
+ * 用户确认按字面：**打开笔记的编辑页也禁止**，只有时间流卡片页能开。
+ */
+describe('drawersOpenOnlyOnHome', () => {
+  it('首页（编辑器视图 + home tab + 没打开笔记）⇒ 允许', () => {
+    expect(drawersOpenOnlyOnHome('editor', 'home', null)).toBe(true)
+  })
+
+  it('编辑页（打开了笔记）⇒ 禁止', () => {
+    expect(drawersOpenOnlyOnHome('editor', 'home', 'a.md')).toBe(false)
+  })
+
+  it('搜索全屏页 ⇒ 禁止', () => {
+    expect(drawersOpenOnlyOnHome('editor', 'search', null)).toBe(false)
+  })
+
+  it('插件中心 / 回收站 / 插件面板页（mainView 不是 editor）⇒ 禁止', () => {
+    expect(drawersOpenOnlyOnHome('plugins', 'home', null)).toBe(false)
+    expect(drawersOpenOnlyOnHome('trash', 'home', null)).toBe(false)
+    expect(drawersOpenOnlyOnHome('io-panel', 'home', null)).toBe(false)
   })
 })

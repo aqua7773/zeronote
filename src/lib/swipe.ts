@@ -99,3 +99,25 @@ export function moreSwipeIntent(
   if (opts.typing) return null
   return 'open'
 }
+
+/**
+ * **只有首页（时间流卡片页）能用左右滑呼出抽屉**（rev173.317 · 真人测试5 #4）。
+ *
+ * 用户：「搜索、插件中心这些页面也可以呼起左侧栏和右侧栏，甚至还能先呼出左侧栏然后
+ * 再呼出右侧栏叠加，侧栏呼出应该是一个仅限首页可以进行的操作」，并确认「打开笔记的
+ * 编辑页也禁止」（按字面：只有卡片页算首页）。
+ *
+ * 判据用三样东西，都是 App 的顶层 state：
+ *  · `mainView === 'editor'` —— 插件中心 / 回收站 / 插件面板页都不是 `editor`；
+ *  · `mobilePage === 'home'` —— 搜索全屏页是 `search`；
+ *  · `!activePath` —— 打开了笔记就是编辑页，用户要求也禁止。
+ *
+ * ⚠️ 只影响**打开**方向：抽屉已经开着时，反向划回去必须永远有效（否则关不掉）。
+ */
+export function drawersOpenOnlyOnHome(
+  mainView: string,
+  mobilePage: string,
+  activePath: string | null,
+): boolean {
+  return mainView === 'editor' && mobilePage === 'home' && !activePath
+}

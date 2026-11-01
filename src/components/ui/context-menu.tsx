@@ -47,6 +47,21 @@ export interface MenuItem {
   children?: MenuItem[]
 }
 
+/**
+ * **同一时刻只允许一个右键菜单**（rev173.317 · 真人测试5 #2 #3）。
+ *
+ * 现场：左侧栏先长按文件弹出文件菜单，再长按空白区域 ⇒ 又弹一个应用级菜单，
+ * 两个菜单**叠在一起**（截图 2/3）；时间流页长按卡片也一样（卡片菜单 + 主菜单）。
+ *
+ * 根因不在某一条调用点，而在架构：`FileTree` 的 menu、`App` 的 mainMenu、
+ * `MobileNoteCards` 的 menu、标签页 / 库名菜单各自是独立 state，谁也不知道谁开着。
+ * 逐个调用点“先关别人”既写不全（现在有 6 处，以后还会加），也容易漏。
+ *
+ * 所以把互斥收进原语：新菜单**挂载**时先把上一个关掉（调用它的 onClose）。
+ * 各调用点一行不用改，新增菜单自动纳入。
+ */
+let activeMenuClose: (() => void) | null = null
+
 /** 所有菜单行（主菜单与子菜单）共用的一套外观 */
 function rowClass(danger?: boolean): string {
   return cn(
@@ -77,6 +92,29 @@ export function ContextMenu({
   anchor?: 'pointer' | 'bottom-right' | 'above-pointer' | 'below-pointer'
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * 全局互斥（见文件顶部的 `activeMenuClose`）：本菜单挂载那一刻，
+   * 先把还在开着的那一个关掉，保证屏幕上最多一层。
+   *
+   * `onClose` 每次都可能是新的内联箭头函数，所以用 ref 转一道 ——
+   * 否则 effect 会因为依赖变化重跑，把**自己**当成“上一个”关掉。
+   */
+  const latestClose = useRef(onClose)
+  // 每次渲染后同步最新 onClose（不能在渲染期写 ref —— React 19 的 lint 会拦）
+  useEffect(() => {
+    latestClose.current = onClose
+  })
+  useEffect(() => {
+    const prev = activeMenuClose
+    const mine = () => latestClose.current()
+    activeMenuClose = mine
+    // 新菜单接管 ⇒ 旧菜单关掉（同一帧内 React 批处理，用户看不到两层）
+    if (prev) prev()
+    return () => {
+      if (activeMenuClose === mine) activeMenuClose = null
+    }
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

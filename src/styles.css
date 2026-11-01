@@ -336,6 +336,37 @@ body.is-resizing * {
   background: var(--zn-bg-hover);
 }
 
+/* 多选态的批量栏（rev173.317 · 真人测试5 #1）——
+   贴在列表顶部，**不覆盖列表**：多选时用户要能一直往下点。
+   与顶栏「新建笔记 / 新建文件夹」同一套视觉，只是整体更紧凑。 */
+.zn-tree-batchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-2);
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  margin-bottom: var(--zn-space-2);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg-active);
+  font-size: var(--zn-text-sm);
+}
+.zn-tree-batchbar-count {
+  color: var(--zn-fg-muted);
+  margin-right: auto;
+  white-space: nowrap;
+}
+/* 批量栏里的按钮要一眼看得见（`.zn-plain-btn` 默认 0.45 透明度，是「悬停才亮」的桌面口味；
+   触摸屏没有 hover，灰着会像禁用） */
+.zn-tree-batchbar .zn-plain-btn {
+  opacity: 1;
+  background: var(--zn-bg);
+  color: var(--zn-fg-muted);
+  height: 26px;
+  padding: 0 10px;
+}
+.zn-tree-batchbar .zn-plain-btn:hover { color: var(--zn-fg); background: var(--zn-bg-hover); }
+.zn-tree-batchbar .zn-plain-btn.is-danger { color: var(--zn-danger, #dc2626); }
+
 /* 子级容器（2026-10-17 用户逐条确认的规则）——
    **同时满足**「该文件夹后面还有同级条目」+「它自己有子项」才画竖线：
    · 每层最后一个文件夹不画（三级2、文档、五～八级1）；
@@ -2226,6 +2257,12 @@ body.is-resizing * {
   padding: 14px 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   cursor: pointer;
+  /* 长按 = 卡片菜单（rev173.317 · 真人测试5 #3）——
+     不关选字的话，长按会先触发系统的文字选择与「复制/粘贴/分享」浮层，
+     菜单和系统浮层同时冒出来，还会留下一个灰色光标。 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .zn-mobile-card:active { background: var(--zn-bg-hover); }

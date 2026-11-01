@@ -297,12 +297,8 @@ function Node({
   collapsed: Set<string>
   /** 切换某个目录的展开 / 折叠 */
   onToggleOpen: (path: string) => void
-  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围；`pos` 是点击位置，选中多项时用来直接弹菜单 */
-  onPick: (
-    path: string,
-    mods: { toggle: boolean; range: boolean },
-    pos: { x: number; y: number },
-  ) => void
+  /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围（多选态下=加/减选） */
+  onPick: (path: string, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
   renaming: Renaming | null
   draft: string
@@ -496,11 +492,7 @@ function Node({
         style={pad}
         data-zn-path={node.path}
         onClick={(e) =>
-          onPick(
-            node.path,
-            { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey },
-            { x: e.clientX, y: e.clientY },
-          )
+          onPick(node.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })
         }
       onContextMenu={(e) => {
         e.preventDefault()
@@ -727,40 +719,51 @@ export function FileTree({
     : 'pointer'
 
   /**
-   * 多选后**直接弹菜单**（2026-10-18 用户要求：「多选时直接弹出选中后的菜单，
-   * 不需要再右键一次」）。只对 **≥2 项**的选中集合弹：单项选中时普通点击已经
-   * 打开笔记了，交给右键/长按自己开菜单。
+   * **点选模式的界面**（rev173.317 · 真人测试5 #1「手机端多选功能残废」）。
+   *
+   * 旧行为：多选态下每选到第 2 项就**自动弹出批量菜单**（rev173.71 的老要求）。
+   * 菜单带全屏透明遮罩（`.zn-menu-scrim`，点外面只关菜单、点击不穿透）⇒
+   * 选第二项后列表被菜单盖住，再点第三项实际点在遮罩上、只关了菜单；
+   * 用户看到的正是「只选中一个，再点其他的文件就取消了」。
+   *
+   * 现在：多选态**不再弹菜单**，改为列表顶部一条批量栏（已选 N 项 · 移入 / 删除 /
+   * 彻底删除 / 完成）。列表全程可见、可以一直加选；操作完点「完成」退出。
    */
-  const openBatchMenu = (paths: string[], focusPath: string, x: number, y: number) => {
-    if (paths.length < 2) return
-    const focus = paths.includes(focusPath) ? focusPath : paths[0]
-    setMenu({
-      path: focus,
-      dir: parentDir(focus),
-      isDir: false,
-      multi: true,
-      x,
-      y,
-    })
+  const [moveMenu, setMoveMenu] = useState<{ x: number; y: number } | null>(null)
+
+  /** 批量「移入…」的目标目录：库根 + 所有真实目录 */
+  const moveTargets = useMemo(() => {
+    const all = ['', ...dirs].filter((d, i, arr) => arr.indexOf(d) === i)
+    return all.sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b, 'zh')))
+  }, [dirs])
+
+  /** 把当前选中集合整体搬进 `target`（`''` = 库根） */
+  const moveSelectedTo = (target: string) => {
+    const paths = dedupe([...selectedSet])
+    for (const p of paths) {
+      // 不能把它们搬进自己或自己的子目录（Rust 侧也会拒，这里先挡掉免得弹错）
+      if (target === p || (target && target.startsWith(`${p}/`))) continue
+      if (parentDir(p) === target) continue // 已在目标目录里
+      onRename(p, target ? `${target}/${baseName(p)}` : baseName(p), dirPathSet.has(p))
+    }
+    setMoveMenu(null)
+    setSelected([])
+    setSelectionCleared(true)
+    setSelectMode(false)
   }
 
-  const pick = (
-    path: string,
-    mods: { toggle: boolean; range: boolean },
-    pos: { x: number; y: number },
-  ) => {
+  const pick = (path: string, mods: { toggle: boolean; range: boolean }) => {
     // 用户点了某一行 ⇒ 主动清空的态结束（重新有选中）
     setSelectionCleared(false)
     // 点选模式（右键菜单「多选」进的）：点一行 = 加/减选，**不打开**笔记 ——
     // 否则一开编辑器就把抽屉收起来，多选根本做不下去。
-    // 选到 ≥2 项就直接弹批量菜单，不用再长按/右键一次。
+    // ⚠️ 不再自动弹菜单（rev173.317）：菜单的遮罩会把列表盖住，多选没法连续点。
     if (selectMode) {
       const next = selected.includes(path)
         ? selected.filter((p) => p !== path)
         : [...selected, path]
       setSelected(next)
       setAnchor(path)
-      openBatchMenu(next, path, pos.x, pos.y)
       return
     }
     if (mods.range && anchor) {
@@ -769,9 +772,7 @@ export function FileTree({
       if (a >= 0 && b >= 0) {
         const lo = Math.min(a, b)
         const hi = Math.max(a, b)
-        const next = flatPaths.slice(lo, hi + 1)
-        setSelected(next)
-        openBatchMenu(next, path, pos.x, pos.y)
+        setSelected(flatPaths.slice(lo, hi + 1))
         return
       }
     }
@@ -780,7 +781,6 @@ export function FileTree({
       const next = base.includes(path) ? base.filter((p) => p !== path) : [...base, path]
       setSelected(next)
       setAnchor(path)
-      openBatchMenu(next, path, pos.x, pos.y)
       return
     }
     // 普通点击：单选 + 打开
@@ -796,8 +796,9 @@ export function FileTree({
    *  · 从**空白处**按下再拖 = **框选**。
    *
    * 约束与取舍：
-   *  · 只认鼠标左键 —— 触摸走长按（手指拖拽在列表里通常是想滚动）；
-   *  · 位移超过 4px 才算拖拽，否则仍是普通点击（打开笔记 / 折叠目录）；
+   *  · 鼠标：只认左键；位移超过 4px 才算拖拽，否则仍是普通点击；
+   *  · **触摸**走另一条通道（`useEffect` 里的 touch 监听，见下）—— 手指拖拽要先按住
+   *    240ms 再动，普通滚动不会被误判成拖拽（rev173.317 · 真人测试5 #5）；
    *  · 点在**滚动条**上不算；
    *  · 拖拽移动只认**文件夹**做落点（虚拟「文档」分组不是目录），且拒绝拖进自己/自己的子孙；
    *  · 拖的若是选中集合里的一项 ⇒ **整批移动**；否则只移动它自己；
@@ -821,8 +822,6 @@ export function FileTree({
     let dragging = false
     /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
     let target: string | null = null
-    /** 框选最近一次的选择框 —— 松手时按它算命中集合，用来直接弹菜单 */
-    let lastBox: { x0: number; y0: number; x1: number; y1: number } | null = null
 
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - start.x
@@ -838,10 +837,9 @@ export function FileTree({
           x1: Math.max(start.x, ev.clientX),
           y1: Math.max(start.y, ev.clientY),
         }
-        lastBox = box
         setMarquee(box)
         setSelected(hitTest(root, box))
-        // 框选**不进点选模式**：框选完直接用弹出的批量菜单操作这批选中项
+        // 框选**不进点选模式**：框选完用右键菜单 / 顶部批量栏操作这批选中项
         setSelectMode(false)
         return
       }
@@ -865,7 +863,7 @@ export function FileTree({
       })
     }
 
-    const up = (ev: PointerEvent) => {
+    const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       setMarquee(null)
@@ -879,11 +877,8 @@ export function FileTree({
         suppressClickRef.current = false
       }, 0)
 
-      // 框选松手：≥2 项就直接弹批量菜单（2026-10-18 用户要求，省掉再右键一次）
-      if (!fromPath) {
-        if (lastBox) openBatchMenu(hitTest(root, lastBox), '', ev.clientX, ev.clientY)
-        return
-      }
+      // 框选松手：只保留选中集合（批量操作走顶部批量栏 / 右键菜单，rev173.317）
+      if (!fromPath) return
 
       if (!target) return
       // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项
@@ -902,6 +897,149 @@ export function FileTree({
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
+
+  /**
+   * **触摸拖拽**（rev173.317 · 真人测试5 #5「移动端选中文件不能拖入文件夹归类」）。
+   *
+   * 为什么不用上面的 pointerdown：手指拖拽在列表里默认是"滚动"，直接开始拖拽会把
+   * 每次滚动都变成搬文件。而**长按 500ms** 已经被系统的右键菜单占了（Android 的
+   * `contextmenu`）—— 两边抢同一个手势。
+   *
+   * 取中间这条路：**按住 240ms（短于系统长按阈值）后开始移动 ⇒ 拖拽**；
+   *   · 240ms 内就移动 ⇒ 用户在滚动列表，立刻放弃（不做任何事，滚动手感不变）；
+   *   · 按住不动到 500ms ⇒ 系统照旧弹右键菜单（菜单入口没变）；
+   *   · 拖拽期间 `touchmove` 一律 preventDefault，列表不会跟着滚。
+   *
+   * ⚠️ effect **只挂一次**：拖拽过程里每帧都在 setState（ghost 跟手），若依赖里有
+   * 会变的回调（`onRename` 常常是内联箭头），effect 会每帧卸载重挂 = 拖拽被自己 reset 掉。
+   * 所以最新值走 ref，监听器生命周期与渲染无关。
+   */
+  const dragRefs = useRef({ selectedSet, dirPathSet, onRename })
+  // 每次渲染后同步最新值（渲染期写 ref 会被 React 19 的 lint 拦）
+  useEffect(() => {
+    dragRefs.current = { selectedSet, dirPathSet, onRename }
+  })
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    /** 开始移动前要按住多久（< 系统长按 500ms） */
+    const ARM_MS = 240
+    /** 判定"真的在移动"的位移门槛 */
+    const START_PX = 8
+
+    let timer: number | null = null
+    let armed = false
+    let dragging = false
+    let fromPath: string | null = null
+    let target: string | null = null
+    let start = { x: 0, y: 0 }
+
+    const detach = () => {
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onEnd)
+      window.removeEventListener('touchcancel', onCancel)
+    }
+
+    const reset = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer)
+        timer = null
+      }
+      armed = false
+      dragging = false
+      fromPath = null
+      target = null
+      detach()
+      setDropTarget(null)
+      setDraggingPath(null)
+      setDragGhost(null)
+    }
+
+    const onCancel = () => reset()
+
+    const onEnd = () => {
+      const wasDragging = dragging
+      const src = fromPath
+      const tgt = target
+      reset()
+      if (!wasDragging) return
+      // 松手后系统还会补一次 click —— 拦掉，否则会把最后经过的笔记打开
+      suppressClickRef.current = true
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+      if (!src || !tgt) return
+      const { selectedSet: sel, dirPathSet: dirsNow, onRename: rename } = dragRefs.current
+      const paths = sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
+      const moved = paths.filter((p) => parentDir(p) !== tgt)
+      if (!moved.length) return
+      for (const p of moved) {
+        rename(p, `${tgt}/${baseName(p)}`, dirsNow.has(p))
+      }
+      setSelected([])
+      setSelectionCleared(true)
+    }
+
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!t || !fromPath) return
+      const dx = t.clientX - start.x
+      const dy = t.clientY - start.y
+      if (!dragging) {
+        if (dx * dx + dy * dy < START_PX * START_PX) return
+        if (!armed) {
+          // 还没到 240ms 就开始划 ⇒ 用户在滚动，这次不拖
+          reset()
+          return
+        }
+        dragging = true
+        setDraggingPath(fromPath)
+      }
+      // 拖拽中不许列表跟着滚（必须 passive:false 才生效）
+      e.preventDefault()
+      const { selectedSet: sel, dirPathSet: dirsNow } = dragRefs.current
+      const over =
+        document
+          .elementFromPoint(t.clientX, t.clientY)
+          ?.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+      const ok =
+        !!over && over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)
+      target = ok ? over : null
+      setDropTarget(target)
+      const count = sel.has(fromPath) && sel.size > 1 ? sel.size : 1
+      setDragGhost({
+        x: t.clientX,
+        y: t.clientY,
+        label: count > 1 ? `${baseName(fromPath)} 等 ${count} 项` : baseName(fromPath),
+      })
+    }
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      const t = e.touches[0]
+      const el = t.target as HTMLElement | null
+      const p = el?.closest?.<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+      // 只从**条目**上起手；空白处的触摸留给滚动
+      if (!p) return
+      reset()
+      fromPath = p
+      start = { x: t.clientX, y: t.clientY }
+      timer = window.setTimeout(() => {
+        timer = null
+        armed = true
+      }, ARM_MS)
+      // passive:false —— 拖拽时要能 preventDefault 挡住滚动
+      window.addEventListener('touchmove', onMove, { passive: false })
+      window.addEventListener('touchend', onEnd)
+      window.addEventListener('touchcancel', onCancel)
+    }
+
+    root.addEventListener('touchstart', onStart, { passive: true })
+    return () => {
+      root.removeEventListener('touchstart', onStart)
+      reset()
+    }
+  }, [])
 
   /* 右键菜单 / 点选模式都是「返回键该先关掉的一层」—— 打开时把关闭函数压进 App 的层出口栈。
      ⚠️ 必须写在下面「空库」那个 early return **之前**（Hooks 不能条件执行）。 */
@@ -1160,23 +1298,23 @@ export function FileTree({
             })
           }
           /**
-           * 「多选」入口（2026-10-18 用户要求保留；rev141 圈掉顶栏按钮与批量条后，这里是
-           * **唯一**的入口）。点击后**菜单原地切换**成多选菜单（不关、不要求再右键一次），
-           * 之后点行只加/减选，选到 ≥2 项时 `pick` 再弹一次批量菜单。
+           * 「多选」入口（rev173.317 改了行为）。
+           *
+           * 以前：点完菜单**不关**、原地切成多选菜单，靠"选到第 2 项自动弹批量菜单"接力。
+           * 现在：点完**直接关菜单**，切到"列表 + 顶部批量栏"的多选形态 —— 用户要的是
+           * "进入多选列表"（真人测试5 #1）。菜单留着的话，第一下点其他行会落在菜单遮罩上，
+           * 只会把菜单关掉，看起来就是"点了没选中"。
            */
           // 只对**文件**给多选入口 —— 现有选择集合的语义是「只含文件」（见上面 onKeyDown 注释）
           if (!multi && !menu.isDir) {
             list.push({
               label: '多选',
               divider: true,
-              // ⚠️ keepOpen：ContextMenu 点完默认会 onClose；这里要**原地切换**，不能关
-              keepOpen: true,
               onClick: () => {
                 setSelectMode(true)
                 setSelected([path])
                 setAnchor(path)
-                // 菜单**不关**：直接把 `multi` 置真，下一帧 items 重算成多选菜单
-                setMenu((m) => (m ? { ...m, multi: true } : m))
+                setMenu(null)
               },
             })
           }
@@ -1260,8 +1398,13 @@ export function FileTree({
       onClick={(e) => {
         // 点**空白处** = 取消选中（与资源管理器一致，2026-10-17 用户要求）。
         // 点节点时事件从节点冒泡上来 —— target 落在 `[data-zn-path]` 里，这里不动选中。
-        // ⚠️ 右键菜单项点击也会冒泡到这里（菜单不是 portal）：必须放行，否则点菜单项
-        // 会被同一次冒泡立刻当成「点空白」清掉选中（2026-10-18 实测）。
+        //
+        // ⚠️ portal 出去的东西不算「树里的空白」（rev173.317 · 真人测试5 #1）：
+        // 右键菜单 / 菜单遮罩 / 彻底删除确认框都 `createPortal` 到 body，但它们**仍在
+        // React 树上**是本组件的子节点 —— 点击会沿 React 树冒泡到这里。以前只挡了
+        // `[role="menu"]`，点菜单遮罩（`.zn-menu-scrim`）会被当成"点空白"⇒ 选中被清空、
+        // 多选态被退出。这正是「点多选后点其他文件就取消选中」的一半原因。
+        if (!rootRef.current?.contains(e.target as Node)) return
         if ((e.target as HTMLElement).closest('[role="menu"]')) return
         if (!(e.target as HTMLElement).closest('[data-zn-path]')) {
           setSelected([])
@@ -1278,7 +1421,70 @@ export function FileTree({
       }}
     >
       {toolbar}
-      {/* 框选的选择框：fixed 定位（不占布局、跟随视口坐标），松手即消失 */}
+      {/* 多选态的批量栏（rev173.317）—— 取代原来"选到 2 项就弹菜单"的做法：
+          菜单的遮罩会盖住列表，多选根本点不下去。这里只在顶部占一行。 */}
+      {selectMode && (
+        <div
+          className="zn-tree-batchbar"
+          role="toolbar"
+          aria-label="批量操作"
+          /* 点栏里的任何地方都不能冒泡成"点空白 = 取消选中" */
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="zn-tree-batchbar-count">已选 {selectedSet.size} 项</span>
+          <button
+            type="button"
+            className="zn-plain-btn"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setMoveMenu({ x: r.left, y: r.bottom })
+            }}
+          >
+            移入…
+          </button>
+          <button
+            type="button"
+            className="zn-plain-btn is-danger"
+            onClick={() => deletePaths([...selectedSet])}
+          >
+            删除
+          </button>
+          <button
+            type="button"
+            className="zn-plain-btn is-danger"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setPurgeConfirm({ paths: dedupe([...selectedSet]), x: r.left, y: r.bottom })
+            }}
+          >
+            彻底删除
+          </button>
+          <button
+            type="button"
+            className="zn-plain-btn"
+            onClick={() => {
+              setSelectMode(false)
+              setSelected([])
+              setSelectionCleared(true)
+            }}
+          >
+            完成
+          </button>
+        </div>
+      )}
+      {/* 批量「移入…」的目标目录列表 */}
+      {moveMenu && (
+        <ContextMenu
+          x={moveMenu.x}
+          y={moveMenu.y}
+          anchor={menuAnchor}
+          items={moveTargets.map((d) => ({
+            label: d === '' ? '库根' : d,
+            onClick: () => moveSelectedTo(d),
+          }))}
+          onClose={() => setMoveMenu(null)}
+        />
+      )}
       {marquee && (
         <div
           className="zn-marquee"
