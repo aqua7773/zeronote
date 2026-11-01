@@ -14,10 +14,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.311 · 0.9.10 · 2026-11-01 |
+| rev / 版本 | rev173.311 · 0.9.11 · 2026-11-01 |
 | 测试基线 | vitest 1736 · cargo 94 · oxlint 4 warnings（2026-11-01） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-01 · CHANGELOG 0.9.10 |
+| 文档 | README 现状 2026-11-01 · CHANGELOG 0.9.11 |
 <!-- FACTS:END -->
 
 ## 是什么
