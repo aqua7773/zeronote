@@ -64,7 +64,7 @@ describe('TitleBar ☰ / ⋯', () => {
    * 长按 ☰ = 菜单（rev173.48 · 用户要求「手机搜索入口：长按 ☰ 触发桌面右键动作」）。
    * 手机没有右键，而短按被侧栏开关占用 —— 长按是手机上唯一的菜单入口。
    */
-  it('长按 ☰ 500ms 弹菜单；松手补发的 click 被吃掉，不再切侧栏', () => {
+  it('长按 ☰ 到点**不弹**，松手才弹菜单；补发的 click 被吃掉，不再切侧栏', () => {
     vi.useFakeTimers()
     try {
       const { onMenu, onToggleSidebar } = renderBar({ toggle: true })
@@ -73,10 +73,13 @@ describe('TitleBar ☰ / ⋯', () => {
       fireEvent.pointerDown(btn)
       vi.advanceTimersByTime(499)
       expect(onMenu).not.toHaveBeenCalled()
+      // 到点只是"上膛"，手指还按着 ⇒ 仍不弹（rev173.321）
       vi.advanceTimersByTime(1)
-      expect(onMenu).toHaveBeenCalledWith({ x: 0, y: 32 })
+      expect(onMenu).not.toHaveBeenCalled()
 
       fireEvent.pointerUp(btn)
+      expect(onMenu).toHaveBeenCalledWith({ x: 0, y: 32 })
+
       fireEvent.click(btn)
       expect(onToggleSidebar).not.toHaveBeenCalled()
     } finally {

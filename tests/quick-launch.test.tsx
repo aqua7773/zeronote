@@ -52,13 +52,18 @@ describe('MobileNoteCards · 长按 ＋', () => {
     expect(props.onQuickLaunch).not.toHaveBeenCalled()
   })
 
-  it('按住 500ms → 打开快捷入口', () => {
+  it('按住 500ms **不打开**，松手才打开快捷入口（rev173.321）', () => {
     const props = cardsProps()
     render(<MobileNoteCards {...props} />)
     fireEvent.pointerDown(composeBtn(), { clientX: 10, clientY: 10 })
     act(() => {
       vi.advanceTimersByTime(500)
     })
+    // 到点只是"上膛"，手指还按着 ⇒ 不开
+    expect(props.onQuickLaunch).not.toHaveBeenCalled()
+    expect(props.onNewNote).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(composeBtn())
     expect(props.onQuickLaunch).toHaveBeenCalledTimes(1)
     expect(props.onNewNote).not.toHaveBeenCalled()
   })

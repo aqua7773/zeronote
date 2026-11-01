@@ -818,11 +818,18 @@ export default function App() {
     let sx = 0
     let sy = 0
     let tracking = false
+    /** 这次触摸的起点是不是编辑器正文（长按释放要弹四键条，rev173.321） */
+    let inEditor = false
+    /** 按下时刻 —— 长按判定用 */
+    let pressAt = 0
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
       sx = e.touches[0].clientX
       sy = e.touches[0].clientY
       tracking = true
+      pressAt = Date.now()
+      const el = e.target as HTMLElement | null
+      inEditor = !!el?.closest?.('.zn-editor .cm-editor')
     }
     const onEnd = (e: TouchEvent) => {
       if (!tracking) return
@@ -831,6 +838,14 @@ export default function App() {
       if (!t) return
       const dx = t.clientX - sx
       const dy = t.clientY - sy
+      /**
+       * **编辑区长按：释放时才弹四键条**（rev173.321 · 用户「普通长按也是释放弹」）。
+       * 按住不动 ≥500ms 且位移 <10px ⇒ 弹（把按下点当锚点，四键条贴在那里）。
+       */
+      if (inEditor && pressAt && Date.now() - pressAt >= 500 && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+        setMobileEditBar({ x: sx, y: sy })
+        return
+      }
       // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归任何抽屉管（rev173.303）
       const overlay = hasBlockingOverlay()
       // 输入状态只算一次：左抽屉与「更多」抽屉同一口径（rev170 / rev173.312）
@@ -5102,8 +5117,12 @@ export default function App() {
             el instanceof HTMLElement &&
             el.closest('.zn-editor .cm-editor')
           ) {
+            /**
+             * 编辑区长按 ⇒ 横向四键条（复制 / 剪切 / 粘贴 / 全选）。
+             * rev173.321：**长按瞬间不弹**，改由 `touchend` 判（见上面的手势 effect），
+             * 这里只负责挡掉系统的原生菜单。
+             */
             e.preventDefault()
-            setMobileEditBar({ x: e.clientX, y: e.clientY })
             return
           }
           /**

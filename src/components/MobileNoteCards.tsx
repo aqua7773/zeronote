@@ -53,6 +53,12 @@ type Props = {
 const LONG_PRESS_MS = 500
 const LONG_PRESS_MOVE_PX = 10
 
+/**
+ * 触摸设备：菜单**不在长按瞬间弹**，等松手再弹（rev173.321 · 用户 2026-11-02：
+ * 「移动端菜单改成长按时不弹，在长按释放的时候弹菜单」）。与 `FileTree` 同一口径。
+ */
+const TOUCH_UI = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+
 /** mtime（毫秒）→ `2026-10-18 14:08:32`（2026-10-18 用户要求：精确到秒） */
 const fmtTime = (ms: number) => {
   const d = new Date(ms)
@@ -108,6 +114,14 @@ export function MobileNoteCards({
   )
   const [contents, setContents] = useState<Record<string, string>>({})
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  /**
+   * 长按释放才弹菜单（rev173.321）。三个局部状态：
+   *  · `pressRef` 记按下时刻与位置；
+   *  · `movedRef` 标记"手指划动过"（划动 = 滚列表，不是长按）；
+   *  · `suppressClickRef` 吃掉松手后系统补发的那次 click（否则顺手把笔记打开了）。
+   */
+  const pressRef = useRef<{ t: number; x: number; y: number } | null>(null)
+  const suppressClickRef = useRef(false)
 
   /**
    * 卡片菜单压进 Android 返回键的层出口栈（rev173.66）。
@@ -130,12 +144,14 @@ export function MobileNoteCards({
     }
   }, [menu, layers])
 
-  /* ── 长按 ＋（rev173.20）──
-   * 短按 = 新建笔记（不变）；按住 500ms = 打开环形快捷入口。
-   * 三个 ref 分工：定时器、按下起点（判滑动）、「长按已触发」标记（吃掉松手后补发的 click）。 */
+  /* ── 长按 ＋（rev173.20；rev173.321 改成松手才打开）──
+   * 短按 = 新建笔记（不变）；按住 500ms 后**松手** = 打开环形快捷入口。
+   * 四个 ref 分工：定时器、按下起点（判滑动）、「长按已上膛」标记、「吃掉松手后补发的 click」标记。 */
   const pressTimer = useRef<number | null>(null)
   const pressStart = useRef<{ x: number; y: number } | null>(null)
   const suppressClick = useRef(false)
+  /** 定时器到点 = 上膛；真正触发在 pointerup（长按期间界面保持干净） */
+  const armed = useRef(false)
 
   const cancelPress = useCallback(() => {
     if (pressTimer.current !== null) {
@@ -143,6 +159,7 @@ export function MobileNoteCards({
       pressTimer.current = null
     }
     pressStart.current = null
+    armed.current = false
   }, [])
 
   // 卸载时清掉挂起的定时器，别让它在组件没了之后调 onQuickLaunch
@@ -158,8 +175,8 @@ export function MobileNoteCards({
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null
       pressStart.current = null
-      suppressClick.current = true
-      onQuickLaunch()
+      // rev173.321：到点只上膛，**松手时**才真正打开环形入口
+      armed.current = true
     }, LONG_PRESS_MS)
   }
 
@@ -169,6 +186,15 @@ export function MobileNoteCards({
     const dx = e.clientX - start.x
     const dy = e.clientY - start.y
     if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) cancelPress()
+  }
+
+  /** 松手：长按够久才打开环形入口（长按期间什么都不弹） */
+  const onComposePointerUp = () => {
+    const fired = armed.current
+    cancelPress()
+    if (!fired) return
+    suppressClick.current = true
+    onQuickLaunch?.()
   }
 
   /** 短按才新建；长按那一下松手会补发 click，必须吃掉 */
@@ -320,10 +346,51 @@ export function MobileNoteCards({
             <article
               key={n.path}
               className="zn-mobile-card"
-              onClick={() => onOpen(n.path)}
+              onClick={() => {
+                // 长按释放弹过菜单 ⇒ 这一次 click 是"松手"补发的，别打开笔记
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false
+                  return
+                }
+                onOpen(n.path)
+              }}
+              onTouchStart={(e) => {
+                if (!TOUCH_UI || e.touches.length !== 1) return
+                const t = e.touches[0]
+                pressRef.current = { t: Date.now(), x: t.clientX, y: t.clientY }
+              }}
+              onTouchMove={(e) => {
+                const p = pressRef.current
+                if (!p) return
+                const t = e.touches[0]
+                if (!t) return
+                const dx = t.clientX - p.x
+                const dy = t.clientY - p.y
+                if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) {
+                  // 划动了 ⇒ 用户在滚列表，这次不是长按
+                  pressRef.current = null
+                }
+              }}
+              onTouchEnd={() => {
+                const p = pressRef.current
+                pressRef.current = null
+                if (!p) return
+                if (Date.now() - p.t < LONG_PRESS_MS) return
+                // 长按**释放**才弹菜单（长按期间界面保持干净）
+                suppressClickRef.current = true
+                window.setTimeout(() => {
+                  suppressClickRef.current = false
+                }, 0)
+                setMenu({ path: n.path, x: p.x, y: p.y })
+              }}
+              onTouchCancel={() => {
+                pressRef.current = null
+              }}
               onContextMenu={(e) => {
-                // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单
+                // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单（2026-10-18 用户要求）
                 e.preventDefault()
+                // rev173.321：手机不在长按瞬间弹，等松手（见 onTouchEnd）
+                if (TOUCH_UI) return
                 setMenu({ path: n.path, x: e.clientX, y: e.clientY })
               }}
             >
@@ -354,7 +421,7 @@ export function MobileNoteCards({
           onClick={onComposeClick}
           onPointerDown={onComposePointerDown}
           onPointerMove={onComposePointerMove}
-          onPointerUp={cancelPress}
+          onPointerUp={onComposePointerUp}
           onPointerLeave={cancelPress}
           onPointerCancel={cancelPress}
           aria-label="新建一条（长按打开快捷入口）"

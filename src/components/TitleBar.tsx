@@ -97,11 +97,17 @@ export function TitleBar({
   const HOLD_MS = 500
   const holdTimer = useRef<number | null>(null)
   const suppressClick = useRef(false)
+  /**
+   * **长按释放才弹菜单**（rev173.321 · 用户 2026-11-02：「移动端菜单改成长按时不弹，
+   * 在长按释放的时候弹菜单」）。定时器到点只"上膛"，真正弹菜单在**松手**那一刻。
+   */
+  const holdArmed = useRef(false)
   const cancelHold = () => {
     if (holdTimer.current !== null) {
       window.clearTimeout(holdTimer.current)
       holdTimer.current = null
     }
+    holdArmed.current = false
   }
   const onHoldStart = () => {
     // 每次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
@@ -109,9 +115,21 @@ export function TitleBar({
     cancelHold()
     holdTimer.current = window.setTimeout(() => {
       holdTimer.current = null
-      suppressClick.current = true
-      onMenu({ x: 0, y: 32 })
+      // 到点只是"可以弹了"，不立刻弹 —— 手指还按着，界面保持干净
+      holdArmed.current = true
     }, HOLD_MS)
+  }
+  /** 松手：够久了才弹菜单（按住期间移动 / 取消走 cancelHold，不会弹） */
+  const onHoldEnd = () => {
+    const fired = holdArmed.current
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current)
+      holdTimer.current = null
+    }
+    holdArmed.current = false
+    if (!fired) return
+    suppressClick.current = true
+    onMenu({ x: 0, y: 32 })
   }
 
   return (
@@ -126,7 +144,7 @@ export function TitleBar({
         type="button"
         className="zn-icon-btn"
         onPointerDown={onHoldStart}
-        onPointerUp={cancelHold}
+        onPointerUp={onHoldEnd}
         onPointerLeave={cancelHold}
         onPointerCancel={cancelHold}
         onClick={() => {

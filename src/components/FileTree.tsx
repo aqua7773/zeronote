@@ -264,6 +264,19 @@ function itemKindOf(meta: NoteMeta | undefined, isDir: boolean): ItemMenuKind {
   return (meta?.kind ?? 'note') === 'note' ? 'note' : 'attachment'
 }
 
+/**
+ * 触摸设备（Android）—— 菜单**不在长按瞬间弹**，等手指抬起再弹（rev173.321 · 用户 2026-11-02：
+ * 「移动端菜单改成长按时不弹，在长按释放的时候弹菜单」）。
+ *
+ * 为什么：Android 长按 ~500ms 会派发 `contextmenu`，菜单是全屏遮罩式的，一弹出来就把
+ * 还没结束的触摸序列遮住了 —— 想"按住拖"的人只要慢半拍，后半个手势就变成在遮罩上拖。
+ * 改成松手再弹之后：按住期间界面干净，移动即拖拽，抬起不动才出菜单。
+ */
+const TOUCH_UI = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+
+/** 长按判定（与系统长按同阈值）：按住这么久再松手 = 弹菜单 */
+const MENU_LONG_PRESS_MS = 500
+
 /** 多选态的勾选框（纯视觉；点击由整行承担，避免按钮套按钮） */
 function CheckBox({ on }: { on: boolean }) {
   return (
@@ -388,6 +401,8 @@ function Node({
             }${dragging === node.path ? ' is-dragging' : ''}`}
             style={pad}
             data-zn-path={node.path}
+            data-zn-dir="1"
+            data-zn-virtual={node.virtual ? '1' : undefined}
             /* 多选态：点目录 = 勾选它（连带里面全部条目），不再折叠 */
             onClick={() =>
               selectMode
@@ -399,6 +414,8 @@ function Node({
               e.stopPropagation()
               // 虚拟分组**不对应磁盘目录** ⇒ 不给任何文件操作菜单（它只是视图聚合）
               if (node.virtual) return
+              // 手机：长按**不立刻**弹菜单，等松手（触摸通道里判，见 TOUCH_UI）
+              if (TOUCH_UI) return
               onContextMenu(node.path, true, e.clientX, e.clientY)
             }}
             title={
@@ -520,6 +537,8 @@ function Node({
         e.preventDefault()
         e.stopPropagation()
         // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）。
+        // rev173.321：手机改成**松手才弹**（长按那一刻弹会把正在进行的拖拽遮住）。
+        if (TOUCH_UI) return
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
@@ -1025,6 +1044,12 @@ export function FileTree({
     let fromPath: string | null = null
     let target: string | null = null
     let start = { x: 0, y: 0 }
+    /** 按下时刻 + 是否真的移动过 —— 松手时据此判「长按释放 = 弹菜单」（rev173.321） */
+    let pressAt = 0
+    let moved = false
+    /** 按下那一行是不是目录 / 虚拟分组（弹菜单时要用） */
+    let pressIsDir = false
+    let pressVirtual = false
 
     const detach = () => {
       window.removeEventListener('touchmove', onMove)
@@ -1041,6 +1066,10 @@ export function FileTree({
       dragging = false
       fromPath = null
       target = null
+      moved = false
+      pressAt = 0
+      pressIsDir = false
+      pressVirtual = false
       detach()
       setDropTarget(null)
       setDraggingPath(null)
@@ -1053,23 +1082,55 @@ export function FileTree({
       const wasDragging = dragging
       const src = fromPath
       const tgt = target
+      const held = pressAt ? Date.now() - pressAt : 0
+      const didMove = moved
+      const isDir = pressIsDir
+      const isVirtual = pressVirtual
+      const at = { x: start.x, y: start.y }
       reset()
-      if (!wasDragging) return
-      // 松手后系统还会补一次 click —— 拦掉，否则会把最后经过的笔记打开
+
+      // 拖拽松手：执行移动（这条分支不再弹菜单）
+      if (wasDragging) {
+        // 松手后系统还会补一次 click —— 拦掉，否则会把最后经过的笔记打开
+        suppressClickRef.current = true
+        window.setTimeout(() => {
+          suppressClickRef.current = false
+        }, 0)
+        if (!src || tgt === null) return
+        const { selectedSet: sel, dirPathSet: dirsNow, onRename: rename } = dragRefs.current
+        const paths = sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
+        const movedPaths = paths.filter((p) => parentDir(p) !== tgt)
+        if (!movedPaths.length) return
+        for (const p of movedPaths) {
+          rename(p, tgt ? `${tgt}/${baseName(p)}` : baseName(p), dirsNow.has(p))
+        }
+        setSelected([])
+        setSelectionCleared(true)
+        return
+      }
+
+      /**
+       * **长按释放才弹菜单**（rev173.321 · 用户：「移动端菜单改成长按时不弹，在长按释放的时候弹菜单」）。
+       *
+       * 条件：按住 ≥ `MENU_LONG_PRESS_MS`、期间没移动超过门槛、不是虚拟分组。
+       * 弹完要把紧随其后的那次 click 拦掉，否则松手会顺手把笔记打开。
+       */
+      if (!src || didMove) return
+      if (held < MENU_LONG_PRESS_MS) return
+      if (isVirtual) return
       suppressClickRef.current = true
       window.setTimeout(() => {
         suppressClickRef.current = false
       }, 0)
-      if (!src || tgt === null) return
-      const { selectedSet: sel, dirPathSet: dirsNow, onRename: rename } = dragRefs.current
-      const paths = sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
-      const moved = paths.filter((p) => parentDir(p) !== tgt)
-      if (!moved.length) return
-      for (const p of moved) {
-        rename(p, tgt ? `${tgt}/${baseName(p)}` : baseName(p), dirsNow.has(p))
-      }
-      setSelected([])
-      setSelectionCleared(true)
+      const { selectedSet: sel } = dragRefs.current
+      setMenu({
+        path: src,
+        dir: isDir ? src : parentDir(src),
+        isDir,
+        multi: sel.has(src) && sel.size > 1,
+        x: at.x,
+        y: at.y,
+      })
     }
 
     const onMove = (e: TouchEvent) => {
@@ -1079,6 +1140,8 @@ export function FileTree({
       const dy = t.clientY - start.y
       if (!dragging) {
         if (dx * dx + dy * dy < START_PX * START_PX) return
+        // 越过门槛就算"移动过"（松手时不再当长按处理）
+        moved = true
         if (!armed) {
           // 还没到 240ms 就开始划 ⇒ 用户在滚动，这次不拖
           reset()
@@ -1129,12 +1192,17 @@ export function FileTree({
       if (e.touches.length !== 1) return
       const t = e.touches[0]
       const el = t.target as HTMLElement | null
-      const p = el?.closest?.<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+      const row = el?.closest?.<HTMLElement>('[data-zn-path]') ?? null
+      const p = row?.dataset.znPath ?? null
       // 只从**条目**上起手；空白处的触摸留给滚动
       if (!p) return
       reset()
       fromPath = p
       start = { x: t.clientX, y: t.clientY }
+      pressAt = Date.now()
+      moved = false
+      pressIsDir = row?.dataset.znDir === '1'
+      pressVirtual = row?.dataset.znVirtual === '1'
       timer = window.setTimeout(() => {
         timer = null
         armed = true
