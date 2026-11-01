@@ -1,11 +1,11 @@
 {
-  "version": "0.9.8",
-  "notes": "Changed\n\n- 导入导出面板改成「选笔记 → 选格式」（rev173.310 · 真人测试4 #1/#2）：\n  - 根因：`main` 位置的面板占满主区时编辑器已经卸载（契约 §2.2），旧面板的「导出当前笔记」\n    在手机上永远是空的。现在面板首页是三个等宽竖排按钮 —— 导出笔记… / 分享笔记… / 导入文件…，\n    点前两个先选一篇（列表带标题 / 所在目录 / 关键词筛选），再选格式；全程按 `path` 现读文件。\n  - 分享不再是纯文本：默认给带图片的 Markdown 文件（图片内嵌 `data:`，落 `<库>/.zn/share/`，\n    经原生 `share_file` → FileProvider `content://` 交给系统分享面板），另可分享长图 PNG 与纯文本。\n  - 新原生命令 `share_file`（`tauri-plugin-share`）：`Intent.ACTION_SEND` + `EXTRA_STREAM` +\n    `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION`；路径不在 `file_paths` 覆盖范围时自动复制进\n    `cacheDir/share/` 再分享。桌面照旧返回 `desktop-no-share`（md / txt 复制剪贴板、png 另存为）。\n  - 条目菜单「分享…」= 默认 Markdown 文件（菜单里没有\"选格式\"这一层）。\n  - `import-export` 0.2.1；新增 11 条单测（面板三态 / 格式按钮都带 path / 文件名清洗）。",
-  "pub_date": "2026-10-31T15:14:19.073Z",
+  "version": "0.9.9",
+  "notes": "Changed\n\n- 应用更新：多策略选路 + 断点续传 + 状态持久化（rev173.311）。用户报告两件事：\n  「现有更新渠道在没有代理的情况下几乎不可用」+「手机下载完没安装就切走，回来要重新检查、重新下载」。\n  - 安装包三条路并发实测（`direct` 直连 / `ghproxy.net` / `gh-proxy.com`），与 5 条清单渠道解耦 ——\n    渠道只决定清单从哪拉，安装包永远三路读一遍再决定走哪条。2026-11-01 本机无代理实测：\n    直连 1.16 MB/s、ghproxy 270 KB/s、gh-proxy 144 KB/s；16 条候选里只有这 2 条反代活着\n    （腾讯云「2026 最新收集」那 7 条全部失效）。\n  - 点「检查更新」就测好（有新版才测，已是最新不测 —— 检查不该变慢），点「安装」直接用\n    选定的那条，不再等一轮测速。直连能通就优先直连：256 KB 的测速样本会把直连低估到 ~350 KB/s，\n    所以速度只用来排同类反代，可达性才决定「能不能下」。\n  - 「下载通道」下拉：显示每条路的实测速度与首包延迟，也能手动指定；默认「自动（最快）」。\n  - Android 断点续传：数据先写 `<版本>.apk.part`，sha256 通过才改名成正式文件（半成品永不冒充完整包）；\n    有半成品就发 `Range: bytes=<已有>-`，换路也接着续（直连断 → ghproxy 从断点继续）。\n  - 状态持久化：关掉设置面板再打开 —— 已下完的直接进「安装」，下到一半的显示「已下载 x%，点一下从断点续」。\n    新增原生命令 `find_apk_cache(version)`；检查结果存 `localStorage['zn-app-update-last-result']`。\n  - 顺带修：桌面「测速」不再 HEAD 安装包 —— jsDelivr 本来就不镜像 Release 附件，那条 HEAD 必然红，\n    会把好好的清单渠道显示成「安装包不可达」（0.9.8 那张截图的误导源）。",
+  "pub_date": "2026-11-01T03:08:31.374Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.8/ZeroNote_0.9.8_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFR3o2bmo2THRKbUt4cS9qWjUwRTM3OUtRWWxrWVlLUzVxRjNoL0xGS3BjMVEvaU9pSnh0dTVVOThjbzFuczFEcVFSVzh0VHlYVitDTDFuQnA5d3MydWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDU5MDQ1CWZpbGU6WmVyb05vdGVfMC45LjhfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS44Ci95dG1XdUxIeVAvSUVDU1pRcDloQVpqcTZWNTlnZzllRytVcFYzQjFiMDgyQzBDdnZScGozcTg1cGdHeEFJOHVwT0w5Q3pLaVlqSWM5S2xlUFFmVEJRPT0K"
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.9/ZeroNote_0.9.9_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzFmWjNXYUhtc2hCendONTF0Ny9hRll6VXZnMkcvb3Q1aHA3ZitOdUNYbVpoMElodVNEbnVZNHJzVDc2d0tBNzRWeGdDMGdwZTcrMUdmUFR1UTd6NWdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTAxODE0CWZpbGU6WmVyb05vdGVfMC45LjlfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS45ClRwenJhWXllOTJEZGxuN2RHdWVKdmJoU2FZTlRQNE4zREtkVmd1WW96WXF6bXVhbUFTOElpZDk2aTFFcHB2LzNwT29hYW9RUFJxUWlwQUVXYjdPbEJBPT0K"
     }
   }
 }

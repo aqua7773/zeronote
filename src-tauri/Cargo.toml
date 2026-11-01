@@ -28,6 +28,12 @@ base64 = "0.22"
 # 市场下载的整包校验（rev173.148）：索引记的 sha256 与下载到的字节必须在**同一侧**比对。
 # 已在依赖树里（ed25519-dalek 的传递依赖）⇒ 不增加新的编译量。
 sha2 = "0.10"
+# 并发等待（rev173.311）：`updates.rs` 的多策略选路要并发测三条安装包路径
+# （`futures::future::join_all`），Android 也一样要走这条路。
+# ⚠️ 原先只在 `[target.'cfg(windows)'.dependencies]` 段（hello.rs 的 `block_on` 用），
+# Android 构建时解析不到 ⇒ **E0433**（2026-11-01 首次双端发版构建撞上，桌面先过、Android 挂）。
+# 挪到通用段：纯 Rust、无平台绑定，Android 的 ring/rustls 栈里本来就有它。
+futures = "0.3"
 # 图片压缩（rev173.233 · 附件同步期 2）：插入图片时按需压到 1 MiB 以下。
 # 只开要用的格式 —— 默认 features 会把 avif(ravif) / exr / hdr / ico / pnm / qoi / tga
 # 全编进来（多几十个 crate、CI 明显变慢），而插入场景只需要 jpeg / png / webp。
@@ -96,8 +102,8 @@ windows = { version = "0.62", features = [
 # `IAsyncOperation` 不住在 windows crate 里（0.62 起挪到 windows-future），
 # 而 KeyCredentialManager 的每个调用都返回它 ⇒ 必须直接依赖才能标注类型 / await。
 windows-future = { version = "0.3", features = ["std"] }
-# hello.rs 用 block_on 等 WinRT 的 IAsyncOperation（COM 接口不是 Send，不能跨 await）
-futures = "0.3"
+# hello.rs 用 block_on 等 WinRT 的 IAsyncOperation（COM 接口不是 Send，不能跨 await）。
+# ⚠️ `futures` 本身已挪到上面的通用 `[dependencies]`（rev173.311：Android 也要用它做并发测速）。
 
 # HTTP 原语（`net` · rev173.106）：WebDAV 同步靠它，必须**在 Rust 侧发请求**——
 # WebView 里直连会被 CORS 拦死（PROPFIND/PUT 必然触发 preflight，见方案文档 §3 缺口 1）。

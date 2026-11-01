@@ -205,6 +205,43 @@ revision: 173.311
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.311（2026-11-01 · 0.9.9 发版：应用更新多策略选路 + 断点续传 + 状态持久化）
+
+> 用户两句话：「现有更新渠道在没有代理的情况下几乎不可用」+「手机下载完没安装的话，切走再回来就要重新检查、重新下载」。
+> 中间转来一篇腾讯云镜像合集让我试；实测 16 条候选只活 2 条，反而发现**直连是最快的**。
+> 然后拍板：「做多策略，哪种策略能用就走哪条」「点检查更新就直接测试判断出最优方式，用户点安装就直接用最优方式安装」「B 方案同意，断点续传也做」，最后「发1，2先不做」。
+
+> **改了什么**
+>
+> | # | 改法 |
+> |---|---|
+> | 1 | 安装包 **三路实测**（`direct` / `ghproxy.net` / `gh-proxy.com`），与 5 条**清单渠道**解耦 —— 渠道只管清单从哪拉，安装包永远三路读一遍 |
+> | 2 | **检查更新时就测好**（有新版才测，已是最新不测），**点安装直接用**选定的那条；白名单只认候选三条（手改 localStorage 也装不了野包） |
+> | 3 | **直连能通就优先直连**（2 MB 实测最快；256 KB 样本会把直连低估到 ~350 KB/s，只用来判可达性） |
+> | 4 | **Android 断点续传**：写 `.part`，`Range` 续传，206 追加 / 200 从头，**换路也接着续**，sha256 通过才 rename |
+> | 5 | **状态持久化**：`localStorage['zn-app-update-last-result']` + 新命令 `find_apk_cache(version)` → `{path, size, partial}` |
+> | 6 | 「下载通道」下拉：每条路的实测速度 + 首包延迟，可手选；默认「自动（最快）」 |
+> | 7 | 顺带修：桌面「测速」不再 HEAD 安装包（jsDelivr 拿不到 Release 附件，那条必然红，把清单渠道误报成「安装包不可达」） |
+
+> | 步 | 结果 |
+> |---|---|
+> | 实测 | 本机无代理：直连 **1.16 MB/s** · ghproxy **270 KB/s** · gh-proxy **144 KB/s**；16 条候选只活这 2 条反代 |
+> | 验证 | tsc 0 · oxlint src **4 warnings（= 基线）** · vitest **1735**（+6）· cargo test --lib **94 passed**（+3）· `live_route_pick` 真网络 5 轮 |
+> | 版本 | `node scripts/release.mjs 0.9.9`（三处，`Cargo.lock` 跟随） |
+
+> **踩到的坑：三条测速算法都被真网络推翻过**
+>
+> 1. **64 KB 平均** ⇒ 握手 + TTFB 把 1.16 MB/s 的直连压成 **42 KB/s**（数量级全错）
+> 2. **末段瞬时速度** ⇒ ghproxy 首包 6.3 秒后数据一次性灌入，最后 64 KB 只用几毫秒 ⇒ 算出 **28.6 MB/s**、把直连挤到第三
+> 3. **最终**：256 KB 平均 + 扣 TTFB + 20 MB/s 上限；排序交给「直连优先」，速度只在同类反代之间比
+> 4. **`futures` 原来只在 `[target.'cfg(windows)'.dependencies]`**（hello.rs 的 `block_on` 用），
+>    Android 解析不到 ⇒ **E0433** —— 双端构建**桌面先过、Android 挂在最后 108 秒**。
+>    挪到通用 `[dependencies]` 后重编 Android 通过（`Cargo.lock` 跟随变动）
+>
+> 另有：五轮 live 里 `ghproxy.net` **两轮直接 `error sending request`**、一轮首包 5.9–6.3 秒 —— 单路客户端在这些时刻就是「全线不可达」。
+
+> ⚠️ **没做**：第四条路 —— 安装包当**仓库文件**发（`raw.githubusercontent.com` 实测 **941 KB/s**，与 `release-assets` 不同域名 = 独立故障域），代价是每版仓库 +50 MB。用户明确「2 先不做」。
+
 > ## 📌 rev173.310（2026-10-31 · 0.9.8 发版：导入导出面板重做 + 分享带图片的 Markdown 文件）
 
 > 用户转来 `Downloads/真人测试4.md` 两条（① 手机上面板「导出当前笔记」永远是空的；② 分享要带图片的 markdown 文件），
