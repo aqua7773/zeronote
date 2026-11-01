@@ -881,6 +881,29 @@ export function FileTree({
    * 为什么监听 window 而不是容器的 `onPointerMove`：拖出侧栏时容器收不到事件，
    * 框/拖都会卡住；挂到 window 上，松手在哪儿都能结束。
    */
+  /**
+   * **拖拽落点判定**（rev173.319 · 用户 2026-11-01）：
+   *  · 落在**目录行**上 ⇒ 那个目录；
+   *  · 落在**文件树栏内的空白** ⇒ 库根（返回 `''`）；
+   *  · 落在**栏外** / 文件行 / 自己或自己的子目录上 ⇒ `null` = **不做动作**。
+   *
+   * 用户原话：「拖到文件树栏空白处，就放根目录，拖出文件树栏外不做动作」。
+   */
+  const resolveDropTarget = (x: number, y: number, fromPath: string): string | null => {
+    const root = rootRef.current
+    const el = document.elementFromPoint(x, y) as HTMLElement | null
+    if (!root || !el) return null
+    // 拖出文件树栏外 ⇒ 不动作（松手就是取消）
+    if (!root.contains(el)) return null
+    const over = el.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+    // 栏内空白 ⇒ 库根
+    if (!over) return ''
+    // 拖进自己 / 自己的子目录没有意义
+    if (over === fromPath || over.startsWith(`${fromPath}/`)) return null
+    // 文件行不能当落点
+    return dirPathSet.has(over) ? over : null
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || (e.pointerType && e.pointerType !== 'mouse')) return
     const root = rootRef.current
@@ -918,14 +941,8 @@ export function FileTree({
         return
       }
 
-      // ── 拖拽移动：只认文件夹做落点 ──
-      const over =
-        document
-          .elementFromPoint(ev.clientX, ev.clientY)
-          ?.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
-      const ok =
-        !!over && over !== fromPath && !over.startsWith(`${fromPath}/`) && dirPathSet.has(over)
-      target = ok ? over : null
+      // ── 拖拽移动：目录行 = 进那个目录；栏内空白 = 库根；栏外 = 不动作 ──
+      target = resolveDropTarget(ev.clientX, ev.clientY, fromPath)
       setDropTarget(target)
       // 拖拽视觉：源行淡出 + 跟手的小标签（用户 2026-10-17：「拖拽要有动画效果」）
       setDraggingPath(fromPath)
@@ -951,10 +968,11 @@ export function FileTree({
         suppressClickRef.current = false
       }, 0)
 
-      // 框选松手：只保留选中集合（批量操作走顶部批量栏 / 右键菜单，rev173.317）
+      // 框选松手：只保留选中集合（批量操作走右键菜单）
       if (!fromPath) return
 
-      if (!target) return
+      // `''` = 库根，是有效落点；只有 `null` 才是不动作
+      if (target === null) return
       // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项
       const paths =
         selectedSet.has(fromPath) && selectedSet.size > 1 ? dedupe([...selectedSet]) : [fromPath]
@@ -962,7 +980,7 @@ export function FileTree({
       const moved = paths.filter((p) => parentDir(p) !== target)
       if (!moved.length) return
       for (const p of moved) {
-        onRename(p, `${target}/${baseName(p)}`, dirPathSet.has(p))
+        onRename(p, target ? `${target}/${baseName(p)}` : baseName(p), dirPathSet.has(p))
       }
       setSelected([])
       setSelectionCleared(true)
@@ -1042,13 +1060,13 @@ export function FileTree({
       window.setTimeout(() => {
         suppressClickRef.current = false
       }, 0)
-      if (!src || !tgt) return
+      if (!src || tgt === null) return
       const { selectedSet: sel, dirPathSet: dirsNow, onRename: rename } = dragRefs.current
       const paths = sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
       const moved = paths.filter((p) => parentDir(p) !== tgt)
       if (!moved.length) return
       for (const p of moved) {
-        rename(p, `${tgt}/${baseName(p)}`, dirsNow.has(p))
+        rename(p, tgt ? `${tgt}/${baseName(p)}` : baseName(p), dirsNow.has(p))
       }
       setSelected([])
       setSelectionCleared(true)
@@ -1072,13 +1090,20 @@ export function FileTree({
       // 拖拽中不许列表跟着滚（必须 passive:false 才生效）
       e.preventDefault()
       const { selectedSet: sel, dirPathSet: dirsNow } = dragRefs.current
-      const over =
-        document
-          .elementFromPoint(t.clientX, t.clientY)
-          ?.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
-      const ok =
-        !!over && over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)
-      target = ok ? over : null
+      /**
+       * 落点判定（与 `resolveDropTarget` 同口径，rev173.319）：
+       * 目录行 ⇒ 它；栏内空白 ⇒ 库根 `''`；栏外 / 文件行 / 自己或子目录 ⇒ `null`（不动作）。
+       * 这里内联一份是因为本 effect 只挂一次，直接调渲染期的闭包会拿到旧的 `dirPathSet`。
+       */
+      const rootEl = rootRef.current
+      const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null
+      let next: string | null = null
+      if (rootEl && under && rootEl.contains(under)) {
+        const over = under.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+        if (!over) next = ''
+        else if (over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)) next = over
+      }
+      target = next
       setDropTarget(target)
       const count = sel.has(fromPath) && sel.size > 1 ? sel.size : 1
       setDragGhost({
@@ -1478,7 +1503,8 @@ export function FileTree({
 
   return (
     <div
-      className="zn-tree zn-filetree"
+      /* `is-drop-root`：拖到栏内空白 ⇒ 落到库根，没有具体行可高亮，用整栏描边提示 */
+      className={`zn-tree zn-filetree${dropTarget === '' ? ' is-drop-root' : ''}`}
       ref={rootRef}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}

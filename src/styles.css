@@ -412,6 +412,12 @@ body.is-resizing * {
   border-radius: 2px;
 }
 
+/* 拖到**栏内空白** = 落到库根（rev173.319）—— 没有具体行可高亮，用整栏描边提示 */
+.zn-filetree.is-drop-root {
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+  border-radius: var(--zn-radius-sm);
+}
+
 /* 多选时被选中的行。当前打开的那条另有 .is-active，两者不叠加 ——
    active 是"正在编辑这篇"，picked 是"打算批量操作这几篇"，轻重不同。 */
 .zn-tree-item.is-picked {
