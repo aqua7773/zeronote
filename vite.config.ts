@@ -58,12 +58,11 @@ export default defineConfig({
     strictPort: false,
     // Android 真机要通过局域网 IP 访问 dev server（tauri android dev 会选定本机 IP）
     host: true,
-    // 真机 HMR 必须**显式指定 host**：安卓 WebView 里页面的 location.hostname 是
-    // `tauri.localhost`（Tauri 的 origin），vite 客户端据此推出的地址手机连不到，
-    // 真机日志里表现为 `[vite] failed to connect to websocket`。
-    // hmr.host 是服务端注入给**所有**客户端的，桌面端会连同一个局域网 IP
-    // （本机访问自己的局域网地址没问题）。需要覆盖时设 ZN_HMR_HOST。
-    hmr: hmrHost ? { host: hmrHost } : undefined,
+    // 真机 HMR 必须**显式指定 host 和 port**：安卓 WebView 里页面的 location.hostname 是
+    // `tauri.localhost`（Tauri 的 origin）且**没有端口**，vite 客户端据此拼出的 ws 地址是
+    // `ws://<ip>:/`（端口为空）——真机日志里表现为 `[vite] failed to connect to websocket`。
+    // 这里把两者都钉死：host 走局域网 IPv4、port 走 dev server 端口。
+    hmr: hmrHost ? { host: hmrHost, port } : undefined,
     watch: {
       /**
        * 不让「运行时会被写」的目录触发前端 HMR（rev137 实测根因）：
