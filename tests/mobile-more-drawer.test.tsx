@@ -56,20 +56,19 @@ describe('MobileMoreDrawer（单栏钻入）', () => {
     expect(props.onAction).toHaveBeenCalledTimes(4)
   })
 
-  it('设置四分组点击 ⇒ onViewChange(tab)，不弹浮窗（rev173.313）', () => {
+  it('设置三分组点击 ⇒ onViewChange(tab)，不弹浮窗（rev173.313）', () => {
     const props = makeProps()
     render(<MobileMoreDrawer {...props} />)
     const cases: [RegExp, string][] = [
       [/^通用/, 'general'],
       [/^附件/, 'assets'],
-      [/^插件$/, 'plugins'],
       [/^关于/, 'about'],
     ]
     for (const [re, tab] of cases) {
       fireEvent.click(screen.getByRole('button', { name: re }))
       expect(props.onViewChange).toHaveBeenLastCalledWith(tab)
     }
-    expect(props.onViewChange).toHaveBeenCalledTimes(4)
+    expect(props.onViewChange).toHaveBeenCalledTimes(3)
   })
 
   it('二级页在同一条栏里展开，并带「返回更多」', () => {

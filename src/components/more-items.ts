@@ -1,35 +1,58 @@
 /**
- * 「更多」页的**条目表**（rev173.313）。
+ * 「更多」页的**条目表**（rev173.313；rev173.315 合并「插件中心」与「设置 → 插件」）。
  *
  * 独立成文件是因为 `react-refresh` 规则：组件文件里导出常量会让 HMR 退化
  * （`oxlint` 的 only-export-components 会报）。桌面浮窗（`Settings`）与手机右侧栏
  * （`MobileMoreDrawer`）都读这一份 —— 两种外壳摆同一张表，条目不会各写一份。
- */
-import { FolderOpen, HardDrive, Info, Plug, Search, Settings2, Store, Trash2 } from 'lucide-react'
-
-/** 设置分组 id。手机右侧栏要按它直达某一组（rev173.312）。 */
-export type TabId = 'general' | 'assets' | 'plugins' | 'about'
-
-/** 设置分组（四组，内容由 `SettingsSections` 渲染） */
-export const TABS: { id: TabId; label: string; icon: typeof Settings2 }[] = [
-  { id: 'general', label: '通用', icon: Settings2 },
-  // rev173.238：附件跨设备搬运（需求 §5）——配置云端临时区 + 上传 / 接收 / 清理
-  { id: 'assets', label: '附件', icon: HardDrive },
-  { id: 'plugins', label: '插件', icon: Plug },
-  { id: 'about', label: '关于', icon: Info },
-]
-
-/**
- * 「动作」条目：点了就**离开这一页**去做事（不是设置分组）。
  *
- * `vaults` 走宿主的多库面板、`plugin-center` 切主区 —— 宿主要自己关掉外壳再执行，
- * 所以这里只把 id 交回去（`onAction`）。
+ * ## 为什么分「笔记 / 设置」两组
+ *
+ * 动作类（搜索 / 回收站 / 切换库 / 插件中心）点了就离开这一页去别处；
+ * 分组类（通用 / 附件 / 关于）在这一页里钻进去。用户 2026-11-01 指出
+ * 「更多页面里同时存在笔记-插件中心，和设置-插件，两个同类项目没有合并」——
+ * 现在插件只留「插件中心」一条，并且从「笔记」组挪到「设置」组（它不是笔记功能），
+ * 原来「设置 → 插件」里的「启动时检查更新」开关搬进了插件中心页。
  */
+import { FolderOpen, HardDrive, Info, Search, Settings2, Store, Trash2 } from 'lucide-react'
+
+/** 设置分组 id（在这一页里钻进去的那几组） */
+export type TabId = 'general' | 'assets' | 'about'
+
+/** 动作条目 id（点了就离开这一页） */
 export type MoreActionId = 'search' | 'trash' | 'vaults' | 'plugin-center'
 
-export const MORE_ACTIONS: { id: MoreActionId; label: string; icon: typeof Search }[] = [
-  { id: 'search', label: '搜索', icon: Search },
-  { id: 'trash', label: '回收站', icon: Trash2 },
-  { id: 'vaults', label: '切换笔记库', icon: FolderOpen },
-  { id: 'plugin-center', label: '插件中心', icon: Store },
+export type MoreItemDef =
+  | { kind: 'action'; id: MoreActionId; label: string; icon: typeof Search }
+  | { kind: 'tab'; id: TabId; label: string; icon: typeof Search }
+
+/**
+ * 条目表：两组、共 7 项。
+ *
+ * 顺序 = 视觉顺序；两种外壳都按这个数组渲染，别在组件里另写一份。
+ */
+export const MORE_GROUPS: { title: string; items: MoreItemDef[] }[] = [
+  {
+    title: '笔记',
+    items: [
+      { kind: 'action', id: 'search', label: '搜索', icon: Search },
+      { kind: 'action', id: 'trash', label: '回收站', icon: Trash2 },
+      { kind: 'action', id: 'vaults', label: '切换笔记库', icon: FolderOpen },
+    ],
+  },
+  {
+    title: '设置',
+    items: [
+      // 插件中心：原来「笔记」组一条 + 「设置」组一条（摘要 + 开关），两处都指向插件。
+      // rev173.315 合并成这一条，开关搬进插件中心页（`PluginPanel`）。
+      { kind: 'action', id: 'plugin-center', label: '插件中心', icon: Store },
+      { kind: 'tab', id: 'general', label: '通用', icon: Settings2 },
+      { kind: 'tab', id: 'assets', label: '附件', icon: HardDrive },
+      { kind: 'tab', id: 'about', label: '关于', icon: Info },
+    ],
+  },
 ]
+
+/** 只有分组类条目（桌面左栏与手机二级页共用） */
+export const TABS = MORE_GROUPS.flatMap((g) => g.items).filter(
+  (i): i is Extract<MoreItemDef, { kind: 'tab' }> => i.kind === 'tab',
+)

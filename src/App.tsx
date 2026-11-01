@@ -666,7 +666,7 @@ export default function App() {
    * 设置页初始 tab（B1）：☰ 菜单「关于」直接落到「关于」页。
    * 配合 `<Settings key={settingsTab}>` 生效 —— 组件内 tab 由它自己的 state 管。
    */
-  const [settingsTab, setSettingsTab] = useState<'general' | 'assets' | 'plugins' | 'about'>('general')
+  const [settingsTab, setSettingsTab] = useState<'general' | 'assets' | 'about'>('general')
 
   /** ☰ 菜单「最近打开」的数据源（B1）—— openNote 成功时在 onOpened 里登记 */
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>(() => loadRecentNotes())
@@ -703,7 +703,7 @@ export default function App() {
    * 右侧「更多」抽屉当前停在**哪一屏**（rev173.313）：`menu` = 条目表，
    * 其余 = 某一组设置（单栏钻入）。受控放在这里是因为返回键要先「回菜单」再「关抽屉」。
    */
-  const [moreTab, setMoreTab] = useState<'menu' | 'general' | 'assets' | 'plugins' | 'about'>(
+  const [moreTab, setMoreTab] = useState<'menu' | 'general' | 'assets' | 'about'>(
     'menu',
   )
 
@@ -729,7 +729,7 @@ export default function App() {
    * 在移动端的形态就是右侧栏」。
    */
   const openMore = useCallback(
-    (tab?: 'menu' | 'general' | 'assets' | 'plugins' | 'about') => {
+    (tab?: 'menu' | 'general' | 'assets' | 'about') => {
       const android = /Android/i.test(navigator.userAgent)
       if (android) {
         setMoreTab(tab ?? 'menu')
@@ -4993,19 +4993,6 @@ export default function App() {
     onRenderHtmlChange: setRenderHtml,
     imageMode,
     onImageModeChange: setImageMode,
-    /* B3：这里不再有插件列表 —— 只给摘要与「打开插件中心」入口 */
-    pluginCount: rows.length,
-    pluginUpdateCount: rows.filter((r) => marketUpdates[r.id]).length,
-    onOpenPluginCenter: () => {
-      setSettingsOpen(false)
-      setMoreOpen(false)
-      setMainView('plugins')
-    },
-    autoCheckUpdates,
-    onAutoCheckChange: (on) => {
-      setAutoCheckEnabled(on)
-      setAutoCheckUpdates(on)
-    },
     /* J#9（rev173.281）：环形快捷入口的 5 格配置 */
     quickSlots,
     quickSlotOptions: quickSlotChoices,
@@ -5440,6 +5427,12 @@ export default function App() {
                 onOpenPanel={openPanelInTab}
                 pinnedPlugins={railPins}
                 onTogglePin={togglePin}
+                /* rev173.315：启动检查开关从「设置 → 插件」搬来这里（插件的事只在一处管） */
+                autoCheckUpdates={autoCheckUpdates}
+                onAutoCheckChange={(on) => {
+                  setAutoCheckEnabled(on)
+                  setAutoCheckUpdates(on)
+                }}
                 /* B3：核心能力接管从设置页迁来这里 —— 插件的事只在一个地方管 */
                 capabilities={kernel?.capabilityStatus() ?? []}
                 onCapabilityChoice={(name, pluginId) => {

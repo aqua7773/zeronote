@@ -2043,6 +2043,11 @@ body.is-resizing * {
 .zn-plugins-tab-count { color: var(--zn-fg-subtle); font-weight: 400; margin-left: 2px; }
 /* 插件中心 · 已安装页顶部的动作行（安装 .znp / 浏览市场） */
 .zn-plugins-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 10px; }
+/* 启动时检查插件更新（rev173.315）：从「设置 → 插件」搬来，跟在动作行下面 */
+.zn-plugins-autocheck { display: flex; align-items: flex-start; gap: 8px; padding: 0 0 10px; cursor: pointer; }
+.zn-plugins-autocheck input { margin-top: 2px; flex: none; }
+.zn-plugins-autocheck-text { display: flex; flex-direction: column; gap: 2px; font-size: var(--zn-text-sm); color: var(--zn-fg); }
+.zn-plugins-autocheck-text small { font-size: 11px; line-height: 1.5; color: var(--zn-fg-subtle); }
 /* 发现（市场）：索引地址一行 + 条目列表 */
 .zn-market { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 /* B3：手机上这一行放不下（下拉 + 地址 + 测速 + 刷新 ⇒ 地址只剩 "https:" 几个字），

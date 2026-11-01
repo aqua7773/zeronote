@@ -133,6 +133,12 @@ export function PluginPanel({
   onTogglePin,
   capabilities = [],
   onCapabilityChoice,
+  /**
+   * 启动时静默检查插件更新（rev173.315 从「设置 → 插件」搬来）。
+   * 24 小时一次，只标「可更新」角标，不下载不安装。不传 ⇒ 不显示这一行。
+   */
+  autoCheckUpdates,
+  onAutoCheckChange,
 }: {
   plugins: PluginRow[]
   error?: string | null
@@ -196,6 +202,12 @@ export function PluginPanel({
   capabilities?: CapabilityStatus[]
   /** 同优先级冲突时记住用户的选择（`null` = 清除记忆，回到最早登记的） */
   onCapabilityChoice?: (name: CapabilityName, pluginId: string | null) => void
+  /**
+   * 启动时静默检查插件更新（rev173.315）：原来在「设置 → 插件」里，
+   * 与「插件中心」重复了 —— 用户指出「两个同类项目没有合并」，现已搬到这一页。
+   */
+  autoCheckUpdates?: boolean
+  onAutoCheckChange?: (on: boolean) => void
 }) {
   /** 待确认删除的插件（null = 没有确认框） */
   const [pending, setPending] = useState<PluginRow | null>(null)
@@ -452,6 +464,23 @@ export function PluginPanel({
             </Button>
           )}
         </div>
+      )}
+
+      {/* 启动时静默检查（rev173.315）：从「设置 → 插件」搬来 ——
+          用户指出那里和「插件中心」重复，插件的事现在只在这一页管。 */}
+      {onAutoCheckChange && (
+        <label className="zn-plugins-autocheck">
+          <input
+            type="checkbox"
+            checked={autoCheckUpdates ?? true}
+            onChange={(e) => onAutoCheckChange(e.target.checked)}
+            aria-label="启动时检查插件更新"
+          />
+          <span className="zn-plugins-autocheck-text">
+            启动时检查插件更新
+            <small>最多每 24 小时查一次市场索引；只标「可更新」角标，不会自动下载或安装</small>
+          </span>
+        </label>
       )}
 
       {/* 核心能力接管（需求 §2.15 · rev173.231）—— B3 从设置页迁来，插件的事留在插件中心 */}

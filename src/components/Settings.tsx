@@ -4,7 +4,7 @@ import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { AssetRelayPanel } from './AssetRelayPanel'
 import { AppUpdatePanel } from './AppUpdatePanel'
-import { MORE_ACTIONS, TABS, type MoreActionId, type TabId } from './more-items'
+import { MORE_GROUPS, type MoreActionId, type TabId } from './more-items'
 import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
@@ -107,21 +107,6 @@ export type SettingsSectionProps = {
   imageMode?: ImageInsertMode
   onImageModeChange: (mode: ImageInsertMode) => void
   /**
-   * B3：插件页已独立成「插件中心」。
-   * 这里只显示摘要 + 一个入口；不传 ⇒ 插件 tab 只留一条说明（测试 / 独立窗口）。
-   */
-  pluginCount?: number
-  /** 可更新条目数（来自 24h 节流检查）—— 只用于摘要里的「N 个可更新」 */
-  pluginUpdateCount?: number
-  /** 打开插件中心（宿主负责关掉这一页并切主区） */
-  onOpenPluginCenter?: () => void
-  /**
-   * 启动时静默检查插件更新（24 小时一次，只标角标、不下载不安装）。
-   * 缺省 = 不显示这一行（测试 / 独立窗口）。
-   */
-  autoCheckUpdates?: boolean
-  onAutoCheckChange?: (on: boolean) => void
-  /**
    * 环形快捷入口的 **5 格**（rev173.281 · J#9）：值 = 槽 key 或 `null`（空槽）。
    * 中心 ＋ 固定是新建笔记，不在这里配。
    * 不传 ⇒ 不显示这一块（测试 / 独立窗口不需要）。
@@ -147,11 +132,6 @@ export function SettingsSections({
   onRenderHtmlChange,
   imageMode = 'original',
   onImageModeChange,
-  pluginCount,
-  pluginUpdateCount,
-  onOpenPluginCenter,
-  autoCheckUpdates,
-  onAutoCheckChange,
   quickSlots,
   quickSlotOptions = [],
   onQuickSlotChange,
@@ -314,63 +294,6 @@ export function SettingsSections({
 
       {tab === 'assets' ? <AssetRelayPanel vault={vault} /> : null}
 
-      {tab === 'plugins' ? (
-        /**
-         * B3：这里**不再有插件列表**。装 / 卸 / 升 / 市场 / 调试 / 核心能力接管
-         * 全在插件中心（同一份列表只画一次）。设置只留两件：
-         * 摘要 + 入口，以及那个只标角标的启动检查开关。
-         */
-        <>
-          <SectionTitle>插件中心</SectionTitle>
-          <Row
-            label="已安装插件"
-            hint={
-              pluginCount === undefined
-                ? '装 / 卸 / 升级、插件市场、调试与核心能力接管都在插件中心'
-                : [
-                    `${pluginCount} 个已安装`,
-                    pluginUpdateCount ? `${pluginUpdateCount} 个可更新` : null,
-                    '装 / 卸 / 升级与插件市场都在插件中心',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
-            }
-          >
-            {onOpenPluginCenter ? (
-              <button
-                type="button"
-                onClick={onOpenPluginCenter}
-                className="rounded-ui-sm border border-border-strong bg-background px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent"
-              >
-                打开插件中心
-              </button>
-            ) : null}
-          </Row>
-
-          {onAutoCheckChange ? (
-            <Row
-              label="启动时检查更新"
-              hint="最多每 24 小时查一次市场索引；只标「可更新」角标，不会自动下载或安装"
-            >
-              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-foreground">
-                <input
-                  type="checkbox"
-                  checked={autoCheckUpdates ?? true}
-                  onChange={(e) => onAutoCheckChange(e.target.checked)}
-                  aria-label="启动时检查插件更新"
-                />
-                {autoCheckUpdates ?? true ? '开' : '关'}
-              </label>
-            </Row>
-          ) : null}
-
-          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-            插件与内核<strong className="font-semibold text-foreground">同权限运行</strong>
-            ：它能读你的笔记、也能发网络请求。装之前先确认作者；装错了随时在插件中心禁用或删除。
-          </p>
-        </>
-      ) : null}
-
       {tab === 'about' ? (
         <>
           <SectionTitle>版本</SectionTitle>
@@ -438,23 +361,36 @@ export function Settings({
       <DialogBody className="p-0">
         <div className="flex min-h-[360px]">
           <nav className="w-[132px] shrink-0 overflow-y-auto border-r border-border p-2">
-            {MORE_ACTIONS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onAction?.(id)}
-                className={itemClass(false)}
-              >
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
-            ))}
-            <div className="mb-1 mt-3 px-2.5 text-[11px] text-muted-foreground">设置</div>
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button key={id} type="button" onClick={() => setTab(id)} className={itemClass(tab === id)}>
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
+            {/* 条目表与手机右侧栏共用 `more-items.ts`（rev173.315：两组共 7 项） */}
+            {MORE_GROUPS.map((group) => (
+              <div key={group.title}>
+                <div className="mb-1 mt-3 px-2.5 text-[11px] text-muted-foreground first:mt-0">
+                  {group.title}
+                </div>
+                {group.items.map((it) =>
+                  it.kind === 'tab' ? (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => setTab(it.id)}
+                      className={itemClass(tab === it.id)}
+                    >
+                      <it.icon size={16} />
+                      <span>{it.label}</span>
+                    </button>
+                  ) : (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => onAction?.(it.id)}
+                      className={itemClass(false)}
+                    >
+                      <it.icon size={16} />
+                      <span>{it.label}</span>
+                    </button>
+                  ),
+                )}
+              </div>
             ))}
           </nav>
 

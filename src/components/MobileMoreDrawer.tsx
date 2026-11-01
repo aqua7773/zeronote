@@ -9,21 +9,22 @@
  * （或者改名叫更多，因为不止设置功能），然后这个页面在桌面端的形态是悬浮窗口，
  * 在移动端的形态就是右侧栏」。
  *
- * 于是这一页不再只是「入口表」：**设置四组（通用 / 附件 / 插件 / 关于）直接在这里展开**
- * —— 点一项就钻进去，内容渲染的是 `SettingsSections`（与桌面浮窗**同一份**），
- * 不再弹第二个浮窗。桌面外壳见 `Settings.tsx`。
+ * 2026-11-01 第三轮（用户）：「更多页面里同时存在笔记-插件中心，和设置-插件，
+ * 两个同类项目没有合并」—— 条目表合并成 7 项（`more-items.ts`），插件只留「插件中心」一条，
+ * 并挪进「设置」组；原来「设置 → 插件」里的启动检查开关搬进插件中心页。
  *
  * 入口两处：
- *  · 屏幕右边缘往左滑（`lib/swipe.ts` 的 `moreSwipeIntent`）；
+ *  · 屏幕右边缘往左划（`lib/swipe.ts` 的 `moreSwipeIntent`）；
  *  · 左侧文件树抽屉头部的「更多」按钮。
  *
  * 规则沿用 B2（方案 §4 规则 3）：来源是插件的行，插件未启用时**整行消失**，不留灰位；
  * 每条入口一个可点行，最少 44px 高（触摸目标）。
  */
+import { Fragment } from 'react'
 import { ChevronLeft, ChevronRight, Puzzle, X } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
 import { SettingsSections, type SettingsSectionProps } from './Settings'
-import { MORE_ACTIONS, TABS, type MoreActionId, type TabId } from './more-items'
+import { MORE_GROUPS, type MoreActionId, type MoreItemDef, type TabId } from './more-items'
 
 export type MoreEntry = {
   key: string
@@ -70,6 +71,23 @@ function Row({
   )
 }
 
+/** 每行的副标题（按 id 给，不给就只显示标题） */
+function hintOf(it: MoreItemDef, vault: string | null): string | undefined {
+  if (it.kind === 'tab') return undefined
+  switch (it.id) {
+    case 'search':
+      return '全文 / 标签 / 目录'
+    case 'trash':
+      return '删除的笔记可恢复'
+    case 'vaults':
+      return vault ? baseName(vault) : '未选择'
+    case 'plugin-center':
+      return '安装 / 启用 / 插件市场'
+    default:
+      return undefined
+  }
+}
+
 export function MobileMoreDrawer({
   noteCount,
   onClose,
@@ -80,7 +98,7 @@ export function MobileMoreDrawer({
   vault,
   ...sections
 }: MobileMoreDrawerProps) {
-  const tabLabel = view === 'menu' ? null : TABS.find((t) => t.id === view)?.label
+  const tabLabel = view === 'menu' ? null : MORE_GROUPS.flatMap((g) => g.items).find((i) => i.kind === 'tab' && i.id === view)?.label
 
   return (
     <aside className="zn-more-drawer" aria-label="更多">
@@ -104,28 +122,26 @@ export function MobileMoreDrawer({
             </div>
           </div>
 
-          <div className="zn-more-group-title">笔记</div>
-          {MORE_ACTIONS.map(({ id, label, icon: Icon }) => (
-            <Row
-              key={id}
-              icon={<Icon size={20} />}
-              label={label}
-              hint={
-                id === 'vaults'
-                  ? vault
-                    ? baseName(vault)
-                    : '未选择'
-                  : id === 'plugin-center'
-                    ? '安装 / 启用 / 插件市场'
-                    : undefined
-              }
-              onClick={() => onAction(id)}
-            />
+          {/* 两组共 7 项（`more-items.ts`）：动作类点了离开这一页，分组类在栏内钻进去。 */}
+          {MORE_GROUPS.map((group) => (
+            <Fragment key={group.title}>
+              <div className="zn-more-group-title">{group.title}</div>
+              {group.items.map((it) => (
+                <Row
+                  key={it.id}
+                  icon={<it.icon size={20} />}
+                  label={it.label}
+                  hint={hintOf(it, vault)}
+                  onClick={() => (it.kind === 'tab' ? onViewChange(it.id) : onAction(it.id))}
+                />
+              ))}
+            </Fragment>
           ))}
 
-          {/* 插件类入口：启用才出现（零插件时这一整组不存在） */}
+          {/* 插件类入口（标签 / 导入导出）：单独一组排在最后 —— 夹在设置组中间会让
+              「通用 / 附件 / 关于」看起来不像一组。零插件时整组消失，不留灰位。 */}
           {pluginEntries.length > 0 ? (
-            <>
+            <Fragment>
               <div className="zn-more-group-title">插件</div>
               {pluginEntries.map((e) => (
                 <Row
@@ -136,13 +152,8 @@ export function MobileMoreDrawer({
                   onClick={e.onClick}
                 />
               ))}
-            </>
+            </Fragment>
           ) : null}
-
-          <div className="zn-more-group-title">设置</div>
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <Row key={id} icon={<Icon size={20} />} label={label} onClick={() => onViewChange(id)} />
-          ))}
         </>
       ) : (
         <>
