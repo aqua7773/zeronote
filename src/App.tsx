@@ -44,7 +44,7 @@ import type {
  * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
  * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
 import { MarkdownEditor } from './components/MarkdownEditor'
-import { LONG_PRESS_MS, hapticTick, spawnRipple } from './lib/long-press-feedback'
+import { LONG_PRESS_MS, hapticTick } from './lib/long-press-feedback'
 import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
@@ -815,6 +815,14 @@ export default function App() {
    * 与 `mainMenu` 分开：那个是桌面竖排菜单，触摸屏上点不准（见 MobileEditBar 的注释）。
    */
   const [mobileEditBar, setMobileEditBar] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * 手机软键盘是否弹起（rev173.334 · 真人测试8 #1）。
+   *
+   * 用户原话：「底部快捷栏只在键盘弹出的时候显示」。判据用 `visualViewport`：
+   * 键盘弹出时可见视口比窗口矮出一截（Android WebView 上 `innerHeight` 不变、vv 变矮）。
+   * 阈值 120px —— 顶栏/系统栏造成的小差异远小于键盘（通常 ~250–320px）。
+   */
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   useEffect(() => {
     window.localStorage.setItem('zeronote.sidebar.w', String(sidebarWidth))
@@ -925,10 +933,8 @@ export default function App() {
     let sx = 0
     let sy = 0
     let tracking = false
-    /** 这次触摸的起点是不是编辑器正文（长按释放要弹四键条，rev173.321） */
+    /** 这次触摸的起点是不是编辑器正文（到点弹四键条，rev173.334） */
     let inEditor = false
-    /** 按下时刻 —— 长按判定用 */
-    let pressAt = 0
     /** 长按到点的反馈定时器（rev173.325 · 真人测试6 #3） */
     let feedbackTimer: number | null = null
     const clearFeedback = () => {
@@ -942,16 +948,19 @@ export default function App() {
       sx = e.touches[0].clientX
       sy = e.touches[0].clientY
       tracking = true
-      pressAt = Date.now()
       const el = e.target as HTMLElement | null
       inEditor = !!el?.closest?.('.zn-editor .cm-editor')
       clearFeedback()
       if (inEditor) {
+        // rev173.334（真人测试8 #3）：编辑区**到点就弹四键条**，不等松手 ——
+        // 这里没有拖拽语义，等松手只是凭空多一步（用户：「编辑界面，不需要松手触发吧」）。
+        // 也不画涟漪：正文长按会先触发系统选字，涟漪叠在选区/把手上像故障
+        // （用户：「长按的动画效果什么地方都会触发吗，像是编辑界面」）。振动保留。
         const at = { x: sx, y: sy }
         feedbackTimer = window.setTimeout(() => {
           feedbackTimer = null
           hapticTick()
-          spawnRipple(at.x, at.y)
+          setMobileEditBar(at)
         }, LONG_PRESS_MS)
       }
     }
@@ -964,13 +973,9 @@ export default function App() {
       const dx = t.clientX - sx
       const dy = t.clientY - sy
       /**
-       * **编辑区长按：释放时才弹四键条**（rev173.321 · 用户「普通长按也是释放弹」）。
-       * 按住不动 ≥`LONG_PRESS_MS`（300ms）且位移 <10px ⇒ 弹（把按下点当锚点，四键条贴在那里）。
+       * rev173.334（真人测试8 #3）：编辑区已经在「到点」那一刻弹过四键条（见 onStart），
+       * 松手不再重复处理。继续往下走也没关系 —— 长按后位移必然小于下面抽屉手势的门槛。
        */
-      if (inEditor && pressAt && Date.now() - pressAt >= LONG_PRESS_MS && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-        setMobileEditBar({ x: sx, y: sy })
-        return
-      }
       // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归任何抽屉管（rev173.303）
       const overlay = hasBlockingOverlay()
       // 输入状态只算一次：左抽屉与「更多」抽屉同一口径（rev170 / rev173.312）
@@ -1210,6 +1215,10 @@ export default function App() {
        */
       if (vv.height < 200) return
       document.documentElement.style.setProperty('--zn-viewport-h', `${Math.round(vv.height)}px`)
+      // rev173.334（真人测试8 #1）：同一个读数顺手给出「键盘是否弹起」——
+      // 底部快捷栏（MarkToolbar）只在键盘弹出时显示。
+      const open = window.innerHeight - vv.height > 120
+      setKeyboardOpen((prev) => (prev === open ? prev : open))
     }
     apply()
     vv.addEventListener('resize', apply)
@@ -5705,8 +5714,9 @@ export default function App() {
               文档工具条（B4 · 方案 §2.1 / §3.3）——
               桌面：内核固定「源码 / 更多」+ 插件 `editor-topbar` 面板（反链 / 历史这类
               「贴着当前文档」的东西），禁用即整块消失；零插件时只剩两个内核动作。
-              手机：不开这条（「源码」仍钉在编辑器右上角，B2 已定），editor-topbar 面板
-              沿用旧渲染路径 —— 那时才有内容，没人注册就一个 DOM 都不渲染。
+              手机：**编辑器顶部不放插件面板**（rev173.334 · 真人测试8 #1：
+              「历史版本，移动端不放在上面，放在底部」）—— `editor-topbar` 面板改到
+              编辑器**底部**那条快捷栏（MarkToolbar）里渲染，与键盘同一行。
             */}
             {isDesktop ? (
               <DocToolbar
@@ -5720,21 +5730,6 @@ export default function App() {
                   setPanelState((s) => ({ ...s, [bind]: value }))
                 }
               />
-            ) : topbarPanels.length > 0 ? (
-              <div className="zn-editor-topbar">
-                {topbarPanels.map((p) => (
-                  <PanelBoundary key={p.id}>
-                    <UIRenderer
-                      node={renderPanelSafe(p, panelState)}
-                      state={panelState}
-                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                      onStateChange={(bind, value) =>
-                        setPanelState((s) => ({ ...s, [bind]: value }))
-                      }
-                    />
-                  </PanelBoundary>
-                ))}
-              </div>
             ) : null}
             <MarkdownEditor
               // 内嵌 HTML 开关变化时重建编辑器 —— 扩展是 mount 时读 prop，
@@ -5772,12 +5767,16 @@ export default function App() {
             {/*
               编辑器底部工具栏 —— **内核那一条只有移动端有**（用户 2026-10-12 定：
               桌面端只留右键菜单的「标记」子菜单，移动端只留键盘正上方这条快捷栏）。
-              手机上软键盘弹起时视口被压缩，这条正好落在**键盘正上方**
-              （不是浮动定位，是布局的自然结果）。
               插件注册到 `location: 'editor-toolbar'` 的面板跟在后面一起横滑
               （沿用 renderPanelSafe + PanelBoundary，坏面板只坏自己那一格）。
+
+              rev173.334（真人测试8 #1）两条变化：
+              ① **只在软键盘弹出时显示**（用户：「底部快捷栏只在键盘弹出的时候显示」）——
+                 键盘状态来自 `visualViewport`，见上面 `keyboardOpen` 的定义；
+              ② 手机上的 `editor-topbar` 面板（历史版本这类）从**顶部**挪到这里 ——
+                 用户：「历史版本，移动端不放在上面，放在底部」。
             */}
-            {platform === 'android' || toolbarPanels.length > 0 ? (
+            {(platform === 'android' ? keyboardOpen : toolbarPanels.length > 0) ? (
               <MarkToolbar
                 marks={platform === 'android' ? MARK_COMMANDS : []}
                 onRun={(id) => void kernel?.commands.api.execute(id)}
@@ -5787,6 +5786,20 @@ export default function App() {
                 onFind={platform === 'android' && activePath ? () => openFindPanel() : undefined}
               >
                 {toolbarPanels.map((p) => (
+                  <PanelBoundary key={p.id}>
+                    <UIRenderer
+                      node={renderPanelSafe(p, panelState)}
+                      state={panelState}
+                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                      onStateChange={(bind, value) =>
+                        setPanelState((s) => ({ ...s, [bind]: value }))
+                      }
+                    />
+                  </PanelBoundary>
+                ))}
+                {/* rev173.334（真人测试8 #1）：手机上 `editor-topbar` 面板（历史版本这类）
+                    从顶部挪到这条底部栏里 —— 与键盘同进同出。 */}
+                {topbarPanels.map((p) => (
                   <PanelBoundary key={p.id}>
                     <UIRenderer
                       node={renderPanelSafe(p, panelState)}
