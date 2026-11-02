@@ -149,12 +149,15 @@ export function pathFromNote(
 }
 
 /**
- * 库内相对路径 → **库根相对**写法（写进 Markdown 的那个，`/附件/a.png`）。
+ * 库内相对路径 → 以**库根**为基准的写法（写进 Markdown 的那个）。
  *
- * 为什么改用库根（rev173.325 · 真人测试6 #1）：附件落盘在「笔记当时所在目录」，
- * 而相对笔记目录的写法**一移动笔记就断**（用户实测：移回原位才正常）。
- * 库根写法记录的是附件的**真实位置**，与笔记放哪无关；`resolveImageAbsPath`
- * 本来就支持 `/` 开头按库根解析，同步到别的设备也一致。
+ * 为什么不再写成相对笔记目录（rev173.325 · 真人测试6 #1）：附件落盘在「笔记当时所在目录」，
+ * 相对笔记目录的写法**一移动笔记就断**（用户实测：移回原位才正常）。
+ * 这里写**完整库内路径**（`视频/image-1.png`），解析时按「笔记目录 → 库根」两候选去找
+ * （`resolveImageAbsPaths`）—— 笔记放哪都能命中。
+ *
+ * ⚠️ **不写前导 `/`**：`isLocalAbsPath`（附件三处共用）把 `/` 开头当「平台绝对路径」，
+ * 写了会让音视频/文件卡片误判成「库外原文件」。库根语义靠解析的第二候选表达，不需要前缀。
  *
  * 绝对路径（>1 MiB 的引用型附件、Android 的 `/storage/…`）与带 scheme 的 URL 原样返回。
  */
@@ -162,9 +165,10 @@ export function pathFromVaultRoot(imageRelPath: string): string {
   const raw = String(imageRelPath ?? '').replace(/\\/g, '/').trim()
   if (!raw) return raw
   if (WIN_ABS_RE.test(raw) || SCHEME_RE.test(raw)) return raw
-  // 已经是库根写法（/x）或平台绝对路径（Android 的 /storage/…）；`attachment_rel` 从不带前导斜杠
-  if (raw.startsWith('/')) return raw
-  return `/${raw}`
+  // Android 的外部存储绝对路径（引用型附件）原样保留 —— 与 `isLocalAbsPath` 同一口径
+  if (/^\/(?:storage|sdcard|data|mnt)\//.test(raw)) return raw
+  // 干掉可能的前导 /（老调用 / 手写路径），与 `isLocalAbsPath` 的判据兼容
+  return raw.replace(/^\/+/, '')
 }
 
 /**

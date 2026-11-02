@@ -143,13 +143,16 @@ describe('pathFromNote', () => {
 })
 
 describe('pathFromVaultRoot（rev173.325 · 真人测试6 #1）', () => {
-  it('库内相对路径 ⇒ 加前导 /（库根写法，移动笔记不断链）', () => {
-    expect(pathFromVaultRoot('image-1.png')).toBe('/image-1.png')
-    expect(pathFromVaultRoot('归档/image-1.png')).toBe('/归档/image-1.png')
+  it('库内相对路径 ⇒ 保留完整库内路径（不带前导 /，笔记移动后靠第二候选命中）', () => {
+    expect(pathFromVaultRoot('image-1.png')).toBe('image-1.png')
+    expect(pathFromVaultRoot('视频/image-1.png')).toBe('视频/image-1.png')
   })
 
-  it('已经是库根写法 / 绝对路径 / URL ⇒ 原样', () => {
-    expect(pathFromVaultRoot('/image-1.png')).toBe('/image-1.png')
+  it('前导 / 被去掉（避免被 isLocalAbsPath 误判成库外绝对路径）', () => {
+    expect(pathFromVaultRoot('/image-1.png')).toBe('image-1.png')
+  })
+
+  it('绝对路径 / 平台存储路径 / URL ⇒ 原样', () => {
     expect(pathFromVaultRoot('D:\\pics\\a.png')).toBe('D:/pics/a.png')
     expect(pathFromVaultRoot('/storage/emulated/0/Documents/x.png')).toBe(
       '/storage/emulated/0/Documents/x.png',
