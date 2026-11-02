@@ -38,6 +38,7 @@ import {
   type UpdateCheck,
   type UpdateMirror,
 } from '../kernel/app-update'
+import { compareVersions } from '../kernel/version'
 
 type Phase =
   | 'idle'
@@ -64,12 +65,26 @@ function fmtTime(ms: number): string {
 
 export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const android = isAndroidApp()
+  /**
+   * 上次检查结果是否**作废**（rev173.324 · 用户：装完新版本还提示「已下载完成 · 安装」、
+   * 0.9.9 的 0.9.10 断点续传卡住不刷新）。
+   *
+   * `loadLastCheck()` 存的是「检查那一刻」的结论，里面 `currentVersion` 是当时的版本。
+   * 应用升级后这个值就过期了：面板仍按旧结论铺界面（available / 已下载缓存），
+   * 用户看不到「已是最新」，也没有重新检查的入口。判据 = 检查时版本 ≠ 现在版本。
+   */
+  const isStaleCheck = (c: UpdateCheck | null): boolean =>
+    !!c && !!appVersion && c.currentVersion !== appVersion
   /* rev173.311：先把上次的检查结果铺上 —— 关掉设置面板再打开不必重拉一遍清单，
-   * 也不会把「发现新版本」这一屏白白丢掉。 */
-  const [check, setCheck] = useState<UpdateCheck | null>(() => loadLastCheck())
+   * 也不会把「发现新版本」这一屏白白丢掉。（rev173.324：过期的结果不铺，回 idle 重新查。） */
+  const [check, setCheck] = useState<UpdateCheck | null>(() => {
+    const c = loadLastCheck()
+    return isStaleCheck(c) ? null : c
+  })
   const [phase, setPhase] = useState<Phase>(() => {
     const c = loadLastCheck()
-    return c?.hasUpdate && c.latest ? 'available' : 'idle'
+    if (!c || isStaleCheck(c)) return 'idle'
+    return c.hasUpdate && c.latest ? 'available' : 'idle'
   })
   const [error, setError] = useState<string>('')
   const [downloaded, setDownloaded] = useState(0)
@@ -99,6 +114,17 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
 
   const latest = check?.latest ?? null
   const current = check?.currentVersion ?? appVersion ?? '—'
+  /**
+   * 清单里的版本**确实比当前新**吗（rev173.324）。
+   *
+   * 只看 `check.hasUpdate` 不够 —— 那个值也是检查那一刻算的；应用升级后
+   * 清单可能已经是旧版，但缓存里的 APK 还在，面板就永远停在「已下载 · 安装」。
+   * 这里用**实际比较**兜底：只有 latest > current 才认缓存 / 断点。
+   */
+  const latestIsNew = !!latest?.version && compareVersions(latest.version, current) > 0
+  /** 缓存/断点只在「确实有更新版」时才算数 —— 派生而不是在 effect 里 setState（避免级联渲染） */
+  const effectivePartial = latestIsNew ? partial : 0
+  const effectiveApkPath = latestIsNew ? apkPath : ''
 
   /** 实际要走的下载路径：用户手选优先，否则用实测最快的那条 */
   const chosenRoute = useMemo(() => {
@@ -164,7 +190,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const startInstall = useCallback(async () => {
     if (!latest || !check) return
     // 断点续传：从上次断的地方显示进度，而不是又从 0 开始
-    setDownloaded(partial)
+    setDownloaded(effectivePartial)
     setTotal(latest.size ?? null)
     setPhase('downloading')
     // 检查阶段已经测好路了 —— 用户点安装就直接下，不再等一轮测速
@@ -198,22 +224,22 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         })
       }
     }
-  }, [android, check, latest, partial, chosenRoute])
+  }, [android, check, latest, effectivePartial, chosenRoute])
 
   const doInstallApk = useCallback(async () => {
     try {
-      await installApk(apkPath)
+      await installApk(effectiveApkPath)
     } catch (e) {
       setError(String(e))
       setPhase('error')
     }
-  }, [apkPath])
+  }, [effectiveApkPath])
 
-  /* 打开「关于」页时若从未检查过，顺手查一次（不打断：只在 idle 阶段） */
+  /* 打开「关于」页时顺手查一次（rev173.324：idle = 没结果或结果已过期，都该重新拉一遍） */
   useEffect(() => {
     if (phase !== 'idle') return
-    if (!lastAt) return void runCheck()
-  }, [phase, lastAt, runCheck])
+    void runCheck()
+  }, [phase, runCheck])
 
   /* rev173.311：面板一打开就问 Rust「这一版下到哪一步了」。
    *
@@ -222,6 +248,10 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
    *  · 下到一半（断网 / 切后台）⇒ 记下半成品大小，点下载时从断点续 */
   useEffect(() => {
     if (!android) return
+    /* rev173.324：清单版本不高于当前版本（已经是最新 / 应用刚升级过）⇒ 缓存与断点都不再代表
+     * 「有包可装」。这里只跳过查询，显示层由 `effectiveApkPath` / `effectivePartial` 兜底 ——
+     * 不在 effect 里同步 setState（oxlint `set-state-in-effect`）。 */
+    if (!latestIsNew) return
     const v = check?.latest?.version
     if (!v) return
     let alive = true
@@ -247,7 +277,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     return () => {
       alive = false
     }
-  }, [android, check?.latest?.version, check?.latest?.size])
+  }, [android, latestIsNew, check?.latest?.version, check?.latest?.size])
 
   const pct = total && total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null
 
@@ -276,9 +306,22 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         )
       case 'available':
         return (
-          <button type="button" className={base} onClick={() => void startInstall()}>
-            {android ? (partial > 0 ? '继续下载' : '下载安装包') : '下载并安装'}
-          </button>
+          <span className="flex items-center gap-1.5">
+            {/* rev173.324：**必须有重新检查入口** —— 以前只有「已是最新」态才能重查，
+                卡在旧版的「发现新版本 0.9.10 / 继续下载」时用户无路可走 */}
+            <button
+              type="button"
+              className={base}
+              onClick={() => void runCheck()}
+              title="重新检查是否有更新的版本"
+              aria-label="重新检查更新"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
+            <button type="button" className={base} onClick={() => void startInstall()}>
+              {android ? (effectivePartial > 0 ? '继续下载' : '下载安装包') : '下载并安装'}
+            </button>
+          </span>
         )
       case 'downloaded':
         return canInstall ? (
@@ -323,8 +366,8 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
     if (phase === 'available' && latest) {
       const size = fmtSize(latest.size)
       const pctText =
-        partial > 0 && latest.size
-          ? `已下 ${Math.round((partial / latest.size) * 100)}%，点一下从断点续`
+        effectivePartial > 0 && latest.size
+          ? `已下 ${Math.round((effectivePartial / latest.size) * 100)}%，点一下从断点续`
           : null
       return [
         `发现新版本 ${latest.version}（当前 ${current}）`,
