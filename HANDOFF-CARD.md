@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.335（2026-11-03）—— 真人测试9 三条（全部改完，待真机）**
+> **最新：rev173.335（2026-11-03）—— 真人测试9 三条（已修，0.9.21 已发，待真机）**
 > 来源 `Downloads/真人测试9 (2).md`（3 条 + 3 张真机截图）。
 >
 > | # | 用户原话 | 根因 / 改法 |
@@ -9,8 +9,10 @@
 > | ② | 「密码库插件一直显示未建立密钥环」 | `security` rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<id>.json`），`secrets` / `private-notes` 的 `checkRingReady` 还只读旧 `vault.json` ⇒ 永远「未建立」。两插件改为**新格式优先 + 旧单文件兜底**；`secrets` **0.1.1** 已签名入库（48.5 KB · keyId `aqua-2026` · 索引 14 条） |
 > | ③ | 「首页加号的隐藏有一个往右移动的效果，直接原地渐隐就行」 | `.zn-mobile-compose.is-hidden` 的 `transform: translateY(12px)` 覆盖了基础样式的居中 `translateX(-50%)` ⇒ 收起时右跳半身位。改成**只 opacity**、保留居中；时长走 token `--zn-dur-base` |
 >
-> **验证**：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。
-> ⚠️ **待真机**：①③ 看手感；② 手机插件中心更新到 `secrets 0.1.1` 生效。
+> **验证**：tsc 0 · oxlint 4 warnings · vitest **1804** · cargo test **98** · 质量门 8/8。
+> **已发版 0.9.21**（tag `v0.9.21` · 5 资产 · APK 33.2 MiB · sha256 `2bf16efa…` · 构建 7m11s）⇒
+> https://github.com/aqua7773/zeronote/releases/tag/v0.9.21
+> ⚠️ **待真机**：①③ 装 0.9.21 看手感；② 手机插件中心更新 `secrets 0.1.1` 生效。
 >
 > **上一轮：rev173.334（2026-11-02 22:5x）—— 真人测试8（6 条：3 条已修 / 3 条待信息）**
 > 来源 `ZreoNote/测试文件/真人测试8.md`（5 条）+ 用户追加 1 条（图片读不出）。
@@ -293,10 +295,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.335 · 0.9.20 · 2026-11-03 |
+| rev / 版本 | rev173.335 · 0.9.21 · 2026-11-03 |
 | 测试基线 | vitest 1804 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.20 |
+| 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.21 |
 <!-- FACTS:END -->
 
 ## 是什么

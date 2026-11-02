@@ -251,8 +251,12 @@ revision: 173.335
 > 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)`，**把居中覆盖掉** ⇒ 收起时向右跳半个身位。
 > 改成只 `opacity: 0`、保留 `translateX(-50%)`（用户要的「原地渐隐」）。
 >
-> **验证**：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· cargo test **98** · 质量门 8/8。
-> ⚠️ **待真机**：①③ 装新包看手感；② 手机插件中心更新 `secrets 0.1.1` 即生效。
+> **验证**：tsc 0 · oxlint 4 warnings · vitest **1804** · cargo test **98** · 质量门 8/8。
+> **已发版 0.9.21**（2026-11-03 · tag `v0.9.21` · Release 5 资产：`ZeroNote_0.9.21_x64-setup.exe` **15.83 MB** +
+> `…_x64_zh-CN.msi` **17.86 MB** + `ZeroNote_0.9.21_arm64.apk` **33.2 MiB**（sha256 `2bf16efa…`）+ 两个 `.sig`；
+> 构建 **7 分 11 秒**（桌面 3m37s / Android 3m34s）；清单 `update/latest.json` + `update/android.json` 已推送）⇒
+> https://github.com/aqua7773/zeronote/releases/tag/v0.9.21
+> ⚠️ **待真机**：①③ 装 0.9.21 看手感；② 手机插件中心更新 `secrets 0.1.1` 即生效。
 
 > ## 📌 rev173.334（2026-11-02 · 真人测试8：历史版本移到底部 + 断点续传 + 编辑区长按到点即弹 + 首页 ＋ 收起）
 
