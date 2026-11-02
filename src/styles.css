@@ -1682,6 +1682,18 @@ body.is-resizing * {
   margin-right: auto;
 }
 
+/* 移动端编辑器底部状态栏（rev173.335 · 真人测试9 #1）——
+   与桌面 `.zn-statusbar` 共用同一套基础样式：左 = `editor-topbar` 面板（历史版本 / 反链），
+   右 = 当前文档字数。这条**不跟键盘走**（常驻），键盘弹出时 MarkToolbar 在它上面一行。
+   只补两件事：高度自适应 + 底部安全区（手势条会压住 26px 那版）。 */
+.zn-editor-statusbar {
+  flex: none;
+  height: auto;
+  min-height: 26px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--zn-bg-subtle);
+}
+
 /* 侧栏底部的库信息条：显示库目录名（完整路径在 tooltip 上）。
    侧栏头归应用名、状态栏归文档信息，各司其职。
    不画上边框（用户要求）——它就是这一栏的一句说明，加线反而显得是另一个区块。
@@ -2673,12 +2685,16 @@ body.is-resizing * {
   /* rev173.334 · 用户：「移动端首页加号的显示方式，在滑动时间流卡片的时候自动收起，
      停下来的时候再显示」—— 状态由 MobileNoteCards 的 `scrolling` 给（scroll 事件 + 400ms 静默）。 */
   transition:
-    opacity 160ms var(--zn-ease-standard),
-    transform 160ms var(--zn-ease-standard);
+    opacity var(--zn-dur-base) var(--zn-ease-standard),
+    transform var(--zn-dur-base) var(--zn-ease-standard);
 }
 .zn-mobile-compose.is-hidden {
   opacity: 0;
-  transform: translateY(12px);
+  /* ⚠️ 必须保留基础样式的 `translateX(-50%)`：这颗按钮靠它水平居中（见上面 .zn-mobile-compose）。
+     rev173.335（真人测试9 #3）：原来这里写成 `transform: translateY(12px)`，把居中的
+     translateX 整个覆盖掉 ⇒ 收起时按钮向右跳半个身位（用户看到的「往右移动的效果」）。
+     用户要的是「直接原地渐隐」⇒ 只淡出，不做位移。 */
+  transform: translateX(-50%);
   pointer-events: none;
 }
 

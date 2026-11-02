@@ -161,6 +161,34 @@ describe('App 集成冒烟', () => {
   })
 
   /**
+   * rev173.335（真人测试9 #1）：手机编辑页底部**常驻**一条状态栏 ——
+   * 左 = `editor-topbar` 插件面板（历史版本），右 = 当前文档字数。
+   * 它不跟键盘走（底部的标记快捷栏才跟键盘）。
+   */
+  it('移动端编辑页底部有状态栏（右字数），且不依赖键盘', async () => {
+    const ua = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0',
+      configurable: true,
+    })
+    try {
+      localStorage.setItem('zeronote.vault', '/vault')
+      setupInvoke([{ path: 'a.md', title: '第一篇', id: 'n1' }])
+      render(<App />)
+      await settle()
+      fireEvent.click(document.querySelector('.zn-mobile-card') as HTMLElement)
+      await settle()
+      const bar = document.querySelector('.zn-editor-statusbar')
+      expect(bar).not.toBeNull()
+      expect(bar?.textContent ?? '').toContain('字')
+      // 桌面状态栏不会同时出现两份
+      expect(document.querySelectorAll('.zn-statusbar').length).toBe(1)
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
+    }
+  })
+
+  /**
    * 抽屉遮罩跟着抽屉本体卸载（rev173.277 · 真人使用测试 #10）。
    *
    * 现场：手机先拉开文件树抽屉，再从设置里点「打开插件中心」⇒ 抽屉 DOM 卸载了，

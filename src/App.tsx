@@ -5714,9 +5714,9 @@ export default function App() {
               文档工具条（B4 · 方案 §2.1 / §3.3）——
               桌面：内核固定「源码 / 更多」+ 插件 `editor-topbar` 面板（反链 / 历史这类
               「贴着当前文档」的东西），禁用即整块消失；零插件时只剩两个内核动作。
-              手机：**编辑器顶部不放插件面板**（rev173.334 · 真人测试8 #1：
-              「历史版本，移动端不放在上面，放在底部」）—— `editor-topbar` 面板改到
-              编辑器**底部**那条快捷栏（MarkToolbar）里渲染，与键盘同一行。
+              手机：**不开顶部这条**（rev173.335 · 真人测试9 #1 用户：「像桌面底部那样 ——
+              右边字数统计，左边历史版本」）—— `editor-topbar` 面板改到编辑器**底部状态栏**，
+              与字数统计同一行，常驻；底部标记快捷栏（MarkToolbar）仍只在键盘弹出时出现。
             */}
             {isDesktop ? (
               <DocToolbar
@@ -5770,11 +5770,10 @@ export default function App() {
               插件注册到 `location: 'editor-toolbar'` 的面板跟在后面一起横滑
               （沿用 renderPanelSafe + PanelBoundary，坏面板只坏自己那一格）。
 
-              rev173.334（真人测试8 #1）两条变化：
-              ① **只在软键盘弹出时显示**（用户：「底部快捷栏只在键盘弹出的时候显示」）——
-                 键盘状态来自 `visualViewport`，见上面 `keyboardOpen` 的定义；
-              ② 手机上的 `editor-topbar` 面板（历史版本这类）从**顶部**挪到这里 ——
-                 用户：「历史版本，移动端不放在上面，放在底部」。
+              rev173.334（真人测试8 #1）：**只在软键盘弹出时显示**（用户：「底部快捷栏只在
+              键盘弹出的时候显示」）—— 键盘状态来自 `visualViewport`，见上面 `keyboardOpen` 的定义。
+              rev173.335（真人测试9 #1）：`editor-topbar` 面板（历史版本这类）**不在这条栏里** ——
+              它们改到下面那条常驻状态栏（左历史版本、右字数，与桌面底部一致）。
             */}
             {(platform === 'android' ? keyboardOpen : toolbarPanels.length > 0) ? (
               <MarkToolbar
@@ -5797,21 +5796,37 @@ export default function App() {
                     />
                   </PanelBoundary>
                 ))}
-                {/* rev173.334（真人测试8 #1）：手机上 `editor-topbar` 面板（历史版本这类）
-                    从顶部挪到这条底部栏里 —— 与键盘同进同出。 */}
-                {topbarPanels.map((p) => (
-                  <PanelBoundary key={p.id}>
-                    <UIRenderer
-                      node={renderPanelSafe(p, panelState)}
-                      state={panelState}
-                      onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
-                      onStateChange={(bind, value) =>
-                        setPanelState((s) => ({ ...s, [bind]: value }))
-                      }
-                    />
-                  </PanelBoundary>
-                ))}
               </MarkToolbar>
+            ) : null}
+            {/*
+              移动端编辑器底部状态栏（rev173.335 · 真人测试9 #1）。
+
+              用户原话：「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」
+              （桌面 = `.zn-statusbar`：左插件状态 chip、右当前文档字数）。
+              所以手机编辑页也常驻一条：**左 = `editor-topbar` 面板**（历史版本 / 反向链接这类
+              「贴着当前文档」的插件入口），**右 = 字数**。它不跟键盘走 —— 键盘弹出时
+              MarkToolbar 在它上面一行（DOM 顺序在前）。
+            */}
+            {!isDesktop ? (
+              <div className="zn-statusbar zn-editor-statusbar">
+                <div className="zn-statusbar-left">
+                  {topbarPanels.map((p) => (
+                    <PanelBoundary key={p.id}>
+                      <UIRenderer
+                        node={renderPanelSafe(p, panelState)}
+                        state={panelState}
+                        onAction={(id, payload) => void kernel?.commands.api.execute(id, payload)}
+                        onStateChange={(bind, value) =>
+                          setPanelState((s) => ({ ...s, [bind]: value }))
+                        }
+                      />
+                    </PanelBoundary>
+                  ))}
+                </div>
+                <span title="当前文档字数（不含空白）">
+                  {activePath ? `${charCount.toLocaleString()} 字` : ''}
+                </span>
+              </div>
             ) : null}
             {/* 「关闭当前标签页」属于编辑页面，就放在编辑页面里 ——
                 不放标题栏，免得跟窗口那个 × 挨着分不清（rev173.50：还有别的标签就切过去）。
