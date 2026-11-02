@@ -15,9 +15,11 @@
 > ⑤ **桌面分享 = 复制文件**：旧行为把整篇 Markdown（含 `data:` base64 图片）塞进剪贴板 ⇒ 粘出来一大串文件流。改法：新原生命令
 > `copy_file_to_clipboard`（Windows CF_HDROP）+ `import-export` 桌面 md 分享改为**复制 `.md` 文件本身**（旧包自动退回复制文本）。
 >
-> 验证：tsc 0 · oxlint 4 warnings（= 基线）· **vitest 1761 → 1776** · `cargo check --lib` 4 warnings（= 基线，含 3 条新命令）。
-> **未发版**：`entry_info` / `reveal_in_explorer` / `copy_file_to_clipboard` 都是内核命令 ⇒ 要 **0.9.13** 才到用户手里；
-> `sync` 的墓碑要**重新打包签名发市**（`market/packs/sync-*.znp`）才对市场用户生效。
+> 验证：tsc 0 · oxlint 4 warnings（= 基线）· **vitest 1761 → 1777** · `cargo test --lib` 96 · 质量门 8/8。
+> **0.9.13 已发版**（2026-11-02 · tag `v0.9.13` · Release 5 资产：`ZeroNote_0.9.13_x64-setup.exe` **15.09 MiB** +
+> `ZeroNote_0.9.13_x64_zh-CN.msi` **17.01 MiB** + `ZeroNote_0.9.13_arm64.apk` **33.18 MiB** + 两个 `.sig`；构建 **11 分 04 秒**
+> （桌面 5m03s / Android 6m01s））；`sync` **0.1.7** / `import-export` **0.2.2** 已签名入库（市场 14 条 · `verify-trust` 53/54）。
+> ⚠️ 市场插件**不自动升级**，要到「插件中心 → 插件市场 → 更新」手动点；`sync` 墓碑要**双端都升到 0.1.7** 才生效。
 >
 > **最新：rev173.324（2026-11-02）—— 应用更新面板：装完新版还提示安装 / 断点续传卡在旧版**（用户真机实测）：
 > `loadLastCheck()` 存的是**检查那一刻**的结论，应用升级后没作废 ⇒ 一直显示旧版「发现新版本 / 已下载完成」，
@@ -80,10 +82,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.325 · 0.9.12 · 2026-11-02 |
+| rev / 版本 | rev173.325 · 0.9.13 · 2026-11-02 |
 | 测试基线 | vitest 1777 · cargo 96 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.12 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.13 |
 <!-- FACTS:END -->
 
 ## 是什么
@@ -109,10 +111,7 @@ pwsh -File scripts\verify.ps1
 
 > ### 📌 下个会话第一件事（rev173.325 · 2026-11-02）
 >
-> **真人测试6 五条已改完、未发版**。要让用户真正拿到，两条线：
-> 1. **应用 0.9.13**（带三条新内核命令 `entry_info` / `reveal_in_explorer` / `copy_file_to_clipboard`）：
->    `release.mjs 0.9.13` → `build-release.mjs`（桌面 + Android，约 9 分钟）→ `gen-update-manifest.mjs` → `gh release create` → commit `update/`。
-> 2. **`sync` 重打包签名发市**（墓碑逻辑）：`pack-plugin sync --key … --key-id aqua-2026` → `gen-market --write`（版本 bump 见 `examples/sync/manifest.json`）。
+> **发版已完成**（0.9.13 / `sync` 0.1.7 / `import-export` 0.2.2，见文首）。剩下全是**验证**：
 >
 > **真机验证仍欠**（三条新命令只能在装 0.9.13 的 debug/正式包上验）：
 > ① 右键「详细…」弹窗字段正确；② 「在文件夹中打开」跳到资源管理器并选中；③ 桌面「分享 md」后，粘贴到文件夹 / 微信得到的是**文件**而不是一大串 base64。
