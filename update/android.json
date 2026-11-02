@@ -1,10 +1,10 @@
 {
-  "version": "0.9.18",
-  "notes": "修复：手机「进软件就弹异常退出」（看门狗误杀，不是崩溃）\n\n0.9.16 的 5 份报告全部是「看门狗判定卡死（exit 101）」，没有堆栈 —— 不是崩溃，是看门狗误杀。\n真机 `watchdog.log` 42 条记录的间隔全部在 **5.0–5.96 秒**：Android WebView 把每秒心跳节流成了 5–6 秒一次，\n而看门狗阈值恰好是 5 秒 ⇒ 必然误杀（应用直接退出、未保存内容丢失）。\n\n- **二段确认**：超时 5 秒只记「疑似」，再 10 秒仍无心跳才终止（真卡死约 15 秒退出）\n- **启动宽限 20 秒**：冷启动首屏（读库列表 / 扫插件 / 建索引）慢不再被误判\n- **心跳前每秒自检可见性**：页面不可见时只暂停、不发心跳，补 `visibilitychange` 未派发的机型\n- 状态接口新增确认窗 / 宽限读数，便于下次取证",
-  "pub_date": "2026-11-02T12:58:55.041Z",
+  "version": "0.9.19",
+  "notes": "修复：手机打开右侧「更多」抽屉即原生崩溃（SIGABRT）\n\n0.9.18 的 tombstone：崩溃线程 `FenceMonitor`，栈**全部在系统库**（libc / libc++ / libgui），\nabort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex` —— 我们的代码一行都不在栈上。\n\n触发面：打开右抽屉时，界面**条件渲染新建两个全屏 fixed 合成层**（遮罩 + 抽屉）+ 入场动画，\n撞上 nubia HWC 的互斥量生命周期（这台机器此前 6 份 tombstone 同一根因）。\n\n- **右抽屉改常驻挂载**（与左抽屉 0.9.15 同款）：层不再新建，关闭态 `visibility: hidden` 退出合成\n- 进出场 340ms 仍保留，改由 CSS transition 播\n- 0.9.18 的看门狗误杀修复继续有效（两件事已分开：这次是原生崩溃，不是 exit 101）",
+  "pub_date": "2026-11-02T14:22:12.978Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.18/ZeroNote_0.9.18_arm64.apk",
-    "sha256": "bbf52e27df78940201297ce6e846574223dad06457c4987547cef389b20edceb",
-    "size": 34873907
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.19/ZeroNote_0.9.19_arm64.apk",
+    "sha256": "65e4f6f0eb09f872708f1989748832ab0b3f91efd8861cd4a60c49661de475cf",
+    "size": 34873947
   }
 }
