@@ -11,7 +11,9 @@
 > 遮罩走 `.zn-scrim.is-drawer`、抽屉走 `.zn-more-drawer.is-open`，关闭态 `visibility: hidden` 退出合成；
 > 340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`
 > （关闭态 `aria-hidden`，测试按展开态渲染）。
-> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿**（drawer 8 + app-smoke 6 相应改写）。⚠️ **待真机**：装 0.9.19 后连开右抽屉 10 次。
+> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿**（drawer 8 + app-smoke 6 相应改写）·
+> **已发版 0.9.19**（tag `v0.9.19` · 5 资产 · APK 33.26 MiB · sha256 `65e4f6f0…` · 构建 8m41s）。
+> ⚠️ **待真机**：装 0.9.19 后连开右抽屉 10 次。
 >
 > **上一轮：rev173.332（2026-11-02）—— 手机「进软件就弹异常退出」= 看门狗误杀，不是崩溃**
 > 用户带来 5 份 0.9.16 报告（18:47:23 / 20:42:25 / 20:42:35 / 20:42:48 / 20:43:19），全部
@@ -237,10 +239,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.332 · 0.9.18 · 2026-11-02 |
+| rev / 版本 | rev173.333 · 0.9.19 · 2026-11-02 |
 | 测试基线 | vitest 1799 · cargo 97 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.18 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.19 |
 <!-- FACTS:END -->
 
 ## 是什么
