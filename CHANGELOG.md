@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 内容 |
 |---|---|---|
+| 0.9.17 | 2026-11-02 | **真人测试7 五条 + 文件树触摸修复 + 长按 300ms**（rev173.331）：**长按反馈**——涟漪 14px/620ms → 26px/880ms + 描边 + 外发光 + 中途顿一下，振动改**原生命令**（`plugin:statusbar\|vibrate` → Kotlin `Vibrator`；`navigator.vibrate` 在国产 ROM WebView 被忽略）· **长按阈值统一 300ms**（原四处各写 500，现 `LONG_PRESS_MS` 一处，`ARM_MS` 拖拽上膛 240 → 150）· **手机「更多 → 插件」按已注册面板自动列**（`sync` 这类只挂 `main` 的插件不再消失）· **文件树触摸拖拽不卡**（touchmove 改 rAF 一帧一次、同值不 setState、ghost 直改 style）· **文件树触摸整条失效修复**（冷启动时 `rootRef` 为 null、effect 只跑一次 ⇒ 监听器从没绑上；改 callback ref）· 桌面「复制 md 文件」与右键「在文件夹中打开」——去 **verbatim `\\?\` 前缀**（`CF_HDROP` / `explorer /select` 都不认）+ `OpenClipboard` 重试 3×50ms |
 | 0.9.16 | 2026-11-02 | **闪退日志不再丢**（rev173.329）：0.9.15 装后闪退一次却没有弹窗 —— 看门狗已改 `libc::_exit(101)`，退出原因变成 `REASON_EXIT_SELF`，而 crashlog 只认三种 crash ⇒ 证据静默丢失。现在 `isReportable` 收录 **ANR / 低内存回收 / 看门狗 exit(101)**（用户主动退出、SIGKILL 滑掉仍不打扰）；弹窗按 `kind` 分文案（看门狗 →「上次被看门狗终止」，非崩溃 →「上次异常退出」）；导出文件标题区分「崩溃报告 / 异常退出报告」并附退出码 | 
 | 0.9.15 | 2026-11-02 | **手机闪退根因修复（nubia / Android 16）**（rev173.328）：6 份 tombstone 实证崩溃栈全在系统库（`FenceMonitor` / `WebViewFunctor` / `libhwui`），但**触发面是 0.9.12 的改动** —— 左抽屉遮罩从「条件渲染」改成「常驻 + opacity 过渡」，Chromium 会为这个**全屏 `fixed`** 元素保留常驻合成层（`pointer-events: none` 不影响合成），nubia 的 HWC 每次页面重绘都要重新合成它，撞上已销毁的 mutex ⇒ SIGSEGV。修法：关闭态 `visibility: hidden`（元素不参与合成、层真正消失），淡出仍由 opacity 播、visibility 用 transition-delay 延到淡出结束，动画节奏不变 · 同版看门狗改 `libc::_exit(101)` —— `std::process::exit` 会走 `__cxa_finalize` → 析构 `WebViewFunctorManager` → `eglDestroyContext`，渲染线程仍在 condition_variable 上等 ⇒ 已销毁 mutex，「看门狗自己制造了一次崩溃」 · **崩溃日志导出上限 64 K → 512 K** —— 6 份真机 tombstone 原始长度 45–48 万字符，旧上限把**看门狗线程块**整段截掉（按 tid 排序靠后时）⇒ 误判成「系统层独立崩溃」；提高后下次即可看到完整线程链 |
 | 0.9.14 | 2026-11-02 | **崩溃日志可导出/可转发**（rev173.327 · 用户「每次崩溃应该把崩溃日志复制到剪贴板上面，现在的版本都没有崩溃日志」→「每次崩溃直接导出崩溃日志，我转发就可以了」）：原生崩溃（SIGABRT / SIGSEGV）当下**进程已被系统杀死**，JS 一行跑不了 ⇒ 改成**下次启动读系统记录** —— Android 11+ 的 `ApplicationManager.getHistoricalProcessExitReasons()` 保留每次退出记录与 tombstone 全文（`getTraceInputStream()`，**不需要 root**），新插件 `crashlog` 读完直接导出 `Download/ZeroNote-crash/zeronote-crash-<时间>.txt`，首页弹窗给「转发日志文件」（走 `share_file`）与「复制文本」兜底；同一次崩溃按时间戳去重只提示一次 · 桌面没有这条通道，命令返回 `found: false`（不报错、不打扰） |
@@ -34,6 +35,33 @@
 | 0.4.0 | 2026-10-24 | A 档 4 个插件（标签 / 反向链接 / 历史版本 / 打卡）· 面板体系（阅读器 / 导图 / 文档多标签）· 白屏兜底 · 插件真签名与能力审计 · 手机原生剪贴板与长按四键 · 记账收尾 |
 | 0.3.0 | 2026-10-20 | 多标签页 + 标签拆独立窗口 · 会话恢复（hot exit）· 主窗口位置记忆 · 粘贴图片 · 搜索筛选 · 全局替换 · 桌面时间流面板 · Markdown 语法增强（脚注 / Mermaid / 定义列表 / HTML 白名单）· 记账 v0.2 |
 | 0.2.0 | 2026-10-19 | 第一个正式版本：内核 10 原语 + 插件体系（5 个预装）· 桌面 / Android · 桌面时间流面板 · 全局自绘滚动条 · Markdown 语法增强（上标 / 下标 / Emoji / KaTeX 数学） |
+
+## [0.9.17] - 2026-11-02（rev173.331）
+
+### Fixed
+
+- **真人测试 7 五条**（`ZreoNote/测试文件/真人测试7.md`）：
+  - **#1 长按反馈不明显 / 没振动**：触发时机本来就对（五个入口在阈值处就 `hapticTick + spawnRipple`、松手才弹菜单）；
+    改的是**视觉**（26px 起、35% 处扩到 1.9× 并保高不透明、最终 7×；2px 描边 + 外发光；`--zn-dur-ripple` 620 → 880ms）
+    与**振动通道**（Android 走原生命令 `plugin:statusbar|vibrate` → Kotlin `Vibrator`；`navigator.vibrate` 只作兜底）。
+  - **#2 手机「更多 → 插件」看不到 sync**：旧实现写死 `tag-panel` / `import-export`；改为按「注册了 `main` / `sidebar`
+    面板」自动列（`lib/more-plugin-entries.ts`，排除 statusbar/modal/editor-* 与 hidden），已知插件用 `MORE_PLUGIN_HINTS` 补副标题。
+  - **#3 文件树拖拽卡顿**：touchmove 改为 rAF 节流（一帧只判一次落点）、落点同值不 setState、
+    ghost 首次渲染后直接改 `style.left/top`、松手前补算最后一帧。
+  - **#4 桌面复制 md 文件后剪贴板还是旧内容**：根因 `canonicalize` 返回 **verbatim `\\?\C:\…`**，`CF_HDROP` 不认；
+    新增 `plain_path()` 去前缀，`OpenClipboard` 失败重试 3×50ms，失败路径释放内存。
+  - **#5 桌面右键「在文件夹中打开」只开默认位置**：同根因（`explorer /select,"\\?\…"` 被忽略），剥前缀后再传。
+
+### Changed
+
+- **长按阈值 500 → 300ms**（用户要求），统一到 `lib/long-press-feedback.ts` 的 `LONG_PRESS_MS`；
+  文件树拖拽上膛 `ARM_MS` 240 → 150（必须明显小于长按阈值）。
+
+### Fixed（追加 · 真机复验时发现）
+
+- **文件树触摸整条失效**：手机冷启动第一帧 `.zn-tree` 尚未渲染 ⇒ `rootRef.current` 为 null，
+  而触摸 effect 依赖 `[]` ⇒ 永不重跑 ⇒ `touchstart` 监听器一次都没绑上（长按无涟漪、拖拽不动、菜单不弹）。
+  改为 callback ref（`bindRoot` → `rootEl` state），effect 依赖 `[rootEl]`。
 
 ## [0.9.13] - 2026-11-02（rev173.325）
 
