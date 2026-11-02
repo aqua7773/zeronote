@@ -885,6 +885,21 @@ pub async fn install_desktop_update(
 static APK_DOWNLOAD_GATE: std::sync::atomic::AtomicBool =
   std::sync::atomic::AtomicBool::new(false);
 
+/// 取消标志（rev173.334 · 真人测试8 #2）。
+///
+/// 现场：用户点过「继续下载」后关掉「关于」面板，下载任务**还在后台跑**（无法从 UI 取消）；
+/// 再进面板点「继续下载」⇒ 撞上面的并发闸，报「上一次下载还没结束」，而旧任务仍在涨进度。
+/// 现在前端点下载前先发本命令，旧任务在下一个 chunk 就退出并释放闸。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+static APK_DOWNLOAD_CANCEL: std::sync::atomic::AtomicBool =
+  std::sync::atomic::AtomicBool::new(false);
+
+/// 取消正在进行中的 APK 下载（下一次 `download_android_update` 抢到闸时自动清零）
+#[tauri::command]
+pub fn cancel_apk_download() {
+  APK_DOWNLOAD_CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// 出作用域自动放行（含 `?` / `return` 提前退出）
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct ApkDownloadGate;
@@ -986,6 +1001,8 @@ pub async fn download_android_update(
     let Some(_gate) = try_apk_download_gate() else {
       return Err("上一次下载还没结束（关掉设置面板不会取消它）—— 等它下完再试".to_string());
     };
+    // rev173.334：抢到闸 = 这次是新任务，清掉上一轮遗留的取消标志
+    APK_DOWNLOAD_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
 
     let dir = app
       .path()
@@ -1147,6 +1164,11 @@ pub async fn download_android_update(
       loop {
         match body.chunk().await {
           Ok(Some(chunk)) => {
+            // rev173.334（真人测试8 #2）：用户点了「继续下载」⇒ 前端先发 cancel，
+            // 旧任务在这里退出（保留 `.part`，新任务接着续）。
+            if APK_DOWNLOAD_CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+              return Err("下载已取消".to_string());
+            }
             downloaded += chunk.len() as u64;
             if downloaded > MAX_APK_BYTES {
               return Err(format!(

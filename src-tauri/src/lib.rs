@@ -4311,6 +4311,8 @@ pub fn run() {
       updates::download_android_update,
       // rev173.300：更新渠道测速（与插件市场的 probeMirror 同款）
       updates::probe_update_mirror,
+      // rev173.334：取消后台仍在跑的 APK 下载（用户点「继续下载」前先调）
+      updates::cancel_apk_download,
       // rev173.311：捡回「已下好 / 下到一半」的 APK（关掉设置面板后前端状态会丢）
       updates::find_apk_cache
     ])

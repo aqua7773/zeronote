@@ -16,6 +16,7 @@ import { CheckCircle2, Download, Loader2, RefreshCw, ShieldAlert } from 'lucide-
 import {
   UPDATE_MIRRORS,
   canInstallApk,
+  cancelApkDownload,
   checkAppUpdate,
   downloadAndroidUpdate,
   findApkCache,
@@ -189,6 +190,16 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
 
   const startInstall = useCallback(async () => {
     if (!latest || !check) return
+    // rev173.334（真人测试8 #2）：关掉面板不会停下载，再点「继续下载」会撞 Rust 并发闸
+    // （用户看到「上一次下载还没结束」但进度仍在涨）。先取消旧任务、等它让出闸再发起。
+    if (android) {
+      try {
+        await cancelApkDownload()
+      } catch {
+        /* 老应用包没有这个命令 ⇒ 照旧继续 */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
     // 断点续传：从上次断的地方显示进度，而不是又从 0 开始
     setDownloaded(effectivePartial)
     setTotal(latest.size ?? null)

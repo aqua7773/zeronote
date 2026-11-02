@@ -221,6 +221,17 @@ export async function openInstallSettings(): Promise<void> {
   await invoke('plugin:apk-install|open_install_settings')
 }
 
+/**
+ * 取消后台仍在跑的 APK 下载（rev173.334 · 真人测试8 #2）。
+ *
+ * 面板关掉不会停下载，再点「继续下载」就会撞 Rust 的并发闸
+ * （报「上一次下载还没结束」而旧任务还在涨进度）。点下载前先取消旧的。
+ * 老应用包没有这条命令 ⇒ 调用方 catch 后照旧继续。
+ */
+export async function cancelApkDownload(): Promise<void> {
+  await invoke('cancel_apk_download')
+}
+
 /** 启动静默检查开关（默认开） */
 export function isAppAutoCheckEnabled(): boolean {
   try {
