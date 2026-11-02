@@ -275,6 +275,8 @@ revision: 173.331
 > **验证**：tsc 0 · vitest **1798**（long-press 8 · more-plugin-entries 6 · file-tree-drag +1）· cargo test **97** · oxlint 4 warnings。
 > **⚠️ 未做**：①③ 要真机看手感，④⑤ 要桌面实机点一次 —— 自动化只能锁判定与路径转换。
 > 未发版；`sync` 插件本身没改（②只改宿主），`import-export` 也没改。
+> **已发版 0.9.17**（tag `v0.9.17`，5 资产：setup.exe + .sig / msi + .sig / arm64 APK 33.3 MiB · sha256 `cff4bbe4…`）；
+> 双端构建 11m28s（桌面 430s / Android 258s）；`update/latest.json` 与 `update/android.json` 已刷新并提交。
 >
 > **追加（真机复验时用户发现）**：文件树整条触摸失效（拖拽不动、长按无涟漪无菜单），而 ＋ 的长按正常。
 > 真机 `adb logcat`（`Tauri/Console`）打出 `[znt] effect run, root= false` —— `FileTree` 的触摸 effect 依赖 `[]`，
