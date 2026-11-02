@@ -3751,6 +3751,24 @@ fn opened_urls(state: tauri::State<OpenedUrls>) -> Vec<String> {
 const WATCHDOG_TICK_MS: u64 = 1000;
 const WATCHDOG_DEFAULT_TIMEOUT_MS: u64 = 5000;
 
+/// 二段确认窗：判定"疑似卡死"后再等多久才真终止（rev173.332 · 2026-11-02）。
+///
+/// 为什么必须加（真机证据，不是推测）：nubia NX741J / Android 16 / WebView 140 上，
+/// 页面里的 `setInterval(…, 1000)` 在切后台、系统节流、省电策略介入时会变成 **5–6 s 一次**；
+/// 真机 `<库>/.zn/watchdog.log` 42 条记录的 gap **全部落在 5007–5962 ms**（主线程还活着，
+/// 只是定时器被系统放慢）。单段 5 s 判据在这种设备上必然误杀 —— 代价是应用直接退出、
+/// 未保存内容丢失，而"卡一下"根本不值得这个代价。
+/// 两段制：超时 ⇒ 只记「疑似」；再等本确认窗仍无心跳 ⇒ 才判卡死（期间来一次心跳就清零）。
+const WATCHDOG_CONFIRM_MS: u64 = 10_000;
+
+/// 启动宽限：进程起来后这段时间内不判超时（rev173.332）。
+/// 首屏要读库列表 / 扫插件 / 建索引，Android 冷启动落在这段时间里；宽限期内不判就
+/// 不会被"启动本来就慢"误伤。真卡死时仍会在 宽限 + 阈值 + 确认窗 后被终止（≈35 s）。
+const WATCHDOG_STARTUP_GRACE_MS: u64 = 20_000;
+
+/// 看门狗线程启动时刻（填 `SPAWN_AT` 的地方就是线程入口，口径不会漂移）。
+static SPAWN_AT: AtomicU64 = AtomicU64::new(0);
+
 /// 最后一次心跳的 epoch 毫秒。**0 = 还没收到过**（此时不判超时 —— 页面可能还在挂载）
 static LAST_BEAT: AtomicU64 = AtomicU64::new(0);
 /// 计时是否暂停（页面不可见 / 应用切后台 / 正在 reload）。**初始为暂停**，等前端第一次 resume。
@@ -3771,6 +3789,13 @@ fn watchdog_should_fire(last_beat: u64, now: u64, timeout_ms: u64, paused: bool)
     return false;
   }
   now.saturating_sub(last_beat) > timeout_ms
+}
+
+/// 二段确认的第二判据（纯函数，理由见 `WATCHDOG_CONFIRM_MS` 的注释）：
+/// 进入"疑似"后再过 `confirm_ms` 仍无心跳 ⇒ 才允许终止。
+/// `suspect_since == 0` 表示还没进入疑似，直接返回 false（0 是哨兵值，别用它算间隔）。
+fn watchdog_should_kill(suspect_since: u64, now: u64, confirm_ms: u64) -> bool {
+  suspect_since != 0 && now.saturating_sub(suspect_since) >= confirm_ms
 }
 
 /// 阈值（`ZN_WATCHDOG_TIMEOUT_MS` 可覆盖）。抽出来是为了让看门狗线程与
@@ -3819,6 +3844,10 @@ fn zn_watchdog_status() -> serde_json::Value {
     "paused": BEAT_PAUSED.load(Ordering::Relaxed),
     "lastBeatAgoMs": if last == 0 { serde_json::Value::Null } else { serde_json::json!(now.saturating_sub(last)) },
     "timeoutMs": watchdog_timeout_ms(),
+    // rev173.332：二段确认与启动宽限的读数（排查误杀时靠这两个值判断"是还没到确认窗，还是真在宽限期"）
+    "confirmMs": WATCHDOG_CONFIRM_MS,
+    "startupGraceMs": WATCHDOG_STARTUP_GRACE_MS,
+    "startedAgoMs": if SPAWN_AT.load(Ordering::Relaxed) == 0 { serde_json::Value::Null } else { serde_json::json!(now.saturating_sub(SPAWN_AT.load(Ordering::Relaxed))) },
     "vault": BEAT_VAULT.lock().ok().and_then(|v| v.clone()),
     "disabled": std::env::var("ZN_WATCHDOG").map(|v| v.eq_ignore_ascii_case("off")).unwrap_or(false),
   })
@@ -3889,7 +3918,7 @@ async fn hello_sign(
 
 /// 卡死留痕：往 `<库>/.zn/watchdog.log` 追加一行。**必须 Rust 写** —— 卡死时前端已执行不了。
 /// 还不知道库路径（没选库）就跳过；调用方仍会打 `log::error!`（dev 有 log 插件会落文件）。
-fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
+fn note_watchdog(gap_ms: u64, timeout_ms: u64, confirm_ms: u64) {
   let vault = BEAT_VAULT.lock().ok().and_then(|v| v.clone());
   let Some(vault) = vault else {
     return;
@@ -3899,10 +3928,11 @@ fn note_watchdog(gap_ms: u64, timeout_ms: u64) {
     return;
   }
   let line = format!(
-    "[{}] 前端无响应 {}ms（阈值 {}ms）⇒ 看门狗判定卡死\n",
+    "[{}] 前端无响应 {}ms（阈值 {}ms · 确认窗 {}ms）⇒ 看门狗判定卡死\n",
     now_ms(),
     gap_ms,
-    timeout_ms
+    timeout_ms,
+    confirm_ms
   );
   if let Ok(mut f) = fs::OpenOptions::new()
     .create(true)
@@ -4020,27 +4050,50 @@ fn spawn_watchdog() {
   let timeout_ms = watchdog_timeout_ms();
 
   std::thread::spawn(move || {
-    log::info!("[watchdog] 启动：阈值 {timeout_ms}ms · dryrun={dry}");
-    // 只在"判定成立的那一刻"留痕一次；心跳回来（gap 回到阈值内）后允许再次判定。
-    let mut reported = false;
+    // 线程入口即记启动时刻：启动宽限统一相对这里算（口径单点，避免与 run() 起点漂移）。
+    SPAWN_AT.store(now_ms(), Ordering::Relaxed);
+    log::info!(
+      "[watchdog] 启动：阈值 {timeout_ms}ms · 确认窗 {WATCHDOG_CONFIRM_MS}ms · 启动宽限 {WATCHDOG_STARTUP_GRACE_MS}ms · dryrun={dry}"
+    );
+    // 两段制（rev173.332）：
+    //   ① 超时 ⇒ 只记「疑似」，**不退出** —— 专门吸收系统节流造成的 5–6 s 心跳空窗；
+    //   ② 疑似期间持续无心跳、过确认窗 ⇒ 才判卡死并终止。
+    // 心跳一回来（或处于暂停态）立即清零，因此偶发长任务不会被累计。
+    // `0` = 当前不在疑似态（哨兵值）。
+    let mut suspect_since: u64 = 0;
     loop {
       std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_TICK_MS));
+      let now = now_ms();
+      // 启动宽限：冷启动首屏（读库列表 / 扫插件 / 建索引）本就可能超过 5 s。
+      // 宽限期只跳过判定、不清疑似 —— 真卡死会在宽限结束后自然落进下面的路径。
+      if now.saturating_sub(SPAWN_AT.load(Ordering::Relaxed)) < WATCHDOG_STARTUP_GRACE_MS {
+        continue;
+      }
       let paused = BEAT_PAUSED.load(Ordering::Relaxed);
       let last = LAST_BEAT.load(Ordering::Relaxed);
-      let now = now_ms();
       if !watchdog_should_fire(last, now, timeout_ms, paused) {
-        reported = false;
+        suspect_since = 0;
         continue;
       }
-      if reported {
-        continue;
-      }
-      reported = true;
       let gap = now.saturating_sub(last);
-      log::error!("[watchdog] 前端无响应 {gap}ms（阈值 {timeout_ms}ms）");
-      note_watchdog(gap, timeout_ms);
+      if suspect_since == 0 {
+        suspect_since = now;
+        log::warn!(
+          "[watchdog] 前端超时 {gap}ms（阈值 {timeout_ms}ms）⇒ 疑似卡死，{WATCHDOG_CONFIRM_MS}ms 内仍无心跳才终止"
+        );
+        continue;
+      }
+      if !watchdog_should_kill(suspect_since, now, WATCHDOG_CONFIRM_MS) {
+        continue;
+      }
+      log::error!(
+        "[watchdog] 前端无响应 {gap}ms（阈值 {timeout_ms}ms · 确认窗 {WATCHDOG_CONFIRM_MS}ms）"
+      );
+      note_watchdog(gap, timeout_ms, WATCHDOG_CONFIRM_MS);
       if dry {
         log::warn!("[watchdog] DRYRUN：只留痕，不退出");
+        // 压住重复留痕：把疑似推进到当前时刻，下一 tick 的间隔必然小于确认窗。
+        suspect_since = now;
         continue;
       }
       // ⚠️ 用 `libc::_exit`，**不是** `std::process::exit`，也不是 `app.exit()`：
@@ -4326,6 +4379,26 @@ mod tests {
     assert!(!watchdog_should_fire(1_000, 6_000, 5_000, false));
     // 超过阈值 ⇒ 判
     assert!(watchdog_should_fire(1_000, 6_001, 5_000, false));
+  }
+
+  /// 二段确认（rev173.332）：进了"疑似"还必须再撑满确认窗才允许终止。
+  ///
+  /// 为什么单独钉死：2026-11-02 真机 `watchdog.log` 42 条的 gap 全部落在 **5007–5962 ms** ——
+  /// 主线程还活着，只是 `setInterval` 被系统节流放慢。第一段会把这些判成"疑似"，
+  /// 只要心跳在确认窗内回来就**绝不能**杀（否则就是"应用自己退出、工作全丢"）。
+  #[test]
+  fn watchdog_kills_only_after_confirm_window() {
+    // 尚未进入疑似（哨兵 0）⇒ 永不杀
+    assert!(!watchdog_should_kill(0, 999_999, 10_000));
+    // 刚到疑似时刻 ⇒ 不杀
+    assert!(!watchdog_should_kill(5_000, 5_000, 10_000));
+    // 差 1 ms 到确认窗 ⇒ 不杀（边界是"撑满"）
+    assert!(!watchdog_should_kill(5_000, 14_999, 10_000));
+    // 撑满确认窗 ⇒ 杀
+    assert!(watchdog_should_kill(5_000, 15_000, 10_000));
+    // 真机实测最大的节流空窗 5962 ms：只够进入疑似，离终止还差整整 10 s
+    assert!(!watchdog_should_kill(5_962, 5_962 + 10_000 - 1, 10_000));
+    assert!(watchdog_should_kill(5_962, 5_962 + 10_000, 10_000));
   }
 
   /// 改名改引用的两个防护（rev173.138）：代码块/行内代码不动；改之前留原文备份。

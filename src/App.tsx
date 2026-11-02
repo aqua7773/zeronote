@@ -3863,6 +3863,14 @@ export default function App() {
   useEffect(() => {
     if (!vault) return
     const beat = () => {
+      // rev173.332：**每次心跳前自检可见性**，不可见就只暂停、不发心跳。
+      // 为什么事件那层不够（2026-11-02 真机）：Android WebView 切后台时 `visibilitychange`
+      // 不一定派发，而定时器被系统节流后仍会以 5–6 s 一次慢慢跑 ⇒ 心跳照样"迟到"。
+      // 只靠事件挂 pause 会漏，漏了就是"后台被看门狗误杀"；每秒自检把这条兜住。
+      if (document.visibilityState !== 'visible') {
+        void invoke('zn_watchdog_pause').catch(() => {})
+        return
+      }
       void invoke('zn_heartbeat', { vault }).catch(() => {})
     }
     const syncVisibility = () => {
