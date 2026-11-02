@@ -1,11 +1,11 @@
 {
-  "version": "0.9.19",
-  "notes": "修复：手机打开右侧「更多」抽屉即原生崩溃（SIGABRT）\n\n0.9.18 的 tombstone：崩溃线程 `FenceMonitor`，栈**全部在系统库**（libc / libc++ / libgui），\nabort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex` —— 我们的代码一行都不在栈上。\n\n触发面：打开右抽屉时，界面**条件渲染新建两个全屏 fixed 合成层**（遮罩 + 抽屉）+ 入场动画，\n撞上 nubia HWC 的互斥量生命周期（这台机器此前 6 份 tombstone 同一根因）。\n\n- **右抽屉改常驻挂载**（与左抽屉 0.9.15 同款）：层不再新建，关闭态 `visibility: hidden` 退出合成\n- 进出场 340ms 仍保留，改由 CSS transition 播\n- 0.9.18 的看门狗误杀修复继续有效（两件事已分开：这次是原生崩溃，不是 exit 101）",
-  "pub_date": "2026-11-02T14:22:12.978Z",
+  "version": "0.9.20",
+  "notes": "修复（真人测试8）+ 首页 ＋ 收起\n\n- 手机编辑页：历史版本从顶部移到底部，底部快捷栏只在软键盘弹出时显示\n- 应用更新：断点续传再点「继续下载」不再报「上一次下载还没结束」（点之前先取消后台旧任务）\n- 编辑区长按：到 300ms 直接弹四键条（不再等松手），去掉编辑区涟漪；文件树仍松手触发\n- 首页 ＋：滑动时间流时收起，停下 400ms 再显示\n\n配套插件：`import-export` 0.2.3 —— 导出/分享的 md 现在会把图片内嵌（图片在库根也认），\n在插件中心更新即可，不用等应用版本。",
+  "pub_date": "2026-11-02T15:19:04.889Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.19/ZeroNote_0.9.19_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzROTlNLN2xueWRzdnk1RkpuWGNkdTZuV2tJSS9aQmsweGFHcjdvL1hFblRwcUJUUkJwWmFkYkt0OFBneDVtaEQxcGErakprbE1EbjRXTFBrbGp5cmdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjI5MDUwCWZpbGU6WmVyb05vdGVfMC45LjE5X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMTkKRm1URE41NUsra1dpNUJQTDUwNmFGOHZ2M1lacmNBcFp1RFVpbkxkOFk5OG5rdFJRMDJleFhDdGY1b3VaTVR2VTAyZnYweGV1M1FadS8wT2FkekZVQ0E9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.20/ZeroNote_0.9.20_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRy9SQytlcWUvMUJiRUZTSGNGWWx1QXFNMXN5SldzZExtV3pWMGQ0Yzd6L0ZhRHFXU2xUeWZjRnE0Qjhxd1VUVjFPZE1PdFB0S3I5SzlmWXNSTzJBd2dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjMyNTEyCWZpbGU6WmVyb05vdGVfMC45LjIwX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjAKV1NBNWRGNzVQQ1AvRlVMVkdBa1VnblJCOGFOcUVhUTlCR2l2VUZ6TEZEbTRSakxWaXVuaDJGbERYeWdGWEpmM1BoTGZpT1ZjR0gwZW9kUGF2K2R3RHc9PQo="
     }
   }
 }
