@@ -1,6 +1,6 @@
 # Changelog
 
-> 状态：**active** ｜最后核对：2026-11-02（0.9.18 · rev173.332 看门狗误杀修复）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
+> 状态：**active** ｜最后核对：2026-11-02（0.9.19 · rev173.333 右抽屉常驻挂载）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
 
 ## 应用版本（app version · rev173.37 起）
 
@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 内容 |
 |---|---|---|
+| 0.9.19 | 2026-11-02 | **手机打开右侧「更多」抽屉即原生崩溃（SIGABRT）**（rev173.333）：0.9.18 真机 tombstone 显示崩溃线程 `FenceMonitor`、栈全在 libc / libc++ / libgui（`libzeronote_lib.so` **0 命中**），abort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex` —— 触发面是「打开右抽屉」时条件渲染**新建两个全屏 fixed 合成层**（遮罩 + 抽屉）+ 入场动画，撞上 nubia HWC 的互斥量生命周期（与 11-02 13:xx 那 6 份 tombstone 同型）。改法：右抽屉改**常驻挂载**（与左抽屉 0.9.15 同款），关闭态 `visibility: hidden` 退出合成，进出场 340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`，关闭态 `aria-hidden` |
 | 0.9.18 | 2026-11-02 | **手机「进软件就弹异常退出」= 看门狗误杀（不是崩溃）**（rev173.332）：用户交出 5 份 0.9.16 报告，全部「看门狗判定卡死（exit 101）」且无 tombstone；真机 `watchdog.log` **42 条 gap 全在 5007–5962 ms** —— 主线程还活着，只是 Android WebView 的 `setInterval` 被系统节流成 5–6 s 一次，单段 5 s 判据在这种设备上**必然误杀**（代价 = 应用直接退出、未保存内容丢失）。改法：**二段确认**（超时 5 s 只记「疑似」，再 10 s 无心跳才 `_exit(101)`，真卡死约 15 s 退出）· **启动宽限 20 s**（冷启动首屏本就可能 >5 s，宽限内不判）· **心跳前每秒自检 `visibilityState`**（不可见只暂停、不发心跳，补 `visibilitychange` 未派发的机型）· `zn_watchdog_status` 增 `confirmMs` / `startupGraceMs` / `startedAgoMs` 便于下次取证 |
 | 0.9.17 | 2026-11-02 | **真人测试7 五条 + 文件树触摸修复 + 长按 300ms**（rev173.331）：**长按反馈**——涟漪 14px/620ms → 26px/880ms + 描边 + 外发光 + 中途顿一下，振动改**原生命令**（`plugin:statusbar\|vibrate` → Kotlin `Vibrator`；`navigator.vibrate` 在国产 ROM WebView 被忽略）· **长按阈值统一 300ms**（原四处各写 500，现 `LONG_PRESS_MS` 一处，`ARM_MS` 拖拽上膛 240 → 150）· **手机「更多 → 插件」按已注册面板自动列**（`sync` 这类只挂 `main` 的插件不再消失）· **文件树触摸拖拽不卡**（touchmove 改 rAF 一帧一次、同值不 setState、ghost 直改 style）· **文件树触摸整条失效修复**（冷启动时 `rootRef` 为 null、effect 只跑一次 ⇒ 监听器从没绑上；改 callback ref）· 桌面「复制 md 文件」与右键「在文件夹中打开」——去 **verbatim `\\?\` 前缀**（`CF_HDROP` / `explorer /select` 都不认）+ `OpenClipboard` 重试 3×50ms |
 | 0.9.16 | 2026-11-02 | **闪退日志不再丢**（rev173.329）：0.9.15 装后闪退一次却没有弹窗 —— 看门狗已改 `libc::_exit(101)`，退出原因变成 `REASON_EXIT_SELF`，而 crashlog 只认三种 crash ⇒ 证据静默丢失。现在 `isReportable` 收录 **ANR / 低内存回收 / 看门狗 exit(101)**（用户主动退出、SIGKILL 滑掉仍不打扰）；弹窗按 `kind` 分文案（看门狗 →「上次被看门狗终止」，非崩溃 →「上次异常退出」）；导出文件标题区分「崩溃报告 / 异常退出报告」并附退出码 | 
