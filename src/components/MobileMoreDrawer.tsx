@@ -49,10 +49,13 @@ export type MobileMoreDrawerProps = SettingsSectionProps & {
   /** 插件提供的入口（标签 / 导入导出 / …）—— 只传「当前已启用」的 */
   pluginEntries?: MoreEntry[]
   /**
-   * 正在播**退场动画**（rev173.322）。宿主先置 true 播 340ms，到点才真正卸载 ——
-   * 否则条件渲染一关就是硬切（对比左抽屉有 transform 过渡）。
+   * 抽屉是否展开（rev173.332）。
+   *
+   * **不再负责"卸载"**：宿主已改成常驻挂载（与左抽屉同一套写法），关闭只是移除 `is-open`
+   * —— CSS 用 `visibility: hidden` 让层真正退出合成。原因见 styles.css 的
+   * `.zn-more-drawer` 注释（nubia HWC 对"新建全屏合成层"的竞态）。
    */
-  closing?: boolean
+  open?: boolean
 }
 
 function Row({
@@ -101,13 +104,17 @@ export function MobileMoreDrawer({
   onViewChange,
   pluginEntries = [],
   vault,
-  closing = false,
+  open = false,
   ...sections
 }: MobileMoreDrawerProps) {
   const tabLabel = view === 'menu' ? null : MORE_GROUPS.flatMap((g) => g.items).find((i) => i.kind === 'tab' && i.id === view)?.label
 
   return (
-    <aside className={`zn-more-drawer${closing ? ' is-closing' : ''}`} aria-label="更多">
+    <aside
+      className={`zn-more-drawer${open ? ' is-open' : ''}`}
+      aria-label="更多"
+      aria-hidden={!open}
+    >
       {view === 'menu' ? (
         <>
           <div className="zn-more-head">

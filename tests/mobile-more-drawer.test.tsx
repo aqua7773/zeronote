@@ -24,6 +24,9 @@ function makeProps(over: Partial<MobileMoreDrawerProps> = {}): MobileMoreDrawerP
     vault: '/storage/emulated/0/Documents/ZeroNote',
     noteCount: 44,
     view: 'menu',
+    // rev173.332：抽屉改成常驻挂载，关闭态带 `aria-hidden`（对辅助技术隐藏）——
+    // 测试要断言内容，所以按"已展开"渲染。
+    open: true,
     onViewChange: vi.fn(),
     onClose: vi.fn(),
     onAction: vi.fn(),

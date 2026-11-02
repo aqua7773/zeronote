@@ -2919,7 +2919,8 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
      （`FenceMonitor` / `WebViewFunctor` / `libhwui` 三种栈，abort message 都是同一个 mutex 地址）。
      修法：关闭态用 `visibility: hidden` —— 元素不参与合成，层真正消失；淡出仍由 opacity 播，
      visibility 用 transition-delay 延到淡出结束再切，动画节奏不变。 */
-  .zn-scrim.is-sidebar {
+  .zn-scrim.is-sidebar,
+  .zn-scrim.is-drawer {
     animation: none;
     visibility: hidden;
     opacity: 0;
@@ -2928,7 +2929,8 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
       opacity var(--zn-dur-drawer) var(--zn-ease-standard),
       visibility var(--zn-dur-none) linear var(--zn-dur-drawer);
   }
-  .zn-scrim.is-sidebar.is-open {
+  .zn-scrim.is-sidebar.is-open,
+  .zn-scrim.is-drawer.is-open {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
@@ -2937,7 +2939,11 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
       visibility var(--zn-dur-none) linear var(--zn-dur-none);
   }
 
-  /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动；条件渲染 ⇒ 出现即从右滑入 */
+  /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动。
+     ⚠️ rev173.332（2026-11-02 21:14 真机 SIGABRT）：原先是**条件渲染 + 入场 animation** ——
+     每打开一次就新建「全屏遮罩 + 全屏抽屉」两个合成层，nubia NX741J / Android 16 上撞
+     HWC `FenceMonitor` 的 destroyed mutex。改成**常驻挂载 + 关闭态 `visibility: hidden`**
+     （与左抽屉 / 遮罩同一套）：层不新建，关闭态退出合成；进出仍由 340ms transition 播。 */
   .zn-more-drawer {
     display: flex; flex-direction: column;
     position: fixed; top: 0; bottom: 0; right: 0; z-index: 60;
@@ -2948,20 +2954,18 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     border-left: 1px solid var(--zn-border);
     box-shadow: 0 0 24px rgba(0,0,0,.18);
     overflow-y: auto;
-    animation: zn-more-in var(--zn-dur-drawer) var(--zn-ease-emph);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition:
+      transform var(--zn-dur-drawer) var(--zn-ease-emph),
+      visibility var(--zn-dur-none) linear var(--zn-dur-drawer);
   }
-  @keyframes zn-more-in {
-    from { transform: translateX(100%); }
-    to { transform: translateX(0); }
-  }
-  /* 退场（rev173.322）：宿主先置 `is-closing` 播完再卸载，否则条件渲染一关就是硬切 */
-  .zn-more-drawer.is-closing {
-    animation: zn-more-out var(--zn-dur-drawer) var(--zn-ease-emph) forwards;
-    pointer-events: none;
-  }
-  @keyframes zn-more-out {
-    from { transform: translateX(0); }
-    to { transform: translateX(100%); }
+  .zn-more-drawer.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition:
+      transform var(--zn-dur-drawer) var(--zn-ease-emph),
+      visibility var(--zn-dur-none) linear var(--zn-dur-none);
   }
 
   /* 顶栏压缩，把宽度让给路径与按钮 */

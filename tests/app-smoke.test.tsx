@@ -202,10 +202,11 @@ describe('App 集成冒烟', () => {
       await settle()
 
       expect(document.querySelector('.zn-swap')?.getAttribute('data-main')).toBe('plugins')
-      // rev173.322：抽屉关闭要先播 340ms 退场动画，到点才卸载 —— 等它跑完再断言
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      expect(document.querySelector('.zn-scrim')).toBeNull()
-      expect(document.querySelector('.zn-more-drawer')).toBeNull()
+      // rev173.333：右抽屉也改成**常驻挂载**（与左抽屉同款，防 nubia HWC 新建合成层崩溃）——
+      // 关闭后 DOM 留着，只是去掉 `is-open`（关闭态 CSS 用 visibility:hidden 退出合成），不再卸载。
+      expect(document.querySelector('.zn-more-drawer.is-open')).toBeNull()
+      expect(document.querySelector('.zn-more-drawer')).not.toBeNull()
+      expect(document.querySelector('.zn-scrim.is-open')).toBeNull()
     } finally {
       Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
     }

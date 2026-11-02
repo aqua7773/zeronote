@@ -1,6 +1,19 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.332（2026-11-02）—— 手机「进软件就弹异常退出」= 看门狗误杀，不是崩溃**
+> **最新：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
+> 用户 21:14 报告：环境 **0.9.18** · `原因：原生崩溃（SIGABRT）` · abort =
+> `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x77fae02af8)`；崩溃线程 `FenceMonitor`，
+> 栈全在 libc / libc++ / libgui，`libzeronote_lib.so` **0 命中** —— 与 13:xx 那 6 份 tombstone 同型。
+> **触发面（用户原话）**：「右侧更多准备点插件中心准备插件」⇒ 打开右抽屉 = 条件渲染新建
+> **遮罩 + 抽屉两个全屏 fixed 合成层** + 入场 animation。
+> **看门狗修复是有效的**：这份是 crash、不是 exit 101 —— 老问题原被 5 秒误杀掩盖，现在浮出来了。
+> **改法**：右抽屉改**常驻挂载**（与左抽屉 0.9.15 的写法一致）—— `setMoreOpen` 只切开关；
+> 遮罩走 `.zn-scrim.is-drawer`、抽屉走 `.zn-more-drawer.is-open`，关闭态 `visibility: hidden` 退出合成；
+> 340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`
+> （关闭态 `aria-hidden`，测试按展开态渲染）。
+> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿**（drawer 8 + app-smoke 6 相应改写）。⚠️ **待真机**：装 0.9.19 后连开右抽屉 10 次。
+>
+> **上一轮：rev173.332（2026-11-02）—— 手机「进软件就弹异常退出」= 看门狗误杀，不是崩溃**
 > 用户带来 5 份 0.9.16 报告（18:47:23 / 20:42:25 / 20:42:35 / 20:42:48 / 20:43:19），全部
 > `原因：看门狗判定卡死（exit 101）`、**无 tombstone**。判据链：0.9.15 起看门狗走 `libc::_exit(101)`
 > ⇒ 系统记 `REASON_EXIT_SELF`；0.9.16 的 crashlog 才把「看门狗 exit」纳入可报告 ⇒ 弹窗就是它。

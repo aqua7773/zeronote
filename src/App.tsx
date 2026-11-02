@@ -233,12 +233,8 @@ const AUTOSAVE_MS = 800
  */
 const DOC_CHANGE_DEBOUNCE_MS = 200
 
-/**
- * 抽屉进出场时长（rev173.322 · 用户 2026-11-02 定 **340ms**）。
- * 与 `styles.css` 的 `--zn-dur-drawer` 同值 —— 退场动画靠这个值决定"什么时候真正卸载"，
- * 两边不一致就会出现"动画播完还多停一拍"或"还没播完就被卸掉"。
- */
-const DRAWER_MS = 340
+/* rev173.332：删掉 `DRAWER_MS`（原 340ms 的"到点卸载"计时）—— 右抽屉已改常驻挂载，
+   进出场时长完全交给 CSS 的 `--zn-dur-drawer`（同值 340ms），JS 不再需要知道它。 */
 
 export default function App() {
   /* ── 库与文档 ── */
@@ -739,33 +735,19 @@ export default function App() {
   /** 右侧「更多」抽屉（rev173.308）：右边缘左滑 / 左侧抽屉头部的「更多」按钮打开 */
   const [moreOpen, setMoreOpenRaw] = useState(false)
   /**
-   * **关闭时的退场动画**（rev173.322 · 用户「补，然后时间拉到340ms」）。
+   * **抽屉常驻挂载**（rev173.332 · 与左抽屉同一套写法）。
    *
-   * 抽屉是条件渲染的，直接置 false 会**瞬间消失**（对比左抽屉有 220ms 的 transform 过渡，
-   * 右边一直是硬切）。这里拆成两步：先 `moreClosing = true` 播 340ms 退场，到点才真正卸载。
-   * `setMoreOpen` 这个名字保留给调用点用（16 处），内部换成"带动画"的版本。
+   * 历史包袱：rev173.322 为了让退场有动画，用 `moreClosing` + 340ms 定时器"到点卸载"；
+   * 但根子是**条件渲染**——每次打开都会新建两个全屏 fixed 合成层（遮罩 + 抽屉 + 入场动画），
+   * 在 nubia NX741J / Android 16 上撞 HWC `FenceMonitor` 的 destroyed mutex ⇒ SIGABRT
+   * （2026-11-02 21:14 真机 tombstone：用户「右侧更多准备点插件中心」）。
+   * 左抽屉 0.9.15 改成常驻后同类崩溃消失，右抽屉照办：层一直在，关闭态 `visibility: hidden`
+   * 退出合成。视觉不变 —— 进出仍是 340ms，改由 CSS transition 播。
+   *
+   * `setMoreOpen` 这个名字保留给调用点用（16 处），内部只切开关。
    */
-  const [moreClosing, setMoreClosing] = useState(false)
-  const moreCloseTimer = useRef<number | null>(null)
   const setMoreOpen = (next: boolean) => {
-    if (next) {
-      // 打开：取消还没跑完的退场，立刻上屏
-      if (moreCloseTimer.current !== null) {
-        window.clearTimeout(moreCloseTimer.current)
-        moreCloseTimer.current = null
-      }
-      setMoreClosing(false)
-      setMoreOpenRaw(true)
-      return
-    }
-    // 关闭：先播退场，到点再卸载（重复调用只算一次）
-    setMoreClosing(true)
-    if (moreCloseTimer.current !== null) return
-    moreCloseTimer.current = window.setTimeout(() => {
-      moreCloseTimer.current = null
-      setMoreClosing(false)
-      setMoreOpenRaw(false)
-    }, DRAWER_MS)
+    setMoreOpenRaw(next)
   }
   /**
    * 右侧「更多」抽屉当前停在**哪一屏**（rev173.313）：`menu` = 条目表，
@@ -5919,12 +5901,16 @@ export default function App() {
         * 入口 = 屏幕**右边缘往左滑**（`lib/swipe.ts` 的 `moreSwipeIntent`）
         * 或左侧文件树抽屉头部的「更多」按钮（那里原来放的是设置齿轮，而设置本来就在这一页里）。
         * 遮罩与抽屉本体同源（同 rev173.277 的教训），点遮罩关闭。
+        *
+        * rev173.332：改成**常驻挂载**（手机上一直在，关闭态 `visibility: hidden`）——
+        * 条件渲染每次打开都新建两个全屏 fixed 合成层，在 nubia 上诱发 HWC SIGABRT
+        * （2026-11-02 21:14 tombstone）。详见上面 `setMoreOpen` 的注释。
         */}
-      {moreOpen || moreClosing ? (
+      {!isDesktop ? (
         <>
-          {/* 遮罩跟着抽屉一起淡出（`is-closing`），否则抽屉还在滑、背景已经瞬间变亮 */}
+          {/* 遮罩与抽屉共用 `is-open`：进出都是 340ms，关闭态 visibility hidden 退出合成 */}
           <div
-            className={`zn-scrim${moreClosing ? ' is-closing' : ''}`}
+            className={`zn-scrim is-drawer${moreOpen ? ' is-open' : ''}`}
             onClick={() => setMoreOpen(false)}
           />
           <MobileMoreDrawer
@@ -5932,7 +5918,7 @@ export default function App() {
             noteCount={notes.length}
             view={moreTab}
             onViewChange={setMoreTab}
-            closing={moreClosing}
+            open={moreOpen}
             onClose={() => setMoreOpen(false)}
             onAction={(id) => {
               setMoreOpen(false)
