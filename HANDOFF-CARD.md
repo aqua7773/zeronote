@@ -1,5 +1,23 @@
 # ZeroNote 交接卡（当前状态）
 
+> **最新：rev173.325（2026-11-02）—— 真人测试6 五条**（用户转来 `ZreoNote/真人测试6.md` + 4 张截图）：
+> ① **附件断链**：图片按「笔记所在目录」写相对路径，笔记一移动就断（用户实测「移回原位正常」）。改法：
+> 插入时改写成**库根相对**（`/附件/a.png`），渲染解析给**两候选**（笔记目录 → 库根），全失败才显示「图片不在本机」。
+> ② **编辑页偶发全白、输入不落地**：`--zn-viewport-h` 直接吃 `visualViewport.height`，键盘动画期间会瞬时变 0/几十 px ⇒
+> `.zn-app` 塌掉。改法：**低于 200px 不写**；编辑器挂载后 300/1200ms 各量一次，容器高度为 0 就 `requestMeasure()` 自愈。
+> ⚠️ 未稳定复现（真机 3 轮没撞上），这两处是防御性修复 —— 再出现时先看 `--zn-viewport-h` 的值。
+> ③ **长按无反馈**：五个长按入口（文件行 / 卡片 / ＋ / ☰ / 编辑区四键条）到 500ms 时**振一下**（`navigator.vibrate`）
+> + 按下点**涟漪**（新 `src/lib/long-press-feedback.ts`）；AndroidManifest 加 `VIBRATE` 权限。真机长按菜单回归正常（截图 `_shots` 待补）。
+> ④ **同步删除墓碑**：桌面首次连同步把手机删掉的老文件**重新上传**（旧逻辑：本地有 + 远端无 = 新笔记）。改法：manifest 新增
+> `deleted` 段（删除时写墓碑 30 天），同步时「本地 mtime ≤ 墓碑 ⇒ 跟删（进回收站）；> 墓碑 ⇒ 保留上传并清墓碑」。
+> **右键菜单**加「详细…」（新原生命令 `entry_info`：大小 / 创建 / 修改 / 路径）与「在文件夹中打开」（`reveal_in_explorer`，手机端如实报不支持）。
+> ⑤ **桌面分享 = 复制文件**：旧行为把整篇 Markdown（含 `data:` base64 图片）塞进剪贴板 ⇒ 粘出来一大串文件流。改法：新原生命令
+> `copy_file_to_clipboard`（Windows CF_HDROP）+ `import-export` 桌面 md 分享改为**复制 `.md` 文件本身**（旧包自动退回复制文本）。
+>
+> 验证：tsc 0 · oxlint 4 warnings（= 基线）· **vitest 1761 → 1776** · `cargo check --lib` 4 warnings（= 基线，含 3 条新命令）。
+> **未发版**：`entry_info` / `reveal_in_explorer` / `copy_file_to_clipboard` 都是内核命令 ⇒ 要 **0.9.13** 才到用户手里；
+> `sync` 的墓碑要**重新打包签名发市**（`market/packs/sync-*.znp`）才对市场用户生效。
+>
 > **最新：rev173.324（2026-11-02）—— 应用更新面板：装完新版还提示安装 / 断点续传卡在旧版**（用户真机实测）：
 > `loadLastCheck()` 存的是**检查那一刻**的结论，应用升级后没作废 ⇒ 一直显示旧版「发现新版本 / 已下载完成」，
 > 且「发现新版本」态没有重新检查入口。改法（只动前端）：`currentVersion !== appVersion` ⇒ 旧结果作废、idle 自动重查；
@@ -55,13 +73,13 @@
 >
 > **rev173.315（2026-11-01）：条目去重** —— 删「设置 → 插件」，插件只留「插件中心」一条并挪进「设置」组；「启动时检查插件更新」搬进插件中心「已安装」tab。条目表现在是 3 组 7 项（笔记 3 · 设置 4 · 插件动态）。
 >
-> 最后更新 **2026-11-02（rev173.324 · 应用更新面板：旧检查结果过期作废 —— 装完新版不再提示安装、断点续传不再卡旧版 · 0.9.12 已发版）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
+> 最后更新 **2026-11-02（rev173.325 · 真人测试6 五条 —— 附件库根路径 / 长按振动+涟漪 / 详细+在文件夹打开 / 空白天顶防御 / 桌面分享复制文件 / 同步删除墓碑）** ｜ 细节与证据在 **`HANDOFF.md`**（只保留当前周期，rev173.125 起；0.2 / 0.3 / 0.4 已归档到 `docs/archive/handoff/`）｜ 提交数一律看 `git log`
 > 本卡只放**当前状态**（目标 ≤ 120 行）；历史过程一律回 HANDOFF，不再在此重复。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.324 · 0.9.12 · 2026-11-02 |
+| rev / 版本 | rev173.325 · 0.9.12 · 2026-11-02 |
 | 测试基线 | vitest 1761 · cargo 96 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.12 |
@@ -88,24 +106,22 @@ pwsh -File scripts\verify.ps1
 
 ## 未决 / 下一步
 
-> ### 📌 下个会话第一件事（rev173.324 · 2026-11-02）
+> ### 📌 下个会话第一件事（rev173.325 · 2026-11-02）
 >
-> **rev173.324 已修：应用更新面板两个「卡死」**（用户真机实测）—— ① 装完新版仍提示「已下载完成 · 安装」；
-> ② 0.9.9→0.9.10 中断后远端到 0.9.12，页面卡在 0.9.10 续传、无刷新入口。根因 = `loadLastCheck()` 的结论过期
-> 没作废 + 「发现新版本」态没有重新检查入口。改法见文首。
-> **要等 0.9.13 发出去才到用户手里**（0.9.12 已发，不含这条；本轮只改前端）。
+> **真人测试6 五条已改完、未发版**。要让用户真正拿到，两条线：
+> 1. **应用 0.9.13**（带三条新内核命令 `entry_info` / `reveal_in_explorer` / `copy_file_to_clipboard`）：
+>    `release.mjs 0.9.13` → `build-release.mjs`（桌面 + Android，约 9 分钟）→ `gen-update-manifest.mjs` → `gh release create` → commit `update/`。
+> 2. **`sync` 重打包签名发市**（墓碑逻辑）：`pack-plugin sync --key … --key-id aqua-2026` → `gen-market --write`（版本 bump 见 `examples/sync/manifest.json`）。
 >
-> **下一步候选**：发 0.9.13（把更新面板修复带出去，构建约 9 分钟）· 或先让用户在 debug 机上确认效果。
->
-> **仍欠（不阻塞）**：
-> 1. **桌面升 0.9.12** —— `src-tauri\target\release\bundle\nsis\ZeroNote_0.9.12_x64-setup.exe`。
-> 2. **正式包端到端验一次应用内更新**（另一台手机）—— 五道护栏只在 debug 包上编译验证过。
->    ⚠️ 用户明确：**adb 这台机只跑 dev/debug**，正式包用另一台手机测。
+> **真机验证仍欠**（三条新命令只能在装 0.9.13 的 debug/正式包上验）：
+> ① 右键「详细…」弹窗字段正确；② 「在文件夹中打开」跳到资源管理器并选中；③ 桌面「分享 md」后，粘贴到文件夹 / 微信得到的是**文件**而不是一大串 base64。
+> **`sync` 墓碑**要双设备实测：手机删一篇并同步 → 桌面首次连同步 ⇒ 那篇应消失（进桌面回收站），而不是被上传。
 >
 > **环境现状（交接时刻）**：vite **1420** 在跑（`pnpm dev`，手机 debug 包连它）·
-> 手机 `24069RA21C`（`33b676f6`）debug 版，CDP `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`
-> （重开应用 / 换机型后 pid 会变，先 `adb shell "cat /proc/net/unix" | findstr webview_devtools` 再 forward）·
-> 桌面 dev 窗口若已被关：`pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`，它与正式版 0.9.9 抢单实例，只能开一个。
+> 手机 `24069RA21C`（`33b676f6`）debug 版 —— ⚠️ 本轮 `npm run tauri dev` 的 CDP 曾是 404（`/json` 不通），
+> 真机调试走 `adb shell input` + `adb exec-out screencap`（本轮三条修改就是这么验的）·
+> 桌面 dev：`npx tauri dev --config '{"build":{"beforeDevCommand":""}}'`（复用现有 vite），
+> 与已装正式版抢单实例，只能开一个。
 >
 > ### ✅ 真人测试5 + 后续六轮全修（rev173.317–323 · 2026-11-01/02 · 真机 + 桌面 dev 实测）
 >
