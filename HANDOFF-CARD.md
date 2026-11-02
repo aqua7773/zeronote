@@ -1,6 +1,26 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.325（2026-11-02）—— 真人测试6 五条**（用户转来 `ZreoNote/真人测试6.md` + 4 张截图）：
+> **最新：rev173.326（2026-11-02）—— 手机 0.9.13 打开侧栏闪退（未修 · 诊断中）**
+> 用户原话：「手机现在一打开左栏或右栏，一下子就会闪退」。追问确认：**另一台手机装的 0.9.13 release 包**，
+> 表现是 **App 直接消失回桌面**（不是白屏、不是 ANR），左右两个抽屉都触发（左侧文件树 + 右侧「更多」）。
+> 本会话排查（**都还没证到根因**）：
+> · **调试机 `33b676f6` 复现不了**：上面是 `com.aqua.zeronote.debug`（壳 0.9.11 + 连 vite 1420 的最新源码），
+>   左抽屉实测正常；另一个 `com.aqua.zeronote` 是 **0.1.0 老包、只装在 user 10（安全空间）** ⇒ `adb install -r`
+>   报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`（签名冲突），0.9.13 装不上。
+> · **桌面复现不了**：`isDesktop = kernel.host.platform !== 'android'`，移动布局只在 Android 生效；
+>   窗口缩到 600px 也不切（另外 `minWidth: 720` 挡着）。
+> · **没拿到崩溃证据**：`adb logcat` 无 `FATAL EXCEPTION` / `panic`；`dumpsys dropbox` 只有 VirusScanHistory。
+> · **被中止的路**：为绕签名冲突试 canary（`applicationId` 加 `.canary` + `ZN_CANARY=1`），
+>   `npm run tauri android build -- --apk` 跑 **30 分钟无产物**（rustc/gradle 长时间占 CPU）⇒ `job_kill`；
+>   **临时改动已还原，工作区干净**。要重走：把该行改成 `"com.aqua.zeronote" + (if (System.getenv("ZN_CANARY") == "1") ".canary" else "")`。
+> ⚠️ 也踩了「硬约束 7」：安卓测试机不重编译/不装 release 包 —— 这次为复现去装 0.9.13，被签名挡住也就没成。
+> **下个会话第一件事 = 抓崩溃日志**（用户已同意「手机连 USB 线」）：
+> 1. 崩溃那台手机开「开发者选项 → USB 调试」，线插电脑，`adb devices` 出现新序列号；
+> 2. `adb logcat -c` → 用户打开左栏/右栏复现 → `adb logcat -d` 里找 `FATAL` / `RustStdoutStderr` / panic（原生崩溃常无 Java 栈）；
+> 3. 有栈再决定：JS（错误边界）/ Rust（`entry_info` 等）/ WebView GPU。
+> 仍未做：`sync` 0.1.7 墓碑双端验证、rev173.325 五条真机复验。
+>
+> **rev173.325（2026-11-02）—— 真人测试6 五条**（用户转来 `ZreoNote/真人测试6.md` + 4 张截图）：
 > ① **附件断链**：图片按「笔记所在目录」写相对路径，笔记一移动就断（用户实测「移回原位正常」）。改法：
 > 插入时改写成**完整库内路径**（`视频/a.png`，不带前导 `/` —— 避免被 `isLocalAbsPath` 误判成库外原文件），
 > 渲染解析给**两候选**（笔记目录 → 库根），全失败才显示「图片不在本机」。
@@ -82,7 +102,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.325 · 0.9.13 · 2026-11-02 |
+| rev / 版本 | rev173.326 · 0.9.13 · 2026-11-02 |
 | 测试基线 | vitest 1777 · cargo 96 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.13 |

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.325
-更新时间: 2026-11-02 · 最新 rev173.325（**真人测试6 五条** —— 附件库根路径 / 长按振动+涟漪 / 详细+在文件夹打开 / 编辑页空白天顶防御 / 桌面分享复制文件 / 同步删除墓碑）
+revision: 173.326
+更新时间: 2026-11-02 · 最新 rev173.326（**手机 0.9.13 打开侧栏闪退（未修）** —— 诊断中：调试机复现不了、桌面不适用、无崩溃日志；已约好手机连 USB 抓 logcat）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.325
 
 | rev | 内容 |
 |---|---|
+| rev173.326 | 2026-11-02 · **手机 0.9.13 打开左右侧栏闪退（未修 · 诊断中）**：用户「手机现在一打开左栏或右栏，一下子就会闪退」，追问确认 —— **另一台手机装的 0.9.13 release 包**，表现 **App 直接消失回桌面**（非白屏、非 ANR），左（文件树）右（更多）两个抽屉都触发。① **排查（无结论）** —— a) 调试机 `33b676f6` 复现不了：上面是 `com.aqua.zeronote.debug`（壳 0.9.11 + 连 vite 1420 最新源码），左抽屉实测正常；`com.aqua.zeronote` 是 **0.1.0 老包且只装在 user 10（安全空间）** ⇒ `adb install -r` 报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`（签名冲突），0.9.13 装不上。b) 桌面不适用：`isDesktop = kernel.host.platform !== 'android'`，移动布局只在 Android 生效（窗口 `minWidth: 720`，缩到 600px 也不切）。c) 无崩溃证据：`adb logcat` 无 `FATAL EXCEPTION`/`panic`，`dumpsys dropbox` 只有 VirusScanHistory。② **试过并中止** —— 为绕签名冲突在 `build.gradle.kts` 的 `applicationId` 加 `.canary` + `ZN_CANARY=1` 构建，`npm run tauri android build -- --apk` **30 分钟无产物**（rustc/gradle 长期占 CPU）⇒ `job_kill`，**临时改动已还原、工作区干净**。③ **下一步（用户已同意 USB）** —— 崩溃机开 USB 调试 → `adb devices` → `adb logcat -c` → 复现 → `adb logcat -d` 找 `FATAL`/`RustStdoutStderr`/panic → 按栈分 JS / Rust / WebView GPU。④ 仍未做：`sync` 0.1.7 墓碑双端验证、rev173.325 五条真机复验。 |
 | rev173.325 | 2026-11-02 · **真人测试6 五条**（`ZreoNote/真人测试6.md` + 4 图）：① **附件断链** —— 插入改成**完整库内路径**（`视频/a.png`，不带前导 `/` —— 避免 `isLocalAbsPath` 误判），解析给「笔记目录 → 库根」双候选（`resolveImageAbsPaths` + img `error` 换候选），移动笔记不再丢图；② **编辑页偶发全白** —— `--zn-viewport-h` 加 200px 下限（键盘动画瞬时值会塌页面）+ 编辑器挂载后 0 高度 `requestMeasure()` 自愈（⚠️ 未稳定复现，防御性）；③ **长按反馈** —— 五入口到 500ms 振动（`navigator.vibrate`）+ 按下点涟漪，新 `src/lib/long-press-feedback.ts`，AndroidManifest 加 VIBRATE；④a **同步删除墓碑** —— manifest 新增 `deleted` 段（三个后端读写都带，30 天过期），「本地 mtime ≤ 墓碑 ⇒ 跟删；> 墓碑 ⇒ 保留上传并清墓碑」，修「桌面首次连同步把手机删掉的老文件传回去」；④b **右键菜单** —— 「详细…」（原生命令 `entry_info`）+「在文件夹中打开」（`reveal_in_explorer`，`explorer /select,`；手机端如实报错）；⑤ **桌面分享** —— 新原生命令 `copy_file_to_clipboard`（手写 Win32 CF_HDROP）+ `import-export` 桌面 md 分享复制**文件本身**，旧包自动退回文本。测试 **1761 → 1776**（sync +2 / file-tree-menu +2 / long-press +5 / insert-image +4）；tsc 0 · oxlint 4 warnings · cargo test 96 · **0.9.13 已发版**（tag `v0.9.13`，5 资产）；`sync` 0.1.7 / `import-export` 0.2.2 已签名入库。 |
 | rev173.324 | 2026-11-02 · **应用更新面板：装完新版还提示安装 / 断点续传卡在旧版**（用户真机实测两现象：① 已装 0.9.12，更新页仍显示「已下载完成 · 点安装」；② 0.9.9→0.9.10 中断后远端已到 0.9.12，页面却卡在 0.9.10 的续传状态、没有刷新入口）：① **根因** —— `loadLastCheck()` 存的是**检查那一刻**的结论（`currentVersion` = 当时的版本），面板初始化直接拿它铺界面；应用升级后结论已过期（仍显示旧版「发现新版本」/ 旧缓存「已下载」），而「发现新版本」态**只有「继续下载」、没有重新检查入口**；缓存 effect 也只按 `latest.version` 查文件，不看它是否真的比当前新。② **改法（只动前端 `AppUpdatePanel.tsx`）** —— a) `isStaleCheck()`：`check.currentVersion !== appVersion` ⇒ 结果作废、回 idle **自动重查**；b) `latestIsNew = compareVersions(latest.version, current) > 0`（复用 `kernel/version.ts`）—— 缓存/断点只在 latest 确实更新时认，否则清掉「已下载」显示；c) 「发现新版本」按钮区加**重新检查**（`RefreshCw`，aria-label「重新检查更新」）。③ **测试** —— 新 `tests/app-update-panel.test.tsx` **5 条**：升级后旧结果作废 / 最新时缓存不显示「已下载」/ 有新版+缓存仍显示「已下载」（防回退）/ 重新检查入口可点 / 0.9.10 半成品不显示为可续。真机（24069RA21C · debug 0.9.11）打开关于页：自动重查、显示「发现新版本 0.9.12」、重新检查按钮存在。④ 基线：tsc 0 · oxlint 4 warnings · cargo 96 · **vitest 1761**（+5）· 质量门 8/8。 |
 | rev173.323 | 2026-11-02 · **左抽屉动画补齐：根因是「条件渲染」**（用户「做侧栏唤出收回都比右侧栏快，右侧栏效果很好」）：① **复测（真机 24069RA21C · CDP 9333 · 页面内 rAF 逐帧采样）** —— 打开左抽屉：7ms 时 DOM 还没有，**54ms 时已是 `translateX(0)`（一个中间帧都没有）**；关闭：点完 42ms 内 DOM 直接卸载；对照组右抽屉 `translateX(304→0)` 是真 340ms 动画。② **根因** —— 手机端 `showSidebar = sidebarAllowed && (isDesktop \|\| sidebarOpen)` 是**条件渲染**，挂载那一帧就带 `is-open` ⇒ `.zn-sidebar` 的 `transition: transform` **没有起点、动画永远不播**（`getComputedStyle` 读得到 `0.34s` 只是声明，不代表在播 —— 上一轮交接被这个读数误导成「左抽屉有 220ms 过渡」）。③ **改法** —— `showSidebar = sidebarAllowed`（手机也**常驻挂载**，关闭只是 `translateX(-100%)` 挪到屏外，文件树滚动位置 / 展开状态顺带保住）；`box-shadow` 从基础挪到 `.is-open`（否则屏外阴影从屏幕左缘漏 24px）；左遮罩改**常驻 + `is-open` 过渡**（新 `.zn-scrim.is-sidebar`：`animation:none` + opacity transition，右抽屉的 `zn-scrim-in` / `is-closing` 不动）。④ **真机复测** —— 打开：34ms `left=-300` → 375ms `0`；关闭：0 → 46 → 180 → 239 → 288 → 300（≈340ms）；遮罩 opacity 0→1（≈340ms）与 1→0（≈340ms）。⑤ **测试** —— `app-smoke` 的抽屉断言从「DOM 卸载」改成「`.is-open` 移除」（常驻后 DOM 仍在）；`design-tokens` 不变（无新 token）。⑥ **文档** —— `docs/UI交互规范.md`：手机左抽屉条目补「常驻挂载 + ⚠️ 条件渲染会复发」、动效表补 `drawer` 340ms。证据 `_shots/rev323-01..02`。验证：tsc 0 · oxlint 4 warnings · cargo 96 · vitest 1756 · 质量门 8/8（01:20:41）。 |
@@ -218,6 +219,31 @@ revision: 173.325
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.326（2026-11-02 · 手机 0.9.13 打开左右侧栏闪退 —— 未修，诊断中）
+
+> **用户报障**：「手机现在一打开左栏或右栏，一下子就会闪退」。追问两条：用的是**另一台手机装的 0.9.13 release 包**；「闪退」＝ **App 直接消失回桌面**（不是白屏、不是 ANR）；「左栏/右栏」＝ 移动端两个抽屉 —— 左侧文件树、右侧「更多」。
+>
+> **本会话做过的排查（都没有把根因钉死）**
+>
+> 1. **调试机复现不了**。`33b676f6` 上装的是 `com.aqua.zeronote.debug`（壳 0.9.11 + 连 vite 1420 的最新源码），点汉堡开左抽屉实测正常出树（截图 `zn_left1.png`）。同机另有一个 `com.aqua.zeronote` —— versionName **0.1.0**、`lastUpdateTime` 2026-10-17、`dataDir=/data/user/10/…`，即**只装在 user 10（安全空间）**；`adb install -r ZeroNote_0.9.13_arm64.apk` 报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match`；`pm uninstall --user 0` 报 `not installed for 0`。**结论：这台机器装不上 0.9.13，且不该为此删安全空间里的旧包。**
+> 2. **桌面端不适用**。`src/App.tsx:4099` `isDesktop = kernel?.host.platform !== 'android'` —— 移动布局由平台决定、与窗口宽度无关；`tauri.conf.json` 又钉了 `minWidth: 720`，把窗口拖到 600px 也不会进移动态（实测 820/600 两轮截图都还是桌面双栏）。**桌面复现这条路是死的。**
+> 3. **没有崩溃证据**。`adb logcat -d` 全文搜 `FATAL EXCEPTION|AndroidRuntime|panic|RustStdoutStderr|SIGSEGV|SIGABRT` 为空；`dumpsys dropbox --print` 只有 `VirusScanHistory`，**没有 `data_app_crash` / `data_app_anr`**。说明（若真为原生崩溃）它落在 tombstone 而不是 Java 栈；也可能用户那台机器与这台不同。
+> 4. **试过 canary 包，被中止**。为绕签名冲突，把 `src-tauri/gen/android/app/build.gradle.kts` 的 `applicationId` 临时改成 `"com.aqua.zeronote" + (if (System.getenv("ZN_CANARY") == "1") ".canary" else "")`，`npm run tauri android build -- --apk` 起了后台 job，**30 分钟没有产出 APK**（`app/build/outputs/apk` 下最新仍是 12:34 那份 0.9.13），rustc/gradle 长时间占 CPU ⇒ `job_kill`。**该行已还原，工作区干净**（`git status` 无改动）。
+>
+> **下个会话从这里接（用户已同意「手机连 USB 线」）**
+>
+> 1. 崩溃那台手机：设置 → 开发者选项 → **USB 调试** 打开，数据线插电脑；`adb devices` 应出现**新序列号**（当前已知设备只有 `33b676f6`）。
+> 2. `adb logcat -c` → 让用户在手机上点汉堡开左抽屉（必要时再开右抽屉）复现 → `adb logcat -d` 抓全量，重点看 `FATAL EXCEPTION` / `RustStdoutStderr` / `DEBUG   : *** ***`（tombstone 头）/ `libc    : Fatal signal`。
+> 3. 若 logcat 干净：`adb shell dumpsys dropbox --print` 找 `data_app_crash`；再不行 `adb shell ls /data/tombstones`（需 root）或让用户复现后**立刻**抓 `adb bugreport`。
+> 4. 按栈分流修：JS（错误边界 / 渲染异常）· Rust（`entry_info` / `resolve` / 新加的三条命令）· WebView GPU（渲染进程崩溃，通常白屏不退出）。
+>
+> **顺带记的坑**
+>
+> - `Invoke-WebRequest http://127.0.0.1:1420/` 返回 404 是**系统代理**造成的假故障（`127.0.0.1:26561`）。本机探本地端口要加 `-NoProxy`；`curl` 会被「慢操作守门员」拦，别用。
+> - 本会话为复现去装 release 包，与交接卡「硬约束 7 安卓测试机不重编译/不装 release 包」冲突 —— 下次先走 `location.reload()` / 只改前端。
+>
+> 仍未做：`sync` 0.1.7 墓碑双端验证、rev173.325 五条真机复验。
 
 > ## 📌 rev173.325（2026-11-02 · 真人测试6 五条：附件断链 / 空白天顶 / 长按反馈 / 同步删除墓碑 · 详细+在文件夹打开 / 桌面分享复制文件）
 
