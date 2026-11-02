@@ -1,6 +1,27 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
+> **最新：rev173.334（2026-11-02 22:5x）—— 真人测试8（6 条：3 条已修 / 3 条待信息）**
+> 来源 `ZreoNote/测试文件/真人测试8.md`（5 条）+ 用户追加 1 条（图片读不出）。
+>
+> **✅ 已修（提交 6d12484 / 422427b，自动化全绿，待真机）**
+>
+> | # | 用户原话 | 改法 |
+> |---|---|---|
+> | ① | 历史版本移动端不放在上面放底部；底部快捷栏只在键盘弹出时显示 | `App.tsx`：新增 `keyboardOpen`（`visualViewport` 高度差 >120px）；`editor-topbar` 面板（历史版本）从顶部挪进底部 `MarkToolbar`；该栏改为 `platform==='android' ? keyboardOpen : toolbarPanels.length>0` 才渲染 |
+> | ② | 续传点「继续下载」又报「上一次下载还没结束」但进度在涨 | Rust 新增 `cancel_apk_download`（`APK_DOWNLOAD_CANCEL`），下载循环每 chunk 检查；前端点下载前先取消旧任务 + 等 300ms；抢到闸时清零标志 |
+> | ③ | 长按动画编辑界面也触发、编辑界面不需要松手触发 | 编辑区**到 300ms 直接弹四键条**（不再等松手），去掉编辑区涟漪（保留振动）；文件树仍松手触发（拖拽时收菜单，rev173.320 已有）；删 `pressAt` 与 `spawnRipple` 引用 |
+>
+> **⏳ 待信息（3 条，都缺一手证据）**
+>
+> | # | 结论 | 还缺什么 |
+> |---|---|---|
+> | ④ 手机分享没带图片 | 分享逻辑在 `import-export` 插件（≥0.2.2 才内嵌图片 → `share_file`）—— 若手机装的是 0.2.0/0.2.1，就是旧插件 | 插件中心里 `import-export` 的版本号 |
+> | ⑤ 桌面复制仍失败 | **已实测排除实现问题**：独立探针（与 `winclip::copy_files` 同逻辑）写入 CF_HDROP 后 `DragQueryFileW` 读回成功 ⇒ Rust 侧正确 | 桌面插件 `import-export` 版本；点「复制」后有没有报错 toast |
+> | ⑥ md 里图片都读不出 | 子 agent 只读调查 3 个根因：① `@atomic-editor` 图片块正则只认「整行 + 路径无裸空格」，`![](我的 图.png)` / `![[x.png]]` / `<img>` **静默不渲染**（patch：`patches/@atomic-editor__editor@0.6.2.patch`）；② `MarkdownEditor.tsx:136` 候选为 0 时直接 `continue`、不挂「图片不在本机」提示；③ 附件没同步到位 | **那篇笔记里图片那一行的原文**（或库路径）—— 含空格/wiki 嵌入 ⇒ ①；普通 `![](a.png)` 点不亮 ⇒ ②；库里没图 ⇒ ③ |
+>
+> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）。未发版。
+>
+> **上一轮：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
 > 用户 21:14 报告：环境 **0.9.18** · `原因：原生崩溃（SIGABRT）` · abort =
 > `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x77fae02af8)`；崩溃线程 `FenceMonitor`，
 > 栈全在 libc / libc++ / libgui，`libzeronote_lib.so` **0 命中** —— 与 13:xx 那 6 份 tombstone 同型。
