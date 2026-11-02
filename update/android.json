@@ -1,10 +1,10 @@
 {
-  "version": "0.9.20",
-  "notes": "修复（真人测试8）+ 首页 ＋ 收起\n\n- 手机编辑页：历史版本从顶部移到底部，底部快捷栏只在软键盘弹出时显示\n- 应用更新：断点续传再点「继续下载」不再报「上一次下载还没结束」（点之前先取消后台旧任务）\n- 编辑区长按：到 300ms 直接弹四键条（不再等松手），去掉编辑区涟漪；文件树仍松手触发\n- 首页 ＋：滑动时间流时收起，停下 400ms 再显示\n\n配套插件：`import-export` 0.2.3 —— 导出/分享的 md 现在会把图片内嵌（图片在库根也认），\n在插件中心更新即可，不用等应用版本。",
-  "pub_date": "2026-11-02T15:19:04.889Z",
+  "version": "0.9.21",
+  "notes": "ZeroNote 0.9.21",
+  "pub_date": "2026-11-02T16:12:43.730Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.20/ZeroNote_0.9.20_arm64.apk",
-    "sha256": "0c7521293d1de21e96ea7206caa6c87c41f52f593a7b39d1ee8b51f5cadd8b51",
-    "size": 34860195
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.21/ZeroNote_0.9.21_arm64.apk",
+    "sha256": "2bf16efaf72a395503a4f1e716213fd266b0df9cbdcf929c18e48bad71e04843",
+    "size": 34859647
   }
 }

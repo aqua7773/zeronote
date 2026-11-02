@@ -1,11 +1,11 @@
 {
-  "version": "0.9.20",
-  "notes": "修复（真人测试8）+ 首页 ＋ 收起\n\n- 手机编辑页：历史版本从顶部移到底部，底部快捷栏只在软键盘弹出时显示\n- 应用更新：断点续传再点「继续下载」不再报「上一次下载还没结束」（点之前先取消后台旧任务）\n- 编辑区长按：到 300ms 直接弹四键条（不再等松手），去掉编辑区涟漪；文件树仍松手触发\n- 首页 ＋：滑动时间流时收起，停下 400ms 再显示\n\n配套插件：`import-export` 0.2.3 —— 导出/分享的 md 现在会把图片内嵌（图片在库根也认），\n在插件中心更新即可，不用等应用版本。",
-  "pub_date": "2026-11-02T15:19:04.889Z",
+  "version": "0.9.21",
+  "notes": "ZeroNote 0.9.21",
+  "pub_date": "2026-11-02T16:12:43.730Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.20/ZeroNote_0.9.20_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRy9SQytlcWUvMUJiRUZTSGNGWWx1QXFNMXN5SldzZExtV3pWMGQ0Yzd6L0ZhRHFXU2xUeWZjRnE0Qjhxd1VUVjFPZE1PdFB0S3I5SzlmWXNSTzJBd2dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjMyNTEyCWZpbGU6WmVyb05vdGVfMC45LjIwX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjAKV1NBNWRGNzVQQ1AvRlVMVkdBa1VnblJCOGFOcUVhUTlCR2l2VUZ6TEZEbTRSakxWaXVuaDJGbERYeWdGWEpmM1BoTGZpT1ZjR0gwZW9kUGF2K2R3RHc9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.21/ZeroNote_0.9.21_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFR3h6S0JHL0NWL3JpL3ZrRzZEOWlkUXpkWkpSR21tYjdZRmd1NWNlc3JSbFM4S1VLTmxoUThoRkNySVpQZ0NwWEQyUE5VTHV1ZEI1RlBSNkxUK1dsYVFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjM1NzMzCWZpbGU6WmVyb05vdGVfMC45LjIxX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjEKcnRROXNJZ0dnR2dqaXZHeUJaVXF2WU83SWd1WGF4aUdtU2pSNitDVmZ1MSt4NXRudGR4L1FuZHp0RDhjWDk5ZE5vRnp0SitPc29JWGtJL0RvL1hkQUE9PQo="
     }
   }
 }
