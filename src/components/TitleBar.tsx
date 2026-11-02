@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { WindowControls } from './WindowControls'
+import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 /**
  * 自绘窗口标题栏（记事本式）。
@@ -109,7 +110,7 @@ export function TitleBar({
     }
     holdArmed.current = false
   }
-  const onHoldStart = () => {
+  const onHoldStart = (x: number, y: number) => {
     // 每次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
     suppressClick.current = false
     cancelHold()
@@ -117,6 +118,9 @@ export function TitleBar({
       holdTimer.current = null
       // 到点只是"可以弹了"，不立刻弹 —— 手指还按着，界面保持干净
       holdArmed.current = true
+      // rev173.325 · 真人测试6 #3：到点振一下 + 按下点涟漪
+      hapticTick()
+      spawnRipple(x, y)
     }, HOLD_MS)
   }
   /** 松手：够久了才弹菜单（按住期间移动 / 取消走 cancelHold，不会弹） */
@@ -143,7 +147,7 @@ export function TitleBar({
       <button
         type="button"
         className="zn-icon-btn"
-        onPointerDown={onHoldStart}
+        onPointerDown={(e) => onHoldStart(e.clientX, e.clientY)}
         onPointerUp={onHoldEnd}
         onPointerLeave={cancelHold}
         onPointerCancel={cancelHold}

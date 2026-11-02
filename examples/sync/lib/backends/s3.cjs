@@ -473,7 +473,15 @@ function createS3Storage(cfg, opts = {}) {
     async readManifest() {
       const got = await c.get(MANIFEST_REL)
       if (!got) {
-        return { files: {}, attachments: {}, private: {}, privateTree: {}, etag: null, notModified: false }
+        return {
+          files: {},
+          attachments: {},
+          private: {},
+          privateTree: {},
+          deleted: {},
+          etag: null,
+          notModified: false,
+        }
       }
       const m = normalizeManifest(got.text)
       return { ...m, etag: got.etag ?? null, notModified: false }
@@ -485,6 +493,8 @@ function createS3Storage(cfg, opts = {}) {
         attachments: manifest.attachments ?? {},
         private: manifest.private ?? {},
         privateTree: manifest.privateTree ?? {},
+        // 删除墓碑（rev173.325 · 真人测试6 #4a）
+        deleted: manifest.deleted ?? {},
       })
       // 不做条件写：manifest 是「尽力而为」的索引，真冲突靠每篇文件的 etag 兜
       return c.put(MANIFEST_REL, body)

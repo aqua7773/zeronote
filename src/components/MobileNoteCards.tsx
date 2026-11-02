@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { ItemMenuContext, ItemMenuRegistration, NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { RenameDialog } from './RenameDialog'
+import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 type Props = {
   notes: NoteMeta[]
@@ -122,6 +123,17 @@ export function MobileNoteCards({
    */
   const pressRef = useRef<{ t: number; x: number; y: number } | null>(null)
   const suppressClickRef = useRef(false)
+  /**
+   * 卡片长按到点的反馈定时器（rev173.325 · 真人测试6 #3）：
+   * 按住满 500ms 振一下 + 按下点涟漪，告诉用户"现在抬手会弹菜单"。
+   */
+  const cardFeedbackRef = useRef<number | null>(null)
+  const clearCardFeedback = useCallback(() => {
+    if (cardFeedbackRef.current !== null) {
+      window.clearTimeout(cardFeedbackRef.current)
+      cardFeedbackRef.current = null
+    }
+  }, [])
 
   /**
    * 卡片菜单压进 Android 返回键的层出口栈（rev173.66）。
@@ -164,6 +176,8 @@ export function MobileNoteCards({
 
   // 卸载时清掉挂起的定时器，别让它在组件没了之后调 onQuickLaunch
   useEffect(() => cancelPress, [cancelPress])
+  // 卡片长按反馈定时器同理
+  useEffect(() => clearCardFeedback, [clearCardFeedback])
 
   const onComposePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     // 每一次新按压都重置抑制标记（上一次长按留下的标记不能影响这次短按）
@@ -172,11 +186,15 @@ export function MobileNoteCards({
     // 桌面时间流面板没有环形快捷入口（那是手机起始页的能力）—— 不注册长按
     if (!onQuickLaunch) return
     pressStart.current = { x: e.clientX, y: e.clientY }
+    const at = { x: e.clientX, y: e.clientY }
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null
       pressStart.current = null
       // rev173.321：到点只上膛，**松手时**才真正打开环形入口
       armed.current = true
+      // rev173.325 · 真人测试6 #3：到点振一下 + 按下点涟漪
+      hapticTick()
+      spawnRipple(at.x, at.y)
     }, LONG_PRESS_MS)
   }
 
@@ -358,6 +376,12 @@ export function MobileNoteCards({
                 if (!TOUCH_UI || e.touches.length !== 1) return
                 const t = e.touches[0]
                 pressRef.current = { t: Date.now(), x: t.clientX, y: t.clientY }
+                clearCardFeedback()
+                cardFeedbackRef.current = window.setTimeout(() => {
+                  cardFeedbackRef.current = null
+                  hapticTick()
+                  spawnRipple(t.clientX, t.clientY)
+                }, LONG_PRESS_MS)
               }}
               onTouchMove={(e) => {
                 const p = pressRef.current
@@ -369,9 +393,11 @@ export function MobileNoteCards({
                 if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) {
                   // 划动了 ⇒ 用户在滚列表，这次不是长按
                   pressRef.current = null
+                  clearCardFeedback()
                 }
               }}
               onTouchEnd={() => {
+                clearCardFeedback()
                 const p = pressRef.current
                 pressRef.current = null
                 if (!p) return
@@ -385,6 +411,7 @@ export function MobileNoteCards({
               }}
               onTouchCancel={() => {
                 pressRef.current = null
+                clearCardFeedback()
               }}
               onContextMenu={(e) => {
                 // 手机长按（Android 转 contextmenu）与桌面右键同一个菜单（2026-10-18 用户要求）

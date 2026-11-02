@@ -44,6 +44,7 @@ import type {
  * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
  * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
 import { MarkdownEditor } from './components/MarkdownEditor'
+import { hapticTick, spawnRipple } from './lib/long-press-feedback'
 import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
@@ -126,7 +127,7 @@ import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from 
 import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { drawersOpenOnlyOnHome, hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
-import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromNote, stemFromFileName } from './lib/insert-image'
+import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
   IMAGE_MODE_STORAGE_KEY,
@@ -329,6 +330,17 @@ export default function App() {
     src: string
     relPath: string | null
     relay: { id: string; size: number; original: string } | null
+  } | null>(null)
+  /**
+   * 条目详情（rev173.325 · 真人测试6 #4）—— 文件树右键「详细…」。
+   * 读的是磁盘元数据（不是列表缓存），刚改过的文件也准。null = 不显示。
+   */
+  const [entryInfo, setEntryInfo] = useState<{
+    path: string
+    isDir: boolean
+    size: number
+    mtime: number
+    created: number
   } | null>(null)
   /**
    * 本地媒体服务就绪计数（rev173.240 · Android 大视频 Range）。
@@ -858,6 +870,14 @@ export default function App() {
     let inEditor = false
     /** 按下时刻 —— 长按判定用 */
     let pressAt = 0
+    /** 长按到点的反馈定时器（rev173.325 · 真人测试6 #3） */
+    let feedbackTimer: number | null = null
+    const clearFeedback = () => {
+      if (feedbackTimer !== null) {
+        window.clearTimeout(feedbackTimer)
+        feedbackTimer = null
+      }
+    }
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
       sx = e.touches[0].clientX
@@ -866,10 +886,20 @@ export default function App() {
       pressAt = Date.now()
       const el = e.target as HTMLElement | null
       inEditor = !!el?.closest?.('.zn-editor .cm-editor')
+      clearFeedback()
+      if (inEditor) {
+        const at = { x: sx, y: sy }
+        feedbackTimer = window.setTimeout(() => {
+          feedbackTimer = null
+          hapticTick()
+          spawnRipple(at.x, at.y)
+        }, 500)
+      }
     }
     const onEnd = (e: TouchEvent) => {
       if (!tracking) return
       tracking = false
+      clearFeedback()
       const t = e.changedTouches[0]
       if (!t) return
       const dx = t.clientX - sx
@@ -918,6 +948,7 @@ export default function App() {
     return () => {
       window.removeEventListener('touchstart', onStart, true)
       window.removeEventListener('touchend', onEnd, true)
+      clearFeedback()
     }
   }, [sidebarOpen, moreOpen])
 
@@ -1112,6 +1143,13 @@ export default function App() {
     const vv = window.visualViewport
     if (!vv) return
     const apply = () => {
+      /**
+       * **异常高度不认**（rev173.325 · 真人测试6 #2）：键盘弹起 / 收起的动画期间，
+       * `visualViewport.height` 会瞬时变成 0 或几十 px（Android WebView 实测）。
+       * 写进 `--zn-viewport-h` 会让 `.zn-app` 整个塌成一条缝 —— 正文区全白、点哪都没反应，
+       * 收键盘后再点又"恢复"（下一帧高度正常）。低于 200px 的值不可能是真实视口，一律跳过。
+       */
+      if (vv.height < 200) return
       document.documentElement.style.setProperty('--zn-viewport-h', `${Math.round(vv.height)}px`)
     }
     apply()
@@ -3431,15 +3469,57 @@ export default function App() {
    *  · `image` / `embed` → `![](相对路径)`（embed = 音视频，编辑器把它换成播放器）
    *  · `link`            → `[原名.ext](相对路径)`（点开由宿主按类型分流）
    */
+  /**
+   * 「详细…」—— 读磁盘元信息后弹窗（rev173.325 · 真人测试6 #4）。
+   * 用原生命令而不是列表缓存：列表里的 mtime / size 是扫描那一刻的，刚改过会不一致。
+   */
+  const showEntryInfo = async (path: string, isDir: boolean) => {
+    if (!vault) return
+    try {
+      const info = await invoke<{
+        path: string
+        is_dir: boolean
+        size: number
+        mtime: number
+        created: number
+      }>('entry_info', { vault, path })
+      setEntryInfo({
+        path: info.path,
+        isDir: info.is_dir || isDir,
+        size: info.size,
+        mtime: info.mtime,
+        created: info.created,
+      })
+    } catch (e) {
+      setToast(`读取详细信息失败：${String(e)}`)
+    }
+  }
+
+  /** 「在文件夹中打开」—— 桌面交给系统文件管理器定位；手机端如实说不支持（rev173.325 · #4） */
+  const revealEntry = async (path: string) => {
+    if (!vault) return
+    if (platform === 'android') {
+      setToast('手机端没有「在文件夹中打开」—— 路径见「详细」')
+      return
+    }
+    try {
+      await invoke('reveal_in_explorer', { vault, path })
+    } catch (e) {
+      setToast(`打开文件管理器失败：${String(e)}`)
+    }
+  }
+
   const insertAttachmentSyntax = useCallback(
     (rel: string, as: 'image' | 'embed' | 'link', hint?: string) => {
       const view = editorRef.current
       if (!view || !activePath) return
       /**
-       * 绝对路径（>1 MiB 的引用型附件）原样保留 —— `pathFromNote` 对「不以笔记目录开头」
-       * 的路径本来就是原样返回；再套 `mdTarget` 处理空格（`![](<D:/Music/a b.mp3>)`）。
+       * 库内附件一律写 **库根相对**（`/附件/a.png`，rev173.325 · 真人测试6 #1）：
+       * 附件落在「笔记当时所在目录」，相对笔记目录的写法一移动笔记就断。
+       * 绝对路径（>1 MiB 的引用型附件）原样保留 —— `pathFromVaultRoot` 对它们不加工；
+       * 再套 `mdTarget` 处理空格（`![](<D:/Music/a b.mp3>)`）。
        */
-      const target = mdTarget(pathFromNote(activePath, rel))
+      const target = mdTarget(pathFromVaultRoot(rel))
       const label = rel.split('/').pop() ?? target
       const sel = view.state.selection.main
       const doc = view.state.doc.toString()
@@ -5353,6 +5433,9 @@ export default function App() {
               /* 插件贡献的条目菜单动作（rev173.281 · J#18） */
               itemActions={itemMenus}
               onItemAction={runItemAction}
+              /* rev173.325 · 真人测试6 #4：右键「详细…」/「在文件夹中打开」 */
+              onShowInfo={(p, isDir) => void showEntryInfo(p, isDir)}
+              onReveal={(p) => void revealEntry(p)}
             />
               )}
             </>
@@ -6092,6 +6175,35 @@ export default function App() {
             </button>
           )}
         </div>
+      )}
+
+      {/* 条目详情（rev173.325 · 真人测试6 #4）：文件树右键「详细…」。
+          数据来自原生命令 `entry_info`（磁盘元数据），不是列表缓存。 */}
+      {entryInfo && (
+        <Dialog open onOpenChange={(next) => !next && setEntryInfo(null)} width={460}>
+          <DialogHeader title="详细信息" description={entryInfo.path} />
+          <DialogBody>
+            <dl className="zn-info-list">
+              <dt>名称</dt>
+              <dd>{baseName(entryInfo.path)}</dd>
+              <dt>类型</dt>
+              <dd>{entryInfo.isDir ? '文件夹' : '文件'}</dd>
+              <dt>大小</dt>
+              <dd>{entryInfo.isDir ? '—' : formatSize(entryInfo.size)}</dd>
+              <dt>创建时间</dt>
+              <dd>{new Date(entryInfo.created).toLocaleString()}</dd>
+              <dt>修改时间</dt>
+              <dd>{new Date(entryInfo.mtime).toLocaleString()}</dd>
+              <dt>位置</dt>
+              <dd className="zn-info-path">
+                {vault ? `${vault.replace(/\\/g, '/')}/${entryInfo.path}` : entryInfo.path}
+              </dd>
+            </dl>
+          </DialogBody>
+          <DialogFooter>
+            <Button onClick={() => setEntryInfo(null)}>关闭</Button>
+          </DialogFooter>
+        </Dialog>
       )}
     </div>
   )

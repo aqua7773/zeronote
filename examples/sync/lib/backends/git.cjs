@@ -326,7 +326,15 @@ function createGitStorage(cfg) {
     async readManifest() {
       const got = await readOne(MANIFEST_PATH)
       if (!got) {
-        return { files: {}, attachments: {}, private: {}, privateTree: {}, etag: null, notModified: false }
+        return {
+          files: {},
+          attachments: {},
+          private: {},
+          privateTree: {},
+          deleted: {},
+          etag: null,
+          notModified: false,
+        }
       }
       const m = normalizeManifest(got.text)
       return { ...m, etag: got.sha, notModified: false }
@@ -340,6 +348,8 @@ function createGitStorage(cfg) {
         attachments: manifest.attachments ?? {},
         private: manifest.private ?? {},
         privateTree: manifest.privateTree ?? {},
+        // 删除墓碑（rev173.325 · 真人测试6 #4a）
+        deleted: manifest.deleted ?? {},
       })
       const w = await c.write(MANIFEST_PATH, body, { sha: cur?.sha ?? null })
       return { ok: w.ok, status: w.status, etag: w.sha ?? undefined }

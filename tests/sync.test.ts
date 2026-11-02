@@ -1767,6 +1767,76 @@ describe('没有基线：不静默覆盖本地（rev173.128）', () => {
     expect([...local.keys()].filter((k) => k.startsWith('.zn/conflicts/windows/')).length).toBe(2)
     A3.dispose()
   })
+
+  /**
+   * rev173.325 · 真人测试6 #4a：云端删除墓碑要盖住「桌面从没同步过的老文件」。
+   *
+   * 用户实测：手机删了一批老文件并同步到云端；桌面首次连同步 ⇒ 老文件被**重新上传**，
+   * 云端删除被覆盖。根因是新设备没有基线，看到「本地有、远端无」就一律当新笔记。
+   */
+  it('墓碑覆盖：本地文件早于云端删除时间 ⇒ 跟着删，不上传（rev173.325）', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    local.set('old.md', enc('old\n'))
+    mtimes.set('old.md', Date.now() - 3 * 86_400_000)
+    // 远端：这篇 2 天前被删（墓碑），文件也确实不在了
+    dav.set('_zn/manifest.json', {
+      bytes: enc(
+        JSON.stringify({
+          version: 1,
+          files: {},
+          attachments: {},
+          private: {},
+          privateTree: {},
+          deleted: { 'old.md': Date.now() - 2 * 86_400_000 },
+        }),
+      ),
+      etag: '"m1"',
+    })
+
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync.run')!({})
+
+    expect(local.has('old.md')).toBe(false)
+    expect(dav.has('old.md')).toBe(false)
+    // 桩里的 `delete` 只返回回收站路径、不落副本文件 —— 这里断言的是「没有上传」
+    expect([...dav.keys()].filter((k) => k.endsWith('old.md'))).toHaveLength(0)
+    A.dispose()
+  })
+
+  it('墓碑不覆盖：本地文件在删除之后改过 ⇒ 上传并清墓碑（rev173.325）', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const mtimes = new Map<string, number>()
+    local.set('newer.md', enc('newer\n'))
+    mtimes.set('newer.md', Date.now()) // 比墓碑新 ⇒ 视为「删了又建 / 又改过」
+    dav.set('_zn/manifest.json', {
+      bytes: enc(
+        JSON.stringify({
+          version: 1,
+          files: {},
+          attachments: {},
+          private: {},
+          privateTree: {},
+          deleted: { 'newer.md': Date.now() - 86_400_000 },
+        }),
+      ),
+      etag: '"m1"',
+    })
+
+    const A = makeDevice(net, local, mtimes, 'windows')
+    await configure(A)
+    await A.commands.get('sync.run')!({})
+
+    expect(dec(dav.get('newer.md')!.bytes)).toBe('newer\n')
+    const manifest = JSON.parse(dec(dav.get('_zn/manifest.json')!.bytes)) as {
+      deleted: Record<string, number>
+    }
+    expect(manifest.deleted['newer.md']).toBeUndefined()
+    A.dispose()
+  })
 })
 
 /**

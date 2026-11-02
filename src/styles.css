@@ -110,6 +110,8 @@
      左抽屉靠 transform 过渡、右抽屉靠 in/out 两段 keyframes，遮罩跟着一起淡。
      比 panel 慢一档是有意的 —— 整屏宽度的位移，快了会像"闪一下"。 */
   --zn-dur-drawer: 340ms;
+  /* 长按到点的涟漪（rev173.325 · 真人测试6 #3）：与 lib/long-press-feedback.ts 的 RIPPLE_MS 同值 */
+  --zn-dur-ripple: 620ms;
   --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --zn-ease-decel: cubic-bezier(0, 0, 0, 1);
   --zn-ease-accel: cubic-bezier(0.3, 0, 1, 1);
@@ -3979,3 +3981,39 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
 .zn-palette { animation: zn-dialog-in var(--zn-dur-overlay) var(--zn-ease-decel); }
 .zn-dialog-backdrop { animation: zn-fade-in var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-dialog-panel { animation: zn-dialog-in var(--zn-dur-overlay) var(--zn-ease-decel); }
+
+/* ───────── 长按到达阈值的涟漪反馈（rev173.325 · 真人测试6 #3）─────────
+   由 `lib/long-press-feedback.ts` 在按下点插入，动画结束自删。
+   时长 620ms 与该文件的 RIPPLE_MS 同值；reduce-motion 的全局规则会压到 1ms，
+   届时 JS 的兜底定时器负责移除。 */
+.zn-longpress-ripple {
+  position: fixed;
+  z-index: 9999;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, var(--zn-accent) 0%, transparent 70%);
+  opacity: .85;
+  animation: zn-longpress-ripple var(--zn-dur-ripple) var(--zn-ease-standard) forwards;
+}
+@keyframes zn-longpress-ripple {
+  from { transform: scale(.5); opacity: .85; }
+  to { transform: scale(4.5); opacity: 0; }
+}
+
+/* 条目详情弹窗（rev173.325 · 真人测试6 #4）：左侧标签、右侧值 */
+.zn-info-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: var(--zn-text-sm);
+}
+.zn-info-list dt { color: var(--zn-fg-subtle); }
+.zn-info-list dd { margin: 0; color: var(--zn-fg); overflow-wrap: anywhere; }
+.zn-info-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--zn-text-xs, 12px);
+}

@@ -209,3 +209,34 @@ describe('FileTree 右键菜单：插件条目动作', () => {
     expect(screen.queryByText('导出为 txt…')).toBeNull()
   })
 })
+
+/**
+ * 「详细…」/「在文件夹中打开」（rev173.325 · 真人测试6 #4）。
+ *
+ * 判据：传了回调才出现；点了回调一次且菜单关闭；不传就不摆死按钮。
+ */
+describe('FileTree 右键菜单：详细 / 在文件夹中打开', () => {
+  it('传了回调：两项都出现并各自触发一次', () => {
+    const onShowInfo = vi.fn()
+    const onReveal = vi.fn()
+    render(<FileTree {...makeProps()} onShowInfo={onShowInfo} onReveal={onReveal} />)
+
+    fireEvent.contextMenu(screen.getByText('a.md'))
+    fireEvent.click(screen.getByText('详细…'))
+    expect(onShowInfo).toHaveBeenCalledTimes(1)
+    expect(onShowInfo.mock.calls[0]).toEqual(['a.md', false])
+    expect(screen.queryByText('详细…')).toBeNull()
+
+    fireEvent.contextMenu(screen.getByText('a.md'))
+    fireEvent.click(screen.getByText('在文件夹中打开'))
+    expect(onReveal).toHaveBeenCalledTimes(1)
+    expect(onReveal.mock.calls[0]).toEqual(['a.md'])
+  })
+
+  it('不传回调（单测 / 独立窗口没有这个能力）：两项都不出现', () => {
+    render(<FileTree {...makeProps()} />)
+    fireEvent.contextMenu(screen.getByText('a.md'))
+    expect(screen.queryByText('详细…')).toBeNull()
+    expect(screen.queryByText('在文件夹中打开')).toBeNull()
+  })
+})

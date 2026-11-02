@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 长按到点的轻震动（rev173.325 · 真人测试6 #3）：WebView 的 navigator.vibrate
+         走系统的 VIBRATE 权限 —— 普通权限，安装即授予，不需要运行时申请。 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- 方案 D：把笔记库放公共存储（/storage/emulated/0/Documents/ZeroNote）。
          让文件管理器能看到库、插件能直接拷进 .zn/plugins/、数据卸载不丢。
          ⚠️ 敏感权限：Google Play 只批给文件管理器/备份类应用（自用无碍）。

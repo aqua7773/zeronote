@@ -635,6 +635,7 @@ const plugin = {
           attachments: remote.attachments || {},
           private: remote.private || {},
           privateTree: remote.privateTree || {},
+          deleted: remote.deleted || {},
         })
       } catch (e) {
         // manifest 没写进去不算失败：下一轮按「本地变、远端没变」补齐
@@ -721,6 +722,7 @@ const plugin = {
               attachments: manifestCache.attachments,
               private: manifestCache.private,
               privateTree: manifestCache.privateTree,
+              deleted: manifestCache.deleted,
             }
             summary.manifest304 = true
           } else {
@@ -729,22 +731,32 @@ const plugin = {
               attachments: got.attachments,
               private: got.private,
               privateTree: got.privateTree,
+              deleted: got.deleted,
             }
             manifestCache = {
               files: got.files,
               attachments: got.attachments,
               private: got.private,
               privateTree: got.privateTree,
+              deleted: got.deleted,
               etag: got.etag,
             }
           }
         } else {
           const got = await client.readManifest()
-          remote = { files: got.files, attachments: got.attachments, private: got.private }
+          remote = {
+            files: got.files,
+            attachments: got.attachments,
+            private: got.private,
+            privateTree: got.privateTree,
+            deleted: got.deleted,
+          }
           manifestCache = {
             files: got.files,
             attachments: got.attachments,
             private: got.private,
+            privateTree: got.privateTree,
+            deleted: got.deleted,
             etag: got.etag,
           }
         }
@@ -752,6 +764,11 @@ const plugin = {
         const notes = await api.fs.listNotes()
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
+        /**
+         * **删除墓碑**（rev173.325 · 真人测试6 #4a）：`path → 删除时间(ms)`，本轮要写回的版本。
+         * 老 manifest 没有这一段 ⇒ 空对象（行为与升级前一致）。
+         */
+        const nextDeleted = { ...(remote.deleted || {}) }
         // 删除传播不设上限（2026-10-31 用户要求）—— 本机删多少就同步删多少
         /**
          * manifest 需要回写（rev173.287）：`summary.pushed` 只统计「我们推上去的」，
@@ -787,6 +804,40 @@ const plugin = {
           const base = baseline[n.path] ?? null
           const remoteEntry = remote.files[n.path] ?? null
           const verdict = decideSync({ base, localFp, remoteFp: remoteEntry?.fp ?? null })
+
+          /**
+           * **删除墓碑优先**（rev173.325 · 真人测试6 #4a）。
+           *
+           * 场景（用户实测）：手机端删掉一批老文件并同步到云端 ⇒ 桌面首次连同步，
+           * baseline 里没有它们、远端 manifest 也没有 ⇒ 旧逻辑一律当 `push-new`
+           * **把老文件重新上传**，云端删除被覆盖。
+           *
+           * 现在云端 manifest 记着 `deleted[path] = 删除时间`：
+           *  · 本地 mtime ≤ 墓碑时间 ⇒ 本机这份是**删除之前**的旧文件 ⇒ 跟着删（进回收站）；
+           *  · 本地 mtime > 墓碑时间 ⇒ 删除之后又改过 / 新建 ⇒ 保留并上传，清墓碑；
+           *  · 远端重新出现了这篇 ⇒ 墓碑作废（说明有人主动传回来了）。
+           */
+          const buriedAt = Number(nextDeleted[n.path] || 0)
+          if (!remoteEntry && buriedAt > 0) {
+            if (Number(n.mtime ?? 0) <= buriedAt) {
+              try {
+                await api.fs.delete(n.path)
+                delete nextFiles[n.path]
+                summary.deletedLocal += 1
+                summary.removed += 1
+                manifestDirty = true
+                continue
+              } catch (e) {
+                api.host.log('warn', `跟随云端删除本地失败（${n.path}）：${String(e)}`)
+              }
+            } else {
+              delete nextDeleted[n.path]
+              manifestDirty = true
+            }
+          } else if (remoteEntry && nextDeleted[n.path]) {
+            delete nextDeleted[n.path]
+            manifestDirty = true
+          }
 
           if (verdict === 'noop') {
             baseline[n.path] = { fp: localFp, etag: remoteEntry?.etag }
@@ -1069,6 +1120,9 @@ const plugin = {
             deletedRemotely.add(p)
             summary.deletedToRemote += 1
             await rememberRemoteTrash(stamp, p)
+            // 删除墓碑（rev173.325 · 真人测试6 #4a）：别的设备首次连同步时要能知道"删过"
+            nextDeleted[p] = Date.now()
+            manifestDirty = true
           } catch (e) {
             summary.hint = `删除远端失败 ${p}：${String(e)}`
           }
@@ -1081,6 +1135,11 @@ const plugin = {
           if (!/\.md$/i.test(path)) continue
           const text = await client.get(path)
           if (text == null) continue
+          // 远端重新出现这篇 ⇒ 墓碑作废（rev173.325 · 真人测试6 #4a）
+          if (nextDeleted[path]) {
+            delete nextDeleted[path]
+            manifestDirty = true
+          }
           try {
             await api.fs.writeText(path, text)
             // rev173.297：新设备首拉 / 本机没有这篇 —— 时间是远端推送时间
@@ -1121,6 +1180,17 @@ const plugin = {
         // manifest 回写（本轮有 .md / 附件 / 私有文件变动才写 —— 5 秒一轮，没变化不该反复 PUT）
         // ⚠️ 删除传播也要回写（rev173.293）：条目已经从 nextFiles 里删了，不写回 manifest
         //   远端会一直"记着"这篇，下一轮又当成「远端有、本地没有」。
+        /**
+         * 墓碑保留 30 天（与云端回收站同一口径）—— 过期清掉，不让 manifest 无限涨。
+         * 30 天足够任何一台设备至少连一次同步。
+         */
+        const tombstoneNow = Date.now()
+        for (const [p, at] of Object.entries(nextDeleted)) {
+          if (tombstoneNow - Number(at) > 30 * 24 * 60 * 60 * 1000) {
+            delete nextDeleted[p]
+            manifestDirty = true
+          }
+        }
         if (
           summary.pushed > 0 ||
           summary.deletedToRemote > 0 ||
@@ -1134,6 +1204,7 @@ const plugin = {
             attachments: att.attachments,
             private: priv.private,
             privateTree: privTree.privateTree,
+            deleted: nextDeleted,
           })
           // 写盘后远端 etag 变了 ⇒ 缓存跟着换，下一轮照样能走 304
           manifestCache = {
@@ -1141,6 +1212,7 @@ const plugin = {
             attachments: att.attachments,
             private: priv.private,
             privateTree: privTree.privateTree,
+            deleted: nextDeleted,
             etag: w?.etag ?? null,
           }
         }
@@ -2978,6 +3050,7 @@ const plugin = {
               attachments: remote.attachments || {},
               private: remote.private || {},
               privateTree: remote.privateTree || {},
+              deleted: remote.deleted || {},
             })
           } catch (e) {
             // manifest 没写进去不算失败（下一轮同步会按「本地变、远端没变」补齐）

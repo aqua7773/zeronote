@@ -16,7 +16,9 @@ import {
   linkInsertion,
   normalizePosix,
   pathFromNote,
+  pathFromVaultRoot,
   resolveImageAbsPath,
+  resolveImageAbsPaths,
   stemFromFileName,
   stripAngleTarget,
 } from '../src/lib/insert-image'
@@ -137,6 +139,51 @@ describe('pathFromNote', () => {
   it('图片在子目录 ⇒ 保留相对路径', () => {
     expect(pathFromNote('a.md', 'assets/image-1.png')).toBe('assets/image-1.png')
     expect(pathFromNote('sub/a.md', 'assets/image-1.png')).toBe('assets/image-1.png')
+  })
+})
+
+describe('pathFromVaultRoot（rev173.325 · 真人测试6 #1）', () => {
+  it('库内相对路径 ⇒ 加前导 /（库根写法，移动笔记不断链）', () => {
+    expect(pathFromVaultRoot('image-1.png')).toBe('/image-1.png')
+    expect(pathFromVaultRoot('归档/image-1.png')).toBe('/归档/image-1.png')
+  })
+
+  it('已经是库根写法 / 绝对路径 / URL ⇒ 原样', () => {
+    expect(pathFromVaultRoot('/image-1.png')).toBe('/image-1.png')
+    expect(pathFromVaultRoot('D:\\pics\\a.png')).toBe('D:/pics/a.png')
+    expect(pathFromVaultRoot('/storage/emulated/0/Documents/x.png')).toBe(
+      '/storage/emulated/0/Documents/x.png',
+    )
+    expect(pathFromVaultRoot('https://x.com/a.png')).toBe('https://x.com/a.png')
+  })
+})
+
+describe('resolveImageAbsPaths（多候选）', () => {
+  const vault = 'C:/vault'
+
+  it('相对路径给两候选：笔记目录 → 库根（笔记移动后的兜底）', () => {
+    expect(resolveImageAbsPaths(vault, 'sub/a.md', 'image-1.png')).toEqual([
+      'C:/vault/sub/image-1.png',
+      'C:/vault/image-1.png',
+    ])
+  })
+
+  it('笔记在库根时只有一个候选（不重复）', () => {
+    expect(resolveImageAbsPaths(vault, 'a.md', 'image-1.png')).toEqual(['C:/vault/image-1.png'])
+  })
+
+  it('/ 开头只按库根；绝对路径 / URL 各自单独一条', () => {
+    expect(resolveImageAbsPaths(vault, 'sub/a.md', '/附件/x.png')).toEqual(['C:/vault/附件/x.png'])
+    expect(resolveImageAbsPaths(vault, 'a.md', 'D:\\x.png')).toEqual(['D:/x.png'])
+    expect(resolveImageAbsPaths(vault, 'a.md', 'https://x.com/a.png')).toEqual([])
+  })
+
+  it('首选与 resolveImageAbsPath 一致；空 src / 越界返回空数组', () => {
+    expect(resolveImageAbsPath(vault, 'sub/a.md', 'image-1.png')).toBe(
+      resolveImageAbsPaths(vault, 'sub/a.md', 'image-1.png')[0],
+    )
+    expect(resolveImageAbsPaths(vault, 'a.md', '   ')).toEqual([])
+    expect(resolveImageAbsPaths(vault, 'a.md', '../x.png')).toEqual([])
   })
 })
 

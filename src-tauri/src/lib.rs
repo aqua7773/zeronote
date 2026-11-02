@@ -3138,6 +3138,188 @@ fn open_external(url: String) -> Result<(), String> {
   Ok(())
 }
 
+/**
+ * **把文件放进系统剪贴板**（Windows CF_HDROP，rev173.325 · 真人测试6 #5）。
+ *
+ * 用户原话：「桌面端复制和分享问题，居然会直接复制到剪贴板，图片显示成一大串文件流，
+ * 应该是直接复制或分享一个 md 文件，跟在资源管理器复制的逻辑相同。」
+ *
+ * 为什么手写 FFI 而不加 windows crate feature：只用 6 个 Win32 函数，
+ * 手写 extern 比拉 Win32_System_DataExchange / Memory 一组 feature 更轻、更稳
+ * （feature 版本与 tauri 内部对齐过一次，没必要为 20 行代码再动它）。
+ */
+#[cfg(target_os = "windows")]
+mod winclip {
+  use std::ffi::c_void;
+
+  #[repr(C)]
+  struct DropFiles {
+    p_files: u32,
+    pt_x: i32,
+    pt_y: i32,
+    f_nc: i32,
+    f_wide: i32,
+  }
+
+  type Handle = *mut c_void;
+
+  const CF_HDROP: u32 = 15;
+  const GMEM_MOVEABLE: u32 = 0x0002;
+
+  #[link(name = "user32")]
+  unsafe extern "system" {
+    fn OpenClipboard(hwnd: *mut c_void) -> i32;
+    fn EmptyClipboard() -> i32;
+    fn SetClipboardData(format: u32, h_mem: Handle) -> Handle;
+    fn CloseClipboard() -> i32;
+  }
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn GlobalAlloc(flags: u32, bytes: usize) -> Handle;
+    fn GlobalLock(h_mem: Handle) -> *mut c_void;
+    fn GlobalUnlock(h_mem: Handle) -> i32;
+  }
+
+  /** 把一组绝对路径写进剪贴板（资源管理器里「复制文件」的同一格式，可直接粘贴到文件夹 / 微信） */
+  pub fn copy_files(paths: &[String]) -> Result<(), String> {
+    if paths.is_empty() {
+      return Err("没有要复制的文件".to_string());
+    }
+    // DROPFILES 头 + 每个路径的 UTF-16 + 一个 \0 结尾 + 整个列表以 \0\0 结束
+    let mut list: Vec<u16> = Vec::new();
+    for p in paths {
+      list.extend(p.encode_utf16());
+      list.push(0);
+    }
+    list.push(0);
+    let header = std::mem::size_of::<DropFiles>();
+    let bytes = header + list.len() * 2;
+    unsafe {
+      let h = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if h.is_null() {
+        return Err("分配剪贴板内存失败".to_string());
+      }
+      let ptr = GlobalLock(h) as *mut u8;
+      if ptr.is_null() {
+        return Err("锁定剪贴板内存失败".to_string());
+      }
+      let df = ptr as *mut DropFiles;
+      (*df).p_files = header as u32;
+      (*df).pt_x = 0;
+      (*df).pt_y = 0;
+      (*df).f_nc = 0;
+      (*df).f_wide = 1;
+      let dst = std::slice::from_raw_parts_mut(ptr.add(header) as *mut u16, list.len());
+      dst.copy_from_slice(&list);
+      let _ = GlobalUnlock(h);
+      if OpenClipboard(std::ptr::null_mut()) == 0 {
+        return Err("打开剪贴板失败（可能有别的程序正占用）".to_string());
+      }
+      EmptyClipboard();
+      // SetClipboardData 成功后内存所有权归系统，**不能**再 GlobalFree
+      let ok = SetClipboardData(CF_HDROP, h);
+      CloseClipboard();
+      if ok.is_null() {
+        return Err("写入剪贴板失败".to_string());
+      }
+    }
+    Ok(())
+  }
+}
+
+/// 复制文件到系统剪贴板（桌面「分享 md」改用这条 —— 与资源管理器复制文件同一效果）
+#[tauri::command]
+fn copy_file_to_clipboard(path: String) -> Result<(), String> {
+  let abs = std::fs::canonicalize(&path).map_err(|e| format!("文件不存在：{path}（{e}）"))?;
+  if !abs.is_file() && !abs.is_dir() {
+    return Err(format!("不是文件或文件夹：{path}"));
+  }
+  #[cfg(target_os = "windows")]
+  {
+    // CF_HDROP 需要反斜杠路径
+    let p = abs.to_string_lossy().replace('/', "\\");
+    winclip::copy_files(&[p])
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    let _ = abs;
+    Err("复制文件到剪贴板目前只支持 Windows".to_string())
+  }
+}
+
+/// **条目详情**（rev173.325 · 真人测试6 #4 —— 右键菜单「详细…」）。
+///
+/// 只读 metadata，不碰文件内容。`created` 在部分文件系统 / Android 上拿不到，
+/// 拿不到时**回退成 mtime**（而不是 0 / 1970 —— 那会让界面显示"创建于 1970 年"）。
+#[derive(Serialize)]
+struct EntryInfo {
+  path: String,
+  is_dir: bool,
+  size: u64,
+  mtime: i64,
+  created: i64,
+}
+
+#[tauri::command]
+fn entry_info(vault: String, path: String) -> Result<EntryInfo, String> {
+  let abs = resolve(&vault, &path)?;
+  let meta = fs::metadata(&abs).map_err(|e| format!("读取文件信息失败（{path}）：{e}"))?;
+  let ms = |t: std::io::Result<std::time::SystemTime>| -> i64 {
+    t.ok()
+      .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+      .map(|d| d.as_millis() as i64)
+      .unwrap_or(0)
+  };
+  let mtime = ms(meta.modified());
+  let created = ms(meta.created());
+  Ok(EntryInfo {
+    path,
+    is_dir: meta.is_dir(),
+    size: meta.len(),
+    mtime,
+    created: if created > 0 { created } else { mtime },
+  })
+}
+
+/// **在系统文件管理器里定位**（rev173.325 · 真人测试6 #4 —— 右键菜单「在文件夹中打开」）。
+///
+/// Windows 用 `explorer /select,<绝对路径>`（打开所在文件夹并选中）；macOS `open -R`；
+/// Linux 打开父目录；**手机端没有对应入口**，直接如实报错（不让按钮点了没反应）。
+#[tauri::command]
+fn reveal_in_explorer(vault: String, path: String) -> Result<(), String> {
+  let abs = resolve(&vault, &path)?;
+  #[cfg(target_os = "windows")]
+  {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("explorer")
+      .raw_arg(format!("/select,\"{}\"", abs.display()))
+      .spawn()
+      .map_err(|e| format!("打开文件管理器失败：{e}"))?;
+  }
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .arg("-R")
+      .arg(&abs)
+      .spawn()
+      .map_err(|e| format!("打开文件管理器失败：{e}"))?;
+  }
+  #[cfg(target_os = "linux")]
+  {
+    let dir = abs.parent().unwrap_or(abs.as_path());
+    std::process::Command::new("xdg-open")
+      .arg(dir)
+      .spawn()
+      .map_err(|e| format!("打开文件管理器失败：{e}"))?;
+  }
+  #[cfg(any(target_os = "android", target_os = "ios"))]
+  {
+    return Err("手机端没有「在文件夹中打开」—— 路径见「详细」".to_string());
+  }
+  Ok(())
+}
+
 #[tauri::command]
 fn read_plugin_file(vault: String, plugin_id: String, rel: String) -> Result<String, String> {
   let path = plugin_file(&vault, &plugin_id, &rel)?;
@@ -3995,6 +4177,11 @@ pub fn run() {
       list_plugin_versions,
       rollback_plugin,
       open_external,
+      // rev173.325：右键菜单「详细…」/「在文件夹中打开」
+      entry_info,
+      reveal_in_explorer,
+      // rev173.325：桌面「分享 md」= 复制文件到剪贴板（与资源管理器一致）
+      copy_file_to_clipboard,
       opened_urls,
       zn_heartbeat,
       zn_watchdog_pause,

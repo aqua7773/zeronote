@@ -12,7 +12,7 @@ import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
-import { resolveImageAbsPath, stripAngleTarget } from '../lib/insert-image'
+import { resolveImageAbsPath, resolveImageAbsPaths, stripAngleTarget } from '../lib/insert-image'
 import { collectEmbeddedOrigins } from '../lib/embed-image'
 import { mediaHttpUrl } from '../kernel/media-url'
 import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
@@ -110,7 +110,8 @@ function fixImageSrc(
   onMissingImage?: (raw: string) => void,
 ) {
   for (const img of view.contentDOM.querySelectorAll('img')) {
-    const raw = img.getAttribute('src')
+    // 二次处理时 `src` 已是 asset URL —— 原文只认 dataset（rev173.325 修：原来读属性会丢原引用）
+    const raw = img.dataset.znRaw ?? img.getAttribute('src')
     if (!raw) continue
     // 音视频不在这里处理 —— 交给 upgradeMediaWidgets（它会把整个 image 块换成播放器）
     if (mediaKindOf(raw)) continue
@@ -127,15 +128,27 @@ function fixImageSrc(
     }
     // 原样记住（rev173.239）：点开预览时要靠它反推库内相对路径，再问台账「这张图有没有原图」
     img.dataset.znRaw = raw
-    const abs = resolveImageAbsPath(vault, notePath, raw)
-    if (!abs) continue
-    let url: string
-    try {
-      url = convertFileSrc(abs)
-    } catch {
-      // 非 Tauri 环境（浏览器预览 / 单测）没有 asset 协议：保持原文，别让整页炸掉
-      continue
+    /**
+     * **多候选**（rev173.325 · 真人测试6 #1）：笔记移动后，相对笔记目录的路径会断；
+     * 这里按「笔记目录 → 库根」依次试，第一个加载失败才换下一个。
+     * 全部失败才由 `attachImageErrorHint` 显示「图片不在本机」。
+     */
+    const candidates = resolveImageAbsPaths(vault, notePath, raw)
+    if (!candidates.length) continue
+    const urls: string[] = []
+    for (const abs of candidates) {
+      try {
+        urls.push(convertFileSrc(abs))
+      } catch {
+        // 非 Tauri 环境（浏览器预览 / 单测）没有 asset 协议：保持原文，别让整页炸掉
+      }
     }
+    if (!urls.length) continue
+    img.dataset.znUrls = JSON.stringify(urls)
+    let idx = Number(img.dataset.znUrlIdx ?? 0)
+    if (!Number.isFinite(idx) || idx < 0 || idx >= urls.length) idx = 0
+    img.dataset.znUrlIdx = String(idx)
+    const url = urls[idx]
     // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
     if (img.src !== url) img.src = url
     attachImageErrorHint(img, raw, onMissingImage)
@@ -189,9 +202,29 @@ function attachImageErrorHint(
     }
     wrap.appendChild(hint)
   }
-  img.addEventListener('error', show, { once: true })
+  /**
+   * 加载失败：**先试下一个候选**（rev173.325 · 真人测试6 #1）——
+   * 「笔记目录」那份不在时，库里同名附件可能仍在（笔记被移动过）。
+   * 全部候选都失败才显示占位。
+   */
+  const onError = () => {
+    let urls: string[] = []
+    try {
+      urls = JSON.parse(img.dataset.znUrls ?? '[]') as string[]
+    } catch {
+      urls = []
+    }
+    const idx = Number(img.dataset.znUrlIdx ?? 0)
+    if (Number.isFinite(idx) && idx + 1 < urls.length) {
+      img.dataset.znUrlIdx = String(idx + 1)
+      img.src = urls[idx + 1]
+      return
+    }
+    show()
+  }
+  img.addEventListener('error', onError)
   // 失败在挂监听之前就结束的情形：`complete` 已经为真且没有解出尺寸
-  if (img.complete && img.naturalWidth === 0) show()
+  if (img.complete && img.naturalWidth === 0) onError()
 }
 
 /**
@@ -1444,6 +1477,25 @@ export function MarkdownEditor({
       { passive: true },
     )
     onReadyRef.current?.(view)
+    /**
+     * **空白自愈**（rev173.325 · 真人测试6 #2）：
+     *
+     * 用户偶发「进编辑页全白、输入不落地，收键盘再点一次就好」。典型成因是编辑器挂载时
+     * 拿到的容器高度是 0（键盘动画 / 页面转场期间布局还没稳）—— CM6 按 0 高度排了一次
+     * viewport，之后没有新的尺寸事件就不会再量。
+     *
+     * 这里挂载后量两次（300ms / 1200ms）：容器仍为 0 就强制 `requestMeasure()` 重排。
+     * 只补救异常态，正常路径一行不动；不调 `focus()`（不替用户弹键盘）。
+     */
+    const healBlank = (delay: number) => {
+      window.setTimeout(() => {
+        if (viewRef.current !== view) return
+        if (view.scrollDOM.getBoundingClientRect().height > 4) return
+        view.requestMeasure()
+      }, delay)
+    }
+    healBlank(300)
+    healBlank(1200)
   }, [])
 
   const releaseView = useCallback((view: EditorView) => {

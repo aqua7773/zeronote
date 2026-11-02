@@ -15,6 +15,7 @@ import type {
   NoteMeta,
 } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
+import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 type TreeNode = {
   name: string
@@ -580,6 +581,8 @@ export function FileTree({
   onOpenTimeline,
   itemActions = [],
   onItemAction,
+  onShowInfo,
+  onReveal,
 }: {
   notes: NoteMeta[]
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
@@ -633,6 +636,16 @@ export function FileTree({
    */
   itemActions?: ItemMenuRegistration[]
   onItemAction?: (action: ItemMenuRegistration, ctx: ItemMenuContext) => void
+  /**
+   * 「详细…」—— 弹条目的元信息（大小 / 创建 / 修改 / 路径）。
+   * rev173.325 · 真人测试6 #4：用户要求文件右键菜单能看详细属性。不传 ⇒ 菜单里不出现。
+   */
+  onShowInfo?: (path: string, isDir: boolean) => void
+  /**
+   * 「在文件夹中打开」—— 交给系统文件管理器定位该条目（rev173.325 · 真人测试6 #4）。
+   * 桌面由 App 走原生命令；手机端调用方如实提示不支持。不传 ⇒ 菜单里不出现。
+   */
+  onReveal?: (path: string) => void
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
   /**
@@ -1040,6 +1053,8 @@ export function FileTree({
 
     let timer: number | null = null
     let armed = false
+    /** 长按到点的反馈定时器（rev173.325 · 真人测试6 #3：到 500ms 振一下 + 按下点涟漪） */
+    let feedbackTimer: number | null = null
     let dragging = false
     let fromPath: string | null = null
     let target: string | null = null
@@ -1057,11 +1072,19 @@ export function FileTree({
       window.removeEventListener('touchcancel', onCancel)
     }
 
+    const clearFeedback = () => {
+      if (feedbackTimer !== null) {
+        window.clearTimeout(feedbackTimer)
+        feedbackTimer = null
+      }
+    }
+
     const reset = () => {
       if (timer !== null) {
         window.clearTimeout(timer)
         timer = null
       }
+      clearFeedback()
       armed = false
       dragging = false
       fromPath = null
@@ -1148,6 +1171,8 @@ export function FileTree({
           return
         }
         dragging = true
+        // 拖拽不是"长按待释放"，到点反馈到此为止
+        clearFeedback()
         setDraggingPath(fromPath)
         /**
          * **拖拽开始 ⇒ 先把菜单收掉**（rev173.320 · 真机实测）。
@@ -1207,6 +1232,15 @@ export function FileTree({
         timer = null
         armed = true
       }, ARM_MS)
+      /**
+       * **到点反馈**（rev173.325 · 真人测试6 #3）：按住满 500ms 振一下 + 按下点涟漪，
+       * 用户才知道"现在抬手就会弹菜单"。松手才弹菜单的判定一行没动。
+       */
+      feedbackTimer = window.setTimeout(() => {
+        feedbackTimer = null
+        hapticTick()
+        spawnRipple(start.x, start.y)
+      }, MENU_LONG_PRESS_MS)
       // passive:false —— 拖拽时要能 preventDefault 挡住滚动
       window.addEventListener('touchmove', onMove, { passive: false })
       window.addEventListener('touchend', onEnd)
@@ -1462,6 +1496,32 @@ export function FileTree({
             divider: true,
             onClick: () => startRename(path, menu.isDir),
           })
+          /**
+           * 「详细…」/「在文件夹中打开」（rev173.325 · 真人测试6 #4）：
+           * 用户要「点了之后展示文件的详细信息，大小、创建时间、修改时间等等，
+           * 还应该有在文件夹中打开，直接跳转到文件实际地址」。
+           * 只在宿主传了口才出现 —— 单测 / 独立窗口没有这两个能力时不摆死按钮。
+           */
+          if (onShowInfo) {
+            list.push({
+              label: '详细…',
+              divider: true,
+              onClick: () => {
+                const at = menu
+                setMenu(null)
+                if (at) onShowInfo(path, at.isDir)
+              },
+            })
+          }
+          if (onReveal) {
+            list.push({
+              label: '在文件夹中打开',
+              onClick: () => {
+                setMenu(null)
+                onReveal(path)
+              },
+            })
+          }
           list.push({
             label: batch
               ? `删除选中的 ${batchPaths.length} 项`

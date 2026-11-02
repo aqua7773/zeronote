@@ -959,7 +959,7 @@ export function buildHomeView() {
           '落点：日期导入/<日期>/[原分类/]文件名.md —— 同一天多次导入合并到同一目录。\n' +
           '「图片内嵌」= 单文件 .md，图片写成 data: —— 发给别人不用再传附件目录。\n' +
           '分享：Android 打开系统分享面板（默认就是带图片的 markdown 文件）；' +
-          '桌面没有系统分享，改为复制到剪贴板 / 另存为。',
+          '桌面没有系统分享，md 会作为文件复制到剪贴板（可直接粘贴到文件夹 / 聊天窗口），长图走「另存为」。',
         variant: 'caption',
       },
     ],
@@ -1447,8 +1447,9 @@ export default {
      *  · `png` = **长图**：同一套 `mdToLongImage` 渲染成 PNG 再分享；
      *  · `txt` = **纯文本**（旧通道 `share_text`）：接收方直接显示，不需要能打开文件。
      *
-     * 桌面**没有系统分享**：md / txt 复制到剪贴板、png 走「另存为」，并**如实说明**
-     * （静默成功最糟 —— 用户会以为发出去了）。
+     * 桌面**没有系统分享**：md 用 `copy_file_to_clipboard` 把**文件本身**放进剪贴板
+     * （CF_HDROP，与资源管理器复制文件同一效果，rev173.325 · 真人测试6 #5）；
+     * png 走「另存为」；都**如实说明**（静默成功最糟 —— 用户会以为发出去了）。
      *
      * `path` 省略 = 当前打开的笔记（命令入口）；面板入口一律显式传选中的那篇。
      */
@@ -1536,14 +1537,37 @@ export default {
         return { shared: true, file: abs, summary }
       } catch (e) {
         if (String(e).includes('desktop-no-share')) {
-          // 桌面：图片走「另存为」，文本复制到剪贴板 —— 两条都要如实说
+          // 桌面：图片走「另存为」；md 复制**文件本身**进剪贴板（rev173.325 · 真人测试6 #5）
           if (format === 'png') {
             const saved = await host.saveFile({ defaultName: shareFileName(stem, 'png'), content: bytes })
             host.notify(saved ? `桌面没有系统分享 —— 已另存为：${saved}` : '已取消分享')
             return saved ? { saved } : null
           }
+          /**
+           * rev173.325 · 真人测试6 #5：桌面「分享 md」= 用 CF_HDROP 把**文件**放进剪贴板
+           * （与资源管理器「复制文件」同一效果）。旧行为复制整篇 Markdown 文本，
+           * 图片是 `data:image/...;base64,...` ⇒ 粘出来是一大串文件流（用户原话）。
+           */
+          let copiedFile = false
+          try {
+            await t.invoke('copy_file_to_clipboard', { path: abs })
+            copiedFile = true
+          } catch (err) {
+            host.log('warn', `[分享] 复制文件到剪贴板失败：${String(err)}`)
+          }
+          if (copiedFile) {
+            host.notify(
+              `已复制文件「${shareFileName(stem, 'md')}」到剪贴板（${summary}）—— 可直接粘贴到文件夹 / 聊天窗口`,
+              'info',
+            )
+            return { copied: true, file: abs, summary }
+          }
+          // 旧应用包（≤ 0.9.12 没有 `copy_file_to_clipboard`）⇒ 退回复制文本，并说明原因
           await t.invoke('plugin:clipboard-manager|write_text', { text })
-          host.notify(`桌面没有系统分享 —— 「${stem}」的 Markdown 已复制到剪贴板（${summary}）`, 'info')
+          host.notify(
+            `这台设备的应用还不支持复制文件 —— 已改为复制 Markdown 文本（应用更新后可直接复制 .md 文件）`,
+            'warn',
+          )
           return { copied: true, summary }
         }
         /**

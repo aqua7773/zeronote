@@ -204,6 +204,7 @@ function createDavClient(cfg) {
           attachments: null,
           private: null,
           privateTree: null,
+          deleted: null,
           etag: ifNoneMatch ?? null,
           notModified: true,
         }
@@ -213,14 +214,22 @@ function createDavClient(cfg) {
        * 这里不再走 `get()`：它把 404/409 吞成 null，拿不到响应的 ETag。
        */
       if (res.status === 404 || res.status === 409) {
-        return { files: {}, attachments: {}, private: {}, privateTree: {}, etag: null, notModified: false }
+        return {
+          files: {},
+          attachments: {},
+          private: {},
+          privateTree: {},
+          deleted: {},
+          etag: null,
+          notModified: false,
+        }
       }
       if (res.status >= 400) throw new Error(`下载失败（${res.status}）：${MANIFEST_REL}`)
       const m = normalizeManifest(res.text())
       return { ...m, etag: res.headers?.etag ?? null, notModified: false }
     },
 
-    /** 写远端 manifest（先确保 `_zn/` 存在；`attachments` / `private` 段原样带上）。返回 PUT 结果（带新 etag） */
+    /** 写远端 manifest（先确保 `_zn/` 存在；`attachments` / `private` / `deleted` 段原样带上）。返回 PUT 结果（带新 etag） */
     async writeManifest(manifest) {
       await this.mkdir('_zn')
       const body = JSON.stringify({
@@ -229,6 +238,8 @@ function createDavClient(cfg) {
         attachments: manifest.attachments ?? {},
         private: manifest.private ?? {},
         privateTree: manifest.privateTree ?? {},
+        // 删除墓碑（rev173.325 · 真人测试6 #4a）：让「删过」能传播到新设备
+        deleted: manifest.deleted ?? {},
       })
       // 不做 If-Match：manifest 是"尽力而为"的索引，真冲突靠每篇文件的 etag 兜
       return this.put(MANIFEST_REL, body)

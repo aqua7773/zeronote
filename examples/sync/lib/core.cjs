@@ -534,9 +534,23 @@ function normalizeManifest(raw) {
       if (typeof v.fp !== 'string') continue
       privateTree[rel] = { fp: v.fp, at: Number(v.at) || 0 }
     }
-    return { version: 1, files: out, attachments, private: priv, privateTree }
+    /**
+     * **删除墓碑**（rev173.325 · 真人测试6 #4a）：`path → 删除时间(ms)`。
+     *
+     * 为什么必须有：删除只把远端文件搬进 `_zn/trash/`，manifest 里那条直接没了 ——
+     * 新设备首次同步看到「本地有、远端没有」只会当**新笔记**上传，
+     * 于是移动端删掉的老文件在桌面被重新复活（用户实测症状）。
+     * 墓碑让"删过"变成可传播的事实：本地 mtime ≤ 墓碑时间 ⇒ 跟着删。
+     */
+    const dels = j && typeof j === 'object' && j.deleted && typeof j.deleted === 'object' ? j.deleted : {}
+    const deleted = {}
+    for (const [path, at] of Object.entries(dels)) {
+      const ms = Number(at) || 0
+      if (ms > 0) deleted[path] = ms
+    }
+    return { version: 1, files: out, attachments, private: priv, privateTree, deleted }
   } catch {
-    return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {} }
+    return { version: 1, files: {}, attachments: {}, private: {}, privateTree: {}, deleted: {} }
   }
 }
 

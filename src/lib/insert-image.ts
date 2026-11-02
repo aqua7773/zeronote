@@ -89,25 +89,51 @@ export function decodeLocalPath(path: string): string {
  *
  * Windows 绝对路径原样返回（调用方仍可 `convertFileSrc` 它）。
  */
+export function resolveImageAbsPaths(
+  vault: string | null | undefined,
+  notePath: string | null | undefined,
+  src: string,
+): string[] {
+  const raw = decodeLocalPath(stripAngleTarget(src))
+  if (!raw) return []
+  // 盘符 + 斜杠先于 scheme 判定：`C:\x` 长得像 scheme，但它是本机绝对路径
+  if (WIN_ABS_RE.test(raw)) return [raw.replace(/\\/g, '/')]
+  if (SCHEME_RE.test(raw)) return []
+  const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!root) return []
+
+  const out: string[] = []
+  const add = (rel: string | null) => {
+    if (!rel) return
+    const abs = `${root}/${rel}`
+    if (!out.includes(abs)) out.push(abs)
+  }
+  if (raw.startsWith('/')) {
+    // 以 / 开头 = 相对库根
+    add(normalizePosix(raw.replace(/^\/+/, '')))
+  } else {
+    /**
+     * 相对路径给**两候选**（rev173.325 · 真人测试6 #1）：
+     * ① 笔记所在目录（插入附件时的写法）；
+     * ② 库根（笔记被移动 / 从别的目录拖进来之后的兜底）。
+     *
+     * 旧实现只给 ①：笔记一移动，`![](image-x.jpg)` 就永远找不到 ——
+     * 用户实测「移回原位正常加载」正是这条。候选都试不到才显示「图片不在本机」。
+     */
+    const noteDir = notePath ? dirnamePosix(notePath) : ''
+    if (noteDir) add(normalizePosix(`${noteDir}/${raw}`))
+    add(normalizePosix(raw))
+  }
+  return out
+}
+
+/** 图片 src → **首选**本机绝对路径（`resolveImageAbsPaths` 的第一项）。 */
 export function resolveImageAbsPath(
   vault: string | null | undefined,
   notePath: string | null | undefined,
   src: string,
 ): string | null {
-  const raw = decodeLocalPath(stripAngleTarget(src))
-  if (!raw) return null
-  // 盘符 + 斜杠先于 scheme 判定：`C:\x` 长得像 scheme，但它是本机绝对路径
-  if (WIN_ABS_RE.test(raw)) return raw.replace(/\\/g, '/')
-  if (SCHEME_RE.test(raw)) return null
-  const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
-  if (!root) return null
-
-  // 以 / 开头 = 相对库根；否则相对笔记所在目录
-  const noteDir = notePath ? dirnamePosix(notePath) : ''
-  const base = raw.startsWith('/') ? '' : noteDir
-  const rel = normalizePosix(base ? `${base}/${raw}` : raw.replace(/^\//, ''))
-  if (!rel) return null
-  return `${root}/${rel}`
+  return resolveImageAbsPaths(vault, notePath, src)[0] ?? null
 }
 
 /** 库内相对路径 → 相对**当前笔记目录**的路径（写进 Markdown 的那个） */
@@ -120,6 +146,25 @@ export function pathFromNote(
   if (!noteDir) return target
   if (!target.startsWith(`${noteDir}/`)) return target
   return target.slice(noteDir.length + 1)
+}
+
+/**
+ * 库内相对路径 → **库根相对**写法（写进 Markdown 的那个，`/附件/a.png`）。
+ *
+ * 为什么改用库根（rev173.325 · 真人测试6 #1）：附件落盘在「笔记当时所在目录」，
+ * 而相对笔记目录的写法**一移动笔记就断**（用户实测：移回原位才正常）。
+ * 库根写法记录的是附件的**真实位置**，与笔记放哪无关；`resolveImageAbsPath`
+ * 本来就支持 `/` 开头按库根解析，同步到别的设备也一致。
+ *
+ * 绝对路径（>1 MiB 的引用型附件、Android 的 `/storage/…`）与带 scheme 的 URL 原样返回。
+ */
+export function pathFromVaultRoot(imageRelPath: string): string {
+  const raw = String(imageRelPath ?? '').replace(/\\/g, '/').trim()
+  if (!raw) return raw
+  if (WIN_ABS_RE.test(raw) || SCHEME_RE.test(raw)) return raw
+  // 已经是库根写法（/x）或平台绝对路径（Android 的 /storage/…）；`attachment_rel` 从不带前导斜杠
+  if (raw.startsWith('/')) return raw
+  return `/${raw}`
 }
 
 /**
