@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { ItemMenuContext, ItemMenuRegistration, NoteMeta } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { RenameDialog } from './RenameDialog'
-import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
+import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 type Props = {
   notes: NoteMeta[]
@@ -50,8 +50,7 @@ type Props = {
   onItemAction?: (action: ItemMenuRegistration, ctx: ItemMenuContext) => void
 }
 
-/** 长按判定：按住 500ms 算长按；移动超过 10px 算滑动、取消长按（调研 §3.1 / §4） */
-const LONG_PRESS_MS = 500
+/** 长按判定用共享的 `LONG_PRESS_MS`（300ms）；这里只留「移动多少像素算滑动」 */
 const LONG_PRESS_MOVE_PX = 10
 
 /**
@@ -125,7 +124,7 @@ export function MobileNoteCards({
   const suppressClickRef = useRef(false)
   /**
    * 卡片长按到点的反馈定时器（rev173.325 · 真人测试6 #3）：
-   * 按住满 500ms 振一下 + 按下点涟漪，告诉用户"现在抬手会弹菜单"。
+   * 按住满 300ms 振一下 + 按下点涟漪，告诉用户"现在抬手会弹菜单"。
    */
   const cardFeedbackRef = useRef<number | null>(null)
   const clearCardFeedback = useCallback(() => {

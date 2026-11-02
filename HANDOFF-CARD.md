@@ -11,6 +11,23 @@
 > | ④ | 桌面「复制 md 文件」剪贴板还是旧内容 | 根因 `canonicalize` 产出 **verbatim `\\?\C:\…`**，`CF_HDROP` 不认；顺带 `OpenClipboard` 失败即放弃。改：`plain_path()` 剥前缀 + **重试 3×50ms** + 失败路径 `GlobalFree` | `lib.rs` · cargo `plain_path…` |
 > | ⑤ | 桌面右键「在文件夹中打开」只开了默认位置 | 同一根因：`explorer /select,"\\?\…"` 被忽略。改：剥前缀后再 `raw_arg` 拼（官方 opener 同款写法） | 同上 |
 >
+> **追加修复（真机复验时发现 · 同轮）—— 文件树触摸整条失效**
+> 用户：「移动端文件树栏，拖拽完全不起效果了，长按也不触发任何动作」「加号长按可以触发涟漪，就是文件树栏无效」。
+> **根因不在新代码**：`FileTree` 的触摸 effect 依赖 `[]`，而手机冷启动第一帧 `.zn-tree` 还没渲染
+> ⇒ `rootRef.current === null` ⇒ effect 直接 `return` 且**永不重跑** ⇒ `touchstart` 监听器一次都没绑上
+> （连带长按无涟漪、拖拽不动、菜单不弹；＋ 的长按走 App.tsx 另一条路，所以正常）。
+> 真机证据（`adb logcat` 的 `Tauri/Console`）：`[znt] effect run, root= false`，之后 touchstart 从未触发。
+> 修法：`callback ref`（`bindRoot`）把「元素出现/消失」变成 state，effect 依赖 `[rootEl]` ⇒ 元素一挂上就绑；
+> 顺带清掉遗留的 `rootRef` 早退路径。**真机复验**：长按文件行弹完整菜单（新建文件 / 剪切 / 重命名 /
+> 详细… / 在文件夹中打开 / 删除 / 多选 / 导出 / 分享）。⚠️ 这类「effect 只跑一次 + ref 可能为 null」的坑
+> 对任何常驻挂载组件都成立，写新组件时别再抄 `useEffect(..., [])` + `ref.current` 直接判空。
+>
+> **追加修复 2（同轮）—— 长按阈值 500 → 300ms**
+> 用户：「长按时间做成 300ms，500 太长了」。阈值原来在四个文件各写一份 `500`（`FileTree` / `TitleBar` /
+> `MobileNoteCards` / `App.tsx` 编辑区四键条），现在统一为 `lib/long-press-feedback.ts` 的 **`LONG_PRESS_MS = 300`**；
+> `FileTree` 的拖拽上膛 `ARM_MS` 240 → **150**（必须明显小于长按阈值，否则「按住 150–300ms 再拖」会被判成长按）。
+> **真机验证**：350ms 长按 ⇒ 弹条目菜单 ✓；200ms 短按 ⇒ 直接打开笔记、不弹菜单 ✓。
+>
 > **验证基线**：tsc 0 · vitest **1798** · cargo test **97** · oxlint 4 warnings（见 `scripts/.verify-baseline.json`）。
 > ⚠️ **未做**：①③ 只能真机看手感；④⑤ 只能桌面实机点一次 —— 装新包后请重点复验这四条。
 > 未发版（0.9.17 待定）；`sync` 0.1.8 未打包（②只改了宿主，插件本身没动）。
@@ -192,7 +209,7 @@
 | 事实 | 当前值 |
 |---|---|
 | rev / 版本 | rev173.331 · 0.9.16 · 2026-11-02 |
-| 测试基线 | vitest 1798 · cargo 97 · oxlint 4 warnings（2026-11-02） |
+| 测试基线 | vitest 1799 · cargo 97 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
 | 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.16 |
 <!-- FACTS:END -->

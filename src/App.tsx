@@ -44,7 +44,7 @@ import type {
  * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
  * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
 import { MarkdownEditor } from './components/MarkdownEditor'
-import { hapticTick, spawnRipple } from './lib/long-press-feedback'
+import { LONG_PRESS_MS, hapticTick, spawnRipple } from './lib/long-press-feedback'
 import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
@@ -970,7 +970,7 @@ export default function App() {
           feedbackTimer = null
           hapticTick()
           spawnRipple(at.x, at.y)
-        }, 500)
+        }, LONG_PRESS_MS)
       }
     }
     const onEnd = (e: TouchEvent) => {
@@ -983,9 +983,9 @@ export default function App() {
       const dy = t.clientY - sy
       /**
        * **编辑区长按：释放时才弹四键条**（rev173.321 · 用户「普通长按也是释放弹」）。
-       * 按住不动 ≥500ms 且位移 <10px ⇒ 弹（把按下点当锚点，四键条贴在那里）。
+       * 按住不动 ≥`LONG_PRESS_MS`（300ms）且位移 <10px ⇒ 弹（把按下点当锚点，四键条贴在那里）。
        */
-      if (inEditor && pressAt && Date.now() - pressAt >= 500 && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      if (inEditor && pressAt && Date.now() - pressAt >= LONG_PRESS_MS && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
         setMobileEditBar({ x: sx, y: sy })
         return
       }

@@ -118,9 +118,9 @@
 | 同一篇 | 同时只在一个窗口；主窗口再点 ⇒ 聚焦并提示 | `noteWindowsRef` · `useDocSession.canOpen` |
 | 手机左 / 右滑 | 抽屉开关（**仅首页**；输入态禁开；抽屉开着时只认关闭、两个抽屉互斥） | `lib/swipe.ts` · `App.tsx` |
 | 长按 ＋ | 环形快捷入口（`QuickLaunch`）：中心 ＋ = 新建笔记，周围 5 格可配（设置 → 通用） | `QuickLaunch.tsx` · `lib/quick-slots.ts` |
-| 长按 ☰ | 主菜单（500ms；松手补发的 click 被吃掉） | `TitleBar.tsx` |
+| 长按 ☰ | 主菜单（`LONG_PRESS_MS` = **300ms**；松手补发的 click 被吃掉） | `TitleBar.tsx` |
 | 长按卡片 | 卡片菜单；卡面禁选字（`user-select:none`），不触发系统复制浮层 | `MobileNoteCards.tsx` |
-| 按住 240ms 后拖（文件树） | 触摸拖拽归类：落到文件夹 = 移动；240ms 内就移动视为滚动 | `FileTree.tsx` |
+| 按住 150ms 后拖（文件树） | 触摸拖拽归类：落到文件夹 = 移动；150ms 内就移动视为滚动（`ARM_MS` 必须明显小于长按阈值） | `FileTree.tsx` |
 | 标题栏显隐（专注模式） | 鼠标进顶部 20px / 焦点进标题栏 ⇒ 显示；`y > 64` ⇒ 收起 | `App.tsx` |
 
 ## 5 键位与无障碍

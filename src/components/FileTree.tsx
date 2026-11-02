@@ -15,7 +15,7 @@ import type {
   NoteMeta,
 } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
-import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
+import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 type TreeNode = {
   name: string
@@ -275,8 +275,8 @@ function itemKindOf(meta: NoteMeta | undefined, isDir: boolean): ItemMenuKind {
  */
 const TOUCH_UI = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 
-/** 长按判定（与系统长按同阈值）：按住这么久再松手 = 弹菜单 */
-const MENU_LONG_PRESS_MS = 500
+/** 长按判定：按住这么久再松手 = 弹菜单（2026-11-02 用户：500 → **300ms**，统一值见 `LONG_PRESS_MS`） */
+const MENU_LONG_PRESS_MS = LONG_PRESS_MS
 
 /** 多选态的勾选框（纯视觉；点击由整行承担，避免按钮套按钮） */
 function CheckBox({ on }: { on: boolean }) {
@@ -722,6 +722,20 @@ export function FileTree({
   const [reveal, setReveal] = useState<string | null>(null)
   /** 树容器 —— 框选要按每个节点的真实位置求交，得从 DOM 里量 */
   const rootRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * 树容器的元素本身（rev173.331 修：真机上 `rootRef.current` 在触摸 effect 里是 `null`）。
+   *
+   * 为什么不能只用 `rootRef` + `useEffect(…, [])`：effect 只在**挂载后**跑一次，若跑的那一帧
+   * 还没有 `.zn-tree`（手机冷启动时 App 先渲染一版没有树的布局），`root` 就是 null，
+   * 而依赖是 `[]` ⇒ **永远不会重跑**，于是 touchstart 监听器一次都没绑上：
+   * 文件树长按不出涟漪、拖拽不动、菜单也不弹（真人测试7 追加反馈）。
+   * 修法：callback ref 把「元素出现 / 消失」变成 state，effect 依赖它 ⇒ 元素一挂上就绑。
+   */
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
+  const bindRoot = useCallback((el: HTMLDivElement | null) => {
+    rootRef.current = el
+    setRootEl(el)
+  }, [])
   /** 刚框选完 —— 用来拦掉紧随其后的那次 click（否则会顺手打开笔记/折叠目录） */
   const suppressClickRef = useRef(false)
   /**
@@ -906,7 +920,7 @@ export function FileTree({
    * 约束与取舍：
    *  · 鼠标：只认左键；位移超过 4px 才算拖拽，否则仍是普通点击；
    *  · **触摸**走另一条通道（`useEffect` 里的 touch 监听，见下）—— 手指拖拽要先按住
-   *    240ms 再动，普通滚动不会被误判成拖拽（rev173.317 · 真人测试5 #5）；
+   *    150ms 再动，普通滚动不会被误判成拖拽（rev173.317 · 真人测试5 #5）；
    *  · 点在**滚动条**上不算；
    *  · 拖拽移动只认**文件夹**做落点（虚拟「文档」分组不是目录），且拒绝拖进自己/自己的子孙；
    *  · 拖的若是选中集合里的一项 ⇒ **整批移动**；否则只移动它自己；
@@ -1035,9 +1049,9 @@ export function FileTree({
    * 每次滚动都变成搬文件。而**长按 500ms** 已经被系统的右键菜单占了（Android 的
    * `contextmenu`）—— 两边抢同一个手势。
    *
-   * 取中间这条路：**按住 240ms（短于系统长按阈值）后开始移动 ⇒ 拖拽**；
-   *   · 240ms 内就移动 ⇒ 用户在滚动列表，立刻放弃（不做任何事，滚动手感不变）；
-   *   · 按住不动到 500ms ⇒ 系统照旧弹右键菜单（菜单入口没变）；
+   * 取中间这条路：**按住 150ms（`ARM_MS`，必须远小于长按阈值）后开始移动 ⇒ 拖拽**；
+   *   · 150ms 内就移动 ⇒ 用户在滚动列表，立刻放弃（不做任何事，滚动手感不变）；
+   *   · 按住不动到 300ms ⇒ 弹我们自己的条目菜单（`LONG_PRESS_MS`）；
    *   · 拖拽期间 `touchmove` 一律 preventDefault，列表不会跟着滚。
    *
    * ⚠️ effect **只挂一次**：拖拽过程里每帧都在 setState（ghost 跟手），若依赖里有
@@ -1050,10 +1064,15 @@ export function FileTree({
     dragRefs.current = { selectedSet, dirPathSet, onRename }
   })
   useEffect(() => {
-    const root = rootRef.current
+    const root = rootEl
     if (!root) return
-    /** 开始移动前要按住多久（< 系统长按 500ms） */
-    const ARM_MS = 240
+    /**
+     * 开始移动前要按住多久（= 拖拽"上膛"）。
+     *
+     * 必须**明显小于** `LONG_PRESS_MS`（300ms）：否则「按住 150–300ms 后开始拖」会被判成长按而不是拖拽。
+     * 2026-11-02 长按 500 → 300 时同步从 240 降到 **150**（给拖拽留出 150ms 的确定性窗口）。
+     */
+    const ARM_MS = 150
     /** 判定"真的在移动"的位移门槛 */
     const START_PX = 8
 
@@ -1241,7 +1260,7 @@ export function FileTree({
         // 越过门槛就算"移动过"（松手时不再当长按处理）
         moved = true
         if (!armed) {
-          // 还没到 240ms 就开始划 ⇒ 用户在滚动，这次不拖
+          // 还没到 150ms 就开始划 ⇒ 用户在滚动，这次不拖
           reset()
           return
         }
@@ -1285,7 +1304,7 @@ export function FileTree({
         armed = true
       }, ARM_MS)
       /**
-       * **到点反馈**（rev173.325 · 真人测试6 #3）：按住满 500ms 振一下 + 按下点涟漪，
+       * **到点反馈**（rev173.325 · 真人测试6 #3）：按住满 300ms 振一下 + 按下点涟漪，
        * 用户才知道"现在抬手就会弹菜单"。松手才弹菜单的判定一行没动。
        */
       feedbackTimer = window.setTimeout(() => {
@@ -1304,7 +1323,7 @@ export function FileTree({
       root.removeEventListener('touchstart', onStart)
       reset()
     }
-  }, [])
+  }, [rootEl])
 
   /* 右键菜单 / 点选模式都是「返回键该先关掉的一层」—— 打开时把关闭函数压进 App 的层出口栈。
      ⚠️ 必须写在下面「空库」那个 early return **之前**（Hooks 不能条件执行）。 */
@@ -1697,7 +1716,7 @@ export function FileTree({
     <div
       /* `is-drop-root`：拖到栏内空白 ⇒ 落到库根，没有具体行可高亮，用整栏描边提示 */
       className={`zn-tree zn-filetree${dropTarget === '' ? ' is-drop-root' : ''}`}
-      ref={rootRef}
+      ref={bindRoot}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onClickCapture={(e) => {

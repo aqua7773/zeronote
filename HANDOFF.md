@@ -276,6 +276,13 @@ revision: 173.331
 > **⚠️ 未做**：①③ 要真机看手感，④⑤ 要桌面实机点一次 —— 自动化只能锁判定与路径转换。
 > 未发版；`sync` 插件本身没改（②只改宿主），`import-export` 也没改。
 >
+> **追加（真机复验时用户发现）**：文件树整条触摸失效（拖拽不动、长按无涟漪无菜单），而 ＋ 的长按正常。
+> 真机 `adb logcat`（`Tauri/Console`）打出 `[znt] effect run, root= false` —— `FileTree` 的触摸 effect 依赖 `[]`，
+> 手机冷启动第一帧 `.zn-tree` 尚未渲染 ⇒ `rootRef.current` 为 null ⇒ effect 早退且**永不重跑** ⇒
+> `touchstart` 监听器一次都没绑上。修法：改 **callback ref**（`bindRoot` → `rootEl` state），effect 依赖 `[rootEl]`，
+> 元素挂载即绑定。真机复验：长按文件行弹出完整菜单（新建文件 / 剪切 / 重命名 / 详细… / 在文件夹中打开 / 删除 /
+> 多选 / 导出 / 分享）✓。⚠️ 这个坑与「ref 为空」正交：常驻挂载组件别用 `useEffect(…, [])` + `ref.current` 判空。
+>
 > ## 📌 rev173.330（2026-11-02 · 真人测试7：五条根因调查，未改代码）
 
 > 用户转来 `ZreoNote/测试文件/真人测试7.md`（5 条，引用的截图没随文件带来）。本轮只做定位：

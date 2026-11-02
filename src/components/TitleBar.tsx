@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { WindowControls } from './WindowControls'
-import { hapticTick, spawnRipple } from '../lib/long-press-feedback'
+import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
 
 /**
  * 自绘窗口标题栏（记事本式）。
@@ -93,9 +93,9 @@ export function TitleBar({
    * （2026-10-18 用户要求），于是手机上**没有任何菜单入口** —— 搜索 / 插件管理 / 设置
    * 在手机上全是死角。长按复用同一个 `onMenu`（宿主弹的是同一份 menuItems）。
    *
-   * 时长与卡片长按同一量级（500ms）；松手补发的 click 必须吃掉，否则会顺带切一次侧栏。
+   * 时长与卡片 / 文件行共用 `LONG_PRESS_MS`（300ms）；松手补发的 click 必须吃掉，否则会顺带切一次侧栏。
    */
-  const HOLD_MS = 500
+  const HOLD_MS = LONG_PRESS_MS
   const holdTimer = useRef<number | null>(null)
   const suppressClick = useRef(false)
   /**

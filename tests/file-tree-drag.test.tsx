@@ -178,3 +178,23 @@ function touch(type: string, x: number, y: number, target: Element): TouchEvent 
     touches: [{ clientX: x, clientY: y, identifier: 0, target } as unknown as Touch],
   })
 }
+
+/**
+ * 触摸**长按**照旧要能弹菜单（rev173.331 只该改"每帧算几次落点"，不该动长按判定）。
+ *
+ * 用户真机反馈「长按也不触发任何动作」—— 这条是那条回归的护栏：
+ * 按住 600ms（没有位移）⇒ 松手时必须弹出条目菜单。
+ */
+describe('FileTree 触摸长按', () => {
+  it('按住 600ms 松手 ⇒ 弹出条目菜单', async () => {
+    const { container } = render(<FileTree {...makeProps()} />)
+    const row = container.querySelector('[data-zn-path="a.md"]') as HTMLElement
+    fireEvent(row, touch('touchstart', 10, 10, row))
+    await new Promise((r) => setTimeout(r, 600))
+    fireEvent(
+      window,
+      new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [] }),
+    )
+    expect(screen.getByText('多选')).toBeTruthy()
+  })
+})

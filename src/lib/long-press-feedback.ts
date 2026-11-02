@@ -21,6 +21,16 @@ import { invoke } from '@tauri-apps/api/core'
 /** 振动时长（ms）：只求"到点了可以松手"的轻提示，别做成通知级震动 */
 const VIBRATE_MS = 12
 
+/**
+ * **长按阈值（ms）** —— 到点就反馈、松手才弹菜单。2026-11-02 用户：「长按时间做成 300ms，500 太长了」。
+ *
+ * 五个入口（文件行 / 卡片 / ＋ / ☰ / 编辑区四键条）共用这一个值：
+ * 手工各写一遍时已经漂移过一次（FileTree / TitleBar / App 各一份 `500`），所以集中在这里。
+ * ⚠️ 改动时要连带看 `FileTree` 的 `ARM_MS`（拖拽上膛）：它必须**明显小于**本值，
+ * 否则「按住 150–300ms 后开始拖」会被判成长按而不是拖拽。
+ */
+export const LONG_PRESS_MS = 300
+
 /** 涟漪动画时长（ms）—— 与 styles.css 的 `--zn-dur-ripple` / `zn-longpress-ripple` 保持一致 */
 const RIPPLE_MS = 880
 
