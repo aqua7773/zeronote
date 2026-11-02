@@ -1,10 +1,10 @@
 {
-  "version": "0.9.16",
-  "notes": "ZeroNote 0.9.16 —— 闪退日志不再丢（记录 ANR / 低内存 / 看门狗 exit 101）",
-  "pub_date": "2026-11-02T11:05:17.766Z",
+  "version": "0.9.17",
+  "notes": "Fixed\n\n- 真人测试 7 五条（`ZreoNote/测试文件/真人测试7.md`）：\n  - #1 长按反馈不明显 / 没振动：触发时机本来就对（五个入口在阈值处就 `hapticTick + spawnRipple`、松手才弹菜单）；\n    改的是视觉（26px 起、35% 处扩到 1.9× 并保高不透明、最终 7×；2px 描边 + 外发光；`--zn-dur-ripple` 620 → 880ms）\n    与振动通道（Android 走原生命令 `plugin:statusbar|vibrate` → Kotlin `Vibrator`；`navigator.vibrate` 只作兜底）。\n  - #2 手机「更多 → 插件」看不到 sync：旧实现写死 `tag-panel` / `import-export`；改为按「注册了 `main` / `sidebar`\n    面板」自动列（`lib/more-plugin-entries.ts`，排除 statusbar/modal/editor-* 与 hidden），已知插件用 `MORE_PLUGIN_HINTS` 补副标题。\n  - #3 文件树拖拽卡顿：touchmove 改为 rAF 节流（一帧只判一次落点）、落点同值不 setState、\n    ghost 首次渲染后直接改 `style.left/top`、松手前补算最后一帧。\n  - #4 桌面复制 md 文件后剪贴板还是旧内容：根因 `canonicalize` 返回 verbatim `\\\\?\\C:\\…`，`CF_HDROP` 不认；\n    新增 `plain_path()` 去前缀，`OpenClipboard` 失败重试 3×50ms，失败路径释放内存。\n  - #5 桌面右键「在文件夹中打开」只开默认位置：同根因（`explorer /select,\"\\\\?\\…\"` 被忽略），剥前缀后再传。\n\nChanged\n\n- 长按阈值 500 → 300ms（用户要求），统一到 `lib/long-press-feedback.ts` 的 `LONG_PRESS_MS`；\n  文件树拖拽上膛 `ARM_MS` 240 → 150（必须明显小于长按阈值）。\n\nFixed（追加 · 真机复验时发现）\n\n- 文件树触摸整条失效：手机冷启动第一帧 `.zn-tree` 尚未渲染 ⇒ `rootRef.current` 为 null，\n  而触摸 effect 依赖 `[]` ⇒ 永不重跑 ⇒ `touchstart` 监听器一次都没绑上（长按无涟漪、拖拽不动、菜单不弹）。\n  改为 callback ref（`bindRoot` → `rootEl` state），effect 依赖 `[rootEl]`。",
+  "pub_date": "2026-11-02T12:40:10.516Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.16/ZeroNote_0.9.16_arm64.apk",
-    "sha256": "4ee3b519df57463d739e48e5e56ed917561744a1fe3687a998ab8c6bd188f3e0",
-    "size": 34830795
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.17/ZeroNote_0.9.17_arm64.apk",
+    "sha256": "cff4bbe40ce7fbf925cd3e7996bb623769c35f03796815e5a2a027243b5ba8d2",
+    "size": 34873707
   }
 }
