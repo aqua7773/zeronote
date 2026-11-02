@@ -1,10 +1,10 @@
 {
-  "version": "0.9.13",
-  "notes": "Fixed\n\n- 真人测试 6 五条（`ZreoNote/真人测试6.md` + 4 张截图）：\n  - #1 附件移走笔记后断链：插入时改写成完整库内路径（`视频/a.png`，不带前导 `/`），\n    渲染解析给「笔记目录 → 库根」两候选、加载失败自动换下一个 —— 移动笔记不再丢图，旧笔记同样兜底。\n  - #2 编辑页偶发全白、输入不落地：`--zn-viewport-h` 低于 200px 不写（键盘动画瞬时值会把页面塌掉）；\n    编辑器挂载后 300 / 1200ms 各量一次容器高度，为 0 就 `requestMeasure()` 自愈。⚠️ 未稳定复现，属防御性修复。\n  - #3 长按无反馈：五个长按入口到 500ms 振动（`navigator.vibrate`）+ 按下点涟漪；\n    AndroidManifest 加 `VIBRATE`（普通权限，安装即授予）。「松手才触发」的判定未动。\n  - #4 同步删除墓碑：远端 manifest 新增 `deleted` 段（30 天过期）。同步时「本地 mtime ≤ 墓碑 ⇒ 跟删（进回收站）；\n    > 墓碑 ⇒ 保留上传并清墓碑」—— 桌面首次连同步不再把手机删掉的老文件传回云端（旧逻辑：本地有 + 远端无 = 新笔记）。\n  - #4 右键菜单：加「详细…」（新原生命令 `entry_info`：大小 / 创建 / 修改 / 路径）与\n    「在文件夹中打开」（`reveal_in_explorer`：Windows `explorer /select,`；手机端如实说不支持）。\n  - #5 桌面分享 = 复制文件：新原生命令 `copy_file_to_clipboard`（Windows CF_HDROP）。\n    `import-export` 桌面 md 分享改为复制 `.md` 文件本身（与资源管理器复制文件同一效果）；\n    旧应用包没有该命令时自动退回复制文本并说明。\n\nChanged\n\n- `sync` 插件 0.1.7：manifest 新增 `deleted` 段与墓碑判定（升级后双端生效；旧客户端读新 manifest 会忽略该字段，不坏）。\n- `import-export` 插件 0.2.2：桌面分享走 `copy_file_to_clipboard`。",
-  "pub_date": "2026-11-02T04:34:19.199Z",
+  "version": "0.9.14",
+  "notes": "ZeroNote 0.9.14",
+  "pub_date": "2026-11-02T05:27:41.763Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.13/ZeroNote_0.9.13_arm64.apk",
-    "sha256": "dfb64f342495d8640714411657ff756eba24596fd384efaa1a4f27c837a5e3df",
-    "size": 34787363
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.14/ZeroNote_0.9.14_arm64.apk",
+    "sha256": "1ae972a301969e3321c9525bbb09d33bb95625fd4c952e3312266c8e758591ee",
+    "size": 34829499
   }
 }
