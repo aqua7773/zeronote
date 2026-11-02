@@ -1260,6 +1260,25 @@ export default {
       } catch {
         bytes = null
       }
+      /**
+       * 库根兜底（rev173.334 · 真人测试8）。
+       *
+       * 编辑器渲染引用时给「笔记所在目录 → 库根」两候选（rev173.325），而导出这边
+       * `locateRef` 只按笔记目录解析 —— 图在库根、笔记在子目录时（真人实物：
+       * 笔记 `测试文件/真人测试8.md`、图在库根），这里必然读不到 ⇒ 保留原引用、
+       * 分享出去的 md 一张图都没有（用户看到的就是 761 字节的纯文本）。
+       * 补同一套兜底：rel 类型再试一次库根。
+       */
+      if (!bytes && loc.kind === 'rel') {
+        const rootRel = normalizeRelPath(decodeLocalRef(stripAngleRef(hit.target)))
+        if (rootRel) {
+          try {
+            bytes = await fs.readBytes(rootRel)
+          } catch {
+            bytes = null
+          }
+        }
+      }
 
       let dataUrl = ''
       let used = ''

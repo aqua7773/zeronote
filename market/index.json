@@ -210,10 +210,10 @@
         "android"
       ],
       "apiVersion": "^0.1.0",
-      "version": "0.2.2",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.2.znp",
-      "sha256": "63ce4e83781996af67c589a4136eed4e23f6b9c1ba9a3c82d5faeae516d3e363",
-      "size": 79873,
+      "version": "0.2.3",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.3.znp",
+      "sha256": "63612c697314e8ad6fe684dae08b0bd96ea13a5b009bf439f8d5436b18513c52",
+      "size": 80765,
       "files": [
         "index.js",
         "signature.json"
