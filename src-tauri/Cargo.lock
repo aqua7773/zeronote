@@ -6648,12 +6648,13 @@ dependencies = [
 
 [[package]]
 name = "zeronote"
-version = "0.9.14"
+version = "0.9.15"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
  "futures",
  "image",
+ "libc",
  "log",
  "notify",
  "reqwest",

@@ -3994,11 +3994,17 @@ fn spawn_watchdog() {
         log::warn!("[watchdog] DRYRUN：只留痕，不退出");
         continue;
       }
-      // ⚠️ 用 `std::process::exit` 而**不是** `app.exit()`：后者要走 Tauri 的退出流程
-      //（可能依赖主线程参与清理），而主线程此刻**已经死了** —— 等它等于一起卡住。
-      // `std::process::exit` 只依赖当前这个线程，是卡死时唯一可靠的一条路。
+      // ⚠️ 用 `libc::_exit`，**不是** `std::process::exit`，也不是 `app.exit()`：
+      //   · `app.exit()` 要走 Tauri 的退出流程（依赖主线程参与清理），而主线程此刻已经死了；
+      //   · `std::process::exit` 只不跑 Rust 的 `Drop`，**仍会**走 libc `exit()` →
+      //     `__cxa_finalize()`（跑 C++ 全局析构）。2026-11-02 13:49 真机 tombstone 实证：
+      //     看门狗 exit 期间析构 `WebViewFunctorManager` → `WebViewFunctor::destroyContext`
+      //     → `eglDestroyContextImpl`，而 WebView 的渲染线程仍在 `condition_variable` 上等
+      //     ⇒ 已销毁的 mutex ⇒ SIGSEGV —— 用户看到"闪退"，其实是看门狗自己制造的崩溃。
+      //   · `_exit(2)` 直接 exit_group，跳过 atexit 与静态析构，只依赖当前这个线程。
       // 退出码 101 = Rust 的 panic 惯例码，便于事后从日志分辨"这是看门狗杀的"。
-      std::process::exit(101);
+      // SAFETY: `_exit` 只终止本进程，不读任何调用方内存；`unsafe` 仅因它是 extern "C"。
+      unsafe { libc::_exit(101) };
     }
   });
 }

@@ -1,6 +1,26 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.327（2026-11-02）—— 崩溃日志可导出（0.9.14）+ 闪退根因已抓到（系统层）**
+> **最新：rev173.328（2026-11-02）—— 手机闪退根因：左抽屉遮罩的常驻合成层（0.9.15）**
+> 用户「12也会闪退」「12之前没触发过」定死了分界。6 份 tombstone（13:13:20 / 13:49:16 / 13:49:31 /
+> 13:50:33 / 14:03:32 / 14:03:42）复盘：
+> · 崩溃栈全在系统库（`libgui::FenceMonitor` / `libhwui` / `WebViewFunctor`），abort message 都是
+>   `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x761f402af8)` —— **同一个地址**，
+>   即系统库里的全局 mutex（app 从 zygote fork ⇒ 系统库加载地址在所有进程里相同），不是我们的内存。
+> · **触发面 = 0.9.12 的 `81e1f62`**：左抽屉遮罩从条件渲染改成「常驻 + opacity 过渡」——
+>   Chromium 会为全屏 `fixed` 元素保留常驻合成层（`pointer-events: none` 不影响合成），nubia 的 HWC
+>   每次页面重绘都要重新合成它 ⇒ 撞上系统层的生命周期竞态。0.9.11 时遮罩关闭即卸载，所以不崩。
+> · `13:49:31` / `14:03:42` 两份还带出**看门狗自杀**：`spawn_watchdogs` → `std::process::exit(101)`
+>   → `exit()` → `__cxa_finalize()` → `WebViewFunctorManager::~WebViewFunctorManager` →
+>   `destroyContext` → `eglDestroyContextImpl`，渲染线程还在 `condition_variable` 上等 ⇒ 已销毁 mutex。
+>   `std::process::exit` 不跑 Rust 的 `Drop`，**但会跑 C++ 全局析构** —— 文档 §2.2 原说法是错的。
+> **0.9.15 改了两处**：① 遮罩关闭态 `visibility: hidden` —— 元素不参与合成、层真正消失；淡出仍由
+> opacity 播，visibility 用 transition-delay 延到淡出结束，动画节奏不变。② 看门狗 → `libc::_exit(101)`
+> （跳过 atexit / 静态析构，直接 exit_group）。
+> **验证**：tsc 0 · cargo check 0（4 warnings = 基线）· Cargo.lock 0.9.15 · 真机验证待用户装 0.9.15。
+> 测试机（Redmi 24069RA21C / Android 16）装 0.9.14 release **复现不了** ⇒ 崩溃是 nubia 特有，
+> 但触发面是我们引入的，所以可修。
+>
+> **rev173.327（2026-11-02）—— 崩溃日志可导出（0.9.14）+ 闪退根因已抓到（系统层）** ⚠️ **rev173.328 更正：不是纯系统层，触发面是 0.9.12 的左抽屉遮罩**
 > 用户原话：「每次崩溃应该把崩溃日志复制到剪贴板上面，现在的版本都没有崩溃日志」→「每次崩溃直接导出崩溃日志，我转发就可以了」。
 >
 > **① 闪退根因（2026-11-02 13:11 抓到完整 tombstone）** —— **不在我们的代码里**：

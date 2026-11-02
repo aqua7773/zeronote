@@ -1,6 +1,6 @@
 [package]
 name = "zeronote"
-version = "0.9.14"
+version = "0.9.15"
 description = "ZeroNote —— 空内核的本地 Markdown 笔记应用"
 authors = ["aqua"]
 license = "MIT"
@@ -39,6 +39,11 @@ futures = "0.3"
 # 全编进来（多几十个 crate、CI 明显变慢），而插入场景只需要 jpeg / png / webp。
 # png 本来就在依赖树里（arboard 用），这里真正新增的只有 zune-jpeg + image-webp。
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+# 看门狗退出（rev173.328）：必须用 `libc::_exit`，不能用 `std::process::exit`
+# —— 后者走 libc `exit()` → `__cxa_finalize()` → 析构 WebViewFunctor / EGL 上下文，
+# 与仍在跑的渲染线程竞态 ⇒ SIGSEGV（2026-11-02 13:49 真机 tombstone 实证）。
+# 已在依赖树里（Cargo.lock 0.2.190），从传递依赖提为直接依赖，不新增编译量。
+libc = "0.2"
 tauri = { version = "2.12.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"

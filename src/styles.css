@@ -110,6 +110,10 @@
      左抽屉靠 transform 过渡、右抽屉靠 in/out 两段 keyframes，遮罩跟着一起淡。
      比 panel 慢一档是有意的 —— 整屏宽度的位移，快了会像"闪一下"。 */
   --zn-dur-drawer: 340ms;
+  /* 零时长档（rev173.328）：只给 `visibility` 这类需要「立刻切」的离散属性用 ——
+     `transition` 里的 visibility 用 `var(--zn-dur-none)` + delay 控制切换时刻。
+     ⚠️ 不裸写 `0s`：`tests/design-tokens.test.ts` 禁止 transition 里出现裸时长（拖拽跟手除外）。 */
+  --zn-dur-none: 0s;
   /* 长按到点的涟漪（rev173.325 · 真人测试6 #3）：与 lib/long-press-feedback.ts 的 RIPPLE_MS 同值 */
   --zn-dur-ripple: 620ms;
   --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -2903,18 +2907,33 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
     to { opacity: 1; }
   }
 
-  /* 左抽屉遮罩（rev173.323）：**常驻 + `is-open` 过渡** —— 与右抽屉「抽屉滑、背景同时渐变」同一节奏。
+  /* 左抽屉遮罩（rev173.323，rev173.328 修正）：**常驻 + `is-open` 过渡** —— 与右抽屉
+     「抽屉滑、背景同时渐变」同一节奏。
      基础 `.zn-scrim` 是条件渲染 + 挂载播 `zn-scrim-in`；左抽屉遮罩改成常驻后不能再用 animation
-     （挂载那一帧就是最终态，animation 也不会播），改用 opacity transition，`is-open` 切换即生效。 */
+     （挂载那一帧就是最终态，animation 也不会播），改用 opacity transition，`is-open` 切换即生效。
+
+     ⚠️ rev173.328（2026-11-02 真机 6 份 tombstone）：0.9.12–0.9.14 只写了 `opacity: 0` + transition，
+     Chromium 会为这个**全屏 fixed** 元素保留常驻合成层（`pointer-events: none` 不影响合成）——
+     nubia / Android 16 上每次页面重绘都要重新合成它，撞上 HWC `FenceMonitor` 的已销毁 mutex ⇒ SIGSEGV
+     （`FenceMonitor` / `WebViewFunctor` / `libhwui` 三种栈，abort message 都是同一个 mutex 地址）。
+     修法：关闭态用 `visibility: hidden` —— 元素不参与合成，层真正消失；淡出仍由 opacity 播，
+     visibility 用 transition-delay 延到淡出结束再切，动画节奏不变。 */
   .zn-scrim.is-sidebar {
     animation: none;
+    visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--zn-dur-drawer) var(--zn-ease-standard);
+    transition:
+      opacity var(--zn-dur-drawer) var(--zn-ease-standard),
+      visibility var(--zn-dur-none) linear var(--zn-dur-drawer);
   }
   .zn-scrim.is-sidebar.is-open {
+    visibility: visible;
     opacity: 1;
     pointer-events: auto;
+    transition:
+      opacity var(--zn-dur-drawer) var(--zn-ease-standard),
+      visibility var(--zn-dur-none) linear var(--zn-dur-none);
   }
 
   /* 右侧「更多」抽屉（rev173.308）：贴右、内部滚动；条件渲染 ⇒ 出现即从右滑入 */
