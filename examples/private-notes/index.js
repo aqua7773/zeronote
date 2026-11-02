@@ -39,8 +39,20 @@ export const NOTES_DIR = '.zn/private/notes'
 /** 私密回收站（期 2）：与全局回收站分开 —— 需求 §3.3「独立回收站，进入也需验证」 */
 export const TRASH_DIR = '.zn/private/trash'
 export const INDEX_FILE = '.zn/private/index.zn'
-/** security 插件的 vault 文件（只读：判断 notes 环有没有建立） */
-export const SECURITY_VAULT = '.zn/security/vault.json'
+/**
+ * security 插件的 vault（只读：判断 notes 环有没有建立）。
+ *
+ * rev173.335（真人测试9 #2 同源）：`security` 自 rev173.182 起按环拆文件
+ * （`.zn/security/vault.<环id>.json`），旧单文件 `vault.json` 只剩迁移残留。
+ * 这里原来只读旧单文件 ⇒ 迁移过的库存永远显示「还没建立密钥环」。
+ */
+export const SECURITY_VAULT_DIR = '.zn/security'
+/** 某个环的 vault 文件（与 security 的 `vaultFileOf` 对齐） */
+export function securityVaultFileOf(ringId) {
+  return `${SECURITY_VAULT_DIR}/vault.${ringId}.json`
+}
+/** 旧版单文件（按环拆之前）—— 只读兼容 */
+export const SECURITY_VAULT = `${SECURITY_VAULT_DIR}/vault.json`
 export const PANEL_ID = 'private.panel'
 
 /** 空闲锁定：`notes` 环一档 3 分钟（`security` 的 DEFAULT_RINGS） */
@@ -332,6 +344,19 @@ export function hasNotesRing(vaultText) {
   }
 }
 
+/**
+ * 单环 vault 文件（security rev173.182 拆出来的新格式）里是不是 `notes` 环。
+ * 结构：`{ v: 2, ring: { id: 'notes', ... } }`（见 security 的 `vaultPartPayload`）。
+ */
+export function hasNotesRingPart(vaultText) {
+  try {
+    const v = JSON.parse(vaultText)
+    return v?.ring?.id === 'notes'
+  } catch {
+    return false
+  }
+}
+
 /* ───────────────────────── 状态 ───────────────────────── */
 
 let svc = null // crypto 服务（软依赖）
@@ -454,11 +479,19 @@ async function saveIndex(api) {
   lastActive = nowMs()
 }
 
-/** 检查 notes 环建了没有（vault.json 缺失 / 坏 JSON 都按"没建"处理） */
+/**
+ * 检查 notes 环建了没有（rev173.335：新拆分文件优先，旧单文件兜底；缺失 / 坏 JSON 都按"没建"处理）
+ */
 async function checkRingReady(api) {
   try {
-    const text = await api.fs.readText(SECURITY_VAULT)
-    ringReady = hasNotesRing(text)
+    const text = await api.fs.readText(securityVaultFileOf(RING))
+    ringReady = hasNotesRingPart(text)
+    if (ringReady) return
+  } catch {
+    // 没有拆分文件是正常态（还没建过 / 还没迁移）—— 继续看旧单文件
+  }
+  try {
+    ringReady = hasNotesRing(await api.fs.readText(SECURITY_VAULT))
   } catch {
     ringReady = false
   }

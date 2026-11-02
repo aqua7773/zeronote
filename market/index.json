@@ -268,10 +268,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.0",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.0.znp",
-      "sha256": "c0fc84a97cfbb4d348a748f989b9028110f84768f3873089135224c1e62e0b98",
-      "size": 47859,
+      "version": "0.1.1",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.1.znp",
+      "sha256": "4b5cb5d86a49f520c592954a887dac298d4995c67e6f566d9a0df22b57e857d0",
+      "size": 49627,
       "files": [
         "index.js",
         "signature.json"

@@ -15,12 +15,14 @@ import {
   INDEX_VERSION,
   NOTES_DIR,
   PRIVATE_DIR,
+  SECURITY_VAULT,
   TRASH_DIR,
   emptyIndex,
   excerptOf,
   findNote,
   findTrash,
   hasNotesRing,
+  hasNotesRingPart,
   moveToTrash,
   newNoteId,
   notePath,
@@ -30,6 +32,7 @@ import {
   removeNote,
   restoreFromTrash,
   searchNotes,
+  securityVaultFileOf,
   serializeIndex,
   sortNotes,
   sortTrash,
@@ -154,6 +157,21 @@ describe('private-notes 纯函数', () => {
     expect(hasNotesRing(JSON.stringify({ rings: {} }))).toBe(false)
     expect(hasNotesRing('坏 JSON')).toBe(false)
     expect(hasNotesRing('')).toBe(false)
+  })
+
+  // rev173.335 · 真人测试9 #2 同源：security 已按环拆文件（vault.<id>.json），
+  // 旧单文件读不到 ⇒ 存永远显示「还没建立密钥环」。新格式必须被认出来。
+  it('hasNotesRingPart 认拆分后的 vault.notes.json（其他环 / 坏 JSON 都不算）', () => {
+    expect(hasNotesRingPart(JSON.stringify({ v: 2, ring: { id: 'notes', kdf: {} } }))).toBe(true)
+    expect(hasNotesRingPart(JSON.stringify({ v: 2, ring: { id: 'secrets', kdf: {} } }))).toBe(false)
+    expect(hasNotesRingPart(JSON.stringify({ rings: { notes: {} } }))).toBe(false)
+    expect(hasNotesRingPart('坏 JSON')).toBe(false)
+    expect(hasNotesRingPart('')).toBe(false)
+  })
+
+  it('securityVaultFileOf 指向按环拆的路径（与 security 的 vaultFileOf 对齐）', () => {
+    expect(securityVaultFileOf('notes')).toBe('.zn/security/vault.notes.json')
+    expect(SECURITY_VAULT).toBe('.zn/security/vault.json')
   })
 })
 

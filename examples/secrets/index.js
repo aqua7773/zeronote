@@ -31,8 +31,34 @@ export const RING = 'secrets'
 export const CONTAINER = 'secrets'
 /** 整库密文（单文件；**不是一条一文件** —— 方案 §4.5 已定） */
 export const VAULT_FILE = '.zn/secrets/secrets.zn'
-/** security 插件的 vault.json（只读：判断 secrets 环有没有建立） */
-export const SECURITY_VAULT = '.zn/security/vault.json'
+/**
+ * security 插件的 vault（只读：判断 secrets 环有没有建立）。
+ *
+ * rev173.335（真人测试9 #2）：「密码库插件一直显示未建立密钥环」的根因 ——
+ * `security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），
+ * 旧单文件 `vault.json` 只在还没迁移过的库上还有。这里原来只读旧单文件 ⇒
+ * 迁移过的库存永远显示「还没建立」，而安全插件自己却说「已建立」（截图两张互相矛盾就是这个）。
+ * 现在先读拆分文件、旧单文件兜底。
+ */
+export const SECURITY_VAULT_DIR = '.zn/security'
+/** 某个环的 vault 文件（库内相对路径，与 security 的 `vaultFileOf` 对齐） */
+export function securityVaultFileOf(ringId) {
+  return `${SECURITY_VAULT_DIR}/vault.${ringId}.json`
+}
+/** 旧版单文件（按环拆之前）—— 只读兼容 */
+export const SECURITY_VAULT = `${SECURITY_VAULT_DIR}/vault.json`
+
+/**
+ * 单环 vault 文件（security rev173.182 拆出来的新格式）里是不是这个环。
+ * 结构：`{ v: 2, ring: { id, ... } }`（见 security 的 `vaultPartPayload`）。
+ */
+export function hasRingPart(vaultText, ringId = RING) {
+  try {
+    return JSON.parse(vaultText)?.ring?.id === ringId
+  } catch {
+    return false
+  }
+}
 export const PANEL_ID = 'secrets.panel'
 
 /** 空闲锁定：secrets 环比 notes 环狠一档（方案 §4.5 表：60 秒 vs 3 分钟） */
@@ -472,12 +498,27 @@ function setMessage(text, tone = 'muted') {
   message = { text, tone }
 }
 
-/** 读 `.zn/security/vault.json` 看 secrets 环建了没有（只读，不写别人的文件） */
+/**
+ * 读 security 的 vault 看 secrets 环建了没有（只读，不写别人的文件）。
+ *
+ * 两种布局都要认（rev173.335）：
+ *  · 新：`.zn/security/vault.<环id>.json` ⇒ `{ v: 2, ring: { id, ... } }`
+ *  · 旧：`.zn/security/vault.json` ⇒ `{ v: 1, rings: { <环id>: {...} } }`
+ * 先新后旧；两个都不存在 = 安全插件没建过这个环（正常首次态）。
+ */
 async function checkRingReady(api) {
   try {
+    const text = await api.fs.readText(securityVaultFileOf(RING))
+    if (hasRingPart(text, RING)) {
+      ringReady = true
+      return ringReady
+    }
+  } catch {
+    // 没有拆分文件是正常态（还没建过 / 还没迁移）—— 继续看旧单文件
+  }
+  try {
     const text = await api.fs.readText(SECURITY_VAULT)
-    const parsed = JSON.parse(text)
-    ringReady = Boolean(parsed?.rings?.[RING])
+    ringReady = Boolean(JSON.parse(text)?.rings?.[RING])
   } catch {
     ringReady = false // 文件不存在 = 安全插件没建过任何环
   }

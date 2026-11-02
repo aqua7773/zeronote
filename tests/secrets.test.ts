@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ALPHABET,
   PASSWORD_LEN,
+  RING,
+  SECURITY_VAULT,
   TRASH_TTL_MS,
   activeAccounts,
   addAccount,
@@ -20,6 +22,7 @@ import {
   emptyDb,
   findAccount,
   generatePassword,
+  hasRingPart,
   maskSecret,
   matchesAccount,
   matchesPlatform,
@@ -28,6 +31,7 @@ import {
   purgeExpired,
   renamePlatform,
   restoreAccount,
+  securityVaultFileOf,
   trashAccount,
   trashList,
   updateAccount,
@@ -292,5 +296,23 @@ describe('增删改与容错归一化', () => {
     expect(maskSecret()).toBe(maskSecret())
     expect(maskSecret()).toHaveLength(8)
     expect(maskSecret()).not.toMatch(/[A-Za-z0-9]/)
+  })
+
+  /*
+   * rev173.335 · 真人测试9 #2「密码库插件一直显示未建立密钥环」：
+   * security 自 rev173.182 起把 vault 按环拆文件（vault.<id>.json），旧单文件不再写。
+   * 这里锁死「认新格式」与「文件路径与 security 对齐」两件事。
+   */
+  it('hasRingPart 认拆分后的 vault.secrets.json（别的环 / 坏 JSON 都不算）', () => {
+    expect(hasRingPart(JSON.stringify({ v: 2, ring: { id: 'secrets', kdf: {} } }))).toBe(true)
+    expect(hasRingPart(JSON.stringify({ v: 2, ring: { id: 'notes', kdf: {} } }))).toBe(false)
+    expect(hasRingPart(JSON.stringify({ rings: { secrets: {} } }))).toBe(false)
+    expect(hasRingPart('坏 JSON')).toBe(false)
+    expect(hasRingPart('')).toBe(false)
+  })
+
+  it('securityVaultFileOf 指向按环拆的路径（旧单文件仍作为兜底常量保留）', () => {
+    expect(securityVaultFileOf(RING)).toBe('.zn/security/vault.secrets.json')
+    expect(SECURITY_VAULT).toBe('.zn/security/vault.json')
   })
 })
