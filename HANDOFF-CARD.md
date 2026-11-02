@@ -10,7 +10,9 @@
 > **改法**：① 二段确认（超时 ⇒ 只记疑似；再 10 s 无心跳才 `_exit(101)`）② 启动宽限 20 s
 > ③ 心跳前每秒自检 `visibilityState`（不可见只 pause、不发心跳）④ `zn_watchdog_status` 增
 > `confirmMs` / `startupGraceMs` / `startedAgoMs` 便于下次取证。
-> 验证：tsc 0 · `cargo test --lib watchdog` 2 条（含 5962 ms 节流样本）· ⚠️ **未发版**，待出包真机复验。
+> 验证：tsc 0 · `cargo test --lib watchdog` 2 条（含 5962 ms 节流样本）· **已发版 0.9.18**
+> （tag `v0.9.18` · 5 资产：setup.exe + .sig / msi + .sig / arm64 APK 33.26 MiB · sha256 `bbf52e27…`；
+> 构建 8m29s = 桌面 4m01s / Android 4m28s；清单 `57ae7ad`）。⚠️ 真机复验待用户装包。
 >
 > **上一轮：rev173.331（2026-11-02）—— 真人测试7 五条已修完（自动化全绿，待人眼复验）**
 > 来源 `ZreoNote/测试文件/真人测试7.md`（5 条；引用的 image-20261102-184911.jpg 没随文件带来）。
@@ -220,10 +222,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.331 · 0.9.17 · 2026-11-02 |
+| rev / 版本 | rev173.332 · 0.9.18 · 2026-11-02 |
 | 测试基线 | vitest 1799 · cargo 97 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.17 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.18 |
 <!-- FACTS:END -->
 
 ## 是什么
