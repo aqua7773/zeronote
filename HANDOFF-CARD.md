@@ -44,7 +44,9 @@
 >
 > **验证基线**：tsc 0 · vitest **1798** · cargo test **97** · oxlint 4 warnings（见 `scripts/.verify-baseline.json`）。
 > ⚠️ **未做**：①③ 只能真机看手感；④⑤ 只能桌面实机点一次 —— 装新包后请重点复验这四条。
-> 未发版（0.9.17 待定）；`sync` 0.1.8 未打包（②只改了宿主，插件本身没动）。
+> 未发版（0.9.17 待定）；`sync` **插件本身没动**（②只改了宿主）——
+> ⚠️ 原句「`sync` 0.1.8 未打包」是笔误（2026-11-02 21:10 核实更正）：仓库里**没有 0.1.8**，
+> `examples/sync/manifest.json` / `market/entries/sync.json` / `market/packs/sync-0.1.7.znp` 三处都是 **0.1.7**。
 >
 > **上一轮（rev173.330）**只做调查、没改代码；根因与本次实际改法的对照见 `HANDOFF.md` 的 rev173.331 段。
 >
