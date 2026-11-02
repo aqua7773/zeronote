@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.334
-更新时间: 2026-11-02 · 最新 rev173.334（**真人测试8 三条 + 首页 ＋ 收起，0.9.20 已发**）
+revision: 173.335
+更新时间: 2026-11-03 · 最新 rev173.335（**真人测试9 三条：底部状态栏 / 密码库密钥环 / 加号原地渐隐**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.334
 
 | rev | 内容 |
 |---|---|
+| rev173.335 | 2026-11-03 · **真人测试9 三条**（`Downloads/真人测试9 (2).md`，3 条 + 3 张真机截图）：① **底部没有历史版本** —— 用户澄清「底部栏只在键盘弹出时显示，原来的位置就显示历史版本信息」→ 再改口「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」。改法：手机编辑页新增**常驻底部状态栏**（复用 `.zn-statusbar`：左 `editor-topbar` 面板 = 历史版本 / 反链，右 = 当前文档字数）；顶部不再放 `editor-topbar`（rev173.334 挪到底部快捷栏的写法撤掉）；底部标记快捷栏 `MarkToolbar` 仍**只在键盘弹出时**出现（`keyboardOpen`）。新 CSS `.zn-editor-statusbar`（高度自适应 + 底部安全区）。 ② **密码库插件一直显示未建立密钥环** —— 根因：`security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），旧单文件 `vault.json` 只剩迁移残留；而 `secrets` / `private-notes` 的 `checkRingReady` **仍只读旧单文件** ⇒ 迁移过的库存永远「未建立」，与安全插件页面「已建立」自相矛盾（用户两张截图正是这个）。改法：两个插件都先读 `vault.<环id>.json`（结构 `{ v:2, ring:{ id, ... } }`）、旧单文件兜底；新增纯函数 `hasRingPart` / `hasNotesRingPart` 与 `securityVaultFileOf`，各 +2 条单测。`secrets` **0.1.1** 已签名入库（`market/packs/secrets-0.1.1.znp` · 48.5 KB · keyId `aqua-2026` · 索引 14 条）。 ③ **首页加号隐藏有「往右移动」效果** —— 根因：`.zn-mobile-compose` 靠 `transform: translateX(-50%)` 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)` **把居中覆盖掉了** ⇒ 收起瞬间按钮向右跳半个身位。改成只 `opacity: 0`（保留 `translateX(-50%)`），动画时长改走 token `--zn-dur-base`（design-tokens 门禁）。验证：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。⚠️ **未做真机**：①③ 要装新包看；② 手机把插件中心更新到 `secrets 0.1.1` 即生效。 |
 | rev173.334 | 2026-11-02 · **真人测试8（6 条：3 修 3 待信息）**：① 历史版本移动端移到**底部**、底部快捷栏**只在键盘弹出时**显示（`visualViewport` 高度差 >120px 判键盘；`editor-topbar` 面板从顶部挪进 `MarkToolbar`）· ② 续传「继续下载」撞并发闸却仍在涨进度 —— 新增 Rust `cancel_apk_download`，下载循环每 chunk 检查，前端点下载前先取消旧任务 · ③ 编辑区长按**到 300ms 直接弹四键条**（不再等松手）、去掉编辑区涟漪；文件树仍松手触发。④ 手机分享没图片：分享在 `import-export` 插件，≥0.2.2 才内嵌（待确认手机插件版本）· ⑤ 桌面复制失败：**独立探针已证明 `winclip::copy_files` 写入/读回正常**，问题在调用侧（待版本与报错）· ⑥ md 图片读不出：子 agent 查得 3 个根因（`@atomic-editor` 图片块正则不认含空格/`![[ ]]`/`<img>` 且静默；`MarkdownEditor.tsx:136` 空候选不挂提示；附件未同步），**待用户给图片那行原文**。验证：tsc 0 · oxlint 4 · vitest 1799 · cargo check 0。 |
 | rev173.333 | 2026-11-02 · **0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**：用户 21:14 报告（环境 **0.9.18**）`原因：原生崩溃（SIGABRT）`，abort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x77fae02af8)`；崩溃线程 `FenceMonitor`，栈全在 libc / libc++ / libgui，`libzeronote_lib.so` **0 命中** —— 与 13:xx 那 6 份 tombstone 同型。**触发面（用户原话）**：「右侧更多准备点插件中心准备插件」⇒ 打开右抽屉 = `moreOpen \|\| moreClosing ? … : null` 条件渲染新建**遮罩 + 抽屉两个全屏 fixed 合成层** + 入场 animation。**看门狗修复有效**（这份是 crash、不是 exit 101，老问题原被 5 s 误杀掩盖）。**改法**：右抽屉改**常驻挂载**（与左抽屉 0.9.15 同款）—— `setMoreOpen` 只切开关；遮罩 `.zn-scrim.is-drawer`、抽屉 `.zn-more-drawer.is-open`，关闭态 `visibility: hidden` 退出合成；340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`（关闭态 `aria-hidden`）。测试：`mobile-more-drawer` 8 条改按展开态渲染、`app-smoke` 断言改「没有 is-open」而非卸载。验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿**。**已发版 0.9.19**（tag `v0.9.19` · 5 资产 · APK 33.26 MiB · sha256 `65e4f6f0…` · 构建 8m41s）。⚠️ **待真机**：装 0.9.19 后连开右抽屉 10 次。 |
 | rev173.332 | 2026-11-02 · **手机「进软件就弹异常退出」= 看门狗误杀（不是崩溃）**：用户带来 5 份 0.9.16 报告（18:47:23 / 20:42:25 / 20:42:35 / 20:42:48 / 20:43:19），全部 `原因：看门狗判定卡死（exit 101）`、**无 tombstone**。判据链：0.9.15 起看门狗走 `libc::_exit(101)` ⇒ 系统记 `REASON_EXIT_SELF`；0.9.16 的 crashlog 才把它纳入可报告 ⇒ 弹窗即此（不是新崩溃）。**决定性证据**：仓库 `_tmp-phone-backup/watchdog.log`（真机拉下）**42 条 gap 全部落在 5007–5962 ms** —— 主线程还活着，只是 Android WebView 的 `setInterval` 被系统节流成 5–6 s 一次；单段 5 s 判据在这种设备上必然误杀（代价 = 应用直接退出、未保存内容丢失）。**改法**：① 二段确认（超时 ⇒ 只记疑似；再 `WATCHDOG_CONFIRM_MS = 10 s` 无心跳才 `_exit(101)`）② 启动宽限 `WATCHDOG_STARTUP_GRACE_MS = 20 s`（冷启动首屏本就可能 >5 s）③ 心跳前每秒自检 `visibilityState`（不可见只 pause、不发心跳）④ `zn_watchdog_status` 增 `confirmMs` / `startupGraceMs` / `startedAgoMs` 便于下次取证。验证：tsc 0 · `cargo test --lib watchdog` 2 条（含 5962 ms 节流样本）。**已发版 0.9.18**（tag `v0.9.18` · 5 资产 · APK 33.26 MiB · sha256 `bbf52e27…` · 构建 8m29s）。 |
@@ -227,6 +228,60 @@ revision: 173.334
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.335（2026-11-03 · 真人测试9 三条：底部状态栏 / 密码库密钥环 / 加号原地渐隐）
+
+> **来源**：`Downloads/真人测试9 (2).md`（3 条 + 3 张真机截图）；修复提交见 `git log --grep rev173.335`。
+>
+> **① 底部没有历史版本** —— 用户先澄清「底部栏只在键盘弹出时显示，原来的位置就显示历史版本信息」，
+> 随后给出桌面截图并改口「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」。
+> 改法：手机编辑页新增**常驻底部状态栏**（`.zn-statusbar.zn-editor-statusbar`）——
+> 左 = `editor-topbar` 面板（历史版本 / 反向链接），右 = 当前文档字数；顶部不再放 `editor-topbar`
+> （撤销 rev173.334 把它塞进底部快捷栏的写法）；底部标记快捷栏 `MarkToolbar` 仍只在键盘弹出时出现。
+> 附带：`.zn-statusbar` 的时长改走 token（design-tokens 门禁）、底部安全区。
+>
+> **② 密码库插件一直显示「未建立密钥环」** —— 与安全插件页面「账号密码已建立」自相矛盾（用户两张截图）。
+> 根因：`security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），
+> 旧单文件 `vault.json` 只剩迁移残留；而 `secrets` / `private-notes` 的 `checkRingReady` **仍只读旧单文件**
+> ⇒ 迁移过的库存永远判「未建立」。改法：两插件都先读拆分文件（`{ v:2, ring:{ id, ... } }`）、旧文件兜底；
+> 新增 `hasRingPart` / `hasNotesRingPart` / `securityVaultFileOf`，各 +2 条单测。
+> `secrets` **0.1.1** 已签名入库（48.5 KB · keyId `aqua-2026` · 市场索引 14 条）。
+>
+> **③ 首页加号隐藏有「往右移动」效果** —— 根因：`.zn-mobile-compose` 靠 `transform: translateX(-50%)`
+> 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)`，**把居中覆盖掉** ⇒ 收起时向右跳半个身位。
+> 改成只 `opacity: 0`、保留 `translateX(-50%)`（用户要的「原地渐隐」）。
+>
+> **验证**：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· cargo test **98** · 质量门 8/8。
+> ⚠️ **待真机**：①③ 装新包看手感；② 手机插件中心更新 `secrets 0.1.1` 即生效。
+
+> ## 📌 rev173.334（2026-11-02 · 真人测试8：历史版本移到底部 + 断点续传 + 编辑区长按到点即弹 + 首页 ＋ 收起）
+
+> **来源**：`ZreoNote/测试文件/真人测试8.md`（5 条）+ 用户追加 1 条（图片读不出）。
+> ① 历史版本移动端移到底部、底部快捷栏只在键盘弹出时显示（`visualViewport` 高度差 > 120px 判键盘；
+> `editor-topbar` 面板从顶部挪进 `MarkToolbar`）· ② 续传「继续下载」撞并发闸却仍在涨进度 —— Rust 新增
+> `cancel_apk_download`，下载循环每 chunk 检查，前端点下载前先取消旧任务 · ③ 编辑区长按到 300ms 直接弹
+> 四键条（不再等松手）、去掉编辑区涟漪；文件树仍松手触发 · ④ 手机分享没图片：分享在 `import-export` 插件，
+> ≥0.2.2 才内嵌（后确认为插件目录解析根因，0.2.3 修） · ⑤ 桌面复制失败：探针证明 `winclip::copy_files`
+> 写入/读回正常，剪贴板里确实有文件 · ⑥ md 图片读不出：`import-export` 的 `locateRef` 只按笔记目录解析
+> ⇒ 补库根兜底（0.2.3 已签名入库）。
+> **已发版 0.9.20**（tag `v0.9.20` · 5 资产 · APK 33.2 MiB · sha256 `0c752129…`）。
+
+> ## 📌 rev173.333（2026-11-02 · 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC））
+
+> 用户 21:14 报告环境 0.9.18、`原因：原生崩溃（SIGABRT）`，abort = `FORTIFY: pthread_mutex_lock called on a
+> destroyed mutex`；崩溃线程 `FenceMonitor`，栈全在 libc / libc++ / libgui，`libzeronote_lib.so` 0 命中。
+> **触发面**：打开右抽屉（条件渲染新建遮罩 + 抽屉两个全屏 fixed 合成层 + 入场动画）。
+> **改法**：右抽屉改**常驻挂载**（与左抽屉 0.9.15 同款），关闭态 `visibility: hidden` 退出合成；
+> 340ms 由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`。
+> **已发版 0.9.19**（tag `v0.9.19` · APK 33.26 MiB · sha256 `65e4f6f0…`）。
+
+> ## 📌 rev173.332（2026-11-02 · 手机「进软件就弹异常退出」= 看门狗误杀，不是崩溃）
+
+> 5 份 0.9.16 报告全部「看门狗判定卡死（exit 101）」、无 tombstone。决定性证据：真机 `watchdog.log`
+> **42 条 gap 全在 5007–5962 ms** —— 主线程还活着，只是 Android WebView 的 `setInterval` 被系统节流成
+> 5–6 s 一次，单段 5 s 判据必然误杀。改法：二段确认（超时只记疑似，再 10 s 无心跳才 `_exit(101)`）·
+> 启动宽限 20 s · 心跳前每秒自检 `visibilityState` · `zn_watchdog_status` 增 `confirmMs` / `startupGraceMs`。
+> **已发版 0.9.18**（tag `v0.9.18` · APK 33.26 MiB · sha256 `bbf52e27…`）。
 
 > ## 📌 rev173.331（2026-11-02 · 真人测试7 五条全修：长按反馈 / 更多插件组 / 拖拽节流 / 剪贴板 verbatim 路径）
 

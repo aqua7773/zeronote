@@ -1,6 +1,18 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.334（2026-11-02 22:5x）—— 真人测试8（6 条：3 条已修 / 3 条待信息）**
+> **最新：rev173.335（2026-11-03）—— 真人测试9 三条（全部改完，待真机）**
+> 来源 `Downloads/真人测试9 (2).md`（3 条 + 3 张真机截图）。
+>
+> | # | 用户原话 | 根因 / 改法 |
+> |---|---|---|
+> | ① | 「底部没有历史版本」→ 澄清「底部栏只在键盘弹出时显示，原来的位置显示历史版本」→「像桌面这个底部一样，右边字数统计，左边历史版本」 | `App.tsx`：手机编辑页新增**常驻底部状态栏**（`.zn-statusbar .zn-editor-statusbar`）—— 左 = `editor-topbar` 面板（历史版本 / 反链）、右 = 当前文档字数；顶部不再放 `editor-topbar`；`MarkToolbar` 仍只在键盘弹出时出现 |
+> | ② | 「密码库插件一直显示未建立密钥环」 | `security` rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<id>.json`），`secrets` / `private-notes` 的 `checkRingReady` 还只读旧 `vault.json` ⇒ 永远「未建立」。两插件改为**新格式优先 + 旧单文件兜底**；`secrets` **0.1.1** 已签名入库（48.5 KB · keyId `aqua-2026` · 索引 14 条） |
+> | ③ | 「首页加号的隐藏有一个往右移动的效果，直接原地渐隐就行」 | `.zn-mobile-compose.is-hidden` 的 `transform: translateY(12px)` 覆盖了基础样式的居中 `translateX(-50%)` ⇒ 收起时右跳半身位。改成**只 opacity**、保留居中；时长走 token `--zn-dur-base` |
+>
+> **验证**：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。
+> ⚠️ **待真机**：①③ 看手感；② 手机插件中心更新到 `secrets 0.1.1` 生效。
+>
+> **上一轮：rev173.334（2026-11-02 22:5x）—— 真人测试8（6 条：3 条已修 / 3 条待信息）**
 > 来源 `ZreoNote/测试文件/真人测试8.md`（5 条）+ 用户追加 1 条（图片读不出）。
 >
 > **✅ 已修（提交 6d12484 / 422427b，自动化全绿，待真机）**
@@ -281,10 +293,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.334 · 0.9.20 · 2026-11-02 |
-| 测试基线 | vitest 1799 · cargo 97 · oxlint 4 warnings（2026-11-02） |
+| rev / 版本 | rev173.335 · 0.9.20 · 2026-11-03 |
+| 测试基线 | vitest 1804 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.20 |
+| 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.20 |
 <!-- FACTS:END -->
 
 ## 是什么
