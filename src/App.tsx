@@ -6286,8 +6286,20 @@ export default function App() {
       {crashReport && (
         <Dialog open onOpenChange={(next) => !next && setCrashReport(null)} width={720}>
           <DialogHeader
-            title="上次运行异常退出"
-            description="崩溃日志已导出成文件 —— 转发给开发者即可"
+            title={
+              crashReport.kind === 'watchdog'
+                ? '上次被看门狗终止'
+                : crashReport.isCrash
+                  ? '上次运行崩溃'
+                  : '上次异常退出'
+            }
+            description={
+              crashReport.kind === 'watchdog'
+                ? '看门狗判定前端无响应，进程被主动终止（exit 101）—— 这次没有崩溃堆栈，只有退出原因'
+                : crashReport.isCrash
+                  ? '崩溃日志已导出成文件 —— 转发给开发者即可'
+                  : '不是崩溃、是异常退出 —— 导出文件里有退出原因，转发给开发者即可'
+            }
           />
           <DialogBody>
             <dl className="zn-info-list">

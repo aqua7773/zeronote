@@ -36,6 +36,9 @@ class CrashLogPlugin(private val activity: Activity) : Plugin(activity) {
       「系统层独立崩溃」）⇒ 提到 512 K，足以装下正常 tombstone 全文。 */
   private val maxTraceChars = 512 * 1024
 
+  /** 看门狗退出码（Rust `spawn_watchdog` 里 `libc::_exit(101)` 的约定值） */
+  private val watchdogExitCode = 101
+
   @Command
   fun readLastCrash(invoke: Invoke) {
     try {
@@ -51,17 +54,22 @@ class CrashLogPlugin(private val activity: Activity) : Plugin(activity) {
         val am = activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         if (am != null) {
           val reasons = am.getHistoricalProcessExitReasons(activity.packageName, 0, 12)
-          val crash = reasons.firstOrNull { isCrash(it.reason) }
-          if (crash != null) {
-            val trace = readTrace(crash)
+          val hit = reasons.firstOrNull { isReportable(it) }
+          if (hit != null) {
+            val crash = isCrash(hit.reason)
+            // 只有崩溃才有 tombstone；看门狗 / LMK / ANR 只有退出原因
+            val trace = if (crash) readTrace(hit) else ""
             out.put("found", true)
-            out.put("timestamp", crash.timestamp)
-            out.put("reason", crash.reason)
-            out.put("reasonLabel", reasonLabel(crash.reason))
-            out.put("description", crash.description ?: "")
+            out.put("timestamp", hit.timestamp)
+            out.put("reason", hit.reason)
+            out.put("isCrash", crash)
+            out.put("kind", kindOf(hit))
+            out.put("exitStatus", hit.status)
+            out.put("reasonLabel", reasonLabel(hit.reason, hit.status))
+            out.put("description", hit.description ?: "")
             out.put("trace", trace)
-            // 导出文件：同一次崩溃 → 同一文件名（时间戳命名）⇒ 重复读只会覆盖同一份
-            out.put("exportPath", exportFile(crash, trace))
+            // 导出文件：同一次退出 → 同一文件名（时间戳命名）⇒ 重复读只会覆盖同一份
+            out.put("exportPath", exportFile(hit, trace))
           }
         }
       }
@@ -71,17 +79,48 @@ class CrashLogPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  /** 只认"崩"：Java 崩溃 / 原生崩溃 / 启动失败。正常退出、被系统清理都不算。 */
+  /** 只认"崩"：Java 崩溃 / 原生崩溃 / 启动失败。 */
   private fun isCrash(reason: Int): Boolean =
     reason == ApplicationExitInfo.REASON_CRASH ||
       reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
       reason == ApplicationExitInfo.REASON_INITIALIZATION_FAILURE
 
-  private fun reasonLabel(reason: Int): String = when (reason) {
+  /**
+   * 值得在下次启动时提示的退出（rev173.329 · 2026-11-02 18:54）。
+   *
+   * 起因：用户装 0.9.15 后闪退一次却**没有弹窗** —— 看门狗已改 `libc::_exit(101)`，
+   * 退出原因变成 `REASON_EXIT_SELF`，而这里原先只认三种 crash ⇒ 证据被静默丢掉。
+   *
+   * 收录：崩溃 / ANR / 低内存回收 / 看门狗 exit(101)。
+   * 不收录：用户主动退出、被系统 SIGKILL 滑掉 —— 那是正常使用，不该打扰。
+   */
+  private fun isReportable(info: ApplicationExitInfo): Boolean = when {
+    isCrash(info.reason) -> true
+    info.reason == ApplicationExitInfo.REASON_ANR -> true
+    info.reason == ApplicationExitInfo.REASON_LOW_MEMORY -> true
+    info.reason == ApplicationExitInfo.REASON_EXIT_SELF -> info.status == watchdogExitCode
+    else -> false
+  }
+
+  /** 给前端分文案用的一档：crash / anr / lmk / watchdog / other */
+  private fun kindOf(info: ApplicationExitInfo): String = when {
+    isCrash(info.reason) -> "crash"
+    info.reason == ApplicationExitInfo.REASON_ANR -> "anr"
+    info.reason == ApplicationExitInfo.REASON_LOW_MEMORY -> "lmk"
+    info.reason == ApplicationExitInfo.REASON_EXIT_SELF -> "watchdog"
+    else -> "other"
+  }
+
+  private fun reasonLabel(reason: Int, status: Int = 0): String = when (reason) {
     ApplicationExitInfo.REASON_CRASH -> "Java 崩溃"
     ApplicationExitInfo.REASON_CRASH_NATIVE -> "原生崩溃（SIGABRT / SIGSEGV）"
     ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "启动失败"
     ApplicationExitInfo.REASON_ANR -> "ANR（无响应）"
+    ApplicationExitInfo.REASON_LOW_MEMORY -> "被系统回收（内存不足）"
+    ApplicationExitInfo.REASON_EXIT_SELF ->
+      if (status == watchdogExitCode) "看门狗判定卡死（exit 101）" else "进程主动退出（exit $status）"
+    ApplicationExitInfo.REASON_SIGNALED -> "被系统信号终止（status $status）"
+    ApplicationExitInfo.REASON_USER_REQUESTED -> "用户主动退出"
     else -> "未知（$reason）"
   }
 
@@ -133,15 +172,20 @@ class CrashLogPlugin(private val activity: Activity) : Plugin(activity) {
     ).filter { it.isNotEmpty() }.joinToString(" · ")
 
     val sb = StringBuilder()
-    sb.appendLine("【ZeroNote 崩溃报告】")
+    sb.appendLine(if (isCrash(info.reason)) "【ZeroNote 崩溃报告】" else "【ZeroNote 异常退出报告】")
     sb.appendLine("时间：$whenText")
     sb.appendLine("环境：$env")
-    sb.appendLine("原因：${reasonLabel(info.reason)}${if (info.description != null) "（${info.description}）" else ""}")
+    sb.appendLine("原因：${reasonLabel(info.reason, info.status)}${if (info.description != null) "（${info.description}）" else ""}")
+    if (!isCrash(info.reason)) sb.appendLine("退出码 / 信号：${info.status}")
     sb.appendLine("设备指纹：${Build.FINGERPRINT}")
     sb.appendLine()
     if (trace.isEmpty()) {
       sb.appendLine("—— 系统没有保留堆栈 ——")
-      sb.appendLine("（这台机型的 ROM 清掉了 tombstone，只能提供上面的退出原因）")
+      if (isCrash(info.reason)) {
+        sb.appendLine("（这台机型的 ROM 清掉了 tombstone，只能提供上面的退出原因）")
+      } else {
+        sb.appendLine("（不是崩溃：进程是主动退出或被系统回收，系统不会为它保留 tombstone）")
+      }
     } else {
       sb.appendLine("—— 崩溃堆栈（tombstone）——")
       sb.appendLine(trace)

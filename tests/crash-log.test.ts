@@ -24,6 +24,9 @@ function make(over: Partial<CrashInfo> = {}): CrashInfo {
     found: true,
     timestamp: 1_762_000_000_000,
     reason: 5,
+    isCrash: true,
+    kind: 'crash',
+    exitStatus: 0,
     reasonLabel: '原生崩溃（SIGABRT / SIGSEGV）',
     description: 'crash',
     trace: '#00 pc 000000000007120c  libc.so (abort+160)',
@@ -113,5 +116,22 @@ describe('formatCrashReport', () => {
     expect(text).not.toContain('undefined')
     expect(text).not.toContain('NaN')
     expect(text).toContain('未知')
+  })
+
+  it('看门狗杀（非崩溃）：标题换成「异常退出报告」，带退出码，不假装有 tombstone', () => {
+    const text = formatCrashReport(
+      make({
+        isCrash: false,
+        kind: 'watchdog',
+        exitStatus: 101,
+        trace: '',
+        reasonLabel: '看门狗判定卡死（exit 101）',
+      }),
+    )
+    expect(text).toContain('【ZeroNote 异常退出报告】')
+    expect(text).toContain('看门狗判定卡死')
+    expect(text).toContain('退出码 / 信号：101')
+    expect(text).toContain('这类退出没有堆栈')
+    expect(text).not.toContain('崩溃堆栈')
   })
 })

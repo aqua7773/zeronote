@@ -17,13 +17,19 @@ import { invoke } from '@tauri-apps/api/core'
 /** 原生命令返回的结构（`found = false` 时其余字段缺省） */
 export interface CrashInfo {
   found: boolean
-  /** 崩溃发生的时刻（epoch ms）—— 也用作"是否已处理过"的去重键 */
+  /** 退出发生的时刻（epoch ms）—— 也用作"是否已处理过"的去重键 */
   timestamp: number
-  /** `ApplicationExitInfo.REASON_*`：4 Java 崩溃 / 5 原生崩溃 / 13 启动失败 */
+  /** `ApplicationExitInfo.REASON_*`：4 Java 崩溃 / 5 原生崩溃 / 6 ANR / 13 启动失败 / 9 低内存 / 1 主动退出 */
   reason: number
+  /** 是不是真崩溃（只有崩溃才有 tombstone） */
+  isCrash: boolean
+  /** 分文案用：crash / anr / lmk / watchdog / other */
+  kind: 'crash' | 'anr' | 'lmk' | 'watchdog' | 'other'
+  /** 退出码 / 信号（watchdog 约定 101） */
+  exitStatus: number
   reasonLabel: string
   description: string
-  /** tombstone 全文（系统没留时为空串） */
+  /** tombstone 全文（系统没留 / 非崩溃时为空串） */
   trace: string
   /**
    * 原生侧**直接导出的文件绝对路径**（手机 = `Download/ZeroNote-crash/zeronote-crash-<时间>.txt`）。
@@ -52,6 +58,10 @@ export async function readLastCrash(): Promise<CrashInfo | null> {
       found: true,
       timestamp: Number(raw.timestamp ?? 0),
       reason: Number(raw.reason ?? 0),
+      // 老版本插件不返回这两项 —— 按"崩溃"处理，行为与 0.9.14 一致
+      isCrash: Boolean(raw.isCrash ?? true),
+      kind: String(raw.kind ?? 'crash') as CrashInfo['kind'],
+      exitStatus: Number(raw.exitStatus ?? 0),
       reasonLabel: String(raw.reasonLabel ?? ''),
       description: String(raw.description ?? ''),
       trace: String(raw.trace ?? ''),
@@ -112,15 +122,18 @@ export function formatCrashReport(info: CrashInfo): string {
     .join(' · ')
 
   const head = [
-    '【ZeroNote 崩溃报告】',
+    info.isCrash ? '【ZeroNote 崩溃报告】' : '【ZeroNote 异常退出报告】',
     `时间：${when}`,
     `环境：${env || '未知'}`,
     `原因：${info.reasonLabel || `退出码 ${info.reason}`}${info.description ? `（${info.description}）` : ''}`,
   ]
+  if (!info.isCrash && info.exitStatus) head.push(`退出码 / 信号：${info.exitStatus}`)
 
   const body = info.trace
     ? ['', '—— 崩溃堆栈（tombstone）——', info.trace]
-    : ['', '—— 系统没有保留堆栈 ——', '（这台机型的 ROM 清掉了 tombstone，只能提供上面的退出原因）']
+    : info.isCrash
+      ? ['', '—— 系统没有保留堆栈 ——', '（这台机型的 ROM 清掉了 tombstone，只能提供上面的退出原因）']
+      : ['', '—— 这类退出没有堆栈 ——', '（不是崩溃：进程是主动退出或被系统回收，系统不会为它保留 tombstone）']
 
   return [...head, ...body].join('\n')
 }
