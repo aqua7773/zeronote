@@ -1,11 +1,11 @@
 {
-  "version": "0.9.17",
-  "notes": "Fixed\n\n- 真人测试 7 五条（`ZreoNote/测试文件/真人测试7.md`）：\n  - #1 长按反馈不明显 / 没振动：触发时机本来就对（五个入口在阈值处就 `hapticTick + spawnRipple`、松手才弹菜单）；\n    改的是视觉（26px 起、35% 处扩到 1.9× 并保高不透明、最终 7×；2px 描边 + 外发光；`--zn-dur-ripple` 620 → 880ms）\n    与振动通道（Android 走原生命令 `plugin:statusbar|vibrate` → Kotlin `Vibrator`；`navigator.vibrate` 只作兜底）。\n  - #2 手机「更多 → 插件」看不到 sync：旧实现写死 `tag-panel` / `import-export`；改为按「注册了 `main` / `sidebar`\n    面板」自动列（`lib/more-plugin-entries.ts`，排除 statusbar/modal/editor-* 与 hidden），已知插件用 `MORE_PLUGIN_HINTS` 补副标题。\n  - #3 文件树拖拽卡顿：touchmove 改为 rAF 节流（一帧只判一次落点）、落点同值不 setState、\n    ghost 首次渲染后直接改 `style.left/top`、松手前补算最后一帧。\n  - #4 桌面复制 md 文件后剪贴板还是旧内容：根因 `canonicalize` 返回 verbatim `\\\\?\\C:\\…`，`CF_HDROP` 不认；\n    新增 `plain_path()` 去前缀，`OpenClipboard` 失败重试 3×50ms，失败路径释放内存。\n  - #5 桌面右键「在文件夹中打开」只开默认位置：同根因（`explorer /select,\"\\\\?\\…\"` 被忽略），剥前缀后再传。\n\nChanged\n\n- 长按阈值 500 → 300ms（用户要求），统一到 `lib/long-press-feedback.ts` 的 `LONG_PRESS_MS`；\n  文件树拖拽上膛 `ARM_MS` 240 → 150（必须明显小于长按阈值）。\n\nFixed（追加 · 真机复验时发现）\n\n- 文件树触摸整条失效：手机冷启动第一帧 `.zn-tree` 尚未渲染 ⇒ `rootRef.current` 为 null，\n  而触摸 effect 依赖 `[]` ⇒ 永不重跑 ⇒ `touchstart` 监听器一次都没绑上（长按无涟漪、拖拽不动、菜单不弹）。\n  改为 callback ref（`bindRoot` → `rootEl` state），effect 依赖 `[rootEl]`。",
-  "pub_date": "2026-11-02T12:40:10.516Z",
+  "version": "0.9.18",
+  "notes": "修复：手机「进软件就弹异常退出」（看门狗误杀，不是崩溃）\n\n0.9.16 的 5 份报告全部是「看门狗判定卡死（exit 101）」，没有堆栈 —— 不是崩溃，是看门狗误杀。\n真机 `watchdog.log` 42 条记录的间隔全部在 **5.0–5.96 秒**：Android WebView 把每秒心跳节流成了 5–6 秒一次，\n而看门狗阈值恰好是 5 秒 ⇒ 必然误杀（应用直接退出、未保存内容丢失）。\n\n- **二段确认**：超时 5 秒只记「疑似」，再 10 秒仍无心跳才终止（真卡死约 15 秒退出）\n- **启动宽限 20 秒**：冷启动首屏（读库列表 / 扫插件 / 建索引）慢不再被误判\n- **心跳前每秒自检可见性**：页面不可见时只暂停、不发心跳，补 `visibilitychange` 未派发的机型\n- 状态接口新增确认窗 / 宽限读数，便于下次取证",
+  "pub_date": "2026-11-02T12:58:55.041Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.17/ZeroNote_0.9.17_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzlUOWFOQUxqbWVLSVJkMW9kRmFQNHJsRkh0dCtBQ2Y0L0RsekJaTXZEQTZSV2pBZ0lOMXZBUjFhNnBHYUc5UkNrcDR3S1ZtN2FidTBWUjl6bkVtcFFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjIyODU4CWZpbGU6WmVyb05vdGVfMC45LjE3X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMTcKL2RMZUJLcmRXQjVGcDRrT0N2cVZ5clV2R0NRVS9LeUV6N2xTZXUyUHhDSGkyYXA0enFaRlB1US9OeDJIY0l5OWlsL1FqTXNTSFd1MDRZSjA5ZXVHREE9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.18/ZeroNote_0.9.18_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzJmRXpkR2xuT1BMRXE1LytiLzRrejh0aVk4NC8welRkWjVWQklDYmJsYm9kaGg3d2dtelp6Tjh4VjgxUHNmdlgxaitqUVVQbENOaGNBUjRsbFFvTVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjI0MDQ0CWZpbGU6WmVyb05vdGVfMC45LjE4X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMTgKSVp3RGRPZkJ2TnFvUlp4NlVLTXFRckVXR092cGsybFFpQkNqcjhPKzlEK2VnV29FOERWYWE5YUtKRHk5SVYzQWVOVmFrK0dYRDZCaXBxY2ZXWkJPQ2c9PQo="
     }
   }
 }
