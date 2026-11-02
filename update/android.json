@@ -1,10 +1,10 @@
 {
-  "version": "0.9.14",
-  "notes": "ZeroNote 0.9.14",
-  "pub_date": "2026-11-02T05:27:41.763Z",
+  "version": "0.9.15",
+  "notes": "ZeroNote 0.9.15 —— 手机闪退根因修复（左抽屉遮罩合成层 + 看门狗 _exit）",
+  "pub_date": "2026-11-02T06:28:32.139Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.14/ZeroNote_0.9.14_arm64.apk",
-    "sha256": "1ae972a301969e3321c9525bbb09d33bb95625fd4c952e3312266c8e758591ee",
-    "size": 34829499
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.15/ZeroNote_0.9.15_arm64.apk",
+    "sha256": "fe02104abd22110009be811b9c9c8c16f71986b3e290037e494cb95519e4de78",
+    "size": 34830715
   }
 }
