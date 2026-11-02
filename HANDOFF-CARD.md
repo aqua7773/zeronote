@@ -39,7 +39,8 @@
 > `C:\Users\AQUA\Documents\ZreoNote\.zn\share\真人测试8.md`（CF_HDROP count=1）⇒ 复制正常；
 > 用户是粘到了**不接受文件列表**的输入框/图片位（资源管理器里 Ctrl+V 才出文件）。
 >
-> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）· import-export 54 条。未发应用版本。
+> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）· import-export 54 条。
+> **已发版 0.9.20**（tag `v0.9.20` · 5 资产 · APK 33.2 MiB · sha256 `0c752129…` · 构建 7m16s）。
 >
 > **上一轮：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
 > 用户 21:14 报告：环境 **0.9.18** · `原因：原生崩溃（SIGABRT）` · abort =
@@ -280,10 +281,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.333 · 0.9.19 · 2026-11-02 |
+| rev / 版本 | rev173.334 · 0.9.20 · 2026-11-02 |
 | 测试基线 | vitest 1799 · cargo 97 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.19 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.20 |
 <!-- FACTS:END -->
 
 ## 是什么
