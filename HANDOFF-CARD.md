@@ -19,6 +19,16 @@
 > | ⑤ 桌面复制仍失败 | **已实测排除实现问题**：独立探针（与 `winclip::copy_files` 同逻辑）写入 CF_HDROP 后 `DragQueryFileW` 读回成功 ⇒ Rust 侧正确 | 桌面插件 `import-export` 版本；点「复制」后有没有报错 toast |
 > | ⑥ md 里图片都读不出 | 子 agent 只读调查 3 个根因：① `@atomic-editor` 图片块正则只认「整行 + 路径无裸空格」，`![](我的 图.png)` / `![[x.png]]` / `<img>` **静默不渲染**（patch：`patches/@atomic-editor__editor@0.6.2.patch`）；② `MarkdownEditor.tsx:136` 候选为 0 时直接 `continue`、不挂「图片不在本机」提示；③ 附件没同步到位 | **那篇笔记里图片那一行的原文**（或库路径）—— 含空格/wiki 嵌入 ⇒ ①；普通 `![](a.png)` 点不亮 ⇒ ②；库里没图 ⇒ ③ |
 >
+> **23:02 用户三条回答（把 ④⑤⑥ 收窄了）**：
+> · ④ **不是插件版本问题** —— 桌面与手机都是 `import-export` **0.2.2**。
+> · ⑥ 原文修正：「图片渲染了，但是我复制出来、粘贴过来的 md 文件里面没有」⇒ 图片**在编辑器里显示正常**，
+>   丢的是**导出/复制出来的 md 内容**。新线索：`examples/import-export/index.js:860` 的 `scanImageRefs`
+>   正则 `(<[^>]*>|[^)\s]+)` —— 路径含**空格**或 `)` 就匹配不上；匹配不上时 `rewriteImageRefs` 会**原样保留**引用
+>   （:885），所以「md 里完全没有」更可能是**引用本来就没被写进正文**（粘贴导入时丢了），需要那篇的原始文本才能定。
+> · ⑤ 更怪：桌面点「复制」**显示成功**，但剪贴板里还是**上一次复制的图片**。探针已证明 `winclip::copy_files`
+>   写入/读回正常 ⇒ 可能是插件走了 fallback（复制文本）却提示成功，或写入后又被别的剪贴板管理器覆盖。
+>   **下一步必须 dev 实测**：启动桌面 dev → 调 `copy_file_to_clipboard` → 用 `Get-Clipboard`/拖拽验证。
+>
 > 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）。未发版。
 >
 > **上一轮：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
