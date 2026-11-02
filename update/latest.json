@@ -1,7 +1,7 @@
 {
   "version": "0.9.21",
-  "notes": "ZeroNote 0.9.21",
-  "pub_date": "2026-11-02T16:12:43.730Z",
+  "notes": "真人测试9 三条 —— ① 手机编辑页底部新增常驻状态栏：左 历史版本 / 反链，右 当前字数；② 密码库不再误报「未建立密钥环」（插件中心把「密码库」更新到 0.1.1 即生效）；③ 首页 ＋ 滑动收起改成原地渐隐。",
+  "pub_date": "2026-11-02T16:13:14.780Z",
   "platforms": {
     "windows-x86_64": {
       "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.21/ZeroNote_0.9.21_x64-setup.exe",
