@@ -4798,6 +4798,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-crashlog"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-dialog"
 version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6638,7 +6648,7 @@ dependencies = [
 
 [[package]]
 name = "zeronote"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -6657,6 +6667,7 @@ dependencies = [
  "tauri-plugin-apk-install",
  "tauri-plugin-biometric",
  "tauri-plugin-clipboard-manager",
+ "tauri-plugin-crashlog",
  "tauri-plugin-dialog",
  "tauri-plugin-keyring-store",
  "tauri-plugin-log",

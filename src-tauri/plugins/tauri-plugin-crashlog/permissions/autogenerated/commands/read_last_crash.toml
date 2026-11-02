@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-read-last-crash"
+description = "Enables the read_last_crash command without any pre-configured scope."
+commands.allow = ["read_last_crash"]
+
+[[permission]]
+identifier = "deny-read-last-crash"
+description = "Denies the read_last_crash command without any pre-configured scope."
+commands.deny = ["read_last_crash"]

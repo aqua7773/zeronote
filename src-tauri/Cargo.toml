@@ -1,6 +1,6 @@
 [package]
 name = "zeronote"
-version = "0.9.13"
+version = "0.9.14"
 description = "ZeroNote —— 空内核的本地 Markdown 笔记应用"
 authors = ["aqua"]
 license = "MIT"
@@ -46,6 +46,9 @@ tauri-plugin-dialog = "2"
 # 「从别的 App 复制 → 粘贴进 ZeroNote」只能走原生命令（Android 用 ClipboardManager）。
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-statusbar = { path = "plugins/tauri-plugin-statusbar" }
+# 崩溃日志（rev173.327）：Android 11+ 的 ApplicationExitInfo 能拿到上次退出时系统留下的
+# tombstone；崩溃当下进程已死、JS 跑不了，所以只能**下次启动读**。桌面返回 found:false。
+tauri-plugin-crashlog = { path = "plugins/tauri-plugin-crashlog" }
 # 通知捕获（rev173.16）：Android NotificationListenerService → 缓存 → 记账插件解析
 tauri-plugin-notification-capture = { path = "plugins/tauri-plugin-notification-capture" }
 # 请求 Android「所有文件访问」权限（库放公共存储时必需；系统不弹窗，只能手动开）

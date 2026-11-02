@@ -13,6 +13,7 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "statusbar:default",
+    "crashlog:default",
     "notification-capture:default",
     "androidperm:default",
     "uri-reader:default",

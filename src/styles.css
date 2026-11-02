@@ -4017,3 +4017,22 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--zn-text-xs, 12px);
 }
+
+/* 崩溃报告弹窗里的 tombstone 预览（rev173.327）：等宽、可滚动、可选中复制。
+   高度封顶是为了不把弹窗撑爆 —— 完整内容在导出的 txt 里。 */
+.zn-crash-trace {
+  margin: 12px 0 0;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm, 6px);
+  background: var(--zn-bg-subtle);
+  color: var(--zn-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--zn-text-xs, 12px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

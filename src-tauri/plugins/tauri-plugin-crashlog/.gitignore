@@ -1,0 +1,6 @@
+# Gradle 构建产物（android 模块的编译输出，不入库）
+android/build/
+# Tauri CLI 构建时复制进来的 tauri-api 源码副本（生成物，不入库）
+android/.tauri/
+# Rust 构建产物
+target/

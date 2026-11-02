@@ -197,6 +197,15 @@ import {
   writeText as nativeClipboardWriteText,
 } from '@tauri-apps/plugin-clipboard-manager'
 import {
+  formatCrashReport,
+  isNewCrash,
+  loadHandledTs,
+  readLastCrash,
+  saveHandledTs,
+  tracePreview,
+  type CrashInfo,
+} from './lib/crash-log'
+import {
   Button,
   ContextMenu,
   Dialog,
@@ -342,6 +351,15 @@ export default function App() {
     mtime: number
     created: number
   } | null>(null)
+  /**
+   * 上次异常退出的崩溃报告（rev173.327 · 用户「每次崩溃直接导出崩溃日志，我转发就可以了」）。
+   *
+   * 原生崩溃是进程被系统直接干掉，JS 一行都跑不了 ⇒ **崩溃当下复制不了**。
+   * 所以这条只能补在下一次启动：读 Android 的 `ApplicationExitInfo`，
+   * 原生侧顺手导出成 `Download/ZeroNote-crash/zeronote-crash-<时间>.txt`。
+   * 非 null = 弹窗告知路径（可一键转发）。
+   */
+  const [crashReport, setCrashReport] = useState<CrashInfo | null>(null)
   /**
    * 本地媒体服务就绪计数（rev173.240 · Android 大视频 Range）。
    *
@@ -835,6 +853,63 @@ export default function App() {
     void setStatusBarVisible(false)
     return () => void setStatusBarVisible(true)
   }, [])
+
+  /**
+   * 崩溃日志：启动读一次「上次是否异常退出」（rev173.327）。
+   *
+   * 原生崩溃时 JS 已经死了 —— 复制/写文件都来不及，所以只能补在**下次启动**：
+   * 系统（Android 11+）替我们留着这次的退出记录与 tombstone，原生插件读完顺手
+   * 导出成文件；这里只要判断「是新崩溃」就弹窗告知路径，用户直接转发那个 txt。
+   * 桌面端命令返回 found:false，不会有任何提示。
+   */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const info = await readLastCrash()
+      if (cancelled || !isNewCrash(info, loadHandledTs())) return
+      // 先记已处理：同一个崩溃只提示一次（换机/清缓存后会重开）
+      saveHandledTs(info!.timestamp)
+      setCrashReport(info)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  /** 把这次的崩溃日志文件交给系统分享面板（微信/QQ/邮件都能选到） */
+  const shareCrashLog = async () => {
+    if (!crashReport) return
+    if (!crashReport.exportPath) {
+      setToast('这台机没导出文件 —— 点「复制文本」再发')
+      return
+    }
+    try {
+      await invoke('plugin:share|share_file', {
+        title: 'ZeroNote 崩溃日志',
+        path: crashReport.exportPath,
+        mime: 'text/plain',
+      })
+    } catch (e) {
+      setToast(`分享失败：${String(e)}`)
+    }
+  }
+
+  /** 没有文件（或分享不了）时的兜底：整份报告进剪贴板 */
+  const copyCrashLog = async () => {
+    if (!crashReport) return
+    const text = formatCrashReport(crashReport)
+    try {
+      await nativeClipboardWriteText(text)
+    } catch {
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        setToast('复制失败，请手动打开导出的文件')
+        return
+      }
+    }
+    setToast('崩溃日志已复制到剪贴板')
+  }
 
   /**
    * **只有首页（时间流卡片页）允许用左右滑呼出抽屉**（rev173.317 · 真人测试5 #4）。
@@ -6202,6 +6277,58 @@ export default function App() {
           </DialogBody>
           <DialogFooter>
             <Button onClick={() => setEntryInfo(null)}>关闭</Button>
+          </DialogFooter>
+        </Dialog>
+      )}
+
+      {/* 上次崩溃报告（rev173.327）：原生崩溃时进程已死、复制不了，
+          所以只能下次启动读系统记录 —— 原生侧已顺手导出成 txt，用户直接转发。 */}
+      {crashReport && (
+        <Dialog open onOpenChange={(next) => !next && setCrashReport(null)} width={720}>
+          <DialogHeader
+            title="上次运行异常退出"
+            description="崩溃日志已导出成文件 —— 转发给开发者即可"
+          />
+          <DialogBody>
+            <dl className="zn-info-list">
+              <dt>时间</dt>
+              <dd>
+                {crashReport.timestamp > 0
+                  ? new Date(crashReport.timestamp).toLocaleString()
+                  : '未知'}
+              </dd>
+              <dt>原因</dt>
+              <dd>{crashReport.reasonLabel || `退出码 ${crashReport.reason}`}</dd>
+              <dt>环境</dt>
+              <dd>
+                {[
+                  crashReport.appVersion ? `ZeroNote ${crashReport.appVersion}` : '',
+                  crashReport.androidVersion ? `Android ${crashReport.androidVersion}` : '',
+                  crashReport.device,
+                  crashReport.webviewVersion ? `WebView ${crashReport.webviewVersion}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || '未知'}
+              </dd>
+              <dt>日志文件</dt>
+              <dd className="zn-info-path">
+                {crashReport.exportPath || '（这台机没写出文件 —— 用「复制文本」）'}
+              </dd>
+            </dl>
+            <pre className="zn-crash-trace">
+              {tracePreview(crashReport.trace) || '系统没有保留堆栈，只有退出原因。'}
+            </pre>
+          </DialogBody>
+          <DialogFooter className="justify-between">
+            <Button variant="ghost" onClick={() => void copyCrashLog()}>
+              复制文本
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => setCrashReport(null)}>
+                关闭
+              </Button>
+              <Button onClick={() => void shareCrashLog()}>转发日志文件</Button>
+            </div>
           </DialogFooter>
         </Dialog>
       )}

@@ -1,6 +1,43 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.326（2026-11-02）—— 手机 0.9.13 打开侧栏闪退（未修 · 诊断中）**
+> **最新：rev173.327（2026-11-02）—— 崩溃日志可导出（0.9.14）+ 闪退根因已抓到（系统层）**
+> 用户原话：「每次崩溃应该把崩溃日志复制到剪贴板上面，现在的版本都没有崩溃日志」→「每次崩溃直接导出崩溃日志，我转发就可以了」。
+>
+> **① 闪退根因（2026-11-02 13:11 抓到完整 tombstone）** —— **不在我们的代码里**：
+> nubia `NX741J` / Android 16 / WebView 140.0.7339.207。崩溃线程 `HWC release`（tid 15066），栈：
+> ```
+> #02 bionic  HandleUsingDestroyedMutex
+> #03 bionic  pthread_mutex_lock          ← FORTIFY 检测到 mutex 已 destroy
+> #04 bionic  pthread_cond_wait
+> #05 libc++  condition_variable::wait
+> #06 libgui  android::gui::FenceMonitor::threadLoop()
+> #07 libgui  android::gui::FenceMonitor::loop()
+> ```
+> 全是系统库（`libc` / `libc++` / `libgui`），**没有一行 `libzeronote_lib.so`**；`am_crash` 记为
+> `Native crash, Aborted`。`FenceMonitor` 是硬件合成器（HWC）的 fence 线程 —— 打开一个**新的合成层**
+> 就会撞上它的生命周期竞争。实测触发面：点 ☰ 开左抽屉 / 长按 ＋ 开环形菜单 / 点卡片进编辑页 ——
+> **都崩**；滑动列表、静止不动 —— 不崩。⇒ 不是"抽屉功能坏了"，是**任何页面/浮层转场**都触发，
+> 属该机型系统层（HWC / SurfaceFlinger / Adreno）问题，我们改前端治不了。
+> ⚠️ **对照实验没做成**：这台机的 adb 安装被中兴策略拦截（`AntiBrushingZteHook.isAllowAdbInstall`
+> → `SecurityException: Caller has no access to session -1`），装不了 0.9.12 / 0.9.9 做版本对照。
+> ⚠️ 用户 2026-11-02 明确要求「**不要在非测试机上面进行各种操作**」—— 这台 nubia 别再点、别再装包；
+> 本轮已把动过的系统动画缩放恢复原值（`animator=null / transition=1.0 / window=1.0`）、删掉 push 上去的 APK。
+>
+> **② 本版做的事（0.9.14 · rev173.327）：崩溃日志能导出了**
+> 原生崩溃当下进程已死、JS 跑不了 ⇒ 只能在**下次启动**读系统记录：新插件
+> `src-tauri/plugins/tauri-plugin-crashlog/`（Rust + Kotlin，与 statusbar 同构）调
+> `ActivityManager.getHistoricalProcessExitReasons()`，原生崩溃时拿 `getTraceInputStream()` 的
+> **tombstone 全文**（不需要 root），并**直接导出**成
+> `Download/ZeroNote-crash/zeronote-crash-<崩溃时刻>.txt`（同一次崩溃同名覆盖，不堆垃圾）。
+> 前端 `src/lib/crash-log.ts` + 首页弹窗：显示时间 / 原因 / 环境 / 文件路径 + 预览，
+> 按钮「**转发日志文件**」（走 `plugin:share|share_file`）与「复制文本」兜底；
+> 用 `localStorage['zn-crash-handled-ts']` 按时间戳去重，同一个崩溃只提示一次。
+> 桌面返回 `found:false`（没有这条通道，不报错）。测试：`tests/crash-log.test.ts` 10 条。
+>
+> **③ 下一步**：装 0.9.14（应用内更新，不经 adb）→ 再复现一次闪退 → 下次打开会弹「上次运行异常退出」，
+> 那个 txt 就是可以转发的证据。拿到 txt 后再决定：换 WebView / 等系统更新 / 找中兴反馈。
+>
+> **rev173.326（2026-11-02）—— 手机 0.9.13 打开侧栏闪退（诊断中）**
 > 用户原话：「手机现在一打开左栏或右栏，一下子就会闪退」。追问确认：**另一台手机装的 0.9.13 release 包**，
 > 表现是 **App 直接消失回桌面**（不是白屏、不是 ANR），左右两个抽屉都触发（左侧文件树 + 右侧「更多」）。
 > 本会话排查（**都还没证到根因**）：
@@ -102,10 +139,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.326 · 0.9.13 · 2026-11-02 |
-| 测试基线 | vitest 1777 · cargo 96 · oxlint 4 warnings（2026-11-02） |
+| rev / 版本 | rev173.327 · 0.9.14 · 2026-11-02 |
+| 测试基线 | vitest 1787 · cargo 96 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.13 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.14 |
 <!-- FACTS:END -->
 
 ## 是什么
