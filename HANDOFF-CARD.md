@@ -29,7 +29,17 @@
 >   写入/读回正常 ⇒ 可能是插件走了 fallback（复制文本）却提示成功，或写入后又被别的剪贴板管理器覆盖。
 >   **下一步必须 dev 实测**：启动桌面 dev → 调 `copy_file_to_clipboard` → 用 `Get-Clipboard`/拖拽验证。
 >
-> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）。未发版。
+> **23:07 定案（④⑥ 同一个根因，已修并发插件）**：用户给出 `.zn/share/真人测试8.md` ——
+> **761 字节、4 个 `![]()`、0 个 `data:`**，与原文等长（完全没内嵌）。根因：笔记在 `测试文件/`、
+> 图在**库根**；编辑器渲染有两候选（笔记目录 → 库根，rev173.325），但导出 `locateRef` 只按
+> 笔记目录解析 ⇒ 读不到图 ⇒ 保留原引用。已在 `embedOneImage` 补库根兜底（<1MB 内嵌原图、
+> >1MB 走压缩图）；**`import-export` 0.2.3 已签名入库**（keyId `aqua-2026` · 整包 sha256
+> `63612c69…` · 市场索引 14 条）。手机与桌面插件中心更新到 0.2.3 即生效。
+> **⑤ 已实测证伪「复制失败」**：`probe read` 读到剪贴板里就是
+> `C:\Users\AQUA\Documents\ZreoNote\.zn\share\真人测试8.md`（CF_HDROP count=1）⇒ 复制正常；
+> 用户是粘到了**不接受文件列表**的输入框/图片位（资源管理器里 Ctrl+V 才出文件）。
+>
+> 验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿** · cargo check 0（4 warnings 基线）· import-export 54 条。未发应用版本。
 >
 > **上一轮：rev173.333（2026-11-02 21:1x）—— 0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**
 > 用户 21:14 报告：环境 **0.9.18** · `原因：原生崩溃（SIGABRT）` · abort =
