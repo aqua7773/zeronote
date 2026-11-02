@@ -2670,6 +2670,16 @@ body.is-resizing * {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  /* rev173.334 · 用户：「移动端首页加号的显示方式，在滑动时间流卡片的时候自动收起，
+     停下来的时候再显示」—— 状态由 MobileNoteCards 的 `scrolling` 给（scroll 事件 + 400ms 静默）。 */
+  transition:
+    opacity 160ms var(--zn-ease-standard),
+    transform 160ms var(--zn-ease-standard);
+}
+.zn-mobile-compose.is-hidden {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
 }
 
 /* ───────── 起始页长按 ＋ 的环形快捷入口（rev173.20 / rev173.21）─────────

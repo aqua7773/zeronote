@@ -115,6 +115,29 @@ export function MobileNoteCards({
   const [contents, setContents] = useState<Record<string, string>>({})
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   /**
+   * 正在滑动时间流（rev173.334 · 用户：「移动端首页加号的显示方式，在滑动时间流卡片的时候
+   * 自动收起，停下来的时候再显示」）。
+   *
+   * 只认 `.zn-mobile-cards` 的 scroll 事件：手指一滚就收，停 400ms 再出。
+   * 不用 touchstart 判据 —— 卡片上的长按/拖拽不产生滚动，不该连带收起加号。
+   */
+  const [scrolling, setScrolling] = useState(false)
+  const scrollEndTimer = useRef<number | null>(null)
+  const onCardsScroll = () => {
+    setScrolling((prev) => (prev ? prev : true))
+    if (scrollEndTimer.current !== null) window.clearTimeout(scrollEndTimer.current)
+    scrollEndTimer.current = window.setTimeout(() => {
+      scrollEndTimer.current = null
+      setScrolling(false)
+    }, 400)
+  }
+  useEffect(
+    () => () => {
+      if (scrollEndTimer.current !== null) window.clearTimeout(scrollEndTimer.current)
+    },
+    [],
+  )
+  /**
    * 长按释放才弹菜单（rev173.321）。三个局部状态：
    *  · `pressRef` 记按下时刻与位置；
    *  · `movedRef` 标记"手指划动过"（划动 = 滚列表，不是长按）；
@@ -351,7 +374,7 @@ export function MobileNoteCards({
 
   return (
     <div className={variant === 'panel' ? 'zn-mobile-home zn-mobile-home--panel' : 'zn-mobile-home'}>
-      <div className="zn-mobile-cards">
+      <div className="zn-mobile-cards" onScroll={onCardsScroll}>
         {sorted.length === 0 && (
           <div className="zn-mobile-empty">还没有笔记 —— 点下面的输入框记一条。</div>
         )}
@@ -443,7 +466,7 @@ export function MobileNoteCards({
       {variant !== 'panel' && (
         <button
           type="button"
-          className="zn-mobile-compose"
+          className={`zn-mobile-compose${scrolling ? ' is-hidden' : ''}`}
           onClick={onComposeClick}
           onPointerDown={onComposePointerDown}
           onPointerMove={onComposePointerMove}
