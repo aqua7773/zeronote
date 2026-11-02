@@ -1,4 +1,4 @@
-//! ZeroNote 状态栏插件 —— Android 状态栏的按需显隐。
+//! ZeroNote 状态栏插件 —— Android 状态栏的按需显隐 + 轻震动。
 //!
 //! 需求（用户 2026-10-12）：**侧栏（抽屉）打开时隐藏状态栏，收起（首页）时显示**；
 //! **导航栏不受影响**（与 `MainActivity` 只 `hide(statusBars())` 的语义保持一致）。
@@ -9,7 +9,10 @@
 //!     → 本 crate 的命令 → JNI → Kotlin `StatusBarPlugin.setVisible`
 //!     → `WindowInsetsControllerCompat.show/hide(Type.statusBars())`
 //!
-//! 桌面端：本命令是 **no-op 并返回 Ok**，所以前端可以无脑调用、不必分支判断。
+//! **`vibrate`（rev173.331 · 真人测试7 #1）**：长按到点的轻震动也挂在这条通道上
+//! （`vibrate` → Kotlin `StatusBarPlugin.vibrate` → `Vibrator`）—— 见命令注释。
+//!
+//! 桌面端：本插件的命令都是 **no-op 并返回 Ok**，所以前端可以无脑调用、不必分支判断。
 
 use tauri::{plugin::TauriPlugin, Runtime};
 
@@ -56,6 +59,33 @@ async fn set_status_bar_visible<R: Runtime>(
   }
 }
 
+/// **长按到点的轻震动**（rev173.331 · 真人测试7 #1）。
+///
+/// 为什么走这条已有的原生通道而不是再加一个插件：`navigator.vibrate` 在多数国产 WebView
+/// 里被静默忽略（用户实测「没有振动效果」），而 `Vibrator` 服务是普通权限、稳定可用；
+/// 本插件已经有 Android Kotlin 侧与 JNI 通道，加一个命令比新建一个插件便宜得多。
+///
+/// `ms` 由前端给（12ms = "到点了"的轻提示），Kotlin 侧还会再夹到 5–80ms 防止误传系统级震动。
+/// 桌面端 no-op 返回 Ok —— 调用方无需分支。
+#[tauri::command]
+async fn vibrate<R: Runtime>(app: tauri::AppHandle<R>, ms: u64) -> Result<(), String> {
+  #[cfg(mobile)]
+  {
+    use tauri::Manager;
+    app
+      .state::<StatusBar<R>>()
+      .handle
+      .run_mobile_plugin::<serde_json::Value>("vibrate", serde_json::json!({ "ms": ms }))
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+  #[cfg(not(mobile))]
+  {
+    let _ = (app, ms);
+    Ok(())
+  }
+}
+
 /// 初始化插件。
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   tauri::plugin::Builder::<R>::new("statusbar")
@@ -80,6 +110,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![set_status_bar_visible])
+    .invoke_handler(tauri::generate_handler![set_status_bar_visible, vibrate])
     .build()
 }

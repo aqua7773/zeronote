@@ -125,6 +125,8 @@ import {
 import { loadRailPins, saveRailPins, toggleRailPin as toggleRailPinState } from './lib/rail-pins'
 /* J#9（rev173.281）：环形快捷入口 5 格配置（中心 ＋ 固定新建笔记） */
 import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } from './lib/quick-slots'
+/* rev173.331：手机「更多 → 插件」按已注册面板自动列（真人测试7 #2） */
+import { pluginPanelEntries } from './lib/more-plugin-entries'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { drawersOpenOnlyOnHome, hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
@@ -4798,54 +4800,38 @@ export default function App() {
   }
 
   /**
-   * 「更多」页里的插件入口（方案 §2.2：标签 / 导入导出，启用才出现）。
-   * 按 **pluginId** 找面板而不是写死面板 id —— 插件改名 / 多面板时仍对得上。
+   * 「更多」页里的插件入口 —— **所有已启用、且面板能当页面打开的插件**自动列出。
+   *
+   * rev173.331（真人测试7 #2）：旧实现写死 `tag-panel` / `import-export` 两个 id，
+   * 用户装了 `sync`（面板挂在 `main`），手机上「更多 → 插件」里就看不到它；
+   * 而手机没有常驻侧栏（左抽屉的 `SidebarPlugins` 也不渲染），插件在移动端
+   * **等于没有入口**。判定抽到 `lib/more-plugin-entries.ts`（可直接单测）。
    */
-  const morePanelOf = (pluginId: string) =>
+  const morePluginEntries: MoreEntry[] = pluginPanelEntries(panels).map((e) => ({
+    key: e.key,
+    label: e.label,
+    hint: e.hint,
+    plugin: true,
+    onClick: () => {
+      setMoreOpen(false)
+      // rev173.314：从抽屉钻进去的插件面板，返回也先回抽屉
+      returnToMoreRef.current = true
+      setMainView(e.panelId)
+    },
+  }))
+
+  /**
+   * 空态「从文件导入」要用的面板（只在 `import-export` 启用时出现 —— 零插件基线不留死按钮）。
+   *
+   * 与上面那组同一判据（`main` / `sidebar` 且非 hidden），只是这里只要导入导出这一个插件。
+   */
+  const ioPanelEntry =
     panels.find(
       (p) =>
-        p.pluginId === pluginId &&
-        p.location !== 'statusbar' &&
-        p.location !== 'modal' &&
-        p.location !== 'editor-toolbar' &&
-        p.location !== 'editor-topbar',
+        p.pluginId === 'import-export' &&
+        !p.hidden &&
+        (p.location === 'main' || p.location === 'sidebar'),
     ) ?? null
-  const tagPanelEntry = morePanelOf('tag-panel')
-  const ioPanelEntry = morePanelOf('import-export')
-  const morePluginEntries: MoreEntry[] = [
-    ...(tagPanelEntry
-      ? [
-          {
-            key: 'tag',
-            label: '标签',
-            hint: '按标签浏览',
-            plugin: true,
-            onClick: () => {
-              setMoreOpen(false)
-              // rev173.314：从抽屉钻进去的插件面板，返回也先回抽屉
-              returnToMoreRef.current = true
-              setMainView(tagPanelEntry.id)
-            },
-          },
-        ]
-      : []),
-    ...(ioPanelEntry
-      ? [
-          {
-            key: 'io',
-            label: '导入导出',
-            hint: '导入外部文件 / 导出笔记',
-            plugin: true,
-            onClick: () => {
-              setMoreOpen(false)
-              // rev173.314：同上，返回先回抽屉
-              returnToMoreRef.current = true
-              setMainView(ioPanelEntry.id)
-            },
-          },
-        ]
-      : []),
-  ]
 
 
   /**

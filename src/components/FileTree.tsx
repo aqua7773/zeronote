@@ -710,6 +710,8 @@ export function FileTree({
   const [draggingPath, setDraggingPath] = useState<string | null>(null)
   /** 跟随鼠标的拖动标签（2026-10-17：拖拽要有跟手的视觉反馈） */
   const [dragGhost, setDragGhost] = useState<{ x: number; y: number; label: string } | null>(null)
+  /** ghost 的 DOM 节点 —— 触摸拖拽时直接改 `style.left/top`，避免每帧重渲染整棵树（rev173.331 · 真人测试7 #3） */
+  const ghostRef = useRef<HTMLDivElement | null>(null)
   /**
    * 需要**自动展开**到的路径（2026-10-17）。
    *
@@ -974,8 +976,12 @@ export function FileTree({
       }
 
       // ── 拖拽移动：目录行 = 进那个目录；栏内空白 = 库根；栏外 = 不动作 ──
-      target = resolveDropTarget(ev.clientX, ev.clientY, fromPath)
-      setDropTarget(target)
+      // 落点值没变就不 setState（rev173.331）：鼠标拖拽时也少掉一半无效重渲染
+      const next = resolveDropTarget(ev.clientX, ev.clientY, fromPath)
+      if (next !== target) {
+        target = next
+        setDropTarget(next)
+      }
       // 拖拽视觉：源行淡出 + 跟手的小标签（用户 2026-10-17：「拖拽要有动画效果」）
       setDraggingPath(fromPath)
       const count = selectedSet.has(fromPath) && selectedSet.size > 1 ? selectedSet.size : 1
@@ -1065,6 +1071,62 @@ export function FileTree({
     /** 按下那一行是不是目录 / 虚拟分组（弹菜单时要用） */
     let pressIsDir = false
     let pressVirtual = false
+    /**
+     * 一帧最多判一次落点（rev173.331 · 真人测试7 #3「拖拽会有很明显的卡顿感」）。
+     *
+     * 旧实现每次 `touchmove` 都 ①`document.elementFromPoint()`（强制同步布局）
+     * ②`setDropTarget` ③`setDragGhost(新对象)` ⇒ 整棵树每帧重渲染两次。
+     * 手指拖动时 touchmove 频率可达 60–120Hz，等于把渲染预算全烧在拖拽上。
+     * 现在：touchmove 只记最新坐标 + 排一次 rAF，落点与 ghost 一帧只算一次。
+     */
+    let moveRaf = 0
+    let pending: { x: number; y: number } | null = null
+    /** ghost 是否已挂上（首次走 setState，之后直接改 style，不再触发重渲染） */
+    let ghostShown = false
+
+    /** 用最新坐标算落点 + 跟手标签（每帧最多执行一次） */
+    const applyMove = () => {
+      moveRaf = 0
+      const pt = pending
+      pending = null
+      if (!pt || !fromPath) return
+      const { selectedSet: sel, dirPathSet: dirsNow } = dragRefs.current
+      /**
+       * 落点判定（与 `resolveDropTarget` 同口径，rev173.319）：
+       * 目录行 ⇒ 它；栏内空白 ⇒ 库根 `''`；栏外 / 文件行 / 自己或子目录 ⇒ `null`（不动作）。
+       * 这里内联一份是因为本 effect 只挂一次，直接调渲染期的闭包会拿到旧的 `dirPathSet`。
+       */
+      const rootEl = rootRef.current
+      const under = document.elementFromPoint(pt.x, pt.y) as HTMLElement | null
+      let next: string | null = null
+      if (under && under.closest('.zn-menu-scrim')) {
+        // 遮罩这一帧还没卸载（setState 异步）⇒ 再收一次，落点下一帧再判
+        setMenu(null)
+        next = null
+      } else if (rootEl && under && rootEl.contains(under)) {
+        const over = under.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+        if (!over) next = ''
+        else if (over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)) next = over
+      }
+      // 值没变就不 setState —— 手指在一个目录里滑动时不应重渲染任何一行
+      if (next !== target) {
+        target = next
+        setDropTarget(next)
+      }
+      if (!ghostShown) {
+        ghostShown = true
+        const count = sel.has(fromPath) && sel.size > 1 ? sel.size : 1
+        setDragGhost({
+          x: pt.x,
+          y: pt.y,
+          label: count > 1 ? `${baseName(fromPath)} 等 ${count} 项` : baseName(fromPath),
+        })
+      } else if (ghostRef.current) {
+        // 跟手只改样式：left/top 是定位属性，不触发布局重排（ghost 是 fixed 定位）
+        ghostRef.current.style.left = `${pt.x}px`
+        ghostRef.current.style.top = `${pt.y}px`
+      }
+    }
 
     const detach = () => {
       window.removeEventListener('touchmove', onMove)
@@ -1084,6 +1146,12 @@ export function FileTree({
         window.clearTimeout(timer)
         timer = null
       }
+      if (moveRaf) {
+        cancelAnimationFrame(moveRaf)
+        moveRaf = 0
+      }
+      pending = null
+      ghostShown = false
       clearFeedback()
       armed = false
       dragging = false
@@ -1102,6 +1170,13 @@ export function FileTree({
     const onCancel = () => reset()
 
     const onEnd = () => {
+      // 松手前把最后一帧落点补算掉：rAF 可能还没跑（或刚 touchmove 就抬指），
+      // 不补的话「最后停在哪个目录上」会丢
+      if (moveRaf) {
+        cancelAnimationFrame(moveRaf)
+        moveRaf = 0
+      }
+      applyMove()
       const wasDragging = dragging
       const src = fromPath
       const tgt = target
@@ -1185,32 +1260,9 @@ export function FileTree({
       }
       // 拖拽中不许列表跟着滚（必须 passive:false 才生效）
       e.preventDefault()
-      const { selectedSet: sel, dirPathSet: dirsNow } = dragRefs.current
-      /**
-       * 落点判定（与 `resolveDropTarget` 同口径，rev173.319）：
-       * 目录行 ⇒ 它；栏内空白 ⇒ 库根 `''`；栏外 / 文件行 / 自己或子目录 ⇒ `null`（不动作）。
-       * 这里内联一份是因为本 effect 只挂一次，直接调渲染期的闭包会拿到旧的 `dirPathSet`。
-       */
-      const rootEl = rootRef.current
-      const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null
-      let next: string | null = null
-      if (under && under.closest('.zn-menu-scrim')) {
-        // 遮罩这一帧还没卸载（setState 异步）⇒ 再收一次，落点下一帧再判
-        setMenu(null)
-        next = null
-      } else if (rootEl && under && rootEl.contains(under)) {
-        const over = under.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
-        if (!over) next = ''
-        else if (over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)) next = over
-      }
-      target = next
-      setDropTarget(target)
-      const count = sel.has(fromPath) && sel.size > 1 ? sel.size : 1
-      setDragGhost({
-        x: t.clientX,
-        y: t.clientY,
-        label: count > 1 ? `${baseName(fromPath)} 等 ${count} 项` : baseName(fromPath),
-      })
+      // 落点判定与 ghost 跟手都推给 rAF：一帧一次（见 `applyMove` 的注释）
+      pending = { x: t.clientX, y: t.clientY }
+      if (!moveRaf) moveRaf = requestAnimationFrame(applyMove)
     }
 
     const onStart = (e: TouchEvent) => {
@@ -1710,7 +1762,11 @@ export function FileTree({
       )}
       {/* 拖拽移动时跟随鼠标的小标签（拖拽的"动画反馈"：源行淡出 + 这个跟手胶囊） */}
       {dragGhost && (
-        <div className="zn-drag-ghost" style={{ left: dragGhost.x, top: dragGhost.y }}>
+        <div
+          ref={ghostRef}
+          className="zn-drag-ghost"
+          style={{ left: dragGhost.x, top: dragGhost.y }}
+        >
           {dragGhost.label}
         </div>
       )}

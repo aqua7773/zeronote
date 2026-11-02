@@ -3179,6 +3179,7 @@ mod winclip {
     fn GlobalAlloc(flags: u32, bytes: usize) -> Handle;
     fn GlobalLock(h_mem: Handle) -> *mut c_void;
     fn GlobalUnlock(h_mem: Handle) -> i32;
+    fn GlobalFree(h_mem: Handle) -> Handle;
   }
 
   /** 把一组绝对路径写进剪贴板（资源管理器里「复制文件」的同一格式，可直接粘贴到文件夹 / 微信） */
@@ -3196,12 +3197,29 @@ mod winclip {
     let header = std::mem::size_of::<DropFiles>();
     let bytes = header + list.len() * 2;
     unsafe {
+      // **先开剪贴板再分配内存**：别的程序（微信 / 输入法 / 浏览器）随时可能正占着剪贴板，
+      // 旧代码一次失败就返回 ⇒ 用户看到「剪贴板还是上次在别处复制的内容」
+      // （真人测试7 #4），且已分配的 h 没释放。现在重试 3 × 50 ms，失败路径都带走内存。
+      let mut opened = false;
+      for _ in 0..3 {
+        if OpenClipboard(std::ptr::null_mut()) != 0 {
+          opened = true;
+          break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+      }
+      if !opened {
+        return Err("打开剪贴板失败（别的程序正占用，稍后再试）".to_string());
+      }
+      EmptyClipboard();
       let h = GlobalAlloc(GMEM_MOVEABLE, bytes);
       if h.is_null() {
+        CloseClipboard();
         return Err("分配剪贴板内存失败".to_string());
       }
       let ptr = GlobalLock(h) as *mut u8;
       if ptr.is_null() {
+        CloseClipboard();
         return Err("锁定剪贴板内存失败".to_string());
       }
       let df = ptr as *mut DropFiles;
@@ -3213,19 +3231,39 @@ mod winclip {
       let dst = std::slice::from_raw_parts_mut(ptr.add(header) as *mut u16, list.len());
       dst.copy_from_slice(&list);
       let _ = GlobalUnlock(h);
-      if OpenClipboard(std::ptr::null_mut()) == 0 {
-        return Err("打开剪贴板失败（可能有别的程序正占用）".to_string());
-      }
-      EmptyClipboard();
       // SetClipboardData 成功后内存所有权归系统，**不能**再 GlobalFree
       let ok = SetClipboardData(CF_HDROP, h);
       CloseClipboard();
       if ok.is_null() {
+        GlobalFree(h);
         return Err("写入剪贴板失败".to_string());
       }
     }
     Ok(())
   }
+}
+
+/// **本地路径 → 可交给外部程序的普通路径**（rev173.331 · 真人测试7 #4/#5）。
+///
+/// `std::fs::canonicalize` 在 Windows 上返回**verbatim 路径**（`\\?\C:\…`）—— 那是内核
+/// API 的格式，`CF_HDROP` 与 `explorer /select,` **都不认**：
+/// · 剪贴板里写 verbatim ⇒ 粘贴时资源管理器找不到文件（表现为「剪贴板还是上次的内容」，#4）；
+/// · `explorer /select,"\\?\C:\…"` ⇒ explorer 忽略参数、只打开默认位置（#5）。
+///
+/// 两种 verbatim 形态都要还原：`\\?\C:\dir` → `C:\dir`；`\\?\UNC\srv\share` → `\\srv\share`。
+/// 非 Windows 原样返回（macOS / Linux 的路径本来就没有这个前缀）。
+fn plain_path(p: &std::path::Path) -> String {
+  let s = p.to_string_lossy().to_string();
+  #[cfg(target_os = "windows")]
+  {
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+      return format!(r"\\{rest}");
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+      return rest.to_string();
+    }
+  }
+  s
 }
 
 /// 复制文件到系统剪贴板（桌面「分享 md」改用这条 —— 与资源管理器复制文件同一效果）
@@ -3237,8 +3275,9 @@ fn copy_file_to_clipboard(path: String) -> Result<(), String> {
   }
   #[cfg(target_os = "windows")]
   {
-    // CF_HDROP 需要反斜杠路径
-    let p = abs.to_string_lossy().replace('/', "\\");
+    // CF_HDROP 需要反斜杠路径，且**不能带 verbatim 前缀**（真人测试7 #4：
+    // `\\?\C:\…` 写进去后资源管理器不认，粘贴出来还是旧内容）
+    let p = plain_path(&abs).replace('/', "\\");
     winclip::copy_files(&[p])
   }
   #[cfg(not(target_os = "windows"))]
@@ -3291,9 +3330,19 @@ fn reveal_in_explorer(vault: String, path: String) -> Result<(), String> {
   let abs = resolve(&vault, &path)?;
   #[cfg(target_os = "windows")]
   {
+    // `explorer` **不认 verbatim 前缀**（真人测试7 #5：`/select,"\\?\C:\…"` 会被忽略，
+    // 只打开「桌面」默认位置）。必须先还原成 `C:\…` 再传，且路径里的 `"` 会破坏引号。
+    //
+    // 仍然用 `raw_arg` 手拼 `/select,"<path>"`：`explorer` 只认这一个写法，
+    // 交给 `arg` 会被 Rust 再套一层引号（官方 opener 插件也是 raw_arg，见
+    // tauri-apps/plugins-workspace `reveal_item_in_dir`）。
     use std::os::windows::process::CommandExt;
-    std::process::Command::new("explorer")
-      .raw_arg(format!("/select,\"{}\"", abs.display()))
+    let p = plain_path(&abs).replace('/', "\\");
+    if p.contains('"') {
+      return Err("路径里带引号，无法在文件管理器里定位".to_string());
+    }
+    std::process::Command::new("explorer.exe")
+      .raw_arg(format!("/select,\"{p}\""))
       .spawn()
       .map_err(|e| format!("打开文件管理器失败：{e}"))?;
   }
@@ -6058,6 +6107,36 @@ mod tests {
     assert!(
       !d.join(".zn/plugins/demo").exists(),
       "校验失败必须一个字节都不落盘"
+    );
+  }
+
+  /// 真人测试7 #4/#5：verbatim 前缀必须去掉，盘符形与 UNC 形都要对。
+  ///
+  /// 这两条是同一个根因（`canonicalize` 的 `\\?\` 前缀），一个害得剪贴板粘贴不出来、
+  /// 一个害得 explorer 只打开默认位置 —— 所以只测这一个转换函数。
+  #[cfg(target_os = "windows")]
+  #[test]
+  fn plain_path_strips_verbatim_prefix() {
+    use std::path::Path;
+    assert_eq!(
+      plain_path(Path::new(r"\\?\C:\库\笔记.md")),
+      r"C:\库\笔记.md",
+      "盘符形：去掉 \\\\?\\，保留其余"
+    );
+    assert_eq!(
+      plain_path(Path::new(r"\\?\UNC\srv\share\a.md")),
+      r"\\srv\share\a.md",
+      "UNC 形：还原成 \\\\srv\\share"
+    );
+    assert_eq!(
+      plain_path(Path::new(r"C:\库\笔记.md")),
+      r"C:\库\笔记.md",
+      "普通路径原样返回"
+    );
+    assert_eq!(
+      plain_path(Path::new(r"\\srv\share\a.md")),
+      r"\\srv\share\a.md",
+      "已是普通 UNC 就不要动"
     );
   }
 }

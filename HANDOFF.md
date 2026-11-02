@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.330
-更新时间: 2026-11-02 · 最新 rev173.330（**真人测试7 五条已调查，下个会话直接开工**）
+revision: 173.331
+更新时间: 2026-11-02 · 最新 rev173.331（**真人测试7 五条已修完**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.330
 
 | rev | 内容 |
 |---|---|
+| rev173.331 | 2026-11-02 · **真人测试7 五条全修**（`ZreoNote/测试文件/真人测试7.md`，引用的截图没随文件带来）：**①长按反馈不明显 / 没振动** —— 核实触发时机本来就对（五个入口都在 `setTimeout(500)` 里先 `hapticTick + spawnRipple`、松手才弹菜单），问题在视觉与振动通道：涟漪 14px/620ms/`radial-gradient` 直接淡出 ⇒ 改 **26px 起、35% 处先扩到 1.9× 并保高不透明、最后扩到 7×**，加**实心描边 + 外发光**（深色底也有轮廓），时长 `--zn-dur-ripple` 620 → **880ms**；`navigator.vibrate` 在国产 ROM WebView 里基本被忽略 ⇒ **振动改原生命令**：`tauri-plugin-statusbar` 加 `vibrate(ms)`（Rust 命令 → Kotlin `Vibrator` / API31+ `VibratorManager.defaultVibrator`，时长夹 5–80ms，无振动器静默 Ok），`long-press-feedback.ts` 的 `hapticTick()` 在 Android 走 `plugin:statusbar\|vibrate`、失败或非 Android 才回退 `navigator.vibrate`（`invoke` 在非 Tauri 上下文可能同步抛，也兜了）。**②手机「更多 → 插件」看不到 sync** —— 旧实现写死 `tag-panel` / `import-export` 两个 id；`sync` 面板挂 `main` ⇒ 不出现，而手机没有常驻侧栏（左抽屉 `SidebarPlugins` 不渲染）⇒ 插件在移动端没有入口。改：新 `src/lib/more-plugin-entries.ts` 的 `pluginPanelEntries()` 按「**注册了 `main` / `sidebar` 面板**」自动列（排除 statusbar / modal / editor-toolbar / editor-topbar 与 `hidden` 动态实例面板），副标题查 `MORE_PLUGIN_HINTS`（sync → 同步状态与冲突处理），未知插件回落「xxx 插件」。**③文件树拖拽卡顿** —— 触摸 `onMove` 每次 `touchmove` 都 `elementFromPoint`（强制同步布局）+ `setDropTarget` + `setDragGhost(新对象)`，手指 60–120Hz ⇒ 整棵树每帧重渲染两次。改：touchmove 只记最新坐标 + 排一次 `requestAnimationFrame`（一帧只判一次落点）、`next === target` 不 setState、ghost 首次 setState 之后**直接改 `style.left/top`**（`ghostRef`）、松手前把最后一帧落点补算掉（否则丢"最后停在哪"）；鼠标通道也同值不 setState。**④桌面「复制 md 文件」没生效** + **⑤「在文件夹中打开」只开默认位置** —— 同一根因：`std::fs::canonicalize` 在 Windows 返回 **verbatim 路径 `\\?\C:\…`**，`CF_HDROP` 与 `explorer /select,` 都不认。改：新纯函数 `plain_path()`（`\\?\C:\` → `C:\`、`\\?\UNC\srv\share` → `\\srv\share`）在写剪贴板 / 传 explorer 之前统一剥掉；`winclip::copy_files` 改成**先开剪贴板再分配内存**并**重试 3×50ms**（别的程序占着剪贴板时旧代码直接失败 ⇒ 用户看到「剪贴板还是上次的内容」），失败路径都 `GlobalFree`；`explorer.exe` 仍用 `raw_arg("/select,\"…\"")`（官方 opener 插件同款），路径含 `"` 时如实报错。**验证**：tsc 0 · vitest **1798**（long-press 8 / more-plugin-entries 6 / file-tree-drag +1）· cargo test **97**（新 `plain_path_strips_verbatim_prefix`）· oxlint 4 warnings。⚠️ **未做真机/桌面实机验证**：振动与 explorer 定位只能人眼确认。 |
 | rev173.330 | 2026-11-02 · **真人测试7 五条：调查完成、待修复**（根因细节见 `HANDOFF-CARD.md` 顶部）：① 长按反馈触发时机本来就对（五入口都在 `setTimeout(500)` 里 `hapticTick + spawnRipple`），问题在视觉太弱（14px / 620ms / 渐变淡出）+ Android WebView `navigator.vibrate` 不可靠 ⇒ 涟漪放大加描边、振动改原生命令；② sync 不在手机「更多 → 插件」组 —— 它 manifest 只有 `panels.location: main`、没有入口声明，而该组只渲染 `pluginEntries` ⇒ 前端列出所有已启用插件 + sync 补 sidebar 面板；③ 文件树拖拽卡顿 = `FileTree.tsx:1159 onMove` 每次 touchmove 都 `elementFromPoint + setDragHover` ⇒ rAF 节流 + 值不变不 setState；④⑤ 桌面「复制 md 文件」与「在文件夹中打开」同一根因 —— `std::fs::canonicalize` 产出 Windows verbatim 路径 `\\?\C:\...`，CF_HDROP 与 `explorer /select` 都不认 ⇒ strip 前缀 + `OpenClipboard` 失败重试。 |
 | rev173.329 | 2026-11-02 · **闪退日志不再丢（0.9.16）**：用户装 0.9.15 后闪退一次却没有弹窗 —— 看门狗改 `libc::_exit(101)` 后退出原因变成 `REASON_EXIT_SELF`，而 crashlog 的 `isCrash` 只认三种 crash ⇒ 证据静默丢失。修法：`isReportable` 收录 ANR / 低内存回收 / 看门狗 exit(101)，返回新增 `isCrash` / `kind` / `exitStatus`；弹窗按 kind 分文案，导出报告标题区分「崩溃报告 / 异常退出报告」并附退出码。验证：tsc 0 · vitest 1788 · Release v0.9.16 已发。 |
 | rev173.328 | 2026-11-02 · **手机闪退根因修复（0.9.15）**：用户「12也会闪退」「12之前没触发过」定死分界。6 份 tombstone 复盘 —— 崩溃栈全在系统库（`FenceMonitor` / `libhwui` / `WebViewFunctor`），abort message 都是 `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x761f402af8)`（同一地址 = 系统库全局 mutex，app 从 zygote fork ⇒ 地址跨进程相同）。**触发面 = 0.9.12 `81e1f62`**：左抽屉遮罩「常驻 + opacity 过渡」，Chromium 会为全屏 `fixed` 元素保留常驻合成层（`pointer-events: none` 不影响合成）⇒ nubia 的 HWC 每次重绘都要重新合成它 ⇒ 撞系统层互斥量生命周期。另有 2 份（13:49:31 / 14:03:42）带**看门狗自杀**：`spawn_watchdogs → std::process::exit(101) → exit() → __cxa_finalize() → WebViewFunctorManager::~WebViewFunctorManager → destroyContext → eglDestroyContextImpl`，渲染线程仍在 `condition_variable` 上等 ⇒ 已销毁 mutex（`std::process::exit` 不跑 Rust 的 `Drop`，**但会跑 C++ 全局析构** —— 文档 §2.2 原说法已更正）。修法：① 遮罩关闭态 `visibility: hidden`（层真正退出合成），淡出仍由 opacity 播、visibility 用 `transition-delay` 延到淡出结束（新增 token `--zn-dur-none: 0s`）；② 看门狗改 `libc::_exit(101)`（跳过 atexit / 静态析构）。验证：`tsc` 0 · `cargo check` 0（4 warnings = 基线）· vitest **1787 全绿** · Cargo.lock 0.9.15。测试机 Redmi 24069RA21C 装 0.9.14 release **复现不了** ⇒ nubia 特有，但触发面是我们引入的，所以可修。 |
@@ -224,6 +225,113 @@ revision: 173.330
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.331（2026-11-02 · 真人测试7 五条全修：长按反馈 / 更多插件组 / 拖拽节流 / 剪贴板 verbatim 路径）
+
+> **一、长按反馈不明显 + 没振动**（①）。先核实「是不是松手才触发」：五个入口
+> （`App.tsx` 的 ＋ / ☰、`TitleBar.tsx:117`、`FileTree.tsx:1239`、`MobileNoteCards.tsx:190`）
+> 都是 `setTimeout(HOLD_MS)` 里先 `hapticTick() + spawnRipple(x, y)`、松手才弹菜单 ⇒ **时序本来就对**。
+> 真正的问题是两层：
+>
+> 1. **视觉太弱** —— `.zn-longpress-ripple` 起手 14px、`radial-gradient` 直接淡出、620ms 就没了，
+>    深色底上几乎看不见。改：26px 起手、**35% 处先扩到 1.9× 并保持高不透明**（"到点那一下的顿"），
+>    最后扩到 7×；加 **2px 实心描边 + 外发光**；`--zn-dur-ripple` 620 → **880ms**
+>    （与 `long-press-feedback.ts` 的 `RIPPLE_MS` 同步，兜底定时器 `+200ms`）。
+> 2. **振动不可靠** —— Android WebView 的 `navigator.vibrate` 在多数国产 ROM 上被静默忽略。
+>    改走**原生命令**：`tauri-plugin-statusbar` 新增 `vibrate(ms)`（Rust 命令 → Kotlin `StatusBarPlugin.vibrate`
+>    → API 31+ `VibratorManager.defaultVibrator` / 旧版 `VIBRATOR_SERVICE`，时长夹 5–80ms，
+>    没有振动器时 `invoke.resolve()` 静默成功），权限文件同步 `allow-vibrate`（default 集合）。
+>    前端 `hapticTick()`：Android 先 `invoke('plugin:statusbar|vibrate', { ms: 12 })`，
+>    `.catch` 与**同步抛**（非 Tauri 上下文 `__TAURI_INTERNALS__` 不存在）两条路都回退 `navigator.vibrate`。
+>
+> **二、手机「更多 → 插件」看不到 sync**（②）。旧 `App.tsx` 写死 `tag-panel` / `import-export` 两个
+> pluginId；`sync` 的 manifest 只声明 `panels.location: main` ⇒ 不在该组；而手机没有常驻侧栏
+> （左抽屉 `SidebarPlugins` 不渲染，`App.tsx` 里 `isDesktop &&`）⇒ 插件在移动端**完全没有入口**。
+> 改：新 `src/lib/more-plugin-entries.ts` 的 `pluginPanelEntries()` —— 面板位置在 `main` / `sidebar`
+> 且非 `hidden` 的插件都列出（`statusbar` / `modal` / `editor-toolbar` / `editor-topbar` 排除），
+> 副标题查 `MORE_PLUGIN_HINTS`（sync → 「同步状态与冲突处理」），未登记的回落「xxx 插件」。
+> 抽成纯函数是为了单测（6 条：位置、hidden、副标题回落、空列表）。
+>
+> **三、文件树拖拽卡顿**（③）。触摸 `onMove` 每次 `touchmove` 都做三件贵事：
+> `document.elementFromPoint()`（**强制同步布局**）、`setDropTarget()`、`setDragGhost(新对象)`
+> （后两者让整棵树每帧重渲染两次）。手指拖动 touchmove 频率 60–120Hz ⇒ 明显掉帧。改：
+> touchmove 只记最新坐标 + 排一次 `requestAnimationFrame`（`applyMove` **一帧只算一次**落点）；
+> `next === target` 不 setState；ghost **首次** setState、之后 `ghostRef.current.style.left/top` 直改
+> （固定定位元素改 left/top 不触发布局重排）；`onEnd` 里先 `cancelAnimationFrame` 再 `applyMove()`
+> **补算最后一帧**（否则丢掉"最后停在哪个目录"）；鼠标通道同样「同值不 setState」。
+> 测试：真实 `TouchEvent`（`fireEvent.touchStart` 的 `createEvent` 在 happy-dom 里**不会**赋值 `touches`，
+> 处理器第一行就 return —— 这个坑写在测试注释里）。
+>
+> **四、桌面「复制 md 文件」没生效 + 右键「在文件夹中打开」只开默认位置**（④⑤，同一根因）。
+> `std::fs::canonicalize` 在 Windows 返回 **verbatim 路径 `\\?\C:\…`**：
+> · CF_HDROP 里写 verbatim ⇒ 资源管理器粘贴时找不到文件（用户看到「剪贴板还是上次在别处复制的内容」）；
+> · `explorer /select,"\\?\C:\…"` ⇒ explorer 忽略参数、只打开默认位置。
+> 改：新纯函数 `plain_path()`（`\\?\C:\` → `C:\`、`\\?\UNC\srv\share` → `\\srv\share`，其它原样），
+> 写剪贴板 / 传 explorer 之前统一剥掉；`winclip::copy_files` 改成**先开剪贴板再分配内存**，
+> `OpenClipboard` **重试 3×50ms**（别的程序占着剪贴板时旧代码直接失败、且泄漏 h），
+> 失败路径都 `GlobalFree`；`explorer.exe` 仍用 `raw_arg("/select,\"…\"")`
+> （官方 `plugins-workspace` 的 `reveal_item_in_dir` 同款写法；`arg` 会被 Rust 再套一层引号），
+> 路径含 `"` 时如实报错。cargo 新增 `plain_path_strips_verbatim_prefix`（盘符 / UNC / 普通 / 普通 UNC 四例）。
+>
+> **验证**：tsc 0 · vitest **1798**（long-press 8 · more-plugin-entries 6 · file-tree-drag +1）· cargo test **97** · oxlint 4 warnings。
+> **⚠️ 未做**：①③ 要真机看手感，④⑤ 要桌面实机点一次 —— 自动化只能锁判定与路径转换。
+> 未发版；`sync` 插件本身没改（②只改宿主），`import-export` 也没改。
+>
+> ## 📌 rev173.330（2026-11-02 · 真人测试7：五条根因调查，未改代码）
+
+> 用户转来 `ZreoNote/测试文件/真人测试7.md`（5 条，引用的截图没随文件带来）。本轮只做定位：
+>
+> | # | 根因 |
+> |---|---|
+> | ① | 触发时机**本来就对**（五入口在 500ms 定时器里就反馈）；视觉 14px/620ms/渐变淡出太弱 + `navigator.vibrate` 不可靠 |
+> | ② | `sync` manifest 只有 `panels.location: main`；「更多 → 插件」组只渲染写死的两个插件 |
+> | ③ | `FileTree.tsx` 触摸 `onMove` 每次 touchmove 都 `elementFromPoint` + 两次 setState |
+> | ④ | `copy_file_to_clipboard` 用 `canonicalize` 的 verbatim 路径写 CF_HDROP |
+> | ⑤ | `reveal_in_explorer` 的 `explorer /select,"\\?\…"` 被忽略 |
+>
+> 建议顺序 ④⑤（同根因）→ ①（视觉 + 原生振动）→ ③（rAF）→ ②（通用化）—— 与 rev173.331 的落地顺序一致。
+>
+> ## 📌 rev173.329（2026-11-02 · 闪退日志不再丢 · 0.9.16）
+
+> 用户装 0.9.15 后闪退一次、**没有崩溃日志弹窗**。根因在我们自己：0.9.15 把看门狗改成
+> `libc::_exit(101)`，退出原因变成 `REASON_EXIT_SELF`，crashlog 的 `isCrash` 只认三种 crash
+> ⇒ 证据被静默丢掉（不是插件坏了）。
+> 修法：新增 `isReportable` 收录 **ANR / 低内存回收 / 看门狗 exit(101)**（用户主动退出、SIGKILL 滑掉仍不打扰）；
+> 命令返回新增 `isCrash` / `kind`（crash/anr/lmk/watchdog）/ `exitStatus`；弹窗按 kind 分文案
+> （看门狗 →「上次被看门狗终止」），导出报告标题区分「崩溃报告 / 异常退出报告」并附退出码。
+> 验证：tsc 0 · vitest **1788** · arm64 APK 构建。⚠️ 0.9.15 的遮罩修复有没有止住 nubia 闪退仍未知 ——
+> 0.9.15 上仍崩过一次，但那次没有 tombstone（很可能就是看门狗 `_exit`）。
+>
+> ## 📌 rev173.328（2026-11-02 · 手机闪退根因：左抽屉遮罩的常驻合成层 · 0.9.15）
+
+> 「12 也会闪退」「12 之前没触发过」定死分界。6 份 tombstone 复盘：
+> 崩溃栈全在系统库（`libgui::FenceMonitor` / `libhwui` / `WebViewFunctor`），abort message 都是
+> `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x761f402af8)`（同一地址 = 系统库全局 mutex）。
+> **触发面 = 0.9.12 的 `81e1f62`**：左抽屉遮罩从条件渲染改成「常驻 + opacity 过渡」——
+> Chromium 会为全屏 `fixed` 元素保留常驻合成层（`pointer-events: none` 不影响合成），
+> nubia 的 HWC 每次页面重绘都要重新合成它 ⇒ 撞上系统层生命周期竞态。0.9.11 时遮罩关闭即卸载，所以不崩。
+> 另两份（13:49:31 / 14:03:42）带**看门狗自杀**：`std::process::exit(101)` → `__cxa_finalize()` →
+> `WebViewFunctorManager::~WebViewFunctorManager` → `destroyContext` → `eglDestroyContextImpl`，
+> 渲染线程仍在 `condition_variable` 上等 ⇒ 已销毁 mutex（`std::process::exit` 不跑 Rust 的 `Drop`，
+> **但会跑 C++ 全局析构** —— 文档 §2.2 原说法是错的）。
+> 0.9.15 改两处：① 遮罩关闭态 `visibility: hidden`（层真正退出合成），淡出仍由 opacity 播、
+> visibility 用 transition-delay 延到淡出结束；② 看门狗 → `libc::_exit(101)`（跳过 atexit / 静态析构）。
+> ⚠️ 证据完整性：crashlog 原先把 trace 截到 64 K，而 6 份真机 tombstone 原始长度 45–48 万字符 ⇒
+> 只看得到前 13.7%，「4 份没有 watchdog」可能是假象 ⇒ 上限提到 **512 K**。
+>
+> ## 📌 rev173.327（2026-11-02 · 崩溃日志可导出 · 0.9.14）
+
+> 用户：「每次崩溃应该把崩溃日志复制到剪贴板上面，现在的版本都没有崩溃日志」→「每次崩溃直接导出
+> 崩溃日志，我转发就可以了」。原生崩溃当下进程已死、JS 跑不了 ⇒ 只能**下次启动读系统记录**：
+> 新插件 `src-tauri/plugins/tauri-plugin-crashlog/`（Rust + Kotlin，与 statusbar 同构）调
+> `ActivityManager.getHistoricalProcessExitReasons()`，`getTraceInputStream()` 拿 tombstone 全文
+> （不需要 root），直接导出 `Download/ZeroNote-crash/zeronote-crash-<崩溃时刻>.txt`（同名覆盖）；
+> 前端 `src/lib/crash-log.ts` + 首页弹窗（时间 / 原因 / 环境 / 路径 + 预览）+「转发日志文件」/「复制文本」，
+> 用 `localStorage['zn-crash-handled-ts']` 按时间戳去重。桌面返回 `found:false`。
+> 同轮抓到闪退的**完整 tombstone**（nubia `NX741J` / Android 16 / WebView 140）：栈全在系统库、
+> 无一行 `libzeronote_lib.so`；但对照实验做不成（该机 adb 安装被中兴策略拦，`session -1`），
+> 且用户明确要求「不要在非测试机上面进行各种操作」⇒ 已恢复动过的系统动画缩放、删掉 push 的 APK。
+> 测试 `tests/crash-log.test.ts` 10 条。
+>
 > ## 📌 rev173.326（2026-11-02 · 手机 0.9.13 打开左右侧栏闪退 —— 未修，诊断中）
 
 > **用户报障**：「手机现在一打开左栏或右栏，一下子就会闪退」。追问两条：用的是**另一台手机装的 0.9.13 release 包**；「闪退」＝ **App 直接消失回桌面**（不是白屏、不是 ANR）；「左栏/右栏」＝ 移动端两个抽屉 —— 左侧文件树、右侧「更多」。

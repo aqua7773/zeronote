@@ -114,8 +114,9 @@
      `transition` 里的 visibility 用 `var(--zn-dur-none)` + delay 控制切换时刻。
      ⚠️ 不裸写 `0s`：`tests/design-tokens.test.ts` 禁止 transition 里出现裸时长（拖拽跟手除外）。 */
   --zn-dur-none: 0s;
-  /* 长按到点的涟漪（rev173.325 · 真人测试6 #3）：与 lib/long-press-feedback.ts 的 RIPPLE_MS 同值 */
-  --zn-dur-ripple: 620ms;
+  /* 长按到点的涟漪（rev173.325 · 真人测试6 #3；rev173.331 时长 620 → 880ms）
+     —— 与 lib/long-press-feedback.ts 的 RIPPLE_MS 同值 */
+  --zn-dur-ripple: 880ms;
   --zn-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --zn-ease-decel: cubic-bezier(0, 0, 0, 1);
   --zn-ease-accel: cubic-bezier(0.3, 0, 1, 1);
@@ -4001,25 +4002,36 @@ body:has(.zn-quick-overlay) .zn-mobile-compose {
 .zn-dialog-backdrop { animation: zn-fade-in var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-dialog-panel { animation: zn-dialog-in var(--zn-dur-overlay) var(--zn-ease-decel); }
 
-/* ───────── 长按到达阈值的涟漪反馈（rev173.325 · 真人测试6 #3）─────────
+/* ───────── 长按到达阈值的涟漪反馈（rev173.325 · 真人测试6 #3；rev173.331 加强）─────────
    由 `lib/long-press-feedback.ts` 在按下点插入，动画结束自删。
-   时长 620ms 与该文件的 RIPPLE_MS 同值；reduce-motion 的全局规则会压到 1ms，
-   届时 JS 的兜底定时器负责移除。 */
+   时长 880ms 与该文件的 RIPPLE_MS 同值；reduce-motion 的全局规则会压到 1ms，
+   届时 JS 的兜底定时器负责移除。
+
+   **为什么加强（真人测试7 #1）**：旧版 14px、`radial-gradient` 直接淡出、620ms ——
+   深色底上几乎看不见，用户以为「没有反馈 / 松手才触发」。现在：
+   · 起始 26px、扩散到 7×，一眼能看出「到点了」；
+   · 实心描边 + 外发光，深色底上也有轮廓（渐变单独存在时会糊掉）；
+   · 前 35% 先扩到 1.9× 并保持高不透明（到点那一下的"顿"），后半程才淡出。 */
 .zn-longpress-ripple {
   position: fixed;
   z-index: 9999;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
   border-radius: 50%;
   pointer-events: none;
-  background: radial-gradient(circle, var(--zn-accent) 0%, transparent 70%);
-  opacity: .85;
+  border: 2px solid var(--zn-accent);
+  background: color-mix(in srgb, var(--zn-accent) 32%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #000 22%, transparent),
+    0 0 14px 3px color-mix(in srgb, var(--zn-accent) 55%, transparent);
+  opacity: 1;
   animation: zn-longpress-ripple var(--zn-dur-ripple) var(--zn-ease-standard) forwards;
 }
 @keyframes zn-longpress-ripple {
-  from { transform: scale(.5); opacity: .85; }
-  to { transform: scale(4.5); opacity: 0; }
+  0% { transform: scale(.7); opacity: 1; }
+  35% { transform: scale(1.9); opacity: .9; }
+  100% { transform: scale(7); opacity: 0; }
 }
 
 /* 条目详情弹窗（rev173.325 · 真人测试6 #4）：左侧标签、右侧值 */

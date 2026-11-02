@@ -1,47 +1,21 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.330（2026-11-02 19:10）—— 真人测试7 五条：已调查，待修复（下个会话直接开工）**
+> **最新：rev173.331（2026-11-02）—— 真人测试7 五条已修完（自动化全绿，待人眼复验）**
 > 来源 `ZreoNote/测试文件/真人测试7.md`（5 条；引用的 image-20261102-184911.jpg 没随文件带来）。
 >
-> **① 长按涟漪「不明显 + 好像松手才触发 + 没振动」**
-> 触发时机其实是对的：五个入口都在**阈值处**触发（`App.tsx:967` / `TitleBar.tsx:117` /
-> `FileTree.tsx:1239` / `MobileNoteCards.tsx:190`，都是 `setTimeout(500)` 里先
-> `hapticTick() + spawnRipple()`，松手才弹菜单）。问题在两处：
-> · **视觉太弱** —— `.zn-longpress-ripple` 初始只有 14px、`radial-gradient` 直接淡出、620ms 就没了
->   （`styles.css:4000` 附近），深色底上几乎看不见；
-> · **振动不可靠** —— Android WebView 的 `navigator.vibrate` 多数 ROM 无效果
->   （`long-press-feedback.ts:23` 只调它）。
-> 改法：涟漪初始 24–28px、扩散到 8×、加实心描边、800–900ms；振动改**原生命令**
-> （新 `tauri-plugin-haptics`，或复用 statusbar 插件加 `vibrate(ms)` → Kotlin `Vibrator`），
-> 前端 `hapticTick()` 走 `invoke`，桌面静默。
+> | # | 用户原话 | 改法 | 证据 |
+> |---|---|---|---|
+> | ① | 涟漪不够明显、好像松手才触发、没有振动 | 触发时机**本来就对**（五入口 500ms 定时器里就 `hapticTick + spawnRipple`，松手才弹菜单）；问题在视觉与振动通道：涟漪 **14px/620ms → 26px/880ms + 描边 + 外发光 + 35% 处先扩到 1.9×**；振动改**原生命令** `plugin:statusbar\|vibrate` → Kotlin `Vibrator`（`navigator.vibrate` 在国产 ROM WebView 被忽略），失败才回退 | `long-press-feedback.ts` / `styles.css` · vitest **8** |
+> | ② | 手机「更多 → 插件」里看不到同步插件 | 旧实现写死 tag-panel / import-export 两个 id；`sync` 面板在 `main` ⇒ 不出现，而手机没有常驻侧栏 ⇒ 插件无入口。改：**按已注册面板自动列**（`main` / `sidebar`，排除 statusbar/modal/editor-* 与 hidden） | `src/lib/more-plugin-entries.ts` · vitest **6** |
+> | ③ | 文件树拖拽明显卡顿 | touchmove 每次 `elementFromPoint`（强制布局）+ 两次 setState（整树重渲染）⇒ **rAF 节流**（一帧一次）、**同值不 setState**、ghost 首次后直改 `style`、松手前补算最后一帧 | `FileTree.tsx` · file-tree-drag +1 |
+> | ④ | 桌面「复制 md 文件」剪贴板还是旧内容 | 根因 `canonicalize` 产出 **verbatim `\\?\C:\…`**，`CF_HDROP` 不认；顺带 `OpenClipboard` 失败即放弃。改：`plain_path()` 剥前缀 + **重试 3×50ms** + 失败路径 `GlobalFree` | `lib.rs` · cargo `plain_path…` |
+> | ⑤ | 桌面右键「在文件夹中打开」只开了默认位置 | 同一根因：`explorer /select,"\\?\…"` 被忽略。改：剥前缀后再 `raw_arg` 拼（官方 opener 同款写法） | 同上 |
 >
-> **② 移动端右侧栏「插件」组里看不到 sync**
-> 根因：`sync` 插件 manifest **只声明了 `panels.location: main`**（`examples/sync/manifest.json`），
-> 没有更多抽屉的入口；`MobileMoreDrawer` 的「插件」组只渲染 `pluginEntries`（插件自报的入口），
-> 所以它不出现；`import-export` 有入口所以出现。左抽屉的 `SidebarPlugins` 手机端**根本不渲染**
-> （`App.tsx:5420` 有 `isDesktop &&`）。
-> 改法：a) 前端「插件」组列出**所有已启用插件**（点开面板 / 插件中心）—— 通用、不用发插件；
-> b) `sync` manifest 加 `location: sidebar` 面板或更多入口，发 sync 0.1.8。推荐 a + b 都做。
+> **验证基线**：tsc 0 · vitest **1798** · cargo test **97** · oxlint 4 warnings（见 `scripts/.verify-baseline.json`）。
+> ⚠️ **未做**：①③ 只能真机看手感；④⑤ 只能桌面实机点一次 —— 装新包后请重点复验这四条。
+> 未发版（0.9.17 待定）；`sync` 0.1.8 未打包（②只改了宿主，插件本身没动）。
 >
-> **③ 移动端文件树拖拽卡顿**
-> 根因：`FileTree.tsx:1159` 的 `onMove` **每次 touchmove** 都 `document.elementFromPoint()`
-> ＋ `setDragHover()`（每帧重渲染整棵树）。
-> 改法：`requestAnimationFrame` 节流（一帧只算一次落点）、`next` 与当前值相同就不 `setState`；
-> 必要时落点高亮改成直接改 DOM class。
->
-> **④ 桌面「复制 md 文件」没生效（剪贴板还是上次的内容）**
-> 根因：`copy_file_to_clipboard`（`lib.rs:3233`）用 `std::fs::canonicalize` 拿到的是
-> **Windows verbatim 路径 `\\?\C:\...`**，直接写进 `CF_HDROP` ⇒ 粘贴时资源管理器不认。
-> 另一个风险：`OpenClipboard(null)` 被别的程序占用时返回 0 ⇒ 命令报错、插件退回复制文本
-> （`examples/import-export/index.js:1552`），用户看到「还是旧内容」。
-> 改法：写剪贴板前 strip `\\?\`（`\\?\UNC\srv\share` → `\\srv\share`）；`OpenClipboard` 失败重试 3 × 50ms。
->
-> **⑤ 桌面右键「在文件夹中打开」只打开默认位置**
-> 同一根因：`explorer /select,"\\?\C:\..."` —— explorer **不认 verbatim 前缀**，于是打开默认目录。
-> 改法同 ④：strip 后再传；顺手改用 `Command::arg` 而不是 `raw_arg` 手拼引号。
->
-> **验证基线**：HEAD 见下（0.9.16 已发）。下个会话顺序建议：④⑤（同一根因，约 10 分钟）
-> → ①（视觉 + 原生振动，约 1 h）→ ③（rAF 节流，约 40 min）→ ②（约 30 min）。
+> **上一轮（rev173.330）**只做调查、没改代码；根因与本次实际改法的对照见 `HANDOFF.md` 的 rev173.331 段。
 >
 > **rev173.329（2026-11-02 18:54）—— 闪退日志不再丢（0.9.16）**
 > 用户装 0.9.15 后闪退一次、**没有崩溃日志弹窗**。根因在我们自己：0.9.15 把看门狗改成
@@ -217,10 +191,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.327 · 0.9.14 · 2026-11-02 |
-| 测试基线 | vitest 1787 · cargo 96 · oxlint 4 warnings（2026-11-02） |
+| rev / 版本 | rev173.331 · 0.9.16 · 2026-11-02 |
+| 测试基线 | vitest 1798 · cargo 97 · oxlint 4 warnings（2026-11-02） |
 | 插件 | 市场 14 · 示例 39 |
-| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.14 |
+| 文档 | README 现状 2026-11-02 · CHANGELOG 0.9.16 |
 <!-- FACTS:END -->
 
 ## 是什么

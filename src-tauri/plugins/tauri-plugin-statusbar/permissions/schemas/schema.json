@@ -307,10 +307,22 @@
           "markdownDescription": "Denies the set_status_bar_visible command without any pre-configured scope."
         },
         {
-          "description": "ZeroNote 状态栏插件：允许前端按需隐藏 / 显示 Android 状态栏（导航栏不受影响）。\n侧栏（抽屉）打开时隐藏、收起（首页）时显示，由 App 的 sidebarOpen 状态驱动。\n#### This default permission set includes:\n\n- `allow-set-status-bar-visible`",
+          "description": "Enables the vibrate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vibrate",
+          "markdownDescription": "Enables the vibrate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vibrate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vibrate",
+          "markdownDescription": "Denies the vibrate command without any pre-configured scope."
+        },
+        {
+          "description": "ZeroNote 状态栏插件：允许前端按需隐藏 / 显示 Android 状态栏（导航栏不受影响），\n以及长按到点时的轻震动（`vibrate` —— WebView 的 `navigator.vibrate` 在国产 ROM 上不可靠）。\n#### This default permission set includes:\n\n- `allow-set-status-bar-visible`\n- `allow-vibrate`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "ZeroNote 状态栏插件：允许前端按需隐藏 / 显示 Android 状态栏（导航栏不受影响）。\n侧栏（抽屉）打开时隐藏、收起（首页）时显示，由 App 的 sidebarOpen 状态驱动。\n#### This default permission set includes:\n\n- `allow-set-status-bar-visible`"
+          "markdownDescription": "ZeroNote 状态栏插件：允许前端按需隐藏 / 显示 Android 状态栏（导航栏不受影响），\n以及长按到点时的轻震动（`vibrate` —— WebView 的 `navigator.vibrate` 在国产 ROM 上不可靠）。\n#### This default permission set includes:\n\n- `allow-set-status-bar-visible`\n- `allow-vibrate`"
         }
       ]
     }
