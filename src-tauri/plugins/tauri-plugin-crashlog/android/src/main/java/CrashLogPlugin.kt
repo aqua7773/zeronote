@@ -30,8 +30,11 @@ import java.util.Locale
 @TauriPlugin
 class CrashLogPlugin(private val activity: Activity) : Plugin(activity) {
 
-  /** trace 上限：IPC 与剪贴板都受不了几 MB 的 tombstone，超了就截断并注明。 */
-  private val maxTraceChars = 64 * 1024
+  /** trace 上限：IPC 与剪贴板都受不了几 MB 的 tombstone，超了就截断并注明。
+      2026-11-02（rev173.328）：6 份真机 tombstone 原始长度 **45–48 万字符**，64 K 的旧上限把
+      **崩溃线程之外的线程块**整段截掉了（看门狗线程按 tid 排序靠后时直接看不到 ⇒ 误判成
+      「系统层独立崩溃」）⇒ 提到 512 K，足以装下正常 tombstone 全文。 */
+  private val maxTraceChars = 512 * 1024
 
   @Command
   fun readLastCrash(invoke: Invoke) {
