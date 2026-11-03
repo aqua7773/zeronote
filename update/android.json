@@ -1,10 +1,10 @@
 {
-  "version": "0.9.22",
-  "notes": "真人测试10 六条：密码库可用指纹解锁（Windows Hello / 安卓指纹）· 私密笔记有了常驻入口 · 点图看原图不再报「库里没有这个附件」· 手机长按恢复系统原生选字复制 · 同步策略改完重进不回退 · 桌面复制写入剪贴板、分享改走「发送到」。插件同步更新：security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1（插件中心更新）",
-  "pub_date": "2026-11-03T07:10:35.196Z",
+  "version": "0.9.23",
+  "notes": "ZeroNote 0.9.23",
+  "pub_date": "2026-11-03T17:42:48.142Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.22/app-universal-release.apk",
-    "sha256": "3fda890b3fb0301b6e8534f1ad351843e6aacd931ed5f32d67b0170b0a1c9adb",
-    "size": 34874035
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.23/app-universal-release.apk",
+    "sha256": "5ae8e47c95430cb29eb477e54169f86b8d3d9c5a7a85b7d76684d2befe9c89af",
+    "size": 34895875
   }
 }

@@ -1,11 +1,11 @@
 {
-  "version": "0.9.22",
-  "notes": "真人测试10 六条：密码库可用指纹解锁（Windows Hello / 安卓指纹）· 私密笔记有了常驻入口 · 点图看原图不再报「库里没有这个附件」· 手机长按恢复系统原生选字复制 · 同步策略改完重进不回退 · 桌面复制写入剪贴板、分享改走「发送到」。插件同步更新：security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1（插件中心更新）",
-  "pub_date": "2026-11-03T07:10:35.196Z",
+  "version": "0.9.23",
+  "notes": "ZeroNote 0.9.23",
+  "pub_date": "2026-11-03T17:42:48.142Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.22/ZeroNote_0.9.22_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRytqd1FsVUU4cmFuVzR5MGtaNThMTWRSZHF3VGZhZXhFQzVCaFhjMlg2YW1zdHRsSmFMUEZYbEpxU3Z1WlFRSEhBcW4wSGRwOWp0WmlsWXg5Q1VJOHcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjg5NTA4CWZpbGU6WmVyb05vdGVfMC45LjIyX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjIKNU9zZXROY2dURkF5SGlDMkJwbG5RYmliWnZQZDJJbzlMU1BSMW5nbjBpZnVxeE80Z2FqaWpHSUs0MitQbVQ1VzY3MVB0TXZER2Z5NGJtTHBZZmtvQkE9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.23/ZeroNote_0.9.23_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRytpdE5NMmRoSWJ5WkV0Vm04Zkp2RFo2aTRwMVRPVXlSVEtxbTIvRjhZSGFvZjB4ZVBGajNlcHdQNllKRCs1WE5rWStQSXhWeEFPVVFjdWxKQW1JdGcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNzI3NDM3CWZpbGU6WmVyb05vdGVfMC45LjIzX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjMKSHErZUVwbjQxQzN5Q0JUaVNQcTdFR2kvSjdQZWRiOWZhVlI1aWJTWVVkL0hRTE44T3VWYlhEWmJyT1hYSDh2bis4YkljMGxCMEhYOGk3djJUNGhHQUE9PQo="
     }
   }
 }

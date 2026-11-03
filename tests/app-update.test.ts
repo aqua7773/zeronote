@@ -88,6 +88,7 @@ describe('更新渠道（rev173.300）', () => {
     expect(loadUpdateMirror().id).toBe('raw')
     expect(UPDATE_MIRRORS.map((m) => m.id)).toEqual([
       'raw',
+      'gitee',
       'jsdelivr-gcore',
       'jsdelivr-testingcf',
       'jsdelivr',
