@@ -69,17 +69,10 @@
 - 手机「自动同步」默认**关着**（测试时关的），要用就在面板点「开启自动同步」
 - 手机冲突列表还剩 9 条旧测试噪声
 
-## 环境坑位（踩过的，按需查）
+## 环境坑位
 
-- **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（随会话回收）；AI 起用 `Start-Process cmd.exe /c dev.cmd -WindowStyle Minimized`；**别用管理员**（污染 WebView2 UDF ⇒ `0x800700AA`）。
-- **手机截图**走 `adb shell screencap`；**CDP `shot` 抓不到 WebView 里的 canvas**。
-- **改 `tauri.conf.json` / `Cargo.toml` ⇒ tauri CLI 自动重编重启**（与 `cargo test` 争 target 目录，verify 慢是排队不是卡死）。
-- **编辑器 CSS 在 `MarkdownEditor.tsx` 的 JS 模板字符串里** —— 注释写反引号会提前终止 ⇒ 整页白屏。
-- **改 `patches/@atomic-editor__editor@…patch` 后必须重启 dev**：结束进程树 → 删 `node_modules/.vite` → 重起（预构建缓存在内存里）。
-- **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（target 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
-- **改前端只 `location.reload()`**；改 Rust / 原生插件才重装 APK；**不往测试机装 release 包**。
-- **dev 崩溃**：连续多次 HMR 会 `0xc0000374`，重启即恢复 · **别用 `plugin:window|destroy` 关窗口**。
-- **手机验收前先确认装的是 dev 包**：只有 `pnpm tauri android dev --config tauri.android-dev.json` 装出来的包才连 dev server；`build` 出的 `app-*-debug.apk` 是离线包（内置 dist），点不动也连不上。连通性用 `adb shell "toybox nc -w 3 192.168.1.3 1420 </dev/null && echo OK"` 验，**别用 ping**（Windows 拦 ICMP 会误判）。
+> **长期有效的那份在 [`docs/开发环境坑位.md`](docs/开发环境坑位.md)** —— 本卡是交接快照、会随 rev 覆写瘦身，坑不再堆在这里。
+> 最短三条：桌面 dev 用 `dev.cmd`（别后台 job）· 手机只认 `pnpm tauri android dev` 装的 dev 包（`build` 出的是离线包）· 截图走 `adb shell screencap`。
 
 ## 是什么（三行）
 
