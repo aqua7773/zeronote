@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.350）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.351）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.350 · 0.9.24 · 2026-11-04 |
+| rev / 版本 | rev173.351 · 0.9.24 · 2026-11-04 |
 | 测试基线 | vitest 1856 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.24 |
@@ -49,7 +49,7 @@
 - **rev173.349 启动兜底（白屏类型 A：页面没挂载）**：`index.html` 内联脚本（不依赖模块）—— `main.tsx` 挂载后置 `window.__znBooted`，25 秒没标记 ⇒ 自动重载一次，再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 立即触发。真机 CDP 拦截 `main.tsx` 实测：卡片出现 → 解除后恢复、标记清空。单测 `tests/boot-guard.test.ts` 7 个
 - **rev173.349 白屏类型 B 实测（软复位会误判 · ⏳ 待拍板）**：页面完全正常时 `webView.draw()` 采样仍是五条 1.00 全白，streak 到 30 ⇒ 01:57:43 软复位执行、01:57:44 完成，但复位前后截图同为 88,515 B（画面没变）。⇒ **draw 判据在本机不可信**，自检（红色覆盖层）区分不了。处置 A/B/C 见 `docs/白屏-渲染停摆-2026-11-04.md` §8
 
-- **rev173.350 Gitee 安装包路由 + 真人测试11 #1/#3/#4**：`AssetRoute::Replace` 前缀替换（GitHub → Gitee），`canonical_asset_url` 反向换回保证回退候选完整；插件装完留市场；`formatSize` 加 <1 KB → N B；`private-notes 0.2.2` 补指纹解锁/绑定/解除（与 secrets 同一套 crypto.biometric）。⏳ 真机未验；真人测试11 #2「进软件卡顿」未动（要先加启动耗时打点）
+- **rev173.351 启动打点 + 0.9.24 发版**：`src/lib/boot-marks.ts` 记 `entry`/`first-frame`/`plugins-ready` + 启动期 >50ms 长任务（CDP `__znBootMarks()`；dev 包 logcat 里在 `Tauri/Console`，**release 包不回传**）。真机 dev 两次冷启动：JS 侧 ~700ms（插件加载 693–714ms）· 长任务最大 77ms。**release 0.9.24 实测**：`am start -W` 五次冷启动 TotalTime 173–189ms、内容可见 ~835ms（含 adb 截图开销）⇒ 启动不慢。0.9.24 已打 tag `v0.9.24`（`e739618`），Gitee 已推 main+tag，**GitHub 待补推**
 
 ## 未决 / 下一步
 

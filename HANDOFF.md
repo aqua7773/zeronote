@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.350
-更新时间: 2026-11-04 · 最新 rev173.350（**Gitee 安装包路由 + 真人测试11 三条**：应用更新的安装包也能走 Gitee（前缀替换 + 完整回退候选）；插件装完留在市场、详细大小不再显示 0 KB、私密文件夹补上指纹解锁/绑定/解除（private-notes 0.2.2））
+revision: 173.351
+更新时间: 2026-11-04 · 最新 rev173.351（**启动打点 + 0.9.24 发版**：`[zn-boot]` 记 entry / first-frame / plugins-ready + >50ms 长任务，真机两次冷启动实测 JS 侧 ~700ms；0.9.24 已打 tag，Gitee 已推送）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.350
 
 | rev | 内容 |
 |---|---|
+| rev173.351 | 2026-11-04 · **启动耗时打点（真人测试11 #2 定位工具）+ 0.9.24 发版**：新 `src/lib/boot-marks.ts` —— `performance.mark` 记 `entry` / `styles-ready` / `render-called` / `first-frame` / `plugins-ready`，外加 `PerformanceObserver({entryTypes:['longtask']})` 收启动期（20s 窗口）>50ms 任务；`main.tsx` / `usePluginHost.ts` 接打点。读法：CDP `__znBootMarks()`，或 **logcat** `adb logcat -d \| findstr zn-boot`（实测落在 `Tauri/Console` tag，release 包同样可读）。**真机两次冷启动实测**：`entry` 3.1–4.0 秒（dev 模式 vite 逐模块加载，release 无此段）→ `first-frame` 仅 +6ms → `plugins-ready` +693–714ms；长任务 4 个，最大 77ms。**结论**：JS 侧启动 ~700ms，不是用户体感卡顿的主因；需要 release 包数据。**同轮发现**：冷启动时若 dev server 瞬时不可达，Tauri dev 代理失败后**不重试**，页面停在 `Failed to request …` 错误页（内联兜底也覆盖不到，因为 HTML 没加载）；`location.reload()` 即恢复。**0.9.24 已打 tag**（`e739618` · Gitee 已推 main+tag；GitHub 当时 `Could not connect`，待重试）。**未做**：release 包实测（要装 `com.aqua.zeronote` 正式包）、GitHub 推送补发。 |
 | rev173.350 | 2026-11-04 · **Gitee 安装包路由 + 真人测试11 #1/#3/#4**：① **Gitee 也能下安装包** —— `AssetRoute` 加 `Replace(from, to)`（GitHub 仓库前缀 → Gitee 同路径前缀），`MIRRORS` 里 gitee 渠道的 asset 改用它；`ASSET_ROUTES` 加一条 gitee 路线（排在 direct 之后、ghproxy 之前）；`canonical_asset_url` 同时把 **Gitee 地址换回 GitHub** —— 否则选 Gitee 渠道时候选表只剩它自己，Gitee 抽风就无回退。② **#1 插件装完留在市场**：`MarketPane` 不再 `onSwitchToInstalled()`，prop 链一并删掉，测试断言改成「市场列表还在」。③ **#3 详细显示 0 KB**：`attachment.formatSize` 加 `< 1 KB → N B` 档 —— 原来 500 字节的短笔记 `Math.round(500/1024)=0` 显示 0 KB。④ **#4 私密文件夹补指纹**：`private-notes 0.2.2` 复用 `crypto.biometric`（`notes` 环）—— 锁屏有「用指纹解锁」、已解锁有「绑定/解除指纹」，`unlockAndLoad` 抽出 `afterUnlock` 两条路共用。**未做**：真机验证（#1 要装新包看跳转、#4 要真机按指纹）；真人测试11 #2（进软件卡顿）未动 —— 需要先加启动耗时打点才能定位。 |
 | rev173.349 | 2026-11-04 · **启动兜底（白屏类型 A）+ 类型 B 软复位实测**：① `index.html` 加**内联启动兜底**（不依赖任何模块 —— React 里那三套此时都不存在）：`main.tsx` 在 `createRoot().render()` 后置 `window.__znBooted`；25 秒内既无标记、`#root` 也无子节点 ⇒ **自动重载一次**（`sessionStorage` 的 `zn.boot-rescue-done` 防死循环），再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 事件立即触发。② `tests/boot-guard.test.ts` 7 个用例（happy-dom 里执行 index.html 的内联脚本；含「重试后仍失败不再无限刷新」「资源 error 立即触发」与 main.tsx↔index.html 契约）。③ **类型 B 实测**（01:57 真机 `33b676f6`）：页面 reload 后完全正常（截图 88,515 B），但 `ZN-RENDER` 每 10 秒仍报 `bands=[1.00×5] allWhite=true` + `domProbe=true`，streak 到 30 在 01:57:43 触发软复位、01:57:44 完成；**复位前后截图同尺寸、画面无变化** ⇒ 从未白屏，是误判。结论：软复位动作可用，`webView.draw()` 判据与红色覆盖层自检在本机都不可信 ⇒ 每进程空做一次 800 ms 复位。**处置待拍板**：A 停用自动判据（5 分钟，白屏时无自愈）/ B 改手动触发（半天）/ C 继续找判据（未知）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1856 · 质量门 8/8，02:06:05）；`_shots/zn-typea-2.png`（错误卡片）· `zn-typea-3-restored.png`（恢复）· `zn-after-rescue.png`（复位后画面无变化）；`ZN-RENDER` 全量日志 `_shots/znrender-2026-11-04.log`。**边界**：整个导航失败（dev server 挂）时内联脚本不执行，仍显示 Chromium 错误页 —— 要原生 `onReceivedError`，未做。**未做**：类型 A 的桌面端验证（只在手机走过）；真白屏复现下软复位是否真能恢复仍未知（本次无法构造真白屏）。 |
 | rev173.348 | 2026-11-04 · **Gitee 镜像接入（插件市场 + 应用更新）**：① 市场 `MARKET_MIRRORS` 加 `gitee`（索引 `https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/index.json` + 同名 packBase），排在 raw 之后；② 应用更新 `UPDATE_MIRRORS`（前端 UI 列表）与 `src-tauri/src/updates.rs` 的 `MIRRORS`（后端真路由）各加 `gitee` 渠道，清单走 `{base}update/latest.json`。**实测（2026-11-04 01:2x）**：Gitee raw 的 `market/index.json` 200（11126 字节）、`market/packs/backup-0.3.2.znp` 200（37175 字节）、`update/latest.json` 200（version 0.9.22）。**限制**：Gitee 导入仓库不带 Release 附件 ⇒ 应用安装包仍走 GitHub（清单里的 url），Gitee 只加速「检查更新」；要全走 Gitee 需在 Gitee 建 Release 并上传安装包。**证据**：tsc 0 · `cargo test --lib` 98 passed。**未做**：真机切到 Gitee 镜像装一个插件（市场是纯前端，dev 包热更新即可验）；应用更新渠道要重编 Rust 才生效。 |
@@ -241,6 +242,31 @@ revision: 173.350
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.351（2026-11-04 · 启动耗时打点 + 0.9.24）
+
+> **为什么要打点而不是直接改**：用户报「每次刚进软件出现一次明显卡顿」，可能是首帧渲染、
+> 插件扫描、首次数据加载或样式计算 —— 猜哪个都是浪费。新 `src/lib/boot-marks.ts` 用
+> `performance.mark` 记五个边界（`entry` / `styles-ready` / `render-called` / `first-frame` /
+> `plugins-ready`），加 `PerformanceObserver({entryTypes:['longtask']})` 收启动期（20 秒窗口）
+> 超过 50ms 的主线程任务。读法：CDP `__znBootMarks()`，或 logcat
+> `adb logcat -d | findstr zn-boot`（实测落在 `Tauri/Console` tag —— **release 包同样可读**）。
+
+> **真机两次冷启动实测**（`33b676f6` · dev 包）：`entry` 3.1–4.0 秒（dev 模式 vite 逐模块加载，
+> release 没有这一段）→ `first-frame` 只 +6ms → `plugins-ready` +693–714ms；长任务 4 个，
+> 最大 77ms。⇒ **JS 侧启动约 700ms，不是用户体感卡顿的主因**；要 release 包数据才能定位。
+
+> **同轮发现**：冷启动时若 dev server 瞬时不可达，Tauri 的 dev 协议代理失败后**不重试**，
+> 页面停在 `Failed to request http://192.168.1.3:1420/` 错误页 —— 内联兜底也覆盖不到
+> （HTML 根本没加载），`location.reload()` 即恢复。这解释了「刚进软件卡住」的一部分现场。
+
+> **0.9.24 发版**：tag `v0.9.24` · commit `e739618` · 版本三处同步（package.json /
+> tauri.conf.json / Cargo.toml）· verify 全绿（02:43:55）· G1+G2 已过（`_shots/rev351-g2-coldstart.png`）。
+> Gitee 已推 main + tag；**GitHub 推送失败**（`Could not connect to github.com:443`），待网络恢复补推 + 发 Release。
+
+> **证据**：`verify.ps1` 全绿；`_shots/rev351-g2-coldstart.png`；打点原始读数见本文上面三次记录。
+> **未做**：release 包实测（要装 `com.aqua.zeronote` 正式包，硬约束 7 原本禁止，用户已同意本轮装）；
+> GitHub 推送与 Release；`private-notes 0.2.2` / Gitee 安装包路由的真机验证。
 
 > ## 📌 rev173.350（2026-11-04 · Gitee 安装包路由 + 真人测试11 #1/#3/#4）
 
