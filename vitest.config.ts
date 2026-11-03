@@ -33,6 +33,11 @@ export default defineConfig({
     include: ['tests/**/*.test.{ts,tsx}'],
     environment: 'node',
     /**
+     * 全局 cleanup（2026-11-03 审计 3.9）：组件测试漏写 `afterEach(cleanup)` 也不会串 DOM。
+     * 纯逻辑用例在 node 环境里自动跳过（见 `tests/setup.ts` 的判据）。
+     */
+    setupFiles: ['./tests/setup.ts'],
+    /**
      * `@atomic-editor/editor` 的 dist 用无扩展名 ESM 相对导入（`./AtomicCodeMirrorEditor`），
      * 默认会被当成 external ⇒ 打开它的测试报 "Cannot find module"。
      * 交给 Vite 内联解析，补丁回归测试才能真实挂载编辑器（rev131）。

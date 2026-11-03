@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-03（rev173.339）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-03（rev173.340）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.339 · 0.9.22 · 2026-11-03 |
-| 测试基线 | vitest 1816 · cargo 98 · oxlint 4 warnings（2026-11-03） |
+| rev / 版本 | rev173.340 · 0.9.22 · 2026-11-03 |
+| 测试基线 | vitest 1821 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.22 |
 <!-- FACTS:END -->
@@ -39,7 +39,7 @@
 
 - **0.9.22 已发版**（tag `v0.9.22` · commit `7fbb5f1` · 5 资产）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.22>
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
-- verify 最近全绿：tsc 0 · oxlint 4 warnings · cargo test --lib 98 · vitest 1816 · 质量门 8/8
+- verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
 
 ## 未决 / 下一步
 

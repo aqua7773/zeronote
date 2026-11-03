@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.339
-更新时间: 2026-11-03 · 最新 rev173.339（**真人测试10 验收：六条全过 → 发 0.9.22**）
+revision: 173.340
+更新时间: 2026-11-03 · 最新 rev173.340（**审计待修 24 项收口 · check-docs 扩 8 道门 · dsh-dev-gate 加 4 条 hook**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.339
 
 | rev | 内容 |
 |---|---|
+| rev173.340 | 2026-11-03 · **审计待修 24 项收口**（源：`docs/审计待修-2026-11-03.md`）：5 批 24 项全部处理 —— 22 修 · 1 核实为误判（2.1「插件 store 全局一份」：`lib.rs plugin_dir()` 落 `private_root(vault)/.zn/plugins/`，store 确实按库隔离，审计把 D-004 的「插件代码全局」误读成 store）· 1 审计数据过时（2.5 docs/README 已是 68 行）。**批次 1** 仓库卫生：`_tmp-*` 出索引、`.gitignore` 改 `_tmp-*`、`dsh-dev-gate` 建 git 仓库。**批次 2** 文档漂移：契约 `PluginContext` 补 `itemMenu`/`capability` + 修订记录 v0.2.1 · UI 规范 240→150ms、删「右侧 32px」· HANDOFF 161/210 段补「证据/未做」+ 模板进 `开发约定.md` §6。**批次 3** `check-docs` 从 4 类扩到 7 类：PluginContext 成员 · 状态词允许集 · 交接卡 ≤120 · docs/README ≤150 · 规范类 ≤300（契约按 B1 例外）· 矩阵登记 · HANDOFF 段 ≤80（存量 4 段白名单）· 旧段只增不减（对比 `git show HEAD:`）· 最新段强制两行 · 共享逻辑禁止写法 grep；负向实测两次都正确报红。3.9 `tests/setup.ts` + `setupFiles` 全局 cleanup。**批次 4** `dsh-dev-gate` 新 R4 提交证据门 / R5 首轮强制 skill（实测拦过一次）/ R6 每 50 次自检注入（不报 token）/ R7 `.ps1` 无策略提示（实测提示一次）。**批次 5** 新建 `docs/共享逻辑.md`（5 条）+ `tests/signing-parity.test.ts` 真比两份 `signingPayload` 输出。验证：`check-docs` 全绿 · signing-parity 5/5 · 全量 `verify.ps1` 见提交。 |
 | rev173.339 | 2026-11-03 · **真人测试10 验收：六条全过 → 发 0.9.22**。① **#3「点图看原图」复验：原判「不过」是误判，不是 bug** —— 测试图 `_tmp-vault-tb/x.jpg`（1216×2688）本身就是一张「文件树抽屉 + 右键菜单」的截图，点图后预览**正常弹出**、居中的正是这张图 ⇒ 看起来像弹了文件树。换 800×500 图（桌面 + 手机各一次）：遮罩 + 居中原图 + Esc / BACK 关闭 ✓，全程无「库里没有这个附件」⇒ 路径修复有效。② **手机 #1 指纹补验** —— 密码库 `a12345678` 解锁 → 显示「本机已绑定指纹」→ 锁定 → 锁屏「用指纹解锁」→ 前台切 `app.tauri.biometric.BiometricActivity`（屏下指纹）→ 用户按指纹 → **「已用指纹解锁」** ✓。③ **手机 #3** —— debug APK + `adb push` 测试图 → 列表自动刷新 → 点图 → 全屏预览 → BACK 一次同时收键盘 + 关预览 ✓（已知小瑕疵：点图时软键盘一起弹，未修）。④ 判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6 **六条全过**（桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5），证据 `_shots/rt10-*`。⑤ 同轮其它：rev173.337（纠正「App 启动内置插件覆盖全局根」的错误根因 —— 真因是市场索引没 push、用户点「更新」把旧版装回；`private-notes 0.2.1` 打包签名入库、索引 15 条）、rev173.338（vite watch 忽略 `.tmpdir` / `*.tmp`，防 EBUSY 崩 dev server）。验证：`verify.ps1` 基线见发版记录。 |
 | rev173.336 | 2026-11-03 · **真人测试10 六条：代码已改完，真机验证 5/6 未过**（`ZreoNote/.zn/share/真人测试10.md`，6 条 + 6 图）。改法：① **密码库指纹** —— 扩展 `security` 的 crypto 服务（`biometric.available/bound/unlock/bind/unbind`，DEK 仍不出 security），`secrets` 加「用指纹解锁 / 绑定本机指纹 / 解除」三条命令与入口；② **私密切换入口** —— 桌面侧栏头加 🔒（`AppSidebar.onOpenPrivate`），手机「更多」抽屉第一项加「私密笔记」（`more-items.ts` 新 action）；③ **查看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」** —— `MarkdownEditor` 点击时传**命中的候选**（`znUrlIdx`）而不是第一候选，`App.openLocalLink` 改 `linkCandidates`（笔记目录 → 库根）；④ **手机无法选字** —— 删自绘四键条（含 300ms 的全屏 scrim，正是它打断系统选词），编辑区放行 `contextmenu`；⑤ **同步策略重进变默认** —— 面板「附件」从受控 `select` 改**按钮组**（select 的取值依赖 `ctx.state`，而 render 从不播种）；⑥ **桌面复制 / 分享** —— 新增 Rust `copy_files_to_clipboard`（多选 CF_HDROP）与 `list_send_to_targets` / `send_files_to`（枚举 `%APPDATA%\Microsoft\Windows\SendTo\*.lnk`，`ShellExecuteExW` 执行），桌面「分享 md」改走「发送到…」面板。**同轮规则**：`~/.dsh/AGENTS.md` §8.8 + `ai-habits` §8「同一逻辑多处实现 ⇒ 先全量审计再改」，并据此统一了 5 处附件路径解析（`linkCandidates` 唯一来源 / `mediaSourceUrls` 多候选 / `refLocations` 跨端一致）。验证：tsc 0 · vitest **1816**（+12）· cargo check 0 · oxlint 0 error。⚠️ **用户真机验证结果**：A3/A4（同步）、A6（发送到）、A8/B2（私密入口）、B5（密码库环）**失败**，A5（桌面复制）失败 —— **根因：桌面 dev 与调试机的插件仍是旧版**（`import-export` 0.2.3 / `sync` 0.1.7 / `security` 0.2.1 / `secrets` 0.1.1，且**没有 `private-notes`**），我同步进去的新包被覆盖（待查是谁覆盖）；A5 与插件无关，是真 bug，待实测。**未提交 / 未推送 / 未发版**。 |
 | rev173.335 | 2026-11-03 · **真人测试9 三条**（`Downloads/真人测试9 (2).md`，3 条 + 3 张真机截图）：① **底部没有历史版本** —— 用户澄清「底部栏只在键盘弹出时显示，原来的位置就显示历史版本信息」→ 再改口「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」。改法：手机编辑页新增**常驻底部状态栏**（复用 `.zn-statusbar`：左 `editor-topbar` 面板 = 历史版本 / 反链，右 = 当前文档字数）；顶部不再放 `editor-topbar`（rev173.334 挪到底部快捷栏的写法撤掉）；底部标记快捷栏 `MarkToolbar` 仍**只在键盘弹出时**出现（`keyboardOpen`）。新 CSS `.zn-editor-statusbar`（高度自适应 + 底部安全区）。 ② **密码库插件一直显示未建立密钥环** —— 根因：`security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），旧单文件 `vault.json` 只剩迁移残留；而 `secrets` / `private-notes` 的 `checkRingReady` **仍只读旧单文件** ⇒ 迁移过的库存永远「未建立」，与安全插件页面「已建立」自相矛盾（用户两张截图正是这个）。改法：两个插件都先读 `vault.<环id>.json`（结构 `{ v:2, ring:{ id, ... } }`）、旧单文件兜底；新增纯函数 `hasRingPart` / `hasNotesRingPart` 与 `securityVaultFileOf`，各 +2 条单测。`secrets` **0.1.1** 已签名入库（`market/packs/secrets-0.1.1.znp` · 48.5 KB · keyId `aqua-2026` · 索引 14 条）。 ③ **首页加号隐藏有「往右移动」效果** —— 根因：`.zn-mobile-compose` 靠 `transform: translateX(-50%)` 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)` **把居中覆盖掉了** ⇒ 收起瞬间按钮向右跳半个身位。改成只 `opacity: 0`（保留 `translateX(-50%)`），动画时长改走 token `--zn-dur-base`（design-tokens 门禁）。验证：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。⚠️ **未做真机**：①③ 要装新包看；② 手机把插件中心更新到 `secrets 0.1.1` 即生效。 |
@@ -231,6 +232,43 @@ revision: 173.339
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.340（2026-11-03 · 审计待修 24 项收口 · check-docs 扩 8 道门 · dsh-dev-gate 加 4 条 hook）
+
+> **来源**：`docs/审计待修-2026-11-03.md`（32 项 = 24 可执行 + 8 待拍板）。
+> **结果**：5 批 24 项全部处理 —— **22 修 · 1 核实为误判 · 1 审计数据过时**。待拍板 8 项未动。
+>
+> ### 一、仓库卫生
+>
+> 1. `_tmp-release-notes-0.9.14.md` 出索引（`git rm --cached`，本地文件保留）
+> 2. `.gitignore` 的 `_tmp-*/` → `_tmp-*`（原来只匹配目录，漏掉同名文件）
+> 3. `dsh-dev-gate` 建 git 仓库（首次提交 `ccad07a`；审计给的两条路选「原地 init」）
+>
+> ### 二、文档漂移（5 修 + 1 条误判）
+>
+> - **2.1 核实为误判**：`lib.rs plugin_dir()` 落 `private_root(vault)/.zn/plugins/` ⇒ 插件 store **确实按库隔离**；审计把 `D-004` 的「插件代码全局一处」误读成 store 全局。顺手精确化：子库提升容器根 ⇒ 同容器子库共享一份（`docs/数据与存储.md`）
+> - 2.2 契约 `PluginContext` 签名块补 `itemMenu` / `capability`，头部加「修订记录（minor）v0.2.1」
+> - 2.3 UI 规范拖拽 240 → **150ms**（代码 `ARM_MS = 150`，长按阈值 300ms）
+> - 2.4 UI 规范删「起手右侧 32px 内」（`moreSwipeIntent` 已无边缘限制，rev173.312）
+> - 2.6 HANDOFF 161 / 210 段补「**证据** / **未做**」；模板写进 `docs/开发约定.md` §6
+>
+> ### 三、格式 + 检查门（`check-docs` 从 4 类扩到 7 类）
+>
+> 新增：PluginContext 成员 vs 契约 · 状态词允许集 · 交接卡 ≤120 · `docs/README` ≤150 · 规范类 ≤300（契约按 B1 登记例外）· README 矩阵登记 · HANDOFF 单段 ≤80（存量 4 段白名单，只减不增）· 旧段只增不减（对比 `git show HEAD:HANDOFF.md`）· 最新段强制两行 · 共享逻辑禁止写法 grep。
+> **负向实测**：状态词改 `zzz-test`、删掉最新段「未做」—— 两次都正确报红（确认不是静默跳过）。
+> 3.9：`tests/setup.ts` + `setupFiles` 全局 cleanup（node 环境自动跳过），37 个组件测试文件不用逐个改。
+>
+> ### 四、dsh-dev-gate 加 4 条 hook（已热载生效）
+>
+> **R4** 提交证据门（`git commit` 前本会话要跑过 G1）· **R5** 首轮强制 skill（本轮实测拦过一次）· **R6** 每 50 次工具调用注入自检（**只报调用次数，不报 token** —— 插件拿不到可靠值，不编造）· **R7** `.ps1` 不带 `-ExecutionPolicy Bypass` → 日志 + 下一轮提示（实测已提示一次）。四个配置项都能单独关。
+>
+> ### 五、共享逻辑（审计 5.1）
+>
+> 新建 `docs/共享逻辑.md`：5 条 —— 附件路径 `linkCandidates` · 目录切分 `dirnamePosix` · 拖拽落点 `resolveDropTarget`（触摸通道**登记为已知第二份**，闭包限制）· 签名 payload 跨端 · 附件落盘 `assets.rs`。
+> 配套：`check-docs` 的 `SHARED_RULES` 全仓 grep；新增 **`tests/signing-parity.test.ts`** 真比两份 `signingPayload` 的输出（原来只断言前端固定串，脚本那份改坏测试不会红）。
+>
+> **证据**：`node scripts/check-docs.mjs` 全绿（含新增 7 类）· `signing-parity` 5/5 · 负向测试两次报红 · `dsh-dev-gate` R5/R7 各实测一次
+> **未做**：8 项待拍板（B1–B8）未动；B1/B2 在 3.8 里按「例外 + 允许子态」临时落地，拍板后回来收窄；`docs/README.md` 权威矩阵以后新增文档要手补（`check-docs` 会红）
+
 > ## 📌 rev173.339（2026-11-03 · 真人测试10 验收：六条全过 → 发 0.9.22）
 
 > **来源**：`docs/验收卡-真人测试10-2026-11-03.md`（卡号 `ACT-2026-11-03-RT10`）。
@@ -267,6 +305,9 @@ revision: 173.339
 >   - Android `app-universal-release.apk` 33.26 MiB（sha256 `3fda890b3fb0301b…`，与 `update/android.json` 一致）
 >   - 更新清单 `update/latest.json` + `android.json` 已提交推送（`aac2540`）
 > - **待真机**：手机装 0.9.22 复验六条；插件市场更新 security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1（手机默认镜像 raw 国内不通，先切 ghproxy.net）。
+>
+> **证据**：`_shots/rt10-*` 截图 · 判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6 · `verify.ps1` 全绿（15:00:47）· Release `v0.9.22` 五资产（sha256 已核）
+> **未做**：手机装 0.9.22 复验六条 · 插件市场五个更新（先切 ghproxy.net 镜像）
 
 > ## 📌 rev173.336（2026-11-03 · 真人测试10 六条：代码全改完，真机验证 5/6 未过 —— 主因是验证环境的插件还是旧版）
 
@@ -4954,6 +4995,9 @@ revision: 173.339
 > vitest **1297 → 1300** · `verify.ps1` 六步全绿 · 测试库授权已清空 ·
 > `ai` 源码已含 209/210，`manifest` 仍 **0.6.0**、市场包仍是 208 那版（提示词与 UI 属于内部改进，下个功能版一起 bump 重打）。
 >
+> **证据**：vitest 1297 → **1300** · `verify.ps1` 六步全绿 · 桌面 CDP 实测 `_shots/rev173.210-*.png`
+> **未做**：`ai` manifest / 市场包仍停在 208 那版（下个功能版一起 bump 重打）
+>
 > ## 📌 rev173.209（2026-10-27 · AI 对话补上 system 提示，防幻觉）
 >
 > 用户「继续做 ai 这边的」。根因一句话：**rev197 起的对话请求里一直没有 `system` 消息** ——
@@ -7176,6 +7220,9 @@ revision: 173.339
 > 1. 期 1b：`secrets` 密码库插件（消费 `crypto` 服务，`consume` 拿 `null` 时提示「先去市场装安全插件」）
 > 2. 期 1c：四个同步插件放行 `.zn/secrets/`
 > 3. 之后可选：市场里给官方包加「官方 / 已签名」徽标（`keyId=aqua-2026` 已可用于判断）
+>
+> **证据**：`market/packs/security-0.1.0.znp`（sha256 `42ff0e…`）· `verify-trust` 15/16 · CI `40209288687` 15 步全绿 · 应用内「发现 14 条」
+> **未做**：`secrets`（期 1b）· 四后端放行 `.zn/secrets/`（期 1c）· 官方 / 已签名徽标
 
 > ## 📌 rev173.160（2026-10-25 · 安全插件 v0.1：双密钥环 + crypto 服务）
 
