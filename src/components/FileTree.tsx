@@ -1535,7 +1535,7 @@ export function FileTree({
             },
           })
           list.push({
-            label: '复制',
+            label: '复制文件',
             hint: 'Ctrl+C',
             onClick: () => {
               onCopy(picked)

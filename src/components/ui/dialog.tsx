@@ -71,6 +71,7 @@ export function Dialog({
     >
       <div
         className="zn-dialog-backdrop absolute inset-0 bg-foreground/40"
+        data-overlay=""
         onClick={dismissOnBackdropClick ? () => onOpenChange(false) : undefined}
       />
       <div

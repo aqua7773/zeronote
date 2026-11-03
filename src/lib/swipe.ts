@@ -20,10 +20,13 @@ export type SwipeAction = 'open' | 'close' | null
  *
  * 用 DOM 查而不是问 React state：图片预览的状态在 `MarkdownEditor` 内部、环形菜单
  * 与命令面板各有自己的 state —— 逐个提升到 App 会把一件事拆到四处，而且以后新增
- * 浮层必须记得同步。**新增遮罩时记得把 class 加进这个选择器**（单测会兜住已知的四类）。
+ * 浮层必须记得同步。
+ *
+ * **2026-11-03 P4：新增浮层请写 `data-overlay` 属性**，不再往这个选择器里加 class。
+ * 旧四类 class 保留兼容（单测仍覆盖），全量迁移后可删。
  */
 const BLOCKING_OVERLAY_SELECTOR =
-  '.zn-img-preview, .zn-quick-overlay, .zn-palette-mask, .zn-dialog-backdrop'
+  '[data-overlay], .zn-img-preview, .zn-quick-overlay, .zn-palette-mask, .zn-dialog-backdrop'
 
 export function hasBlockingOverlay(doc: Document = document): boolean {
   return !!doc.querySelector(BLOCKING_OVERLAY_SELECTOR)

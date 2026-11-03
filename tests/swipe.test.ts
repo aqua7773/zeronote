@@ -57,6 +57,15 @@ describe('hasBlockingOverlay', () => {
     expect(hasBlockingOverlay(document)).toBe(false)
   })
 
+  it('任意带 data-overlay 的层都算（P4：新增浮层不用改白名单）', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-overlay', '')
+    document.body.append(el)
+    expect(hasBlockingOverlay(document)).toBe(true)
+    el.remove()
+    expect(hasBlockingOverlay(document)).toBe(false)
+  })
+
   it('图片预览 / 环形菜单 / 命令面板 / 对话框 —— 四类遮罩各一个都算「开着」', () => {
     for (const cls of ['zn-img-preview', 'zn-quick-overlay', 'zn-palette-mask', 'zn-dialog-backdrop']) {
       const el = document.createElement('div')

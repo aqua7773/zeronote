@@ -86,7 +86,7 @@ export function QuickSwitcher({
   }
 
   return (
-    <div className="zn-palette-mask" onMouseDown={onClose}>
+    <div className="zn-palette-mask" data-overlay="" onMouseDown={onClose}>
       <div className="zn-palette" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}

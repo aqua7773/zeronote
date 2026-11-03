@@ -48,6 +48,13 @@ type Props = {
    */
   itemActions?: ItemMenuRegistration[]
   onItemAction?: (action: ItemMenuRegistration, ctx: ItemMenuContext) => void
+  /**
+   * 「详细…」（2026-11-03 P3）：与文件树**同一回调**（宿主传 App.showEntryInfo）。
+   * 不传就不摆这一项 —— 单测 / 独立窗口场景没有这个能力。
+   */
+  onShowInfo?: (path: string, isDir: boolean) => void
+  /** 「在文件夹中打开」（2026-11-03 P3）：桌面交给系统文件管理器；手机由宿主提示不支持 */
+  onReveal?: (path: string) => void
 }
 
 /** 长按判定用共享的 `LONG_PRESS_MS`（300ms）；这里只留「移动多少像素算滑动」 */
@@ -94,6 +101,8 @@ export function MobileNoteCards({
   layers,
   itemActions = [],
   onItemAction,
+  onShowInfo,
+  onReveal,
 }: Props) {
   /**
    * 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件）。
@@ -344,6 +353,28 @@ export function MobileNoteCards({
           }
         }
         list.push({ label: '重命名…', divider: true, onClick: () => startRename(menu.path) })
+        /* 2026-11-03 P3：补齐与文件树同一套能力（真人测试6 #4 要的「详细」+「在文件夹中打开」）。
+           注意先抄下 menu 再关菜单 —— setMenu(null) 之后闭包里的 menu 仍是旧值，但要防竞态。 */
+        if (onShowInfo) {
+          list.push({
+            label: '详细…',
+            onClick: () => {
+              const at = menu
+              setMenu(null)
+              if (at) onShowInfo(at.path, false)
+            },
+          })
+        }
+        if (onReveal) {
+          list.push({
+            label: '在文件夹中打开',
+            onClick: () => {
+              const at = menu
+              setMenu(null)
+              if (at) onReveal(at.path)
+            },
+          })
+        }
         list.push({
           label: '删除（回收站）',
           danger: true,

@@ -74,6 +74,7 @@ export function QuickLaunch({ open, onClose, entries, onNewNote, onEdit }: Props
   return createPortal(
     <div
       className="zn-quick-overlay"
+      data-overlay=""
       role="dialog"
       aria-modal="true"
       aria-label="快捷入口"

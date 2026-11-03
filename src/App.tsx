@@ -4512,7 +4512,7 @@ export default function App() {
     // ── 编辑（编辑器就绪时）──
     if (view) {
       items.push(
-        { label: '复制', hint: 'Ctrl+C', divider: true, onClick: () => void copySelection() },
+        { label: '复制文本', hint: 'Ctrl+C', divider: true, onClick: () => void copySelection() },
         {
           label: '剪切',
           hint: 'Ctrl+X',
@@ -5513,6 +5513,8 @@ export default function App() {
                 onCloseTimeline={() => setSidebarView('notes')}
                 itemActions={itemMenus}
                 onItemAction={runItemAction}
+                onShowInfo={(p, isDir) => void showEntryInfo(p, isDir)}
+                onReveal={(p) => void revealEntry(p)}
               />
             </div>
           )}
@@ -5857,6 +5859,8 @@ export default function App() {
               onRename={(from, to) => void renameNote(from, to, false)}
               itemActions={itemMenus}
               onItemAction={runItemAction}
+              onShowInfo={(p, isDir) => void showEntryInfo(p, isDir)}
+              onReveal={(p) => void revealEntry(p)}
             />
           )
         ) : (
@@ -6205,6 +6209,7 @@ export default function App() {
       {imagePreview && (
         <div
           className="zn-img-preview"
+          data-overlay=""
           role="presentation"
           onClick={() => setImagePreview(null)}
         >
