@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.344
-更新时间: 2026-11-04 · 最新 rev173.344（**重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`，aqua-2026 私钥签名；rev173.341 改了源码却没 bump 版本，用户手上一直是旧包）
+revision: 173.345
+更新时间: 2026-11-04 · 最新 rev173.345（**渲染停帧自救**：真机实测的第二种白屏 —— DOM 在、JS 心跳在、只有渲染停了；加 rAF 心跳，前台连续 30 s 无帧就 reload 一次。同轮补验 P6 后两项）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.344
 
 | rev | 内容 |
 |---|---|
+| rev173.345 | 2026-11-04 · **渲染停帧自救 + P6 后两项补验**：① 第二种白屏（画面全白、点击不重绘、25 秒+不变，但 DOM 在、`setInterval` 在跑）⇒ `lib/window-guard.ts` 加 `RENDER_STALL_MS=30s` / `RENDER_CHECK_MS=5s` / `RENDER_RESCUE_FLAG` + 纯函数 `shouldRescueRender`，`hooks/useWindowGuard.ts` 加 `useRenderStallRescue`（rAF 每帧打时间戳，前台连续 30 s 无帧 ⇒ reload 一次，sessionStorage 防循环），`App.tsx` 只在 Android 主窗口挂。② P6 后两项补验 —— 桌面右键菜单第一组是「复制文本 Ctrl+C」；手机分享直接弹系统分享面板，插件说明文案是「放进系统剪贴板」不含「复制」。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1849 · 质量门 8/8，00:07:26）；`_shots/rev344-p6b-menu.png` / `rev344-p6c-share.png`。**未做**：真机白屏复现验证进行中。 |
 | rev173.344 | 2026-11-04 · **重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5` —— rev173.341 改了这三个的源码（select 播种 / 复制文案）但没有 bump 版本，`market/packs` 里仍是旧包，用户从市场更新拿不到修复。用 `C:\Users\AQUA\.zeronote-keys\aqua-2026.key.pem` 签名（密钥位置已记成 skill `zeronote-signing-key-locations`，只记路径不记内容）；`gen-market --write` 重建索引（15 条）。**证据**：`scripts/verify-trust.mjs` 63/64 签名包用内置公钥验过（theme-sepia 纯样式恒 unsigned）；`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8，00:01:07）。**未做**：包还没推到 GitHub（网络连不上），手机市场更新要等推送后才能验。 |
 | rev173.343 | 2026-11-03 · **真机补验 rev173.341 三项遗留（只验不改）**：真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载 rev173.342）。**P4** 打开图预览后左右各划一次，抽屉没有弹出；对照「关预览回首页右滑 → 左抽屉正常打开」；编辑区内滑动不开抽屉属既有规则（输入状态不触发）。**P6** 文件树长按 `新笔记-12-54-00.md` → 菜单是「**复制文件**」（Ctrl+C），并确认「详细…」「在文件夹中打开」在。**P1** 子目录笔记 `归档/新建文件夹/test-photo.md` 引用上级 `归档/test-photo.png` → 正文渲染正常、点开全屏预览正常，无「库里没有这个附件」。**证据**：`_shots/rev343-p4-*` / `rev343-p6-01-menu.png` / `rev343-p1-*`；无代码改动，基线沿用 23:22:10 的 tsc 0 · oxlint 4 · cargo 98 · vitest 1844 · 质量门 8/8。**未做**：P6 后两项（编辑器右键「复制文本」、分享面板去「复制」字样）没在手机上走；rev173.342 的「文件树点图」回归没单独验。 |
 | rev173.342 | 2026-11-03 · **手机点图预览收软键盘**（交接卡「已知未修」项）：`src/lib/swipe.ts` 新 `dismissTypingFocus(doc)`（判据复用既有 `isTypingNow`，焦点真在 contentEditable / input / textarea 才 blur），`src/App.tsx` 图片预览 effect 在 `platform === 'android'` 时调用 ⇒ 预览打开时焦点交还 body、软键盘收起、图独占全屏；桌面不处理（无软键盘，失焦会打断连续输入）。命令面板 / 快速打开这类**要打字**的浮层不调用，边界写进函数注释与测试。**证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）；`tests/swipe.test.ts` 24 条（+2）；真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server）两次点图：点正文弹键盘（`_shots/rev342-04-keyboard.png`）→ 点图全屏预览且键盘收起（`_shots/rev342-05-preview.png` / `rev342-07-second.png`）。**未做**：文件树点图与其它浮层未复验；桌面点图行为未改。 |
@@ -236,6 +237,14 @@ revision: 173.344
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.345（2026-11-04 · 渲染停帧自救 + P6 后两项补验）
+
+> **问题（白屏第二种）**：2026-11-03 真机实测 —— 画面全白、点击不重绘、持续 25 秒以上画面完全不变，但焦点还在 MainActivity、`setInterval` 仍在跑（Rust 看门狗 25 秒都没杀进程）⇒ 已有的 `domLooksAlive` / `mainDomLooksAlive` 判据永远判「正常」，自救不触发。
+> **改法**：`lib/window-guard.ts` 加 `RENDER_STALL_MS = 30s` / `RENDER_CHECK_MS = 5s` / `RENDER_RESCUE_FLAG` + 纯函数 `shouldRescueRender`（页面可见 · 这次没救过 · 连续无帧到阈值）；`hooks/useWindowGuard.ts` 加 `useRenderStallRescue`：rAF 每帧打时间戳，前台连续 30 s 无帧 ⇒ `location.reload()` 一次（sessionStorage 防循环；页面不可见时重置基准，切后台/熄屏不算故障）；`App.tsx` 只在 Android 主窗口挂（桌面 WebView2 没复现过）。
+> **P6 后两项补验**（补 rev173.343 的「未做」）—— ① **编辑器右键「复制文本」**：桌面右键正文 → 菜单第一组是「复制文本 Ctrl+C / 剪切 / 粘贴 / 全选 / 插入附件… / 查找…」（`_shots/rev344-p6b-menu.png`）；手机设计上不弹桌面式主菜单（`App.tsx:5305` · rev173.317），长按走系统菜单。② **分享面板文案**：手机左抽屉长按笔记 →「分享（Markdown 文件）…」→ 直接弹**系统分享面板**（ZeroNote / QQ / 电子邮件，`_shots/rev344-p6c-share.png`）；插件首页说明是「md 会作为文件放进系统剪贴板」，不含「复制」字样（`examples/import-export/index.js:1040`）。
+>
+> **证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1849 · 质量门 8/8，00:07:26）；`tests/window-guard.test.ts` 30 条（+5）。
+> **未做**：真机白屏复现验证进行中（盯屏采样）；rev173.342 的「文件树点图」回归没单独验。
 > ## 📌 rev173.344（2026-11-04 · 重打包三个插件市场包）
 
 > **问题**：rev173.341 改了 `examples/backup` / `examples/ai`（select 播种）与 `examples/import-export`（复制文案），但 manifest 版本没动 ⇒ `market/packs` 里仍是 `0.3.1 / 0.9.0 / 0.2.4`，用户从市场点「更新」拿到的还是旧代码。
@@ -252,7 +261,7 @@ revision: 173.344
 > **P1 手机点图解析** —— 子目录笔记 `归档/新建文件夹/test-photo.md` 引用**上级**目录图 `归档/test-photo.png`（正文 `![](归档/test-photo.png)`）→ 正文渲染正常（`_shots/rev343-p1-02-note.png`）、点开全屏预览正常（`rev343-p1-03-preview.png`），**无**「库里没有这个附件」。
 >
 > **证据**：上述截图；本轮无代码改动，`verify.ps1` 基线沿用 23:22:10（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）。
-> **未做**：P6 后两项（编辑器右键「复制文本」、分享面板去「复制」字样）没在手机上单独走；rev173.342 的「文件树点图」回归没单独验。
+> **未做**：rev173.342 的「文件树点图」回归没单独验（P6 后两项已于 rev173.345 补验，见该段）。
 > ## 📌 rev173.342（2026-11-03 · 手机点图预览收软键盘）
 
 > **问题**：交接卡「已知未修」—— 手机点正文里的图，预览打开时软键盘还弹着，预览与键盘各占半屏。
