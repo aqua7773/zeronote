@@ -37,6 +37,8 @@ const probe = {
   /** 长任务快照：{ start, dur, imgs, loaded, nodes } */
   snaps: [],
   installed: false,
+  /** Tauri 把 invoke 定义成不可写 —— 探针装不上时置 true，面板给提示 */
+  ipcUnavailable: false,
   savedInvoke: null,
   observer: null,
 }
@@ -54,31 +56,39 @@ export function installProbe(win) {
   const w = win ?? (typeof window === 'undefined' ? undefined : window)
   if (!w || probe.installed) return
   const internals = w.__TAURI_INTERNALS__
-  if (!internals || typeof internals.invoke !== 'function') return
-  probe.savedInvoke = internals.invoke
-  internals.invoke = function (cmd, args, options) {
-    const t0 = nowMs()
-    let p
+  if (internals && typeof internals.invoke === 'function') {
+    /**
+     * ⚠️ 0.2.0 的教训（真机实测）：Tauri 2 把 `__TAURI_INTERNALS__.invoke` 定义成
+     * `writable: false, configurable: false` —— 直接赋值会抛
+     * `TypeError: Cannot assign to read only property 'invoke'`，并让**整个插件加载失败**。
+     * 所以这里必须 try 住；拿不到就标记 `ipcUnavailable`，其它探针照常工作。
+     */
     try {
-      p = probe.savedInvoke.call(this, cmd, args, options)
-    } catch (e) {
-      throw e
+      const orig = internals.invoke
+      const wrapped = function (cmd, args, options) {
+        const t0 = nowMs()
+        const p = orig.call(this, cmd, args, options)
+        if (p && typeof p.then === 'function' && probe.ipc.length < MAX_IPC) {
+          p.then(
+            () => {
+              const dur = Math.round(nowMs() - t0)
+              if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: true })
+            },
+            () => {
+              const dur = Math.round(nowMs() - t0)
+              if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: false })
+            },
+          )
+        }
+        return p
+      }
+      Object.defineProperty(internals, 'invoke', { value: wrapped, configurable: true, writable: true })
+      probe.savedInvoke = orig
+      probe.installed = true
+    } catch {
+      probe.ipcUnavailable = true
     }
-    if (p && typeof p.then === 'function' && probe.ipc.length < MAX_IPC) {
-      p.then(
-        () => {
-          const dur = Math.round(nowMs() - t0)
-          if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: true })
-        },
-        () => {
-          const dur = Math.round(nowMs() - t0)
-          if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: false })
-        },
-      )
-    }
-    return p
   }
-  probe.installed = true
 
   // 长任务快照：内核也会记 longtask，但只有这里能顺手抓 DOM 规模
   try {
@@ -136,6 +146,7 @@ export function probeSnapshot() {
   return {
     ipc: [...probe.ipc],
     snaps: [...probe.snaps],
+    ipcUnavailable: probe.ipcUnavailable,
   }
 }
 
@@ -213,14 +224,14 @@ export function logText(data) {
 /** 运行期快照（IPC + 长任务 DOM 规模）—— 与内核打点合并成面板数据 */
 export function collect(getResourceEntries) {
   const base = readBoot() ?? { at: 0, marks: [], longTasks: [] }
-  const { ipc, snaps } = probeSnapshot()
+  const snap = probeSnapshot()
   let resources = []
   try {
     resources = getResourceEntries?.() ?? []
   } catch {
     resources = []
   }
-  return { ...base, ipc, snaps, resources }
+  return { ...base, ...snap, resources }
 }
 
 /* ───────────────────────── 面板 ───────────────────────── */
@@ -344,7 +355,9 @@ export function panelNode(data) {
           total: r.total,
           max: r.max,
         })),
-        empty: '没有记录到（可能不是 Tauri 环境）',
+        empty: data.ipcUnavailable
+          ? '正式包里 Tauri IPC 只读，探针装不上（看上面 DOM 快照与资源表）'
+          : '没有记录到（可能不是 Tauri 环境）',
       },
       { type: 'text', value: '资源加载 Top（按耗时）', variant: 'title' },
       {
@@ -443,8 +456,8 @@ export default {
             resources = []
           }
           const base = readBoot() ?? { at: 0, marks: [], longTasks: [] }
-          const { ipc, snaps } = probeSnapshot()
-          return panelNode({ ...base, ipc, snaps, resources })
+          const snap = probeSnapshot()
+          return panelNode({ ...base, ...snap, resources })
         },
       }),
     )

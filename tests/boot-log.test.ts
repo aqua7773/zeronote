@@ -11,9 +11,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import plugin, {
   aggregateIpc,
+  installProbe,
   logText,
   longTaskRows,
   panelNode,
+  probeSnapshot,
   readBoot,
   resourceRows,
   stageRows,
@@ -271,5 +273,23 @@ describe('apply：注册与命令接线', () => {
 
     await commands.get('boot-log.copy')!.run()
     expect(api.host.notify).toHaveBeenCalled()
+  })
+
+  it('Tauri 的 invoke 只读时：装不上探针但不抛错，面板标 ipcUnavailable', () => {
+    // 真机实测：__TAURI_INTERNALS__.invoke 是 writable:false / configurable:false
+    const internal = {}
+    Object.defineProperty(internal, 'invoke', {
+      value: () => Promise.resolve(),
+      writable: false,
+      configurable: false,
+    })
+    const win = { __TAURI_INTERNALS__: internal, PerformanceObserver: undefined }
+
+    expect(() => installProbe(win)).not.toThrow()
+    expect(probeSnapshot().ipcUnavailable).toBe(true)
+
+    // 面板照常渲染，IPC 表给出「只读」提示而不是空白
+    const json = JSON.stringify(panelNode({ ...data, ipc: [], ipcUnavailable: true }))
+    expect(json).toContain('Tauri IPC 只读')
   })
 })

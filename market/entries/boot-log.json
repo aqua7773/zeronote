@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.2.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/boot-log-0.2.0.znp",
-  "sha256": "7487c7dcffc78bb8361b1e0b987a3784785fa0462907a951b7215be8ebc00d40",
-  "size": 18405,
+  "version": "0.2.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/boot-log-0.2.1.znp",
+  "sha256": "0a022d3260bec27db4b8777ba5a76b3606f886f28042fa19dc6e9b421ecdfdef",
+  "size": 19281,
   "files": [
     "index.js",
     "signature.json"
