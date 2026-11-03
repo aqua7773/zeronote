@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.3.1",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backup-0.3.1.znp",
-  "sha256": "eb1f142e5f86fae38e5a8bad282e5ecc25fc21f7b738ad6ce4668dbc4cf4787e",
-  "size": 37278,
+  "version": "0.3.2",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backup-0.3.2.znp",
+  "sha256": "edde3dfb72cee3b742b28b5577d5e3bf288aaadfd9752a927671c744de11f021",
+  "size": 37175,
   "files": [
     "index.js",
     "signature.json"

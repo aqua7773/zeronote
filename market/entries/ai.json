@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.9.0",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/ai-0.9.0.znp",
-  "sha256": "034f4c920305dca924c59eb0d2eaec9514f96ddf70cb5d800074a3f9670d216a",
-  "size": 154678,
+  "version": "0.9.1",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/ai-0.9.1.znp",
+  "sha256": "b68dbde48fe6db3c7f83dd54136dd81c25ce0efe8454f16744760209935062fb",
+  "size": 155017,
   "files": [
     "index.js",
     "signature.json"
