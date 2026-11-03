@@ -7,7 +7,7 @@
 | 事实 | 当前值 |
 |---|---|
 | rev / 版本 | rev173.340 · 0.9.22 · 2026-11-03 |
-| 测试基线 | vitest 1821 · cargo 98 · oxlint 4 warnings（2026-11-03） |
+| 测试基线 | vitest 1842 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.22 |
 <!-- FACTS:END -->
