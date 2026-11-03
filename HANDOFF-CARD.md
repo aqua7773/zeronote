@@ -49,7 +49,7 @@
 - **rev173.349 启动兜底（白屏类型 A：页面没挂载）**：`index.html` 内联脚本（不依赖模块）—— `main.tsx` 挂载后置 `window.__znBooted`，25 秒没标记 ⇒ 自动重载一次，再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 立即触发。真机 CDP 拦截 `main.tsx` 实测：卡片出现 → 解除后恢复、标记清空。单测 `tests/boot-guard.test.ts` 7 个
 - **rev173.349 白屏类型 B 实测（软复位会误判 · ⏳ 待拍板）**：页面完全正常时 `webView.draw()` 采样仍是五条 1.00 全白，streak 到 30 ⇒ 01:57:43 软复位执行、01:57:44 完成，但复位前后截图同为 88,515 B（画面没变）。⇒ **draw 判据在本机不可信**，自检（红色覆盖层）区分不了。处置 A/B/C 见 `docs/白屏-渲染停摆-2026-11-04.md` §8
 
-- **rev173.351 启动打点 + 0.9.24 发版**：`src/lib/boot-marks.ts` 记 `entry`/`first-frame`/`plugins-ready` + 启动期 >50ms 长任务（CDP `__znBootMarks()`；dev 包 logcat 里在 `Tauri/Console`，**release 包不回传**）。真机 dev 两次冷启动：JS 侧 ~700ms（插件加载 693–714ms）· 长任务最大 77ms。**release 0.9.24 实测**：`am start -W` 五次冷启动 TotalTime 173–189ms、内容可见 ~835ms（含 adb 截图开销）⇒ 启动不慢。0.9.24 已打 tag `v0.9.24`（`e739618`），Gitee 已推 main+tag，**GitHub 待补推**
+- **rev173.351 启动打点 + 0.9.24 发版**：`src/lib/boot-marks.ts` 记 `entry`/`first-frame`/`plugins-ready` + 启动期 >50ms 长任务（CDP `__znBootMarks()`；dev 包 logcat 里在 `Tauri/Console`，**release 包不回传**）。真机 dev 两次冷启动：JS 侧 ~700ms（插件加载 693–714ms）· 长任务最大 77ms。**release 0.9.24 实测**：`am start -W` 五次冷启动 TotalTime 173–189ms、内容可见 ~835ms（含 adb 截图开销）⇒ 启动不慢。0.9.24 已打 tag `v0.9.24`（`e739618`），Gitee 已推 main+tag，**GitHub + Gitee Release 均已发（3 附件逐个 HEAD 200）**
 
 ## 未决 / 下一步
 
