@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.348
-更新时间: 2026-11-04 · 最新 rev173.348（**Gitee 镜像 + 0.9.23 发版**：插件市场与应用更新各加 Gitee 渠道；0.9.23 已发 GitHub + Gitee 两个 Release，Gitee 三个附件已上传并逐个 HTTP 200 验证；应用更新选 Gitee 时安装包仍走 GitHub —— 待下一版接线）
+revision: 173.349
+更新时间: 2026-11-04 · 最新 rev173.349（**启动兜底 + 白屏「类型 B」软复位实测**：`index.html` 内联脚本兜住「页面没挂载」那类白屏 —— 真机 CDP 拦截 `main.tsx` 验证 7/7 单测过；原生 `RenderWatchdog` 的软复位动作实测能跑，但 `webView.draw()` 判据在正常页面上也判全白 ⇒ 会误触发，**处置 A/B/C 待拍板**，见 `docs/白屏-渲染停摆-2026-11-04.md` §8/§9）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.348
 
 | rev | 内容 |
 |---|---|
+| rev173.349 | 2026-11-04 · **启动兜底（白屏类型 A）+ 类型 B 软复位实测**：① `index.html` 加**内联启动兜底**（不依赖任何模块 —— React 里那三套此时都不存在）：`main.tsx` 在 `createRoot().render()` 后置 `window.__znBooted`；25 秒内既无标记、`#root` 也无子节点 ⇒ **自动重载一次**（`sessionStorage` 的 `zn.boot-rescue-done` 防死循环），再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 事件立即触发。② `tests/boot-guard.test.ts` 7 个用例（happy-dom 里执行 index.html 的内联脚本；含「重试后仍失败不再无限刷新」「资源 error 立即触发」与 main.tsx↔index.html 契约）。③ **类型 B 实测**（01:57 真机 `33b676f6`）：页面 reload 后完全正常（截图 88,515 B），但 `ZN-RENDER` 每 10 秒仍报 `bands=[1.00×5] allWhite=true` + `domProbe=true`，streak 到 30 在 01:57:43 触发软复位、01:57:44 完成；**复位前后截图同尺寸、画面无变化** ⇒ 从未白屏，是误判。结论：软复位动作可用，`webView.draw()` 判据与红色覆盖层自检在本机都不可信 ⇒ 每进程空做一次 800 ms 复位。**处置待拍板**：A 停用自动判据（5 分钟，白屏时无自愈）/ B 改手动触发（半天）/ C 继续找判据（未知）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1856 · 质量门 8/8，02:06:05）；`_shots/zn-typea-2.png`（错误卡片）· `zn-typea-3-restored.png`（恢复）· `zn-after-rescue.png`（复位后画面无变化）；`ZN-RENDER` 全量日志 `_shots/znrender-2026-11-04.log`。**边界**：整个导航失败（dev server 挂）时内联脚本不执行，仍显示 Chromium 错误页 —— 要原生 `onReceivedError`，未做。**未做**：类型 A 的桌面端验证（只在手机走过）；真白屏复现下软复位是否真能恢复仍未知（本次无法构造真白屏）。 |
 | rev173.348 | 2026-11-04 · **Gitee 镜像接入（插件市场 + 应用更新）**：① 市场 `MARKET_MIRRORS` 加 `gitee`（索引 `https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/index.json` + 同名 packBase），排在 raw 之后；② 应用更新 `UPDATE_MIRRORS`（前端 UI 列表）与 `src-tauri/src/updates.rs` 的 `MIRRORS`（后端真路由）各加 `gitee` 渠道，清单走 `{base}update/latest.json`。**实测（2026-11-04 01:2x）**：Gitee raw 的 `market/index.json` 200（11126 字节）、`market/packs/backup-0.3.2.znp` 200（37175 字节）、`update/latest.json` 200（version 0.9.22）。**限制**：Gitee 导入仓库不带 Release 附件 ⇒ 应用安装包仍走 GitHub（清单里的 url），Gitee 只加速「检查更新」；要全走 Gitee 需在 Gitee 建 Release 并上传安装包。**证据**：tsc 0 · `cargo test --lib` 98 passed。**未做**：真机切到 Gitee 镜像装一个插件（市场是纯前端，dev 包热更新即可验）；应用更新渠道要重编 Rust 才生效。 |
 | rev173.347 | 2026-11-04 · **白屏检测走原生层：两条抓画面路径实测均失败**：按 `docs/白屏-渲染停摆-2026-11-04.md` §4 加了 Android 原生看门狗 `RenderWatchdog.kt`（`MainActivity.onWebViewCreate` 拿 WebView，`onResume` 起、每 10 秒采样五条全宽横带，判据「全白 + DOM 正常」）。**路 1 `PixelCopy.request(window)` 失败**：Tauri WebView 内容在独立 `SurfaceControl` 子层（`dumpsys SurfaceFlinger --list` 见 `MainActivity#40938` 下有 `#40939`；`uiautomator dump` 中 WebView 是叶子、无 SurfaceView），抓回来五条横带全 1.00 纯白，而当时截图 88 KB 有内容。**路 2 `webView.draw(canvas)` 失败**：硬件加速下 Chromium 不往软件 Canvas 画页面内容，同样全白；红色覆盖层自检没拦住（简单合成层能画）⇒ 00:56:44 误触发 1 次 reload。**现状**：探针保留（日志 tag `ZN-RENDER`，阈值拉到 30 次 = 5 分钟防误伤），动作改**软复位**（`webView.onPause()` → 800ms → `onResume()`，依据用户实测「白屏后切后台 10 秒再回来会恢复」）；reload 实测无效且丢内容，已弃。**证据**：`verify.ps1` 见本次提交；真机 33b676f6 实测日志 `bands=[1.00,…] allWhite=true` × 十余条、`screencap` 88 KB 对照、`as` 见 `_shots/` 未存（白屏样本即 19399 字节，见 §7）。**未做**：软复位是否真能恢复白屏未验（要等 13–20 分钟复现）；release 包未复核。 |
 | rev173.346 | 2026-11-04 · **白屏检测改用 CSS 动画探针（rAF 判据被真机证伪）**：rev173.345 用 `requestAnimationFrame` 时间戳判「渲染停了」，真机验证**失败** —— 白屏 60 秒没触发。现场数据：App 主进程 CPU **59%**（JS 在跑、rAF 照转）、WebView 渲染进程 CPU **0.0%** ⇒ rAF 由主进程调度器驱动，渲染停了照转，判据无效。改成注入 1px CSS 动画探针 + 听 `animationiteration`（合成器驱动，渲染停摆时不派发）；加**探针自检**：启动 90 s 内零 tick ⇒ 判定探针在这种环境不跑、放弃自救（防每次启动无条件 reload）。**证据**：tsc 0 · `tests/window-guard.test.ts` 30 条全过；`verify.ps1` 全绿见 rev173.345。**未做**：真机验证 —— CSS 探针版同样**无效**（白屏 120 秒没触发）；JS 层（DOM / rAF / CSS 动画）全部证伪，下一步走原生层，完整实测数据与方案见 `docs/白屏-渲染停摆-2026-11-04.md`。 |
@@ -239,6 +240,43 @@ revision: 173.348
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.349（2026-11-04 · 启动兜底（白屏类型 A）+ 类型 B 软复位实测）
+
+> **起因**：接手时真机正白屏。现场取证发现这**不是**交接卡上说的「渲染停摆」——
+> `@vite/client` 返回 500、`main.tsx` 耗时 13.7 秒，模块图根本没执行：`#root` 无子节点、
+> `head` 里连 `styles.css` 的 `<style>` 都没有、root 上没有 React 容器标记 ⇒ `createRoot` 从未调用。
+> `location.reload()` 一次即恢复。⇒ 白屏至少有两类，别混。
+
+> **改动**：`index.html` 加**内联启动兜底**（不依赖任何模块 —— React 里那三套此时都不存在）：
+> `main.tsx` 在 `createRoot().render()` 后置 `window.__znBooted`；25 秒内既无标记、`#root` 也无子节点 ⇒
+> **自动重载一次**（`sessionStorage` 的 `zn.boot-rescue-done` 防死循环），再失败显示「页面没能加载起来」
+> 卡片 + 重载按钮；`<script>`/`<link>` 的 error 事件立即触发；正常启动后停掉自检并清掉重试标记。
+
+> **测试**：`tests/boot-guard.test.ts` 7 条（happy-dom 里执行 index.html 的内联脚本）——
+> 正常挂载不误报 · `#root` 有内容也算成功 · 超时自动重载一次 · 重试后仍失败只显示卡片不再刷新 ·
+> 资源 error 立即触发 · main.tsx↔index.html 两条契约。
+
+> **真机验证**（`33b676f6` · CDP `Network.setBlockedURLs` 拦截 `main.tsx`）：拦截 + reload ⇒
+> 自动重载一次后显示错误卡片（`_shots/zn-typea-2.png`，`sessionStorage["zn.boot-rescue-done"]="1"`）；
+> 解除拦截 + reload ⇒ 页面恢复、卡片消失、标记清空（`__znBooted=true`、`flag=null`，
+> `_shots/zn-typea-3-restored.png`）。
+
+> **同轮的另一件事：类型 B（渲染停摆）软复位实测 —— 误判**。页面 reload 后完全正常（截图 88,515 B），
+> 但 `ZN-RENDER` 每 10 秒仍报 `bands=[1.00×5] allWhite=true` + `domProbe=true`，streak 到 30 于
+> 01:57:43 触发软复位、01:57:44 完成；**复位前后截图同尺寸、画面无变化** ⇒ 从未白屏。
+> 结论：软复位动作可用，但 `webView.draw()` 判据与红色覆盖层自检在本机都不可信 ⇒ 每进程空做一次
+> 800 ms 复位。**处置待拍板**：A 停用自动判据（5 分钟）/ B 改手动触发（半天）/ C 继续找判据（未知）。
+
+> **边界**：整个导航失败（dev server 挂 / 连不上 `tauri.localhost`）时内联脚本根本不执行，仍是
+> Chromium 错误页 —— 那条要原生 `WebViewClient.onReceivedError`，未做。桌面端未验（只在手机走过）。
+
+> **证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest **1856** · 质量门 8/8，02:06:05）；
+> `_shots/zn-typea-2.png` · `zn-typea-3-restored.png` · `zn-after-rescue.png` ·
+> `ZN-RENDER` 全量日志 `_shots/znrender-2026-11-04.log`（156 行）。
+
+> **未做**：桌面端验证（类型 A 只在手机走过）；真白屏复现下软复位是否真能恢复（本次构造不出真白屏）；
+> 整个导航失败的原生 `onReceivedError` 兜底；类型 B 的处置方案未落地（A/B/C 待拍板）。
 
 > ## 📌 rev173.348（2026-11-04 · Gitee 镜像接入：插件市场 + 应用更新）
 

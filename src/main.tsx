@@ -23,3 +23,10 @@ createRoot(document.getElementById('root')!).render(
     <GlobalScrollbars />
   </>,
 )
+
+/**
+ * 启动兜底标记（rev173.349）：`index.html` 的内联脚本看到这个标记就不再等待。
+ * 白屏类型 A（模块加载失败 / `@vite/client` 500）时这一行永远执行不到 ——
+ * 内联脚本会在 25 秒后自动重载一次，再失败就显示错误卡片（见 index.html 那段注释）。
+ */
+window.__znBooted = true

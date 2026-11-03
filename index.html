@@ -22,6 +22,169 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      /*
+       * 启动兜底（rev173.349 · 白屏类型 A：页面根本没挂载起来）。
+       *
+       * 2026-11-04 真机现场（01:24 reload 后一直白到 01:52）：`@vite/client` 返回 500、
+       * `main.tsx` 耗时 13.7 s 才回来，模块图没有执行 —— `#root` 空、连 `styles.css` 的
+       * `<style>` 都没有。屏幕上没有任何提示，用户只能强杀重开。
+       *
+       * ⚠️ React 里的三套兜底（`useMainWindowRescue` / `useRenderStallRescue` 与原生
+       * `RenderWatchdog`）全部跑在页面 JS 里 —— 模块根本没执行时它们一个都不存在。
+       * 所以这一条必须写在 **HTML 里**，不依赖任何模块。
+       *
+       * 判据：`main.tsx` 执行成功后会置 `window.__znBooted`；超过 DEADLINE_MS 还没有
+       * 这个标记（且 `#root` 里也没内容）⇒ 判加载失败。
+       * 动作：**自动重载一次**（`sessionStorage` 防死循环）；还失败就显示错误卡片，
+       * 给一个「重新加载」按钮 —— 宁可报错，不要静默白屏。
+       *
+       * `<script>` / `<link>` 自身的 error 事件会立即触发，不用等满超时；
+       * 正常启动后每 500 ms 的自检在挂载完成（或已有内容）时停掉。
+       */
+      ;(function () {
+        var DEADLINE_MS = 25000
+        var FLAG = 'zn.boot-rescue-done'
+        var startedAt = Date.now()
+        var settled = false
+        var timer = 0
+
+        function rootHasContent() {
+          var root = document.getElementById('root')
+          return !!(root && root.childElementCount > 0)
+        }
+
+        function stopChecking() {
+          if (timer) window.clearInterval(timer)
+        }
+
+        /** 启动成功：停掉自检，清掉重试标记（下次真失败时还能再救一次） */
+        function markSettled() {
+          if (settled) return
+          settled = true
+          stopChecking()
+          try {
+            sessionStorage.removeItem(FLAG)
+          } catch (e) {
+            /* 存不了就按「没救过」处理 */
+          }
+        }
+
+        function showFailCard(reason) {
+          if (document.getElementById('zn-boot-fail')) return
+          var dark = document.documentElement.getAttribute('data-theme') === 'dark'
+          var fg = dark ? '#e6edf3' : '#1f2328'
+          var muted = dark ? '#9da7b3' : '#59636e'
+          var bg = dark ? '#161b22' : '#f6f7f9'
+          var line = dark ? '#30363d' : '#d0d7de'
+          var btnBg = dark ? '#21262d' : '#ffffff'
+
+          var wrap = document.createElement('div')
+          wrap.id = 'zn-boot-fail'
+          wrap.style.cssText =
+            'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;' +
+            'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'gap:14px;padding:28px;box-sizing:border-box;text-align:center;' +
+            'background:' +
+            bg +
+            ';color:' +
+            fg +
+            ';font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif'
+
+          var title = document.createElement('div')
+          title.textContent = '页面没能加载起来'
+          title.style.cssText = 'font-size:18px;font-weight:600'
+
+          var desc = document.createElement('div')
+          desc.textContent = reason
+          desc.style.cssText = 'max-width:340px;font-size:13px;word-break:break-all;opacity:0.8'
+
+          var btn = document.createElement('button')
+          btn.textContent = '重新加载'
+          btn.style.cssText =
+            'margin-top:4px;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:15px;' +
+            'background:' +
+            btnBg +
+            ';color:' +
+            fg +
+            ';border:1px solid ' +
+            line
+          btn.addEventListener('click', function () {
+            try {
+              sessionStorage.removeItem(FLAG)
+            } catch (e) {
+              /* ignore */
+            }
+            location.reload()
+          })
+
+          var hint = document.createElement('div')
+          hint.textContent = '反复出现的话，把这行字记下来再反馈'
+          hint.style.cssText = 'font-size:12px;color:' + muted
+
+          wrap.appendChild(title)
+          wrap.appendChild(desc)
+          wrap.appendChild(btn)
+          wrap.appendChild(hint)
+          ;(document.body || document.documentElement).appendChild(wrap)
+        }
+
+        function fail(reason) {
+          if (settled) return
+          settled = true
+          stopChecking()
+          var alreadyRetried = false
+          try {
+            alreadyRetried = sessionStorage.getItem(FLAG) === '1'
+          } catch (e) {
+            /* 存不了 ⇒ 当作没救过（宁可救一次） */
+          }
+          if (!alreadyRetried) {
+            try {
+              sessionStorage.setItem(FLAG, '1')
+              location.reload()
+              return
+            } catch (e) {
+              /* 写不进去就只能直接报错 */
+            }
+          }
+          showFailCard(reason)
+        }
+
+        // 模块 / 样式资源加载失败：立即暴露，不等超时
+        window.addEventListener(
+          'error',
+          function (e) {
+            var t = e.target
+            if (!t) return
+            var tag = t.tagName
+            if (tag === 'SCRIPT' || tag === 'LINK') {
+              var src = t.src || t.href
+              fail((tag === 'SCRIPT' ? '脚本' : '样式') + '加载失败' + (src ? '：' + String(src) : ''))
+            }
+          },
+          true,
+        )
+
+        timer = window.setInterval(function () {
+          if (window.__znBooted || rootHasContent()) {
+            markSettled()
+            return
+          }
+          if (Date.now() - startedAt > DEADLINE_MS) {
+            fail('启动超过 ' + Math.round(DEADLINE_MS / 1000) + ' 秒仍未渲染')
+          }
+        }, 500)
+
+        // 供测试 / 人工排查调用
+        window.__znBootGuard = {
+          fail: fail,
+          settled: function () {
+            return settled
+          },
+        }
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

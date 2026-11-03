@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.348）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.349）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.348 · 0.9.23 · 2026-11-04 |
-| 测试基线 | vitest 1849 · cargo 98 · oxlint 4 warnings（2026-11-04） |
+| rev / 版本 | rev173.349 · 0.9.23 · 2026-11-04 |
+| 测试基线 | vitest 1856 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.23 |
 <!-- FACTS:END -->
@@ -44,10 +44,10 @@
 - **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。G2 真机 `33b676f6` 两次 + **G3 用户已确认正常**（2026-11-03，证据 `_shots/rev342-*`）
 - **rev173.343 真机补验 rev173.341 三项全过**：P4 看图时左右滑不误开抽屉（对照：首页右滑正常）· P6 文件树长按是「复制文件」· P1 子目录笔记引用上级图点开正常（`_shots/rev343-*`）
 - **rev173.344 重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`（aqua-2026 签名 · `verify-trust` 63/64 过）。已推 GitHub ⇒ 手机插件市场可以更新了（先切 ghproxy.net 镜像）
-- **rev173.345 渲染停帧自救（rAF 版 · 真机证伪）+ P6 后两项补验**：rAF 判据被真机推翻（白屏时主进程 CPU 59%、渲染进程 0%，rAF 照转）；P6 补验 —— 桌面右键「复制文本」、手机系统分享面板
-- **rev173.346 白屏检测改用 CSS 动画探针**：1px 探针 + `animationiteration`（合成器驱动，渲染停摆时不派发）+ 探针自检（90 s 零 tick 就放弃，防误 reload）。⏳ 真机白屏复现验证进行中
-- **rev173.347 白屏检测走原生层（两条抓画面路都失败）**：`RenderWatchdog.kt` 探针（tag `ZN-RENDER`，每 10s 采五条横带）+ 软复位（`onPause`→800ms→`onResume`，依据「切后台 10 秒能恢复」）。`PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容 ⇒ 读数不可信；reload 实测无效已弃。⏳ 待白屏复现验证软复位
+- **rev173.345–347 白屏检测三代方案（全部被真机证伪）**：rAF 时间戳（白屏时主进程 CPU 59%、rAF 照转）→ CSS 动画探针（120 秒没触发）→ 原生 `RenderWatchdog.kt`（`PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容）。探针日志 tag `ZN-RENDER` 保留
 - **rev173.348 Gitee 镜像**：插件市场 + 应用更新各加 Gitee 渠道（`market.ts` / `app-update.ts` / `updates.rs` 三处）；Gitee raw 的索引 / 包 / 更新清单三条 URL 实测 200。安装包仍在 GitHub Release（Gitee 未传附件）
+- **rev173.349 启动兜底（白屏类型 A：页面没挂载）**：`index.html` 内联脚本（不依赖模块）—— `main.tsx` 挂载后置 `window.__znBooted`，25 秒没标记 ⇒ 自动重载一次，再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 立即触发。真机 CDP 拦截 `main.tsx` 实测：卡片出现 → 解除后恢复、标记清空。单测 `tests/boot-guard.test.ts` 7 个
+- **rev173.349 白屏类型 B 实测（软复位会误判 · ⏳ 待拍板）**：页面完全正常时 `webView.draw()` 采样仍是五条 1.00 全白，streak 到 30 ⇒ 01:57:43 软复位执行、01:57:44 完成，但复位前后截图同为 88,515 B（画面没变）。⇒ **draw 判据在本机不可信**，自检（红色覆盖层）区分不了。处置 A/B/C 见 `docs/白屏-渲染停摆-2026-11-04.md` §8
 
 ## 未决 / 下一步
 
@@ -57,21 +57,18 @@
 **真机待验（装 0.9.23 APK）**
 
 - 插件市场切「**Gitee（国内直连）**」刷新 → 列表出来、能装一个插件（不用梯子）；应用更新渠道下拉也应有 Gitee（清单可拉，**安装包仍走 GitHub** —— 路由待下一版接线）
-- 白屏探针：放着 13–20 分钟，看 `ZN-RENDER` 日志是否触发软复位、画面是否恢复（`adb logcat -s` 用变量拼 tag 绕 dev-gate）
+- 白屏探针：**已实测（2026-11-04 01:57）—— 软复位能跑，但判据误判**（页面正常时也判全白，每进程空做一次 800 ms 复位）。处置 A（停用自动判据）/ B（改手动触发）/ C（继续找判据）见 `docs/白屏-渲染停摆-2026-11-04.md` §8，**待用户拍板，不要自行改**
+- 白屏类型 A（页面没挂载）已由 rev173.349 的 `index.html` 内联兜底覆盖（真机验证过）；**整个导航失败**（dev server 挂 / 连不上）仍显示 Chromium 错误页，那条要原生 `onReceivedError`，未做
 
 - 手机复验真人测试10 六条
 - 插件中心 → 插件市场更新：`security 0.2.2` · `secrets 0.1.2` · `sync 0.1.8` · `import-export 0.2.4` · `private-notes 0.2.1`
 - ⚠️ 手机市场索引默认 raw 国内不通，先切 **ghproxy.net** 镜像
 
-**rev173.341 剩余待验 → 2026-11-03 已全部真机验完（rev173.343）**
-
-- ✅ P4 手机左右滑不误开侧栏（预览开着时左右划，抽屉不动；对照：首页右滑正常开）
-- ✅ P6 手机文件树「复制文件」（左抽屉长按文件 → 菜单项是「复制文件」）
-- ✅ P1 手机点图解析（子目录笔记引用上级 `归档/test-photo.png`，点开预览正常、无报错）
+**rev173.341 剩余待验 → 2026-11-03 已全部真机验完（rev173.343）**：P4 预览开着左右滑不误开侧栏 · P6 文件树长按是「复制文件」 · P1 子目录笔记引上级图点开正常（证据 `_shots/rev343-*`）
 
 **已知未修**
 
-- **手机白屏（渲染停摆）**：首页放着约 13 分钟后画面纯白，点击 / 旋转都不重绘，只能重启；实测渲染进程 CPU 0.0%、主进程 60–75%。**JS 层三套判据全部证伪**（DOM / rAF / CSS 动画），**原生层两条抓画面路径也失败**（`PixelCopy(window)` 抓不到 SurfaceControl 子层；`webView.draw()` 画不出 Chromium 内容 —— rev173.347 实测）。现状：`RenderWatchdog.kt` 保留探针（tag `ZN-RENDER`），判定成立后做**软复位**（`onPause`→800ms→`onResume`）而非 reload，⏳ 待白屏复现验证是否真能恢复 —— 数据与方案见 [`docs/白屏-渲染停摆-2026-11-04.md`](docs/白屏-渲染停摆-2026-11-04.md)
+- **手机白屏（渲染停摆）**：首页放着约 13 分钟后画面纯白，点击 / 旋转都不重绘，只能重启；实测渲染进程 CPU 0.0%、主进程 60–75%。**JS 层三套判据全部证伪**（DOM / rAF / CSS 动画），**原生层两条抓画面路径也失败**（`PixelCopy(window)` 抓不到 SurfaceControl 子层；`webView.draw()` 画不出 Chromium 内容）。**rev173.349 已实测软复位：动作能跑，但 draw 判据在正常页面上也判全白 ⇒ 误触发**（§8）。⏳ 处置待拍板 —— 数据与方案见 [`docs/白屏-渲染停摆-2026-11-04.md`](docs/白屏-渲染停摆-2026-11-04.md)
 
 **长期**
 
