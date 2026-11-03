@@ -64,7 +64,7 @@ export function stripAngleTarget(src: string): string {
  * —— 而 `convertFileSrc` 会把 `%` **再编码一次**（`%20` → `%2520`）⇒ 文件找不到。
  * rev173.235 实测：编码路径的图在编辑器里加载失败（`naturalWidth = 0`）。
  *
- * 只对本地路径调用（`http(s):` 在 `resolveImageAbsPath` 里已经提前返回 null）；
+ * 只对本地路径调用（`http(s):` 在 `resolveImageAbsPaths` 里已经提前返回 null）；
  * 解不开（非法转义）就原样返回 —— 文件名里本来就可能真的有 `%`。
  */
 export function decodeLocalPath(path: string): string {
@@ -98,6 +98,19 @@ export function resolveImageAbsPaths(
   if (!raw) return []
   // 盘符 + 斜杠先于 scheme 判定：`C:\x` 长得像 scheme，但它是本机绝对路径
   if (WIN_ABS_RE.test(raw)) return [raw.replace(/\\/g, '/')]
+  /**
+   * Android 外部存储的绝对路径（2026-11-03 P1 收口）：不判它就会被当成
+   * 「前导 / = 库根」剥成 `storage/...`，手机上点图 / 渲染直接找不到文件。
+   * 前缀表与写入侧 `pathFromVaultRoot` 是同一份（storage / sdcard / data / mnt）。
+   */
+  if (
+    raw.startsWith('/storage/') ||
+    raw.startsWith('/sdcard/') ||
+    raw.startsWith('/data/') ||
+    raw.startsWith('/mnt/')
+  ) {
+    return [raw]
+  }
   if (SCHEME_RE.test(raw)) return []
   const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
   if (!root) return []
@@ -108,21 +121,8 @@ export function resolveImageAbsPaths(
   return linkCandidates(raw, notePath).map((rel) => `${root}/${rel}`)
 }
 
-/**
- * 图片 src → **首选**本机绝对路径（`resolveImageAbsPaths` 的第一项）。
- *
- * ⚠️ **业务代码不要用它**（rev173.336 的教训）：只取第一候选 = 没有库根兜底，
- * 笔记在子目录、附件在库根时会解析到不存在的路径。渲染 / 点击 / 导出统一用
- * `resolveImageAbsPaths`（全部候选）或 `linkCandidates`（库内相对候选）。
- * 保留它是为了「只想知道首选」的诊断场景与单测。
- */
-export function resolveImageAbsPath(
-  vault: string | null | undefined,
-  notePath: string | null | undefined,
-  src: string,
-): string | null {
-  return resolveImageAbsPaths(vault, notePath, src)[0] ?? null
-}
+/* P5（2026-11-03）：单数版 `resolveImageAbsPath` 已删 —— 它只取第一候选，
+   天然没有库根兜底；需要「首选」时用 `resolveImageAbsPaths(...)[0]`。 */
 
 /**
  * 正文里点一个**库内相对引用**（图片 / 附件链接）时，按哪些库内路径去找 —— 按顺序。

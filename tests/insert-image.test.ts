@@ -18,11 +18,17 @@ import {
   normalizePosix,
   pathFromNote,
   pathFromVaultRoot,
-  resolveImageAbsPath,
   resolveImageAbsPaths,
   stemFromFileName,
   stripAngleTarget,
 } from '../src/lib/insert-image'
+
+/** 旧单数版的等价物（P5 删除后）：取多候选的第一项，空数组 ⇒ null */
+const firstOf = (
+  vault: string | null | undefined,
+  notePath: string | null | undefined,
+  src: string,
+): string | null => resolveImageAbsPaths(vault, notePath, src)[0] ?? null
 
 describe('normalizePosix', () => {
   it('消掉 . 与多余斜杠', () => {
@@ -48,63 +54,76 @@ describe('dirnamePosix', () => {
   })
 })
 
+describe('Android 绝对路径（2026-11-03 P1 收口）', () => {
+  it('外部存储路径原样返回，不当库根', () => {
+    expect(resolveImageAbsPaths(null, 'sub/a.md', '/storage/emulated/0/Pictures/a.png')).toEqual([
+      '/storage/emulated/0/Pictures/a.png',
+    ])
+    expect(resolveImageAbsPaths('C:/vault', 'sub/a.md', '/sdcard/a.png')).toEqual(['/sdcard/a.png'])
+  })
+
+  it('桌面写法 /x.png 仍是库根相对（不能被误当成 Android 绝对路径）', () => {
+    expect(resolveImageAbsPaths('C:/vault', 'sub/a.md', '/x.png')).toEqual(['C:/vault/x.png'])
+  })
+})
+
 describe('resolveImageAbsPath', () => {
   const vault = 'C:/vault'
   it('相对路径按笔记目录解析', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', 'image-1.png')).toBe('C:/vault/sub/image-1.png')
+    expect(firstOf(vault, 'sub/a.md', 'image-1.png')).toBe('C:/vault/sub/image-1.png')
   })
 
   it('笔记在库根时按库根解析', () => {
-    expect(resolveImageAbsPath(vault, 'a.md', 'image-1.png')).toBe('C:/vault/image-1.png')
+    expect(firstOf(vault, 'a.md', 'image-1.png')).toBe('C:/vault/image-1.png')
   })
 
   it('以 / 开头按库根解析', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', '/assets/x.png')).toBe('C:/vault/assets/x.png')
+    expect(firstOf(vault, 'sub/a.md', '/assets/x.png')).toBe('C:/vault/assets/x.png')
   })
 
   it('.. 可以指向库内上级，越出库根返回 null', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', '../x.png')).toBe('C:/vault/x.png')
-    expect(resolveImageAbsPath(vault, 'a.md', '../x.png')).toBeNull()
+    expect(firstOf(vault, 'sub/a.md', '../x.png')).toBe('C:/vault/x.png')
+    expect(firstOf(vault, 'a.md', '../x.png')).toBeNull()
   })
 
   it('网络 / data / blob URL 原样透传（返回 null = 不按库内路径解析）', () => {
-    expect(resolveImageAbsPath(vault, 'a.md', 'https://x.com/a.png')).toBeNull()
-    expect(resolveImageAbsPath(vault, 'a.md', 'data:image/png;base64,AAA')).toBeNull()
-    expect(resolveImageAbsPath(vault, 'a.md', 'blob:http://localhost/abc')).toBeNull()
+    expect(firstOf(vault, 'a.md', 'https://x.com/a.png')).toBeNull()
+    expect(firstOf(vault, 'a.md', 'data:image/png;base64,AAA')).toBeNull()
+    expect(firstOf(vault, 'a.md', 'blob:http://localhost/abc')).toBeNull()
   })
 
   it('Windows 绝对路径原样返回（仍可转 asset URL）', () => {
-    expect(resolveImageAbsPath(vault, 'a.md', 'D:\\pics\\a.png')).toBe('D:/pics/a.png')
-    expect(resolveImageAbsPath(vault, 'a.md', '\\\\server\\share\\a.png')).toBe(
+    expect(firstOf(vault, 'a.md', 'D:\\pics\\a.png')).toBe('D:/pics/a.png')
+    expect(firstOf(vault, 'a.md', '\\\\server\\share\\a.png')).toBe(
       '//server/share/a.png',
     )
   })
 
   it('库未就绪 / 空 src 返回 null', () => {
-    expect(resolveImageAbsPath(null, 'a.md', 'x.png')).toBeNull()
-    expect(resolveImageAbsPath('', 'a.md', 'x.png')).toBeNull()
-    expect(resolveImageAbsPath(vault, 'a.md', '   ')).toBeNull()
+    expect(firstOf(null, 'a.md', 'x.png')).toBeNull()
+    expect(firstOf('', 'a.md', 'x.png')).toBeNull()
+    expect(firstOf(vault, 'a.md', '   ')).toBeNull()
   })
 
   it('库路径尾部斜杠不会拼出双斜杠', () => {
-    expect(resolveImageAbsPath('C:\\vault\\', 'a.md', 'x.png')).toBe('C:/vault/x.png')
+    expect(firstOf('C:\\vault\\', 'a.md', 'x.png')).toBe('C:/vault/x.png')
   })
 
   /* rev173.235：库外引用写的是 `<C:/…/截 图.png>`（尖括号目标），原正则一遇空格整行不渲染 */
 
   it('尖括号目标：绝对路径含空格也能解析（引用原文件的真实写法）', () => {
-    expect(resolveImageAbsPath(vault, 'a.md', '<C:/Music/专辑 1/a b.png>')).toBe(
+    expect(firstOf(vault, 'a.md', '<C:/Music/专辑 1/a b.png>')).toBe(
       'C:/Music/专辑 1/a b.png',
     )
   })
 
   it('尖括号目标：库内相对路径同样生效', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', '<my pic.png>')).toBe('C:/vault/sub/my pic.png')
+    expect(firstOf(vault, 'sub/a.md', '<my pic.png>')).toBe('C:/vault/sub/my pic.png')
   })
 
   it('百分号编码：先解码再拼路径（否则 asset 协议会二次编码）', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', 'my%20pic.png')).toBe('C:/vault/sub/my pic.png')
-    expect(resolveImageAbsPath(vault, 'a.md', '<C:/x/%E6%88%AA%E5%9B%BE%201.png>')).toBe(
+    expect(firstOf(vault, 'sub/a.md', 'my%20pic.png')).toBe('C:/vault/sub/my pic.png')
+    expect(firstOf(vault, 'a.md', '<C:/x/%E6%88%AA%E5%9B%BE%201.png>')).toBe(
       'C:/x/截图 1.png',
     )
   })
@@ -183,7 +202,7 @@ describe('resolveImageAbsPaths（多候选）', () => {
   })
 
   it('首选与 resolveImageAbsPath 一致；空 src / 越界返回空数组', () => {
-    expect(resolveImageAbsPath(vault, 'sub/a.md', 'image-1.png')).toBe(
+    expect(firstOf(vault, 'sub/a.md', 'image-1.png')).toBe(
       resolveImageAbsPaths(vault, 'sub/a.md', 'image-1.png')[0],
     )
     expect(resolveImageAbsPaths(vault, 'a.md', '   ')).toEqual([])
