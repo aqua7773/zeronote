@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-03（rev173.340）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-03（rev173.341）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.340 · 0.9.22 · 2026-11-03 |
+| rev / 版本 | rev173.341 · 0.9.22 · 2026-11-03 |
 | 测试基线 | vitest 1842 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.22 |
@@ -40,6 +40,7 @@
 - **0.9.22 已发版**（tag `v0.9.22` · commit `7fbb5f1` · 5 资产）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.22>
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
+- **rev173.341 同类问题 6 项落地**（方案 `docs/同类问题处置方案-2026-11-03.md`）：跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一。G2 已验：桌面 2 项（CDP）、真机 1 项（长按卡片菜单 + 详细弹窗）
 
 ## 未决 / 下一步
 
@@ -51,6 +52,12 @@
 - 手机复验真人测试10 六条
 - 插件中心 → 插件市场更新：`security 0.2.2` · `secrets 0.1.2` · `sync 0.1.8` · `import-export 0.2.4` · `private-notes 0.2.1`
 - ⚠️ 手机市场索引默认 raw 国内不通，先切 **ghproxy.net** 镜像
+
+**rev173.341 剩余待验**
+
+- P4 手机左右滑不误开侧栏（先开一张图再划）
+- P6 手机文件树「复制文件」（拉左抽屉 → 长按文件）
+- P1 手机点图解析（库根图 + 子目录笔记，看是否报「库里没有这个附件」）
 
 **已知未修**
 
@@ -72,6 +79,7 @@
 - **Low IL 会让 dev 起不来**：`icacls src-tauri /setintegritylevel (OI)(CI)Medium`（target 同步）。判据 = `create_dir_all` 报「拒绝访问 (os error 5)」。
 - **改前端只 `location.reload()`**；改 Rust / 原生插件才重装 APK；**不往测试机装 release 包**。
 - **dev 崩溃**：连续多次 HMR 会 `0xc0000374`，重启即恢复 · **别用 `plugin:window|destroy` 关窗口**。
+- **手机验收前先确认装的是 dev 包**：只有 `pnpm tauri android dev --config tauri.android-dev.json` 装出来的包才连 dev server；`build` 出的 `app-*-debug.apk` 是离线包（内置 dist），点不动也连不上。连通性用 `adb shell "toybox nc -w 3 192.168.1.3 1420 </dev/null && echo OK"` 验，**别用 ping**（Windows 拦 ICMP 会误判）。
 
 ## 是什么（三行）
 
