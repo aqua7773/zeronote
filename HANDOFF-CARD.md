@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-03（rev173.341）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-03（rev173.342）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.341 · 0.9.22 · 2026-11-03 |
-| 测试基线 | vitest 1842 · cargo 98 · oxlint 4 warnings（2026-11-03） |
+| rev / 版本 | rev173.342 · 0.9.22 · 2026-11-03 |
+| 测试基线 | vitest 1844 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.22 |
 <!-- FACTS:END -->
@@ -41,6 +41,7 @@
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
 - **rev173.341 同类问题 6 项落地**（方案 `docs/同类问题处置方案-2026-11-03.md`）：跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一。G2 已验：桌面 2 项（CDP）、真机 1 项（长按卡片菜单 + 详细弹窗）
+- **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。真机 `33b676f6` 两次验过（`_shots/rev342-*`）
 
 ## 未决 / 下一步
 
@@ -61,7 +62,7 @@
 
 **已知未修**
 
-- 手机点图预览时软键盘一起弹（CodeMirror 拿焦点），预览与键盘各占半屏 → 下轮 blur 编辑器
+- （暂无 —— 原「手机点图预览时软键盘不收起」已由 rev173.342 修掉）
 
 **长期**
 
