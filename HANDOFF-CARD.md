@@ -14,7 +14,14 @@
 > **当前判定**：**六条全过**（桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5）。
 > 手机 #1 指纹补验：密码库解锁 → 「本机已绑定指纹」→ 锁定 → 「用指纹解锁」→ 系统 `BiometricActivity` 弹屏下指纹 →
 > 用户按指纹 → **「已用指纹解锁」** ✓（`_shots/rt10-1-phone-fp-prompt.png` · `rt10-1-phone-fp-unlocked.png`）。
-> **下一步**：发 **0.9.22**（release.mjs → CHANGELOG → build-release → gen-update-manifest → gh release create）。
+> **验证**：`verify.ps1` 全绿（15:00:47 · tsc 0 · oxlint 4 warnings · cargo test --lib 98 · vitest 1816 · 质量门 8/8）。
+> **已发版 0.9.22**（tag `v0.9.22` · commit `7fbb5f1` · 构建 9 分 6 秒 · 5 资产）⇒
+> https://github.com/aqua7773/zeronote/releases/tag/v0.9.22
+> 桌面：`ZeroNote_0.9.22_x64-setup.exe` 15.10 MiB（sha256 `18b6e2b373735e48…`）· `…_x64_zh-CN.msi` 17.04 MiB（`a02dbe3e258624f3…`）· 各带 `.sig`；
+> Android：`app-universal-release.apk` 33.26 MiB（sha256 `3fda890b3fb0301b…`，与 `update/android.json` 一致）。
+> 更新清单 `update/latest.json` + `android.json` 已提交（`aac2540`）。
+> **下一步（真机）**：手机装 0.9.22 APK 复验六条；插件在「插件中心 → 插件市场」更新到 security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1。
+> ⚠️ 手机市场索引：默认 raw 国内不通，先切 **ghproxy.net** 镜像。
 >
 > **上一轮：rev173.338（2026-11-03 14:00）—— 真人测试10 验收：桌面 3 过 / 1 不过 / 3 未验；手机仅 #2 入口过**
 > 判定表已填（`docs/验收卡-真人测试10-2026-11-03.md` §6），证据在 `_shots/rt10-*`。

@@ -261,8 +261,12 @@ revision: 173.339
 > ### 三、验证与产物
 >
 > - 判定表：`docs/验收卡-真人测试10-2026-11-03.md` §6 **六条全过**（证据 `_shots/rt10-*`）。
-> - 基线：tsc 0 · oxlint 4 warnings · cargo test --lib 98 · vitest 1816 · 质量门 8/8（发版前跑）。
-> - 发版：**0.9.22**（见本段顶部索引行的 Release 数据）。
+> - 基线：`verify.ps1` 全绿（15:00:47 · tsc 0 · oxlint 4 warnings · cargo test --lib 98 · vitest 1816 · 质量门 8/8）。
+> - **已发版 0.9.22**（tag `v0.9.22` · commit `7fbb5f1` · 构建 9 分 6 秒）：https://github.com/aqua7773/zeronote/releases/tag/v0.9.22
+>   - 桌面 `ZeroNote_0.9.22_x64-setup.exe` 15.10 MiB（sha256 `18b6e2b373735e48…`）· `ZeroNote_0.9.22_x64_zh-CN.msi` 17.04 MiB（`a02dbe3e258624f3…`）· 各带 `.sig`
+>   - Android `app-universal-release.apk` 33.26 MiB（sha256 `3fda890b3fb0301b…`，与 `update/android.json` 一致）
+>   - 更新清单 `update/latest.json` + `android.json` 已提交推送（`aac2540`）
+> - **待真机**：手机装 0.9.22 复验六条；插件市场更新 security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1（手机默认镜像 raw 国内不通，先切 ghproxy.net）。
 
 > ## 📌 rev173.336（2026-11-03 · 真人测试10 六条：代码全改完，真机验证 5/6 未过 —— 主因是验证环境的插件还是旧版）
 
