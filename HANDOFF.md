@@ -1,7 +1,7 @@
 # 项目交接
 
 revision: 173.348
-更新时间: 2026-11-04 · 最新 rev173.348（**Gitee 镜像**：插件市场与应用更新各加一条 Gitee 渠道 —— 市场索引/包、更新清单全部实测 200；安装包仍在 GitHub Release，Gitee 未上传附件）
+更新时间: 2026-11-04 · 最新 rev173.348（**Gitee 镜像 + 0.9.23 发版**：插件市场与应用更新各加 Gitee 渠道；0.9.23 已发 GitHub + Gitee 两个 Release，Gitee 三个附件已上传并逐个 HTTP 200 验证；应用更新选 Gitee 时安装包仍走 GitHub —— 待下一版接线）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -251,7 +251,7 @@ revision: 173.348
 > **实测**：Gitee 的 `market/index.json` / `market/packs/backup-0.3.2.znp` / `update/latest.json`
 > 三条 URL 全部 200，内容与 GitHub 一致（同一份导入仓库）。
 
-> **证据**：tsc 0 · `cargo test --lib` 98 passed。**未做**：真机切 Gitee 装插件（前端热更新可验）；
+> **证据**：tsc 0 · `cargo test --lib` 98 passed · vitest 1849（全量 verify 01:32:35 全绿）。**0.9.23 已发版**（tag `v0.9.23` · commit `c9ba43d`）：GitHub Release 3 资产 + Gitee Release 3 附件（exe 15.8 MB / sig 440 B / APK 34.9 MB，逐个 HTTP 200）；Gitee raw 的 `update/latest.json` 有 CDN 缓存，数分钟后才读到 0.9.23。**未做**：真机切 Gitee 装插件（前端热更新可验）；
 > 应用更新渠道要重编 Rust 才生效；Gitee 上还没有 Release 附件，安装包仍走 GitHub。
 
 > ## 📌 rev173.347（2026-11-04 · 白屏检测走原生层：两条抓画面路径实测均失败）
