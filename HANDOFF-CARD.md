@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.345）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.346）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.345 · 0.9.22 · 2026-11-04 |
+| rev / 版本 | rev173.346 · 0.9.22 · 2026-11-04 |
 | 测试基线 | vitest 1849 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.22 |
@@ -44,7 +44,8 @@
 - **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。G2 真机 `33b676f6` 两次 + **G3 用户已确认正常**（2026-11-03，证据 `_shots/rev342-*`）
 - **rev173.343 真机补验 rev173.341 三项全过**：P4 看图时左右滑不误开抽屉（对照：首页右滑正常）· P6 文件树长按是「复制文件」· P1 子目录笔记引用上级图点开正常（`_shots/rev343-*`）
 - **rev173.344 重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`（aqua-2026 签名 · `verify-trust` 63/64 过）。已推 GitHub ⇒ 手机插件市场可以更新了（先切 ghproxy.net 镜像）
-- **rev173.345 渲染停帧自救 + P6 后两项补验**：`useRenderStallRescue`（rAF 每帧打戳，前台连续 30 s 无帧 ⇒ reload 一次，sessionStorage 防循环）—— 专治「DOM 在、JS 在心跳在、只有渲染停了」的第二种白屏；桌面右键「复制文本」+ 手机系统分享面板补验通过
+- **rev173.345 渲染停帧自救（rAF 版 · 真机证伪）+ P6 后两项补验**：rAF 判据被真机推翻（白屏时主进程 CPU 59%、渲染进程 0%，rAF 照转）；P6 补验 —— 桌面右键「复制文本」、手机系统分享面板
+- **rev173.346 白屏检测改用 CSS 动画探针**：1px 探针 + `animationiteration`（合成器驱动，渲染停摆时不派发）+ 探针自检（90 s 零 tick 就放弃，防误 reload）。⏳ 真机白屏复现验证进行中
 
 ## 未决 / 下一步
 

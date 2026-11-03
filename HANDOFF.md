@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.345
-更新时间: 2026-11-04 · 最新 rev173.345（**渲染停帧自救**：真机实测的第二种白屏 —— DOM 在、JS 心跳在、只有渲染停了；加 rAF 心跳，前台连续 30 s 无帧就 reload 一次。同轮补验 P6 后两项）
+revision: 173.346
+更新时间: 2026-11-04 · 最新 rev173.346（**白屏检测改用 CSS 动画探针**：rev173.345 的 rAF 判据被真机证伪 —— 白屏时主进程 CPU 59%、渲染进程 0%，rAF 由主进程调度照转；改成合成器驱动的 `animationiteration` + 探针自检）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.345
 
 | rev | 内容 |
 |---|---|
+| rev173.346 | 2026-11-04 · **白屏检测改用 CSS 动画探针（rAF 判据被真机证伪）**：rev173.345 用 `requestAnimationFrame` 时间戳判「渲染停了」，真机验证**失败** —— 白屏 60 秒没触发。现场数据：App 主进程 CPU **59%**（JS 在跑、rAF 照转）、WebView 渲染进程 CPU **0.0%** ⇒ rAF 由主进程调度器驱动，渲染停了照转，判据无效。改成注入 1px CSS 动画探针 + 听 `animationiteration`（合成器驱动，渲染停摆时不派发）；加**探针自检**：启动 90 s 内零 tick ⇒ 判定探针在这种环境不跑、放弃自救（防每次启动无条件 reload）。**证据**：tsc 0 · `tests/window-guard.test.ts` 30 条全过；`verify.ps1` 全绿见 rev173.345。**未做**：真机白屏复现验证进行中（盯屏第二轮）。 |
 | rev173.345 | 2026-11-04 · **渲染停帧自救 + P6 后两项补验**：① 第二种白屏（画面全白、点击不重绘、25 秒+不变，但 DOM 在、`setInterval` 在跑）⇒ `lib/window-guard.ts` 加 `RENDER_STALL_MS=30s` / `RENDER_CHECK_MS=5s` / `RENDER_RESCUE_FLAG` + 纯函数 `shouldRescueRender`，`hooks/useWindowGuard.ts` 加 `useRenderStallRescue`（rAF 每帧打时间戳，前台连续 30 s 无帧 ⇒ reload 一次，sessionStorage 防循环），`App.tsx` 只在 Android 主窗口挂。② P6 后两项补验 —— 桌面右键菜单第一组是「复制文本 Ctrl+C」；手机分享直接弹系统分享面板，插件说明文案是「放进系统剪贴板」不含「复制」。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1849 · 质量门 8/8，00:07:26）；`_shots/rev344-p6b-menu.png` / `rev344-p6c-share.png`。**未做**：真机白屏复现验证进行中。 |
 | rev173.344 | 2026-11-04 · **重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5` —— rev173.341 改了这三个的源码（select 播种 / 复制文案）但没有 bump 版本，`market/packs` 里仍是旧包，用户从市场更新拿不到修复。用 `C:\Users\AQUA\.zeronote-keys\aqua-2026.key.pem` 签名（密钥位置已记成 skill `zeronote-signing-key-locations`，只记路径不记内容）；`gen-market --write` 重建索引（15 条）。**证据**：`scripts/verify-trust.mjs` 63/64 签名包用内置公钥验过（theme-sepia 纯样式恒 unsigned）；`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8，00:01:07）。**未做**：包还没推到 GitHub（网络连不上），手机市场更新要等推送后才能验。 |
 | rev173.343 | 2026-11-03 · **真机补验 rev173.341 三项遗留（只验不改）**：真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载 rev173.342）。**P4** 打开图预览后左右各划一次，抽屉没有弹出；对照「关预览回首页右滑 → 左抽屉正常打开」；编辑区内滑动不开抽屉属既有规则（输入状态不触发）。**P6** 文件树长按 `新笔记-12-54-00.md` → 菜单是「**复制文件**」（Ctrl+C），并确认「详细…」「在文件夹中打开」在。**P1** 子目录笔记 `归档/新建文件夹/test-photo.md` 引用上级 `归档/test-photo.png` → 正文渲染正常、点开全屏预览正常，无「库里没有这个附件」。**证据**：`_shots/rev343-p4-*` / `rev343-p6-01-menu.png` / `rev343-p1-*`；无代码改动，基线沿用 23:22:10 的 tsc 0 · oxlint 4 · cargo 98 · vitest 1844 · 质量门 8/8。**未做**：P6 后两项（编辑器右键「复制文本」、分享面板去「复制」字样）没在手机上走；rev173.342 的「文件树点图」回归没单独验。 |
@@ -237,6 +238,14 @@ revision: 173.345
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.346（2026-11-04 · 白屏检测改用 CSS 动画探针）
+
+> **上一版为什么失败**：rev173.345 用 `requestAnimationFrame` 每帧打时间戳判「渲染停了」，真机验证 —— 白屏 60 秒没触发。现场数据（2026-11-04 00:12）：App 主进程 CPU **59%**（JS 在跑、rAF 照转），WebView 渲染进程 CPU **0.0%**（完全不干活）⇒ rAF 由主进程调度器驱动，**渲染停了它照转**，判据无效。另外点击、旋转屏幕都不恢复，说明不是「合成本帧没提交」而是渲染进程整个停摆。
+> **改法**：注入 1px 探针元素 + CSS 动画（opacity 在 0 / 0.001 之间跳，全程 0 会被优化掉），听 `animationiteration`（合成器驱动，渲染停摆时不派发）更新 `lastTick`；检查节奏与阈值沿用 `RENDER_CHECK_MS=5s` / `RENDER_STALL_MS=30s`。
+> **防误伤**：新增 `RENDER_PROBE_WARMUP_MS = 90s` —— 启动 90 秒内零 tick ⇒ 判定「这种环境里探针本身不跑」，清理并**放弃自救**（否则会变成每次启动 30 秒后无条件 reload）。
+>
+> **证据**：tsc 0 · `tests/window-guard.test.ts` 30 条全过 · 提交 `96edd9b`；`verify.ps1` 全绿见 rev173.345 段。
+> **未做**：真机白屏复现验证进行中（盯屏第二轮，等它白一次看是否 30-40 秒内自动恢复）；「白屏与 `adb screencap` 何时发生」的因果也待排除。
 > ## 📌 rev173.345（2026-11-04 · 渲染停帧自救 + P6 后两项补验）
 
 > **问题（白屏第二种）**：2026-11-03 真机实测 —— 画面全白、点击不重绘、持续 25 秒以上画面完全不变，但焦点还在 MainActivity、`setInterval` 仍在跑（Rust 看门狗 25 秒都没杀进程）⇒ 已有的 `domLooksAlive` / `mainDomLooksAlive` 判据永远判「正常」，自救不触发。
