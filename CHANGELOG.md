@@ -1,6 +1,6 @@
 # Changelog
 
-> 状态：**active** ｜最后核对：2026-11-04（0.9.23 · rev173.348 Gitee 镜像）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
+> 状态：**active** ｜最后核对：2026-11-04（0.9.25 · rev173.356 启动链打点 + 启动日志插件）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
 
 ## 应用版本（app version · rev173.37 起）
 
@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 内容 |
 |---|---|---|
+| 0.9.25 | 2026-11-04 | **启动链打点细化 + 启动日志插件**（rev173.352–356）：① `examples/boot-log` 进插件市场（第 16 条）—— 读 `__znBootMarks()` 显示阶段表 / 长任务表，0.2.0 加长任务 DOM 快照与资源 Top，0.3.0 加全局方法探针（包装 `Array.sort` / `join` / `JSON.stringify` / `parse`，只记 ≥50ms 并抓调用栈）。⚠️ 0.1.0 直接给 `__TAURI_INTERNALS__.invoke` 赋值（`writable:false`）会抛错并让整个插件加载失败 ⇒ 0.2.1 改 try 住并在面板提示「IPC 只读」；② `useDocIO` 补 `vault-refresh-start` / `vault-refresh-listed`、`FileTree` 补 `tree-mounted`，把启动切成「首帧 → 树挂载 → 列表 → 插件」四段；③ 真机实测（努比亚 release · 8 插件全关）：启动全链 ≤453ms，但启动完成约 3 秒后有 8.5 秒长任务（DOM 不变 / 无 IPC / 无资源），具体函数未定位 |
 | 0.9.24 | 2026-11-04 | **Gitee 安装包路由 + 启动打点 + 真人测试11**（rev173.349–351）：① 应用更新的**安装包也能走 Gitee** —— `AssetRoute::Replace`（GitHub 仓库前缀 → Gitee 同路径），候选表仍保留直连 / ghproxy / gh-proxy 回退；② 插件装完**留在插件市场**（能接着装下一个）·「详细」大小 < 1 KB 显示真实字节数（原来 500 字节显示 0 KB）· `private-notes` **0.2.2** 补指纹解锁 / 绑定 / 解除（与密码库同一套 `crypto.biometric`）；③ 新增**启动耗时打点**（`[zn-boot]` 日志 + CDP `__znBootMarks()`，含 >50ms 长任务），用于定位「刚进软件卡顿」；④ 白屏类型 A（页面没挂载）由 `index.html` 内联兜底自愈（25 秒未就绪自动重载一次，再失败显示错误卡片） |
 | 0.9.23 | 2026-11-04 | **Gitee 镜像 + 白屏探针**（rev173.347–348）：① 插件市场加 **Gitee** 渠道（索引与 `/market/packs/*.znp` 都走 Gitee raw，国内直连）；② 应用更新加 Gitee 渠道（只镜像清单 `update/latest.json`，安装包仍在 GitHub Release）；③ 白屏检测走 Android 原生层 —— `RenderWatchdog.kt` 每 10 秒采五条全宽横带，「全白 + DOM 正常」连续 30 次（5 分钟）后做**软复位**（`onPause`→800ms→`onResume`）。⚠️ `PixelCopy(window)` 与 `webView.draw()` 两条抓画面路径实测都拿不到 Chromium 内容，当前判据会误判，所以动作从 `reload()`（实测无效且丢内容）改成无害软复位 |
 | 0.9.22 | 2026-11-03 | **真人测试10 六条**（rev173.336–339）：① 密码库解锁**可调用指纹** —— `security` 的 crypto 服务加 `biometric`（available/bound/unlock/bind/unbind，DEK 不出 security），`secrets` 加「用指纹解锁 / 绑定本机指纹 / 解除」（`security` **0.2.2** · `secrets` **0.1.2**）· ② 正常模式 ↔ 私密笔记**切换入口** —— 桌面侧栏头常驻 🔒 → 私密面板、手机「更多 → 笔记」第一项「私密笔记」（补上市场里一直缺的 `private-notes` **0.2.1**）· ③ 点图看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」—— 点击传**命中的候选**（`znUrlIdx`）而非第一候选，`openLocalLink` 改用 `linkCandidates`（笔记目录 → 库根），与渲染侧双候选口径统一 · ④ 手机选不中文字 / 要系统原生复制 —— 删掉 300ms 自绘四键条（含全屏 scrim，正是它打断系统选词）并放行编辑区 `contextmenu`（系统给「剪切 / 复制 / 全选 / 阅读·搜索」）· ⑤ 改同步策略重进又变回默认 —— 附件方式从受控 `select`（state 从不播种）改**按钮组**、选中态读 `settings.attachments`（`sync` **0.1.8**）· ⑥ 桌面复制没用 / 分享反而复制剪贴板 —— 复制同时写系统剪贴板（`copy_files_to_clipboard`）、分享改 Windows「发送到」（`list_send_to_targets` / `send_files_to` + 新「发送到…」视图），`import-export` **0.2.4** |

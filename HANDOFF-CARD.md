@@ -1,6 +1,6 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.351）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.356）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
@@ -9,7 +9,7 @@
 | rev / 版本 | rev173.356 · 0.9.25 · 2026-11-04 |
 | 测试基线 | vitest 1884 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.24 |
+| 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.25 |
 <!-- FACTS:END -->
 
 ## 📱 环境与设备（动 adb / 装包 / 判版本前先看这张表，别凭印象）
