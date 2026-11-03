@@ -8790,31 +8790,12 @@ revision: 173.341
 
 ### 技术事实
 
-- 本机铁律：Rust 产物必须 `CARGO_TARGET_DIR` 外移（工作区内编 C 依赖报 MSVC D8050）；crates.io 直连仅 ~34 KB/s ⇒ 项目级 `.cargo\config.toml` 走 rsproxy
-- **启动（桌面）**：双击 `dev.cmd`；**不要用 DSH 后台 job 起**（会随会话回收）。改 `src-tauri\tauri.conf.json` 会被 tauri CLI 自动检测并**重启应用**；改 `src/**` 只热更新；**改库内 `.zn\plugins\**` 需要重启或点「重新扫描」**（vite 不监视库目录）
-- **启动（Android）**：`android-dev.cmd`（WMI 起，日志落 `.self-logs\android-dev.log`）。三条硬前置：① 默认工具链装 4 个 android target（`rustup target add`）② **vite 必须 `host: true`**（真机经局域网 IP 访问 dev server；否则卡在 "Waiting for your frontend dev server"）③ Android 上**不能**用 PC 路径当库 ⇒ 已改为「应用数据目录/vault」
-- **gradle wrapper 必须走国内镜像**：默认 `services.gradle.org` 在本机**5 分钟 0 字节卡死**；已把 `src-tauri\gen\android\gradle\wrapper\gradle-wrapper.properties` 改为 `mirrors.cloud.tencent.com/gradle/`（**8 秒下完**）
-- **rustup 操作必须串行**：`tauri android init` 自己也会装 target，与手动 `rustup target add` 并发会报 `detected conflict ... rolling back changes`
-- **`.gitattributes` 的 `* text=auto eol=lf` 会损坏二进制**：gradle wrapper 的 `.jar` 必须显式 `*.jar binary`（否则入库即坏）
-- 已移除 StrictMode（`src\main.tsx`）：插件加载是异步 + 副作用密集，双调用会与异步清理竞争
-- git 分支 `main`；本地身份 `git config --local`
-- 交接不保存密钥、不保存完整会话正文
+> **2026-11-03：本节的机器 / 工具 / 平台坑已迁到 [`docs/开发环境坑位.md`](docs/开发环境坑位.md)** —— 交接卡与本文会随版本覆写、瘦身，坑必须放在不随交接变动的地方。
+> 迁走的：CARGO_TARGET_DIR 外移、crates.io 镜像、gradle wrapper 镜像、rustup 串行、`.gitattributes` 二进制、StrictMode 移除、桌面 / Android 启动与三条前置。
+> 仍留在本文的**项目级事实**：git 分支 `main`、本地身份 `git config --local`；交接不保存密钥、不保存完整会话正文。
+> 启动入口不变：桌面 `dev.cmd`，Android `android-dev.cmd`。
 
 ### 🔩 rev30 新踩的五个坑（都花了轮次，别再踩）
 
-1. **CSP 一开，local scheme 的 iframe 里 inline script 必被拦**。Tauri 编译时会给 `script-src`
-   注入打包资源的 `sha256`；而 CSP 规范规定「源列表里有 hash/nonce 时 `'unsafe-inline'` 被忽略」
-   ⇒ `data:` / `blob:` / `srcdoc` 的 iframe（会继承宿主 CSP）里，内联脚本一律 `blocked`
-   （logcat 原话：`'unsafe-inline' is ignored if either a hash or nonce value is present`）。
-   **要给插件页面跑自带脚本，页面必须来自独立 origin（`http(s):`）。**
-2. **Tauri asset 协议在 Android 上不服务 `.html`**：`http://asset.localhost/…/page.html` →
-   `net::ERR_INVALID_RESPONSE`（把 `assetProtocol.scope` 放宽到 `/storage/**` 也一样）。图片可以，HTML 不行。
-3. **真机点击：`adb shell input tap` 在 WebView 里不生效，`input swipe x y x y 120` 有效**
-   （同一坐标、同一时刻，tap 无反应而 swipe 立刻命中）。这条**补充/推翻了** M3 收尾④
-   「合成点击命中不稳定」的旧结论 —— 换手势即可，不用放弃自动化验收。
-4. **`adb push <目录> <已存在的目标目录>` 会多套一层**：文件被推成 `<目标>/<源目录名>/…`，
-   而插件只认一层。推单个文件到明确路径，或先删目标目录再整目录推。
-5. **插件注册进宿主表的资源必须由宿主兜底回收**。`command.register` / `view.registerPanel` /
-   `registerWebView` 现在都由 `ctx` 外层**自动登记**进 `subscriptions`。
-   指望插件作者记得 `subscriptions.push(...)` 是不现实的 —— `examples/` 里 **8 个**示例都忘了，
-   代价是**重载必崩**（「命令 id 重复」），而这类"静默记账"错误在首次安装时完全看不出来。
+> **2026-11-03：五条已迁到 [`docs/开发环境坑位.md`](docs/开发环境坑位.md)** —— CSP/iframe 与 asset 协议 `.html` 在「Tauri / WebView 平台」节；`adb tap` 换成 `swipe` 在「手机 / adb」节；`adb push` 多套一层在「验收方法论」节；插件资源由宿主兜底回收在「Tauri / WebView 平台」节。
+> 原始来龙去脉见 git 历史：`git log -S "CSP 一开" -- HANDOFF.md`。
