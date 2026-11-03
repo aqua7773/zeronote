@@ -3,8 +3,8 @@ rem ZeroNote -> Gitee 镜像推送（CRLF，勿转 LF；.cmd 不能带 BOM，否
 rem
 rem 前置（只需做一次）：
 rem   1. 登录 https://gitee.com ，右上「+」→ 新建仓库 → 名称填 zeronote
-rem      仓库路径要与 git remote `gitee` 一致：https://gitee.com/aqua7773/zeronote
-rem      **不要**勾「初始化仓库 / 添加 README / .gitignore」—— 空仓库才能直接推
+rem      仓库路径要与 git remote `gitee` 一致：https://gitee.com/legendary-bird-lin/zeronote
+rem      （已从 GitHub 导入过的话，这一步跳过）
 rem   2. 双击本脚本。第一次会弹 Git 凭据窗口，用 Gitee 账号登录即可
 rem      （Gitee 密码登录可能被拒，改用「私人令牌」当密码：设置 → 私人令牌，勾 projects）
 rem
@@ -34,5 +34,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo [完成] Gitee 仓库已同步：https://gitee.com/aqua7773/zeronote
+echo [完成] Gitee 仓库已同步：https://gitee.com/legendary-bird-lin/zeronote
 pause
