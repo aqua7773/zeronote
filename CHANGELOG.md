@@ -1,6 +1,6 @@
 # Changelog
 
-> 状态：**active** ｜最后核对：2026-11-03（0.9.21 · rev173.335 真人测试9 三条）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
+> 状态：**active** ｜最后核对：2026-11-03（0.9.22 · rev173.339 真人测试10 六条）｜权威范围：契约 / 协议层的变化（功能细节见 `HANDOFF.md`）
 
 ## 应用版本（app version · rev173.37 起）
 
@@ -10,6 +10,7 @@
 
 | 版本 | 日期 | 内容 |
 |---|---|---|
+| 0.9.22 | 2026-11-03 | **真人测试10 六条**（rev173.336–339）：① 密码库解锁**可调用指纹** —— `security` 的 crypto 服务加 `biometric`（available/bound/unlock/bind/unbind，DEK 不出 security），`secrets` 加「用指纹解锁 / 绑定本机指纹 / 解除」（`security` **0.2.2** · `secrets` **0.1.2**）· ② 正常模式 ↔ 私密笔记**切换入口** —— 桌面侧栏头常驻 🔒 → 私密面板、手机「更多 → 笔记」第一项「私密笔记」（补上市场里一直缺的 `private-notes` **0.2.1**）· ③ 点图看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」—— 点击传**命中的候选**（`znUrlIdx`）而非第一候选，`openLocalLink` 改用 `linkCandidates`（笔记目录 → 库根），与渲染侧双候选口径统一 · ④ 手机选不中文字 / 要系统原生复制 —— 删掉 300ms 自绘四键条（含全屏 scrim，正是它打断系统选词）并放行编辑区 `contextmenu`（系统给「剪切 / 复制 / 全选 / 阅读·搜索」）· ⑤ 改同步策略重进又变回默认 —— 附件方式从受控 `select`（state 从不播种）改**按钮组**、选中态读 `settings.attachments`（`sync` **0.1.8**）· ⑥ 桌面复制没用 / 分享反而复制剪贴板 —— 复制同时写系统剪贴板（`copy_files_to_clipboard`）、分享改 Windows「发送到」（`list_send_to_targets` / `send_files_to` + 新「发送到…」视图），`import-export` **0.2.4** |
 | 0.9.21 | 2026-11-03 | **真人测试9 三条**（rev173.335）：① 手机编辑页新增**常驻底部状态栏**（与桌面底部一致）—— 左 = 历史版本 / 反向链接（`editor-topbar` 面板）、右 = 当前文档字数；顶部不再放（撤销 0.9.20 把它塞进键盘快捷栏的写法），底部标记快捷栏仍**只在键盘弹出时**出现 · ② **密码库不再误报「未建立密钥环」** —— 「安全」插件自 rev173.182 起把 vault 按环拆文件（`.zn/security/vault.<id>.json`），而密码库 / 私密文件夹仍只读旧 `vault.json` ⇒ 迁移过的库永远显示未建立；改为新格式优先 + 旧单文件兜底（配套 `secrets` **0.1.1** 已签名入市，手机更新插件即生效） · ③ 首页 ＋ 滑动收起改成**原地渐隐**（原来 `.is-hidden` 的 `translateY(12px)` 覆盖了居中用的 `translateX(-50%)`，收起时向右跳半个身位） |
 | 0.9.20 | 2026-11-02 | **真人测试8 三条 + 首页 ＋ 收起**（rev173.334）：① 手机编辑页**历史版本从顶部移到底部**，底部快捷栏**只在软键盘弹出时显示**（`visualViewport` 高度差判键盘） · ② 应用更新**断点续传**再点「继续下载」不再报「上一次下载还没结束」—— 新增 Rust `cancel_apk_download`，点下载前先取消后台旧任务 · ③ 编辑区长按**到 300ms 直接弹四键条**（不再等松手）、去掉编辑区涟漪（保留振动）；文件树仍松手触发（拖拽时收菜单） · ④ 首页 ＋ **滑动时间流时收起、停下 400ms 再显示** |
 | 0.9.19 | 2026-11-02 | **手机打开右侧「更多」抽屉即原生崩溃（SIGABRT）**（rev173.333）：0.9.18 真机 tombstone 显示崩溃线程 `FenceMonitor`、栈全在 libc / libc++ / libgui（`libzeronote_lib.so` **0 命中**），abort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex` —— 触发面是「打开右抽屉」时条件渲染**新建两个全屏 fixed 合成层**（遮罩 + 抽屉）+ 入场动画，撞上 nubia HWC 的互斥量生命周期（与 11-02 13:xx 那 6 份 tombstone 同型）。改法：右抽屉改**常驻挂载**（与左抽屉 0.9.15 同款），关闭态 `visibility: hidden` 退出合成，进出场 340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`，关闭态 `aria-hidden` |

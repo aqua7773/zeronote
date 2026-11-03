@@ -11,8 +11,10 @@
 > **实测（手机 · debug APK · 库 `/storage/emulated/0/Documents/ZeroNote`）**：push 800×500 图 + `zn-pic-test.md` → 列表自动刷新 →
 > 点图 → 全屏遮罩 + 居中原图 ✓ → BACK 一次同时收键盘 + 关预览回笔记 ✓（`_shots/rt10-3-phone-preview.png` · `rt10-3-phone-preview2.png`）。
 > **已知小瑕疵**：手机点图时软键盘会一起弹出（CodeMirror 拿焦点），预览图与键盘各占半屏 —— 不阻塞本条，下轮可 blur 编辑器修掉。
-> **当前判定**：桌面 #1/#2/#3/#5/#6A/#6B **全过**；手机 #2/#3/#4/#5 **过**，只剩 **#1 指纹**未验（要真人按指纹）。
-> **下一步**：① 手机跑 #1 指纹（需你按一下）→ 六条全过发 0.9.22 ② 或先跑 `verify.ps1` 基线再发。
+> **当前判定**：**六条全过**（桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5）。
+> 手机 #1 指纹补验：密码库解锁 → 「本机已绑定指纹」→ 锁定 → 「用指纹解锁」→ 系统 `BiometricActivity` 弹屏下指纹 →
+> 用户按指纹 → **「已用指纹解锁」** ✓（`_shots/rt10-1-phone-fp-prompt.png` · `rt10-1-phone-fp-unlocked.png`）。
+> **下一步**：发 **0.9.22**（release.mjs → CHANGELOG → build-release → gen-update-manifest → gh release create）。
 >
 > **上一轮：rev173.338（2026-11-03 14:00）—— 真人测试10 验收：桌面 3 过 / 1 不过 / 3 未验；手机仅 #2 入口过**
 > 判定表已填（`docs/验收卡-真人测试10-2026-11-03.md` §6），证据在 `_shots/rt10-*`。
@@ -373,10 +375,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.336 · 0.9.21 · 2026-11-03 |
+| rev / 版本 | rev173.339 · 0.9.22 · 2026-11-03 |
 | 测试基线 | vitest 1816 · cargo 98 · oxlint 4 warnings（2026-11-03） |
 | 插件 | 市场 15 · 示例 39 |
-| 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.21 |
+| 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.22 |
 <!-- FACTS:END -->
 
 ## 是什么

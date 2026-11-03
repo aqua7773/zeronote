@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.336
-更新时间: 2026-11-03 · 最新 rev173.336（**真人测试10 六条已改，真机验证 5/6 未过 —— 主因是验证环境插件仍是旧版**）
+revision: 173.339
+更新时间: 2026-11-03 · 最新 rev173.339（**真人测试10 验收：六条全过 → 发 0.9.22**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.336
 
 | rev | 内容 |
 |---|---|
+| rev173.339 | 2026-11-03 · **真人测试10 验收：六条全过 → 发 0.9.22**。① **#3「点图看原图」复验：原判「不过」是误判，不是 bug** —— 测试图 `_tmp-vault-tb/x.jpg`（1216×2688）本身就是一张「文件树抽屉 + 右键菜单」的截图，点图后预览**正常弹出**、居中的正是这张图 ⇒ 看起来像弹了文件树。换 800×500 图（桌面 + 手机各一次）：遮罩 + 居中原图 + Esc / BACK 关闭 ✓，全程无「库里没有这个附件」⇒ 路径修复有效。② **手机 #1 指纹补验** —— 密码库 `a12345678` 解锁 → 显示「本机已绑定指纹」→ 锁定 → 锁屏「用指纹解锁」→ 前台切 `app.tauri.biometric.BiometricActivity`（屏下指纹）→ 用户按指纹 → **「已用指纹解锁」** ✓。③ **手机 #3** —— debug APK + `adb push` 测试图 → 列表自动刷新 → 点图 → 全屏预览 → BACK 一次同时收键盘 + 关预览 ✓（已知小瑕疵：点图时软键盘一起弹，未修）。④ 判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6 **六条全过**（桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5），证据 `_shots/rt10-*`。⑤ 同轮其它：rev173.337（纠正「App 启动内置插件覆盖全局根」的错误根因 —— 真因是市场索引没 push、用户点「更新」把旧版装回；`private-notes 0.2.1` 打包签名入库、索引 15 条）、rev173.338（vite watch 忽略 `.tmpdir` / `*.tmp`，防 EBUSY 崩 dev server）。验证：`verify.ps1` 基线见发版记录。 |
 | rev173.336 | 2026-11-03 · **真人测试10 六条：代码已改完，真机验证 5/6 未过**（`ZreoNote/.zn/share/真人测试10.md`，6 条 + 6 图）。改法：① **密码库指纹** —— 扩展 `security` 的 crypto 服务（`biometric.available/bound/unlock/bind/unbind`，DEK 仍不出 security），`secrets` 加「用指纹解锁 / 绑定本机指纹 / 解除」三条命令与入口；② **私密切换入口** —— 桌面侧栏头加 🔒（`AppSidebar.onOpenPrivate`），手机「更多」抽屉第一项加「私密笔记」（`more-items.ts` 新 action）；③ **查看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」** —— `MarkdownEditor` 点击时传**命中的候选**（`znUrlIdx`）而不是第一候选，`App.openLocalLink` 改 `linkCandidates`（笔记目录 → 库根）；④ **手机无法选字** —— 删自绘四键条（含 300ms 的全屏 scrim，正是它打断系统选词），编辑区放行 `contextmenu`；⑤ **同步策略重进变默认** —— 面板「附件」从受控 `select` 改**按钮组**（select 的取值依赖 `ctx.state`，而 render 从不播种）；⑥ **桌面复制 / 分享** —— 新增 Rust `copy_files_to_clipboard`（多选 CF_HDROP）与 `list_send_to_targets` / `send_files_to`（枚举 `%APPDATA%\Microsoft\Windows\SendTo\*.lnk`，`ShellExecuteExW` 执行），桌面「分享 md」改走「发送到…」面板。**同轮规则**：`~/.dsh/AGENTS.md` §8.8 + `ai-habits` §8「同一逻辑多处实现 ⇒ 先全量审计再改」，并据此统一了 5 处附件路径解析（`linkCandidates` 唯一来源 / `mediaSourceUrls` 多候选 / `refLocations` 跨端一致）。验证：tsc 0 · vitest **1816**（+12）· cargo check 0 · oxlint 0 error。⚠️ **用户真机验证结果**：A3/A4（同步）、A6（发送到）、A8/B2（私密入口）、B5（密码库环）**失败**，A5（桌面复制）失败 —— **根因：桌面 dev 与调试机的插件仍是旧版**（`import-export` 0.2.3 / `sync` 0.1.7 / `security` 0.2.1 / `secrets` 0.1.1，且**没有 `private-notes`**），我同步进去的新包被覆盖（待查是谁覆盖）；A5 与插件无关，是真 bug，待实测。**未提交 / 未推送 / 未发版**。 |
 | rev173.335 | 2026-11-03 · **真人测试9 三条**（`Downloads/真人测试9 (2).md`，3 条 + 3 张真机截图）：① **底部没有历史版本** —— 用户澄清「底部栏只在键盘弹出时显示，原来的位置就显示历史版本信息」→ 再改口「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」。改法：手机编辑页新增**常驻底部状态栏**（复用 `.zn-statusbar`：左 `editor-topbar` 面板 = 历史版本 / 反链，右 = 当前文档字数）；顶部不再放 `editor-topbar`（rev173.334 挪到底部快捷栏的写法撤掉）；底部标记快捷栏 `MarkToolbar` 仍**只在键盘弹出时**出现（`keyboardOpen`）。新 CSS `.zn-editor-statusbar`（高度自适应 + 底部安全区）。 ② **密码库插件一直显示未建立密钥环** —— 根因：`security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），旧单文件 `vault.json` 只剩迁移残留；而 `secrets` / `private-notes` 的 `checkRingReady` **仍只读旧单文件** ⇒ 迁移过的库存永远「未建立」，与安全插件页面「已建立」自相矛盾（用户两张截图正是这个）。改法：两个插件都先读 `vault.<环id>.json`（结构 `{ v:2, ring:{ id, ... } }`）、旧单文件兜底；新增纯函数 `hasRingPart` / `hasNotesRingPart` 与 `securityVaultFileOf`，各 +2 条单测。`secrets` **0.1.1** 已签名入库（`market/packs/secrets-0.1.1.znp` · 48.5 KB · keyId `aqua-2026` · 索引 14 条）。 ③ **首页加号隐藏有「往右移动」效果** —— 根因：`.zn-mobile-compose` 靠 `transform: translateX(-50%)` 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)` **把居中覆盖掉了** ⇒ 收起瞬间按钮向右跳半个身位。改成只 `opacity: 0`（保留 `translateX(-50%)`），动画时长改走 token `--zn-dur-base`（design-tokens 门禁）。验证：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。⚠️ **未做真机**：①③ 要装新包看；② 手机把插件中心更新到 `secrets 0.1.1` 即生效。 |
 | rev173.334 | 2026-11-02 · **真人测试8（6 条：3 修 3 待信息）**：① 历史版本移动端移到**底部**、底部快捷栏**只在键盘弹出时**显示（`visualViewport` 高度差 >120px 判键盘；`editor-topbar` 面板从顶部挪进 `MarkToolbar`）· ② 续传「继续下载」撞并发闸却仍在涨进度 —— 新增 Rust `cancel_apk_download`，下载循环每 chunk 检查，前端点下载前先取消旧任务 · ③ 编辑区长按**到 300ms 直接弹四键条**（不再等松手）、去掉编辑区涟漪；文件树仍松手触发。④ 手机分享没图片：分享在 `import-export` 插件，≥0.2.2 才内嵌（待确认手机插件版本）· ⑤ 桌面复制失败：**独立探针已证明 `winclip::copy_files` 写入/读回正常**，问题在调用侧（待版本与报错）· ⑥ md 图片读不出：子 agent 查得 3 个根因（`@atomic-editor` 图片块正则不认含空格/`![[ ]]`/`<img>` 且静默；`MarkdownEditor.tsx:136` 空候选不挂提示；附件未同步），**待用户给图片那行原文**。验证：tsc 0 · oxlint 4 · vitest 1799 · cargo check 0。 |
@@ -229,6 +230,39 @@ revision: 173.336
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.339（2026-11-03 · 真人测试10 验收：六条全过 → 发 0.9.22）
+
+> **来源**：`docs/验收卡-真人测试10-2026-11-03.md`（卡号 `ACT-2026-11-03-RT10`）。
+> **结论**：桌面 #1/#2/#3/#5/#6A/#6B ＋ 手机 #1/#2/#3/#4/#5 **全过**；`#3` 原判「不过」是**误判**（测试图误导），本轮补验 #3 两端 + 手机 #1 指纹。
+
+> ### 一、#3「点图看原图」复验 —— 原「不过」是误判，不是 bug
+>
+> **根因**：测试图 `_tmp-vault-tb/x.jpg`（1216×2688）**本身就是一张「文件树抽屉 + 右键菜单」的截图**；
+> 点图后预览**正常弹出**、居中显示的正是这张图 ⇒ 看起来像「点图弹了文件树」。
+>
+> | 验证 | 结果 |
+> |---|---|
+> | 桌面点 x.jpg | 全屏遮罩 + 居中大图（内容 = 该截图），Esc 关闭回笔记 ✓ |
+> | 桌面换 800×500 `PREVIEW-TEST` 图（库根 + `测试文件/y.md` 引用） | 点图 → 遮罩 + 居中原图 + Esc 关闭 ✓（`_shots/rt10-3-desktop-pass.png`） |
+> | 手机（debug APK · 库 `Documents/ZeroNote`）push 800×500 图 + `zn-pic-test.md` | 列表自动刷新 → 点图 → 全屏预览 → BACK 一次同时收键盘 + 关预览 ✓ |
+> | 「库里没有这个附件：测试文件/测试文件/x.jpg」 | **全程未出现** ⇒ rev173.336 的路径修复有效 |
+>
+> 代码链核对：`MarkdownEditor` 捕获点击 → `onLocalLinkOpen` → `App.openLocalLink` → `openImagePreview` → `setImagePreview`
+> （`.zn-img-preview` 只渲染 `<img>`），从不渲染文件树。
+> **已知小瑕疵**（不阻塞）：手机点图时软键盘会一起弹出（CodeMirror 拿到焦点），预览图与键盘各占半屏；下轮可 blur 编辑器。
+
+> ### 二、手机 #1 指纹补验（要真人按指纹）
+>
+> 密码库面板主密码 `a12345678` 解锁 → 显示「本机已绑定指纹」→ 点「锁定」→ 锁屏出现「用指纹解锁」→
+> 点击后前台切 `app.tauri.biometric.BiometricActivity`（黑底屏下指纹圆圈）→ **用户按指纹** →
+> 回到密码库并显示绿色 **「已用指纹解锁」** ✓（`_shots/rt10-1-phone-fp-prompt.png` · `rt10-1-phone-fp-unlocked.png`）。
+
+> ### 三、验证与产物
+>
+> - 判定表：`docs/验收卡-真人测试10-2026-11-03.md` §6 **六条全过**（证据 `_shots/rt10-*`）。
+> - 基线：tsc 0 · oxlint 4 warnings · cargo test --lib 98 · vitest 1816 · 质量门 8/8（发版前跑）。
+> - 发版：**0.9.22**（见本段顶部索引行的 Release 数据）。
 
 > ## 📌 rev173.336（2026-11-03 · 真人测试10 六条：代码全改完，真机验证 5/6 未过 —— 主因是验证环境的插件还是旧版）
 
