@@ -68,3 +68,6 @@ src-tauri/plugins/*/android/build/
 
 # Tauri CLI 的临时目录（构建时生成，不入库 —— rev173.37 打 tag 时挡路发现的）
 src-tauri/plugins/*/android/.tauri/
+
+# 审计前的交接卡备份（不进库，git 历史已保留整份）
+_backup/
