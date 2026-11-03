@@ -100,6 +100,13 @@ export const MARKET_MIRRORS: MarketMirror[] = [
     packBase: 'https://raw.githubusercontent.com/aqua7773/zeronote/main/',
   },
   {
+    id: 'gitee',
+    label: 'Gitee（国内直连）',
+    // Gitee 的 raw 路径：/<owner>/<repo>/raw/<branch>/<path>（不是 raw.githubusercontent 那套）
+    indexUrl: 'https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/index.json',
+    packBase: 'https://gitee.com/legendary-bird-lin/zeronote/raw/main/',
+  },
+  {
     id: 'jsdelivr-gcore',
     label: 'jsDelivr · GCore',
     indexUrl: 'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',

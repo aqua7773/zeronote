@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.347
-更新时间: 2026-11-04 · 最新 rev173.347（**白屏检测走原生层：两条抓画面路径实测均失败** —— `PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容；探针保留、动作改软复位 `onPause`→800ms→`onResume`）
+revision: 173.348
+更新时间: 2026-11-04 · 最新 rev173.348（**Gitee 镜像**：插件市场与应用更新各加一条 Gitee 渠道 —— 市场索引/包、更新清单全部实测 200；安装包仍在 GitHub Release，Gitee 未上传附件）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.347
 
 | rev | 内容 |
 |---|---|
+| rev173.348 | 2026-11-04 · **Gitee 镜像接入（插件市场 + 应用更新）**：① 市场 `MARKET_MIRRORS` 加 `gitee`（索引 `https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/index.json` + 同名 packBase），排在 raw 之后；② 应用更新 `UPDATE_MIRRORS`（前端 UI 列表）与 `src-tauri/src/updates.rs` 的 `MIRRORS`（后端真路由）各加 `gitee` 渠道，清单走 `{base}update/latest.json`。**实测（2026-11-04 01:2x）**：Gitee raw 的 `market/index.json` 200（11126 字节）、`market/packs/backup-0.3.2.znp` 200（37175 字节）、`update/latest.json` 200（version 0.9.22）。**限制**：Gitee 导入仓库不带 Release 附件 ⇒ 应用安装包仍走 GitHub（清单里的 url），Gitee 只加速「检查更新」；要全走 Gitee 需在 Gitee 建 Release 并上传安装包。**证据**：tsc 0 · `cargo test --lib` 98 passed。**未做**：真机切到 Gitee 镜像装一个插件（市场是纯前端，dev 包热更新即可验）；应用更新渠道要重编 Rust 才生效。 |
 | rev173.347 | 2026-11-04 · **白屏检测走原生层：两条抓画面路径实测均失败**：按 `docs/白屏-渲染停摆-2026-11-04.md` §4 加了 Android 原生看门狗 `RenderWatchdog.kt`（`MainActivity.onWebViewCreate` 拿 WebView，`onResume` 起、每 10 秒采样五条全宽横带，判据「全白 + DOM 正常」）。**路 1 `PixelCopy.request(window)` 失败**：Tauri WebView 内容在独立 `SurfaceControl` 子层（`dumpsys SurfaceFlinger --list` 见 `MainActivity#40938` 下有 `#40939`；`uiautomator dump` 中 WebView 是叶子、无 SurfaceView），抓回来五条横带全 1.00 纯白，而当时截图 88 KB 有内容。**路 2 `webView.draw(canvas)` 失败**：硬件加速下 Chromium 不往软件 Canvas 画页面内容，同样全白；红色覆盖层自检没拦住（简单合成层能画）⇒ 00:56:44 误触发 1 次 reload。**现状**：探针保留（日志 tag `ZN-RENDER`，阈值拉到 30 次 = 5 分钟防误伤），动作改**软复位**（`webView.onPause()` → 800ms → `onResume()`，依据用户实测「白屏后切后台 10 秒再回来会恢复」）；reload 实测无效且丢内容，已弃。**证据**：`verify.ps1` 见本次提交；真机 33b676f6 实测日志 `bands=[1.00,…] allWhite=true` × 十余条、`screencap` 88 KB 对照、`as` 见 `_shots/` 未存（白屏样本即 19399 字节，见 §7）。**未做**：软复位是否真能恢复白屏未验（要等 13–20 分钟复现）；release 包未复核。 |
 | rev173.346 | 2026-11-04 · **白屏检测改用 CSS 动画探针（rAF 判据被真机证伪）**：rev173.345 用 `requestAnimationFrame` 时间戳判「渲染停了」，真机验证**失败** —— 白屏 60 秒没触发。现场数据：App 主进程 CPU **59%**（JS 在跑、rAF 照转）、WebView 渲染进程 CPU **0.0%** ⇒ rAF 由主进程调度器驱动，渲染停了照转，判据无效。改成注入 1px CSS 动画探针 + 听 `animationiteration`（合成器驱动，渲染停摆时不派发）；加**探针自检**：启动 90 s 内零 tick ⇒ 判定探针在这种环境不跑、放弃自救（防每次启动无条件 reload）。**证据**：tsc 0 · `tests/window-guard.test.ts` 30 条全过；`verify.ps1` 全绿见 rev173.345。**未做**：真机验证 —— CSS 探针版同样**无效**（白屏 120 秒没触发）；JS 层（DOM / rAF / CSS 动画）全部证伪，下一步走原生层，完整实测数据与方案见 `docs/白屏-渲染停摆-2026-11-04.md`。 |
 | rev173.345 | 2026-11-04 · **渲染停帧自救 + P6 后两项补验**：① 第二种白屏（画面全白、点击不重绘、25 秒+不变，但 DOM 在、`setInterval` 在跑）⇒ `lib/window-guard.ts` 加 `RENDER_STALL_MS=30s` / `RENDER_CHECK_MS=5s` / `RENDER_RESCUE_FLAG` + 纯函数 `shouldRescueRender`，`hooks/useWindowGuard.ts` 加 `useRenderStallRescue`（rAF 每帧打时间戳，前台连续 30 s 无帧 ⇒ reload 一次，sessionStorage 防循环），`App.tsx` 只在 Android 主窗口挂。② P6 后两项补验 —— 桌面右键菜单第一组是「复制文本 Ctrl+C」；手机分享直接弹系统分享面板，插件说明文案是「放进系统剪贴板」不含「复制」。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1849 · 质量门 8/8，00:07:26）；`_shots/rev344-p6b-menu.png` / `rev344-p6c-share.png`。**未做**：真机白屏复现验证进行中。 |
@@ -238,6 +239,20 @@ revision: 173.347
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.348（2026-11-04 · Gitee 镜像接入：插件市场 + 应用更新）
+
+> 用户要求「配置应用和插件更新的 gitee 选项」。三处改动：
+> ① `src/kernel/market.ts` 的 `MARKET_MIRRORS` 加 `gitee`（raw 之后）；
+> ② `src/kernel/app-update.ts` 的 `UPDATE_MIRRORS` 加 `gitee`（UI 列表）；
+> ③ `src-tauri/src/updates.rs` 的 `MIRRORS` 加 `gitee`（真路由，`base` 指 Gitee raw）。
+> 两张表必须同步改（前端列表与后端路由各一份，没有跨语言测试兜住）。
+
+> **实测**：Gitee 的 `market/index.json` / `market/packs/backup-0.3.2.znp` / `update/latest.json`
+> 三条 URL 全部 200，内容与 GitHub 一致（同一份导入仓库）。
+
+> **证据**：tsc 0 · `cargo test --lib` 98 passed。**未做**：真机切 Gitee 装插件（前端热更新可验）；
+> 应用更新渠道要重编 Rust 才生效；Gitee 上还没有 Release 附件，安装包仍走 GitHub。
 
 > ## 📌 rev173.347（2026-11-04 · 白屏检测走原生层：两条抓画面路径实测均失败）
 

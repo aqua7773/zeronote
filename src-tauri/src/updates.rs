@@ -79,6 +79,14 @@ const MIRRORS: &[Mirror] = &[
     asset: AssetRoute::Direct,
   },
   Mirror {
+    id: "gitee",
+    label: "Gitee（国内直连）",
+    // Gitee raw 路径：/<owner>/<repo>/raw/<branch>/<path>；只镜像**清单**，
+    // 安装包仍按 ASSET_ROUTES 走 GitHub（Gitee 上还没有 Release 附件）
+    base: "https://gitee.com/legendary-bird-lin/zeronote/raw/main/",
+    asset: AssetRoute::Direct,
+  },
+  Mirror {
     id: "jsdelivr-gcore",
     label: "jsDelivr · GCore",
     base: "https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/",

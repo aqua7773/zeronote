@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.347）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.348）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.347 · 0.9.22 · 2026-11-04 |
+| rev / 版本 | rev173.348 · 0.9.22 · 2026-11-04 |
 | 测试基线 | vitest 1849 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.22 |
@@ -46,6 +46,8 @@
 - **rev173.344 重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`（aqua-2026 签名 · `verify-trust` 63/64 过）。已推 GitHub ⇒ 手机插件市场可以更新了（先切 ghproxy.net 镜像）
 - **rev173.345 渲染停帧自救（rAF 版 · 真机证伪）+ P6 后两项补验**：rAF 判据被真机推翻（白屏时主进程 CPU 59%、渲染进程 0%，rAF 照转）；P6 补验 —— 桌面右键「复制文本」、手机系统分享面板
 - **rev173.346 白屏检测改用 CSS 动画探针**：1px 探针 + `animationiteration`（合成器驱动，渲染停摆时不派发）+ 探针自检（90 s 零 tick 就放弃，防误 reload）。⏳ 真机白屏复现验证进行中
+- **rev173.347 白屏检测走原生层（两条抓画面路都失败）**：`RenderWatchdog.kt` 探针（tag `ZN-RENDER`，每 10s 采五条横带）+ 软复位（`onPause`→800ms→`onResume`，依据「切后台 10 秒能恢复」）。`PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容 ⇒ 读数不可信；reload 实测无效已弃。⏳ 待白屏复现验证软复位
+- **rev173.348 Gitee 镜像**：插件市场 + 应用更新各加 Gitee 渠道（`market.ts` / `app-update.ts` / `updates.rs` 三处）；Gitee raw 的索引 / 包 / 更新清单三条 URL 实测 200。安装包仍在 GitHub Release（Gitee 未传附件）
 
 ## 未决 / 下一步
 

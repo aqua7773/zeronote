@@ -103,6 +103,7 @@ export type UpdateMirror = { id: string; label: string }
  */
 export const UPDATE_MIRRORS: UpdateMirror[] = [
   { id: 'raw', label: 'GitHub raw' },
+  { id: 'gitee', label: 'Gitee（国内直连）' },
   { id: 'jsdelivr-gcore', label: 'jsDelivr · GCore' },
   { id: 'jsdelivr-testingcf', label: 'jsDelivr · Cloudflare' },
   { id: 'jsdelivr', label: 'jsDelivr（cdn，国内常断）' },
