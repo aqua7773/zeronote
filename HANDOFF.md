@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.342
-更新时间: 2026-11-03 · 最新 rev173.342（**手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()` 复用既有 `isTypingNow` 判据 + `App.tsx` 图片预览 effect 仅在 Android 调用 ⇒ 看图时键盘收起、预览独占全屏；桌面不处理）
+revision: 173.343
+更新时间: 2026-11-03 · 最新 rev173.343（**真机补验 rev173.341 三项遗留**：P4 看图时左右滑不误开抽屉 · P6 文件树长按是「复制文件」· P1 子目录笔记引用上级图片点开正常）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.342
 
 | rev | 内容 |
 |---|---|
+| rev173.343 | 2026-11-03 · **真机补验 rev173.341 三项遗留（只验不改）**：真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载 rev173.342）。**P4** 打开图预览后左右各划一次，抽屉没有弹出；对照「关预览回首页右滑 → 左抽屉正常打开」；编辑区内滑动不开抽屉属既有规则（输入状态不触发）。**P6** 文件树长按 `新笔记-12-54-00.md` → 菜单是「**复制文件**」（Ctrl+C），并确认「详细…」「在文件夹中打开」在。**P1** 子目录笔记 `归档/新建文件夹/test-photo.md` 引用上级 `归档/test-photo.png` → 正文渲染正常、点开全屏预览正常，无「库里没有这个附件」。**证据**：`_shots/rev343-p4-*` / `rev343-p6-01-menu.png` / `rev343-p1-*`；无代码改动，基线沿用 23:22:10 的 tsc 0 · oxlint 4 · cargo 98 · vitest 1844 · 质量门 8/8。**未做**：P6 后两项（编辑器右键「复制文本」、分享面板去「复制」字样）没在手机上走；rev173.342 的「文件树点图」回归没单独验。 |
 | rev173.342 | 2026-11-03 · **手机点图预览收软键盘**（交接卡「已知未修」项）：`src/lib/swipe.ts` 新 `dismissTypingFocus(doc)`（判据复用既有 `isTypingNow`，焦点真在 contentEditable / input / textarea 才 blur），`src/App.tsx` 图片预览 effect 在 `platform === 'android'` 时调用 ⇒ 预览打开时焦点交还 body、软键盘收起、图独占全屏；桌面不处理（无软键盘，失焦会打断连续输入）。命令面板 / 快速打开这类**要打字**的浮层不调用，边界写进函数注释与测试。**证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）；`tests/swipe.test.ts` 24 条（+2）；真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server）两次点图：点正文弹键盘（`_shots/rev342-04-keyboard.png`）→ 点图全屏预览且键盘收起（`_shots/rev342-05-preview.png` / `rev342-07-second.png`）。**未做**：文件树点图与其它浮层未复验；桌面点图行为未改。 |
 | rev173.341 | 2026-11-03 · **真人测试 10 批的同类问题：6 项全部落地**（源 docs/同类问题处置方案-2026-11-03.md —— 把真人使用测试 + 真人测试 2–10 共 10 批反馈抽象成 6 类「已修但别处仍有」的模式）。 **P5** 删单数版 resolveImageAbsPath（只取第一候选、无库根兜底），测试改用 firstOf() 取多候选首项。 **P1** 新建 tests/path-parity.test.ts（12 组核心 + 6 组已知差异）对拍主程序 linkCandidates 与插件 refLocations；对拍当场抓出 **Android /storage/... 被当「前导 / = 库根」剥成 storage/...**，于是 resolveImageAbsPaths 加 Android 外部存储绝对路径前置判断（前缀表与 pathFromVaultRoot 同源），docs/共享逻辑.md 登记「跨端两份、必须同序」。 **P2** backup 删「当前档位排第一」排序 hack、ai 设置区 provider select 改正序，两处改 view.setState 播种；契约 select 条目写死「render 前必须 view.setState(bind, 真实值)」。 **P4** 浮层拦截改 [data-overlay] 属性（旧 4 类 class 保留兼容），6 个浮层补属性（App 图片预览 / 编辑器预览 / QuickLaunch / CommandPalette / QuickSwitcher / ui/dialog）。 **P3** 卡片菜单补「详细…」「在文件夹中打开」（与文件树同回调、宿主不传就不摆）。 **P6** 文件树「复制」→「复制文件」、编辑器右键「复制」→「复制文本」、分享面板说明去「复制」字样。 **证据**：pwsh -File scripts/verify.ps1 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · check-docs 全过 · vitest 1842 · 质量门 8/8）；提交 e4f1e1e / 158a852 / debb134 / 67751b9；桌面 dev（CDP）卡片菜单含「详细…」「在文件夹中打开」且点「详细…」弹出真实文件信息（_shots/rt341-cdp-5.png）；真机 33b676f6（pnpm tauri android dev 重装的 dev 包 · versionName 0.9.22）长按卡片 → 同一菜单 → 点「详细…」弹出 新笔记-12-54-00.md 元信息与 /storage/emulated/0/... 路径（_shots/rt341-phone-12.png）。 **未做**：P4 左右滑不误开侧栏（要开图后手势）、P6 手机文件树「复制文件」、P1 手机点图解析，三者都没真机走；backup / ai / import-export 三个插件的市场包未重打包（源码改了，用户手上仍是旧版）。 |
 | rev173.340 | 2026-11-03 · **审计待修 24 项收口**（源：`docs/审计待修-2026-11-03.md`）：5 批 24 项全部处理 —— 22 修 · 1 核实为误判（2.1「插件 store 全局一份」：`lib.rs plugin_dir()` 落 `private_root(vault)/.zn/plugins/`，store 确实按库隔离，审计把 D-004 的「插件代码全局」误读成 store）· 1 审计数据过时（2.5 docs/README 已是 68 行）。**批次 1** 仓库卫生：`_tmp-*` 出索引、`.gitignore` 改 `_tmp-*`、`dsh-dev-gate` 建 git 仓库。**批次 2** 文档漂移：契约 `PluginContext` 补 `itemMenu`/`capability` + 修订记录 v0.2.1 · UI 规范 240→150ms、删「右侧 32px」· HANDOFF 161/210 段补「证据/未做」+ 模板进 `开发约定.md` §6。**批次 3** `check-docs` 从 4 类扩到 7 类：PluginContext 成员 · 状态词允许集 · 交接卡 ≤120 · docs/README ≤150 · 规范类 ≤300（契约按 B1 例外）· 矩阵登记 · HANDOFF 段 ≤80（存量 4 段白名单）· 旧段只增不减（对比 `git show HEAD:`）· 最新段强制两行 · 共享逻辑禁止写法 grep；负向实测两次都正确报红。3.9 `tests/setup.ts` + `setupFiles` 全局 cleanup。**批次 4** `dsh-dev-gate` 新 R4 提交证据门 / R5 首轮强制 skill（实测拦过一次）/ R6 每 50 次自检注入（不报 token）/ R7 `.ps1` 无策略提示（实测提示一次）。**批次 5** 新建 `docs/共享逻辑.md`（5 条）+ `tests/signing-parity.test.ts` 真比两份 `signingPayload` 输出。验证：`check-docs` 全绿 · signing-parity 5/5 · 全量 `verify.ps1` 见提交。 |
@@ -234,6 +235,15 @@ revision: 173.342
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.343（2026-11-03 · 真机补验 rev173.341 三项遗留）
+
+> **范围**：只验不改（本轮无代码改动）。真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载 rev173.342 代码）。
+> **P4 看图时左右滑不误开抽屉** —— 打开 `test-photo` 的图预览后向右、向左各划一次（`input swipe` 250→950 / 950→250），抽屉**没有**弹出，预览仍全屏（`_shots/rev343-p4-02-after-swipe.png`）。**对照**：关预览回首页右滑 → 左抽屉正常打开（`_shots/rev343-p4-04-control-home.png`），证明手势本身有效。⚠️ 编辑区内的滑动不开抽屉属既有规则（`isTypingNow` → 输入状态不触发，rev170 用户要求），不是回归。
+> **P6 文件树「复制文件」** —— 左抽屉长按 `新笔记-12-54-00.md` → 菜单项是「**复制文件**」（Ctrl+C），并顺带确认「详细…」「在文件夹中打开」在（`_shots/rev343-p6-01-menu.png`）。
+> **P1 手机点图解析** —— 子目录笔记 `归档/新建文件夹/test-photo.md` 引用**上级**目录图 `归档/test-photo.png`（正文 `![](归档/test-photo.png)`）→ 正文渲染正常（`_shots/rev343-p1-02-note.png`）、点开全屏预览正常（`rev343-p1-03-preview.png`），**无**「库里没有这个附件」。
+>
+> **证据**：上述截图；本轮无代码改动，`verify.ps1` 基线沿用 23:22:10（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）。
+> **未做**：P6 后两项（编辑器右键「复制文本」、分享面板去「复制」字样）没在手机上单独走；rev173.342 的「文件树点图」回归没单独验。
 > ## 📌 rev173.342（2026-11-03 · 手机点图预览收软键盘）
 
 > **问题**：交接卡「已知未修」—— 手机点正文里的图，预览打开时软键盘还弹着，预览与键盘各占半屏。
