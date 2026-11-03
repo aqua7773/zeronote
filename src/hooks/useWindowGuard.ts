@@ -23,6 +23,7 @@ import {
   mainDomLooksAlive,
   pickStuckWindows,
   RENDER_CHECK_MS,
+  RENDER_PROBE_WARMUP_MS,
   RENDER_RESCUE_FLAG,
   SCAN_MS,
   shouldRescueMain,
@@ -196,15 +197,22 @@ export function useMainWindowRescue(enabled: boolean): void {
 }
 
 /**
- * 渲染停帧自救（rev173.345 · 2026-11-03 真机实测）。
+ * 渲染停摆自救（rev173.346 · 2026-11-04 真机实测修正）。
  *
- * 与 `useMainWindowRescue` 互补：那条判「DOM 还在不在」，这条判「**还在动吗**」。
- * 真机白屏现场：DOM 在、`setInterval` 在跑（Rust 看门狗 25 秒都没杀进程）、
- * 点击也不重绘 ⇒ 只有光栅化停了，DOM 判据永远判「正常」。
+ * 与 `useMainWindowRescue` 互补：那条判「DOM 还在不在」，这条判「**渲染进程还干活吗**」。
  *
- * 做法：`requestAnimationFrame` 每帧更新 `lastFrame`，每 `RENDER_CHECK_MS` 检查一次；
- * 页面**可见**且连续 `RENDER_STALL_MS` 没帧 ⇒ 判定渲染停摆 ⇒ `location.reload()`。
- * 只在主窗口、只在 Android 挂（桌面 WebView2 没复现过，先不动）。
+ * ⚠️ rev173.345 的第一版用 `requestAnimationFrame` 时间戳，真机验证**失败**：白屏 60 秒没触发。
+ * 现场数据（2026-11-04 00:12）：App 主进程 CPU **59%**（JS 在跑、rAF 照转），WebView 渲染进程
+ * CPU **0.0%**（完全不干活）⇒ rAF 由主进程调度器驱动，**渲染停了它照转**，判据无效。
+ *
+ * 改用**依赖渲染进程**的信号：一个 1px 的 CSS 动画探针。`animationiteration` 由合成器驱动，
+ * 渲染进程停摆时不推进、事件不派发。
+ *
+ * 三条防护：
+ *  1. **探针自检**：暖机期（`RENDER_PROBE_WARMUP_MS`）内零 tick ⇒ 判定这种环境下探针不跑，
+ *     放弃自救 —— 宁可不救，也不能每次启动都无条件 reload 一次；
+ *  2. 页面不可见（切后台/熄屏）不算停摆，重置基准；
+ *  3. 只救一次（`RENDER_RESCUE_FLAG`）。
  */
 export function useRenderStallRescue(enabled: boolean): void {
   useEffect(() => {
@@ -217,43 +225,64 @@ export function useRenderStallRescue(enabled: boolean): void {
     }
     if (alreadyRescued) return
 
-    let disposed = false
-    let lastFrame = performance.now()
-    let raf = 0
+    /* 探针：1px、不可点、不占布局。opacity 在 0 和 0.001 之间跳 —— 全程 0 会被浏览器判
+       「不绘制」而跳过动画；0.001 足够让合成器认为它在动，肉眼不可见。 */
+    const style = document.createElement('style')
+    style.textContent = '@keyframes zn-render-probe{0%{opacity:0}50%{opacity:.001}to{opacity:0}}'
+    const probe = document.createElement('div')
+    probe.setAttribute('aria-hidden', 'true')
+    probe.style.cssText =
+      'position:fixed;left:0;top:0;width:1px;height:1px;pointer-events:none;z-index:-1;' +
+      'animation:zn-render-probe 1s linear infinite'
+    document.head.appendChild(style)
+    ;(document.body ?? document.documentElement).appendChild(probe)
 
-    const onFrame = (t: number) => {
-      if (disposed) return
-      lastFrame = t
-      raf = window.requestAnimationFrame(onFrame)
+    let disposed = false
+    let ticks = 0
+    let lastTick = performance.now()
+    const startedAt = performance.now()
+
+    const onTick = () => {
+      ticks += 1
+      lastTick = performance.now()
     }
-    raf = window.requestAnimationFrame(onFrame)
+    probe.addEventListener('animationiteration', onTick)
+
+    const cleanup = () => {
+      disposed = true
+      window.clearInterval(timer)
+      probe.removeEventListener('animationiteration', onTick)
+      probe.remove()
+      style.remove()
+    }
 
     const timer = window.setInterval(() => {
       if (disposed) return
-      const visible = document.visibilityState === 'visible'
-      if (!visible) {
-        // 后台/熄屏时 rAF 本来就会停 —— 重置基准，回前台后重新计时
-        lastFrame = performance.now()
+      const now = performance.now()
+      // 探针自检：暖机期内一次都没跑 ⇒ 这种环境里探针无效，放弃（绝不误伤）。
+      if (ticks === 0) {
+        if (now - startedAt > RENDER_PROBE_WARMUP_MS) cleanup()
         return
       }
-      const idleMs = performance.now() - lastFrame
+      const visible = document.visibilityState === 'visible'
+      if (!visible) {
+        // 后台/熄屏时动画本来就会停 —— 重置基准，回前台重算
+        lastTick = now
+        return
+      }
+      const idleMs = now - lastTick
       if (!shouldRescueRender({ visible, idleMs, alreadyRescued: false })) return
       disposed = true
-      window.cancelAnimationFrame(raf)
       window.clearInterval(timer)
       try {
         sessionStorage.setItem(RENDER_RESCUE_FLAG, '1')
       } catch {
         return
       }
-      console.warn('[zn] 渲染停帧', Math.round(idleMs / 1000), '秒，自动重载一次')
+      console.warn('[zn] 渲染停摆', Math.round(idleMs / 1000), '秒，自动重载一次')
       location.reload()
     }, RENDER_CHECK_MS)
 
-    return () => {
-      disposed = true
-      window.cancelAnimationFrame(raf)
-      window.clearInterval(timer)
-    }
+    return cleanup
   }, [enabled])
 }

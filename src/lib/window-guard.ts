@@ -201,6 +201,15 @@ export const RENDER_CHECK_MS = 5000
 export const RENDER_RESCUE_FLAG = 'zn.render-rescue-done'
 
 /**
+ * 探针暖机期：启动后这么久内一次 `animationiteration` 都没有
+ * ⇒ 判定「这个环境里 CSS 动画探针本身不跑」（被浏览器优化成静态），**放弃自救**。
+ *
+ * 为什么要这条：宁可救不了，也不能骗自己 —— 探针不工作时若还按「零 tick = 停摆」判，
+ * 会在每次启动后 30 秒无条件 reload 一次。
+ */
+export const RENDER_PROBE_WARMUP_MS = 90_000
+
+/**
  * 这一轮该不该因「渲染停帧」reload（纯函数）。
  *
  * 三条：页面可见 · 这次启动没救过 · 连续无帧时长到阈值。
