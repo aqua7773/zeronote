@@ -54,7 +54,7 @@ for (const m of codeCtx) if (!docCtx.includes(m)) problems.push('契约 PluginCo
 if (!/修订记录（minor）/.test(contract)) problems.push('契约头部缺「修订记录（minor）」')
 
 // ② docs 状态头 + 状态词
-// B2 待拍板（2026-11-03）：暂按「规则升级允许子态」执行 —— 允许集 = 现状全集，新增词必须先进这里再写文档。
+// B2 已拍板（2026-11-03）：允许集=现状（保留 accepted / implemented 等子态），新增词必须先进这里再写文档。
 const ALLOWED_STATES = new Set([
   'active', 'accepted', 'implemented', 'current', 'proposed', 'open',
   'draft', 'historical', 'archived', 'generated', 'superseded', 'disposable',
@@ -137,16 +137,18 @@ for (const f of [...new Set(scanFiles)]) {
 // ⑤ 规模门（2026-11-03）
 if (lineCount('HANDOFF-CARD.md') > 120) problems.push('HANDOFF-CARD.md 超过 120 行: ' + lineCount('HANDOFF-CARD.md'))
 if (lineCount('docs/README.md') > 150) problems.push('docs/README.md 超过 150 行: ' + lineCount('docs/README.md'))
-/** 规范类文档 ≤300 行；B1 待拍板前，内核契约先登记为例外（1413 行）。 */
+/** 规范类文档 ≤300 行；契约是接口字典，B1 拍板（2026-11-03）单独上限 1500 行。 */
 const NORM_DOCS = [
   'docs/README.md', 'docs/架构原则-2026-10-13.md', 'docs/开发约定.md', 'docs/文档编写规范.md',
   'docs/系统总览.md', 'docs/UI交互规范.md', 'docs/数据与存储.md', 'docs/内核契约-v0.2.md', 'CONTRIBUTING.md',
 ]
-const NORM_EXEMPT = new Map([['docs/内核契约-v0.2.md', 'B1 待拍板（拆分 / 单独上限 / 豁免）']])
+const NORM_LIMIT = 300
+const CONTRACT_LIMIT = 1500
 for (const f of NORM_DOCS) {
   if (!exists(f)) continue
   const n = lineCount(f)
-  if (n > 300 && !NORM_EXEMPT.has(f)) problems.push(f + ' 超过规范类上限 300 行: ' + n)
+  const limit = f === 'docs/内核契约-v0.2.md' ? CONTRACT_LIMIT : NORM_LIMIT
+  if (n > limit) problems.push(f + ' 超过上限 ' + limit + ' 行: ' + n)
 }
 
 // ⑥ 权威矩阵登记（docs 根每份文档都要能在 docs/README.md 里找到）

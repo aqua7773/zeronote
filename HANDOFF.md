@@ -266,8 +266,12 @@ revision: 173.340
 > 新建 `docs/共享逻辑.md`：5 条 —— 附件路径 `linkCandidates` · 目录切分 `dirnamePosix` · 拖拽落点 `resolveDropTarget`（触摸通道**登记为已知第二份**，闭包限制）· 签名 payload 跨端 · 附件落盘 `assets.rs`。
 > 配套：`check-docs` 的 `SHARED_RULES` 全仓 grep；新增 **`tests/signing-parity.test.ts`** 真比两份 `signingPayload` 的输出（原来只断言前端固定串，脚本那份改坏测试不会红）。
 >
-> **证据**：`node scripts/check-docs.mjs` 全绿（含新增 7 类）· `signing-parity` 5/5 · 负向测试两次报红 · `dsh-dev-gate` R5/R7 各实测一次
-> **未做**：8 项待拍板（B1–B8）未动；B1/B2 在 3.8 里按「例外 + 允许子态」临时落地，拍板后回来收窄；`docs/README.md` 权威矩阵以后新增文档要手补（`check-docs` 会红）
+> ### 六、待拍板 8 项（同一轮用户拍板并全部落地）
+>
+> **B1** 契约单独上限 1500 行（其余规范 300）· **B2** 保留子态（允许集=现状，新词仍拦）· **B3** 排查意图只警告（改到第 3 个文件时提示「先回报结论」）· **B5** 改完没跑验证 → 下一轮提醒「回复里不许说已修好」· **B6** 安装 / 系统类命令未加载 `machine-conventions` → 下一轮提醒 · **B8** 用户一次报多条 → 放宽多文件门、只提示逐条验证。**B4 不做**（判断质量类，hook 拦不住）· **B7 并入 B3**。实现全在 `dsh-dev-gate`（单测 6 条覆盖：B8 多条不拦 / B3 排查不拦 / 普通 3 文件仍拦 / B5 提示 / B6 提示与已加载不提示），真实环境 B5 / B7 各注入一次。
+>
+> **证据**：`node scripts/check-docs.mjs` 全绿（含新增 7 类）· `signing-parity` 5/5 · 负向测试两次报红 · `dsh-dev-gate` 单测 6 条 · 真实环境 R5 拦过一次 / R7 提示两次 / B5 提示两次
+> **未做**：无 —— B1–B8 已全部处理（B4 明确不做、B7 并入 B3）；`docs/README.md` 权威矩阵以后新增文档要手补（`check-docs` 会红）
 
 > ## 📌 rev173.339（2026-11-03 · 真人测试10 验收：六条全过 → 发 0.9.22）
 
