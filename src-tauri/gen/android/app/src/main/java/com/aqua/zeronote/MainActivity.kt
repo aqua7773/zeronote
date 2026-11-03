@@ -1,12 +1,22 @@
 package com.aqua.zeronote
 
 import android.os.Bundle
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
+  /**
+   * 渲染停摆看门狗（rev173.347 · `RenderWatchdog.kt`）——
+   * JS 层三套判据被真机证伪后的原生兜底：直接看合成出来的画面。
+   */
+  private var renderWatchdog: RenderWatchdog? = null
+
+  /** 当前是否处于前台（`start()` 幂等，这里只是避免在后台里白跑定时器） */
+  private var resumed = false
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -20,5 +30,28 @@ class MainActivity : TauriActivity() {
     WindowInsetsControllerCompat(window, window.decorView).apply {
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
+  }
+
+  /**
+   * Wry 创建完 WebView 后回调这里（`WryActivity.setWebView` → `onWebViewCreate`）。
+   * 只存引用，不在这里 start —— 此时 WebView 还没 attach 到窗口，
+   * PixelCopy 拿不到 surface；真正启动放在 `onResume`。
+   */
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    renderWatchdog = RenderWatchdog(this, webView)
+    if (resumed) renderWatchdog?.start()
+  }
+
+  override fun onResume() {
+    super.onResume()
+    resumed = true
+    renderWatchdog?.start()
+  }
+
+  override fun onPause() {
+    resumed = false
+    renderWatchdog?.stop()
+    super.onPause()
   }
 }

@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.346）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.347）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.346 · 0.9.22 · 2026-11-04 |
+| rev / 版本 | rev173.347 · 0.9.22 · 2026-11-04 |
 | 测试基线 | vitest 1849 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.22 |
@@ -66,7 +66,7 @@
 
 **已知未修**
 
-- **手机白屏（渲染停摆）**：首页放着约 13 分钟后画面纯白，点击 / 旋转都不重绘，只能重启；实测渲染进程 CPU 0.0%、主进程 60–75%。**JS 层三套判据全部证伪**（DOM / rAF / CSS 动画），下个会话走原生层 —— 数据与方案见 [`docs/白屏-渲染停摆-2026-11-04.md`](docs/白屏-渲染停摆-2026-11-04.md)
+- **手机白屏（渲染停摆）**：首页放着约 13 分钟后画面纯白，点击 / 旋转都不重绘，只能重启；实测渲染进程 CPU 0.0%、主进程 60–75%。**JS 层三套判据全部证伪**（DOM / rAF / CSS 动画），**原生层两条抓画面路径也失败**（`PixelCopy(window)` 抓不到 SurfaceControl 子层；`webView.draw()` 画不出 Chromium 内容 —— rev173.347 实测）。现状：`RenderWatchdog.kt` 保留探针（tag `ZN-RENDER`），判定成立后做**软复位**（`onPause`→800ms→`onResume`）而非 reload，⏳ 待白屏复现验证是否真能恢复 —— 数据与方案见 [`docs/白屏-渲染停摆-2026-11-04.md`](docs/白屏-渲染停摆-2026-11-04.md)
 
 **长期**
 
