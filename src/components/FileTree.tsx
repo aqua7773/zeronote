@@ -16,6 +16,7 @@ import type {
 } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
+import { bootMark } from '../lib/boot-marks'
 
 type TreeNode = {
   name: string
@@ -648,6 +649,13 @@ export function FileTree({
   onReveal?: (path: string) => void
 }) {
   const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
+  /**
+   * 启动打点（rev173.356）：文件树挂载完成 = 「首屏列表真正画出来」的时刻。
+   * 与 `vault-refresh-*` 配合能区分「等列表 → 构建树 → React 渲染」三段各花多久。
+   */
+  useEffect(() => {
+    bootMark('tree-mounted')
+  }, [])
   /**
    * **折叠的目录集合**（2026-10-18 用户要求「文件树默认记住上次状态」）。
    * 记「折叠」而不是「展开」：默认全展开 = 空集合，与升级前观感一致。
