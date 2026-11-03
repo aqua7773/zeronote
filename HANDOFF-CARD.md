@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.357）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.358）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.357 · 0.9.25 · 2026-11-04 |
-| 测试基线 | vitest 1884 · cargo 98 · oxlint 4 warnings（2026-11-04） |
+| rev / 版本 | rev173.358 · 0.9.25 · 2026-11-04 |
+| 测试基线 | vitest 1885 · cargo 100 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.25 |
 <!-- FACTS:END -->
@@ -40,17 +40,14 @@
 - **0.9.23 已发版**（tag `v0.9.23` · commit `c9ba43d` · GitHub 3 资产 + **Gitee Release 同步** `legendary-bird-lin/zeronote`）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.23> · <https://gitee.com/legendary-bird-lin/zeronote/releases/tag/v0.9.23>
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
-- **rev173.341 同类问题 6 项落地**（方案 `docs/同类问题处置方案-2026-11-03.md`）：跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一。G2 已验：桌面 2 项（CDP）、真机 1 项（长按卡片菜单 + 详细弹窗）
-- **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。G2 真机 `33b676f6` 两次 + **G3 用户已确认正常**（2026-11-03，证据 `_shots/rev342-*`）
-- **rev173.343 真机补验 rev173.341 三项全过**：P4 看图时左右滑不误开抽屉（对照：首页右滑正常）· P6 文件树长按是「复制文件」· P1 子目录笔记引用上级图点开正常（`_shots/rev343-*`）
-- **rev173.344 重打包三个插件市场包**：`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`（aqua-2026 签名 · `verify-trust` 63/64 过）。已推 GitHub ⇒ 手机插件市场可以更新了（先切 ghproxy.net 镜像）
+- **rev173.341–344 已全部验完**：同类问题 6 项落地（跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一）· 手机点图预览收软键盘（真机 + 用户确认）· 真机补验 P4/P6/P1 三项全过 · 三个插件市场包重打（`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`，已推 GitHub）
 - **rev173.345–347 白屏检测三代方案（全部被真机证伪）**：rAF 时间戳（白屏时主进程 CPU 59%、rAF 照转）→ CSS 动画探针（120 秒没触发）→ 原生 `RenderWatchdog.kt`（`PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容）。探针日志 tag `ZN-RENDER` 保留
 - **rev173.348 Gitee 镜像**：插件市场 + 应用更新各加 Gitee 渠道（`market.ts` / `app-update.ts` / `updates.rs` 三处）；Gitee raw 的索引 / 包 / 更新清单三条 URL 实测 200。安装包仍在 GitHub Release（Gitee 未传附件）
 - **rev173.349 启动兜底（白屏类型 A：页面没挂载）**：`index.html` 内联脚本（不依赖模块）—— `main.tsx` 挂载后置 `window.__znBooted`，25 秒没标记 ⇒ 自动重载一次，再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 立即触发。真机 CDP 拦截 `main.tsx` 实测：卡片出现 → 解除后恢复、标记清空。单测 `tests/boot-guard.test.ts` 7 个
 - **rev173.351 启动打点 + 0.9.24 发版**：`src/lib/boot-marks.ts` 记 `entry`/`first-frame`/`plugins-ready` + 启动期 >50ms 长任务（CDP `__znBootMarks()`；dev 包 logcat 里在 `Tauri/Console`，**release 包不回传**）。真机 dev 两次冷启动：JS 侧 ~700ms（插件加载 693–714ms）· 长任务最大 77ms。**release 0.9.24 实测**：`am start -W` 五次冷启动 TotalTime 173–189ms、内容可见 ~835ms（含 adb 截图开销）⇒ 启动不慢。0.9.24 已打 tag `v0.9.24`（`e739618`），Gitee 已推 main+tag，**GitHub + Gitee Release 均已发（3 附件逐个 HEAD 200）**
 
-- **rev173.357 启动卡顿根因 + 轮询兜底改造**（本轮）：卡顿 = `src/kernel/fs.ts` 文件监听兜底的 `setInterval(pollOnce, 3000)` 每轮调全库 `list_notes`（CDP profile 实测 **1455ms**，`list_dirs` 另 **411ms**）⇒ 启动后 3.2 秒出现 **1730ms** 长任务、之后每 3 秒再来一次；卡住期间触摸全部排队、恢复后一次性派发（积压的返回会把应用直接退掉）。**已改**：首次轮询**延迟到启动后 8 秒**、间隔 **≥10 秒**且单次 >800ms 自动退避 6 倍（上限 60s）、`setInterval` → 递归 `setTimeout`。实测启动窗口 **59–127ms**（原 1730ms），3 次冷启动稳定
-- **rev173.357 未做（下个会话）**：**治本** —— Rust `list_notes` 加 mtime 缓存（文件没变不重读 frontmatter）+ 轮询改用只取 path/mtime 的轻量命令；做完那「8 秒后 1 秒（release 上历史测到 8.5 秒量级）」才会真正消失。同轮新增 `[zn-mark]` / `[zn-longtask]` 实时 logcat 打点 + `tools/cdp-profile.mjs`（CDP CPU 采样器）。**努比亚机已装 debug 包** `com.aqua.zeronote.debug`（跑它要 `adb reverse tcp:1420 tcp:1420`，CDP 走 `adb forward tcp:9334 localabstract:webview_devtools_remote_<pid>`，pid 会变）
+- **rev173.357 启动卡顿定位 + 轮询兜底改造**：卡顿 = `fs.ts` 轮询兜底每轮全库 `list_notes`（CDP 实测 **1455ms**，`list_dirs` 另 411ms）⇒ 启动后 3.2 秒 1730ms 长任务、之后每 3 秒一次；触摸全部排队、恢复后一次性派发。已改：首次轮询延迟 8 秒、间隔 ≥10 秒、单次 >800ms 自动退避 6 倍（上限 60s）、`setInterval` → 递归 `setTimeout`；启动窗口降到 **59–127ms**（3 次冷启动稳定）
+- **rev173.358 轮询治本（本轮）**：① `list_notes` 加 `(mtime, size)` 元数据缓存 —— 文件没变就不重读 frontmatter，**9 个写盘命令**落盘后显式失效（`set_mtime` 会把时间写回远端值，只靠 mtime 不够）；② 新命令 `list_notes_light(vault)`（只回 path+mtime，与完整版共用集合谓词）+ `fs.ts` 的 `pollOnce` 改调它。**桌面实测（合成库 126 篇 / 9.2 MB / NTFS · CDP）**：冷缓存 `list_notes` **390ms** → light **9ms**；热缓存 14–53ms → 7–13ms。⚠️ touch 大批文件会触发 watcher 风暴，风暴期首个 invoke 被主线程排队污染到 2.3 秒，测耗时必须在风暴后取数
 
 ## 未决 / 下一步
 
@@ -59,6 +56,7 @@
 
 **真机待验（装 0.9.23 APK）**
 
+- **rev173.358 待真机**：重编 debug 包后冷启动，启动后 8 秒那次轮询不应再出现 >800ms 长任务（`adb logcat` 看 `[zn-longtask]`）；桌面已测 390ms→9ms，手机 FUSE IO 更慢、绝对值会更大
 - 插件市场切「**Gitee（国内直连）**」刷新 → 列表出来、能装一个插件（不用梯子）；应用更新渠道下拉也应有 Gitee（**rev173.350 起安装包也走 Gitee** —— 前缀替换，待真机验下载）
 - **rev173.350 待真机**：插件市场装一个插件后应**停在市场**（不再跳已安装）；「详细…」大小不再显示 0 KB；私密文件夹解锁页出现「用指纹解锁」（先在列表里点「绑定指纹」）
 - 白屏探针：**已实测（2026-11-04 01:57）—— 软复位能跑，但判据误判**（页面正常时也判全白，每进程空做一次 800 ms 复位）。处置 A（停用自动判据）/ B（改手动触发）/ C（继续找判据）见 `docs/白屏-渲染停摆-2026-11-04.md` §8，**待用户拍板，不要自行改**

@@ -116,6 +116,57 @@ pub struct NoteMeta {
   kind: String,
 }
 
+/// `list_notes` 的**渲染元数据缓存**（rev173.358 治本）。
+///
+/// 为什么需要它：真机实测 `list_notes` 单次 **1.45 秒**（126 篇 / 95 MB 库），
+/// 其中绝大部分是**逐篇 `read_to_string` 全文 + 解析 frontmatter** ——
+/// 而这两项只在文件**真的变过**时才值得重算。轮询兜底每轮都跑这条命令，
+/// 库越大越明显（每轮一次全库重解析 ⇒ 主线程周期性被按住 1.5 秒）。
+///
+/// 判定键 `(mtime, size)`：两个都没变就复用上次算出的 title / frontmatter。
+/// 只靠 mtime 不够 —— 部分文件系统精度只有秒，同一秒内改两次会读到旧标题；
+/// 所以**所有写盘命令**都在落盘后调 [`invalidate_note_meta`]（见各命令末尾）。
+#[derive(Clone)]
+struct CachedNoteMeta {
+  mtime: u64,
+  size: u64,
+  title: String,
+  frontmatter: serde_json::Value,
+}
+
+/// 绝对路径（[`watch_key`] 归一后）→ 上次算好的渲染元数据。
+static NOTE_META_CACHE: std::sync::LazyLock<Mutex<BTreeMap<String, CachedNoteMeta>>> =
+  std::sync::LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+/// 软上限：超出就整表清空（而不是无界增长）。
+///
+/// 126 篇的库只有 126 条；正常库远到不了上限。清空只是下一轮多一点 IO，
+/// 不会错 —— 比"缓存无限涨、进程常驻几十 MB"安全。
+const NOTE_META_CACHE_MAX: usize = 20_000;
+
+/// 让某条路径的缓存失效（**写盘命令落盘后必须调用**）。
+fn invalidate_note_meta(abs: &Path) {
+  if let Ok(mut m) = NOTE_META_CACHE.lock() {
+    m.remove(&watch_key(abs));
+  }
+}
+
+/// 让**整棵目录**下的缓存失效（移动 / 删除目录时用）。
+fn invalidate_note_meta_tree(dir: &Path) {
+  let prefix = format!("{}/", watch_key(dir));
+  if let Ok(mut m) = NOTE_META_CACHE.lock() {
+    m.retain(|k, _| !k.starts_with(&prefix));
+  }
+}
+
+/// 文件树里**要列出来**的文件：笔记 / 只读文档 / 图片 / 音视频。
+///
+/// [`collect`] 与 [`collect_refs`] 共用这一份谓词 —— 两条命令的集合边界
+/// 必须完全一致，否则轮询看到的变化（图片增删）与真正的清单对不上（静默失效）。
+fn is_listed_file(name: &str) -> bool {
+  is_markdown(name) || is_readonly_doc(name) || is_image(name) || is_media(name)
+}
+
 /// 库内相对路径 → 绝对路径（拒绝绝对路径、`..`、盘符等）
 fn resolve(vault: &str, rel: &str) -> Result<PathBuf, String> {
   let rel = rel.trim().replace('\\', "/");
@@ -287,15 +338,41 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
     // 只读文档 / 图片**不读文本、不解析 frontmatter**：二进制读成 String 没有意义
     //（`read_to_string` 会失败），而"三级回退标题"是 Markdown 专属语义。
     // 显示名 = 去掉扩展名的文件名（类型由前端挂的 `.pdf` / `.png` 徽章显示）。
+    let size = meta.len();
+    // rev173.358：命中缓存就不读文件、不解析 —— 126 篇里没变的那些省掉全文读取
     let (frontmatter, title) = if is_note {
-      let text = fs::read_to_string(&path).unwrap_or_default();
-      let fm = parse_frontmatter(&text);
-      let fallback = name
-        .trim_end_matches(".markdown")
-        .trim_end_matches(".md")
-        .to_string();
-      let title = display_title(&fm, &text).unwrap_or(fallback);
-      (fm, title)
+      let key = watch_key(&path);
+      let hit = NOTE_META_CACHE
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&key).filter(|x| x.mtime == mtime && x.size == size).cloned());
+      match hit {
+        Some(c) => (c.frontmatter, c.title),
+        None => {
+          let text = fs::read_to_string(&path).unwrap_or_default();
+          let fm = parse_frontmatter(&text);
+          let fallback = name
+            .trim_end_matches(".markdown")
+            .trim_end_matches(".md")
+            .to_string();
+          let title = display_title(&fm, &text).unwrap_or(fallback);
+          if let Ok(mut c) = NOTE_META_CACHE.lock() {
+            if c.len() >= NOTE_META_CACHE_MAX {
+              c.clear();
+            }
+            c.insert(
+              key,
+              CachedNoteMeta {
+                mtime,
+                size,
+                title: title.clone(),
+                frontmatter: fm.clone(),
+              },
+            );
+          }
+          (fm, title)
+        }
+      }
     } else {
       // 文档显示名 = **去掉扩展名的文件名**（类型由前端挂的 `.pdf` 徽章显示，见 FileTree：
       // 若这里带上扩展名，树里就会出现 `手册.pdf .pdf` 这种重复）。
@@ -311,7 +388,7 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       id: String::new(),
       title,
       mtime,
-      size: meta.len(),
+      size,
       frontmatter,
       kind: if is_note {
         "note"
@@ -735,6 +812,8 @@ fn rewrite_links(
         // 改之前先把原文留一份 —— 这是唯一能救「改错了」的东西
         backup_before_rewrite(root, &rel, &text);
         atomic_write(&path, &next)?;
+        // rev173.358：改名会连带重写**别的笔记**里的引用 ⇒ 那些文件的缓存也要作废
+        invalidate_note_meta(&path);
         changed += 1;
       }
     }
@@ -1056,6 +1135,71 @@ fn list_notes(vault: String, dir: Option<String>) -> Result<Vec<NoteMeta>, Strin
   Ok(out)
 }
 
+/// 一条**轻量文件引用**：只够判断「多了 / 少了 / 变了」，不含标题与 frontmatter。
+#[derive(Serialize)]
+pub struct NoteRef {
+  /// 库内相对路径，统一用 `/`（与 `NoteMeta.path` 同口径）
+  path: String,
+  /// 毫秒时间戳
+  mtime: u64,
+}
+
+/// 与 [`collect`] **同一套集合边界**，但**不读文件内容**。
+///
+/// 两处必须同步改：谓词已经收口到 [`is_listed_file`]，
+/// 唯一还要跟着走的只有「进入目录 / 跳过目录」的规则（`.` 开头 + [`SKIP_DIRS`]）。
+fn collect_refs(root: &Path, dir: &Path, out: &mut Vec<NoteRef>) -> Result<(), String> {
+  let entries = fs::read_dir(dir).map_err(|e| format!("读取目录失败 {}：{e}", dir.display()))?;
+  for entry in entries {
+    let entry = entry.map_err(|e| e.to_string())?;
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+      continue;
+    }
+    let path = entry.path();
+    if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+      collect_refs(root, &path, out)?;
+      continue;
+    }
+    if !is_listed_file(&name) {
+      continue;
+    }
+    let mtime = entry
+      .metadata()
+      .ok()
+      .and_then(|m| m.modified().ok())
+      .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+      .map(|d| d.as_millis() as u64)
+      .unwrap_or(0);
+    let rel = path
+      .strip_prefix(root)
+      .map_err(|e| e.to_string())?
+      .to_string_lossy()
+      .replace('\\', "/");
+    out.push(NoteRef { path: rel, mtime });
+  }
+  Ok(())
+}
+
+/// `list_notes` 的**轻量版**（rev173.358）：只回 `path + mtime`。
+///
+/// 给**轮询兜底**用 —— 它只关心清单差异，完整版却要逐篇读全文解析 frontmatter
+/// （126 篇约 **1.45 秒**，每轮都把主线程按住）。改走这条之后轮询只剩
+/// 目录遍历 + `metadata()` 两次系统调用/文件，采集部分不再随正文大小线性增长。
+///
+/// 不补 ID、不落盘：ID 表只服务渲染（`NoteMeta.id`），轮询用不到。
+#[tauri::command]
+fn list_notes_light(vault: String) -> Result<Vec<NoteRef>, String> {
+  let root = PathBuf::from(&vault);
+  if !root.is_dir() {
+    return Err(format!("库目录不存在：{vault}"));
+  }
+  let mut out = Vec::new();
+  collect_refs(&root, &root, &mut out)?;
+  out.sort_by(|a, b| a.path.cmp(&b.path));
+  Ok(out)
+}
+
 #[tauri::command]
 fn read_note(vault: String, path: String) -> Result<String, String> {
   let abs = resolve(&vault, &path)?;
@@ -1065,7 +1209,10 @@ fn read_note(vault: String, path: String) -> Result<String, String> {
 #[tauri::command]
 fn write_note(vault: String, path: String, content: String) -> Result<(), String> {
   let abs = resolve(&vault, &path)?;
-  atomic_write(&abs, &content)
+  atomic_write(&abs, &content)?;
+  // rev173.358：内容变了 ⇒ 缓存里的 title / frontmatter 必须作废
+  invalidate_note_meta(&abs);
+  Ok(())
 }
 
 /// 设置文件的**修改时间**（rev173.297 · 同步插件拉取后对齐远端推送时间）。
@@ -1097,7 +1244,11 @@ fn set_mtime(vault: String, path: String, mtime_ms: u64) -> Result<(), String> {
     .map_err(|e| format!("打开 {path} 失败：{e}"))?;
   let t = UNIX_EPOCH + std::time::Duration::from_millis(mtime_ms);
   f.set_modified(t)
-    .map_err(|e| format!("设置 {path} 的修改时间失败：{e}"))
+    .map_err(|e| format!("设置 {path} 的修改时间失败：{e}"))?;
+  // rev173.358：同步会把 mtime 写回**远端时间** —— 只按 (mtime, size) 判定可能
+  // 又撞回旧条目，所以这里无条件失效一次（下一轮重新解析，成本只在同步后一次）
+  invalidate_note_meta(&abs);
+  Ok(())
 }
 
 /// 读**二进制**（rev173.106 · 同步插件上传附件用）：base64 过桥。
@@ -1118,7 +1269,10 @@ fn write_note_bytes(vault: String, path: String, base64: String) -> Result<(), S
   let bytes = base64::engine::general_purpose::STANDARD
     .decode(base64.as_bytes())
     .map_err(|e| format!("内容不是合法 base64：{e}"))?;
-  atomic_write_bytes(&abs, &bytes)
+  atomic_write_bytes(&abs, &bytes)?;
+  // rev173.358：附件同名覆盖的路径极少，但写盘后仍要作废（防御性一致）
+  invalidate_note_meta(&abs);
+  Ok(())
 }
 
 #[tauri::command]
@@ -1127,7 +1281,9 @@ fn create_note(vault: String, path: String, content: String) -> Result<(), Strin
   if abs.exists() {
     return Err(format!("文件已存在，不覆盖：{path}"));
   }
-  atomic_write(&abs, &content)
+  atomic_write(&abs, &content)?;
+  invalidate_note_meta(&abs);
+  Ok(())
 }
 
 #[tauri::command]
@@ -1148,6 +1304,9 @@ fn rename_note(vault: String, from: String, to: String) -> Result<(), String> {
     display_title(&fm, &t).unwrap_or_default()
   });
   fs::rename(&src, &dst).map_err(|e| format!("重命名失败：{e}"))?;
+  // rev173.358：源路径没了、目标路径是新文件 —— 两边缓存都作废
+  invalidate_note_meta(&src);
+  invalidate_note_meta(&dst);
   // ① ID 跟着文件走（rev118）
   let root = PathBuf::from(&vault);
   let mut ids = load_ids(&root);
@@ -1248,6 +1407,8 @@ fn delete_note(vault: String, path: String) -> Result<String, String> {
   } else {
     fs::rename(&abs, &dest).map_err(|e| format!("移入回收站失败：{e}"))?;
   }
+  // rev173.358：条目已不在库里（目录则整棵子树一起清）
+  invalidate_note_meta_tree(&abs);
   Ok(format!("{PRIVATE_DIR}/trash/{stamp}/{name}"))
 }
 
@@ -1400,6 +1561,8 @@ fn restore_trash(vault: String, id: String) -> Result<String, String> {
     }
     // 整个 stamp 目录（含 `.origin`）一起清掉，回收站里不留碎片
     let _ = fs::remove_dir_all(&src);
+    // rev173.358：恢复回库内 → 若库里还有旧缓存（删前残留），必须作废
+    invalidate_note_meta_tree(&dst);
     return Ok(rel);
   };
   // 旧格式：id 本身就带着原名，只能回库根
@@ -1408,6 +1571,7 @@ fn restore_trash(vault: String, id: String) -> Result<String, String> {
     return Err(format!("库里已有同名项，先改名再恢复：{name}"));
   }
   fs::rename(&src, &dst).map_err(|e| format!("恢复失败（{name}）：{e}"))?;
+  invalidate_note_meta_tree(&dst);
   Ok(name.to_string())
 }
 
@@ -1504,15 +1668,21 @@ fn move_entry(vault: String, from: String, to: String) -> Result<(), String> {
   }
   // 非空目录的 rename 在 Windows 上可能 ACCESS_DENIED（见 `move_tree` 的说明）——
   // 与 `delete_note` 同一套降级：逐项搬过去，再把源空壳删掉。
-  if src.is_dir() {
-    if fs::rename(&src, &dst).is_err() {
-      move_tree(&src, &dst)?;
-      fs::remove_dir_all(&src).map_err(|e| format!("移动后清理原目录失败：{e}"))?;
-      return Ok(());
+  let result = if src.is_dir() {
+    match fs::rename(&src, &dst) {
+      Ok(()) => Ok(()),
+      Err(_) => move_tree(&src, &dst).and_then(|()| {
+        fs::remove_dir_all(&src).map_err(|e| format!("移动后清理原目录失败：{e}"))
+      }),
     }
-    return Ok(());
-  }
-  fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
+  } else {
+    fs::rename(&src, &dst).map_err(|e| format!("移动失败（{from} → {to}）：{e}"))
+  };
+  // rev173.358：源没了 / 目标多了 —— 两边（目录则整棵树）的缓存都作废；
+  // 失败路径也清（逐项搬可能已经搬走了一半，缓存同样不可信）
+  invalidate_note_meta_tree(&src);
+  invalidate_note_meta_tree(&dst);
+  result
 }
 
 /// 递归复制（文件 → 单文件；目录 → 建目录后逐项递归）。
@@ -4448,6 +4618,8 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       list_notes,
+      // rev173.358：轮询兜底专用（只 path + mtime，不读正文）
+      list_notes_light,
       list_dirs,
       list_files,
       purge_private,
@@ -4701,6 +4873,76 @@ mod tests {
     fs::create_dir_all(&d)
       .unwrap_or_else(|e| panic!("创建测试目录失败（{}）：{e}", d.display()));
     d
+  }
+
+  /// rev173.358 治本②：轻量清单与完整清单**必须是同一个集合、同一个顺序**。
+  ///
+  /// 两条命令分开实现（一条读正文、一条不读），最容易漂的就是集合边界：
+  /// 图片 / 只读文档漏在轻量版之外 ⇒ 轮询永远看不到附件增删（静默失效）。
+  #[test]
+  fn list_notes_light_matches_list_notes() {
+    let d = tmpdir("list-refs-parity");
+    let vault = d.join("vault");
+    fs::create_dir_all(vault.join("子目录")).unwrap();
+    fs::write(vault.join("a.md"), "# A\n").unwrap();
+    fs::write(vault.join("子目录").join("b.md"), "# B\n").unwrap();
+    fs::write(vault.join("图.png"), b"png").unwrap();
+    fs::write(vault.join("手册.pdf"), b"%PDF").unwrap();
+    // 不该出现的：隐藏文件、跳过目录、未知类型
+    fs::write(vault.join(".hidden.md"), "# 隐藏\n").unwrap();
+    fs::create_dir_all(vault.join("node_modules")).unwrap();
+    fs::write(vault.join("node_modules").join("x.md"), "# x\n").unwrap();
+    fs::write(vault.join("笔记.unknownext"), b"x").unwrap();
+
+    let s = vault.to_string_lossy().to_string();
+    let full: Vec<String> = list_notes(s.clone(), None)
+      .unwrap()
+      .into_iter()
+      .map(|m| m.path)
+      .collect();
+    let light: Vec<String> = list_notes_light(s)
+      .unwrap()
+      .into_iter()
+      .map(|r| r.path)
+      .collect();
+    assert_eq!(full, light, "两条命令的路径集合与顺序必须完全一致");
+    assert_eq!(
+      full.len(),
+      4,
+      "应只有 a.md / b.md / 图.png / 手册.pdf：{full:?}"
+    );
+  }
+
+  /// rev173.358 治本①：写盘命令必须让缓存失效 —— 即使 mtime 和 size 都被还原。
+  ///
+  /// 真实场景：同步插件 `write_note` 落内容后紧接着 `set_mtime` 把时间写回
+  /// **远端推送时间**（「谁更新」判定靠它）。若缓存只认 (mtime, size)，
+  /// 时间被写回 / 同一秒内两次写入都会读到旧标题 —— 所以命令层必须显式清。
+  #[test]
+  fn note_meta_cache_invalidated_by_writes() {
+    let d = tmpdir("note-meta-cache");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    let s = vault.to_string_lossy().to_string();
+    fs::write(vault.join("a.md"), "# 旧标题\n").unwrap();
+    let mt0 = fs::metadata(vault.join("a.md"))
+      .unwrap()
+      .modified()
+      .unwrap();
+    let title_of = |v: &str| list_notes(v.to_string(), None).unwrap()[0].title.clone();
+    assert_eq!(title_of(&s), "旧标题");
+
+    // **等长**内容（size 不变）写一遍，再把 mtime 强行改回原值：
+    // 光靠 (mtime, size) 判定必然命中旧缓存，只有命令层的显式失效能救。
+    write_note(s.clone(), "a.md".to_string(), "# 新标题\n".to_string()).unwrap();
+    let f = fs::OpenOptions::new()
+      .write(true)
+      .open(vault.join("a.md"))
+      .unwrap();
+    f.set_modified(mt0).unwrap();
+    drop(f);
+
+    assert_eq!(title_of(&s), "新标题", "write_note 之后缓存必须失效");
   }
 
   /// 库存在性探测（「最近库自动清理」的判据）：真目录为真；被删掉的库、文件、空串都为假；

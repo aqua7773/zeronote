@@ -95,4 +95,37 @@ describe('fs.watch 的事件源', () => {
     expect(hasPollDelay(timeoutSpy)).toBe(true)
     sub.dispose()
   })
+
+  it('旧内核没有 list_notes_light ⇒ 轮询回退到 list_notes（不许静默失效）', async () => {
+    vi.useFakeTimers()
+    try {
+      listenOk()
+      mocks.invoke.mockReset()
+      const calls: string[] = []
+      mocks.invoke.mockImplementation(async (cmd: string) => {
+        calls.push(cmd)
+        if (cmd === 'watch_vault') throw new Error('移动端不使用系统文件监听')
+        // 场景：前端热更新已带新代码，但进程里还是没重编的旧 Rust 二进制
+        if (cmd === 'list_notes_light') throw new Error('command list_notes_light not found')
+        if (cmd === 'list_notes') return [{ path: 'a.md', mtime: 1 }]
+        return undefined
+      })
+
+      const onChange = vi.fn()
+      const fs = createFsApi('/vault')
+      const sub = fs.watch(onChange)
+      // 先把 listen → watch_vault(reject) → startPoll 这条异步链冲干净
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
+      // 轮询首次延迟 8 秒：推过去，让它真的跑一轮
+      await vi.advanceTimersByTimeAsync(8_100)
+
+      expect(calls).toContain('list_notes_light')
+      expect(calls, '轻量命令不可用必须退回完整版').toContain('list_notes')
+      // 降级之后功能仍在：首轮比对把 a.md 当新增上报
+      expect(onChange).toHaveBeenCalledWith({ kind: 'create', path: 'a.md' })
+      sub.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

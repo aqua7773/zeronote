@@ -175,10 +175,28 @@ export function createFsApi(
       const POLL_MIN_MS = 10_000
       const POLL_MAX_MS = 60_000
       let pollTimer: number | null = null
+      /**
+       * rev173.358：轮询只关心「清单有没有变」，正常情况下走**轻量命令** —— 它只回
+       * `path + mtime`，不读正文、不解析 frontmatter（完整版 126 篇要 1.45 秒）。
+       *
+       * `lightMissing` 是 **dev 环境**的兜底：手机 dev 包连 vite 时，前端热更新
+       * 先于 Rust 重编生效，旧内核没有这条命令 ⇒ invoke 直接抛错，而轮询外层的
+       * catch 会把它吞掉（外部改动从此完全不刷新 = 静默失效）。第一次失败就退回
+       * 完整版并留一条 warn —— 降级可以，不能变成「没功能」。
+       */
+      let lightMissing = false
       const pollOnce = async () => {
         if (disposed) return
         try {
-          const notes = await invoke<NoteMeta[]>('list_notes', { vault, dir: null })
+          const notes: Array<{ path: string; mtime: number }> = lightMissing
+            ? await invoke<NoteMeta[]>('list_notes', { vault, dir: null })
+            : await invoke<Array<{ path: string; mtime: number }>>('list_notes_light', {
+                vault,
+              }).catch((e: unknown) => {
+                lightMissing = true
+                console.warn('[zn] list_notes_light 不可用，轮询回退到 list_notes', e)
+                return invoke<NoteMeta[]>('list_notes', { vault, dir: null })
+              })
           const now = new Map(notes.map((n) => [n.path, n.mtime]))
           for (const [path, mtime] of now) {
             const prev = last.get(path)
