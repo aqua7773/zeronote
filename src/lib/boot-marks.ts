@@ -37,6 +37,12 @@ try {
       for (const e of list.getEntries()) {
         if (e.startTime > LONG_TASK_WINDOW_MS) continue
         longTasks.push({ start: Math.round(e.startTime), dur: Math.round(e.duration) })
+        // rev173.357 诊断：长任务一出现就落 logcat（原来只存在数组里，启动后才看得到）
+        try {
+          console.warn('[zn-longtask]', `start=${Math.round(e.startTime)} dur=${Math.round(e.duration)}`)
+        } catch {
+          /* 忽略 */
+        }
       }
     })
     po.observe({ entryTypes: ['longtask'] })
@@ -49,11 +55,20 @@ try {
 export function bootMark(name: string): void {
   if (typeof performance === 'undefined') return
   if (marks.some((m) => m.name === name)) return
-  marks.push({ name, at: Math.round(performance.now()) })
+  const at = Math.round(performance.now())
+  marks.push({ name, at })
   try {
     performance.mark(`zn-boot:${name}`)
   } catch {
     /* 老 WebView 没有 performance.mark —— 不影响主流程 */
+  }
+  // rev173.357 诊断：每个阶段**实时**落 logcat。`logBootMarks()` 只在首次调用时
+  // 印一次，首帧之后的 tree-mounted / vault-refresh-* / plugins-ready 根本看不到，
+  // 卡顿恰好在首帧之后 = 盲区。这行让 `adb logcat | findstr zn-mark` 能看到全过程。
+  try {
+    console.info('[zn-mark]', name, `@${at}`)
+  } catch {
+    /* 忽略 */
   }
 }
 

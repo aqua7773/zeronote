@@ -159,7 +159,22 @@ export function createFsApi(
 
       // 轮询兜底（**只在事件通道不可用时启动**）：比对清单，发现差异即上报
       let last = new Map<string, number>()
-      let poll: number | null = null
+      /**
+       * rev173.357 真机实测（debug 包 · 126 篇 / 95 MB 库）：
+       * `list_notes` 单次要 **1.45 秒**（Rust 侧递归扫描 + 逐篇读 frontmatter），
+       * `list_dirs` 另占 0.41 秒。原实现 `setInterval(3000)` 意味着
+       * ① 用户刚进软件 3 秒就撞上第一次全库扫描 —— 主线程被占 1.7 秒，
+       *    期间触摸全部排队，恢复后一次性派发（体感「卡住 + 自动触发」）；
+       * ② 之后**每 3 秒**再占 1.45 秒，约一半时间主线程不可用。
+       *
+       * 现在：首次 8 秒后（避开首屏），此后按上一次实测耗时决定间隔
+       * （≥10 秒；一次超过 800ms 就退避到 6 倍，上限 60 秒）。
+       * 库越大扫得越慢 ⇒ 间隔自动越长，不会再周期性把主线程按住。
+       */
+      const POLL_FIRST_MS = 8000
+      const POLL_MIN_MS = 10_000
+      const POLL_MAX_MS = 60_000
+      let pollTimer: number | null = null
       const pollOnce = async () => {
         if (disposed) return
         try {
@@ -177,16 +192,27 @@ export function createFsApi(
         }
       }
 
+      /** 递归调度：这一轮跑完、量到耗时之后才排下一轮（固定节拍会把主线程按住） */
+      const schedulePoll = (delay: number) => {
+        if (disposed) return
+        pollTimer = window.setTimeout(() => {
+          void (async () => {
+            const t0 = performance.now()
+            await pollOnce()
+            const cost = performance.now() - t0
+            const next = cost > 800 ? Math.min(POLL_MAX_MS, Math.round(cost * 6)) : POLL_MIN_MS
+            schedulePoll(next)
+          })()
+        }, delay)
+      }
       const startPoll = () => {
-        if (poll !== null || disposed) return
-        poll = window.setInterval(() => {
-          void pollOnce()
-        }, 3000)
+        if (pollTimer !== null || disposed) return
+        schedulePoll(POLL_FIRST_MS)
       }
       const stopPoll = () => {
-        if (poll !== null) {
-          window.clearInterval(poll)
-          poll = null
+        if (pollTimer !== null) {
+          window.clearTimeout(pollTimer)
+          pollTimer = null
         }
       }
 

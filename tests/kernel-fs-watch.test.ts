@@ -40,10 +40,14 @@ function listenOk(): Array<(ev: { payload: unknown }) => void> {
   return handlers
 }
 
-let intervalSpy: ReturnType<typeof vi.spyOn>
+let timeoutSpy: ReturnType<typeof vi.spyOn>
+
+/** 轮询的「首次延迟」= 8000ms；settle() 用的 setTimeout(r, 0) 不算 */
+const hasPollDelay = (spy: ReturnType<typeof vi.spyOn>): boolean =>
+  spy.mock.calls.some((c) => typeof c[1] === 'number' && c[1] >= 5000)
 
 afterEach(() => {
-  intervalSpy?.mockRestore()
+  timeoutSpy?.mockRestore()
   mocks.invoke.mockReset()
   mocks.listen.mockReset()
 })
@@ -53,7 +57,7 @@ describe('fs.watch 的事件源', () => {
     const handlers = listenOk()
     mocks.invoke.mockReset()
     mocks.invoke.mockResolvedValue(undefined)
-    intervalSpy = vi.spyOn(window, 'setInterval')
+    timeoutSpy = vi.spyOn(window, 'setTimeout')
 
     const onChange = vi.fn()
     const fs = createFsApi('/vault')
@@ -62,8 +66,8 @@ describe('fs.watch 的事件源', () => {
 
     // ① 真的去让 Rust 起 watcher
     expect(mocks.invoke).toHaveBeenCalledWith('watch_vault', { vault: '/vault' })
-    // ② 起成功了 ⇒ 不能启动轮询（否则等于每 3 秒全库扫一遍）
-    expect(intervalSpy).not.toHaveBeenCalled()
+    // ② 起成功了 ⇒ 不能启动轮询（否则等于周期性全库扫一遍）
+    expect(hasPollDelay(timeoutSpy)).toBe(false)
     // ③ 事件能到达订阅者
     handlers[0]({ payload: { kind: 'modify', path: 'a.md' } })
     expect(onChange).toHaveBeenCalledWith({ kind: 'modify', path: 'a.md' })
@@ -74,21 +78,21 @@ describe('fs.watch 的事件源', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('unwatch_vault', { vault: '/vault' })
   })
 
-  it('watch_vault 失败 ⇒ 保留 3 秒轮询兜底（不静默失效）', async () => {
+  it('watch_vault 失败 ⇒ 保留轮询兜底（首次 8 秒起，不静默失效）', async () => {
     listenOk()
     mocks.invoke.mockReset()
     mocks.invoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'watch_vault') throw new Error('移动端不使用系统文件监听')
       return undefined
     })
-    intervalSpy = vi.spyOn(window, 'setInterval')
+    timeoutSpy = vi.spyOn(window, 'setTimeout')
 
     const fs = createFsApi('/vault')
     const sub = fs.watch(() => {})
     await settle()
 
     // 起不来 ⇒ 必须留轮询；否则外部改动就彻底没人管了
-    expect(intervalSpy).toHaveBeenCalled()
+    expect(hasPollDelay(timeoutSpy)).toBe(true)
     sub.dispose()
   })
 })
