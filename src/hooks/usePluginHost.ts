@@ -24,6 +24,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Kernel } from '../kernel/kernel'
 import type { WebviewBridgeHandler } from '../kernel/webview-bridge'
 import type { UsageRecorder } from '../kernel/plugin-usage'
+import { bootMark } from '../lib/boot-marks'
 import {
   listPluginDirs,
   loadPlugin,
@@ -403,6 +404,8 @@ export function usePluginHost({
         if (!cancelled) {
           setLoadedIds(ids)
           setPlatformSkipped(platformSkippedIds)
+          // 启动耗时打点（rev173.351 · 真人测试11 #2）：插件扫描 + 激活完成
+          bootMark('plugins-ready')
           /**
            * 内核生命周期事件（契约 §1.4，rev173.40）。
            *

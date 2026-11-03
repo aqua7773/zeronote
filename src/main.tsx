@@ -3,6 +3,13 @@ import App from './App'
 import './styles.css'
 import { applyBootPluginStyles } from './lib/boot-plugin-styles'
 import { GlobalScrollbars } from './components/GlobalScrollbars'
+import { bootMark, logBootMarks } from './lib/boot-marks'
+
+/**
+ * 启动耗时打点（rev173.351 · 真人测试11 #2）—— 先量再改，不猜。
+ * 表用 CDP 读：`__znBootMarks()`；日志里是 `[zn-boot] entry@… styles-ready@…`。
+ */
+bootMark('entry')
 
 /**
  * 注意：**没有 StrictMode**。
@@ -14,6 +21,7 @@ import { GlobalScrollbars } from './components/GlobalScrollbars'
 // 首屏预热插件样式（主题类插件）—— 必须在 React 挂载前、且在内核 styles.css 之后，
 // 否则主题插件要等异步加载完才生效，等于每次启动都闪一下内核深色（rev135）。
 applyBootPluginStyles()
+bootMark('styles-ready')
 
 createRoot(document.getElementById('root')!).render(
   <>
@@ -30,3 +38,10 @@ createRoot(document.getElementById('root')!).render(
  * 内联脚本会在 25 秒后自动重载一次，再失败就显示错误卡片（见 index.html 那段注释）。
  */
 window.__znBooted = true
+bootMark('render-called')
+
+// 首帧（第一次 rAF）：这里的耗时 = React 首屏渲染 + 样式计算 + 绘制排队
+requestAnimationFrame(() => {
+  bootMark('first-frame')
+  logBootMarks()
+})
