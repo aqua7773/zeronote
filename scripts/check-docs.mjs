@@ -10,6 +10,8 @@
  *   ④ 文档引用的具体文件是否存在
  *   ⑤ 规模门：交接卡 ≤120 行 · docs/README ≤150 行 · 规范类 ≤300 行
  *   ⑥ docs 根每份文档都进 `docs/README.md` 权威矩阵
+ *   ⑦ 坑位知识不许回流交接卡：环境坑位段 ≤3 条 + 必须指向 `docs/开发环境坑位.md`
+ *   ⑧ 共享逻辑「禁止写法」全仓 grep（§7 表同源）
  *
  * 任一失败退出码 1。
  */
@@ -158,7 +160,22 @@ for (const n of docNames) {
   if (!docsReadme.includes(n)) problems.push('docs/README.md 权威矩阵未登记: docs/' + n)
 }
 
-// ⑦ 共享逻辑「禁止写法」全仓 grep（docs/共享逻辑.md 的登记表同源，改表必须同步改这里）
+// ⑦ 坑位知识不许回流交接文件（2026-11-03）
+// 背景：HANDOFF-CARD 是交接快照、会随 rev 覆写瘦身；踩坑知识必须住在 docs/开发环境坑位.md。
+const PIT_DOC = 'docs/开发环境坑位.md'
+if (!exists(PIT_DOC)) problems.push('缺长期坑位文档: ' + PIT_DOC)
+const card = read('HANDOFF-CARD.md')
+const pitBlock = (card.match(/## 环境坑位[\s\S]*?(?=\n## |$)/) || [''])[0]
+if (pitBlock) {
+  if (!pitBlock.includes(PIT_DOC)) problems.push('交接卡「环境坑位」段缺指针 ' + PIT_DOC)
+  const bullets = pitBlock.split('\n').filter((l) => /^\s*-\s/.test(l))
+  // 上限 3：超过就是又把坑堆回交接卡了
+  if (bullets.length > 3) {
+    problems.push('交接卡「环境坑位」段有 ' + bullets.length + ' 条（上限 3）—— 坑要写进 ' + PIT_DOC)
+  }
+}
+
+// ⑧ 共享逻辑「禁止写法」全仓 grep（docs/共享逻辑.md 的登记表同源，改表必须同步改这里）
 const SHARED_RULES = [
   { re: /\bnoteDir\b/, allow: ['src/lib/insert-image.ts'], why: '附件路径候选只在 linkCandidates 里拼（docs/共享逻辑.md）' },
   { re: /\.split\('\/'\)\.slice\(0,\s*-1\)/, allow: [], why: '库内目录切分用 dirnamePosix（docs/共享逻辑.md）' },
