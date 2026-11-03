@@ -3243,6 +3243,231 @@ mod winclip {
   }
 }
 
+/**
+ * **Windows「发送到」（SendTo）**（rev173.336 · 真人测试10 #6）。
+ *
+ * 用户原话：「分享的功能应该是和 windows 发送到这个一样」—— 即把文件交给用户在
+ * 「发送到」里选的那个程序（邮件 / 微信 / 蓝牙 / 桌面快捷方式…），而不是静默塞剪贴板。
+ *
+ * 实现取的是「发送到」的**本质**：SendTo 目录里每个 `.lnk` 就是「用那个程序打开这个文件」。
+ * 枚举目录 → 用户选一个 → `ShellExecuteExW` 以 `.lnk` 为目标、文件为参数执行。
+ * 比走 `IContextMenu` 的 SendTo 子菜单省掉整套 COM（同样的结果，20 行 FFI 就够）。
+ */
+#[cfg(target_os = "windows")]
+mod sendto {
+  use std::ffi::c_void;
+  use std::os::windows::ffi::OsStrExt;
+
+  /** `SHELLEXECUTEINFOW`（winbase.h）—— 只用到前几个字段，但结构体大小必须完整 */
+  #[repr(C)]
+  struct ShellExecuteInfoW {
+    cb_size: u32,
+    f_mask: u32,
+    hwnd: *mut c_void,
+    lp_verb: *const u16,
+    lp_file: *const u16,
+    lp_parameters: *const u16,
+    lp_directory: *const u16,
+    n_show: i32,
+    h_inst_app: *mut c_void,
+    lp_id_list: *mut c_void,
+    lp_class: *const u16,
+    hkey_class: *mut c_void,
+    dw_hotkey: u32,
+    h_icon: *mut c_void,
+    h_process: *mut c_void,
+  }
+
+  #[link(name = "shell32")]
+  unsafe extern "system" {
+    fn ShellExecuteExW(info: *mut ShellExecuteInfoW) -> i32;
+  }
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn CloseHandle(h: *mut c_void) -> i32;
+  }
+
+  const SEE_MASK_FLAG_NO_UI: u32 = 0x0000_0400;
+  const SW_SHOWNORMAL: i32 = 1;
+
+  fn wide(s: &str) -> Vec<u16> {
+    std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+  }
+
+  /** 用「发送到」里的某个 `.lnk` 打开一组文件（= 双击那个快捷方式并传文件） */
+  pub fn send_via_shortcut(shortcut: &str, files: &[String]) -> Result<(), String> {
+    if files.is_empty() {
+      return Err("没有要发送的文件".to_string());
+    }
+    let params = files
+      .iter()
+      .map(|f| format!("\"{}\"", f.replace('/', "\\")))
+      .collect::<Vec<_>>()
+      .join(" ");
+    let verb = wide("open");
+    let file = wide(shortcut);
+    let param = wide(&params);
+    let mut info = ShellExecuteInfoW {
+      cb_size: std::mem::size_of::<ShellExecuteInfoW>() as u32,
+      f_mask: SEE_MASK_FLAG_NO_UI,
+      hwnd: std::ptr::null_mut(),
+      lp_verb: verb.as_ptr(),
+      lp_file: file.as_ptr(),
+      lp_parameters: param.as_ptr(),
+      lp_directory: std::ptr::null(),
+      n_show: SW_SHOWNORMAL,
+      h_inst_app: std::ptr::null_mut(),
+      lp_id_list: std::ptr::null_mut(),
+      lp_class: std::ptr::null(),
+      hkey_class: std::ptr::null_mut(),
+      dw_hotkey: 0,
+      h_icon: std::ptr::null_mut(),
+      h_process: std::ptr::null_mut(),
+    };
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok == 0 {
+      return Err(format!("系统没有执行这个「发送到」目标：{shortcut}"));
+    }
+    if !info.h_process.is_null() {
+      unsafe {
+        CloseHandle(info.h_process);
+      }
+    }
+    Ok(())
+  }
+}
+
+/// 「发送到」里的一个目标（`.lnk`）
+#[derive(Serialize)]
+struct SendToTarget {
+  /// 显示名（快捷方式文件名，不含 `.lnk`）—— 与资源管理器右键里的文案一致
+  name: String,
+  /// `.lnk` 的绝对路径（执行时原样交给 `ShellExecuteExW`）
+  path: String,
+}
+
+/**
+ * 枚举本机的「发送到」目标（rev173.336 · 真人测试10 #6）。
+ *
+ * 两处都读：用户级 `%APPDATA%\Microsoft\Windows\SendTo` 与
+ * 系统级 `%PROGRAMDATA%\Microsoft\Windows\SendTo`（后者常见于蓝牙 / 传真等项目）。
+ * 只收 `.lnk`：SendTo 目录里偶尔有桌面快捷方式之类的文件，直接执行没有「发送」语义。
+ */
+#[tauri::command]
+fn list_send_to_targets() -> Result<Vec<SendToTarget>, String> {
+  #[cfg(target_os = "windows")]
+  {
+    let mut dirs = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+      dirs.push(std::path::PathBuf::from(appdata).join("Microsoft/Windows/SendTo"));
+    }
+    if let Ok(programdata) = std::env::var("PROGRAMDATA") {
+      dirs.push(std::path::PathBuf::from(programdata).join("Microsoft/Windows/SendTo"));
+    }
+    let mut out: Vec<SendToTarget> = Vec::new();
+    for dir in dirs {
+      let Ok(entries) = std::fs::read_dir(&dir) else {
+        continue;
+      };
+      for entry in entries.flatten() {
+        let p = entry.path();
+        let is_lnk = p
+          .extension()
+          .and_then(|s| s.to_str())
+          .map(|x| x.eq_ignore_ascii_case("lnk"))
+          .unwrap_or(false);
+        if !is_lnk {
+          continue;
+        }
+        let name = p
+          .file_stem()
+          .and_then(|s| s.to_str())
+          .unwrap_or("")
+          .trim()
+          .to_string();
+        if name.is_empty() {
+          continue;
+        }
+        out.push(SendToTarget {
+          name,
+          path: p.to_string_lossy().to_string(),
+        });
+      }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.dedup_by(|a, b| a.name == b.name);
+    Ok(out)
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    Err("「发送到」只在 Windows 上可用".to_string())
+  }
+}
+
+/**
+ * 把文件交给指定的「发送到」目标（rev173.336 · 真人测试10 #6）。
+ *
+ * `target` 必须出现在 `list_send_to_targets` 的结果里（`.lnk` + 绝对路径 + 存在），
+ * 否则拒绝 —— 不给前端一个能执行任意程序的入口。
+ */
+#[tauri::command]
+fn send_files_to(target: String, paths: Vec<String>) -> Result<(), String> {
+  if paths.is_empty() {
+    return Err("没有要发送的文件".to_string());
+  }
+  let t = std::path::PathBuf::from(&target);
+  let ok_target = t.is_absolute()
+    && t
+      .extension()
+      .and_then(|s| s.to_str())
+      .map(|x| x.eq_ignore_ascii_case("lnk"))
+      .unwrap_or(false)
+    && t.is_file();
+  if !ok_target {
+    return Err(format!("不是有效的「发送到」目标：{target}"));
+  }
+  let mut abs = Vec::new();
+  for p in &paths {
+    let path = std::fs::canonicalize(p).map_err(|e| format!("文件不存在：{p}（{e}）"))?;
+    abs.push(plain_path(&path));
+  }
+  #[cfg(target_os = "windows")]
+  {
+    sendto::send_via_shortcut(&target, &abs)
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    let _ = (&target, &abs);
+    Err("「发送到」只在 Windows 上可用".to_string())
+  }
+}
+
+/// **批量复制文件到系统剪贴板**（rev173.336 · 真人测试10 #6）。
+///
+/// 与 `copy_file_to_clipboard` 同一套逻辑，区别只有「一次放多个」：
+/// 文件树多选后复制，用户期望在资源管理器里一次粘出全部。
+#[tauri::command]
+fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
+  if paths.is_empty() {
+    return Err("没有要复制的文件".to_string());
+  }
+  let mut abs = Vec::new();
+  for p in &paths {
+    let path = std::fs::canonicalize(p).map_err(|e| format!("文件不存在：{p}（{e}）"))?;
+    abs.push(plain_path(&path).replace('/', "\\"));
+  }
+  #[cfg(target_os = "windows")]
+  {
+    winclip::copy_files(&abs)
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    let _ = abs;
+    Err("复制文件到剪贴板目前只支持 Windows".to_string())
+  }
+}
+
 /// **本地路径 → 可交给外部程序的普通路径**（rev173.331 · 真人测试7 #4/#5）。
 ///
 /// `std::fs::canonicalize` 在 Windows 上返回**verbatim 路径**（`\\?\C:\…`）—— 那是内核
@@ -4291,6 +4516,10 @@ pub fn run() {
       reveal_in_explorer,
       // rev173.325：桌面「分享 md」= 复制文件到剪贴板（与资源管理器一致）
       copy_file_to_clipboard,
+      // rev173.336：多选复制 + Windows「发送到」（真人测试10 #6）
+      copy_files_to_clipboard,
+      list_send_to_targets,
+      send_files_to,
       opened_urls,
       zn_heartbeat,
       zn_watchdog_pause,

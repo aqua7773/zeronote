@@ -44,7 +44,7 @@ import type {
  * 同日清尾：`src/kernel/permissions.ts` 整个文件与 Rust 的 `read_permissions` /
  * `set_permission` 两条命令**已整体删除**（见 `docs/架构原则-2026-10-13.md` §6.1）。 */
 import { MarkdownEditor } from './components/MarkdownEditor'
-import { LONG_PRESS_MS, hapticTick } from './lib/long-press-feedback'
+import { hapticTick } from './lib/long-press-feedback'
 import { MarkToolbar } from './components/MarkToolbar'
 import { CommandPalette } from './components/CommandPalette'
 import { PluginPanel, type PluginRow } from './components/PluginPanel'
@@ -129,7 +129,7 @@ import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } fro
 import { pluginPanelEntries } from './lib/more-plugin-entries'
 import { failMsg, type SaveState } from './lib/fail-msg'
 import { drawersOpenOnlyOnHome, hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
-import { attachmentStem, imageInsertion, isImageFileName, linkInsertion, normalizePosix, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
+import { attachmentStem, imageInsertion, isImageFileName, linkCandidates, linkInsertion, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
   IMAGE_MODE_STORAGE_KEY,
@@ -193,7 +193,6 @@ import { SearchPanel } from './components/SearchPanel'
 import { ReplacePanel } from './components/ReplacePanel'
 import { WebViewFrame } from './components/WebViewFrame'
 import { QuickSwitcher } from './components/QuickSwitcher'
-import { MobileEditBar } from './components/MobileEditBar'
 import {
   readText as nativeClipboardReadText,
   writeText as nativeClipboardWriteText,
@@ -811,11 +810,6 @@ export default function App() {
   } | null>(null)
 
   /**
-   * 手机编辑区长按的横向四键条（rev173.90）。`null` = 没弹。
-   * 与 `mainMenu` 分开：那个是桌面竖排菜单，触摸屏上点不准（见 MobileEditBar 的注释）。
-   */
-  const [mobileEditBar, setMobileEditBar] = useState<{ x: number; y: number } | null>(null)
-  /**
    * 手机软键盘是否弹起（rev173.334 · 真人测试8 #1）。
    *
    * 用户原话：「底部快捷栏只在键盘弹出的时候显示」。判据用 `visualViewport`：
@@ -933,16 +927,8 @@ export default function App() {
     let sx = 0
     let sy = 0
     let tracking = false
-    /** 这次触摸的起点是不是编辑器正文（到点弹四键条，rev173.334） */
+    /** 这次触摸的起点是不是编辑器正文（rev173.334 起只用于轻振动反馈） */
     let inEditor = false
-    /** 长按到点的反馈定时器（rev173.325 · 真人测试6 #3） */
-    let feedbackTimer: number | null = null
-    const clearFeedback = () => {
-      if (feedbackTimer !== null) {
-        window.clearTimeout(feedbackTimer)
-        feedbackTimer = null
-      }
-    }
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
       sx = e.touches[0].clientX
@@ -950,32 +936,25 @@ export default function App() {
       tracking = true
       const el = e.target as HTMLElement | null
       inEditor = !!el?.closest?.('.zn-editor .cm-editor')
-      clearFeedback()
       if (inEditor) {
-        // rev173.334（真人测试8 #3）：编辑区**到点就弹四键条**，不等松手 ——
-        // 这里没有拖拽语义，等松手只是凭空多一步（用户：「编辑界面，不需要松手触发吧」）。
-        // 也不画涟漪：正文长按会先触发系统选字，涟漪叠在选区/把手上像故障
-        // （用户：「长按的动画效果什么地方都会触发吗，像是编辑界面」）。振动保留。
-        const at = { x: sx, y: sy }
-        feedbackTimer = window.setTimeout(() => {
-          feedbackTimer = null
-          hapticTick()
-          setMobileEditBar(at)
-        }, LONG_PRESS_MS)
+        /**
+         * rev173.336（真人测试10 #4）：编辑区**不再弹自定义四键条**。
+         *
+         * 用户原话：「非编辑状态时无法选择文本复制，编辑状态也选中不了，能不能调用系统原生复制」。
+         * 根因：300 ms 时弹出的四键条带一层全屏 scrim，正好盖在 WebView 正要进入的长按选词上
+         * ⇒ 系统选不中；同时全局 `contextmenu` 拦截又吃掉了原生「复制」菜单。
+         * 现在长按整段交给系统（选字 + 原生复制菜单），这里只留一次轻振动当「按到了」的反馈。
+         */
+        hapticTick()
       }
     }
     const onEnd = (e: TouchEvent) => {
       if (!tracking) return
       tracking = false
-      clearFeedback()
       const t = e.changedTouches[0]
       if (!t) return
       const dx = t.clientX - sx
       const dy = t.clientY - sy
-      /**
-       * rev173.334（真人测试8 #3）：编辑区已经在「到点」那一刻弹过四键条（见 onStart），
-       * 松手不再重复处理。继续往下走也没关系 —— 长按后位移必然小于下面抽屉手势的门槛。
-       */
       // 浮层开着（看图 / 环形菜单 / 命令面板 / 对话框）⇒ 左右滑动不归任何抽屉管（rev173.303）
       const overlay = hasBlockingOverlay()
       // 输入状态只算一次：左抽屉与「更多」抽屉同一口径（rev170 / rev173.312）
@@ -1012,7 +991,6 @@ export default function App() {
     return () => {
       window.removeEventListener('touchstart', onStart, true)
       window.removeEventListener('touchend', onEnd, true)
-      clearFeedback()
     }
   }, [sidebarOpen, moreOpen])
 
@@ -2311,6 +2289,17 @@ export default function App() {
   )
 
   /**
+   * 打开「私密文件夹」面板（rev173.336 · 真人测试10 #2「正常模式和私密笔记怎么切换？」）。
+   *
+   * 命令由 `private-notes` 插件注册；没装时如实说一句 —— 不给一个点了没反应的死按钮。
+   */
+  const openPrivateNotes = useCallback(() => {
+    void kernel?.commands.api
+      .execute('private.open')
+      .catch(() => setToast('没装「私密文件夹」插件 —— 去插件中心装一下'))
+  }, [kernel, setToast])
+
+  /**
    * 执行一条**条目菜单动作**（rev173.281 · J#18）。
    *
    * 菜单项由插件声明、内核登记，宿主只负责把「点的是哪个条目」作为参数传下去：
@@ -3011,22 +3000,12 @@ export default function App() {
   const layerExitsRef = useRef<Array<() => boolean>>([])
 
   /**
-   * 手机四键条开着时进返回键层栈（rev173.90）—— 与卡片长按菜单同一约定：
-   * 打开 push、关闭 / 卸载 remove；按返回先关条，而不是直接退 App。
+   * 手机编辑区**不再自绘长按菜单**（rev173.336 · 真人测试10 #4）。
+   *
+   * 用户要「系统原生复制」：长按 = WebView 自己选字 + 原生「复制 / 全选」菜单。
+   * 旧的四键条组件（`MobileEditBar`）已不再渲染 —— 它带的 scrim 会在 300 ms 时
+   * 盖住正在进入的选字态，用户表现为「选不中、复制不了」。
    */
-  useEffect(() => {
-    if (!mobileEditBar) return
-    const stack = layerExitsRef.current
-    const close = () => {
-      setMobileEditBar(null)
-      return true
-    }
-    stack.push(close)
-    return () => {
-      const i = stack.indexOf(close)
-      if (i >= 0) stack.splice(i, 1)
-    }
-  }, [mobileEditBar])
   useEffect(() => {
     backRef.current = () => {
       // ① 最先：自持浮层（☰ 菜单 / 库菜单 / 主区·侧栏右键菜单 / 文件树多选）
@@ -3727,13 +3706,15 @@ export default function App() {
       } catch {
         /* 不是合法转义就按原样用 */
       }
-      rel = rel.replace(/^\.\//, '').replace(/^\/+/, '')
-      const noteDir =
-        activePath && activePath.includes('/')
-          ? activePath.slice(0, activePath.lastIndexOf('/'))
-          : ''
-      const norm = normalizePosix(noteDir ? `${noteDir}/${rel}` : rel)
-      if (!norm) {
+      rel = rel.replace(/^\.\//, '')
+      /**
+       * **两候选**（rev173.336 · 真人测试10 #3）：插入附件写的是「库根相对」路径
+       * （`pathFromVaultRoot`），笔记在子目录时只按笔记目录拼一次会得到
+       * `测试文件/测试文件/image-….jpg` ⇒ 点击报「库里没有这个附件」（而正文渲染正常 ——
+       * 渲染侧 `resolveImageAbsPaths` 早就有库根兜底了，解析口径必须与它一致）。
+       */
+      const candidates = linkCandidates(rel, activePath)
+      if (!candidates.length) {
         setToast('附件路径越界，忽略')
         return
       }
@@ -3747,9 +3728,9 @@ export default function App() {
           )
         else setToast(`附件：${path}（暂不支持直接打开）`)
       }
-      const meta = notes.find((n) => n.path === norm)
-      if (meta) {
-        openAttachment(norm, meta.kind)
+      const meta0 = notes.find((n) => candidates.includes(n.path))
+      if (meta0) {
+        openAttachment(meta0.path, meta0.kind)
         return
       }
       /**
@@ -3758,14 +3739,16 @@ export default function App() {
        * 现场：同步 / 粘贴刚把图片写进库，asset 协议直读文件**渲染得出来**，而 `notes`
        * 还没刷新 ⇒ 点开却报「库里没有这个附件」。判据以磁盘为准；问到了顺手刷一次列表，
        * 把下一次的判断拉齐（不阻塞这次打开）。类型用 `kindOfPath` 现推，口径与 Rust 一致。
+       * 候选按「笔记目录 → 库根」逐个试（rev173.336 · 真人测试10 #3）。
        */
-      const exists = kernel ? await kernel.fs.exists(norm).catch(() => false) : false
-      if (!exists) {
-        setToast(`库里没有这个附件：${norm}`)
+      for (const cand of candidates) {
+        const exists = kernel ? await kernel.fs.exists(cand).catch(() => false) : false
+        if (!exists) continue
+        void refresh()
+        openAttachment(cand, kindOfPath(cand))
         return
       }
-      void refresh()
-      openAttachment(norm, kindOfPath(norm))
+      setToast(`库里没有这个附件：${candidates.join(' / ')}`)
     },
     [activePath, kernel, notes, openImagePreview, refresh, runCore],
   )
@@ -4364,11 +4347,17 @@ export default function App() {
        */
       const t = e.target
       if (t instanceof HTMLElement && t.closest('input, textarea, select, .zn-ui-field')) return
+      /**
+       * **手机编辑区放行**（rev173.336 · 真人测试10 #4）：用户要「系统原生复制」——
+       * Android 的选字菜单（复制 / 全选 / 分享）就是 `contextmenu` 之后系统给的，
+       * 拦掉它等于没有原生复制。桌面的 CodeMirror 仍拦（WebView2 的「检查 / 刷新」不该冒出来）。
+       */
+      if (platform === 'android' && t instanceof HTMLElement && t.closest('.zn-editor .cm-editor')) return
       e.preventDefault()
     }
     document.addEventListener('contextmenu', onCtx, true)
     return () => document.removeEventListener('contextmenu', onCtx, true)
-  }, [])
+  }, [platform])
 
   /**
    * 手机内部剪贴板缓存（rev173.91）。
@@ -4525,24 +4514,17 @@ export default function App() {
       items.push(
         { label: '复制', hint: 'Ctrl+C', divider: true, onClick: () => void copySelection() },
         {
-          label: '粘贴',
-          hint: 'Ctrl+V',
-          onClick: () => {
-            void navigator.clipboard
-              .readText()
-              .then((text) => {
-                if (!text) return
-                const sel = view.state.selection.main
-                view.dispatch({
-                  changes: { from: sel.from, to: sel.to, insert: text },
-                  selection: { anchor: sel.from + text.length },
-                })
-              })
-              .catch(() => {
-                /* 读剪贴板被拒（权限/焦点）时静默；用户仍可用 Ctrl+V */
-              })
-          },
+          label: '剪切',
+          hint: 'Ctrl+X',
+          onClick: () => void cutSelection(),
         },
+        /**
+         * 粘贴走 `pasteClipboard`（rev173.336）：以前这里只用 `navigator.clipboard`，
+         * 手机 / 非焦点窗口读不到系统剪贴板就静默失败；现在先走原生通道、
+         * 读不到再退回 ZeroNote 内复制的那份，并说明来源。
+         */
+        { label: '粘贴', hint: 'Ctrl+V', onClick: () => void pasteClipboard() },
+        { label: '全选', hint: 'Ctrl+A', onClick: () => selectAllText() },
         { label: '插入附件…', onClick: () => void insertAttachment() },
         { label: '查找…', hint: 'Ctrl+F', divider: true, onClick: () => openFindPanel() },
       )
@@ -5286,30 +5268,20 @@ export default function App() {
         className="zn-body"
         onContextMenuCapture={(e) => {
           /**
-           * 手机编辑区：**换成横向四键条**（复制 / 剪切 / 粘贴 / 全选）。
-           * 原生给的是「复制 / 分享 / 全选 / 网页搜索」（没有粘贴与剪切，且分享/搜索无意义），
-           * 桌面那套竖排菜单更不适合触摸 ⇒ 四个动作自己给（rev173.90 · 用户 2026-10-23）。
+           * 手机编辑区**不再拦 contextmenu**（rev173.336 · 真人测试10 #4）。
+           *
+           * 以前这里 `preventDefault()` 挡掉系统菜单、改弹自绘四键条；用户现在要
+           * 「系统原生复制」⇒ 长按选字后的「复制 / 全选」必须由 WebView 自己给。
+           * 自绘四键条已整体移除（见 MobileEditBar 段注释）。
            */
           const el = e.target
-          if (
-            platform === 'android' &&
-            el instanceof HTMLElement &&
-            el.closest('.zn-editor .cm-editor')
-          ) {
-            /**
-             * 编辑区长按 ⇒ 横向四键条（复制 / 剪切 / 粘贴 / 全选）。
-             * rev173.321：**长按瞬间不弹**，改由 `touchend` 判（见上面的手势 effect），
-             * 这里只负责挡掉系统的原生菜单。
-             */
-            e.preventDefault()
-            return
-          }
           /**
            * 原生输入控件 / 插件面板表单字段 ⇒ 放行（rev173.270 · 反馈 #6）。
            * 名单必须与上面 document 捕获那条**一致** —— 那里放行了原生菜单，这里再
            * preventDefault 会把它吃掉、还照样弹应用级菜单（用户看到的正是那个）。
            */
           if (el instanceof HTMLElement && el.closest('input, textarea, select, .zn-ui-field')) return
+          if (platform === 'android' && el instanceof HTMLElement && el.closest('.zn-editor .cm-editor')) return
           // 侧栏与主区统一走自制右键菜单（原生那个"返回/刷新/检查"已被全局禁掉）。
           // 用 **Capture** 版是必需的：CodeMirror 会处理 contentDOM 上的 contextmenu，
           // 挂在冒泡阶段的话在编辑器正文里右键根本收不到。
@@ -5398,6 +5370,8 @@ export default function App() {
             setMoreTab('menu')
             setMoreOpen(true)
           }}
+          /* 桌面侧栏头部的锁形按钮（rev173.336 · 真人测试10 #2） */
+          onOpenPrivate={isDesktop ? openPrivateNotes : undefined}
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
           /* B6：`location: 'sidebar'` 的插件面板进侧栏分组（桌面；零插件 / 全禁用 ⇒ 不传） */
@@ -5956,6 +5930,7 @@ export default function App() {
               if (id === 'search') switchMobilePage('search')
               else if (id === 'trash') openTrash()
               else if (id === 'vaults') setVaultPanelOpen(true)
+              else if (id === 'private') openPrivateNotes()
               else setMainView('plugins')
             }}
             pluginEntries={morePluginEntries}
@@ -6000,18 +5975,7 @@ export default function App() {
         />
       )}
 
-      {/* 手机编辑区长按：横向四键（复制 / 剪切 / 粘贴 / 全选）—— rev173.90 */}
-      {mobileEditBar && (
-        <MobileEditBar
-          x={mobileEditBar.x}
-          y={mobileEditBar.y}
-          onCopy={() => void copySelection()}
-          onCut={() => void cutSelection()}
-          onPaste={() => void pasteClipboard()}
-          onSelectAll={selectAllText}
-          onClose={() => setMobileEditBar(null)}
-        />
-      )}
+      {/* 手机编辑区的长按已交给系统原生选字（rev173.336 · 真人测试10 #4）—— 不再渲染自绘四键条 */}
 
       {/* 侧栏底部库名（或侧栏右键的「切换笔记库…」）→ 最近打开过的库 + 打开其它文件夹… */}
       {vaultMenu && (
@@ -6170,6 +6134,7 @@ export default function App() {
           if (id === 'search') openOverlay('search')
           else if (id === 'trash') openTrash()
           else if (id === 'vaults') setVaultPanelOpen(true)
+          else if (id === 'private') openPrivateNotes()
           else setMainView('plugins')
         }}
       />

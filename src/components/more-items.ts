@@ -13,13 +13,13 @@
  * 现在插件只留「插件中心」一条，并且从「笔记」组挪到「设置」组（它不是笔记功能），
  * 原来「设置 → 插件」里的「启动时检查更新」开关搬进了插件中心页。
  */
-import { FolderOpen, HardDrive, Info, Search, Settings2, Store, Trash2 } from 'lucide-react'
+import { FolderOpen, HardDrive, Info, Lock, Search, Settings2, Store, Trash2 } from 'lucide-react'
 
 /** 设置分组 id（在这一页里钻进去的那几组） */
 export type TabId = 'general' | 'assets' | 'about'
 
 /** 动作条目 id（点了就离开这一页） */
-export type MoreActionId = 'search' | 'trash' | 'vaults' | 'plugin-center'
+export type MoreActionId = 'search' | 'trash' | 'vaults' | 'private' | 'plugin-center'
 
 export type MoreItemDef =
   | { kind: 'action'; id: MoreActionId; label: string; icon: typeof Search }
@@ -34,6 +34,13 @@ export const MORE_GROUPS: { title: string; items: MoreItemDef[] }[] = [
   {
     title: '笔记',
     items: [
+      /**
+       * 私密笔记（rev173.336 · 真人测试10 #2「正常模式和私密笔记怎么切换？」）。
+       *
+       * 以前它只藏在「插件 → 私密文件夹」里：手机没有常驻侧栏 ⇒ 用户找不到入口，
+       * 也不知道「公开笔记 / 私密笔记」是两套。放「笔记」组第一项 = 一拉抽屉就能看见。
+       */
+      { kind: 'action', id: 'private', label: '私密笔记', icon: Lock },
       { kind: 'action', id: 'search', label: '搜索', icon: Search },
       { kind: 'action', id: 'trash', label: '回收站', icon: Trash2 },
       { kind: 'action', id: 'vaults', label: '切换笔记库', icon: FolderOpen },

@@ -10,6 +10,7 @@
  *  - 剪切：撞名报错、粘回原位静默跳过；复制：撞名自动退成「 副本」。
  */
 import { useCallback, useEffect, useState, type MutableRefObject } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import type { TrashEntry } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
 import type { SaveState } from '../lib/fail-msg'
@@ -103,9 +104,24 @@ export function useFileOps({
     (paths: string[]) => {
       if (!paths.length) return
       setClipboard({ mode: 'copy', paths })
+      /**
+       * **同时写系统剪贴板**（rev173.336 · 真人测试10 #6）。
+       *
+       * 用户原话：「桌面的复制还是没有用，复制之后根本没办法粘贴」—— 以前的「复制」
+       * 只写应用内剪贴板（只能粘回文件树），到了资源管理器 / 微信里 Ctrl+V 什么都没有。
+       * 现在桌面额外走 `copy_files_to_clipboard`（CF_HDROP，与资源管理器复制文件同一格式）；
+       * 应用内那份照旧保留，两种粘贴都能用。
+       */
+      if (kernel && kernel.host && kernel.host.platform !== 'android' && kernel.vault) {
+        const abs = paths.map((p) => `${kernel.vault.replace(/\\/g, '/').replace(/\/+$/, '')}/${p}`)
+        void invoke('copy_files_to_clipboard', { paths: abs }).catch((e) => {
+          // 剪贴板被占用等情况：不打断应用内复制，只说一句
+          setToast(`已复制到应用内剪贴板（系统剪贴板不可用：${String(e)}）`)
+        })
+      }
       setToast(paths.length > 1 ? `已复制 ${paths.length} 项` : '已复制')
     },
-    [setToast],
+    [setToast, kernel],
   )
 
   /** 同目录下的不撞名副本名：`a.md` → `a 副本.md` → `a 副本 2.md`…（目录同理，不拆后缀） */

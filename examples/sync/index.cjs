@@ -1960,6 +1960,40 @@ const plugin = {
     }
 
     /**
+     * 「附件同步方式」选择行 —— **按钮组，不用 select**（rev173.336 · 真人测试10 #5）。
+     *
+     * 症状：用户每次改完策略，重进软件面板又显示「不同步（默认）」⇒ 以为保存没作用。
+     * 根因：`select` 的当前值取自面板 state（`ctx.state['sync.attachmentsMode']`），
+     * 而 render 从来**没有播种**这个键 ⇒ 受控 select 的 value 是空串，浏览器显示第一项；
+     * 真实设置其实一直在 store 里（本例 `attachments` 已是 `relay`）。
+     * 按钮组直接按 `settings.attachments` 决定哪个是 solid —— 重启后看到的就是真实生效值。
+     */
+    function attachmentsField(hint) {
+      const options = [
+        ['off', '不同步'],
+        ['relay', '同步中转'],
+        ['full', '永久同步'],
+      ]
+      return {
+        type: 'field',
+        label: '附件（图片 / PDF）',
+        hint,
+        children: {
+          type: 'row',
+          gap: 'sm',
+          wrap: true,
+          children: options.map(([value, label]) => ({
+            type: 'button',
+            label,
+            onClick: 'sync.set-attachments',
+            payload: { value },
+            variant: (settings.attachments || 'off') === value ? 'solid' : 'ghost',
+          })),
+        },
+      }
+    }
+
+    /**
      * 本地文件夹后端的面板。
      *
      * 结构 = 一句话说明 + 后端选择 +（`folder.renderSection()` 的统计 / 按钮 / `.zn` 提醒）
@@ -2055,21 +2089,9 @@ const plugin = {
           hint: '可选：把笔记放在桶里某个子目录下',
           children: { type: 'input', bind: 'sync.s3.prefix', placeholder: 'ZeroNote' },
         },
-        {
-          type: 'field',
-          label: '附件（图片 / PDF）',
-          hint: '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
-          children: {
-            type: 'select',
-            bind: 'sync.attachmentsMode',
-            options: [
-              { value: 'off', label: '不同步（默认）' },
-              { value: 'relay', label: '同步中转（云端不常留）' },
-              { value: 'full', label: '与文档一样永久同步' },
-            ],
-            onSubmit: 'sync.set-attachments',
-          },
-        },
+        attachmentsField(
+          '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
+        ),
         {
           type: 'row',
           gap: 'sm',
@@ -2236,21 +2258,9 @@ const plugin = {
             hint: '只写在这里；保存后存进系统凭据库（GitHub 需要 repo 权限）',
             children: { type: 'input', bind: 'sync.git.token', secret: true, placeholder: '不改就留空' },
           },
-          {
-            type: 'field',
-            label: '附件（图片 / PDF）',
-            hint: '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉；永久 = 与文档一样',
-            children: {
-              type: 'select',
-              bind: 'sync.attachmentsMode',
-              options: [
-                { value: 'off', label: '不同步（默认）' },
-                { value: 'relay', label: '同步中转（云端不常留）' },
-                { value: 'full', label: '与文档一样永久同步' },
-              ],
-              onSubmit: 'sync.set-attachments',
-            },
-          },
+          attachmentsField(
+            '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉；永久 = 与文档一样',
+          ),
           {
             type: 'row',
             gap: 'sm',
@@ -2386,21 +2396,9 @@ const plugin = {
           hint: '远端放笔记的子目录。**坚果云的 WebDAV 根不可写，必须填**（如 ZeroNote）',
           children: { type: 'input', bind: 'sync.root', placeholder: settings.root || 'ZeroNote' },
         },
-        {
-          type: 'field',
-          label: '附件（图片 / PDF）',
-          hint: '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
-          children: {
-            type: 'select',
-            bind: 'sync.attachmentsMode',
-            options: [
-              { value: 'off', label: '不同步（默认）' },
-              { value: 'relay', label: '同步中转（云端不常留）' },
-              { value: 'full', label: '与文档一样永久同步' },
-            ],
-            onSubmit: 'sync.set-attachments',
-          },
-        },
+        attachmentsField(
+          '不同步 = 只同步 .md；中转 = 对端收到后云端副本删掉（省空间）；永久 = 与文档一样',
+        ),
         {
           type: 'row',
           gap: 'sm',

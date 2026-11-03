@@ -89,6 +89,8 @@ function hintOf(it: MoreItemDef, vault: string | null): string | undefined {
       return '删除的笔记可恢复'
     case 'vaults':
       return vault ? baseName(vault) : '未选择'
+    case 'private':
+      return '加密 · 独立密码'
     case 'plugin-center':
       return '安装 / 启用 / 插件市场'
     default:

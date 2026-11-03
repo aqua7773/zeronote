@@ -819,9 +819,38 @@ export function normalizeRelPath(path) {
   return out.join('/')
 }
 
+/**
+ * 引用 → **候选位置列表**（按优先级；库内才有 `rel`，`abs` 恒为可读绝对路径）。
+ *
+ * 与编辑器渲染侧**同一口径**（rev173.336 · 真人测试10 #3 的教训）：
+ * 库内相对路径给「笔记目录 → 库根」两候选，`/` 开头只按库根，库外绝对路径只有一条。
+ *
+ * ⚠️ 别再在调用方补兜底：以前 render 侧有库根兜底、导出侧没有 ⇒ 修了渲染漏了导出，
+ * 用户拿到的 md 一张图都没有（真人测试8 的 761 字节事故）。候选只在这里定义一次。
+ *
+ * 纯函数（`root` 由调用方给）；插件内部那个薄壳叫 `locateRefs`。
+ */
+export function refLocations(target, noteRel, platform, root) {
+  const raw = decodeLocalRef(stripAngleRef(target))
+  const kind = imageRefKind(target, platform)
+  if (kind === 'abs') return [{ kind, rel: null, abs: raw.replace(/\\/g, '/') }]
+  if (kind === 'remote' || kind === 'empty') return []
+  const note = String(noteRel ?? '')
+  const dir = note.includes('/') ? note.slice(0, note.lastIndexOf('/')) : ''
+  const rels =
+    kind === 'rootrel'
+      ? [normalizeRelPath(raw.replace(/^\/+/, ''))]
+      : [normalizeRelPath(dir ? `${dir}/${raw}` : raw), normalizeRelPath(raw)]
+  const out = []
+  for (const rel of rels) {
+    if (!rel || out.some((x) => x.rel === rel)) continue
+    out.push({ kind, rel, abs: root ? `${root}/${rel}` : null })
+  }
+  return out
+}
+
 /** 台账比对用的路径（大小写、斜杠、`./`、尾斜杠都要抹平） */
-export function normalizeRefPath(path) {
-  let s = stripAngleRef(path)
+export function normalizeRefPath(path) {  let s = stripAngleRef(path)
   if (!s) return ''
   s = decodeLocalRef(s).replace(/\\/g, '/').replace(/\/+/g, '/')
   if (s.startsWith('./')) s = s.slice(2)
@@ -934,6 +963,55 @@ export const SHARE_BUTTONS = [
 export function shareFileName(stem, ext) {
   const safe = sanitizeDirName(stem) || 'note'
   return `${safe}.${ext}`
+}
+
+/**
+ * 「发送到…」视图（rev173.336 · 真人测试10 #6）。
+ *
+ * 用户原话：「分享的功能应该是和 windows 发送到这个一样」—— 桌面分享 md 不再是
+ * 「把文件塞进剪贴板」，而是列出本机「发送到」里的目标（邮件 / 微信 / 蓝牙 / 桌面快捷方式…），
+ * 点哪个就用哪个程序打开这份文件（与资源管理器右键「发送到」同一语义）。
+ *
+ * 目标由 Rust 的 `list_send_to_targets` 给（用户级 + 系统级 SendTo 目录里的 .lnk）。
+ */
+export function buildSendToView({ file = '', stem = '', targets = [] } = {}) {
+  const list = Array.isArray(targets)
+    ? targets.filter((t) => t && typeof t.name === 'string' && t.name && typeof t.path === 'string' && t.path)
+    : []
+  return {
+    type: 'stack',
+    children: [
+      {
+        type: 'row',
+        gap: 'sm',
+        align: 'center',
+        children: [
+          { type: 'button', label: '‹ 返回', variant: 'ghost', onClick: 'io.sendto-cancel' },
+          { type: 'text', value: '发送到…', variant: 'title' },
+        ],
+      },
+      {
+        type: 'text',
+        value: `${stem || '笔记'} —— 选一个目标程序打开这份文件（与 Windows「发送到」一致）`,
+        variant: 'caption',
+      },
+      ...list.map((t) => ({
+        type: 'button',
+        label: `发送到「${t.name}」`,
+        onClick: 'io.sendto-run',
+        payload: { target: t.path },
+      })),
+      { type: 'divider' },
+      { type: 'text', value: `文件：${file}`, variant: 'caption' },
+      {
+        type: 'button',
+        label: '在文件夹中打开',
+        variant: 'ghost',
+        onClick: 'io.sendto-reveal',
+        payload: { path: file },
+      },
+    ],
+  }
 }
 
 /** 首页：三个入口竖排等宽（导出 / 分享 / 导入）—— 「当前笔记」这个假设在这里彻底消失 */
@@ -1157,21 +1235,6 @@ export default {
       return entries
     }
 
-    /** 引用 → `{ rel, abs }`（库内才有 `rel`；`abs` 恒为可读的绝对路径） */
-    function locateRef(target, noteRel) {
-      const raw = decodeLocalRef(stripAngleRef(target))
-      const root = vaultRoot()
-      const kind = imageRefKind(target, host.platform)
-      if (kind === 'abs') return { kind, rel: null, abs: raw.replace(/\\/g, '/') }
-      const dir = noteRel.includes('/') ? noteRel.slice(0, noteRel.lastIndexOf('/')) : ''
-      const rel =
-        kind === 'rootrel'
-          ? normalizeRelPath(raw.replace(/^\/+/, ''))
-          : normalizeRelPath(dir ? `${dir}/${raw}` : raw)
-      if (!rel) return { kind, rel: null, abs: null }
-      return { kind, rel, abs: root ? `${root}/${rel}` : null }
-    }
-
     /** 读一张图的字节：库内走内核（有路径校验），库外走 asset 协议 */
     async function readRefBytes(loc) {
       if (loc.rel) return await fs.readBytes(loc.rel)
@@ -1239,6 +1302,11 @@ export default {
       return { md: rewriteImageRefs(md, hits, replacements), stats }
     }
 
+    /** 薄壳：把当前的库根与平台喂给纯函数 `refLocations`（候选顺序只在那里定义一次） */
+    function locateRefs(target, noteRel) {
+      return refLocations(target, noteRel, host.platform, vaultRoot())
+    }
+
     async function embedOneImage(hit, noteRel, entries, stats) {
       const target = hit.target
       const orig = stripAngleRef(target)
@@ -1251,33 +1319,28 @@ export default {
         stats.kept.push(orig)
         return null
       }
-      const loc = locateRef(target, noteRel)
-      const entry = findAssetEntry(entries, { abs: loc.abs, rel: loc.rel })
-
-      let bytes = null
-      try {
-        bytes = await readRefBytes(loc)
-      } catch {
-        bytes = null
-      }
       /**
-       * 库根兜底（rev173.334 · 真人测试8）。
-       *
-       * 编辑器渲染引用时给「笔记所在目录 → 库根」两候选（rev173.325），而导出这边
-       * `locateRef` 只按笔记目录解析 —— 图在库根、笔记在子目录时（真人实物：
-       * 笔记 `测试文件/真人测试8.md`、图在库根），这里必然读不到 ⇒ 保留原引用、
-       * 分享出去的 md 一张图都没有（用户看到的就是 761 字节的纯文本）。
-       * 补同一套兜底：rel 类型再试一次库根。
+       * 候选逐个试（rev173.336）：笔记目录那份不在时，图可能就在库根
+       * —— 与编辑器渲染同一套顺序，不再「渲染有兜底、导出没有」。
        */
-      if (!bytes && loc.kind === 'rel') {
-        const rootRel = normalizeRelPath(decodeLocalRef(stripAngleRef(hit.target)))
-        if (rootRel) {
-          try {
-            bytes = await fs.readBytes(rootRel)
-          } catch {
-            bytes = null
-          }
+      const locs = locateRefs(target, noteRel)
+      if (!locs.length) return null
+      let loc = locs[0]
+      let bytes = null
+      for (const cand of locs) {
+        try {
+          bytes = await readRefBytes(cand)
+          loc = cand
+          break
+        } catch {
+          bytes = null
         }
+      }
+      // 台账命中：按候选顺序找（台账里记的可能是库根路径）
+      let entry = null
+      for (const cand of locs) {
+        entry = findAssetEntry(entries, { abs: cand.abs, rel: cand.rel })
+        if (entry) break
       }
 
       let dataUrl = ''
@@ -1556,14 +1619,36 @@ export default {
         return { shared: true, file: abs, summary }
       } catch (e) {
         if (String(e).includes('desktop-no-share')) {
-          // 桌面：图片走「另存为」；md 复制**文件本身**进剪贴板（rev173.325 · 真人测试6 #5）
+          // 桌面：图片走「另存为」；md 改走「发送到」（rev173.336 · 真人测试10 #6）
           if (format === 'png') {
             const saved = await host.saveFile({ defaultName: shareFileName(stem, 'png'), content: bytes })
             host.notify(saved ? `桌面没有系统分享 —— 已另存为：${saved}` : '已取消分享')
             return saved ? { saved } : null
           }
           /**
-           * rev173.325 · 真人测试6 #5：桌面「分享 md」= 用 CF_HDROP 把**文件**放进剪贴板
+           * rev173.336：用户说「分享的功能应该是和 windows 发送到这个一样」——
+           * 所以桌面 md 不再静默塞剪贴板，而是列出本机「发送到」目标让用户挑。
+           * 一项都没有（罕见：SendTo 目录被清空）才回退旧的「复制文件到剪贴板」。
+           */
+          const targets = await listSendTo(t)
+          if (targets.length) {
+            ui.sendFile = rel
+            ui.sendAbs = abs
+            ui.sendStem = stem
+            ui.sendTargets = targets
+            ui.step = 'sendto'
+            const opened = await openCorePanel('io.panel')
+            host.log('info', `[分享] ${stem} → 待选「发送到」（${targets.length} 个目标）`)
+            host.notify(
+              opened
+                ? `已生成「${shareFileName(stem, 'md')}」—— 在面板里选一个「发送到」目标`
+                : `已生成「${shareFileName(stem, 'md')}」—— 打开「更多 → 导入导出」可选发送目标`,
+              'info',
+            )
+            return { sent: 'pick', file: abs, summary }
+          }
+          /**
+           * 回退（rev173.325 · 真人测试6 #5）：用 CF_HDROP 把**文件**放进剪贴板
            * （与资源管理器「复制文件」同一效果）。旧行为复制整篇 Markdown 文本，
            * 图片是 `data:image/...;base64,...` ⇒ 粘出来是一大串文件流（用户原话）。
            */
@@ -1576,7 +1661,7 @@ export default {
           }
           if (copiedFile) {
             host.notify(
-              `已复制文件「${shareFileName(stem, 'md')}」到剪贴板（${summary}）—— 可直接粘贴到文件夹 / 聊天窗口`,
+              `没有可用的「发送到」目标 —— 已复制文件「${shareFileName(stem, 'md')}」到剪贴板（${summary}）`,
               'info',
             )
             return { copied: true, file: abs, summary }
@@ -1644,7 +1729,43 @@ export default {
      * 「导出当前笔记」在手机上永远是「没有打开的笔记」—— 用户实测原话。
      * 选完笔记后一律按 `path` **现读文件**（与右键菜单同一条路），不再依赖 `doc.active()`。
      */
-    const ui = { step: 'home', mode: 'export', notes: [], notePath: '', noteTitle: '' }
+    const ui = {
+      step: 'home',
+      mode: 'export',
+      notes: [],
+      notePath: '',
+      noteTitle: '',
+      /* 「发送到…」态（rev173.336 · 真人测试10 #6）：文件 + 目标清单 */
+      sendFile: '',
+      sendAbs: '',
+      sendStem: '',
+      sendTargets: [],
+    }
+
+    /**
+     * 打开某个面板（冷启动时 `core.panel.*` 可能还没注册 —— 与 doc-reader / secrets 同款重试）
+     */
+    async function openCorePanel(panelId) {
+      for (let i = 0; i < 5; i += 1) {
+        try {
+          await command.execute(`core.panel.${panelId}`)
+          return true
+        } catch {
+          await new Promise((r) => setTimeout(r, 60))
+        }
+      }
+      return false
+    }
+
+    /** 取「发送到」目标（Rust 侧枚举 SendTo 目录）；非桌面 / 旧应用包 / 出错 ⇒ 空表 */
+    async function listSendTo(t) {
+      try {
+        const list = await t.invoke('list_send_to_targets')
+        return Array.isArray(list) ? list : []
+      } catch {
+        return []
+      }
+    }
 
     const backToHome = () => {
       ui.step = 'home'
@@ -1722,6 +1843,68 @@ export default {
       }),
     )
 
+    /**
+     * 「发送到」三条命令（rev173.336 · 真人测试10 #6）。
+     *
+     * 只做「把已生成的那份文件交给目标程序」：不重新渲染、不改正文。
+     * 目标来自 Rust 的枚举，前端只回传 `.lnk` 绝对路径（Rust 侧还会再校验一次）。
+     */
+    subscriptions.push(
+      command.register({
+        id: 'io.sendto-run',
+        title: '分享：发送到目标程序',
+        run: guard(async (payload) => {
+          const p = payload && typeof payload === 'object' ? payload : {}
+          const target = typeof p.target === 'string' ? p.target : ''
+          const file = ui.sendAbs
+          if (!target || !file) {
+            host.notify('没有待发送的文件 —— 重新点一次「分享」', 'warn')
+            return null
+          }
+          const t = globalThis.__TAURI_INTERNALS__
+          if (!t || typeof t.invoke !== 'function') {
+            host.notify('这个环境没有原生通道，发送不了', 'error')
+            return null
+          }
+          try {
+            await t.invoke('send_files_to', { target, paths: [file] })
+            host.notify(`已交给「发送到」目标：${file.split('/').pop()}`, 'info')
+            host.log('info', `[分享] 发送到 ${target}：${file}`)
+            backToHome()
+            return { target, file }
+          } catch (e) {
+            host.notify(`发送失败：${String(e)}`, 'error')
+            return null
+          }
+        }),
+      }),
+      command.register({
+        id: 'io.sendto-cancel',
+        title: '分享：取消发送',
+        run: guard(async () => {
+          backToHome()
+          return true
+        }),
+      }),
+      command.register({
+        id: 'io.sendto-reveal',
+        title: '分享：在文件夹中打开',
+        run: guard(async (payload) => {
+          const p = payload && typeof payload === 'object' ? payload : {}
+          const path = typeof p.path === 'string' && p.path ? p.path : ui.sendFile
+          const t = globalThis.__TAURI_INTERNALS__
+          if (!path || !t || typeof t.invoke !== 'function') return null
+          try {
+            await t.invoke('reveal_in_explorer', { vault: vaultRoot(), path })
+            return path
+          } catch (e) {
+            host.notify(`打不开所在文件夹：${String(e)}`, 'error')
+            return null
+          }
+        }),
+      }),
+    )
+
     for (const [id, fmt, title] of [
       ['io.exportTxt', 'txt', '导出当前笔记为纯文本（txt）…'],
       ['io.exportHtml', 'html', '导出当前笔记为网页（html）…'],
@@ -1794,6 +1977,13 @@ export default {
         title: '导入导出',
         location: 'main',
         render: (ctx) => {
+          if (ui.step === 'sendto') {
+            return buildSendToView({
+              file: ui.sendFile,
+              stem: ui.sendStem,
+              targets: ui.sendTargets,
+            })
+          }
           if (ui.step === 'note') {
             return buildPickNoteView({
               notes: ui.notes,

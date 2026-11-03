@@ -2257,3 +2257,92 @@ describe('删除传播（rev173.293）', () => {
     expect(wrote).not.toContain('n.md')
   })
 })
+
+/**
+ * 「附件同步方式」显示的是**真实设置的当前值**（rev173.336 · 真人测试10 #5）。
+ *
+ * 旧实现是受控 `select`，值取自面板 state（`sync.attachmentsMode`），而 render 从不播种
+ * ⇒ 重启后面板显示第一项「不同步（默认）」，用户以为保存没作用（store 里其实还是 relay）。
+ * 改成按钮组后：solid 的那个必须等于 store 里的 `attachments`。
+ */
+describe('附件同步方式：按钮组显示真实值（rev173.336）', () => {
+  /** `field.children` 是**单个节点**、`stack.children` 是数组 —— 两种都要往下走 */
+  const kids = (n: { children?: unknown }) =>
+    Array.isArray(n.children) ? n.children : n.children ? [n.children] : []
+  const collect = (node: unknown, type: string): any[] => {
+    const out: any[] = []
+    if (!node || typeof node !== 'object') return out
+    const n = node as { type?: string; children?: unknown[] }
+    if (n.type === type) out.push(node)
+    for (const c of kids(n)) out.push(...collect(c, type))
+    return out
+  }
+
+  it('store 里是 relay ⇒ 面板重开后「同步中转」仍是 solid', async () => {
+    const store = new Map<string, unknown>([
+      [
+        'settings.v1',
+        {
+          backend: 'webdav',
+          baseUrl: 'https://dav.example/dav/',
+          username: 'u',
+          root: 'ZeroNote',
+          enabled: true,
+          attachments: 'relay',
+        },
+      ],
+    ])
+    let render: ((ctx: { state?: Record<string, unknown> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [],
+        readText: async () => '',
+        writeText: async () => {},
+        mkdir: async () => {},
+      },
+      net: {
+        fetch: async () => ({
+          status: 404,
+          headers: {},
+          text: async () => '',
+          bytes: async () => new Uint8Array(),
+        }),
+      },
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: { register: () => ({ dispose: () => {} }), execute: async () => {} },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, unknown> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const buttons = collect(render!({ state: {} }), 'button').filter(
+      (b: any) => b.onClick === 'sync.set-attachments',
+    )
+    expect(buttons.map((b: any) => [b.payload.value, b.variant])).toEqual([
+      ['off', 'ghost'],
+      ['relay', 'solid'],
+      ['full', 'ghost'],
+    ])
+    for (const s of api.subscriptions) s.dispose?.()
+  })
+})
+

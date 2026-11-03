@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "sync",
   "name": "同步",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "apiVersion": "^0.2.0",
   "entry": "index.cjs",
   "files": [

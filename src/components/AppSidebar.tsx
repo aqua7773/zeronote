@@ -10,7 +10,7 @@
  *
  * 只做渲染：状态与回调全部由 `App` 传入（宽度拖拽在 App 的 resizer 里）。
  */
-import { ChevronLeft, MoreHorizontal, Search } from 'lucide-react'
+import { ChevronLeft, Lock, MoreHorizontal, Search } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
 
 export type AppSidebarView = 'notes' | 'search' | 'timeline'
@@ -40,6 +40,13 @@ export type AppSidebarProps = {
   onCollapse?: () => void
   /** 手机抽屉：「更多」入口（桌面走图标栏，不再在侧栏里放） */
   onOpenMore?: () => void
+  /**
+   * 桌面：打开「私密笔记」（rev173.336 · 真人测试10 #2）。
+   *
+   * 用户原话「正常模式和私密笔记怎么切换？」—— 以前它只藏在「插件 → 私密文件夹」里，
+   * 等于没有入口。这里给一个常驻锁形按钮，点开就是私密面板（与公开笔记分栏）。
+   */
+  onOpenPrivate?: () => void
   onOpenTrash: () => void
   /** 弹出「切换笔记库」菜单（坐标 = 按钮的 client 坐标） */
   onOpenVaultMenu: (x: number, y: number) => void
@@ -56,6 +63,7 @@ export function AppSidebar({
   onSearchIntent,
   onCollapse,
   onOpenMore,
+  onOpenPrivate,
   onOpenTrash,
   onOpenVaultMenu,
 }: AppSidebarProps) {
@@ -86,6 +94,17 @@ export function AppSidebar({
                 <span>搜索笔记…</span>
               </button>
             )}
+            {onOpenPrivate ? (
+              <button
+                type="button"
+                className="zn-icon-btn"
+                onClick={onOpenPrivate}
+                title="私密笔记（独立密码）"
+                aria-label="私密笔记"
+              >
+                <Lock size={16} />
+              </button>
+            ) : null}
             <button
               type="button"
               className="zn-icon-btn zn-sidebar-collapse"

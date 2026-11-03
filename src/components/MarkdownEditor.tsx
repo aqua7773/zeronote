@@ -12,7 +12,7 @@ import { editorMarkExtensions } from '../kernel/editor-marks'
 import { editorSyntaxExtensions } from '../kernel/editor-syntax'
 import { frontmatterHide } from '../kernel/editor-frontmatter'
 import { indentLine } from '../kernel/editor-indent'
-import { resolveImageAbsPath, resolveImageAbsPaths, stripAngleTarget } from '../lib/insert-image'
+import { resolveImageAbsPaths, stripAngleTarget } from '../lib/insert-image'
 import { collectEmbeddedOrigins } from '../lib/embed-image'
 import { mediaHttpUrl } from '../kernel/media-url'
 import { MEDIA_ELEMENT_CLASS, MEDIA_WRAP_CLASS, mediaKindOf } from '../lib/media-render'
@@ -305,14 +305,20 @@ function upgradeMediaWidgets(
     // 尖括号目标（`![](<a b.mp4>)`）：扩展名判定要看剥掉尖括号后的真路径
     const kind = mediaKindOf(stripAngleTarget(raw))
     if (!kind) continue
-    const url = mediaSourceUrl(raw, vault, notePath)
-    if (!url) continue
+    const urls = mediaSourceUrls(raw, vault, notePath)
+    if (!urls.length) continue
 
     const el = document.createElement(kind === 'video' ? 'video' : 'audio')
     el.className = `${MEDIA_ELEMENT_CLASS} ${MEDIA_ELEMENT_CLASS}-${kind}`
     // 记住原文（rev173.240）：本地媒体服务就绪后要按它重算 http URL
     el.dataset.znRaw = raw
-    el.src = url
+    /**
+     * 候选列表 + 当前下标（rev173.336）：播放失败先换下一个候选，全失败才显示提示。
+     * 与图片的 `znUrls` / `znUrlIdx` 同一套机制 —— 以前媒体只解析第一候选。
+     */
+    el.dataset.znUrls = JSON.stringify(urls)
+    el.dataset.znUrlIdx = '0'
+    el.src = urls[0]
     el.controls = true
     el.preload = 'metadata'
     if (kind === 'video') {
@@ -324,6 +330,19 @@ function upgradeMediaWidgets(
     hint.className = 'zn-media-error'
     hint.hidden = true
     el.addEventListener('error', () => {
+      // 先试下一个候选（笔记移动 / 图在库根），全部失败才报错
+      let list: string[] = []
+      try {
+        list = JSON.parse(el.dataset.znUrls ?? '[]') as string[]
+      } catch {
+        list = []
+      }
+      const idx = Number(el.dataset.znUrlIdx ?? 0)
+      if (Number.isFinite(idx) && idx + 1 < list.length) {
+        el.dataset.znUrlIdx = String(idx + 1)
+        el.src = list[idx + 1]
+        return
+      }
       hint.hidden = false
       hint.replaceChildren(
         document.createTextNode(
@@ -356,27 +375,39 @@ function upgradeMediaWidgets(
   }
 }
 
-/** 媒体 src → 可直接喂给 `<video>` / `<audio>` 的 URL（解析规则与图片一致） */
-function mediaSourceUrl(
+/**
+ * 媒体 src → **候选 URL 列表**（解析规则与图片完全一致，rev173.336 统一）。
+ *
+ * 以前这里只取 `resolveImageAbsPath` 的**第一候选**（相对笔记目录）——
+ * 与图片的「笔记目录 → 库根」两候选不是同一套：图在库根、笔记在子目录时，
+ * 图片能显示、视频却报「文件不在本机」。现在给全部候选，播放失败逐个换。
+ */
+function mediaSourceUrls(
   raw: string,
   vault: string | null | undefined,
   notePath: string | null,
-): string | null {
-  if (/^(?:https?|data|blob|asset):/i.test(raw)) return raw
-  const abs = resolveImageAbsPath(vault, notePath, raw)
-  if (!abs) return null
-  /**
-   * Android：走内核的本地媒体服务（`media-url.ts` 有一手依据）。
-   * asset 协议在 Android 上走 `shouldInterceptRequest`，没有 206 分片 ⇒
-   * 大视频 `readyState` 永远 0。服务没就绪时返回 null，回落到 asset（桌面永远走 asset）。
-   */
-  const http = mediaHttpUrl(abs)
-  if (http) return http
-  try {
-    return convertFileSrc(abs)
-  } catch {
-    return null
+): string[] {
+  if (/^(?:https?|data|blob|asset):/i.test(raw)) return [raw]
+  const out: string[] = []
+  for (const abs of resolveImageAbsPaths(vault, notePath, raw)) {
+    /**
+     * Android：走内核的本地媒体服务（`media-url.ts` 有一手依据）。
+     * asset 协议在 Android 上走 `shouldInterceptRequest`，没有 206 分片 ⇒
+     * 大视频 `readyState` 永远 0。服务没就绪时回落到 asset（桌面永远走 asset）。
+     */
+    const http = mediaHttpUrl(abs)
+    if (http) {
+      if (!out.includes(http)) out.push(http)
+      continue
+    }
+    try {
+      const url = convertFileSrc(abs)
+      if (!out.includes(url)) out.push(url)
+    } catch {
+      /* 非 Tauri 环境：没有 asset 协议 */
+    }
   }
+  return out
 }
 
 function imageAssetPlugin(
@@ -948,9 +979,13 @@ export function MarkdownEditor({
     for (const el of view.contentDOM.querySelectorAll<HTMLMediaElement>('video, audio')) {
       const raw = el.dataset.znRaw
       if (!raw) continue
-      const url = mediaSourceUrl(raw, vault, path)
-      if (!url || el.getAttribute('src') === url) continue
-      el.src = url
+      // 重算整份候选（本地媒体服务就绪后 http URL 才可用），下标归零
+      const urls = mediaSourceUrls(raw, vault, path)
+      if (!urls.length) continue
+      el.dataset.znUrls = JSON.stringify(urls)
+      el.dataset.znUrlIdx = '0'
+      if (el.getAttribute('src') === urls[0]) continue
+      el.src = urls[0]
       const hint = el.parentElement?.querySelector<HTMLElement>('.zn-media-error')
       if (hint) hint.hidden = true
       el.load()
@@ -1412,7 +1447,17 @@ export function MarkdownEditor({
        */
       const raw = img.dataset.znRaw
       if (onLocalLinkOpen && raw) {
-        const abs = resolveImageAbsPath(vault, path, raw)
+        /**
+         * 传**真正命中的那条候选**（rev173.336 · 真人测试10 #3）。
+         *
+         * 以前固定传第一候选（相对笔记目录），而图片实际在库根（插入附件写的是库根相对路径）⇒
+         * 宿主再按笔记目录拼一次得到 `测试文件/测试文件/image-….jpg`，点开报「库里没有这个附件」
+         * —— 正文却显示正常（渲染侧有两候选兜底）。`fixImageSrc` 已把加载成功那条的下标
+         * 记在 `znUrlIdx`，这里照它取，口径与画面一致。
+         */
+        const cands = resolveImageAbsPaths(vault, path, raw)
+        const idx = Number(img.dataset.znUrlIdx ?? 0)
+        const abs = cands[Number.isFinite(idx) && idx >= 0 ? idx : 0] ?? cands[0]
         const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
         if (abs && root && abs.startsWith(`${root}/`)) {
           onLocalLinkOpen(abs.slice(root.length + 1))

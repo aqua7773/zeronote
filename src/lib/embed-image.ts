@@ -10,6 +10,8 @@
  * 不额外编造；用户手写库外绝对路径 / 库内相对路径都能原样带出去。
  * 这里的两个纯函数是**读的那一半**（写的那一半在 `examples/import-export`）。
  */
+import { linkCandidates } from './insert-image'
+
 /** 盘符（`C:\x` / `C:/x`）与 UNC（`\\host\share`）—— 与内核 `insert-image` 同一份判据 */
 const WIN_ABS_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
 
@@ -89,15 +91,9 @@ export function znOrigCandidates(
 ): string[] {
   const raw = String(orig ?? '').trim()
   if (!raw || isEmbeddedOrigAbs(raw, platform)) return []
-  // 桌面的 `/附件/a.png` = 相对库根，不该再拼笔记目录
-  if (raw.startsWith('/')) {
-    const rooted = raw.replace(/^\/+/, '')
-    return rooted ? [rooted] : []
-  }
-  const noteDir =
-    notePath && notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
-  const out: string[] = []
-  if (noteDir) out.push(`${noteDir}/${raw}`.replace(/\/+/g, '/'))
-  if (!out.includes(raw)) out.push(raw)
-  return out
+  /**
+   * 候选顺序**统一由 `linkCandidates` 给**（rev173.336）：以前这里另写一份
+   * 「笔记目录 → 库根」，与渲染/点击各一套 —— 三份逻辑迟早漂。现在只有一份。
+   */
+  return linkCandidates(raw, notePath)
 }

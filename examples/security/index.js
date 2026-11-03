@@ -1807,6 +1807,62 @@ export default {
             const L = await loadLibs()
             return verifyData(L, s.dek, ring, container ?? ring, data, sig)
           },
+          /**
+           * **生物识别（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）**。
+           *
+           * 消费者（密码库）只拿到四个动作，**拿不到 DEK**（需求 §9.4 不变）：
+           * 解锁成功后 DEK 写进本插件的 `live` 表，消费者接着用 `decryptText` 读自己的密文。
+           *
+           * 为什么放服务里而不是让密码库自己读 ring：ring 的落盘格式与 `saveVault(onlyRing)`
+           * 的同步语义都归本插件管；让第二个插件写同一个文件，两台设备同时改不同环时会撞车。
+           */
+          biometric: {
+            /** 这台设备有没有可用的适配器（Windows Hello / Android 指纹） */
+            available: () => Boolean(store.biometric),
+            /** 这个环在这台设备上绑过没有 */
+            bound: (ringId = 'secrets') => {
+              const ring = getRing(store.vault, ringId)
+              return Boolean(ring && deviceBinding(ring, store.deviceId))
+            },
+            /** 用指纹解出 DEK 并解锁该环；失败原样抛给调用方（它负责翻人话） */
+            unlock: async (ringId = 'secrets') => {
+              const ring = getRing(store.vault, ringId)
+              if (!ring) throw new Error('这个密钥环还没建立')
+              if (!store.biometric) throw new Error('这台设备没有可用的生物识别')
+              if (!deviceBinding(ring, store.deviceId)) throw new Error('这台设备还没绑定生物识别')
+              if (biometricInFlight) throw new Error('指纹请求正在进行，请稍候')
+              biometricInFlight = true
+              try {
+                const dek = await unlockWithBiometric(ring, store.biometric, store.deviceId)
+                live.set(ringId, { dek, lastActive: Date.now() })
+                api.event.emit('security:unlocked', { ringId })
+                return true
+              } finally {
+                biometricInFlight = false
+              }
+            },
+            /** 绑定本机指纹（要求该环已解锁，DEK 在 live 里） */
+            bind: async (ringId = 'secrets') => {
+              const ring = getRing(store.vault, ringId)
+              const s = live.get(ringId)
+              if (!ring) throw new Error('这个密钥环还没建立')
+              if (!s) throw new Error('先解锁，再绑定指纹')
+              if (!store.biometric) throw new Error('这台设备没有可用的生物识别')
+              const next = await bindBiometric(ring, s.dek, store.biometric, store.deviceId)
+              store.vault = putRing(store.vault, next)
+              await saveVault(api, store.vault, next.id)
+              return true
+            },
+            /** 解除本机绑定（不影响主密码与别的设备） */
+            unbind: async (ringId = 'secrets') => {
+              const ring = getRing(store.vault, ringId)
+              if (!ring) throw new Error('这个密钥环还没建立')
+              if (!deviceBinding(ring, store.deviceId)) throw new Error('这台设备没有绑定生物识别')
+              store.vault = putRing(store.vault, unbindBiometric(ring, store.deviceId))
+              await saveVault(api, store.vault, ring.id)
+              return true
+            },
+          },
         }),
         { version: '1.0.0' },
       ),

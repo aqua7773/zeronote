@@ -1,6 +1,31 @@
 # ZeroNote 交接卡（当前状态）
 
-> **最新：rev173.335（2026-11-03）—— 真人测试9 三条（已修，0.9.21 已发，待真机）**
+> **最新：rev173.336（2026-11-03）—— 真人测试10 六条：代码全改完，真机验证 5/6 未过（根因 = 验证环境的插件还是旧版）**
+> 来源 `ZreoNote/.zn/share/真人测试10.md`（6 条 + 6 图）。
+>
+> | # | 用户原话 | 改法 | 插件版本 |
+> |---|---|---|---|
+> | ① | 密码库解锁界面无法调用指纹 | security 的 crypto 服务加 `biometric`（available/bound/unlock/bind/unbind，DEK 不出 security）；secrets 加「用指纹解锁 / 绑定本机指纹 / 解除」 | security **0.2.2** · secrets **0.1.2** |
+> | ② | 正常模式和私密笔记怎么切换？ | 桌面侧栏头 🔒（`AppSidebar.onOpenPrivate`）＋ 手机「更多」第一项「私密笔记」；两处执行 `private.open` | 需 `private-notes` |
+> | ③ | 点图看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」 | 点击传**命中的候选**（`znUrlIdx`）而非第一候选；`openLocalLink` 改 `linkCandidates`（笔记目录 → 库根） | 宿主 |
+> | ④ | 手机选不中文字、要系统原生复制 | 删 300ms 自绘四键条（含全屏 scrim，正是它打断系统选词）＋ 编辑区放行 `contextmenu` | 宿主 |
+> | ⑤ | 改同步策略重进又变默认不同步 | 附件方式从受控 `select`（state 从不播种）改**按钮组**，选中态读 `settings.attachments` | sync **0.1.8** |
+> | ⑥ | 桌面复制没用、分享反而复制到剪贴板 | 复制同时写系统剪贴板（`copy_files_to_clipboard`）；分享改 Windows「发送到」（`list_send_to_targets` / `send_files_to` + 新「发送到…」视图） | import-export **0.2.4** |
+>
+> **同轮规则（用户要求）**：`~/.dsh/AGENTS.md` §8.8 + `ai-habits` §8「同一逻辑多处实现 ⇒ 先全量审计再改」；
+> 据此把附件路径解析统一成 `linkCandidates` 一份，顺带修掉**音视频只取第一候选**（隐藏同类 bug）+ 加跨端一致性测试。
+> 日志：`Documents/deepseek/_logs/2026-11-03-AGENTS加同一逻辑审计规则.md`。
+>
+> **验证（13:0x 用户反馈）**：A3/A4 同步、A6 发送到、A8/B2 私密入口、B5 密码库环、A5 桌面复制 —— **全部失败**。
+> **已核实根因**：桌面 dev 与调试机的插件仍是 `import-export 0.2.3` / `sync 0.1.7` / `security 0.2.1` / `secrets 0.1.1`，
+> 且**都没有 `private-notes`**；我 12:4x 手工同步进去的 0.2.4/0.1.2/0.2.2/0.1.8 **已被覆盖回去**（怀疑 App 启动时的内置插件同步）。
+> A5 与插件无关，是真 bug（待 CDP + `Get-Clipboard -Format FileDropList` 实测）。
+>
+> **下个会话按这个顺序**：① 查清「内置插件覆盖全局根」的机制（`plugin-host.ts` / `usePluginHost.ts`）→
+> ② 把 `security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1` 装到桌面与调试机 →
+> ③ 重跑 A3/A4/A6/A8/B2/B5 → ④ 单独查 A5 → ⑤ 全过再 `verify.ps1` + 发 0.9.22。
+>
+> **上一轮：rev173.335（2026-11-03）—— 真人测试9 三条（已修，0.9.21 已发，待真机）**
 > 来源 `Downloads/真人测试9 (2).md`（3 条 + 3 张真机截图）。
 >
 > | # | 用户原话 | 根因 / 改法 |
@@ -892,6 +917,16 @@ pwsh -File scripts\verify.ps1
 | 私密文件夹 | ✅ **三期全部落地（rev173.180 / 181 / 182）+ 已发市**（`security` 已到 **0.2.1**，索引 16 条）· **桌面与手机的迁移链都已实测**（173.183 桌面 / 173.184 手机）· 迁移收尾的静默失败已修（173.185）；剩 Android 上「旧 `vault.json` 自己回来」（平台级，见「下个会话第一件事」） |
 
 ## 环境现状（活信息 · 2026-10-30）
+
+> ### 📱 两台手机，用途严格分开（2026-11-03 用户第三次强调 → 升到顶部，别再问）
+>
+> | 设备 | 装什么 | 用来干什么 |
+> |---|---|---|
+> | **`33b676f6` = Redmi 24069RA21C（Android 16）** | `com.aqua.zeronote.debug`（debug 包，连电脑 vite 1420） | **调试机**。改前端 reload 即生效、改 Rust 才重装。库 `/storage/emulated/0/Documents/ZeroNote` 基本是空库，只用来跑界面与交互 |
+> | **nubia NX741J（Android 16）** | GitHub Release 的**正式 APK** | **用户真机**。真人测试反馈、崩溃现场都来自这台；⚠️ **2026-11-02 用户明确要求：不要在 nubia 上装包 / 点操作** |
+>
+> 判据：说「真机复验」默认指 **nubia（正式包）**；`33b676f6` 上验过的只能说明交互，不代表正式包行为。
+> 这条此前散落在 rev173.326 / rev173.328 段里，导致新会话反复搞错 —— 那段历史保留，以本表为准。
 
 - **桌面 dev**：双击 `dev.cmd`（vite 1420 · CDP 9222 · 日志 `.self-logs/desktop-dev.log`）。**别用后台 job 托管**（会随会话回收）；
   AI 自己要起时用 `Start-Process -FilePath cmd.exe -ArgumentList "/c","dev.cmd" -WindowStyle Minimized`（独立进程，等价双击，rev173.152 实测可用）；

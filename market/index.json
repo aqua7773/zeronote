@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-02",
+  "updated": "2026-11-03",
   "plugins": [
     {
       "id": "accounting",
@@ -210,10 +210,10 @@
         "android"
       ],
       "apiVersion": "^0.1.0",
-      "version": "0.2.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.3.znp",
-      "sha256": "63612c697314e8ad6fe684dae08b0bd96ea13a5b009bf439f8d5436b18513c52",
-      "size": 80765,
+      "version": "0.2.4",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/import-export-0.2.4.znp",
+      "sha256": "631e3dca2e93a81494a14be1f2b09710070530c8f7ce82e02a179724f857db9e",
+      "size": 88027,
       "files": [
         "index.js",
         "signature.json"
@@ -268,10 +268,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.1.znp",
-      "sha256": "4b5cb5d86a49f520c592954a887dac298d4995c67e6f566d9a0df22b57e857d0",
-      "size": 49627,
+      "version": "0.1.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.2.znp",
+      "sha256": "3eb88c26154bd9484811838de710cba8357e50714f04c094ff7b92ddd15a471b",
+      "size": 55923,
       "files": [
         "index.js",
         "signature.json"
@@ -294,10 +294,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.1",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.1.znp",
-      "sha256": "a13a1b4844e7a30b72b423706010f64144d9831a8c95ec1f6a118341b0d1584d",
-      "size": 76018,
+      "version": "0.2.2",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.2.znp",
+      "sha256": "c11c7e5fb9af733e95fbcd949fee0c901a8495b1e916bcbc0a73b2d11d0021ac",
+      "size": 80652,
       "files": [
         "index.js",
         "signature.json"
@@ -322,10 +322,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.7",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.7.znp",
-      "sha256": "56bac43353ed54273e0e91755d081275dc9a8d60a49733dad8055b78743c6de4",
-      "size": 268041,
+      "version": "0.1.8",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/sync-0.1.8.znp",
+      "sha256": "f532bfce0278c09a9545d6a7de6f5d84906e5de88bb3f04cbeb13e8e838c7bb7",
+      "size": 267974,
       "files": [
         "index.cjs",
         "lib/backends/folder.cjs",

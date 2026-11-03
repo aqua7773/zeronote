@@ -13,6 +13,7 @@ import {
   decodeLocalPath,
   dirnamePosix,
   imageInsertion,
+  linkCandidates,
   linkInsertion,
   normalizePosix,
   pathFromNote,
@@ -187,6 +188,29 @@ describe('resolveImageAbsPaths（多候选）', () => {
     )
     expect(resolveImageAbsPaths(vault, 'a.md', '   ')).toEqual([])
     expect(resolveImageAbsPaths(vault, 'a.md', '../x.png')).toEqual([])
+  })
+})
+
+describe('linkCandidates（点开正文引用时的解析顺序）', () => {
+  it('相对路径：笔记目录 → 库根（与渲染侧同口径）', () => {
+    expect(linkCandidates('image-1.png', '测试文件/真人测试10.md')).toEqual([
+      '测试文件/image-1.png',
+      'image-1.png',
+    ])
+  })
+
+  it('/ 开头只按库根（Markdown 的库根写法）', () => {
+    expect(linkCandidates('/附件/x.png', '测试文件/a.md')).toEqual(['附件/x.png'])
+  })
+
+  it('./ 前缀与重复候选去重；笔记在库根时只有一条', () => {
+    expect(linkCandidates('./image-1.png', 'a.md')).toEqual(['image-1.png'])
+    expect(linkCandidates('./sub/image-1.png', 'a.md')).toEqual(['sub/image-1.png'])
+  })
+
+  it('越界返回空数组（调用方报「路径越界」而不是拼出怪路径）', () => {
+    expect(linkCandidates('../x.png', 'sub/a.md')).toEqual(['x.png'])
+    expect(linkCandidates('../../x.png', 'sub/a.md')).toEqual([])
   })
 })
 

@@ -9,6 +9,7 @@
  *  · frontmatter 已有同名键不覆盖（md 导入自带 `created:` 时不能被导入时刻顶掉）。
  */
 import { describe, expect, it } from 'vitest'
+import { linkCandidates } from '../src/lib/insert-image'
 import {
   EXPORT_BUTTONS,
   IMPORT_ROOT,
@@ -16,6 +17,7 @@ import {
   buildHomeView,
   buildPickFormatView,
   buildPickNoteView,
+  buildSendToView,
   embedCommentOf,
   embedSummary,
   findAssetEntry,
@@ -26,6 +28,7 @@ import {
   importDateStamp,
   normalizeRefPath,
   normalizeRelPath,
+  refLocations,
   rewriteImageRefs,
   sanitizeDirName,
   scanImageRefs,
@@ -298,6 +301,105 @@ describe('embedSummary', () => {
 
   it('都没发生 ⇒ 空串', () => {
     expect(embedSummary({ embedded: 0, keptCount: 0 })).toBe('')
+  })
+})
+
+/**
+ * 「发送到…」视图（rev173.336 · 真人测试10 #6）。
+ *
+ * 用户原话：「分享的功能应该是和 windows 发送到这个一样」—— 桌面分享 md 必须是
+ * 「选一个目标程序」，不是静默塞剪贴板。判据：
+ *  · 每个目标一行按钮，payload 带该 `.lnk` 的**绝对路径**（Rust 侧还会再校验）；
+ *  · 脏数据（没有 name / path 的项）被过滤掉，不渲染成死按钮；
+ *  · 文件路径与「在文件夹中打开」都在，目标为空时也能给出路。
+ */
+describe('面板：发送到', () => {
+  const view = buildSendToView({
+    file: '.zn/share/周报.md',
+    stem: '周报',
+    targets: [
+      { name: '邮件接收者', path: 'C:/Users/x/AppData/Roaming/Microsoft/Windows/SendTo/MailRecipient.lnk' },
+      { name: '', path: 'C:/bad.lnk' },
+      { name: '桌面快捷方式', path: '' },
+      { name: '微信', path: 'C:/Users/x/AppData/Roaming/Microsoft/Windows/SendTo/微信.lnk' },
+    ],
+  }) as any
+  const collect = (node: any, type: string): any[] => {
+    const out: any[] = []
+    if (!node || typeof node !== 'object') return out
+    if (node.type === type) out.push(node)
+    for (const c of Array.isArray(node.children) ? node.children : []) out.push(...collect(c, type))
+    return out
+  }
+  const buttons = collect(view, 'button')
+
+  it('每个有效目标一个按钮，payload.target 是 .lnk 绝对路径', () => {
+    const targets = buttons.filter((b: any) => b.payload && b.payload.target)
+    expect(targets.map((b: any) => b.label)).toEqual([
+      '发送到「邮件接收者」',
+      '发送到「微信」',
+    ])
+    expect(targets[0].payload.target).toMatch(/MailRecipient\.lnk$/)
+  })
+
+  it('脏目标被过滤（缺 name 或 path 都不渲染）', () => {
+    expect(buttons.filter((b: any) => b.payload && b.payload.target)).toHaveLength(2)
+  })
+
+  it('含文件名、返回与「在文件夹中打开」', () => {
+    expect(JSON.stringify(view)).toContain('.zn/share/周报.md')
+    expect(buttons.some((b: any) => b.label === '‹ 返回')).toBe(true)
+    const reveal = buttons.find((b: any) => b.label === '在文件夹中打开')
+    expect(reveal.payload.path).toBe('.zn/share/周报.md')
+  })
+})
+
+/**
+ * 引用 → 候选位置（rev173.336 · 真人测试10 #3 的教训）。
+ *
+ * 这条测试是「同一逻辑只准有一份」的锁：插件里的 `refLocations` 必须和主程序
+ * `src/lib/insert-image` 的 `linkCandidates` 给出**同样的顺序**。
+ * 上一次两边各写一套：渲染有库根兜底、导出没有 ⇒ 分享出去 md 一张图都没有。
+ */
+describe('refLocations（导出侧候选）与主程序同口径', () => {
+  const root = 'C:/vault'
+
+  it('相对路径：笔记目录 → 库根', () => {
+    expect(refLocations('image-1.png', '测试文件/真人测试10.md', 'windows', root)).toEqual([
+      { kind: 'rel', rel: '测试文件/image-1.png', abs: 'C:/vault/测试文件/image-1.png' },
+      { kind: 'rel', rel: 'image-1.png', abs: 'C:/vault/image-1.png' },
+    ])
+  })
+
+  it('/ 开头只按库根（桌面）；Android 视为库外绝对路径', () => {
+    expect(refLocations('/附件/x.png', '测试文件/a.md', 'windows', root)).toEqual([
+      { kind: 'rootrel', rel: '附件/x.png', abs: 'C:/vault/附件/x.png' },
+    ])
+    expect(refLocations('/storage/emulated/0/x.png', 'a.md', 'android', root)).toEqual([
+      { kind: 'abs', rel: null, abs: '/storage/emulated/0/x.png' },
+    ])
+  })
+
+  it('URL / data: 不动；条带只含绝对路径', () => {
+    expect(refLocations('https://x.com/a.png', 'a.md', 'windows', root)).toEqual([])
+    expect(refLocations('data:image/png;base64,AA', 'a.md', 'windows', root)).toEqual([])
+    expect(refLocations('C:\\pics\\a.png', 'a.md', 'windows', root)).toEqual([
+      { kind: 'abs', rel: null, abs: 'C:/pics/a.png' },
+    ])
+  })
+
+  it('与主程序 linkCandidates 的顺序一致（同一份口径）', () => {
+    const cases: [string, string][] = [
+      ['image-1.png', '测试文件/a.md'],
+      ['sub/x.png', 'a.md'],
+      ['/附件/x.png', '测试文件/a.md'],
+      ['../x.png', 'sub/a.md'],
+    ]
+    for (const [target, note] of cases) {
+      const mine = linkCandidates(target, note)
+      const theirs = refLocations(target, note, 'windows', root).map((l: any) => l.rel)
+      expect(theirs).toEqual(mine)
+    }
   })
 })
 

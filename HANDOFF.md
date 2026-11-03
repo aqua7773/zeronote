@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.335
-更新时间: 2026-11-03 · 最新 rev173.335（**真人测试9 三条：底部状态栏 / 密码库密钥环 / 加号原地渐隐**）
+revision: 173.336
+更新时间: 2026-11-03 · 最新 rev173.336（**真人测试10 六条已改，真机验证 5/6 未过 —— 主因是验证环境插件仍是旧版**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.335
 
 | rev | 内容 |
 |---|---|
+| rev173.336 | 2026-11-03 · **真人测试10 六条：代码已改完，真机验证 5/6 未过**（`ZreoNote/.zn/share/真人测试10.md`，6 条 + 6 图）。改法：① **密码库指纹** —— 扩展 `security` 的 crypto 服务（`biometric.available/bound/unlock/bind/unbind`，DEK 仍不出 security），`secrets` 加「用指纹解锁 / 绑定本机指纹 / 解除」三条命令与入口；② **私密切换入口** —— 桌面侧栏头加 🔒（`AppSidebar.onOpenPrivate`），手机「更多」抽屉第一项加「私密笔记」（`more-items.ts` 新 action）；③ **查看原图报「库里没有这个附件：测试文件/测试文件/x.jpg」** —— `MarkdownEditor` 点击时传**命中的候选**（`znUrlIdx`）而不是第一候选，`App.openLocalLink` 改 `linkCandidates`（笔记目录 → 库根）；④ **手机无法选字** —— 删自绘四键条（含 300ms 的全屏 scrim，正是它打断系统选词），编辑区放行 `contextmenu`；⑤ **同步策略重进变默认** —— 面板「附件」从受控 `select` 改**按钮组**（select 的取值依赖 `ctx.state`，而 render 从不播种）；⑥ **桌面复制 / 分享** —— 新增 Rust `copy_files_to_clipboard`（多选 CF_HDROP）与 `list_send_to_targets` / `send_files_to`（枚举 `%APPDATA%\Microsoft\Windows\SendTo\*.lnk`，`ShellExecuteExW` 执行），桌面「分享 md」改走「发送到…」面板。**同轮规则**：`~/.dsh/AGENTS.md` §8.8 + `ai-habits` §8「同一逻辑多处实现 ⇒ 先全量审计再改」，并据此统一了 5 处附件路径解析（`linkCandidates` 唯一来源 / `mediaSourceUrls` 多候选 / `refLocations` 跨端一致）。验证：tsc 0 · vitest **1816**（+12）· cargo check 0 · oxlint 0 error。⚠️ **用户真机验证结果**：A3/A4（同步）、A6（发送到）、A8/B2（私密入口）、B5（密码库环）**失败**，A5（桌面复制）失败 —— **根因：桌面 dev 与调试机的插件仍是旧版**（`import-export` 0.2.3 / `sync` 0.1.7 / `security` 0.2.1 / `secrets` 0.1.1，且**没有 `private-notes`**），我同步进去的新包被覆盖（待查是谁覆盖）；A5 与插件无关，是真 bug，待实测。**未提交 / 未推送 / 未发版**。 |
 | rev173.335 | 2026-11-03 · **真人测试9 三条**（`Downloads/真人测试9 (2).md`，3 条 + 3 张真机截图）：① **底部没有历史版本** —— 用户澄清「底部栏只在键盘弹出时显示，原来的位置就显示历史版本信息」→ 再改口「像桌面这个底部一样，右边显示字数统计，左边就显示历史版本」。改法：手机编辑页新增**常驻底部状态栏**（复用 `.zn-statusbar`：左 `editor-topbar` 面板 = 历史版本 / 反链，右 = 当前文档字数）；顶部不再放 `editor-topbar`（rev173.334 挪到底部快捷栏的写法撤掉）；底部标记快捷栏 `MarkToolbar` 仍**只在键盘弹出时**出现（`keyboardOpen`）。新 CSS `.zn-editor-statusbar`（高度自适应 + 底部安全区）。 ② **密码库插件一直显示未建立密钥环** —— 根因：`security` 自 rev173.182 起把 vault **按环拆文件**（`.zn/security/vault.<环id>.json`），旧单文件 `vault.json` 只剩迁移残留；而 `secrets` / `private-notes` 的 `checkRingReady` **仍只读旧单文件** ⇒ 迁移过的库存永远「未建立」，与安全插件页面「已建立」自相矛盾（用户两张截图正是这个）。改法：两个插件都先读 `vault.<环id>.json`（结构 `{ v:2, ring:{ id, ... } }`）、旧单文件兜底；新增纯函数 `hasRingPart` / `hasNotesRingPart` 与 `securityVaultFileOf`，各 +2 条单测。`secrets` **0.1.1** 已签名入库（`market/packs/secrets-0.1.1.znp` · 48.5 KB · keyId `aqua-2026` · 索引 14 条）。 ③ **首页加号隐藏有「往右移动」效果** —— 根因：`.zn-mobile-compose` 靠 `transform: translateX(-50%)` 水平居中，rev173.334 的 `.is-hidden` 写成 `translateY(12px)` **把居中覆盖掉了** ⇒ 收起瞬间按钮向右跳半个身位。改成只 `opacity: 0`（保留 `translateX(-50%)`），动画时长改走 token `--zn-dur-base`（design-tokens 门禁）。验证：tsc 0 · oxlint 4 warnings · vitest **1803**（+4）· 质量门 8/8。⚠️ **未做真机**：①③ 要装新包看；② 手机把插件中心更新到 `secrets 0.1.1` 即生效。 |
 | rev173.334 | 2026-11-02 · **真人测试8（6 条：3 修 3 待信息）**：① 历史版本移动端移到**底部**、底部快捷栏**只在键盘弹出时**显示（`visualViewport` 高度差 >120px 判键盘；`editor-topbar` 面板从顶部挪进 `MarkToolbar`）· ② 续传「继续下载」撞并发闸却仍在涨进度 —— 新增 Rust `cancel_apk_download`，下载循环每 chunk 检查，前端点下载前先取消旧任务 · ③ 编辑区长按**到 300ms 直接弹四键条**（不再等松手）、去掉编辑区涟漪；文件树仍松手触发。④ 手机分享没图片：分享在 `import-export` 插件，≥0.2.2 才内嵌（待确认手机插件版本）· ⑤ 桌面复制失败：**独立探针已证明 `winclip::copy_files` 写入/读回正常**，问题在调用侧（待版本与报错）· ⑥ md 图片读不出：子 agent 查得 3 个根因（`@atomic-editor` 图片块正则不认含空格/`![[ ]]`/`<img>` 且静默；`MarkdownEditor.tsx:136` 空候选不挂提示；附件未同步），**待用户给图片那行原文**。验证：tsc 0 · oxlint 4 · vitest 1799 · cargo check 0。 |
 | rev173.333 | 2026-11-02 · **0.9.18 上真崩了：右抽屉新建合成层（nubia HWC）**：用户 21:14 报告（环境 **0.9.18**）`原因：原生崩溃（SIGABRT）`，abort = `FORTIFY: pthread_mutex_lock called on a destroyed mutex (0x77fae02af8)`；崩溃线程 `FenceMonitor`，栈全在 libc / libc++ / libgui，`libzeronote_lib.so` **0 命中** —— 与 13:xx 那 6 份 tombstone 同型。**触发面（用户原话）**：「右侧更多准备点插件中心准备插件」⇒ 打开右抽屉 = `moreOpen \|\| moreClosing ? … : null` 条件渲染新建**遮罩 + 抽屉两个全屏 fixed 合成层** + 入场 animation。**看门狗修复有效**（这份是 crash、不是 exit 101，老问题原被 5 s 误杀掩盖）。**改法**：右抽屉改**常驻挂载**（与左抽屉 0.9.15 同款）—— `setMoreOpen` 只切开关；遮罩 `.zn-scrim.is-drawer`、抽屉 `.zn-more-drawer.is-open`，关闭态 `visibility: hidden` 退出合成；340ms 改由 CSS transition 播（删 `DRAWER_MS`）；`MobileMoreDrawer` 的 `closing` prop → `open`（关闭态 `aria-hidden`）。测试：`mobile-more-drawer` 8 条改按展开态渲染、`app-smoke` 断言改「没有 is-open」而非卸载。验证：tsc 0 · oxlint 4 warnings · vitest **1799 全绿**。**已发版 0.9.19**（tag `v0.9.19` · 5 资产 · APK 33.26 MiB · sha256 `65e4f6f0…` · 构建 8m41s）。⚠️ **待真机**：装 0.9.19 后连开右抽屉 10 次。 |
@@ -228,6 +229,58 @@ revision: 173.335
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.336（2026-11-03 · 真人测试10 六条：代码全改完，真机验证 5/6 未过 —— 主因是验证环境的插件还是旧版）
+
+> **来源**：`ZreoNote/.zn/share/真人测试10.md`（6 条 + 6 张截图）。
+> **状态**：代码全部改完（**未提交 / 未推送 / 未发版**）；用户 13:0x 反馈验证结果 —— **5 项失败**，
+> 其中 4 项根因是「验证环境里的插件还是旧版」，1 项（A5 桌面复制）是代码问题，待实测。
+
+> ### 一、改了什么（按用户 6 条）
+>
+> | # | 用户原话 | 改法 | 涉及 |
+> |---|---|---|---|
+> | ① | 密码库解锁界面无法调用指纹 | `security` 的 crypto 服务新增 `biometric: { available/bound/unlock/bind/unbind }`（DEK 仍只在 security 的 `live` 表，需求 §9.4 不变）；`secrets` 解锁页在「绑过本机」时给「用指纹解锁」，解锁后给「绑定本机指纹 / 解除本机指纹」 | `examples/security/index.js`（0.2.2）· `examples/secrets/index.js`（0.1.2） |
+> | ② | 正常模式和私密笔记怎么切换？ | 桌面：侧栏头加 🔒（`AppSidebar` 新 prop `onOpenPrivate`）；手机：「更多」抽屉第一项「私密笔记 · 加密 · 独立密码」（`more-items.ts` 新 action `private`）。两处都执行 `private.open`，没装插件时如实提示 | `AppSidebar.tsx` · `more-items.ts` · `MobileMoreDrawer.tsx` · `App.tsx` |
+> | ③ | 刚插入的图片点击查看原图，报「库里没有这个附件：测试文件/测试文件/x.jpg」 | 根因：点击时 `resolveImageAbsPath` 只取**第一候选**（相对笔记目录）交给宿主，宿主再拼一次目录 ⇒ 双前缀。改：点击传**命中的候选**（`img.dataset.znUrlIdx`）；`openLocalLink` 改候选列表（`linkCandidates`：笔记目录 → 库根），逐个 `notes.find` / `fs.exists` | `MarkdownEditor.tsx` · `App.tsx` · `lib/insert-image.ts` |
+> | ④ | 手机选不中文字、要系统原生复制 | 删掉 300ms 弹的自绘四键条（`.zn-menu-scrim` 全屏遮罩正好压住 WebView 正要进入的长按选词）＋ 编辑区放行 `contextmenu`（`document` 捕获与 `.zn-body` 捕获两处） | `App.tsx` · 删 `MobileEditBar` 引用 |
+> | ⑤ | 改同步策略，重进又变默认不同步 | 根因：面板 `select` 的值取自 `ctx.state['sync.attachmentsMode']`，而 render **从不播种** ⇒ 受控 select 显示第一个 option（store 里其实是 `relay`）。改：附件方式换**按钮组**，选中态直接读 `settings.attachments` | `examples/sync/index.cjs`（0.1.8） |
+> | ⑥ | 桌面复制没用、分享反而复制到剪贴板 | ① 右键「复制」同时写系统剪贴板（新命令 `copy_files_to_clipboard`，多文件 CF_HDROP）②「分享（Markdown 文件）」改走 **Windows「发送到」**：新命令 `list_send_to_targets`（枚举 `%APPDATA%\Microsoft\Windows\SendTo\*.lnk`）+ `send_files_to`（`ShellExecuteExW` 以 `.lnk` 为目标、文件为参数），`import-export` 新增「发送到…」视图；无目标时才回退复制文件 | `src-tauri/src/lib.rs` · `hooks/useFileOps.ts` · `examples/import-export/index.js`（0.2.4） |
+>
+> ### 二、同轮加的两条规则 + 一次统一审计（用户要求）
+>
+> 用户原话：「像这种多个地方一个逻辑的，改的时候不能都检查一遍？每次都要我一个一个试出来，加个规则约束一下。」
+> - `~/.dsh/AGENTS.md` §8 新增第 8 条、`ai-habits` skill 新增 §8：**同一逻辑多处实现 ⇒ 先 grep 全量审计 → 收成一份纯函数 → 跨端加「顺序一致」测试 → 汇报带审计清单**。判据：**「这个规则现在有几份实现？答案必须是 1」**。
+> - 按这条规则把「正文附件相对路径解析」统一成一份：`linkCandidates`（唯一来源）→ `resolveImageAbsPaths` / `znOrigCandidates` / `openLocalLink` / `mediaSourceUrls`（音视频原来只取第一候选，**顺手修掉的隐藏同类 bug**）/ `refLocations`（插件侧，加跨端一致性测试）。改动日志见 `Documents/deepseek/_logs/2026-11-03-AGENTS加同一逻辑审计规则.md`。
+>
+> ### 三、验证结果（2026-11-03 13:0x 用户真机反馈）
+>
+> | 项 | 结果 | 根因（已核实） |
+> |---|---|---|
+> | A3/A4 同步面板按钮 + 重开仍在 | ❌ 失败 | 桌面 dev 与调试机的 `sync` 仍是 **0.1.7**（没有按钮组）⇒ 面板还是旧 select |
+> | A5 桌面复制 → Ctrl+V | ❌ 失败 | 与插件无关（宿主代码），**待实测**：右键「复制」→ `useFileOps.copyPaths` → `invoke('copy_files_to_clipboard')`；可能原因 a) invoke 抛错被 toast 吞掉 b) CF_HDROP 写了但粘贴目标是 ZeroNote 编辑器（粘成文件对象） |
+> | A6 分享 → 发送到 | ❌ 失败 | `import-export` 仍是 **0.2.3**（没有发送到视图） |
+> | A8 桌面 🔒 / B2 手机「私密笔记」 | ❌ 失败（提示「没装私密文件夹插件」） | 两台环境的插件根都**没有 `private-notes`**（桌面只有 history / import-export / secrets / security / sync 五个）—— 提示是如实的，不是误报 |
+> | B5 密码库指纹 | ❌ 失败（「没有建立账号密码」） | `security` 0.2.1 + `secrets` 0.1.1 旧版；且调试机上 `secrets` 环本来就没建过 |
+>
+> **关键事实（已核实，务必先读）**：
+> - 桌面 dev 全局根 `%APPDATA%\com.aqua.zeronote\.zn\plugins\` 现在是：`history 0.2.1` / `import-export 0.2.3` / `secrets 0.1.1` / `security 0.2.1` / `sync 0.1.7`。
+> - **我 12:4x 手工同步进去的 0.2.4 / 0.1.2 / 0.2.2 / 0.1.8 已经不在了**，且目录里多了 secrets / security —— 怀疑是 App 启动时的内置插件同步把它们覆盖回内置版本。**下个会话第一件事就是查这个机制**（`plugin-host.ts` 的内置/内置版本同步、`usePluginHost` 的迁移口），否则每次验证都会被覆盖。
+> - 调试机 `33b676f6` 的插件根 `/data/user/0/com.aqua.zeronote.debug/.zn/plugins/` 同样只有这 5 个目录、同样旧版。
+>
+> ### 四、下个会话的步骤（按顺序）
+>
+> 1. **查清插件被覆盖的机制**：`grep -n "builtin\|内置\|syncBuiltin\|copyPluginDir" src/kernel/plugin-host.ts src/hooks/usePluginHost.ts`，确认 dev 启动是否会把 `<app>/resources/bundled-plugins` 之类写回全局根；若是，给出「开发版覆盖」开关或改用 `_tmp-plugin-backup` 里那份。
+> 2. **把 4 个插件装成新版本**（桌面 + 调试机各一次）：`security 0.2.2` / `secrets 0.1.2` / `sync 0.1.8` / `import-export 0.2.4`；再装 `private-notes 0.2.1`（桌面与调试机都没有）。
+> 3. **重跑验收**：A3/A4（同步按钮 + 重启仍在）· A6（发送到面板）· A8/B2（🔒 / 更多第一项）· B5（先建 `secrets` 环再绑指纹）。
+> 4. **A5 单独查**：桌面 dev 开 CDP，点右键「复制」后 `adb` 无关，直接 `Get-Clipboard -Format FileDropList` 读回；同时看 dev 控制台有没有 `copy_files_to_clipboard` 报错。
+> 5. 全过后再跑 `scripts/verify.ps1` + 发版（0.9.22）。
+>
+> ### 五、已知未验
+>
+> - ③ 音视频多候选（`mediaSourceUrls`）没有真机素材，只跑了单测。
+> - ④ 手机选字只能在调试机上验；nubia 真机要等发版。
+> - ⑥「发送到」的 `ShellExecuteExW` 路径只在本机 SendTo 目录上验过枚举，未逐个目标实跑。
 
 > ## 📌 rev173.335（2026-11-03 · 真人测试9 三条：底部状态栏 / 密码库密钥环 / 加号原地渐隐）
 

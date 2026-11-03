@@ -413,6 +413,31 @@ const revealTimers = new Map()
 let editing = null // { kind: 'platform' | 'account', platformId, accountId }
 /** secrets 环是否已建立（首屏就能提示，不用等解锁失败） */
 let ringReady = false
+/**
+ * 本机指纹状态（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）。
+ *
+ * `available` = 这台设备有可用的生物识别硬件/适配器（Windows Hello / Android 指纹）；
+ * `bound` = **这个环**（`secrets`）在这台设备上绑过。
+ *
+ * 为什么缓存成同步可读：面板 render 是同步的（UINode 声明式），不能在里面 await IPC。
+ * 刷新时机 = 拿到服务 / 解锁 / 锁定 / 绑定 / 解除 —— 见 `refreshBiometric`。
+ */
+let biometric = { available: false, bound: false }
+
+/** 从 crypto 服务读指纹状态（服务没有 biometric 扩展 = 老版安全插件 ⇒ 都是 false） */
+async function refreshBiometric() {
+  try {
+    const b = svc?.biometric
+    if (!b) {
+      biometric = { available: false, bound: false }
+      return biometric
+    }
+    biometric = { available: Boolean(b.available()), bound: Boolean(b.bound(RING)) }
+  } catch {
+    biometric = { available: false, bound: false }
+  }
+  return biometric
+}
 /** 最近一次操作时间（空闲锁定用） */
 let lastActive = 0
 /** 剪贴板：值 + 计划清空的时刻（后台冻结时靠时间戳补判） */
@@ -537,6 +562,16 @@ async function unlockAndLoad(api, password) {
   const pw = String(password ?? '')
   if (!pw) throw new Error('请输入主密码')
   await svc.unlock(RING, pw) // Argon2id 约 1 s（桌面）：调用方先渲染"正在派生…"
+  return afterUnlocked(api)
+}
+
+/**
+ * **服务侧已解锁之后**的收尾（rev173.336 抽出来给指纹用）。
+ *
+ * 指纹解锁的前提是 DEK 已经由安全插件解出来并写进它的 live 表；这里只做「读整库 +
+ * 重置视图状态 + 过期清理」，与主密码路径共用同一段，避免两条路慢慢漂。
+ */
+async function afterUnlocked(api) {
   db = await loadDb(api)
   lastActive = nowMs()
   mode = 'list'
@@ -546,6 +581,25 @@ async function unlockAndLoad(api, password) {
   if (removed) await saveDb(api) // 过期清理要落盘，否则每次解锁都白算
   setMessage('', 'muted')
   return db
+}
+
+/**
+ * 生物识别错误 → 人话（rev173.336）。
+ *
+ * 安全插件的 `biometricErrorMessage` 在它自己的模块里，消费者拿不到（crypto 服务只给动作）；
+ * 这里按同样的错误码写一份精简版，别把 `biometryLockout` 原样甩给用户。
+ */
+function fingerprintErrorText(e) {
+  const raw = String(e?.message ?? e ?? '')
+  if (/AEADBadTag|Failed to decrypt|decrypt the data/i.test(raw)) {
+    return '指纹解不开这把密文 —— 多半是换过 / 新增过指纹。请用主密码解锁后重新绑定'
+  }
+  if (/userCancel|Cancel|canceled|cancelled/i.test(raw)) return '已取消'
+  if (/biometryLockout|Lockout|too many/i.test(raw)) return '指纹尝试次数过多，请稍后再试或用主密码'
+  if (/biometryNotEnrolled|not enrolled/i.test(raw)) return '系统里没有录入指纹'
+  if (/biometryNotAvailable|No hardware|unavailable/i.test(raw)) return '这台设备当前用不了指纹'
+  if (/还没绑定|没有绑定/.test(raw)) return '这台设备还没绑定指纹 —— 用主密码解锁后绑定'
+  return raw
 }
 
 /** 读整库密文 → 明文对象。文件不存在 = 首次（空库） */
@@ -700,6 +754,14 @@ function lockedView() {
     gap: 'sm',
     children: [btn('解锁', 'secrets.unlock', { send: BINDS.pw, variant: 'default' })],
   })
+  /* 指纹解锁（rev173.336 · 真人测试10 #1）：绑过这台设备就直接给按钮，不用先输主密码 */
+  if (biometric.available && biometric.bound) {
+    children.push({
+      type: 'row',
+      gap: 'sm',
+      children: [btn('用指纹解锁', 'secrets.biometric-unlock', { variant: 'ghost' })],
+    })
+  }
   if (message.text) children.push(textNode(message.text, 'caption', message.tone))
   children.push(textNode('空闲 60 秒自动锁定 · 主密码只在本机内存里用于派生，不落盘', 'caption', 'muted'))
   return { type: 'stack', gap: 'md', children }
@@ -814,6 +876,23 @@ function listView() {
         btn('锁定', 'secrets.lock', { variant: 'ghost' }),
       ],
     },
+    /* 指纹绑定（rev173.336 · 真人测试10 #1）：解锁后才谈得上绑定；没硬件就不显示 */
+    ...(biometric.available
+      ? [
+          {
+            type: 'row',
+            gap: 'sm',
+            align: 'center',
+            wrap: true,
+            children: [
+              { type: 'badge', text: biometric.bound ? '本机已绑定指纹' : '本机未绑定指纹', tone: biometric.bound ? 'success' : 'muted' },
+              biometric.bound
+                ? btn('解除本机指纹', 'secrets.biometric-unbind', { variant: 'ghost' })
+                : btn('绑定本机指纹', 'secrets.biometric-bind', { variant: 'ghost' }),
+            ],
+          },
+        ]
+      : []),
     {
       type: 'input',
       bind: BINDS.search,
@@ -1029,11 +1108,13 @@ export default {
           if (!got) return
           svc = got
           await checkRingReady(api)
+          await refreshBiometric()
           api.view.refresh(PANEL_ID)
         })
       }),
     )
     await checkRingReady(api)
+    await refreshBiometric()
 
     /* ② 面板 */
     api.subscriptions.push(
@@ -1110,6 +1191,7 @@ export default {
             await unlockAndLoad(api, pw)
             api.view.setState(BINDS.pw, '')
             setMessage('已解锁', 'success')
+            await refreshBiometric()
           } catch (e) {
             const msg = String(e?.message ?? e)
             if (msg.includes('还没建立')) {
@@ -1131,6 +1213,65 @@ export default {
         id: 'secrets.lock',
         title: '密码库：立即锁定',
         run: () => lockNow(api, 'manual'),
+      },
+      /**
+       * 指纹解锁（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）。
+       *
+       * 密码库自己不碰 DEK —— 由安全插件的 crypto 服务完成「指纹 → DEK → 解锁该环」，
+       * 成功之后本插件照旧走 `unlockAndLoad` 的解密链（服务侧已经 live，不用再输密码）。
+       */
+      {
+        id: 'secrets.biometric-unlock',
+        title: '密码库：用指纹解锁',
+        run: async () => {
+          if (busy) return
+          if (!svc?.biometric) return setMessage('当前安全插件版本不支持指纹解锁', 'warn')
+          busy = RING
+          setMessage('正在请求指纹…', 'muted')
+          api.view.refresh(PANEL_ID)
+          try {
+            await svc.biometric.unlock(RING)
+            await afterUnlocked(api)
+            setMessage('已用指纹解锁', 'success')
+          } catch (e) {
+            setMessage(`指纹解锁失败：${fingerprintErrorText(e)}`, 'danger')
+          } finally {
+            busy = ''
+            await refreshBiometric()
+            api.view.refresh(PANEL_ID)
+          }
+        },
+      },
+      {
+        id: 'secrets.biometric-bind',
+        title: '密码库：绑定本机指纹',
+        run: async () => {
+          if (!db) return setMessage('先解锁，再绑定指纹', 'warn')
+          if (!svc?.biometric) return setMessage('当前安全插件版本不支持指纹绑定', 'warn')
+          try {
+            await svc.biometric.bind(RING)
+            await refreshBiometric()
+            setMessage(biometric.bound ? '已绑定这台设备 —— 之后解锁可直接用指纹' : '绑定失败：没有写进密钥环', biometric.bound ? 'success' : 'danger')
+          } catch (e) {
+            setMessage(`绑定指纹失败：${fingerprintErrorText(e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.biometric-unbind',
+        title: '密码库：解除本机指纹',
+        run: async () => {
+          if (!svc?.biometric) return setMessage('当前安全插件版本不支持指纹绑定', 'warn')
+          try {
+            await svc.biometric.unbind(RING)
+            await refreshBiometric()
+            setMessage('已解除这台设备的指纹绑定（主密码不受影响）', 'success')
+          } catch (e) {
+            setMessage(`解除指纹失败：${fingerprintErrorText(e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
       },
       {
         id: 'secrets.new-platform',

@@ -101,39 +101,57 @@ export function resolveImageAbsPaths(
   if (SCHEME_RE.test(raw)) return []
   const root = (vault ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
   if (!root) return []
-
-  const out: string[] = []
-  const add = (rel: string | null) => {
-    if (!rel) return
-    const abs = `${root}/${rel}`
-    if (!out.includes(abs)) out.push(abs)
-  }
-  if (raw.startsWith('/')) {
-    // 以 / 开头 = 相对库根
-    add(normalizePosix(raw.replace(/^\/+/, '')))
-  } else {
-    /**
-     * 相对路径给**两候选**（rev173.325 · 真人测试6 #1）：
-     * ① 笔记所在目录（插入附件时的写法）；
-     * ② 库根（笔记被移动 / 从别的目录拖进来之后的兜底）。
-     *
-     * 旧实现只给 ①：笔记一移动，`![](image-x.jpg)` 就永远找不到 ——
-     * 用户实测「移回原位正常加载」正是这条。候选都试不到才显示「图片不在本机」。
-     */
-    const noteDir = notePath ? dirnamePosix(notePath) : ''
-    if (noteDir) add(normalizePosix(`${noteDir}/${raw}`))
-    add(normalizePosix(raw))
-  }
-  return out
+  /**
+   * 候选顺序**只在这里定义一次**（`linkCandidates`）：笔记目录 → 库根（rev173.325），
+   * `/` 开头只按库根。渲染、点击、导出三处都走它 —— 别再各写一套（rev173.336 教训）。
+   */
+  return linkCandidates(raw, notePath).map((rel) => `${root}/${rel}`)
 }
 
-/** 图片 src → **首选**本机绝对路径（`resolveImageAbsPaths` 的第一项）。 */
+/**
+ * 图片 src → **首选**本机绝对路径（`resolveImageAbsPaths` 的第一项）。
+ *
+ * ⚠️ **业务代码不要用它**（rev173.336 的教训）：只取第一候选 = 没有库根兜底，
+ * 笔记在子目录、附件在库根时会解析到不存在的路径。渲染 / 点击 / 导出统一用
+ * `resolveImageAbsPaths`（全部候选）或 `linkCandidates`（库内相对候选）。
+ * 保留它是为了「只想知道首选」的诊断场景与单测。
+ */
 export function resolveImageAbsPath(
   vault: string | null | undefined,
   notePath: string | null | undefined,
   src: string,
 ): string | null {
   return resolveImageAbsPaths(vault, notePath, src)[0] ?? null
+}
+
+/**
+ * 正文里点一个**库内相对引用**（图片 / 附件链接）时，按哪些库内路径去找 —— 按顺序。
+ *
+ * 与 `resolveImageAbsPaths` 同一口径（rev173.336 · 真人测试10 #3）：
+ *  - 前导 `/` = 相对库根 ⇒ 只有一条；
+ *  - 否则**笔记目录 → 库根**两候选：插入附件写的是库根相对路径（`pathFromVaultRoot`），
+ *    笔记在子目录时只拼笔记目录会得到 `测试文件/测试文件/image-….jpg`，
+ *    正文显示正常、点开却报「库里没有这个附件」。
+ */
+export function linkCandidates(
+  rel: string,
+  notePath: string | null | undefined,
+): string[] {
+  const raw = String(rel ?? '').replace(/\\/g, '/')
+  const rooted = raw.startsWith('/')
+  const body = raw.replace(/^\.\//, '').replace(/^\/+/, '')
+  const out: string[] = []
+  const add = (p: string | null) => {
+    if (p && !out.includes(p)) out.push(p)
+  }
+  if (rooted) {
+    add(normalizePosix(body))
+  } else {
+    const noteDir = notePath ? dirnamePosix(notePath) : ''
+    if (noteDir) add(normalizePosix(`${noteDir}/${body}`))
+    add(normalizePosix(body))
+  }
+  return out
 }
 
 /** 库内相对路径 → 相对**当前笔记目录**的路径（写进 Markdown 的那个） */
@@ -147,6 +165,11 @@ export function pathFromNote(
   if (!target.startsWith(`${noteDir}/`)) return target
   return target.slice(noteDir.length + 1)
 }
+
+/**
+ * ⚠️ 写入侧**已统一用 `pathFromVaultRoot`**（rev173.325）：写「相对笔记目录」的路径
+ * 一旦移动笔记就断。`pathFromNote` 只保留给单测与旧数据的诊断，**新代码不要调用**。
+ */
 
 /**
  * 库内相对路径 → 以**库根**为基准的写法（写进 Markdown 的那个）。
