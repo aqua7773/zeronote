@@ -1,32 +1,147 @@
 /**
- * 启动日志示例插件（rev173.352）—— 把「刚进软件卡一下」的现场读出来。
+ * 启动日志示例插件（rev173.352 · 0.2.0）—— 把「刚进软件卡一下」的现场读出来。
  *
  * ## 为什么做成插件
  *
  * rev173.351 把启动打点放进了 `window.__znBootMarks()`（`src/lib/boot-marks.ts`），
- * 但 **release 包不回传 logcat** —— 用户手机上是正式包，只能靠页面内自己读：
- * 打点与长任务都常驻内存（`performance.mark` + `PerformanceObserver({ entryTypes:['longtask'] })`），
- * 插件在同一 window 里直接取，不需要任何原生通道。
+ * 但 **release 包不回传 logcat** —— 用户手机上是正式包，只能靠页面内自己读。
  *
- * ## 数据
+ * ## 0.2.0：三路探针（手机 release 包实测出一次 6.96 秒长任务后加的）
  *
- * `{ at, marks: [{ name, at }], longTasks: [{ start, dur }] }`
- * · `at` / `start` 都是相对**导航开始**的毫秒数（与 logcat 里 `[zn-boot] entry@3 …` 同源）
- * · `longTasks` 只收**启动后 20 秒内** ≥50ms 的主线程任务 —— 「卡顿」就是这一段时间被占住
+ * 单有「哪一刻卡了」不够，要「卡的时候在干什么」：
+ *  1. **IPC 探针** —— 包装 `__TAURI_INTERNALS__.invoke`，记启动 20 秒内每条命令的耗时。
+ *     读文件 / 列目录 / 索引 / 备份 / 同步都会在这里留痕，按总耗时排序就能看出是谁在压主线程。
+ *  2. **长任务快照** —— 每个 ≥50ms 任务结束时抓 DOM 规模（图片数 / 已加载数 / 节点数），
+ *     用来区分「卡在图片解码」还是「卡在纯 JS 循环」。
+ *  3. **资源加载 Top** —— `performance.getEntriesByType('resource')` 启动期最慢的请求。
+ *
+ * 探针都在 `apply()` 里装、`dispose` 时还原；记录只留前 20 秒，避免长时间运行后无限增长。
  *
  * ## 读法
  *
- * 面板「启动日志」：阶段表（每个阶段距上一阶段的间隔）+ 长任务表（按耗时降序）
- * · 「刷新」重新读一次（长任务在 20 秒窗口内还会继续追加）
- * · 「复制日志」把等价的 `[zn-boot] …` 一行文本放进剪贴板，可直接转发
+ * 面板「启动日志」：阶段表 · 长任务表 · IPC Top · 资源 Top · 等价 `[zn-boot]` 文本
+ * · 「复制报告」把整份数据变成可读文本，直接转发
  */
 
 const PANEL_ID = 'boot-log.panel'
+/** 只记启动期（与内核 longtask 窗口一致） */
+const WINDOW_MS = 20000
+/** IPC 记录上限 —— 启动期命令调用可能上千条，超出后只累计不再存明细 */
+const MAX_IPC = 2000
 
-/**
- * 读一次打点。`win` 参数只为测试注入 —— 运行时不传，用全局 window。
- * 旧版本内核没有这个全局函数 ⇒ null（面板给提示，不报错）。
- */
+/* ───────────────────────── 探针（模块级，一个页面一份） ───────────────────────── */
+
+const probe = {
+  /** 明细：{ cmd, start, dur, ok } */
+  ipc: [],
+  /** 长任务快照：{ start, dur, imgs, loaded, nodes } */
+  snaps: [],
+  installed: false,
+  savedInvoke: null,
+  observer: null,
+}
+
+function nowMs() {
+  try {
+    return performance.now()
+  } catch {
+    return 0
+  }
+}
+
+/** 包装 Tauri IPC —— 记录命令耗时，不改返回值/异常语义 */
+export function installProbe(win) {
+  const w = win ?? (typeof window === 'undefined' ? undefined : window)
+  if (!w || probe.installed) return
+  const internals = w.__TAURI_INTERNALS__
+  if (!internals || typeof internals.invoke !== 'function') return
+  probe.savedInvoke = internals.invoke
+  internals.invoke = function (cmd, args, options) {
+    const t0 = nowMs()
+    let p
+    try {
+      p = probe.savedInvoke.call(this, cmd, args, options)
+    } catch (e) {
+      throw e
+    }
+    if (p && typeof p.then === 'function' && probe.ipc.length < MAX_IPC) {
+      p.then(
+        () => {
+          const dur = Math.round(nowMs() - t0)
+          if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: true })
+        },
+        () => {
+          const dur = Math.round(nowMs() - t0)
+          if (t0 <= WINDOW_MS) probe.ipc.push({ cmd: String(cmd), start: Math.round(t0), dur, ok: false })
+        },
+      )
+    }
+    return p
+  }
+  probe.installed = true
+
+  // 长任务快照：内核也会记 longtask，但只有这里能顺手抓 DOM 规模
+  try {
+    if (typeof w.PerformanceObserver !== 'undefined') {
+      probe.observer = new w.PerformanceObserver((list) => {
+        for (const e of list.getEntries()) {
+          if (e.startTime > WINDOW_MS) continue
+          let imgs = 0
+          let loaded = 0
+          let nodes = 0
+          try {
+            const list2 = w.document?.images
+            imgs = list2 ? list2.length : 0
+            if (list2) for (const img of list2) if (img.complete && img.naturalWidth > 0) loaded++
+            nodes = w.document?.getElementsByTagName?.('*')?.length ?? 0
+          } catch {
+            /* DOM 读不到就记 0 */
+          }
+          probe.snaps.push({
+            start: Math.round(e.startTime),
+            dur: Math.round(e.duration),
+            imgs,
+            loaded,
+            nodes,
+          })
+        }
+      })
+      probe.observer.observe({ entryTypes: ['longtask'] })
+    }
+  } catch {
+    /* 老 WebView 不支持 longtask —— 其它数据仍可用 */
+  }
+}
+
+/** 还原 IPC 包装、停掉 observer（卸载插件 / 面板 dispose 时调） */
+export function uninstallProbe(win) {
+  const w = win ?? (typeof window === 'undefined' ? undefined : window)
+  if (!probe.installed) return
+  try {
+    if (w && probe.savedInvoke) w.__TAURI_INTERNALS__.invoke = probe.savedInvoke
+  } catch {
+    /* 无所谓 */
+  }
+  try {
+    probe.observer?.disconnect()
+  } catch {
+    /* 无所谓 */
+  }
+  probe.observer = null
+  probe.savedInvoke = null
+  probe.installed = false
+}
+
+export function probeSnapshot() {
+  return {
+    ipc: [...probe.ipc],
+    snaps: [...probe.snaps],
+  }
+}
+
+/* ───────────────────────── 纯函数 ───────────────────────── */
+
+/** 读一次打点。`win` 参数只为测试注入 —— 运行时不传，用全局 window。 */
 export function readBoot(win) {
   const w = win ?? (typeof window === 'undefined' ? undefined : window)
   try {
@@ -55,11 +170,83 @@ export function longTaskRows(data) {
   return [...(data.longTasks || [])].sort((a, b) => b.dur - a.dur)
 }
 
-/** 复原 logcat 里那条同源日志，方便复制转发 */
+/**
+ * IPC 聚合：按命令名合并成 `{ cmd, count, total, max, firstAt }`，按总耗时降序。
+ * 「总耗时」= 同一命令所有调用的时长和 —— 主线程被压住时这里会有一列变大。
+ */
+export function aggregateIpc(entries, limit = 10) {
+  const map = new Map()
+  for (const e of entries || []) {
+    const cur = map.get(e.cmd) ?? { cmd: e.cmd, count: 0, total: 0, max: 0, firstAt: e.start }
+    cur.count++
+    cur.total += e.dur
+    cur.max = Math.max(cur.max, e.dur)
+    cur.firstAt = Math.min(cur.firstAt, e.start)
+    map.set(e.cmd, cur)
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total).slice(0, limit)
+}
+
+/** 启动期资源条目 → 按耗时降序的短表（长 URL 截短，只留能认出来的尾部） */
+export function resourceRows(entries, limit = 10) {
+  const rows = []
+  for (const e of entries || []) {
+    if (e.startTime > WINDOW_MS) continue
+    if (!e.duration || e.duration < 1) continue
+    const name = String(e.name)
+    const short = name.length > 90 ? '…' + name.slice(-90) : name
+    rows.push({ name: short, start: Math.round(e.startTime), dur: Math.round(e.duration) })
+  }
+  return rows.sort((a, b) => b.dur - a.dur).slice(0, limit)
+}
+
+/** 复原 logcat 里那条同源日志（含 IPC / 长任务摘要），方便复制转发 */
 export function logText(data) {
-  const marks = data.marks.map((m) => `${m.name}@${m.at}`).join(' ')
+  const marks = (data.marks || []).map((m) => `${m.name}@${m.at}`).join(' ')
   const tasks = (data.longTasks || []).map((t) => `longtask@${t.start}+${t.dur}ms`).join(' ')
-  return `[zn-boot] ${marks}${tasks ? ` | ${tasks}` : ''}`
+  const ipc = aggregateIpc(data.ipc, 3)
+    .map((r) => `${r.cmd}×${r.count}@${r.total}ms`)
+    .join(' ')
+  return `[zn-boot] ${marks}${tasks ? ` | ${tasks}` : ''}${ipc ? ` | ipc: ${ipc}` : ''}`
+}
+
+/** 运行期快照（IPC + 长任务 DOM 规模）—— 与内核打点合并成面板数据 */
+export function collect(getResourceEntries) {
+  const base = readBoot() ?? { at: 0, marks: [], longTasks: [] }
+  const { ipc, snaps } = probeSnapshot()
+  let resources = []
+  try {
+    resources = getResourceEntries?.() ?? []
+  } catch {
+    resources = []
+  }
+  return { ...base, ipc, snaps, resources }
+}
+
+/* ───────────────────────── 面板 ───────────────────────── */
+
+function ipcRows(data) {
+  return aggregateIpc(data.ipc, 10).map((r) => ({
+    cmd: r.cmd,
+    count: r.count,
+    total: r.total,
+    max: r.max,
+    firstAt: r.firstAt,
+  }))
+}
+
+function snapshotRows(data) {
+  // 与内核 longtask 对齐：按开始时间匹配，补上 DOM 规模
+  const snaps = data.snaps || []
+  return snaps
+    .slice()
+    .sort((a, b) => b.dur - a.dur)
+    .slice(0, 10)
+    .map((s) => ({
+      start: s.start,
+      dur: { type: 'text', value: String(s.dur), tone: s.dur >= 100 ? 'danger' : 'default' },
+      dom: `图 ${s.loaded}/${s.imgs} · 节点 ${s.nodes}`,
+    }))
 }
 
 /** 面板内容（纯函数，render 与测试共用） */
@@ -82,6 +269,9 @@ export function panelNode(data) {
   const stages = stageRows(data)
   const tasks = longTaskRows(data)
   const longest = tasks[0]
+  const ipc = ipcRows(data)
+  const snaps = snapshotRows(data)
+  const resources = resourceRows(data.resources, 10)
   return {
     type: 'stack',
     gap: 'md',
@@ -89,7 +279,7 @@ export function panelNode(data) {
       { type: 'text', value: '本次启动', variant: 'title' },
       {
         type: 'text',
-        value: `读于 ${data.at}ms · ${stages.length} 个阶段 · ${tasks.length} 个长任务`,
+        value: `读于 ${data.at}ms · ${stages.length} 个阶段 · ${tasks.length} 个长任务 · ${ipc.reduce((n, r) => n + r.count, 0)} 次 IPC`,
         variant: 'caption',
         tone: 'muted',
       },
@@ -97,8 +287,8 @@ export function panelNode(data) {
         type: 'table',
         columns: [
           { key: 'stage', label: '阶段' },
-          { key: 'at', label: '时刻(ms)', width: '30%', align: 'right' },
-          { key: 'gap', label: '间隔(ms)', width: '30%', align: 'right' },
+          { key: 'at', label: '时刻(ms)', width: '28%', align: 'right' },
+          { key: 'gap', label: '间隔(ms)', width: '28%', align: 'right' },
         ],
         rows: stages,
         empty: '没有打点',
@@ -115,8 +305,8 @@ export function panelNode(data) {
       {
         type: 'table',
         columns: [
-          { key: 'start', label: '开始(ms)', width: '40%', align: 'right' },
-          { key: 'dur', label: '持续(ms)', width: '40%', align: 'right' },
+          { key: 'start', label: '开始(ms)', width: '34%', align: 'right' },
+          { key: 'dur', label: '持续(ms)', width: '30%', align: 'right' },
         ],
         rows: tasks.map((t) => ({
           start: t.start,
@@ -128,6 +318,45 @@ export function panelNode(data) {
         })),
         empty: '—',
       },
+      { type: 'text', value: '长任务结束时的页面规模', variant: 'title' },
+      {
+        type: 'table',
+        columns: [
+          { key: 'start', label: '开始(ms)', width: '30%', align: 'right' },
+          { key: 'dur', label: '持续(ms)', width: '26%', align: 'right' },
+          { key: 'dom', label: 'DOM' },
+        ],
+        rows: snaps,
+        empty: '探针没抓到（插件加载前的任务不在此列）',
+      },
+      { type: 'text', value: 'IPC 调用 Top（按总耗时）', variant: 'title' },
+      {
+        type: 'table',
+        columns: [
+          { key: 'cmd', label: '命令' },
+          { key: 'count', label: '次数', width: '16%', align: 'right' },
+          { key: 'total', label: '总耗时(ms)', width: '24%', align: 'right' },
+          { key: 'max', label: '最长(ms)', width: '22%', align: 'right' },
+        ],
+        rows: ipc.map((r) => ({
+          cmd: r.cmd,
+          count: r.count,
+          total: r.total,
+          max: r.max,
+        })),
+        empty: '没有记录到（可能不是 Tauri 环境）',
+      },
+      { type: 'text', value: '资源加载 Top（按耗时）', variant: 'title' },
+      {
+        type: 'table',
+        columns: [
+          { key: 'start', label: '开始(ms)', width: '22%', align: 'right' },
+          { key: 'dur', label: '耗时(ms)', width: '22%', align: 'right' },
+          { key: 'name', label: '资源' },
+        ],
+        rows: resources,
+        empty: '启动期没有慢资源',
+      },
       { type: 'divider' },
       {
         type: 'row',
@@ -135,7 +364,7 @@ export function panelNode(data) {
         wrap: true,
         children: [
           { type: 'button', label: '刷新', onClick: 'boot-log.refresh' },
-          { type: 'button', label: '复制日志', onClick: 'boot-log.copy', variant: 'ghost' },
+          { type: 'button', label: '复制报告', onClick: 'boot-log.copy', variant: 'ghost' },
         ],
       },
       { type: 'text', value: '与 logcat 里那条同源：', variant: 'caption', tone: 'muted' },
@@ -144,33 +373,51 @@ export function panelNode(data) {
   }
 }
 
+/* ───────────────────────── 插件主体 ───────────────────────── */
+
 export default {
   apply(ctx) {
     const { command, view, host, subscriptions } = ctx
 
-    async function copyLog() {
-      const data = readBoot()
-      if (!data) {
-        host.notify('这个版本没有启动打点，没有可复制的日志', 'warn')
-        return
+    installProbe()
+
+    /** 完整报告：面板三张表 + 明细，纯文本，便于贴回来 */
+    function reportText() {
+      const data = collect(() => performance.getEntriesByType('resource'))
+      const lines = []
+      lines.push('=== ZeroNote 启动日志 ===')
+      lines.push(logText(data))
+      lines.push('')
+      lines.push('[阶段]')
+      for (const r of stageRows(data)) lines.push(`  ${r.stage} @${r.at}ms (+${r.gap}ms)`)
+      lines.push('[长任务]')
+      for (const t of longTaskRows(data)) lines.push(`  @${t.start} +${t.dur}ms`)
+      lines.push('[长任务时 DOM]')
+      for (const s of data.snaps || []) lines.push(`  @${s.start} +${s.dur}ms 图 ${s.loaded}/${s.imgs} 节点 ${s.nodes}`)
+      lines.push('[IPC Top]')
+      for (const r of aggregateIpc(data.ipc, 10)) {
+        lines.push(`  ${r.cmd} ×${r.count} 总${r.total}ms 最长${r.max}ms 首次@${r.firstAt}`)
       }
-      const text = logText(data)
+      lines.push('[资源 Top]')
+      for (const r of resourceRows(data.resources, 10)) lines.push(`  @${r.start} ${r.dur}ms ${r.name}`)
+      return lines.join('\n')
+    }
+
+    async function copyReport() {
+      const text = reportText()
       if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
         host.notify('这台设备不支持直接复制，可在面板里长按选择文本', 'warn')
         return
       }
       try {
         await navigator.clipboard.writeText(text)
-        host.notify('启动日志已复制')
+        host.notify('启动报告已复制')
       } catch (e) {
         host.notify(`复制失败：${String(e)}`, 'error')
       }
     }
 
-    /**
-     * 打开面板。`core.panel.<id>` 由内核为每个面板注册，但要等插件加载后的下一次
-     * React 提交才存在 ⇒ 冷启动时先重试几次（tag-panel / doc-reader 同款做法）。
-     */
+    /** 打开面板（`core.panel.<id>` 要等下一次 React 提交才存在，冷启动先重试几次） */
     async function openPanel() {
       for (let i = 0; i < 5; i++) {
         try {
@@ -188,7 +435,17 @@ export default {
         id: PANEL_ID,
         title: '启动日志',
         location: 'main',
-        render: () => panelNode(readBoot()),
+        render: () => {
+          let resources = []
+          try {
+            resources = typeof performance === 'undefined' ? [] : performance.getEntriesByType('resource')
+          } catch {
+            resources = []
+          }
+          const base = readBoot() ?? { at: 0, marks: [], longTasks: [] }
+          const { ipc, snaps } = probeSnapshot()
+          return panelNode({ ...base, ipc, snaps, resources })
+        },
       }),
     )
 
@@ -209,11 +466,15 @@ export default {
     subscriptions.push(
       command.register({
         id: 'boot-log.copy',
-        title: '启动日志：复制日志文本',
-        run: () => copyLog(),
+        title: '启动日志：复制报告',
+        run: () => copyReport(),
       }),
     )
 
-    host.log('info', '启动日志插件已就绪（读 window.__znBootMarks）')
+    host.log('info', '启动日志插件已就绪（打点 + IPC 探针 + 长任务快照）')
+  },
+
+  dispose() {
+    uninstallProbe()
   },
 }

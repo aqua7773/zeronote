@@ -1,14 +1,23 @@
 /**
- * 启动日志插件（`examples/boot-log` · rev173.352）。
+ * 启动日志插件（`examples/boot-log` · rev173.352 · 0.2.0）。
  *
- * 覆盖四层：
+ * 覆盖五层：
  *   1. 纯函数：阶段间隔 / 长任务排序 / 与 logcat 同源的日志文本
  *   2. 读取：`__znBootMarks` 缺失或抛错 ⇒ null（面板给提示，不炸）
- *   3. 面板：无数据时的提示节点 · 有数据时的两张表 · ≥100ms 标红
- *   4. 接线：面板注册位置 / 3 条命令 / 「打开」走 `core.panel.<id>`
+ *   3. 面板：无数据提示 · 阶段/长任务/DOM 快照/IPC/资源五张表 · ≥100ms 标红
+ *   4. 聚合：IPC 按命令合并排序 · 资源按耗时排序并截短
+ *   5. 接线：面板注册位置 / 3 条命令 / 「打开」走 `core.panel.<id>`
  */
 import { describe, expect, it, vi } from 'vitest'
-import plugin, { logText, longTaskRows, panelNode, readBoot, stageRows } from '../examples/boot-log/index.js'
+import plugin, {
+  aggregateIpc,
+  logText,
+  longTaskRows,
+  panelNode,
+  readBoot,
+  resourceRows,
+  stageRows,
+} from '../examples/boot-log/index.js'
 
 const data = {
   at: 900,
@@ -68,6 +77,19 @@ describe('logText：与 logcat 那条同源', () => {
   it('没有长任务时不出现分隔符', () => {
     expect(logText({ marks: [{ name: 'entry', at: 3 }] })).toBe('[zn-boot] entry@3')
   })
+
+  it('有 IPC 时追加 ipc 段（按总耗时取前 3）', () => {
+    const withIpc = {
+      marks: [{ name: 'entry', at: 3 }],
+      longTasks: [],
+      ipc: [
+        { cmd: 'read_file', start: 10, dur: 40, ok: true },
+        { cmd: 'read_file', start: 60, dur: 20, ok: true },
+        { cmd: 'list_files', start: 90, dur: 5, ok: true },
+      ],
+    }
+    expect(logText(withIpc)).toBe('[zn-boot] entry@3 | ipc: read_file×2@60ms list_files×1@5ms')
+  })
 })
 
 describe('readBoot：缺函数 / 抛错都返回 null', () => {
@@ -95,6 +117,55 @@ describe('readBoot：缺函数 / 抛错都返回 null', () => {
   })
 })
 
+/* ───────────────────────── 聚合 ───────────────────────── */
+
+describe('aggregateIpc：按命令合并、按总耗时降序', () => {
+  it('同一命令累计次数与总耗时，firstAt 取最早', () => {
+    const rows = aggregateIpc([
+      { cmd: 'read_file', start: 50, dur: 30, ok: true },
+      { cmd: 'read_file', start: 10, dur: 20, ok: true },
+      { cmd: 'list_files', start: 5, dur: 100, ok: true },
+    ])
+    expect(rows[0]).toEqual({ cmd: 'list_files', count: 1, total: 100, max: 100, firstAt: 5 })
+    expect(rows[1]).toEqual({ cmd: 'read_file', count: 2, total: 50, max: 30, firstAt: 10 })
+  })
+
+  it('数量上限生效', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ cmd: `c${i}`, start: i, dur: i, ok: true }))
+    expect(aggregateIpc(many, 5)).toHaveLength(5)
+  })
+
+  it('空输入 ⇒ 空表', () => {
+    expect(aggregateIpc(undefined)).toEqual([])
+  })
+})
+
+describe('resourceRows：启动期慢资源', () => {
+  it('超过 20 秒窗口的条目丢掉', () => {
+    const rows = resourceRows([
+      { name: 'a.png', startTime: 3000, duration: 40 },
+      { name: 'late.png', startTime: 25000, duration: 999 },
+    ])
+    expect(rows.map((r) => r.name)).toEqual(['a.png'])
+  })
+
+  it('按耗时降序，且不足 1ms 的忽略', () => {
+    const rows = resourceRows([
+      { name: 'x', startTime: 10, duration: 5 },
+      { name: 'y', startTime: 20, duration: 80 },
+      { name: 'z', startTime: 30, duration: 0 },
+    ])
+    expect(rows.map((r) => r.name)).toEqual(['y', 'x'])
+  })
+
+  it('长 URL 截短到 90 字符以内', () => {
+    const long = 'https://example.com/' + 'a'.repeat(200)
+    const [row] = resourceRows([{ name: long, startTime: 5, duration: 10 }])
+    expect(row.name.length).toBeLessThanOrEqual(91)
+    expect(row.name.startsWith('…')).toBe(true)
+  })
+})
+
 /* ───────────────────────── 面板 ───────────────────────── */
 
 describe('panelNode', () => {
@@ -104,14 +175,20 @@ describe('panelNode', () => {
     expect(JSON.stringify(node)).toContain('这个版本没有启动打点')
   })
 
-  it('有数据：两张表 + 刷新/复制按钮 + 等价日志', () => {
-    const node = panelNode(data)
+  it('有数据：五张表（阶段/长任务/DOM 快照/IPC/资源）+ 刷新/复制按钮', () => {
+    const node = panelNode({
+      ...data,
+      ipc: [{ cmd: 'read_file', start: 10, dur: 40, ok: true }],
+      snaps: [{ start: 400, dur: 180, imgs: 3, loaded: 2, nodes: 400 }],
+      resources: [{ name: 'a.png', startTime: 3000, duration: 40 }],
+    })
     const tables = node.children.filter((c) => c.type === 'table')
-    expect(tables).toHaveLength(2)
+    expect(tables).toHaveLength(5)
     expect(tables[0].rows).toHaveLength(3)
     expect(tables[1].rows).toHaveLength(3)
-    // 长任务表第一行 = 最慢的 180ms
-    expect(tables[1].rows[0].start).toBe(400)
+    expect(tables[2].rows[0].dom).toContain('图 2/3')
+    expect(tables[3].rows[0].cmd).toBe('read_file')
+    expect(tables[4].rows[0].name).toBe('a.png')
 
     const json = JSON.stringify(node)
     expect(json).toContain('boot-log.refresh')
@@ -188,12 +265,11 @@ describe('apply：注册与命令接线', () => {
     expect(api.view.refresh).toHaveBeenCalledWith('boot-log.panel')
   })
 
-  it('没有打点时复制只提示、不抛错', async () => {
+  it('没有剪贴板时复制报告只提示、不抛错', async () => {
     const { api, commands } = fakeApi()
     plugin.apply(api as never)
 
     await commands.get('boot-log.copy')!.run()
     expect(api.host.notify).toHaveBeenCalled()
-    expect(String(api.host.notify.mock.calls[0][0])).toContain('没有启动打点')
   })
 })
