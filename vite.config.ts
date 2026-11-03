@@ -70,8 +70,21 @@ export default defineConfig({
        * 项目树内 —— 这些写入会被 watcher 当成源码变化 ⇒ HMR ⇒ React Refresh 重放 effect
        * ⇒ 插件加载链重跑 ⇒ 又写一遍，形成「写 → HMR → 重载 → 再写」的无限循环
        * （实测周期 ≈6 秒；用户看到的就是「插件主题样式消失几百毫秒 = 闪一下深色」）。
+       *
+       * rev173.338：再加**编辑器/工具保存时的临时文件** —— 有的工具走「写 `.xxx.tmpdir/<名>.tmp`
+       * 再 rename」的原子保存，vite 默认会去 watch 这些目录，Windows 下它们被锁着 ⇒
+       * `EBUSY: resource busy or locked` ⇒ **watcher 直接崩、dev server 整个退出**（2026-11-02
+       * 一天内撞了两次）。这些临时文件永远不会是源码。
        */
-      ignored: ['**/src-tauri/**', '**/_tmp-*/**', '**/.zn/**', '**/_shots/**', '**/_build/**'],
+      ignored: [
+        '**/src-tauri/**',
+        '**/_tmp-*/**',
+        '**/.zn/**',
+        '**/_shots/**',
+        '**/_build/**',
+        '**/.*.tmpdir/**',
+        '**/*.tmp',
+      ],
     },
   },
   build: {
