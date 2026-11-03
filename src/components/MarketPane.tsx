@@ -113,14 +113,11 @@ export function MarketDetailBody({
 export function MarketPane({
   installed,
   onInstall,
-  onSwitchToInstalled,
 }: {
   /** 已装插件（只用到 id / version 判断「已安装 / 可更新」） */
   installed: PluginRow[]
   /** 下载 + 校验 + 安装 + 重扫（App 传 hook 里的实现）；返回装好的 id，失败返回 null */
   onInstall: (entry: MarketEntry) => Promise<string | null>
-  /** 装完切回「已安装」tab —— 用户要能立刻看到「装上了」 */
-  onSwitchToInstalled: () => void
 }) {
   /** 当前镜像（rev173.194）：索引地址 + 包前缀成对，换源 = 一换全换 */
   const [mirror, setMirror] = useState<MarketMirror>(() => loadMirror())
@@ -248,8 +245,9 @@ export function MarketPane({
     setPending(null)
     setBusyId(entry.id)
     try {
-      const id = await onInstall(entry)
-      if (id) onSwitchToInstalled()
+      // rev173.350（真人测试11 #1）：装完**留在插件市场** —— 用户要能接着装下一个，
+      // 不该被自动踢回「已安装」。列表里的按钮会因为 `installed` 刷新变成「已安装」。
+      await onInstall(entry)
     } finally {
       setBusyId(null)
     }

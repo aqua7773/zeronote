@@ -444,11 +444,7 @@ export function PluginPanel({
       )}
 
       {tab === 'discover' && onMarketInstall && (
-        <MarketPane
-          installed={plugins}
-          onInstall={onMarketInstall}
-          onSwitchToInstalled={() => setTab('installed')}
-        />
+        <MarketPane installed={plugins} onInstall={onMarketInstall} />
       )}
 
       {tab === 'installed' && (

@@ -75,6 +75,9 @@ export function attachmentHint(outcome: AttachmentOutcome): string | null {
 /** `800 KB` / `2.3 MB` —— 附件提示用（阈值口径是 1 MiB，所以按 1024 进位） */
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  // rev173.350（真人测试11 #3）：< 1 KB 要显示真实字节数 —— 原来直接
+  // `Math.round(bytes / 1024)`，500 字节的短笔记会显示成 **0 KB**，看着像「没读到大小」。
+  if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

@@ -2,7 +2,7 @@
 /**
  * 「发现」（插件市场阶段 1 · rev173.148）的界面行为：
  *  · 索引拉回来后按状态显示「安装 / ↑ 更新 / 已安装」（版本用数字段比较）
- *  · 点安装先弹确认框，确认后才真正下载安装，装完切回「已安装」
+ *  · 点安装先弹确认框，确认后才真正下载安装，装完**留在市场**（rev173.350：能接着装下一个）
  *  · 索引拉不到时**明确报错**（不是给一个空市场）
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -53,7 +53,7 @@ describe('发现（市场）', () => {
       <MarketPane
         installed={[installedRow('tag-panel', '0.2.0'), installedRow('habit', '0.10.0')]}
         onInstall={vi.fn()}
-        onSwitchToInstalled={vi.fn()}
+       
       />,
     )
     await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
@@ -72,19 +72,18 @@ describe('发现（市场）', () => {
       <MarketPane
         installed={[installedRow('habit', '0.9.0')]}
         onInstall={vi.fn()}
-        onSwitchToInstalled={vi.fn()}
+       
       />,
     )
     await waitFor(() => expect(screen.getByText('↑ 更新 0.10.0')).toBeTruthy())
   })
 
-  it('点安装 → 确认框 → 确认后才调 onInstall，装完切回已安装', async () => {
+  it('点安装 → 确认框 → 确认后才调 onInstall，装完留在市场（rev173.350）', async () => {
     mockIndex([
       { id: 'tag-panel', name: '标签面板', version: '0.2.0', url: 'https://x/a.znp', sha256: SHA },
     ])
     const onInstall = vi.fn().mockResolvedValue('tag-panel')
-    const onSwitch = vi.fn()
-    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={onSwitch} />)
+    render(<MarketPane installed={[]} onInstall={onInstall} />)
 
     await waitFor(() => expect(screen.getByText('安装')).toBeTruthy())
     expect(onInstall).not.toHaveBeenCalled()
@@ -102,7 +101,8 @@ describe('发现（市场）', () => {
       url: 'https://x/a.znp',
       sha256: SHA,
     })
-    await waitFor(() => expect(onSwitch).toHaveBeenCalled())
+    // 真人测试11 #1：装完**不切走**（能接着装下一个），市场列表还在
+    expect(screen.getByText('标签面板')).toBeTruthy()
   })
 
   it('取消确认框 ⇒ 不安装', async () => {
@@ -110,7 +110,7 @@ describe('发现（市场）', () => {
       { id: 'tag-panel', name: '标签面板', version: '0.2.0', url: 'https://x/a.znp', sha256: SHA },
     ])
     const onInstall = vi.fn()
-    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={onInstall} />)
     await waitFor(() => expect(screen.getByText('安装')).toBeTruthy())
     fireEvent.click(screen.getByText('安装'))
     await waitFor(() => expect(screen.getByText('取消')).toBeTruthy())
@@ -120,7 +120,7 @@ describe('发现（市场）', () => {
 
   it('索引 404 ⇒ 报错并点明私有仓库（不是展示空市场）', async () => {
     mocks.invoke.mockResolvedValue({ status: 404, headers: {}, body_b64: '' })
-    render(<MarketPane installed={[]} onInstall={vi.fn()} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/HTTP 404/)).toBeTruthy())
     expect(screen.getByText(/私有仓库/)).toBeTruthy()
     expect(screen.queryByText('这个索引里没有可安装的插件。')).toBeNull()
@@ -131,7 +131,7 @@ describe('发现（市场）', () => {
       { id: 'tag-panel', name: '标签面板', version: '0.2.0', url: 'https://x/a.znp', sha256: SHA },
       { id: 'broken', name: '坏条目', version: '1.0.0', url: 'https://x/b.znp', sha256: '' },
     ])
-    render(<MarketPane installed={[]} onInstall={vi.fn()} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
     expect(screen.getByText(/1 条被跳过/)).toBeTruthy()
     expect(screen.getByText(/broken/)).toBeTruthy()
@@ -159,7 +159,7 @@ describe('详情', () => {
   it('点「详情」不安装，摊开描述 / 能力自述 / 下载地址', async () => {
     mockIndex([full])
     const onInstall = vi.fn()
-    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={onInstall} />)
     await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())
 
     fireEvent.click(screen.getByText('详情'))
@@ -179,7 +179,7 @@ describe('详情', () => {
   it('详情里点「安装」→ 关掉详情、弹确认框（确认后才装）', async () => {
     mockIndex([{ id: 'n', name: '新插件', version: '1.0.0', url: 'https://x/n.znp', sha256: SHA }])
     const onInstall = vi.fn().mockResolvedValue('n')
-    render(<MarketPane installed={[]} onInstall={onInstall} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={onInstall} />)
     await waitFor(() => expect(screen.getByText('新插件')).toBeTruthy())
 
     fireEvent.click(screen.getByText('详情'))
@@ -198,7 +198,7 @@ describe('详情', () => {
 
   it('字段缺失也不崩（老索引：没有能力自述 / 描述 / 大小）', async () => {
     mockIndex([{ id: 'old', name: '老插件', version: '0.1.0', url: 'https://x/o.znp', sha256: SHA }])
-    render(<MarketPane installed={[]} onInstall={vi.fn()} onSwitchToInstalled={vi.fn()} />)
+    render(<MarketPane installed={[]} onInstall={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('老插件')).toBeTruthy())
     fireEvent.click(screen.getByText('详情'))
     await waitFor(() => expect(screen.getByText(/索引里没有这个字段/)).toBeTruthy())
@@ -211,7 +211,7 @@ describe('详情', () => {
       <MarketPane
         installed={[installedRow('tag-panel', '0.2.0')]}
         onInstall={vi.fn()}
-        onSwitchToInstalled={vi.fn()}
+       
       />,
     )
     await waitFor(() => expect(screen.getByText('标签面板')).toBeTruthy())

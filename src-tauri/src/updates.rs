@@ -54,14 +54,23 @@ enum AssetRoute {
   Direct,
   /// `https://github.com/…` 前加反代前缀
   Prefix(&'static str),
+  /// **前缀替换**（rev173.350 · Gitee）：GitHub 仓库前缀 → 同结构镜像前缀。
+  ///
+  /// Gitee 的导入仓库有同名 Release 和附件，路径结构完全一致
+  /// （`/<owner>/<repo>/releases/download/<tag>/<file>`），只换域名与 owner/repo。
+  Replace(&'static str, &'static str),
 }
 
 impl AssetRoute {
-  /// 反代前缀（没有就是空串）
-  fn prefix(self) -> &'static str {
+  /// 把**规范化后的 GitHub 直链**改写成该渠道下的安装包地址
+  fn apply(self, canonical: &str) -> String {
     match self {
-      AssetRoute::Direct => "",
-      AssetRoute::Prefix(p) => p,
+      AssetRoute::Direct => canonical.to_string(),
+      AssetRoute::Prefix(p) => format!("{p}{canonical}"),
+      AssetRoute::Replace(from, to) => match canonical.strip_prefix(from) {
+        Some(rest) => format!("{to}{rest}"),
+        None => canonical.to_string(),
+      },
     }
   }
 }
@@ -81,10 +90,13 @@ const MIRRORS: &[Mirror] = &[
   Mirror {
     id: "gitee",
     label: "Gitee（国内直连）",
-    // Gitee raw 路径：/<owner>/<repo>/raw/<branch>/<path>；只镜像**清单**，
-    // 安装包仍按 ASSET_ROUTES 走 GitHub（Gitee 上还没有 Release 附件）
+    // raw 路径：/<owner>/<repo>/raw/<branch>/<path>
     base: "https://gitee.com/legendary-bird-lin/zeronote/raw/main/",
-    asset: AssetRoute::Direct,
+    // rev173.350：Gitee 有同名 Release 与附件，安装包也能从这里下（前缀替换）
+    asset: AssetRoute::Replace(
+      "https://github.com/aqua7773/zeronote/",
+      "https://gitee.com/legendary-bird-lin/zeronote/",
+    ),
   },
   Mirror {
     id: "jsdelivr-gcore",
@@ -233,6 +245,8 @@ struct AssetRoute2 {
   label: &'static str,
   /// 空串 = 直连
   prefix: &'static str,
+  /// 前缀替换（Gitee）：`(GitHub 前缀, 镜像前缀)`。与 `prefix` 二选一
+  replace: Option<(&'static str, &'static str)>,
 }
 
 const ASSET_ROUTES: &[AssetRoute2] = &[
@@ -240,16 +254,29 @@ const ASSET_ROUTES: &[AssetRoute2] = &[
     id: "direct",
     label: "GitHub 直连（最快）",
     prefix: "",
+    replace: None,
+  },
+  AssetRoute2 {
+    id: "gitee",
+    label: "Gitee（国内直连）",
+    prefix: "",
+    // rev173.350：Gitee 导入仓库有同名 Release 附件，前缀替换即可
+    replace: Some((
+      "https://github.com/aqua7773/zeronote/",
+      "https://gitee.com/legendary-bird-lin/zeronote/",
+    )),
   },
   AssetRoute2 {
     id: "ghproxy",
     label: "ghproxy.net",
     prefix: "https://ghproxy.net/",
+    replace: None,
   },
   AssetRoute2 {
     id: "gh-proxy-com",
     label: "gh-proxy.com",
     prefix: "https://gh-proxy.com/",
+    replace: None,
   },
 ];
 
@@ -259,6 +286,11 @@ fn canonical_asset_url(url: &str) -> String {
     if let Some(rest) = url.strip_prefix(p) {
       return rest.to_string();
     }
+  }
+  // Gitee 镜像的安装包也换回 GitHub 仓库前缀（rev173.350）：
+  // 否则「选 Gitee 渠道」时候选表只剩它自己一条，Gitee 抽风就没有任何回退路线。
+  if let Some(rest) = url.strip_prefix("https://gitee.com/legendary-bird-lin/zeronote/") {
+    return format!("https://github.com/aqua7773/zeronote/{rest}");
   }
   url.to_string()
 }
@@ -274,9 +306,9 @@ fn rewrite_asset_url(mirror_id: &str, url: &str) -> String {
   if !canonical.starts_with("https://github.com/") {
     return canonical;
   }
-  match mirror(mirror_id).map(|m| m.asset.prefix()) {
-    Some(p) if !p.is_empty() => format!("{p}{canonical}"),
-    _ => canonical,
+  match mirror(mirror_id) {
+    Some(m) => m.asset.apply(&canonical),
+    None => canonical,
   }
 }
 
@@ -294,7 +326,12 @@ fn asset_routes(url: &str) -> Vec<(&'static AssetRoute2, String)> {
   }
   let mut out: Vec<(&'static AssetRoute2, String)> = Vec::new();
   for r in ASSET_ROUTES {
-    let u = if r.prefix.is_empty() {
+    let u = if let Some((from, to)) = r.replace {
+      match canonical.strip_prefix(from) {
+        Some(rest) => format!("{to}{rest}"),
+        None => canonical.clone(),
+      }
+    } else if r.prefix.is_empty() {
       canonical.clone()
     } else {
       format!("{}{canonical}", r.prefix)
@@ -1357,6 +1394,11 @@ mod tests {
       rewrite_asset_url("ghproxy", gh),
       format!("https://ghproxy.net/{gh}")
     );
+    // Gitee 渠道（rev173.350）：前缀替换，路径结构不变
+    assert_eq!(
+      rewrite_asset_url("gitee", gh),
+      "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/ZeroNote_0.9.3_x64-setup.exe"
+    );
     // 清单里已带反代前缀（0.9.2 / 0.9.3 就是这么写的）：任何渠道都先剥回直链，不叠两层
     let prefixed = format!("https://ghproxy.net/{gh}");
     assert_eq!(rewrite_asset_url("raw", &prefixed), gh);
@@ -1368,17 +1410,31 @@ mod tests {
     );
     // 不认识的渠道 ⇒ 原样
     assert_eq!(rewrite_asset_url("nope", gh), gh);
+    // 清单里若是 Gitee 地址（未来可能这么写）：先换回 GitHub，再按渠道改写
+    let gitee =
+      "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/ZeroNote_0.9.3_x64-setup.exe";
+    assert_eq!(rewrite_asset_url("raw", gitee), gh);
+    assert_eq!(rewrite_asset_url("gitee", gitee), gitee);
+    assert_eq!(
+      asset_candidates(gitee).len(),
+      4,
+      "Gitee 地址也要能拿到完整回退候选"
+    );
   }
 
-  /// 候选地址（rev173.311）：首项恒为直连，后面两条是实测活着的反代，且不重复。
+  /// 候选地址（rev173.311 / rev173.350）：首项恒为直连，后面是 Gitee 与两条实测活着的反代，且不重复。
   #[test]
   fn asset_candidates_lists_direct_then_live_proxies() {
     let gh = "https://github.com/aqua7773/zeronote/releases/download/v0.9.3/a.exe";
     let c = asset_candidates(gh);
-    assert_eq!(c.len(), 3, "实际 {c:?}");
+    assert_eq!(c.len(), 4, "实际 {c:?}");
     assert_eq!(c[0], gh, "直连必须排第一（它是最快的一条）");
-    assert_eq!(c[1], format!("https://ghproxy.net/{gh}"));
-    assert_eq!(c[2], format!("https://gh-proxy.com/{gh}"));
+    assert_eq!(
+      c[1],
+      "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/a.exe"
+    );
+    assert_eq!(c[2], format!("https://ghproxy.net/{gh}"));
+    assert_eq!(c[3], format!("https://gh-proxy.com/{gh}"));
   }
 
   /// 非本仓库的地址（自建源 / 外部）不拼反代：`asset_routes` 只回一条。
@@ -1398,8 +1454,13 @@ mod tests {
     let prefixed = format!("https://ghproxy.net/{gh}");
     let r = asset_routes(&prefixed);
     assert_eq!(r[0].1, gh, "直连要剥回原始 GitHub 地址");
-    assert_eq!(r[1].1, prefixed, "ghproxy 那条不叠两层前缀");
-    assert_eq!(r[2].1, format!("https://gh-proxy.com/{gh}"));
+    assert_eq!(
+      r[1].1,
+      "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/a.exe",
+      "Gitee 那条也基于剥过的直链拼"
+    );
+    assert_eq!(r[2].1, prefixed, "ghproxy 那条不叠两层前缀");
+    assert_eq!(r[3].1, format!("https://gh-proxy.com/{gh}"));
   }
 
   /// 续传起点解析：只认 `bytes <start>-<end>/<total>`。

@@ -448,6 +448,32 @@ function needSvc() {
   return svc
 }
 
+/* ───────────────────────── 生物识别（rev173.350 · 真人测试11 #4）─────────────────────────
+ *
+ * 用户：「密码库加了指纹解锁，私密笔记没加，这种问题就是我反复指出的，没有举一反三」。
+ *
+ * 两个插件消费的是**同一个** `crypto` 服务、同一套 `biometric` 扩展，只是密钥环不同
+ * （本插件用 `notes` 环）。所以绑定 / 解锁 / 解除的代码与 `secrets` 完全同构，
+ * 状态按环独立（`bound(RING)`）。
+ *
+ * 缓存成同步可读的原因同 `secrets`：面板 render 是同步的（UINode 声明式），
+ * 不能在里面 await IPC。
+ */
+let biometric = { available: false, bound: false }
+
+/** 从 crypto 服务读指纹状态（服务没有 biometric 扩展 = 老版安全插件 ⇒ 都是 false） */
+async function refreshBiometric() {
+  try {
+    const b = svc?.biometric
+    biometric = b
+      ? { available: Boolean(b.available()), bound: Boolean(b.bound(RING)) }
+      : { available: false, bound: false }
+  } catch {
+    biometric = { available: false, bound: false }
+  }
+  return biometric
+}
+
 /**
  * 读索引（解锁后调用）。没有索引文件 = 还没建过任何私密笔记 ⇒ 空索引。
  * 索引损坏一律**抛出**，不静默当成空库（否则下一次保存会把它覆盖掉，全丢）。
@@ -499,18 +525,24 @@ async function checkRingReady(api) {
 
 /* ───────────────────────── 解锁 ───────────────────────── */
 
-async function unlockAndLoad(api, password) {
-  const s = needSvc()
-  const pw = String(password ?? '')
-  if (!pw) throw new Error('请输入主密码')
-  await s.unlock(RING, pw)
+/** 解锁成功后的收尾（主密码 / 指纹两条路都走它） */
+async function afterUnlock(api) {
   index = await loadIndex(api)
   plainCache.clear()
   searchResult = null
   mode = 'list'
   purgeArmed = null
   lastActive = nowMs()
+  await refreshBiometric()
   setMessage(`已解锁 · ${index.notes.length} 篇私密笔记`, 'success')
+}
+
+async function unlockAndLoad(api, password) {
+  const s = needSvc()
+  const pw = String(password ?? '')
+  if (!pw) throw new Error('请输入主密码')
+  await s.unlock(RING, pw)
+  await afterUnlock(api)
 }
 
 /* ───────────────────────── 正文读写 ───────────────────────── */
@@ -762,6 +794,14 @@ function lockedView() {
     },
   })
   children.push({ type: 'row', gap: 'sm', children: [btn('解锁', 'private.unlock', { send: BINDS.pw })] })
+  // rev173.350（真人测试11 #4）：绑定过指纹就直接给入口 —— 与密码库同一套能力
+  if (biometric.available && biometric.bound) {
+    children.push({
+      type: 'row',
+      gap: 'sm',
+      children: [btn('用指纹解锁', 'private.biometric-unlock', { variant: 'ghost' })],
+    })
+  }
   if (message.text) children.push(textNode(message.text, 'caption', message.tone))
   children.push(textNode('空闲 3 分钟自动锁定 · 主密码只在本机内存里用于派生，不落盘', 'caption', 'muted'))
   return { type: 'stack', gap: 'md', children }
@@ -788,6 +828,16 @@ function listView() {
         btn('＋ 新建', 'private.new'),
         btn(`🗑 回收站${trashCount ? ` ${trashCount}` : ''}`, 'private.goto-trash', { variant: 'ghost' }),
         btn('锁定', 'private.lock', { variant: 'ghost' }),
+        // rev173.350（真人测试11 #4）：已解锁时才允许绑定 / 解除指纹（绑定要读写密钥环）
+        ...(biometric.available
+          ? [
+              btn(
+                biometric.bound ? '解除指纹' : '绑定指纹',
+                biometric.bound ? 'private.biometric-unbind' : 'private.biometric-bind',
+                { variant: 'ghost' },
+              ),
+            ]
+          : []),
       ],
     },
     {
@@ -997,6 +1047,8 @@ export default {
       }),
     )
     await checkRingReady(api)
+    // 指纹状态：面板 render 是同步的，先读一次让锁屏一打开就能显示「用指纹解锁」（rev173.350）
+    await refreshBiometric()
 
     /* ② 内容转换器（rev173.180）—— 打开时解密、保存时加密，编辑器因此照常可用 */
     api.subscriptions.push(
@@ -1101,6 +1153,78 @@ export default {
         },
       },
       { id: 'private.lock', title: '私密文件夹：立即锁定', run: () => lockNow(api, 'manual') },
+      {
+        id: 'private.biometric-unlock',
+        title: '私密文件夹：用指纹解锁',
+        run: async () => {
+          if (busy) return
+          if (!svc?.biometric) {
+            setMessage('当前安全插件版本不支持指纹解锁', 'warn')
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          busy = 'unlock'
+          setMessage('等待指纹验证…', 'muted')
+          api.view.refresh(PANEL_ID)
+          try {
+            // DEK 不出 security：这里只拿"解锁成功"，环内的密钥由服务自己管
+            await svc.biometric.unlock(RING)
+            await afterUnlock(api)
+          } catch (e) {
+            const msg = String(e?.message ?? e)
+            setMessage(/cancel|取消/i.test(msg) ? '已取消指纹验证' : `指纹解锁失败：${msg}`, 'danger')
+          } finally {
+            busy = ''
+            api.view.refresh(PANEL_ID)
+          }
+        },
+      },
+      {
+        id: 'private.biometric-bind',
+        title: '私密文件夹：绑定本机指纹',
+        run: async () => {
+          if (!index) {
+            setMessage('先解锁，再绑定指纹', 'warn')
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          if (!svc?.biometric) {
+            setMessage('当前安全插件版本不支持指纹绑定', 'warn')
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          try {
+            await svc.biometric.bind(RING)
+            await refreshBiometric()
+            setMessage(
+              biometric.bound ? '已绑定这台设备 —— 之后解锁可直接用指纹' : '绑定失败：没有写进密钥环',
+              biometric.bound ? 'success' : 'danger',
+            )
+          } catch (e) {
+            setMessage(`绑定指纹失败：${String(e?.message ?? e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.biometric-unbind',
+        title: '私密文件夹：解除本机指纹',
+        run: async () => {
+          if (!svc?.biometric) {
+            setMessage('当前安全插件版本不支持指纹', 'warn')
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          try {
+            await svc.biometric.unbind(RING)
+            await refreshBiometric()
+            setMessage('已解除这台设备的指纹绑定（主密码不受影响）', 'success')
+          } catch (e) {
+            setMessage(`解除指纹失败：${String(e?.message ?? e)}`, 'danger')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
       {
         id: 'private.new',
         title: '私密文件夹：新建私密笔记',
