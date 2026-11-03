@@ -240,7 +240,7 @@ revision: 173.342
 > **根因**：`MarkdownEditor` 的 document click 处理器对图片点击 `preventDefault()`，CodeMirror 的 contenteditable 不会自己失焦 ⇒ 焦点留在编辑区，软键盘不收。
 > **改法**：`src/lib/swipe.ts` 新增 `dismissTypingFocus(doc)`（判据复用既有 `isTypingNow`：contentEditable / input / textarea，且只在焦点确实在输入控件时才 blur），`src/App.tsx` 图片预览 effect 在 `platform === 'android'` 时调用一次；桌面不走（没有软键盘，失焦反而打断连续输入）。命令面板 / 快速打开这类**要打字**的浮层不调用 —— 边界写在函数注释里。
 >
-> **证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）；`tests/swipe.test.ts` 24 条（+2：contentEditable 失焦返回 true · 普通按钮不动焦点返回 false）；真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载）两次：点正文弹键盘（`_shots/rev342-04-keyboard.png`）→ 点图全屏预览、键盘收起（`_shots/rev342-05-preview.png` / `rev342-07-second.png`）；BACK 关预览后焦点不回到编辑区（需再点正文，属预期）。
+> **证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 98 · vitest 1844 · 质量门 8/8）；`tests/swipe.test.ts` 24 条（+2：contentEditable 失焦返回 true · 普通按钮不动焦点返回 false）；真机 `33b676f6`（`com.aqua.zeronote.debug` · dev server 热载）两次：点正文弹键盘（`_shots/rev342-04-keyboard.png`）→ 点图全屏预览、键盘收起（`_shots/rev342-05-preview.png` / `rev342-07-second.png`）；BACK 关预览后焦点不回到编辑区（需再点正文，属预期）。**G3 用户验收通过**（2026-11-03 23:3x，用户「正常」）。
 > **未做**：文件树点图 / 其它浮层未复验；桌面点图行为未改（无软键盘环境）。
 > ## 📌 rev173.341（2026-11-03 · 10 批真人测试的同类问题 6 项落地）
 

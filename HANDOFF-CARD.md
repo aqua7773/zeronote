@@ -41,7 +41,7 @@
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
 - **rev173.341 同类问题 6 项落地**（方案 `docs/同类问题处置方案-2026-11-03.md`）：跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一。G2 已验：桌面 2 项（CDP）、真机 1 项（长按卡片菜单 + 详细弹窗）
-- **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。真机 `33b676f6` 两次验过（`_shots/rev342-*`）
+- **rev173.342 手机点图预览收软键盘**：`lib/swipe.ts` 新 `dismissTypingFocus()`（复用 `isTypingNow` 判据）+ `App.tsx` 预览 effect 仅在 Android 调用 ⇒ 点图时键盘收起、预览独占全屏；桌面不处理。G2 真机 `33b676f6` 两次 + **G3 用户已确认正常**（2026-11-03，证据 `_shots/rev342-*`）
 
 ## 未决 / 下一步
 
