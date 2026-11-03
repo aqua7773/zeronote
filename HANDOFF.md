@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.356
-更新时间: 2026-11-04 · 最新 rev173.356（**启动日志插件 + 0.9.25 打点 + 开屏卡顿调查**：启动链 453ms 正常；`longtask@3538+8554ms` 是启动后 3.5 秒的独立纯 JS 任务，插件全关仍现 ⇒ 在内核；已排除清单见 rev 索引，具体函数未定位）
+revision: 173.357
+更新时间: 2026-11-04 · 最新 rev173.357（**启动卡顿根因定位 + 轮询兜底改造**：卡顿 = `fs.ts` 3 秒轮询兜底每轮全库 `list_notes`（1.45 秒）+ `list_dirs`（0.41 秒）⇒ 启动后 3.2 秒出现 1730ms 长任务；已把首次轮询延迟到 8 秒 + 自适应退避（10–60 秒），启动窗口降到 59–127ms；**8 秒后那次 1 秒仍在，治本待做**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.356
 
 | rev | 内容 |
 |---|---|
+| rev173.357 | 2026-11-04 · **启动卡顿根因定位 + 轮询兜底改造**：① **根因** = `src/kernel/fs.ts` 的文件监听兜底 `setInterval(pollOnce, 3000)`，每轮调全库 `list_notes`；CDP profile 实测（debug 包 · 126 篇 / 95 MB 库）`list_notes` **1455ms** + `list_dirs` **411ms** ⇒ 启动后 3.2 秒出现 **1730ms** 长任务，之后每 3 秒再占 1.45 秒 —— 期间触摸事件全部排队、恢复后一次性派发（用户体感「卡住 + 点按后自动触发」，把积压的返回一次性触发还会直接退出软件）。② **改法**：首次轮询延迟到启动后 **8 秒**、间隔改为 **≥10 秒**且单次 >800ms 自动退避 6 倍（上限 60 秒）、`setInterval` → 递归 `setTimeout`（量完耗时再排下一轮）。③ **实测 3 次冷启动**：修复前 `start=6113 dur=1730`；修复后启动窗口最长 **59–127ms**，但 `entry+8.15s` 处仍有 **999–1149ms** 的那次全库扫描（release 包历史测到 8.5 秒量级）。**未做（下个会话）**：治本 —— Rust `list_notes` 加 mtime 缓存（文件没变不重读 frontmatter）+ 轮询改用只取 path/mtime 的轻量命令。**新增诊断**：`[zn-mark]` / `[zn-longtask]` 实时落 logcat（原来 `logBootMarks()` 只在首帧印一次，之后的 tree-mounted / vault-refresh-* / plugins-ready 全是盲区；release 包 console **不**转发 logcat）、`tools/cdp-profile.mjs`（CDP CPU 采样器，按窗口出 Top 自耗时函数表）。**排除**：MediaProvider 媒体扫描（`.zn/` 放 `.nomedia` + 删掉 `file/333042` 坏记录，错误 345→0，但与卡顿无关）、白屏探针软复位（`ZN-RENDER` 一整天未触发）、图片解码（卡片列表不渲染 `<img>`）。**努比亚机现状**：已装 debug 包 `com.aqua.zeronote.debug`（与 release 共存，存储权限已授权，能读同一个 126 篇库），跑它需要 `adb reverse tcp:1420 tcp:1420`，CDP 走 `adb forward tcp:9334 localabstract:webview_devtools_remote_<pid>`（进程会自己重启，pid 变了要重建 forward）。 |
 | rev173.356 | 2026-11-04 · **启动日志插件 + 0.9.25 打点 + 开屏卡顿调查**：① 新 `examples/boot-log` 进市场（16 条）：读 `__znBootMarks()` + 长任务 DOM 快照 + 资源 Top + 全局方法探针（sort/join/JSON，带调用栈）；0.1.0 赋值只读的 `invoke` 让插件加载失败 → 0.2.1 改 try 住并在面板提示。② `useDocIO` / `FileTree` 加 `vault-refresh-start` / `vault-refresh-listed` / `tree-mounted`，发 **0.9.25**（universal APK 121 MB · Release 已发 · 清单已提交）。③ **真机实测（努比亚 release · 8 插件全关）**：启动全链 ≤453ms；`longtask@3538+8554ms` 是启动后 3.5 秒的独立纯 JS 任务（DOM 345 节点不变、无 IPC / 资源），卡顿结束 12.1 秒才批量读文件；滚动正常但点击排队后一起触发 = 主线程 busy。已排除：插件、备份 / 历史版本、IO、图片、`Intl`、`localeCompare`（500 次 14ms）、`audit()` 序列化、4 个全局方法。**未定位**具体函数 —— 下一步在 App 渲染路径加 mark（render 开始 / 结束 + 组件 mount + pointerdown 交叉），发 0.9.26。 |
 | rev173.351 | 2026-11-04 · **启动耗时打点（真人测试11 #2 定位工具）+ 0.9.24 发版**：新 `src/lib/boot-marks.ts` —— `performance.mark` 记 `entry` / `styles-ready` / `render-called` / `first-frame` / `plugins-ready`，外加 `PerformanceObserver({entryTypes:['longtask']})` 收启动期（20s 窗口）>50ms 任务；`main.tsx` / `usePluginHost.ts` 接打点。读法：CDP `__znBootMarks()`，或 **logcat** `adb logcat -d \| findstr zn-boot`（实测落在 `Tauri/Console` tag，release 包同样可读）。**真机两次冷启动实测**：`entry` 3.1–4.0 秒（dev 模式 vite 逐模块加载，release 无此段）→ `first-frame` 仅 +6ms → `plugins-ready` +693–714ms；长任务 4 个，最大 77ms。**结论**：JS 侧启动 ~700ms，不是用户体感卡顿的主因；需要 release 包数据。**同轮发现**：冷启动时若 dev server 瞬时不可达，Tauri dev 代理失败后**不重试**，页面停在 `Failed to request …` 错误页（内联兜底也覆盖不到，因为 HTML 没加载）；`location.reload()` 即恢复。**0.9.24 已打 tag**（`e739618` · Gitee 已推 main+tag；GitHub 当时 `Could not connect`，待重试）。**未做**：release 包实测（要装 `com.aqua.zeronote` 正式包）、GitHub 推送补发。 |
 | rev173.350 | 2026-11-04 · **Gitee 安装包路由 + 真人测试11 #1/#3/#4**：① **Gitee 也能下安装包** —— `AssetRoute` 加 `Replace(from, to)`（GitHub 仓库前缀 → Gitee 同路径前缀），`MIRRORS` 里 gitee 渠道的 asset 改用它；`ASSET_ROUTES` 加一条 gitee 路线（排在 direct 之后、ghproxy 之前）；`canonical_asset_url` 同时把 **Gitee 地址换回 GitHub** —— 否则选 Gitee 渠道时候选表只剩它自己，Gitee 抽风就无回退。② **#1 插件装完留在市场**：`MarketPane` 不再 `onSwitchToInstalled()`，prop 链一并删掉，测试断言改成「市场列表还在」。③ **#3 详细显示 0 KB**：`attachment.formatSize` 加 `< 1 KB → N B` 档 —— 原来 500 字节的短笔记 `Math.round(500/1024)=0` 显示 0 KB。④ **#4 私密文件夹补指纹**：`private-notes 0.2.2` 复用 `crypto.biometric`（`notes` 环）—— 锁屏有「用指纹解锁」、已解锁有「绑定/解除指纹」，`unlockAndLoad` 抽出 `afterUnlock` 两条路共用。**未做**：真机验证（#1 要装新包看跳转、#4 要真机按指纹）；真人测试11 #2（进软件卡顿）未动 —— 需要先加启动耗时打点才能定位。 |
@@ -243,6 +244,57 @@ revision: 173.356
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.357（2026-11-04 · 启动卡顿根因定位 + 轮询兜底改造）
+
+> **怎么找到的**：努比亚机装了 debug 包（`com.aqua.zeronote.debug`，带 WebView 调试），
+> 授权存储后能读同一个 126 篇库 ⇒ 复现了卡顿。CDP Profiler 抓 `entry+5.5~8.5s` 窗口，
+> 调用栈直接指到：
+> ```
+> 1455ms  sendIpcMessage → invoke → listNotes — kernel/fs.ts:11
+>  411ms  sendIpcMessage → invoke → listDirs  — kernel/fs.ts:16
+>   48ms  invoke → pollOnce — kernel/fs.ts:179
+> ```
+
+> **根因**：`fs.ts` 的文件监听兜底是 `setInterval(pollOnce, 3000)`，而 `pollOnce` 每轮
+> 都调**全库 `list_notes`**（Rust 递归扫描 + 逐篇读 frontmatter）。126 篇 / 95 MB 的库上
+> 单次 **1.45 秒**，加上 `list_dirs` 共 **1.7 秒** ⇒ 启动后 3.2 秒撞上第一次，
+> 之后每 3 秒再占 1.45 秒（约一半时间主线程不可用）。
+> 触摸事件在此期间排队，恢复后一次性派发 —— 这解释了三件事：进软件卡一下、
+> 卡住期间点按无反应、卡完把积压的返回全部触发导致**直接退出软件**。
+
+> **改法**（`src/kernel/fs.ts`）：首次轮询延迟到启动后 **8 秒**；间隔从固定 3 秒改为
+> **≥10 秒**，单次超过 800ms 自动退避到 6 倍（上限 60 秒）；`setInterval` → 递归
+> `setTimeout`（这一轮量完耗时再排下一轮）。
+
+> **实测对比**（debug 包 · 3 次冷启动）：修复前 `start=6113 dur=1730`；
+> 修复后启动窗口最长 **59–127ms**，但 `entry+8.15s` 处仍有 **999–1149ms** 的那次扫描。
+
+> **证据**：`_shots/debug-boot-profile.json`（CDP profile · 18722 样本 · 5500–8500ms 窗口调用栈）、
+> `_shots/console-boot.log`（三次冷启动的 `[zn-mark]` / `[zn-longtask]`）、提交 `fc4a7c9`。
+> **未做**：治本 —— Rust `list_notes` 加 mtime 缓存（文件没变就不重读 frontmatter），
+> 轮询改用只取 path/mtime 的轻量命令。做完这两处，那 1 秒（release 包上可能是 8.5 秒量级）才会真正消失。
+
+> **诊断能力（本轮新增，保留）**：`bootMark()` 每个阶段实时打印 `[zn-mark] name @ms`
+> （原来 `logBootMarks()` 只在首帧印一次，之后的 tree-mounted / vault-refresh-* /
+> plugins-ready 全是盲区）；longtask 一出现即打印 `[zn-longtask] start=.. dur=..`。
+> 读法：`adb logcat "Tauri/Console:V" "*:S"` —— **debug 包 console 会转发 logcat，
+> release 包不转发**。新工具 `tools/cdp-profile.mjs`：CDP Profiler 抓冷启动 CPU profile
+> 并按窗口输出 Top 自耗时函数表（`ZN_CDP=http://127.0.0.1:9334 ZN_TARGET=localhost`）。
+
+> **排除项（本轮验证后否定，别再重复查）**：
+> - **MediaProvider 媒体扫描**：曾占 100% CPU 连续 7 秒。`.zn/ids.zn-tmp`（原子写临时文件，
+>   不以点开头）被媒体库索引，撞 `files._data` UNIQUE 约束后反复重试（日志 345 次）。
+>   处置：`.zn/` 放 `.nomedia` + `content delete --uri content://media/external/file --where "_id=333042"`，
+>   错误 345→0。**但与卡顿无关** —— 8 核系统里单服务 100% 不足以让应用 7 秒无响应。
+> - **白屏探针软复位**：`ZN-RENDER` 整轮未触发（`bands` 全 0.00 = 深色主题采样到黑，`allWhite=false`）。
+> - **图片解码**：卡片列表不渲染 `<img>`。
+
+> **努比亚机现状**：`com.aqua.zeronote.debug` 已装（与 release 包共存），存储权限已授权，
+> 读同一个 126 篇库。跑它需要 `adb reverse tcp:1420 tcp:1420`（dev server），
+> CDP 走 `adb forward tcp:9334 localabstract:webview_devtools_remote_<pid>`；
+> 这个 debug 包**会自己重启**（pid 变化），CDP 断连后要按新 pid 重建 forward。
+> APK 位置：`src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk`（246 MB）。
 
 > ## 📌 rev173.356（2026-11-04 · 启动日志插件 + 0.9.25 打点 + 开屏卡顿调查）
 

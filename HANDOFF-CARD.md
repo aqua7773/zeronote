@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.356）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.357）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.356 · 0.9.25 · 2026-11-04 |
+| rev / 版本 | rev173.357 · 0.9.25 · 2026-11-04 |
 | 测试基线 | vitest 1884 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.25 |
@@ -47,9 +47,10 @@
 - **rev173.345–347 白屏检测三代方案（全部被真机证伪）**：rAF 时间戳（白屏时主进程 CPU 59%、rAF 照转）→ CSS 动画探针（120 秒没触发）→ 原生 `RenderWatchdog.kt`（`PixelCopy(window)` 抓不到 SurfaceControl 子层、`webView.draw()` 画不出 Chromium 内容）。探针日志 tag `ZN-RENDER` 保留
 - **rev173.348 Gitee 镜像**：插件市场 + 应用更新各加 Gitee 渠道（`market.ts` / `app-update.ts` / `updates.rs` 三处）；Gitee raw 的索引 / 包 / 更新清单三条 URL 实测 200。安装包仍在 GitHub Release（Gitee 未传附件）
 - **rev173.349 启动兜底（白屏类型 A：页面没挂载）**：`index.html` 内联脚本（不依赖模块）—— `main.tsx` 挂载后置 `window.__znBooted`，25 秒没标记 ⇒ 自动重载一次，再失败显示「页面没能加载起来」卡片 + 重载按钮；`<script>`/`<link>` 的 error 立即触发。真机 CDP 拦截 `main.tsx` 实测：卡片出现 → 解除后恢复、标记清空。单测 `tests/boot-guard.test.ts` 7 个
-- **rev173.349 白屏类型 B 实测（软复位会误判 · ⏳ 待拍板）**：页面完全正常时 `webView.draw()` 采样仍是五条 1.00 全白，streak 到 30 ⇒ 01:57:43 软复位执行、01:57:44 完成，但复位前后截图同为 88,515 B（画面没变）。⇒ **draw 判据在本机不可信**，自检（红色覆盖层）区分不了。处置 A/B/C 见 `docs/白屏-渲染停摆-2026-11-04.md` §8
-
 - **rev173.351 启动打点 + 0.9.24 发版**：`src/lib/boot-marks.ts` 记 `entry`/`first-frame`/`plugins-ready` + 启动期 >50ms 长任务（CDP `__znBootMarks()`；dev 包 logcat 里在 `Tauri/Console`，**release 包不回传**）。真机 dev 两次冷启动：JS 侧 ~700ms（插件加载 693–714ms）· 长任务最大 77ms。**release 0.9.24 实测**：`am start -W` 五次冷启动 TotalTime 173–189ms、内容可见 ~835ms（含 adb 截图开销）⇒ 启动不慢。0.9.24 已打 tag `v0.9.24`（`e739618`），Gitee 已推 main+tag，**GitHub + Gitee Release 均已发（3 附件逐个 HEAD 200）**
+
+- **rev173.357 启动卡顿根因 + 轮询兜底改造**（本轮）：卡顿 = `src/kernel/fs.ts` 文件监听兜底的 `setInterval(pollOnce, 3000)` 每轮调全库 `list_notes`（CDP profile 实测 **1455ms**，`list_dirs` 另 **411ms**）⇒ 启动后 3.2 秒出现 **1730ms** 长任务、之后每 3 秒再来一次；卡住期间触摸全部排队、恢复后一次性派发（积压的返回会把应用直接退掉）。**已改**：首次轮询**延迟到启动后 8 秒**、间隔 **≥10 秒**且单次 >800ms 自动退避 6 倍（上限 60s）、`setInterval` → 递归 `setTimeout`。实测启动窗口 **59–127ms**（原 1730ms），3 次冷启动稳定
+- **rev173.357 未做（下个会话）**：**治本** —— Rust `list_notes` 加 mtime 缓存（文件没变不重读 frontmatter）+ 轮询改用只取 path/mtime 的轻量命令；做完那「8 秒后 1 秒（release 上历史测到 8.5 秒量级）」才会真正消失。同轮新增 `[zn-mark]` / `[zn-longtask]` 实时 logcat 打点 + `tools/cdp-profile.mjs`（CDP CPU 采样器）。**努比亚机已装 debug 包** `com.aqua.zeronote.debug`（跑它要 `adb reverse tcp:1420 tcp:1420`，CDP 走 `adb forward tcp:9334 localabstract:webview_devtools_remote_<pid>`，pid 会变）
 
 ## 未决 / 下一步
 
@@ -106,8 +107,7 @@ pwsh -File scripts\verify.ps1
 5. GUI 验收用 `gentle_*`；截图按窗口 `rect` 向内缩 ~10px。
 6. **动手前先查现成**（`docs/开发约定.md` §0.5）；改代码 / 重构前先读该文档。
 7. **安卓测试机只跑已装的 dev 包**，不重新编译 / 安装；**不装 release 包**。
-8. **测试 / 验收产生的插件不留在「功能」里**：探针 / 夹具 / 演示只放 `examples/` 或临时目录，用完即删。
-9. **改 `examples/` 后必须让页面 reload 再重扫**（`ensureBuiltinPlugins` 会用 `?raw` 内容覆盖全局目录）。
+8. **测试 / 验收产生的插件不留在「功能」里**：探针 / 夹具 / 演示只放 `examples/` 或临时目录，用完即删；**改 `examples/` 后必须让页面 reload 再重扫**（`ensureBuiltinPlugins` 会用 `?raw` 内容覆盖全局目录）。
 
 ## 授权边界（给 AI）
 
