@@ -18,12 +18,23 @@
 >
 > **验证（13:0x 用户反馈）**：A3/A4 同步、A6 发送到、A8/B2 私密入口、B5 密码库环、A5 桌面复制 —— **全部失败**。
 > **已核实根因**：桌面 dev 与调试机的插件仍是 `import-export 0.2.3` / `sync 0.1.7` / `security 0.2.1` / `secrets 0.1.1`，
-> 且**都没有 `private-notes`**；我 12:4x 手工同步进去的 0.2.4/0.1.2/0.2.2/0.1.8 **已被覆盖回去**（怀疑 App 启动时的内置插件同步）。
+> 且**都没有 `private-notes`**；我 12:4x 手工同步进去的 0.2.4/0.1.2/0.2.2/0.1.8 **已被覆盖回去**。
 > A5 与插件无关，是真 bug（待 CDP + `Get-Clipboard -Format FileDropList` 实测）。
 >
-> **下个会话按这个顺序**：① 查清「内置插件覆盖全局根」的机制（`plugin-host.ts` / `usePluginHost.ts`）→
-> ② 把 `security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1` 装到桌面与调试机 →
-> ③ 重跑 A3/A4/A6/A8/B2/B5 → ④ 单独查 A5 → ⑤ 全过再 `verify.ps1` + 发 0.9.22。
+> ⚠️ **rev173.337 纠正上面「怀疑 App 启动时的内置插件同步」—— 不成立**：
+> `ensureBuiltinPlugins` 在 rev173.259 已删（`builtin-plugins.ts` 只剩历史，`usePluginHost` 只**读**全局根，不写），
+> 启动不会覆盖任何插件。真因是**市场索引落后**：`market/index.json` 的新版（12:39~12:46 打的包）当时只在本地、
+> 没 push，应用市场的默认源是 `raw.githubusercontent.com/.../main/market/index.json`，于是 12:58~13:01 用户
+> 在插件中心点「更新」，拿到的索引还是旧版 → **把旧版 .znp 装回去**，正好覆盖我手工复制的目录（mtime 12:58:53 ~ 13:01:53 对得上）。
+>
+> **rev173.337 已完成**：① 机制查清（见上，结论是「没有内置同步」）② `private-notes 0.2.1` 打包签名入库
+> （市场里之前**根本没有**这条 → 手机与桌面都无处可装是 A8/B2 失败的直接原因）+ 索引 15 条 · 已 push `4190a2d` ·
+> 桌面全局根 `security 0.2.2 / secrets 0.1.2 / sync 0.1.8 / import-export 0.2.4 / private-notes 0.2.1` 全部就位 ·
+> `verify.ps1` 全绿（tsc 0 · oxlint 4 · cargo 98 · vitest 1816 · 质量门 8/8）。
+>
+> **还差（都要真机）**：③ 重启 dev（或插件页「重新加载」）后重跑 A3/A4/A6/A8/B2/B5 → ④ 单独查 A5 →
+> ⑤ 全过再发 0.9.22。**手机注意**：默认镜像 raw 在国内不通、jsDelivr 还在缓存旧索引（14 条），
+> 手机插件中心要先换到 **ghproxy.net** 镜像才看得到新版（15 条）。
 >
 > **上一轮：rev173.335（2026-11-03）—— 真人测试9 三条（已修，0.9.21 已发，待真机）**
 > 来源 `Downloads/真人测试9 (2).md`（3 条 + 3 张真机截图）。
@@ -320,9 +331,9 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.335 · 0.9.21 · 2026-11-03 |
-| 测试基线 | vitest 1804 · cargo 98 · oxlint 4 warnings（2026-11-03） |
-| 插件 | 市场 14 · 示例 39 |
+| rev / 版本 | rev173.336 · 0.9.21 · 2026-11-03 |
+| 测试基线 | vitest 1816 · cargo 98 · oxlint 4 warnings（2026-11-03） |
+| 插件 | 市场 15 · 示例 39 |
 | 文档 | README 现状 2026-11-03 · CHANGELOG 0.9.21 |
 <!-- FACTS:END -->
 
