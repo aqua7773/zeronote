@@ -128,7 +128,14 @@ import { quickSlotLabel, quickSlotOptions, readQuickSlots, writeQuickSlots } fro
 /* rev173.331：手机「更多 → 插件」按已注册面板自动列（真人测试7 #2） */
 import { pluginPanelEntries } from './lib/more-plugin-entries'
 import { failMsg, type SaveState } from './lib/fail-msg'
-import { drawersOpenOnlyOnHome, hasBlockingOverlay, isTypingNow, moreSwipeIntent, swipeIntent } from './lib/swipe'
+import {
+  dismissTypingFocus,
+  drawersOpenOnlyOnHome,
+  hasBlockingOverlay,
+  isTypingNow,
+  moreSwipeIntent,
+  swipeIntent,
+} from './lib/swipe'
 import { attachmentStem, imageInsertion, isImageFileName, linkCandidates, linkInsertion, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
@@ -3462,6 +3469,13 @@ export default function App() {
   // 图片预览：压进返回键层栈（Android 返回先关预览）+ Esc 关闭
   useEffect(() => {
     if (!imagePreview) return
+    /**
+     * 手机点正文里的图 ⇒ 预览打开时**软键盘还弹着**（rev173.342）：
+     * 编辑器把点击的默认行为 preventDefault 了，contenteditable 不会自己失焦 ⇒
+     * 键盘与预览各占半屏。预览是「看」而不是「输入」，这里把焦点交还 body；
+     * 桌面不处理（没有软键盘，失焦反而会打断连续输入）。
+     */
+    if (platform === 'android') dismissTypingFocus()
     const stack = layerExitsRef.current
     const close = () => {
       setImagePreview(null)
@@ -3477,7 +3491,8 @@ export default function App() {
       if (i >= 0) stack.splice(i, 1)
       window.removeEventListener('keydown', onKey)
     }
-  }, [imagePreview])
+    // platform 是模块级常量（App 外算好，整个生命周期不变）；放进依赖只为满足 exhaustive-deps
+  }, [imagePreview, platform])
 
   /**
    * 起始页快捷入口（rev173.20）：也压进返回键层栈 —— 遮罩开着时按 Android 返回

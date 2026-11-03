@@ -64,6 +64,26 @@ export function isTypingNow(doc: Document = document): boolean {
 }
 
 /**
+ * 打开**纯「看」的浮层**（图片预览）时收掉软键盘（rev173.342 · 交接卡「已知未修」）。
+ *
+ * 为什么需要：手机点正文里的图时，`MarkdownEditor` 的 click 处理器 `preventDefault()`
+ * 了默认行为 ⇒ CodeMirror 的 contenteditable **不会自己失焦**，软键盘一直弹着，
+ * 于是预览和键盘各占半屏。
+ *
+ * 用途边界：只给「看」的浮层用 —— 命令面板 / 快速打开 / 搜索这类**要打字**的浮层
+ * 不能调用，否则键盘刚收下又要弹起来。桌面没有软键盘，调用方按平台分支
+ * （`App.tsx` 里只在 `platform === 'android'` 时走）。
+ *
+ * @returns 是否真的收了焦点（`true` = 调用前处于输入状态）
+ */
+export function dismissTypingFocus(doc: Document = document): boolean {
+  if (!isTypingNow(doc)) return false
+  const el = doc.activeElement as HTMLElement | null
+  el?.blur()
+  return true
+}
+
+/**
  * **右侧「更多」抽屉**的手势判定（rev173.308，rev173.312 去掉边缘限制）。
  *
  * 与左侧文件树抽屉（`swipeIntent`）互补、互不干扰 —— **方向决定抽屉**：

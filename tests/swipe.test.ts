@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  dismissTypingFocus,
   drawersOpenOnlyOnHome,
   hasBlockingOverlay,
   isTypingNow,
@@ -95,6 +96,31 @@ describe('isTypingNow', () => {
     document.body.append(btn)
     btn.focus()
     expect(isTypingNow()).toBe(false)
+  })
+})
+
+describe('dismissTypingFocus（rev173.342 · 图片预览收软键盘）', () => {
+  it('焦点在 contentEditable ⇒ 失焦并返回 true', () => {
+    const box = document.createElement('div')
+    box.contentEditable = 'true'
+    box.tabIndex = 0
+    document.body.append(box)
+
+    box.focus()
+    expect(isTypingNow()).toBe(true)
+    expect(dismissTypingFocus()).toBe(true)
+    expect(document.activeElement).not.toBe(box)
+    box.remove()
+  })
+
+  it('焦点在普通按钮 ⇒ 不动焦点，返回 false', () => {
+    const btn = document.createElement('button')
+    document.body.append(btn)
+    btn.focus()
+
+    expect(dismissTypingFocus()).toBe(false)
+    expect(document.activeElement).toBe(btn)
+    btn.remove()
   })
 })
 
