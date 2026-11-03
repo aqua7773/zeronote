@@ -173,3 +173,45 @@ export function shouldRescueMain(ok: boolean, streak: number, alreadyRescued: bo
   if (ok) return false
   return streak + 1 >= MAIN_BAD_STREAK
 }
+
+/* ───────── 渲染停帧自救（rev173.345）─────────
+ *
+ * 2026-11-03 真机实测的第二种白屏：**画面全白、点击也不恢复、持续 25 秒以上画面完全不变**，
+ * 但焦点还在 MainActivity、Rust 看门狗的 JS 心跳照发（25 秒都没被 `_exit(101)` 杀掉）。
+ *
+ * ⇒ DOM 还在、`setInterval` 还活、**只有渲染停了**（WebView 合成/光栅化停摆，机型侧偶发）。
+ * 而 `domLooksAlive` / `mainDomLooksAlive` 都判「活着」⇒ 上面那套自救永远不触发。
+ *
+ * 补的判据：**每帧打时间戳**。可见页面里 `requestAnimationFrame` 会持续回调；
+ * 前台连续 `RENDER_STALL_MS` 没有一帧 ⇒ 渲染确实停了 ⇒ reload 一次。
+ *
+ * 三条必守：
+ *  1. **页面不可见时不算**（切后台 / 熄屏时 rAF 本来就会停，那不是故障）；
+ *  2. **只救一次**（独立 sessionStorage 标记，防「reload 后仍白」原地循环）；
+ *  3. 阈值比 DOM 判据宽松（30 s vs 15 s）—— 渲染停摆可能伴随卡顿，别把慢当死。
+ */
+
+/** 前台连续多久没有动画帧 ⇒ 判定渲染停了（30 s） */
+export const RENDER_STALL_MS = 30_000
+
+/** 检查节奏（5 s 一查，与主窗口 DOM 自检同频） */
+export const RENDER_CHECK_MS = 5000
+
+/** sessionStorage：这次启动已经因渲染停帧自救过一次 */
+export const RENDER_RESCUE_FLAG = 'zn.render-rescue-done'
+
+/**
+ * 这一轮该不该因「渲染停帧」reload（纯函数）。
+ *
+ * 三条：页面可见 · 这次启动没救过 · 连续无帧时长到阈值。
+ */
+export function shouldRescueRender(opts: {
+  visible: boolean
+  idleMs: number
+  alreadyRescued: boolean
+  thresholdMs?: number
+}): boolean {
+  if (opts.alreadyRescued) return false
+  if (!opts.visible) return false
+  return opts.idleMs >= (opts.thresholdMs ?? RENDER_STALL_MS)
+}

@@ -99,7 +99,7 @@ import { useExternalFile } from './hooks/useExternalFile'
 /* rev128 拆分 L3：插件宿主（扫描 / 加载 / 懒激活 / .znp 安装）抽成 hook */
 import { usePluginHost } from './hooks/usePluginHost'
 /* rev173.104 白屏兜底：窗口报活 + 主窗口清扫卡死窗口（见 lib/window-guard.ts 文件头） */
-import { useMainWindowRescue, useStuckWindowReaper, useWindowHeartbeat } from './hooks/useWindowGuard'
+import { useMainWindowRescue, useRenderStallRescue, useStuckWindowReaper, useWindowHeartbeat } from './hooks/useWindowGuard'
 /* rev122 拆分 L1：路径工具 / 最近库与命令 / 错误话术 / 启动自愈 —— 全部原样迁到 lib/ */
 import {
   baseName,
@@ -1669,6 +1669,14 @@ export default function App() {
    * 未落盘内容由 `useDocIO` 的 `beforeunload` 钩子写进草稿，reload 后走「恢复草稿」。
    */
   useMainWindowRescue(!standaloneWindow)
+
+  /**
+   * 渲染停帧自救（rev173.345）：2026-11-03 真机实测的第二种白屏 ——
+   * 画面全白、点击不重绘、持续 25 秒+，但 DOM 在、`setInterval` 在跑（Rust 看门狗都没杀进程）
+   * ⇒ 上面那条 DOM 判据永远判「正常」。这里靠 `requestAnimationFrame` 有没有帧来判。
+   * 只在 Android 主窗口挂（桌面 WebView2 没复现过，先不动）。
+   */
+  useRenderStallRescue(!standaloneWindow && platform === 'android')
 
   /* ── 文档会话（rev125 · L3）：打开 / 关闭 / [[链接]] —— 见 hooks/useDocSession.ts ── */
   const { openNote, openWikiLink, closeNote, discardNote } = useDocSession({

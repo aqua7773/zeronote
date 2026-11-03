@@ -22,8 +22,11 @@ import {
   MAIN_RESCUE_FLAG,
   mainDomLooksAlive,
   pickStuckWindows,
+  RENDER_CHECK_MS,
+  RENDER_RESCUE_FLAG,
   SCAN_MS,
   shouldRescueMain,
+  shouldRescueRender,
   WINDOW_BEAT_EVENT,
   type WindowBeat,
 } from '../lib/window-guard'
@@ -187,6 +190,69 @@ export function useMainWindowRescue(enabled: boolean): void {
     }, MAIN_CHECK_MS)
     return () => {
       disposed = true
+      window.clearInterval(timer)
+    }
+  }, [enabled])
+}
+
+/**
+ * 渲染停帧自救（rev173.345 · 2026-11-03 真机实测）。
+ *
+ * 与 `useMainWindowRescue` 互补：那条判「DOM 还在不在」，这条判「**还在动吗**」。
+ * 真机白屏现场：DOM 在、`setInterval` 在跑（Rust 看门狗 25 秒都没杀进程）、
+ * 点击也不重绘 ⇒ 只有光栅化停了，DOM 判据永远判「正常」。
+ *
+ * 做法：`requestAnimationFrame` 每帧更新 `lastFrame`，每 `RENDER_CHECK_MS` 检查一次；
+ * 页面**可见**且连续 `RENDER_STALL_MS` 没帧 ⇒ 判定渲染停摆 ⇒ `location.reload()`。
+ * 只在主窗口、只在 Android 挂（桌面 WebView2 没复现过，先不动）。
+ */
+export function useRenderStallRescue(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return
+    let alreadyRescued = false
+    try {
+      alreadyRescued = sessionStorage.getItem(RENDER_RESCUE_FLAG) === '1'
+    } catch {
+      /* 存不了就当没救过（宁可救一次） */
+    }
+    if (alreadyRescued) return
+
+    let disposed = false
+    let lastFrame = performance.now()
+    let raf = 0
+
+    const onFrame = (t: number) => {
+      if (disposed) return
+      lastFrame = t
+      raf = window.requestAnimationFrame(onFrame)
+    }
+    raf = window.requestAnimationFrame(onFrame)
+
+    const timer = window.setInterval(() => {
+      if (disposed) return
+      const visible = document.visibilityState === 'visible'
+      if (!visible) {
+        // 后台/熄屏时 rAF 本来就会停 —— 重置基准，回前台后重新计时
+        lastFrame = performance.now()
+        return
+      }
+      const idleMs = performance.now() - lastFrame
+      if (!shouldRescueRender({ visible, idleMs, alreadyRescued: false })) return
+      disposed = true
+      window.cancelAnimationFrame(raf)
+      window.clearInterval(timer)
+      try {
+        sessionStorage.setItem(RENDER_RESCUE_FLAG, '1')
+      } catch {
+        return
+      }
+      console.warn('[zn] 渲染停帧', Math.round(idleMs / 1000), '秒，自动重载一次')
+      location.reload()
+    }, RENDER_CHECK_MS)
+
+    return () => {
+      disposed = true
+      window.cancelAnimationFrame(raf)
       window.clearInterval(timer)
     }
   }, [enabled])

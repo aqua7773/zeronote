@@ -15,7 +15,9 @@ import {
   MAIN_BAD_STREAK,
   mainDomLooksAlive,
   pickStuckWindows,
+  RENDER_STALL_MS,
   shouldRescueMain,
+  shouldRescueRender,
   STALE_MS,
   type WindowBeat,
 } from '../src/lib/window-guard'
@@ -200,5 +202,36 @@ describe('mainDomLooksAlive + shouldRescueMain（主窗口自救）', () => {
   it('空输入不炸', () => {
     expect(mainDomLooksAlive(null)).toBe(false)
     expect(mainDomLooksAlive(undefined)).toBe(false)
+  })
+})
+
+/**
+ * 渲染停帧判据（rev173.345 · 2026-11-03 真机实测）。
+ *
+ * 现场：画面全白、点击不重绘、持续 25 秒+，但 DOM 在、`setInterval` 在跑
+ * （Rust 看门狗都没杀进程）⇒ `shouldRescueMain` 永远判「正常」。这条靠 rAF 有没有帧来判。
+ */
+describe('shouldRescueRender（渲染停帧自救）', () => {
+  it('页面可见且连续没帧到阈值 ⇒ 动手', () => {
+    expect(shouldRescueRender({ visible: true, idleMs: RENDER_STALL_MS, alreadyRescued: false })).toBe(true)
+    expect(shouldRescueRender({ visible: true, idleMs: RENDER_STALL_MS + 5000, alreadyRescued: false })).toBe(true)
+  })
+
+  it('没到阈值 ⇒ 不动（别把慢当死）', () => {
+    expect(shouldRescueRender({ visible: true, idleMs: 0, alreadyRescued: false })).toBe(false)
+    expect(shouldRescueRender({ visible: true, idleMs: RENDER_STALL_MS - 1, alreadyRescued: false })).toBe(false)
+  })
+
+  it('页面不可见（切后台 / 熄屏）⇒ 永不动作（那时 rAF 本来就会停）', () => {
+    expect(shouldRescueRender({ visible: false, idleMs: 999_999, alreadyRescued: false })).toBe(false)
+  })
+
+  it('这次启动已经救过 ⇒ 不再动作（防原地循环刷）', () => {
+    expect(shouldRescueRender({ visible: true, idleMs: 999_999, alreadyRescued: true })).toBe(false)
+  })
+
+  it('阈值可覆盖（测试与调参用）', () => {
+    expect(shouldRescueRender({ visible: true, idleMs: 1200, alreadyRescued: false, thresholdMs: 1000 })).toBe(true)
+    expect(shouldRescueRender({ visible: true, idleMs: 800, alreadyRescued: false, thresholdMs: 1000 })).toBe(false)
   })
 })

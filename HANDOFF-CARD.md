@@ -7,9 +7,9 @@
 | 事实 | 当前值 |
 |---|---|
 | rev / 版本 | rev173.344 · 0.9.22 · 2026-11-04 |
-| 测试基线 | vitest 1844 · cargo 98 · oxlint 4 warnings（2026-11-04） |
+| 测试基线 | vitest 1849 · cargo 98 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 15 · 示例 39 |
-| 文档 | README 现状 2026-11-03（落后） · CHANGELOG 0.9.22 |
+| 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.22 |
 <!-- FACTS:END -->
 
 ## 📱 环境与设备（动 adb / 装包 / 判版本前先看这张表，别凭印象）
