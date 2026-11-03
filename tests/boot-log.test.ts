@@ -11,6 +11,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import plugin, {
   aggregateIpc,
+  installMethodProbe,
   installProbe,
   logText,
   longTaskRows,
@@ -18,6 +19,7 @@ import plugin, {
   probeSnapshot,
   readBoot,
   resourceRows,
+  slowCallRows,
   stageRows,
 } from '../examples/boot-log/index.js'
 
@@ -177,7 +179,7 @@ describe('panelNode', () => {
     expect(JSON.stringify(node)).toContain('这个版本没有启动打点')
   })
 
-  it('有数据：五张表（阶段/长任务/DOM 快照/IPC/资源）+ 刷新/复制按钮', () => {
+  it('有数据：六张表（阶段/长任务/DOM 快照/IPC/资源/慢调用）+ 刷新/复制按钮', () => {
     const node = panelNode({
       ...data,
       ipc: [{ cmd: 'read_file', start: 10, dur: 40, ok: true }],
@@ -185,7 +187,7 @@ describe('panelNode', () => {
       resources: [{ name: 'a.png', startTime: 3000, duration: 40 }],
     })
     const tables = node.children.filter((c) => c.type === 'table')
-    expect(tables).toHaveLength(5)
+    expect(tables).toHaveLength(6)
     expect(tables[0].rows).toHaveLength(3)
     expect(tables[1].rows).toHaveLength(3)
     expect(tables[2].rows[0].dom).toContain('图 2/3')
@@ -291,5 +293,29 @@ describe('apply：注册与命令接线', () => {
     // 面板照常渲染，IPC 表给出「只读」提示而不是空白
     const json = JSON.stringify(panelNode({ ...data, ipc: [], ipcUnavailable: true }))
     expect(json).toContain('Tauri IPC 只读')
+  })
+
+  it('方法探针：≥50ms 的 sort 被记下（带调用栈），快调用不记', () => {
+    installMethodProbe()
+
+    // 快排序：不记录
+    Array.from({ length: 5 }, (_, i) => i).sort((a, b) => a - b)
+    const before = slowCallRows().length
+
+    // 慢排序：比较器忙等 30ms × 3 次 ⇒ 总耗时 > 50ms
+    const arr = [3, 1, 2]
+    arr.sort(() => {
+      const t = Date.now()
+      while (Date.now() - t < 30) {
+        /* busy */
+      }
+      return 0
+    })
+
+    const rows = slowCallRows()
+    expect(rows.length).toBeGreaterThan(before)
+    expect(rows[0].label).toBe('Array.sort')
+    expect(rows[0].dur).toBeGreaterThanOrEqual(50)
+    expect(rows[0].stack).toContain('boot-log.test')
   })
 })

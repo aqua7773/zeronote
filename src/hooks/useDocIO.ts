@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { DocEvent, NoteMeta } from '../kernel/contract'
 import type { Kernel } from '../kernel/kernel'
 import { decodeForOpen, encodeForSave, isTransientPath } from '../kernel/doc-codec'
+import { bootMark } from '../lib/boot-marks'
 import { failMsg, type SaveState } from '../lib/fail-msg'
 import { clearDraftFor, saveDraft } from '../lib/draft-snapshot'
 import { mergeLines } from '../lib/merge3'
@@ -110,8 +111,10 @@ export function useDocIO({
 
   const refresh = useCallback(async () => {
     if (!kernel) return
+    bootMark('vault-refresh-start')
     try {
       const [list, dirList] = await Promise.all([kernel.fs.listNotes(), kernel.fs.listDirs()])
+      bootMark('vault-refresh-listed')
       setNotes(list)
       notesRef.current = list
       setDirs(dirList)

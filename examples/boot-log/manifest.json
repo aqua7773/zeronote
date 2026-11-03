@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "boot-log",
   "name": "启动日志",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

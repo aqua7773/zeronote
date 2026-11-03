@@ -140,6 +140,7 @@ export function uninstallProbe(win) {
   probe.observer = null
   probe.savedInvoke = null
   probe.installed = false
+  restoreMethodProbe()
 }
 
 export function probeSnapshot() {
@@ -148,6 +149,84 @@ export function probeSnapshot() {
     snaps: [...probe.snaps],
     ipcUnavailable: probe.ipcUnavailable,
   }
+}
+
+/* ───────────────────────── 全局方法探针（0.3.0） ───────────────────────── */
+
+/**
+ * 为什么包这几个方法：release 包里出现 9 秒纯 JS 阻塞，**没有 profiler 可用**
+ * （devtools 端口只在 dev 构建里开）。包装低频但可能巨慢的全局方法，只记 ≥50ms 的调用
+ * 并抓调用栈 —— 栈里第一帧就是罪魁。release 包没有 sourcemap，但函数名 / 行号能对上构建产物。
+ *
+ * 刻意**不包** split / replace / exec 这类每帧都可能调用的方法：包装本身会拖慢一切。
+ */
+const slowCalls = []
+const MAX_SLOW = 60
+const WRAP_TARGETS = [
+  [() => Array.prototype, 'sort', 'Array.sort'],
+  [() => Array.prototype, 'join', 'Array.join'],
+  [() => JSON, 'stringify', 'JSON.stringify'],
+  [() => JSON, 'parse', 'JSON.parse'],
+]
+/** 算 - 用于卸载时还原 */
+const wrappedOrig = []
+
+function captureStack() {
+  try {
+    const raw = new Error().stack || ''
+    return raw
+      .split('\n')
+      .slice(2, 5)
+      .map((l) => l.trim().replace(/^at\s+/, ''))
+      .join(' ← ')
+  } catch {
+    return ''
+  }
+}
+
+export function installMethodProbe() {
+  for (const [getObj, name, label] of WRAP_TARGETS) {
+    let obj
+    try {
+      obj = getObj()
+    } catch {
+      continue
+    }
+    const orig = obj?.[name]
+    if (typeof orig !== 'function' || orig.__znProbed) continue
+    const wrapped = function (...args) {
+      const t0 = nowMs()
+      const r = orig.apply(this, args)
+      const dur = nowMs() - t0
+      if (dur >= 50 && slowCalls.length < MAX_SLOW) {
+        const size = typeof this?.length === 'number' ? this.length : 0
+        slowCalls.push({ label, dur: Math.round(dur), size, stack: captureStack() })
+      }
+      return r
+    }
+    wrapped.__znProbed = true
+    try {
+      obj[name] = wrapped
+      wrappedOrig.push({ obj, name, orig })
+    } catch {
+      /* 只读环境跳过 */
+    }
+  }
+}
+
+function restoreMethodProbe() {
+  for (const { obj, name, orig } of wrappedOrig.splice(0)) {
+    try {
+      obj[name] = orig
+    } catch {
+      /* 无所谓 */
+    }
+  }
+}
+
+/** 慢调用表（按耗时降序，面板与报告共用） */
+export function slowCallRows(limit = 12) {
+  return [...slowCalls].sort((a, b) => b.dur - a.dur).slice(0, limit)
 }
 
 /* ───────────────────────── 纯函数 ───────────────────────── */
@@ -370,6 +449,21 @@ export function panelNode(data) {
         rows: resources,
         empty: '启动期没有慢资源',
       },
+      { type: 'text', value: '慢调用（≥50ms 的全局方法）', variant: 'title' },
+      {
+        type: 'table',
+        columns: [
+          { key: 'label', label: '方法' },
+          { key: 'dur', label: '耗时(ms)', width: '24%', align: 'right' },
+          { key: 'size', label: '规模', width: '18%', align: 'right' },
+        ],
+        rows: slowCallRows().map((r) => ({
+          label: r.stack ? `${r.label}（${r.stack.split(' ← ')[0]}）` : r.label,
+          dur: { type: 'text', value: String(r.dur), tone: r.dur >= 500 ? 'danger' : 'default' },
+          size: r.size,
+        })),
+        empty: '没有 ≥50ms 的调用（探针从插件加载时开始包）',
+      },
       { type: 'divider' },
       {
         type: 'row',
@@ -393,6 +487,7 @@ export default {
     const { command, view, host, subscriptions } = ctx
 
     installProbe()
+    installMethodProbe()
 
     /** 完整报告：面板三张表 + 明细，纯文本，便于贴回来 */
     function reportText() {
@@ -413,6 +508,8 @@ export default {
       }
       lines.push('[资源 Top]')
       for (const r of resourceRows(data.resources, 10)) lines.push(`  @${r.start} ${r.dur}ms ${r.name}`)
+      lines.push('[慢调用]')
+      for (const r of slowCallRows()) lines.push(`  ${r.label} ${r.dur}ms size=${r.size} ${r.stack}`)
       return lines.join('\n')
     }
 
