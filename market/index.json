@@ -118,6 +118,31 @@
       ]
     },
     {
+      "id": "boot-log",
+      "name": "启动日志",
+      "author": "aqua7773",
+      "description": "读取本次启动的打点与长任务，定位开屏卡顿",
+      "category": "tool",
+      "platforms": [
+        "desktop",
+        "android"
+      ],
+      "apiVersion": "^0.2.0",
+      "version": "0.1.0",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/boot-log-0.1.0.znp",
+      "sha256": "1ec2124db68698d92fcef21caffd352f2af7de773f0d8696cbc55b0e89fd9597",
+      "size": 8678,
+      "files": [
+        "index.js",
+        "signature.json"
+      ],
+      "capabilities": [
+        "command",
+        "view:main",
+        "host"
+      ]
+    },
+    {
       "id": "doc-reader",
       "name": "文档阅读器",
       "author": "aqua7773",

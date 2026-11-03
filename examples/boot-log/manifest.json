@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "id": "boot-log",
+  "name": "启动日志",
+  "version": "0.1.0",
+  "apiVersion": "^0.2.0",
+  "entry": "index.js",
+  "platforms": ["desktop", "android"],
+  "description": "读取本次启动的打点与长任务，定位开屏卡顿",
+  "category": "tool",
+  "capabilities": ["command", "view:main", "host"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "id": "boot-log.open", "title": "启动日志：查看本次启动耗时" },
+      { "id": "boot-log.refresh", "title": "启动日志：刷新" },
+      { "id": "boot-log.copy", "title": "启动日志：复制日志文本" }
+    ],
+    "panels": [{ "id": "boot-log.panel", "title": "启动日志", "location": "main" }]
+  }
+}

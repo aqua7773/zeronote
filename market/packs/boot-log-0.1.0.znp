@@ -1,0 +1,53 @@
+{
+  "znp": 1,
+  "manifest": {
+    "manifestVersion": 1,
+    "id": "boot-log",
+    "name": "启动日志",
+    "version": "0.1.0",
+    "apiVersion": "^0.2.0",
+    "entry": "index.js",
+    "platforms": [
+      "desktop",
+      "android"
+    ],
+    "description": "读取本次启动的打点与长任务，定位开屏卡顿",
+    "category": "tool",
+    "capabilities": [
+      "command",
+      "view:main",
+      "host"
+    ],
+    "activationEvents": [
+      "onStartup"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "id": "boot-log.open",
+          "title": "启动日志：查看本次启动耗时"
+        },
+        {
+          "id": "boot-log.refresh",
+          "title": "启动日志：刷新"
+        },
+        {
+          "id": "boot-log.copy",
+          "title": "启动日志：复制日志文本"
+        }
+      ],
+      "panels": [
+        {
+          "id": "boot-log.panel",
+          "title": "启动日志",
+          "location": "main"
+        }
+      ]
+    },
+    "sha256": "86ee9edc736ed06a16fa55db73e43ec78fadb6e0d08a888a226f2119618a4b59"
+  },
+  "files": {
+    "index.js": "/**\n * 启动日志示例插件（rev173.352）—— 把「刚进软件卡一下」的现场读出来。\n *\n * ## 为什么做成插件\n *\n * rev173.351 把启动打点放进了 `window.__znBootMarks()`（`src/lib/boot-marks.ts`），\n * 但 **release 包不回传 logcat** —— 用户手机上是正式包，只能靠页面内自己读：\n * 打点与长任务都常驻内存（`performance.mark` + `PerformanceObserver({ entryTypes:['longtask'] })`），\n * 插件在同一 window 里直接取，不需要任何原生通道。\n *\n * ## 数据\n *\n * `{ at, marks: [{ name, at }], longTasks: [{ start, dur }] }`\n * · `at` / `start` 都是相对**导航开始**的毫秒数（与 logcat 里 `[zn-boot] entry@3 …` 同源）\n * · `longTasks` 只收**启动后 20 秒内** ≥50ms 的主线程任务 —— 「卡顿」就是这一段时间被占住\n *\n * ## 读法\n *\n * 面板「启动日志」：阶段表（每个阶段距上一阶段的间隔）+ 长任务表（按耗时降序）\n * · 「刷新」重新读一次（长任务在 20 秒窗口内还会继续追加）\n * · 「复制日志」把等价的 `[zn-boot] …` 一行文本放进剪贴板，可直接转发\n */\n\nconst PANEL_ID = 'boot-log.panel'\n\n/**\n * 读一次打点。`win` 参数只为测试注入 —— 运行时不传，用全局 window。\n * 旧版本内核没有这个全局函数 ⇒ null（面板给提示，不报错）。\n */\nexport function readBoot(win) {\n  const w = win ?? (typeof window === 'undefined' ? undefined : window)\n  try {\n    const fn = w?.__znBootMarks\n    if (typeof fn !== 'function') return null\n    const data = fn()\n    if (!data || !Array.isArray(data.marks)) return null\n    return data\n  } catch {\n    return null\n  }\n}\n\n/** 阶段表：间隔 = 与上一个打点的差（0 表示同一时刻） */\nexport function stageRows(data) {\n  let prev = 0\n  return data.marks.map((m) => {\n    const gap = m.at - prev\n    prev = m.at\n    return { stage: m.name, at: m.at, gap }\n  })\n}\n\n/** 长任务按耗时降序 —— 最慢的那条就是用户感知到的「卡一下」 */\nexport function longTaskRows(data) {\n  return [...(data.longTasks || [])].sort((a, b) => b.dur - a.dur)\n}\n\n/** 复原 logcat 里那条同源日志，方便复制转发 */\nexport function logText(data) {\n  const marks = data.marks.map((m) => `${m.name}@${m.at}`).join(' ')\n  const tasks = (data.longTasks || []).map((t) => `longtask@${t.start}+${t.dur}ms`).join(' ')\n  return `[zn-boot] ${marks}${tasks ? ` | ${tasks}` : ''}`\n}\n\n/** 面板内容（纯函数，render 与测试共用） */\nexport function panelNode(data) {\n  if (!data) {\n    return {\n      type: 'stack',\n      gap: 'md',\n      children: [\n        { type: 'text', value: '这个版本没有启动打点', variant: 'title' },\n        {\n          type: 'text',\n          value: '启动打点从 0.9.24（rev173.351）起才有。确认应用已更新到该版本后再打开本面板。',\n          variant: 'caption',\n          tone: 'muted',\n        },\n      ],\n    }\n  }\n  const stages = stageRows(data)\n  const tasks = longTaskRows(data)\n  const longest = tasks[0]\n  return {\n    type: 'stack',\n    gap: 'md',\n    children: [\n      { type: 'text', value: '本次启动', variant: 'title' },\n      {\n        type: 'text',\n        value: `读于 ${data.at}ms · ${stages.length} 个阶段 · ${tasks.length} 个长任务`,\n        variant: 'caption',\n        tone: 'muted',\n      },\n      {\n        type: 'table',\n        columns: [\n          { key: 'stage', label: '阶段' },\n          { key: 'at', label: '时刻(ms)', width: '30%', align: 'right' },\n          { key: 'gap', label: '间隔(ms)', width: '30%', align: 'right' },\n        ],\n        rows: stages,\n        empty: '没有打点',\n      },\n      { type: 'text', value: '主线程长任务（>50ms）', variant: 'title' },\n      {\n        type: 'text',\n        value: longest\n          ? `最长的 ${longest.dur}ms 出现在 ${longest.start}ms 处`\n          : '本次启动没有 >50ms 的长任务',\n        variant: 'caption',\n        tone: longest ? 'warn' : 'muted',\n      },\n      {\n        type: 'table',\n        columns: [\n          { key: 'start', label: '开始(ms)', width: '40%', align: 'right' },\n          { key: 'dur', label: '持续(ms)', width: '40%', align: 'right' },\n        ],\n        rows: tasks.map((t) => ({\n          start: t.start,\n          dur: {\n            type: 'text',\n            value: String(t.dur),\n            tone: t.dur >= 100 ? 'danger' : 'default',\n          },\n        })),\n        empty: '—',\n      },\n      { type: 'divider' },\n      {\n        type: 'row',\n        gap: 'sm',\n        wrap: true,\n        children: [\n          { type: 'button', label: '刷新', onClick: 'boot-log.refresh' },\n          { type: 'button', label: '复制日志', onClick: 'boot-log.copy', variant: 'ghost' },\n        ],\n      },\n      { type: 'text', value: '与 logcat 里那条同源：', variant: 'caption', tone: 'muted' },\n      { type: 'code', value: logText(data) },\n    ],\n  }\n}\n\nexport default {\n  apply(ctx) {\n    const { command, view, host, subscriptions } = ctx\n\n    async function copyLog() {\n      const data = readBoot()\n      if (!data) {\n        host.notify('这个版本没有启动打点，没有可复制的日志', 'warn')\n        return\n      }\n      const text = logText(data)\n      if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {\n        host.notify('这台设备不支持直接复制，可在面板里长按选择文本', 'warn')\n        return\n      }\n      try {\n        await navigator.clipboard.writeText(text)\n        host.notify('启动日志已复制')\n      } catch (e) {\n        host.notify(`复制失败：${String(e)}`, 'error')\n      }\n    }\n\n    /**\n     * 打开面板。`core.panel.<id>` 由内核为每个面板注册，但要等插件加载后的下一次\n     * React 提交才存在 ⇒ 冷启动时先重试几次（tag-panel / doc-reader 同款做法）。\n     */\n    async function openPanel() {\n      for (let i = 0; i < 5; i++) {\n        try {\n          await command.execute(`core.panel.${PANEL_ID}`)\n          return\n        } catch (e) {\n          if (i === 4) host.notify(`打开启动日志失败：${String(e)}`, 'error')\n          await new Promise((r) => setTimeout(r, 120))\n        }\n      }\n    }\n\n    subscriptions.push(\n      view.registerPanel({\n        id: PANEL_ID,\n        title: '启动日志',\n        location: 'main',\n        render: () => panelNode(readBoot()),\n      }),\n    )\n\n    subscriptions.push(\n      command.register({\n        id: 'boot-log.open',\n        title: '启动日志：查看本次启动耗时',\n        run: () => openPanel(),\n      }),\n    )\n    subscriptions.push(\n      command.register({\n        id: 'boot-log.refresh',\n        title: '启动日志：刷新',\n        run: () => view.refresh(PANEL_ID),\n      }),\n    )\n    subscriptions.push(\n      command.register({\n        id: 'boot-log.copy',\n        title: '启动日志：复制日志文本',\n        run: () => copyLog(),\n      }),\n    )\n\n    host.log('info', '启动日志插件已就绪（读 window.__znBootMarks）')\n  },\n}\n",
+    "signature.json": "{\n  \"alg\": \"ed25519\",\n  \"keyId\": \"aqua-2026\",\n  \"sig\": \"vuRUUkk/yUdKXH9jBO99+HqGqqpxjZh/xCyLAHHFeTbuY3+gldG626owM/DKJu3261fRoP0PUmv4LC+AD8w+Ag==\"\n}\n"
+  }
+}
