@@ -37,7 +37,7 @@
 
 ## 当前状态
 
-- **0.9.23 已发版**（tag `v0.9.23` · commit `c9ba43d` · GitHub 3 资产 + **Gitee Release 同步** `legendary-bird-lin/zeronote`）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.23> · <https://gitee.com/legendary-bird-lin/zeronote/releases/tag/v0.9.23>
+- **0.9.26 已发版**（tag `v0.9.26` · commit `18b5442` · GitHub 3 资产：桌面 `ZeroNote_0.9.26_x64-setup.exe` + `.sig` + Android APK）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.26> · Gitee 已推 main+tag（**Release 附件待网页手动上传**，无 token）；⚠️ 本次 APK 是 **arm64 单架构 33.4 MB**（0.9.25 的 127 MB 是 4 ABI），老 32 位设备装不上
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
 - **rev173.341–344 已全部验完**：同类问题 6 项落地（跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一）· 手机点图预览收软键盘（真机 + 用户确认）· 真机补验 P4/P6/P1 三项全过 · 三个插件市场包重打（`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`，已推 GitHub）

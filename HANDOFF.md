@@ -282,8 +282,22 @@ revision: 173.358
 > （写等长内容 + mtime 写回原值，仍必须出新标题）；`tests/kernel-fs-watch.test.ts` +1
 > （`list_notes_light` 不存在时回退完整版且仍能上报变化）。
 
-> **未做**：手机重编 debug 包实测（用户选桌面验；FUSE IO 更慢，比例预计类似但绝对值未取）；
-> `list_dirs` 未加同类缓存（轮询已不调它，`useDocIO` 的刷新仍调）。
+> **真机验收（0.9.25 debug 包 · Redmi `33b676f6`）**：冷启动 `entry@4374` →
+> `first-frame@4380` → `vault-refresh-listed@4487` → `plugins-ready@5012`，启动窗口内长任务
+> 只有 **65ms / 58ms**（原 1730ms），8 秒那次轮询没有产生 >50ms 的长任务；`watch_vault`
+> 失败后轮询正常启动（`[zn] 系统文件监听不可用`）。功能侧：`adb shell` 在手机库新建
+> `poll-test.md`，**14 秒内**出现在时间流第一条（`_shots/rev358-before.png` /
+> `rev358-after.png`），删除后同样消失。⚠️ 同轮撞到已知白屏：`am force-stop` 后只等 2 秒启动
+> ⇒ `LaunchState: WARM` + 纯白画面（19399 B）不重绘；等 6 秒彻底杀进程再启动
+> （`COLD`）恢复正常（`_shots/rev358-gate4.png`）—— 与「白屏 = 渲染停摆」同一类，**不是本次改动引入**。
+
+> **已发版 0.9.26**（tag `v0.9.26` · commit `18b5442`）：GitHub Release 3 资产
+> （`ZeroNote_0.9.26_x64-setup.exe` 15.1 MB + `.sig` + `app-universal-release.apk` 33.4 MB，
+> APK HEAD 200）；`update/latest.json` 与 `android.json` 已更新（commit `8fad03e`）；
+> Gitee 已推 main + tag。⚠️ 本次 APK 只编了 **arm64**（`build-release.mjs` 默认单 ABI），
+> 0.9.25 的 127 MB 是 4 ABI；Gitee Release 附件没有 token，需网页手动上传。
+
+> **未做**：`list_dirs` 未加同类缓存（轮询已不调它，`useDocIO` 的刷新仍调）。
 
 > ## 📌 rev173.357（2026-11-04 · 启动卡顿根因定位 + 轮询兜底改造）
 
