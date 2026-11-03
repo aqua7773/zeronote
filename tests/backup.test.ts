@@ -20,7 +20,6 @@ import plugin, {
   panelNode,
   parseIndex,
   pickStale,
-  selectOptions,
   toRows,
 } from '../examples/backup/index.js'
 
@@ -162,13 +161,23 @@ describe('自动备份档位（rev173.176）', () => {
     expect(dueAt(1000, '1h')).toBe(1000 + HOUR)
   })
 
-  it('selectOptions 把当前档位排第一（宿主 state 为空时落到它）', () => {
-    const opts = selectOptions('1w')
-    expect(opts[0].value).toBe('1w')
-    expect(opts).toHaveLength(9)
-    expect(new Set(opts.map((o) => o.value)).size).toBe(9)
-    // 非法值回落默认档，且仍排第一
-    expect(selectOptions('乱写')[0].value).toBe('1d')
+  it('档位 select 是固定正序（当前值靠 setState 播种，不靠排序）', () => {
+    const selects: { bind?: string; options?: { value: string }[] }[] = []
+    const walk = (n: unknown) => {
+      if (!n || typeof n !== 'object') return
+      const o = n as Record<string, unknown>
+      if (o.type === 'select') selects.push(o as never)
+      for (const v of Object.values(o)) {
+        if (Array.isArray(v)) v.forEach(walk)
+        else walk(v)
+      }
+    }
+    walk(panelNode({ interval: '1w' }))
+    expect(selects).toHaveLength(1)
+    expect(selects[0].bind).toBe('backup.interval')
+    expect(selects[0].options?.map((o) => o.value)).toEqual([
+      '1h', '3h', '6h', '12h', '1d', '2d', '3d', '1w', '1mo',
+    ])
   })
 
   it('dueText 三种状态', () => {
@@ -296,6 +305,8 @@ describe('接线', () => {
           return { dispose: () => {} }
         }),
         refresh: vi.fn(),
+        /* 2026-11-03 P2：播种 select 用的接口（契约 PluginViewApi.setState） */
+        setState: vi.fn(),
       },
       command: {
         register: vi.fn((c) => {

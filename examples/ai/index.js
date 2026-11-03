@@ -1478,6 +1478,8 @@ export default {
         allowedCommands = []
       }
       startDueTimer()
+      /* 播种 provider select（2026-11-03 P2）：不写就永远显示第一项（DeepSeek） */
+      view.setState('ai.provider', cfg.provider)
       refresh()
     }
 
@@ -3010,10 +3012,8 @@ export default {
           children: {
             type: 'select',
             bind: 'ai.provider',
-            options: [p, ...PROVIDERS.filter((x) => x.id !== p.id)].map((x) => ({
-              value: x.id,
-              label: x.name,
-            })),
+            /* 固定正序（2026-11-03 P2）：当前值靠 setState 播种，不再把当前项排第一 */
+            options: PROVIDERS.map((x) => ({ value: x.id, label: x.name })),
             onSubmit: 'ai.set-provider',
           },
         },
@@ -3379,6 +3379,8 @@ export default {
           const id = String(payload?.value || '').trim()
           if (!PROVIDERS.some((x) => x.id === id)) return
           cfg.provider = id
+          // 播种（2026-11-03 P2）：与 load() 同一口径，换完立刻回显
+          view.setState('ai.provider', id)
           // 换服务商时清空模型名，回到该服务商的默认（自定义除外）
           cfg.model = ''
           if (id !== 'custom') cfg.baseUrl = ''

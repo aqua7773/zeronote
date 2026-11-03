@@ -255,20 +255,8 @@ export function dueText(lastAt, value, now = Date.now()) {
   return `自动备份：${intervalLabel(value)} · 上次 ${stamp(last, now)} · 下次 ${stamp(dueAt(last, value), now)}`
 }
 
-/**
- * select 的选项顺序：**当前档位排第一**。
- *
- * 为什么要这个 hack：`select` 的值来自宿主 `ctx.state[bind]`，插件**没有**直接写它的接口；
- * 首次渲染时 state 为空 ⇒ 浏览器选中第一项。把当前档位放第一项，画面就与真实配置一致
- * （否则明明设的是「每周」，控件却显示「每小时」）。用户选过之后 state 有值，按 value 匹配即可。
- */
-export function selectOptions(value) {
-  const cur = INTERVALS.find((i) => i.value === value) ?? INTERVALS.find((i) => i.value === DEFAULT_INTERVAL)
-  return [cur, ...INTERVALS.filter((i) => i.value !== cur.value)].map((i) => ({
-    value: i.value,
-    label: i.label,
-  }))
-}
+/* 2026-11-03 P2：原来的 `selectOptions`（当前档位排第一）已删 —— 显示当前值靠
+   `api.view.setState('backup.interval', 真实值)` 播种，选项保持固定正序。 */
 
 /**
  * 面板视图（纯数据，UINode）。
@@ -319,7 +307,8 @@ export function panelNode(view) {
           {
             type: 'select',
             bind: 'backup.interval',
-            options: selectOptions(interval),
+            /* 固定正序：当前档位靠 setState 播种，不靠排序 hack */
+            options: INTERVALS.map((i) => ({ value: i.value, label: i.label })),
             onSubmit: 'backup.set-interval',
           },
         ],
@@ -820,6 +809,8 @@ export default {
           const next = String(payload?.value ?? '').trim()
           if (!INTERVALS.some((i) => i.value === next)) return
           await saveConfig({ interval: next })
+          // 播种（2026-11-03 P2）：与启动时同一口径，改完立刻回显
+          api.view.setState('backup.interval', next)
           status = `自动备份改为：${intervalLabel(next)}`
           refresh()
           // 改成更短的档位后可能立刻到期 —— 马上看一眼，不必等下一轮 60 秒
@@ -853,6 +844,8 @@ export default {
      */
     void (async () => {
       await loadConfig()
+      /* 播种 select（2026-11-03 P2）：宿主的值取 ctx.state[bind]，不写就永远显示第一项 */
+      api.view.setState('backup.interval', config.interval)
       await reloadRows()
       void tick()
       ticker = setInterval(() => {
