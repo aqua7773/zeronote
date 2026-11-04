@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（当前状态）
 
-> 最后更新 **2026-11-04（rev173.359）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
+> 最后更新 **2026-11-04（rev173.360）** ｜ 逐项历史与证据在 **`HANDOFF.md`**（rev173.125 起；更早归档 `docs/archive/handoff/`）｜ 提交一律看 `git log`
 > **上限 120 行**：本卡只放当前状态与下个会话必读项；一个 rev 的过程记录一律进 `HANDOFF.md`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.359 · 0.9.27 · 2026-11-04 |
+| rev / 版本 | rev173.360 · 0.9.27 · 2026-11-04 |
 | 测试基线 | vitest 1886 · cargo 100 · oxlint 4 warnings（2026-11-04） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.27 |
@@ -38,7 +38,8 @@
 ## 当前状态
 
 - **0.9.27 已发版**（tag `v0.9.27` · commit `ba51b0a` · GitHub 3 资产：桌面 `ZeroNote_0.9.27_x64-setup.exe` + `.sig` + Android APK）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.27> · Gitee 已推 main+tag（**Release 附件待网页手动上传**，无 token）；⚠️ APK 仍为 **arm64 单架构**，0.9.25 的 127 MB 是 4 ABI，老 32 位设备装不上
-- **rev173.359 轮询首轮不再误报新建**：0.9.26 release 上启动后 **8222ms** 仍有 ~400ms 长任务 —— 首轮把 126 篇全判成 `create`，而刷新回调不看事件内容、每条跑一次 `listNotes + listDirs` ⇒ 126 次全库扫描。改成首轮只建基线 + 同一 tick 合并刷新。dev 包冷启动长任务只剩 **78/59ms**、8 秒处无长任务。**待用户在 0.9.27 release + 大库上确认**
+- **rev173.359 轮询首轮不再误报新建**：0.9.26 release 上启动后 **8222ms** 仍有 ~400ms 长任务 —— 首轮把 126 篇全判成 `create`，而刷新回调不看事件内容、每条跑一次 `listNotes + listDirs` ⇒ 126 次全库扫描。改成首轮只建基线 + 同一 tick 合并刷新。dev 包冷启动长任务只剩 **78/59ms**、8 秒处无长任务
+- **rev173.360 白屏探针只给 debug 构建**：`RenderWatchdog` 之前**无条件**启动，它的 draw 自检会铺一层 `#ff0000` 全屏覆盖层（每进程一次、启动后约 40 秒）—— 这就是用户看到的「时不时闪一下红色」；判据早被证伪（`webView.draw()` 画不出 Chromium 内容），还会在 5 分钟后误软复位一次。改成 `if (!BuildConfig.DEBUG) return`，**release 包彻底没有探针**（debug 保留白屏排障）。**待发 0.9.28**
 - **真人测试10 六条全过**：桌面 #1/#2/#3/#5/#6A/#6B · 手机 #1/#2/#3/#4/#5。判定表 `docs/验收卡-真人测试10-2026-11-03.md` §6，证据 `_shots/rt10-*`
 - verify 最近全绿：`tsc 0` · `oxlint 4 warnings` · `cargo test --lib` 全过 · `vitest` 全过 · 质量门 8/8（具体条数见上方 FACTS 块，不在正文抄第二遍）
 - **rev173.341–344 已全部验完**：同类问题 6 项落地（跨端路径对拍 + Android 绝对路径收口 · select 播种 · `data-overlay` · 卡片补「详细…」「在文件夹中打开」· 复制文案统一）· 手机点图预览收软键盘（真机 + 用户确认）· 真机补验 P4/P6/P1 三项全过 · 三个插件市场包重打（`backup 0.3.2` / `ai 0.9.1` / `import-export 0.2.5`，已推 GitHub）

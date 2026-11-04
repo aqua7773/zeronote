@@ -39,6 +39,17 @@ class MainActivity : TauriActivity() {
    */
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    /*
+     * 渲染停摆看门狗**只在 debug 构建里跑**（rev173.360）。
+     *
+     * 为什么：它的判据（`webView.draw()` 抓画面）在真机上画不出 Chromium 内容 ⇒ 页面
+     * 正常也判「全白」，每进程会闪一次整屏红（draw 自检）并在 5 分钟后软复位一次。
+     * 这是调试工具，不该出现在用户手上的 release 包里 —— 2026-11-04 用户看到
+     * 「屏幕时不时闪一下红色」就是它。
+     *
+     * debug 包保留：白屏排障还要靠 `ZN-RENDER` 日志与这套采样。
+     */
+    if (!BuildConfig.DEBUG) return
     renderWatchdog = RenderWatchdog(this, webView)
     if (resumed) renderWatchdog?.start()
   }
