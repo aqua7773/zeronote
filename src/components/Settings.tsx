@@ -4,7 +4,7 @@ import type { ThemePref } from '@/lib/theme'
 import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { AssetRelayPanel } from './AssetRelayPanel'
 import { AppUpdatePanel } from './AppUpdatePanel'
-import { MORE_GROUPS, type MoreActionId, type TabId } from './more-items'
+import { visibleMoreGroups, type MoreActionId, type TabId } from './more-items'
 import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
@@ -330,6 +330,11 @@ export interface SettingsProps extends SettingsSectionProps {
   initialTab?: TabId
   /** 动作条目：宿主负责关掉这一页再做（搜索 / 回收站 / 切换库 / 插件中心） */
   onAction?: (id: MoreActionId) => void
+  /**
+   * `private-notes` 插件在不在、有没有被禁用（rev173.362）。
+   * 不在 ⇒ 不摆「私密笔记」这条 —— 与手机右侧栏同一条规则（`visibleMoreGroups`）。
+   */
+  privateAvailable?: boolean
 }
 
 /**
@@ -343,6 +348,7 @@ export function Settings({
   onOpenChange,
   initialTab,
   onAction,
+  privateAvailable,
   ...sections
 }: SettingsProps) {
   const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
@@ -362,7 +368,7 @@ export function Settings({
         <div className="flex min-h-[360px]">
           <nav className="w-[132px] shrink-0 overflow-y-auto border-r border-border p-2">
             {/* 条目表与手机右侧栏共用 `more-items.ts`（rev173.315：两组共 7 项） */}
-            {MORE_GROUPS.map((group) => (
+            {visibleMoreGroups(privateAvailable ?? true).map((group) => (
               <div key={group.title}>
                 <div className="mb-1 mt-3 px-2.5 text-[11px] text-muted-foreground first:mt-0">
                   {group.title}

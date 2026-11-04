@@ -2304,6 +2304,20 @@ export default function App() {
   )
 
   /**
+   * 「私密笔记」入口的可用性（rev173.362）。
+   *
+   * 用户 2026-11-04 指出：把「私密文件夹」插件关掉后，侧栏锁形按钮 / 「更多 → 私密笔记」
+   * 还在 —— 点下去只会得到「没装插件」。这违反「空内核 · 功能全靠插件」：
+   * **插件不在，入口就该消失**（入口是插件的门，不是内核的功能）。
+   *
+   * 判据 = 插件目录里有它（`pluginEntries`，宿主扫描得到）且不在禁用集合（`disabled`）。
+   */
+  const privateAvailable = useMemo(
+    () => Boolean(pluginEntries['private-notes']) && !disabled.has('private-notes'),
+    [pluginEntries, disabled],
+  )
+
+  /**
    * 打开「私密文件夹」面板（rev173.336 · 真人测试10 #2「正常模式和私密笔记怎么切换？」）。
    *
    * 命令由 `private-notes` 插件注册；没装时如实说一句 —— 不给一个点了没反应的死按钮。
@@ -5393,8 +5407,8 @@ export default function App() {
             setMoreTab('menu')
             setMoreOpen(true)
           }}
-          /* 桌面侧栏头部的锁形按钮（rev173.336 · 真人测试10 #2） */
-          onOpenPrivate={isDesktop ? openPrivateNotes : undefined}
+          /* 桌面侧栏头部的锁形按钮（rev173.336 · 真人测试10 #2；rev173.362 插件不在就不摆） */
+          onOpenPrivate={isDesktop && privateAvailable ? openPrivateNotes : undefined}
           onOpenTrash={openTrash}
           onOpenVaultMenu={(x, y) => void openVaultMenu(x, y)}
           /* B6：`location: 'sidebar'` 的插件面板进侧栏分组（桌面；零插件 / 全禁用 ⇒ 不传） */
@@ -5944,6 +5958,8 @@ export default function App() {
           />
           <MobileMoreDrawer
             {...moreSectionProps}
+            /* rev173.362：插件不在就不摆「私密笔记」入口 */
+            privateAvailable={privateAvailable}
             noteCount={notes.length}
             view={moreTab}
             onViewChange={setMoreTab}
@@ -6156,6 +6172,8 @@ export default function App() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         {...moreSectionProps}
+        /* rev173.362：插件不在就不摆「私密笔记」入口 */
+        privateAvailable={privateAvailable}
         onAction={(id) => {
           setSettingsOpen(false)
           if (id === 'search') openOverlay('search')

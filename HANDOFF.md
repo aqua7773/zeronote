@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.360
-更新时间: 2026-11-04 · 最新 rev173.360（**白屏探针误进 release**：用户看到「屏幕时不时闪一下红色」—— `MainActivity.onCreate` 无条件启动 `RenderWatchdog`，它的 draw 自检会铺整屏红层；已改成只 debug 构建启用。release 不再闪红、不再误软复位）
+revision: 173.362
+更新时间: 2026-11-04 · 最新 rev173.362（**私密笔记入口不随插件消失**：把「私密文件夹」插件关掉后，桌面侧栏锁形按钮 / 手机「更多 → 私密笔记」还在，点下去只报「没装插件」—— 违反「空内核 · 功能全靠插件」；入口改由 `privateAvailable`（插件目录里有 + 未被禁用）控制，`visibleMoreGroups()` 一处过滤桌面浮窗与手机右侧栏。另含 rev173.361 私密笔记指纹入口修复）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,8 @@ revision: 173.360
 
 | rev | 内容 |
 |---|---|
+| rev173.362 | 2026-11-04 · **私密笔记入口不随插件消失**：用户指出 —— 把「私密文件夹」插件关掉后，桌面侧栏锁形按钮 / 手机「更多 → 私密笔记」入口还在，点下去只得到「没装插件」。这违反「空内核 · 功能全靠插件」：**入口是插件的门，插件不在就该消失**。根因：入口是内核写死的（`App.tsx` 桌面 `onOpenPrivate` 常传、`more-items.ts:43` 手机条目表无条件摆），没有任何「插件在不在」的判断。修法：① `App.tsx` 派生 `privateAvailable = Boolean(pluginEntries['private-notes']) && !disabled.has('private-notes')`（复用宿主已有的「插件目录扫描」与「禁用集合」两个状态）；② `more-items.ts` 新增 `visibleMoreGroups(privateAvailable)` —— 不在时过滤掉 `private` 条目（桌面浮窗 `Settings` 与手机右侧栏 `MobileMoreDrawer` **共用这一份**，不各写一遍）；③ 两个外壳各加 `privateAvailable` prop（不传按「在」处理，老调用方/测试兼容）；④ 桌面侧栏 `onOpenPrivate={isDesktop && privateAvailable ? … : undefined}`。**证据**：tsc 0 · oxlint 4 warnings · `verify.ps1` 全绿（vitest 1886 · 质量门 8/8，13:21:29）。**未做**：真机复验（禁用插件后入口应消失）。 |
+| rev173.361 | 2026-11-04 · **私密笔记锁屏没有「用指纹解锁」**：用户两张截图对照 —— 「安全」插件面板里 `notes` 环显示「本机已绑定」+「用指纹解锁」，但 `private-notes` 的锁屏只有主密码框。根因：`biometric = { available, bound }` 是**加载期缓存**，只在 `apply()` 里 `refreshBiometric()` 读过一次；用户是在之后去安全面板绑定的，没有任何事件通知本插件 ⇒ 锁屏一直按 `bound=false` 渲染（`index.js:810` 的条件 `available && bound`）。修法：① 新增 `syncBiometricNow()` —— `security.biometric.available()` / `bound(ring)` 都是**内存读**（`examples/security/index.js:1821/1823`，无 IPC），可以在 `render` 里同步调用，于是每次面板渲染前刷新一次；② `refreshBiometric()` 改成它的 `async` 包装（调用点不变）；③ `service:available` 回调补一次刷新（crypto 服务晚到场景）；④ 未绑定时锁屏补一句「本机支持指纹：解锁后在列表里点『绑定指纹』」（原来什么都不显示，用户以为没这个功能）。`private-notes` **0.2.3** 已签名入库（market 16 条 · 验签 69/70）。**证据**：`verify.ps1` 全绿。**未做**：真机复验（要用户从插件市场更新到 0.2.3）。 |
 | rev173.360 | 2026-11-04 · **白屏探针误进 release（用户看到屏幕时不时闪一下红色）**：`MainActivity.onCreate` 里 `renderWatchdog = RenderWatchdog(this, webView)` **无条件**执行，整个仓库没有任何 `BuildConfig.DEBUG` 判断 ⇒ 0.9.26 / 0.9.27 的正式包都带着探针。红闪来源 = `RenderWatchdog.verifyDraw()` 的 draw 自检：往 `document.body` 塞一个 `position:fixed;background:#ff0000` 全屏层（`VERIFY_ON_JS`），400ms 后 `draw()` 采样看能否抓到红色，再移除 —— 每进程第一次采样（启动 30 秒预热 + 10 秒 tick ≈ **40 秒**）触发一次。判据本身早被证伪（`webView.draw()` 画不出 Chromium 内容，红层是普通合成层所以永远「通过」）⇒ 页面正常也判全白，红闪后 5 分钟还会软复位一次（`onPause` 800ms → `onResume`）。改法：`onWebViewCreate` 开头 `if (!BuildConfig.DEBUG) return` —— release 彻底没有探针，debug 包保留白屏排障（`ZN-RENDER` 日志与采样）。**验证**：`:app:compileUniversalReleaseKotlin` BUILD SUCCESSFUL（17s）；verify 全绿。**未发版**：等用户决定是否打 0.9.28。 |
 | rev173.359 | 2026-11-04 · **轮询首轮误报新建（0.9.26 release 上 400ms 长任务）**：0.9.26 治本后用户实测启动后 **8222ms** 仍有一次 ~400ms 长任务 —— 8222 ≈ 8000（`POLL_FIRST_MS`）+ 222。根因：`pollOnce` 的 `last` 初值为空 ⇒ 首轮把库里每一篇都判成 `create`（126 篇 = **126 条事件**），而 `useDocIO` 的 `kernel.fs.watch(() => refresh())` **不看事件内容**、每条都跑一次 `listNotes + listDirs` ⇒ 8 秒那一刻集中 126 次全库扫描。修法：① `src/kernel/fs.ts` 首轮只建基线（`primed` 标志，`last = now` 后 return），不产生任何事件 —— 启动路径本来就会 refresh 一次，首轮没有信息增益；② `src/hooks/useDocIO.ts` 新增 `scheduleRefresh`（`setTimeout(0)` 合并同一 tick 的多次回调）⇒ 同步插件一次落几十篇文件时的同类风暴一并收掉。**测试 +1**：`轮询首轮只建基线…`（首轮 0 事件、第二轮多一篇只报一条）。**证据**：dev 包冷启动 `[zn-longtask]` 只剩 `start=4308 dur=78` / `start=4431 dur=59`，**8 秒处无长任务**（`_shots/rev359-final.png`）；`verify.ps1` 全绿（vitest 1886 · cargo 100 · 质量门 8/8，12:27:34）。**未验**：release 包 + 126 篇真库（本机手机库只有 3 篇、努比亚机未连 USB）—— 要用户在 0.9.27 release 上确认。 |
 | rev173.358 | 2026-11-04 · **轮询治本：`list_notes` 元数据缓存 + 轻量清单命令**（接 rev173.357 的「8 秒后仍有 1 秒全库扫描」）：① **缓存** —— `collect()` 逐篇 `read_to_string` + 解析 frontmatter 是 1.45 秒的大头；新增 `NOTE_META_CACHE: LazyLock<Mutex<BTreeMap<绝对路径, (mtime,size,title,frontmatter)>>>`，键 `(mtime, size)` 命中就跳过读文件；**所有写盘命令**（`write_note` / `write_note_bytes` / `create_note` / `set_mtime` / `rename_note` / `rewrite_links` / `delete_note` / `restore_trash` / `move_entry`）落盘后调 `invalidate_note_meta(_tree)` —— 只靠 mtime 不够，同步插件的 `set_mtime` 会把时间写回远端值、同秒两次写 mtime 也可能相同。② **轻量命令** `list_notes_light(vault) -> Vec<{path, mtime}>` —— 与 `collect` 共用谓词 `is_listed_file`（笔记 / 只读文档 / 图片 / 音视频），不读正文、不补 ID；`src/kernel/fs.ts` 的 `pollOnce` 改调它。③ **实测（桌面 dev · 合成库 126 篇 / 9.2 MB · NTFS · CDP 计时）**：冷缓存 `list_notes` **390ms** vs `list_notes_light` **9ms**；热缓存（缓存命中后）`list_notes` 14–53ms vs light 7–13ms（light 与缓存无关，稳定在目录遍历 + `metadata()` 的成本）。⚠️ **测量坑**：`touch` 126 个文件会触发 watcher 风暴，风暴期第一次 `invoke` 被主线程排队污染成 **2.3 秒**（第二次起恢复 50→12ms），测耗时必须在风暴消化后取数，或换一个未被 watcher 监听的库路径。④ **测试**：`list_notes_light_matches_list_notes`（两条命令的路径集合与顺序必须逐项相等 —— 锁住「轻量版漏掉图片/文档」这类边界漂移）+ `note_meta_cache_invalidated_by_writes`（写**等长**内容并把 mtime 强行改回原值，仍必须出新标题）。**证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo **100** passed · vitest 1884 · 质量门 8/8，05:31:28）。**未做**：手机重编 debug 包实测（用户选桌面验；手机 FUSE IO 更慢，比例预计类似但绝对值未取）；`list_dirs` 未做同类缓存（轮询已不调它，`useDocIO` 的刷新仍调）。 |
@@ -247,6 +249,62 @@ revision: 173.360
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.362（2026-11-04 · 私密笔记入口应该跟着插件走）
+
+> **现象**：用户把「私密文件夹」插件关掉，桌面侧栏的锁形按钮、手机「更多 → 私密笔记」
+> 都还在；点下去只弹「没装『私密文件夹』插件」。
+
+> **根因**：入口是内核写死的，没有任何「插件在不在」的判断：
+
+> - 桌面：`App.tsx` 的 `onOpenPrivate={isDesktop ? openPrivateNotes : undefined}` —— 只看平台
+> - 手机：`more-items.ts` 的条目表里 `{ kind: 'action', id: 'private', label: '私密笔记' }`
+>   无条件摆
+
+> **修法**：
+
+> - `App.tsx` 派生 `privateAvailable`：插件目录里有 `private-notes`（`pluginEntries`）且
+>   不在禁用集合（`disabled`）—— 两个状态宿主本来就有，不用向插件要
+> - `more-items.ts` 新增 `visibleMoreGroups(privateAvailable)`：不在时过滤掉这条动作。
+>   **桌面浮窗与手机右侧栏读同一张表，过滤规则必须只有一份**
+>   （`Settings.tsx` / `MobileMoreDrawer.tsx` 各自 `...sections` 展开）
+> - 两个外壳各加 `privateAvailable` prop，不传按「在」处理（测试与老调用方兼容）
+
+> **证据**：`npx tsc -b` 0 错误；`oxlint src` 4 warnings（基线）；`verify.ps1` 全绿
+> （vitest 1886 · cargo 100 · 质量门 8/8，13:21:29）。
+
+> **未做**：真机复验 —— 禁用插件后桌面锁形按钮与手机「更多」里的私密笔记应同时消失。
+
+> ## 📌 rev173.361（2026-11-04 · 私密笔记锁屏不显示「用指纹解锁」）
+
+> **现象**：用户两张截图对照 —— 「安全」插件面板（`notes` 环）里「本机已绑定」与
+> 「用指纹解锁」按钮都在，但 `private-notes` 的锁屏只有主密码框和「解锁」。
+
+> **根因**：`biometric` 是**加载期缓存**：
+
+> ```js
+> // apply() —— 插件加载时读一次
+> await refreshBiometric()
+> ```
+
+> 用户是之后才去安全面板绑定的，本插件没有任何事件知道这件事 ⇒ 锁屏按
+> `if (biometric.available && biometric.bound)` 渲染时永远是 false，按钮永远不出现。
+
+> **修法**：
+> - 新增 `syncBiometricNow()`：`security.biometric.available()` / `bound(ring)` 都是纯内存读
+>   （`examples/security/index.js:1821` / `:1823`，无 IPC），可以在**同步的 render** 里调用
+> - `render` 第一行调用它 ⇒ 每次面板重绘都拿真实状态（安全面板刚绑定也立刻可见）
+> - `refreshBiometric()` 退化成它的 async 包装（调用点语义不变）
+> - `service:available` 回调补一次刷新（crypto 服务晚于插件加载的场景）
+> - 未绑定时锁屏补一句「本机支持指纹：解锁后在列表里点『绑定指纹』」—— 原来什么都不显示，
+>   用户只会在多个入口之间反复找
+
+> **产物**：`private-notes` **0.2.3**（`market/packs/private-notes-0.2.3.znp`，aqua-2026 签名，
+> 整包 sha256 `8701aeb0d8400fbb…`）；market 索引重建 16 条。
+
+> **证据**：`node --check` 通过；`verify-trust` 69/70 验过；`verify.ps1` 全绿。
+
+> **未做**：真机复验 —— 用户需从「插件中心 → 插件市场」把私密文件夹更新到 0.2.3 才生效。
 
 > ## 📌 rev173.360（2026-11-04 · 白屏探针不该进 release）
 

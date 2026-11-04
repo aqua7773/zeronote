@@ -461,8 +461,15 @@ function needSvc() {
  */
 let biometric = { available: false, bound: false }
 
-/** 从 crypto 服务读指纹状态（服务没有 biometric 扩展 = 老版安全插件 ⇒ 都是 false） */
-async function refreshBiometric() {
+/**
+ * **同步**读指纹状态（render 里用）。
+ *
+ * rev173.361：`security` 的 `biometric.available()` / `bound(ring)` 都是内存读（无 IPC），
+ * 所以可以每次渲染前同步刷一次 —— 修的是「用户在安全插件面板里绑定了指纹，
+ * 回到私密笔记锁屏却还看不到『用指纹解锁』」：缓存只在 `apply` 时读过一次，绑定发生在
+ * 之后，没人通知本插件。原来无绑定入口时用户只能主密码解锁，等于功能没生效。
+ */
+function syncBiometricNow() {
   try {
     const b = svc?.biometric
     biometric = b
@@ -472,6 +479,11 @@ async function refreshBiometric() {
     biometric = { available: false, bound: false }
   }
   return biometric
+}
+
+/** 从 crypto 服务读指纹状态（服务没有 biometric 扩展 = 老版安全插件 ⇒ 都是 false） */
+async function refreshBiometric() {
+  return syncBiometricNow()
 }
 
 /**
@@ -801,6 +813,11 @@ function lockedView() {
       gap: 'sm',
       children: [btn('用指纹解锁', 'private.biometric-unlock', { variant: 'ghost' })],
     })
+  } else if (biometric.available) {
+    // rev173.361：本机支持指纹但还没绑 —— 明说怎么做，否则用户以为「没有这个功能」
+    children.push(
+      textNode('本机支持指纹：解锁后在列表里点「绑定指纹」，下次可直接刷指纹进入', 'caption', 'muted'),
+    )
   }
   if (message.text) children.push(textNode(message.text, 'caption', message.tone))
   children.push(textNode('空闲 3 分钟自动锁定 · 主密码只在本机内存里用于派生，不落盘', 'caption', 'muted'))
@@ -1042,6 +1059,8 @@ export default {
           if (!got) return
           svc = got
           await checkRingReady(api)
+          // rev173.361：服务晚到 ⇒ 指纹状态也要重读（否则锁屏一直按「没绑定」渲染）
+          await refreshBiometric()
           api.view.refresh(PANEL_ID)
         })
       }),
@@ -1080,6 +1099,8 @@ export default {
         location: 'main',
         render: (ctx) => {
           ui = { ...(ctx?.state ?? {}) }
+          // rev173.361：指纹状态可能在别处变（在「安全」插件面板里绑定过）—— 每次渲染前同步刷一次
+          syncBiometricNow()
           return panelNode()
         },
       }),

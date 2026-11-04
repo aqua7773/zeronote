@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-03",
+  "updated": "2026-11-04",
   "plugins": [
     {
       "id": "accounting",
@@ -293,10 +293,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.2",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.2.2.znp",
-      "sha256": "f309a4591c0d9378b2bb98ffb4566935d48ef19242769e03747bd1eec528d626",
-      "size": 57165,
+      "version": "0.2.3",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.2.3.znp",
+      "sha256": "8701aeb0d8400fbb1d033ebed28707aca5ba7ab4f076433fbdd56e8990e00549",
+      "size": 58400,
       "files": [
         "index.js",
         "signature.json"

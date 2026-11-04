@@ -63,3 +63,21 @@ export const MORE_GROUPS: { title: string; items: MoreItemDef[] }[] = [
 export const TABS = MORE_GROUPS.flatMap((g) => g.items).filter(
   (i): i is Extract<MoreItemDef, { kind: 'tab' }> => i.kind === 'tab',
 )
+
+/**
+ * 按插件可用性过滤动作条目（rev173.362）。
+ *
+ * 「私密笔记」这条动作依赖 `private-notes` 插件。用户 2026-11-04 指出：把插件关掉之后
+ * 入口还在，点下去只会得到一句「没装插件」—— 这违背「空内核 · 功能全靠插件」：
+ * **插件不在，入口就该消失**，而不是留一个只会报错的按钮。
+ *
+ * 判断放在这里而不是每个外壳各写一遍：桌面浮窗（`Settings`）与手机右侧栏
+ * （`MobileMoreDrawer`）读同一张表，过滤规则必须是一份。
+ */
+export function visibleMoreGroups(privateAvailable: boolean): typeof MORE_GROUPS {
+  if (privateAvailable) return MORE_GROUPS
+  return MORE_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => !(i.kind === 'action' && i.id === 'private')),
+  }))
+}

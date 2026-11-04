@@ -24,7 +24,7 @@ import { Fragment } from 'react'
 import { ChevronLeft, ChevronRight, Puzzle, X } from 'lucide-react'
 import { baseName } from '../lib/app-paths'
 import { SettingsSections, type SettingsSectionProps } from './Settings'
-import { MORE_GROUPS, type MoreActionId, type MoreItemDef, type TabId } from './more-items'
+import { MORE_GROUPS, visibleMoreGroups, type MoreActionId, type MoreItemDef, type TabId } from './more-items'
 
 export type MoreEntry = {
   key: string
@@ -56,6 +56,13 @@ export type MobileMoreDrawerProps = SettingsSectionProps & {
    * `.zn-more-drawer` 注释（nubia HWC 对"新建全屏合成层"的竞态）。
    */
   open?: boolean
+  /**
+   * `private-notes` 插件在不在、有没有被禁用（rev173.362）。
+   *
+   * 不在 ⇒「私密笔记」这条动作不摆 —— 插件关掉后入口还留着，点下去只会报「没装插件」，
+   * 违背「空内核 · 功能全靠插件」。不传按「在」处理（老调用方 / 测试兼容）。
+   */
+  privateAvailable?: boolean
 }
 
 function Row({
@@ -107,6 +114,7 @@ export function MobileMoreDrawer({
   pluginEntries = [],
   vault,
   open = false,
+  privateAvailable,
   ...sections
 }: MobileMoreDrawerProps) {
   const tabLabel = view === 'menu' ? null : MORE_GROUPS.flatMap((g) => g.items).find((i) => i.kind === 'tab' && i.id === view)?.label
@@ -138,7 +146,7 @@ export function MobileMoreDrawer({
           </div>
 
           {/* 两组共 7 项（`more-items.ts`）：动作类点了离开这一页，分组类在栏内钻进去。 */}
-          {MORE_GROUPS.map((group) => (
+          {visibleMoreGroups(privateAvailable ?? true).map((group) => (
             <Fragment key={group.title}>
               <div className="zn-more-group-title">{group.title}</div>
               {group.items.map((it) => (
