@@ -4591,7 +4591,7 @@ pub fn run() {
   #[cfg(target_os = "android")]
   let builder = builder.plugin(tauri_plugin_biometric::init());
 
-  builder
+  let app = builder
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_clipboard_manager::init())
     .plugin(tauri_plugin_statusbar::init())
@@ -4750,8 +4750,15 @@ pub fn run() {
       updates::find_apk_cache
     ])
     .build(tauri::generate_context!())
-    .expect("error while building tauri application")
-    .run(|_app, _event| {
+    .expect("error while building tauri application");
+
+  // ⚠️ 用 `run_return` 而不是 `run`（rev173.363 · Android 退出闪退）。
+  //   `App::run` 的文档原话：`This function never returns. When the application finishes,
+  //   the process is exited directly using std::process::exit.` —— 也就是说退出是 Tauri
+  //   在内部用 `std::process::exit` 干的，我们拿不到"事件循环已结束"的控制权，
+  //   任何写在 `.run(...)` 之后的代码永远不会执行。
+  //   `run_return` 会把退出码交回来，我们才能决定进程怎么结束（见下方两个分支）。
+  let exit_code = app.run_return(|_app, _event| {
       // 原先这里是两个各自独立的 `if let ... = _event`；本轮加移动端前后台分支时发现
       // `RunEvent` 不是 `Copy`，第二处会撞 "use of moved value" ⇒ 改成一次 `match`。
       match _event {
@@ -4795,6 +4802,23 @@ pub fn run() {
         _ => {}
       }
     });
+
+  // 事件循环已结束，进程即将结束 —— 这里决定用哪种方式：
+  //
+  // Android：`_exit`（exit_group）跳过 atexit 与 C++ 全局析构。
+  //   必须这样，因为 `__cxa_finalize()` 会析构 libhwui 的 `CommonPool` 静态单例
+  //   （`CommonPool::instance()` 里的 `static CommonPool pool`），而它的 hwuiTask0/1
+  //   工作线程是 detach 的、永远卡在 `mCondition.wait(lock)`；mutex 被 `~CommonPool`
+  //   销毁后线程重新加锁 ⇒ bionic `HandleUsingDestroyedMutex` ⇒ FORTIFY abort ⇒ SIGABRT。
+  //   2026-11-04 真机实测（NX741J · Android 16）：ZeroNote 10 轮按返回退出触发 9 轮、
+  //   NoteGen（同为 Tauri 2.11）10 轮触发 10 轮，mutex 地址同为 0x7a4d602af8。
+  //   —— 与 2026-11-02 看门狗那次是同一个坑（那次析构的是 WebViewFunctor，见上方注释）。
+  #[cfg(target_os = "android")]
+  unsafe { libc::_exit(exit_code) };
+
+  // 桌面：与原 `App::run` 行为一致（它内部也是 `std::process::exit(exit_code)`）。
+  #[cfg(not(target_os = "android"))]
+  std::process::exit(exit_code);
 }
 
 /* ───────────── 测试（M1 的自动化证据）───────────── */
