@@ -7,9 +7,10 @@
 
 ---
 
-## 0 现状（2026-11-02 · rev173.331 · 0.9.17）
+## 0 现状（2026-11-04 · rev173.373 · 0.9.30）
 
-- 版本 **0.9.17**（tag `v0.9.17`，2026-11-02）；基线一律以 `scripts/verify.ps1` 输出为准，**不写死数字**
+- 版本 **0.9.30**（tag `v0.9.30`，2026-11-04）；基线一律以 `scripts/verify.ps1` 输出为准，**不写死数字**
+- **0.9.30 主内容**（rev173.368–373）：插件市场安装确认框显示**实际下载地址** · **`sync` 0.1.9 修「远端 manifest 被写空 ⇒ 两端笔记跟着删」**（`looksLikeManifestLoss` 判索引丢失 ⇒ 不跟删、按本地重建；桌面 / 手机 / 真坚果云三处已验）· 白屏自动判据按用户拍板停用
 - **0.9.17 主内容**（rev173.331 · 真人测试7 五条 + 真机复验追加）：**长按反馈**（涟漪 26px/880ms + 描边 + 外发光；振动改**原生命令** `plugin:statusbar|vibrate` → Kotlin `Vibrator`，`navigator.vibrate` 在国产 ROM WebView 被忽略）· **长按阈值统一 300ms**（`LONG_PRESS_MS`，原四处各写 500；`ARM_MS` 240 → 150）· **手机「更多 → 插件」按已注册面板自动列**（`sync` 这类只挂 `main` 的插件不再消失）· **文件树拖拽不卡**（rAF 一帧一次落点 / 同值不 setState / ghost 直改 style）· **文件树触摸整条失效修复**（冷启动 `rootRef` 为 null + effect 依赖 `[]` ⇒ 监听器没绑；改 callback ref）· **桌面复制 / 在文件夹中打开去 verbatim 前缀**（`\\?\C:\…` 两者都不认；`OpenClipboard` 重试 3×50ms）
 - **0.9.14 主内容**（rev173.327 · 用户「每次崩溃应该把崩溃日志复制到剪贴板上面，现在的版本都没有崩溃日志」→「每次崩溃直接导出崩溃日志，我转发就可以了」）：**崩溃日志可导出/可转发** —— 原生崩溃是进程被系统直接杀死，JS 一行跑不了 ⇒ 改成**下次启动读系统记录**：新插件 `crashlog`（Rust + Kotlin）调 `ActivityManager.getHistoricalProcessExitReasons()`，原生崩溃时读 `getTraceInputStream()` 的 tombstone 全文（不需要 root），直接导出 `Download/ZeroNote-crash/zeronote-crash-<时间>.txt`；前端弹窗给「转发日志文件」（`share_file`）/「复制文本」，按时间戳去重只提示一次；桌面返回 `found:false`。**同版抓到 0.9.13 闪退的根因**：nubia NX741J / Android 16 / WebView 140 上，`HWC release` 线程在 `libgui::FenceMonitor::threadLoop` 里锁一个已 destroy 的 mutex ⇒ `FORTIFY` → `abort`，栈全在系统库（详见 `HANDOFF-CARD.md`）
 - **0.9.13 主内容**（rev173.325 · 真人测试6 五条）：**附件移走笔记后断链**（插入写完整库内路径 + 解析「笔记目录 → 库根」两候选，加载失败自动换下一个）· **编辑页空白天顶防御**（`--zn-viewport-h` 200px 下限 + 编辑器挂载后 0 高度 `requestMeasure()` 自愈；未稳定复现）· **长按到 500ms 振动 + 涟漪**（五入口统一；`VIBRATE` 权限）· **同步删除墓碑**（manifest `deleted` 段 30 天：本地 mtime ≤ 墓碑 ⇒ 跟删、`sync` 0.1.7）· **右键「详细…」/「在文件夹中打开」**（`entry_info` / `reveal_in_explorer`）· **桌面分享 = 复制 md 文件本身**（`copy_file_to_clipboard` CF_HDROP，`import-export` 0.2.2）
