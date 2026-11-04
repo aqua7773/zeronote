@@ -37,7 +37,7 @@
 
 ## 当前状态
 
-- **0.9.29 已发版**（tag `v0.9.29` · commit `3e8658a` · 3 资产）<https://github.com/aqua7773/zeronote/releases/tag/v0.9.29> · Gitee 已推 main+tag · 根因见下方「退出闪退」
+- **0.9.29 已发版**（tag `v0.9.29` · commit `3e8658a` · 3 资产）<https://github.com/aqua7773/zeronote/releases/tag/v0.9.29> · Gitee 已推 main+tag（**Release 附件已用 API 补传**：exe 15.15 MB + sig + arm64 APK 33.22 MB；universal 121.29 MB 传不上 —— Gitee 单文件上限 100 MB）· 根因见下方「退出闪退」
 - **0.9.27 已发版**（tag `v0.9.27` · commit `ba51b0a` · GitHub 3 资产：桌面 `ZeroNote_0.9.27_x64-setup.exe` + `.sig` + Android APK）⇒ <https://github.com/aqua7773/zeronote/releases/tag/v0.9.27> · Gitee 已推 main+tag（**Release 附件待网页手动上传**，无 token）；⚠️ APK 仍为 **arm64 单架构**，0.9.25 的 127 MB 是 4 ABI，老 32 位设备装不上
 - **rev173.359 轮询首轮不再误报新建**：0.9.26 release 上启动后 **8222ms** 仍有 ~400ms 长任务 —— 首轮把 126 篇全判成 `create`，而刷新回调不看事件内容、每条跑一次 `listNotes + listDirs` ⇒ 126 次全库扫描。改成首轮只建基线 + 同一 tick 合并刷新。dev 包冷启动长任务只剩 **78/59ms**、8 秒处无长任务
 - **rev173.360 白屏探针只给 debug 构建**：`RenderWatchdog` 之前**无条件**启动，它的 draw 自检会铺一层 `#ff0000` 全屏覆盖层（每进程一次、启动后约 40 秒）—— 这就是用户看到的「时不时闪一下红色」；判据早被证伪（`webView.draw()` 画不出 Chromium 内容），还会在 5 分钟后误软复位一次。改成 `if (!BuildConfig.DEBUG) return`，**release 包彻底没有探针**（debug 保留白屏排障）。**待发 0.9.28**
