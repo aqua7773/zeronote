@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.371
-更新时间: 2026-11-04 · 最新 rev173.371（**sync 墓碑双端端到端验证**：手机删一篇 → 桌面跟删进回收站且远端不复活；反向桌面删 → 手机跟删。另含 rev173.370 真机验证与 rev173.367–369 发版修复/白屏停用）
+revision: 173.372
+更新时间: 2026-11-04 · 最新 rev173.372（**坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流），并发现 sync 对「manifest 丢失」无自愈 —— 待限流恢复重试。墓碑结论仍以 rev173.371 的 DAV 桩为准）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.371
 
 | rev | 内容 |
 |---|---|
+| rev173.372 | 2026-11-04 · **坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流）；发现 sync 对「manifest 丢失/被写空」无自愈。待限流恢复重试。 |
 | rev173.371 | 2026-11-04 · **sync 墓碑双端端到端验证**（DAV 桩 · 双端 0.1.8）：手机删 → 桌面跟删进回收站、远端不复活；反向桌面删 → 手机跟删。 |
 | rev173.370 | 2026-11-04 · **真机验证（只验不改）**：debug 包冷启动 8 秒无长任务（66/53ms）；正文点图全屏预览、软键盘不弹。 |
 | rev173.369 | 2026-11-04 · **白屏自动判据停用（用户拍板 A）**：`RenderWatchdog` 只采样记 `ZN-RENDER` 日志，删掉红色覆盖层自检与软复位。 |
@@ -254,6 +255,19 @@ revision: 173.371
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.372（2026-11-04 · 坚果云真实云端验证：受阻 + 一个 sync bug）
+
+> 用户提供坚果云测试账号与目录 `zeronote_test`。桌面/手机均配置成功（测试连接 207），桌面首次上传 7 篇；
+> 但随后远端 `_zn/manifest.json` 读回 `files:{}`（坚果云 WebDAV 缓存 / 限流，用户当场提醒「注意坚果云限流」）。
+> 手机首次同步把本地独有文件误判为「远端已删」跟删进回收站并写回空 manifest，桌面因此不再上传 ——
+> **sync 对「远端 manifest 丢失/被写空」没有自愈**（真 bug，待修；改 `examples/sync` 的 manifest 读取分支）。
+
+> **证据**：`_shots/sync-nutstore-run1-2026-11-04.png`（桌面上传 7）· `sync-desktop-nutstore-clean1-*` · `sync-phone-nutstore-*`。
+> **收尾**：已停止对坚果云继续发请求（避免加剧限流）；`adb forward 9333` 已撤；手机自动同步保持关闭。
+
+> **未做**：坚果云墓碑端到端（待限流恢复后重试：两端各同步一次建基线 → 删一篇 → 对端同步）。
+> 墓碑结论仍以 rev173.371 的本地 DAV 桩实测为准。
 
 > ## 📌 rev173.371（2026-11-04 · sync 墓碑双端端到端验证）
 
