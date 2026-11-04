@@ -1,11 +1,11 @@
 {
-  "version": "0.9.27",
-  "notes": "ZeroNote 0.9.27",
-  "pub_date": "2026-11-04T04:45:18.574Z",
+  "version": "0.9.28",
+  "notes": "ZeroNote 0.9.28",
+  "pub_date": "2026-11-04T07:06:15.707Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.27/ZeroNote_0.9.27_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzFYSlQ1YVN6WDg1aFlIaDhXRXVNS3FaTUsvQjUzNUpvODZMT0ZtMXdTVHM0QTBieFVJY1orV1FNbmIydGFYekJ4K21NSDFtUks0MDlrb0JTbHFIQUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNzY2ODU4CWZpbGU6WmVyb05vdGVfMC45LjI3X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjcKYXFYVGhPaGpPdjJUS3FJMXJNWmM0b2lTcWR5UXozbWtyL1dnSFZKMmI1TUNLL2JxdllFallxclpEUmhrYmJIb2Z6WUI2N3paeDBVbnQxMnhOR3ZXQUE9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.28/ZeroNote_0.9.28_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzdLTmx6aWRGc1d3UHppbzhWaFFYU09zZjJHSXBPS0E2SWlvTFdiQjVueHZCQjhkSStlUkM4SE1RZFRqYUtCdk5rcENydDFLWXV0ZTlXa0hsR1lvV1FNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNzc1NDQ0CWZpbGU6WmVyb05vdGVfMC45LjI4X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMjgKOFk0SGMvVjJXRDUzajBiY1VIamZjdVFnMlhnMmVvWUlCLzREamt3ME9RUnJmdytvRTZZS2wremYxcEZnMEZ1WVVWcFJBTkcvNVFXNzZ1TjNFSVlaQVE9PQo="
     }
   }
 }
