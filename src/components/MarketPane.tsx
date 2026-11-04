@@ -9,6 +9,7 @@ import {
   guessPackBase,
   loadMirror,
   marketAction,
+  mirrorPackUrl,
   probeMirror,
   saveMirror,
   type MarketEntry,
@@ -475,7 +476,7 @@ export function MarketPane({
                   </span>
                 </p>
               ) : null}
-              <p className="mt-2 break-all opacity-80">{pending.url}</p>
+              <p className="mt-2 break-all opacity-80">{mirrorPackUrl(mirror, pending.url)}</p>
               <p className="mt-2">
                 安装前会核对<strong className="font-semibold text-foreground">整包 sha256</strong>
                 ，包里有 <code>signature.json</code> 还会验签 —— 任一不过就

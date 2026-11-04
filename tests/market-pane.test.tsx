@@ -118,6 +118,30 @@ describe('发现（市场）', () => {
     expect(onInstall).not.toHaveBeenCalled()
   })
 
+  it('确认框显示实际下载地址（跟随当前镜像，rev173.367）', async () => {
+    // 索引里的 url 是打包时写死的 raw 地址；实际下载由 installFromMarket 换成当前镜像前缀。
+    // 确认框必须显示同一份地址，否则用户看到的和真正下载的不是一个地方。
+    localStorage.setItem('zn-market-mirror', 'gitee')
+    mockIndex([
+      {
+        id: 'tag-panel',
+        name: '标签面板',
+        version: '0.2.0',
+        url: 'https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/tag-panel-0.2.0.znp',
+        sha256: SHA,
+      },
+    ])
+    render(<MarketPane installed={[]} onInstall={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('安装')).toBeTruthy())
+    fireEvent.click(screen.getByText('安装'))
+    await waitFor(() => expect(screen.getByText('安装这个插件？')).toBeTruthy())
+    expect(
+      screen.getByText(
+        'https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/packs/tag-panel-0.2.0.znp',
+      ),
+    ).toBeTruthy()
+  })
+
   it('索引 404 ⇒ 报错并点明私有仓库（不是展示空市场）', async () => {
     mocks.invoke.mockResolvedValue({ status: 404, headers: {}, body_b64: '' })
     render(<MarketPane installed={[]} onInstall={vi.fn()} />)
