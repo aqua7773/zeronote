@@ -1,7 +1,7 @@
 {
   "version": "0.9.30",
-  "notes": "ZeroNote 0.9.30",
-  "pub_date": "2026-11-04T14:12:42.723Z",
+  "notes": "插件市场与同步三处修复：市场安装确认框显示实际下载地址 · sync 0.1.9 空 manifest 不再跟删（按本地重建）· 白屏自动判据停用（只记日志）",
+  "pub_date": "2026-11-04T14:13:24.575Z",
   "platforms": {
     "windows-x86_64": {
       "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.30/ZeroNote_0.9.30_x64-setup.exe",
