@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.358
-更新时间: 2026-11-04 · 最新 rev173.358（**轮询治本**：`list_notes` 加 (mtime,size) 元数据缓存 + 新增 `list_notes_light` 轻量清单命令，轮询不再读正文；桌面 126 篇 / 9.2 MB 实测冷缓存 390ms → 9ms、热缓存 14–53ms → 7–13ms；手机重编实测未做）
+revision: 173.359
+更新时间: 2026-11-04 · 最新 rev173.359（**轮询首轮不再误报新建**：0.9.26 release 上启动后 8 秒仍有 400ms 长任务，根因是首轮把 126 篇全判成 `create`、而刷新回调每条都跑一次 `listNotes + listDirs`；改成首轮只建基线 + 同一 tick 合并刷新。dev 包冷启动实测长任务只剩 78/59ms，8 秒处无长任务；已发 0.9.27）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.358
 
 | rev | 内容 |
 |---|---|
+| rev173.359 | 2026-11-04 · **轮询首轮误报新建（0.9.26 release 上 400ms 长任务）**：0.9.26 治本后用户实测启动后 **8222ms** 仍有一次 ~400ms 长任务 —— 8222 ≈ 8000（`POLL_FIRST_MS`）+ 222。根因：`pollOnce` 的 `last` 初值为空 ⇒ 首轮把库里每一篇都判成 `create`（126 篇 = **126 条事件**），而 `useDocIO` 的 `kernel.fs.watch(() => refresh())` **不看事件内容**、每条都跑一次 `listNotes + listDirs` ⇒ 8 秒那一刻集中 126 次全库扫描。修法：① `src/kernel/fs.ts` 首轮只建基线（`primed` 标志，`last = now` 后 return），不产生任何事件 —— 启动路径本来就会 refresh 一次，首轮没有信息增益；② `src/hooks/useDocIO.ts` 新增 `scheduleRefresh`（`setTimeout(0)` 合并同一 tick 的多次回调）⇒ 同步插件一次落几十篇文件时的同类风暴一并收掉。**测试 +1**：`轮询首轮只建基线…`（首轮 0 事件、第二轮多一篇只报一条）。**证据**：dev 包冷启动 `[zn-longtask]` 只剩 `start=4308 dur=78` / `start=4431 dur=59`，**8 秒处无长任务**（`_shots/rev359-final.png`）；`verify.ps1` 全绿（vitest 1886 · cargo 100 · 质量门 8/8，12:27:34）。**未验**：release 包 + 126 篇真库（本机手机库只有 3 篇、努比亚机未连 USB）—— 要用户在 0.9.27 release 上确认。 |
 | rev173.358 | 2026-11-04 · **轮询治本：`list_notes` 元数据缓存 + 轻量清单命令**（接 rev173.357 的「8 秒后仍有 1 秒全库扫描」）：① **缓存** —— `collect()` 逐篇 `read_to_string` + 解析 frontmatter 是 1.45 秒的大头；新增 `NOTE_META_CACHE: LazyLock<Mutex<BTreeMap<绝对路径, (mtime,size,title,frontmatter)>>>`，键 `(mtime, size)` 命中就跳过读文件；**所有写盘命令**（`write_note` / `write_note_bytes` / `create_note` / `set_mtime` / `rename_note` / `rewrite_links` / `delete_note` / `restore_trash` / `move_entry`）落盘后调 `invalidate_note_meta(_tree)` —— 只靠 mtime 不够，同步插件的 `set_mtime` 会把时间写回远端值、同秒两次写 mtime 也可能相同。② **轻量命令** `list_notes_light(vault) -> Vec<{path, mtime}>` —— 与 `collect` 共用谓词 `is_listed_file`（笔记 / 只读文档 / 图片 / 音视频），不读正文、不补 ID；`src/kernel/fs.ts` 的 `pollOnce` 改调它。③ **实测（桌面 dev · 合成库 126 篇 / 9.2 MB · NTFS · CDP 计时）**：冷缓存 `list_notes` **390ms** vs `list_notes_light` **9ms**；热缓存（缓存命中后）`list_notes` 14–53ms vs light 7–13ms（light 与缓存无关，稳定在目录遍历 + `metadata()` 的成本）。⚠️ **测量坑**：`touch` 126 个文件会触发 watcher 风暴，风暴期第一次 `invoke` 被主线程排队污染成 **2.3 秒**（第二次起恢复 50→12ms），测耗时必须在风暴消化后取数，或换一个未被 watcher 监听的库路径。④ **测试**：`list_notes_light_matches_list_notes`（两条命令的路径集合与顺序必须逐项相等 —— 锁住「轻量版漏掉图片/文档」这类边界漂移）+ `note_meta_cache_invalidated_by_writes`（写**等长**内容并把 mtime 强行改回原值，仍必须出新标题）。**证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo **100** passed · vitest 1884 · 质量门 8/8，05:31:28）。**未做**：手机重编 debug 包实测（用户选桌面验；手机 FUSE IO 更慢，比例预计类似但绝对值未取）；`list_dirs` 未做同类缓存（轮询已不调它，`useDocIO` 的刷新仍调）。 |
 | rev173.357 | 2026-11-04 · **启动卡顿根因定位 + 轮询兜底改造**：① **根因** = `src/kernel/fs.ts` 的文件监听兜底 `setInterval(pollOnce, 3000)`，每轮调全库 `list_notes`；CDP profile 实测（debug 包 · 126 篇 / 95 MB 库）`list_notes` **1455ms** + `list_dirs` **411ms** ⇒ 启动后 3.2 秒出现 **1730ms** 长任务，之后每 3 秒再占 1.45 秒 —— 期间触摸事件全部排队、恢复后一次性派发（用户体感「卡住 + 点按后自动触发」，把积压的返回一次性触发还会直接退出软件）。② **改法**：首次轮询延迟到启动后 **8 秒**、间隔改为 **≥10 秒**且单次 >800ms 自动退避 6 倍（上限 60 秒）、`setInterval` → 递归 `setTimeout`（量完耗时再排下一轮）。③ **实测 3 次冷启动**：修复前 `start=6113 dur=1730`；修复后启动窗口最长 **59–127ms**，但 `entry+8.15s` 处仍有 **999–1149ms** 的那次全库扫描（release 包历史测到 8.5 秒量级）。**未做（下个会话）**：治本 —— Rust `list_notes` 加 mtime 缓存（文件没变不重读 frontmatter）+ 轮询改用只取 path/mtime 的轻量命令。**新增诊断**：`[zn-mark]` / `[zn-longtask]` 实时落 logcat（原来 `logBootMarks()` 只在首帧印一次，之后的 tree-mounted / vault-refresh-* / plugins-ready 全是盲区；release 包 console **不**转发 logcat）、`tools/cdp-profile.mjs`（CDP CPU 采样器，按窗口出 Top 自耗时函数表）。**排除**：MediaProvider 媒体扫描（`.zn/` 放 `.nomedia` + 删掉 `file/333042` 坏记录，错误 345→0，但与卡顿无关）、白屏探针软复位（`ZN-RENDER` 一整天未触发）、图片解码（卡片列表不渲染 `<img>`）。**努比亚机现状**：已装 debug 包 `com.aqua.zeronote.debug`（与 release 共存，存储权限已授权，能读同一个 126 篇库），跑它需要 `adb reverse tcp:1420 tcp:1420`，CDP 走 `adb forward tcp:9334 localabstract:webview_devtools_remote_<pid>`（进程会自己重启，pid 变了要重建 forward）。 |
 | rev173.356 | 2026-11-04 · **启动日志插件 + 0.9.25 打点 + 开屏卡顿调查**：① 新 `examples/boot-log` 进市场（16 条）：读 `__znBootMarks()` + 长任务 DOM 快照 + 资源 Top + 全局方法探针（sort/join/JSON，带调用栈）；0.1.0 赋值只读的 `invoke` 让插件加载失败 → 0.2.1 改 try 住并在面板提示。② `useDocIO` / `FileTree` 加 `vault-refresh-start` / `vault-refresh-listed` / `tree-mounted`，发 **0.9.25**（universal APK 121 MB · Release 已发 · 清单已提交）。③ **真机实测（努比亚 release · 8 插件全关）**：启动全链 ≤453ms；`longtask@3538+8554ms` 是启动后 3.5 秒的独立纯 JS 任务（DOM 345 节点不变、无 IPC / 资源），卡顿结束 12.1 秒才批量读文件；滚动正常但点击排队后一起触发 = 主线程 busy。已排除：插件、备份 / 历史版本、IO、图片、`Intl`、`localeCompare`（500 次 14ms）、`audit()` 序列化、4 个全局方法。**未定位**具体函数 —— 下一步在 App 渲染路径加 mark（render 开始 / 结束 + 组件 mount + pointerdown 交叉），发 0.9.26。 |
@@ -245,6 +246,46 @@ revision: 173.358
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.359（2026-11-04 · 轮询首轮不再把已有文件报成「新建」）
+
+> **怎么发现的**：0.9.26 刚发，用户装 release 包实测 —— 启动后 **8222ms** 仍有一次 **~400ms**
+> 长任务（0.9.26 的治本只把冷扫描从 1455ms 降到毫秒级）。8222 ≈ 8000（`POLL_FIRST_MS`）+ 222，
+> 说明就是**轮询首轮**那一刻。
+
+> **根因**：
+> ```ts
+> let last = new Map()                                      // 初值为空
+> if (prev === undefined) safeCb({ kind: 'create', path })   // ⇒ 首轮每一篇都是 create
+> ```
+> 126 篇 ⇒ **126 条 create**。而消费端：
+> ```ts
+> kernel.fs.watch(() => { void refresh() ... })              // 不看事件内容，每条都跑一次
+> ```
+> `refresh()` = `listNotes + listDirs` + setState ⇒ 8 秒那一刻集中 **126 次全库扫描**。
+> 这不是新问题：watcher 模式下同步盘一次落几十个文件也是同款风暴，只是没人在启动路径上撞到。
+
+> **修法**：
+> - `src/kernel/fs.ts`：`primed` 标志，首轮只 `last = now; return` —— 启动时应用本来就 refresh
+>   过一次，首轮没有信息增益；库真为空时 `now` 也是空表，下一轮起照常比对。
+> - `src/hooks/useDocIO.ts`：`scheduleRefresh` 用 `setTimeout(0)` 把同一 tick 的多次回调合并成
+>   一次，cleanup 里清掉定时器。
+
+> **实测（dev 包 · Redmi `33b676f6` · 0.9.25 内核 + 热更前端）**：冷启动 `[zn-longtask]`
+> 只剩 `start=4308 dur=78` 与 `start=4431 dur=59`，**8 秒处一条都没有**；
+> 截图 `_shots/rev359-final.png`（88,516 B，正常列表）。⚠️ 手机库当时只有 3 篇，
+> **规模不足以代表 126 篇场景** —— 真正验收要等 0.9.27 release 装上大库。
+
+> **顺带踩到的**：dev 包这次冷启动首屏白屏（root 空、`__znBooted` 未置位、console 0 条），
+> CDP 里 `import('/src/main.tsx')` 报 `Failed to fetch dynamically imported module`，
+> 但 `fetch('/src/main.tsx')` 返回 200 ⇒ Tauri dev 代理那一瞬不可达且不重试（rev173.351 记过）。
+> `Page.reload` 后 `booted=true / rootLen=19027` 恢复正常 —— **不是本次改动引入**。
+
+> **证据**：`scripts/verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo **100** · vitest **1886** ·
+> 质量门 8/8，12:27:34）；已发 **0.9.27**（tag `v0.9.27` · commit `ba51b0a`，GitHub + Gitee）。
+
+> **未做**：release 包 + 126 篇大库的真机复测（本机手机库只有 3 篇、努比亚机未连 USB）；
+> `list_dirs` 仍未加同类缓存（轮询不调它，`useDocIO` 的刷新调）。
 
 > ## 📌 rev173.358（2026-11-04 · 轮询治本：元数据缓存 + 轻量清单命令）
 

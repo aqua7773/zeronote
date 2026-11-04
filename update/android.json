@@ -1,10 +1,10 @@
 {
-  "version": "0.9.26",
-  "notes": "ZeroNote 0.9.26",
-  "pub_date": "2026-11-03T22:12:11.264Z",
+  "version": "0.9.27",
+  "notes": "ZeroNote 0.9.27",
+  "pub_date": "2026-11-04T04:45:18.574Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.26/app-universal-release.apk",
-    "sha256": "99df6640edf040ff5cef197653a5d3fa40905a6fcbba1ca04cc3ef92d9836aba",
-    "size": 34980243
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.9.27/app-universal-release.apk",
+    "sha256": "ed80536dc9ebbf2efa221c67421d918e087e038b99d88860d63d49eb97748916",
+    "size": 34985683
   }
 }
