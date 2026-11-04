@@ -71,3 +71,4 @@ src-tauri/plugins/*/android/.tauri/
 
 # 审计前的交接卡备份（不进库，git 历史已保留整份）
 _backup/
+_tmp/
