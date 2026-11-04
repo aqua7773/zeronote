@@ -20,7 +20,8 @@
 | 功能目录（有哪些插件 / 声明了什么） | `docs/功能目录.md` | **generated**（`node scripts/gen-catalog.mjs --write`） | — |
 | 决策记录 / 否决清单（为什么不做） | `docs/decisions/README.md` | **active** | 论证过程在 `docs/*-调研-*.md` |
 | 任务卡 / 决策记录模板 | `docs/templates/TASK.md` · `docs/templates/ADR.md` | **active** | — |
-| 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | — |
+| 当前状态 / 下一步 | `HANDOFF-CARD.md` | **active** | 入口卡，只留摘要与指针；操作知识拆到 `docs/handoff/` |
+| 接手分册（环境设备 / 发版更新 / 当前状态 / 授权红线） | `docs/handoff/` | **active（2026-11-04 建立）** | 从 `HANDOFF-CARD.md` 拆出；发版前必读 `02-发版与更新.md` |
 | 接下来做什么（顺序 / 成本 / 验收） | `docs/ROADMAP.md` | **active** | `docs/待做插件-调研与方案-2026-10-21.md`（各插件做法论证） |
 | 逐版本记录 / 证据 / 踩坑 | `HANDOFF.md`（当前版本周期，索引在文首） | **active** | `docs/archive/handoff/0.2.md` · `0.3.md` · `0.4.md`（更早的 rev 正文；rev173.139 分卷 890 KB → 63 KB） |
 | 文档阅读器选型 | `docs/文档阅读器-调研-2026-10-13.md` | **active** | — |
