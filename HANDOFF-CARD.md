@@ -50,7 +50,9 @@
 8. **任何删除先确认**（文件、目录、记忆节点、快照）
 9. **一次改 3+ 文件前先给方案**
 10. **上下文 350k 起准备换会话**（甜点区 100–300k，压缩不如换）
-11. **接手第一件事 = 读完 `docs/handoff/01–04` 四份分册 ＋ 本卡**（只读本卡不算接手）；`HANDOFF.md` 是历史流水账，按 rev 号按需查，**不是必读**
+11. **接手第一件事 = 读完 `docs/handoff/01–07` 七份分册 ＋ 本卡**（只读本卡不算接手）；`HANDOFF.md` 是历史流水账，按 rev 号按需查，**不是必读**
+    > 已由 `dsh-dev-gate` **R8 接手必读门**工具级强制：ZeroNote 里第一次 write/edit 或 `git commit` 前，**七份分册缺任一份** ⇒ deny（已实测会拦）。
+12. **用户要求「记住」的事 → 写进 `docs/handoff/` 对应分册**，不靠会话记忆、不靠 AI 的 graph memory
 
 完整版 → [`docs/handoff/04-授权与红线.md`](docs/handoff/04-授权与红线.md)
 
@@ -62,6 +64,9 @@
 | **发版与更新（发版前逐条对照）** | [`docs/handoff/02-发版与更新.md`](docs/handoff/02-发版与更新.md) |
 | 当前状态 · 待办 · 已知未修 | [`docs/handoff/03-当前状态.md`](docs/handoff/03-当前状态.md) |
 | 授权 · 八条硬约束 · 破坏性操作 | [`docs/handoff/04-授权与红线.md`](docs/handoff/04-授权与红线.md) |
+| **项目结构 · 目录职责 · 改哪个文件** | [`docs/handoff/05-项目结构.md`](docs/handoff/05-项目结构.md) |
+| **用户拍板与禁忌（红线合集）** | [`docs/handoff/06-用户拍板与禁忌.md`](docs/handoff/06-用户拍板与禁忌.md) |
+| 术语 · rev/D 编号 · 日志标记 | [`docs/handoff/07-术语与编号.md`](docs/handoff/07-术语与编号.md) |
 | 项目结构 · 主流程 · 模块地图 | [`docs/系统总览.md`](docs/系统总览.md) |
 | 插件接口 / 数据模型 | [`docs/内核契约-v0.2.md`](docs/内核契约-v0.2.md) |
 | 开发流程 / 测试 / 提交 / 事故清单 | [`docs/开发约定.md`](docs/开发约定.md) |
