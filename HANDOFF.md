@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.373
-更新时间: 2026-11-04 · 最新 rev173.373（**sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删、按本地重推重建；`sync` 0.1.9 已签名入库）
+revision: 173.374
+更新时间: 2026-11-04 · 最新 rev173.374（**0.9.30 已发版**：sync 空 manifest 自愈 + 市场安装确认框显示实际地址 + 白屏判据停用；GitHub / Gitee 双渠道，arm64 APK 33.34 MB）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.373
 
 | rev | 内容 |
 |---|---|
+| rev173.374 | 2026-11-04 · **0.9.30 发版**：sync 空 manifest 自愈（0.1.9）+ 市场确认框实际地址 + 白屏判据停用；GitHub/Gitee 双渠道 arm64 33.34 MB，手机应用内已看到新版。 |
 | rev173.373 | 2026-11-04 · **sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删本地、按本地重推重建；`sync` 0.1.9 签名入库。 |
 | rev173.372 | 2026-11-04 · **坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流）；发现 sync 对「manifest 丢失/被写空」无自愈。待限流恢复重试。 |
 | rev173.371 | 2026-11-04 · **sync 墓碑双端端到端验证**（DAV 桩 · 双端 0.1.8）：手机删 → 桌面跟删进回收站、远端不复活；反向桌面删 → 手机跟删。 |
@@ -256,6 +257,31 @@ revision: 173.373
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.374（2026-11-04 · 发版 0.9.30）
+
+> **内容**（0.9.29 之后的三处修复，rev173.368 / 173.369 / 173.373）：① 插件市场安装确认框显示
+> **当前镜像的实际下载地址**；② `sync` **0.1.9** 修「远端 manifest 被写空 ⇒ 两端笔记跟着删」
+> （`looksLikeManifestLoss`：`files` 空 + 墓碑空 + 有基线 ⇒ 判索引丢失，不跟删、按本地重建）；
+> ③ 白屏自动判据按用户拍板 A **停用**（`RenderWatchdog` 只记 `ZN-RENDER` 日志，不再红层 / 软复位）。
+
+> **流程**：`release.mjs 0.9.30` 改三处版本 → CHANGELOG / README / ROADMAP → `verify.ps1`
+> 22:03:25 全绿（tsc 0 · oxlint 4 · cargo 102 · vitest 1891 · 质量门 8/8）→ `build-release.mjs`
+> **8 分 27 秒**（桌面 3:56 · Android aarch64 4:31）。
+
+> **产物与核对**：`ZeroNote_0.9.30_x64-setup.exe` 15.15 MiB + `.sig`；
+> `ZeroNote_0.9.30_arm64.apk` **34,954,755 B（33.34 MiB）**，sha256 `0f693b83…`；
+> 解包核 ABI = **仅 arm64-v8a**（Gradle 目录名虽叫 universal，内容不是 4 ABI 的 121 MB 包）。
+
+> **发布**：GitHub Release `v0.9.30` 三资产 ✅；Gitee Release id `1273558` 三附件 ✅（token 放 query、
+> `-Form @{ file = Get-Item … }` 逐个传）。`update/latest.json` + `update/android.json` 已生成并提交。
+
+> **证据**（02 分册 §6 发版后自检）：① 两 Release 资产 = arm64 33.34 MB ✅；② 清单 version / sha256 /
+> size 与本地一致 ✅；③ **手机「关于 → 更新」显示「发现新版本 0.9.30（当前 0.9.28）· 安装包 33.3 MB ·
+> 清单渠道 Gitee」** ✅；④ main + tag 两个远端都已推 ✅。
+
+> **未做**：桌面 updater 端到端（桌面 dev 进程在构建期间退出，没现场点「检查更新」）；
+> 努比亚 release 机未装 0.9.30（该机只做验收，未经同意不装）。
 
 > ## 📌 rev173.373（2026-11-04 · sync 空 manifest 自愈：不跟删、按本地重建）
 
