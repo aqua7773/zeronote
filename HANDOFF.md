@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.363
-更新时间: 2026-11-04 · 最新 rev173.363（**退出应用时的偶发闪退根治**：按返回键退出 → `std::process::exit` → `__cxa_finalize()` 析构 libhwui 的 `CommonPool` 静态单例，它 detach 的 `hwuiTask` 线程仍卡在 `mCondition.wait(lock)` ⇒ 重锁已销毁 mutex ⇒ FORTIFY abort。改 `App::run` → `run_return`，Android 走 `libc::_exit`。真机 A/B：旧 10 轮 8 条 FORTIFY → 新 10 轮 0 条。另含 rev173.362 私密笔记入口不随插件消失修复）
+revision: 173.369
+更新时间: 2026-11-04 · 最新 rev173.369（**发版修复 + 两组小修**：0.9.29 的 Android 资产换成 arm64 **33.34 MB** 并补齐更新清单；插件市场安装确认框改显示镜像地址；白屏自动判据按用户拍板 **A 停用** —— `RenderWatchdog` 只记日志不再软复位）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,9 @@ revision: 173.363
 
 | rev | 内容 |
 |---|---|
+| rev173.369 | 2026-11-04 · **白屏自动判据停用（用户拍板 A）**：`RenderWatchdog` 只采样记 `ZN-RENDER` 日志，删掉红色覆盖层自检与软复位。 |
+| rev173.368 | 2026-11-04 · **插件市场安装确认框显示实际下载地址**（当前镜像前缀），不再显示索引里写死的 raw 源地址。 |
+| rev173.367 | 2026-11-04 · **修 0.9.29 发版资产**：重编 arm64 APK 33.34 MB 替换 universal 121 MB，补生成 `update/*.json`。 |
 | rev173.362 | 2026-11-04 · **私密笔记入口不随插件消失**：用户指出 —— 把「私密文件夹」插件关掉后，桌面侧栏锁形按钮 / 手机「更多 → 私密笔记」入口还在，点下去只得到「没装插件」。这违反「空内核 · 功能全靠插件」：**入口是插件的门，插件不在就该消失**。根因：入口是内核写死的（`App.tsx` 桌面 `onOpenPrivate` 常传、`more-items.ts:43` 手机条目表无条件摆），没有任何「插件在不在」的判断。修法：① `App.tsx` 派生 `privateAvailable = Boolean(pluginEntries['private-notes']) && !disabled.has('private-notes')`（复用宿主已有的「插件目录扫描」与「禁用集合」两个状态）；② `more-items.ts` 新增 `visibleMoreGroups(privateAvailable)` —— 不在时过滤掉 `private` 条目（桌面浮窗 `Settings` 与手机右侧栏 `MobileMoreDrawer` **共用这一份**，不各写一遍）；③ 两个外壳各加 `privateAvailable` prop（不传按「在」处理，老调用方/测试兼容）；④ 桌面侧栏 `onOpenPrivate={isDesktop && privateAvailable ? … : undefined}`。**证据**：tsc 0 · oxlint 4 warnings · `verify.ps1` 全绿（vitest 1886 · 质量门 8/8，13:21:29）。**未做**：真机复验（禁用插件后入口应消失）。 |
 | rev173.361 | 2026-11-04 · **私密笔记锁屏没有「用指纹解锁」**：用户两张截图对照 —— 「安全」插件面板里 `notes` 环显示「本机已绑定」+「用指纹解锁」，但 `private-notes` 的锁屏只有主密码框。根因：`biometric = { available, bound }` 是**加载期缓存**，只在 `apply()` 里 `refreshBiometric()` 读过一次；用户是在之后去安全面板绑定的，没有任何事件通知本插件 ⇒ 锁屏一直按 `bound=false` 渲染（`index.js:810` 的条件 `available && bound`）。修法：① 新增 `syncBiometricNow()` —— `security.biometric.available()` / `bound(ring)` 都是**内存读**（`examples/security/index.js:1821/1823`，无 IPC），可以在 `render` 里同步调用，于是每次面板渲染前刷新一次；② `refreshBiometric()` 改成它的 `async` 包装（调用点不变）；③ `service:available` 回调补一次刷新（crypto 服务晚到场景）；④ 未绑定时锁屏补一句「本机支持指纹：解锁后在列表里点『绑定指纹』」（原来什么都不显示，用户以为没这个功能）。`private-notes` **0.2.3** 已签名入库（market 16 条 · 验签 69/70）。**证据**：`verify.ps1` 全绿。**未做**：真机复验（要用户从插件市场更新到 0.2.3）。 |
 | rev173.360 | 2026-11-04 · **白屏探针误进 release（用户看到屏幕时不时闪一下红色）**：`MainActivity.onCreate` 里 `renderWatchdog = RenderWatchdog(this, webView)` **无条件**执行，整个仓库没有任何 `BuildConfig.DEBUG` 判断 ⇒ 0.9.26 / 0.9.27 的正式包都带着探针。红闪来源 = `RenderWatchdog.verifyDraw()` 的 draw 自检：往 `document.body` 塞一个 `position:fixed;background:#ff0000` 全屏层（`VERIFY_ON_JS`），400ms 后 `draw()` 采样看能否抓到红色，再移除 —— 每进程第一次采样（启动 30 秒预热 + 10 秒 tick ≈ **40 秒**）触发一次。判据本身早被证伪（`webView.draw()` 画不出 Chromium 内容，红层是普通合成层所以永远「通过」）⇒ 页面正常也判全白，红闪后 5 分钟还会软复位一次（`onPause` 800ms → `onResume`）。改法：`onWebViewCreate` 开头 `if (!BuildConfig.DEBUG) return` —— release 彻底没有探针，debug 包保留白屏排障（`ZN-RENDER` 日志与采样）。**验证**：`:app:compileUniversalReleaseKotlin` BUILD SUCCESSFUL（17s）；verify 全绿。**未发版**：等用户决定是否打 0.9.28。 |
@@ -249,6 +252,48 @@ revision: 173.363
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.369（2026-11-04 · 白屏自动判据按用户拍板 A 停用）
+
+> **背景**：`RenderWatchdog` 的「全白 + DOM 正常」判据真机实测必然误判 —— `webView.draw()`
+> 在正常页面上也画不出 Chromium 内容（红色覆盖层自检能画、页面内容画不出），于是每进程
+> 白做一次 800 ms 软复位（rev173.349 §8 已记录）。
+
+> **改法（用户 2026-11-04 拍板 A）**：`RenderWatchdog.kt` 只保留 **采样 + `ZN-RENDER` 日志**；
+> 删掉 `verifyDraw()` / `hasRed()` / 红色覆盖层自检 / `rescue()` 软复位 / `drawVerified` 状态。
+> 连续 30 次全白只记一条汇总日志，不动手。
+
+> **证据**：`:app:compileUniversalReleaseKotlin` BUILD SUCCESSFUL（20:14）；`verify.ps1` 全绿
+> （tsc 0 · oxlint 4 warnings · cargo 102 · vitest 1887 · 质量门 8/8，20:15:18）。
+
+> **未做**：真机（debug 包）复验 —— 应看到 `ZN-RENDER` 日志持续输出、不再出现「软复位完成」。
+> 方案 B（手动触发）/ C（继续找可读信号）未做。
+
+> ## 📌 rev173.368（2026-11-04 · 插件市场安装确认框显示实际下载地址）
+
+> **现象**：市场确认框显示的是索引里写死的 `raw.githubusercontent.com/...` 地址，而安装时
+> `installFromMarket` 会用 `mirrorPackUrl(loadMirror(), …)` 换成当前镜像前缀 —— 用户看到的与真正
+> 下载的不是同一个地方。
+
+> **修法**：`MarketPane.tsx` 确认框改 `mirrorPackUrl(mirror, pending.url)`（`mirror` 是组件里已有的
+> 当前镜像 state）。`mirrorPackUrl` 只改写本仓库 raw 地址，外部作者 / 自建源原样返回。
+
+> **证据**：`pnpm exec vitest run tests/market-pane.test.tsx` 11/11（+1 条：gitee 镜像下确认框显示
+> gitee 前缀）；`verify.ps1` 全绿（20:15:18）。
+
+> ## 📌 rev173.367（2026-11-04 · 修 0.9.29 发版资产 + 补更新清单）
+
+> **问题**：0.9.29（tag `v0.9.29` · `3e8658a` · 18:19 发）发了 universal APK **121.29 MB**
+> （违反「不发 universal」约定），且 `update/latest.json` / `update/android.json` 仍停在 0.9.28。
+
+> **修法**：`build-release.mjs --android --target aarch64` 重编（161 s，33.34 MB）→ 复制成
+> `ZeroNote_0.9.29_arm64.apk` → `gen-update-manifest.mjs --write` 生成两份清单 → GitHub 删掉
+> `app-universal-release.apk`、上传 arm64 包（34,954,755 B）。
+
+> **证据**：Release 资产 = `ZeroNote_0.9.29_arm64.apk` / exe / sig；`update/android.json` version 0.9.29
+> · sha256 `903f19a8…` · size 34,954,755；G1 全绿（20:15:18）· G2 `_shots/g2-desktop-pre-release-2026-11-04.png`。
+
+> **未做**：Gitee 侧未动（仍是旧构建的 33.22 MB 包）。
 
 > ## 📌 rev173.362（2026-11-04 · 私密笔记入口应该跟着插件走）
 
