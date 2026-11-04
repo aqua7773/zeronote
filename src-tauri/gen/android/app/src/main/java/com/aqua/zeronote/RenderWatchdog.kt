@@ -41,12 +41,10 @@ import android.webkit.WebView
  * **作废路径 2：`webView.draw(canvas)`**（真机实测 2026-11-04 00:53）——
  * 硬件加速下 Chromium 不往软件 Canvas 里画内容，同样全白。
  *
- * ⇒ 所以本类**带自检**：第一次遇到「全白 + DOM 正常」时，先给页面铺一层
- * 整屏红色覆盖层再 draw 一次 —— 画不出红色（说明 draw 路径本身无效）就
- * **停用检测**，绝不在正常页面上误判 reload。
- *
- * 连续 `STALL_SAMPLES` 次（60 秒）成立 ⇒ `webView.reload()` **一次**（本进程不重复救）。
- * reload 前未落盘内容由已有的草稿钩子保护（`beforeunload` / `pagehide`，rev173.65）。
+ * 【2026-11-04 已停用 · 用户拍板 A】真机实测 `webView.draw()` 在正常页面上也是全白
+ * （红色覆盖层自检能画、Chromium 内容画不出）⇒ 「全白」判据不可信，自动软复位必然误判。
+ * 现在**只采样记日志，不做任何自救动作**（软复位实现已删，`git log` 可找回）。
+ * 后续若走方案 C（找「渲染进程真出帧」的可读信号），从这里接着做。
  *
  * 日志 tag = `ZN-RENDER`，`adb logcat -s ZN-RENDER` 可看每 10 秒的采样读数
  * （验收时唯一的现场证据来源，别删）。
@@ -58,12 +56,8 @@ class RenderWatchdog(
   private val handler = Handler(Looper.getMainLooper())
 
   private var running = false
-  /** 本进程是否已经 reload 过一次（一次启动只救一次） */
-  private var rescued = false
   /** 连续「全白 + DOM 正常」的采样次数 */
   private var whiteStreak = 0
-  /** draw 是否被验证为「真的能画出页面」：null=未验，true=可用，false=本设备不可用（停用） */
-  private var drawVerified: Boolean? = null
 
   /** 横带在窗口高度上的位置（比例）。五条都白才算「画面全白」。 */
   private val bands = floatArrayOf(0.10f, 0.30f, 0.50f, 0.70f, 0.90f)
@@ -88,7 +82,6 @@ class RenderWatchdog(
   private val tick = object : Runnable {
     override fun run() {
       if (!running) return
-      if (drawVerified == false) return
       if (!webView.isAttachedToWindow || webView.width <= 0 || webView.height <= 0) {
         handler.postDelayed(this, TICK_MS)
         return
@@ -107,7 +100,7 @@ class RenderWatchdog(
     onBandsDone(ratios)
   }
 
-  /** 软件绘制到 1/4 缩放位图；硬件加速下 Chromium 可能画不出内容（由 `verifyDraw` 判定） */
+  /** 软件绘制到 1/4 缩放位图；硬件加速下 Chromium 画不出内容（本机实测，见类注释） */
   private fun drawScaled(): Bitmap? {
     val w = webView.width
     val h = webView.height
@@ -174,88 +167,15 @@ class RenderWatchdog(
         whiteStreak = 0
         return@evaluateJavascript
       }
-      // 第一次「全白 + DOM 正常」先自检 draw 是否真的画得出内容 ——
-      // 画不出就不能信这个读数，否则正常页面会被误判成白屏
-      if (drawVerified == null) {
-        verifyDraw()
-        return@evaluateJavascript
-      }
-      if (drawVerified == false) return@evaluateJavascript
+      // 自动判据已停用（rev173.367 · 2026-11-04 用户拍板 A）：`webView.draw()` 在本机画不出
+      // Chromium 内容，判据必然误判；这里只记日志，不再铺红色自检、不再软复位。
       whiteStreak++
-      Log.i(TAG, "全白 + DOM 正常 · streak=$whiteStreak/$STALL_SAMPLES")
-      if (whiteStreak >= STALL_SAMPLES) rescue()
-    }
-  }
-
-  /**
-   * draw 自检：给页面铺一层整屏红色覆盖层，再 draw 一次。
-   * 画得出红色 ⇒ draw 路径可信；画不出 ⇒ 本设备这条路无效，停用检测（防止正常页面被误判）。
-   */
-  private fun verifyDraw() {
-    Log.i(TAG, "draw 自检开始（铺红色覆盖层，看 draw 能否画出来）")
-    webView.evaluateJavascript(VERIFY_ON_JS) { _ ->
-      if (!running) return@evaluateJavascript
-      handler.postDelayed({
-        if (!running) return@postDelayed
-        val bmp = drawScaled()
-        val sawRed = bmp != null && hasRed(bmp)
-        bmp?.recycle()
-        webView.evaluateJavascript(VERIFY_OFF_JS, null)
-        drawVerified = sawRed
-        if (sawRed) {
-          Log.i(TAG, "draw 自检通过 —— 采样可信，继续检测")
-        } else {
-          Log.w(TAG, "draw 自检失败 —— 本设备 webView.draw() 画不出内容，停用检测（防误判）")
-          stop()
-        }
-      }, 400)
-    }
-  }
-
-  private fun hasRed(bmp: Bitmap): Boolean {
-    var x = 0
-    while (x < bmp.width) {
-      var y = 0
-      while (y < bmp.height) {
-        val c = bmp.getPixel(x, y)
-        val r = (c shr 16) and 0xFF
-        val g = (c shr 8) and 0xFF
-        val b = c and 0xFF
-        if (r >= 200 && g <= 80 && b <= 80) return true
-        y += 4
+      Log.i(TAG, "全白 + DOM 正常 · streak=$whiteStreak/$STALL_SAMPLES（自动判据已停用，不动手）")
+      if (whiteStreak >= STALL_SAMPLES) {
+        Log.w(TAG, "连续 ${STALL_SAMPLES} 次全白 + DOM 正常 —— 自动判据已停用（rev173.367），只记日志")
+        whiteStreak = 0
       }
-      x += 4
     }
-    return false
-  }
-
-  /**
-   * 自救动作：**软复位**（`onPause` → 800ms → `onResume`），不是 `reload()`。
-   *
-   * 依据（用户真机实测 2026-11-04）：白屏后「切后台 10 秒再回来」画面自动恢复正常 ——
-   * 说明这条渲染停摆**可以被 WebView 的 pause/resume 生命周期打断**，不需要重新加载页面
-   * （reload 实测无效：00:56:44 reload 后仍全白，且会丢未保存内容）。
-   *
-   * 本进程只做一次；正常页面上执行最多是极短的一次不可见停顿，代价可接受。
-   */
-  private fun rescue() {
-    if (rescued) return
-    rescued = true
-    whiteStreak = 0
-    Log.w(TAG, "渲染停摆成立 —— 软复位一次（pause → 800ms → resume，本进程只做一次）")
-    try {
-      webView.onPause()
-    } catch (t: Throwable) {
-      Log.w(TAG, "onPause 抛错: ${t.message}")
-    }
-    handler.postDelayed({
-      try {
-        webView.onResume()
-        Log.i(TAG, "软复位完成")
-      } catch (t: Throwable) {
-        Log.w(TAG, "onResume 抛错: ${t.message}")
-      }
-    }, RESUME_DELAY_MS)
   }
 
   private companion object {
@@ -282,9 +202,6 @@ class RenderWatchdog(
     /** 连续多少次「全白 + DOM 正常」才动手（30 × 10s = 5 分钟 —— 拉宽是因为 draw 判据可能误判） */
     const val STALL_SAMPLES = 30
 
-    /** 软复位里 pause 后等多久再 resume（模拟「切后台再回来」） */
-    const val RESUME_DELAY_MS = 800L
-
     /**
      * DOM 是否「正常」：`.zn-app` 在、有子元素、body 有内容。
      * 返回字符串 `"true"` / `"false"`（`evaluateJavascript` 的原样返回）。
@@ -293,15 +210,5 @@ class RenderWatchdog(
       """(function(){var a=document.querySelector('.zn-app');var b=document.body;""" +
         """return !!(a&&a.children&&a.children.length>0&&b&&b.children&&b.children.length>0);})()"""
 
-    /** 自检：铺整屏红色覆盖层（pointer-events:none，不挡交互） */
-    const val VERIFY_ON_JS =
-      """(function(){var d=document.getElementById('zn-draw-probe');if(!d){d=document.createElement('div');""" +
-        """d.id='zn-draw-probe';document.body.appendChild(d);}""" +
-        """d.style.cssText='position:fixed;left:0;top:0;width:100%;height:100%;background:#ff0000;""" +
-        """z-index:2147483647;pointer-events:none';return true;})()"""
-
-    /** 自检结束：移除覆盖层 */
-    const val VERIFY_OFF_JS =
-      """(function(){var d=document.getElementById('zn-draw-probe');if(d){d.remove();}return true;})()"""
   }
 }
