@@ -28,6 +28,7 @@ const {
   fmtMs,
   isAttachment,
   joinUrl,
+  looksLikeManifestLoss,
   needsAttachmentPull,
   normalizeManifest,
   parsePropfind,
@@ -2255,6 +2256,153 @@ describe('删除传播（rev173.293）', () => {
     // rev173.294：删除是「搬进云端回收站 + 删原文件」，不是直接抹掉
     expect(requests.some((r) => r.startsWith('PUT _zn/trash/') && r.endsWith('/n.md'))).toBe(true)
     expect(wrote).not.toContain('n.md')
+  })
+})
+
+/**
+ * 远端 manifest 被写空 / 缓存成空表时，**不能当成「对端删光了」（rev173.373）**。
+ *
+ * 2026-11-04 真实坚果云实测：桌面首次上传 7 篇后远端 `_zn/manifest.json` 读回
+ * `files:{}`，手机同步时把本地独有文件判成 `remote-deleted` 跟删进回收站，桌面随后
+ * 也不再上传 —— 一次云端索引抖动吃掉两端笔记。
+ */
+describe('远端索引丢失的自愈（rev173.373）', () => {
+  it('looksLikeManifestLoss：files 空 + 无墓碑 + 有基线 ⇒ 判丢失', () => {
+    const base = { 'n.md': { fp: 'a' } }
+    expect(looksLikeManifestLoss({ files: {}, deleted: {} }, base)).toBe(true)
+    expect(looksLikeManifestLoss({ files: {}, deleted: {} }, {})).toBe(false)
+  })
+
+  it('looksLikeManifestLoss：有墓碑 ⇒ 不是丢失（真删除要照常传播）', () => {
+    expect(
+      looksLikeManifestLoss({ files: {}, deleted: { 'n.md': 1 } }, { 'n.md': { fp: 'a' } }),
+    ).toBe(false)
+  })
+
+  it('looksLikeManifestLoss：files 非空 / 只有附件条目 ⇒ 不是丢失', () => {
+    const base = { 'n.md': { fp: 'a' } }
+    expect(looksLikeManifestLoss({ files: { 'n.md': { fp: 'a' } } }, base)).toBe(false)
+    expect(looksLikeManifestLoss({ files: {}, deleted: {} }, { 'x.png': { fp: 'b' } })).toBe(false)
+  })
+
+  it('空 manifest + 本机有笔记 ⇒ 重推重建，不跟删本地', async () => {
+    const requests: string[] = []
+    const remoteFiles = new Map<string, string>()
+    let manifest = JSON.stringify({
+      files: {},
+      attachments: {},
+      private: {},
+      privateTree: {},
+      deleted: {},
+    })
+    const wrote: string[] = []
+    const deleted: string[] = []
+    const emptyBytes = () => new Uint8Array()
+    const emptyText = () => ''
+    const net = {
+      fetch: async (spec: { url: string; method?: string; headers?: Record<string, string>; body?: unknown }) => {
+        const method = String(spec.method ?? 'GET').toUpperCase()
+        const p = decodeURIComponent(new URL(spec.url).pathname).replace(/^\/dav\/ZeroNote\/?/, '')
+        requests.push(`${method} ${p}`)
+        if (method === 'PROPFIND') return { status: 207, headers: {}, text: emptyText, bytes: emptyBytes }
+        if (method === 'GET' && p === '_zn/manifest.json') {
+          return {
+            status: 200,
+            headers: { etag: '"m1"' },
+            text: () => manifest,
+            bytes: () => new TextEncoder().encode(manifest),
+          }
+        }
+        if (method === 'GET') {
+          const t = remoteFiles.get(p)
+          if (t == null) return { status: 404, headers: {}, text: emptyText, bytes: emptyBytes }
+          return {
+            status: 200,
+            headers: { etag: '"e1"' },
+            text: () => t,
+            bytes: () => new TextEncoder().encode(t),
+          }
+        }
+        if (method === 'DELETE') {
+          remoteFiles.delete(p)
+          return { status: 204, headers: {}, text: emptyText, bytes: emptyBytes }
+        }
+        if (method === 'PUT') {
+          if (p === '_zn/manifest.json') {
+            manifest = String(spec.body ?? '')
+            return { status: 201, headers: { etag: '"m2"' }, text: emptyText, bytes: emptyBytes }
+          }
+          remoteFiles.set(p, String(spec.body ?? ''))
+          return { status: 201, headers: { etag: '"e2"' }, text: emptyText, bytes: emptyBytes }
+        }
+        return { status: 201, headers: {}, text: emptyText, bytes: emptyBytes }
+      },
+    }
+    const store = new Map<string, unknown>([['baseline.v1', { 'n.md': { fp: fingerprint('hello') } }]])
+    const commands = new Map<string, (p?: unknown) => unknown>()
+    let render: ((ctx: { state?: Record<string, string> }) => unknown) | null = null
+    const api = {
+      host: {
+        platform: 'windows',
+        log: () => {},
+        notify: () => {},
+        secrets: { get: async () => 'p', set: async () => {}, delete: async () => {} },
+      },
+      fs: {
+        listNotes: async () => [{ path: 'n.md', mtime: 1 }],
+        readText: async () => 'hello',
+        writeText: async (p: string) => {
+          wrote.push(p)
+        },
+        mkdir: async () => {},
+        exists: async () => true,
+        delete: async (p: string) => {
+          deleted.push(p)
+        },
+      },
+      net,
+      store: {
+        get: async (k: string, d: unknown) => (store.has(k) ? store.get(k) : d),
+        set: async (k: string, v: unknown) => {
+          store.set(k, v)
+        },
+      },
+      event: { on: () => ({ dispose: () => {} }) },
+      command: {
+        register: (c: { id: string; run: (p?: unknown) => unknown }) => {
+          commands.set(c.id, c.run)
+          return { dispose: () => {} }
+        },
+        execute: async () => {},
+      },
+      view: {
+        registerPanel: (s: { render: (ctx: { state?: Record<string, string> }) => unknown }) => {
+          render = s.render
+          return { dispose: () => {} }
+        },
+        refresh: () => {},
+      },
+      subscriptions: [] as Array<{ dispose?: () => void }>,
+    }
+    plugin.apply(api as never)
+    await new Promise((r) => setTimeout(r, 0))
+    // 设置走面板 render + sync.save 播进内存（与「删除传播」用例同一套做法）
+    render!({
+      state: {
+        'sync.baseUrl': 'https://dav.example/dav/',
+        'sync.username': 'u',
+        'sync.root': 'ZeroNote',
+      },
+    })
+    await commands.get('sync.save')!()
+    await commands.get('sync.run')!()
+
+    expect(deleted).toEqual([])
+    expect(wrote).toEqual([])
+    expect(requests).not.toContain('DELETE n.md')
+    expect(requests).toContain('PUT n.md')
+    const rebuilt = JSON.parse(manifest) as { files: Record<string, unknown> }
+    expect(rebuilt.files['n.md']).toBeTruthy()
   })
 })
 

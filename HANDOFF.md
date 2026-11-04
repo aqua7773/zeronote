@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.372
-更新时间: 2026-11-04 · 最新 rev173.372（**坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流），并发现 sync 对「manifest 丢失」无自愈 —— 待限流恢复重试。墓碑结论仍以 rev173.371 的 DAV 桩为准）
+revision: 173.373
+更新时间: 2026-11-04 · 最新 rev173.373（**sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删、按本地重推重建；`sync` 0.1.9 已签名入库）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.372
 
 | rev | 内容 |
 |---|---|
+| rev173.373 | 2026-11-04 · **sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删本地、按本地重推重建；`sync` 0.1.9 签名入库。 |
 | rev173.372 | 2026-11-04 · **坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流）；发现 sync 对「manifest 丢失/被写空」无自愈。待限流恢复重试。 |
 | rev173.371 | 2026-11-04 · **sync 墓碑双端端到端验证**（DAV 桩 · 双端 0.1.8）：手机删 → 桌面跟删进回收站、远端不复活；反向桌面删 → 手机跟删。 |
 | rev173.370 | 2026-11-04 · **真机验证（只验不改）**：debug 包冷启动 8 秒无长任务（66/53ms）；正文点图全屏预览、软键盘不弹。 |
@@ -255,6 +256,40 @@ revision: 173.372
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.373（2026-11-04 · sync 空 manifest 自愈：不跟删、按本地重建）
+
+> **触发**（rev173.372 收尾时发现的真 bug）：远端 `_zn/manifest.json` 被写空 / 缓存成
+> `files:{}` 时，本地每篇都满足「有基线、本地没改、远端没有」⇒ `decideSync` 返回
+> `remote-deleted` ⇒ 本地 `api.fs.delete`（进回收站）跟删，桌面随后无内容可传。
+> 一次云端索引抖动就吃掉两端笔记。
+
+> **判据**（`core.cjs` 新纯函数 `looksLikeManifestLoss(remote, baseline)`，三条同时成立）：
+> `files` 空 · `deleted` 墓碑也空（真删除会逐条留墓碑）· 本机基线里有 `.md`。
+> 有墓碑 / files 非空 / 只为附件条目 ⇒ 一律不算丢失，原行为不变。
+
+> **改法**：`index.cjs` 主循环读到 manifest 后算 `manifestLoss`；为真时
+> ①`verdict === 'remote-deleted'` 改判 `push`（重推本地版、重建远端 manifest）；
+> ②面板提示「远端索引丢失（manifest 为空），本轮按本地重建、不跟删」；③删除传播段
+> 因 `remote.files` 为空自然不触发。数据只会多不会少。
+
+> **测试**：`tests/sync.test.ts` +4（纯函数 3 条 + 集成 1 条：空 manifest + 本机有笔记
+> ⇒ 不 DELETE / 不写本地 / 有 `PUT n.md` / manifest 重建含该篇）。**反向验证**：把覆盖行改回
+> `verdict = verdict` 后用例立刻红（`deleted` 收到 `n.md`），恢复后 104 条全绿。
+
+> **证据**：`sync.test.ts` 104 passed；`verify.ps1` 21:07:49 全绿（tsc 0 · oxlint 4 warnings ·
+> cargo 102 · vitest **1891** · 质量门 8/8）。**G2 实测**（桌面 dev · 库 `_tmp-vault-tb` ·
+> 本地 DAV 桩 8898 · `sync` 0.1.9）：新建笔记同步 ⇒ 远端 69 B + manifest 记 `t:xw3c2k`；
+> 手写桩内 manifest `files:{}`；再同步 ⇒ **本地笔记仍在、远端文件仍在、manifest 重建**，
+> 面板显示「远端索引丢失（manifest 为空），本轮按本地重建、不跟删」。
+> 截图 `_shots/sync-manifest-loss-2026-11-04.png`。
+
+> **打包**：`sync` **0.1.9**（264.3 KB · keyId `aqua-2026` · 整包 sha256 `109f7033…` ·
+> 市场 16 条）；桌面插件目录已拷入（备份 `_tmp-plugin-backup/sync-before-0.1.9-2026-11-04/`，
+> 含原 `store.json`；测完已恢复坚果云配置）。
+
+> **未做**：真实坚果云复验（限流窗口未过，等恢复后重跑墓碑端到端）；手机端未验（同引擎，
+> 但要装 0.1.9 才生效）；市场里的旧的 `sync-webdav`/`sync-s3`/`sync-git` 单后端包不再维护，未同步修改。
 
 > ## 📌 rev173.372（2026-11-04 · 坚果云真实云端验证：受阻 + 一个 sync bug）
 

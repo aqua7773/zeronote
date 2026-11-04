@@ -326,6 +326,33 @@ function decideDeletion({ base, remoteFp }) {
 }
 
 /**
+ * 远端 manifest 像是「丢了」而不是「真的空了」（rev173.373）。
+ *
+ * 为什么要有它（2026-11-04 真实坚果云实测）：桌面首次上传 7 篇后，远端
+ * `_zn/manifest.json` 读回 `files:{}`（坚果云 WebDAV 缓存 / 限流），手机同步时把本地
+ * 独有文件判成「远端已删」跟删进回收站，桌面随后也不再上传 —— 一次云端索引抖动
+ * 就吃掉两端的笔记。`files` 空本身**不足以**证明「用户在别的设备把笔记都删了」。
+ *
+ * 判据（三条同时成立才算索引丢失）：
+ *  · `files` 空；
+ *  · `deleted` 墓碑也空 —— 真删除会逐条留墓碑（rev173.325），有墓碑说明删除是真发生过的；
+ *  · 本机基线非空 —— 以前同步过，这次不该突然全部消失。
+ *
+ * 判成「丢失」后调用方**不跟删**，改为按本地内容重建 manifest（数据只会多不会少）。
+ *
+ * @param {{files?: Record<string, unknown>, deleted?: Record<string, unknown>}} remote
+ * @param {Record<string, unknown>} baseline 本地基线（`path → { fp }`）
+ * @returns {boolean}
+ */
+function looksLikeManifestLoss(remote, baseline) {
+  const files = remote?.files ?? {}
+  const deleted = remote?.deleted ?? {}
+  if (Object.keys(files).length > 0) return false
+  if (Object.keys(deleted).length > 0) return false
+  return Object.keys(baseline ?? {}).some((p) => /\.md$/i.test(p))
+}
+
+/**
  * 冲突时尝试**三方合并**（rev173.115）。
  *
  * 输入是三方：`base` = 上次成功同步时的内容（history 插件打的同步点）、
@@ -736,6 +763,7 @@ module.exports = {
   parsePropfind,
   decideSync,
   decideDeletion,
+  looksLikeManifestLoss,
   tryAutoMerge,
   conflictFileName,
   normalizeManifest,

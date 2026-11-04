@@ -65,6 +65,7 @@ const {
   fingerprint,
   decideSync,
   decideDeletion,
+  looksLikeManifestLoss,
   tryAutoMerge,
   conflictFileName,
   normalizeManifest,
@@ -762,6 +763,18 @@ const plugin = {
         }
         timing.manifest = lap()
         const notes = await api.fs.listNotes()
+        /**
+         * **远端索引丢失的自愈**（rev173.373）：`files` 空 + 无墓碑 + 本机有基线
+         * ⇒ 是 manifest 被写空 / 缓存 / 限流，**不是**「对端把笔记都删了」。
+         *
+         * 旧行为：每篇都走 `remote-deleted` ⇒ 本地跟着删（进回收站），桌面随后无内容可传
+         * —— 2026-11-04 真实坚果云实测：一次云端索引抖动就吃掉两端的笔记。
+         * 现在：本轮不跟删，改为把本地现有内容重推上去、重建 manifest。
+         */
+        const manifestLoss = looksLikeManifestLoss(remote, baseline)
+        if (manifestLoss) {
+          summary.hint = '远端索引丢失（manifest 为空），本轮按本地重建、不跟删'
+        }
         const localPaths = new Set()
         const nextFiles = { ...remote.files }
         /**
@@ -803,7 +816,12 @@ const plugin = {
           const localFp = fingerprint(localText)
           const base = baseline[n.path] ?? null
           const remoteEntry = remote.files[n.path] ?? null
-          const verdict = decideSync({ base, localFp, remoteFp: remoteEntry?.fp ?? null })
+          let verdict = decideSync({ base, localFp, remoteFp: remoteEntry?.fp ?? null })
+          /**
+           * 索引丢失时不认「远端删了这篇」（rev173.373）—— 重推本地版本，
+           * 让远端 manifest 从本地内容重建。数据只会多不会少。
+           */
+          if (manifestLoss && verdict === 'remote-deleted') verdict = 'push'
 
           /**
            * **删除墓碑优先**（rev173.325 · 真人测试6 #4a）。
