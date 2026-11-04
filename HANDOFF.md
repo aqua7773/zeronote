@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.362
-更新时间: 2026-11-04 · 最新 rev173.362（**私密笔记入口不随插件消失**：把「私密文件夹」插件关掉后，桌面侧栏锁形按钮 / 手机「更多 → 私密笔记」还在，点下去只报「没装插件」—— 违反「空内核 · 功能全靠插件」；入口改由 `privateAvailable`（插件目录里有 + 未被禁用）控制，`visibleMoreGroups()` 一处过滤桌面浮窗与手机右侧栏。另含 rev173.361 私密笔记指纹入口修复）
+revision: 173.363
+更新时间: 2026-11-04 · 最新 rev173.363（**退出应用时的偶发闪退根治**：按返回键退出 → `std::process::exit` → `__cxa_finalize()` 析构 libhwui 的 `CommonPool` 静态单例，它 detach 的 `hwuiTask` 线程仍卡在 `mCondition.wait(lock)` ⇒ 重锁已销毁 mutex ⇒ FORTIFY abort。改 `App::run` → `run_return`，Android 走 `libc::_exit`。真机 A/B：旧 10 轮 8 条 FORTIFY → 新 10 轮 0 条。另含 rev173.362 私密笔记入口不随插件消失修复）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
