@@ -1,72 +1,45 @@
 /**
- * **附件分流**（rev173.232 · 附件同步期 1）与**图片两模式**（rev173.234 · 期 2）。
+ * **附件分流**（rev173.232 · 附件同步期 1）。
  *
  * 规则（`docs/附件与同步-需求-2026-10-28.md` §1/§2）：
  * - **≤ 1 MiB** ⇒ 复制到笔记同目录，正文写库内相对路径（老行为）；
- * - **> 1 MiB** ⇒ **不复制**，正文写绝对路径，文件身份记进
- *   `<库>/.zn-assets/manifest.json`（引用台账，期 1 只记不搬）；
- * - **图片**多两条路（由设置里的「图片插入模式」决定）：
- *   - `original`（默认 · 模式 A）：≤1 MiB 复制原图；>1 MiB 引用原图 + 生成预览图入库；
- *   - `compress`（模式 B）：一律压到 ≤1 MiB 再入库，正文与点开默认都是压缩版。
+ * - **> 1 MiB** ⇒ **不复制原图**，文件身份记进 `<库>/.zn-assets/manifest.json`；
+ *   图片另生成一张 **≤1 MiB 的预览图**入库，**正文写预览图**（2026-11-04 定稿）——
+ *   正文里显示的始终是小图，点开时才按台账找回原图（本机有就直接看，没有就问要不要同步）。
  *
  * 判定在 Rust 侧（`import_attachment` 读真实文件大小 + 真解码），这里只消费结果：
  * 前端**不**用字节长度猜 —— 剪贴板图片没有原文件路径，永远走复制。
  */
 export const ATTACHMENT_COPY_LIMIT = 1024 * 1024
 
-/**
- * 图片插入模式（设置项 `zeronote.imageMode`）。
- * - `original` = A：引入原图（大图只引用 + 出预览图）
- * - `compress` = B：压到 1 MiB 以下入库
- */
-export type ImageInsertMode = 'original' | 'compress'
-
-export const IMAGE_MODE_STORAGE_KEY = 'zeronote.imageMode'
-
-/** 读模式设置；没存过 ⇒ `original`（需求 §2：默认 A） */
-export function loadImageMode(): ImageInsertMode {
-  try {
-    return window.localStorage.getItem(IMAGE_MODE_STORAGE_KEY) === 'compress'
-      ? 'compress'
-      : 'original'
-  } catch {
-    return 'original'
-  }
-}
-
 export type AttachmentOutcome = {
-  /** `copied` = 复制进库；`referenced` = 只引用原文件（> 1 MiB） */
+  /** `copied` = 复制进库；`referenced` = 只引用原文件（> 1 MiB，原图没进库） */
   mode: 'copied' | 'referenced'
-  /** 笔记里该写的路径：`copied` ⇒ 库内相对路径；`referenced` ⇒ 绝对路径（正斜杠） */
+  /** 笔记里该写的路径：`copied` ⇒ 原件；`referenced` ⇒ 图片的预览图 / 其它附件的绝对路径 */
   path: string
-  /** 入库文件的字节数（`copied` 时是压缩后的实际大小） */
+  /** 原图（或原件）的字节数 —— `referenced` 时是**原图**大小，不是预览图的 */
   size: number
   /** 引用台账条目 id（`sha256:<hex>`）；复制型为 null */
   ledgerId: string | null
-  /** 压缩信息（只有真压过才给）；`originalSize` = 源文件字节数 */
-  compressed?: { originalSize: number; format: string }
-  /** 模式 A 大图的**预览图**库内相对路径（期 3 渲染用；其余情况为 null/缺省） */
+  /** 原图绝对路径（`referenced` 必有）—— 点开 / 同步时按它找回原图 */
+  original?: string
+  /** > 1 MiB 图片的**预览图**库内相对路径（= `path`；其它情况缺省） */
   preview?: string | null
   /**
-   * 降级说明（例如「压缩失败，已改为引用原文件」）。
-   * 出现它就意味着「插入成功了，但没按模式本意走」—— 界面必须说清楚，不静默降级。
+   * 降级说明（例如「预览图生成失败，正文已引用原文件」）。
+   * 出现它就意味着「插入成功了，但没按本意走」—— 界面必须说清楚，不静默降级。
    */
   note?: string
 }
 
-/** 给人看的说明：压了 / 引用了 / 都没发生（null） */
+/** 给人看的说明：插了预览图 / 引用了原文件 / 都没发生（null） */
 export function attachmentHint(outcome: AttachmentOutcome): string | null {
   const parts: string[] = []
-  if (outcome.compressed) {
-    // 透明图只能无损压缩，极端情况下确实压不到 1 MiB —— 如实说，不假装达标
-    const over = outcome.size > ATTACHMENT_COPY_LIMIT
+  if (outcome.preview) {
     parts.push(
-      `已压缩 ${formatSize(outcome.compressed.originalSize)} → ${formatSize(outcome.size)}${
-        over ? '（无损图仍超过 1 MiB）' : ''
-      }`,
+      `已插入预览图（原图 ${formatSize(outcome.size)} 未复制，点开可查看 / 同步）`,
     )
-  }
-  if (outcome.mode === 'referenced') {
+  } else if (outcome.mode === 'referenced') {
     parts.push(`已引用原文件（${formatSize(outcome.size)}，超过 1 MiB 不复制进库）`)
   }
   return parts.length > 0 ? parts.join(' · ') : null

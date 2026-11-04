@@ -2,16 +2,15 @@
 /**
  * 附件分流（rev173.232 · 附件同步期 1）的纯函数：
  *  · 阈值口径必须是 1 MiB = 1,048,576（需求 §6）
- *  · 引用型（>1 MiB）要给「不复制进库」的说明；复制型不额外解释
+ *  · >1 MiB 的图片：正文里是**预览图**，提示要说清「原图没进来、点开可取」
+ *  · >1 MiB 的其它附件：引用原文件，提示「不复制进库」
  *  · 含空格 / 括号的绝对路径必须用 `<...>` 包起来，否则 Markdown 目标会被截断
  */
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   ATTACHMENT_COPY_LIMIT,
-  IMAGE_MODE_STORAGE_KEY,
   attachmentHint,
   formatSize,
-  loadImageMode,
   mdTarget,
   type AttachmentOutcome,
 } from '../src/kernel/attachment'
@@ -22,7 +21,7 @@ describe('附件分流阈值', () => {
     expect(ATTACHMENT_COPY_LIMIT).toBe(1_048_576)
   })
 
-  it('复制型不额外解释，引用型说明「不复制进库」', () => {
+  it('复制型不额外解释', () => {
     const copied: AttachmentOutcome = {
       mode: 'copied',
       path: 'sub/a.png',
@@ -30,12 +29,15 @@ describe('附件分流阈值', () => {
       ledgerId: null,
     }
     expect(attachmentHint(copied)).toBeNull()
+  })
 
+  it('非图片的引用型说明「不复制进库」', () => {
     const referenced: AttachmentOutcome = {
       mode: 'referenced',
       path: 'D:/Music/a.mp3',
       size: 2 * 1024 * 1024,
       ledgerId: 'sha256:abc',
+      original: 'D:/Music/a.mp3',
     }
     const hint = attachmentHint(referenced)
     expect(hint).toContain('已引用原文件')
@@ -66,49 +68,34 @@ describe('mdTarget', () => {
   })
 })
 
-describe('图片模式（rev173.234 · 期 2）', () => {
-  beforeEach(() => {
-    window.localStorage.removeItem(IMAGE_MODE_STORAGE_KEY)
-  })
-
-  it('没存过 ⇒ 默认「引入原图」(A)', () => {
-    expect(loadImageMode()).toBe('original')
-  })
-
-  it('存 compress 才返回 B；其它乱七八糟的值一律回落 A', () => {
-    window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, 'compress')
-    expect(loadImageMode()).toBe('compress')
-
-    window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, 'bogus')
-    expect(loadImageMode()).toBe('original')
-  })
-
-  it('压缩型要报出「已压缩 原 → 新」，且不能再说「引用原文件」', () => {
-    const squeezed: AttachmentOutcome = {
-      mode: 'copied',
-      path: 'notes/image-x.jpg',
-      size: 700 * 1024,
+describe('大图 = 预览图 + 原图引用（2026-11-04 定稿）', () => {
+  it('正文写预览图时，提示点明「原图多大、没进来、点开可取」', () => {
+    const outcome: AttachmentOutcome = {
+      mode: 'referenced',
+      path: 'notes/image-x-preview.jpg',
+      size: 10 * 1024 * 1024,
       ledgerId: 'sha256:abc',
-      compressed: { originalSize: 10 * 1024 * 1024, format: 'jpg' },
+      original: 'D:/Pictures/big.png',
+      preview: 'notes/image-x-preview.jpg',
     }
-    const hint = attachmentHint(squeezed)
-    expect(hint).toContain('已压缩')
+    const hint = attachmentHint(outcome)
+    expect(hint).toContain('已插入预览图')
     expect(hint).toContain('10.0 MB')
-    expect(hint).toContain('700 KB')
-    expect(hint).not.toContain('引用原文件')
+    expect(hint).toContain('点开可查看')
+    // 不能说「已引用原文件」—— 正文里确实是预览图
+    expect(hint).not.toContain('已引用原文件')
   })
 
-  it('压缩失败退回引用型时，两条说明都要在', () => {
+  it('预览图生成失败退回绝对路径时，要说回「已引用原文件」', () => {
     const fallback: AttachmentOutcome = {
       mode: 'referenced',
       path: 'D:/Pictures/big.png',
       size: 12 * 1024 * 1024,
       ledgerId: 'sha256:def',
-      preview: 'notes/image-x-preview.jpg',
-      compressed: { originalSize: 12 * 1024 * 1024, format: 'jpg' },
+      original: 'D:/Pictures/big.png',
     }
     const hint = attachmentHint(fallback)
-    expect(hint).toContain('已压缩')
     expect(hint).toContain('已引用原文件')
+    expect(hint).not.toContain('已插入预览图')
   })
 })

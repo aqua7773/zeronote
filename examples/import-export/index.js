@@ -858,8 +858,11 @@ export function normalizeRefPath(path) {  let s = stripAngleRef(path)
 }
 
 /**
- * 台账里找这一条：先按**原文件绝对路径**（`original`）比，再按**入库副本**
- * （`storedInVault`：模式 B 的压缩版 / 模式 A 的预览图挂在这条上）比。
+ * 台账里找这一条：先按**原文件绝对路径**（`original`）比，再按**库内副本**比。
+ *
+ * 库内副本有两种字段（2026-11-04）：
+ *  · `preview` —— >1 MiB 图片的**预览图**，新写入的笔记正文引用的就是它；
+ *  · `storedInVault` —— 老数据里模式 B 的压缩版（模式已下线，只读兼容）。
  */
 export function findAssetEntry(entries, { abs, rel } = {}) {
   const list = Array.isArray(entries) ? entries : []
@@ -872,7 +875,9 @@ export function findAssetEntry(entries, { abs, rel } = {}) {
   }
   if (relKey) {
     for (const it of list) {
-      if (it && typeof it === 'object' && normalizeRefPath(it.storedInVault) === relKey) return it
+      if (!it || typeof it !== 'object') continue
+      if (normalizeRefPath(it.preview) === relKey) return it
+      if (normalizeRefPath(it.storedInVault) === relKey) return it
     }
   }
   return null

@@ -47,7 +47,12 @@ pub enum RelayBackend {
   #[serde(rename_all = "camelCase")]
   LocalFolder { root: String },
   /// WebDAV：`base_url` 如 `https://dav.jianguoyun.com/dav/`，`root` 是其中的子目录（可空）
-  #[serde(rename_all = "camelCase")]
+  ///
+  /// ⚠️ tag 显式写成 `webdav`（2026-11-04 真机实测踩到）：enum 上是 `kebab-case`，
+  /// `WebDav` 会被序列化成 `web-dav`，而前端类型一直是 `'webdav'` ⇒
+  /// **UI 里配 WebDAV 永远报「搬运后端配置不合法」**（这个后端此前从没真机验证过）。
+  /// 这里显式改名并对老写法留 alias。
+  #[serde(rename = "webdav", alias = "web-dav", rename_all = "camelCase")]
   WebDav {
     base_url: String,
     root: String,
@@ -225,6 +230,8 @@ impl RelayBackend {
         Ok(())
       }
       RelayBackend::WebDav { .. } => {
+        // WebDAV 的 PUT **不会创建父集合**（2026-11-04 真机实测：坚果云返回 409）⇒ 先建目录
+        ensure_dav_staging_dirs(self, hash16).await?;
         let bytes = std::fs::read(src).map_err(|e| format!("读取源文件失败：{e}"))?;
         let url = dav_staging_url(self, &format!("{hash16}/{name}"))?;
         let resp = dav_request(self, "PUT", &url, Some(bytes)).await?;
@@ -448,6 +455,27 @@ fn join_url_str(raw: &str) -> Result<reqwest::Url, String> {
   reqwest::Url::parse(raw).map_err(|e| format!("URL 不合法（{raw}）：{e}"))
 }
 
+/// 确保 `<root>/.zn-asset-staging/<hash16>/` 存在（WebDAV 的 PUT 不建父集合）。
+///
+/// 2026-11-04 真机实测：直接 PUT 返回 **409 Conflict** —— 坚果云（以及多数 DAV 服务端）
+/// 要求父集合已存在。MKCOL 是幂等的：201 = 新建，**405 = 已存在**（RFC 4918），都算成功。
+async fn ensure_dav_staging_dirs(backend: &RelayBackend, hash16: &str) -> Result<(), String> {
+  let root = dav_staging_url(backend, "")?;
+  mkcol_ok(backend, &root).await?;
+  let dir = dav_staging_url(backend, &format!("{hash16}/"))?;
+  mkcol_ok(backend, &dir).await
+}
+
+async fn mkcol_ok(backend: &RelayBackend, url: &reqwest::Url) -> Result<(), String> {
+  let resp = dav_request(backend, "MKCOL", url, None).await?;
+  match resp.status {
+    200 | 201 | 204 => Ok(()),
+    // 405 = 已有同名集合（正常）
+    405 => Ok(()),
+    other => Err(format!("创建 WebDAV 目录失败（HTTP {other}）：{url}")),
+  }
+}
+
 fn join_url(base: &reqwest::Url, path: &str) -> Result<reqwest::Url, String> {
   base.join(path).map_err(|e| format!("URL 拼接失败（{path}）：{e}"))
 }
@@ -584,6 +612,13 @@ fn collect_files(xml: &str) -> Vec<(String, u64)> {
       let hstart = h + ":href>".len();
       if let Some(hend) = block_lower[hstart..].find("</") {
         let raw = &block[hstart..hstart + hend];
+        // 目录自身也会出现在 depth=1 的 PROPFIND 里（2026-11-04 真机实测：
+        // 它被当成一个「名字 = hash16、size = 0」的文件 ⇒ 落地时拼出 `<hash16>/<hash16>` → 404）。
+        // 判据两条：href 以 `/` 结尾，或 resourcetype 里有 collection。
+        if raw.trim().ends_with('/') || block_lower.contains("<d:collection") {
+          pos = block_start + end_rel;
+          continue;
+        }
         let href = percent_decode(raw.trim());
         let name = href
           .trim_end_matches('/')
@@ -905,7 +940,7 @@ async fn land_one(
   let hash16 = hash16_of(id)?;
   let entry = remote
     .iter()
-    .find(|r| r.hash16 == hash16)
+    .find(|r| r.hash16 == hash16 && r.name != hash16)
     .ok_or_else(|| "云端没有这个文件（可能已被清理，或还没上传）".to_string())?;
   let original = find_entry(ledger, id)
     .and_then(|e| e.get("original").and_then(|o| o.as_str()))
@@ -1119,6 +1154,42 @@ mod tests {
     fs::create_dir_all(vault.join(".zn-assets")).unwrap();
     fs::write(vault.join("note.md"), "# hi\n").unwrap();
     vault.to_string_lossy().to_string()
+  }
+
+  /// WebDAV 的 tag 必须序列化成 `webdav`（前端类型就是它）。
+  ///
+  /// 2026-11-04 真机实测踩到：enum 是 `kebab-case`，`WebDav` 会被写成 `web-dav`
+  /// ⇒ UI 里配 WebDAV 永远报「搬运后端配置不合法」，这个后端此前从未真机验证过。
+  #[test]
+  fn webdav_backend_tag_is_webdav() {
+    let b = RelayBackend::WebDav {
+      base_url: "https://dav.jianguoyun.com/dav/".into(),
+      root: "ZeroNote".into(),
+      username: "u@example.com".into(),
+    };
+    let v = serde_json::to_value(&b).unwrap();
+    assert_eq!(v["kind"], "webdav", "序列化 tag：{v}");
+    assert_eq!(v["baseUrl"], "https://dav.jianguoyun.com/dav/");
+
+    // 前端传来的形态（camelCase 字段 + webdav tag）必须能反序列化
+    let back: RelayBackend = serde_json::from_value(json!({
+      "kind": "webdav",
+      "baseUrl": "https://dav.jianguoyun.com/dav/",
+      "root": "ZeroNote",
+      "username": "u@example.com"
+    }))
+    .unwrap();
+    assert_eq!(back, b);
+
+    // 老写法 web-dav 仍可读（alias）
+    let legacy: RelayBackend = serde_json::from_value(json!({
+      "kind": "web-dav",
+      "baseUrl": "https://x/",
+      "root": "",
+      "username": "u"
+    }))
+    .unwrap();
+    assert!(matches!(legacy, RelayBackend::WebDav { .. }));
   }
 
   /// 往台账里塞一条引用型条目（>1 MiB 的库外文件）。

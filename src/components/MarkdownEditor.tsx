@@ -102,12 +102,22 @@ const quoteDepthPlugin = ViewPlugin.fromClass(
  * 覆盖两处创建 `<img>` 的地方：image-blocks（正文块）与 table-widget（表格单元格），
  * 以及 CM6 虚拟化重挂载（滚走再滚回来 widget 会重建）。
  */
+/**
+ * 「这张图加载不出来，但台账里有它的预览图」—— 由宿主查台账并给出可用的 URL。
+ *
+ * 场景（2026-11-04 定稿）：老笔记正文写的是**原图绝对路径**（`D:/Pictures/x.jpg`），
+ * 原文件不在这台设备上。新方案里正文该显示的是预览图 ⇒ 加载失败后先问这一句，
+ * 拿到预览图就换上去（并把 `znRaw` 改成预览图相对路径，点击自然走「预览 → 按需取原图」）。
+ */
+type PreviewFallback = (raw: string) => Promise<{ url: string; rel: string } | null>
+
 function fixImageSrc(
   view: EditorView,
   vault: string | null | undefined,
   notePath: string | null,
   onExternalMediaSync?: (raw: string) => void,
   onMissingImage?: (raw: string) => void,
+  onPreviewFallback?: PreviewFallback,
 ) {
   for (const img of view.contentDOM.querySelectorAll('img')) {
     // 二次处理时 `src` 已是 asset URL —— 原文只认 dataset（rev173.325 修：原来读属性会丢原引用）
@@ -151,7 +161,7 @@ function fixImageSrc(
     const url = urls[idx]
     // 同一 URL 不重复赋值 —— 每次赋值都会让浏览器重新发起一次加载
     if (img.src !== url) img.src = url
-    attachImageErrorHint(img, raw, onMissingImage)
+    attachImageErrorHint(img, raw, onMissingImage, onPreviewFallback)
   }
   upgradeMediaWidgets(view, vault, notePath, onExternalMediaSync)
 }
@@ -170,6 +180,7 @@ function attachImageErrorHint(
   img: HTMLImageElement,
   raw: string,
   onMissing?: (raw: string) => void,
+  onPreviewFallback?: PreviewFallback,
 ) {
   if (img.dataset.znErrorBound) return
   img.dataset.znErrorBound = '1'
@@ -218,6 +229,25 @@ function attachImageErrorHint(
     if (Number.isFinite(idx) && idx + 1 < urls.length) {
       img.dataset.znUrlIdx = String(idx + 1)
       img.src = urls[idx + 1]
+      return
+    }
+    /**
+     * 所有候选都失败 ⇒ 先问台账「这张有没有预览图」（老笔记里写的是原图绝对路径）。
+     * 有就换成预览图重试（只换一次，防循环）；没有再显示占位。
+     */
+    if (onPreviewFallback && img.dataset.znFallbackDone !== '1') {
+      img.dataset.znFallbackDone = '1'
+      void onPreviewFallback(raw).then((fb) => {
+        if (!fb) {
+          show()
+          return
+        }
+        // 点击链路按 `znRaw` 解析 —— 改成预览图相对路径，点开才是「先看预览、按需取原图」
+        img.dataset.znRaw = fb.rel
+        img.dataset.znUrls = JSON.stringify([fb.url])
+        img.dataset.znUrlIdx = '0'
+        img.src = fb.url
+      })
       return
     }
     show()
@@ -415,20 +445,28 @@ function imageAssetPlugin(
   notePath: string | null,
   onExternalMediaSync?: (raw: string) => void,
   onMissingImage?: (raw: string) => void,
+  onPreviewFallback?: PreviewFallback,
 ) {
   return ViewPlugin.fromClass(
     class {
       private readonly observer: MutationObserver
       constructor(view: EditorView) {
         this.observer = new MutationObserver(() =>
-          fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage),
+          fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage, onPreviewFallback),
         )
         this.observer.observe(view.contentDOM, { childList: true, subtree: true })
-        fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage)
+        fixImageSrc(view, vault, notePath, onExternalMediaSync, onMissingImage, onPreviewFallback)
       }
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          fixImageSrc(update.view, vault, notePath, onExternalMediaSync, onMissingImage)
+          fixImageSrc(
+            update.view,
+            vault,
+            notePath,
+            onExternalMediaSync,
+            onMissingImage,
+            onPreviewFallback,
+          )
         }
       }
       destroy() {
@@ -506,6 +544,13 @@ type Props = {
    * 台账里有 ⇒ 从云端接收；没有 ⇒ 告诉他附件同步没开 / 去设置 → 附件。
    */
   onMissingImage?: (raw: string) => void
+  /**
+   * 图片加载不出来时，问宿主「台账里这张有没有预览图」（2026-11-04）。
+   *
+   * 老笔记正文写的是原图绝对路径；原文件不在这台设备上时，正文该显示的是 **≤1 MiB 的预览图**。
+   * 拿到预览图 URL 就换上去，点开时再走「本机有原图就看 / 没有就问同步」。
+   */
+  onPreviewFallback?: PreviewFallback
   /**
    * 正文里的**内嵌图**（`![](data:…)` + 紧跟的 `<!-- zn-orig: 原引用 -->`）被点开时的出口
    * （rev173.278 · 真人使用测试 #20）。
@@ -953,6 +998,7 @@ export function MarkdownEditor({
   onLocalLinkOpen,
   onExternalMediaSync,
   onMissingImage,
+  onPreviewFallback,
   onEmbeddedImage,
   mediaEpoch = 0,
   onNotify,
@@ -1663,7 +1709,7 @@ export function MarkdownEditor({
     // frontmatter 隐藏（rev173.98 · 用户「frontmatter 隐藏」）—— 见 kernel/editor-frontmatter.ts
     frontmatterHide(),
     // 正文图片：`![](相对路径)` → asset URL（见 imageAssetPlugin 的说明）
-    imageAssetPlugin(vault, path, onExternalMediaSync, onMissingImage),
+    imageAssetPlugin(vault, path, onExternalMediaSync, onMissingImage, onPreviewFallback),
   ]
 
   // 兜底（正常走不到）：万一将来 atomic 的内部实现不再触发我们注入的

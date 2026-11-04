@@ -242,8 +242,12 @@ describe('findAssetEntry', () => {
     expect(findAssetEntry(entries, { abs: 'd:\\照片\\大图.jpg' })?.id).toBe('sha256:1')
   })
 
-  it('按入库副本命中（模式 B 的压缩版 / 模式 A 的预览图）', () => {
+  it('按入库副本命中（老数据里模式 B 的压缩版）', () => {
     expect(findAssetEntry(entries, { rel: 'attachments/二.webp' })?.id).toBe('sha256:2')
+  })
+
+  it('按预览图命中（2026-11-04：新笔记正文引用的就是预览图）', () => {
+    expect(findAssetEntry(entries, { rel: 'attachments/大图-preview.jpg' })?.id).toBe('sha256:1')
   })
 
   it('没这条 ⇒ null（不猜）', () => {

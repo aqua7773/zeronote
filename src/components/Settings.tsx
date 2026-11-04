@@ -5,7 +5,6 @@ import { Dialog, DialogBody, DialogHeader } from '@/components/ui'
 import { AssetRelayPanel } from './AssetRelayPanel'
 import { AppUpdatePanel } from './AppUpdatePanel'
 import { visibleMoreGroups, type MoreActionId, type TabId } from './more-items'
-import type { ImageInsertMode } from '../kernel/attachment'
 
 /**
  * **「更多」页**（rev173.313 由「设置弹窗」升级而来）。
@@ -101,12 +100,6 @@ export type SettingsSectionProps = {
   renderHtml: boolean
   onRenderHtmlChange: (v: boolean) => void
   /**
-   * 图片插入模式（rev173.234 · 附件同步期 2）：A 引入原图（默认）/ B 压到 1 MiB 以下入库。
-   * 只影响**超过 1 MiB 的图片** —— 小图两种模式都是直接复制原图。
-   */
-  imageMode?: ImageInsertMode
-  onImageModeChange: (mode: ImageInsertMode) => void
-  /**
    * 环形快捷入口的 **5 格**（rev173.281 · J#9）：值 = 槽 key 或 `null`（空槽）。
    * 中心 ＋ 固定是新建笔记，不在这里配。
    * 不传 ⇒ 不显示这一块（测试 / 独立窗口不需要）。
@@ -130,8 +123,6 @@ export function SettingsSections({
   onFocusModeChange,
   renderHtml,
   onRenderHtmlChange,
-  imageMode = 'original',
-  onImageModeChange,
   quickSlots,
   quickSlotOptions = [],
   onQuickSlotChange,
@@ -169,37 +160,6 @@ export function SettingsSections({
                   className={cn(
                     'px-2.5 py-1 text-xs transition-colors',
                     renderHtml === value
-                      ? 'bg-primary zn-on-accent'
-                      : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </Row>
-          <Row
-            label="图片插入模式"
-            hint={
-              imageMode === 'compress'
-                ? '超过 1 MiB 的图片压到 1 MiB 以下再入库（正文与点开都是压缩版，原图路径记进引用台账）'
-                : '引入原图：≤1 MiB 复制进库；更大的引用原文件，另存一张预览图'
-            }
-          >
-            <div className="flex overflow-hidden rounded-ui-sm border border-border-strong">
-              {(
-                [
-                  ['original', '引入原图'],
-                  ['compress', '压缩入库'],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => onImageModeChange(value)}
-                  className={cn(
-                    'px-2.5 py-1 text-xs transition-colors',
-                    imageMode === value
                       ? 'bg-primary zn-on-accent'
                       : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}

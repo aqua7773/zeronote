@@ -139,13 +139,10 @@ import {
 import { attachmentStem, imageInsertion, isImageFileName, linkCandidates, linkInsertion, pathFromVaultRoot, stemFromFileName } from './lib/insert-image'
 import { isEmbeddedOrigAbs, znOrigCandidates } from './lib/embed-image'
 import {
-  IMAGE_MODE_STORAGE_KEY,
   attachmentHint,
   formatSize,
-  loadImageMode,
   mdTarget,
   type AttachmentOutcome,
-  type ImageInsertMode,
 } from './kernel/attachment'
 import { mediaHint, mediaKindOf } from './lib/media-render'
 /* rev173.272：正文附件按扩展名现推 kind —— 列表落后于磁盘时（粘贴 / 同步刚写盘）仍能打开 */
@@ -552,20 +549,6 @@ export default function App() {
       /* 隐私模式等拿不到 storage —— 忽略 */
     }
   }, [renderHtml])
-
-  /**
-   * 图片插入模式（rev173.234 · 附件同步期 2）：默认「引入原图」(A)，可选「压缩入库」(B)。
-   * 只影响 **>1 MiB 的图片** —— ≤1 MiB 时两种模式都是直接复制原图（不白丢画质）。
-   */
-  const [imageMode, setImageMode] = useState<ImageInsertMode>(loadImageMode)
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imageMode)
-    } catch {
-      /* 隐私模式等拿不到 storage —— 忽略 */
-    }
-  }, [imageMode])
 
   /**
    * 打开某个浮层时**关掉其余的** —— 它们都是模态，同时开着会叠层。
@@ -3208,16 +3191,14 @@ export default function App() {
   }, [])
 
   /**
-   * 图片附件预览（rev173.3 · 用户「附件的入口也没做」）。
+   * 图片附件预览（rev173.3；2026-11-04 定为「预览图 + 按需取原图」）。
    *
-   * 文件树「附件」分组里点一张图 → 全屏看原图。**不能走 `openNote`**（那会按文本
-   * 读二进制、必然失败），也不用插件：内核自己就能把它显示出来（asset 协议）。
-   *
-   * rev173.239（附件同步期 4 · 正文入口 2）：预览时**顺手查一次引用台账** ——
-   *  · 模式 B 的图正文引用的是压缩版（`storedInVault`）；原图若已从云端落地到本机
-   *    （`devices[本机]` 有值），直接显示**原图**（需求 §4「主动同步成功后点开默认显示原图」）；
-   *  · 原图还没到本机 ⇒ 浮层给「同步原图」按钮；点它就 `landRelay` 收这一份。
-   * 台账读不到（没配搬运后端 / 旧库没有 manifest）只是不显示按钮，**不影响预览本身**。
+   * 正文里显示的**始终是 ≤1 MiB 的预览图**；点开时按引用台账决定看什么：
+   *  · **原图在本机**（原文件还在，或已从云端落地到 `devices[本机]`）⇒ 直接显示原图；
+   *  · **原图不在本机** ⇒ 问「是否同步原图」，确认后接收并显示原图；
+   *    取消就停在预览图（用户原话「不执行的话就只是预览」）；
+   *  · 云端也没有 ⇒ 说明另一台设备还没上传，停在预览图。
+   * 台账读不到（没配搬运后端 / 旧库没有 manifest）⇒ 就只是预览，不打扰。
    */
   const openImagePreview = useCallback(
     (relPath: string) => {
@@ -3235,30 +3216,52 @@ export default function App() {
       void (async () => {
         try {
           const local = await loadRelayPending(vault)
-          const hit = findEntryForStoredImage(local.items, relPath)
+          /**
+           * 命中两种写法：
+           *  · 预览图（本方案正文里引用的就是它）· 老数据里模式 B 的压缩版 ⇒ 库内相对路径
+           *  · 老笔记的原图绝对路径 ⇒ 按 `original` 精确匹配
+           */
+          const hit =
+            findEntryForStoredImage(local.items, relPath) ??
+            findEntryForMedia(local.items, relPath)
           if (!hit) return
-          // devices[本机] 有两种写法（原文件绝对路径 / 落地后的库内相对路径），统一成一个绝对路径
-          const originAbs = localOriginalAbsPath(hit, local.deviceId, root)
-          if (originAbs) {
-            // 原图已在本机：优先显示原图（压缩版只在原图没有时才当正式版本）
-            let landedSrc: string
+          // ① 原图已在本机：`devices[本机]` 落地副本优先，其次原文件本身还在
+          const landed = localOriginalAbsPath(hit, local.deviceId, root)
+          const here = landed ?? (hit.exists ? hit.localPath : null)
+          if (here) {
+            let originSrc: string
             try {
-              landedSrc = convertFileSrc(originAbs)
+              originSrc = convertFileSrc(here.replace(/\\/g, '/'))
             } catch {
               return
             }
             setImagePreview((prev) =>
-              prev && prev.relPath === relPath ? { ...prev, src: landedSrc, relay: null } : prev,
+              prev && prev.relPath === relPath ? { ...prev, src: originSrc, relay: null } : prev,
             )
             return
           }
-          setImagePreview((prev) =>
-            prev && prev.relPath === relPath
-              ? { ...prev, relay: { id: hit.id, size: hit.size, original: hit.original } }
-              : prev,
-          )
+          // ② 原图不在本机 ⇒ 云端有就问「要不要同步」；没有就说清楚（停在预览图）
+          const remote = await loadRelayRemote(vault)
+          if (!remote.items.some((r) => r.hash16 === hash16Of(hit.id))) {
+            setToast('原图不在本机，另一台设备也还没上传（设置 → 附件 里上传）')
+            return
+          }
+          if (!window.confirm(syncConfirmText(hit))) return
+          const r = await landRelay(vault, [hit.id])
+          const ok = r.items.find((x) => x.ok)
+          if (!ok?.path) {
+            setToast(`同步原图失败：${r.items[0]?.error ?? '未知错误'}`)
+            return
+          }
+          // 落地后**不改写正文**：正文引用的是预览图，换成原图路径反而会破。
+          setImagePreview({
+            src: convertFileSrc(`${root}/${ok.path}`),
+            relPath,
+            relay: null,
+          })
+          setToast(`已同步原图（${formatSize(r.totalBytes)}）`)
         } catch {
-          /* 台账读不到不影响预览 */
+          /* 台账读不到不影响预览本身 */
         }
       })()
     },
@@ -3266,7 +3269,34 @@ export default function App() {
   )
 
   /**
-   * 「同步原图」（模式 B · 需求 §5 入口 2）：从云端临时区接收**这一张**原图并落地。
+   * 图片加载失败时的**兜底解析**（2026-11-04）：
+   *  ① 台账里有预览图（老笔记正文写的是原图绝对路径）⇒ 换成 ≤1 MiB 的预览图；
+   *  ② 按文件名全库找（笔记 / 文件夹被移动过，库根相对路径失效）⇒ 唯一命中就用它。
+   * 命中后编辑器把 `znRaw` 改成相对路径，点开自然走「预览 → 按需取原图」。
+   */
+  const resolveMissingImage = useCallback(
+    async (raw: string): Promise<{ url: string; rel: string } | null> => {
+      if (!vault) return null
+      const root = vault.replace(/\\/g, '/').replace(/\/+$/, '')
+      try {
+        // ① 台账预览图
+        const local = await loadRelayPending(vault)
+        const hit = findEntryForMedia(local.items, raw)
+        if (hit?.preview) return { url: convertFileSrc(`${root}/${hit.preview}`), rel: hit.preview }
+        // ② 按文件名找（换文件夹 / 改名后的兜底；唯一命中才返回）
+        const name = raw.split(/[\\/]/).pop() ?? ''
+        if (!name) return null
+        const rel = await invoke<string | null>('find_file_by_name', { vault, name })
+        return rel ? { url: convertFileSrc(`${root}/${rel}`), rel } : null
+      } catch {
+        return null
+      }
+    },
+    [vault],
+  )
+
+  /**
+   * 「同步原图」（内嵌图 / 老数据入口）：从云端临时区接收**这一张**原图并落地。
    *
    * 与附件面板的「接收云端文件」同一套 `landRelay`，区别只有三处：单个 id、在预览浮层里触发、
    * **不改写正文引用**（模式 B 的正文本来就该显示压缩版 —— 原图是"点开才看"的那份）。
@@ -3640,8 +3670,6 @@ export default function App() {
         notePath: activePath,
         src,
         stem: asImage ? attachmentStem(new Date()) : stemFromFileName(src),
-        // 图片模式（期 2）：只对图片有意义 —— 其它附件照旧按 1 MiB 分流
-        mode: asImage ? imageMode : undefined,
       })
       const as = asImage ? 'image' : playable ? 'embed' : 'link'
       /**
@@ -3669,7 +3697,7 @@ export default function App() {
        */
       void refresh()
     },
-    [activePath, vault, imageMode, insertAttachmentSyntax, refresh],
+    [activePath, vault, insertAttachmentSyntax, refresh],
   )
 
   /**
@@ -3734,6 +3762,23 @@ export default function App() {
        * 所以这里如实说出路径，由用户去文件管理器打开。
        */
       if (isExternalAbsPath(raw)) {
+        /**
+         * 老笔记（2026-11-04 之前）的大图正文写的是**原图绝对路径**。
+         * 点它 ⇒ 按台账找到预览图，走同一套「预览 → 本机有原图就看 / 没有就问同步」流程。
+         * 台账里没有（普通库外文件）⇒ 仍如实说路径。
+         */
+        if (vault && isImageFileName(raw)) {
+          try {
+            const local = await loadRelayPending(vault)
+            const hit = findEntryForMedia(local.items, raw)
+            if (hit?.preview) {
+              openImagePreview(hit.preview)
+              return
+            }
+          } catch {
+            /* 台账读不到 ⇒ 走下面的提示 */
+          }
+        }
         setToast(`库外文件：${raw}（不在本库内，请用文件管理器打开）`)
         return
       }
@@ -3785,9 +3830,26 @@ export default function App() {
         openAttachment(cand, kindOfPath(cand))
         return
       }
+      /**
+       * 兜底（2026-11-04 · 「笔记换文件夹，图片引用不丢失」）：笔记 / 所在文件夹被移动或改名后，
+       * 正文里的库根相对路径会失效 ⇒ 按**文件名**全库找一次（唯一命中才返回，同名多个不猜）。
+       */
+      if (vault) {
+        const name = rel.split(/[\\/]/).pop() ?? ''
+        if (name) {
+          const found = await invoke<string | null>('find_file_by_name', { vault, name }).catch(
+            () => null,
+          )
+          if (found) {
+            void refresh()
+            openAttachment(found, kindOfPath(found))
+            return
+          }
+        }
+      }
       setToast(`库里没有这个附件：${candidates.join(' / ')}`)
     },
-    [activePath, kernel, notes, openImagePreview, refresh, runCore],
+    [activePath, kernel, notes, openImagePreview, refresh, runCore, vault],
   )
 
   /**
@@ -5162,6 +5224,7 @@ export default function App() {
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
               onMissingImage={(raw) => void openMissingImage(raw)}
+              onPreviewFallback={resolveMissingImage}
               /* rev173.278 · #20：点内嵌图 ⇒ 本机有原图就看原图，没有给「同步原文件」 */
               onEmbeddedImage={openEmbeddedImage}
               mediaEpoch={mediaEpoch}
@@ -5221,8 +5284,6 @@ export default function App() {
     onFocusModeChange: setFocusMode,
     renderHtml,
     onRenderHtmlChange: setRenderHtml,
-    imageMode,
-    onImageModeChange: setImageMode,
     /* J#9（rev173.281）：环形快捷入口的 5 格配置 */
     quickSlots,
     quickSlotOptions: quickSlotChoices,
@@ -5767,6 +5828,7 @@ export default function App() {
               onExternalMediaSync={(raw) => void syncExternalMedia(raw)}
               /* rev173.274 · #5：点「图片不在本机」占位 ⇒ 给出路（接收 / 去开附件同步） */
               onMissingImage={(raw) => void openMissingImage(raw)}
+              onPreviewFallback={resolveMissingImage}
               /* rev173.278 · #20：点内嵌图 ⇒ 本机有原图就看原图，没有给「同步原文件」 */
               onEmbeddedImage={openEmbeddedImage}
               mediaEpoch={mediaEpoch}

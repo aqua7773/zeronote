@@ -57,6 +57,9 @@ const VAULTS_DIR: &str = ".vaults";
 /// 遍历时跳过的目录名
 const SKIP_DIRS: [&str; 4] = [".zn", ".git", "node_modules", ".obsidian"];
 
+/// 入库附件的固定落点（库根下）—— 与笔记位置解耦，移动笔记 / 文件夹都不丢引用。
+const ATTACH_DIR: &str = "附件";
+
 /// 内核只负责**列出来**的只读文档格式（打开交给插件，见 `App.tsx` 的 `core.openDocument`）。
 ///
 /// 2026-10-13 加：此前 `collect()` 硬过滤只收 `.md`/`.markdown`，
@@ -1771,19 +1774,24 @@ const BLOCKED_EXTS: &[&str] = &[
 /// `stem` 由前端生成（`image-20261018-203055`），这里再过一遍白名单：
 /// 只留 ASCII 字母数字与 `-`，限 64 字符，防止它变成路径或超长名。
 ///
-/// 附件落点（两条 `import_attachment*` 共用）：算出**笔记所在目录**与清洗后的文件名主干。
-/// 返回 `(绝对目录, 库内相对目录, 主干)`。`note_path` 走 `resolve` 白名单，
-/// 所以相对目录里不会出现 `..`。
+/// 附件落点（两条 `import_attachment*` 共用）：**库根 `附件/`**，与笔记位置解耦。
+///
+/// 为什么不再跟着笔记目录（2026-11-04 用户要求「笔记换文件夹，图片引用不丢失」）：
+/// 原来附件落在笔记当时的目录、正文写库根相对路径 —— 笔记**单独**移动时靠「库根候选」
+/// 还能找到，但**整个文件夹**搬走（`A/` → `C/A/`）后两候选全失效。
+/// 统一放到库根固定目录后，移动 / 重命名笔记或文件夹都不影响引用。
+///
+/// 返回 `(绝对目录, 库内相对目录, 主干)`。`note_path` 仍走 `resolve` 白名单（越界要拒绝），
+/// 只是不再决定落点。
 fn attachment_plan(
   vault: &str,
   note_path: &str,
   stem: &str,
 ) -> Result<(PathBuf, String, String), String> {
-  let note_abs = resolve(vault, note_path)?;
-  let dir = note_abs
-    .parent()
-    .ok_or_else(|| "笔记路径无效（没有所在目录）".to_string())?
-    .to_path_buf();
+  let _note_abs = resolve(vault, note_path)?;
+  let dir_rel = ATTACH_DIR.to_string();
+  let dir = PathBuf::from(vault).join(ATTACH_DIR);
+  fs::create_dir_all(&dir).map_err(|e| format!("创建附件目录失败（{}）：{e}", dir.display()))?;
   // stem 白名单：保留 Unicode 字母数字（中文文件名要能留住）、`-`、`_`；空格转 `-`。
   // 路径分隔符与其它符号一律丢掉 —— 不能让 stem 变成路径。
   let clean: String = stem
@@ -1797,12 +1805,6 @@ fn attachment_plan(
   } else {
     clean
   };
-  let note_rel = note_path.trim().replace('\\', "/");
-  let dir_rel = note_rel
-    .rsplit_once('/')
-    .map(|(d, _)| d)
-    .unwrap_or("")
-    .to_string();
   Ok((dir, dir_rel, base))
 }
 
@@ -2006,16 +2008,19 @@ fn media_server_start() -> Result<serde_json::Value, String> {
 // 透明图（PNG / WebP 带 alpha）**绝不转 JPEG**：需求 §2 要求「不做透明变黑」。
 // 走无损 WebP（image-webp 只有 VP8L 无损编码），体积通常比 PNG 小；仍超限就继续缩边。
 
-/// 能被压缩的位图格式。**不含 GIF** —— 动图压缩会丢帧或变静图（需求 §2 明确不压）。
+/// 能被做成预览图的位图格式。**不含 GIF** —— 动图压缩会丢帧或变静图。
 /// 也不含 svg / avif / heic：前者是矢量，后两者当前没开解码 feature。
 const IMAGE_COMPRESSIBLE: &[&str] = &["png", "jpg", "jpeg", "webp"];
-/// 质量阶梯（从高到低）
-const IMAGE_QUALITY_STEPS: [u8; 4] = [85, 70, 60, 45];
-/// 长边阶梯（像素）
-const IMAGE_EDGE_STEPS: [u32; 3] = [2560, 1920, 1280];
-/// 预览图（模式 A 的 >1 MiB 图片）：看清内容就够，不求原画质
-const PREVIEW_MAX_EDGE: u32 = 1280;
-const PREVIEW_QUALITY: u8 = 70;
+/// 预览图的**长边阶梯**（像素）：1280 起，压不进 1 MiB 就一路往下缩。
+///
+/// > 1 MiB 的图片正文里显示的**始终**是预览图（2026-11-04 用户定稿）：
+/// 一张图一张 ≤1 MiB 的小图入库，原图只留路径进台账，点开时才按台账找回原图。
+///
+/// ⚠️ 档位必须够密（2026-11-04 实测踩过）：透明图只能走无损 WebP，**质量阶梯对它无效**，
+/// 只有尺寸能换体积。原来只到 720，一张 900×700 的噪点图压完仍 1.15 MB ⇒ 不达标。
+const PREVIEW_EDGE_STEPS: [u32; 8] = [1280, 960, 720, 640, 480, 360, 240, 160];
+/// 预览图的**质量阶梯**（从高到低）：每一档长边内先降质量，还不够才缩边（不透明图有效）。
+const PREVIEW_QUALITY_STEPS: [u8; 4] = [70, 60, 45, 35];
 
 struct EncodedImage {
   bytes: Vec<u8>,
@@ -2146,8 +2151,6 @@ fn import_attachment(
   note_path: String,
   src: String,
   stem: String,
-  // 图片模式（rev173.234 · 期 2）：`"compress"` = 模式 B；其它 / 缺省 = 模式 A
-  mode: Option<String>,
 ) -> Result<serde_json::Value, String> {
   let src_path = PathBuf::from(&src);
   if !src_path.is_file() {
@@ -2174,54 +2177,13 @@ fn import_attachment(
     .len();
   let absolute = absolute_posix(&src_path);
   let packable = IMAGE_COMPRESSIBLE.contains(&ext.as_str());
-  // 压缩尝试失败的说明（照样插入成功，只是换成「引用原文件」）
-  let mut compress_note: Option<String> = None;
+  // 预览图生成失败的说明（照样插入成功，只是正文退回引用原文件）
+  let mut preview_note: Option<String> = None;
 
-  // ── 模式 B：图片压到 ≤1 MiB 再入库（需求 §2）──────────────────────────────
-  // 只在真的超过阈值时才压：≤1 MiB 的图直接复制原图（同一个「都走入库」结果，不白丢画质）。
-  if mode.as_deref() == Some("compress") && packable && size > ATTACHMENT_COPY_LIMIT {
-    match decode_image(&src_path) {
-      Ok(img) => {
-        let encoded = squeeze_image(
-          &img,
-          ATTACHMENT_COPY_LIMIT,
-          &IMAGE_EDGE_STEPS,
-          &IMAGE_QUALITY_STEPS,
-        )?;
-        let stored_size = encoded.bytes.len() as u64;
-        let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
-        let (dst, name) = unique_attachment_path(&dir, &base, encoded.ext)?;
-        fs::write(&dst, &encoded.bytes).map_err(|e| format!("写入压缩图片失败：{e}"))?;
-        let rel = attachment_rel(&dir_rel, &name);
-        let id = sha256_file(&src_path)?;
-        ledger_record(
-          &vault,
-          &id,
-          &absolute,
-          size,
-          &LedgerExtra {
-            stored: Some(rel.clone()),
-            stored_size: Some(stored_size),
-            preview: None,
-          },
-        )?;
-        return Ok(serde_json::json!({
-          "mode": "copied",
-          "path": rel,
-          "size": stored_size,
-          "ledgerId": id,
-          "compressed": { "originalSize": size, "format": encoded.ext },
-        }));
-      }
-      // 解不开（损坏 / 扩展名骗人）：**不让插入失败**，退回「引用原文件」并由前端说明
-      Err(e) => compress_note = Some(format!("压缩失败，已改为引用原文件：{e}")),
-    }
-  }
-
-  // ── 超过 1 MiB：不复制，写绝对路径 + 文件身份进台账（需求 §1）─────────────
+  // ── 超过 1 MiB：原图不复制。图片另存一张 ≤1 MiB 的**预览图**入库，
+  //    正文引用预览图；原图路径只进台账，点开时按台账找回原图（2026-11-04 定稿）──────
   if size > ATTACHMENT_COPY_LIMIT {
     let id = sha256_file(&src_path)?;
-    // 模式 A 的图片：正文引用原图，但生成一张**预览图**入库（期 3 渲染用）
     let mut preview: Option<String> = None;
     if packable {
       // 同一张图再次插入时复用已有预览图（别每次多存一份）
@@ -2233,11 +2195,13 @@ fn import_attachment(
       preview = match existing {
         Some(rel) => Some(rel),
         None => match decode_image(&src_path).and_then(|img| {
+          // 预览图**必须** ≤1 MiB（正文里显示的就是它）：长边先 1280，
+          // 压不进就依次降到 960 / 720；每个档位内先降质量。
           let encoded = squeeze_image(
             &img,
-            4 * ATTACHMENT_COPY_LIMIT, // 预览图给 4 MiB 余量，靠边缘档位控制体积
-            &[PREVIEW_MAX_EDGE],
-            &[PREVIEW_QUALITY],
+            ATTACHMENT_COPY_LIMIT,
+            &PREVIEW_EDGE_STEPS,
+            &PREVIEW_QUALITY_STEPS,
           )?;
           let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
           let (dst, name) =
@@ -2246,9 +2210,9 @@ fn import_attachment(
           Ok::<String, String>(attachment_rel(&dir_rel, &name))
         }) {
           Ok(rel) => Some(rel),
-          // 预览图是加分项：生成失败不影响「引用原图」这件事本身
+          // 预览图生成失败 ⇒ 正文退回引用原文件（不让插入失败，但要说明）
           Err(e) => {
-            compress_note.get_or_insert(format!("预览图生成失败：{e}"));
+            preview_note = Some(format!("预览图生成失败，正文已引用原文件：{e}"));
             None
           }
         },
@@ -2265,16 +2229,20 @@ fn import_attachment(
         preview: preview.clone(),
       },
     )?;
+    // 正文路径：有预览图 ⇒ 写**库内相对路径**（跨设备都能显示）；
+    // 没有（非图片 / 生成失败）⇒ 仍写原图绝对路径。
+    let body_path = preview.clone().unwrap_or_else(|| absolute.clone());
     let mut out = serde_json::json!({
       "mode": "referenced",
-      "path": absolute,
+      "path": body_path,
       "size": size,
       "ledgerId": id,
+      "original": absolute,
     });
     if let Some(p) = preview {
       out["preview"] = serde_json::json!(p);
     }
-    if let Some(n) = compress_note {
+    if let Some(n) = preview_note {
       out["note"] = serde_json::json!(n);
     }
     return Ok(out);
@@ -2289,6 +2257,68 @@ fn import_attachment(
     "size": size,
     "ledgerId": serde_json::Value::Null,
   }))
+}
+
+/// 在库里按**文件名**找文件（2026-11-04 · 「换文件夹不丢引用」的兜底）。
+///
+/// 背景：附件现在统一落在库根 `附件/`，新笔记不会丢；但**历史笔记**的图还散在各处，
+/// 且笔记被移动 / 文件夹改名后正文里的库根相对路径会失效。渲染 / 点击解析失败时调这里找一次。
+///
+/// 只按文件名找（`name` 不能带路径分隔符），**唯一命中才返回** ——
+/// 0 个或多个同名文件时返回 `None`，不猜，界面照旧显示「图片不在本机」。
+#[tauri::command]
+fn find_file_by_name(vault: String, name: String) -> Result<Option<String>, String> {
+  let root = PathBuf::from(&vault);
+  if !root.is_dir() {
+    return Err(format!("笔记库不存在：{vault}"));
+  }
+  let want = name.trim();
+  if want.is_empty() || want.contains('/') || want.contains('\\') {
+    return Ok(None);
+  }
+  let mut hits: Vec<String> = Vec::new();
+  collect_by_name(&root, &root, want, &mut hits)?;
+  if hits.len() == 1 {
+    Ok(hits.pop())
+  } else {
+    Ok(None)
+  }
+}
+
+/// 递归按文件名收集库内相对路径；跳过 `.` 开头与 [`SKIP_DIRS`]。
+fn collect_by_name(
+  root: &Path,
+  dir: &Path,
+  want: &str,
+  out: &mut Vec<String>,
+) -> Result<(), String> {
+  let Ok(entries) = fs::read_dir(dir) else {
+    // 单个目录读不了（权限 / 并发删除）不中断整次搜索
+    return Ok(());
+  };
+  for entry in entries.flatten() {
+    let name_os = entry.file_name();
+    let name = name_os.to_string_lossy();
+    if name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref()) {
+      continue;
+    }
+    let Ok(ft) = entry.file_type() else { continue };
+    if ft.is_dir() {
+      collect_by_name(root, &entry.path(), want, out)?;
+      continue;
+    }
+    if !ft.is_file() || !name.eq_ignore_ascii_case(want) {
+      continue;
+    }
+    if let Ok(rel) = entry.path().strip_prefix(root) {
+      out.push(rel.to_string_lossy().replace('\\', "/"));
+    }
+    // 已经两个以上 = 歧义，再扫下去没意义
+    if out.len() > 1 {
+      return Ok(());
+    }
+  }
+  Ok(())
 }
 
 /// 单张图片的服务端上限（前端 10 MB 时就会提示；这里兜底，防绕过前端塞超大 payload）。
@@ -4645,6 +4675,8 @@ pub fn run() {
       unwatch_vault,
       import_attachment,
       import_attachment_b64,
+      // 2026-11-04：换文件夹后按文件名找回被移动的附件（唯一命中才返回）
+      find_file_by_name,
       // rev173.232：附件同步期 1（引用台账）
       assets_ledger_read,
       media_server_start,
@@ -5879,9 +5911,9 @@ mod tests {
 
   /* ── 插入图片（rev173）── */
 
-  /// 复制进笔记所在目录：返回库内相对路径、内容一致、重名不覆盖。
+  /// 复制进**库根 `附件/`**（2026-11-04 起与笔记目录解耦）：返回库内相对路径、内容一致、重名不覆盖。
   #[test]
-  fn import_attachment_copies_next_to_note_without_overwrite() {
+  fn import_attachment_copies_into_vault_attach_dir_without_overwrite() {
     let d = tmpdir("attach");
     let vault = d.join("vault");
     fs::create_dir_all(vault.join("sub")).unwrap();
@@ -5896,11 +5928,10 @@ mod tests {
       "sub/a.md".into(),
       s.clone(),
       "image-20261018-200000".into(),
-      None,
     )
     .unwrap();
     let rel = r["path"].as_str().unwrap().to_string();
-    assert_eq!(rel, "sub/image-20261018-200000.png");
+    assert_eq!(rel, "附件/image-20261018-200000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
     // 同一秒再插一张 ⇒ 加 -1，绝不覆盖
@@ -5910,17 +5941,16 @@ mod tests {
       "sub/a.md".into(),
       s,
       "image-20261018-200000".into(),
-      None,
     )
     .unwrap();
-    assert_eq!(r2["path"], "sub/image-20261018-200000-1.png");
+    assert_eq!(r2["path"], "附件/image-20261018-200000-1.png");
     assert_eq!(
-      fs::read(vault.join("sub/image-20261018-200000.png")).unwrap(),
+      fs::read(vault.join("附件/image-20261018-200000.png")).unwrap(),
       b"PNG1"
     );
   }
 
-  /// 库根笔记 ⇒ 相对路径不带目录；stem 里的路径分隔符被剥掉（不能借此写到库外）。
+  /// 库根笔记也落在 `附件/`；stem 里的路径分隔符被剥掉（不能借此写到库外）。
   #[test]
   fn import_attachment_sanitizes_stem_and_handles_root_note() {
     let d = tmpdir("attach-stem");
@@ -5931,10 +5961,10 @@ mod tests {
     fs::write(&src, b"x").unwrap();
     let v = vault.to_string_lossy().to_string();
     let s = src.to_string_lossy().to_string();
-    let r = import_attachment(v, "a.md".into(), s, "../../evil".into(), None).unwrap();
-    // 扩展名统一小写；文件仍落在库根
-    assert_eq!(r["path"], "evil.png");
-    assert!(vault.join("evil.png").is_file());
+    let r = import_attachment(v, "a.md".into(), s, "../../evil".into()).unwrap();
+    // 扩展名统一小写；stem 里的 .. / 被剥掉
+    assert_eq!(r["path"], "附件/evil.png");
+    assert!(vault.join("附件/evil.png").is_file());
   }
 
   /// 附件：普通文件（pdf 等）允许复制；中文 stem 保留；可执行扩展名拒绝（rev173.3）。
@@ -5952,11 +5982,10 @@ mod tests {
       "a.md".into(),
       src.to_string_lossy().to_string(),
       "报告 终版".into(),
-      None,
     )
     .unwrap();
-    assert_eq!(r["path"], "报告-终版.pdf", "中文留在文件名里，空格转 -");
-    assert!(vault.join("报告-终版.pdf").is_file());
+    assert_eq!(r["path"], "附件/报告-终版.pdf", "中文留在文件名里，空格转 -");
+    assert!(vault.join("附件/报告-终版.pdf").is_file());
 
     let bat = d.join("tool.bat");
     fs::write(&bat, b"echo hi").unwrap();
@@ -5965,8 +5994,7 @@ mod tests {
         v,
         "a.md".into(),
         bat.to_string_lossy().to_string(),
-        "tool".into(),
-        None
+        "tool".into()
       )
       .is_err(),
       "可执行 / 脚本文件必须拒绝"
@@ -5988,11 +6016,11 @@ mod tests {
     let exe_s = exe.to_string_lossy().to_string();
     let png_s = png.to_string_lossy().to_string();
 
-    assert!(import_attachment(v.clone(), "a.md".into(), exe_s, "image".into(), None).is_err());
+    assert!(import_attachment(v.clone(), "a.md".into(), exe_s, "image".into()).is_err());
     let missing = d.join("nope.png").to_string_lossy().to_string();
-    assert!(import_attachment(v.clone(), "a.md".into(), missing, "image".into(), None).is_err());
+    assert!(import_attachment(v.clone(), "a.md".into(), missing, "image".into()).is_err());
     // 越界 note_path 也拒绝（复用 resolve）
-    assert!(import_attachment(v, "../evil.md".into(), png_s, "image".into(), None).is_err());
+    assert!(import_attachment(v, "../evil.md".into(), png_s, "image".into()).is_err());
   }
 
   /// 粘贴图片（rev173.46）：字节直接落盘；扩展名规范化；重名不覆盖。
@@ -6013,7 +6041,7 @@ mod tests {
     )
     .unwrap();
     let rel = r["path"].as_str().unwrap().to_string();
-    assert_eq!(rel, "sub/image-20261020-093000.png");
+    assert_eq!(rel, "附件/image-20261020-093000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
     let r2 = import_attachment_b64(
@@ -6025,7 +6053,7 @@ mod tests {
     )
     .unwrap();
     let rel2 = r2["path"].as_str().unwrap().to_string();
-    assert_eq!(rel2, "sub/image-20261020-093000-1.png");
+    assert_eq!(rel2, "附件/image-20261020-093000-1.png");
     assert_eq!(fs::read(vault.join(&rel2)).unwrap(), b"PNG2");
   }
 
@@ -6083,7 +6111,6 @@ mod tests {
       "note.md".into(),
       small.to_string_lossy().to_string(),
       "small".into(),
-      None,
     )
     .unwrap();
     assert_eq!(r["mode"], "copied");
@@ -6109,7 +6136,6 @@ mod tests {
       "note.md".into(),
       big.to_string_lossy().to_string(),
       "big".into(),
-      None,
     )
     .unwrap();
     assert_eq!(r["mode"], "referenced");
@@ -6142,7 +6168,6 @@ mod tests {
         "note.md".into(),
         big.to_string_lossy().to_string(),
         "clip".into(),
-        None,
       )
       .unwrap();
       assert_eq!(r["mode"], "referenced");
@@ -6172,7 +6197,6 @@ mod tests {
       "note.md".into(),
       big.to_string_lossy().to_string(),
       "big".into(),
-      None,
     )
     .unwrap_err();
     assert!(err.contains("引用台账"), "台账坏了要明确报错：{err}");
@@ -6203,49 +6227,9 @@ mod tests {
     image::DynamicImage::ImageRgba8(img)
   }
 
-  /// 模式 B：>1 MiB 的图压到 ≤1 MiB 后**入库**，台账记「原图 → 副本」。
+  /// >1 MiB 的图：原图**只引用**，另生成一张 ≤1 MiB 的预览图入库，正文写预览图。
   #[test]
-  fn compress_mode_squeezes_image_under_copy_limit() {
-    let d = tmpdir("attach-compress");
-    let vault = d.join("vault");
-    fs::create_dir_all(&vault).unwrap();
-    fs::write(vault.join("note.md"), "x").unwrap();
-    let v = vault.to_string_lossy().to_string();
-
-    let src = d.join("big.png");
-    write_noisy_png(&src, 900, 900);
-    let original = fs::metadata(&src).unwrap().len();
-    assert!(
-      original > ATTACHMENT_COPY_LIMIT,
-      "测试图必须真的超过 1 MiB：{original}"
-    );
-
-    let r = import_attachment(
-      v.clone(),
-      "note.md".into(),
-      src.to_string_lossy().to_string(),
-      "big".into(),
-      Some("compress".into()),
-    )
-    .unwrap();
-    assert_eq!(r["mode"], "copied", "模式 B 必须入库");
-    let stored = r["size"].as_u64().unwrap();
-    assert!(stored <= ATTACHMENT_COPY_LIMIT, "压缩后要 ≤1 MiB：{stored}");
-    assert!(stored < original, "压缩后必须比原图小");
-    let rel = r["path"].as_str().unwrap().to_string();
-    assert!(rel.ends_with(".jpg"), "不透明白图压成 jpg：{rel}");
-    assert_eq!(fs::metadata(vault.join(&rel)).unwrap().len(), stored);
-
-    let ledger = read_assets_ledger(&v).unwrap();
-    let e = &ledger["entries"].as_array().unwrap()[0];
-    assert_eq!(e["storedInVault"], rel.as_str());
-    assert_eq!(e["storedSize"], stored);
-    assert_eq!(e["size"], original, "size 记的是原图大小");
-  }
-
-  /// 模式 A：>1 MiB 的图**只引用**原图，另生成一张预览图入库（期 3 渲染用）。
-  #[test]
-  fn original_mode_references_large_image_and_keeps_preview() {
+  fn large_image_puts_preview_in_body() {
     let d = tmpdir("attach-preview");
     let vault = d.join("vault");
     fs::create_dir_all(&vault).unwrap();
@@ -6261,19 +6245,29 @@ mod tests {
       "note.md".into(),
       src.to_string_lossy().to_string(),
       "big".into(),
-      None,
     )
     .unwrap();
     assert_eq!(r["mode"], "referenced");
-    assert!(!vault.join("big.png").exists(), "模式 A 的大图不复制");
-    let preview = r["preview"].as_str().expect("模式 A 的大图要给预览图");
+    assert!(!vault.join("big.png").exists(), "原图不复制进库");
+    let preview = r["preview"].as_str().expect("大图要给预览图");
     assert!(preview.ends_with("-preview.jpg"), "预览图命名：{preview}");
+    assert_eq!(
+      r["path"], preview,
+      "正文路径必须是预览图，不是原图绝对路径"
+    );
+    let original_returned = r["original"].as_str().expect("要回传原图路径");
+    assert!(
+      original_returned.ends_with("big.png"),
+      "original 是原图路径：{original_returned}"
+    );
     let ppath = vault.join(preview);
     assert!(ppath.is_file(), "预览图要真写进库");
+    let preview_size = fs::metadata(&ppath).unwrap().len();
     assert!(
-      fs::metadata(&ppath).unwrap().len() < original,
-      "预览图必须比原图小"
+      preview_size <= ATTACHMENT_COPY_LIMIT,
+      "预览图必须 ≤1 MiB：{preview_size}"
     );
+    assert!(preview_size < original, "预览图必须比原图小");
     assert_eq!(
       read_assets_ledger(&v).unwrap()["entries"][0]["preview"],
       preview
@@ -6285,15 +6279,14 @@ mod tests {
       "note.md".into(),
       src.to_string_lossy().to_string(),
       "again".into(),
-      None,
     )
     .unwrap();
     assert_eq!(r2["preview"], preview, "同图复用预览图");
   }
 
-  /// GIF 不压（需求 §2：动图压缩会丢帧或变静图）—— 模式 B 下大 GIF 仍走引用。
+  /// GIF 不做预览图（动图压缩会丢帧或变静图）⇒ 大 GIF 正文仍写原图绝对路径。
   #[test]
-  fn gif_is_never_compressed() {
+  fn gif_gets_no_preview() {
     let d = tmpdir("attach-gif");
     let vault = d.join("vault");
     fs::create_dir_all(&vault).unwrap();
@@ -6307,16 +6300,17 @@ mod tests {
       "note.md".into(),
       gif.to_string_lossy().to_string(),
       "anim".into(),
-      Some("compress".into()),
     )
     .unwrap();
-    assert_eq!(r["mode"], "referenced", "GIF 不压 ⇒ 大图走引用");
+    assert_eq!(r["mode"], "referenced", "GIF 不压 ⇒ 正文引用原文件");
     assert!(r.get("preview").is_none(), "GIF 不做预览图");
+    let p = r["path"].as_str().unwrap();
+    assert!(p.ends_with("anim.gif"), "GIF 的正文路径仍是原图：{p}");
   }
 
-  /// ≤1 MiB 的图两种模式都是**直接复制原图**（不白丢画质）。
+  /// ≤1 MiB 的图**直接复制原图**（不白丢画质，也不需要预览图）。
   #[test]
-  fn small_image_is_copied_untouched_in_both_modes() {
+  fn small_image_is_copied_untouched() {
     let d = tmpdir("attach-small-img");
     let vault = d.join("vault");
     fs::create_dir_all(&vault).unwrap();
@@ -6327,19 +6321,81 @@ mod tests {
     let original = fs::metadata(&src).unwrap().len();
     assert!(original <= ATTACHMENT_COPY_LIMIT);
 
-    for mode in [None, Some("compress".to_string())] {
-      let r = import_attachment(
-        v.clone(),
-        "note.md".into(),
-        src.to_string_lossy().to_string(),
-        "small".into(),
-        mode,
-      )
-      .unwrap();
-      assert_eq!(r["mode"], "copied");
-      assert_eq!(r["size"], original, "小图原样复制，不压缩");
-      assert!(r.get("compressed").is_none(), "小图不该报「已压缩」");
-    }
+    let r = import_attachment(
+      v.clone(),
+      "note.md".into(),
+      src.to_string_lossy().to_string(),
+      "small".into(),
+    )
+    .unwrap();
+    assert_eq!(r["mode"], "copied");
+    assert_eq!(r["size"], original, "小图原样复制，不压缩");
+    assert!(r.get("preview").is_none(), "小图不需要预览图");
+  }
+
+  /// 换文件夹兜底：按文件名在库里找，**唯一命中才返回**（2026-11-04）。
+  #[test]
+  fn find_file_by_name_returns_unique_hit_only() {
+    let d = tmpdir("find-name");
+    let vault = d.join("vault");
+    fs::create_dir_all(vault.join("移动后")).unwrap();
+    fs::create_dir_all(vault.join(".zn")).unwrap();
+    fs::write(vault.join("移动后").join("x.jpg"), b"1").unwrap();
+    fs::write(vault.join(".zn").join("x.jpg"), b"2").unwrap();
+    let v = vault.to_string_lossy().to_string();
+
+    assert_eq!(
+      find_file_by_name(v.clone(), "x.jpg".into()).unwrap().as_deref(),
+      Some("移动后/x.jpg"),
+      "跳过 .zn，返回库内相对路径"
+    );
+    // 大小写不敏感（Windows 语义；Android 上多数文件系统也是）
+    assert_eq!(
+      find_file_by_name(v.clone(), "X.JPG".into()).unwrap().as_deref(),
+      Some("移动后/x.jpg")
+    );
+    // 同名两个 ⇒ 不猜
+    fs::create_dir_all(vault.join("另一处")).unwrap();
+    fs::write(vault.join("另一处").join("x.jpg"), b"3").unwrap();
+    assert!(
+      find_file_by_name(v.clone(), "x.jpg".into()).unwrap().is_none(),
+      "同名多个 ⇒ 返回 None"
+    );
+    // name 不允许带路径分隔符（只按文件名找）
+    assert!(find_file_by_name(v, "../x.jpg".into()).unwrap().is_none());
+  }
+
+  /// 透明噪点图：质量阶梯无效（无损 WebP）、只能靠缩边 —— 预览图仍必须 ≤1 MiB。
+  ///
+  /// 2026-11-04 实测踩过：长边阶梯只到 720 时，900×700 噪点图压完 **1.15 MB**，不达标。
+  #[test]
+  fn preview_of_noisy_transparent_image_fits_under_limit() {
+    let d = tmpdir("attach-preview-alpha");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("note.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+
+    let src = d.join("noisy.png");
+    noisy_rgba(900, 700).save(&src).unwrap();
+    assert!(
+      fs::metadata(&src).unwrap().len() > ATTACHMENT_COPY_LIMIT,
+      "测试图必须是 >1 MiB 的真图"
+    );
+
+    let r = import_attachment(
+      v.clone(),
+      "note.md".into(),
+      src.to_string_lossy().to_string(),
+      "noisy".into(),
+    )
+    .unwrap();
+    let preview = r["preview"].as_str().expect("大图要给预览图");
+    let size = fs::metadata(vault.join(preview)).unwrap().len();
+    assert!(
+      size <= ATTACHMENT_COPY_LIMIT,
+      "透明噪点图预览也必须 ≤1 MiB：实际 {size}"
+    );
   }
 
   /// 编码器选择：不透明 ⇒ JPEG；带 alpha ⇒ 无损 WebP（**绝不**压成没有透明的 JPEG）。
@@ -6353,15 +6409,20 @@ mod tests {
     let out = squeeze_image(
       &opaque,
       10 * 1024 * 1024,
-      &IMAGE_EDGE_STEPS,
-      &IMAGE_QUALITY_STEPS,
+      &PREVIEW_EDGE_STEPS,
+      &PREVIEW_QUALITY_STEPS,
     )
     .unwrap();
     assert_eq!(out.ext, "jpg");
 
     let rgba = noisy_rgba(300, 200);
-    let out = squeeze_image(&rgba, 10 * 1024 * 1024, &IMAGE_EDGE_STEPS, &IMAGE_QUALITY_STEPS)
-      .unwrap();
+    let out = squeeze_image(
+      &rgba,
+      10 * 1024 * 1024,
+      &PREVIEW_EDGE_STEPS,
+      &PREVIEW_QUALITY_STEPS,
+    )
+    .unwrap();
     assert_eq!(out.ext, "webp", "透明图走无损 WebP");
     let back = image::load_from_memory(&out.bytes).unwrap();
     assert!(back.color().has_alpha(), "透明通道必须保住");
