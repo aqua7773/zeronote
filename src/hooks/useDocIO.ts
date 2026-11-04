@@ -125,6 +125,22 @@ export function useDocIO({
   }, [kernel, notesRef, setNotes, setDirs, setError])
 
   /**
+   * rev173.359：**同一 tick 内的多次变更只刷新一次**。
+   *
+   * `fs.watch` 的每个事件都会进回调（轮询兜底一次比对可能连发几十条，Rust watcher
+   * 同步盘落几十个文件时也会连发），而每条都跑一次 `listNotes + listDirs`
+   * ⇒ 主线程被几十次全库扫描叠住。合并不改变语义：调用方只要知道「清单可能变了」。
+   */
+  const refreshTimer = useRef<number | null>(null)
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current !== null) return
+    refreshTimer.current = window.setTimeout(() => {
+      refreshTimer.current = null
+      void refresh()
+    }, 0)
+  }, [refresh])
+
+  /**
    * 把磁盘与编辑器**合并**（三方：`baseRef` / 编辑器内存 / 磁盘）。
    *
    * 这是 rev62「自动合并」的核心。为什么必须三方、而不是二选一：
@@ -228,7 +244,8 @@ export function useDocIO({
     if (!kernel) return
     void refresh()
     const sub = kernel.fs.watch(() => {
-      void refresh()
+      // 合并：一次批量变更（同步落 50 个文件 / 轮询一轮比对）只刷新一次
+      scheduleRefresh()
       /**
        * 磁盘变了，分两条路（rev61 / rev62）：
        *   · **没有未保存手改** ⇒ 整篇跟上（"导图写回 → 笔记立刻可见"的主路径）；
@@ -240,8 +257,14 @@ export function useDocIO({
       if (dirtyRef.current) void mergeIntoEditor()
       else void reloadActiveFromDisk()
     })
-    return () => sub.dispose()
-  }, [kernel, refresh, reloadActiveFromDisk, mergeIntoEditor, dirtyRef])
+    return () => {
+      sub.dispose()
+      if (refreshTimer.current !== null) {
+        window.clearTimeout(refreshTimer.current)
+        refreshTimer.current = null
+      }
+    }
+  }, [kernel, refresh, scheduleRefresh, reloadActiveFromDisk, mergeIntoEditor, dirtyRef])
 
   /* ── 保存：原子写，失败绝不显示「已保存」── */
   const saveNow = useCallback(async () => {

@@ -121,8 +121,56 @@ describe('fs.watch 的事件源', () => {
 
       expect(calls).toContain('list_notes_light')
       expect(calls, '轻量命令不可用必须退回完整版').toContain('list_notes')
-      // 降级之后功能仍在：首轮比对把 a.md 当新增上报
-      expect(onChange).toHaveBeenCalledWith({ kind: 'create', path: 'a.md' })
+      // 首轮只建基线（rev173.359）：不许把「本来就有的文件」报成 create
+      expect(onChange).not.toHaveBeenCalled()
+
+      // 第二轮出了新文件 ⇒ 降级后的完整版同样能发现
+      mocks.invoke.mockImplementation(async (cmd: string) => {
+        calls.push(cmd)
+        if (cmd === 'list_notes') {
+          return [
+            { path: 'a.md', mtime: 1 },
+            { path: 'b.md', mtime: 2 },
+          ]
+        }
+        return undefined
+      })
+      await vi.advanceTimersByTimeAsync(10_100)
+      expect(onChange).toHaveBeenCalledWith({ kind: 'create', path: 'b.md' })
+      sub.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('轮询首轮只建基线，不把库里已有的文件报成 create（rev173.359）', async () => {
+    vi.useFakeTimers()
+    try {
+      listenOk()
+      mocks.invoke.mockReset()
+      let files = [
+        { path: 'a.md', mtime: 1 },
+        { path: 'b.md', mtime: 2 },
+      ]
+      mocks.invoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'watch_vault') throw new Error('移动端不使用系统文件监听')
+        if (cmd === 'list_notes_light') return files
+        return undefined
+      })
+
+      const onChange = vi.fn()
+      const fs = createFsApi('/vault')
+      const sub = fs.watch(onChange)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
+      // 首轮（启动后 8 秒）：库里 2 篇都是「本来就有的」⇒ 一条事件都不该发
+      await vi.advanceTimersByTimeAsync(8_100)
+      expect(onChange, '首轮不许把已有文件报成 create').not.toHaveBeenCalled()
+
+      // 第二轮：多了一篇 ⇒ 只报这一条（不是把三篇全报一遍）
+      files = [...files, { path: 'c.md', mtime: 3 }]
+      await vi.advanceTimersByTimeAsync(10_100)
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledWith({ kind: 'create', path: 'c.md' })
       sub.dispose()
     } finally {
       vi.useRealTimers()

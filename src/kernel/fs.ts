@@ -185,6 +185,15 @@ export function createFsApi(
        * 完整版并留一条 warn —— 降级可以，不能变成「没功能」。
        */
       let lightMissing = false
+      /**
+       * rev173.359：**首轮只建基线，不上报**。
+       *
+       * 原实现里 `last` 初始为空 ⇒ 第一次轮询把库里每一篇都判成 `create`（126 篇 = 126 条事件），
+       * 而 `useDocIO` 的 watch 回调不看事件内容、每条都跑一次 `listNotes + listDirs`
+       * ⇒ 启动后 8 秒那一刻集中 126 次全库刷新，真机实测仍是 **400ms 长任务**。
+       * 启动路径本来就会 refresh 一次（`useEffect` 里那次），轮询首轮没有任何信息增益。
+       */
+      let primed = false
       const pollOnce = async () => {
         if (disposed) return
         try {
@@ -198,6 +207,12 @@ export function createFsApi(
                 return invoke<NoteMeta[]>('list_notes', { vault, dir: null })
               })
           const now = new Map(notes.map((n) => [n.path, n.mtime]))
+          // 首轮：只记基线，不把「库里本来就有的 126 篇」当成 126 条新建事件
+          if (!primed) {
+            primed = true
+            last = now
+            return
+          }
           for (const [path, mtime] of now) {
             const prev = last.get(path)
             if (prev === undefined) safeCb({ kind: 'create', path })
