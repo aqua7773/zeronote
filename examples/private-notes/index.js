@@ -378,6 +378,45 @@ let mode = 'list'
 /** 回收站里「已上膛」的那条（彻底删除要点两次 —— 与备份恢复同一套防误触） */
 let purgeArmed = null
 
+/* ───────────────── 额外笔记源（rev173.376 · 改造方案 §4.4） ───────────────── */
+
+/**
+ * 把解锁后的索引暴露成宿主的「额外笔记源」：条目以 `.zn/private/notes/<id>.zn` 的
+ * **真实路径**出现在文件树里（打开走内核 `openNote`，解密由 `doc.registerCodec` 负责）。
+ * 锁定 ⇒ `index = null` ⇒ `list()` 返回空数组 ⇒ 整组从文件树消失。
+ */
+const SOURCE_ID = 'private-notes'
+const SOURCE_GROUP = { key: 'private', label: '私密笔记', icon: '🔒' }
+/** 宿主的订阅者（注册表替我们挂在 onSourceChange 上；这里只负责广播） */
+const sourceListeners = new Set()
+
+function notifySourceChange() {
+  for (const cb of [...sourceListeners]) {
+    try {
+      cb()
+    } catch {
+      /* 某个订阅者坏了不影响其它订阅者，也不影响插件主流程 */
+    }
+  }
+}
+
+/** 当前条目（同步返回）—— 只读内存索引，不读盘、不解密 */
+function sourceNotes() {
+  if (!index) return []
+  return index.notes.map((n) => ({
+    path: notePath(n.id),
+    id: `private:${n.id}`,
+    title: n.title || '未命名',
+    mtime: n.updatedAt || n.createdAt || 0,
+    size: 0,
+    frontmatter: {},
+    kind: 'note',
+    group: SOURCE_GROUP.key,
+    groupLabel: SOURCE_GROUP.label,
+    groupIcon: SOURCE_GROUP.icon,
+  }))
+}
+
 /* ───────────────────────── 锁定 ───────────────────────── */
 
 /** 关掉当前正在编辑的私密文档（有未保存内容时先落盘 —— 锁前不能丢改动） */
@@ -412,6 +451,8 @@ function lockNow(api, reason = 'manual') {
     reason === 'idle' ? '空闲 3 分钟，已自动锁定' : reason === 'service' ? '密钥环已锁定' : '',
     'muted',
   )
+  // 锁定 ⇒ 源返回空数组 ⇒ 文件树里的分组立刻消失（rev173.376）
+  notifySourceChange()
   api.view.refresh(PANEL_ID)
 }
 
@@ -515,6 +556,8 @@ async function saveIndex(api) {
   })
   await api.fs.writeText(INDEX_FILE, payload)
   lastActive = nowMs()
+  // 索引变了 ⇒ 文件树里的条目（标题 / 增删）跟着变
+  notifySourceChange()
 }
 
 /**
@@ -547,6 +590,8 @@ async function afterUnlock(api) {
   lastActive = nowMs()
   await refreshBiometric()
   setMessage(`已解锁 · ${index.notes.length} 篇私密笔记`, 'success')
+  // 解锁 ⇒ 文件树里出现「🔒 私密笔记」分组（rev173.376）
+  notifySourceChange()
 }
 
 async function unlockAndLoad(api, password) {
@@ -1091,6 +1136,26 @@ export default {
       }),
     )
 
+    /* ②.5 额外笔记源（rev173.376 · 改造方案 §4.4）—— 文件树里的「🔒 私密笔记」分组。
+       老内核没有 api.notes ⇒ 跳过（插件在旧版应用上仍能用独立面板，不崩）。 */
+    if (api.notes && typeof api.notes.registerSource === 'function') {
+      api.subscriptions.push(
+        api.notes.registerSource({
+          id: SOURCE_ID,
+          group: SOURCE_GROUP,
+          list: sourceNotes,
+          onSourceChange(cb) {
+            sourceListeners.add(cb)
+            return {
+              dispose: () => {
+                sourceListeners.delete(cb)
+              },
+            }
+          },
+        }),
+      )
+    }
+
     /* ③ 面板 */
     api.subscriptions.push(
       api.view.registerPanel({
@@ -1122,7 +1187,22 @@ export default {
 
     /* ⑦ 命令 */
     const commands = [
-      { id: 'private.open', title: '私密文件夹：打开', run: () => openCorePanel(api, PANEL_ID, '私密文件夹') },
+      {
+        id: 'private.open',
+        title: '私密文件夹：开关',
+        run: async () => {
+          /**
+           * rev173.376：入口从「打开面板」改为**开关**（改造方案 §4.4）。
+           * 已解锁 ⇒ 立即锁定：文件树里的「🔒 私密笔记」分组随之消失；
+           * 未解锁 ⇒ 打开面板输密码（面板保留为解锁入口与回收站，列表视图第二批收掉）。
+           */
+          if (index) {
+            lockNow(api, 'manual')
+            return
+          }
+          await openCorePanel(api, PANEL_ID, '私密文件夹')
+        },
+      },
       {
         id: 'private.open-plugins',
         title: '私密文件夹：打开插件管理',

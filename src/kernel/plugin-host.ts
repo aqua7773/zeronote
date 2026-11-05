@@ -41,6 +41,7 @@ import type {
   PluginManifest,
   PluginPlatform,
   NetApi,
+  NoteSource,
   StoreApi,
   ViewApi,
   CapabilityApi,
@@ -157,6 +158,13 @@ export type PluginHostDeps = {
   editor: (pluginId: string) => EditorApi
   /** 条目菜单动作注册表（按插件 id 视图化 · rev173.281） */
   itemMenu: (pluginId: string) => ItemMenuApi
+  /**
+   * 额外笔记源注册表（rev173.376 · 私密笔记改造 §4.1）。
+   * 宿主按插件 id 登记；卸载时源随 `subs` 一起 dispose（注册表自己也是幂等的）。
+   */
+  notes: {
+    register(pluginId: string, src: NoteSource): Disposable
+  }
   /** 核心能力接管（需求 §2.15 · rev173.231）；按插件 id 视图化，卸载时宿主调 release */
   capability: (pluginId: string) => CapabilityApi
   /**
@@ -966,6 +974,17 @@ export async function loadPlugin(entry: PluginDirEntry, deps: PluginHostDeps): P
     event: audit('event', scopedEvent(deps.event, manifest.id, subs)),
     command: audit('command', scopedCommand(deps.command, manifest.id, subs, ownedCommands)),
     itemMenu: audit('itemMenu', scopedItemMenu(deps.itemMenu, manifest.id, subs)),
+    /**
+     * 额外笔记源（rev173.376）：插件注册时把 Disposable 记进 `subs` ——
+     * 卸载即从文件树消失，不需要插件自己再收尾（契约 §4.4 接管协议）。
+     */
+    notes: {
+      registerSource: (src) => {
+        const d = deps.notes.register(manifest.id, src)
+        subs.push(d)
+        return d
+      },
+    },
     view: audit('view', scopedView(deps.view, manifest.id, subs)),
     // store 跟着**插件所在的那份根**走：全局插件的数据全局共享（装一次、配置一次），
     // 库内插件的数据落库内（换库就是另一份）。与"文件即真相"的落盘语义一致。

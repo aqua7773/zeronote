@@ -39,8 +39,18 @@ type TreeNode = {
    * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录，
    * 只是把只读文档聚合到一处显示。见 `DOCS_NODE`。
    * 2026-10-18 rev173.3：图片附件同理，聚到「附件」分组（`ATTACH_NODE`）。
+   * rev173.376：额外笔记源（私密笔记）也走这条路（`GROUP_NODE_PREFIX`）。
    */
   virtual?: boolean
+  /**
+   * 额外笔记源的分组 key（rev173.376）—— 普通目录 / 文档 / 附件都没有这个字段。
+   * 用于**禁止对分组条目做磁盘操作**（重命名 / 删除 / 拖拽），它们是插件拥有的条目。
+   */
+  group?: string
+  /** 显示名覆盖（rev173.376）：私密条目的磁盘名是随机 id（`x8f3.zn`），必须显示标题 */
+  label?: string
+  /** 分组图标（emoji；只有虚拟分组节点有） */
+  icon?: string
 }
 
 /**
@@ -58,6 +68,14 @@ const DOCS_NODE = '__zn_docs__'
  * 一处能看到全部附件、点开就是全屏预览，不污染笔记的目录层级。
  */
 const ATTACH_NODE = '__zn_attachments__'
+
+/**
+ * 额外笔记源分组的哨兵前缀（rev173.376 · 私密笔记改造 §4.2）。
+ *
+ * 分组 key 来自插件（如 `private`），拼成 `__zn_group_private`。与上面两个哨兵一样：
+ * **只在文件树内部用**，从不发给内核（源条目的 path 是真实路径）。
+ */
+const GROUP_NODE_PREFIX = '__zn_group_'
 
 /**
  * 文件树展开状态持久化（2026-10-18 用户要求：「文件树现在是每次进入都会展开，
@@ -120,10 +138,38 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
   /** 只读文档 / 附件（图片 + 音视频）的收集桶（最后统一挂到各自的虚拟分组下） */
   const docs: TreeNode[] = []
   const attachments: TreeNode[] = []
+  /**
+   * 额外笔记源的分组桶（rev173.376 · 私密笔记改造 §4.2）。
+   * key 是源给的分组 key；Map 的插入顺序 = 条目第一次出现的顺序（宿主按注册顺序合并）。
+   */
+  const groups = new Map<string, { label: string; icon?: string; nodes: TreeNode[] }>()
 
   for (const n of notes) {
     const parts = n.path.split('/')
     const name = parts[parts.length - 1]
+    /**
+     * 额外笔记源（私密笔记）：**不进目录层级**，收进自己的虚拟分组。
+     * 显示名用标题 —— 磁盘名是随机 id（`k3f8a.zn`），对用户没有意义。
+     */
+    if (n.group) {
+      const g = groups.get(n.group) ?? {
+        label: n.groupLabel ?? n.group,
+        icon: n.groupIcon,
+        nodes: [],
+      }
+      g.nodes.push({
+        name,
+        label: n.title || name,
+        path: n.path,
+        children: [],
+        isDir: false,
+        title: n.title,
+        kind: n.kind,
+        group: n.group,
+      })
+      groups.set(n.group, g)
+      continue
+    }
     // 文档 / 附件不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
     if (n.kind === 'doc' || n.kind === 'image' || n.kind === 'media') {
       const bucket = n.kind === 'doc' ? docs : attachments
@@ -181,6 +227,24 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
       isDir: true,
       kind: 'media',
       virtual: true,
+    })
+  }
+
+  /**
+   * 额外笔记源分组（rev173.376 · 私密笔记）：排在**最后** —— 它随开关出现 / 消失，
+   * 放在树尾不会推动用户在其它笔记上的肌肉记忆。源返回空数组 ⇒ 这里根本不建节点。
+   */
+  for (const [key, g] of groups) {
+    if (!g.nodes.length) continue
+    g.nodes.sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name, 'zh'))
+    root.push({
+      name: g.label,
+      path: `${GROUP_NODE_PREFIX}${key}`,
+      children: g.nodes,
+      isDir: true,
+      virtual: true,
+      group: key,
+      icon: g.icon,
     })
   }
 
@@ -405,6 +469,7 @@ function Node({
             data-zn-path={node.path}
             data-zn-dir="1"
             data-zn-virtual={node.virtual ? '1' : undefined}
+            data-zn-group={node.group ? '1' : undefined}
             /* 多选态：点目录 = 勾选它（连带里面全部条目），不再折叠 */
             onClick={() =>
               selectMode
@@ -421,9 +486,11 @@ function Node({
               onContextMenu(node.path, true, e.clientX, e.clientY)
             }}
             title={
-              node.virtual
-                ? '只读文档（PDF / EPUB / …）—— 只是聚到一处显示，文件仍在你原来的目录里'
-                : `${node.path}（右键：新建 / 重命名 / 删除）`
+              node.group
+                ? `${node.name}（插件维护的分组 —— 随开关出现 / 消失）`
+                : node.virtual
+                  ? '只读文档（PDF / EPUB / …）—— 只是聚到一处显示，文件仍在你原来的目录里'
+                  : `${node.path}（右键：新建 / 重命名 / 删除）`
             }
           >
             {selectMode ? (
@@ -431,7 +498,9 @@ function Node({
             ) : (
               <span className="zn-tree-caret">{open ? '▾' : '▸'}</span>
             )}
-            <span className="zn-tree-label">{node.name}</span>
+            <span className="zn-tree-label">
+              {node.icon ? `${node.icon} ${node.name}` : node.name}
+            </span>
             {node.virtual && <span className="zn-ext">{node.children.length}</span>}
           </button>
         )}
@@ -491,7 +560,8 @@ function Node({
    *  · 只读文档（pdf/epub/…）/ 图片 / 音视频 —— 去掉扩展名：它后面已经跟着
    *    `.pdf` / `.png` / `.mp4` 徽章了，再带一次会变成 `测试书籍.epub .epub`。
    */
-  const label = isDoc || isImage || isMedia ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name
+  const label =
+    node.label ?? (isDoc || isImage || isMedia ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name)
   /**
    * 高亮判据**用选中集合**，不用裸 `activePath`（2026-10-17 修）：
    * `selectedSet` 已经处理了「selected 为空 ⇒ 回退到当前打开的那篇」，
@@ -532,18 +602,34 @@ function Node({
         }${dragging === node.path ? ' is-dragging' : ''}`}
         style={pad}
         data-zn-path={node.path}
+        data-zn-group={node.group ? '1' : undefined}
         onClick={(e) =>
-          onPick(node.path, false, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })
+          /**
+           * 额外笔记源条目（rev173.376）：**强制单选 + 打开**。
+           * 不能让 Ctrl/Shift 把它拉进多选集合 —— 后面的批量删除 / 移动走的是公开笔记那套
+           * 磁盘操作，对插件拥有的条目完全不适用（误删一篇私密笔记进全局回收站）。
+           */
+          onPick(
+            node.path,
+            false,
+            node.group ? { toggle: false, range: false } : { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey },
+          )
         }
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
+        // 额外笔记源条目：文件名是随机 id、重命名 / 删除都由插件管 ⇒ 不给磁盘操作菜单
+        if (node.group) return
         // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）。
         // rev173.321：手机改成**松手才弹**（长按那一刻弹会把正在进行的拖拽遮住）。
         if (TOUCH_UI) return
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
-      title={`${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`}
+      title={
+        node.group
+          ? `${node.title ?? node.name}（插件维护的条目）`
+          : `${node.path}（右键：重命名 / 删除；Ctrl 点选可多选）`
+      }
     >
       {/* 圆点：与目录行的三角同宽同高，垂直居中 —— 让文件行也有"项目符号"，
           且名字与同级文件夹名对齐（用户 2026-10-17：「笔记前面加圆点，大小与三角一致」）。
@@ -970,8 +1056,10 @@ export function FileTree({
 
     const start = { x: e.clientX, y: e.clientY }
     /** 按下点落在哪个条目上（null = 空白 ⇒ 框选模式） */
-    const fromPath =
-      (e.target as HTMLElement).closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
+    const hitEl = (e.target as HTMLElement).closest<HTMLElement>('[data-zn-path]') ?? null
+    // 额外笔记源条目不在磁盘目录体系里 ⇒ 不能拖出去（拖 = 改路径，会把密文搬进公开目录）
+    if (hitEl?.dataset.znGroup === '1') return
+    const fromPath = hitEl?.dataset.znPath ?? null
     let dragging = false
     /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
     let target: string | null = null
@@ -1300,6 +1388,8 @@ export function FileTree({
       const p = row?.dataset.znPath ?? null
       // 只从**条目**上起手；空白处的触摸留给滚动
       if (!p) return
+      // 额外笔记源条目（rev173.376）：不参与拖拽 / 长按菜单 —— 路径与增删都由插件管
+      if (row?.dataset.znGroup === '1') return
       reset()
       fromPath = p
       start = { x: t.clientX, y: t.clientY }

@@ -42,6 +42,7 @@ import { createIndexApi } from './index-api'
 import { createItemMenuRegistry, type ItemMenuRegistry } from './item-menu'
 import { allPluginTopics } from './plugin-host'
 import { createNetApi } from './net'
+import { createNoteSources, type NoteSources } from './note-sources'
 import { createServiceRegistry } from './service'
 import { createStoreApi } from './store'
 
@@ -189,6 +190,14 @@ export type Kernel = {
   fs: FsApi
   doc: DocApi
   index: IndexApi
+  /**
+   * **额外笔记源注册表**（rev173.376 · 私密笔记改造 §4.1）—— 宿主侧视图。
+   *
+   * `snapshot()` 取当下全部源的条目（锁定 = 源返回空 ⇒ 这里自然为空）；
+   * `subscribe()` 在源注册 / 注销 / 内容变化时通知，宿主据此重渲染。
+   * 插件侧拿到的是 `ctx.notes`（只有 `registerSource`），两者不是同一个对象。
+   */
+  notes: NoteSources
   event: EventBus
   commands: CommandRegistry
   view: ViewApi
@@ -606,6 +615,12 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
    */
   services.scoped('kernel').provide('kernel.merge', () => ({ mergeLines }), { version: '1' })
 
+  /**
+   * 额外笔记源（rev173.376）：注册表本身不碰 React，宿主订阅它的变化。
+   * 源的 `list()` 抛错只跳过它自己（见 note-sources.ts 的安全边界）。
+   */
+  const noteSources = createNoteSources((msg) => hooks.onLog(msg, 'warn'))
+
   const host: HostApi = {
     apiVersion: API_VERSION,
     // 应用版本号：来自 package.json（vite 注入，rev173.37）—— 不再硬编码。
@@ -727,6 +742,7 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     fs,
     doc,
     index,
+    notes: noteSources,
     event,
     commands,
     itemMenu: itemMenus,

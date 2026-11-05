@@ -183,6 +183,7 @@ export function usePluginHost({
       fs: k.fs,
       doc: k.doc,
       index: k.index,
+      notes: k.notes,
       event: k.event,
       command: k.commands.api,
       view: k.view,

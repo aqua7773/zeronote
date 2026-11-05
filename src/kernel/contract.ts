@@ -40,6 +40,59 @@ export type NoteMeta = {
    * （播放要放在笔记上下文中，不是独立窗口）。
    */
   kind: 'note' | 'doc' | 'image' | 'media'
+  /**
+   * **虚拟分组归属**（rev173.376 · 私密笔记改造 §4.1）—— 只有来自「额外笔记源」
+   * （`ctx.notes.registerSource`）的条目才有。文件树按它在树尾挂一个「🔒 私密笔记」分组；
+   * 空 ⇒ 普通笔记。来源是磁盘的 `list_notes` 永远不带这个字段。
+   */
+  group?: string
+  /** 分组显示名（由源注册时补全；同一个 group key 用第一条的 label） */
+  groupLabel?: string
+  /** 分组图标（emoji 或单字符；可选） */
+  groupIcon?: string
+}
+
+/**
+ * 「额外笔记源」的分组描述（rev173.376）—— 文件树把同 `key` 的条目收进一个虚拟分组。
+ * 条目在磁盘上的真实位置不变，这只是**视图聚合**（与「文档 / 附件」分组同一套做法）。
+ */
+export type NoteSourceGroup = {
+  key: string
+  label: string
+  icon?: string
+}
+
+/**
+ * 插件注册的「额外笔记源」（rev173.376 · 私密笔记改造 §4.1）。
+ *
+ * 语义：宿主在需要时向它要**当下**的条目列表。锁定 = 返回空数组 ⇒
+ * 文件树 / 搜索 / 时间流里整组消失，不需要宿主额外清理任何缓存。
+ */
+export type NoteSource = {
+  /** 源 id（同一插件内唯一；重复注册时后注册的取代先注册的） */
+  id: string
+  /** 分组信息 —— 条目带 `group` 时以条目为准，否则用它 */
+  group: NoteSourceGroup
+  /** 当前条目（**同步返回**）。解不开 / 未解锁时返回空数组，不要抛错 */
+  list(): NoteMeta[]
+  /** 源自己通知「我变了」（解锁 / 锁定 / 条目增删改）。返回 Disposable */
+  onSourceChange(cb: () => void): Disposable
+}
+
+/** 注册表补全过分组字段之后的条目（宿主侧拿到的就是这种） */
+export type NoteSourceEntry = NoteMeta & {
+  group: string
+  groupLabel: string
+  groupIcon?: string
+}
+
+/** 插件侧的 `ctx.notes`（目前只有注册入口） */
+export type NoteSourceApi = {
+  /**
+   * 注册一个额外笔记源。宿主会把它并进文件树。
+   * 返回值会被宿主自动登记进 `ctx.subscriptions`（卸载即消失）。
+   */
+  registerSource(src: NoteSource): Disposable
 }
 
 export type FsChange = {
@@ -1338,6 +1391,14 @@ export interface PluginContext {
   fs: FsApi
   doc: DocApi
   index: IndexApi
+  /**
+   * **额外笔记源**（rev173.376 · 私密笔记改造 §4.1）—— 把一个「插件拥有的笔记集合」
+   * 并进宿主的文件树（后续还有搜索 / 时间流）。内核不认加密，只认条目。
+   *
+   * 私密笔记（`examples/private-notes`）是第一个使用者：解锁后注册源、锁定后让源返回空数组，
+   * 于是整组随开关出现 / 消失。
+   */
+  notes: NoteSourceApi
   event: EventApi
   command: CommandApi
   /** 条目菜单动作（rev173.281）—— 文件树 / 时间流的右键与长按菜单 */

@@ -35,6 +35,7 @@ import type {
   ItemMenuRegistration,
   NoteDoc,
   NoteMeta,
+  NoteSourceEntry,
   PluginLogEntry,
   PluginManifest,
   ShellMountCtx,
@@ -247,6 +248,15 @@ export default function App() {
     return fromUrl && fromUrl.trim() ? fromUrl : localStorage.getItem(LS_VAULT)
   })
   const [notes, setNotes] = useState<NoteMeta[]>([])
+  /**
+   * **额外笔记源的条目**（rev173.376 · 私密笔记改造 §4.3）。
+   *
+   * 与 `notes` 分开存：`notes` = 磁盘上真实存在的公开笔记（`list_notes` 的结果），
+   * 由 `useDocIO` 一处维护；这里是插件拥有的条目（私密笔记），随源的 `list()`
+   * 出现 / 消失。分开的好处：`notes` 的既有语义（同步 / 组件快照 / 时间流）一行不改，
+   * 只在**文件树**这一处合并 —— 搜索与时间流按方案进第二批。
+   */
+  const [sourceNotes, setSourceNotes] = useState<NoteSourceEntry[]>([])
   /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
   const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
@@ -1490,6 +1500,31 @@ export default function App() {
    * `SELF_WRITE_SILENCE_MS` 会吞掉本进程写盘的回响，所以刷新必须另外听内核事件）。
    */
   useTreeRefresh(kernel, refresh)
+
+  /**
+   * **额外笔记源 → 文件树**（rev173.376 · 私密笔记改造 §4.3）。
+   *
+   * 订阅注册表：源注册 / 注销 / 自己通知「我变了」（解锁、锁定、新建、改名、删除）时
+   * 重新取一次快照。`kernel` 重建（切库）时重挂；旧源随旧内核一起消失。
+   * 锁定 = 源返回空数组 ⇒ 快照为空 ⇒ 分组从树里消失（没有第二处要清）。
+   */
+  useEffect(() => {
+    if (!kernel) return
+    const sync = () => setSourceNotes(kernel.notes.snapshot())
+    sync()
+    const d = kernel.notes.subscribe(sync)
+    return () => d.dispose()
+  }, [kernel])
+
+  /**
+   * 文件树实际渲染的条目 = 公开笔记 + 额外源条目。
+   * 只有树走这一份；`notes` 本身（搜索索引 / 时间流 / 桌面组件快照）保持"公开笔记"语义，
+   * 私密条目进搜索与时间流按方案进第二批。
+   */
+  const treeNotes: NoteMeta[] = useMemo(
+    () => (sourceNotes.length ? [...notes, ...sourceNotes] : notes),
+    [notes, sourceNotes],
+  )
 
   /**
    * 安卓桌面组件的数据快照（rev173.242 · 需求 §15）。
@@ -5525,13 +5560,14 @@ export default function App() {
               /* 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的） */
               key={vault}
               vault={vault}
-              notes={notes}
+              /* 公开笔记 + 额外源条目（rev173.376 · 私密笔记） */
+              notes={treeNotes}
               dirs={dirs}
               activePath={activePath}
               onOpen={(p) => {
                 /* 文档（pdf/epub/…）**不能**走 `openNote`：它 `readText` 二进制，必然读成乱码/失败。
                    走内核的派发点 `core.openDocument` —— 插件 bind 了它就能渲染，没插件则给出提示。 */
-                const meta = notes.find((n) => n.path === p)
+                const meta = treeNotes.find((n) => n.path === p)
                 if (meta?.kind === 'doc') {
                   /* rev173.85：手机上侧栏是抽屉，点文档后要收起来，否则抽屉盖在阅读器上
                      （笔记那条走 `openNote`，它内部已经 `setSidebarOpen(false)`；文档不走它） */

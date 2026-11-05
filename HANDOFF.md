@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.375
-更新时间: 2026-11-05 · 最新 rev173.375（**真人测试12 #2/#3**：密码库可删平台（整包进回收站 + 二次确认）+ 卡片化布局 + 按住 👁 显示密码；内核 UINode 加 `onDown`/`onUp`/`cssClass`）
+revision: 173.376
+更新时间: 2026-11-05 · 最新 rev173.376（**私密笔记改造第一批**：内核新增 `notes.registerSource` 原语 + 文件树「🔒 私密笔记」虚拟分组 + 开关入口；打开/编辑/保存沿用既有 codec 链路）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.375
 
 | rev | 内容 |
 |---|---|
+| rev173.376 | 2026-11-05 · **私密笔记改造第一批（真人测试12 #1 · 施工图 `docs/私密笔记-改造方案-2026-11-05.md`）**：把「独立面板」推进到「开关 + 文件树虚拟分组」。① **内核新原语 `notes.registerSource`**（`src/kernel/note-sources.ts`）：插件注册额外笔记源，宿主把条目并进文件树；`list()` 同步返回当下条目，锁定 = 空数组 ⇒ 整组消失（无缓存）；源抛错/返回非数组只跳过它自己。`NoteMeta` 加可选 `group` / `groupLabel` / `groupIcon`；`PluginContext.notes` + `Kernel.notes`（宿主视图：snapshot/subscribe）+ `PluginHostDeps.notes`，注册的 Disposable 自动进 `ctx.subscriptions`。② **文件树**：`buildTree` 把带 `group` 的条目收进虚拟分组（排在「附件」之后，图标 + 条数），条目显示标题而非随机文件名（`x.zn`）；分组条目**禁磁盘操作** —— 右键菜单、Ctrl 多选、鼠标/触摸拖拽、长按菜单全部跳过（增删改归插件）。③ **App**：新增 `sourceNotes` state + 订阅 `kernel.notes`，`treeNotes = 公开 notes + 源条目` 只喂文件树（搜索/时间流按方案第二批）；点组内条目走原 `openNote`。④ **private-notes 插件**：注册源（老内核无 `api.notes` 时跳过）、解锁/锁定/索引写盘时 `notifySourceChange()`；`private.open` 从「打开面板」改为**开关**（已解锁 ⇒ 立即锁定；未解锁 ⇒ 开面板输密码）。⑤ **风险 1 已核**：`core.openNote` 的 `read_note → resolve()` 只拒绝对路径 / `..`，**不拒 `.zn/`** ⇒ 打开链路无需虚拟路径映射（源码 `src-tauri/src/lib.rs:174`、`:1207`）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · vitest 全量通过 · 质量门 8/8 —— 见本轮日志）；新增单测 `tests/note-sources.test.ts`（8 条）+ `tests/file-tree-source-group.test.tsx`（4 条：分组显示 / 标题 / 点击打开 / 锁定消失）；桌面 dev 实测插件加载 + 关闭态文件树无分组（`_shots/rt12-source-check.png`）。**未做 / 待用户验**：解锁后分组出现 + 打开编辑保存（需要主密码，用户在自己桌面点锁按钮走一遍）；搜索 / 时间流 / 拖入移出 / 市场重打包（第二批）。**dev 环境操作**：全局插件目录 `%APPDATA%\com.aqua.zeronote\.zn\plugins\private-notes\` 的 `signature.json` 已改名为 `.bak`（按 sha256 重算后签名失效会拒载；开发同步方式，可回退）。 |
 | rev173.375 | 2026-11-05 · **真人测试12 #2/#3（密码库）**：① **平台可删** —— 平台行加「删除」，点一次先切确认态（"它下面的 N 个账号会一起进回收站（保留 7 天，可恢复）"），确认后整包进回收站；数据层给 platform 加 `deletedAt`，`trashPlatform/restorePlatform/purgePlatform` + `activePlatforms()` 一处过滤；回收站按 `kind: 'platform'/'account'` 两种条目，整平台只占一条（不拆成平台 + N 个账号碎片），`purgeExpired` 把整个平台算 1 条。② **卡片化 UI** —— 平台大卡片 / 账号小卡片（收起只看账号名，展开才显示密码与备注），新增 `examples/secrets/styles.css`（manifest `styles`），颜色全走 `--zn-*` 令牌。③ **按住 👁 显示密码** —— 内核 `UINode.button` 新增可选 `onDown`/`onUp`（松开立刻收起，不再有 15 秒残留），`stack`/`row` 新增 `cssClass`（插件自带样式的结构钩子）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · vitest 1897 · 质量门 8/8）；CDP 实测 8 步（建环/解锁/建平台/2 账号/展开/按住显示/删平台确认/回收站恢复），截图 `_shots/rt12-04-unlocked.png` · `rt12-05-cards.png` · `rt12-06-confirm.png` · `rt12-07-deleted.png` · `rt12-08-recycle.png` · `rt12-09-restored.png`。④ **操作按钮右对齐**（用户复看反馈：原先紧贴标题）—— 卡片标题行改成「文字靠左 / 按钮靠右」（`sx-row-between`），截图 `_shots/rt12-10-right-align.png` · `rt12-11-right-align-accounts.png`。**测试库** `_tmp-vault-rt12`（主密码只用于该库，非用户库）。**未做**：手机真机复验、市场重打包 secrets（仍 0.1.2）。 |
 | rev173.374 | 2026-11-04 · **0.9.30 发版**：sync 空 manifest 自愈（0.1.9）+ 市场确认框实际地址 + 白屏判据停用；GitHub/Gitee 双渠道 arm64 33.34 MB，手机应用内已看到新版。 |
 | rev173.373 | 2026-11-04 · **sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删本地、按本地重推重建；`sync` 0.1.9 签名入库。 |
@@ -258,6 +259,41 @@ revision: 173.375
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.376（2026-11-05 · 私密笔记改造第一批 · 开关 + 文件树分组）
+
+> **背景**：真人测试12 #1 —— 私密笔记此前是**独立面板**（独立创建 / 打开 / 删除），用户要的是
+> **一个开关**：开 = 以「🔒 私密笔记」文件夹出现在文件树，关 = 整组消失、不可探知。
+> 施工图 [docs/私密笔记-改造方案-2026-11-05.md](docs/私密笔记-改造方案-2026-11-05.md)（accepted，用户拍板「嵌进文件树 = 改内核」）。
+
+> **内容**：① **内核新原语 `notes.registerSource`**（`src/kernel/note-sources.ts`）——
+> 插件注册「额外笔记源」，宿主把条目并进文件树；`list()` **同步返回当下条目**，
+> 锁定 = 返回空数组 ⇒ 整组消失（不留缓存可绕过）；一个源抛错 / 返回非数组只跳过它自己。
+> `NoteMeta` 加可选 `group`/`groupLabel`/`groupIcon`；`PluginContext.notes`（插件侧只有
+> `registerSource`）+ `Kernel.notes`（宿主侧 snapshot/subscribe）。返回值自动进 `ctx.subscriptions`。
+> ② **文件树**（`src/components/FileTree.tsx`）—— `buildTree` 把带 `group` 的条目收进虚拟分组
+> （排在「附件」之后，图标 + 条数），条目显示**标题**（磁盘名是随机 `x.zn`）；分组条目禁磁盘操作：
+> 右键菜单 / Ctrl 多选 / 鼠标与触摸拖拽 / 长按菜单全部跳过（增删改归插件）。
+> ③ **App**（`src/App.tsx`）—— `sourceNotes` state + 订阅 `kernel.notes`；`treeNotes = notes + sourceNotes`
+> **只喂文件树**（搜索 / 时间流按方案第二批，避免一次波及 `notes` 的同步 / 组件快照语义）；
+> 点组内条目走原 `openNote`。④ **private-notes 插件** —— 注册源（老内核无 `api.notes` 时跳过）、
+> 解锁 / 锁定 / 索引写盘时 `notifySourceChange()`；`private.open` 从「打开面板」改为**开关**
+> （已解锁 ⇒ 立即锁定；未解锁 ⇒ 开面板输密码）。面板保留为解锁入口与回收站，列表视图第二批收掉。
+
+> **风险 1（方案 §6）已核**：`core.openNote → read_note → resolve()` 只拒绝对路径 / `..`，
+> **不拒 `.zn/`**（`src-tauri/src/lib.rs:174` 的组件校验、`:1207` 的 `read_note`），
+> 内容解密走既有 `doc.registerCodec`（rev173.180）—— 打开链路不需要「虚拟路径 + 源提供 reader」。
+
+> **证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · **vitest 1909** · 质量门 8/8）；
+> 新增单测 `tests/note-sources.test.ts`（8 条：合并顺序 / 补全分组 / 锁定为空 / 变化通知 / 源抛错隔离 /
+> 空值与非数组 / 同 id 覆盖 / 回调抛错隔离）+ `tests/file-tree-source-group.test.tsx`（4 条：分组行与条数 /
+> 标题显示 / 点击 onOpen 真实路径 / 锁定后无分组）。桌面 dev 实测：插件加载成功、关闭态文件树无分组
+> （`_shots/rt12-source-check.png`）。
+
+> **未做**：解锁后分组出现 + 打开编辑保存（待用户验，需要主密码 —— 用户在桌面点锁按钮输一次即可，
+> 本会话不掌握密码）；第二批：搜索 + 时间流 + 拖入移出 + 市场重打包 `private-notes`。
+> **dev 环境操作**：全局插件目录的 `signature.json` 已改名为 `.bak`（入口 sha256 重算后签名失效会**拒载**，
+> 这是开发同步插件的方式；装官方包后恢复）。
 
 > ## 📌 rev173.375（2026-11-05 · 真人测试12 #2/#3 · 密码库）
 
