@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.389
-更新时间: 2026-11-06 · 最新 rev173.389（**手机 G2 补验 0.10.0 通过** + 「双端验收」写成硬规矩）· rev173.388（sync 云端复验：密码库没上去，桌面 sync 仍 0.1.9）· rev173.387（0.10.0 发版）
+revision: 173.390
+更新时间: 2026-11-06 · 最新 rev173.390（**更正 388：密码库其实同步成功**，私有文件在远端 `.zn/` 而非 `_zn/`）· rev173.389（手机 G2 补验 0.10.0 + 双端验收规矩）· rev173.388（sync 复验，结论已更正）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,8 +19,9 @@ revision: 173.389
 
 | rev | 内容 |
 |---|---|
+| rev173.390 | 2026-11-06 · **更正 rev173.388：密码库其实同步成功**（用户要求「复验」时发现）：远端布局 = `_zn/`（manifest / 回收站 / 中转区）+ `.zn/`（私有文件按本机路径镜像）。三个私有文件实测全在：`ZeroNote/.zn/security/vault.notes.json` 1113 B · `vault.secrets.json` 1116 B · `ZeroNote/.zn/secrets/secrets.zn` 15776 B，长度与本地一致。源码依据 `examples/sync/lib/core.cjs:65`（`MANIFEST_REL = '_zn/manifest.json'`）与 `:86`（`PRIVATE_FILES` 用 `.zn/…` 相对路径，`syncPrivate` 直接 `client.put(rel)`）。坚果云 PUT 实测：父目录不存在 ⇒ **409**；`_zn/` 下 ⇒ **201**（`_tmp/dav-probe.mjs`，探针已删）。⇒ 0.1.9 的同步一直正常；rev173.383 的「远端索引不实」现场很可能同样是只查 `_zn/` 的误判，其巡检修复无害、保留。**未改代码** |
 | rev173.389 | 2026-11-06 · **手机 G2 补验 0.10.0 + 「双端验收」写成硬规矩**（用户：「正常来说，双端验收都应该在发版前完成吧」→「写入，发版之前，除非版本改动仅涉及单端，否则均须双端验收通过」）：① **补验** —— `android-dev.cmd` 重编 dev 包（versionName **0.10.0**，Redmi `33b676f6`），CDP 直调内核命令：`import_attachment` 传库外 png ⇒ 返回 `附件/图片/acc-test.png`；传库外 `.toml` ⇒ 返回 `附件/其它/acc-test.toml`；`list_notes` 同时返回两条（`kind` 分别 `image` / **`file`**）；真机文件树显示「附件 → 其它 → acc-test .toml」「附件 → 图片 → acc-test .png」（无虚拟分组）。磁盘 `ls -R` 与截图 `_shots/rev173388-phone-tree.png` 双证。② **规矩写入 4 处** —— `04-授权与红线` §3（含反例：0.10.0 只过 G1+桌面 G2 就发了）、`02-发版与更新` 新增 §0.1、`06-用户拍板与禁忌` §2、`HANDOFF-CARD` §4 第 1 条子项：**发版前除非改动只涉及单端（HANDOFF 写明「仅桌面」/「仅 Android」），否则必须双端验收通过；禁止「先发版再补手机验收」，禁止拿「Rust 改动要新包」当发版理由** |
-| rev173.388 | 2026-11-06 · **sync 真实云端复验（rev173.383 遗留）+ 文档数字校准**：直接 PROPFIND 坚果云 `ZeroNote/`（账号 `17777253753@163.com`，只读）—— 结论 **密码库没同步上去**：`ZeroNote/_zn/` 只有 `manifest.json`（290 B），`_zn/security/` 与 `_zn/secrets/` 均 **404**；`manifest.json` 的 `private` 段却记着三条指纹（`c68:1828cxj` / `mu:w7h56c` / `mx:ra2qft`，与桌面 baseline 完全一致）⇒ **正是 rev173.383 描述的「远端索引不实 ⇒ 永远不推」**。根因：桌面 release 装的是 `sync` **0.1.9**（`%APPDATA%\com.aqua.zeronote\.zn\plugins\sync\manifest.json`），0.1.10 的远端巡检还没到位。**用户动作**：桌面 → 插件中心把 `sync` 更新到 0.1.10，再点一次「立即同步」，应看到上传 3 条且远端出现 `_zn/security/`、`_zn/secrets/`（复验脚本 `_tmp/dav-check-zn.mjs`）。**同时记下另一条已知行为（未改代码）**：`security` / `secrets` 的 vault 只在插件 `apply()` 读一次（`examples/security/index.js:1615` / `examples/secrets/index.js:1344`），同步后再出现不会自动刷新 —— 用户 2026-11-06 实测「重启桌面后显示正常」，先按已知行为记录，未动代码。**文档校准**：`03-当前状态` §1 版本 0.9.30→0.10.0（tag `v0.10.0` · commit `29d5f1a`）· `05-项目结构` vitest 1886→1918 · `07-术语与编号` rev173.365→387、vitest 1886→1918、cargo 102→105。**验证**：`check-docs` 全绿；全量基线沿用 02:36:18（tsc 0 · oxlint 4 · cargo 105 · vitest 1918 · 质量门 8/8） |
+| rev173.388 | 2026-11-06 · **sync 真实云端复验（rev173.383 遗留）+ 文档数字校准**：⚠️ **本条结论已更正，见 rev173.390** —— 当时只查了 `_zn/`，没查 `.zn/`，误判「密码库没同步上去」；实际私有文件按本机路径镜像在 `<根>/.zn/…`，一直都在。以下为原始记录：直接 PROPFIND 坚果云 `ZeroNote/`（账号 `17777253753@163.com`，只读）—— 结论 **密码库没同步上去**：`ZeroNote/_zn/` 只有 `manifest.json`（290 B），`_zn/security/` 与 `_zn/secrets/` 均 **404**；`manifest.json` 的 `private` 段却记着三条指纹（`c68:1828cxj` / `mu:w7h56c` / `mx:ra2qft`，与桌面 baseline 完全一致）⇒ **正是 rev173.383 描述的「远端索引不实 ⇒ 永远不推」**。根因：桌面 release 装的是 `sync` **0.1.9**（`%APPDATA%\com.aqua.zeronote\.zn\plugins\sync\manifest.json`），0.1.10 的远端巡检还没到位。**用户动作**：桌面 → 插件中心把 `sync` 更新到 0.1.10，再点一次「立即同步」，应看到上传 3 条且远端出现 `_zn/security/`、`_zn/secrets/`（复验脚本 `_tmp/dav-check-zn.mjs`）。**同时记下另一条已知行为（未改代码）**：`security` / `secrets` 的 vault 只在插件 `apply()` 读一次（`examples/security/index.js:1615` / `examples/secrets/index.js:1344`），同步后再出现不会自动刷新 —— 用户 2026-11-06 实测「重启桌面后显示正常」，先按已知行为记录，未动代码。**文档校准**：`03-当前状态` §1 版本 0.9.30→0.10.0（tag `v0.10.0` · commit `29d5f1a`）· `05-项目结构` vitest 1886→1918 · `07-术语与编号` rev173.365→387、vitest 1886→1918、cargo 102→105。**验证**：`check-docs` 全绿；全量基线沿用 02:36:18（tsc 0 · oxlint 4 · cargo 105 · vitest 1918 · 质量门 8/8） |
 | rev173.387 | 2026-11-06 · **0.10.0 发版**（含 rev173.385/386 两条行为变更 + 两个插件升级）：桌面 `ZeroNote_0.10.0_x64-setup.exe` 15.15 MiB（+ MSI 17.08 MiB，各带 `.sig`）· Android **`ZeroNote_0.10.0_arm64.apk` 33.33 MiB**（`app-universal-release.apk` 改名；只打了 aarch64 target，不是 121 MB 的 4-ABI 包）· `update/latest.json` / `update/android.json` 已按 0.10.0 生成（sha256 `886663b0…`）· 插件 `security` **0.2.3**（密码框 `secret` 标记）/ `sync` **0.1.10**（远端索引巡检）已签名入市（16 条）。**构建**：sccache server 挂了（`Failed to send data to or receive data from server`）⇒ `sccache --stop-server` 后重跑通过；桌面 4m12s · Android 6m28s。**G1/G2**：verify 全绿（02:04:37 与发版前复核）；G2 桌面 dev 截图 `_shots/g2-0.10.0-prebuild.png`。**未验**：手机上装 0.10.0 后的附件分类 / 其它文件进树（Rust 改动要新包）；密码库同步（任务 4，手机 release → 云端 → 桌面 release） |
 | rev173.386 | 2026-11-06 · **其它普通文件也进文件树（kind = `file`）**（用户：「其它文件可以被作为附件插入吗」→「进」）：此前 `list_notes` 只列 笔记 / 文档 / 图片 / 音视频，`.zip` / `.ini` 插进 `附件/其它/` 后磁盘上有、树里没入口。① Rust `list_notes` 的 `is_listed_file` 改为「除隐藏文件与 `SKIP_DIRS` 外所有普通文件」（`collect` / `collect_refs` 同一谓词，轮询也跟着看得到增删），`kind` 增 `"file"` 分支；② 前端 `NoteMeta.kind` 加 `'file'`，`kindOfPath()` 末端改为「是文档扩展名 ⇒ doc，否则 file」（此前后端兜底一律当 doc）；③ `FileTree` 给 file 挂扩展名徽章并去扩展名显示；④ 打开分流：文件树双击 / 时间流 / 正文链接都提示「暂不支持在应用内打开，可在文件管理器中打开」，`QuickSwitcher` 排除 file（避免二进制被 `openNote` 读成乱码）。**测试**：`tests/attachment-kind.test.ts` 断言更新（`.vtt` / `README` / `.gitignore` → file）+ `file-tree-real-dirs` 加 1 条；Rust `list_covers_all_files_with_kind`（原「skips others」改名改断言）+ `list_notes_light_matches_list_notes` 期望集合加 `笔记.unknownext`。 |
 | rev173.385 | 2026-11-06 · **文件树取消「文档 / 附件」虚拟分组 + 附件按扩展名分子目录**（rev173.384 任务 1、2）：① 前端 `FileTree.tsx` 的 `buildTree` 删掉 `DOCS_NODE` / `ATTACH_NODE` 两个哨兵与聚合桶 —— `doc` / `image` / `media` 和普通笔记一样进**真实所在目录**（用户拍板「文档分组也取消」）；虚拟分组只剩私密笔记那种插件源。② Rust `attachment_plan(vault, note_path, stem, ext)` 按扩展名返回 `附件/图片|视频|音频|文档|其它/` 并 `create_dir_all`；`MEDIA_EXTS` 拆成 `VIDEO_EXTS` + `AUDIO_EXTS`（与前端 `media-render.ts` 同口径），媒体服务白名单改用 `is_media_ext()` 一份判据。③ 新增单测：vitest `tests/file-tree-real-dirs.test.tsx`（2 条：无虚拟节点 / 附件与文档挂真实目录）+ Rust `import_attachment_classifies_by_extension`（五类落点）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo **105** · vitest **1917** · 质量门 8/8，01:41:44）；G2 桌面 dev（`_tmp-vault-rt12`）CDP 实测 `import_attachment` 返回 `附件/图片/g2-classify.png`，reload 后树出现 `附件/图片/` 与文件、`data-zn-virtual` 节点数 0，截图 `_shots/rev173385-tree-real-dirs.png`。**未做**：发版（Rust 改动，等 G3 用户验收）、手机新包、密码库同步（任务 4，发版后做） |
@@ -304,7 +305,7 @@ revision: 173.389
 > 密码取自本机 `_tmp\凭据-测试同步.md`，脚本 `_tmp/dav-check-zn.mjs`），核对 rev173.383 修的那个 bug
 > 在**真实云端**是否已闭环。
 
-> **实测结果（密码库没同步上去）**：`ZeroNote/` 下只有 `.zn` 与 `_zn`；`_zn/` 里**只有**
+> **实测结果（⚠️ 已更正：密码库其实同步成功）**：`ZeroNote/` 下只有 `.zn` 与 `_zn`；`_zn/` 里**只有**
 > `manifest.json`（290 B）；`_zn/security/` 与 `_zn/secrets/` 均 **404**。而 `manifest.json` 的
 > `private` 段记着三条指纹 —— `.zn/secrets/secrets.zn` `c68:1828cxj` · `.zn/security/vault.notes.json`
 > `mu:w7h56c` · `.zn/security/vault.secrets.json` `mx:ra2qft`，与桌面 baseline **逐条相同**。
@@ -327,6 +328,30 @@ revision: 173.389
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.390（2026-11-06 · 更正 388：密码库其实同步成功，远端布局是 `.zn/` + `_zn/`）
+
+> **怎么发现的**：用户要求「复验」，重查发现 `_zn/security/` 仍 404，但远端 **manifest 的 private
+> 指纹已被更新**（`ux:9xlaal` / `v0:1h92xcp`，02:58:38）—— 与「PUT 失败」矛盾，于是直接 GET
+> 具体文件，结果三个全在：`ZeroNote/.zn/security/vault.notes.json`（1113 B）·
+> `ZeroNote/.zn/security/vault.secrets.json`（1116 B）· `ZeroNote/.zn/secrets/secrets.zn`（15776 B），
+> 长度与本地逐个一致。
+
+> **布局（设计如此，源码）**：`examples/sync/lib/core.cjs:65` 的 `MANIFEST_REL = '_zn/manifest.json'`
+> 只用于 **manifest / 回收站 / 中转区**；而 `PRIVATE_FILES`（`core.cjs:86`）是
+> `.zn/secrets/secrets.zn` / `.zn/security/vault.*.json` 这类**本机相对路径**，`syncPrivate` 直接
+> `client.put(rel)` ⇒ 远端镜像到 `<根>/.zn/…`。**不要用 `_zn/` 去查私有文件。**
+
+> **坚果云 PUT 实测**（`_tmp/dav-probe.mjs`）：PUT `_zn/security/__probe.txt` ⇒ **409**（父目录不存在，
+> 必须先 MKCOL）；PUT `_zn/__probe2.txt` ⇒ **201**，GET 200，DELETE 204。探针已删。
+
+> **因此**：① 0.1.9 的同步一直正常，不需要「等 0.1.10 才能上传」；② rev173.383 记录的那个
+> 「远端索引不实 ⇒ 密码库永远推不上去」现场，很可能同样是只查 `_zn/` 造成的误判 —— 但它的修复
+> （巡检 GET + 按本地重推）本身无害且更稳，**保留不动**；③ `888` 的「用户动作：更新 sync」作废。
+
+> **证据**：`node _tmp/dav-get.mjs` 三条 200 + 长度；`_tmp/dav-probe.mjs` 的 409/201/204。
+
+> **未做**：不改代码；rev173.383 的注释与文档里「`_zn/security/`」的说法未逐处订正（下轮若碰到再改）。
 
 > ## 📌 rev173.387（2026-11-06 · 0.10.0 发版）
 
