@@ -7,7 +7,7 @@
 | 事实 | 当前值 |
 |---|---|
 | rev / 版本 | rev173.376 · 0.9.30 · 2026-11-05 |
-| 测试基线 | vitest 1897 · cargo 102 · oxlint 4 warnings（2026-11-05） |
+| 测试基线 | vitest 1909 · cargo 102 · oxlint 4 warnings（2026-11-05） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-05 · CHANGELOG 0.9.30 |
 <!-- FACTS:END -->
@@ -25,8 +25,8 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.9.30** · rev173.374 |
-| 测试基线 | vitest 1891 · cargo 102 · oxlint 4 warnings · 质量门 8/8（2026-11-04 22:03） |
+| 版本 / rev | **0.9.30** · rev173.376 |
+| 测试基线 | vitest 1909 · cargo 102 · oxlint 4 warnings · 质量门 8/8（2026-11-05） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag `v0.9.30` 同步 |
 
@@ -50,6 +50,7 @@
 11. **接手第一件事 = 读完 `docs/handoff/01–07` 七份分册 ＋ 本卡**（只读本卡不算接手）；`HANDOFF.md` 是历史流水账，按 rev 号按需查，**不是必读**
     > 已由 `dsh-dev-gate` **R8 接手必读门**工具级强制：ZeroNote 里第一次 write/edit 或 `git commit` 前，**七份分册缺任一份** ⇒ deny（已实测会拦）。
 12. **用户要求「记住」的事 → 写进 `docs/handoff/` 对应分册**，不靠会话记忆、不靠 AI 的 graph memory
+13. **用户数据禁止测试**：`C:\Users\AQUA\Documents\ZreoNote` 是用户的**真实笔记库** —— 不写入、不新建/删除笔记、不建私密环、不切库进去点 UI，连「请你切过去点一下」这种建议也不提；所有验收用 AI 自建的 `<仓库>\_tmp-vault-*`（2026-11-05 用户要求，见 01 分册 §1 / 04 分册 §3）
 
 完整版 → [`docs/handoff/04-授权与红线.md`](docs/handoff/04-授权与红线.md)
 
