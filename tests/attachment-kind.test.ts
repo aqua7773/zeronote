@@ -26,15 +26,17 @@ describe('kindOfPath（与 Rust list_notes 同一口径）', () => {
     expect(kindOfPath('语音.m4a')).toBe('media')
   })
 
-  it('其余一律 doc', () => {
+  it('其余只读文档走 doc，其它普通文件走 file（rev173.386）', () => {
     expect(kindOfPath('手册.pdf')).toBe('doc')
     expect(kindOfPath('a/b/书.epub')).toBe('doc')
-    expect(kindOfPath('附件/说明.vtt')).toBe('doc')
+    expect(kindOfPath('附件/其它/包.zip')).toBe('file')
+    expect(kindOfPath('附件/其它/配置.ini')).toBe('file')
+    expect(kindOfPath('附件/说明.vtt')).toBe('file')
   })
 
   it('没有扩展名 / 点开头的文件名不会误判成笔记或文档', () => {
-    expect(kindOfPath('README')).toBe('doc')
-    expect(kindOfPath('.gitignore')).toBe('doc')
+    expect(kindOfPath('README')).toBe('file')
+    expect(kindOfPath('.gitignore')).toBe('file')
     expect(isNoteFileName('笔记.txt')).toBe(false)
   })
 

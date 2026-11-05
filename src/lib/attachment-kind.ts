@@ -20,7 +20,7 @@ import { isMediaFileName } from './media-render'
 export const DOC_EXTS = ['pdf', 'epub', 'mobi', 'azw3', 'azw', 'fb2', 'cbz', 'txt'] as const
 
 /** 与 `NoteMeta.kind` 同集合（`src/kernel/contract.ts`） */
-export type AttachmentKind = 'note' | 'image' | 'media' | 'doc'
+export type AttachmentKind = 'note' | 'image' | 'media' | 'doc' | 'file'
 
 function extOf(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? ''
@@ -41,12 +41,14 @@ export function isReadonlyDocFileName(path: string): boolean {
 }
 
 /**
- * 按文件名推断 `kind`，与 Rust `list_notes` 的四分类一致：
- * 笔记 → 图片 → 音视频 → 其余一律 `doc`。
+ * 按文件名推断 `kind`，与 Rust `list_notes` 的五分类一致：
+ * 笔记 → 图片 → 音视频 → 只读文档 → 其余 `file`（rev173.386：不再是「一律 doc」——
+ * `.zip` / `.ini` 这类不该被当成文档去走阅读器）。
  */
 export function kindOfPath(path: string): AttachmentKind {
   if (isNoteFileName(path)) return 'note'
   if (isImageFileName(path)) return 'image'
   if (isMediaFileName(path)) return 'media'
-  return 'doc'
+  if (isReadonlyDocFileName(path)) return 'doc'
+  return 'file'
 }

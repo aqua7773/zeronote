@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-type NoteItem = { path: string }
+/** 快速切换只需要路径；`kind` 可选（rev173.386：用来排除「其它文件」） */
+type NoteItem = { path: string; kind?: string }
 
 /** `灵感/2026-10-11/16-22-44.md` → 显示用的文件名与目录 */
 function splitPath(path: string) {
@@ -50,7 +51,12 @@ export function QuickSwitcher({
   // 与文件树保持**同一顺序**（localeCompare + zh：中文按拼音排），
   // 否则同一个库在两处呈现不同次序，用户会以为漏了东西
   const ordered = useMemo(
-    () => [...notes].sort((a, b) => a.path.localeCompare(b.path, 'zh')),
+    () =>
+      // rev173.386：其它普通文件（kind = 'file'）不进快速切换 —— 这里打开走 openNote
+      // （编辑器读文本），二进制文件只会得到乱码。
+      [...notes]
+        .filter((n) => n.kind !== 'file')
+        .sort((a, b) => a.path.localeCompare(b.path, 'zh')),
     [notes],
   )
   const filtered = useMemo(() => {

@@ -3843,6 +3843,8 @@ export default function App() {
           setToast(
             `音视频附件：${path} —— 正文里用 \`![](${path.split('/').pop()})\` 会内联播放`,
           )
+        else if (kind === 'file')
+          setToast(`文件：${path}（暂不支持在应用内打开，可在文件管理器中打开）`)
         else setToast(`附件：${path}（暂不支持直接打开）`)
       }
       const meta0 = notes.find((n) => candidates.includes(n.path))
@@ -5579,6 +5581,9 @@ export default function App() {
                   setToast(
                     `音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`,
                   )
+                else if (meta?.kind === 'file')
+                  // rev173.386：其它普通文件（zip / ini …）—— 内核没有「用系统程序打开」的原语
+                  setToast(`文件：${p}（暂不支持在应用内打开，可在文件管理器中打开）`)
                 else {
                   // rev173.85：已经在面板视图 / 点的是当前这篇（openNote 会早退）时也要回编辑器
                   setMainView('editor')
@@ -5632,6 +5637,8 @@ export default function App() {
                     setToast(
                       `音视频附件：${p} —— 在笔记正文里用 ![](${p.split('/').pop()}) 内联播放`,
                     )
+                  else if (meta?.kind === 'file')
+                    setToast(`文件：${p}（暂不支持在应用内打开，可在文件管理器中打开）`)
                   else {
                     setMainView('editor')
                     void openNote(p)

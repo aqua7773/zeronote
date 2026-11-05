@@ -162,12 +162,14 @@ fn invalidate_note_meta_tree(dir: &Path) {
   }
 }
 
-/// 文件树里**要列出来**的文件：笔记 / 只读文档 / 图片 / 音视频。
+/// 文件树里**要列出来**的文件：**所有普通文件**（rev173.386 起）。
 ///
-/// [`collect`] 与 [`collect_refs`] 共用这一份谓词 —— 两条命令的集合边界
-/// 必须完全一致，否则轮询看到的变化（图片增删）与真正的清单对不上（静默失效）。
-fn is_listed_file(name: &str) -> bool {
-  is_markdown(name) || is_readonly_doc(name) || is_image(name) || is_media(name)
+/// 2026-11-06 用户要求「其它文件也要能作为附件插入、并在文件树里看到」——
+/// 此前只列 笔记 / 只读文档 / 图片 / 音视频，于是 `.zip` / `.ini` 这类插进 `附件/其它/`
+/// 后磁盘上有、树里没有入口。现在文件树 = 库内真实文件（隐藏文件与 [`SKIP_DIRS`] 仍然跳过），
+/// 打开时按扩展名分流：笔记走编辑器、文档走阅读器、图片预览、音视频提示内联、其余提示路径。
+fn is_listed_file(_name: &str) -> bool {
+  true
 }
 
 /// 库内相对路径 → 绝对路径（拒绝绝对路径、`..`、盘符等）
@@ -313,14 +315,14 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       collect(root, &path, out)?;
       continue;
     }
-    // 笔记（.md）与**只读文档**（pdf/epub/…）都进文件树；其它一律跳过。
-    // 2026-10-18 rev173.3：图片附件也进（kind = image，前端归到「附件」分组）。
-    // 2026-10-28 rev173.226：音视频附件也进（kind = media，正文可内联播放）。
+    // 笔记（.md）、只读文档（pdf/epub/…）、图片、音视频都进文件树；
+    // rev173.386（2026-11-06 用户要求）：**其它普通文件也进**（kind = "file"）——
+    // 否则插进 `附件/其它/` 的 zip / ini 在树里没有入口。
     let is_note = is_markdown(&name);
     let is_doc = is_readonly_doc(&name);
     let is_img = is_image(&name);
     let is_media_file = is_media(&name);
-    if !is_note && !is_doc && !is_img && !is_media_file {
+    if !ft.is_file() {
       continue;
     }
     let meta = match entry.metadata() {
@@ -396,13 +398,17 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<NoteMeta>) -> Result<(), Strin
       kind: if is_note {
         "note"
       } else if is_img {
-        // rev173.3：图片附件（文件树里归到「附件」分组，点开是图片预览）
+        // rev173.3：图片附件（文件树里按真实目录显示，点开是图片预览）
         "image"
       } else if is_media_file {
-        // rev173.226：音视频附件（文件树里归到「附件」分组；正文里内联播放）
+        // rev173.226：音视频附件（文件树里按真实目录显示；正文里内联播放）
         "media"
-      } else {
+      } else if is_doc {
         "doc"
+      } else {
+        // rev173.386：其它普通文件（zip / ini / toml …）—— 树里能看到，
+        // 打开时只提示路径（内核没有「用系统程序打开」的原语）。
+        "file"
       }
       .to_string(),
     });
@@ -1149,7 +1155,7 @@ pub struct NoteRef {
 
 /// 与 [`collect`] **同一套集合边界**，但**不读文件内容**。
 ///
-/// 两处必须同步改：谓词已经收口到 [`is_listed_file`]，
+/// 两处必须同步改：谓词已经收口到 [`is_listed_file`]（rev173.386 起为「所有普通文件」），
 /// 唯一还要跟着走的只有「进入目录 / 跳过目录」的规则（`.` 开头 + [`SKIP_DIRS`]）。
 fn collect_refs(root: &Path, dir: &Path, out: &mut Vec<NoteRef>) -> Result<(), String> {
   let entries = fs::read_dir(dir).map_err(|e| format!("读取目录失败 {}：{e}", dir.display()))?;
@@ -1167,6 +1173,8 @@ fn collect_refs(root: &Path, dir: &Path, out: &mut Vec<NoteRef>) -> Result<(), S
     if !is_listed_file(&name) {
       continue;
     }
+    // rev173.386：谓词现在恒真（除隐藏与跳过目录外都列），保留调用点是为了
+    // 以后若要重新收窄集合时只有一处可改。
     let mtime = entry
       .metadata()
       .ok()
@@ -5002,10 +5010,17 @@ mod tests {
       .map(|r| r.path)
       .collect();
     assert_eq!(full, light, "两条命令的路径集合与顺序必须完全一致");
+    // rev173.386：未知扩展名也进树（kind = file）；隐藏文件与跳过目录仍不进
     assert_eq!(
-      full.len(),
-      4,
-      "应只有 a.md / b.md / 图.png / 手册.pdf：{full:?}"
+      full,
+      vec![
+        "a.md".to_string(),
+        "图.png".to_string(),
+        "子目录/b.md".to_string(),
+        "手册.pdf".to_string(),
+        "笔记.unknownext".to_string(),
+      ],
+      "应只有笔记 / 图片 / 文档 / 未知类型（file）：{full:?}"
     );
   }
 
@@ -5619,7 +5634,7 @@ mod tests {
   }
 
   #[test]
-  fn list_covers_notes_and_readonly_docs_but_skips_others() {
+  fn list_covers_all_files_with_kind() {
     let d = tmpdir("ls");
     let v = d.to_string_lossy().to_string();
     fs::write(d.join("a.md"), "# a").unwrap();
@@ -5640,10 +5655,16 @@ mod tests {
     assert!(paths.contains(&"a.md".to_string()));
     assert!(paths.contains(&"子目录/c.md".to_string()), "中文子目录要能递归：{paths:?}");
     assert!(!paths.iter().any(|p| p.contains(".zn")), ".zn 不能进文件树");
+    // rev173.386（2026-11-06）：其它普通文件也进文件树（kind = file）——
+    // 用户要求「其它文件也能作为附件插入、并在文件树里看到」。
     assert!(
-      !paths.iter().any(|p| p.ends_with(".bin")),
-      "非笔记 / 非文档 / 非图片的文件仍不进文件树：{paths:?}"
+      paths.contains(&"d.bin".to_string()),
+      "其它普通文件也进文件树：{paths:?}"
     );
+    let bin = list.iter().find(|m| m.path == "d.bin").unwrap();
+    assert_eq!(bin.kind, "file", "其它文件的 kind 是 file");
+    assert_eq!(bin.title, "d", "其它文件显示名 = 去掉扩展名的文件名");
+    assert!(bin.frontmatter.is_null(), "其它文件不解析 frontmatter");
 
     // 2026-10-13：只读文档也进文件树（此前只收 .md ⇒ 库里的 PDF 根本看不见）
     let pdf = list

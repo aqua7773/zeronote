@@ -29,17 +29,18 @@ export type NoteMeta = {
    * `note` = Markdown 笔记（内核可编辑，走编辑器）；
    * `doc`  = 只读文档（pdf / epub / mobi / cbz / txt …）；
    * `image` = 图片附件（png / jpg / gif / webp / svg …，rev173.3 起进文件树）；
-   * `media` = 音视频附件（mp4 / mp3 / mkv …，rev173.226 起进文件树）。
+   * `media` = 音视频附件（mp4 / mp3 / mkv …，rev173.226 起进文件树）；
+   * `file` = **其它普通文件**（zip / ini / toml …，rev173.386 起进文件树；只能提示路径）。
    *
    * 2026-10-13 加 doc：内核此前只列 `.md`，库里放了 PDF 也看不见。
    * 2026-10-18 加 image：「插入图片」把图复制进笔记目录后，文件树里什么都看不到 ⇒
-   * 用户「附件的入口也没做」。现在四类都进文件树，但：
+   * 用户「附件的入口也没做」。现在五类都进文件树，但：
    * **只有 `note` 进索引、只有 `note` 走 `openNote`**；`doc` 交给插件
    * （`core.openDocument` 派发）；`image` 由内核自己弹图片预览；
    * `media` 只是「在正文里用 `![](clip.mp4)` 内联播放」，单独点开给提示
-   * （播放要放在笔记上下文中，不是独立窗口）。
+   * （播放要放在笔记上下文中，不是独立窗口）；`file` 单独点开同样只给路径提示。
    */
-  kind: 'note' | 'doc' | 'image' | 'media'
+  kind: 'note' | 'doc' | 'image' | 'media' | 'file'
   /**
    * **虚拟分组归属**（rev173.376 · 私密笔记改造 §4.1）—— 只有来自「额外笔记源」
    * （`ctx.notes.registerSource`）的条目才有。文件树按它在树尾挂一个「🔒 私密笔记」分组；

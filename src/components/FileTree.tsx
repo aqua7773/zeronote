@@ -34,7 +34,7 @@ type TreeNode = {
    * 只用于**区分显示**（文档挂类型徽章）—— "打开走哪条命令"由 `App.tsx` 的
    * `core.openDocument` 派发，文件树不掺业务判断。
    */
-  kind?: 'note' | 'doc' | 'image' | 'media'
+  kind?: 'note' | 'doc' | 'image' | 'media' | 'file'
   /**
    * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录。
    * rev173.385：文档 / 附件不再虚拟聚合，一律按真实目录显示；
@@ -265,7 +265,7 @@ type MenuState = {
 /**
  * 把一个文件树条目换成**插件认识的三档类型**（rev173.281 · J#18）。
  *
- * 内核的 `NoteMeta.kind` 有 note / doc / image / media 四档，但插件不需要
+ * 内核的 `NoteMeta.kind` 有 note / doc / image / media / file 五档，但插件不需要
  * （也不该）认识这些细节：导出、分享这类动作只关心「这是笔记 / 文件夹 / 其它附件」。
  */
 function itemKindOf(meta: NoteMeta | undefined, isDir: boolean): ItemMenuKind {
@@ -493,18 +493,19 @@ function Node({
   /** 附件（rev173.3 图片 · rev173.226 音视频）：与只读文档同样挂扩展名徽章 */
   const isImage = node.kind === 'image'
   const isMedia = node.kind === 'media'
-  const ext =
-    isDoc || isImage || isMedia
-      ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase()
-      : ''
+  /** rev173.386：其它普通文件（zip / ini / toml …）—— 同样挂扩展名徽章 */
+  const isFile = node.kind === 'file'
+  const hasKindBadge = isDoc || isImage || isMedia || isFile
+  const ext = hasKindBadge
+    ? node.name.slice(node.name.lastIndexOf('.') + 1).toLowerCase()
+    : ''
   /**
    * 显示名（2026-10-17 用户定「文件显示 .md」）：
    *  · 笔记 —— 直接显示**磁盘文件名**（含 `.md`），一眼看出是 Markdown；
-   *  · 只读文档（pdf/epub/…）/ 图片 / 音视频 —— 去掉扩展名：它后面已经跟着
+   *  · 只读文档（pdf/epub/…）/ 图片 / 音视频 / 其它文件 —— 去掉扩展名：它后面已经跟着
    *    `.pdf` / `.png` / `.mp4` 徽章了，再带一次会变成 `测试书籍.epub .epub`。
    */
-  const label =
-    node.label ?? (isDoc || isImage || isMedia ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name)
+  const label = node.label ?? (hasKindBadge ? node.name.replace(/\.[a-z0-9]+$/i, '') : node.name)
   /**
    * 高亮判据**用选中集合**，不用裸 `activePath`（2026-10-17 修）：
    * `selectedSet` 已经处理了「selected 为空 ⇒ 回退到当前打开的那篇」，
@@ -585,7 +586,7 @@ function Node({
         </span>
       )}
       <span className="zn-tree-label">{label}</span>
-      {(isDoc || isImage || isMedia) && <span className="zn-ext">.{ext}</span>}
+      {hasKindBadge && <span className="zn-ext">.{ext}</span>}
       </button>
     </div>
   )

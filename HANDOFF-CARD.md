@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-06 · rev173.385 · 0.9.30** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-06 · rev173.386 · 0.9.30** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.385 · 0.9.30 · 2026-11-06 |
-| 测试基线 | vitest 1917 · cargo 105 · oxlint 4 warnings（2026-11-06） |
+| rev / 版本 | rev173.386 · 0.9.30 · 2026-11-06 |
+| 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings（2026-11-06） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-06 · CHANGELOG 0.9.30 |
 <!-- FACTS:END -->
@@ -25,8 +25,8 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.9.30** · rev173.385 |
-| 测试基线 | vitest 1917 · cargo 105 · oxlint 4 warnings · 质量门 8/8（2026-11-06） |
+| 版本 / rev | **0.9.30** · rev173.386 |
+| 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings · 质量门 8/8（2026-11-06） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag `v0.9.30` 同步 |
 
@@ -39,6 +39,7 @@
 3. dev 桌面测试 + 用户验收（G3）通过后**发新版**（Rust 改动，手机要新包）
 4. **密码库同步**：手机 release → 云端 → 桌面 release（顺序不能反）
 5. 备份在 `_tmp/backup-zreonote-clear-2026-11-06/`；云端 `ZeroNote/` 用户已手动删（限流解除后核实）
+6. ✅ rev173.386（用户追加）：**其它普通文件也进文件树**（`kind = 'file'`）—— zip / ini / toml 这类插进 `附件/其它/` 后能在树里看到；点开只提示路径（无「用系统程序打开」原语）
 
 ## 4 规矩（做不到别动手）
 

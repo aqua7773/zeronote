@@ -91,4 +91,16 @@ describe('FileTree · 文档 / 附件按真实目录显示', () => {
       ),
     ).toBeUndefined()
   })
+
+  it('其它普通文件（kind=file）也显示，并挂扩展名徽章', () => {
+    const { container } = render(
+      <FileTree
+        {...(makeProps({
+          notes: [meta('附件/其它/other.ini', 'other.ini', 'file')],
+        }) as never)}
+      />,
+    )
+    expect(rowOf(container, '附件/其它/other.ini')).toBeTruthy()
+    expect(container.textContent).toContain('.ini')
+  })
 })
