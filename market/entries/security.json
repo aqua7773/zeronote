@@ -9,10 +9,10 @@
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.2.2",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.2.znp",
-  "sha256": "c11c7e5fb9af733e95fbcd949fee0c901a8495b1e916bcbc0a73b2d11d0021ac",
-  "size": 80652,
+  "version": "0.2.3",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.3.znp",
+  "sha256": "dde4e8d230aa2cebef503c038f8d0b634295d38d9ba4ba389379f640e294d88b",
+  "size": 80778,
   "files": [
     "index.js",
     "signature.json"

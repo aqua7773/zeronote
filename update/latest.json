@@ -1,11 +1,11 @@
 {
-  "version": "0.9.30",
-  "notes": "插件市场与同步三处修复：市场安装确认框显示实际下载地址 · sync 0.1.9 空 manifest 不再跟删（按本地重建）· 白屏自动判据停用（只记日志）",
-  "pub_date": "2026-11-04T14:13:24.575Z",
+  "version": "0.10.0",
+  "notes": "ZeroNote 0.10.0",
+  "pub_date": "2026-11-05T18:20:52.660Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.30/ZeroNote_0.9.30_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzBRcUxmQyttbVN1Yzg0Z0JLUkFmZWJORGxUdjZNSHNCZ0NheXBJdlJMZW13NE0zOW9hQTFMMEFvYkxMTXZIYk0rL3NycEdEbE41WmFYMk5hSCtHVkFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzODAxMjUxCWZpbGU6WmVyb05vdGVfMC45LjMwX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjkuMzAKbEI4OHEvTFAxdjZuWHRnRWF6WmtuRGw1RlJlOU9xb0FaQnp1TXRHYUN6M2pZMEtVczhoOVdtZnc4Z2VMbTZzTFpiY2YzUlR6dXlrRlJUS2hlT2lXRFE9PQo="
+      "url": "https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.10.0/ZeroNote_0.10.0_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRS0IxbGFuZ0tFRzBIQ3l1d29CZVJGRUY3RjZYZ2dKRDN3a05adndLMWpzclgwV3grODE3T1g1NzVnbVZ6NzFTSjZLUDZsdGZjdmh0Q1RuejVoRkNkZS9QNDhzUTVycUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzOTAyMzQ4CWZpbGU6WmVyb05vdGVfMC4xMC4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjEwLjAKT3NFY214R2o1bHNOQTVrSmRQWlVBbnVPeE9qd1NtbTVPTnB5cTRRb0l5eHJVQkp2ekYxRzNDZTJKKzlFeXRqMDUrbjFJR3lvWXR1K3pqY2tjV3huQ0E9PQo="
     }
   }
 }

@@ -6,10 +6,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.386 · 0.9.30 · 2026-11-06 |
+| rev / 版本 | rev173.387 · 0.10.0 · 2026-11-06 |
 | 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings（2026-11-06） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-06 · CHANGELOG 0.9.30 |
+| 文档 | README 现状 2026-11-06 · CHANGELOG 0.10.0 |
 <!-- FACTS:END -->
 
 ## 1 是什么（30 秒）
@@ -25,10 +25,10 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.9.30** · rev173.386 |
+| 版本 / rev | **0.10.0** · rev173.387 |
 | 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings · 质量门 8/8（2026-11-06） |
 | 插件 | 市场 16 条 · 示例 40 个 |
-| 远端 | GitHub / Gitee main + tag `v0.9.30` 同步 |
+| 远端 | GitHub / Gitee main + tag `v0.10.0` 同步 |
 
 ## 3 下个会话第一件事
 
