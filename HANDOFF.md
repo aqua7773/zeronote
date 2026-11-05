@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.381
-更新时间: 2026-11-05 · 最新 rev173.381（**dev 与 release 完全隔离**：系统凭据库按 identifier 分流，dev 写 `…com.aqua.zeronote.dev`、release 保持原名，读带回落）· rev173.380（同步测试环境定型）· rev173.379（dev 与 release 可同时开）
+revision: 173.382
+更新时间: 2026-11-06 · 最新 rev173.382（**手机密码环清空重建 + 发现 sync 静默 bug**：远端 `_zn` 无 `security/`、`secrets/` 目录但 manifest 记着指纹 ⇒ 密码库永远推不上去）· rev173.381（dev/release 完全隔离）· rev173.380（同步测试环境定型）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.381
 
 | rev | 内容 |
 |---|---|
+| rev173.382 | 2026-11-06 · **手机密码环清空重建 + 摸到 sync 的新静默 bug**：① 用户要求「清空重建」——删手机测试库 `<库>/.zn/security/{vault.secrets,vault.notes}.json` 与 `.zn/secrets/secrets.zn`（已备份后按用户要求删掉备份），重新建「账号密码」环（主密码 `test-pass-1234`，恢复码 `TLUM-…-24WA` 记在 `_tmp\凭据-测试同步.md`）。验证链：建环 → 立即解锁 ✅（「1 把已解锁」）→ 手机同步（上传 58 / 下载 5）→ 再解锁 ✅ ⇒ **之前的「主密码不对」确认是环文件被换，不是建环代码**。② 桌面 dev 同步拉 58 个（下载 58 / 上传 0），第二轮两端都 0/0/0。③ **新 bug（静默）**：直接读远端 `zeronote_test/_zn`（PROPFIND 207）只有 `manifest.json` / `relay` / `relay-ack`，**没有 `security/` 与 `secrets/` 子目录**，而 manifest 的 `private` 段记着 `qt:1yd4v1c` / `fk:1d69sgq` / `fn:qifgog` 三个指纹 ⇒ sync 判定「远端已有」永远不推；`GET .../_zn/security/vault.secrets.json` 返回 **404**。`looksLikeManifestLoss()` 只兜 `files:{}`，不覆盖「private 段在、文件不在」。⇒ 清空远端 / 换设备后，密码库在无声中传不上去。**未做**：修复方案与单测（下一轮）；`security` 市场包 0.2.3 仍未打。 |
 | rev173.381 | 2026-11-05 · **dev 与 release 完全隔离（系统凭据库按 identifier 分流）**：用户要求「做完全隔离，release 是存我个人数据日常使用的」。原来 `SECRET_SERVICE` 硬编码 `com.aqua.zeronote`，dev 改密码 / 点「断开连接」会连 release 的凭据一起动。改法：① `net.rs` 加纯函数 `secret_service_for(identifier)` —— **主身份保持原名**（已存密码不用迁移）、其它身份用自己的 identifier；`setup` 里 `init_secret_service(&app.config().identifier)` 写入 `OnceLock`；② 读路径加**回落**：当前身份没有就再读主身份（开发身份无缝继承已配置的密码），写 / 删只动自己那份；③ `assets.rs` 里那份重复的 `KeyringStore::new("com.aqua.zeronote")` 收掉，统一走 `crate::net`（§8 同一逻辑多处实现）。**证据**：`cargo test --lib` **104 passed**（新增 2 条 `secret_service_keeps_primary_identity` / `secret_service_splits_dev_identity`）；dev 自动重编译重启后 CDP 实测 `secret_get` 回落读到继承的密码（`len=16 match=true`）、`secret_set` 写入后 `cmdkey /list` 出现**两条并列** target：`sync.webdav.password.com.aqua.zeronote` 与 `sync.webdav.password.com.aqua.zeronote.dev`。**未做**：release 仍是已安装的 0.9.30 老二进制（写死主身份），要下次发版才用新代码 —— 但主身份名字没变，**升级不需要迁移**。 |
 | rev173.380 | 2026-11-05 · **同步测试环境定型（用户要求「把测试库和账号密码记住，同步测试都用这个库」）**：① dev 窗口切到测试库 `<仓库>\_tmp-vault-rt12`（写 `localhost:1420` 的 `localStorage['zeronote.vault']`，因为 dev 是独立 WebView2 profile、空 localStorage）；② dev 的 sync 插件设置写成 WebDAV `https://dav.jianguoyun.com/dav/` · 账号 `17777253753@163.com` · 目录 **`zeronote_test`** · 附件 relay（只写进了 `%APPDATA%\com.aqua.zeronote.dev` 那份 store，release 的设置没动）；③ 密码通过内核 `secret_set('sync.webdav.password', …)` 写进 Windows 凭据库（不进仓库、不进 store.json）；④ **点「测试连接」实测「连接正常」（23:55:53）**，顺带在真机上看到新内核的眼睛按钮。**记住的位置**：`docs/handoff/01-环境与设备.md` §6（表格，只记账号/目录/凭据键）+ §3.1（dev 环境现状）、`docs/handoff/06-用户拍板与禁忌.md` §3（红线：同步测试固定这套）、明文副本 `_tmp\凭据-测试同步.md`（`_tmp/` 已被 gitignore）。**未做**：实跑一轮「立即同步」验证上传下载（只验到连接）；⚠️ 凭据键按 Windows 用户存，**dev 与 release 共用同一条密码**（地址/目录是每身份一份）。 |
 | rev173.379 | 2026-11-05 · **dev 与 release 可同时开（开发环境隔离）**：桌面 `tauri-plugin-single-instance`（`src-tauri/src/lib.rs:4553`）让 dev 与 release 抢同一把锁（identifier 都是 `com.aqua.zeronote`），第二个启动的只转发命令行参数就退出 ⇒「以为在 release 上，其实前台是 dev」。现在 dev 走叠加配置 `src-tauri/tauri.dev.conf.json`（`{"identifier": "com.aqua.zeronote.dev"}`），`dev.cmd:18` 改成 `pnpm tauri dev --config src-tauri/tauri.dev.conf.json`（CLI 一手确认 `--config` 是**合并**语义）。隔离：单实例锁 / `%APPDATA%\com.aqua.zeronote.dev` 数据目录 / WebView2 profile / 插件目录 / **插件 store（含 sync 配置与 `baseline.v1`）**；插件连同 `trusted-keys.json` 已复制到新目录。**未做/未验**：重启 dev 后实测双开（重启交用户手动）；首次启动 localStorage 空 ⇒ 需重选库 `_tmp-vault-rt12`。说明写进 `docs/handoff/01-环境与设备.md` §3.1。 |
@@ -264,6 +265,32 @@ revision: 173.381
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.382（2026-11-06 · 手机密码环清空重建 + sync 新静默 bug）
+
+> **背景**：手机上「账号密码」环解不开（详见 rev173.377/378 段）——之前的结论是「环被同步覆盖成桌面真实库那份」。
+> 用户清空了远端 `zeronote_test`，要求清空重建手机侧。
+
+> **做了什么**：删掉手机测试库的 `.zn/security/vault.secrets.json` / `vault.notes.json` / `.zn/secrets/secrets.zn`，
+> 在手机「安全」面板重新建环（主密码 `test-pass-1234`，恢复码抄进 `_tmp\凭据-测试同步.md`）。
+> 验证链全过：**建环 → 立即解锁 ✅ → 手机同步（上传 58 / 下载 5 / 冲突 1，选「用本机版」）→ 再解锁 ✅**
+> ⇒ 坐实「不是建环代码的问题，是环文件被换」。
+
+> **新发现的静默 bug**：直接 PROPFIND 远端 `zeronote_test/_zn`（207），里面只有
+> `manifest.json` / `relay` / `relay-ack` —— **没有 `security/`、`secrets/` 子目录**；
+> 而 `manifest.json` 的 `private` 段记着三个指纹（`qt:1yd4v1c` / `fk:1d69sgq` / `fn:qifgog`），
+> `GET .../_zn/security/vault.secrets.json` 返回 **404**。
+> 于是 sync 每轮都判「远端已有、本地没改」⇒ 不推、也不报错 ⇒ **密码库在无声中传不上去**，换设备就是空库。
+> 现有的 `looksLikeManifestLoss()` 只兜 `files:{}`（整体索引丢失），不覆盖「private 段在、文件不在」这种形状。
+
+> **证据**：手机侧 —— 安全面板「1 把已解锁」；`.zn/security/vault.secrets.json` 重建后 563 B；
+> 同步面板两轮 `下载 5 / 上传 58 / 冲突 1`（00:18:35）与 `下载 1 / 上传 0 / 冲突 0`（00:20:13）；
+> 桌面 dev 一轮 `下载 58 / 上传 0 / 冲突 0`。远端侧 —— `PROPFIND zeronote_test/_zn`（207）只列出
+> `manifest.json` / `relay` / `relay-ack`；`manifest.json` 的 `private` 三个 fp；
+> `GET .../_zn/security/vault.secrets.json` → **404**；桌面 dev 本地盐 `DW_d_79…` 与手机新盐 `EDIkp-…` 不同。
+
+> **未做**：修复方案（private 文件每轮校验远端存在性 / 或 manifest 与真实文件不一致时重建）+ 单测；
+> `security` 市场包 0.2.3 仍未打；手机私密笔记环（notes）没重建（当前只有账号密码环）。
 
 > ## 📌 rev173.381（2026-11-05 · dev 与 release 完全隔离）
 
