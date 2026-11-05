@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.388
-更新时间: 2026-11-06 · 最新 rev173.388（**sync 真实云端复验**：远端 `_zn/` 只有 manifest.json，`security/` `secrets/` 404 ⇒ 密码库没上去，桌面 sync 还是 0.1.9，需更新到 0.1.10 再同步）· rev173.387（0.10.0 发版）
+revision: 173.389
+更新时间: 2026-11-06 · 最新 rev173.389（**手机 G2 补验 0.10.0 通过** + 「双端验收」写成硬规矩）· rev173.388（sync 云端复验：密码库没上去，桌面 sync 仍 0.1.9）· rev173.387（0.10.0 发版）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.388
 
 | rev | 内容 |
 |---|---|
+| rev173.389 | 2026-11-06 · **手机 G2 补验 0.10.0 + 「双端验收」写成硬规矩**（用户：「正常来说，双端验收都应该在发版前完成吧」→「写入，发版之前，除非版本改动仅涉及单端，否则均须双端验收通过」）：① **补验** —— `android-dev.cmd` 重编 dev 包（versionName **0.10.0**，Redmi `33b676f6`），CDP 直调内核命令：`import_attachment` 传库外 png ⇒ 返回 `附件/图片/acc-test.png`；传库外 `.toml` ⇒ 返回 `附件/其它/acc-test.toml`；`list_notes` 同时返回两条（`kind` 分别 `image` / **`file`**）；真机文件树显示「附件 → 其它 → acc-test .toml」「附件 → 图片 → acc-test .png」（无虚拟分组）。磁盘 `ls -R` 与截图 `_shots/rev173388-phone-tree.png` 双证。② **规矩写入 4 处** —— `04-授权与红线` §3（含反例：0.10.0 只过 G1+桌面 G2 就发了）、`02-发版与更新` 新增 §0.1、`06-用户拍板与禁忌` §2、`HANDOFF-CARD` §4 第 1 条子项：**发版前除非改动只涉及单端（HANDOFF 写明「仅桌面」/「仅 Android」），否则必须双端验收通过；禁止「先发版再补手机验收」，禁止拿「Rust 改动要新包」当发版理由** |
 | rev173.388 | 2026-11-06 · **sync 真实云端复验（rev173.383 遗留）+ 文档数字校准**：直接 PROPFIND 坚果云 `ZeroNote/`（账号 `17777253753@163.com`，只读）—— 结论 **密码库没同步上去**：`ZeroNote/_zn/` 只有 `manifest.json`（290 B），`_zn/security/` 与 `_zn/secrets/` 均 **404**；`manifest.json` 的 `private` 段却记着三条指纹（`c68:1828cxj` / `mu:w7h56c` / `mx:ra2qft`，与桌面 baseline 完全一致）⇒ **正是 rev173.383 描述的「远端索引不实 ⇒ 永远不推」**。根因：桌面 release 装的是 `sync` **0.1.9**（`%APPDATA%\com.aqua.zeronote\.zn\plugins\sync\manifest.json`），0.1.10 的远端巡检还没到位。**用户动作**：桌面 → 插件中心把 `sync` 更新到 0.1.10，再点一次「立即同步」，应看到上传 3 条且远端出现 `_zn/security/`、`_zn/secrets/`（复验脚本 `_tmp/dav-check-zn.mjs`）。**同时记下另一条已知行为（未改代码）**：`security` / `secrets` 的 vault 只在插件 `apply()` 读一次（`examples/security/index.js:1615` / `examples/secrets/index.js:1344`），同步后再出现不会自动刷新 —— 用户 2026-11-06 实测「重启桌面后显示正常」，先按已知行为记录，未动代码。**文档校准**：`03-当前状态` §1 版本 0.9.30→0.10.0（tag `v0.10.0` · commit `29d5f1a`）· `05-项目结构` vitest 1886→1918 · `07-术语与编号` rev173.365→387、vitest 1886→1918、cargo 102→105。**验证**：`check-docs` 全绿；全量基线沿用 02:36:18（tsc 0 · oxlint 4 · cargo 105 · vitest 1918 · 质量门 8/8） |
 | rev173.387 | 2026-11-06 · **0.10.0 发版**（含 rev173.385/386 两条行为变更 + 两个插件升级）：桌面 `ZeroNote_0.10.0_x64-setup.exe` 15.15 MiB（+ MSI 17.08 MiB，各带 `.sig`）· Android **`ZeroNote_0.10.0_arm64.apk` 33.33 MiB**（`app-universal-release.apk` 改名；只打了 aarch64 target，不是 121 MB 的 4-ABI 包）· `update/latest.json` / `update/android.json` 已按 0.10.0 生成（sha256 `886663b0…`）· 插件 `security` **0.2.3**（密码框 `secret` 标记）/ `sync` **0.1.10**（远端索引巡检）已签名入市（16 条）。**构建**：sccache server 挂了（`Failed to send data to or receive data from server`）⇒ `sccache --stop-server` 后重跑通过；桌面 4m12s · Android 6m28s。**G1/G2**：verify 全绿（02:04:37 与发版前复核）；G2 桌面 dev 截图 `_shots/g2-0.10.0-prebuild.png`。**未验**：手机上装 0.10.0 后的附件分类 / 其它文件进树（Rust 改动要新包）；密码库同步（任务 4，手机 release → 云端 → 桌面 release） |
 | rev173.386 | 2026-11-06 · **其它普通文件也进文件树（kind = `file`）**（用户：「其它文件可以被作为附件插入吗」→「进」）：此前 `list_notes` 只列 笔记 / 文档 / 图片 / 音视频，`.zip` / `.ini` 插进 `附件/其它/` 后磁盘上有、树里没入口。① Rust `list_notes` 的 `is_listed_file` 改为「除隐藏文件与 `SKIP_DIRS` 外所有普通文件」（`collect` / `collect_refs` 同一谓词，轮询也跟着看得到增删），`kind` 增 `"file"` 分支；② 前端 `NoteMeta.kind` 加 `'file'`，`kindOfPath()` 末端改为「是文档扩展名 ⇒ doc，否则 file」（此前后端兜底一律当 doc）；③ `FileTree` 给 file 挂扩展名徽章并去扩展名显示；④ 打开分流：文件树双击 / 时间流 / 正文链接都提示「暂不支持在应用内打开，可在文件管理器中打开」，`QuickSwitcher` 排除 file（避免二进制被 `openNote` 读成乱码）。**测试**：`tests/attachment-kind.test.ts` 断言更新（`.vtt` / `README` / `.gitignore` → file）+ `file-tree-real-dirs` 加 1 条；Rust `list_covers_all_files_with_kind`（原「skips others」改名改断言）+ `list_notes_light_matches_list_notes` 期望集合加 `笔记.unknownext`。 |
@@ -271,6 +272,31 @@ revision: 173.388
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.389（2026-11-06 · 手机 G2 补验 0.10.0 + 双端验收规矩）
+
+> **背景**：用户指出 0.10.0 是「已发版才做移动端验收」—— 违反 04 分册 §3（三条全过才能提发版）。
+> 用户拍板写成硬规矩：**发版前，除非版本改动仅涉及单端，否则均须双端验收通过**。
+
+> **做法**：`android-dev.cmd` 重编 dev 包（`versionName` **0.10.0**，Redmi `33b676f6`），
+> 用 `adb forward` + CDP（`ZN_CDP=http://127.0.0.1:9333`）直调内核命令，不走文件选择器。
+
+> **结果（两条全过）**：
+> · `import_attachment` 传库外 `acc-test.png` ⇒ 返回 `附件/图片/acc-test.png`；
+> 传库外 `acc-test.toml` ⇒ 返回 `附件/其它/acc-test.toml`；
+> · `list_notes` 同时返回两条，`kind` 分别为 `image` 与 **`file`**（`is_listed_file` 真机生效）；
+> · 真机文件树显示「附件 → 其它 → acc-test .toml」「附件 → 图片 → acc-test .png」，无虚拟分组；
+> · 磁盘 `ls -R` 一致；测试产物已清理（`附件/其它`、`附件/图片` 复空）。
+
+> **规矩写入 4 处**：`docs/handoff/04-授权与红线.md` §3（含 0.10.0 反例）·
+> `docs/handoff/02-发版与更新.md` 新增 §0.1 · `docs/handoff/06-用户拍板与禁忌.md` §2 ·
+> `HANDOFF-CARD.md` §4 第 1 条子项。
+
+> **证据**：截图 `_shots/rev173388-phone-tree.png`（文件树）与 `_shots/rev173388-phone-attach.png`；
+> 命令返回原样见上。`check-docs` 全绿；全量基线沿用 02:36:18（tsc 0 · oxlint 4 · cargo 105 · vitest 1918 · 质量门 8/8）。
+
+> **未做**：`0.10.1`（本次无代码改动，不用发）；桌面 release 的 `sync` 仍 0.1.9、密码库仍未真正推到云端
+> （等用户更新插件后重同步）；密钥环面板自动刷新仍按已知行为记录。
 
 > ## 📌 rev173.388（2026-11-06 · sync 真实云端复验 + 文档数字校准）
 
