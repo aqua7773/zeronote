@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.383
-更新时间: 2026-11-06 · 最新 rev173.383（**sync 修「远端索引不实 ⇒ 密码库永远推不上去」**：巡检 + 所有 `get == null` 分支改为按本机重推 / 清假索引）· rev173.382（手机密码环清空重建 + 发现该静默 bug）· rev173.381（dev/release 完全隔离）
+revision: 173.384
+更新时间: 2026-11-06 · 最新 rev173.384（**三端清库，只留手机密码库 + 下轮任务清单**：取消附件虚拟分组 / 附件按类型自动分子目录 / 发版 / 密码库同步顺序）· rev173.383（sync 远端索引不实修复）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.383
 
 | rev | 内容 |
 |---|---|
+| rev173.384 | 2026-11-06 · **三端清库（只留手机密码库）+ 下轮任务清单**：用户要求「先把 release 桌面和云端笔记和附件都清空」+「密码库以手机为准」。① 桌面 `C:\Users\AQUA\Documents\ZreoNote`：根下全部 + `.zn` 全部移到备份（61 项），只留空 `.zn`；② 手机（努比亚 `324652868237`）：根下全删，`.zn` 只留 `security/` `secrets/` `private/` `plugins/` `device-id` `ids.json` `.nomedia`（密码库 `secrets.zn` 15,776 B / `vault.notes.json` 822 B / `vault.secrets.json` 825 B 保留）；③ 云端 `ZeroNote/`：脚本删到一半撞坚果云 `503 BlockedTemporarily`，用户随后网页手动删除（**待限流解除后核实**）。**备份**：`_tmp/backup-zreonote-clear-2026-11-06/`（`desktop/` 170 MB · `moved/` 61 项 · `phone.tar` 186 MB）。**下轮任务（用户明确）**：1 取消「附件」虚拟分组、图片按真实目录显示（`FileTree.tsx` `buildTree`/`ATTACH_NODE`，文档分组是否保留待确认）；2 `attachment_plan()` 按扩展名自动分类并 `create_dir_all` —— 图片→`附件/图片`、视频→`附件/视频`、音频→`附件/音频`、文档→`附件/文档`、**其它→`附件/其它`**；3 dev 测试通过后发新版（Rust 改动，手机需新包）；4 手机 release 密码库→云端→桌面 release（顺序不能反）。**风险**：桌面 `.zn` 现为空（首次打开是空库，密码库靠同步拉回）；旧图在 `moved/` 是否恢复待定 |
 | rev173.383 | 2026-11-06 · **sync 修「远端索引不实 ⇒ 密码库永远推不上去」**（rev173.382 定位）：根因两条 —— ① `syncPrivate` 的「本地指纹 === manifest 指纹」分支直接 noop（真实坚果云现场正是这形态：本地 `.zn/secrets/secrets.zn`、baseline、远端 manifest 三者指纹都是 `qt:1yd4v1c`，但远端 `_zn/security/`、`_zn/secrets/` 目录不存在，GET 404）⇒ 永远不推；② 拉取 / 冲突分支 `client.get` 返回 null 时一律 `continue`，既不推也不报，manifest 假索引一直挂着。改法：① 新增**远端索引巡检** —— 手动同步 / 本进程首轮 4 条全验，自动同步每 3 轮轮转验 1 条（坚果云 600 次/30min ≈ 20 次/分钟，自动节拍已占 12 次/分钟）；② 全部 `get == null` 分支改为「本地有 ⇒ 按本机重推并修 manifest；本地也没有 ⇒ 删假索引」，密码库 / 私密树 / 笔记三处同类一并收口；`mkdir + put + 2xx 白名单` 抽成 `putPrivateText` / `isPutOk` 一份。**证据**：`tests/sync.test.ts` +4 条，旧实现 4 条全红、新实现 108/108 绿（`git checkout` 旧文件对比跑过）；`verify.ps1` 见提交；远端真实状态 PROPFIND 复核（`_zn` 只有 manifest/relay/relay-ack，`private` 三条指纹）。**未做**：真实坚果云端到端复验被 `BlockedTemporarily`（503）挡住 —— dev 已装新插件（签名改 `.bak`，备份 `_tmp/backup-sync-dev-2026-11-06/`），限流恢复后点一次「立即同步」应看到上传 3 条 + `_zn/security/` 出现；`sync` 市场包仍 0.1.9，要打 0.1.10；手机未验 |
 | rev173.382 | 2026-11-06 · **手机密码环清空重建 + 摸到 sync 的新静默 bug**：① 用户要求「清空重建」——删手机测试库 `<库>/.zn/security/{vault.secrets,vault.notes}.json` 与 `.zn/secrets/secrets.zn`（已备份后按用户要求删掉备份），重新建「账号密码」环（主密码 `test-pass-1234`，恢复码 `TLUM-…-24WA` 记在 `_tmp\凭据-测试同步.md`）。验证链：建环 → 立即解锁 ✅（「1 把已解锁」）→ 手机同步（上传 58 / 下载 5）→ 再解锁 ✅ ⇒ **之前的「主密码不对」确认是环文件被换，不是建环代码**。② 桌面 dev 同步拉 58 个（下载 58 / 上传 0），第二轮两端都 0/0/0。③ **新 bug（静默）**：直接读远端 `zeronote_test/_zn`（PROPFIND 207）只有 `manifest.json` / `relay` / `relay-ack`，**没有 `security/` 与 `secrets/` 子目录**，而 manifest 的 `private` 段记着 `qt:1yd4v1c` / `fk:1d69sgq` / `fn:qifgog` 三个指纹 ⇒ sync 判定「远端已有」永远不推；`GET .../_zn/security/vault.secrets.json` 返回 **404**。`looksLikeManifestLoss()` 只兜 `files:{}`，不覆盖「private 段在、文件不在」。⇒ 清空远端 / 换设备后，密码库在无声中传不上去。**未做**：修复方案与单测（下一轮）；`security` 市场包 0.2.3 仍未打。 |
 | rev173.381 | 2026-11-05 · **dev 与 release 完全隔离（系统凭据库按 identifier 分流）**：用户要求「做完全隔离，release 是存我个人数据日常使用的」。原来 `SECRET_SERVICE` 硬编码 `com.aqua.zeronote`，dev 改密码 / 点「断开连接」会连 release 的凭据一起动。改法：① `net.rs` 加纯函数 `secret_service_for(identifier)` —— **主身份保持原名**（已存密码不用迁移）、其它身份用自己的 identifier；`setup` 里 `init_secret_service(&app.config().identifier)` 写入 `OnceLock`；② 读路径加**回落**：当前身份没有就再读主身份（开发身份无缝继承已配置的密码），写 / 删只动自己那份；③ `assets.rs` 里那份重复的 `KeyringStore::new("com.aqua.zeronote")` 收掉，统一走 `crate::net`（§8 同一逻辑多处实现）。**证据**：`cargo test --lib` **104 passed**（新增 2 条 `secret_service_keeps_primary_identity` / `secret_service_splits_dev_identity`）；dev 自动重编译重启后 CDP 实测 `secret_get` 回落读到继承的密码（`len=16 match=true`）、`secret_set` 写入后 `cmdkey /list` 出现**两条并列** target：`sync.webdav.password.com.aqua.zeronote` 与 `sync.webdav.password.com.aqua.zeronote.dev`。**未做**：release 仍是已安装的 0.9.30 老二进制（写死主身份），要下次发版才用新代码 —— 但主身份名字没变，**升级不需要迁移**。 |
@@ -266,6 +267,36 @@ revision: 173.383
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.384（2026-11-06 · 三端清库（只留手机密码库）+ 下轮任务清单）
+
+> **用户指令**：「先把 release 桌面和云端笔记和附件都清空」「只保留密码库」「密码库以手机为准」。
+
+> **做了什么**：
+> ① **桌面** `C:\Users\AQUA\Documents\ZreoNote`：根下全部 + `.zn` 全部移到备份（61 项），只留空 `.zn`。
+> ② **手机**（努比亚 `324652868237`）：根下全部删除；`.zn` 只留 `security/`、`secrets/`、`private/`、`plugins/`、
+>    `device-id`、`ids.json`、`.nomedia`。密码库保留（`secrets.zn` 15,776 B / `vault.notes.json` 822 B /
+>    `vault.secrets.json` 825 B）—— 这是唯一的密码库源。
+> ③ **云端** `ZeroNote/`：脚本删 357 个条目时撞坚果云 `503 BlockedTemporarily`（限流），用户随后在网页端
+>    手动删除 —— **待限流解除后核实**。
+
+> **备份（可恢复）**：`_tmp/backup-zreonote-clear-2026-11-06/`
+> · `desktop/` 桌面完整副本 170 MB · `moved/` 桌面移走的 61 项 · `phone.tar` 手机完整备份 186 MB。
+
+> **下轮任务（用户 2026-11-06 明确，按顺序）**：
+> 1. **取消「附件」虚拟分组**：图片不再抽到虚拟分组，按真实目录显示（`FileTree.tsx` 的 `buildTree` / `ATTACH_NODE`）。
+>    文档分组是否保留需确认。
+> 2. **新插入附件自动分类**：`attachment_plan()`（`src-tauri/src/lib.rs:1786`）按扩展名返回目标目录并 `create_dir_all`：
+>    图片 → `附件/图片/`、视频 → `附件/视频/`、音频 → `附件/音频/`、文档 → `附件/文档/`、**其它 → `附件/其它/`**。
+> 3. dev 桌面测试通过后**发新版**（Rust 改动，手机要新包才生效）。
+> 4. **密码库同步**：手机 release → 云端 → 桌面 release（顺序不能反）。
+
+> **证据**：桌面清空后 `Get-ChildItem` 只剩空 `.zn`；手机 `ls -la` 根下只剩 `.vaults` 与 `.zn`，`.zn` 只剩
+> `security/` `secrets/` `private/` `plugins/` `device-id` `ids.json` `.nomedia`；手机备份 `phone.tar` 195,611,648 B；
+> 云端删除时返回 `503 BlockedTemporarily`（限流）后由用户手动删。
+
+> **未做**：云端删除结果待限流解除后核实；桌面 `.zn` 已空（首次打开是空库，密码库要靠同步拉回，别以为丢了）；
+> 旧图片都在 `moved/`，是否恢复待用户定。
 
 > ## 📌 rev173.383（2026-11-06 · sync：远端索引不实 ⇒ 密码库永远推不上去）
 
