@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.374
-更新时间: 2026-11-04 · 最新 rev173.374（**0.9.30 已发版**：sync 空 manifest 自愈 + 市场安装确认框显示实际地址 + 白屏判据停用；GitHub / Gitee 双渠道，arm64 APK 33.34 MB）
+revision: 173.375
+更新时间: 2026-11-05 · 最新 rev173.375（**真人测试12 #2/#3**：密码库可删平台（整包进回收站 + 二次确认）+ 卡片化布局 + 按住 👁 显示密码；内核 UINode 加 `onDown`/`onUp`/`cssClass`）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.374
 
 | rev | 内容 |
 |---|---|
+| rev173.375 | 2026-11-05 · **真人测试12 #2/#3（密码库）**：① **平台可删** —— 平台行加「删除」，点一次先切确认态（"它下面的 N 个账号会一起进回收站（保留 7 天，可恢复）"），确认后整包进回收站；数据层给 platform 加 `deletedAt`，`trashPlatform/restorePlatform/purgePlatform` + `activePlatforms()` 一处过滤；回收站按 `kind: 'platform'/'account'` 两种条目，整平台只占一条（不拆成平台 + N 个账号碎片），`purgeExpired` 把整个平台算 1 条。② **卡片化 UI** —— 平台大卡片 / 账号小卡片（收起只看账号名，展开才显示密码与备注），新增 `examples/secrets/styles.css`（manifest `styles`），颜色全走 `--zn-*` 令牌。③ **按住 👁 显示密码** —— 内核 `UINode.button` 新增可选 `onDown`/`onUp`（松开立刻收起，不再有 15 秒残留），`stack`/`row` 新增 `cssClass`（插件自带样式的结构钩子）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · vitest 1897 · 质量门 8/8）；CDP 实测 8 步（建环/解锁/建平台/2 账号/展开/按住显示/删平台确认/回收站恢复），截图 `_shots/rt12-04-unlocked.png` · `rt12-05-cards.png` · `rt12-06-confirm.png` · `rt12-07-deleted.png` · `rt12-08-recycle.png` · `rt12-09-restored.png`。④ **操作按钮右对齐**（用户复看反馈：原先紧贴标题）—— 卡片标题行改成「文字靠左 / 按钮靠右」（`sx-row-between`），截图 `_shots/rt12-10-right-align.png` · `rt12-11-right-align-accounts.png`。**测试库** `_tmp-vault-rt12`（主密码只用于该库，非用户库）。**未做**：手机真机复验、市场重打包 secrets（仍 0.1.2）。 |
 | rev173.374 | 2026-11-04 · **0.9.30 发版**：sync 空 manifest 自愈（0.1.9）+ 市场确认框实际地址 + 白屏判据停用；GitHub/Gitee 双渠道 arm64 33.34 MB，手机应用内已看到新版。 |
 | rev173.373 | 2026-11-04 · **sync 空 manifest 自愈**：远端 `files:{}` + 无墓碑 + 本机有基线 ⇒ 判「索引丢失」，不跟删本地、按本地重推重建；`sync` 0.1.9 签名入库。 |
 | rev173.372 | 2026-11-04 · **坚果云真实云端验证受阻**：桌面配置/上传 7 篇成功，但远端 manifest 读回 `files:{}`（缓存/限流）；发现 sync 对「manifest 丢失/被写空」无自愈。待限流恢复重试。 |

@@ -533,7 +533,7 @@ export type UITableRow = Record<string, UINode | string | number>
  */
 export type UINode =
   /* ── 布局 ── */
-  | { type: 'stack'; children: UINode[]; gap?: UIGap }
+  | { type: 'stack'; children: UINode[]; gap?: UIGap; cssClass?: string }
   | {
       type: 'row'
       children: UINode[]
@@ -541,6 +541,7 @@ export type UINode =
       align?: 'start' | 'center' | 'end'
       /** 窄容器（手机）里是否允许换行 */
       wrap?: boolean
+      cssClass?: string
     }
   | { type: 'divider' }
   | { type: 'spacer'; size?: UIGap }
@@ -588,6 +589,18 @@ export type UINode =
       payload?: Record<string, unknown>
       variant?: 'default' | 'ghost' | 'danger'
       disabled?: boolean
+      /**
+       * **按下 / 松开**各执行一次命令（rev173.375）。
+       *
+       * 用途：`secrets` 密码库的「按住显示密码」（真人测试12 #3）——
+       * 按下 `onDown` 显示明文、松手 `onUp` 立刻收起；不松手就一直看得见。
+       * 与 `onClick` 并存：只要点击就继续用 `onClick`，别为同一个动作两个都填。
+       * 触摸：宿主导出 `pointerdown` / `pointerup`；滚动导致手势中断时补发 `onUp`。
+       */
+      onDown?: string
+      onUp?: string
+      /** 额外 CSS 类名 —— 插件自带样式（manifest.styles）挂视觉用的结构钩子 */
+      cssClass?: string
     }
   | {
       type: 'input'

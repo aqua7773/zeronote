@@ -6,10 +6,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.374 · 0.9.30 · 2026-11-04 |
-| 测试基线 | vitest 1891 · cargo 102 · oxlint 4 warnings（2026-11-04） |
+| rev / 版本 | rev173.375 · 0.9.30 · 2026-11-05 |
+| 测试基线 | vitest 1897 · cargo 102 · oxlint 4 warnings（2026-11-05） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-04 · CHANGELOG 0.9.30 |
+| 文档 | README 现状 2026-11-05 · CHANGELOG 0.9.30 |
 <!-- FACTS:END -->
 
 ## 1 是什么（30 秒）

@@ -15,6 +15,7 @@ import {
   SECURITY_VAULT,
   TRASH_TTL_MS,
   activeAccounts,
+  activePlatforms,
   addAccount,
   addPlatform,
   daysLeft,
@@ -29,11 +30,14 @@ import {
   normalizeDb,
   purgeAccount,
   purgeExpired,
+  purgePlatform,
   renamePlatform,
   restoreAccount,
+  restorePlatform,
   securityVaultFileOf,
   trashAccount,
   trashList,
+  trashPlatform,
   updateAccount,
   visibleTree,
 } from '../examples/secrets/index.js'
@@ -314,5 +318,74 @@ describe('增删改与容错归一化', () => {
   it('securityVaultFileOf 指向按环拆的路径（旧单文件仍作为兜底常量保留）', () => {
     expect(securityVaultFileOf(RING)).toBe('.zn/security/vault.secrets.json')
     expect(SECURITY_VAULT).toBe('.zn/security/vault.json')
+  })
+})
+
+/*
+ * rev173.375 · 真人测试12 #2「密码库只有新建平台，无法删除平台」。
+ *
+ * 语义按用户拍板：**平台和账号一起进回收站，7 天可恢复**（不是"必须清空账号才能删"）。
+ * 反向用例从这里来 —— 最容易写错的是「删平台后它下面的账号还在活跃列表里」
+ * 和「回收站里出现 1 个平台 + N 个账号的碎片」。
+ */
+describe('平台整体删除（真人测试12 #2）', () => {
+  it('删平台后不在活跃列表 / 搜索里，但整包进回收站（一条，不是账号碎片）', () => {
+    const db = sampleDb()
+    const now = 1_793_100_000_000
+    trashPlatform(db, 'p_gh', now)
+
+    expect(visibleTree(db, '').map((x: { platform: { id: string } }) => x.platform.id)).not.toContain('p_gh')
+    expect(visibleTree(db, 'git')).toHaveLength(0)
+    expect(activePlatforms(db).map((p: { id: string }) => p.id)).toEqual(['p_bank'])
+
+    const rows = trashList(db)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('platform')
+    expect(rows[0].account).toBeNull()
+    expect(rows[0].platform.id).toBe('p_gh')
+    // 反向：平台下的账号**没有**被单独标删（整包语义，恢复才完整）
+    expect(db.platforms.find((p: { id: string }) => p.id === 'p_gh').accounts).toHaveLength(2)
+  })
+
+  it('恢复后平台与账号原样回来', () => {
+    const db = sampleDb()
+    trashPlatform(db, 'p_gh', 1000)
+    restorePlatform(db, 'p_gh', 2000)
+    expect(trashList(db)).toHaveLength(0)
+    expect(visibleTree(db, '').find((x: { platform: { id: string } }) => x.platform.id === 'p_gh').accounts).toHaveLength(2)
+    expect(db.platforms.find((p: { id: string }) => p.id === 'p_gh').deletedAt).toBeNull()
+  })
+
+  it('到期整包消失，且不误伤别的平台', () => {
+    const db = sampleDb()
+    const deletedAt = 1_000_000_000_000
+    trashPlatform(db, 'p_gh', deletedAt)
+
+    expect(purgeExpired(db, deletedAt + TRASH_TTL_MS - 1000)).toBe(0)
+    expect(purgeExpired(db, deletedAt + TRASH_TTL_MS + 1000)).toBe(1)
+    expect(db.platforms.map((p: { id: string }) => p.id)).toEqual(['p_bank'])
+    expect(findAccount(db, 'p_gh', 'a_1')).toBeNull()
+  })
+
+  it('describeDb 把整平台算 1 条回收站，不把它下面的账号重复计数', () => {
+    const db = sampleDb()
+    trashPlatform(db, 'p_gh', 1000)
+    expect(describeDb(db)).toEqual({ platforms: 1, accounts: 1, trash: 1 })
+  })
+
+  it('彻底删除平台后从库里移除；重复删除返回 false', () => {
+    const db = sampleDb()
+    expect(purgePlatform(db, 'p_gh')).toBe(true)
+    expect(db.platforms.map((p: { id: string }) => p.id)).toEqual(['p_bank'])
+    expect(purgePlatform(db, 'p_gh')).toBe(false)
+  })
+
+  it('对不存在 / 已删的平台操作是幂等的（返回 null，不抛错）', () => {
+    const db = sampleDb()
+    expect(trashPlatform(db, '不存在')).toBeNull()
+    trashPlatform(db, 'p_gh', 1000)
+    expect(trashPlatform(db, 'p_gh', 2000)).toBeNull()
+    expect(restorePlatform(db, 'p_gh', 3000)).not.toBeNull()
+    expect(restorePlatform(db, 'p_gh', 4000)).toBeNull()
   })
 })

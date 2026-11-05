@@ -165,6 +165,8 @@ export function normalizeDb(raw) {
       name: String(p.name ?? '未命名平台'),
       site: String(p.site ?? ''),
       createdAt: Number(p.createdAt) || 0,
+      /* 平台整体进回收站（真人测试12 #2）：账号不动，整包一起躺 7 天 */
+      deletedAt: p.deletedAt ? Number(p.deletedAt) : null,
       accounts: accounts
         .filter((a) => a && typeof a === 'object')
         .map((a) => ({
@@ -194,6 +196,11 @@ export function maskSecret() {
 /** 某个平台下**活跃**（未进回收站）的账号 */
 export function activeAccounts(platform) {
   return (platform?.accounts ?? []).filter((a) => !a.deletedAt)
+}
+
+/** **活跃平台**（未整体进回收站）—— 列表 / 搜索 / 计数一律用它，别再各写一遍 `!p.deletedAt` */
+export function activePlatforms(db) {
+  return (db?.platforms ?? []).filter((p) => !p.deletedAt)
 }
 
 /** 平台名 / 站点是否命中搜索词（**不搜密码** —— 需求 §8.6 明确） */
@@ -229,7 +236,7 @@ export function matchesAccount(account, q) {
 export function visibleTree(db, query = '') {
   const q = String(query ?? '').trim().toLowerCase()
   const out = []
-  for (const p of db?.platforms ?? []) {
+  for (const p of activePlatforms(db)) {
     const active = activeAccounts(p)
     if (!q) {
       out.push({ platform: p, accounts: active })
@@ -243,22 +250,44 @@ export function visibleTree(db, query = '') {
   return out.sort((a, b) => String(a.platform.name).localeCompare(String(b.platform.name), 'zh'))
 }
 
-/** 回收站条目（按删除时间倒序）+ 到期时间 */
+/**
+ * 回收站条目（按删除时间倒序）+ 到期时间。
+ *
+ * 两种条目（真人测试12 #2 起）：
+ *  · `kind: 'account'` —— 单个账号（原有语义，`account` 有值）
+ *  · `kind: 'platform'` —— 整个平台连账号一起（`account` 为 null）
+ *
+ * ⚠️ 平台已整体删除时**不再单列它下面的账号** —— 否则同一个包会在回收站里
+ * 出现 1 个平台 + N 个账号，用户点「恢复」会恢复出一个半截状态。
+ */
 export function trashList(db) {
   const out = []
   for (const p of db?.platforms ?? []) {
+    if (p.deletedAt) {
+      out.push({ kind: 'platform', platform: p, account: null, expiresAt: p.deletedAt + TRASH_TTL_MS })
+      continue
+    }
     for (const a of p.accounts ?? []) {
       if (!a.deletedAt) continue
-      out.push({ platform: p, account: a, expiresAt: a.deletedAt + TRASH_TTL_MS })
+      out.push({ kind: 'account', platform: p, account: a, expiresAt: a.deletedAt + TRASH_TTL_MS })
     }
   }
-  return out.sort((x, y) => y.account.deletedAt - x.account.deletedAt)
+  return out.sort(
+    (x, y) =>
+      (y.account?.deletedAt ?? y.platform.deletedAt) - (x.account?.deletedAt ?? x.platform.deletedAt),
+  )
 }
 
-/** 真删超过 7 天的回收站条目，返回删掉的条数 */
+/** 真删超过 7 天的回收站条目，返回删掉的条数（整个平台算 1 条） */
 export function purgeExpired(db, now = nowMs()) {
   let removed = 0
+  const keepPlatforms = []
   for (const p of db?.platforms ?? []) {
+    // 平台整体过期 ⇒ 连账号一起消失，不再按账号重复计数
+    if (p.deletedAt && now - p.deletedAt > TRASH_TTL_MS) {
+      removed++
+      continue
+    }
     const keep = []
     for (const a of p.accounts ?? []) {
       if (a.deletedAt && now - a.deletedAt > TRASH_TTL_MS) {
@@ -268,22 +297,30 @@ export function purgeExpired(db, now = nowMs()) {
       keep.push(a)
     }
     p.accounts = keep
+    keepPlatforms.push(p)
   }
+  if (keepPlatforms.length !== (db?.platforms?.length ?? 0)) db.platforms = keepPlatforms
   if (removed) db.updatedAt = now
   return removed
 }
 
-/** 统计（面板抬头用） */
+/** 统计（面板抬头用）—— 已删平台算 1 条回收站，它的账号不再单独计数 */
 export function describeDb(db) {
+  let platforms = 0
   let accounts = 0
   let trash = 0
   for (const p of db?.platforms ?? []) {
+    if (p.deletedAt) {
+      trash++
+      continue
+    }
+    platforms++
     for (const a of p.accounts ?? []) {
       if (a.deletedAt) trash++
       else accounts++
     }
   }
-  return { platforms: db?.platforms?.length ?? 0, accounts, trash }
+  return { platforms, accounts, trash }
 }
 
 /** 找一个平台 */
@@ -303,6 +340,7 @@ export function addPlatform(db, { name, site = '', now = nowMs(), id = null } = 
     name: String(name ?? '').trim(),
     site: String(site ?? '').trim(),
     createdAt: now,
+    deletedAt: null,
     accounts: [],
   }
   db.platforms.push(platform)
@@ -385,6 +423,41 @@ export function purgeAccount(db, platformId, accountId, now = nowMs()) {
   return true
 }
 
+/* ─── 平台整体删除（真人测试12 #2「密码库只有新建平台，无法删除平台」） ───
+ *
+ * 为什么**给平台自己加 deletedAt**，而不是把下面每个账号标删：
+ *  · 账号标删 ⇒ 回收站里会出现「1 个平台 + N 个账号」的碎条目，恢复一半就成半截状态；
+ *  · 平台标删 ⇒ 整包一个条目，恢复即完整回来，到期即整包消失。
+ * 账号自己原来的 deletedAt 原样保留（进平台回收站前就躺着的那些，恢复后仍在账号回收站）。
+ */
+
+/** 平台整体进回收站 */
+export function trashPlatform(db, platformId, now = nowMs()) {
+  const p = findPlatform(db, platformId)
+  if (!p || p.deletedAt) return null
+  p.deletedAt = now
+  db.updatedAt = now
+  return p
+}
+
+/** 从回收站恢复整个平台（连同它下面账号的原有状态一起回来） */
+export function restorePlatform(db, platformId, now = nowMs()) {
+  const p = findPlatform(db, platformId)
+  if (!p || !p.deletedAt) return null
+  p.deletedAt = null
+  db.updatedAt = now
+  return p
+}
+
+/** 彻底删除整个平台（不可撤销；UI 必须二次确认） */
+export function purgePlatform(db, platformId, now = nowMs()) {
+  const before = (db?.platforms ?? []).length
+  db.platforms = (db?.platforms ?? []).filter((p) => p.id !== platformId)
+  if (db.platforms.length === before) return false
+  db.updatedAt = now
+  return true
+}
+
 /** 剩余保留天数（回收站行用；向上取整，剩 6 小时算 1 天） */
 export function daysLeft(expiresAt, now = nowMs()) {
   return Math.max(0, Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000)))
@@ -406,6 +479,10 @@ let message = { text: '', tone: 'muted' }
 let mode = 'list'
 /** 展开的平台 id */
 let expanded = new Set()
+/** 展开的账号 id（卡片化后账号也折叠，收起时只看账号名） */
+let expandedAccounts = new Set()
+/** 待二次确认的删除：`{ kind: 'platform', platformId }`；null = 没有在等确认 */
+let confirmDelete = null
 /** 正在显示明文的账号 id（15 秒后自动收起） */
 let revealed = new Set()
 const revealTimers = new Map()
@@ -576,6 +653,8 @@ async function afterUnlocked(api) {
   lastActive = nowMs()
   mode = 'list'
   expanded = new Set()
+  expandedAccounts = new Set()
+  confirmDelete = null
   revealed = new Set()
   const removed = purgeExpired(db)
   if (removed) await saveDb(api) // 过期清理要落盘，否则每次解锁都白算
@@ -647,6 +726,8 @@ function lockNow(api, reason = 'manual') {
   editing = null
   mode = 'list'
   expanded = new Set()
+  expandedAccounts = new Set()
+  confirmDelete = null
   try {
     svc?.lock(RING)
   } catch {
@@ -768,47 +849,203 @@ function lockedView() {
 }
 
 /**
- * 一个账号行 —— **返回裸 UINode**（不是 `{ key, node }`）。
+ * 一个账号 = **一张小卡片**（真人测试12 #3，参考用户给的布局图）。
+ *
+ * 收起时只有一行（账号 + 复制/修改/删除 + 展开箭头）；
+ * 展开才显示密码与备注 —— 密码用「按住 👁 才显示」，松手立刻收起。
  *
  * ⚠️ `stack.children` 只吃 UINode，`{key,node}` 是 `list.items` 的包装形式。
  * 第一版这里返回了包装对象 ⇒ 整段 JSON 被当文本摊在界面上（rev173.163 实测抓到）。
  */
-function accountRow(platform, account) {
+function accountCard(platform, account) {
+  const open = expandedAccounts.has(account.id)
   const shown = revealed.has(account.id)
-  const pwText = shown ? account.password || '（空）' : maskSecret()
-  return {
-    type: 'stack',
-    gap: 'sm',
-    children: [
-      {
-        type: 'row',
-        gap: 'sm',
-        align: 'center',
-        wrap: true,
-        children: [
-          textNode(account.account || '（未填账号）'),
-          textNode(pwText, 'caption', shown ? 'warn' : 'muted'),
-          btn(shown ? '隐藏' : '显示', 'secrets.reveal', {
-            variant: 'ghost',
-            payload: { platformId: platform.id, accountId: account.id },
-          }),
-          btn('复制', 'secrets.copy', {
-            variant: 'ghost',
-            payload: { platformId: platform.id, accountId: account.id },
-          }),
-          btn('编辑', 'secrets.edit-account', {
-            variant: 'ghost',
-            payload: { platformId: platform.id, accountId: account.id },
-          }),
-          btn('删除', 'secrets.del-account', {
-            variant: 'danger',
-            payload: { platformId: platform.id, accountId: account.id },
-          }),
-        ],
-      },
-      ...(account.note ? [textNode(account.note, 'caption', 'muted')] : []),
-    ],
+  const payload = { platformId: platform.id, accountId: account.id }
+  const children = [
+    {
+      type: 'row',
+      gap: 'sm',
+      align: 'center',
+      wrap: true,
+      cssClass: 'sx-row-between',
+      children: [
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          wrap: true,
+          children: [textNode(account.account || '（未填账号）')],
+        },
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          children: [
+            btn('复制', 'secrets.copy', { variant: 'ghost', payload }),
+            btn('修改', 'secrets.edit-account', { variant: 'ghost', payload }),
+            btn('删除', 'secrets.del-account', { variant: 'danger', payload, cssClass: 'sx-danger-ghost' }),
+            btn(open ? '▾' : '▸', 'secrets.toggle-account', { variant: 'ghost', payload, cssClass: 'sx-caret' }),
+          ],
+        },
+      ],
+    },
+  ]
+  if (open) {
+    children.push({
+      type: 'stack',
+      gap: 'sm',
+      cssClass: 'sx-account-detail',
+      children: [
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          wrap: true,
+          /* 值靠左、按钮靠右 —— 两行的「复制」落在同一列（真人测试12 复看） */
+          cssClass: 'sx-row-between',
+          children: [
+            {
+              type: 'row',
+              gap: 'sm',
+              align: 'center',
+              wrap: true,
+              children: [
+                textNode('密码：', 'caption', 'muted'),
+                textNode(shown ? account.password || '（空）' : maskSecret(), 'caption', shown ? 'warn' : 'muted'),
+              ],
+            },
+            {
+              type: 'row',
+              gap: 'sm',
+              align: 'center',
+              children: [
+                /* 按住显示（真人测试12 #3）：按下显示明文，松手立刻收起。
+                   onClick 必须给（契约必填），但按下-松开之间已经走完，所以指向空命令。 */
+                {
+                  type: 'button',
+                  label: '👁',
+                  onClick: 'secrets.noop',
+                  onDown: 'secrets.reveal-hold',
+                  onUp: 'secrets.reveal-release',
+                  payload,
+                  variant: 'ghost',
+                  cssClass: 'sx-hold',
+                },
+                btn('复制', 'secrets.copy', { variant: 'ghost', payload }),
+              ],
+            },
+          ],
+        },
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          wrap: true,
+          cssClass: 'sx-row-between',
+          children: [
+            {
+              type: 'row',
+              gap: 'sm',
+              align: 'center',
+              wrap: true,
+              children: [
+                textNode('备注：', 'caption', 'muted'),
+                textNode(account.note || '（空）', 'caption', account.note ? 'default' : 'muted'),
+              ],
+            },
+            ...(account.note
+              ? [
+                  {
+                    type: 'row',
+                    gap: 'sm',
+                    align: 'center',
+                    children: [btn('复制', 'secrets.copy-note', { variant: 'ghost', payload })],
+                  },
+                ]
+              : []),
+          ],
+        },
+      ],
+    })
   }
+  return { type: 'stack', gap: 'sm', cssClass: 'sx-card sx-account-card', children }
+}
+
+/**
+ * 一个平台 = **一张大卡片**（真人测试12 #2 / #3）。
+ *
+ * 标题行右侧：＋账号 / 修改 / 删除 / 展开箭头。
+ * 点「删除」不立刻删 —— 先把卡片切成确认态（真人测试12 #2 要求二次确认），
+ * 确认后才整体进回收站（平台 + 它的账号，7 天可恢复）。
+ */
+function platformCard(platform, accounts) {
+  const open = expanded.has(platform.id)
+  const confirming = confirmDelete?.kind === 'platform' && confirmDelete.platformId === platform.id
+  const total = (platform.accounts ?? []).length
+  const children = [
+    {
+      type: 'row',
+      gap: 'sm',
+      align: 'center',
+      wrap: true,
+      /* 标题 / 徽标靠左、操作按钮靠右（真人测试12 复看：按钮原先紧贴标题，视觉上挤在一起） */
+      cssClass: 'sx-row-between',
+      children: [
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          wrap: true,
+          children: [
+            textNode(platform.name, 'title'),
+            { type: 'badge', text: `${accounts.length} 个账号`, tone: 'default' },
+            ...(platform.site ? [textNode(platform.site, 'caption', 'muted')] : []),
+          ],
+        },
+        {
+          type: 'row',
+          gap: 'sm',
+          align: 'center',
+          children: [
+            btn('＋账号', 'secrets.new-account', { variant: 'ghost', payload: { platformId: platform.id } }),
+            btn('修改', 'secrets.edit-platform', { variant: 'ghost', payload: { platformId: platform.id } }),
+            btn('删除', 'secrets.ask-del-platform', { variant: 'danger', payload: { platformId: platform.id }, cssClass: 'sx-danger-ghost' }),
+            btn(open ? '▾' : '▸', 'secrets.toggle', { variant: 'ghost', payload: { platformId: platform.id }, cssClass: 'sx-caret' }),
+          ],
+        },
+      ],
+    },
+  ]
+  if (confirming) {
+    children.push({
+      type: 'stack',
+      gap: 'sm',
+      cssClass: 'sx-confirm',
+      children: [
+        textNode(
+          `删除「${platform.name}」？它下面的 ${total} 个账号会一起进回收站（保留 7 天，可恢复）。`,
+          'caption',
+          'warn',
+        ),
+        {
+          type: 'row',
+          gap: 'sm',
+          children: [
+            btn('确认删除', 'secrets.del-platform', { variant: 'danger', payload: { platformId: platform.id } }),
+            btn('取消', 'secrets.cancel-del-platform', { variant: 'ghost', payload: { platformId: platform.id } }),
+          ],
+        },
+      ],
+    })
+  }
+  if (open) {
+    children.push(
+      ...(accounts.length
+        ? accounts.map((a) => accountCard(platform, a))
+        : [textNode('还没有账号 —— 点上面的「＋账号」加一个', 'caption', 'muted')]),
+    )
+  }
+  return { type: 'stack', gap: 'sm', cssClass: 'sx-card sx-platform-card', children }
 }
 
 /** 列表视图 */
@@ -816,48 +1053,6 @@ function listView() {
   const q = val(BINDS.search)
   const tree = visibleTree(db, q)
   const stat = describeDb(db)
-  const items = []
-
-  for (const { platform, accounts } of tree) {
-    const open = expanded.has(platform.id)
-    items.push({
-      key: platform.id,
-      node: {
-        type: 'stack',
-        gap: 'sm',
-        children: [
-          {
-            type: 'row',
-            gap: 'sm',
-            align: 'center',
-            wrap: true,
-            children: [
-              textNode(platform.name, 'title'),
-              { type: 'badge', text: `${accounts.length} 个账号`, tone: 'default' },
-              ...(platform.site ? [textNode(platform.site, 'caption', 'muted')] : []),
-              btn(open ? '收起' : '展开', 'secrets.toggle', {
-                variant: 'ghost',
-                payload: { platformId: platform.id },
-              }),
-              btn('＋ 账号', 'secrets.new-account', {
-                variant: 'ghost',
-                payload: { platformId: platform.id },
-              }),
-              btn('改名', 'secrets.edit-platform', {
-                variant: 'ghost',
-                payload: { platformId: platform.id },
-              }),
-            ],
-          },
-          ...(open
-            ? accounts.length
-              ? accounts.map((a) => accountRow(platform, a))
-              : [textNode('还没有账号 —— 点上面的「＋ 账号」加一个', 'caption', 'muted')]
-            : []),
-        ],
-      },
-    })
-  }
 
   const children = [
     {
@@ -907,7 +1102,10 @@ function listView() {
     { type: 'divider' },
     {
       type: 'list',
-      items,
+      items: tree.map(({ platform, accounts }) => ({
+        key: platform.id,
+        node: platformCard(platform, accounts),
+      })),
       empty: q ? `没有匹配「${q}」的账号` : '还没有账号 —— 点「＋ 新建平台」开始',
     },
   ]
@@ -981,6 +1179,52 @@ function editView() {
   return { type: 'stack', gap: 'md', children }
 }
 
+/** 回收站里的一个账号条目 */
+function accountTrashItem({ platform, account, expiresAt }, now) {
+  return {
+    key: `a:${account.id}`,
+    node: {
+      type: 'row',
+      gap: 'sm',
+      align: 'center',
+      wrap: true,
+      children: [
+        textNode(`${platform.name} · ${account.account || '（未填账号）'}`),
+        { type: 'badge', text: `剩 ${daysLeft(expiresAt, now)} 天`, tone: 'muted' },
+        btn('恢复', 'secrets.restore', {
+          variant: 'ghost',
+          payload: { platformId: platform.id, accountId: account.id },
+        }),
+        btn('彻底删除', 'secrets.purge', {
+          variant: 'danger',
+          payload: { platformId: platform.id, accountId: account.id },
+          cssClass: 'sx-danger-ghost',
+        }),
+      ],
+    },
+  }
+}
+
+/** 回收站里的一个整平台条目（真人测试12 #2） */
+function platformTrashItem({ platform, expiresAt }, now) {
+  return {
+    key: `p:${platform.id}`,
+    node: {
+      type: 'row',
+      gap: 'sm',
+      align: 'center',
+      wrap: true,
+      children: [
+        textNode(`${platform.name} · ${(platform.accounts ?? []).length} 个账号`),
+        { type: 'badge', text: '平台', tone: 'warn' },
+        { type: 'badge', text: `剩 ${daysLeft(expiresAt, now)} 天`, tone: 'muted' },
+        btn('恢复', 'secrets.restore-platform', { variant: 'ghost', payload: { platformId: platform.id } }),
+        btn('彻底删除', 'secrets.purge-platform', { variant: 'danger', payload: { platformId: platform.id }, cssClass: 'sx-danger-ghost' }),
+      ],
+    },
+  }
+}
+
 /** 回收站视图 */
 function recycleView() {
   const rows = trashList(db)
@@ -999,30 +1243,10 @@ function recycleView() {
           btn('返回', 'secrets.goto-list', { variant: 'ghost' }),
         ],
       },
-      textNode('删除的账号保留 7 天，到期自动清除。恢复或彻底删除都在这里。', 'caption', 'muted'),
+      textNode('删除的条目保留 7 天，到期自动清除。恢复或彻底删除都在这里。', 'caption', 'muted'),
       {
         type: 'list',
-        items: rows.map(({ platform, account, expiresAt }) => ({
-          key: account.id,
-          node: {
-            type: 'row',
-            gap: 'sm',
-            align: 'center',
-            wrap: true,
-            children: [
-              textNode(`${platform.name} · ${account.account || '（未填账号）'}`),
-              { type: 'badge', text: `剩 ${daysLeft(expiresAt, now)} 天`, tone: 'muted' },
-              btn('恢复', 'secrets.restore', {
-                variant: 'ghost',
-                payload: { platformId: platform.id, accountId: account.id },
-              }),
-              btn('彻底删除', 'secrets.purge', {
-                variant: 'danger',
-                payload: { platformId: platform.id, accountId: account.id },
-              }),
-            ],
-          },
-        })),
+        items: rows.map((row) => (row.kind === 'platform' ? platformTrashItem(row, now) : accountTrashItem(row, now))),
         empty: '回收站是空的',
       },
       ...(message.text ? [textNode(message.text, 'caption', message.tone)] : []),
@@ -1387,6 +1611,65 @@ export default {
         },
       },
       {
+        id: 'secrets.toggle-account',
+        title: '密码库：展开/收起账号',
+        run: (payload) => {
+          const id = String(payload?.accountId ?? '')
+          if (!id) return
+          if (expandedAccounts.has(id)) expandedAccounts.delete(id)
+          else expandedAccounts.add(id)
+          touch()
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      /**
+       * 「按住 👁 显示密码」（真人测试12 #3）。
+       *
+       * 按下：加进 revealed；松开：移除。**不设 15 秒定时器** —— 松手就该立刻不可见，
+       * 定时器反而会让密码在松手后继续留在屏幕上（旧「显示/隐藏」按钮的行为）。
+       * 旧的 15 秒路径 `secrets.reveal` 保留，给还没升级的调用方兜底。
+       */
+      {
+        id: 'secrets.reveal-hold',
+        title: '密码库：按住显示密码（按下）',
+        run: (payload) => {
+          const accountId = String(payload?.accountId ?? '')
+          if (!accountId) return
+          revealed.add(accountId)
+          touch()
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.reveal-release',
+        title: '密码库：按住显示密码（松开）',
+        run: (payload) => {
+          const accountId = String(payload?.accountId ?? '')
+          if (!accountId) return
+          revealed.delete(accountId)
+          touch()
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        /* 按住按钮的 onClick 占位：按下/松开已经把动作做完了，点一下不该再触发别的 */
+        id: 'secrets.noop',
+        title: '密码库：空操作',
+        run: () => {},
+      },
+      {
+        id: 'secrets.copy-note',
+        title: '密码库：复制备注',
+        run: async (payload) => {
+          const acc = findAccount(db, String(payload?.platformId ?? ''), String(payload?.accountId ?? ''))
+          if (!acc) return
+          touch()
+          const ok = await clipboardWrite(acc.note)
+          setMessage(ok ? '已复制备注' : '写剪贴板失败（内容没有复制）', ok ? 'success' : 'danger')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
         id: 'secrets.reveal',
         title: '密码库：显示/隐藏密码',
         run: (payload) => {
@@ -1421,6 +1704,40 @@ export default {
           if (trashAccount(db, platformId, accountId)) {
             await saveDb(api)
             setMessage('已移入回收站（保留 7 天）', 'success')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      /* ── 平台整体删除（真人测试12 #2）：点「删除」→ 卡片转确认态 → 确认后才进回收站 ── */
+      {
+        id: 'secrets.ask-del-platform',
+        title: '密码库：删除平台（等二次确认）',
+        run: (payload) => {
+          const platformId = String(payload?.platformId ?? '')
+          if (!findPlatform(db, platformId)) return
+          confirmDelete = { kind: 'platform', platformId }
+          setMessage('', 'muted')
+          touch()
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.cancel-del-platform',
+        title: '密码库：取消删除平台',
+        run: () => {
+          confirmDelete = null
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.del-platform',
+        title: '密码库：确认删除平台',
+        run: async (payload) => {
+          const platformId = String(payload?.platformId ?? '')
+          confirmDelete = null
+          if (trashPlatform(db, platformId)) {
+            await saveDb(api)
+            setMessage('平台已移入回收站（连同账号，保留 7 天）', 'success')
           }
           api.view.refresh(PANEL_ID)
         },
@@ -1464,6 +1781,28 @@ export default {
           if (ok) {
             await saveDb(api)
             setMessage('已彻底删除（不可撤销）', 'warn')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.restore-platform',
+        title: '密码库：恢复平台',
+        run: async (payload) => {
+          if (restorePlatform(db, String(payload?.platformId ?? ''))) {
+            await saveDb(api)
+            setMessage('平台已恢复', 'success')
+          }
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'secrets.purge-platform',
+        title: '密码库：彻底删除平台',
+        run: async (payload) => {
+          if (purgePlatform(db, String(payload?.platformId ?? ''))) {
+            await saveDb(api)
+            setMessage('平台已彻底删除（不可撤销）', 'warn')
           }
           api.view.refresh(PANEL_ID)
         },

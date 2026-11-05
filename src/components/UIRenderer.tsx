@@ -98,7 +98,7 @@ function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.J
 
     case 'stack':
       return (
-        <div key={key} className={`zn-ui-stack${gapClass(node.gap)}`}>
+        <div key={key} className={`zn-ui-stack${gapClass(node.gap)}${node.cssClass ? ` ${node.cssClass}` : ''}`}>
           {renderChildren(node.children, ctx)}
         </div>
       )
@@ -110,7 +110,8 @@ function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.J
           className={
             `zn-ui-row zn-ui-row-${node.align ?? 'start'}` +
             gapClass(node.gap) +
-            (node.wrap ? ' zn-ui-row-wrap' : '')
+            (node.wrap ? ' zn-ui-row-wrap' : '') +
+            (node.cssClass ? ` ${node.cssClass}` : '')
           }
         >
           {renderChildren(node.children, ctx)}
@@ -197,12 +198,44 @@ function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.J
     case 'button': {
       const variant = node.variant ?? 'default'
       const send = node.send
+      const actionPayload = {
+        ...node.payload,
+        // send 最后合并：它读的是当前输入值，应当覆盖静态 payload 里的同名键
+        ...(send ? { value: ctx.state[send] } : {}),
+      }
+      /**
+       * 按住 / 松开（rev173.375）：`onDown` / `onUp` 各跑一次命令。
+       * 松手有三种来源 —— pointerup / 指针移出按钮 / 手势被系统 cancel（滚动、来电）——
+       * 任何一个都要补发 `onUp`，否则密码会一直显示在屏幕上。
+       */
+      const fireUp = () => {
+        if (node.onUp) ctx.onAction(node.onUp, actionPayload)
+      }
       return (
         <button
           key={key}
           type="button"
           disabled={node.disabled}
-          className={`zn-btn zn-ui-btn-${variant}`}
+          className={`zn-btn zn-ui-btn-${variant}${node.cssClass ? ` ${node.cssClass}` : ''}`}
+          onPointerDown={
+            node.onDown
+              ? (e) => {
+                  // 触摸按住时不要顺带选中文字 / 弹长按菜单
+                  e.preventDefault()
+                  try {
+                    // 真手指按住时抓住指针，保证松手/移出都能收到 pointerup；
+                    // 合成事件（自动化）里的 pointerId 可能无效，抓不住也不该挡住动作
+                    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+                  } catch {
+                    /* 抓指针失败不影响 onDown/onUp */
+                  }
+                  ctx.onAction(node.onDown as string, actionPayload)
+                }
+              : undefined
+          }
+          onPointerUp={node.onUp ? fireUp : undefined}
+          onPointerLeave={node.onUp ? fireUp : undefined}
+          onPointerCancel={node.onUp ? fireUp : undefined}
           onClick={() =>
             ctx.onAction(node.onClick, {
               ...node.payload,
