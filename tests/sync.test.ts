@@ -2090,6 +2090,103 @@ describe('私有文件同步：密码库（rev173.164 · 期 1c）', () => {
     expect(ok.private['.zn/secrets/secrets.zn']).toEqual({ fp: 'abc', at: 7 })
   })
 
+  /* ── 远端索引不实：manifest 记着、文件实际 404（rev173.383） ── */
+
+  it('两边指纹一致但远端文件 404 ⇒ 手动同步按本机重推（真实坚果云场景）', async () => {
+    const { files: dav, net } = makeDav()
+    const local = new Map<string, Uint8Array>()
+    const A = makeDevice(net, local, 'windows')
+    await configure(A)
+
+    local.set(SECRETS, enc('zn1.SAME'))
+    await A.commands.get('sync.run')!({})
+    expect(dav.has(SECRETS)).toBe(true)
+
+    // 远端文件没了，manifest 与本地指纹仍然一致（rev173.382 实测的远端状态）
+    dav.delete(SECRETS)
+    await A.commands.get('sync.run')!({})
+
+    expect(dec(dav.get(SECRETS)?.bytes)).toBe('zn1.SAME')
+    const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
+    expect(mf.private[SECRETS]?.fp).toBe(fingerprint('zn1.SAME'))
+
+    A.dispose()
+  })
+
+  it('远端索引记着密码库但文件 404 ⇒ 按本机版本重推（rev173.383）', async () => {
+    const { files: dav, net } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    await configure(A)
+
+    // A 先推一版：远端 manifest 的 private 段有了这条
+    localA.set(SECRETS, enc('zn1.OLD'))
+    await A.commands.get('sync.run')!({})
+    expect(dav.has(SECRETS)).toBe(true)
+
+    // 模拟「远端文件没了、manifest 还记着」（清空远端 / 首传被服务器丢弃）
+    dav.delete(SECRETS)
+
+    // 换设备 / 重建环：本机有新内容、没有基线 ⇒ 旧逻辑判冲突、GET 404、静默不推
+    const localB = new Map<string, Uint8Array>([[SECRETS, enc('zn1.NEW')]])
+    const B = makeDevice(net, localB, 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+
+    expect(dec(dav.get(SECRETS)?.bytes)).toBe('zn1.NEW')
+    const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
+    expect(mf.private[SECRETS]?.fp).toBe(fingerprint('zn1.NEW'))
+    // 本机内容不能被抹掉（冲突分支只许推、不许清）
+    expect(dec(localB.get(SECRETS))).toBe('zn1.NEW')
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('远端索引记着密码库但两边都没有 ⇒ 清掉这条假索引（rev173.383）', async () => {
+    const { files: dav, net } = makeDav()
+    const localA = new Map<string, Uint8Array>()
+    const A = makeDevice(net, localA, 'windows')
+    await configure(A)
+    localA.set(SECRETS, enc('zn1.OLD'))
+    await A.commands.get('sync.run')!({})
+    dav.delete(SECRETS)
+
+    // 新设备：本地也没有密码库 ⇒ 假索引必须清掉，否则每轮白发请求
+    const B = makeDevice(net, new Map<string, Uint8Array>(), 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+
+    const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
+    expect(mf.private[SECRETS]).toBeUndefined()
+
+    A.dispose()
+    B.dispose()
+  })
+
+  it('私密树：远端索引记着、文件 404 ⇒ 按本机密文重推（rev173.383）', async () => {
+    const { files: dav, net } = makeDav()
+    const N1 = '.zn/private/notes/n1.zn'
+    const localA = new Map<string, Uint8Array>([[N1, enc('zn1.OLD')]])
+    const A = makeDevice(net, localA, 'windows')
+    await configure(A)
+    await A.commands.get('sync.run')!({})
+    expect(dav.has(N1)).toBe(true)
+    dav.delete(N1)
+
+    const localB = new Map<string, Uint8Array>([[N1, enc('zn1.NEW')]])
+    const B = makeDevice(net, localB, 'mac')
+    await configure(B)
+    await B.commands.get('sync.run')!({})
+
+    expect(dec(dav.get(N1)?.bytes)).toBe('zn1.NEW')
+    const mf = normalizeManifest(dec(dav.get('_zn/manifest.json')?.bytes))
+    expect(mf.privateTree[N1]?.fp).toBe(fingerprint('zn1.NEW'))
+
+    A.dispose()
+    B.dispose()
+  })
+
   /* ── 私密文件夹目录树（rev173.182 · 期 3） ── */
 
   it('私密树方向判定：一致 / 只远端变 / 只本地变 / 双端变 / 两边删除都传播', () => {

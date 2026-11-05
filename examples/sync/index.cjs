@@ -872,7 +872,24 @@ const plugin = {
           }
           if (verdict === 'pull' || verdict === 'pull-new') {
             const text = await client.get(n.path)
-            if (text == null) continue
+            if (text == null) {
+              /**
+               * rev173.383：远端索引记着这篇、文件实际不存在（404 / 409）⇒ 索引不实。
+               * 本机有这篇 ⇒ 按本机重推；否则每轮都判 pull、拉不到、永远不收敛。
+               */
+              const parent = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : ''
+              await client.mkdir(parent).catch(() => {})
+              const res = await client.put(n.path, localText, undefined)
+              if (res.ok) {
+                baseline[n.path] = { fp: localFp, etag: res.etag ?? undefined }
+                nextFiles[n.path] = { fp: localFp, etag: res.etag ?? undefined, at: Date.now() }
+                summary.pushed += 1
+                manifestDirty = true
+              } else {
+                summary.hint = `上传失败 ${n.path}（${res.status}，远端缺文件，重推未成功）`
+              }
+              continue
+            }
             await api.fs.writeText(n.path, text)
             // rev173.297：拉下来的是**远端推送那一刻**的内容 ⇒ 时间也按那一刻算
             await applyRemoteMtime(n.path, remoteEntry?.at)
@@ -1026,6 +1043,24 @@ const plugin = {
               summary.conflicts += 1
               continue
             }
+            /**
+             * 先读远端正文再决定。GET 回来是 null = 远端索引记着、文件实际不存在（404/409）
+             * ⇒ 没有「远端版」可留、可合并，按本机重推（rev173.383）；否则每轮都会
+             * 留一份新冲突副本、正文却永远停在本机版。
+             */
+            const remoteText = await client.get(n.path)
+            if (remoteText == null) {
+              const res = await client.put(n.path, localText, undefined)
+              if (res.ok) {
+                baseline[n.path] = { fp: localFp, etag: res.etag ?? undefined }
+                nextFiles[n.path] = { fp: localFp, etag: res.etag ?? undefined, at: Date.now() }
+                summary.pushed += 1
+                manifestDirty = true
+              } else {
+                summary.hint = `上传失败 ${n.path}（${res.status}，远端缺文件，重推未成功）`
+              }
+              continue
+            }
             await keepConflict(n.path, '双端修改')
             summary.conflicts += 1
             /**
@@ -1033,8 +1068,7 @@ const plugin = {
              * 用户得去插件面板找记录再点按钮）。现在把两版差异段都写进正文：
              * 远端段红、本机段绿，用户在编辑页点段首 ✔ 保留一段。
              */
-            const remoteText = await client.get(n.path)
-            if (remoteText != null) {
+            {
               const draft = buildMergeDraft(localText, remoteText)
               /**
                * **先登记 pending，再动编辑器**：行着色（addLineClass）与段首 ✔
@@ -1152,7 +1186,15 @@ const plugin = {
           if (deletedRemotely.has(path)) continue // 刚推上去的删除，别又拉回来
           if (!/\.md$/i.test(path)) continue
           const text = await client.get(path)
-          if (text == null) continue
+          if (text == null) {
+            /**
+             * rev173.383：远端索引有这条、文件实际不存在 ⇒ 清掉假索引。
+             * 不清的话每轮都要白做一次 GET，而且这篇永远"远端有、本地没有"。
+             */
+            delete nextFiles[path]
+            manifestDirty = true
+            continue
+          }
           // 远端重新出现这篇 ⇒ 墓碑作废（rev173.325 · 真人测试6 #4a）
           if (nextDeleted[path]) {
             delete nextDeleted[path]
@@ -1179,7 +1221,8 @@ const plugin = {
         timing.attachments = lap()
 
         // 私有文件（密码库密文 + 密钥元数据，rev173.164 · 期 1c）
-        const priv = await syncPrivate(client, remote, summary)
+        // 手动同步全量巡检远端索引是否属实（rev173.383）；自动同步走轮转抽查
+        const priv = await syncPrivate(client, remote, summary, { verifyAll: reason === '手动' })
         timing.private = lap()
 
         // 私密文件夹目录树（rev173.182 · 期 3）—— 数量可变，逐文件比对
@@ -1336,6 +1379,26 @@ const plugin = {
      * @returns {{ attachments: Record<string, object>, changed: boolean }}
      */
     /**
+     * 把一份私有文件写到远端（`syncPrivate` / `syncPrivateTree` 共用，rev173.383）。
+     *
+     * 为什么抽出来：`mkdir + put` 原来在五个分支里各写一遍（只本地变 / 远端缺文件改推 ×2 /
+     * 冲突改推），白色名单（200/201/204/207）也是复制粘贴 —— 迟早漂。
+     */
+    async function putPrivateText(client, rel, text) {
+      const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+      await client.mkdir(parent).catch(() => {})
+      return client.put(rel, text)
+    }
+    /** 私有文件上传是否成功（WebDAV / S3 / Git 三家返回的 2xx 都在内） */
+    function isPutOk(res) {
+      return Boolean(res && [200, 201, 204, 207].includes(res.status))
+    }
+    /** 巡检游标：自动同步每 3 轮验 1 条私有文件（见 `syncPrivate` 开头） */
+    let privateProbeTick = 0
+    /** 本进程第一次同步是否已做过全量巡检 */
+    let privateProbeFirstDone = false
+
+    /**
      * **私有文件同步**（rev173.164 · 期 1c）：密码库密文 + 密钥元数据。
      *
      * 为什么单独一段：这两个文件不是 `.md`、又在 `.zn/` 下，`listNotes` 永远看不到它们
@@ -1351,10 +1414,29 @@ const plugin = {
      *
      * @returns {{ private: Record<string, object>, changed: boolean }}
      */
-    async function syncPrivate(client, manifest, summary) {
+    async function syncPrivate(client, manifest, summary, opts = {}) {
       const remotePriv = manifest.private || {}
       const nextPriv = { ...remotePriv }
       let changed = false
+      /**
+       * **远端索引不实的巡检**（rev173.383，真实坚果云实测）。
+       *
+       * ① 分支（本地指纹 === manifest 指纹）**不下发任何请求**，这是稳定态省请求的关键；
+       * 但 manifest 记着 ≠ 文件真在：远端目录被清空 / 首传被服务器吞掉时，manifest 已经
+       * 写成功、文件却 404，此后的每轮都判「两边一致」⇒ 密码库永远推不上去（静默）。
+       *
+       * 请求预算：坚果云 600 次 / 30 分钟 ≈ 20 次/分钟。自动同步每 5 秒一轮已有 1 次
+       * manifest 请求（12 次/分钟）⇒ 只能再加约 4 次/分钟：
+       *  · 手动同步 / 本进程第一次同步 ⇒ 4 条全验；
+       *  · 自动同步 ⇒ 每 3 轮验 1 条（轮转，4 条约 1 分钟走完）。
+       *
+       * 只在「本地与远端按 manifest 一致」时才需要验 —— 其他分支本来就要 GET。
+       */
+      const firstPass = !privateProbeFirstDone
+      privateProbeFirstDone = true
+      const verifyAll = opts.verifyAll === true || firstPass
+      const probeRel = verifyAll ? null : PRIVATE_FILES[Math.floor(privateProbeTick / 3) % PRIVATE_FILES.length]
+      privateProbeTick += 1
 
       for (const rel of PRIVATE_FILES) {
         /**
@@ -1377,6 +1459,32 @@ const plugin = {
 
         // ① 两边一致 ⇒ 只刷新 baseline（`at` 用远端的，别每轮改 manifest）
         if (localFp && remoteFp && localFp === remoteFp) {
+          /**
+           * 巡检：manifest 说一样，不代表远端文件还在（rev173.383）。轮到的这一条
+           * 用一次 GET 验证；404 / 409 ⇒ 索引不实，按本地重推。
+           * 网络异常不当作「文件丢了」（抛错按存在处理，下一轮再验）。
+           */
+          if (verifyAll || probeRel === rel) {
+            let alive = true
+            try {
+              alive = (await client.get(rel)) != null
+            } catch {
+              alive = true
+            }
+            if (!alive) {
+              const res = await putPrivateText(client, rel, localText)
+              if (isPutOk(res)) {
+                nextPriv[rel] = { fp: localFp, at: Date.now() }
+                baseline[rel] = { fp: localFp, at: nextPriv[rel].at }
+                summary.pushed += 1
+                changed = true
+                summary.hint = `远端缺少 ${rel}，已按本机版本重推`
+              } else {
+                summary.hint = `私有文件上传失败 ${rel}（${res?.status ?? '无响应'}，远端缺文件，重推未成功）`
+              }
+              continue
+            }
+          }
           baseline[rel] = { fp: localFp, at: entry?.at ?? 0 }
           continue
         }
@@ -1394,7 +1502,32 @@ const plugin = {
         if (remoteFp && (!localFp || (remoteChanged && !localChanged))) {
           try {
             const text = await client.get(rel)
-            if (text == null) continue
+            if (text == null) {
+              /**
+               * **远端索引不实**（rev173.383）：manifest 记着这条，实际 GET 回来 404 / 409。
+               *
+               * 旧行为：直接 `continue` —— 既不拉也不推，manifest 那条一直挂着 ⇒
+               * 密码库在换设备 / 清空远端后再也传不上去，面板上一个字都没显示（静默）。
+               * 现在：本地有 ⇒ 按本地重推并修正索引；本地也没有 ⇒ 删掉这条假索引。
+               */
+              if (localFp) {
+                const res = await putPrivateText(client, rel, localText)
+                if (!isPutOk(res)) {
+                  summary.hint = `私有文件上传失败 ${rel}（${res?.status ?? '无响应'}，远端缺文件，重推未成功）`
+                  continue
+                }
+                nextPriv[rel] = { fp: localFp, at: Date.now() }
+                baseline[rel] = { fp: localFp, at: nextPriv[rel].at }
+                summary.pushed += 1
+                changed = true
+                summary.hint = `远端缺少 ${rel}，已按本机版本重推`
+              } else {
+                delete nextPriv[rel]
+                changed = true
+                summary.hint = `远端索引记着 ${rel}，但文件不存在 —— 已清掉这条索引`
+              }
+              continue
+            }
             await client.mkdir(parent).catch(() => {})
             await api.fs.mkdir(parent).catch(() => {})
             await api.fs.writeText(rel, text)
@@ -1409,10 +1542,9 @@ const plugin = {
         // ③ 只有本地变（或远端还没有）⇒ 推
         if (localFp && (!remoteFp || (localChanged && !remoteChanged))) {
           try {
-            await client.mkdir(parent).catch(() => {})
-            const res = await client.put(rel, localText)
-            if (![200, 201, 204, 207].includes(res.status)) {
-              summary.hint = `私有文件上传失败 ${rel}（${res.status}）`
+            const res = await putPrivateText(client, rel, localText)
+            if (!isPutOk(res)) {
+              summary.hint = `私有文件上传失败 ${rel}（${res?.status ?? '无响应'}）`
               continue
             }
             nextPriv[rel] = { fp: localFp, at: Date.now() }
@@ -1429,7 +1561,23 @@ const plugin = {
         if (localFp && remoteFp && localChanged && remoteChanged) {
           try {
             const text = await client.get(rel)
-            if (text == null) continue
+            if (text == null) {
+              /**
+               * rev173.383：远端实际没有这份 ⇒ 所谓的「双端都改」是假冲突，
+               * 按本机版本重推（否则每轮都重判一次冲突，永远不收敛）。
+               */
+              const res = await putPrivateText(client, rel, localText)
+              if (!isPutOk(res)) {
+                summary.hint = `私有文件上传失败 ${rel}（${res?.status ?? '无响应'}，远端缺文件，重推未成功）`
+                continue
+              }
+              nextPriv[rel] = { fp: localFp, at: Date.now() }
+              baseline[rel] = { fp: localFp, at: nextPriv[rel].at }
+              summary.pushed += 1
+              changed = true
+              summary.hint = `远端缺少 ${rel}，已按本机版本重推`
+              continue
+            }
             await keepConflict(rel, '密码库双端修改')
             await api.fs.writeText(rel, text)
             // rev173.297：冲突后留的是远端版 ⇒ 时间取远端推送时间
@@ -1509,7 +1657,25 @@ const plugin = {
         if (action === 'pull') {
           try {
             const text = await client.get(rel)
-            if (text == null) continue
+            if (text == null) {
+              // rev173.383：远端索引记着、文件实际 404 ⇒ 本地有就重推，没有就清假索引
+              if (localFp) {
+                const res = await putPrivateText(client, rel, localText)
+                if (!isPutOk(res)) {
+                  summary.hint = `私密笔记上传失败 ${rel}（${res?.status ?? '无响应'}，远端缺文件，重推未成功）`
+                  continue
+                }
+                nextTree[rel] = { fp: localFp, at: Date.now() }
+                baseline[rel] = { fp: localFp, at: nextTree[rel].at }
+                summary.pushed += 1
+                changed = true
+              } else {
+                delete nextTree[rel]
+                changed = true
+                summary.hint = `远端索引记着 ${rel}，但文件不存在 —— 已清掉这条索引`
+              }
+              continue
+            }
             await api.fs.mkdir(parent).catch(() => {})
             await api.fs.writeText(rel, text)
             // rev173.297：私密树同样按远端推送时间落盘
@@ -1524,10 +1690,9 @@ const plugin = {
 
         if (action === 'push') {
           try {
-            await client.mkdir(parent).catch(() => {})
-            const res = await client.put(rel, localText)
-            if (![200, 201, 204, 207].includes(res?.status ?? 201)) {
-              summary.hint = `私密笔记上传失败 ${rel}（${res?.status}）`
+            const res = await putPrivateText(client, rel, localText)
+            if (!isPutOk(res)) {
+              summary.hint = `私密笔记上传失败 ${rel}（${res?.status ?? '无响应'}）`
               continue
             }
             nextTree[rel] = { fp: localFp, at: Date.now() }
@@ -1567,7 +1732,19 @@ const plugin = {
         // conflict：密文无法合并 ⇒ 留本机副本 + 取远端
         try {
           const text = await client.get(rel)
-          if (text == null) continue
+          if (text == null) {
+            // rev173.383：远端实际没有 ⇒ 假冲突，按本机版本重推（不留无意义的副本）
+            const res = await putPrivateText(client, rel, localText)
+            if (!isPutOk(res)) {
+              summary.hint = `私密笔记上传失败 ${rel}（${res?.status ?? '无响应'}，远端缺文件，重推未成功）`
+              continue
+            }
+            nextTree[rel] = { fp: localFp, at: Date.now() }
+            baseline[rel] = { fp: localFp, at: nextTree[rel].at }
+            summary.pushed += 1
+            changed = true
+            continue
+          }
           await keepConflict(rel, '私密笔记双端修改')
           await api.fs.writeText(rel, text)
           // rev173.297：冲突后磁盘上留的是**远端版** ⇒ 时间也用远端的
