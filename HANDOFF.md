@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.378
-更新时间: 2026-11-05 · 最新 rev173.378（**所有密码框加「点击显示 / 隐藏」眼睛按钮**：做在内核 `UIRenderer`，`secret` 标记的 input 统一带 👁，`security` 补标 9 处）· rev173.377（密码库平台卡按钮与平台名同一行）· rev173.376（私密笔记改造第一批）
+revision: 173.379
+更新时间: 2026-11-05 · 最新 rev173.379（**dev 与 release 可同时开**：dev 用独立 identifier `com.aqua.zeronote.dev`，数据目录 / 插件 store / 单实例锁全部与 release 隔离）· rev173.378（所有密码框加眼睛按钮）· rev173.377（密码库平台卡按钮与平台名同一行）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.378
 
 | rev | 内容 |
 |---|---|
+| rev173.379 | 2026-11-05 · **dev 与 release 可同时开（开发环境隔离）**：桌面 `tauri-plugin-single-instance`（`src-tauri/src/lib.rs:4553`）让 dev 与 release 抢同一把锁（identifier 都是 `com.aqua.zeronote`），第二个启动的只转发命令行参数就退出 ⇒「以为在 release 上，其实前台是 dev」。现在 dev 走叠加配置 `src-tauri/tauri.dev.conf.json`（`{"identifier": "com.aqua.zeronote.dev"}`），`dev.cmd:18` 改成 `pnpm tauri dev --config src-tauri/tauri.dev.conf.json`（CLI 一手确认 `--config` 是**合并**语义）。隔离：单实例锁 / `%APPDATA%\com.aqua.zeronote.dev` 数据目录 / WebView2 profile / 插件目录 / **插件 store（含 sync 配置与 `baseline.v1`）**；插件连同 `trusted-keys.json` 已复制到新目录。**未做/未验**：重启 dev 后实测双开（重启交用户手动）；首次启动 localStorage 空 ⇒ 需重选库 `_tmp-vault-rt12`。说明写进 `docs/handoff/01-环境与设备.md` §3.1。 |
 | rev173.378 | 2026-11-05 · **所有密码框加「点击显示 / 隐藏」眼睛按钮（用户 2026-11-05 要求）**：① **内核**（`src/components/UIRenderer.tsx`）—— `input.secret: true` 不再只是 `type="password"`，改为渲染独立组件 `SecretInput`：框内右侧 👁 按钮**点击切换**明文 / 圆点（需求原话「点击显示 / 隐藏」，不是按住），`onMouseDown preventDefault` 保住输入框焦点与光标，`onClick` 不派发任何命令 ⇒ 不会顺手提交表单；显示/隐藏状态由宿主 `useState` 持有，**插件不为此写 state**（避免「同一逻辑每个插件各写一套」）。② **样式**（`src/styles.css`）：`.zn-ui-secret` 相对定位容器 + 输入框右内边距 30px + `.zn-ui-secret-toggle`（颜色只走 `--zn-*` 令牌，`is-shown` 时加背景）。③ **`security` 补标 9 处 `secret: true`**（`examples/security/index.js`）：建环 pw1/pw2、解锁 pw1、换主密码 oldPw/newPw、恢复答案 ×2、恢复码 —— 加上原有 secrets / private-notes / sync / ai，五个插件口径一致。④ **契约文档**（`docs/内核契约-v0.2.md` UINode.input 注释）+ `contract.ts` 注释同步。**证据**：`scripts/verify.ps1` 全绿（tsc 0 错误 · oxlint 4 warnings · cargo 102 · **vitest 1911**（新增 2 条）· 质量门 8/8，23:17:31）；新单测 `tests/ui-secret-input.test.tsx`（点击切换 type / 明文仍可见 / 再点回圆点 / 普通输入无按钮）；**G2 桌面 dev**（`_tmp-vault-rt12`）CDP 实测：安全面板出现 2 个 👁 → 输入 `test-pass-1234` → 点 👁 变明文（aria-label 变「隐藏密码」）→ 再点回圆点，截图 `_shots/rev173378-security-eye-closed.png` · `rev173378-security-eye-shown.png`。**未验**：手机（手机当前跑的是内置资源包 `tauri.localhost`，内核改动不进去；要下次发版才生效；手机插件目录已恢复原状）。**dev 环境操作**：`%APPDATA%\com.aqua.zeronote\.zn\plugins\security\` 的 `index.js` 已同步为 examples 新版、`signature.json` 改名 `.bak`（unsigned 照常加载，开发同步方式，可回退），旧文件备份 `_tmp/backup-security-global-2026-11-05/`。**待办（发版前）**：`security` 市场包仍 0.2.2，需打 0.2.3 并更新 `market/index.json`。 |
 | rev173.377 | 2026-11-05 · **密码库平台卡：操作按钮与平台名同一行（用户手机反馈）**：`examples/secrets/index.js` 的 `platformCard` 外层标题行去掉 `wrap`，左侧信息块 `.sx-platform-head`（`flex:1; min-width:0`）可内部折行、右侧 `.sx-platform-actions` 保持单行；`styles.css` 加窄屏（≤480px）规则收紧按钮内边距与字号。**验证**：`tests/secrets.test.ts + kernel-secrets.test.ts` 42 条通过、`tsc` 0；手机插件已同步（manifest sha256 重算、签名 `.bak`）但**未拿到布局截图** —— 手机上密码库解锁报「主密码不对」（同密码此前成功解锁过，怀疑是 CDP 往密码框输入的焦点/受控值问题，待下轮用真实手指或重设密码再验）。 |
 | rev173.376 | 2026-11-05 · **私密笔记改造第一批（真人测试12 #1 · 施工图 `docs/私密笔记-改造方案-2026-11-05.md`）**：把「独立面板」推进到「开关 + 文件树虚拟分组」。① **内核新原语 `notes.registerSource`**（`src/kernel/note-sources.ts`）：插件注册额外笔记源，宿主把条目并进文件树；`list()` 同步返回当下条目，锁定 = 空数组 ⇒ 整组消失（无缓存）；源抛错/返回非数组只跳过它自己。`NoteMeta` 加可选 `group` / `groupLabel` / `groupIcon`；`PluginContext.notes` + `Kernel.notes`（宿主视图：snapshot/subscribe）+ `PluginHostDeps.notes`，注册的 Disposable 自动进 `ctx.subscriptions`。② **文件树**：`buildTree` 把带 `group` 的条目收进虚拟分组（排在「附件」之后，图标 + 条数），条目显示标题而非随机文件名（`x.zn`）；分组条目**禁磁盘操作** —— 右键菜单、Ctrl 多选、鼠标/触摸拖拽、长按菜单全部跳过（增删改归插件）。③ **App**：新增 `sourceNotes` state + 订阅 `kernel.notes`，`treeNotes = 公开 notes + 源条目` 只喂文件树（搜索/时间流按方案第二批）；点组内条目走原 `openNote`。④ **private-notes 插件**：注册源（老内核无 `api.notes` 时跳过）、解锁/锁定/索引写盘时 `notifySourceChange()`；`private.open` 从「打开面板」改为**开关**（已解锁 ⇒ 立即锁定；未解锁 ⇒ 开面板输密码）。⑤ **风险 1 已核**：`core.openNote` 的 `read_note → resolve()` 只拒绝对路径 / `..`，**不拒 `.zn/`** ⇒ 打开链路无需虚拟路径映射（源码 `src-tauri/src/lib.rs:174`、`:1207`）。**证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · vitest 全量通过 · 质量门 8/8 —— 见本轮日志）；新增单测 `tests/note-sources.test.ts`（8 条）+ `tests/file-tree-source-group.test.tsx`（4 条：分组显示 / 标题 / 点击打开 / 锁定消失）；桌面 dev 实测插件加载 + 关闭态文件树无分组（`_shots/rt12-source-check.png`）。**未做 / 待用户验**：解锁后分组出现 + 打开编辑保存（需要主密码，用户在自己桌面点锁按钮走一遍）；搜索 / 时间流 / 拖入移出 / 市场重打包（第二批）。**dev 环境操作**：全局插件目录 `%APPDATA%\com.aqua.zeronote\.zn\plugins\private-notes\` 的 `signature.json` 已改名为 `.bak`（按 sha256 重算后签名失效会拒载；开发同步方式，可回退）。 |
@@ -261,6 +262,27 @@ revision: 173.378
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.379（2026-11-05 · dev 与 release 可同时开）
+
+> **起因**：排查「手机密码库环被同步覆盖」时发现 dev / release 的边界不清 —— 桌面 `src-tauri/src/lib.rs:4553`
+> 注册了 `tauri-plugin-single-instance`，dev 与 release identifier 同为 `com.aqua.zeronote` ⇒ 抢同一把锁；
+> 第二个启动的只 `forward_open_targets(app, argv)` 后退出 ⇒ 看到的窗口其实是**先前那个**。
+> 更糟的是插件目录与插件 store 全局共用一份（`plugin_store_*` 把 `appDataDir()` 当 vault 传），
+> **sync 的配置与 `baseline.v1` 不分库** ⇒ dev 在测试库同步一轮会写脏 release 真实库的同步基线。
+
+> **改法**：dev 用叠加配置 `src-tauri/tauri.dev.conf.json` 只覆盖 `identifier: com.aqua.zeronote.dev`；
+> `dev.cmd:18` 改成 `pnpm tauri dev --config src-tauri/tauri.dev.conf.json`（`pnpm tauri dev --help` 一手确认
+> `-c, --config` 是「JSON strings or paths... to merge with the default configuration file」）。
+> 单实例锁、`%APPDATA%\com.aqua.zeronote.dev` 数据目录、WebView2 profile、插件目录、插件 store 全部隔离。
+> 插件已 `Copy-Item` 到 `%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\`（含 `trusted-keys.json` / `plugin-usage.json`）。
+> `dev.cmd` 备份在 `_tmp\backup-dev.cmd-2026-11-05`。
+
+> **证据**：`verify.ps1` 全绿（23:39:18：tsc 0 · oxlint 4 warnings · cargo 102 · vitest 1911 · 质量门 8/8）；
+> `tauri.dev.conf.json` 用 node 解析通过；`dev.cmd` 改后确认仍是 CRLF（文件头注释要求）。
+
+> **未做**：重启 dev 后实测「同时开 dev + release」（重启交用户手动，不自行重启客户端）；
+> 首次启动新 profile 的 localStorage 为空 ⇒ 会问选库，要选 `_tmp-vault-rt12`，别选用户真实库。
 
 > ## 📌 rev173.378（2026-11-05 · 所有密码框加「点击显示 / 隐藏」眼睛按钮）
 

@@ -15,6 +15,6 @@ rem    ⚠️ 不能写 `set ZN_WATCHDOG=` —— cmd 里那是删除变量，�
 if not defined ZN_WATCHDOG set "ZN_WATCHDOG=off"
 cd /d "%~dp0"
 if not exist ".self-logs" mkdir ".self-logs"
-call pnpm tauri dev > ".self-logs\desktop-dev.log" 2>&1
+call pnpm tauri dev --config src-tauri/tauri.dev.conf.json > ".self-logs\desktop-dev.log" 2>&1
 echo EXIT=%ERRORLEVEL% >> ".self-logs\desktop-dev.log"
 if errorlevel 1 pause
