@@ -36,10 +36,9 @@ type TreeNode = {
    */
   kind?: 'note' | 'doc' | 'image' | 'media'
   /**
-   * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录，
-   * 只是把只读文档聚合到一处显示。见 `DOCS_NODE`。
-   * 2026-10-18 rev173.3：图片附件同理，聚到「附件」分组（`ATTACH_NODE`）。
-   * rev173.376：额外笔记源（私密笔记）也走这条路（`GROUP_NODE_PREFIX`）。
+   * **虚拟分组节点**（2026-10-13 加）—— 不对应磁盘上的真实目录。
+   * rev173.385：文档 / 附件不再虚拟聚合，一律按真实目录显示；
+   * 虚拟分组只留给额外笔记源（私密笔记，`GROUP_NODE_PREFIX`）。
    */
   virtual?: boolean
   /**
@@ -52,22 +51,6 @@ type TreeNode = {
   /** 分组图标（emoji；只有虚拟分组节点有） */
   icon?: string
 }
-
-/**
- * 虚拟「文档」分组的哨兵路径 —— 它**不是**库内路径（真实路径不可能长这样，
- * 因为 `resolve()` 会拒绝任何带 `__` 前缀的合法文件名的概率极低，
- * 且这个值只在文件树内部用、从不发给内核）。
- */
-const DOCS_NODE = '__zn_docs__'
-
-/**
- * 虚拟「附件」分组的哨兵路径（rev173.3）—— 图片附件的聚合入口。
- *
- * 为什么要有它：「插入图片」把图复制进笔记所在目录后，文件树里**什么都看不到**，
- * 用户找不到自己的图（「附件的入口也没做」）。图片收进一个分组：
- * 一处能看到全部附件、点开就是全屏预览，不污染笔记的目录层级。
- */
-const ATTACH_NODE = '__zn_attachments__'
 
 /**
  * 额外笔记源分组的哨兵前缀（rev173.376 · 私密笔记改造 §4.2）。
@@ -105,10 +88,10 @@ function readCollapsed(vault: string | null): Set<string> {
  * 目录清单是必需的：只靠笔记路径只能**反推**出"装过文件的"目录，**空文件夹反推不出来**
  * —— 那样"新建文件夹"会像没反应（静默失效）。所以 Rust 侧单给了 `list_dirs`。
  *
- * **只读文档单独收进一个虚拟「文档」分组**（用户 2026-10-13 要求）：
- * 文档散落在一堆目录里会让笔记树很难扫；聚合显示后，**文件本身一动不动**
- * （路径不变、仍在原目录），只是视图上归到一处。文档在磁盘上的真实位置仍然
- * 靠每行的 `title`（悬停可见完整路径）交代。
+ * **只读文档 / 图片 / 音视频一律按真实目录显示**（rev173.385 用户要求）：
+ * 之前它们被聚到虚拟的「文档」「附件」分组，导致文件树和磁盘结构对不上；
+ * 现在取消这两个虚拟分组，附件落点是 `附件/图片|视频|音频|文档|其它/`，
+ * 在树里就是普通目录，能展开、能右键、能拖拽。
  */
 function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
   const root: TreeNode[] = []
@@ -135,9 +118,6 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   for (const d of dirs) ensureDir(d)
 
-  /** 只读文档 / 附件（图片 + 音视频）的收集桶（最后统一挂到各自的虚拟分组下） */
-  const docs: TreeNode[] = []
-  const attachments: TreeNode[] = []
   /**
    * 额外笔记源的分组桶（rev173.376 · 私密笔记改造 §4.2）。
    * key 是源给的分组 key；Map 的插入顺序 = 条目第一次出现的顺序（宿主按注册顺序合并）。
@@ -170,19 +150,8 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
       groups.set(n.group, g)
       continue
     }
-    // 文档 / 附件不进各自目录，收进虚拟分组 —— 注意是**视图聚合**，文件不动
-    if (n.kind === 'doc' || n.kind === 'image' || n.kind === 'media') {
-      const bucket = n.kind === 'doc' ? docs : attachments
-      bucket.push({
-        name,
-        path: n.path,
-        children: [],
-        isDir: false,
-        title: n.title,
-        kind: n.kind,
-      })
-      continue
-    }
+    // 文档 / 图片 / 音视频与普通笔记一样，进它们**真实所在的目录**（rev173.385）；
+    // 不再收进虚拟分组 —— 文件树必须等于磁盘结构，否则用户找不到自己放的图。
     const parentPath = parts.slice(0, -1).join('/')
     const parent = ensureDir(parentPath)
     const bucket = parent ? parent.children : root
@@ -203,32 +172,6 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
     nodes.forEach((n) => sort(n.children))
   }
   sort(root)
-
-  // 「文档」分组固定放**最后**（笔记优先；它不参与上面那套"目录优先"的排序）
-  if (docs.length) {
-    docs.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-    root.push({
-      name: '文档',
-      path: DOCS_NODE,
-      children: docs,
-      isDir: true,
-      kind: 'doc',
-      virtual: true,
-    })
-  }
-
-  // 「附件」分组（rev173.3）：图片与音视频附件的唯一可见入口，排在「文档」之后
-  if (attachments.length) {
-    attachments.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-    root.push({
-      name: '附件',
-      path: ATTACH_NODE,
-      children: attachments,
-      isDir: true,
-      kind: 'media',
-      virtual: true,
-    })
-  }
 
   /**
    * 额外笔记源分组（rev173.376 · 私密笔记）：排在**最后** —— 它随开关出现 / 消失，
@@ -489,7 +432,7 @@ function Node({
               node.group
                 ? `${node.name}（插件维护的分组 —— 随开关出现 / 消失）`
                 : node.virtual
-                  ? '只读文档（PDF / EPUB / …）—— 只是聚到一处显示，文件仍在你原来的目录里'
+                  ? '插件维护的分组（不对应磁盘目录）'
                   : `${node.path}（右键：新建 / 重命名 / 删除）`
             }
           >
@@ -867,7 +810,7 @@ export function FileTree({
 
   /**
    * 所有**真实目录**的路径集合 —— 拖拽移动只认文件夹做落点。
-   * 虚拟「文档」分组不在这里（它只是视图聚合，不是磁盘目录）。
+   * 虚拟分组（私密笔记）不在这里（它只是视图聚合，不是磁盘目录）。
    */
   const dirPathSet = useMemo(() => new Set(dirs), [dirs])
 
@@ -894,7 +837,7 @@ export function FileTree({
 
   /**
    * **目录 → 它的全部子孙**（含子目录与文件）—— 多选时"勾文件夹 = 勾里面的东西"要用。
-   * 虚拟分组（「文档」/「附件」）也在内：用户眼里它就是一组条目。
+   * 虚拟分组（私密笔记）也在内：用户眼里它就是一组条目。
    */
   const descendantsMap = useMemo(() => {
     const map = new Map<string, string[]>()
@@ -1016,7 +959,7 @@ export function FileTree({
    *  · **触摸**走另一条通道（`useEffect` 里的 touch 监听，见下）—— 手指拖拽要先按住
    *    150ms 再动，普通滚动不会被误判成拖拽（rev173.317 · 真人测试5 #5）；
    *  · 点在**滚动条**上不算；
-   *  · 拖拽移动只认**文件夹**做落点（虚拟「文档」分组不是目录），且拒绝拖进自己/自己的子孙；
+   *  · 拖拽移动只认**文件夹**做落点（虚拟分组不是目录），且拒绝拖进自己/自己的子孙；
    *  · 拖的若是选中集合里的一项 ⇒ **整批移动**；否则只移动它自己；
    *  · 拖完拦掉那次 click，否则一松手就把最后经过的笔记打开了。
    *

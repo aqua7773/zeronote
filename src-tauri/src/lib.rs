@@ -94,7 +94,7 @@ fn is_image(name: &str) -> bool {
 fn is_media(name: &str) -> bool {
   name
     .rsplit_once('.')
-    .map(|(_, e)| MEDIA_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    .map(|(_, e)| is_media_ext(e))
     .unwrap_or(false)
 }
 
@@ -1746,17 +1746,32 @@ fn copy_entry(vault: String, from: String, to: String) -> Result<(), String> {
 /// 「插入图片」接受的扩展名（小写；与前端 `src/lib/insert-image.ts` 的 IMAGE_EXTS 同一份）。
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"];
 
-/// 音视频附件的扩展名（小写；与前端 `src/lib/media-render.ts` 同一份口径 ——
-/// 那边分三组：能播的 video / audio，以及认得出但播不了的容器）。
-/// 这里合成一份：**只要认得出是音视频就进文件树**，能不能播由前端决定。
-pub(crate) const MEDIA_EXTS: &[&str] = &[
-  // 视频（Chromium 能播）
-  "mp4", "webm", "mov", "m4v", "ogv", // 音频
-  "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba",
+/// 视频附件的扩展名（小写；与前端 `src/lib/media-render.ts` 的 `VIDEO_EXTS` +
+/// `UNPLAYABLE_EXTS` 里的视频容器同一份口径）。
+pub(crate) const VIDEO_EXTS: &[&str] = &[
+  // Chromium 能播
+  "mp4", "webm", "mov", "m4v", "ogv",
   // 认得出、容器不被 Chromium 识别（不转码就播不了；照样进文件树）
-  "mkv", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "mts", "3gp", "wma", "ape", "aiff",
-  "aif", "amr",
+  "mkv", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "mts", "3gp",
 ];
+
+/// 音频附件的扩展名（小写；与前端 `src/lib/media-render.ts` 的 `AUDIO_EXTS` +
+/// `UNPLAYABLE_EXTS` 里的音频容器同一份口径）。
+pub(crate) const AUDIO_EXTS: &[&str] = &[
+  // Chromium 能播
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "weba",
+  // 播不了的容器
+  "wma", "ape", "aiff", "aif", "amr",
+];
+
+/// 扩展名（不带点）是否为音视频附件 —— 文件树 `kind = media` 与
+/// 媒体服务（`media_server.rs`）白名单共用这一条判据，别再各写一份。
+pub(crate) fn is_media_ext(ext: &str) -> bool {
+  VIDEO_EXTS
+    .iter()
+    .chain(AUDIO_EXTS.iter())
+    .any(|x| ext.eq_ignore_ascii_case(x))
+}
 
 /// 不允许复制进库的扩展名（可执行 / 脚本）—— 附件区不该有能直接双击运行的东西。
 const BLOCKED_EXTS: &[&str] = &[
@@ -1774,12 +1789,33 @@ const BLOCKED_EXTS: &[&str] = &[
 /// `stem` 由前端生成（`image-20261018-203055`），这里再过一遍白名单：
 /// 只留 ASCII 字母数字与 `-`，限 64 字符，防止它变成路径或超长名。
 ///
-/// 附件落点（两条 `import_attachment*` 共用）：**库根 `附件/`**，与笔记位置解耦。
+/// 附件按扩展名分到的**子目录**（rev173.385 用户要求）。
+///
+/// 为什么按类型分：附件全堆在 `附件/` 一个平面上，几百张图之后既难找也难备份 / 迁移；
+/// 分类后文件树里就是普通目录，与磁盘结构一一对应（前端不再做「附件」虚拟分组）。
+fn attachment_kind_dir(ext: &str) -> &'static str {
+  if IMAGE_EXTS.contains(&ext) {
+    "图片"
+  } else if VIDEO_EXTS.contains(&ext) {
+    "视频"
+  } else if AUDIO_EXTS.contains(&ext) {
+    "音频"
+  } else if DOC_EXTS.contains(&ext) {
+    "文档"
+  } else {
+    "其它"
+  }
+}
+
+/// 附件落点（两条 `import_attachment*` 共用）：**库根 `附件/<类型>/`**，与笔记位置解耦。
 ///
 /// 为什么不再跟着笔记目录（2026-11-04 用户要求「笔记换文件夹，图片引用不丢失」）：
 /// 原来附件落在笔记当时的目录、正文写库根相对路径 —— 笔记**单独**移动时靠「库根候选」
 /// 还能找到，但**整个文件夹**搬走（`A/` → `C/A/`）后两候选全失效。
 /// 统一放到库根固定目录后，移动 / 重命名笔记或文件夹都不影响引用。
+///
+/// rev173.385 起再按扩展名分一层：图片 / 视频 / 音频 / 文档 / 其它（`attachment_kind_dir`），
+/// 目录不存在时 `create_dir_all` 建出来。
 ///
 /// 返回 `(绝对目录, 库内相对目录, 主干)`。`note_path` 仍走 `resolve` 白名单（越界要拒绝），
 /// 只是不再决定落点。
@@ -1787,10 +1823,11 @@ fn attachment_plan(
   vault: &str,
   note_path: &str,
   stem: &str,
+  ext: &str,
 ) -> Result<(PathBuf, String, String), String> {
   let _note_abs = resolve(vault, note_path)?;
-  let dir_rel = ATTACH_DIR.to_string();
-  let dir = PathBuf::from(vault).join(ATTACH_DIR);
+  let dir_rel = format!("{ATTACH_DIR}/{}", attachment_kind_dir(ext));
+  let dir = PathBuf::from(vault).join(&dir_rel);
   fs::create_dir_all(&dir).map_err(|e| format!("创建附件目录失败（{}）：{e}", dir.display()))?;
   // stem 白名单：保留 Unicode 字母数字（中文文件名要能留住）、`-`、`_`；空格转 `-`。
   // 路径分隔符与其它符号一律丢掉 —— 不能让 stem 变成路径。
@@ -2203,7 +2240,7 @@ fn import_attachment(
             &PREVIEW_EDGE_STEPS,
             &PREVIEW_QUALITY_STEPS,
           )?;
-          let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
+          let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem, &ext)?;
           let (dst, name) =
             unique_attachment_path(&dir, &format!("{base}-preview"), encoded.ext)?;
           fs::write(&dst, &encoded.bytes).map_err(|e| format!("写入预览图失败：{e}"))?;
@@ -2248,7 +2285,7 @@ fn import_attachment(
     return Ok(out);
   }
 
-  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
+  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem, &ext)?;
   let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
   fs::copy(&src_path, &dst).map_err(|e| format!("复制图片失败：{e}"))?;
   Ok(serde_json::json!({
@@ -2357,7 +2394,7 @@ fn import_attachment_b64(
     ));
   }
   let size = bytes.len();
-  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem)?;
+  let (dir, dir_rel, base) = attachment_plan(&vault, &note_path, &stem, &ext)?;
   let (dst, name) = unique_attachment_path(&dir, &base, &ext)?;
   fs::write(&dst, &bytes).map_err(|e| format!("写入图片失败：{e}"))?;
   // 内存字节没有「原文件路径」可引用 ⇒ 永远复制入库（期 1 的口径）
@@ -5958,7 +5995,7 @@ mod tests {
     )
     .unwrap();
     let rel = r["path"].as_str().unwrap().to_string();
-    assert_eq!(rel, "附件/image-20261018-200000.png");
+    assert_eq!(rel, "附件/图片/image-20261018-200000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
     // 同一秒再插一张 ⇒ 加 -1，绝不覆盖
@@ -5970,9 +6007,9 @@ mod tests {
       "image-20261018-200000".into(),
     )
     .unwrap();
-    assert_eq!(r2["path"], "附件/image-20261018-200000-1.png");
+    assert_eq!(r2["path"], "附件/图片/image-20261018-200000-1.png");
     assert_eq!(
-      fs::read(vault.join("附件/image-20261018-200000.png")).unwrap(),
+      fs::read(vault.join("附件/图片/image-20261018-200000.png")).unwrap(),
       b"PNG1"
     );
   }
@@ -5990,8 +6027,8 @@ mod tests {
     let s = src.to_string_lossy().to_string();
     let r = import_attachment(v, "a.md".into(), s, "../../evil".into()).unwrap();
     // 扩展名统一小写；stem 里的 .. / 被剥掉
-    assert_eq!(r["path"], "附件/evil.png");
-    assert!(vault.join("附件/evil.png").is_file());
+    assert_eq!(r["path"], "附件/图片/evil.png");
+    assert!(vault.join("附件/图片/evil.png").is_file());
   }
 
   /// 附件：普通文件（pdf 等）允许复制；中文 stem 保留；可执行扩展名拒绝（rev173.3）。
@@ -6011,8 +6048,8 @@ mod tests {
       "报告 终版".into(),
     )
     .unwrap();
-    assert_eq!(r["path"], "附件/报告-终版.pdf", "中文留在文件名里，空格转 -");
-    assert!(vault.join("附件/报告-终版.pdf").is_file());
+    assert_eq!(r["path"], "附件/文档/报告-终版.pdf", "中文留在文件名里，空格转 -");
+    assert!(vault.join("附件/文档/报告-终版.pdf").is_file());
 
     let bat = d.join("tool.bat");
     fs::write(&bat, b"echo hi").unwrap();
@@ -6026,6 +6063,40 @@ mod tests {
       .is_err(),
       "可执行 / 脚本文件必须拒绝"
     );
+  }
+
+  /// rev173.385：附件按扩展名自动分类到 `附件/图片|视频|音频|文档|其它/`，
+  /// 子目录不存在时 `create_dir_all` 建出来。
+  #[test]
+  fn import_attachment_classifies_by_extension() {
+    let d = tmpdir("attach-kind");
+    let vault = d.join("vault");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(vault.join("a.md"), "x").unwrap();
+    let v = vault.to_string_lossy().to_string();
+    let cases = [
+      ("png", "图片"),
+      ("mp4", "视频"),
+      ("mp3", "音频"),
+      ("pdf", "文档"),
+      ("zip", "其它"),
+    ];
+    for (ext, sub) in cases {
+      let src = d.join(format!("src.{ext}"));
+      fs::write(&src, b"1").unwrap();
+      let r = import_attachment(
+        v.clone(),
+        "a.md".into(),
+        src.to_string_lossy().to_string(),
+        "x".into(),
+      )
+      .unwrap();
+      assert_eq!(r["path"], format!("附件/{sub}/x.{ext}"), ".{ext} 的分类");
+      assert!(
+        vault.join(format!("附件/{sub}/x.{ext}")).is_file(),
+        "子目录要由 create_dir_all 建出来"
+      );
+    }
   }
 
   /// 可执行扩展名 / 源不存在 / 越界笔记路径 ⇒ 明确报错（不能静默复制一个 .exe 进来）。
@@ -6068,7 +6139,7 @@ mod tests {
     )
     .unwrap();
     let rel = r["path"].as_str().unwrap().to_string();
-    assert_eq!(rel, "附件/image-20261020-093000.png");
+    assert_eq!(rel, "附件/图片/image-20261020-093000.png");
     assert_eq!(fs::read(vault.join(&rel)).unwrap(), b"PNG1");
 
     let r2 = import_attachment_b64(
@@ -6080,7 +6151,7 @@ mod tests {
     )
     .unwrap();
     let rel2 = r2["path"].as_str().unwrap().to_string();
-    assert_eq!(rel2, "附件/image-20261020-093000-1.png");
+    assert_eq!(rel2, "附件/图片/image-20261020-093000-1.png");
     assert_eq!(fs::read(vault.join(&rel2)).unwrap(), b"PNG2");
   }
 

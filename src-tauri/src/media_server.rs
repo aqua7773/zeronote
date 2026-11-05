@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::MEDIA_EXTS;
+use crate::is_media_ext;
 
 /// URL 形态：`/m/<token>/<percent-encoded 绝对路径>`
 const PATH_PREFIX: &str = "/m/";
@@ -285,7 +285,7 @@ fn media_path(decoded: &str) -> Option<PathBuf> {
   }
   let p = PathBuf::from(decoded);
   let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-  if !MEDIA_EXTS.iter().any(|x| ext.eq_ignore_ascii_case(x)) {
+  if !is_media_ext(ext) {
     return None;
   }
   if p.is_file() {
