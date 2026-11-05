@@ -1209,10 +1209,10 @@ export function panelNode(view) {
   if (!ring) {
     kids.push({ type: 'divider' })
     kids.push({ type: 'text', value: `第一次使用「${label}」：设一把主密码`, variant: 'body' })
-    kids.push({ type: 'input', bind: B.pw1, placeholder: '主密码（至少 8 位）' })
-    kids.push({ type: 'input', bind: B.pw2, placeholder: '再输一次' })
+    kids.push({ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码（至少 8 位）' })
+    kids.push({ type: 'input', bind: B.pw2, secret: true, placeholder: '再输一次' })
     kids.push({ type: 'input', bind: B.question, placeholder: '恢复问题（可留空，只用恢复码）' })
-    kids.push({ type: 'input', bind: B.answer, placeholder: '恢复答案（留空则不设问题）' })
+    kids.push({ type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案（留空则不设问题）' })
     kids.push({
       type: 'row',
       align: 'center',
@@ -1243,7 +1243,7 @@ export function panelNode(view) {
           : []),
       ],
     })
-    kids.push({ type: 'input', bind: B.pw1, placeholder: '主密码' })
+    kids.push({ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' })
     if (!hasBiometric && otherBiometrics > 0) {
       kids.push({
         type: 'text',
@@ -1276,11 +1276,11 @@ export function panelNode(view) {
     })
     kids.push({ type: 'divider' })
     kids.push({ type: 'text', value: '忘记主密码时：', variant: 'caption', tone: 'muted' })
-    if (hasRecoveryQuestion) kids.push({ type: 'input', bind: B.answer, placeholder: '恢复答案' })
-    if (hasRecoveryCode) kids.push({ type: 'input', bind: B.code, placeholder: '恢复码（形如 ABCD-EFGH-…）' })
+    if (hasRecoveryQuestion) kids.push({ type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案' })
+    if (hasRecoveryCode) kids.push({ type: 'input', bind: B.code, secret: true, placeholder: '恢复码（形如 ABCD-EFGH-…）' })
     if (recoveredPending) {
       kids.push({ type: 'text', value: '✅ 恢复验证通过 —— 设一把新主密码', variant: 'caption', tone: 'success' })
-      kids.push({ type: 'input', bind: B.newPw, placeholder: '新主密码（至少 8 位）' })
+      kids.push({ type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' })
       kids.push({ type: 'button', label: '重设主密码', onClick: 'security.reset-after-recovery' })
     }
   } else {
@@ -1307,8 +1307,8 @@ export function panelNode(view) {
     })
     kids.push({ type: 'divider' })
     kids.push({ type: 'text', value: '换主密码（数据密文一个字节都不会动）：', variant: 'caption', tone: 'muted' })
-    kids.push({ type: 'input', bind: B.oldPw, placeholder: '当前主密码' })
-    kids.push({ type: 'input', bind: B.newPw, placeholder: '新主密码（至少 8 位）' })
+    kids.push({ type: 'input', bind: B.oldPw, secret: true, placeholder: '当前主密码' })
+    kids.push({ type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' })
     kids.push({ type: 'button', label: '换主密码', onClick: 'security.change-password', variant: 'ghost' })
   }
 

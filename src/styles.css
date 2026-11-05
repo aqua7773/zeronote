@@ -1857,6 +1857,49 @@ body.is-resizing * {
 .zn-ui-input:focus,
 .zn-ui-select:focus { outline: none; border-color: var(--zn-accent); }
 
+/* 密码框 + 眼睛按钮（2026-11-05 用户要求：所有密码输入都能点击显示 / 隐藏）。
+   按钮绝对定位在输入框右内侧，输入框留出右侧内边距，避免文字压到眼睛上。 */
+.zn-ui-secret {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+}
+
+.zn-ui-secret .zn-ui-input {
+  padding-right: 30px;
+}
+
+.zn-ui-secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--zn-radius-sm);
+  background: transparent;
+  font-size: var(--zn-text-sm);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.zn-ui-secret-toggle:hover,
+.zn-ui-secret-toggle.is-shown {
+  background: var(--zn-bg-hover);
+  opacity: 1;
+}
+
+.zn-ui-secret-toggle:focus-visible {
+  outline: 1px solid var(--zn-accent);
+}
+
 .zn-ui-list {
   display: flex;
   flex-direction: column;

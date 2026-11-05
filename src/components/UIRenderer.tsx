@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type * as React from 'react'
 import type { UIGap, UIListItem, UITableRow, UINode } from '../kernel/contract'
 
@@ -48,6 +49,55 @@ function gapClass(gap?: UIGap): string {
 /** 列表项：要么是裸 UINode（旧写法，退化为下标 key），要么是 `{key, node}` */
 function isWrappedItem(it: UIListItem): it is { key: string; node: UINode } {
   return typeof it === 'object' && it !== null && 'node' in it
+}
+
+/**
+ * 密码框：`secret: true` 的 input 渲染成**眼睛按钮 + 可切换的密码框**。
+ *
+ * 为什么要独立组件：显示/隐藏是**纯 UI 关注点**，不该进插件 state
+ * （否则插件得为每个密码字段各写一份 setState，正是「同一逻辑多处实现」）。
+ * 切换是「点击保持」（需求原话「点击显示 / 隐藏」），按钮 `onMouseDown` 阻止默认
+ * 以免抢走输入框焦点；`onClick` 里不派发任何命令 ⇒ 不会顺手提交表单。
+ */
+function SecretInput({
+  node,
+  ctx,
+  inputKey,
+}: {
+  node: Extract<UINode, { type: 'input' }>
+  ctx: RenderCtx
+  inputKey: React.Key
+}): React.JSX.Element {
+  const [shown, setShown] = useState(false)
+  return (
+    <div key={inputKey} className="zn-ui-secret">
+      <input
+        type={shown ? 'text' : 'password'}
+        className="zn-ui-input"
+        value={asText(ctx.state[node.bind])}
+        placeholder={node.placeholder}
+        autoComplete={node.secret ? 'off' : undefined}
+        onChange={(e) => ctx.onStateChange(node.bind, e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && node.onSubmit) {
+            ctx.onAction(node.onSubmit, { value: e.currentTarget.value })
+          }
+        }}
+      />
+      <button
+        type="button"
+        className={`zn-ui-secret-toggle${shown ? ' is-shown' : ''}`}
+        aria-label={shown ? '隐藏密码' : '显示密码'}
+        aria-pressed={shown}
+        title={shown ? '隐藏密码' : '显示密码'}
+        // 保住输入框焦点与光标位置：按下去不抢焦点
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setShown((v) => !v)}
+      >
+        {shown ? '🙈' : '👁'}
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -251,14 +301,15 @@ function renderNodeUnsafe(node: UINode, key: React.Key, ctx: RenderCtx): React.J
 
     case 'input': {
       const submitId = node.onSubmit
+      // 密码框走带眼睛按钮的 SecretInput（点击切换明文 / 圆点）
+      if (node.secret) return <SecretInput key={key} node={node} ctx={ctx} inputKey={key} />
       return (
         <input
           key={key}
-          type={node.secret ? 'password' : 'text'}
+          type="text"
           className="zn-ui-input"
           value={asText(ctx.state[node.bind])}
           placeholder={node.placeholder}
-          autoComplete={node.secret ? 'off' : undefined}
           onChange={(e) => ctx.onStateChange(node.bind, e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && submitId) {
