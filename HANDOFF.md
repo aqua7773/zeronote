@@ -259,6 +259,17 @@ revision: 173.375
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
 
+> ## 📌 rev173.375（2026-11-05 · 真人测试12 #2/#3 · 密码库）
+
+> **内容**：① **平台可删** —— 平台行加「删除」，点一次切成确认态（「它下面的 N 个账号会一起进回收站（保留 7 天，可恢复）」），确认后整包进回收站；数据层 `platform.deletedAt` + `trashPlatform/restorePlatform/purgePlatform` + `activePlatforms()` 一处过滤；回收站按 `kind` 区分平台 / 账号，整平台只占**一条**（`purgeExpired` 整包算 1 条）。
+> ② **卡片化** —— 平台大卡片 / 账号小卡片（收起只看账号名，展开才显示密码与备注），新增 `examples/secrets/styles.css`（manifest `styles`），颜色全走 `--zn-*` 令牌；标题靠左、操作按钮靠右（`sx-row-between`）。
+> ③ **按住 👁 显示密码** —— 内核 `UINode.button` 新增 `onDown`/`onUp`，`stack`/`row`/`button` 新增 `cssClass`；松开立刻收起（不再 15 秒残留）。
+> ④ 细节收口：删除按钮去掉红描边（`sx-danger-ghost`）、展开箭头放大（`sx-caret`）、密码/备注的「复制」同列。
+
+> **证据**：`verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 102 · vitest 1897 · 质量门 8/8）；CDP 实测 8 步（建环 / 解锁 / 建平台 / 2 账号 / 展开 / 按住显示 / 删平台二次确认 / 回收站整包恢复），截图 `_shots/rt12-04…rt12-14-*.png`；测试库 `_tmp-vault-rt12`（主密码只用于该库）。
+
+> **未做**：手机真机复验；市场重打包 `secrets`（仍 0.1.2）；需求 #1 私密笔记改造**只出了方案**（[docs/私密笔记-改造方案-2026-11-05.md](docs/私密笔记-改造方案-2026-11-05.md)），代码未动 —— 本会话在写内核原语前达到工具调用硬线。
+
 > ## 📌 rev173.374（2026-11-04 · 发版 0.9.30）
 
 > **内容**（0.9.29 之后的三处修复，rev173.368 / 173.369 / 173.373）：① 插件市场安装确认框显示
