@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.379
-更新时间: 2026-11-05 · 最新 rev173.379（**dev 与 release 可同时开**：dev 用独立 identifier `com.aqua.zeronote.dev`，数据目录 / 插件 store / 单实例锁全部与 release 隔离）· rev173.378（所有密码框加眼睛按钮）· rev173.377（密码库平台卡按钮与平台名同一行）
+revision: 173.380
+更新时间: 2026-11-05 · 最新 rev173.380（**同步测试环境定型**：dev 测试库 `_tmp-vault-rt12` + 坚果云目录 `zeronote_test`，账号密码记进 01 分册 §6 与本机 `_tmp\凭据-测试同步.md`）· rev173.379（dev 与 release 可同时开）· rev173.378（密码框眼睛按钮）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.379
 
 | rev | 内容 |
 |---|---|
+| rev173.380 | 2026-11-05 · **同步测试环境定型（用户要求「把测试库和账号密码记住，同步测试都用这个库」）**：① dev 窗口切到测试库 `<仓库>\_tmp-vault-rt12`（写 `localhost:1420` 的 `localStorage['zeronote.vault']`，因为 dev 是独立 WebView2 profile、空 localStorage）；② dev 的 sync 插件设置写成 WebDAV `https://dav.jianguoyun.com/dav/` · 账号 `17777253753@163.com` · 目录 **`zeronote_test`** · 附件 relay（只写进了 `%APPDATA%\com.aqua.zeronote.dev` 那份 store，release 的设置没动）；③ 密码通过内核 `secret_set('sync.webdav.password', …)` 写进 Windows 凭据库（不进仓库、不进 store.json）；④ **点「测试连接」实测「连接正常」（23:55:53）**，顺带在真机上看到新内核的眼睛按钮。**记住的位置**：`docs/handoff/01-环境与设备.md` §6（表格，只记账号/目录/凭据键）+ §3.1（dev 环境现状）、`docs/handoff/06-用户拍板与禁忌.md` §3（红线：同步测试固定这套）、明文副本 `_tmp\凭据-测试同步.md`（`_tmp/` 已被 gitignore）。**未做**：实跑一轮「立即同步」验证上传下载（只验到连接）；⚠️ 凭据键按 Windows 用户存，**dev 与 release 共用同一条密码**（地址/目录是每身份一份）。 |
 | rev173.379 | 2026-11-05 · **dev 与 release 可同时开（开发环境隔离）**：桌面 `tauri-plugin-single-instance`（`src-tauri/src/lib.rs:4553`）让 dev 与 release 抢同一把锁（identifier 都是 `com.aqua.zeronote`），第二个启动的只转发命令行参数就退出 ⇒「以为在 release 上，其实前台是 dev」。现在 dev 走叠加配置 `src-tauri/tauri.dev.conf.json`（`{"identifier": "com.aqua.zeronote.dev"}`），`dev.cmd:18` 改成 `pnpm tauri dev --config src-tauri/tauri.dev.conf.json`（CLI 一手确认 `--config` 是**合并**语义）。隔离：单实例锁 / `%APPDATA%\com.aqua.zeronote.dev` 数据目录 / WebView2 profile / 插件目录 / **插件 store（含 sync 配置与 `baseline.v1`）**；插件连同 `trusted-keys.json` 已复制到新目录。**未做/未验**：重启 dev 后实测双开（重启交用户手动）；首次启动 localStorage 空 ⇒ 需重选库 `_tmp-vault-rt12`。说明写进 `docs/handoff/01-环境与设备.md` §3.1。 |
 | rev173.378 | 2026-11-05 · **所有密码框加「点击显示 / 隐藏」眼睛按钮（用户 2026-11-05 要求）**：① **内核**（`src/components/UIRenderer.tsx`）—— `input.secret: true` 不再只是 `type="password"`，改为渲染独立组件 `SecretInput`：框内右侧 👁 按钮**点击切换**明文 / 圆点（需求原话「点击显示 / 隐藏」，不是按住），`onMouseDown preventDefault` 保住输入框焦点与光标，`onClick` 不派发任何命令 ⇒ 不会顺手提交表单；显示/隐藏状态由宿主 `useState` 持有，**插件不为此写 state**（避免「同一逻辑每个插件各写一套」）。② **样式**（`src/styles.css`）：`.zn-ui-secret` 相对定位容器 + 输入框右内边距 30px + `.zn-ui-secret-toggle`（颜色只走 `--zn-*` 令牌，`is-shown` 时加背景）。③ **`security` 补标 9 处 `secret: true`**（`examples/security/index.js`）：建环 pw1/pw2、解锁 pw1、换主密码 oldPw/newPw、恢复答案 ×2、恢复码 —— 加上原有 secrets / private-notes / sync / ai，五个插件口径一致。④ **契约文档**（`docs/内核契约-v0.2.md` UINode.input 注释）+ `contract.ts` 注释同步。**证据**：`scripts/verify.ps1` 全绿（tsc 0 错误 · oxlint 4 warnings · cargo 102 · **vitest 1911**（新增 2 条）· 质量门 8/8，23:17:31）；新单测 `tests/ui-secret-input.test.tsx`（点击切换 type / 明文仍可见 / 再点回圆点 / 普通输入无按钮）；**G2 桌面 dev**（`_tmp-vault-rt12`）CDP 实测：安全面板出现 2 个 👁 → 输入 `test-pass-1234` → 点 👁 变明文（aria-label 变「隐藏密码」）→ 再点回圆点，截图 `_shots/rev173378-security-eye-closed.png` · `rev173378-security-eye-shown.png`。**未验**：手机（手机当前跑的是内置资源包 `tauri.localhost`，内核改动不进去；要下次发版才生效；手机插件目录已恢复原状）。**dev 环境操作**：`%APPDATA%\com.aqua.zeronote\.zn\plugins\security\` 的 `index.js` 已同步为 examples 新版、`signature.json` 改名 `.bak`（unsigned 照常加载，开发同步方式，可回退），旧文件备份 `_tmp/backup-security-global-2026-11-05/`。**待办（发版前）**：`security` 市场包仍 0.2.2，需打 0.2.3 并更新 `market/index.json`。 |
 | rev173.377 | 2026-11-05 · **密码库平台卡：操作按钮与平台名同一行（用户手机反馈）**：`examples/secrets/index.js` 的 `platformCard` 外层标题行去掉 `wrap`，左侧信息块 `.sx-platform-head`（`flex:1; min-width:0`）可内部折行、右侧 `.sx-platform-actions` 保持单行；`styles.css` 加窄屏（≤480px）规则收紧按钮内边距与字号。**验证**：`tests/secrets.test.ts + kernel-secrets.test.ts` 42 条通过、`tsc` 0；手机插件已同步（manifest sha256 重算、签名 `.bak`）但**未拿到布局截图** —— 手机上密码库解锁报「主密码不对」（同密码此前成功解锁过，怀疑是 CDP 往密码框输入的焦点/受控值问题，待下轮用真实手指或重设密码再验）。 |
@@ -262,6 +263,28 @@ revision: 173.379
 | rev173.127 | 2026-10-25 · **`sync-webdav` 同款附件方向修复**（rev173.126 在 S3/Git 上修过的那套）：附件段改成**先拉后推** + `mtime(本地) > at(远端)` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）+ `preloaded` 复用「算指纹时读到的字节」（先拉后推后一轮要看两次，不复用就双倍 IO）· 顺带修既有 bug：下载循环 `localFp = await localFpOf(local)` 拿的是 `{fp,bytes}` **对象**、与字符串永不相等 ⇒「本地同版」永远判成要拉（以前靠 `If-None-Match` 304 兜住、不多传字节但每轮都发请求）· 新增双设备单测：A 传 v1 → B 拉 → B 换 v2 上传 → A 再同步 ⇒ 本地 v2 / 远端 v2 / **该轮没有 `PUT 图.png`** · 单测 906 → **907** · verify 6/6 · ⚠️ 没做真机（WebDAV 要自建 DAV 桩），证据是单测 · 坑：内核 `net.fetch` 的 `text()/bytes()` 是**同步**方法，mock 写成 `async` 会让 `normalizeManifest` 收到 Promise ⇒ 空表且不报错 |
 | rev173.126 | 2026-10-25 · **S3 / Git 补附件同步**（此前只有 WebDAV 有）：两个后端各加 `syncAttachments` —— off / relay（中转，对端 ack 后删云端）/ full（永久），与 WebDAV 同协议同语义 · 内容级判定 `needsAttachmentPull` + `mtime`+`size` 指纹缓存 + 面板「附件」耗时 badge 与模式下拉 + 新命令 `*.set-attachments` · `sync-s3` 0.4.0 / `sync-git` 0.5.0（预装数不变）· **真机验收：S3（rclone serve s3）15/15 · Git（真实 GitHub 私有仓库）13/13** · 同轮抓到并修掉 **5 个静默 bug**：① S3 前缀非空时 `test()`/`list()` 把 prefix 拼进路径 ⇒ `/桶/<前缀>` 404 ② S3 `list()` 返回含前缀的 key ⇒ 清理时前缀拼两次（远端残留）③ Git `normalizeManifest` 恒丢 `attachments` ⇒ 下载循环空转、零日志 ④ GitHub Contents 的 `content` 对二进制有损（8 字节 PNG 的 `size` 仍 8，但 `content` 解码成 12 字节，`0x89` 变 U+FFFD）⇒ `readBytes` 改走 `Accept: application/vnd.github.raw` ⑤ 附件同步**先推后拉** ⇒ 双端互相覆盖（后同步者赢）⇒ 改先拉后推 + `mtime > at` 方向判定 + 条目记 `mode`（按上传方模式取路径，混合 full/relay 才找得到文件）· 单测 895 → **906** · ⚠️ `sync-webdav` 仍有第 ⑤ 条同款问题；S3 无 `If-Match`；Gitee 未实测 |
 | rev173.125 | 2026-10-25 · **S3 后端真机验收（真实 `rclone serve s3`）**：MinIO 二进制 410（社区版不再直供）、Cloudflare R2 注册要绑卡 ⇒ 改用 **rclone 1.75.1** 当本机 S3 服务（`rclone serve s3 --auth-key k,s <目录>`，**自带 SigV4 验签**，桶名 = 数据目录下的子目录）· 下载踩坑：GitHub 直连只有 **61 KB/s**、`ghfast.top` 直接超时，**`downloads.rclone.org` 有 384 KB/s** ⇒ 走官方下载站 · 装到 `Apps\Portable\rclone\`，已进 `_View\网络与传输\` 与 `_软件清单.md`（114 → **115** 项）· **13 项全过**（对端是真实 S3 实现，不是桩）：test / 首推 2 篇 / 对端改 ⇒ 下载 1 / 双端改不同行 ⇒ 合并（两头一致）/ 双端改同一行 ⇒ 副本 = 本机版 / 面板 `用时 30 毫秒 · manifest 7 毫秒 · 笔记 23 毫秒` / 清理干净 · 踩坑：**桶目录必须先存在**（否则 `list` 404）、`--dir-cache-time 0s` 才能立刻看到新建目录 · **无 ZeroNote 代码改动** |
+
+> ## 📌 rev173.380（2026-11-05 · 同步测试环境定型）
+
+> **用户要求**：dev 选测试库；同步配置坚果云账号、目录 `zeronote_test`；**把测试库和账号密码记住，同步测试都用这个库**。
+
+> **做法**：① dev 窗口切到 `_tmp-vault-rt12` —— dev 是新的 WebView2 profile，localStorage 空，
+> 用 `localStorage.setItem('zeronote.vault', …)` 写进去（等价于点「选择笔记库」）。
+> ② 只改 dev 的 sync store（`%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\sync\store.json`）：
+> backend=webdav、baseUrl=`https://dav.jianguoyun.com/dav/`、username、root=`zeronote_test`、attachments=relay。
+> release 那份 store 没动。③ 密码不进任何文件：走内核 `secret_set('sync.webdav.password', …)`
+> 写 Windows 凭据库（源码 `src-tauri/src/net.rs:365`）。④ 面板点「测试连接」→ 23:55:53「连接正常」。
+
+> **证据**：CDP 实测（dev 窗口 `localhost:1420`）—— `localStorage['zeronote.vault']` 已指向 `_tmp-vault-rt12`，
+> 页面标题栏显示该库名；sync store 读回 `{backend:webdav, root:zeronote_test, username:17777253753@163.com}`；
+> 面板「测试连接」结果 `2026/11/5 23:55:53 · 连接正常`；同屏可见密码框右侧 👁（rev173.378 的新内核在 dev 生效）。
+> `verify.ps1` 与 `check-docs` 本轮收尾时重跑（见提交）。
+
+> **记忆落点**：01 分册 §6 表格 + §3.1（dev 环境现状）、06 分册 §3（红线：同步测试固定这套）、
+> 明文副本 `_tmp\凭据-测试同步.md`（`_tmp/` 被 gitignore，不入库）。
+
+> **未做**：没跑「立即同步」（只验到连接）；⚠️ 凭据键 `sync.webdav.password` 按 Windows 用户存，
+> dev 与 release **共用同一条密码**，换密码两边一起变；地址/目录/附件是每身份一份。
 
 > ## 📌 rev173.379（2026-11-05 · dev 与 release 可同时开）
 
