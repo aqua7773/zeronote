@@ -341,26 +341,69 @@ pub async fn net_request(req: NetRequest) -> Result<NetResponse, String> {
 
 /* ───────────── 系统凭据库（同步插件的账号密码 · rev173.106） ───────────── */
 
-/// 凭据的 service 名 = bundle identifier。
+/// 凭据的 service 名 —— **主身份就是 bundle identifier**。
 ///
 /// 用 identifier 而不是自定义字符串：Windows 凭据管理器里会显示成
 /// `com.aqua.zeronote`，用户要清理时找得到；换 App identifier 也不会串。
+///
+/// rev173.381（2026-11-05 用户要求「dev 与 release 完全隔离」）：
+/// 开发身份（`tauri.dev.conf.json` 把 identifier 改成 `com.aqua.zeronote.dev`）过去仍读同一个
+/// service ⇒ 在 dev 里改密码/点「断开连接」会**连 release 的凭据一起动**。现在按 identifier 分流：
+/// 主身份**保持原名**（已存的密码不用迁移），其它身份用自己的 identifier。
 const SECRET_SERVICE: &str = "com.aqua.zeronote";
 
-fn secret_store() -> tauri_plugin_keyring_store::KeyringStore {
+/// 运行期确定的 service 名（`setup` 里按 `app.config().identifier` 写入一次）
+static SECRET_SERVICE_DYN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 纯函数：identifier → 凭据库 service 名。
+///
+/// 主身份与空串都退化为主身份 —— 后者是「拿不到 identifier」的兜底，保持老行为。
+pub(crate) fn secret_service_for(identifier: &str) -> String {
+  let id = identifier.trim();
+  if id.is_empty() || id == SECRET_SERVICE {
+    SECRET_SERVICE.to_string()
+  } else {
+    id.to_string()
+  }
+}
+
+/// 在 `setup` 里调用一次；之后所有凭据读写都走当前身份的 service。
+pub fn init_secret_service(identifier: &str) {
+  let _ = SECRET_SERVICE_DYN.set(secret_service_for(identifier));
+}
+
+fn service_name() -> &'static str {
+  SECRET_SERVICE_DYN.get().map(|s| s.as_str()).unwrap_or(SECRET_SERVICE)
+}
+
+pub(crate) fn secret_store() -> tauri_plugin_keyring_store::KeyringStore {
   // `new` 是纯结构体构造（首次读写才碰系统库），不缓存也无所谓开销
+  tauri_plugin_keyring_store::KeyringStore::new(service_name())
+}
+
+/// 读一条凭据：**先读当前身份的 service，空则回落到主身份的 service**。
+///
+/// 回落只为「开发身份无缝继承已经配置过的密码」—— 写永远写自己那份、删也只删自己那份，
+/// 因此 dev 不会改到 release 的凭据，也不会因为 dev 没配过就报「没配置」。
+pub(crate) fn read_secret(account: &str) -> Result<Option<String>, String> {
+  let own = secret_store()
+    .get_password(account)
+    .map_err(|e| format!("读取系统凭据失败（{account}）：{e}"))?;
+  if own.is_some() || service_name() == SECRET_SERVICE {
+    return Ok(own);
+  }
   tauri_plugin_keyring_store::KeyringStore::new(SECRET_SERVICE)
+    .get_password(account)
+    .map_err(|e| format!("读取系统凭据失败（{account}）：{e}"))
 }
 
 /// 读一条凭据。**没存过 ⇒ `Ok(None)`**（不是报错）—— 插件靠这个判断「还没配置」。
 #[tauri::command]
 pub fn secret_get(account: String) -> Result<Option<String>, String> {
-  secret_store()
-    .get_password(&account)
-    .map_err(|e| format!("读取系统凭据失败（{account}）：{e}"))
+  read_secret(&account)
 }
 
-/// 写一条凭据（同名覆盖）。
+/// 写一条凭据（同名覆盖）—— **只写当前身份那一份**。
 #[tauri::command]
 pub fn secret_set(account: String, secret: String) -> Result<(), String> {
   secret_store()
@@ -388,6 +431,33 @@ pub fn secret_delete(account: String) -> Result<(), String> {
 mod tests {
   use super::*;
   use std::io::{Read, Write};
+
+  /// rev173.381：主身份的 service 名必须**一个字都不变** —— 否则用户已存的同步密码会「消失」。
+  #[test]
+  fn secret_service_keeps_primary_identity() {
+    assert_eq!(secret_service_for("com.aqua.zeronote"), "com.aqua.zeronote");
+    // 拿不到 identifier 时退化为主身份（老行为），不要变成空字符串
+    assert_eq!(secret_service_for(""), "com.aqua.zeronote");
+    assert_eq!(secret_service_for("  "), "com.aqua.zeronote");
+  }
+
+  /// 开发身份用**自己的** service：这样 dev 改密码 / 断开连接不会碰到 release 的凭据。
+  #[test]
+  fn secret_service_splits_dev_identity() {
+    assert_eq!(
+      secret_service_for("com.aqua.zeronote.dev"),
+      "com.aqua.zeronote.dev"
+    );
+    assert_eq!(
+      secret_service_for("  com.aqua.zeronote.dev  "),
+      "com.aqua.zeronote.dev"
+    );
+    // 前缀相同但不是同一个身份的，也必须分开（不能只按 starts_with 判断）
+    assert_eq!(
+      secret_service_for("com.aqua.zeronote.release"),
+      "com.aqua.zeronote.release"
+    );
+  }
 
   /// 起一个只接一次的本地 HTTP 服务器；返回 (URL, 服务器线程)。
   /// 服务器线程读出完整请求头后回 200，并把**收到的请求**交回来。

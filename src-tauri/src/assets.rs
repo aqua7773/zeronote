@@ -136,25 +136,24 @@ fn gen_device_id() -> String {
 
 /* ───────────── 凭据（WebDAV 密码）───────────── */
 
-fn secret_store() -> tauri_plugin_keyring_store::KeyringStore {
-  tauri_plugin_keyring_store::KeyringStore::new("com.aqua.zeronote")
-}
+/*
+ * rev173.381：这里原来**自己又建了一份** `KeyringStore::new("com.aqua.zeronote")`
+ * —— 同一逻辑两份实现，改 service 名时必漏一处（§8 同一逻辑多处实现）。
+ * 现在统一走 `net` 的那一份：service 名按 identifier 分流，读还带主身份回落。
+ */
 
 fn load_webdav_password() -> Option<String> {
-  secret_store()
-    .get_password(WEBDAV_SECRET_ACCOUNT)
-    .ok()
-    .flatten()
+  crate::net::read_secret(WEBDAV_SECRET_ACCOUNT).ok().flatten()
 }
 
 fn save_webdav_password(pw: &str) -> Result<(), String> {
-  secret_store()
+  crate::net::secret_store()
     .set_password(WEBDAV_SECRET_ACCOUNT, pw)
     .map_err(|e| format!("写入系统凭据失败：{e}"))
 }
 
 fn clear_webdav_password() {
-  let _ = secret_store().delete(WEBDAV_SECRET_ACCOUNT);
+  let _ = crate::net::secret_store().delete(WEBDAV_SECRET_ACCOUNT);
 }
 
 /* ───────────── 云端临时区：两种后端 ───────────── */

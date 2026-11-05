@@ -4602,6 +4602,9 @@ pub fn run() {
     .plugin(tauri_plugin_apk_install::init())
     .plugin(tauri_plugin_androidperm::init())
     .setup(|app| {
+      // rev173.381：凭据库 service 名按 identifier 分流（dev 用 com.aqua.zeronote.dev），
+      // `setup` 是唯一早于任何插件/命令的时机，必须在这里初始化。
+      crate::net::init_secret_service(&app.config().identifier);
       app.manage(OpenedUrls::default());
       // 文件监听表（rev173.59）：每库一个 watcher，引用计数按窗口共享
       app.manage(FsWatchState::default());
