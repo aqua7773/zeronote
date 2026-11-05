@@ -987,15 +987,18 @@ function platformCard(platform, accounts) {
       type: 'row',
       gap: 'sm',
       align: 'center',
-      wrap: true,
       /* 标题 / 徽标靠左、操作按钮靠右（真人测试12 复看：按钮原先紧贴标题，视觉上挤在一起） */
-      cssClass: 'sx-row-between',
+      /* 2026-11-05 用户要求（手机）：操作按钮**与平台名称同一行**，不换行。
+         ⇒ 去掉 `wrap`；左侧 `.sx-platform-head` 可内部折行，右侧 `.sx-platform-actions`
+         保持单行（窄屏由 styles.css 收紧按钮内边距）。 */
+      cssClass: 'sx-row-between sx-platform-head-row',
       children: [
         {
           type: 'row',
           gap: 'sm',
           align: 'center',
           wrap: true,
+          cssClass: 'sx-platform-head',
           children: [
             textNode(platform.name, 'title'),
             { type: 'badge', text: `${accounts.length} 个账号`, tone: 'default' },
@@ -1006,6 +1009,7 @@ function platformCard(platform, accounts) {
           type: 'row',
           gap: 'sm',
           align: 'center',
+          cssClass: 'sx-platform-actions',
           children: [
             btn('＋账号', 'secrets.new-account', { variant: 'ghost', payload: { platformId: platform.id } }),
             btn('修改', 'secrets.edit-platform', { variant: 'ghost', payload: { platformId: platform.id } }),
