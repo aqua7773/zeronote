@@ -298,7 +298,15 @@ revision: 173.376
 > 截图 `_shots/rt12-private-open-from-tree.png`（解锁后的分组 + 从树里打开的编辑器内容）·
 > `_shots/rt12-private-locked.png`（锁定后分组消失）。
 
-> **未做**：第二批（搜索注入 / 时间流卡片 / 拖入移出 / 删面板列表视图 / 市场重打包 `private-notes`）；手机端插件未同步（仍是 0.2.3）。
+> **未做**：第二批（搜索注入 / 时间流卡片 / 拖入移出 / 删面板列表视图 / 市场重打包 `private-notes`）。
+
+> **手机 G2 也已验（Redmi `33b676f6` · `com.aqua.zeronote.debug` · 库 `/storage/emulated/0/Documents/ZeroNote`，测试库）**：
+> 插件同步进手机全局目录（`/data/user/0/com.aqua.zeronote.debug/.zn/plugins/private-notes/`，重算 manifest sha256 + 签名改 `.bak`）→
+> 手机 UI 建 notes 环（测试库原来的空环已按用户批准删除并备份 `_tmp/phone-ring-notes-backup-2026-11-05.json`）→
+> 私密面板解锁 → 新建 → 手机文件树抽屉出现「▾ 🔒 私密笔记 1」→ 编辑「手机私密测试 / 第二行」→ 自动保存
+> （`/storage/emulated/0/Documents/ZeroNote/.zn/private/notes/*.zn` **96 B** 密文）→ 标题回填 → 开关锁定 ⇒ 分组消失 +
+> 编辑器关闭 → `location.reload()` ⇒ **默认锁定、无分组、插件正常加载**。
+> 截图 `_shots/phone-private-new.png` · `_shots/phone-private-locked.png`。
 > **dev 环境操作**：全局插件目录的 `signature.json` 已改名为 `.bak`（入口 sha256 重算后签名失效会**拒载**，
 > 这是开发同步插件的方式；装官方包后恢复）。
 
