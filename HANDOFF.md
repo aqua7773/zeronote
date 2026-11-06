@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.391
-更新时间: 2026-11-06 · 最新 rev173.391（**重打包 private-notes 0.2.4 / secrets 0.1.3 发市** —— 市场包内容落后于源码导致「版本最新但功能旧」）· rev173.390（更正 388）
+revision: 173.392
+更新时间: 2026-11-06 · 最新 rev173.392（**质量门第 9 项：市场包 ↔ 源码逐字节一致**；首跑抓到 import-export 0.2.5 也是旧包 → 0.2.6）· rev173.391（重打 private-notes 0.2.4 / secrets 0.1.3 发市）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.391
 
 | rev | 内容 |
 |---|---|
+| rev173.392 | 2026-11-06 · **新增质量门「市场包 ↔ 源码一致」（第 9 门）**：rev173.391 暴露的「版本号相同、包内是旧代码」不能靠人记 —— 新 `scripts/check-pack-sync.mjs`：遍历 `market/index.json`，解出 `market/packs/<id>-<ver>.znp`（JSON 包），把包内 `files` 逐个与 `examples/<id>/` 同名文件**逐字节比较**，并校验 `manifest.entry` 在包内存在。**首跑立刻抓到第二处**：`import-export@0.2.5` 包内 `index.js` 67,310 B vs 源码 67,475 B（0.9.28 改了源码没重打）⇒ 升 **0.2.6** 重打包签名 + `gen-market --write`。现在门输出 `✅ 16 个插件 · 比较 24 个文件`。**挂载**：`scripts/check-gates.mjs` 的 gates 加 `['pack-sync', 'scripts/check-pack-sync.mjs']`，质量门 8 → **9 项**；`HANDOFF-CARD` / `03-当前状态` / `07-术语与编号` / `ROADMAP §4.1` 同步改「9/9」。**证据**：`node scripts/check-gates.mjs` → `✅ 质量门：9/9 通过`；`check-docs` 全绿 |
 | rev173.391 | 2026-11-06 · **重打包 private-notes / secrets 发市（修「最新版本号、旧代码」）**：用户报「release 机装 0.10.0 + 插件都是最新，私密文件夹仍是独立面板、密码库没新逻辑」。**根因 = 市场包落后于源码**：`market/packs/private-notes-0.2.3.znp` 内 `index.js` 41,763 B、`registerSource` **0 处**（11-04 打的旧包）；`examples/private-notes/index.js` 已 56,212 B、含 2 处（rev173.376 改造）。`secrets` 同样（包 43,273 vs 源码 65,768）。**做法**：版本升 `private-notes 0.2.4` / `secrets 0.1.3` → `pack-plugin --key aqua-2026` → `gen-market --write`（16 条）。新包：`private-notes-0.2.4.znp` 43,856 B（`registerSource` 2）· `secrets-0.1.3.znp` 53,774 B（`hasRingPart` 2），均带签名。**验证**：`verify-trust` 74/75 验签通过 · `vitest private-notes + secrets` 70 条全过。**用户动作**：手机/桌面插件中心更新这两个插件，再**完全退出应用重开**（内核不会自动重载插件） |
 | rev173.390 | 2026-11-06 · **更正 rev173.388：密码库其实同步成功**（用户要求「复验」时发现）：远端布局 = `_zn/`（manifest / 回收站 / 中转区）+ `.zn/`（私有文件按本机路径镜像）。三个私有文件实测全在：`ZeroNote/.zn/security/vault.notes.json` 1113 B · `vault.secrets.json` 1116 B · `ZeroNote/.zn/secrets/secrets.zn` 15776 B，长度与本地一致。源码依据 `examples/sync/lib/core.cjs:65`（`MANIFEST_REL = '_zn/manifest.json'`）与 `:86`（`PRIVATE_FILES` 用 `.zn/…` 相对路径，`syncPrivate` 直接 `client.put(rel)`）。坚果云 PUT 实测：父目录不存在 ⇒ **409**；`_zn/` 下 ⇒ **201**（`_tmp/dav-probe.mjs`，探针已删）。⇒ 0.1.9 的同步一直正常；rev173.383 的「远端索引不实」现场很可能同样是只查 `_zn/` 的误判，其巡检修复无害、保留。**未改代码** |
 | rev173.389 | 2026-11-06 · **手机 G2 补验 0.10.0 + 「双端验收」写成硬规矩**（用户：「正常来说，双端验收都应该在发版前完成吧」→「写入，发版之前，除非版本改动仅涉及单端，否则均须双端验收通过」）：① **补验** —— `android-dev.cmd` 重编 dev 包（versionName **0.10.0**，Redmi `33b676f6`），CDP 直调内核命令：`import_attachment` 传库外 png ⇒ 返回 `附件/图片/acc-test.png`；传库外 `.toml` ⇒ 返回 `附件/其它/acc-test.toml`；`list_notes` 同时返回两条（`kind` 分别 `image` / **`file`**）；真机文件树显示「附件 → 其它 → acc-test .toml」「附件 → 图片 → acc-test .png」（无虚拟分组）。磁盘 `ls -R` 与截图 `_shots/rev173388-phone-tree.png` 双证。② **规矩写入 4 处** —— `04-授权与红线` §3（含反例：0.10.0 只过 G1+桌面 G2 就发了）、`02-发版与更新` 新增 §0.1、`06-用户拍板与禁忌` §2、`HANDOFF-CARD` §4 第 1 条子项：**发版前除非改动只涉及单端（HANDOFF 写明「仅桌面」/「仅 Android」），否则必须双端验收通过；禁止「先发版再补手机验收」，禁止拿「Rust 改动要新包」当发版理由** |
@@ -329,6 +330,29 @@ revision: 173.391
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.392（2026-11-06 · 质量门第 9 项：市场包 ↔ 源码一致）
+
+> **为什么需要**：rev173.391 的事故不是「忘改版本号」（`gen-market` 的索引门会抓到），
+> 而是**版本号相同、包内是旧代码**。索引门只看版本字符串，看不见包内容。
+
+> **新门**：`scripts/check-pack-sync.mjs` —— 遍历 `market/index.json`，解包 `market/packs/<id>-<ver>.znp`
+> （`.znp` 是 JSON：`{znp, manifest, files}`），把包内每个文件与 `examples/<id>/` 同名文件逐字节比较；
+> 另校验 `manifest.entry` 确实在包内。
+
+> **首跑结果**：抓到第二处同型问题 —— `import-export@0.2.5` 包内 `index.js` 67,310 B vs 源码 67,475 B
+> （0.9.28 改了源码没重打包）⇒ 版本升 **0.2.6**、重打包签名、`gen-market --write`。
+
+> **挂载**：`scripts/check-gates.mjs` 加 `['pack-sync', 'scripts/check-pack-sync.mjs']`，门数 8 → **9**。
+
+> **证据**：`node scripts/check-gates.mjs` → `✅ 质量门：9/9 通过`；`node scripts/check-pack-sync.mjs` →
+> `✅ 市场包与源码一致：16 个插件 · 比较 24 个文件`；`check-docs` 全绿。
+
+> **文档同步**：`HANDOFF-CARD` §2/§7 · `docs/handoff/03-当前状态.md` · `07-术语与编号.md` ·
+> `docs/ROADMAP.md` §4.1 全部改「质量门 9/9 / 9 项」。
+
+> **未做**：门只比「包内文件 vs 源码」；不检查源码里有没有**新增文件没进包**（`manifest.entry` 那条只兜入口）。
+> 若以后插件拆多文件，补一条「examples 目录比包内多出的文件」告警。
 
 > ## 📌 rev173.391（2026-11-06 · 重打包 private-notes / secrets 发市）
 

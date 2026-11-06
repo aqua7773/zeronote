@@ -132,7 +132,7 @@
 
 ## 4 每项固定收口
 
-1. `pwsh -File scripts\verify.ps1` 六步全过（tsc / oxlint src / cargo test / check-docs / vitest / 质量门 **7** 项：facts · 依赖方向 · 本地链接 · 功能目录 · 键位表 · 市场索引 · 外部条目审查）
+1. `pwsh -File scripts\verify.ps1` 六步全过（tsc / oxlint src / cargo test / check-docs / vitest / 质量门 **9** 项：facts · 依赖方向 · 本地链接 · 功能目录 · 键位表 · 市场索引 · **包与源码一致** · 外部条目审查 · 文档锚点）
 2. 实测证据：桌面 CDP（`tools/cdp.mjs`）；涉及手机的行为按需真机验证（`33b676f6`，只跑已装 dev 包）
 3. 单独提交 + `HANDOFF.md` 新 rev + `HANDOFF-CARD.md` 状态同步
 4. 改了文档就同步权威矩阵（`docs/README.md`）

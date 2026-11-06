@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.391 · 0.10.0 · 2026-11-06 |
+| rev / 版本 | rev173.392 · 0.10.0 · 2026-11-06 |
 | 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings（2026-11-06） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-06 · CHANGELOG 0.10.0 |
@@ -26,7 +26,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / rev | **0.10.0** · rev173.387 |
-| 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings · 质量门 8/8（2026-11-06） |
+| 测试基线 | vitest 1918 · cargo 105 · oxlint 4 warnings · 质量门 9/9（2026-11-06） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag `v0.10.0` 同步 |
 
@@ -95,5 +95,5 @@
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\verify.ps1
-# tsc 0 · oxlint src 0 error · cargo test --lib · check-docs · vitest · 质量门 8 项
+# tsc 0 · oxlint src 0 error · cargo test --lib · check-docs · vitest · 质量门 9 项
 ```

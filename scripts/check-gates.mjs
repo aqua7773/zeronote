@@ -18,6 +18,9 @@ const gates = [
   ['keys', 'scripts/gen-keys.mjs', '--check'],
   // rev173.143：市场索引与 examples 的 manifest 不能漂移（改了插件版本忘重新打包 = 红）
   ['market', 'scripts/gen-market.mjs'],
+  // rev173.391：索引版本号一致 ≠ 包内容新。逐字节比「包内文件 vs examples 源码」——
+  // 2026-11-06 真实事故：private-notes 0.2.3 包内是 11-04 的旧代码，用户从市场更新后仍是旧逻辑。
+  ['pack-sync', 'scripts/check-pack-sync.mjs'],
   // rev173.158：外部条目的格式门（**离线**，不联网）—— 脏 PR 一进来就红。
   // 联网那半（拉 entry / 下包核 sha256）只在人工审 PR 时跑，不进 CI：别让 CI 红在别人的服务器上。
   ['review', 'scripts/review-plugin.mjs'],
