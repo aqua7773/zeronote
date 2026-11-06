@@ -370,7 +370,11 @@ revision: 173.402
 > 在文件夹中打开 / 新建 / 时间流）✓；「详细…」显示**标题** + 密文大小 59 B + 时间（`entry_info` 对 `.zn/` **放行**，
 > §9.7 风险 3 已排）✓；「删除」→ 私密回收站 + 撤销条 → 点「撤销」→ 条目回来 ✓；F2 → 重命名对话框 → 树标题即时更新 ✓；
 > Delete → 删除 + 撤销条 ✓；组行「私密回收站」→ 1 篇 → 恢复 ✓；**手机**长按私密条目松手 = 同一套菜单
-> （触摸链 touchstart → 450ms → touchend 实测）✓。截图 `_shots/rev402-private-menu.png` · `_shots/rev402-phone-private-menu.png`。
+> （触摸链 touchstart → 450ms → touchend 实测）✓。截图 `_shots/rev402-private-menu.png` · `_shots/rev402-phone-private-menu.png` ·
+> `_shots/rev402-phone-card-menu.png`。
+> **手机卡片流**（`MobileNoteCards`）另验：长按私密卡 → 同一套菜单（打开 / 插件项 / 重命名 / 详细 / 移出 /
+> 回收站 / 删除，**无**在文件夹中打开 / 彻底删除）✓；点「删除」→ 撤销条「「私密测试内容」已移入私密回收站」→
+> 点「撤销」→ 卡片回来 ✓；空闲 3 分钟自动锁定 → 组与卡片一起消失 ✓。
 
 > ## 📌 rev173.401（2026-11-06 · 空私密分组不显示 / 第一篇拖不进去）
 
