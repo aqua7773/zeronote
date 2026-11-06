@@ -6599,22 +6599,29 @@ export default function App() {
         }}
       />
 
-      {undoDelete ? (
-        <div className="zn-undo" role="status">
-          <span>{undoDelete.length > 1 ? `${undoDelete.length} 篇已移入回收站` : '已移入回收站'}</span>
-          <button type="button" className="zn-undo-btn" onClick={() => void undoDeleteNote()}>
-            撤销
-          </button>
-        </div>
-      ) : sourceUndo ? (
-        /* 私密笔记删除的撤销条（rev173.402 · §9.9.2 拍板）：同一条 UI 通道，
-           撤销走插件 `private.restore`（从**私密回收站**拿回来，不是全局明文回收站）。 */
-        <div className="zn-undo" role="status">
-          <span>「{sourceUndo.title || '私密笔记'}」已移入私密回收站</span>
-          <button type="button" className="zn-undo-btn" onClick={() => void undoSourceDelete()}>
-            撤销
-          </button>
-        </div>
+      {undoDelete || sourceUndo ? (
+        <>
+          {undoDelete && (
+            <div className="zn-undo" role="status">
+              <span>{undoDelete.length > 1 ? `${undoDelete.length} 篇已移入回收站` : '已移入回收站'}</span>
+              <button type="button" className="zn-undo-btn" onClick={() => void undoDeleteNote()}>
+                撤销
+              </button>
+            </div>
+          )}
+          {sourceUndo && (
+            /* 私密笔记删除的撤销条（rev173.402 · §9.9.2 拍板）：同一条 UI 通道，
+               撤销走插件 `private.restore`（从**私密回收站**拿回来，不是全局明文回收站）。
+               rev173.403：与公开删除的撤销条**并存显示**（往上叠一格）—— 以前是三元二选一，
+               连着删公开 + 私密时私密那条被顶掉，5 秒内没有恢复入口。 */
+            <div className={`zn-undo${undoDelete ? ' is-stacked' : ''}`} role="status">
+              <span>「{sourceUndo.title || '私密笔记'}」已移入私密回收站</span>
+              <button type="button" className="zn-undo-btn" onClick={() => void undoSourceDelete()}>
+                撤销
+              </button>
+            </div>
+          )}
+        </>
       ) : draft ? (
         /* 会话恢复（rev173.65）：复用删除撤销条的样式 —— 同属「给一次后悔的机会」 */
         <div className="zn-undo" role="status">

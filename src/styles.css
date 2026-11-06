@@ -2296,6 +2296,9 @@ body.is-resizing * {
 .zn-undo-btn { border: 0; border-radius: var(--zn-radius-sm); padding: 4px 10px; background: rgba(255,255,255,.14); color: #fff; font-size: var(--zn-text-sm); font-weight: 500; cursor: pointer; transition: background var(--zn-dur-fast) var(--zn-ease-standard); }
 .zn-undo-btn:hover { background: rgba(255,255,255,.26); }
 
+/* 两条撤销条同时存在（公开删除 + 私密删除，rev173.403）：往上叠一格，不互相顶掉 */
+.zn-undo.is-stacked { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+
 /* ───────── 移动端起始页：flomo 风卡片流（rev156，用户给截图要求）─────────
    只在 App 的 `!isDesktop && !activePath` 分支渲染；桌面端仍用 AppEmptyState。 */
 

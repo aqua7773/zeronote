@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.403
-更新时间: 2026-11-06 · 最新 rev173.403（**拖拽贴边自动滚动**）· rev173.402（私密笔记操作对齐普通笔记）
+revision: 173.404
+更新时间: 2026-11-06 · 最新 rev173.404（**边界补验 + 撤销条并存修正**）· rev173.403（拖拽贴边自动滚动）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.403
 
 | rev | 内容 |
 |---|---|
+| rev173.404 | 2026-11-06 · **rev173.402/403 边界补验 + 撤销条并存修正**：① **向下自动滚**（同一函数的对称分支）——桌面 dev 拖到树底 `scrollTop 0 → 192`（到底）· 手机 dev 包 `0 → 1725`（到底），两条链滚完都保持拖拽态；② **拖私密条目出组时贴边滚** `262 → 0`，ghost 与拖拽态保持，松手在栏外 = 取消（私密条目仍在，没被误移出）；③ **撤销条互相顶掉**（实测发现的真 bug）：渲染原为 `undoDelete ? A : sourceUndo ? B : draft ? C`（三元二选一）—— 连着删公开 + 私密时私密那条被顶掉，5 秒后 `sourceUndo` 过期 ⇒ 5 秒内没有私密恢复入口。改为**两条并存**（`undoDelete || sourceUndo` 时渲染两个 `.zn-undo`，私密那条加 `is-stacked` 上移 48px）。实测：连删两种 → 两个按钮同显 → 依次点「撤销」→ 公开笔记与私密条目都回来、撤销条清空 |
 | rev173.403 | 2026-11-06 · **拖拽贴边自动滚动**（用户 2026-11-06：「长按拖动，从底部拖到顶部，不会自动上滑，导致文件树长或者根目录文件多的时候无法往上移」）：文件树是 `overflow:auto` 的滚动容器，拖拽期间指针**贴边不动**时不产生 pointermove / touchmove ⇒ 容器不滚，没露出来的行永远拖不到。① 新纯函数 `src/lib/drag-autoscroll.ts` 的 `edgeScrollStep()`：贴顶负值 / 贴底正值、越贴边越快（最贴边 12px/帧 ≈ 720px/s）、感应带 48px、**指针在容器外不滚**（拖出侧栏 = 取消）。② 鼠标 `pointer` 链：拖起来后起一条 rAF 循环，用最近一次指针坐标每帧算滚动量，滚完**立刻**用同一份 `resolveDropTarget` 重算落点（不重算会落到滚动前的行上）。③ 手机 `touch` 链：同一份函数 + 自己的 rAF 循环（手指贴边不动时没有 touchmove），滚完把 `pending` 设回手指位置并排一次 `applyMove`。④ `up` / `reset` 里取消 rAF。**测试** `tests/drag-autoscroll.test.ts` 7 条。**G2 双端已验**：桌面 dev（树可滚 48px）从底拖到顶 `scrollTop 48 → 0`；手机 dev 包（可滚 1725px）长按拖到顶 `1725 → 0`；两条链滚完都保持拖拽态、松手在栏外 = 取消（无文件被移动） |
 | rev173.402 | 2026-11-06 · **私密笔记操作对齐普通笔记**（方案 §9 · 施工 §9.10 第 1–5 步；用户 2026-11-06「移动端长按直接重命名，无法拖拽，私密笔记操作都对齐普通笔记，唯一的区别就是加密」）：① **契约** `NoteSource.remove?(path)` + 注册表 `NoteSources.remove()`（与 `rename` 同一 `ownerOf` 口径，源抛错原样上抛）；插件 `private.trash` / `private.restore` 支持 `{ path }`（`idOfNotePath` 解析，与 `move-out` 同口径），源注册 `remove` 钩子 → `trashNote`（密文搬进 `.zn/private/trash/`，可恢复、**不进全局明文回收站**）。② **FileTree**：源条目右键 / 手机长按松手 = 弹**同一套菜单**（重命名… / 详细… / 插件项 / 移出为公开笔记… / 私密回收站 / 删除（进私密回收站）），**隐藏**剪切·复制文件·创建副本·粘贴·在文件夹中打开·新建·时间流（理由 §9.6）；源分组行右键 / 长按 = 「新建私密笔记」（`private.new`）+ 私密回收站；长按后移动仍是拖拽（`pressVirtual` 组行不拖，`contextmenu` 不抢手势）；F2 / Delete 对源条目走宿主回调（**不落到** `startRename` / `deletePaths` 的磁盘逻辑）。③ **App**：`removeSourceEntry`（`notes.remove` → 关掉指向已删路径的标签 → 撤销条）、`undoSourceDelete`（`private.restore`）、`moveOutSource`（`private.move-out` 落库根）、`openSourceTrash`（`private.goto-trash` + 打开面板）、`newSourceNote`；`SOURCE_DROP_COMMANDS` 扩成 into/out/restore/gotoTrash/newNote 五条映射；**recent 跳过私密**（§9.9.10：以前把 `.zn/private/notes/<id>.zn` 写进 localStorage，属 bug）。④ **MobileNoteCards**：源条目卡片菜单同一套（重命名 / 详细 / 移出 / 回收站 / 删除），不出磁盘项。⑤ **契约文档** §1.2b 补 `groupVisible` / `rename` / `remove`。**测试**：`tests/note-sources.test.ts` +2（remove 只认本源条目 / 抛错上抛）· 新增 `tests/file-tree-source-menu.test.tsx` 4 条（右键弹菜单且不出磁盘项 / 删除走 `onRemoveSource` 不碰 `onDeleteMany` / F2·Delete 走源回调 / 组行「新建私密笔记」）。**插件** `private-notes 0.3.2`（已签名入市，`market/packs/private-notes-0.3.2.znp`）。**G2 双端已验**（桌面 + 手机，详见下方正文段）。**已知待验**：`entry_info` 对 `.zn/` 已实测放行（§9.7 风险 3 已排） |
 | rev173.401 | 2026-11-06 · **空私密分组不显示 / 第一篇拖不进去**（用户实测「空文件夹状态不显示，无法移入」）：两个根因。① `buildTree` 只从**条目**建分组 ⇒ 0 篇时组行根本不存在，拖入没有落点；② 组行同时带 `data-zn-group`（`Node` 目录分支的写法），而 `resolveTreeDrop` 先判 `overSourceEntry` ⇒ 组行被当成「源条目」判 `null`，拖到组行**永远不会高亮**。修法：`NoteSource.groupVisible?()` + `NoteSources.groups()`（**0 条目也返回可见组**，锁定 / 关闭时源自己返回 false）+ `App.sourceGroups` + `FileTree` 预建空组并画占位「（空）把笔记拖到这里」；`resolveTreeDrop` 判定顺序改为**虚拟分组优先**。测试 +5（note-sources 3 · file-tree 1 · tree-drop 1，其中一条锁住真实 DOM 形状）。插件 **0.3.1**（重打 + 签名入市）。**G2 桌面 dev**：空组显示 ✅；拖「附件分类演示.md」到组行 → 高亮 `__zn_group_private` → toast「已移入私密文件夹」→ 组内出现、公开列表消失（`_shots/rev401-group-filled.png`）；锁定后组消失 ✅。**已知坑**：树容器高度有限，滚动区外的行 `elementFromPoint` 会命中容器外元素 —— 拖拽前必须先把**组行滚进容器**（`scrollTop = scrollHeight`） |
@@ -341,6 +342,23 @@ revision: 173.403
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.404（2026-11-06 · 边界补验 + 撤销条并存）
+
+> **背景**：rev173.402/403 已交付，用户要求补验三条边界（向下滚 / 私密拖出时贴边滚 / 两条撤销条冲突）。
+
+> 1. **向下自动滚**（与向上同一函数的对称分支）：桌面 dev 拖到树底 `scrollTop 0 → 192`（到底）；
+>    手机 dev 包 `0 → 1725`（到底）。两条链滚完都保持拖拽态。
+> 2. **拖私密条目出组时贴边滚**：`262 → 0`，滚动期间 ghost 与拖拽态保持；松手在栏外 = 取消，
+>    私密条目仍在（没被误移出 —— 移出只走 `out-of-source` 分支，需要落在真实目录上）。
+> 3. **撤销条互相顶掉**（实测发现的真 bug）：渲染原为 `undoDelete ? A : sourceUndo ? B : draft ? C`（三元二选一）——
+>    公开删除后再删私密，私密那条被顶掉；5 秒后 `sourceUndo` 过期 ⇒ 这 5 秒里没有私密恢复入口
+>    （只能去私密回收站翻）。改成两条**并存**：`undoDelete || sourceUndo` 时渲染两个 `.zn-undo`，
+>    私密那条加 `is-stacked`（`bottom` 上移 48px，样式在 `styles.css`）。
+>    实测：连删公开 + 私密 → 两个「撤销」按钮同显 → 依次点 → 公开笔记与私密条目都回来、撤销条清空。
+
+> **测试**：无新增（纯渲染层改动；两条撤销动作各有既有覆盖）。**G2 双端已验**：桌面三条边界全过；
+> 手机 dev 包补验「向下滚 `0 → 1725`」+「连删公开 + 私密 → 两条撤销条同显（`undoCount=2`）」。
 
 > ## 📌 rev173.403（2026-11-06 · 拖拽贴边自动滚动）
 
