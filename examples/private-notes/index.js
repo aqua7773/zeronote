@@ -985,7 +985,7 @@ function listView() {
                 wrap: true,
                 children: [
                   textNode(r.title || '未命名', 'body'),
-                  btn('打开', 'private.open', { variant: 'ghost', payload: { id: r.id } }),
+                  btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: r.id } }),
                 ],
               },
               textNode(r.excerpt, 'caption', 'muted'),
@@ -1009,7 +1009,7 @@ function listView() {
           children: [
             textNode(n.title || '未命名', 'body'),
             textNode(fmtTime(n.updatedAt), 'caption', 'muted'),
-            btn('打开', 'private.open', { variant: 'ghost', payload: { id: n.id } }),
+            btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: n.id } }),
             btn('移出', 'private.move-out', { variant: 'ghost', payload: { id: n.id } }),
             btn('删除', 'private.trash', { variant: 'ghost', payload: { id: n.id } }),
           ],

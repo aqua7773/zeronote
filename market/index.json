@@ -293,10 +293,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.6",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.2.6.znp",
-      "sha256": "a39b160d28abe53bd800fa552e29dcd8dc4594c9faebaec8c2fd06895813a813",
-      "size": 63599,
+      "version": "0.2.7",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.2.7.znp",
+      "sha256": "2306fa52d53e56b590360436edbe8b0931f9428ecc41ce56163089fc14305872",
+      "size": 63609,
       "files": [
         "index.js",
         "signature.json"

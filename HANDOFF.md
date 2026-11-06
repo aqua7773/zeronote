@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.395
-更新时间: 2026-11-06 · 最新 rev173.395（**私密笔记第二批 · 时间流卡片**：卡片摘要走源解密，锁定即消失）· rev173.394（私密笔记进全局搜索）· rev173.393（密钥环面板自动刷新）
+revision: 173.396
+更新时间: 2026-11-06 · 最新 rev173.396（**修「私密面板点打开就锁定」**：两处「打开」按钮错绑开关命令）· rev173.395（时间流卡片）· rev173.394（进全局搜索）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.395
 
 | rev | 内容 |
 |---|---|
+| rev173.396 | 2026-11-06 · **修「私密面板点『打开』就锁定」**（用户实测反馈）：面板列表与搜索结果里的两个「打开」按钮绑的是 `private.open` —— 它在 rev173.376 已从「打开面板」改成**开关**（已解锁 ⇒ 立即锁定）⇒ 点一下就把自己锁上。真正打开笔记的命令是 `private.open-note`（`core.openNote` + codec 解密）。**同类扫描**：全插件 `private.open` 共 5 处 —— 定义 1、插件管理/安全插件（不同命令，保留）、这两处按钮（改）；文件树点条目 / 时间流卡片 / 搜索命中三条入口都走 App `openNote`，不受影响。插件 `private-notes 0.2.7`（市场包已重打 + 重新签名）。**G2 双端**：桌面 dev 解锁后点「打开」⇒ 不锁定、编辑器显示明文「私密测试内容 / 第二行」（`_shots/bug-open-lock-fixed.png`）；Redmi `33b676f6` dev 包同样打开且不锁定（`_shots/bug-open-lock-phone-fixed.png`）。**G1**：tsc 0 · vitest 1932 · 质量门 9/9 |
 | rev173.395 | 2026-11-06 · **私密笔记第二批 · 时间流卡片**（施工图 §8）：解锁后私密笔记出现在时间流 / 手机卡片流，摘要显示**解密后的正文**，关闭 / 锁定时卡片随之消失。① `NoteSource` 加可选 `readText?(path)`；`NoteSources.readText(path)` 只对**属于该源**的路径生效（否则 `null` ⇒ 宿主退回 `fs.readText`）。② `App.readTextFor`：源条目走源解密、其余走内核 fs；桌面侧栏时间流与手机卡片流都改喂 `treeNotes` + `readTextFor`。③ `MobileNoteCards`：源条目的磁盘操作（重命名 / 详细 / 在文件夹中打开 / 删除 / 彻底删除）**一律不出**，只留「打开」与插件贡献的动作 —— 与文件树虚拟分组同一口径。④ 插件 `sourceReadText`：复用 `plainCache`（锁定即清空，不落盘）。**测试**：`tests/note-sources.test.ts` +2（`readText` 只认本源条目 / 源抛错上抛）；vitest **1932**。**G2 双端**：桌面 dev 时间流出现「2026-11-05 22:13:55 私密测试内容 第二行」，锁定后消失（`_shots/rev394-timeline-private.png`）；Redmi dev 包卡片流同样显示该卡与解密摘要、无密文乱码（`_shots/rev394-phone-timeline-private.png`）。**未做**：拖入移出（拖拽落点）/ 删旧面板与列表视图 |
 | rev173.394 | 2026-11-06 · **私密笔记第二批 · 搜索**（施工图 `docs/私密笔记-改造方案-2026-11-05.md` §8）：解锁后私密笔记可被**全局搜索**命中，结果单独成组排在公开结果之后。① **契约**（`contract.ts`）：`NoteSource` 加**可选** `search?(q, opts?)`，新增宿主侧类型 `NoteSourceSearch`。② **关键取舍——私密明文不进内核索引**：`index` 默认分区是**所有插件都能 `query`** 的共享空间，私密明文一旦 upsert 进去就等于对全插件 / AI 开放（违背需求 §3.3）；而且 `rebuild()` 会清空索引，需要重灌。所以搜索由源自己实现（插件内存里的 `plainCache`，锁定即清空）。③ **注册表**（`note-sources.ts`）：新增 `searchables()`，只交出实现了 `search` 的源。④ **App**：新增 `sourceSearches` state，与 `sourceNotes` 在同一处订阅里刷新（解锁 / 锁定都会改可搜索性）；三处 `SearchPanel`（桌面侧栏 / 手机全屏 / 笔记独立窗口）传 `sources`。⑤ **SearchPanel**：`sources` props；公开结果与各源命中拍平成一条「行」列表（光标 / Enter 跨组移动）；分组标题「🔒 私密笔记」只在该组有命中时出现，**不混排打分**（用户拍板）；源抛错只少一组、不显示「索引出错」；`sources` 默认值用模块级常量（写 `= []` 会每帧新数组 ⇒ 查询 effect 死循环）。⑥ **private-notes 插件**：源注册加 `search`，复用既有 `fillPlainCache` + `searchNotes`，命中映射成真实路径 `.zn/private/notes/<id>.zn`（打开仍走 `core.openNote` + codec 解密）。**测试**：`tests/note-sources.test.ts` +2（searchables 只收有 search 的源 / 注销后消失）、新增 `tests/search-source-group.test.tsx` 3 条（分组顺序 / 空组不显示标题 / 源抛错只少一组），相关 19 条全过；契约文档 §1.2b 同步。**未做（第二批剩余）**：时间流卡片、拖入移出（拖拽落点）、删旧面板与列表视图、市场重打包 |
 | rev173.393 | 2026-11-06 · **密钥环面板自动刷新（同步 / 外部写入后不再停在旧状态）**：`security` / `secrets` 的 vault 原先只在插件 `apply()` 读一次 ⇒ 同步把 `.zn/security/vault.*.json` 拉下来后，面板仍显示「还没建立密钥环」（03 分册 §5 那条已知未修）。① `security`：新增 `vaultSignature()` / `vaultNeedsReload()`（**导出纯函数**）+ `reloadVaultIfChanged()`，触发点 = 「打开面板」命令 / 切回前台（`visibilitychange` + `focus`）/ 30 秒定时器（仅前台）；**有环已解锁或坏盘时不重读**（内存 DEK 与磁盘环必须对应，否则会拿新环的 KDF 加密旧会话）。② `secrets`：新增 `ringNeedsRefresh()` + `refreshRingIfChanged()`，同样三处触发、只在未解锁时查。③ 单测 **+7**（security 52→56、secrets 36→39，各含反向用例：解锁中 / 坏盘 / 内容没变都不刷新）。**G2 桌面 dev（`_tmp-vault-rt12`）**：删 `vault.secrets.json` → reload 后面板显示「第一次使用「账号密码」：设一把主密码」；把文件放回去后**不点任何按钮**，≤30 秒自动变「「账号密码」已建立，输入主密码解锁」（截图 `_shots/rev393-security-autoreload-{off,on}.png`）。④ 市场包重打：`security 0.2.4` / `secrets 0.1.4` + `gen-market --write`（16 条）。**手机 G2 已验**（Redmi `33b676f6` dev 包）：插件经 `adb` 推入 `.zn/plugins/`（`secrets` 的 `manifest.sha256` 同步更新、`security` 的 `signature.json` → `.bak`），删 `vault.secrets.json` → reload 面板显示「第一次使用」，放回后 **35 秒内**不点任何按钮自动变「已建立」（截图 `_shots/rev393-phone-security-01.png` / `02.png`）。**未做**：手机 release 机（等插件中心更新 `security 0.2.4` / `secrets 0.1.4` 再完全退出重开）；sync 同步完成后主动发事件（现在靠 30 秒轮询兜） |
@@ -333,6 +334,29 @@ revision: 173.395
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.396（2026-11-06 · 修「私密面板点『打开』就锁定」）
+
+> **现象**（用户实测）：私密面板解锁后，点列表里的「打开」⇒ 面板立刻回到「私密文件夹已锁定」，
+> 文件树的分组也一起消失 —— 看着像「点一下就锁」。
+
+> **根因**：面板列表与搜索结果里的两个「打开」按钮绑的命令是 `private.open`。
+> 而 `private.open` 在 rev173.376 已从「打开面板」改成**开关**（已解锁 ⇒ `lockNow`），
+> 真正打开一篇的是 `private.open-note`（`core.openNote` + `doc.registerCodec` 解密）。
+> 改造那轮漏改这两个按钮 —— 命令语义改了，按钮没跟着改。
+
+> **同类扫描**（`private.open` 全插件 5 处）：定义（`private.open` 开关）· `private.open-plugins` ·
+> `private.open-security`（后两个是不同命令，保留）· 面板列表按钮 · 搜索结果按钮（这两处改）。
+> 另外三条打开入口（文件树条目 / 时间流卡片 / 搜索命中）都走 App 的 `openNote`，不受影响。
+
+> **测试**：插件无单测覆盖按钮 → 命令绑定；验证靠 G2 双端实测。G1：tsc 0 · vitest 1932 · 质量门 9/9。
+
+> **G2**：桌面 dev（`_tmp-vault-rt12`）解锁 → 点「打开」⇒ 不锁定、标签页与编辑器显示明文
+> 「私密测试内容 / 第二行」；Redmi `33b676f6` dev 包（插件 adb 推 0.2.7）同样打开且不锁定。
+> 截图 `_shots/bug-open-lock-fixed.png` · `_shots/bug-open-lock-phone-fixed.png`。
+
+> **未做**：标签条显示的是随机 id（`mw3ml6hgpfg2.zn`）而不是标题 —— 与本次 bug 无关，
+> 属体验问题，待拍板要不要按标题显示。
 
 > ## 📌 rev173.395（2026-11-06 · 私密笔记第二批 · 时间流卡片：摘要走源解密）
 
