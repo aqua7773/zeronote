@@ -19,6 +19,7 @@ revision: 173.406
 
 | rev | 内容 |
 |---|---|
+| rev173.409 | 2026-11-07 · **测试库重建（桌面 + 手机）**：旧测试库清空并备份 —— 桌面 `_tmp-vault-rt12` → `_tmp/backup-vault-rt12-2026-11-07/`；手机 `/storage/emulated/0/Documents/ZeroNote` → `_tmp/backup-phone-vault-2026-11-07/zn-backup-2026-11-07.tar`（19.9 MB）。新库：桌面 `_tmp-vault-rt13`、手机删库后由应用自动重建；两个密钥环（私密笔记 / 账号密码）主密码统一 `test-pass-1234`（**只记在本地凭据文件，不入库**）。**已验证**：手机 `secrets.open` → 弹「解锁密码库」→ 输密码 → **直接进密码库**（`_shots/rev409-phone-secrets-unlocked.png`）；手机 `private.open` → 解锁成功（出现指纹提示 toast）；桌面两环已建、密码库弹窗同款已见（`_shots/rev409-secrets-prompt-rt13.png`、`rev409-built-*-ring.png`）。 |
 | rev173.408 | 2026-11-06 · **密码库解锁也用 `host.prompt` 输入弹窗**（用户：「密码库解锁也用这个样式」「解锁后直接进密码库」）：`secrets.open` 未解锁 ⇒ ① `refreshRingIfChanged` → `checkRingReady`；② 已绑定指纹先弹系统指纹（取消/失败回落）；③ `host.prompt({ title:'解锁密码库', secret:true })` 收主密码；④ **解锁成功直接 `openCorePanel` 进密码库**；老应用没有 `host.prompt` ⇒ 直接开面板（面板锁定视图仍是兜底）。面板里的锁定视图保留（解锁失败后可在面板重试）。插件 **secrets 0.1.5**（已签名入市 16 条；dev/手机已同步）。**G2**：桌面 dev 弹窗样式已验（`_shots/rev408-secrets-prompt.png`）；**解锁成功路径未验** —— dev 测试库的「账号密码」环主密码与 `notes` 环不同，`test-pass-1234` 报「主密码不对」（`_shots/rev408-secrets-opened2.png`）。 |
 | rev173.407 | 2026-11-06 · **老应用兼容兜底（`host.prompt` 缺失）**：`host.prompt` 是内核 rev173.405 才加的能力，而 release 机装的是 0.10.0 —— 市场更新到 0.3.4 后点锁会 `api.host.prompt is not a function`（用户看到「没反应 / 报错」）。① `private.open` 加 `typeof api.host.prompt === 'function'` 判断，旧应用上提示「当前应用版本过旧：私密笔记需要『输入弹窗』能力 —— 请把 ZeroNote 更新到最新版」；② 判断放在**指纹分支之后**（指纹解锁不需要 prompt，旧应用上已绑定指纹的仍可用）。插件 **0.3.5**（已签名入市 16 条）；dev 全局与手机 dev 包均已同步。 |
 | rev173.406 | 2026-11-06 · **指纹解锁补回**（用户：「指纹解锁没做吗」）：rev173.405 删独立面板时，把面板锁屏上的「用指纹解锁 / 绑定本机指纹」UI 入口一起删了 —— 命令还在但用户找不到。① `private.open` 未解锁且**已绑定指纹** ⇒ **先弹系统指纹**（`svc.biometric.unlock(RING)`），成功即解锁；取消 / 失败 ⇒ **回落**到主密码输入框（message 改成「指纹已取消 —— 也可以输入主密码」）；未绑定 ⇒ 仍直接弹密码框（不回归）。② **本会话一次性提示**：第一次解锁且未绑定时 toast 指路「命令面板 → 私密文件夹：绑定本机指纹」（面板删了，绑定入口只剩命令面板，不提示用户发现不了；每次弹又太吵）。插件 **0.3.4**（已签名入市 + `gen-market --write` 16 条）。**G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）；手机插件已同步 0.3.4。**待验**：指纹路径需真人绑一次 Windows Hello 后复验（AI 无法代按系统指纹）。**✅ 用户已验（2026-11-07）**：绑定指纹后点锁直接弹 Windows Hello 并解锁成功。 |
@@ -359,6 +360,18 @@ revision: 173.406
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.409（2026-11-07 · 测试库重建）
+
+> **背景**：dev 测试库「账号密码」环主密码未知（`test-pass-1234` 解不开），用户要求「重建一个库，两个密码环都用原来的这个」。
+
+> 1. **备份**：桌面 `_tmp-vault-rt12` → `_tmp/backup-vault-rt12-2026-11-07/`；手机库 tar 打包 → `_tmp/backup-phone-vault-2026-11-07/zn-backup-2026-11-07.tar`（19,952,128 B）。
+> 2. **重建**：桌面切到新库 `_tmp-vault-rt13`（localStorage `zeronote.vault`）；手机 `rm -rf` 旧库后重启应用，自动重建空库。
+> 3. **建环**：两个环（`私密笔记` / `账号密码`）都设 `test-pass-1234`；恢复码只抄在本地凭据文件，**不进仓库**。
+
+> **已验证（手机）**：打开密码库 → 弹「解锁密码库」→ 输密码 → **直接进密码库**（`_shots/rev409-phone-secrets-unlocked.png`，文案「🔓 密码库 · 0 个平台 / 0 个账号」）；
+> `private.open` 解锁成功（出现「命令面板可绑定指纹」提示）。
+> **桌面**：两环已建（`_shots/rev409-built-secrets-ring.png` / `rev409-built-notes-ring.png`），密码库弹窗样式已见（`_shots/rev409-secrets-prompt-rt13.png`）；桌面自动填密码在 CDP 下有焦点竞争，**建议用户手点一次确认「输对直接进库」**。
 
 > ## 📌 rev173.408（2026-11-06 · 密码库解锁改输入弹窗）
 
