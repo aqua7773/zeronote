@@ -997,6 +997,13 @@ export default {
            * 已绑定 ⇒ 先弹系统指纹；成功即解锁；取消 / 失败则**回落到主密码输入框**（不阻断）。
            */
           const bio = syncBiometricNow()
+          /**
+           * rev173.407：**老应用兼容**。`host.prompt` 是内核 rev173.405 才有的能力 ——
+           * release 机装 0.10.0 + 本插件 0.3.4 时它是 `undefined`，直接调会抛 TypeError，
+           * 用户看到的是「点锁没反应 / 报错」。这条兜底把原因说出来，并指向正确的修法。
+           * 放在指纹分支**之后**：指纹不需要 prompt，老应用上已绑定指纹的仍能解锁。
+           */
+          const canPrompt = typeof api.host.prompt === 'function'
           if (bio.available && bio.bound && svc.biometric) {
             try {
               await svc.biometric.unlock(RING)
@@ -1013,6 +1020,10 @@ export default {
                 api.host.notify(`指纹解锁失败：${msg}，请输主密码`, 'warn')
               }
             }
+          }
+          if (!canPrompt) {
+            api.host.notify('当前应用版本过旧：私密笔记需要「输入弹窗」能力 —— 请把 ZeroNote 更新到最新版', 'error')
+            return
           }
           const pw = await api.host.prompt({
             title: '解锁私密笔记',
