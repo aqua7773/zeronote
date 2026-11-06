@@ -1264,6 +1264,8 @@ export default {
         api.notes.registerSource({
           id: SOURCE_ID,
           group: SOURCE_GROUP,
+          // rev173.401：解锁后**即使 0 篇也要显示分组**（空组是拖入的落点）；锁定即消失
+          groupVisible: () => Boolean(index),
           list: sourceNotes,
           // 第二批：源自己搜（明文不进内核索引，见 sourceSearch 注释）
           search: (q, opts) => sourceSearch(api, q, opts),

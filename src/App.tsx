@@ -36,6 +36,7 @@ import type {
   NoteDoc,
   NoteMeta,
   NoteSourceEntry,
+  NoteSourceGroup,
   NoteSourceSearch,
   PluginLogEntry,
   PluginManifest,
@@ -275,6 +276,12 @@ export default function App() {
    * 稳定引用，转手给 `SearchPanel` 的 `sources` props。
    */
   const [sourceSearches, setSourceSearches] = useState<NoteSourceSearch[]>([])
+  /**
+   * **现在该显示的源分组**（rev173.401 · 用户 2026-11-06「空文件夹状态不显示，无法移入」）。
+   * 与 `sourceNotes` 分开：即使 0 篇也要把分组画出来（空组是拖入的唯一落点），
+   * 锁定 / 关闭时源自己让 `groupVisible()` 返回 false ⇒ 分组消失。
+   */
+  const [sourceGroups, setSourceGroups] = useState<NoteSourceGroup[]>([])
   /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
   const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
@@ -1532,6 +1539,7 @@ export default function App() {
       setSourceNotes(kernel.notes.snapshot())
       // 与条目一并取：源的「我变了」通知可能同时改了条目和可搜索性（解锁 / 锁定）
       setSourceSearches(kernel.notes.searchables())
+      setSourceGroups(kernel.notes.groups())
     }
     sync()
     const d = kernel.notes.subscribe(sync)
@@ -5660,8 +5668,10 @@ export default function App() {
               /* 换库即重建：展开/折叠状态按库隔离（key 带库路径，localStorage 各存各的） */
               key={vault}
               vault={vault}
-              /* 公开笔记 + 额外源条目（rev173.376 · 私密笔记） */
+              /* rev173.376 · 私密笔记 */
               notes={treeNotes}
+              /* rev173.401：空分组也要显示（0 篇时的拖入落点） */
+              sourceGroups={sourceGroups}
               dirs={dirs}
               activePath={activePath}
               onOpen={(p) => {

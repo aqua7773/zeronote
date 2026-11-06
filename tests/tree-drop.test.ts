@@ -57,6 +57,19 @@ describe('resolveTreeDrop 落点判定', () => {
     })
   })
 
+  it('分组行同时带 data-zn-group（真实 DOM 形状）⇒ 仍按分组处理，不是"源条目"', () => {
+    // 真 bug（rev173.401）：Node 的目录分支给分组行也挂了 data-zn-group，
+    // 判定顺序一翻就永远没有落点 ⇒ 用户「无法移入」
+    expect(
+      resolveTreeDrop({
+        ...base,
+        over: '__zn_group_private',
+        overVirtual: true,
+        overSourceEntry: true,
+      }),
+    ).toEqual({ kind: 'source', group: 'private' })
+  })
+
   it('源条目本身不是落点（拖到条目上不能猜成"这个组"）', () => {
     expect(
       resolveTreeDrop({ ...base, over: '.zn/private/notes/x.zn', overSourceEntry: true }),

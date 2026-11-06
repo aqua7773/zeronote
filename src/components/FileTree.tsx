@@ -13,6 +13,7 @@ import type {
   ItemMenuKind,
   ItemMenuRegistration,
   NoteMeta,
+  NoteSourceGroup,
 } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
@@ -99,7 +100,12 @@ function readCollapsed(vault: string | null): Set<string> {
  * 现在取消这两个虚拟分组，附件落点是 `附件/图片|视频|音频|文档|其它/`，
  * 在树里就是普通目录，能展开、能右键、能拖拽。
  */
-function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
+function buildTree(
+  notes: NoteMeta[],
+  dirs: string[],
+  /** 现在该显示的额外源分组（rev173.401）：**即使 0 条目也要出组**（空组是拖入落点） */
+  sourceGroups: NoteSourceGroup[] = [],
+): TreeNode[] {
   const root: TreeNode[] = []
 
   /** 逐段找到 / 建出目录节点，返回最末一段（空串 = 库根，返回 null） */
@@ -126,9 +132,16 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   /**
    * 额外笔记源的分组桶（rev173.376 · 私密笔记改造 §4.2）。
-   * key 是源给的分组 key；Map 的插入顺序 = 条目第一次出现的顺序（宿主按注册顺序合并）。
+   * key 是源给的分组 key；Map 的插入顺序 = 宿主给出的顺序（注册顺序）。
+   *
+   * rev173.401（用户「空文件夹状态不显示，无法移入」）：**先按 `sourceGroups` 预建桶**，
+   * 一篇条目都没有的组也要进树 —— 空组是「拖入」的唯一落点，没有它就永远搬不进第一篇。
+   * 锁定 / 关闭时源让 `groupVisible()` 返回 false ⇒ 分组不在 `sourceGroups` 里 ⇒ 整组消失。
    */
   const groups = new Map<string, { label: string; icon?: string; nodes: TreeNode[] }>()
+  for (const g of sourceGroups) {
+    groups.set(g.key, { label: g.label, icon: g.icon, nodes: [] })
+  }
 
   for (const n of notes) {
     const parts = n.path.split('/')
@@ -181,10 +194,13 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
 
   /**
    * 额外笔记源分组（rev173.376 · 私密笔记）：排在**最后** —— 它随开关出现 / 消失，
-   * 放在树尾不会推动用户在其它笔记上的肌肉记忆。源返回空数组 ⇒ 这里根本不建节点。
+   * 放在树尾不会推动用户在其它笔记上的肌肉记忆。
+   *
+   * rev173.401：**0 条目也要建节点** —— 空组是「拖入」的唯一落点
+   * （用户 2026-11-06：「空文件夹状态不显示，无法移入」）。
+   * 是否出组由宿主的 `sourceGroups` 决定（锁定 / 关闭时源自己不让它进列表）。
    */
   for (const [key, g] of groups) {
-    if (!g.nodes.length) continue
     g.nodes.sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name, 'zh'))
     root.push({
       name: g.label,
@@ -452,6 +468,12 @@ function Node({
             {node.virtual && <span className="zn-ext">{node.children.length}</span>}
           </button>
         )}
+        {/* rev173.401：空分组也要画一行占位 —— 它同时是「拖入」的落点提示 */}
+        {open && node.virtual && node.children.length === 0 && (
+          <div className="zn-tree-kids">
+            <div className="zn-tree-empty">（空）把笔记拖到这里</div>
+          </div>
+        )}
         {open && node.children.length > 0 && (
           /**
            * 子级包一层容器：缩进与**竖向引导线**都靠它（2026-10-17 用户要求「层级更清晰」）。
@@ -606,6 +628,7 @@ function Node({
 
 export function FileTree({
   notes,
+  sourceGroups = [],
   dirs = [],
   activePath,
   vault = null,
@@ -631,6 +654,11 @@ export function FileTree({
   onReveal,
 }: {
   notes: NoteMeta[]
+  /**
+   * 现在该显示的额外源分组（rev173.401）：**即使 0 条目也会出组** ——
+   * 空组是「拖入」的唯一落点（用户 2026-11-06：「空文件夹状态不显示，无法移入」）。
+   */
+  sourceGroups?: NoteSourceGroup[]
   /** 目录清单（含空目录）—— 见 `buildTree` 的说明 */
   dirs?: string[]
   activePath: string | null
@@ -708,7 +736,7 @@ export function FileTree({
    */
   onReveal?: (path: string) => void
 }) {
-  const tree = useMemo(() => buildTree(notes, dirs), [notes, dirs])
+  const tree = useMemo(() => buildTree(notes, dirs, sourceGroups), [notes, dirs, sourceGroups])
   /**
    * 启动打点（rev173.356）：文件树挂载完成 = 「首屏列表真正画出来」的时刻。
    * 与 `vault-refresh-*` 配合能区分「等列表 → 构建树 → React 渲染」三段各花多久。

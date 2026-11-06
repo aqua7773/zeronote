@@ -97,6 +97,20 @@ describe('FileTree · 额外笔记源分组', () => {
     expect(onOpen).toHaveBeenCalledWith('.zn/private/notes/a1.zn')
   })
 
+  it('0 条目但分组声明可见（解锁了空库）⇒ 组行仍在，并给出「拖进来」提示', () => {
+    const { container } = render(
+      <FileTree
+        {...(makeProps({
+          notes: [note('公开.md', '公开')],
+          sourceGroups: [{ key: 'private', label: '私密笔记', icon: '🔒' }],
+        }) as never)}
+      />,
+    )
+    // rev173.401：空组是「拖入」的唯一落点，没有它用户永远搬不进第一篇
+    expect(container.textContent).toContain('私密笔记')
+    expect(container.textContent).toContain('把笔记拖到这里')
+  })
+
   it('源返回空（锁定）⇒ 文件树里没有这个分组', () => {
     const { container } = render(
       <FileTree {...(makeProps({ notes: [note('公开.md', '公开')] }) as never)} />,

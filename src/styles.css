@@ -388,6 +388,14 @@ body.is-resizing * {
   border-left: 2.5px solid var(--zn-border);
 }
 
+/* 空分组占位（rev173.401）：0 条目的私密分组也要有一行，提示"这里能拖进来" */
+.zn-tree-empty {
+  padding: 2px 0 2px 6px;
+  font-size: 11px;
+  color: var(--zn-muted);
+  user-select: none;
+}
+
 /* 树节点包一层（按钮 + 子级容器）。保留这层是为了结构稳定，
    当前没有样式依赖它。 */
 .zn-node {

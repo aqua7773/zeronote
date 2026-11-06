@@ -38,6 +38,36 @@ function makeSource(id: string, items: NoteMeta[]): NoteSource & { emit: () => v
   }
 }
 
+describe('createNoteSources · 分组可见性（rev173.401）', () => {
+  it('0 条目但 groupVisible 为真 ⇒ 分组仍要返回（空组是拖入落点）', () => {
+    const reg = createNoteSources(() => {})
+    const src = makeSource('p', [])
+    src.groupVisible = () => true
+    reg.register('p1', src)
+    expect(reg.groups()).toEqual([{ key: 'p', label: '组 p', icon: '🔒' }])
+    // 条目快照仍然是空 —— 列表与"分组存在"是两件事
+    expect(reg.snapshot()).toEqual([])
+  })
+
+  it('groupVisible 为假（锁定）⇒ 分组不返回', () => {
+    const reg = createNoteSources(() => {})
+    const src = makeSource('p', [])
+    src.groupVisible = () => false
+    reg.register('p1', src)
+    expect(reg.groups()).toEqual([])
+  })
+
+  it('groupVisible 抛错 ⇒ 按不显示处理（宁可不露）', () => {
+    const reg = createNoteSources(() => {})
+    const src = makeSource('p', [])
+    src.groupVisible = () => {
+      throw new Error('boom')
+    }
+    reg.register('p1', src)
+    expect(reg.groups()).toEqual([])
+  })
+})
+
 describe('createNoteSources', () => {
   it('把条目的分组字段补全，并按注册顺序合并', () => {
     const reg = createNoteSources(() => {})

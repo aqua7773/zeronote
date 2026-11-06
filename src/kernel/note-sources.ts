@@ -58,6 +58,14 @@ export type NoteSources = {
   rename(path: string, title: string): Promise<boolean>
   /** 已注册的源（诊断 / 单测） */
   sources(): Array<{ pluginId: string; id: string; group: NoteSourceGroup }>
+  /**
+   * 现在该显示的源分组（rev173.401 · 用户「空文件夹状态不显示，无法移入」）。
+   *
+   * 与 `snapshot()` 的区别：**即使一篇条目都没有也返回**（只要源还在、且 `groupVisible()`
+   * 不为 false）。文件树用它预建空分组行 —— 空组是「拖入」的唯一落点，没有它就无法移入第一篇。
+   * 锁定时源应当让 `groupVisible()` 返回 false（或让分组消失），否则等于泄露「有私密区」。
+   */
+  groups(): NoteSourceGroup[]
 }
 
 type Entry = {
@@ -221,6 +229,32 @@ export function createNoteSources(
       return entries
         .filter((e) => !e.disposed)
         .map((e) => ({ pluginId: e.pluginId, id: e.src.id, group: e.src.group }))
+    },
+
+    groups() {
+      const seen = new Set<string>()
+      const out: NoteSourceGroup[] = []
+      for (const entry of entries) {
+        if (entry.disposed) continue
+        const src = entry.src
+        // 源自己说「现在不该显示」（锁定 / 关闭）⇒ 整组不进去
+        let visible = true
+        if (typeof src.groupVisible === 'function') {
+          try {
+            visible = src.groupVisible() !== false
+          } catch (e) {
+            // 源自己的判断抛错：按"不显示"处理 —— 宁可少一组，也不把不该露的露出来
+            onWarn(`notes 源「${src.id}」的 groupVisible() 抛错（按不显示处理）：${String(e)}`)
+            visible = false
+          }
+        }
+        if (!visible) continue
+        const key = src.group.key
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({ ...src.group })
+      }
+      return out
     },
   }
 }

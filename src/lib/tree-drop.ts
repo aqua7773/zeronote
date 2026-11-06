@@ -67,12 +67,18 @@ export interface DropHit {
 export function resolveTreeDrop(hit: DropHit): TreeDropTarget | null {
   const { over, overVirtual, overSourceEntry, fromPath, dirs } = hit
   if (over === null) return { kind: 'dir', dir: '' }
-  // 拖到别的条目上：源条目不是目录、也不是"组"，不能当落点
-  if (overSourceEntry) return null
+  /**
+   * ⚠️ 顺序不能反（rev173.401 · 用户「无法移入」的真因）：
+   * 分组行**同时**带 `data-zn-group`（Node 的目录分支用 `node.group ? '1'`）与
+   * `data-zn-virtual`。先判 `overSourceEntry` 的话，分组行会被当成"源条目"直接判
+   * `null` ⇒ 拖到组行永远没有落点。**虚拟分组优先**。
+   */
   if (overVirtual) {
     // 目前只有额外笔记源会生成虚拟分组；将来若恢复文档/附件分组，这里返回 null 保持旧行为
     return isSourceGroupPath(over) ? { kind: 'source', group: groupKeyOf(over) } : null
   }
+  // 拖到源条目本身：它不是目录、也不是"组"，不能当落点
+  if (overSourceEntry) return null
   if (over === fromPath || over.startsWith(`${fromPath}/`)) return null
   return dirs.has(over) ? { kind: 'dir', dir: over } : null
 }
