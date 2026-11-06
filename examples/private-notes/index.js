@@ -106,6 +106,8 @@ export function parseIndex(text) {
     notes.push({
       id: n.id,
       title: typeof n.title === 'string' ? n.title : '',
+      // rev173.397：手动改过的标题不再被正文首行覆盖（否则保存一次就变回去）
+      ...(n.titleEdited === true ? { titleEdited: true } : {}),
       createdAt: Number(n.createdAt) || 0,
       updatedAt: Number(n.updatedAt) || 0,
     })
@@ -135,7 +137,13 @@ export function serializeIndex(index) {
 }
 
 function stripNote(n) {
-  return { id: n.id, title: n.title ?? '', createdAt: n.createdAt ?? 0, updatedAt: n.updatedAt ?? 0 }
+  return {
+    id: n.id,
+    title: n.title ?? '',
+    ...(n.titleEdited ? { titleEdited: true } : {}),
+    createdAt: n.createdAt ?? 0,
+    updatedAt: n.updatedAt ?? 0,
+  }
 }
 
 function stripTrash(t) {
@@ -373,6 +381,8 @@ let ui = {} // 面板 render 快照里的 bind 值
 const plainCache = new Map()
 /** 搜索结果（null = 没在搜）；面板 render 是同步的，异步结果存在这里 */
 let searchResult = null
+/** 正在改名的条目 id（null = 没有在改名）—— rev173.397 */
+let renameId = null
 /** 当前面板视图：'list' | 'trash' */
 let mode = 'list'
 /** 回收站里「已上膛」的那条（彻底删除要点两次 —— 与备份恢复同一套防误触） */
@@ -838,7 +848,7 @@ function val(bind) {
   return typeof v === 'string' ? v : ''
 }
 
-const BINDS = { pw: 'private.pw', search: 'private.search' }
+const BINDS = { pw: 'private.pw', search: 'private.search', rename: 'private.rename-text' }
 
 /** 「安全插件没装」的降级视图（软依赖标准做法：不崩、给出去哪装） */
 function noServiceView() {
@@ -1001,19 +1011,44 @@ function listView() {
       type: 'list',
       items: notes.map((n) => ({
         key: n.id,
-        node: {
-          type: 'row',
-          gap: 'sm',
-          align: 'center',
-          wrap: true,
-          children: [
-            textNode(n.title || '未命名', 'body'),
-            textNode(fmtTime(n.updatedAt), 'caption', 'muted'),
-            btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: n.id } }),
-            btn('移出', 'private.move-out', { variant: 'ghost', payload: { id: n.id } }),
-            btn('删除', 'private.trash', { variant: 'ghost', payload: { id: n.id } }),
-          ],
-        },
+        node:
+          renameId === n.id
+            ? /* 改名态（rev173.397）：改的是索引里的**显示标题**，密文文件名保持随机 id ——
+                 文件名只是存放位置，不该跟标题绑定 */
+              {
+                type: 'row',
+                gap: 'sm',
+                align: 'center',
+                wrap: true,
+                children: [
+                  {
+                    type: 'input',
+                    bind: BINDS.rename,
+                    placeholder: '新的标题',
+                    onSubmit: 'private.rename-save',
+                  },
+                  btn('保存', 'private.rename-save', {
+                    variant: 'default',
+                    payload: { id: n.id },
+                    send: BINDS.rename,
+                  }),
+                  btn('取消', 'private.rename-cancel', { variant: 'ghost' }),
+                ],
+              }
+            : {
+                type: 'row',
+                gap: 'sm',
+                align: 'center',
+                wrap: true,
+                children: [
+                  textNode(n.title || '未命名', 'body'),
+                  textNode(fmtTime(n.updatedAt), 'caption', 'muted'),
+                  btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: n.id } }),
+                  btn('改名', 'private.rename', { variant: 'ghost', payload: { id: n.id } }),
+                  btn('移出', 'private.move-out', { variant: 'ghost', payload: { id: n.id } }),
+                  btn('删除', 'private.trash', { variant: 'ghost', payload: { id: n.id } }),
+                ],
+              },
       })),
     })
   }
@@ -1120,7 +1155,8 @@ async function onDocSaved(api, d) {
   plainCache.set(id, d.content)
   index = upsertNote(index, {
     ...existing,
-    title: titleFromText(d.content, '未命名'),
+    // rev173.397：手动改过标题（`titleEdited`）就保留，否则按正文首行回填
+    title: existing.titleEdited ? existing.title : titleFromText(d.content, '未命名'),
     updatedAt: nowMs(),
   })
   touch()
@@ -1408,6 +1444,61 @@ export default {
         },
       },
       /* ── 期 2：搜索 ── */
+      /* ── rev173.397：改显示标题（面板内输入，不动密文文件名） ── */
+      {
+        id: 'private.rename',
+        title: '私密文件夹：改名',
+        run: async (payload) => {
+          if (!index) return
+          const id = String(payload?.id ?? '')
+          const note = findNote(index, id)
+          if (!note) return
+          renameId = id
+          api.view.setState(BINDS.rename, note.title ?? '')
+          setMessage('输入新标题后点「保存」', 'muted')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.rename-save',
+        title: '私密文件夹：保存标题',
+        run: async (payload) => {
+          if (!index || !renameId) return
+          const title = String(payload?.value ?? '')
+            .trim()
+            .slice(0, 120)
+          if (!title) {
+            api.host.notify('标题不能为空', 'warn')
+            return
+          }
+          const note = findNote(index, renameId)
+          if (!note) {
+            renameId = null
+            api.view.refresh(PANEL_ID)
+            return
+          }
+          index = upsertNote(index, { ...note, title, titleEdited: true })
+          try {
+            await saveIndex(api)
+            setMessage('已改名', 'success')
+          } catch (e) {
+            api.host.notify(`改名保存失败：${String(e?.message ?? e)}`, 'warn')
+          }
+          renameId = null
+          api.view.setState(BINDS.rename, '')
+          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        id: 'private.rename-cancel',
+        title: '私密文件夹：取消改名',
+        run: () => {
+          renameId = null
+          api.view.setState(BINDS.rename, '')
+          setMessage('', 'muted')
+          api.view.refresh(PANEL_ID)
+        },
+      },
       {
         id: 'private.search-run',
         title: '私密文件夹：搜索',

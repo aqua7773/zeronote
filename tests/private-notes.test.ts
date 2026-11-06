@@ -334,3 +334,23 @@ describe('private-notes 移出时的文件名', () => {
     expect(publicPathFor('长'.repeat(200)).length).toBeLessThanOrEqual(63)
   })
 })
+
+/* ───────────────────────── 手动标题（rev173.397） ───────────────────────── */
+
+describe('private-notes 手动改过的标题', () => {
+  it('serializeIndex / parseIndex 往返保留 titleEdited', () => {
+    const idx = {
+      v: INDEX_VERSION,
+      notes: [
+        { id: 'a1', title: '我改的标题', titleEdited: true, createdAt: 1, updatedAt: 2 },
+        { id: 'a2', title: '正文首行', createdAt: 1, updatedAt: 2 },
+      ],
+      trash: [],
+    }
+    const back = parseIndex(serializeIndex(idx))
+    expect(back.notes[0].title).toBe('我改的标题')
+    expect(back.notes[0].titleEdited).toBe(true)
+    // 没手动改过的条目不带这个标记 ⇒ 保存正文时仍由正文回填标题
+    expect(back.notes[1].titleEdited).toBeUndefined()
+  })
+})

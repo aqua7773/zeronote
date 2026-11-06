@@ -4279,9 +4279,19 @@ export default function App() {
     [installZnpFromUrl],
   )
 
+  /**
+   * 路径 → 条目元数据（rev173.397）：**标题条 / 标签条**都靠它显示标题而不是文件名 ——
+   * 私密笔记的真实文件名是随机 id（`.zn/private/notes/<id>.zn`），只看 basename 就是乱码。
+   */
+  const metaByPath = useMemo(() => {
+    const m = new Map<string, NoteMeta>()
+    for (const n of treeNotes) m.set(n.path, n)
+    return m
+  }, [treeNotes])
   /** 标题栏上显示的名字：优先当前笔记，其次库名 */
   const titleText = activePath
-    ? (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
+    ? metaByPath.get(activePath)?.title?.trim() ||
+      (activePath.split(/[\\/]/).pop() ?? '').replace(/\.md$/i, '')
     : vault
       ? (vault.split(/[\\/]/).pop() ?? 'ZeroNote')
       : 'ZeroNote'
@@ -4293,7 +4303,9 @@ export default function App() {
     () => [
       ...tabs.map((p) => ({
         path: p,
-        title: (p.split(/[\\/]/).pop() ?? p).replace(/\.md$/i, ''),
+        title:
+          metaByPath.get(p)?.title?.trim() ||
+          (p.split(/[\\/]/).pop() ?? p).replace(/\.md$/i, ''),
         dirty: p === activePath && dirty,
       })),
       /* rev173.83：面板标签排在笔记后面。标题取面板注册时的 title（插件换了标题也跟着变） */
@@ -4303,7 +4315,7 @@ export default function App() {
         return { path: pt, title: panel?.title ?? pid, dirty: false }
       }),
     ],
-    [tabs, panelTabs, panels, activePath, dirty],
+    [tabs, panelTabs, panels, activePath, dirty, metaByPath],
   )
   /**
    * 标签条上的「当前标签」（rev173.83）：主区正显示某个面板时是 `panel:<id>`，否则是当前笔记。
