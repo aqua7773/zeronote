@@ -1428,6 +1428,61 @@ export default {
         run: async () => {
           // 打开前先看一眼磁盘（rev173.393）：同步可能刚把 vault 拉下来
           await refreshRingIfChanged(api, 'open')
+          /**
+           * rev173.408：未解锁 ⇒ 先弹**输入对话框**（与私密笔记同一套 `host.prompt` 样式），
+           * **解锁成功直接进密码库**（用户：「密码库解锁也用这个样式」「解锁后直接进密码库」）。
+           * · 已绑定指纹 ⇒ 先弹系统指纹；取消 / 失败回落到密码框。
+           * · 老应用没有 `host.prompt` ⇒ 直接开面板（面板里的锁定视图仍是兜底，不崩）。
+           */
+          if (!db && typeof api.host.prompt === 'function') {
+            await checkRingReady(api)
+            if (!ringReady) {
+              api.host.notify('「账号密码」密钥环还没建立 —— 先去安全插件建一个', 'warn')
+            } else {
+              await refreshBiometric()
+              if (biometric.available && biometric.bound && svc?.biometric) {
+                try {
+                  await svc.biometric.unlock(RING)
+                  await afterUnlocked(api)
+                  api.host.notify('密码库已解锁', 'info')
+                  await openCorePanel(api, PANEL_ID, '密码库面板')
+                  return
+                } catch (e) {
+                  const msg = String(e?.message ?? e)
+                  // 取消是正常操作；其它失败给一句提示再回落密码框
+                  if (!/cancel|取消/i.test(msg)) {
+                    api.host.notify(`指纹解锁失败：${msg}，请输主密码`, 'warn')
+                  }
+                }
+              }
+              const pw = await api.host.prompt({
+                title: '解锁密码库',
+                message:
+                  biometric.available && biometric.bound
+                    ? '指纹已取消 —— 也可以输入主密码'
+                    : '输入「账号密码」密钥环的主密码',
+                placeholder: '主密码',
+                secret: true,
+                okText: '解锁',
+              })
+              if (pw !== null) {
+                try {
+                  await unlockAndLoad(api, pw)
+                  api.host.notify('密码库已解锁', 'info')
+                } catch (e) {
+                  const msg = String(e?.message ?? e)
+                  api.host.notify(
+                    msg.includes('还没建立')
+                      ? '「账号密码」密钥环还没建立 —— 先去安全插件建一个'
+                      : /invalid tag|tag mismatch|bad tag/i.test(msg)
+                        ? '主密码不对'
+                        : `解锁失败：${msg}`,
+                    'error',
+                  )
+                }
+              }
+            }
+          }
           await openCorePanel(api, PANEL_ID, '密码库面板')
         },
       },

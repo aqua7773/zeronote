@@ -19,6 +19,7 @@ revision: 173.406
 
 | rev | 内容 |
 |---|---|
+| rev173.408 | 2026-11-06 · **密码库解锁也用 `host.prompt` 输入弹窗**（用户：「密码库解锁也用这个样式」「解锁后直接进密码库」）：`secrets.open` 未解锁 ⇒ ① `refreshRingIfChanged` → `checkRingReady`；② 已绑定指纹先弹系统指纹（取消/失败回落）；③ `host.prompt({ title:'解锁密码库', secret:true })` 收主密码；④ **解锁成功直接 `openCorePanel` 进密码库**；老应用没有 `host.prompt` ⇒ 直接开面板（面板锁定视图仍是兜底）。面板里的锁定视图保留（解锁失败后可在面板重试）。插件 **secrets 0.1.5**（已签名入市 16 条；dev/手机已同步）。**G2**：桌面 dev 弹窗样式已验（`_shots/rev408-secrets-prompt.png`）；**解锁成功路径未验** —— dev 测试库的「账号密码」环主密码与 `notes` 环不同，`test-pass-1234` 报「主密码不对」（`_shots/rev408-secrets-opened2.png`）。 |
 | rev173.407 | 2026-11-06 · **老应用兼容兜底（`host.prompt` 缺失）**：`host.prompt` 是内核 rev173.405 才加的能力，而 release 机装的是 0.10.0 —— 市场更新到 0.3.4 后点锁会 `api.host.prompt is not a function`（用户看到「没反应 / 报错」）。① `private.open` 加 `typeof api.host.prompt === 'function'` 判断，旧应用上提示「当前应用版本过旧：私密笔记需要『输入弹窗』能力 —— 请把 ZeroNote 更新到最新版」；② 判断放在**指纹分支之后**（指纹解锁不需要 prompt，旧应用上已绑定指纹的仍可用）。插件 **0.3.5**（已签名入市 16 条）；dev 全局与手机 dev 包均已同步。 |
 | rev173.406 | 2026-11-06 · **指纹解锁补回**（用户：「指纹解锁没做吗」）：rev173.405 删独立面板时，把面板锁屏上的「用指纹解锁 / 绑定本机指纹」UI 入口一起删了 —— 命令还在但用户找不到。① `private.open` 未解锁且**已绑定指纹** ⇒ **先弹系统指纹**（`svc.biometric.unlock(RING)`），成功即解锁；取消 / 失败 ⇒ **回落**到主密码输入框（message 改成「指纹已取消 —— 也可以输入主密码」）；未绑定 ⇒ 仍直接弹密码框（不回归）。② **本会话一次性提示**：第一次解锁且未绑定时 toast 指路「命令面板 → 私密文件夹：绑定本机指纹」（面板删了，绑定入口只剩命令面板，不提示用户发现不了；每次弹又太吵）。插件 **0.3.4**（已签名入市 + `gen-market --write` 16 条）。**G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）；手机插件已同步 0.3.4。**待验**：指纹路径需真人绑一次 Windows Hello 后复验（AI 无法代按系统指纹）。**✅ 用户已验（2026-11-07）**：绑定指纹后点锁直接弹 Windows Hello 并解锁成功。 |
 | rev173.405 | 2026-11-06 · **私密笔记第二批收官：删独立面板与列表视图**（方案 §4.4 最后一项；用户：「内核新增，然后点解锁弹输入弹窗，私密模式下，回收站加个切换，点了切到私密回收站」）：① **内核新增 `host.prompt`**（契约 `PromptOptions` + `HostApi.prompt`；`KernelHooks.onPrompt` 由宿主 `App.tsx` 的 Dialog 浮层兑现；`secret: true` 走新抽出的共用组件 `ui/SecretField`，`UIRenderer` 的 `input.secret` 也改用它 —— 👁 **只留一份实现**）。宿主没接 hook 时**抛错**而不是返回空串（否则插件会把「没输入」当成「空密码」去调解锁）。② **private-notes 0.3.3**：删 `main` 位置独立面板 + 列表视图 + 面板内搜索 / 改名 / 回收站视图（`manifest` 去掉 `panels` 与 `view:main` 能力）；`private.open` 未解锁 ⇒ 先校验密钥环，再 `host.prompt({ secret: true })` 收主密码（**取消 = `null`**）；删掉面板专用命令 `private.unlock` / `recheck` / `goto-list` / `goto-trash` / `search-*` / `rename*`；状态提示从面板内 message 改为 `host.notify`。③ **回收站加「公开 / 私密」切换**：`AppTrashView` 新增 `scope` / `privateAvailable` / `onScopeChange` / `loading`；`App` 新增 `trashScope` + `privateTrash` + `loadPrivateTrash`（`effectiveTrashScope` 渲染期派生 —— 锁定自动回落公开，不用 effect setState）；插件新增 `private.trash-data`，恢复 / 彻底删除 / 清空分别走 `private.restore` / `private.purge` / `private.empty-trash`（旧面板的「上膛」随面板一起删，二次确认由宿主按钮负责）；文件树菜单「私密回收站」不再开面板，改为切到回收站页的私密范围。**测试**：新增 `tests/host-prompt.test.ts` 3 条 · `tests/app-trash-view.test.tsx` +4（解锁才显示切换 / 范围回调 / 私密文案 / 加载态）。**G1**：tsc 0 · oxlint 4 · cargo 105 · vitest 1979 · 质量门 9/9。**插件**：`private-notes 0.3.3` 已签名入市 + `gen-market --write`（16 条）。**G2**：见下方正文（桌面 dev 验收面板 / 回收站切换；手机 dev 包同流程）。|
@@ -358,6 +359,20 @@ revision: 173.406
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.408（2026-11-06 · 密码库解锁改输入弹窗）
+
+> **用户**：「密码库解锁也用这个样式」「解锁后直接进密码库」。
+
+> 1. `secrets.open` 未解锁 ⇒ 先 `refreshRingIfChanged` + `checkRingReady`；
+>    已绑定指纹先弹系统指纹（取消 / 失败回落），再 `host.prompt({ title:'解锁密码库', secret:true })`。
+> 2. **解锁成功直接进密码库**（`openCorePanel`）；老应用没有 `host.prompt` ⇒ 直接开面板（面板锁定视图兜底）。
+> 3. 面板内锁定视图保留：解锁失败（如密码错）后可在面板里重试；错误仍显示在面板 message 区。
+> 4. 插件 **secrets 0.1.5**（已签名入市；dev 全局与手机 dev 包已同步）。
+
+> **G2**：弹窗样式已验（`_shots/rev408-secrets-prompt.png`，标题「解锁密码库」/ 密码框 + 👁 / 取消·解锁）。
+> **未验**：解锁成功路径 —— dev 测试库「账号密码」环的主密码与 `notes` 环不同，`test-pass-1234` 报「主密码不对」
+> （`_shots/rev408-secrets-opened2.png`）。拿到密码后补验「输对直接进库」这一条。
 
 > ## 📌 rev173.407（2026-11-06 · 老应用兼容兜底）
 
