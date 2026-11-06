@@ -16,6 +16,7 @@ import type {
   NoteSourceGroup,
 } from '../kernel/contract'
 import { ContextMenu, type MenuItem } from '@/components/ui'
+import { edgeScrollStep } from '../lib/drag-autoscroll'
 import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
 import { bootMark } from '../lib/boot-marks'
 import {
@@ -1103,12 +1104,43 @@ export function FileTree({
     let dragging = false
     /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
     let target: string | null = null
+    /** 最近一次指针位置（rev173.403）：指针贴边**不动**时，自动滚动循环靠它重算落点 */
+    const last = { x: start.x, y: start.y }
+    let scrollRaf = 0
+
+    /**
+     * 贴边自动滚动（rev173.403 · 用户「长按拖动从底部拖到顶部不会自动上滑」）。
+     *
+     * 指针贴住容器顶/底边缘时容器自己滚；滚完立刻用**同一份** `resolveDropTarget`
+     * 重算落点 —— 不重算的话落点停在滚动前的行上，松手会搬到错的地方。
+     * 指针在容器外（拖出侧栏）时 `edgeScrollStep` 返回 0，等于不滚（拖出 = 取消）。
+     */
+    const scrollTick = () => {
+      scrollRaf = 0
+      const root = rootRef.current
+      if (!root || !dragging || !fromPath) return
+      const box = root.getBoundingClientRect()
+      const step = edgeScrollStep({ y: last.y, top: box.top, bottom: box.bottom })
+      if (step) {
+        root.scrollTop += step
+        const next = resolveDropTarget(last.x, last.y, fromPath)
+        if (next !== target) {
+          target = next
+          setDropTarget(next)
+        }
+      }
+      scrollRaf = requestAnimationFrame(scrollTick)
+    }
 
     const move = (ev: PointerEvent) => {
+      last.x = ev.clientX
+      last.y = ev.clientY
       const dx = ev.clientX - start.x
       const dy = ev.clientY - start.y
       if (!dragging && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
       dragging = true
+      // 拖起来之后才启动自动滚动（框选不参与）
+      if (fromPath && !scrollRaf) scrollRaf = requestAnimationFrame(scrollTick)
 
       if (!fromPath) {
         // ── 框选 ──
@@ -1145,6 +1177,10 @@ export function FileTree({
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      if (scrollRaf) {
+        cancelAnimationFrame(scrollRaf)
+        scrollRaf = 0
+      }
       setMarquee(null)
       setDropTarget(null)
       setDraggingPath(null)
@@ -1228,6 +1264,9 @@ export function FileTree({
     let fromPath: string | null = null
     let target: string | null = null
     let start = { x: 0, y: 0 }
+    /** 最近一次手指位置（rev173.403）：贴边不动时，自动滚动循环靠它重算落点 */
+    const lastPt = { x: 0, y: 0 }
+    let scrollRaf = 0
     /** 按下时刻 + 是否真的移动过 —— 松手时据此判「长按释放 = 弹菜单」（rev173.321） */
     let pressAt = 0
     let moved = false
@@ -1325,6 +1364,10 @@ export function FileTree({
       if (moveRaf) {
         cancelAnimationFrame(moveRaf)
         moveRaf = 0
+      }
+      if (scrollRaf) {
+        cancelAnimationFrame(scrollRaf)
+        scrollRaf = 0
       }
       pending = null
       ghostShown = false
@@ -1436,9 +1479,32 @@ export function FileTree({
       })
     }
 
+    /**
+     * 贴边自动滚动（rev173.403 · 用户「长按拖动从底部拖到顶部不会自动上滑」）。
+     *
+     * 手指停在容器顶/底边缘不动时 `touchmove` 不再触发，容器不滚 ⇒ 没露出来的行
+     * 永远拖不到。这条 rAF 循环在拖拽期间一直跑，与鼠标链**共用同一份**
+     * `edgeScrollStep`；滚完把 pending 设回指针位置、排一次 `applyMove` 重算落点。
+     */
+    const scrollTick = () => {
+      scrollRaf = 0
+      const el = rootRef.current
+      if (!el || !dragging) return
+      const box = el.getBoundingClientRect()
+      const step = edgeScrollStep({ y: lastPt.y, top: box.top, bottom: box.bottom })
+      if (step) {
+        el.scrollTop += step
+        pending = { x: lastPt.x, y: lastPt.y }
+        if (!moveRaf) moveRaf = requestAnimationFrame(applyMove)
+      }
+      scrollRaf = requestAnimationFrame(scrollTick)
+    }
+
     const onMove = (e: TouchEvent) => {
       const t = e.touches[0]
       if (!t || !fromPath) return
+      lastPt.x = t.clientX
+      lastPt.y = t.clientY
       /**
        * 源分组行（rev173.402）：长按可以弹菜单，但**组行本身不拖** ——
        * 它不对应磁盘路径，拖它没有意义（拖别的东西是另一条独立的路径）。
@@ -1457,6 +1523,8 @@ export function FileTree({
           return
         }
         dragging = true
+        // 拖起来之后才启动贴边自动滚动（rev173.403）
+        if (!scrollRaf) scrollRaf = requestAnimationFrame(scrollTick)
         // 拖拽不是"长按待释放"，到点反馈到此为止
         clearFeedback()
         setDraggingPath(fromPath)
