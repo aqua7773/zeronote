@@ -1,10 +1,10 @@
 {
-  "version": "0.10.0",
-  "notes": "ZeroNote 0.10.0",
-  "pub_date": "2026-11-05T18:20:52.660Z",
+  "version": "0.10.1",
+  "notes": "ZeroNote 0.10.1",
+  "pub_date": "2026-11-06T17:47:12.089Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.10.0/ZeroNote_0.10.0_arm64.apk",
-    "sha256": "886663b062716adbcda0bef7fdcda40ddf629f6dad3ac65be2dfcd4b49be0039",
-    "size": 34952375
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.10.1/ZeroNote_0.10.1_arm64.apk",
+    "sha256": "3e23351db3e10f9f0a8f6997df38f0d0c824d6cafd7d1a2df9d9373effa8aadc",
+    "size": 34977387
   }
 }
