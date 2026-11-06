@@ -517,6 +517,8 @@ async function refreshBiometric() {
 }
 /** 最近一次操作时间（空闲锁定用） */
 let lastActive = 0
+/** 外部写入后重查「安全」vault 的间隔（rev173.393；只在前台 + 未解锁时生效） */
+const RING_RECHECK_MS = 30_000
 /** 剪贴板：值 + 计划清空的时刻（后台冻结时靠时间戳补判） */
 let clip = { value: '', deadline: 0 }
 let clipTimer = null
@@ -625,6 +627,32 @@ async function checkRingReady(api) {
     ringReady = false // 文件不存在 = 安全插件没建过任何环
   }
   return ringReady
+}
+
+/**
+ * 重查判定（rev173.393 纯函数，单测覆盖）：已解锁 / 状态没变 ⇒ 不刷新。
+ *
+ * 已解锁时不查 —— 内存里已有数据，重查只会让面板在「有环 / 无环」之间跳来跳去。
+ */
+export function ringNeedsRefresh({ unlocked, before, after }) {
+  if (unlocked) return false
+  return before !== after
+}
+
+/**
+ * 外部写入后重查一次「环建了没有」（rev173.393）。
+ *
+ * 面板原来只在 `apply()` / 手动点「重新检查」时读 —— 同步把 vault 拉下来之后一直显示
+ * 「还没建立密钥环」。见 `ringNeedsRefresh`。
+ */
+async function refreshRingIfChanged(api, reason) {
+  const before = ringReady
+  if (db !== null) return false
+  await checkRingReady(api).catch(() => before)
+  if (!ringNeedsRefresh({ unlocked: db !== null, before, after: ringReady })) return false
+  api.host.log?.('info', `[secrets] 密钥环状态变化（${reason}）⇒ 存在=${ringReady}`)
+  api.view.refresh(PANEL_ID)
+  return true
 }
 
 /**
@@ -1359,9 +1387,21 @@ export default {
 
     /* ③ 空闲锁定：3 秒检查一次（时间戳判定，时间戳在后台也走） */
     const idleTimer = setInterval(() => checkIdle(api), 3000)
+
+    /* 外部写入后的自动重查（rev173.393）：同步插件写 `.zn/security/vault.*.json`
+       不经过本插件，30 秒一次、只在前台（见 refreshRingIfChanged） */
+    const ringTimer = setInterval(() => {
+      try {
+        if (document.visibilityState !== 'visible') return
+      } catch {
+        /* 无 DOM（单测）：照常检查 */
+      }
+      void refreshRingIfChanged(api, 'timer')
+    }, RING_RECHECK_MS)
     api.subscriptions.push({
       dispose: () => {
         clearInterval(idleTimer)
+        clearInterval(ringTimer)
         if (clipTimer) clearTimeout(clipTimer)
         for (const t of revealTimers.values()) clearTimeout(t)
         revealTimers.clear()
@@ -1372,6 +1412,7 @@ export default {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       checkIdle(api)
+      void refreshRingIfChanged(api, 'focus')
       if (clip.value && nowMs() >= clip.deadline) void settleClipboard()
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -1384,7 +1425,11 @@ export default {
       {
         id: 'secrets.open',
         title: '密码库：打开',
-        run: () => openCorePanel(api, PANEL_ID, '密码库面板'),
+        run: async () => {
+          // 打开前先看一眼磁盘（rev173.393）：同步可能刚把 vault 拉下来
+          await refreshRingIfChanged(api, 'open')
+          await openCorePanel(api, PANEL_ID, '密码库面板')
+        },
       },
       {
         id: 'secrets.open-plugins',

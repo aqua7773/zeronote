@@ -630,6 +630,8 @@ const RING_HINT = {
 }
 /** 空闲检查间隔（不是锁定时间；锁定时间按环的 idleLockMs 判） */
 const IDLE_CHECK_MS = 3000
+/** 外部写入后重读 vault 的间隔（rev173.393；只在前台 + 未解锁时生效） */
+const VAULT_RECHECK_MS = 30_000
 /** 锁定后自动弹生物识别：先让面板切到「已锁定」再弹，免得弹窗盖住刷新 */
 const AUTO_UNLOCK_DELAY_MS = 600
 /** 锁定时应用不在前台 ⇒ 挂起这次自动弹；用户 5 分钟没回来就当他不想要 */
@@ -904,6 +906,50 @@ async function loadVault(api) {
     store.corrupt = true
     return createVault()
   }
+}
+
+/** vault 内容指纹：只在「磁盘真的变了」时刷新面板，定时器每轮不重渲染 */
+export function vaultSignature(v) {
+  try {
+    return JSON.stringify(v ?? null)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 重读判定（rev173.393 纯函数，单测覆盖）：
+ * 「有环已解锁」「坏盘」「内容没变」三种情况都不该重读。
+ *
+ * 为什么解锁中不重读：内存里的 DEK 与磁盘环必须对应 —— 同步把环换掉后重读，
+ * 会让刚解锁的会话对着新环的 KDF 参数加密，下一次保存就写出一堆解不开的密文。
+ */
+export function vaultNeedsReload({ liveCount, corrupt, prevSig, nextVault }) {
+  if (liveCount > 0 || corrupt) return false
+  return vaultSignature(nextVault) !== prevSig
+}
+
+/**
+ * 重读 vault（rev173.393）：同步 / 外部写入 `.zn/security/vault.*.json` 后，
+ * 面板原本只在 `apply()` 读一次 ⇒ 一直显示「还没建立密钥环」。
+ *
+ * 边界见 `vaultNeedsReload`；只在内容真变了才 refresh，避免定时器每轮重渲染。
+ */
+async function reloadVaultIfChanged(api, reason) {
+  const next = await loadVault(api).catch(() => null)
+  if (!next) return false
+  const ok = vaultNeedsReload({
+    liveCount: live.size,
+    corrupt: store.corrupt,
+    prevSig: store.sig,
+    nextVault: next,
+  })
+  if (!ok) return false
+  store.vault = next
+  store.sig = vaultSignature(next)
+  api.host.log?.('info', `[security] vault 变化（${reason}）⇒ 面板已重读`)
+  api.view.refresh(PANEL_ID)
+  return true
 }
 
 /**
@@ -1613,6 +1659,7 @@ async function doSelfTest(api) {
 export default {
   async apply(api) {
     store.vault = await loadVault(api)
+    store.sig = vaultSignature(store.vault)
     store.loaded = true
     /**
      * 旧单文件的残留自愈（rev173.184 手机走查）：迁移时 `saveVault` 会删 `vault.json`，但实测
@@ -1685,10 +1732,25 @@ export default {
     const timer = setInterval(() => checkIdle(api), IDLE_CHECK_MS)
     api.subscriptions.push({ dispose: () => clearInterval(timer) })
 
+    /* 外部写入后的自动重读（rev173.393）：同步插件写 vault 不经过本插件，
+       30 秒轮一次、只在前台、只在没解锁时（见 reloadVaultIfChanged） */
+    const vaultTimer = setInterval(() => {
+      try {
+        if (document.visibilityState !== 'visible') return
+      } catch {
+        /* 无 DOM（单测）：照常检查 */
+      }
+      void reloadVaultIfChanged(api, 'timer')
+    }, VAULT_RECHECK_MS)
+    api.subscriptions.push({ dispose: () => clearInterval(vaultTimer) })
+
     /* 锁定时人不在前台 ⇒ 这次自动弹先挂起，等用户回来再补（rev173.171）：
        桌面的 Hello 对话框会抢焦点、手机切后台时 CPU 冻结 —— 都该等用户回来。
        判据在 shouldWaitForFocus 里（纯函数，单测覆盖）。 */
-    const onAppActive = () => resumeAutoUnlock(api)
+    const onAppActive = () => {
+      void reloadVaultIfChanged(api, 'focus')
+      resumeAutoUnlock(api)
+    }
     try {
       document.addEventListener('visibilitychange', onAppActive)
       window.addEventListener('focus', onAppActive)
@@ -1713,6 +1775,8 @@ export default {
         id: 'security.open',
         title: '安全：打开面板',
         run: async () => {
+          // 打开前先看一眼磁盘（rev173.393）：同步可能在后台换掉了 vault
+          await reloadVaultIfChanged(api, 'open')
           for (let i = 0; i < 5; i++) {
             try {
               await api.command.execute(`core.panel.${PANEL_ID}`)

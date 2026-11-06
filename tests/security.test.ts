@@ -53,6 +53,8 @@ import {
   verifyData,
   windowsHelloAdapter,
   vaultFileOf,
+  vaultNeedsReload,
+  vaultSignature,
   vaultPartPayload,
   parseVaultPart,
   LEGACY_VAULT_FILE,
@@ -621,5 +623,34 @@ describe('vault 按环拆文件（rev173.182 · 私密文件夹期 3）', () => 
     expect(notesText).not.toContain('secrets')
     expect(secretsText).not.toContain('notes')
     expect(Object.keys(parseVaultPart(notesText).wrapped)).toEqual(['notes'])
+  })
+})
+
+describe('vault 重读判定（rev173.393：同步 / 外部写入后面板要自己更新）', () => {
+  const vaultA = { v: 1, rings: { notes: { id: 'notes', kdf: { t: 3 } } } }
+  const vaultB = { v: 1, rings: { notes: { id: 'notes', kdf: { t: 4 } } } }
+
+  it('内容变了且没解锁 ⇒ 重读', () => {
+    expect(
+      vaultNeedsReload({ liveCount: 0, corrupt: false, prevSig: vaultSignature(vaultA), nextVault: vaultB }),
+    ).toBe(true)
+  })
+
+  it('内容没变 ⇒ 不重读（30 秒定时器不许每轮重渲染）', () => {
+    expect(
+      vaultNeedsReload({ liveCount: 0, corrupt: false, prevSig: vaultSignature(vaultA), nextVault: { ...vaultA } }),
+    ).toBe(false)
+  })
+
+  it('有环已解锁 ⇒ 不重读（内存 DEK 与磁盘环必须对应）', () => {
+    expect(
+      vaultNeedsReload({ liveCount: 1, corrupt: false, prevSig: '', nextVault: vaultB }),
+    ).toBe(false)
+  })
+
+  it('坏盘 ⇒ 不重读（文件在、读不懂时不覆盖内存态）', () => {
+    expect(
+      vaultNeedsReload({ liveCount: 0, corrupt: true, prevSig: '', nextVault: vaultB }),
+    ).toBe(false)
   })
 })

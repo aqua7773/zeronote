@@ -319,10 +319,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.1.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.3.znp",
-      "sha256": "a526587f1c54eea17ead82c86fd3218630d9ab8c712439860eb0b03a93413aa0",
-      "size": 72544,
+      "version": "0.1.4",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/secrets-0.1.4.znp",
+      "sha256": "dc227f0925851dd0302837ce83be4a381471f6ce3edb2b3bef76b6237d43a594",
+      "size": 74438,
       "files": [
         "index.js",
         "signature.json",
@@ -346,10 +346,10 @@
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.2.3",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.3.znp",
-      "sha256": "dde4e8d230aa2cebef503c038f8d0b634295d38d9ba4ba389379f640e294d88b",
-      "size": 80778,
+      "version": "0.2.4",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.2.4.znp",
+      "sha256": "32ebd71a8467c0b31e536e1ce7a7a58eb8003b433e14f75f8975d76092b5a63b",
+      "size": 83293,
       "files": [
         "index.js",
         "signature.json"

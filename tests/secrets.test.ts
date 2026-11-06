@@ -32,6 +32,7 @@ import {
   purgeExpired,
   purgePlatform,
   renamePlatform,
+  ringNeedsRefresh,
   restoreAccount,
   restorePlatform,
   securityVaultFileOf,
@@ -387,5 +388,21 @@ describe('平台整体删除（真人测试12 #2）', () => {
     expect(trashPlatform(db, 'p_gh', 2000)).toBeNull()
     expect(restorePlatform(db, 'p_gh', 3000)).not.toBeNull()
     expect(restorePlatform(db, 'p_gh', 4000)).toBeNull()
+  })
+})
+
+describe('ring 重查判定（rev173.393：同步拉下 vault 后面板要自己更新）', () => {
+  it('未解锁 + 状态从无到有 ⇒ 刷新（同步把 vault 拉下来的场景）', () => {
+    expect(ringNeedsRefresh({ unlocked: false, before: false, after: true })).toBe(true)
+    expect(ringNeedsRefresh({ unlocked: false, before: true, after: false })).toBe(true)
+  })
+
+  it('状态没变 ⇒ 不刷新（30 秒定时器不许每轮重渲染）', () => {
+    expect(ringNeedsRefresh({ unlocked: false, before: true, after: true })).toBe(false)
+    expect(ringNeedsRefresh({ unlocked: false, before: false, after: false })).toBe(false)
+  })
+
+  it('已解锁 ⇒ 不刷新（内存里已有数据，重查会让面板跳来跳去）', () => {
+    expect(ringNeedsRefresh({ unlocked: true, before: false, after: true })).toBe(false)
   })
 })
