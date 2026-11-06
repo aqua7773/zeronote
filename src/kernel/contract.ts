@@ -946,6 +946,28 @@ export interface StoreApi {
   all(): Promise<Record<string, unknown>>
 }
 
+/**
+ * `host.prompt` 的参数（rev173.405）。
+ *
+ * 只做「一句文本」这一种输入 —— 多字段表单仍应注册面板（那是 21 种 UINode 的活）。
+ */
+export type PromptOptions = {
+  /** 对话框标题（缺省「请输入」） */
+  title?: string
+  /** 标题下方的一句说明（可放错误提示 / 上下文） */
+  message?: string
+  /** 输入框占位符 */
+  placeholder?: string
+  /** 密码框：显示为圆点 + 框内 👁 切换（与 `UINode.input.secret` 同一份实现） */
+  secret?: boolean
+  /** 预填值 */
+  value?: string
+  /** 确认按钮文字（缺省「确定」） */
+  okText?: string
+  /** 取消按钮文字（缺省「取消」） */
+  cancelText?: string
+}
+
 /** 8. host —— 宿主信息与生命周期 */
 export interface HostApi {
   apiVersion: string
@@ -953,6 +975,17 @@ export interface HostApi {
   platform: 'windows' | 'android' | 'other'
   log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void
   notify(msg: string, level?: 'info' | 'warn' | 'error'): void
+  /**
+   * **输入对话框**（rev173.405）—— 插件需要一个短文本输入（典型：主密码）时用它，
+   * 不要为了一句输入注册一个整页面板。
+   *
+   * 宿主用 Dialog 原语画浮层：标题 / 说明 / 输入框（`secret: true` ⇒ 密码框 + 👁）/
+   * 确定 / 取消。**取消返回 `null`**（不是抛错 —— 取消是正常操作）。
+   *
+   * 为什么放进内核而不是让插件画：插件只能声明 21 种 UINode，且没有"弹浮层"这个原语；
+   * 手机软键盘 / 焦点 / ESC 关闭这些细节，每个插件各写一份必然漂。
+   */
+  prompt(opts: PromptOptions): Promise<string | null>
   /**
    * 把**库内相对路径**转成 WebView 能直接用的 URL（Tauri asset 协议）。
    *

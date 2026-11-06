@@ -6,6 +6,9 @@ import { AppTrashView } from '../src/components/AppTrashView'
 afterEach(cleanup)
 
 const base = {
+  scope: 'public' as const,
+  privateAvailable: false,
+  onScopeChange: () => {},
   confirmEmpty: false,
   confirmPurge: null as string | null,
   onEmpty: () => {},
@@ -86,5 +89,35 @@ describe('AppTrashView', () => {
     render(<AppTrashView {...base} trash={[]} onBack={onBack} />)
     fireEvent.click(screen.getByRole('button', { name: '返回编辑器' }))
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  /* ── rev173.405：公开 / 私密切换（用户拍板「回收站加个切换」）── */
+
+  it('私密未解锁 ⇒ 不显示范围切换', () => {
+    render(<AppTrashView {...base} trash={[]} privateAvailable={false} />)
+    expect(screen.queryByRole('tab', { name: '私密' })).toBeNull()
+  })
+
+  it('私密已解锁 ⇒ 有切换；点「私密」把范围交回宿主', () => {
+    const onScopeChange = vi.fn()
+    render(
+      <AppTrashView {...base} trash={[]} privateAvailable onScopeChange={onScopeChange} />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: '私密' }))
+    expect(onScopeChange).toHaveBeenCalledWith('private')
+    fireEvent.click(screen.getByRole('tab', { name: '公开' }))
+    expect(onScopeChange).toHaveBeenCalledWith('public')
+  })
+
+  it('私密范围 ⇒ 标题与空态都用私密口径', () => {
+    render(<AppTrashView {...base} trash={[]} scope="private" privateAvailable />)
+    expect(screen.getByText('私密回收站')).toBeTruthy()
+    expect(screen.getByText('私密回收站是空的')).toBeTruthy()
+  })
+
+  it('私密加载中 ⇒ 显示解密提示，不显示空态', () => {
+    render(<AppTrashView {...base} trash={[]} scope="private" privateAvailable loading />)
+    expect(screen.getByText('正在解密私密回收站…')).toBeTruthy()
+    expect(screen.queryByText('私密回收站是空的')).toBeNull()
   })
 })

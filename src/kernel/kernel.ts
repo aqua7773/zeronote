@@ -24,6 +24,7 @@ import type {
   NetApi,
   NoteMeta,
   PanelLocation,
+  PromptOptions,
   SearchHit,
   ServiceApi,
   ShellSpec,
@@ -95,6 +96,13 @@ export type PanelRegistration = {
 export type KernelHooks = {
   onPanelsChange: (panels: PanelRegistration[]) => void
   onNotify: (msg: string, level?: 'info' | 'warn' | 'error') => void
+  /**
+   * **输入对话框**（rev173.405）：宿主画浮层（Dialog 原语），用户取消 / 关闭 ⇒ `null`。
+   *
+   * 没接的宿主（单测 / 非 App 环境）由 `host.prompt` 抛错 —— **别静默返回空串**：
+   * 插件会把"没输密码"当成"密码为空"去调解锁，错误信息会指向错误的方向。
+   */
+  onPrompt?: (opts: PromptOptions) => Promise<string | null>
   /**
    * 日志钩子（rev173.229 起带归属）：`pluginId` 空 = 内核自身；
    * `stack` 只在 error 时由 `scopedHost` 捕获（需求 §2.13「错误堆栈」）。
@@ -633,6 +641,14 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
     notify(msg, level) {
       hooks.onNotify(msg, level)
+    },
+    /**
+     * 输入对话框（rev173.405）：宿主实现见 `App.tsx` 的 `promptState`。
+     * 没接 ⇒ 抛错（见 `KernelHooks.onPrompt` 注释：不能静默返回空串）。
+     */
+    async prompt(opts) {
+      if (!hooks.onPrompt) throw new Error('当前宿主不支持输入对话框')
+      return await hooks.onPrompt(opts)
     },
     assetUrl(relPath) {
       // 库内相对路径 → asset://（需 tauri.conf.json 的 assetProtocol.enable + scope）

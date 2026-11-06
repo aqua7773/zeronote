@@ -40,7 +40,9 @@ import type {
   NoteSourceSearch,
   PluginLogEntry,
   PluginManifest,
+  PromptOptions,
   ShellMountCtx,
+  TrashEntry,
 } from './kernel/contract'
 /* 2026-10-13 拆权限门：`./kernel/permissions` 的四个导入（isGranted / readPermissions /
  * setPermission / PermissionTable）**已全部移除** —— 内核不再做权限判定。
@@ -221,6 +223,7 @@ import {
   DialogBody,
   DialogFooter,
   DialogHeader,
+  SecretField,
   type MenuItem,
 } from '@/components/ui'
 
@@ -296,6 +299,16 @@ export default function App() {
    * 锁定 / 关闭时源自己让 `groupVisible()` 返回 false ⇒ 分组消失。
    */
   const [sourceGroups, setSourceGroups] = useState<NoteSourceGroup[]>([])
+  /**
+   * **私密回收站**（rev173.405 · 用户拍板「私密模式下，回收站加个切换，点了切到私密回收站」）。
+   *
+   * 数据由插件 `private.trash-data` 提供（明文只在插件内存，宿主不碰密文），操作走
+   * `private.restore` / `private.purge` / `private.empty-trash`。锁定后一律回落到公开范围 ——
+   * 不给"切到私密但已经是锁着的"这种死路。
+   */
+  const [trashScope, setTrashScope] = useState<'public' | 'private'>('public')
+  const [privateTrash, setPrivateTrash] = useState<TrashEntry[]>([])
+  const [privateTrashLoading, setPrivateTrashLoading] = useState(false)
   /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
   const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
@@ -1302,6 +1315,33 @@ export default function App() {
     setMainView(panelId)
   }, [])
 
+  /* ── 宿主输入对话框（rev173.405 · `host.prompt`）── */
+  const [promptState, setPromptState] = useState<{ opts: PromptOptions; value: string } | null>(null)
+  /**
+   * pending prompt 的 resolve —— 浮层关闭（确定 / 取消 / ESC / 点遮罩）时**统一在这里结算**，
+   * 只结算一次。为什么用 ref 而不是 state：`host.prompt` 的 Promise 要跨渲染存活，
+   * 放 state 会在重渲染时丢引用（插件拿到的 Promise 永远不 resolve）。
+   */
+  const promptResolveRef = useRef<((v: string | null) => void) | null>(null)
+  const finishPrompt = useCallback((value: string | null) => {
+    const resolve = promptResolveRef.current
+    promptResolveRef.current = null
+    setPromptState(null)
+    resolve?.(value)
+  }, [])
+  /**
+   * 兑现 `host.prompt`：同一时刻只允许一个对话框。连续弹第二个时，
+   * 先把上一个按「取消」结算 —— 否则那个插件的 await 永远挂着（内存与状态都泄漏）。
+   */
+  const askPrompt = useCallback((opts: PromptOptions) => {
+    return new Promise<string | null>((resolve) => {
+      const prev = promptResolveRef.current
+      promptResolveRef.current = resolve
+      setPromptState({ opts, value: opts.value ?? '' })
+      prev?.(null)
+    })
+  }, [])
+
   /* ── 内核（库变了才重建）── */
   /**
    * 内核实例用 **state 懒初始化 + 换库时调整**，而不是 `useMemo`（rev136–137 排查结论）。
@@ -1333,6 +1373,8 @@ export default function App() {
            */
           platform: platform === 'android' ? 'android' : 'windows',
           onOpenPanelInMain: (id) => openPanelInTab(id),
+          // rev173.405：插件的 `host.prompt` 由宿主 Dialog 浮层兑现（见 askPrompt）
+          onPrompt: askPrompt,
         })
       : null
 
@@ -1561,6 +1603,54 @@ export default function App() {
     const d = kernel.notes.subscribe(sync)
     return () => d.dispose()
   }, [kernel])
+
+  /** 私密是否解锁：源可见分组在 = 解锁（rev173.401 起空组也算，锁定则整组消失） */
+  const privateUnlocked = useMemo(
+    () => sourceGroups.some((g) => g.key === 'private'),
+    [sourceGroups],
+  )
+
+  /**
+   * 拉私密回收站清单（rev173.405）。数据由插件提供：明文标题 / 删除时间只在插件内存，
+   * 宿主不读密文目录（与「私密明文不进内核」同一口径）。
+   */
+  const loadPrivateTrash = useCallback(async () => {
+    const k = kernel
+    if (!k) return
+    setPrivateTrashLoading(true)
+    try {
+      const res = (await k.commands.api.execute('private.trash-data')) as
+        | { items?: Array<{ id: string; title: string; deletedAt: number }> }
+        | null
+      const items = Array.isArray(res?.items) ? res.items : []
+      setPrivateTrash(
+        items.map((t) => ({
+          id: t.id,
+          name: t.title || '未命名',
+          originalPath: null,
+          deletedAt: t.deletedAt,
+          size: 0,
+          isDir: false,
+        })),
+      )
+    } catch {
+      // 插件不在 / 已锁定：保持空列表（切换按钮此时也不显示）
+      setPrivateTrash([])
+    } finally {
+      setPrivateTrashLoading(false)
+    }
+  }, [kernel])
+
+  /**
+   * 锁定 ⇒ 一律回落到公开范围（不给"切到私密但已经锁着"的死路）。
+   * 用**渲染期派生**而不是 effect 里 setState —— 后者会多一轮渲染（oxlint set-state-in-effect）。
+   */
+  const effectiveTrashScope = privateUnlocked ? trashScope : 'public'
+
+  /** 停在私密回收站页时就重拉（解锁 / 切换 / 操作后都会走到） */
+  useEffect(() => {
+    if (mainView === 'trash' && effectiveTrashScope === 'private') void loadPrivateTrash()
+  }, [mainView, effectiveTrashScope, loadPrivateTrash])
 
   /**
    * 文件树 / 时间流实际渲染的条目 = 公开笔记 + 额外源条目（rev173.394 第二批把时间流也接上）。
@@ -2583,20 +2673,37 @@ export default function App() {
     [kernel, treeNotes, setToast, setError],
   )
 
-  /** 打开源的回收站（§9.3 源特有入口）：先切插件视图模式，再打开面板 */
-  const openSourceTrash = useCallback(
-    async (group: string) => {
-      const cmd = SOURCE_DROP_COMMANDS[group]?.gotoTrash
-      if (!cmd) return
+  /**
+   * 打开源的回收站（rev173.405）：**不再打开插件面板**（私密笔记的独立面板已删），
+   * 而是把内核回收站页切到该源的「私密」范围 —— 用户拍板「回收站加个切换，点了切到私密回收站」。
+   */
+  const openSourceTrash = useCallback((group: string) => {
+    if (!SOURCE_DROP_COMMANDS[group]) return
+    setTrashScope('private')
+    setMainView('trash')
+  }, [])
+
+  /** 私密回收站的操作（rev173.405）：恢复 / 彻底删除 / 清空 —— 全部转给插件命令 */
+  const privateTrashAction = useCallback(
+    async (action: 'restore' | 'purge' | 'empty', id?: string) => {
+      const k = kernel
+      if (!k) return
       try {
-        await kernel?.commands.api.execute(cmd)
-      } catch {
-        setToast('没装「私密文件夹」插件')
-        return
+        if (action === 'empty') await k.commands.api.execute('private.empty-trash')
+        else await k.commands.api.execute(`private.${action}`, { id })
+        setToast(
+          action === 'restore'
+            ? '已恢复到私密列表'
+            : action === 'purge'
+              ? '已彻底删除'
+              : '已清空私密回收站',
+        )
+        await loadPrivateTrash()
+      } catch (e) {
+        setToast(`操作失败：${e instanceof Error ? e.message : String(e)}`)
       }
-      openPanelInTab('private.panel')
     },
-    [kernel, openPanelInTab, setToast],
+    [kernel, loadPrivateTrash, setToast],
   )
 
   /** 组内新建（§9.9.8）：`private.new` 自带建条目 + 打开编辑器 */
@@ -5969,13 +6076,33 @@ export default function App() {
         <div className="zn-swap" key={mainKey} data-main={mainKey}>
         {mainView === 'trash' ? (
           <AppTrashView
-            trash={trash}
+            /* rev173.405：公开 / 私密两种范围共用这一个页面（用户拍板「回收站加个切换」） */
+            trash={effectiveTrashScope === 'private' ? privateTrash : trash}
+            scope={effectiveTrashScope}
+            privateAvailable={privateUnlocked}
+            onScopeChange={(s) => {
+              setTrashScope(s)
+              // 两个范围的"点两次确认"状态不同源，切换时一律清掉（免得对上一条的确认串到另一批）
+              setConfirmEmpty(false)
+              setConfirmPurge(null)
+            }}
+            loading={effectiveTrashScope === 'private' && privateTrashLoading}
             confirmEmpty={confirmEmpty}
             confirmPurge={confirmPurge}
-            onEmpty={() => void emptyTrashAll()}
+            onEmpty={() => {
+              if (effectiveTrashScope === 'private') void privateTrashAction('empty')
+              else void emptyTrashAll()
+            }}
             onConfirmEmpty={() => setConfirmEmpty(true)}
-            onRestore={(id) => void restoreTrashItem(id)}
-            onPurge={(id) => void purgeTrashItem(id)}
+            onRestore={(id) => {
+              if (effectiveTrashScope === 'private') void privateTrashAction('restore', id)
+              else void restoreTrashItem(id)
+            }}
+            onPurge={(id) => {
+              setConfirmPurge(null)
+              if (effectiveTrashScope === 'private') void privateTrashAction('purge', id)
+              else void purgeTrashItem(id)
+            }}
             onConfirmPurge={(id) => setConfirmPurge(id)}
             onBack={() => {
               // 手机：从「更多」抽屉进来的回抽屉（rev173.314），否则回笔记流首页
@@ -6538,6 +6665,39 @@ export default function App() {
             }}
           >
             打开附件设置
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* 宿主输入对话框（rev173.405 · `host.prompt`）：
+          插件要一句输入（典型：主密码）时不再注册整页面板 —— 私密笔记的解锁就靠它。 */}
+      <Dialog
+        open={promptState !== null}
+        onOpenChange={(next) => {
+          // 点遮罩 / ESC / 点 ✕ 都走这里：一律按取消结算（返回 null，不抛错）
+          if (!next) finishPrompt(null)
+        }}
+        width={420}
+      >
+        <DialogHeader
+          title={promptState?.opts.title ?? '请输入'}
+          description={promptState?.opts.message ?? undefined}
+        />
+        <DialogBody>
+          <SecretField
+            value={promptState?.value ?? ''}
+            placeholder={promptState?.opts.placeholder}
+            autoFocus
+            onChange={(v) => setPromptState((s) => (s ? { ...s, value: v } : s))}
+            onSubmit={() => finishPrompt(promptState?.value ?? '')}
+          />
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => finishPrompt(null)}>
+            {promptState?.opts.cancelText ?? '取消'}
+          </Button>
+          <Button onClick={() => finishPrompt(promptState?.value ?? '')}>
+            {promptState?.opts.okText ?? '确定'}
           </Button>
         </DialogFooter>
       </Dialog>

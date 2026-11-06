@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import type * as React from 'react'
 import type { UIGap, UIListItem, UITableRow, UINode } from '../kernel/contract'
+import { SecretField } from './ui/secret-field'
 
 /**
  * 声明式 UI 渲染器（内核契约 §2.2 view 原语）
@@ -54,10 +54,8 @@ function isWrappedItem(it: UIListItem): it is { key: string; node: UINode } {
 /**
  * 密码框：`secret: true` 的 input 渲染成**眼睛按钮 + 可切换的密码框**。
  *
- * 为什么要独立组件：显示/隐藏是**纯 UI 关注点**，不该进插件 state
- * （否则插件得为每个密码字段各写一份 setState，正是「同一逻辑多处实现」）。
- * 切换是「点击保持」（需求原话「点击显示 / 隐藏」），按钮 `onMouseDown` 阻止默认
- * 以免抢走输入框焦点；`onClick` 里不派发任何命令 ⇒ 不会顺手提交表单。
+ * rev173.405 起控件本体在 `ui/secret-field.tsx`（`host.prompt` 的宿主浮层也用同一份）；
+ * 这里只做「UINode 的 bind / 命令语义 → 受控属性」的适配。
  */
 function SecretInput({
   node,
@@ -68,35 +66,18 @@ function SecretInput({
   ctx: RenderCtx
   inputKey: React.Key
 }): React.JSX.Element {
-  const [shown, setShown] = useState(false)
   return (
-    <div key={inputKey} className="zn-ui-secret">
-      <input
-        type={shown ? 'text' : 'password'}
-        className="zn-ui-input"
-        value={asText(ctx.state[node.bind])}
-        placeholder={node.placeholder}
-        autoComplete={node.secret ? 'off' : undefined}
-        onChange={(e) => ctx.onStateChange(node.bind, e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && node.onSubmit) {
-            ctx.onAction(node.onSubmit, { value: e.currentTarget.value })
-          }
-        }}
-      />
-      <button
-        type="button"
-        className={`zn-ui-secret-toggle${shown ? ' is-shown' : ''}`}
-        aria-label={shown ? '隐藏密码' : '显示密码'}
-        aria-pressed={shown}
-        title={shown ? '隐藏密码' : '显示密码'}
-        // 保住输入框焦点与光标位置：按下去不抢焦点
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setShown((v) => !v)}
-      >
-        {shown ? '🙈' : '👁'}
-      </button>
-    </div>
+    <SecretField
+      key={inputKey}
+      value={asText(ctx.state[node.bind])}
+      placeholder={node.placeholder}
+      onChange={(v) => ctx.onStateChange(node.bind, v)}
+      onSubmit={
+        node.onSubmit
+          ? () => ctx.onAction(node.onSubmit as string, { value: asText(ctx.state[node.bind]) })
+          : undefined
+      }
+    />
   )
 }
 

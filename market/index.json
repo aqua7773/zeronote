@@ -286,17 +286,17 @@
       "id": "private-notes",
       "name": "私密文件夹",
       "author": "aqua7773",
-      "description": "私密笔记：整棵树加密存 .zn/private/（文件名是随机 id），独立入口 / 搜索 / 回收站与独立密码，不进全局搜索与回收站；需要先装「安全」插件提供密钥环",
+      "description": "私密笔记：整棵树加密存 .zn/private/（文件名是随机 id），解密后以「🔒 私密笔记」分组出现在文件树 / 搜索 / 时间流里，回收站有独立的「私密」范围；不进全局搜索与全局回收站。需要先装「安全」插件提供密钥环",
       "category": "tool",
       "platforms": [
         "desktop",
         "android"
       ],
       "apiVersion": "^0.2.0",
-      "version": "0.3.2",
-      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.3.2.znp",
-      "sha256": "e88bef8a6da92d18983821f0374148e7491bc3a9fabb8bd17d3ec3d59210eda9",
-      "size": 71646,
+      "version": "0.3.3",
+      "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/private-notes-0.3.3.znp",
+      "sha256": "c34d8a76433e1b981bc9e513758141bb54723afc823ef9d238b2626aa2df7c8e",
+      "size": 54559,
       "files": [
         "index.js",
         "signature.json"
@@ -304,8 +304,7 @@
       "capabilities": [
         "command",
         "fs:read",
-        "fs:write",
-        "view:main"
+        "fs:write"
       ]
     },
     {

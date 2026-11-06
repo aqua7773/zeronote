@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.404
-更新时间: 2026-11-06 · 最新 rev173.404（**边界补验 + 撤销条并存修正**）· rev173.403（拖拽贴边自动滚动）
+revision: 173.405
+更新时间: 2026-11-06 · 最新 rev173.405（**私密笔记：删独立面板 + 回收站「公开/私密」切换**）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.404
 
 | rev | 内容 |
 |---|---|
+| rev173.405 | 2026-11-06 · **私密笔记第二批收官：删独立面板与列表视图**（方案 §4.4 最后一项；用户：「内核新增，然后点解锁弹输入弹窗，私密模式下，回收站加个切换，点了切到私密回收站」）：① **内核新增 `host.prompt`**（契约 `PromptOptions` + `HostApi.prompt`；`KernelHooks.onPrompt` 由宿主 `App.tsx` 的 Dialog 浮层兑现；`secret: true` 走新抽出的共用组件 `ui/SecretField`，`UIRenderer` 的 `input.secret` 也改用它 —— 👁 **只留一份实现**）。宿主没接 hook 时**抛错**而不是返回空串（否则插件会把「没输入」当成「空密码」去调解锁）。② **private-notes 0.3.3**：删 `main` 位置独立面板 + 列表视图 + 面板内搜索 / 改名 / 回收站视图（`manifest` 去掉 `panels` 与 `view:main` 能力）；`private.open` 未解锁 ⇒ 先校验密钥环，再 `host.prompt({ secret: true })` 收主密码（**取消 = `null`**）；删掉面板专用命令 `private.unlock` / `recheck` / `goto-list` / `goto-trash` / `search-*` / `rename*`；状态提示从面板内 message 改为 `host.notify`。③ **回收站加「公开 / 私密」切换**：`AppTrashView` 新增 `scope` / `privateAvailable` / `onScopeChange` / `loading`；`App` 新增 `trashScope` + `privateTrash` + `loadPrivateTrash`（`effectiveTrashScope` 渲染期派生 —— 锁定自动回落公开，不用 effect setState）；插件新增 `private.trash-data`，恢复 / 彻底删除 / 清空分别走 `private.restore` / `private.purge` / `private.empty-trash`（旧面板的「上膛」随面板一起删，二次确认由宿主按钮负责）；文件树菜单「私密回收站」不再开面板，改为切到回收站页的私密范围。**测试**：新增 `tests/host-prompt.test.ts` 3 条 · `tests/app-trash-view.test.tsx` +4（解锁才显示切换 / 范围回调 / 私密文案 / 加载态）。**G1**：tsc 0 · oxlint 4 · cargo 105 · vitest 1979 · 质量门 9/9。**插件**：`private-notes 0.3.3` 已签名入市 + `gen-market --write`（16 条）。**G2**：见下方正文（桌面 dev 验收面板 / 回收站切换；手机 dev 包同流程）。|
 | rev173.404 | 2026-11-06 · **rev173.402/403 边界补验 + 撤销条并存修正**：① **向下自动滚**（同一函数的对称分支）——桌面 dev 拖到树底 `scrollTop 0 → 192`（到底）· 手机 dev 包 `0 → 1725`（到底），两条链滚完都保持拖拽态；② **拖私密条目出组时贴边滚** `262 → 0`，ghost 与拖拽态保持，松手在栏外 = 取消（私密条目仍在，没被误移出）；③ **撤销条互相顶掉**（实测发现的真 bug）：渲染原为 `undoDelete ? A : sourceUndo ? B : draft ? C`（三元二选一）—— 连着删公开 + 私密时私密那条被顶掉，5 秒后 `sourceUndo` 过期 ⇒ 5 秒内没有私密恢复入口。改为**两条并存**（`undoDelete || sourceUndo` 时渲染两个 `.zn-undo`，私密那条加 `is-stacked` 上移 48px）。实测：连删两种 → 两个按钮同显 → 依次点「撤销」→ 公开笔记与私密条目都回来、撤销条清空 |
 | rev173.403 | 2026-11-06 · **拖拽贴边自动滚动**（用户 2026-11-06：「长按拖动，从底部拖到顶部，不会自动上滑，导致文件树长或者根目录文件多的时候无法往上移」）：文件树是 `overflow:auto` 的滚动容器，拖拽期间指针**贴边不动**时不产生 pointermove / touchmove ⇒ 容器不滚，没露出来的行永远拖不到。① 新纯函数 `src/lib/drag-autoscroll.ts` 的 `edgeScrollStep()`：贴顶负值 / 贴底正值、越贴边越快（最贴边 12px/帧 ≈ 720px/s）、感应带 48px、**指针在容器外不滚**（拖出侧栏 = 取消）。② 鼠标 `pointer` 链：拖起来后起一条 rAF 循环，用最近一次指针坐标每帧算滚动量，滚完**立刻**用同一份 `resolveDropTarget` 重算落点（不重算会落到滚动前的行上）。③ 手机 `touch` 链：同一份函数 + 自己的 rAF 循环（手指贴边不动时没有 touchmove），滚完把 `pending` 设回手指位置并排一次 `applyMove`。④ `up` / `reset` 里取消 rAF。**测试** `tests/drag-autoscroll.test.ts` 7 条。**G2 双端已验**：桌面 dev（树可滚 48px）从底拖到顶 `scrollTop 48 → 0`；手机 dev 包（可滚 1725px）长按拖到顶 `1725 → 0`；两条链滚完都保持拖拽态、松手在栏外 = 取消（无文件被移动） |
 | rev173.402 | 2026-11-06 · **私密笔记操作对齐普通笔记**（方案 §9 · 施工 §9.10 第 1–5 步；用户 2026-11-06「移动端长按直接重命名，无法拖拽，私密笔记操作都对齐普通笔记，唯一的区别就是加密」）：① **契约** `NoteSource.remove?(path)` + 注册表 `NoteSources.remove()`（与 `rename` 同一 `ownerOf` 口径，源抛错原样上抛）；插件 `private.trash` / `private.restore` 支持 `{ path }`（`idOfNotePath` 解析，与 `move-out` 同口径），源注册 `remove` 钩子 → `trashNote`（密文搬进 `.zn/private/trash/`，可恢复、**不进全局明文回收站**）。② **FileTree**：源条目右键 / 手机长按松手 = 弹**同一套菜单**（重命名… / 详细… / 插件项 / 移出为公开笔记… / 私密回收站 / 删除（进私密回收站）），**隐藏**剪切·复制文件·创建副本·粘贴·在文件夹中打开·新建·时间流（理由 §9.6）；源分组行右键 / 长按 = 「新建私密笔记」（`private.new`）+ 私密回收站；长按后移动仍是拖拽（`pressVirtual` 组行不拖，`contextmenu` 不抢手势）；F2 / Delete 对源条目走宿主回调（**不落到** `startRename` / `deletePaths` 的磁盘逻辑）。③ **App**：`removeSourceEntry`（`notes.remove` → 关掉指向已删路径的标签 → 撤销条）、`undoSourceDelete`（`private.restore`）、`moveOutSource`（`private.move-out` 落库根）、`openSourceTrash`（`private.goto-trash` + 打开面板）、`newSourceNote`；`SOURCE_DROP_COMMANDS` 扩成 into/out/restore/gotoTrash/newNote 五条映射；**recent 跳过私密**（§9.9.10：以前把 `.zn/private/notes/<id>.zn` 写进 localStorage，属 bug）。④ **MobileNoteCards**：源条目卡片菜单同一套（重命名 / 详细 / 移出 / 回收站 / 删除），不出磁盘项。⑤ **契约文档** §1.2b 补 `groupVisible` / `rename` / `remove`。**测试**：`tests/note-sources.test.ts` +2（remove 只认本源条目 / 抛错上抛）· 新增 `tests/file-tree-source-menu.test.tsx` 4 条（右键弹菜单且不出磁盘项 / 删除走 `onRemoveSource` 不碰 `onDeleteMany` / F2·Delete 走源回调 / 组行「新建私密笔记」）。**插件** `private-notes 0.3.2`（已签名入市，`market/packs/private-notes-0.3.2.znp`）。**G2 双端已验**（桌面 + 手机，详见下方正文段）。**已知待验**：`entry_info` 对 `.zn/` 已实测放行（§9.7 风险 3 已排） |
@@ -342,6 +343,44 @@ revision: 173.404
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.405（2026-11-06 · 私密笔记：删独立面板 + 回收站「公开/私密」切换）
+
+> **背景**：`docs/私密笔记-改造方案-2026-11-05.md` §4.4 的最后一项（独立面板与列表视图）。
+> 用户拍板：「内核新增，然后点解锁弹输入弹窗，私密模式下，回收站加个切换，点了切到私密回收站」。
+
+> 1. **内核 `host.prompt`**：契约加 `PromptOptions` + `HostApi.prompt(opts): Promise<string | null>`；
+>    `KernelHooks.onPrompt` 由宿主 `App.tsx` 的 Dialog 浮层兑现（`askPrompt` / `finishPrompt`，
+>    取消 / ESC / 点遮罩一律结算为 `null`）。密码框抽成共用组件 `ui/SecretField`，
+>    `UIRenderer` 的 `input.secret` 与 prompt 浮层**共用一份 👁 实现**。
+>    宿主没接 hook ⇒ **抛错**（不返回空串：否则插件会把"没输入"当成"空密码"）。
+
+> 2. **private-notes 0.3.3**：删 `main` 位置独立面板 + 列表视图 + 面板内搜索 / 改名 / 回收站视图；
+>    `manifest` 去掉 `panels` 与 `view:main` 能力。`private.open` 未解锁 ⇒ 先 `checkRingReady`，
+>    再 `host.prompt({ secret: true })` 收主密码；取消（`null`）直接返回。删掉面板专用命令
+>    `private.unlock` / `recheck` / `goto-list` / `goto-trash` / `search-*` / `rename*`；
+>    面板内 `setMessage` 改为 `host.notify`（`say()` 闭包，danger ⇒ error）。
+
+> 3. **回收站「公开 / 私密」切换**：`AppTrashView` 加 `scope` / `privateAvailable` / `onScopeChange` / `loading`
+>    （未解锁时整条切换不渲染）；`App` 加 `trashScope` / `privateTrash` / `loadPrivateTrash`，
+>    用 `effectiveTrashScope = privateUnlocked ? trashScope : 'public'` **渲染期派生**（锁定自动回落，
+>    不用 effect setState —— oxlint `set-state-in-effect`）。数据走新命令 `private.trash-data`，
+>    恢复 / 彻底删除 / 清空分别 `private.restore` / `private.purge` / `private.empty-trash`
+>    （旧面板的"上膛"随面板一起删，二次确认由宿主按钮负责）。文件树菜单「私密回收站」不再开面板，
+>    改为切到回收站页的私密范围。
+
+> **测试**：新增 `tests/host-prompt.test.ts` 3 条（没接 hook 抛错 / 参数透传 / 取消返回 null）·
+> `tests/app-trash-view.test.tsx` +4（未解锁不显示切换 / 范围回调 / 私密文案 / 加载态）。
+> **G1**：tsc 0 · oxlint 4 · cargo 105 · vitest 1979 · 质量门 9/9。
+> **插件**：`private-notes 0.3.3` 已签名入市 + `gen-market --write`（16 条）。
+> **G2 双端已验**（桌面 dev + Redmi `33b676f6` dev 包 · private-notes 0.3.3）：
+> ① 点锁图标 ⇒ 弹「解锁私密笔记」输入框（桌面 `_shots/rev405-prompt-cdp.png` · 手机 `_shots/rev405-phone-prompt.png`）；
+> ② 未解锁时回收站页**没有**范围切换（`_shots/rev405-trash-locked.png`）；
+> ③ 解锁 ⇒ 文件树出现「🔒 私密笔记 1」（`_shots/rev405-tree-private-group.png`）、回收站页出现「公开 / 私密」（`_shots/rev405-trash-unlocked.png`）；
+> ④ 切「私密」⇒「私密回收站是空的」（`_shots/rev405-trash-private.png`）；
+> ⑤ 删一篇 ⇒ 私密回收站出现条目（`_shots/rev405-trash-private-item.png`）→ 点「恢复」⇒ toast「已恢复到私密列表」+ 树里条目回来（`_shots/rev405-restored-tree.png`）；
+> ⑥ 手机同流程（`_shots/rev405-phone-trash.png` / `rev405-phone-trash-private.png`，手机测试库里有旧私密条目「私密测试内容」）。
+> 注意：测试库主密码只记在会话/GM，**不入库**（见 04 分册 §2「令牌 / 密码不写进仓库」）。
 
 > ## 📌 rev173.404（2026-11-06 · 边界补验 + 撤销条并存）
 

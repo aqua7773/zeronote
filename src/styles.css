@@ -1731,6 +1731,26 @@ body.is-resizing * {
 
 /* ───────── 回收站（主区整页视图，App.tsx 的 mainView === 'trash'）───────── */
 
+/* rev173.405：范围切换（公开 / 私密）—— 私密解锁后才出现 */
+.zn-trash-title {
+  display: flex;
+  align-items: center;
+  gap: var(--zn-space-3, 0.75rem);
+  min-width: 0;
+}
+
+.zn-trash-scope {
+  display: inline-flex;
+  gap: 2px;
+}
+
+/* 与插件中心的 tab 同一口径：选中 = 底色 + 加粗（不做额外设计，复用现成视觉） */
+.zn-trash-scope .zn-plain-btn.is-active {
+  background: var(--zn-bg-active);
+  color: var(--zn-fg);
+  font-weight: 600;
+}
+
 .zn-trash-empty {
   padding: var(--zn-space-6, 2rem) var(--zn-space-4);
   color: var(--zn-fg-subtle);

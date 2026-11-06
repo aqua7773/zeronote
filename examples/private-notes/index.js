@@ -53,7 +53,6 @@ export function securityVaultFileOf(ringId) {
 }
 /** 旧版单文件（按环拆之前）—— 只读兼容 */
 export const SECURITY_VAULT = `${SECURITY_VAULT_DIR}/vault.json`
-export const PANEL_ID = 'private.panel'
 
 /** 空闲锁定：`notes` 环一档 3 分钟（`security` 的 DEFAULT_RINGS） */
 export const IDLE_LOCK_MS = 3 * 60 * 1000
@@ -385,22 +384,12 @@ let svc = null // crypto 服务（软依赖）
 let index = null // 解锁后才有：{ v, notes, trash }
 let ringReady = false // notes 环建了没有
 let busy = '' // 正在忙的环节（'unlock' | 'search' | ''）
-let message = { text: '', tone: 'muted' }
 let lastActive = 0 // 空闲锁定的时间戳（Android 后台会冻结定时器 ⇒ 只信时间）
-let ui = {} // 面板 render 快照里的 bind 值
 /**
  * 解锁期正文缓存（id → 明文）—— **只给搜索用**（期 2）。
  * 懒加载：第一次搜索才逐篇解密，锁定即清空。方案 §4.4：不落盘任何明文索引。
  */
 const plainCache = new Map()
-/** 搜索结果（null = 没在搜）；面板 render 是同步的，异步结果存在这里 */
-let searchResult = null
-/** 正在改名的条目 id（null = 没有在改名）—— rev173.397 */
-let renameId = null
-/** 当前面板视图：'list' | 'trash' */
-let mode = 'list'
-/** 回收站里「已上膛」的那条（彻底删除要点两次 —— 与备份恢复同一套防误触） */
-let purgeArmed = null
 
 /* ───────────────── 额外笔记源（rev173.376 · 改造方案 §4.4） ───────────────── */
 
@@ -535,22 +524,17 @@ async function closePrivateDoc(api) {
 function lockNow(api, reason = 'manual') {
   index = null
   plainCache.clear() // 明文缓存必须随锁清掉（搜索用的是它）
-  searchResult = null
-  mode = 'list'
-  ui = { ...ui }
   try {
     svc?.lock(RING)
   } catch {
     /* 服务侧没解锁过（例如别的窗口）—— 无所谓，本地引用已经清掉 */
   }
   void closePrivateDoc(api)
-  setMessage(
-    reason === 'idle' ? '空闲 3 分钟，已自动锁定' : reason === 'service' ? '密钥环已锁定' : '',
-    'muted',
-  )
+  // rev173.405：面板已删 —— 状态提示统一走宿主 toast（空串不弹）
+  if (reason === 'idle') api.host.notify('空闲 3 分钟，私密笔记已自动锁定')
+  else if (reason === 'service') api.host.notify('密钥环已锁定，私密笔记已隐藏')
   // 锁定 ⇒ 源返回空数组 ⇒ 文件树里的分组立刻消失（rev173.376）
   notifySourceChange()
-  api.view.refresh(PANEL_ID)
 }
 
 /** 空闲判定：Android 后台会冻结定时器 ⇒ 只靠时间戳，不靠"定时器还在跑" */
@@ -562,10 +546,6 @@ function checkIdle(api) {
 /** 任何用户操作都刷新活动时间 */
 function touch() {
   lastActive = nowMs()
-}
-
-function setMessage(text, tone = 'muted') {
-  message = { text, tone }
 }
 
 /* ───────────────────────── 存储 ───────────────────────── */
@@ -681,12 +661,9 @@ async function checkRingReady(api) {
 async function afterUnlock(api) {
   index = await loadIndex(api)
   plainCache.clear()
-  searchResult = null
-  mode = 'list'
-  purgeArmed = null
   lastActive = nowMs()
   await refreshBiometric()
-  setMessage(`已解锁 · ${index.notes.length} 篇私密笔记`, 'success')
+  api.host.notify(`私密笔记已解锁 · ${index.notes.length} 篇`, 'info')
   // 解锁 ⇒ 文件树里出现「🔒 私密笔记」分组（rev173.376）
   notifySourceChange()
 }
@@ -740,33 +717,6 @@ async function fillPlainCache(api) {
   return n
 }
 
-async function runSearch(api, q) {
-  const query = String(q ?? '').trim()
-  if (!query) {
-    searchResult = null
-    setMessage('', 'muted')
-    api.view.refresh(PANEL_ID)
-    return
-  }
-  if (!index) return
-  busy = 'search'
-  setMessage(`正在解密索引…（共 ${index.notes.length} 篇）`, 'muted')
-  api.view.refresh(PANEL_ID)
-  await sleep(30) // 先让提示渲染出来，再跑解密
-  try {
-    await fillPlainCache(api)
-    searchResult = searchNotes(index.notes, plainCache, query)
-    setMessage(
-      searchResult.length ? `找到 ${searchResult.length} 篇` : '没有匹配的私密笔记',
-      searchResult.length ? 'success' : 'muted',
-    )
-  } catch (e) {
-    setMessage(`搜索失败：${String(e?.message ?? e)}`, 'danger')
-  } finally {
-    busy = ''
-    api.view.refresh(PANEL_ID)
-  }
-}
 
 /* ───────────────────────── 期 2：回收站（独立回收站 · 需求 §3.3） ───────────────────────── */
 
@@ -883,321 +833,7 @@ async function moveOutToPublic(api, id, dir = '') {
   return target
 }
 
-/* ───────────────────────── 面板 ───────────────────────── */
-
-function textNode(value, variant, tone) {
-  const n = { type: 'text', value }
-  if (variant) n.variant = variant
-  if (tone) n.tone = tone
-  return n
-}
-
-function btn(label, action, extra = {}) {
-  return { type: 'button', label, onClick: action, ...extra }
-}
-
-/** 读一个 bind 的值（render 快照里取） */
-function val(bind) {
-  const v = ui[bind]
-  return typeof v === 'string' ? v : ''
-}
-
-const BINDS = { pw: 'private.pw', search: 'private.search', rename: 'private.rename-text' }
-
-/** 「安全插件没装」的降级视图（软依赖标准做法：不崩、给出去哪装） */
-function noServiceView() {
-  return {
-    type: 'stack',
-    gap: 'md',
-    children: [
-      textNode('🔒 私密文件夹还没连上加密服务', 'title'),
-      textNode(
-        '本插件不自己保管密钥 —— 加密由「安全」插件提供的 crypto 服务完成。请先从市场安装「安全」插件，再回来。',
-        'body',
-      ),
-      { type: 'row', gap: 'sm', children: [btn('打开插件管理', 'private.open-plugins', { variant: 'default' })] },
-      textNode('（装好安全插件后不用重启本插件：服务一出现这里会自动刷新）', 'caption', 'muted'),
-    ],
-  }
-}
-
-/** 锁定视图：建立环的指引 / 输主密码 */
-function lockedView() {
-  const children = [
-    textNode('🔒 私密文件夹已锁定', 'title'),
-    textNode('这里要的是「私密笔记」那把主密码 —— 与账号密码是两把，互不派生。', 'caption', 'muted'),
-  ]
-
-  if (!ringReady) {
-    children.push(
-      textNode('还没建立「私密笔记」密钥环。', 'body', 'warn'),
-      textNode('去「安全」插件新建一个密钥环，选「私密笔记」这一档。', 'caption', 'muted'),
-      {
-        type: 'row',
-        gap: 'sm',
-        children: [
-          btn('打开安全插件', 'private.open-security'),
-          btn('重新检查', 'private.recheck', { variant: 'ghost' }),
-        ],
-      },
-    )
-    return { type: 'stack', gap: 'md', children }
-  }
-
-  children.push({
-    type: 'field',
-    label: '主密码',
-    hint: busy === 'unlock' ? '正在派生密钥…（Argon2id，桌面约 1 秒）' : undefined,
-    children: {
-      type: 'input',
-      bind: BINDS.pw,
-      secret: true,
-      placeholder: '私密笔记的主密码',
-      onSubmit: 'private.unlock',
-    },
-  })
-  children.push({ type: 'row', gap: 'sm', children: [btn('解锁', 'private.unlock', { send: BINDS.pw })] })
-  // rev173.350（真人测试11 #4）：绑定过指纹就直接给入口 —— 与密码库同一套能力
-  if (biometric.available && biometric.bound) {
-    children.push({
-      type: 'row',
-      gap: 'sm',
-      children: [btn('用指纹解锁', 'private.biometric-unlock', { variant: 'ghost' })],
-    })
-  } else if (biometric.available) {
-    // rev173.361：本机支持指纹但还没绑 —— 明说怎么做，否则用户以为「没有这个功能」
-    children.push(
-      textNode('本机支持指纹：解锁后在列表里点「绑定指纹」，下次可直接刷指纹进入', 'caption', 'muted'),
-    )
-  }
-  if (message.text) children.push(textNode(message.text, 'caption', message.tone))
-  children.push(textNode('空闲 3 分钟自动锁定 · 主密码只在本机内存里用于派生，不落盘', 'caption', 'muted'))
-  return { type: 'stack', gap: 'md', children }
-}
-
-/**
- * 列表视图（期 2）：搜索框 + 列表 + 回收站入口 + 移出。
- *
- * 列表本身只显示标题与时间 —— 正文解密留到打开 / 搜索时做，
- * 所以 100 篇的库打开面板也不卡。
- */
-function listView() {
-  const notes = sortNotes(index.notes)
-  const trashCount = index.trash?.length ?? 0
-  const children = [
-    {
-      type: 'row',
-      gap: 'sm',
-      align: 'center',
-      wrap: true,
-      children: [
-        textNode('🔓 私密文件夹', 'title'),
-        { type: 'badge', text: `${notes.length} 篇`, tone: 'default' },
-        btn('＋ 新建', 'private.new'),
-        btn(`🗑 回收站${trashCount ? ` ${trashCount}` : ''}`, 'private.goto-trash', { variant: 'ghost' }),
-        btn('锁定', 'private.lock', { variant: 'ghost' }),
-        // rev173.350（真人测试11 #4）：已解锁时才允许绑定 / 解除指纹（绑定要读写密钥环）
-        ...(biometric.available
-          ? [
-              btn(
-                biometric.bound ? '解除指纹' : '绑定指纹',
-                biometric.bound ? 'private.biometric-unbind' : 'private.biometric-bind',
-                { variant: 'ghost' },
-              ),
-            ]
-          : []),
-      ],
-    },
-    {
-      type: 'field',
-      label: '搜索',
-      hint: busy === 'search' ? '正在解密正文…' : '搜标题和正文，多关键词用空格分开',
-      children: {
-        type: 'input',
-        bind: BINDS.search,
-        placeholder: '搜索私密笔记…',
-        onSubmit: 'private.search-run',
-      },
-    },
-    {
-      type: 'row',
-      gap: 'sm',
-      children: [
-        btn('搜索', 'private.search-run', { send: BINDS.search }),
-        btn('清除', 'private.search-clear', { variant: 'ghost' }),
-      ],
-    },
-  ]
-
-  if (searchResult) {
-    children.push(textNode(`找到 ${searchResult.length} 篇`, 'body'))
-    if (!searchResult.length) {
-      children.push(textNode('没有匹配的私密笔记。', 'body', 'muted'))
-    } else {
-      children.push({
-        type: 'list',
-        items: searchResult.map((r) => ({
-          key: r.id,
-          node: {
-            type: 'stack',
-            gap: 'sm',
-            children: [
-              {
-                type: 'row',
-                gap: 'sm',
-                align: 'center',
-                wrap: true,
-                children: [
-                  textNode(r.title || '未命名', 'body'),
-                  btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: r.id } }),
-                ],
-              },
-              textNode(r.excerpt, 'caption', 'muted'),
-            ],
-          },
-        })),
-      })
-    }
-  } else if (!notes.length) {
-    children.push(textNode('还没有私密笔记。点「＋ 新建」开始。', 'body', 'muted'))
-  } else {
-    children.push({
-      type: 'list',
-      items: notes.map((n) => ({
-        key: n.id,
-        node:
-          renameId === n.id
-            ? /* 改名态（rev173.397）：改的是索引里的**显示标题**，密文文件名保持随机 id ——
-                 文件名只是存放位置，不该跟标题绑定 */
-              {
-                type: 'row',
-                gap: 'sm',
-                align: 'center',
-                wrap: true,
-                children: [
-                  {
-                    type: 'input',
-                    bind: BINDS.rename,
-                    placeholder: '新的标题',
-                    onSubmit: 'private.rename-save',
-                  },
-                  btn('保存', 'private.rename-save', {
-                    variant: 'default',
-                    payload: { id: n.id },
-                    send: BINDS.rename,
-                  }),
-                  btn('取消', 'private.rename-cancel', { variant: 'ghost' }),
-                ],
-              }
-            : {
-                type: 'row',
-                gap: 'sm',
-                align: 'center',
-                wrap: true,
-                children: [
-                  textNode(n.title || '未命名', 'body'),
-                  textNode(fmtTime(n.updatedAt), 'caption', 'muted'),
-                  btn('打开', 'private.open-note', { variant: 'ghost', payload: { id: n.id } }),
-                  btn('改名', 'private.rename', { variant: 'ghost', payload: { id: n.id } }),
-                  btn('移出', 'private.move-out', { variant: 'ghost', payload: { id: n.id } }),
-                  btn('删除', 'private.trash', { variant: 'ghost', payload: { id: n.id } }),
-                ],
-              },
-      })),
-    })
-  }
-
-  if (message.text) children.push(textNode(message.text, 'caption', message.tone))
-  children.push(
-    textNode(
-      '文件在 .zn/private/（密文，文件名是随机 id）· 不进全局搜索 / 回收站 · 「移入私密」把当前打开的公开笔记搬进来',
-      'caption',
-      'muted',
-    ),
-  )
-  return { type: 'stack', gap: 'md', children }
-}
-
-/**
- * 回收站视图（期 2）—— 与全局回收站分开：需求 §3.3「独立回收站，进入也需验证」。
- * 验证继承主面板的解锁状态（没解锁根本进不来）。
- */
-function trashView() {
-  const items = sortTrash(index.trash)
-  const children = [
-    {
-      type: 'row',
-      gap: 'sm',
-      align: 'center',
-      wrap: true,
-      children: [
-        textNode('🗑 私密回收站', 'title'),
-        { type: 'badge', text: `${items.length} 篇`, tone: 'default' },
-        btn('返回列表', 'private.goto-list', { variant: 'ghost' }),
-        ...(items.length ? [btn('清空', 'private.empty-trash', { variant: 'ghost' })] : []),
-      ],
-    },
-    textNode('条目仍是密文（删除不解密）。彻底删除不可恢复。', 'caption', 'muted'),
-  ]
-
-  if (!items.length) {
-    children.push(textNode('回收站是空的。', 'body', 'muted'))
-  } else {
-    children.push({
-      type: 'list',
-      items: items.map((t) => ({
-        key: t.id,
-        node: {
-          type: 'row',
-          gap: 'sm',
-          align: 'center',
-          wrap: true,
-          children: [
-            textNode(t.title || '未命名', 'body'),
-            textNode(`删于 ${fmtTime(t.deletedAt)}`, 'caption', 'muted'),
-            btn('恢复', 'private.restore', { variant: 'ghost', payload: { id: t.id } }),
-            btn(purgeArmed === t.id ? '真的删？' : '彻底删除', 'private.purge', {
-              variant: 'ghost',
-              payload: { id: t.id },
-            }),
-          ],
-        },
-      })),
-    })
-  }
-
-  if (message.text) children.push(textNode(message.text, 'caption', message.tone))
-  return { type: 'stack', gap: 'md', children }
-}
-
-/** 时间戳 → 「10-26 21:30」（列表里够用，不引日期库） */
-function fmtTime(ms) {
-  if (!ms) return ''
-  const d = new Date(ms)
-  const p = (n) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-function panelNode() {
-  if (!svc) return noServiceView()
-  if (!index) return lockedView()
-  return mode === 'trash' ? trashView() : listView()
-}
-
 /* ───────────────────────── 命令实现 ───────────────────────── */
-
-/** 打开某面板：冷启动时 `core.panel.*` 可能还没注册（doc-reader / tag-panel 同款重试） */
-async function openCorePanel(api, panelId, fallbackTitle) {
-  for (let i = 0; i < 5; i++) {
-    try {
-      await api.command.execute(`core.panel.${panelId}`)
-      return
-    } catch {
-      await sleep(30)
-    }
-  }
-  api.host.notify(`打不开${fallbackTitle}（内核还没注册面板命令）`, 'warn')
-}
 
 /** 从保存事件里回填索引（标题变了 / 时间更新）—— 不重新解密正文以外的任何东西 */
 async function onDocSaved(api, d) {
@@ -1219,7 +855,6 @@ async function onDocSaved(api, d) {
   } catch (e) {
     api.host.notify(`私密笔记索引更新失败：${String(e?.message ?? e)}`, 'warn')
   }
-  api.view.refresh(PANEL_ID)
 }
 
 /* ───────────────────────── 插件入口 ───────────────────────── */
@@ -1238,7 +873,6 @@ export default {
           await checkRingReady(api)
           // rev173.361：服务晚到 ⇒ 指纹状态也要重读（否则锁屏一直按「没绑定」渲染）
           await refreshBiometric()
-          api.view.refresh(PANEL_ID)
         })
       }),
     )
@@ -1255,7 +889,7 @@ export default {
         transient: true,
         decode: async (raw) => {
           if (!svc) throw new Error('私密文件夹还没连上加密服务')
-          if (!index) throw new Error('私密文件夹已锁定 —— 先在面板里解锁')
+          if (!index) throw new Error('私密文件夹已锁定 —— 先解锁私密笔记')
           touch()
           return svc.decryptText({ ring: RING, container: CONTAINER, payload: raw })
         },
@@ -1298,21 +932,6 @@ export default {
       )
     }
 
-    /* ③ 面板 */
-    api.subscriptions.push(
-      api.view.registerPanel({
-        id: PANEL_ID,
-        title: '私密文件夹',
-        location: 'main',
-        render: (ctx) => {
-          ui = { ...(ctx?.state ?? {}) }
-          // rev173.361：指纹状态可能在别处变（在「安全」插件面板里绑定过）—— 每次渲染前同步刷一次
-          syncBiometricNow()
-          return panelNode()
-        },
-      }),
-    )
-
     /* ④ 保存事件 → 回填索引标题（正文是唯一真源，索引只是缓存） */
     api.subscriptions.push(api.doc.on('save', (d) => void onDocSaved(api, d)))
 
@@ -1327,22 +946,62 @@ export default {
     document.addEventListener('visibilitychange', onVisible)
     api.subscriptions.push({ dispose: () => document.removeEventListener('visibilitychange', onVisible) })
 
+    /**
+     * 状态提示统一走宿主 toast（rev173.405：独立面板已删，不再有面板内的 message 区）。
+     * tone 语义保持旧面板的三档：danger ⇒ error，warn ⇒ warn，其余 ⇒ info。
+     */
+    const say = (text, tone = 'muted') => {
+      if (!text) return
+      api.host.notify(text, tone === 'danger' ? 'error' : tone === 'warn' ? 'warn' : 'info')
+    }
+
     /* ⑦ 命令 */
     const commands = [
       {
         id: 'private.open',
-        title: '私密文件夹：开关',
+        title: '私密文件夹：解锁 / 锁定',
         run: async () => {
           /**
-           * rev173.376：入口从「打开面板」改为**开关**（改造方案 §4.4）。
-           * 已解锁 ⇒ 立即锁定：文件树里的「🔒 私密笔记」分组随之消失；
-           * 未解锁 ⇒ 打开面板输密码（面板保留为解锁入口与回收站，列表视图第二批收掉）。
+           * rev173.405：**独立面板已删**（改造方案 §4.4 最后一项）。
+           * · 已解锁 ⇒ 立即锁定（文件树里的「🔒 私密笔记」分组随之消失）；
+           * · 未解锁 ⇒ 用内核 `host.prompt` 弹输入对话框收主密码（用户拍板「点解锁弹输入弹窗」）。
+           * 面板承担的解锁 UI / 列表视图 / 回收站都不在了：回收站改由宿主回收站页的
+           * 「私密」切换承载（`App.tsx` 的 trashScope），列表由文件树承载。
            */
           if (index) {
             lockNow(api, 'manual')
             return
           }
-          await openCorePanel(api, PANEL_ID, '私密文件夹')
+          if (busy) return
+          if (!svc) {
+            api.host.notify('还没连上加密服务 —— 先装「安全」插件', 'warn')
+            return
+          }
+          await checkRingReady(api)
+          if (!ringReady) {
+            api.host.notify('「私密笔记」密钥环还没建立 —— 先去安全插件建一个', 'warn')
+            return
+          }
+          const pw = await api.host.prompt({
+            title: '解锁私密笔记',
+            message: '输入「私密笔记」密钥环的主密码',
+            placeholder: '主密码',
+            secret: true,
+            okText: '解锁',
+          })
+          if (pw === null) return // 用户取消：什么都不做（不当作"密码为空"）
+          busy = 'unlock'
+          try {
+            await unlockAndLoad(api, pw)
+          } catch (e) {
+            const msg = String(e?.message ?? e)
+            api.host.notify(
+              /invalid tag|tag mismatch|bad tag/i.test(msg) ? '主密码不对' : `解锁失败：${msg}`,
+              'error',
+            )
+          } finally {
+            busy = ''
+          }
         },
       },
       {
@@ -1356,45 +1015,6 @@ export default {
         run: () =>
           api.command.execute('security.open').catch(() => api.host.notify('安全插件没装或没启用', 'warn')),
       },
-      {
-        id: 'private.recheck',
-        title: '私密文件夹：重新检查密钥环',
-        run: async () => {
-          await checkRingReady(api)
-          setMessage(ringReady ? '找到「私密笔记」密钥环，可以输入主密码了' : '仍然没有找到「私密笔记」密钥环', ringReady ? 'success' : 'warn')
-          api.view.refresh(PANEL_ID)
-        },
-      },
-      {
-        id: 'private.unlock',
-        title: '私密文件夹：解锁',
-        run: async (payload) => {
-          if (busy) return
-          const pw = val(BINDS.pw) || String(payload?.value ?? '')
-          busy = 'unlock'
-          setMessage('', 'muted')
-          api.view.refresh(PANEL_ID)
-          await sleep(40) // 先让"正在派生密钥…"渲染出来，再跑 Argon2
-          try {
-            await unlockAndLoad(api, pw)
-            api.view.setState(BINDS.pw, '')
-          } catch (e) {
-            const msg = String(e?.message ?? e)
-            if (msg.includes('还没建立')) {
-              ringReady = false
-              setMessage('「私密笔记」密钥环还没建立 —— 先去安全插件建一个', 'warn')
-            } else if (/invalid tag|tag mismatch|bad tag/i.test(msg)) {
-              // AEAD 认证失败 = 主密码不对（不存 password verifier，见安全方案 §4）
-              setMessage('主密码不对', 'danger')
-            } else {
-              setMessage(`解锁失败：${msg}`, 'danger')
-            }
-          } finally {
-            busy = ''
-            api.view.refresh(PANEL_ID)
-          }
-        },
-      },
       { id: 'private.lock', title: '私密文件夹：立即锁定', run: () => lockNow(api, 'manual') },
       {
         id: 'private.biometric-unlock',
@@ -1402,23 +1022,20 @@ export default {
         run: async () => {
           if (busy) return
           if (!svc?.biometric) {
-            setMessage('当前安全插件版本不支持指纹解锁', 'warn')
-            api.view.refresh(PANEL_ID)
+            say('当前安全插件版本不支持指纹解锁', 'warn')
             return
           }
           busy = 'unlock'
-          setMessage('等待指纹验证…', 'muted')
-          api.view.refresh(PANEL_ID)
+          say('等待指纹验证…', 'muted')
           try {
             // DEK 不出 security：这里只拿"解锁成功"，环内的密钥由服务自己管
             await svc.biometric.unlock(RING)
             await afterUnlock(api)
           } catch (e) {
             const msg = String(e?.message ?? e)
-            setMessage(/cancel|取消/i.test(msg) ? '已取消指纹验证' : `指纹解锁失败：${msg}`, 'danger')
+            say(/cancel|取消/i.test(msg) ? '已取消指纹验证' : `指纹解锁失败：${msg}`, 'danger')
           } finally {
             busy = ''
-            api.view.refresh(PANEL_ID)
           }
         },
       },
@@ -1427,26 +1044,23 @@ export default {
         title: '私密文件夹：绑定本机指纹',
         run: async () => {
           if (!index) {
-            setMessage('先解锁，再绑定指纹', 'warn')
-            api.view.refresh(PANEL_ID)
+            say('先解锁，再绑定指纹', 'warn')
             return
           }
           if (!svc?.biometric) {
-            setMessage('当前安全插件版本不支持指纹绑定', 'warn')
-            api.view.refresh(PANEL_ID)
+            say('当前安全插件版本不支持指纹绑定', 'warn')
             return
           }
           try {
             await svc.biometric.bind(RING)
             await refreshBiometric()
-            setMessage(
+            say(
               biometric.bound ? '已绑定这台设备 —— 之后解锁可直接用指纹' : '绑定失败：没有写进密钥环',
               biometric.bound ? 'success' : 'danger',
             )
           } catch (e) {
-            setMessage(`绑定指纹失败：${String(e?.message ?? e)}`, 'danger')
+            say(`绑定指纹失败：${String(e?.message ?? e)}`, 'danger')
           }
-          api.view.refresh(PANEL_ID)
         },
       },
       {
@@ -1454,18 +1068,16 @@ export default {
         title: '私密文件夹：解除本机指纹',
         run: async () => {
           if (!svc?.biometric) {
-            setMessage('当前安全插件版本不支持指纹', 'warn')
-            api.view.refresh(PANEL_ID)
+            say('当前安全插件版本不支持指纹', 'warn')
             return
           }
           try {
             await svc.biometric.unbind(RING)
             await refreshBiometric()
-            setMessage('已解除这台设备的指纹绑定（主密码不受影响）', 'success')
+            say('已解除这台设备的指纹绑定（主密码不受影响）', 'success')
           } catch (e) {
-            setMessage(`解除指纹失败：${String(e?.message ?? e)}`, 'danger')
+            say(`解除指纹失败：${String(e?.message ?? e)}`, 'danger')
           }
-          api.view.refresh(PANEL_ID)
         },
       },
       {
@@ -1473,13 +1085,12 @@ export default {
         title: '私密文件夹：新建私密笔记',
         run: async () => {
           if (!index) {
-            api.host.notify('先在面板里解锁', 'warn')
+            api.host.notify('先解锁私密笔记', 'warn')
             return
           }
           try {
             const id = await createNote(api)
-            setMessage('已新建（空笔记，写完自动加密保存）', 'success')
-            api.view.refresh(PANEL_ID)
+            say('已新建（空笔记，写完自动加密保存）', 'success')
             await api.command.execute('core.openNote', { path: notePath(id) })
           } catch (e) {
             api.host.notify(`新建失败：${String(e?.message ?? e)}`, 'error')
@@ -1491,7 +1102,7 @@ export default {
         title: '私密文件夹：打开一篇',
         run: async (payload) => {
           if (!index) {
-            api.host.notify('先在面板里解锁', 'warn')
+            api.host.notify('先解锁私密笔记', 'warn')
             return
           }
           const id = String(payload?.id ?? '')
@@ -1505,101 +1116,7 @@ export default {
       },
       /* ── 期 2：搜索 ── */
       /* ── rev173.397：改显示标题（面板内输入，不动密文文件名） ── */
-      {
-        id: 'private.rename',
-        title: '私密文件夹：改名',
-        run: async (payload) => {
-          if (!index) return
-          const id = String(payload?.id ?? '')
-          const note = findNote(index, id)
-          if (!note) return
-          renameId = id
-          api.view.setState(BINDS.rename, note.title ?? '')
-          setMessage('输入新标题后点「保存」', 'muted')
-          api.view.refresh(PANEL_ID)
-        },
-      },
-      {
-        id: 'private.rename-save',
-        title: '私密文件夹：保存标题',
-        run: async (payload) => {
-          if (!index || !renameId) return
-          const title = String(payload?.value ?? '')
-            .trim()
-            .slice(0, 120)
-          if (!title) {
-            api.host.notify('标题不能为空', 'warn')
-            return
-          }
-          const note = findNote(index, renameId)
-          if (!note) {
-            renameId = null
-            api.view.refresh(PANEL_ID)
-            return
-          }
-          index = upsertNote(index, { ...note, title, titleEdited: true })
-          try {
-            await saveIndex(api)
-            setMessage('已改名', 'success')
-          } catch (e) {
-            api.host.notify(`改名保存失败：${String(e?.message ?? e)}`, 'warn')
-          }
-          renameId = null
-          api.view.setState(BINDS.rename, '')
-          api.view.refresh(PANEL_ID)
-        },
-      },
-      {
-        id: 'private.rename-cancel',
-        title: '私密文件夹：取消改名',
-        run: () => {
-          renameId = null
-          api.view.setState(BINDS.rename, '')
-          setMessage('', 'muted')
-          api.view.refresh(PANEL_ID)
-        },
-      },
-      {
-        id: 'private.search-run',
-        title: '私密文件夹：搜索',
-        run: async (payload) => {
-          if (!index || busy) return
-          const q = String(payload?.value ?? '') || val(BINDS.search)
-          await runSearch(api, q)
-        },
-      },
-      {
-        id: 'private.search-clear',
-        title: '私密文件夹：清除搜索',
-        run: () => {
-          searchResult = null
-          setMessage('', 'muted')
-          api.view.setState(BINDS.search, '')
-          api.view.refresh(PANEL_ID)
-        },
-      },
       /* ── 期 2：回收站 ── */
-      {
-        id: 'private.goto-trash',
-        title: '私密文件夹：回收站',
-        run: () => {
-          mode = 'trash'
-          purgeArmed = null
-          searchResult = null
-          setMessage('', 'muted')
-          api.view.refresh(PANEL_ID)
-        },
-      },
-      {
-        id: 'private.goto-list',
-        title: '私密文件夹：返回列表',
-        run: () => {
-          mode = 'list'
-          purgeArmed = null
-          setMessage('', 'muted')
-          api.view.refresh(PANEL_ID)
-        },
-      },
       {
         id: 'private.trash',
         title: '私密文件夹：删除一篇（进私密回收站）',
@@ -1608,16 +1125,15 @@ export default {
           /** rev173.402：多一个 `{ path }`（文件树菜单 / Delete 键用），与 move-out 同一口径 */
           const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
           if (!id) {
-            setMessage('删除失败：这不是私密笔记的路径', 'danger')
+            say('删除失败：这不是私密笔记的路径', 'danger')
             return
           }
           try {
             await trashNote(api, id)
-            setMessage('已移入私密回收站（可恢复）', 'muted')
+            say('已移入私密回收站（可恢复）', 'muted')
           } catch (e) {
-            setMessage(`删除失败：${String(e?.message ?? e)}`, 'danger')
+            say(`删除失败：${String(e?.message ?? e)}`, 'danger')
           }
-          api.view.refresh(PANEL_ID)
         },
       },
       {
@@ -1628,16 +1144,34 @@ export default {
           /** rev173.402：撤销条传的是 `{ path }`（与被删条目同一路径） */
           const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
           if (!id) {
-            setMessage('恢复失败：这不是私密笔记的路径', 'danger')
+            say('恢复失败：这不是私密笔记的路径', 'danger')
             return
           }
           try {
             await restoreNote(api, id)
-            setMessage('已恢复到私密列表', 'success')
+            say('已恢复到私密列表', 'success')
           } catch (e) {
-            setMessage(`恢复失败：${String(e?.message ?? e)}`, 'danger')
+            say(`恢复失败：${String(e?.message ?? e)}`, 'danger')
           }
-          api.view.refresh(PANEL_ID)
+        },
+      },
+      {
+        /**
+         * 私密回收站清单（rev173.405）—— 宿主回收站页「私密」范围的数据源。
+         * 只给**明文标题 + 删除时间**（与文件树 / 时间流同一口径，不暴露密文路径）。
+         * 未解锁 ⇒ 空数组（宿主那边切换按钮此时也不显示）。
+         */
+        id: 'private.trash-data',
+        title: '私密文件夹：回收站清单',
+        run: () => {
+          if (!index) return { items: [] }
+          return {
+            items: sortTrash(index.trash ?? []).map((t) => ({
+              id: t.id,
+              title: t.title || '未命名',
+              deletedAt: t.deletedAt,
+            })),
+          }
         },
       },
       {
@@ -1647,21 +1181,16 @@ export default {
           if (!index) return
           const id = String(payload?.id ?? '')
           if (!id) return
-          // 两步确认：第一次只上膛（按钮变「真的删？」），第二次才真删 —— 与备份恢复同一套
-          if (purgeArmed !== id) {
-            purgeArmed = id
-            setMessage('再点一次「真的删？」才会彻底删除 —— 这一步不可恢复', 'warn')
-            api.view.refresh(PANEL_ID)
-            return
-          }
-          purgeArmed = null
+          /**
+           * rev173.405：面板删了，「上膛」状态没有归宿 —— 二次确认由宿主回收站页做
+           * （`AppTrashView` 的按钮要点两次才调 onPurge）。插件这里只负责真删。
+           */
           try {
             await purgeNote(api, id)
-            setMessage('已彻底删除', 'muted')
+            say('已彻底删除', 'muted')
           } catch (e) {
-            setMessage(`彻底删除失败：${String(e?.message ?? e)}`, 'danger')
+            say(`彻底删除失败：${String(e?.message ?? e)}`, 'danger')
           }
-          api.view.refresh(PANEL_ID)
         },
       },
       {
@@ -1672,12 +1201,10 @@ export default {
           const n = index.trash?.length ?? 0
           if (!n) return
           const cleared = await emptyPrivateTrash(api).catch((e) => {
-            setMessage(`清空失败：${String(e?.message ?? e)}`, 'danger')
+            say(`清空失败：${String(e?.message ?? e)}`, 'danger')
             return -1
           })
-          if (cleared >= 0) setMessage(`已清空回收站（${cleared} 篇）`, 'muted')
-          purgeArmed = null
-          api.view.refresh(PANEL_ID)
+          if (cleared >= 0) say(`已清空回收站（${cleared} 篇）`, 'muted')
         },
       },
       /* ── 期 2：移入 / 移出 ── */
@@ -1689,9 +1216,8 @@ export default {
           const silent = payload?.silent === true
           try {
             const r = await moveCurrentIntoPrivate(api, payload?.path)
-            setMessage(`「${r.title}」已移入私密文件夹（原文件已从库中移除）`, 'success')
+            say(`「${r.title}」已移入私密文件夹（原文件已从库中移除）`, 'success')
             if (!silent) {
-              api.view.refresh(PANEL_ID)
               await api.command.execute('core.openNote', { path: notePath(r.id) })
             }
           } catch (e) {
@@ -1704,7 +1230,7 @@ export default {
         title: '私密文件夹：把一篇移出为公开笔记',
         run: async (payload) => {
           if (!index) {
-            api.host.notify('先在面板里解锁', 'warn')
+            api.host.notify('先解锁私密笔记', 'warn')
             return
           }
           /** rev173.400：`{ path, dir, silent }` —— 文件树把条目拖到某个目录时用 */
@@ -1712,18 +1238,16 @@ export default {
           try {
             const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
             const target = await moveOutToPublic(api, id, payload?.dir)
-            setMessage(`已移出为公开笔记：${target}`, 'success')
+            say(`已移出为公开笔记：${target}`, 'success')
             const stillOpen = api.doc.active?.()?.path === notePath(id)
             if (!silent) {
-              api.view.refresh(PANEL_ID)
               await api.command.execute('core.openNote', { path: target })
             } else if (stillOpen) {
               // 拖出的正是打开着的那篇：切到新落点，别让编辑器还指着已删掉的密文路径
               await api.command.execute('core.openNote', { path: target })
             }
           } catch (e) {
-            setMessage(`移出失败：${String(e?.message ?? e)}`, 'danger')
-            api.view.refresh(PANEL_ID)
+            say(`移出失败：${String(e?.message ?? e)}`, 'danger')
           }
         },
       },
