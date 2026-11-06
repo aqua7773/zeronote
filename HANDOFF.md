@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.390
-更新时间: 2026-11-06 · 最新 rev173.390（**更正 388：密码库其实同步成功**，私有文件在远端 `.zn/` 而非 `_zn/`）· rev173.389（手机 G2 补验 0.10.0 + 双端验收规矩）· rev173.388（sync 复验，结论已更正）
+revision: 173.391
+更新时间: 2026-11-06 · 最新 rev173.391（**重打包 private-notes 0.2.4 / secrets 0.1.3 发市** —— 市场包内容落后于源码导致「版本最新但功能旧」）· rev173.390（更正 388）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.390
 
 | rev | 内容 |
 |---|---|
+| rev173.391 | 2026-11-06 · **重打包 private-notes / secrets 发市（修「最新版本号、旧代码」）**：用户报「release 机装 0.10.0 + 插件都是最新，私密文件夹仍是独立面板、密码库没新逻辑」。**根因 = 市场包落后于源码**：`market/packs/private-notes-0.2.3.znp` 内 `index.js` 41,763 B、`registerSource` **0 处**（11-04 打的旧包）；`examples/private-notes/index.js` 已 56,212 B、含 2 处（rev173.376 改造）。`secrets` 同样（包 43,273 vs 源码 65,768）。**做法**：版本升 `private-notes 0.2.4` / `secrets 0.1.3` → `pack-plugin --key aqua-2026` → `gen-market --write`（16 条）。新包：`private-notes-0.2.4.znp` 43,856 B（`registerSource` 2）· `secrets-0.1.3.znp` 53,774 B（`hasRingPart` 2），均带签名。**验证**：`verify-trust` 74/75 验签通过 · `vitest private-notes + secrets` 70 条全过。**用户动作**：手机/桌面插件中心更新这两个插件，再**完全退出应用重开**（内核不会自动重载插件） |
 | rev173.390 | 2026-11-06 · **更正 rev173.388：密码库其实同步成功**（用户要求「复验」时发现）：远端布局 = `_zn/`（manifest / 回收站 / 中转区）+ `.zn/`（私有文件按本机路径镜像）。三个私有文件实测全在：`ZeroNote/.zn/security/vault.notes.json` 1113 B · `vault.secrets.json` 1116 B · `ZeroNote/.zn/secrets/secrets.zn` 15776 B，长度与本地一致。源码依据 `examples/sync/lib/core.cjs:65`（`MANIFEST_REL = '_zn/manifest.json'`）与 `:86`（`PRIVATE_FILES` 用 `.zn/…` 相对路径，`syncPrivate` 直接 `client.put(rel)`）。坚果云 PUT 实测：父目录不存在 ⇒ **409**；`_zn/` 下 ⇒ **201**（`_tmp/dav-probe.mjs`，探针已删）。⇒ 0.1.9 的同步一直正常；rev173.383 的「远端索引不实」现场很可能同样是只查 `_zn/` 的误判，其巡检修复无害、保留。**未改代码** |
 | rev173.389 | 2026-11-06 · **手机 G2 补验 0.10.0 + 「双端验收」写成硬规矩**（用户：「正常来说，双端验收都应该在发版前完成吧」→「写入，发版之前，除非版本改动仅涉及单端，否则均须双端验收通过」）：① **补验** —— `android-dev.cmd` 重编 dev 包（versionName **0.10.0**，Redmi `33b676f6`），CDP 直调内核命令：`import_attachment` 传库外 png ⇒ 返回 `附件/图片/acc-test.png`；传库外 `.toml` ⇒ 返回 `附件/其它/acc-test.toml`；`list_notes` 同时返回两条（`kind` 分别 `image` / **`file`**）；真机文件树显示「附件 → 其它 → acc-test .toml」「附件 → 图片 → acc-test .png」（无虚拟分组）。磁盘 `ls -R` 与截图 `_shots/rev173388-phone-tree.png` 双证。② **规矩写入 4 处** —— `04-授权与红线` §3（含反例：0.10.0 只过 G1+桌面 G2 就发了）、`02-发版与更新` 新增 §0.1、`06-用户拍板与禁忌` §2、`HANDOFF-CARD` §4 第 1 条子项：**发版前除非改动只涉及单端（HANDOFF 写明「仅桌面」/「仅 Android」），否则必须双端验收通过；禁止「先发版再补手机验收」，禁止拿「Rust 改动要新包」当发版理由** |
 | rev173.388 | 2026-11-06 · **sync 真实云端复验（rev173.383 遗留）+ 文档数字校准**：⚠️ **本条结论已更正，见 rev173.390** —— 当时只查了 `_zn/`，没查 `.zn/`，误判「密码库没同步上去」；实际私有文件按本机路径镜像在 `<根>/.zn/…`，一直都在。以下为原始记录：直接 PROPFIND 坚果云 `ZeroNote/`（账号 `17777253753@163.com`，只读）—— 结论 **密码库没同步上去**：`ZeroNote/_zn/` 只有 `manifest.json`（290 B），`_zn/security/` 与 `_zn/secrets/` 均 **404**；`manifest.json` 的 `private` 段却记着三条指纹（`c68:1828cxj` / `mu:w7h56c` / `mx:ra2qft`，与桌面 baseline 完全一致）⇒ **正是 rev173.383 描述的「远端索引不实 ⇒ 永远不推」**。根因：桌面 release 装的是 `sync` **0.1.9**（`%APPDATA%\com.aqua.zeronote\.zn\plugins\sync\manifest.json`），0.1.10 的远端巡检还没到位。**用户动作**：桌面 → 插件中心把 `sync` 更新到 0.1.10，再点一次「立即同步」，应看到上传 3 条且远端出现 `_zn/security/`、`_zn/secrets/`（复验脚本 `_tmp/dav-check-zn.mjs`）。**同时记下另一条已知行为（未改代码）**：`security` / `secrets` 的 vault 只在插件 `apply()` 读一次（`examples/security/index.js:1615` / `examples/secrets/index.js:1344`），同步后再出现不会自动刷新 —— 用户 2026-11-06 实测「重启桌面后显示正常」，先按已知行为记录，未动代码。**文档校准**：`03-当前状态` §1 版本 0.9.30→0.10.0（tag `v0.10.0` · commit `29d5f1a`）· `05-项目结构` vitest 1886→1918 · `07-术语与编号` rev173.365→387、vitest 1886→1918、cargo 102→105。**验证**：`check-docs` 全绿；全量基线沿用 02:36:18（tsc 0 · oxlint 4 · cargo 105 · vitest 1918 · 质量门 8/8） |
@@ -328,6 +329,32 @@ revision: 173.390
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.391（2026-11-06 · 重打包 private-notes / secrets 发市）
+
+> **现象**：release 机（努比亚）装 0.10.0、插件中心显示 private-notes v0.2.3 / secrets v0.1.2 / security v0.2.3
+> 全是「最新」且已签名，但私密文件夹仍是**独立面板**（搜索框 + 列表 + 「移出 / 删除」），密码库没有新逻辑。
+
+> **根因（不是版本号骗人，是包内容旧）**：`market/packs/private-notes-0.2.3.znp` 解出来的 `index.js`
+> 只有 41,763 B、`registerSource` **0 处**（11-04 13:17 打的包）；而 `examples/private-notes/index.js`
+> 已 56,212 B、含 2 处（rev173.376 的树分组 + 开关改造）。`secrets` 同样：包内 43,273 vs 源码 65,768。
+> ⇒ rev173.376 / 173.375 改了源码但**没重新打市场包**，市场里一直挂着旧代码。
+
+> **做法**：`examples/*/manifest.json` 版本升 `private-notes 0.2.4` / `secrets 0.1.3` →
+> `pack-plugin --key C:\Users\AQUA\.zeronote-keys\aqua-2026.key.pem --key-id aqua-2026` →
+> `gen-market --write`（16 条）。
+
+> **新包实测**：`private-notes-0.2.4.znp` 43,856 B · `registerSource` 2 · 带签名；
+> `secrets-0.1.3.znp` 53,774 B · `hasRingPart` 2 · 带签名。
+
+> **证据**：`verify-trust` 74/75 签名包验过；`vitest tests/private-notes.test.ts + tests/secrets.test.ts`
+> 70 条全过；包内容用 `node -e` 直接解析 `.znp`（JSON 包）核对。
+
+> **用户动作**：手机 / 桌面 → 插件中心 → 已安装 → 更新 `私密文件夹 0.2.4` 与 `密码库 0.1.3`，
+> 然后**完全退出应用再打开**（内核不会在安装后自动重载插件，`src/App.tsx:5761` 只有调试面板调 `reloadPlugin`）。
+
+> **未做**：私密笔记第二批（搜索 / 时间流 / 拖入移出 / 删面板列表视图）仍未做 —— 更新后可见的是第一批
+> （文件树「🔒 私密笔记」分组 + `private.open` 变开关）；应用本体版本不变（0.10.0），无需发版。
 
 > ## 📌 rev173.390（2026-11-06 · 更正 388：密码库其实同步成功，远端布局是 `.zn/` + `_zn/`）
 
