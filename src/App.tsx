@@ -4542,9 +4542,10 @@ export default function App() {
         setToast(`「${rows.find((r) => r.id === id)?.name ?? id}」没有可打开的面板`)
         return
       }
-      openPanelInTab(first.id)
+      // rev173.411：图标栏 pin 也是用户可见入口 —— 面板若声明 openCommand，先执行（密码库 = 先弹解锁框）
+      openPanelEntry(first.id)
     },
-    [panels, rows, openPanelInTab],
+    [panels, rows, openPanelEntry],
   )
   /**
    * 切换 pin。⚠️ 判定放在 updater **外面**：在 `setRailPins` 的 updater 里调 `setToast`
@@ -5306,7 +5307,8 @@ export default function App() {
       setMoreOpen(false)
       // rev173.314：从抽屉钻进去的插件面板，返回也先回抽屉
       returnToMoreRef.current = true
-      setMainView(e.panelId)
+      // rev173.411：手机插件入口也是用户可见入口 —— 面板声明 openCommand 时先执行（密码库 = 先弹解锁框）
+      openPanelEntry(e.panelId)
     },
   }))
 
@@ -5394,7 +5396,8 @@ export default function App() {
           hint: '未安装',
         }
       }
-      return { key, label: panel.title, onClick: () => openPanelInTab(panel.id) }
+      // rev173.411：环形快捷入口同样是用户可见入口 —— 面板声明 openCommand 时先执行
+      return { key, label: panel.title, onClick: () => openPanelEntry(panel.id) }
     }
     switch (key) {
       case 'builtin:search':
@@ -6095,7 +6098,8 @@ export default function App() {
             /* 拖出窗口 ⇒ 拆成独立窗口（rev173.52）/ 面板标签 ⇒ 面板窗口（rev173.83） */
             onDragEnd={handleTabDragEnd}
             /* B5：＋ = 新建 / 选面板；» = 全部标签
-               「打开面板」必须走 openPanelInTab —— 只 setMainView 会让面板出现却没有标签，
+               「打开面板」走 openPanelEntry（rev173.411）：面板声明了 openCommand 先执行（密码库先弹解锁框），
+               没有声明再落到 openPanelInTab —— 只 setMainView 会让面板出现却没有标签，
                用户没法从标签条切回来（也不符合方案 §3.1「工具页进标签条」）。 */
             onNewNote={() => runCore('core.newNote')}
             panelItems={openablePanels}
