@@ -19,7 +19,7 @@ revision: 173.393
 
 | rev | 内容 |
 |---|---|
-| rev173.393 | 2026-11-06 · **密钥环面板自动刷新（同步 / 外部写入后不再停在旧状态）**：`security` / `secrets` 的 vault 原先只在插件 `apply()` 读一次 ⇒ 同步把 `.zn/security/vault.*.json` 拉下来后，面板仍显示「还没建立密钥环」（03 分册 §5 那条已知未修）。① `security`：新增 `vaultSignature()` / `vaultNeedsReload()`（**导出纯函数**）+ `reloadVaultIfChanged()`，触发点 = 「打开面板」命令 / 切回前台（`visibilitychange` + `focus`）/ 30 秒定时器（仅前台）；**有环已解锁或坏盘时不重读**（内存 DEK 与磁盘环必须对应，否则会拿新环的 KDF 加密旧会话）。② `secrets`：新增 `ringNeedsRefresh()` + `refreshRingIfChanged()`，同样三处触发、只在未解锁时查。③ 单测 **+7**（security 52→56、secrets 36→39，各含反向用例：解锁中 / 坏盘 / 内容没变都不刷新）。**G2 桌面 dev（`_tmp-vault-rt12`）**：删 `vault.secrets.json` → reload 后面板显示「第一次使用「账号密码」：设一把主密码」；把文件放回去后**不点任何按钮**，≤30 秒自动变「「账号密码」已建立，输入主密码解锁」（截图 `_shots/rev393-security-autoreload-{off,on}.png`）。④ 市场包重打：`security 0.2.4` / `secrets 0.1.4` + `gen-market --write`（16 条）。**未做**：手机真机（插件改动，等用户从插件中心更新再重开应用）；sync 同步完成后主动发事件（现在靠 30 秒轮询兜） |
+| rev173.393 | 2026-11-06 · **密钥环面板自动刷新（同步 / 外部写入后不再停在旧状态）**：`security` / `secrets` 的 vault 原先只在插件 `apply()` 读一次 ⇒ 同步把 `.zn/security/vault.*.json` 拉下来后，面板仍显示「还没建立密钥环」（03 分册 §5 那条已知未修）。① `security`：新增 `vaultSignature()` / `vaultNeedsReload()`（**导出纯函数**）+ `reloadVaultIfChanged()`，触发点 = 「打开面板」命令 / 切回前台（`visibilitychange` + `focus`）/ 30 秒定时器（仅前台）；**有环已解锁或坏盘时不重读**（内存 DEK 与磁盘环必须对应，否则会拿新环的 KDF 加密旧会话）。② `secrets`：新增 `ringNeedsRefresh()` + `refreshRingIfChanged()`，同样三处触发、只在未解锁时查。③ 单测 **+7**（security 52→56、secrets 36→39，各含反向用例：解锁中 / 坏盘 / 内容没变都不刷新）。**G2 桌面 dev（`_tmp-vault-rt12`）**：删 `vault.secrets.json` → reload 后面板显示「第一次使用「账号密码」：设一把主密码」；把文件放回去后**不点任何按钮**，≤30 秒自动变「「账号密码」已建立，输入主密码解锁」（截图 `_shots/rev393-security-autoreload-{off,on}.png`）。④ 市场包重打：`security 0.2.4` / `secrets 0.1.4` + `gen-market --write`（16 条）。**手机 G2 已验**（Redmi `33b676f6` dev 包）：插件经 `adb` 推入 `.zn/plugins/`（`secrets` 的 `manifest.sha256` 同步更新、`security` 的 `signature.json` → `.bak`），删 `vault.secrets.json` → reload 面板显示「第一次使用」，放回后 **35 秒内**不点任何按钮自动变「已建立」（截图 `_shots/rev393-phone-security-01.png` / `02.png`）。**未做**：手机 release 机（等插件中心更新 `security 0.2.4` / `secrets 0.1.4` 再完全退出重开）；sync 同步完成后主动发事件（现在靠 30 秒轮询兜） |
 | rev173.392 | 2026-11-06 · **新增质量门「市场包 ↔ 源码一致」（第 9 门）**：rev173.391 暴露的「版本号相同、包内是旧代码」不能靠人记 —— 新 `scripts/check-pack-sync.mjs`：遍历 `market/index.json`，解出 `market/packs/<id>-<ver>.znp`（JSON 包），把包内 `files` 逐个与 `examples/<id>/` 同名文件**逐字节比较**，并校验 `manifest.entry` 在包内存在。**首跑立刻抓到第二处**：`import-export@0.2.5` 包内 `index.js` 67,310 B vs 源码 67,475 B（0.9.28 改了源码没重打）⇒ 升 **0.2.6** 重打包签名 + `gen-market --write`。现在门输出 `✅ 16 个插件 · 比较 24 个文件`。**挂载**：`scripts/check-gates.mjs` 的 gates 加 `['pack-sync', 'scripts/check-pack-sync.mjs']`，质量门 8 → **9 项**；`HANDOFF-CARD` / `03-当前状态` / `07-术语与编号` / `ROADMAP §4.1` 同步改「9/9」。**证据**：`node scripts/check-gates.mjs` → `✅ 质量门：9/9 通过`；`check-docs` 全绿 |
 | rev173.391 | 2026-11-06 · **重打包 private-notes / secrets 发市（修「最新版本号、旧代码」）**：用户报「release 机装 0.10.0 + 插件都是最新，私密文件夹仍是独立面板、密码库没新逻辑」。**根因 = 市场包落后于源码**：`market/packs/private-notes-0.2.3.znp` 内 `index.js` 41,763 B、`registerSource` **0 处**（11-04 打的旧包）；`examples/private-notes/index.js` 已 56,212 B、含 2 处（rev173.376 改造）。`secrets` 同样（包 43,273 vs 源码 65,768）。**做法**：版本升 `private-notes 0.2.4` / `secrets 0.1.3` → `pack-plugin --key aqua-2026` → `gen-market --write`（16 条）。新包：`private-notes-0.2.4.znp` 43,856 B（`registerSource` 2）· `secrets-0.1.3.znp` 53,774 B（`hasRingPart` 2），均带签名。**验证**：`verify-trust` 74/75 验签通过 · `vitest private-notes + secrets` 70 条全过。**用户动作**：手机/桌面插件中心更新这两个插件，再**完全退出应用重开**（内核不会自动重载插件） |
 | rev173.390 | 2026-11-06 · **更正 rev173.388：密码库其实同步成功**（用户要求「复验」时发现）：远端布局 = `_zn/`（manifest / 回收站 / 中转区）+ `.zn/`（私有文件按本机路径镜像）。三个私有文件实测全在：`ZeroNote/.zn/security/vault.notes.json` 1113 B · `vault.secrets.json` 1116 B · `ZeroNote/.zn/secrets/secrets.zn` 15776 B，长度与本地一致。源码依据 `examples/sync/lib/core.cjs:65`（`MANIFEST_REL = '_zn/manifest.json'`）与 `:86`（`PRIVATE_FILES` 用 `.zn/…` 相对路径，`syncPrivate` 直接 `client.put(rel)`）。坚果云 PUT 实测：父目录不存在 ⇒ **409**；`_zn/` 下 ⇒ **201**（`_tmp/dav-probe.mjs`，探针已删）。⇒ 0.1.9 的同步一直正常；rev173.383 的「远端索引不实」现场很可能同样是只查 `_zn/` 的误判，其巡检修复无害、保留。**未改代码** |
@@ -361,7 +361,14 @@ revision: 173.393
 > `credential` 硬风险（写 `%APPDATA%` 判为 `system`）⇒ 转人工 ⇒ 本会话审批弹窗被禁用 ⇒ **自动拒绝**。
 > 不是用户点的拒绝；同类命令请交用户手动执行，或先征求同意再动 `allowlist.json`。
 
-> **未做**：手机真机验证（插件改动，等用户从插件中心更新 `security 0.2.4` / `secrets 0.1.4` 再重开应用）；
+> **手机 G2（Redmi `33b676f6` dev 包）**：`security` / `secrets` 的 `index.js` 用 `adb push` +
+> `run-as cp` 推进 `.zn/plugins/<id>/`；`secrets` 的 `manifest.sha256` 改成新入口的哈希（不改会拒载），
+> `security` 的 `signature.json` 改名为 `.bak`（unsigned 照常加载）；两个 manifest 的 `version` 对齐到
+> `0.2.4` / `0.1.4`。删 `vault.secrets.json` → reload ⇒ 面板「第一次使用」；推回文件后 **35 秒内**
+> 不点任何按钮自动变「已建立」。截图 `_shots/rev393-phone-security-01.png`（未建）/
+> `rev393-phone-security-02.png`（自动变已建）。
+
+> **未做**：release 机（等用户从插件中心更新 `security 0.2.4` / `secrets 0.1.4` 再完全退出重开应用）；
 > `sync` 同步完成后主动发事件（当前靠 30 秒轮询兜底）。
 
 > ## 📌 rev173.392（2026-11-06 · 质量门第 9 项：市场包 ↔ 源码一致）
