@@ -505,6 +505,17 @@ async function sourceRename(api, path, title) {
   await saveIndex(api)
 }
 
+/**
+ * 源条目删除（rev173.402 · 文件树菜单「删除」/ Delete 键）→ **私密回收站**。
+ * 与面板里的删除共用 `trashNote`：密文搬进 `.zn/private/trash/`，可恢复、不解密、
+ * 不进全局明文回收站（那等于把私密内容当公开文件处理）。
+ */
+async function sourceRemove(api, path) {
+  const id = idOfNotePath(path)
+  if (!id) throw new Error('不是私密笔记的路径')
+  await trashNote(api, id)
+}
+
 /* ───────────────────────── 锁定 ───────────────────────── *//** 关掉当前正在编辑的私密文档（有未保存内容时先落盘 —— 锁前不能丢改动） */
 async function closePrivateDoc(api) {
   const d = api.doc.active?.()
@@ -1273,6 +1284,8 @@ export default {
           readText: (path) => sourceReadText(api, path),
           // rev173.398：文件树右键改名（改显示标题，文件名不变）
           rename: (path, title) => sourceRename(api, path, title),
+          // rev173.402：文件树菜单「删除」/ Delete 键 → 私密回收站（可恢复）
+          remove: (path) => sourceRemove(api, path),
           onSourceChange(cb) {
             sourceListeners.add(cb)
             return {
@@ -1592,7 +1605,12 @@ export default {
         title: '私密文件夹：删除一篇（进私密回收站）',
         run: async (payload) => {
           if (!index) return
-          const id = String(payload?.id ?? '')
+          /** rev173.402：多一个 `{ path }`（文件树菜单 / Delete 键用），与 move-out 同一口径 */
+          const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
+          if (!id) {
+            setMessage('删除失败：这不是私密笔记的路径', 'danger')
+            return
+          }
           try {
             await trashNote(api, id)
             setMessage('已移入私密回收站（可恢复）', 'muted')
@@ -1607,8 +1625,14 @@ export default {
         title: '私密文件夹：恢复一篇',
         run: async (payload) => {
           if (!index) return
+          /** rev173.402：撤销条传的是 `{ path }`（与被删条目同一路径） */
+          const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
+          if (!id) {
+            setMessage('恢复失败：这不是私密笔记的路径', 'danger')
+            return
+          }
           try {
-            await restoreNote(api, String(payload?.id ?? ''))
+            await restoreNote(api, id)
             setMessage('已恢复到私密列表', 'success')
           } catch (e) {
             setMessage(`恢复失败：${String(e?.message ?? e)}`, 'danger')

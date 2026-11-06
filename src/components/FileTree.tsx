@@ -22,6 +22,8 @@ import {
   GROUP_NODE_PREFIX,
   baseName,
   dropTargetPath,
+  groupKeyOf,
+  isSourceGroupPath,
   parentDir,
   parseDropTarget,
   planTreeDrop,
@@ -278,6 +280,11 @@ type MenuState = {
   multi: boolean
   x: number
   y: number
+  /**
+   * 点的是**源分组行**（虚拟目录，`path` 是 `__zn_group_<key>`）时记下分组 key
+   * （rev173.402 · §9.9.8）：组行菜单只有「新建私密笔记 / 私密回收站」这类源特有项。
+   */
+  group?: string
 }
 
 /**
@@ -325,7 +332,6 @@ function Node({
   onToggleOpen,
   onPick,
   onContextMenu,
-  onRenameSource,
   selectMode,
   renaming,
   draft,
@@ -351,8 +357,6 @@ function Node({
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, isDir: boolean, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
-  /** 源条目改名（rev173.398）：右键条目就直接弹输入框，不走磁盘菜单 */
-  onRenameSource?: (path: string) => void
   /** 多选态：行首画勾选框，点行 = 勾选 / 取消（不打开、不折叠） */
   selectMode: boolean
   renaming: Renaming | null
@@ -434,6 +438,8 @@ function Node({
             data-zn-dir="1"
             data-zn-virtual={node.virtual ? '1' : undefined}
             data-zn-group={node.group ? '1' : undefined}
+            /* 源分组 key（rev173.402）：组行长按 / 右键要能弹「新建私密笔记」 */
+            data-zn-group-key={node.group}
             /* 多选态：点目录 = 勾选它（连带里面全部条目），不再折叠 */
             onClick={() =>
               selectMode
@@ -443,8 +449,13 @@ function Node({
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              // 虚拟分组**不对应磁盘目录** ⇒ 不给任何文件操作菜单（它只是视图聚合）
-              if (node.virtual) return
+              /**
+               * 虚拟分组不对应磁盘目录（rev173.402）：
+               *  · **源分组行**（`node.group`）给源特有菜单（新建私密笔记 / 回收站）——
+               *    这是组内唯一的「新建」入口（§9.9.8 拍板要）；
+               *  · 其它虚拟分组（当前没有）什么都不给。
+               */
+              if (node.virtual && !node.group) return
               // 手机：长按**不立刻**弹菜单，等松手（触摸通道里判，见 TOUCH_UI）
               if (TOUCH_UI) return
               onContextMenu(node.path, true, e.clientX, e.clientY)
@@ -496,7 +507,6 @@ function Node({
                 dragging={dragging}
                 onPick={onPick}
                 onContextMenu={onContextMenu}
-                onRenameSource={onRenameSource}
                 selectMode={selectMode}
                 renaming={renaming}
                 draft={draft}
@@ -592,15 +602,14 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        // 额外笔记源条目（rev173.398）：磁盘操作仍归插件，但「改名」交给宿主弹输入框 ——
-        // 源实现了 `rename` 才有这个入口（`onRenameSource` 由宿主按能力传入）
-        if (node.group) {
-          if (onRenameSource) onRenameSource(node.path)
-          return
-        }
         // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）。
         // rev173.321：手机改成**松手才弹**（长按那一刻弹会把正在进行的拖拽遮住）。
         if (TOUCH_UI) return
+        /**
+         * 额外笔记源条目（rev173.402 · §9.2）：右键 = **与普通笔记同一套菜单**
+         * （改名 / 详细 / 删除 / 移出），不再直接弹改名框 ——
+         * 用户 2026-11-06：「操作都对齐普通笔记，唯一的区别就是加密」。
+         */
         onContextMenu(node.path, false, e.clientX, e.clientY)
       }}
       title={
@@ -642,6 +651,10 @@ export function FileTree({
   onDuplicate,
   onRename,
   onRenameSource,
+  onRemoveSource,
+  onMoveOutSource,
+  onOpenSourceTrash,
+  onNewSourceNote,
   onDropToSource,
   onDropFromSource,
   onDeleteMany,
@@ -682,6 +695,20 @@ export function FileTree({
    * 不传 ⇒ 源条目右键仍然没有菜单（只有插件自己负责改名 UI）。
    */
   onRenameSource?: (path: string) => void
+  /**
+   * 源条目**删除**（rev173.402 · §9.3）：宿主转给注册表 `notes.remove(path)`，
+   * 插件把它搬进自己的回收站（可恢复）。不传 ⇒ 源条目菜单里没有「删除」。
+   */
+  onRemoveSource?: (path: string) => void
+  /**
+   * 源条目**移出为公开笔记**（rev173.402 · 已有命令 `private.move-out`）。
+   * 落点 = 库根；拖拽到具体目录仍走 `onDropFromSource`。
+   */
+  onMoveOutSource?: (path: string) => void
+  /** 打开该源的**回收站**（源特有入口，§9.3）；不传 ⇒ 组行菜单里没有这一项 */
+  onOpenSourceTrash?: (group: string) => void
+  /** 组内**新建**（§9.9.8：`private.new`）；不传 ⇒ 组行菜单里没有「新建私密笔记」 */
+  onNewSourceNote?: (group: string) => void
   /**
    * 拖**公开笔记**到额外源分组行（rev173.400 · 私密笔记：移入）。
    * 宿主转给插件（`private.move-in`）；不传 ⇒ 分组行不是落点。
@@ -1384,7 +1411,15 @@ export function FileTree({
        */
       if (!src || didMove) return
       if (held < MENU_LONG_PRESS_MS) return
-      if (isVirtual || isSource) return
+      /**
+       * 虚拟分组行 / 源条目（rev173.402 · §9.4）：
+       *  · 普通虚拟分组（没有磁盘路径）不弹菜单；
+       *  · **源分组行**弹源特有菜单（新建私密笔记 / 回收站）—— 组内唯一的「新建」入口；
+       *  · **源条目**弹与普通笔记同一套菜单（改名 / 详细 / 删除 / 移出）。
+       * 长按后移动 = 拖拽（上面那条分支已拦掉），到这里只剩「没移动」的手势。
+       */
+      const isSourceGroupRow = isVirtual && Boolean(sourceGroup)
+      if (isVirtual && !isSourceGroupRow) return
       suppressClickRef.current = true
       window.setTimeout(() => {
         suppressClickRef.current = false
@@ -1392,9 +1427,10 @@ export function FileTree({
       const { selectedSet: sel } = dragRefs.current
       setMenu({
         path: src,
-        dir: isDir ? src : parentDir(src),
+        dir: isSourceGroupRow ? '' : isDir ? src : parentDir(src),
         isDir,
         multi: sel.has(src) && sel.size > 1,
+        ...(isSourceGroupRow ? { group: sourceGroup } : {}),
         x: at.x,
         y: at.y,
       })
@@ -1403,6 +1439,12 @@ export function FileTree({
     const onMove = (e: TouchEvent) => {
       const t = e.touches[0]
       if (!t || !fromPath) return
+      /**
+       * 源分组行（rev173.402）：长按可以弹菜单，但**组行本身不拖** ——
+       * 它不对应磁盘路径，拖它没有意义（拖别的东西是另一条独立的路径）。
+       * 这里直接放行，让页面照常滚动。
+       */
+      if (pressVirtual) return
       const dx = t.clientX - start.x
       const dy = t.clientY - start.y
       if (!dragging) {
@@ -1448,8 +1490,10 @@ export function FileTree({
        * （不会走磁盘 rename，密文不会被搬进公开目录）。
        */
       const fromSourceRow = row?.dataset.znGroup === '1'
-      // 虚拟分组行自身不参与拖动（没有磁盘路径）
-      if (row?.dataset.znVirtual === '1') return
+      /**
+       * 虚拟分组行（rev173.402）：**允许起手** —— 长按松手要弹源特有菜单（新建私密笔记）；
+       * 但组行永远不进入拖拽（onMove 里 `pressVirtual` 直接放行）。
+       */
       reset()
       fromPath = p
       start = { x: t.clientX, y: t.clientY }
@@ -1629,13 +1673,32 @@ export function FileTree({
     const mod = e.ctrlKey || e.metaKey
     const picked = dedupe(selected.length ? selected : activePath ? [activePath] : [])
     const key = e.key.toLowerCase()
+    /**
+     * 源条目（rev173.402 · §9.9.9）：F2 / Delete 也走宿主回调，**不能落到磁盘逻辑**
+     * （`startRename` 会内联改文件名的 baseName，`deletePaths` 会把密文移进全局明文回收站）。
+     * 强制单选 ⇒ `picked` 里只会有一条。
+     */
+    const srcPath = picked.length === 1 ? picked[0] : ''
+    const isSource = Boolean(srcPath && notes.find((n) => n.path === srcPath)?.group)
     if (e.key === 'F2' && picked.length === 1) {
       e.preventDefault()
+      if (isSource) {
+        // 源的能力由宿主按注册情况传入（没传就没有这个入口）
+        if (onRenameSource) onRenameSource(srcPath)
+        return
+      }
       // 选中集合只含**文件**（目录不参与多选），所以这里恒为文件重命名
       startRename(picked[0], false)
     } else if (e.key === 'Delete' && picked.length) {
       e.preventDefault()
+      if (isSource) {
+        if (onRemoveSource) onRemoveSource(srcPath)
+        return
+      }
       deletePaths(picked)
+    } else if (isSource) {
+      // 源条目：剪贴板 / 其它批量快捷键不适用（剪贴板是公开库内搬文件，§9.6）
+      return
     } else if (mod && key === 'x' && picked.length) {
       e.preventDefault()
       onCut(picked)
@@ -1669,6 +1732,133 @@ export function FileTree({
   const items: MenuItem[] = menu
     ? (() => {
         const list: MenuItem[] = []
+        /**
+         * ── 源分组行（rev173.402 · §9.9.8）──
+         * 组行不对应磁盘目录：只给源特有项（新建私密笔记 / 私密回收站）。
+         * 锁定后组不存在 ⇒ 这些入口自然不可达（不需要额外判锁）。
+         */
+        if (menu.group && isSourceGroupPath(menu.path ?? '')) {
+          if (onNewSourceNote) {
+            list.push({
+              label: '新建私密笔记',
+              onClick: () => {
+                onNewSourceNote(menu.group as string)
+                setMenu(null)
+              },
+            })
+          }
+          if (onOpenSourceTrash) {
+            list.push({
+              label: '私密回收站',
+              divider: true,
+              onClick: () => {
+                onOpenSourceTrash(menu.group as string)
+                setMenu(null)
+              },
+            })
+          }
+          return list
+        }
+        /**
+         * ── 源条目（私密笔记）· rev173.402 §9.3 ──
+         * 与普通笔记同一套手势 + 菜单，但**只出有意义的项**：
+         *  · 剪切 / 复制 / 创建副本 / 粘贴：不出现（剪贴板是「公开库内搬文件」的语义；
+         *    复制私密 = 明文落进公开库，违背需求 §3.3；粘贴公开笔记进组 = 绕过加密进目录，
+         *    应走「移入」。硬做只能造出一个「看起来能用、实际泄露」的入口 —— §9.6）；
+         *  · 在文件夹中打开：不出现（`.zn/private/notes/<id>.zn` 是密文，打开只能看到乱码）；
+         *  · 新建文件 / 新建文件夹：不出现（组内没有子目录；建笔记走组行菜单 / 面板）；
+         *  · 时间流：不出现（组内条目本来就在时间流里）。
+         * 保留：重命名 / 详细 / 插件项 / 移出 / 私密回收站 / 删除（进私密回收站）。
+         */
+        if (menu.path && notes.find((n) => n.path === menu.path)?.group) {
+          const path = menu.path
+          if (onRenameSource) {
+            list.push({
+              label: '重命名…',
+              hint: 'F2',
+              onClick: () => {
+                setMenu(null)
+                onRenameSource(path)
+              },
+            })
+          }
+          /**
+           * 「详细…」：显示标题 + 密文大小 + 修改时间（§9.3 拍板项）。
+           * 走宿主同一个 `onShowInfo`（Rust `entry_info`）—— 读的是密文文件的元信息，不解密正文。
+           */
+          if (onShowInfo) {
+            list.push({
+              label: '详细…',
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onShowInfo(path, false)
+              },
+            })
+          }
+          // 插件贡献项（§9.3「插件贡献项 ✅ 保留」）—— 与普通笔记同一套过滤，只是恒为单选
+          if (onItemAction && itemActions.length) {
+            const ctx: ItemMenuContext = { path, kind: 'note', where: 'file-tree' }
+            const matches = itemActions
+              .filter((a) => (a.where ?? ['file-tree', 'timeline']).includes('file-tree'))
+              .filter((a) => (a.kinds ?? ['note']).includes('note'))
+            for (let i = 0; i < matches.length; i++) {
+              const a = matches[i]
+              const first = i === 0
+              list.push(
+                a.children?.length
+                  ? {
+                      label: a.title,
+                      danger: a.danger,
+                      divider: true,
+                      children: a.children.map((c, j) => ({
+                        label: c.title,
+                        danger: c.danger,
+                        divider: j > 0 ? c.divider : undefined,
+                        onClick: () => onItemAction({ ...c, pluginId: a.pluginId }, ctx),
+                      })),
+                    }
+                  : {
+                      label: a.title,
+                      danger: a.danger,
+                      divider: first ? true : a.divider,
+                      onClick: () => onItemAction(a, ctx),
+                    },
+              )
+            }
+          }
+          if (onMoveOutSource) {
+            list.push({
+              label: '移出为公开笔记…',
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onMoveOutSource(path)
+              },
+            })
+          }
+          if (onOpenSourceTrash) {
+            list.push({
+              label: '私密回收站',
+              onClick: () => {
+                setMenu(null)
+                onOpenSourceTrash(menu.group ?? 'private')
+              },
+            })
+          }
+          if (onRemoveSource) {
+            list.push({
+              label: '删除（进私密回收站）',
+              danger: true,
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onRemoveSource(path)
+              },
+            })
+          }
+          return list
+        }
         // 与 NoteGen 的右键结构对齐：新建在最上，其次重命名 / 删除。
         // （它菜单里的「查看目录 / 知识库 / 上传下载 / 删除远程」ZeroNote 没有对应概念，
         //   故不列出 —— 宁缺勿假。）
@@ -1963,13 +2153,14 @@ export function FileTree({
           dragging={draggingPath}
           onPick={pick}
           selectMode={selectMode}
-          onRenameSource={onRenameSource}
           onContextMenu={(path, isDir, x, y) =>
             setMenu({
               path,
               dir: isDir ? path : parentDir(path),
               isDir,
               multi: selectedSet.has(path) && selectedSet.size > 1,
+              // 源分组行（rev173.402）：记下分组 key，菜单据此只给源特有项
+              ...(isSourceGroupPath(path) ? { group: groupKeyOf(path) } : {}),
               x,
               y,
             })

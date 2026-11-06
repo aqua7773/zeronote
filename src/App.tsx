@@ -241,13 +241,27 @@ const AUTOSAVE_MS = 800
 const DOC_CHANGE_DEBOUNCE_MS = 200
 
 /**
- * 额外笔记源分组 → 拖拽移入 / 移出该走哪条插件命令（rev173.400）。
+ * 额外笔记源分组 → 宿主该调哪条插件命令（rev173.400 拖拽 / rev173.402 菜单操作）。
  *
  * 内核不认识「私密」这个业务：它只把分组 key 交回来，命令名由宿主对着这里映射。
- * 没登记的分组 ⇒ 拖到它不是落点（`FileTree` 那边也会判成 no-op）。
+ * 没登记的分组 ⇒ 拖到它不是落点、菜单里也没有源特有项。
+ *  · `into` / `out`  拖拽移入 / 移出
+ *  · `restore`       撤销条（删除后几秒内可恢复）
+ *  · `gotoTrash`     打开私密回收站
+ *  · `newNote`       组内新建
+ * **删除**不走命令表：宿主统一走 `NoteSource.remove(path)` 契约钩子（见 `removeSourceEntry`）。
  */
-const SOURCE_DROP_COMMANDS: Record<string, { into: string; out: string }> = {
-  private: { into: 'private.move-in', out: 'private.move-out' },
+const SOURCE_DROP_COMMANDS: Record<
+  string,
+  { into: string; out: string; restore: string; gotoTrash: string; newNote: string }
+> = {
+  private: {
+    into: 'private.move-in',
+    out: 'private.move-out',
+    restore: 'private.restore',
+    gotoTrash: 'private.goto-trash',
+    newNote: 'private.new',
+  },
 }
 
 /* rev173.332：删掉 `DRAWER_MS`（原 340ms 的"到点卸载"计时）—— 右抽屉已改常驻挂载，
@@ -386,6 +400,8 @@ export default function App() {
     size: number
     mtime: number
     created: number
+    /** 源条目（私密笔记）显示**标题**：磁盘名是随机 id，对用户没有意义（§9.9.5） */
+    title?: string
   } | null>(null)
   /**
    * 上次异常退出的崩溃报告（rev173.327 · 用户「每次崩溃直接导出崩溃日志，我转发就可以了」）。
@@ -1782,8 +1798,11 @@ export default function App() {
     onOpened: (p) => {
       if (platform !== 'android') setTabs((prev) => addTab(prev, p))
       setMainView('editor')
-      /* B1：☰ 菜单的「最近打开」—— 在这里登记（openNote 是所有打开路径的唯一入口） */
-      if (vault) setRecentNotes(rememberRecentNote(vault, p))
+      /* B1：☰ 菜单的「最近打开」—— 在这里登记（openNote 是所有打开路径的唯一入口）。
+         rev173.402 · §9.9.10：**私密条目不记录** —— 以前会把
+         `.zn/private/notes/<id>.zn` 写进 localStorage，等于把私密路径落盘。 */
+      const isSourceEntry = sourceNotes.some((n) => n.path === p) || p.startsWith('.zn/')
+      if (vault && !isSourceEntry) setRecentNotes(rememberRecentNote(vault, p))
     },
     /* 互斥：被拆到独立窗口的那篇不在这里再开（rev173.52） */
     canOpen: canOpenNote,
@@ -2486,6 +2505,110 @@ export default function App() {
       }
     },
     [kernel, refresh],
+  )
+
+  /**
+   * 源条目**删除**（rev173.402 · §9.3 / §9.12）。
+   *
+   * 走注册表 `notes.remove(path)` —— 删什么、删到哪由源决定
+   * （私密 = 密文搬进 `.zn/private/trash/`，可恢复）。宿主只做三件事：
+   * ① 调删除；② 关掉指向已删路径的标签（§9.7 风险 2：不关的话下一次自动保存会往已删路径写）；
+   * ③ 挂**撤销条**（与普通笔记同一条 UI 通道：几秒内点「撤销」= `private.restore`）。
+   *
+   * ⛔ 绝不能落到 `deleteNotes`：那会把密文当公开文件移进**全局明文回收站**。
+   */
+  const [sourceUndo, setSourceUndo] = useState<{ path: string; title: string; group: string } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    if (!sourceUndo) return
+    const t = window.setTimeout(() => setSourceUndo(null), 5000)
+    return () => window.clearTimeout(t)
+  }, [sourceUndo])
+
+  const removeSourceEntry = useCallback(
+    async (path: string) => {
+      const k = kernel
+      if (!k) return
+      const meta = treeNotes.find((n) => n.path === path)
+      const title = meta?.title ?? ''
+      const group = meta?.group ?? 'private'
+      try {
+        const ok = await k.notes.remove(path)
+        if (!ok) {
+          setToast('这篇笔记不支持删除')
+          return
+        }
+        if (activePath === path) closeTabOf(path)
+        setSourceUndo({ path, title, group })
+        setError(null)
+      } catch (e) {
+        setToast(`删除失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [kernel, treeNotes, activePath, closeTabOf, setToast, setError],
+  )
+
+  /** 撤销私密删除：把条目从源的回收站拿回来（§9.9.2 拍板） */
+  const undoSourceDelete = useCallback(async () => {
+    const u = sourceUndo
+    if (!u) return
+    setSourceUndo(null)
+    const cmd = SOURCE_DROP_COMMANDS[u.group]?.restore
+    if (!cmd) return
+    try {
+      await kernel?.commands.api.execute(cmd, { path: u.path })
+      setToast('已恢复')
+    } catch (e) {
+      setToast(`恢复失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [sourceUndo, kernel, setToast])
+
+  /** 源条目「移出为公开笔记…」：落库根（拖到具体目录仍走 `dropOutOfSource`） */
+  const moveOutSource = useCallback(
+    async (path: string) => {
+      const k = kernel
+      const group = treeNotes.find((n) => n.path === path)?.group ?? 'private'
+      const cmd = SOURCE_DROP_COMMANDS[group]?.out
+      if (!k || !cmd) return
+      try {
+        await k.commands.api.execute(cmd, { path, dir: '', silent: true })
+        setToast('已移出为公开笔记（落库根）')
+        setError(null)
+      } catch (e) {
+        setToast(`移出失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [kernel, treeNotes, setToast, setError],
+  )
+
+  /** 打开源的回收站（§9.3 源特有入口）：先切插件视图模式，再打开面板 */
+  const openSourceTrash = useCallback(
+    async (group: string) => {
+      const cmd = SOURCE_DROP_COMMANDS[group]?.gotoTrash
+      if (!cmd) return
+      try {
+        await kernel?.commands.api.execute(cmd)
+      } catch {
+        setToast('没装「私密文件夹」插件')
+        return
+      }
+      openPanelInTab('private.panel')
+    },
+    [kernel, openPanelInTab, setToast],
+  )
+
+  /** 组内新建（§9.9.8）：`private.new` 自带建条目 + 打开编辑器 */
+  const newSourceNote = useCallback(
+    (group: string) => {
+      const cmd = SOURCE_DROP_COMMANDS[group]?.newNote
+      if (!cmd) return
+      void kernel?.commands.api
+        .execute(cmd)
+        .catch((e) => setToast(`新建失败：${e instanceof Error ? e.message : String(e)}`))
+    },
+    [kernel, setToast],
   )
 
   /**
@@ -3726,12 +3849,18 @@ export default function App() {
         mtime: number
         created: number
       }>('entry_info', { vault, path })
+      /**
+       * 源条目（私密笔记）：磁盘名是随机 id ⇒「名称」显示用户可见的标题（§9.9.5 拍板：
+       * 详细 = 标题 + 密文大小 + 时间）。大小读的是**密文文件**的字节数，不解密正文。
+       */
+      const src = treeNotes.find((n) => n.path === path)
       setEntryInfo({
         path: info.path,
         isDir: info.is_dir || isDir,
         size: info.size,
         mtime: info.mtime,
         created: info.created,
+        ...(src?.group ? { title: src.title } : {}),
       })
     } catch (e) {
       setToast(`读取详细信息失败：${String(e)}`)
@@ -5702,6 +5831,11 @@ export default function App() {
               onNewDir={newDirIn}
               onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
               onRenameSource={renameSourceEntry}
+              /* rev173.402 · §9.3：源条目的删除 / 移出 / 回收站 / 组内新建（全部走源自己的逻辑） */
+              onRemoveSource={(p) => void removeSourceEntry(p)}
+              onMoveOutSource={(p) => void moveOutSource(p)}
+              onOpenSourceTrash={(g) => void openSourceTrash(g)}
+              onNewSourceNote={newSourceNote}
               /* rev173.400：拖公开笔记进「🔒 私密笔记」= 移入；组内拖出 = 移出 */
               onDropToSource={(group, paths) => void dropIntoSource(group, paths)}
               onDropFromSource={(group, paths, dir) => void dropOutOfSource(group, paths, dir)}
@@ -5783,6 +5917,11 @@ export default function App() {
                 onItemAction={runItemAction}
                 onShowInfo={(p, isDir) => void showEntryInfo(p, isDir)}
                 onReveal={(p) => void revealEntry(p)}
+                /* rev173.402 · §9.3：私密条目菜单对齐（动作全部转给插件，不碰磁盘） */
+                onRenameSource={renameSourceEntry}
+                onRemoveSource={(p) => void removeSourceEntry(p)}
+                onMoveOutSource={(p) => void moveOutSource(p)}
+                onOpenSourceTrash={(g) => void openSourceTrash(g)}
               />
             </div>
           )}
@@ -6131,6 +6270,11 @@ export default function App() {
               onItemAction={runItemAction}
               onShowInfo={(p, isDir) => void showEntryInfo(p, isDir)}
               onReveal={(p) => void revealEntry(p)}
+              /* rev173.402 · §9.3：私密条目菜单对齐（动作全部转给插件，不碰磁盘） */
+              onRenameSource={renameSourceEntry}
+              onRemoveSource={(p) => void removeSourceEntry(p)}
+              onMoveOutSource={(p) => void moveOutSource(p)}
+              onOpenSourceTrash={(g) => void openSourceTrash(g)}
             />
           )
         ) : (
@@ -6462,6 +6606,15 @@ export default function App() {
             撤销
           </button>
         </div>
+      ) : sourceUndo ? (
+        /* 私密笔记删除的撤销条（rev173.402 · §9.9.2 拍板）：同一条 UI 通道，
+           撤销走插件 `private.restore`（从**私密回收站**拿回来，不是全局明文回收站）。 */
+        <div className="zn-undo" role="status">
+          <span>「{sourceUndo.title || '私密笔记'}」已移入私密回收站</span>
+          <button type="button" className="zn-undo-btn" onClick={() => void undoSourceDelete()}>
+            撤销
+          </button>
+        </div>
       ) : draft ? (
         /* 会话恢复（rev173.65）：复用删除撤销条的样式 —— 同属「给一次后悔的机会」 */
         <div className="zn-undo" role="status">
@@ -6513,7 +6666,7 @@ export default function App() {
           <DialogBody>
             <dl className="zn-info-list">
               <dt>名称</dt>
-              <dd>{baseName(entryInfo.path)}</dd>
+              <dd>{entryInfo.title || baseName(entryInfo.path)}</dd>
               <dt>类型</dt>
               <dd>{entryInfo.isDir ? '文件夹' : '文件'}</dd>
               <dt>大小</dt>

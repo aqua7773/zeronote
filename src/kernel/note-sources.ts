@@ -56,6 +56,12 @@ export type NoteSources = {
    * ⇒ 调它并返回 `true`；否则 `false`（宿主要么不提供入口，要么提示不支持）。
    */
   rename(path: string, title: string): Promise<boolean>
+  /**
+   * 删除源条目（rev173.402 · 文件树菜单「删除」/ Delete 键）。`path` 属于某个源且它实现了
+   * `remove` ⇒ 调它并返回 `true`；否则 `false`（宿主不提供该入口）。
+   * 源抛错原样上抛 —— 宿主据此提示「删除失败」，不能假装成功。
+   */
+  remove(path: string): Promise<boolean>
   /** 已注册的源（诊断 / 单测） */
   sources(): Array<{ pluginId: string; id: string; group: NoteSourceGroup }>
   /**
@@ -222,6 +228,14 @@ export function createNoteSources(
       const fn = owner?.src.rename
       if (!owner || typeof fn !== 'function') return false
       await fn.call(owner.src, path, title)
+      return true
+    },
+
+    async remove(path) {
+      const owner = ownerOf(path)
+      const fn = owner?.src.remove
+      if (!owner || typeof fn !== 'function') return false
+      await fn.call(owner.src, path)
       return true
     },
 

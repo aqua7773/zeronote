@@ -258,3 +258,37 @@ describe('NoteSources.rename', () => {
     await expect(reg.rename('a.md', 'x')).resolves.toBe(false)
   })
 })
+
+/**
+ * 源条目删除（rev173.402 · 文件树菜单「删除」/ Delete 键）：只对**实现了 remove** 的源
+ * 且只对**它自己的条目**生效；宿主不碰磁盘，删到哪、能不能恢复由源决定。
+ */
+describe('NoteSources.remove', () => {
+  it('源条目走源的 remove；非本源路径 / 源没实现 ⇒ false', async () => {
+    const reg = createNoteSources(() => {})
+    const calls: string[] = []
+    reg.register('p2', {
+      ...makeSource('private', [meta('.zn/p/x.zn')]),
+      remove: async (p: string) => {
+        calls.push(p)
+      },
+    })
+    await expect(reg.remove('.zn/p/x.zn')).resolves.toBe(true)
+    expect(calls).toEqual(['.zn/p/x.zn'])
+    await expect(reg.remove('普通.md')).resolves.toBe(false)
+
+    reg.register('p1', makeSource('plain', [meta('a.md')]))
+    await expect(reg.remove('a.md')).resolves.toBe(false)
+  })
+
+  it('源抛错 ⇒ 原样上抛（宿主据此提示失败，不假装成功）', async () => {
+    const reg = createNoteSources(() => {})
+    reg.register('p1', {
+      ...makeSource('bad', [meta('.zn/bad.zn')]),
+      remove: async () => {
+        throw new Error('回收站写入失败')
+      },
+    })
+    await expect(reg.remove('.zn/bad.zn')).rejects.toThrow('回收站写入失败')
+  })
+})

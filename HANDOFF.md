@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.401
-更新时间: 2026-11-06 · 最新 rev173.401（**空私密分组不显示 / 拖不进第一篇**）· rev173.400（拖入移出）
+revision: 173.402
+更新时间: 2026-11-06 · 最新 rev173.402（**私密笔记操作对齐普通笔记**：菜单 / 长按 / F2·Delete / 撤销条）· rev173.401（空分组 / 拖入落点）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.401
 
 | rev | 内容 |
 |---|---|
+| rev173.402 | 2026-11-06 · **私密笔记操作对齐普通笔记**（方案 §9 · 施工 §9.10 第 1–5 步；用户 2026-11-06「移动端长按直接重命名，无法拖拽，私密笔记操作都对齐普通笔记，唯一的区别就是加密」）：① **契约** `NoteSource.remove?(path)` + 注册表 `NoteSources.remove()`（与 `rename` 同一 `ownerOf` 口径，源抛错原样上抛）；插件 `private.trash` / `private.restore` 支持 `{ path }`（`idOfNotePath` 解析，与 `move-out` 同口径），源注册 `remove` 钩子 → `trashNote`（密文搬进 `.zn/private/trash/`，可恢复、**不进全局明文回收站**）。② **FileTree**：源条目右键 / 手机长按松手 = 弹**同一套菜单**（重命名… / 详细… / 插件项 / 移出为公开笔记… / 私密回收站 / 删除（进私密回收站）），**隐藏**剪切·复制文件·创建副本·粘贴·在文件夹中打开·新建·时间流（理由 §9.6）；源分组行右键 / 长按 = 「新建私密笔记」（`private.new`）+ 私密回收站；长按后移动仍是拖拽（`pressVirtual` 组行不拖，`contextmenu` 不抢手势）；F2 / Delete 对源条目走宿主回调（**不落到** `startRename` / `deletePaths` 的磁盘逻辑）。③ **App**：`removeSourceEntry`（`notes.remove` → 关掉指向已删路径的标签 → 撤销条）、`undoSourceDelete`（`private.restore`）、`moveOutSource`（`private.move-out` 落库根）、`openSourceTrash`（`private.goto-trash` + 打开面板）、`newSourceNote`；`SOURCE_DROP_COMMANDS` 扩成 into/out/restore/gotoTrash/newNote 五条映射；**recent 跳过私密**（§9.9.10：以前把 `.zn/private/notes/<id>.zn` 写进 localStorage，属 bug）。④ **MobileNoteCards**：源条目卡片菜单同一套（重命名 / 详细 / 移出 / 回收站 / 删除），不出磁盘项。⑤ **契约文档** §1.2b 补 `groupVisible` / `rename` / `remove`。**测试**：`tests/note-sources.test.ts` +2（remove 只认本源条目 / 抛错上抛）· 新增 `tests/file-tree-source-menu.test.tsx` 4 条（右键弹菜单且不出磁盘项 / 删除走 `onRemoveSource` 不碰 `onDeleteMany` / F2·Delete 走源回调 / 组行「新建私密笔记」）。**插件** `private-notes 0.3.2`（已签名入市，`market/packs/private-notes-0.3.2.znp`）。**G2 待做**：桌面 dev + Redmi dev 包（需解锁私密环）。**已知待验**：`entry_info` 对 `.zn/` 是否放行（§9.7 风险 3） |
 | rev173.401 | 2026-11-06 · **空私密分组不显示 / 第一篇拖不进去**（用户实测「空文件夹状态不显示，无法移入」）：两个根因。① `buildTree` 只从**条目**建分组 ⇒ 0 篇时组行根本不存在，拖入没有落点；② 组行同时带 `data-zn-group`（`Node` 目录分支的写法），而 `resolveTreeDrop` 先判 `overSourceEntry` ⇒ 组行被当成「源条目」判 `null`，拖到组行**永远不会高亮**。修法：`NoteSource.groupVisible?()` + `NoteSources.groups()`（**0 条目也返回可见组**，锁定 / 关闭时源自己返回 false）+ `App.sourceGroups` + `FileTree` 预建空组并画占位「（空）把笔记拖到这里」；`resolveTreeDrop` 判定顺序改为**虚拟分组优先**。测试 +5（note-sources 3 · file-tree 1 · tree-drop 1，其中一条锁住真实 DOM 形状）。插件 **0.3.1**（重打 + 签名入市）。**G2 桌面 dev**：空组显示 ✅；拖「附件分类演示.md」到组行 → 高亮 `__zn_group_private` → toast「已移入私密文件夹」→ 组内出现、公开列表消失（`_shots/rev401-group-filled.png`）；锁定后组消失 ✅。**已知坑**：树容器高度有限，滚动区外的行 `elementFromPoint` 会命中容器外元素 —— 拖拽前必须先把**组行滚进容器**（`scrollTop = scrollHeight`） |
 | rev173.400 | 2026-11-06 · **私密笔记拖入移出**（施工图 §8 最后一项）：① 新 `src/lib/tree-drop.ts` —— 落点判定 `resolveTreeDrop` + 松手动作 `planTreeDrop` 收成纯函数，**鼠标 pointer 链与手机 touch 链共用**（以前各写一份内联）；② `FileTree` 加 `onDropToSource` / `onDropFromSource`：源条目允许拖动（拖出 = 移出，**不走磁盘 rename** —— 那会把密文搬进公开目录）、虚拟分组行可当落点、源条目长按不弹磁盘菜单；③ `App` 的 `SOURCE_DROP_COMMANDS` 映射分组 → 插件命令，`dropIntoSource` / `dropOutOfSource` 串行执行（并发写同一份索引会互相覆盖）；④ 插件命令支持 `{ path, dir, silent }`：`move-in` 按路径移入（不再只认当前打开的笔记）、`move-out` 落指定目录（新导出纯函数 `publicTargetPath`）；插件 **0.3.0**（已签名入市 + `gen-market --write`）。**测试**：`tests/tree-drop.test.ts` 14 条 + `private-notes` 4 条。**G2**：**移出已实测**（桌面 dev 真实鼠标拖拽 → 「已移出为公开笔记：测试文件/右键直接重命名好了.md」）；**移入的拖拽手势未实测**（长树 2110px / 视口 681px，源与落点不同屏，自动化模拟滚动时 `elementFromPoint` 在视口外返回 null —— 见「已知坑」）。**已知坑**：dev 加载的是**全局插件目录**里的插件，改 `examples/` 后必须同步到 `%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\<id>\` 并更新 manifest 的 `sha256`，否则验的是旧代码（本轮先踩了一遍） |
 | rev173.399 | 2026-11-06 · **修「重命名对话框每敲一个字就失焦」**（用户实测：私密笔记右键重命名，输入会被截断，输入一次就会断一次）：根因在 `ui/dialog.tsx` 的 ESC effect —— 依赖 `[open, onOpenChange]`，而调用方一律传内联箭头（每次渲染新引用）⇒ 受控输入框每变一次（自身重渲染）就重跑一次 cleanup，cleanup 里「把焦点还给打开前的元素」把焦点抢走，后面的字符全打到对话框外。修法：`onOpenChange` 走 ref 取最新值，effect 依赖只留 `[open]`。**同类扫描**：焦点管理只有 `ui/dialog.tsx` 一处（12 个 Dialog 使用方全部受益）；`FileTree` 的内联重命名自己管 input、不走 Dialog，无此问题。**测试**：新增 `tests/dialog-focus.test.tsx` 2 条（逐字输入不失焦、关闭仍还焦点）；旧实现下第 1 条红（stash 实测），新实现绿。**G1**：19:22:10 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest 1936 · 质量门 9/9）。**G2 双端**：桌面 dev（`_tmp-vault-rt12`）私密条目右键 → 逐字输入 7 字符，焦点始终在输入框、值完整累积（`_shots/rev399-rename-dialog-typing.png`）；Redmi `33b676f6` dev 包同样（`_shots/rev399-phone-rename-dialog-typing.png`） |
@@ -339,6 +340,37 @@ revision: 173.401
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.402（2026-11-06 · 私密笔记操作对齐普通笔记）
+
+> **用户要求**（2026-11-06）：「移动端长按直接重命名，无法拖拽，私密笔记操作都对齐普通笔记，唯一的区别就是加密」。
+> 方案 `docs/私密笔记-改造方案-2026-11-05.md` §9（accepted · §9.9 拍板）→ 施工 §9.10 第 1–5 步。
+
+> **改了什么**：
+> 1. **契约**：`NoteSource.remove?(path)` + `NoteSources.remove()`（与 `rename` 同一 `ownerOf` 口径，源抛错上抛）；
+>    插件 `private.trash` / `private.restore` 认 `{ path }`，源注册 `remove` → `trashNote`
+>    （密文搬进 `.zn/private/trash/`，**不进全局明文回收站**）。
+> 2. **文件树**：源条目右键 / 手机长按松手 = **同一套菜单**（重命名… / 详细… / 插件项 / 移出为公开笔记… /
+>    私密回收站 / 删除（进私密回收站）），**隐藏**剪切·复制文件·创建副本·粘贴·在文件夹中打开·新建·时间流（§9.6）；
+>    源分组行右键 / 长按 = 「新建私密笔记」（§9.9.8）；长按后移动仍是拖拽（`contextmenu` 不抢手势）；
+>    F2 / Delete 对源条目走宿主回调，**不落到** `startRename` / `deletePaths` 的磁盘逻辑（§9.12.1）。
+> 3. **App**：`removeSourceEntry`（`notes.remove` → 关掉指向已删路径的标签 → 撤销条）· `undoSourceDelete`
+>    （`private.restore`，§9.9.2）· `moveOutSource` · `openSourceTrash` · `newSourceNote`；
+>    `SOURCE_DROP_COMMANDS` 扩成 into/out/restore/gotoTrash/newNote；**recent 跳过私密**（§9.9.10：以前会把
+>    `.zn/private/notes/<id>.zn` 写进 localStorage）。
+> 4. **MobileNoteCards**：源条目卡片菜单同一套（不出磁盘项）；契约文档 §1.2b 补 `groupVisible` / `rename` / `remove`。
+
+> **测试**：`tests/note-sources.test.ts` +2（remove 只认本源条目 / 抛错上抛）· 新增
+> `tests/file-tree-source-menu.test.tsx` 4 条（右键弹菜单不出磁盘项 / 删除走 `onRemoveSource` 不碰 `onDeleteMany` /
+> F2·Delete 走源回调 / 组行「新建私密笔记」）。插件 **`private-notes 0.3.2`**（已签名入市）。
+
+> **G1**：verify 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest **1965** · 质量门 9/9，21:05:40）。
+> **G2 双端已验**（桌面 dev `_tmp-vault-rt12` + Redmi `33b676f6` dev 包，私密主密码 `test-pass-1234`）：
+> 组行右键「新建私密笔记」→ 树出现条目 ✓；私密条目右键 = **同一套菜单**（无剪切 / 复制文件 / 创建副本 / 粘贴 /
+> 在文件夹中打开 / 新建 / 时间流）✓；「详细…」显示**标题** + 密文大小 59 B + 时间（`entry_info` 对 `.zn/` **放行**，
+> §9.7 风险 3 已排）✓；「删除」→ 私密回收站 + 撤销条 → 点「撤销」→ 条目回来 ✓；F2 → 重命名对话框 → 树标题即时更新 ✓；
+> Delete → 删除 + 撤销条 ✓；组行「私密回收站」→ 1 篇 → 恢复 ✓；**手机**长按私密条目松手 = 同一套菜单
+> （触摸链 touchstart → 450ms → touchend 实测）✓。截图 `_shots/rev402-private-menu.png` · `_shots/rev402-phone-private-menu.png`。
 
 > ## 📌 rev173.401（2026-11-06 · 空私密分组不显示 / 第一篇拖不进去）
 

@@ -55,6 +55,14 @@ type Props = {
   onShowInfo?: (path: string, isDir: boolean) => void
   /** 「在文件夹中打开」（2026-11-03 P3）：桌面交给系统文件管理器；手机由宿主提示不支持 */
   onReveal?: (path: string) => void
+  /**
+   * 源条目（私密笔记）菜单对齐（rev173.402 · 方案 §9.3）：与文件树**同一套回调**。
+   * 源条目的增删改都由插件负责，宿主不碰磁盘 —— 这里只把动作转给插件命令。
+   */
+  onRenameSource?: (path: string) => void
+  onRemoveSource?: (path: string) => void
+  onMoveOutSource?: (path: string) => void
+  onOpenSourceTrash?: (group: string) => void
 }
 
 /** 长按判定用共享的 `LONG_PRESS_MS`（300ms）；这里只留「移动多少像素算滑动」 */
@@ -103,6 +111,10 @@ export function MobileNoteCards({
   onItemAction,
   onShowInfo,
   onReveal,
+  onRenameSource,
+  onRemoveSource,
+  onMoveOutSource,
+  onOpenSourceTrash,
 }: Props) {
   /**
    * 按修改时间倒序，最多 100 条（足够看，也不会一次读太多文件）。
@@ -358,8 +370,63 @@ export function MobileNoteCards({
           }
         }
         /* 磁盘操作（重命名 / 详细 / 在文件夹中打开 / 删除）只对公开笔记开放：
-           源条目的增删改由插件负责，宿主直接动磁盘会绕过加密逻辑。 */
-        if (!isSource) {
+           源条目的增删改由插件负责，宿主直接动磁盘会绕过加密逻辑。
+           rev173.402 · §9.3：源条目改为**同一套菜单**，只是动作转给插件（不碰磁盘）。 */
+        if (isSource) {
+          const p = menu.path
+          const group = notes.find((n) => n.path === p)?.group ?? 'private'
+          if (onRenameSource) {
+            list.push({
+              label: '重命名…',
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onRenameSource(p)
+              },
+            })
+          }
+          if (onShowInfo) {
+            // 显示标题 + 密文大小 + 时间（读的是密文文件的元信息，不解密正文）
+            list.push({
+              label: '详细…',
+              onClick: () => {
+                setMenu(null)
+                onShowInfo(p, false)
+              },
+            })
+          }
+          // 「在文件夹中打开」不出现：`.zn/private/notes/<id>.zn` 是密文，打开只能看到乱码
+          if (onMoveOutSource) {
+            list.push({
+              label: '移出为公开笔记…',
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onMoveOutSource(p)
+              },
+            })
+          }
+          if (onOpenSourceTrash) {
+            list.push({
+              label: '私密回收站',
+              onClick: () => {
+                setMenu(null)
+                onOpenSourceTrash(group)
+              },
+            })
+          }
+          if (onRemoveSource) {
+            list.push({
+              label: '删除（进私密回收站）',
+              danger: true,
+              divider: true,
+              onClick: () => {
+                setMenu(null)
+                onRemoveSource(p)
+              },
+            })
+          }
+        } else {
           list.push({ label: '重命名…', divider: true, onClick: () => startRename(menu.path) })
           /* 2026-11-03 P3：补齐与文件树同一套能力（真人测试6 #4 要的「详细」+「在文件夹中打开」）。
              注意先抄下 menu 再关菜单 —— setMenu(null) 之后闭包里的 menu 仍是旧值，但要防竞态。 */

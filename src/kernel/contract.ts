@@ -116,6 +116,15 @@ export type NoteSource = {
    * 不实现 ⇒ 宿主对该源条目不提供「重命名」入口（插件自己负责改名 UI）。
    */
   rename?(path: string, title: string): Promise<void>
+  /**
+   * **可选**：删除条目（rev173.402 · 文件树菜单「删除」/ Delete 键 / 撤销条）。
+   *
+   * 内核不碰源的文件：删到哪、能不能恢复由源自己决定
+   * （私密笔记 = 密文搬进 `.zn/private/trash/`，不解密、不进全局明文回收站）。
+   * 不实现 ⇒ 宿主对该源条目不提供「删除」入口。
+   * 抛错 ⇒ 宿主据此提示失败（不要静默吞掉）。
+   */
+  remove?(path: string): Promise<void>
 }
 
 /**
