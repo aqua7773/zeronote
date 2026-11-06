@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.411
-更新时间: 2026-11-07 · 最新 rev173.411（**插件入口全部接 openCommand**）· rev173.410（菜单入口先跑 openCommand）
+revision: 173.412
+更新时间: 2026-11-07 · 最新 rev173.412（**0.10.1 发版**）· rev173.411（插件入口全接 openCommand）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.411
 
 | rev | 内容 |
 |---|---|
+| rev173.412 | 2026-11-07 · **0.10.1 发版**（G3 = 用户「目前双端真人验收没什么问题，提交发版」）：把 rev173.405–411 的「解锁输入弹窗 / 私密笔记删独立面板 / 插件入口统一」发给 release 用户 —— 关键是 `host.prompt` 是内核能力，0.10.0 用户更新插件后点锁只能看到「请更新 ZeroNote」。**产物**：桌面 `ZeroNote_0.10.1_x64-setup.exe` 15,911,327 B + `.sig` 440 B；Android `ZeroNote_0.10.1_arm64.apk` 34,977,387 B（33.36 MiB · 只打 aarch64，不是 121 MB 的 4-ABI universal · Gradle 原名 `app-universal-release.apk` 复制改名）。二进制放 `_build/release-0.10.1/`（不入库）。**清单**：`update/latest.json` + `update/android.json`（url 手动指向 `ZeroNote_0.10.1_arm64.apk`，sha256 `3e23351d…`）。**发布**：GitHub `v0.10.1` 三资产 · Gitee release `1281675` 三资产（size 全对：440 / 15,911,327 / 34,977,387）；main + tag 已推两个远端。构建 10 分 56 秒 |
 | rev173.411 | 2026-11-07 · **插件入口全部接 openCommand**（用户：「插件入口直接进入是不是没改」+「都做成和隐私文件夹一样的弹窗入口」）：上一 rev 只接了标签条 ＋ / 更多菜单，还有 3 处**用户可见入口**直接 `openPanelInTab` —— ① `pinPlugin`（图标栏固定图标点击）；② `morePluginEntries`（手机「更多 → 插件」组）；③ `resolveQuickEntry`（起始页长按 ＋ 环形入口）。三处改走 `openPanelEntry`；`core.panel.<id>` 命令与 `onOpenPanelInMain`（插件 `view.openWindow` 降级）**保持直接开**（命令→面板→命令会死循环）。测试 `tests/panel-open-wiring.test.ts` 重写 5 条（用户入口全走 entry / 三处新入口锁死 / 命令入口仍直接开 / `openPanelEntry` 必须在 `const kernel` 之后防 TDZ）。**G2 双端**：手机「更多 → 插件 → 密码库」→ 弹「解锁密码库」→ 输密码 → 直接进库；桌面图标栏固定「密码库」→ 点图标 → 弹解锁框 → 解锁后进「密码库」标签。**不做**：「安全」入口不接弹窗（用户要求把它改成被依赖的底层插件，另立需求） |
 | rev173.410 | 2026-11-07 · **面板菜单入口先执行 openCommand**（用户「弹窗在哪」→「修」）：密码库的「打开就先弹解锁框」只在 `secrets.open` 命令里；从标签条 ＋ / 更多菜单点「打开 · 密码库」是宿主直接开面板 ⇒ 看到的是面板内锁定视图，**绕过了弹窗**。① 契约 `registerPanel({ openCommand? })` + `PanelRegistration.openCommand`（内核如实保存透传）；② App 新增 `openPanelEntry`（菜单入口）：面板声明了 openCommand 就执行它、由插件决定进不进面板；`core.panel.<id>` 与标签切换仍直接开（否则命令→打开→命令死循环）；③ `secrets` 注册面板时声明 `openCommand: "secrets.open"`，插件 **0.1.6**（已签名入市，dev/手机已同步）。**测试** `tests/panel-open-command.test.ts` 2 条。**G2 桌面**：＋ 菜单 → 「打开 · 密码库」→ **弹「解锁密码库」**（`_shots/rev410-menu-prompt2.png`）→ 输密码 → **直接进库**（`_shots/rev410-menu-unlocked.png`）。**踩坑**：`openPanelEntry` 一开始写在 `const kernel = ...` 之前 ⇒ `Cannot access 'kernel' before initialization`，整页白屏（已移到 kernel 之后；CDP 抓异常脚本 `_tmp/cdp-errors.mjs`）。 |
 | rev173.409 | 2026-11-07 · **测试库重建（桌面 + 手机）**：旧测试库清空并备份 —— 桌面 `_tmp-vault-rt12` → `_tmp/backup-vault-rt12-2026-11-07/`；手机 `/storage/emulated/0/Documents/ZeroNote` → `_tmp/backup-phone-vault-2026-11-07/zn-backup-2026-11-07.tar`（19.9 MB）。新库：桌面 `_tmp-vault-rt13`、手机删库后由应用自动重建；两个密钥环（私密笔记 / 账号密码）主密码统一 `test-pass-1234`（**只记在本地凭据文件，不入库**）。**已验证**：手机 `secrets.open` → 弹「解锁密码库」→ 输密码 → **直接进密码库**（`_shots/rev409-phone-secrets-unlocked.png`）；手机 `private.open` → 解锁成功（出现指纹提示 toast）；桌面两环已建、密码库弹窗同款已见（`_shots/rev409-secrets-prompt-rt13.png`、`rev409-built-*-ring.png`）。 |
@@ -362,6 +363,29 @@ revision: 173.411
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.412（2026-11-07 · 0.10.1 发版）
+
+> **G3**：用户 2026-11-07「目前双端真人验收没什么问题，提交发版」。连同拍板安全插件三条（环分配 A / 指纹覆盖继承 / 每环独立主密码不变）。
+
+> **产物**
+> | 端 | 文件 | 字节 | 说明 |
+> |---|---|---|---|
+> | 桌面 | `ZeroNote_0.10.1_x64-setup.exe` | 15,911,327（15.17 MiB） | NSIS；另有 MSI 17.11 MiB |
+> | 桌面 | `ZeroNote_0.10.1_x64-setup.exe.sig` | 440 | 更新签名 |
+> | Android | `ZeroNote_0.10.1_arm64.apk` | 34,977,387（33.36 MiB） | 只打 aarch64；Gradle 原名 `app-universal-release.apk`，**发版前复制改名**（不是 121 MB 的 4-ABI universal） |
+> 二进制放 `_build/release-0.10.1/`（`.gitignore` 的 `_build/*`，不入库）。构建 10 分 56 秒（桌面 4:54 / Android 6:02）。
+
+> **清单**：`update/latest.json`（桌面，签名已填）+ `update/android.json`（url 手动指向 `ZeroNote_0.10.1_arm64.apk`，sha256 `3e23351d…`，size 34,977,387 —— 生成脚本默认写 Gradle 原名，必须手改）。
+
+> **发布**
+> - GitHub：https://github.com/aqua7773/zeronote/releases/tag/v0.10.1 —— 三资产 size 与本地一致（gh release view 核对）
+> - Gitee：release `1281675` —— sig 440 / exe 15,911,327 / apk 34,977,387 三份上传成功
+> - main + tag `v0.10.1` 已推 GitHub 与 Gitee（Gitee 的 `v0.10.0` 旧 tag 被拒属正常）
+
+> **证据**：G1 `verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 105 · vitest 1983 · 质量门 9/9，01:48:49）；G2 桌面 dev 入口实测（图标栏固定密码库 → 弹解锁）+ 手机 adb 截图（`_shots/rev411-*` / `_shots/rev412-*`）；G3 用户已确认双端真人验收通过。
+
+> **未做**：手机 release 机（努比亚 `324652868237`）装 0.10.1 的真机验收 —— 明天做；插件市场两条 `security 0.2.4` / `secrets 0.1.4` 在 release 机的更新动作属用户手动。
 
 > ## 📌 rev173.411（2026-11-07 · 插件入口全部接 openCommand）
 
