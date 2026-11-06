@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.398
-更新时间: 2026-11-06 · 最新 rev173.398（**文件树右键改私密笔记标题**：内核加 `NoteSource.rename`）· rev173.397（标签 / 顶栏标题 + 面板改名）
+revision: 173.399
+更新时间: 2026-11-06 · 最新 rev173.399（**修对话框每敲一个字就失焦**：私密笔记右键重命名输入被截断）· rev173.398（文件树右键改私密笔记标题）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.398
 
 | rev | 内容 |
 |---|---|
+| rev173.399 | 2026-11-06 · **修「重命名对话框每敲一个字就失焦」**（用户实测：私密笔记右键重命名，输入会被截断，输入一次就会断一次）：根因在 `ui/dialog.tsx` 的 ESC effect —— 依赖 `[open, onOpenChange]`，而调用方一律传内联箭头（每次渲染新引用）⇒ 受控输入框每变一次（自身重渲染）就重跑一次 cleanup，cleanup 里「把焦点还给打开前的元素」把焦点抢走，后面的字符全打到对话框外。修法：`onOpenChange` 走 ref 取最新值，effect 依赖只留 `[open]`。**同类扫描**：焦点管理只有 `ui/dialog.tsx` 一处（12 个 Dialog 使用方全部受益）；`FileTree` 的内联重命名自己管 input、不走 Dialog，无此问题。**测试**：新增 `tests/dialog-focus.test.tsx` 2 条（逐字输入不失焦、关闭仍还焦点）；旧实现下第 1 条红（stash 实测），新实现绿。**G1**：19:22:10 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest 1936 · 质量门 9/9）。**G2 双端**：桌面 dev（`_tmp-vault-rt12`）私密条目右键 → 逐字输入 7 字符，焦点始终在输入框、值完整累积（`_shots/rev399-rename-dialog-typing.png`）；Redmi `33b676f6` dev 包同样（`_shots/rev399-phone-rename-dialog-typing.png`） |
 | rev173.398 | 2026-11-06 · **文件树右键也能改私密笔记标题**（用户：「文件树栏右键能改吗」→ 选 A = 内核加钩子）：① 契约 `NoteSource.rename?(path, title)`；注册表新增 `rename(path, title): Promise<boolean>`，用新抽出的 `ownerOf(path)` 找归属源（`readText` 也改用它 —— 同一解析收成一份）。② `FileTree` 加 prop `onRenameSource`：源条目右键**直接**弹 `RenameDialog`（不走磁盘菜单；删除 / 新建仍不提供）。③ `App` 用 `RenameDialog` 预填当前标题，确认后 `kernel.notes.rename()`，源不支持就 toast。④ 插件实现 `sourceRename`：更新索引 title + `titleEdited: true` + `saveIndex`（文件名仍是随机 id）；`idOfNotePath` 抽出来与 `sourceReadText` 共用。**测试**：`tests/note-sources.test.ts` +1（rename 只认本源条目 / 没实现 ⇒ false），13 条过。**G2 双端**：桌面右键树里「我的私密标题」→ 对话框预填 → 改为「树右键改名OK」→ 树条目即时更新（`_shots/rev398-tree-rename.png`）；Redmi dev 包同样弹出重命名对话框。插件 `private-notes 0.2.9` |
 | rev173.397 | 2026-11-06 · **私密笔记：标题显示 + 改名**（用户要求「修标题，还有私密笔记无法重命名」）：① **标题**：标签条与标题条原来只取 `basename(path)`，私密笔记是随机 id（`mw3ml6hgpfg2.zn`）⇒ 现在都以 `NoteMeta.title` 优先（`metaByPath` 从 `treeNotes` 建映射，标签条 + `titleText` 共用 —— 同一逻辑收成一份）。② **改名**：面板列表每行新增「改名」→ 行内输入框 + 保存 / 取消；手改的标题在索引里带 `titleEdited: true`，**保存正文时不再被正文首行覆盖**（`onDocSaved` 尊重该标记）。密文文件名仍是随机 id（它只是存放位置，不与标题绑定）—— 所以「改名」= 改显示标题，不碰文件。③ 单测 `tests/private-notes.test.ts` +1（`serializeIndex`/`parseIndex` 往返保留 `titleEdited`）；vitest **1933**。插件 `private-notes 0.2.8`（市场包重打 + 签名）。**G2 双端**：桌面 dev 改名「我的私密标题」→ 面板 / 文件树 / 标签条 / 标题条全部更新，打开后输入正文并等自动保存，标题保持不变（`_shots/rev397-rename-title.png`）；Redmi dev 包标题条显示「私密测试内容」而非随机 id（`_shots/rev394-*` 同名系列） |
 | rev173.396 | 2026-11-06 · **修「私密面板点『打开』就锁定」**（用户实测反馈）：面板列表与搜索结果里的两个「打开」按钮绑的是 `private.open` —— 它在 rev173.376 已从「打开面板」改成**开关**（已解锁 ⇒ 立即锁定）⇒ 点一下就把自己锁上。真正打开笔记的命令是 `private.open-note`（`core.openNote` + codec 解密）。**同类扫描**：全插件 `private.open` 共 5 处 —— 定义 1、插件管理/安全插件（不同命令，保留）、这两处按钮（改）；文件树点条目 / 时间流卡片 / 搜索命中三条入口都走 App `openNote`，不受影响。插件 `private-notes 0.2.7`（市场包已重打 + 重新签名）。**G2 双端**：桌面 dev 解锁后点「打开」⇒ 不锁定、编辑器显示明文「私密测试内容 / 第二行」（`_shots/bug-open-lock-fixed.png`）；Redmi `33b676f6` dev 包同样打开且不锁定（`_shots/bug-open-lock-phone-fixed.png`）。**G1**：tsc 0 · vitest 1932 · 质量门 9/9 |
@@ -336,6 +337,38 @@ revision: 173.398
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.399（2026-11-06 · 修「重命名对话框每敲一个字就失焦」）
+
+> **现象**（用户实测 2026-11-06）：私密笔记在文件树右键重命名，**输入会被截断，输入一次就会断一次**
+> —— 每敲一个字符输入框就失去焦点，后面的字符落到对话框外。
+
+> **根因**（`src/components/ui/dialog.tsx`）：ESC 的 effect 依赖写成了 `[open, onOpenChange]`。
+> 调用方几乎都传内联箭头（`onCancel={() => setX(null)}`）⇒ 每次重渲染都是新引用 ⇒
+> 受控输入框敲一个字（`setValue` ⇒ RenameDialog 重渲染）就让这个 effect 重跑一遍 cleanup，
+> 而 cleanup 里是「把焦点还给打开前的元素」⇒ 每字失焦一次。这是**原语级** bug，不止私密笔记。
+
+> **改法**：`onOpenChange` 存进 ref（`onOpenChangeRef`），keydown 里读最新值；effect 依赖只留 `[open]`
+> ⇒ 只在打开 / 关闭时跑一次，输入过程中不碰焦点。
+
+> **同类扫描**（AGENTS §8.8）：焦点管理只有 `ui/dialog.tsx` 这一份实现，12 个 `Dialog` 使用方
+> （`RenameDialog` / `Settings` / `VaultPanel` / `MarketPane` / `PluginPanel` / App 四个浮层）全部受益；
+> `FileTree` 的内联重命名（新建 / 改名）自己管 input、不走 Dialog，确认无此问题、不需要改。
+
+> **测试**：新增 `tests/dialog-focus.test.tsx` 2 条 —— ① 复刻内联 `onOpenChange` + 受控输入，
+> 连续输入后焦点仍在输入框、值累积；② 关闭时焦点还给打开前的元素（原有行为不退化）。
+> **旧实现下第 1 条红**（`git stash` 实测：焦点跑到 body / × 按钮），新实现 6/6 绿。
+
+> **G1**：`scripts/verify.ps1` 19:22:10 全绿 —— tsc 0 · oxlint 4 warnings · cargo 105 · vitest **1936** · 质量门 9/9。
+
+> **G2 双端**：桌面 dev（`_tmp-vault-rt12`，解锁私密环）—— 右键「右键直接重命名吗」弹 `RenameDialog`，
+> 用原生 setter + input 事件**逐字符**输入「私密重命名A测」，每步断言 `document.activeElement` 都是输入框，
+> 最终值完整（`_shots/rev399-rename-dialog-typing.png`）；Redmi `33b676f6` dev 包（HMR 到最新源码）同样
+> 逐字输入「私密重命名A测」不失焦（`_shots/rev399-phone-rename-dialog-typing.png`）。
+> 两次都用「取消」退出，**未真的改测试库里的标题**。
+
+> **未做**：发版（等用户拍板）；rev173.398 遗留的对话框副标题文案（对源条目改成「改标题」）未动。
+> 复现脚本 `_tmp/rev399-g2-dialog-typing.mjs`（不入库）。
 
 > ## 📌 rev173.398（2026-11-06 · 文件树右键改私密笔记标题）
 

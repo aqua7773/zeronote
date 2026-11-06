@@ -35,6 +35,20 @@ export function Dialog({
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const prevFocus = useRef<HTMLElement | null>(null)
+  /**
+   * ESC 要读**最新**的 `onOpenChange`，但它**不能进下面那个 effect 的依赖**
+   * （rev173.399 · 用户 2026-11-06 反馈：私密笔记右键重命名，输入一个字符就断一次）。
+   *
+   * 症状来源：调用方几乎都传内联箭头函数（如 `onCancel={() => setX(null)}`），
+   * 每次渲染都是新引用 ⇒ 只要对话框里的受控输入框敲一个字（自身重渲染），
+   * 这个 effect 就重跑一遍 cleanup —— 而 cleanup 里有「把焦点还给打开前的元素」，
+   * 于是**每敲一个字输入框就失焦一次**，后面的字符全打到对话框外（看起来就是"输入被截断"）。
+   * 修法：effect 只在 `open` 变化时跑一次，回调走 ref 取最新值。
+   */
+  const onOpenChangeRef = useRef(onOpenChange)
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange
+  }, [onOpenChange])
 
   useEffect(() => {
     if (!open) return
@@ -42,7 +56,7 @@ export function Dialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        onOpenChange(false)
+        onOpenChangeRef.current(false)
       }
     }
     document.addEventListener('keydown', onKey)
@@ -50,7 +64,7 @@ export function Dialog({
       document.removeEventListener('keydown', onKey)
       prevFocus.current?.focus()
     }
-  }, [open, onOpenChange])
+  }, [open])
 
   useEffect(() => {
     if (!open || !panelRef.current) return
