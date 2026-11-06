@@ -99,6 +99,13 @@ export type NoteSource = {
    * 不实现 ⇒ 宿主退回 `fs.readText`。
    */
   readText?(path: string): Promise<string>
+  /**
+   * **可选**：重命名（rev173.398 · 文件树右键改名）。`title` 是用户输入的**显示标题**，
+   * 不是文件名 —— 源的条目路径由它自己决定。
+   *
+   * 不实现 ⇒ 宿主对该源条目不提供「重命名」入口（插件自己负责改名 UI）。
+   */
+  rename?(path: string, title: string): Promise<void>
 }
 
 /**

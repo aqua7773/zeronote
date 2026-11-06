@@ -65,6 +65,7 @@ import { AppSidebar } from './components/AppSidebar'
 import { AppRail, type RailView } from './components/AppRail'
 import { MobileMoreDrawer, type MoreEntry } from './components/MobileMoreDrawer'
 import { FileTree } from './components/FileTree'
+import { RenameDialog } from './components/RenameDialog'
 import { SmartSectionBar, SmartSectionList } from './components/SmartSections'
 import { AppTrashView } from './components/AppTrashView'
 import { AppEmptyState } from './components/AppEmptyState'
@@ -1547,6 +1548,19 @@ export default function App() {
       return kernel.notes.readText(p).then((t) => (t ?? kernel.fs.readText(p)))
     },
     [kernel],
+  )
+
+  /**
+   * 源条目改名（rev173.398 · 文件树右键）：批量的磁盘重命名不适用，改的是**显示标题**，
+   * 由插件自己落进索引。对话框复用 `RenameDialog`（预填当前标题）。
+   */
+  const [sourceRename, setSourceRename] = useState<{ path: string; title: string } | null>(null)
+  const renameSourceEntry = useCallback(
+    (path: string) => {
+      const meta = treeNotes.find((n) => n.path === path)
+      setSourceRename({ path, title: meta?.title ?? '' })
+    },
+    [treeNotes],
   )
 
   /**
@@ -5628,6 +5642,7 @@ export default function App() {
               onNewFile={newNoteIn}
               onNewDir={newDirIn}
               onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
+              onRenameSource={renameSourceEntry}
               onDeleteMany={(paths) => void deleteNotes(paths)}
               onPurgeMany={(paths) => void purgeNotes(paths)}
               onCut={cutPaths}
@@ -5646,6 +5661,22 @@ export default function App() {
               onReveal={(p) => void revealEntry(p)}
             />
               )}
+            {sourceRename && (
+              <RenameDialog
+                open
+                initial={sourceRename.title}
+                onCancel={() => setSourceRename(null)}
+                onConfirm={(next) => {
+                  const title = next.trim()
+                  const target = sourceRename
+                  setSourceRename(null)
+                  if (!title || !target || !kernel) return
+                  void kernel.notes.rename(target.path, title).then((ok) => {
+                    if (!ok) setToast('这篇笔记不支持改名')
+                  })
+                }}
+              />
+            )}
             </>
           ) : sidebarView === 'search' ? (
             /* 侧栏搜索视图（B1 · 方案 §3.3「搜索改为侧栏视图」）：与浮层共用同一个组件 */

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "private-notes",
   "name": "私密文件夹",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],

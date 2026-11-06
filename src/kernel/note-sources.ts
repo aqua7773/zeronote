@@ -51,6 +51,11 @@ export type NoteSources = {
    * ⇒ 走源（解密后的明文）；否则返回 `null`，由宿主退回 `fs.readText`。
    */
   readText(path: string): Promise<string | null>
+  /**
+   * 重命名源条目（rev173.398 · 文件树右键改名）。`path` 属于某个源且它实现了 `rename`
+   * ⇒ 调它并返回 `true`；否则 `false`（宿主要么不提供入口，要么提示不支持）。
+   */
+  rename(path: string, title: string): Promise<boolean>
   /** 已注册的源（诊断 / 单测） */
   sources(): Array<{ pluginId: string; id: string; group: NoteSourceGroup }>
 }
@@ -80,8 +85,27 @@ export function createNoteSources(
     }
   }
 
-  const drop = (entry: Entry) => {
-    if (entry.disposed) return
+  /**
+   * 找到「认领这个路径」的源（rev173.398）：`readText` / `rename` 共用 ——
+   * 源之间不互相知道对方的条目，只有它自己的 `list()` 里有这个 path 才算它的。
+   * 源抛错或返回非数组时跳过它（与 `snapshot` 同一口径）。
+   */
+  const ownerOf = (path: string): Entry | null => {
+    for (const entry of entries) {
+      if (entry.disposed) continue
+      let items: NoteMeta[]
+      try {
+        items = entry.src.list() ?? []
+      } catch {
+        continue
+      }
+      if (!Array.isArray(items)) continue
+      if (items.some((n) => n && n.path === path)) return entry
+    }
+    return null
+  }
+
+  const drop = (entry: Entry) => {    if (entry.disposed) return
     entry.disposed = true
     const i = entries.indexOf(entry)
     if (i >= 0) entries.splice(i, 1)
@@ -179,23 +203,18 @@ export function createNoteSources(
     },
 
     async readText(path) {
-      for (const entry of entries) {
-        if (entry.disposed) continue
-        const fn = entry.src.readText
-        if (typeof fn !== 'function') continue
-        let items: NoteMeta[]
-        try {
-          items = entry.src.list() ?? []
-        } catch {
-          // 源坏了就跳过它（与 snapshot 同一口径）
-          continue
-        }
-        if (!Array.isArray(items)) continue
-        // 只读**属于这个源**的路径：源之间不互相知道对方的条目
-        if (!items.some((n) => n && n.path === path)) continue
-        return await fn.call(entry.src, path)
-      }
-      return null
+      const owner = ownerOf(path)
+      const fn = owner?.src.readText
+      if (!owner || typeof fn !== 'function') return null
+      return await fn.call(owner.src, path)
+    },
+
+    async rename(path, title) {
+      const owner = ownerOf(path)
+      const fn = owner?.src.rename
+      if (!owner || typeof fn !== 'function') return false
+      await fn.call(owner.src, path, title)
+      return true
     },
 
     sources() {

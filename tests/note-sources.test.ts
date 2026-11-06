@@ -205,3 +205,26 @@ describe('NoteSources.readText', () => {
     await expect(reg.readText('.zn/bad.zn')).rejects.toThrow('解密失败')
   })
 })
+
+/**
+ * 源条目改名（rev173.398 · 文件树右键）：只对**实现了 rename** 的源且只对**它自己的条目**生效；
+ * 其余路径返回 false（宿主据此提示不支持）。
+ */
+describe('NoteSources.rename', () => {
+  it('源条目走源的 rename；非本源路径 / 源没实现 ⇒ false', async () => {
+    const reg = createNoteSources(() => {})
+    const calls: string[] = []
+    reg.register('p2', {
+      ...makeSource('private', [meta('.zn/p/x.zn')]),
+      rename: async (p: string, title: string) => {
+        calls.push(`${p}|${title}`)
+      },
+    })
+    await expect(reg.rename('.zn/p/x.zn', '新标题')).resolves.toBe(true)
+    expect(calls).toEqual(['.zn/p/x.zn|新标题'])
+    await expect(reg.rename('普通.md', 'x')).resolves.toBe(false)
+
+    reg.register('p1', makeSource('plain', [meta('a.md')]))
+    await expect(reg.rename('a.md', 'x')).resolves.toBe(false)
+  })
+})

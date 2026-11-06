@@ -307,6 +307,7 @@ function Node({
   onToggleOpen,
   onPick,
   onContextMenu,
+  onRenameSource,
   selectMode,
   renaming,
   draft,
@@ -332,6 +333,8 @@ function Node({
   /** 点一行：普通=单选并打开，Ctrl/⌘=切换该项，Shift=从锚点到该项的范围 */
   onPick: (path: string, isDir: boolean, mods: { toggle: boolean; range: boolean }) => void
   onContextMenu: (path: string, isDir: boolean, x: number, y: number) => void
+  /** 源条目改名（rev173.398）：右键条目就直接弹输入框，不走磁盘菜单 */
+  onRenameSource?: (path: string) => void
   /** 多选态：行首画勾选框，点行 = 勾选 / 取消（不打开、不折叠） */
   selectMode: boolean
   renaming: Renaming | null
@@ -469,6 +472,7 @@ function Node({
                 dragging={dragging}
                 onPick={onPick}
                 onContextMenu={onContextMenu}
+                onRenameSource={onRenameSource}
                 selectMode={selectMode}
                 renaming={renaming}
                 draft={draft}
@@ -562,8 +566,12 @@ function Node({
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        // 额外笔记源条目：文件名是随机 id、重命名 / 删除都由插件管 ⇒ 不给磁盘操作菜单
-        if (node.group) return
+        // 额外笔记源条目（rev173.398）：磁盘操作仍归插件，但「改名」交给宿主弹输入框 ——
+        // 源实现了 `rename` 才有这个入口（`onRenameSource` 由宿主按能力传入）
+        if (node.group) {
+          if (onRenameSource) onRenameSource(node.path)
+          return
+        }
         // 手机长按（Android 把长按转成 contextmenu）与电脑右键**同一个菜单**（2026-10-18 用户要求）。
         // rev173.321：手机改成**松手才弹**（长按那一刻弹会把正在进行的拖拽遮住）。
         if (TOUCH_UI) return
@@ -606,6 +614,7 @@ export function FileTree({
   onPaste,
   onDuplicate,
   onRename,
+  onRenameSource,
   onDeleteMany,
   onPurgeMany,
   layers,
@@ -634,6 +643,11 @@ export function FileTree({
   onNewDir: (dir: string) => Promise<string | null>
   /** 重命名 / 移动；`isDir` 决定底层走 `move`（能搬目录树）还是 `rename` */
   onRename: (from: string, to: string, isDir: boolean) => void
+  /**
+   * 源条目（私密笔记）改名（rev173.398）：右键条目 → 宿主弹输入框 → 交回新标题。
+   * 不传 ⇒ 源条目右键仍然没有菜单（只有插件自己负责改名 UI）。
+   */
+  onRenameSource?: (path: string) => void
   /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
   onDeleteMany: (paths: string[]) => void
   /**
@@ -1845,6 +1859,7 @@ export function FileTree({
           dragging={draggingPath}
           onPick={pick}
           selectMode={selectMode}
+          onRenameSource={onRenameSource}
           onContextMenu={(path, isDir, x, y) =>
             setMenu({
               path,

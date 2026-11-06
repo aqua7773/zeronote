@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.397
-更新时间: 2026-11-06 · 最新 rev173.397（**私密笔记：标签条 / 标题条显示标题 + 面板内改名**）· rev173.396（修「点打开就锁定」）· rev173.395（时间流卡片）
+revision: 173.398
+更新时间: 2026-11-06 · 最新 rev173.398（**文件树右键改私密笔记标题**：内核加 `NoteSource.rename`）· rev173.397（标签 / 顶栏标题 + 面板改名）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.397
 
 | rev | 内容 |
 |---|---|
+| rev173.398 | 2026-11-06 · **文件树右键也能改私密笔记标题**（用户：「文件树栏右键能改吗」→ 选 A = 内核加钩子）：① 契约 `NoteSource.rename?(path, title)`；注册表新增 `rename(path, title): Promise<boolean>`，用新抽出的 `ownerOf(path)` 找归属源（`readText` 也改用它 —— 同一解析收成一份）。② `FileTree` 加 prop `onRenameSource`：源条目右键**直接**弹 `RenameDialog`（不走磁盘菜单；删除 / 新建仍不提供）。③ `App` 用 `RenameDialog` 预填当前标题，确认后 `kernel.notes.rename()`，源不支持就 toast。④ 插件实现 `sourceRename`：更新索引 title + `titleEdited: true` + `saveIndex`（文件名仍是随机 id）；`idOfNotePath` 抽出来与 `sourceReadText` 共用。**测试**：`tests/note-sources.test.ts` +1（rename 只认本源条目 / 没实现 ⇒ false），13 条过。**G2 双端**：桌面右键树里「我的私密标题」→ 对话框预填 → 改为「树右键改名OK」→ 树条目即时更新（`_shots/rev398-tree-rename.png`）；Redmi dev 包同样弹出重命名对话框。插件 `private-notes 0.2.9` |
 | rev173.397 | 2026-11-06 · **私密笔记：标题显示 + 改名**（用户要求「修标题，还有私密笔记无法重命名」）：① **标题**：标签条与标题条原来只取 `basename(path)`，私密笔记是随机 id（`mw3ml6hgpfg2.zn`）⇒ 现在都以 `NoteMeta.title` 优先（`metaByPath` 从 `treeNotes` 建映射，标签条 + `titleText` 共用 —— 同一逻辑收成一份）。② **改名**：面板列表每行新增「改名」→ 行内输入框 + 保存 / 取消；手改的标题在索引里带 `titleEdited: true`，**保存正文时不再被正文首行覆盖**（`onDocSaved` 尊重该标记）。密文文件名仍是随机 id（它只是存放位置，不与标题绑定）—— 所以「改名」= 改显示标题，不碰文件。③ 单测 `tests/private-notes.test.ts` +1（`serializeIndex`/`parseIndex` 往返保留 `titleEdited`）；vitest **1933**。插件 `private-notes 0.2.8`（市场包重打 + 签名）。**G2 双端**：桌面 dev 改名「我的私密标题」→ 面板 / 文件树 / 标签条 / 标题条全部更新，打开后输入正文并等自动保存，标题保持不变（`_shots/rev397-rename-title.png`）；Redmi dev 包标题条显示「私密测试内容」而非随机 id（`_shots/rev394-*` 同名系列） |
 | rev173.396 | 2026-11-06 · **修「私密面板点『打开』就锁定」**（用户实测反馈）：面板列表与搜索结果里的两个「打开」按钮绑的是 `private.open` —— 它在 rev173.376 已从「打开面板」改成**开关**（已解锁 ⇒ 立即锁定）⇒ 点一下就把自己锁上。真正打开笔记的命令是 `private.open-note`（`core.openNote` + codec 解密）。**同类扫描**：全插件 `private.open` 共 5 处 —— 定义 1、插件管理/安全插件（不同命令，保留）、这两处按钮（改）；文件树点条目 / 时间流卡片 / 搜索命中三条入口都走 App `openNote`，不受影响。插件 `private-notes 0.2.7`（市场包已重打 + 重新签名）。**G2 双端**：桌面 dev 解锁后点「打开」⇒ 不锁定、编辑器显示明文「私密测试内容 / 第二行」（`_shots/bug-open-lock-fixed.png`）；Redmi `33b676f6` dev 包同样打开且不锁定（`_shots/bug-open-lock-phone-fixed.png`）。**G1**：tsc 0 · vitest 1932 · 质量门 9/9 |
 | rev173.395 | 2026-11-06 · **私密笔记第二批 · 时间流卡片**（施工图 §8）：解锁后私密笔记出现在时间流 / 手机卡片流，摘要显示**解密后的正文**，关闭 / 锁定时卡片随之消失。① `NoteSource` 加可选 `readText?(path)`；`NoteSources.readText(path)` 只对**属于该源**的路径生效（否则 `null` ⇒ 宿主退回 `fs.readText`）。② `App.readTextFor`：源条目走源解密、其余走内核 fs；桌面侧栏时间流与手机卡片流都改喂 `treeNotes` + `readTextFor`。③ `MobileNoteCards`：源条目的磁盘操作（重命名 / 详细 / 在文件夹中打开 / 删除 / 彻底删除）**一律不出**，只留「打开」与插件贡献的动作 —— 与文件树虚拟分组同一口径。④ 插件 `sourceReadText`：复用 `plainCache`（锁定即清空，不落盘）。**测试**：`tests/note-sources.test.ts` +2（`readText` 只认本源条目 / 源抛错上抛）；vitest **1932**。**G2 双端**：桌面 dev 时间流出现「2026-11-05 22:13:55 私密测试内容 第二行」，锁定后消失（`_shots/rev394-timeline-private.png`）；Redmi dev 包卡片流同样显示该卡与解密摘要、无密文乱码（`_shots/rev394-phone-timeline-private.png`）。**未做**：拖入移出（拖拽落点）/ 删旧面板与列表视图 |
@@ -335,6 +336,30 @@ revision: 173.397
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.398（2026-11-06 · 文件树右键改私密笔记标题）
+
+> **需求**（用户问「文件树栏右键能改吗」）：私密笔记在文件树里右键没有改名入口（rev173.376
+> 有意禁掉源条目的磁盘菜单）。方案 A：内核加一个可选钩子，让源自己处理「改显示标题」。
+
+> **改法**：
+> - `contract.ts`：`NoteSource.rename?(path, title)`（可选；不实现 ⇒ 宿主不给入口）。
+> - `note-sources.ts`：`rename(path, title): Promise<boolean>`；新增内部 `ownerOf(path)`
+>   找归属源，`readText` 也改用它 —— 原来两处各自遍历 entries，现在一份解析。
+> - `FileTree.tsx`：新 prop `onRenameSource`；源条目右键**直接弹** `RenameDialog`
+>   （不弹磁盘菜单；删除 / 新建仍然不提供）。
+> - `App.tsx`：`renameSourceEntry` + `RenameDialog`（预填当前标题）；确认后
+>   `kernel.notes.rename()`；返回 false 时 toast「不支持改名」。
+> - 插件：`sourceRename` 更新索引 `title` + `titleEdited: true` 后 `saveIndex`；
+>   文件名保持随机 id。`idOfNotePath(path)` 抽出，与 `sourceReadText` 共用。
+
+> **测试**：`tests/note-sources.test.ts` +1（只对实现了 rename 的源且只对它自己的条目生效）。
+> **G2 双端**：桌面右键树里条目 → 对话框预填 → 改名后树条目即时更新
+> （`_shots/rev398-tree-rename.png`）；Redmi `33b676f6` dev 包（插件 0.2.9）同样弹出重命名对话框。
+
+> **已知小瑕疵**：对话框副标题沿用「只改文件名 —— 扩展名不用自己补」，对源条目其实是改标题；
+> 文案可后续按 `initial` 是否含扩展名区分。
+> **未做**：时间流卡片菜单里的改名入口（卡片当前只保留「打开」与插件动作）。
 
 > ## 📌 rev173.397（2026-11-06 · 私密笔记：标签条 / 标题条显示标题 + 面板内改名）
 
