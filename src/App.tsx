@@ -1528,13 +1528,25 @@ export default function App() {
   }, [kernel])
 
   /**
-   * 文件树实际渲染的条目 = 公开笔记 + 额外源条目。
-   * 只有树走这一份；`notes` 本身（搜索索引 / 时间流 / 桌面组件快照）保持"公开笔记"语义，
-   * 私密条目进搜索与时间流按方案进第二批。
+   * 文件树 / 时间流实际渲染的条目 = 公开笔记 + 额外源条目（rev173.394 第二批把时间流也接上）。
+   * `notes` 本身（搜索索引 / 桌面组件快照）保持"公开笔记"语义 —— 私密搜索由源自己做，不进索引。
    */
   const treeNotes: NoteMeta[] = useMemo(
     () => (sourceNotes.length ? [...notes, ...sourceNotes] : notes),
     [notes, sourceNotes],
+  )
+
+  /**
+   * 时间流 / 卡片流的正文读取（rev173.394 第二批）：源条目走源自己的解密
+   * （`NoteSource.readText`），其余照旧走内核 `fs.readText`。
+   * 不这么分，加密条目的摘要会读成乱码或空。
+   */
+  const readTextFor = useCallback(
+    (p: string): Promise<string> => {
+      if (!kernel) return Promise.reject(new Error('内核未就绪'))
+      return kernel.notes.readText(p).then((t) => (t ?? kernel.fs.readText(p)))
+    },
+    [kernel],
   )
 
   /**
@@ -5640,9 +5652,9 @@ export default function App() {
               <MobileNoteCards
                 variant="panel"
                 layers={layerExitsRef}
-                notes={notes}
+                notes={treeNotes}
                 onOpen={(p) => {
-                  const meta = notes.find((n) => n.path === p)
+                  const meta = treeNotes.find((n) => n.path === p)
                   if (meta?.kind === 'doc') runCore('core.openDocument', { path: p })
                   else if (meta?.kind === 'image') openImagePreview(p)
                   else if (meta?.kind === 'media')
@@ -5657,9 +5669,7 @@ export default function App() {
                   }
                 }}
                 onNewNote={() => void runCore('core.newNote')}
-                readText={(p) =>
-                  kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪'))
-                }
+                readText={readTextFor}
                 onDelete={(p) => void deleteNotes([p])}
                 onPurge={(p) => void purgeNotes([p])}
                 onRename={(from, to) => void renameNote(from, to, false)}
@@ -6003,12 +6013,12 @@ export default function App() {
           ) : (
             /* 移动端起始页 = flomo 风卡片流（2026-10-18 用户给截图要求） */
             <MobileNoteCards
-              notes={notes}
+              notes={treeNotes}
               layers={layerExitsRef}
               onOpen={(p) => void openNote(p)}
               onNewNote={() => void runCore('core.newNote')}
               onQuickLaunch={() => setQuickOpen(true)}
-              readText={(p) => (kernel ? kernel.fs.readText(p) : Promise.reject(new Error('内核未就绪')))}
+              readText={readTextFor}
               onDelete={(p) => void deleteNotes([p])}
               onPurge={(p) => void purgeNotes([p])}
               onRename={(from, to) => void renameNote(from, to, false)}

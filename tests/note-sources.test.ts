@@ -175,3 +175,33 @@ describe('NoteSources.searchables', () => {
     expect(reg.searchables()).toHaveLength(0)
   })
 })
+
+/**
+ * 源条目正文（rev173.394 第二批）：只对**注册它的源**生效；其它路径返回 null，
+ * 宿主据此退回 `fs.readText`（时间流卡片摘要）。
+ */
+describe('NoteSources.readText', () => {
+  it('源条目走源的 readText，其它路径返回 null', async () => {
+    const reg = createNoteSources(() => {})
+    reg.register('p2', {
+      ...makeSource('private', [meta('.zn/p/x.zn')]),
+      readText: async (p: string) => `明文:${p}`,
+    })
+    await expect(reg.readText('.zn/p/x.zn')).resolves.toBe('明文:.zn/p/x.zn')
+    await expect(reg.readText('普通.md')).resolves.toBeNull()
+  })
+
+  it('源没实现 readText ⇒ null；源抛错时上抛（调用方自己兜底）', async () => {
+    const reg = createNoteSources(() => {})
+    reg.register('p1', makeSource('plain', [meta('a.md')]))
+    await expect(reg.readText('a.md')).resolves.toBeNull()
+
+    reg.register('p2', {
+      ...makeSource('bad', [meta('.zn/bad.zn')]),
+      readText: async () => {
+        throw new Error('解密失败')
+      },
+    })
+    await expect(reg.readText('.zn/bad.zn')).rejects.toThrow('解密失败')
+  })
+})

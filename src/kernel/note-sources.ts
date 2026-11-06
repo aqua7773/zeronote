@@ -46,6 +46,11 @@ export type NoteSources = {
    * App 把它转给 `SearchPanel`，面板据此把私密命中和公开结果分开显示。
    */
   searchables(): NoteSourceSearch[]
+  /**
+   * 源条目正文（rev173.394 · 第二批）：`path` 属于某个源的条目且该源实现了 `readText`
+   * ⇒ 走源（解密后的明文）；否则返回 `null`，由宿主退回 `fs.readText`。
+   */
+  readText(path: string): Promise<string | null>
   /** 已注册的源（诊断 / 单测） */
   sources(): Array<{ pluginId: string; id: string; group: NoteSourceGroup }>
 }
@@ -171,6 +176,26 @@ export function createNoteSources(
         })
       }
       return out
+    },
+
+    async readText(path) {
+      for (const entry of entries) {
+        if (entry.disposed) continue
+        const fn = entry.src.readText
+        if (typeof fn !== 'function') continue
+        let items: NoteMeta[]
+        try {
+          items = entry.src.list() ?? []
+        } catch {
+          // 源坏了就跳过它（与 snapshot 同一口径）
+          continue
+        }
+        if (!Array.isArray(items)) continue
+        // 只读**属于这个源**的路径：源之间不互相知道对方的条目
+        if (!items.some((n) => n && n.path === path)) continue
+        return await fn.call(entry.src, path)
+      }
+      return null
     },
 
     sources() {

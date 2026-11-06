@@ -91,6 +91,14 @@ export type NoteSource = {
    * - `opts.regex` 为真时宿主**不调用**本方法（过滤语义由内核索引独占）。
    */
   search?(q: string, opts?: { limit?: number }): Promise<SearchHit[]>
+  /**
+   * **可选**：返回**解密后的正文**（rev173.394 · 私密笔记第二批 · 时间流卡片摘要用）。
+   *
+   * 时间流 / 卡片流默认用内核 `fs.readText` 读正文拼摘要；对加密条目那会读到密文
+   * （乱码或空）。源实现了本方法 ⇒ 宿主在摘要、预览这类「只要能读文本」的场景优先走它。
+   * 不实现 ⇒ 宿主退回 `fs.readText`。
+   */
+  readText?(path: string): Promise<string>
 }
 
 /**

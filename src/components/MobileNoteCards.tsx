@@ -319,6 +319,11 @@ export function MobileNoteCards({
     ? (() => {
         const list: MenuItem[] = [{ label: '打开', onClick: () => onOpen(menu.path) }]
         /**
+         * 额外笔记源（私密笔记）的条目（rev173.394 第二批）：磁盘操作全部归插件管，
+         * 卡片菜单只留「打开」与插件自己贡献的动作 —— 与文件树的虚拟分组条目同一口径。
+         */
+        const isSource = Boolean(notes.find((n) => n.path === menu.path)?.group)
+        /**
          * ── 插件贡献的**条目菜单动作**（rev173.281 · J#18）──
          * 位置：紧挨「打开」（都是对这篇笔记的入口），与下面的管理动作用分隔线隔开。
          * 卡片流只列 `kind === 'note'` 的条目，所以这里恒为 `note`。
@@ -352,42 +357,46 @@ export function MobileNoteCards({
             )
           }
         }
-        list.push({ label: '重命名…', divider: true, onClick: () => startRename(menu.path) })
-        /* 2026-11-03 P3：补齐与文件树同一套能力（真人测试6 #4 要的「详细」+「在文件夹中打开」）。
-           注意先抄下 menu 再关菜单 —— setMenu(null) 之后闭包里的 menu 仍是旧值，但要防竞态。 */
-        if (onShowInfo) {
+        /* 磁盘操作（重命名 / 详细 / 在文件夹中打开 / 删除）只对公开笔记开放：
+           源条目的增删改由插件负责，宿主直接动磁盘会绕过加密逻辑。 */
+        if (!isSource) {
+          list.push({ label: '重命名…', divider: true, onClick: () => startRename(menu.path) })
+          /* 2026-11-03 P3：补齐与文件树同一套能力（真人测试6 #4 要的「详细」+「在文件夹中打开」）。
+             注意先抄下 menu 再关菜单 —— setMenu(null) 之后闭包里的 menu 仍是旧值，但要防竞态。 */
+          if (onShowInfo) {
+            list.push({
+              label: '详细…',
+              onClick: () => {
+                const at = menu
+                setMenu(null)
+                if (at) onShowInfo(at.path, false)
+              },
+            })
+          }
+          if (onReveal) {
+            list.push({
+              label: '在文件夹中打开',
+              onClick: () => {
+                const at = menu
+                setMenu(null)
+                if (at) onReveal(at.path)
+              },
+            })
+          }
           list.push({
-            label: '详细…',
+            label: '删除（回收站）',
+            danger: true,
+            divider: true,
+            onClick: () => onDelete(menu.path),
+          })
+          list.push({
+            label: '彻底删除…',
+            danger: true,
             onClick: () => {
-              const at = menu
-              setMenu(null)
-              if (at) onShowInfo(at.path, false)
+              if (window.confirm('彻底删除？不进回收站，永久抹掉 —— 撤不回来。')) onPurge(menu.path)
             },
           })
         }
-        if (onReveal) {
-          list.push({
-            label: '在文件夹中打开',
-            onClick: () => {
-              const at = menu
-              setMenu(null)
-              if (at) onReveal(at.path)
-            },
-          })
-        }
-        list.push({
-          label: '删除（回收站）',
-          danger: true,
-          divider: true,
-          onClick: () => onDelete(menu.path),
-        })
-        list.push({
-          label: '彻底删除…',
-          danger: true,
-          onClick: () => {
-            if (window.confirm('彻底删除？不进回收站，永久抹掉 —— 撤不回来。')) onPurge(menu.path)
-          },
-        })
         // 桌面时间流：卡片菜单也能关掉这一栏（rev173.48 · 用户要求「时间流右键菜单加关闭时间流」）
         if (onCloseTimeline) {
           list.push({

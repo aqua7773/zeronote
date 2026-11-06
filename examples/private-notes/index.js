@@ -443,8 +443,25 @@ async function sourceSearch(api, q, opts) {
     }))
 }
 
-/* ───────────────────────── 锁定 ───────────────────────── */
-/** 关掉当前正在编辑的私密文档（有未保存内容时先落盘 —— 锁前不能丢改动） */
+/**
+ * 源条目正文（rev173.394 第二批）—— 时间流卡片的摘要走这里，否则宿主读密文只会得到乱码。
+ * 明文复用搜索用的 `plainCache`（锁定即清空，不落盘任何索引）。
+ */
+async function sourceReadText(api, path) {
+  if (!index) throw new Error('私密笔记已锁定')
+  const prefix = `${NOTES_DIR}/`
+  const p = String(path ?? '')
+  const name = p.startsWith(prefix) ? p.slice(prefix.length) : ''
+  const id = name.endsWith('.zn') ? name.slice(0, -3) : ''
+  if (!id) throw new Error('不是私密笔记的路径')
+  const cached = plainCache.get(id)
+  if (cached !== undefined) return cached
+  const text = await readPlain(api, id)
+  plainCache.set(id, text)
+  return text
+}
+
+/* ───────────────────────── 锁定 ───────────────────────── *//** 关掉当前正在编辑的私密文档（有未保存内容时先落盘 —— 锁前不能丢改动） */
 async function closePrivateDoc(api) {
   const d = api.doc.active?.()
   if (!d || !d.path?.startsWith(`${NOTES_DIR}/`)) return
@@ -1171,6 +1188,8 @@ export default {
           list: sourceNotes,
           // 第二批：源自己搜（明文不进内核索引，见 sourceSearch 注释）
           search: (q, opts) => sourceSearch(api, q, opts),
+          // 第二批：时间流摘要要解密后的正文（见 sourceReadText 注释）
+          readText: (path) => sourceReadText(api, path),
           onSourceChange(cb) {
             sourceListeners.add(cb)
             return {
