@@ -140,3 +140,38 @@ describe('createNoteSources', () => {
     expect(warn).toHaveBeenCalled()
   })
 })
+
+/**
+ * 源的搜索入口（rev173.394 · 第二批）：只把**实现了 search 的源**交给面板 ——
+ * 没实现 search 的源不该出现在搜索里（但它照样进文件树 / 时间流）。
+ */
+describe('NoteSources.searchables', () => {
+  it('只收实现了 search 的源，并保留分组信息', async () => {
+    const reg = createNoteSources(() => {})
+    reg.register('p1', {
+      ...makeSource('plain', [meta('a.md')]),
+    })
+    reg.register('p2', {
+      ...makeSource('private', [meta('.zn/p/x.zn')]),
+      search: async (q: string) => [{ path: '.zn/p/x.zn', title: 'X', excerpt: q, score: 0 }],
+    })
+
+    const list = reg.searchables()
+    expect(list.map((s) => s.id)).toEqual(['private'])
+    expect(list[0].group.label).toBe('组 private')
+    expect(list[0].group.icon).toBe('🔒')
+    const hits = await list[0].search('关键词', { limit: 5 })
+    expect(hits[0].path).toBe('.zn/p/x.zn')
+  })
+
+  it('注销后不再出现在 searchables 里', () => {
+    const reg = createNoteSources(() => {})
+    const d = reg.register('p1', {
+      ...makeSource('private', []),
+      search: async () => [],
+    })
+    expect(reg.searchables()).toHaveLength(1)
+    d.dispose()
+    expect(reg.searchables()).toHaveLength(0)
+  })
+})

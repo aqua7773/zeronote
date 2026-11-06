@@ -78,6 +78,30 @@ export type NoteSource = {
   list(): NoteMeta[]
   /** 源自己通知「我变了」（解锁 / 锁定 / 条目增删改）。返回 Disposable */
   onSourceChange(cb: () => void): Disposable
+  /**
+   * **可选**：源自己做搜索（rev173.394 · 私密笔记第二批）。
+   *
+   * 为什么不把源条目灌进内核 `index`：默认分区是**所有插件都能 `query`** 的共享空间，
+   * 私密明文一旦进索引就等于「任何插件 + AI 都能搜到」（违背需求 §3.3「私密内容不过 AI」）。
+   * 所以明文只留在源自己手里，宿主只负责把结果与公开结果并排显示（SearchPanel 的
+   * `sources` props）。
+   *
+   * - 不实现 ⇒ 该源不参与搜索（文件树 / 时间流不受影响）。
+   * - 解锁中（锁定）返回空数组即可，面板不会显示空分组。
+   * - `opts.regex` 为真时宿主**不调用**本方法（过滤语义由内核索引独占）。
+   */
+  search?(q: string, opts?: { limit?: number }): Promise<SearchHit[]>
+}
+
+/**
+ * 宿主侧拿到的「可搜索源」（rev173.394）—— 由 `NoteSources.searchables()` 给出，
+ * App 直接转给 `SearchPanel`，面板不碰注册表。
+ */
+export type NoteSourceSearch = {
+  /** 源 id（同一插件注册多个源时用来区分分组） */
+  id: string
+  group: NoteSourceGroup
+  search: (q: string, opts?: { limit?: number }) => Promise<SearchHit[]>
 }
 
 /** 注册表补全过分组字段之后的条目（宿主侧拿到的就是这种） */

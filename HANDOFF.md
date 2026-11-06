@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.393
-更新时间: 2026-11-06 · 最新 rev173.393（**密钥环面板自动刷新**：同步 / 外部写入后 security、secrets 面板不再停在旧状态）· rev173.392（质量门第 9 项：市场包 ↔ 源码逐字节一致）
+revision: 173.394
+更新时间: 2026-11-06 · 最新 rev173.394（**私密笔记第二批 · 搜索**：源自己搜，命中单独成组排在公开结果之后）· rev173.393（密钥环面板自动刷新）· rev173.392（质量门第 9 项：市场包 ↔ 源码逐字节一致）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.393
 
 | rev | 内容 |
 |---|---|
+| rev173.394 | 2026-11-06 · **私密笔记第二批 · 搜索**（施工图 `docs/私密笔记-改造方案-2026-11-05.md` §8）：解锁后私密笔记可被**全局搜索**命中，结果单独成组排在公开结果之后。① **契约**（`contract.ts`）：`NoteSource` 加**可选** `search?(q, opts?)`，新增宿主侧类型 `NoteSourceSearch`。② **关键取舍——私密明文不进内核索引**：`index` 默认分区是**所有插件都能 `query`** 的共享空间，私密明文一旦 upsert 进去就等于对全插件 / AI 开放（违背需求 §3.3）；而且 `rebuild()` 会清空索引，需要重灌。所以搜索由源自己实现（插件内存里的 `plainCache`，锁定即清空）。③ **注册表**（`note-sources.ts`）：新增 `searchables()`，只交出实现了 `search` 的源。④ **App**：新增 `sourceSearches` state，与 `sourceNotes` 在同一处订阅里刷新（解锁 / 锁定都会改可搜索性）；三处 `SearchPanel`（桌面侧栏 / 手机全屏 / 笔记独立窗口）传 `sources`。⑤ **SearchPanel**：`sources` props；公开结果与各源命中拍平成一条「行」列表（光标 / Enter 跨组移动）；分组标题「🔒 私密笔记」只在该组有命中时出现，**不混排打分**（用户拍板）；源抛错只少一组、不显示「索引出错」；`sources` 默认值用模块级常量（写 `= []` 会每帧新数组 ⇒ 查询 effect 死循环）。⑥ **private-notes 插件**：源注册加 `search`，复用既有 `fillPlainCache` + `searchNotes`，命中映射成真实路径 `.zn/private/notes/<id>.zn`（打开仍走 `core.openNote` + codec 解密）。**测试**：`tests/note-sources.test.ts` +2（searchables 只收有 search 的源 / 注销后消失）、新增 `tests/search-source-group.test.tsx` 3 条（分组顺序 / 空组不显示标题 / 源抛错只少一组），相关 19 条全过；契约文档 §1.2b 同步。**未做（第二批剩余）**：时间流卡片、拖入移出（拖拽落点）、删旧面板与列表视图、市场重打包 |
 | rev173.393 | 2026-11-06 · **密钥环面板自动刷新（同步 / 外部写入后不再停在旧状态）**：`security` / `secrets` 的 vault 原先只在插件 `apply()` 读一次 ⇒ 同步把 `.zn/security/vault.*.json` 拉下来后，面板仍显示「还没建立密钥环」（03 分册 §5 那条已知未修）。① `security`：新增 `vaultSignature()` / `vaultNeedsReload()`（**导出纯函数**）+ `reloadVaultIfChanged()`，触发点 = 「打开面板」命令 / 切回前台（`visibilitychange` + `focus`）/ 30 秒定时器（仅前台）；**有环已解锁或坏盘时不重读**（内存 DEK 与磁盘环必须对应，否则会拿新环的 KDF 加密旧会话）。② `secrets`：新增 `ringNeedsRefresh()` + `refreshRingIfChanged()`，同样三处触发、只在未解锁时查。③ 单测 **+7**（security 52→56、secrets 36→39，各含反向用例：解锁中 / 坏盘 / 内容没变都不刷新）。**G2 桌面 dev（`_tmp-vault-rt12`）**：删 `vault.secrets.json` → reload 后面板显示「第一次使用「账号密码」：设一把主密码」；把文件放回去后**不点任何按钮**，≤30 秒自动变「「账号密码」已建立，输入主密码解锁」（截图 `_shots/rev393-security-autoreload-{off,on}.png`）。④ 市场包重打：`security 0.2.4` / `secrets 0.1.4` + `gen-market --write`（16 条）。**手机 G2 已验**（Redmi `33b676f6` dev 包）：插件经 `adb` 推入 `.zn/plugins/`（`secrets` 的 `manifest.sha256` 同步更新、`security` 的 `signature.json` → `.bak`），删 `vault.secrets.json` → reload 面板显示「第一次使用」，放回后 **35 秒内**不点任何按钮自动变「已建立」（截图 `_shots/rev393-phone-security-01.png` / `02.png`）。**未做**：手机 release 机（等插件中心更新 `security 0.2.4` / `secrets 0.1.4` 再完全退出重开）；sync 同步完成后主动发事件（现在靠 30 秒轮询兜） |
 | rev173.392 | 2026-11-06 · **新增质量门「市场包 ↔ 源码一致」（第 9 门）**：rev173.391 暴露的「版本号相同、包内是旧代码」不能靠人记 —— 新 `scripts/check-pack-sync.mjs`：遍历 `market/index.json`，解出 `market/packs/<id>-<ver>.znp`（JSON 包），把包内 `files` 逐个与 `examples/<id>/` 同名文件**逐字节比较**，并校验 `manifest.entry` 在包内存在。**首跑立刻抓到第二处**：`import-export@0.2.5` 包内 `index.js` 67,310 B vs 源码 67,475 B（0.9.28 改了源码没重打）⇒ 升 **0.2.6** 重打包签名 + `gen-market --write`。现在门输出 `✅ 16 个插件 · 比较 24 个文件`。**挂载**：`scripts/check-gates.mjs` 的 gates 加 `['pack-sync', 'scripts/check-pack-sync.mjs']`，质量门 8 → **9 项**；`HANDOFF-CARD` / `03-当前状态` / `07-术语与编号` / `ROADMAP §4.1` 同步改「9/9」。**证据**：`node scripts/check-gates.mjs` → `✅ 质量门：9/9 通过`；`check-docs` 全绿 |
 | rev173.391 | 2026-11-06 · **重打包 private-notes / secrets 发市（修「最新版本号、旧代码」）**：用户报「release 机装 0.10.0 + 插件都是最新，私密文件夹仍是独立面板、密码库没新逻辑」。**根因 = 市场包落后于源码**：`market/packs/private-notes-0.2.3.znp` 内 `index.js` 41,763 B、`registerSource` **0 处**（11-04 打的旧包）；`examples/private-notes/index.js` 已 56,212 B、含 2 处（rev173.376 改造）。`secrets` 同样（包 43,273 vs 源码 65,768）。**做法**：版本升 `private-notes 0.2.4` / `secrets 0.1.3` → `pack-plugin --key aqua-2026` → `gen-market --write`（16 条）。新包：`private-notes-0.2.4.znp` 43,856 B（`registerSource` 2）· `secrets-0.1.3.znp` 53,774 B（`hasRingPart` 2），均带签名。**验证**：`verify-trust` 74/75 验签通过 · `vitest private-notes + secrets` 70 条全过。**用户动作**：手机/桌面插件中心更新这两个插件，再**完全退出应用重开**（内核不会自动重载插件） |
@@ -331,6 +332,39 @@ revision: 173.393
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.394（2026-11-06 · 私密笔记第二批 · 搜索：源自己搜，命中单独成组）
+
+> **目标**（施工图 `docs/私密笔记-改造方案-2026-11-05.md` §8 第二批）：解锁后私密笔记能被**全局搜索**命中；
+> 关闭 / 锁定时搜索里也不该有痕迹。
+
+> **关键判断 —— 私密明文不进内核索引**：`index` 默认分区是**所有插件都能 `query` 的共享空间**，
+> 私密明文一旦 upsert 进去就等于对全插件 / AI 开放（需求 §3.3）；且 `rebuild()` 会清空索引、需要重灌。
+> ⇒ 搜索由源自己实现：`NoteSource.search?(q, opts?)`（可选方法，插件用内存里的 `plainCache` 解密，
+> 锁定即清空）。宿主只负责把命中并排显示。**其它插件的 `index.query` 永远搜不到私密内容。**
+
+> **改法**：
+> - `contract.ts`：`NoteSource.search?` + 宿主侧 `NoteSourceSearch`。
+> - `note-sources.ts`：`searchables()` 只交出实现了 `search` 的源（注销即消失）。
+> - `App.tsx`：`sourceSearches` state，与 `sourceNotes` 在同一订阅里刷新（解锁 / 锁定会改可搜索性）；
+>   三处 `SearchPanel`（桌面侧栏 / 手机全屏 / 笔记独立窗口）传 `sources`。
+> - `SearchPanel.tsx`：公开结果 + 各源命中拍平成一条行列表（光标 / Enter 跨组）；分组标题
+>   「🔒 私密笔记」只在该组有命中时出现，**不混排打分**（用户 2026-11-06 拍板）；源抛错只少一组；
+>   `sources` 默认值用模块级常量（写 `= []` 会每帧新数组 ⇒ 查询 effect 死循环）。
+> - `examples/private-notes/index.js`：源注册加 `search`，复用 `fillPlainCache` + `searchNotes`，
+>   命中映射成真实路径 `.zn/private/notes/<id>.zn`。
+
+> **证据**：`tests/note-sources.test.ts` +2（searchables 收谁 / 注销后消失）· 新增
+> `tests/search-source-group.test.tsx` 3 条（分组顺序 / 空组不出标题 / 源抛错只少一组），相关 19 条全过；
+> 全量 `verify.ps1` **全绿 18:18:18**（tsc 0 · oxlint 4 · cargo 105 · vitest **1930** · 质量门 9/9）；
+> 市场包重打 `private-notes 0.2.5`（61.2 KB）+ `gen-market --write`。
+> **G2 双端已验**：桌面 dev（`_tmp-vault-rt12`，解锁后搜「私密测试」⇒ 「🔒 私密笔记」组 + 1 条结果，
+> 锁定后同词 0 条）截图 `_shots/rev394-search-private.png`；Redmi `33b676f6` dev 包（插件经 adb 推入
+> `.zn/plugins/private-notes/`，manifest sha256 更新、签名 `.bak`）同样出「🔒 私密笔记」组与 1 条结果，
+> 截图 `_shots/rev394-phone-search-private.png`。
+
+> **未做**：时间流卡片 / 拖入移出（拖拽落点）/ 删旧面板与列表视图 —— 第二批剩余项；
+> 手机真机 G2（改的是 `src/`，dev 包热重载即可，推送前必须补手机证据）。
 
 > ## 📌 rev173.393（2026-11-06 · 密钥环面板自动刷新：同步拉到 vault 后面板不再显示旧状态）
 

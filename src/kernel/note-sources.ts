@@ -28,6 +28,7 @@ import type {
   NoteSource,
   NoteSourceEntry,
   NoteSourceGroup,
+  NoteSourceSearch,
 } from './contract'
 
 export type NoteSources = {
@@ -40,6 +41,11 @@ export type NoteSources = {
   snapshot(): NoteSourceEntry[]
   /** 源注册 / 注销 / 内容变化时通知。宿主据此重新 `snapshot()` 并重渲染。 */
   subscribe(cb: () => void): Disposable
+  /**
+   * 支持搜索的源（rev173.394 · 私密笔记第二批）：只返回实现了 `search()` 的源。
+   * App 把它转给 `SearchPanel`，面板据此把私密命中和公开结果分开显示。
+   */
+  searchables(): NoteSourceSearch[]
   /** 已注册的源（诊断 / 单测） */
   sources(): Array<{ pluginId: string; id: string; group: NoteSourceGroup }>
 }
@@ -149,6 +155,22 @@ export function createNoteSources(
           listeners.delete(cb)
         },
       }
+    },
+
+    searchables() {
+      const out: NoteSourceSearch[] = []
+      for (const entry of entries) {
+        if (entry.disposed) continue
+        const search = entry.src.search
+        // 只收真的实现了 search 的源：没有它就不该出现在搜索面板里
+        if (typeof search !== 'function') continue
+        out.push({
+          id: entry.src.id,
+          group: entry.src.group,
+          search: (q, opts) => search.call(entry.src, q, opts),
+        })
+      }
+      return out
     },
 
     sources() {

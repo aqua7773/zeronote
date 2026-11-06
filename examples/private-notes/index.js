@@ -417,8 +417,33 @@ function sourceNotes() {
   }))
 }
 
-/* ───────────────────────── 锁定 ───────────────────────── */
+/**
+ * 源的搜索入口（rev173.394 · 改造方案第二批）：**明文只在插件内存里** ——
+ * 不 upsert 进内核索引，因为内核默认分区是**所有插件都能 query** 的共享空间
+ * （私密明文进去 = 任何插件 / AI 都能搜到，违背需求 §3.3）。
+ * 宿主（`SearchPanel`）把这里的命中单独成组，排在公开结果之后。
+ *
+ * 锁定 ⇒ `index = null` ⇒ 返回空数组（明文缓存也已随锁清空）。
+ */
+async function sourceSearch(api, q, opts) {
+  const query = String(q ?? '').trim()
+  if (!query || !index) return []
+  const limit = Math.max(1, Math.min(200, Number(opts?.limit) || 50))
+  // 首次搜索要把正文解密一遍（之后走 plainCache）；单篇坏了按空处理
+  await fillPlainCache(api)
+  return searchNotes(index.notes, plainCache, query)
+    .slice(0, limit)
+    .map((r) => ({
+      // 真实路径：宿主的 `onOpenNote` / codec 链路都按这个走
+      path: notePath(r.id),
+      title: r.title,
+      excerpt: r.excerpt,
+      // 面板不混排打分，这个值只用于显示占位
+      score: 0,
+    }))
+}
 
+/* ───────────────────────── 锁定 ───────────────────────── */
 /** 关掉当前正在编辑的私密文档（有未保存内容时先落盘 —— 锁前不能丢改动） */
 async function closePrivateDoc(api) {
   const d = api.doc.active?.()
@@ -1144,6 +1169,8 @@ export default {
           id: SOURCE_ID,
           group: SOURCE_GROUP,
           list: sourceNotes,
+          // 第二批：源自己搜（明文不进内核索引，见 sourceSearch 注释）
+          search: (q, opts) => sourceSearch(api, q, opts),
           onSourceChange(cb) {
             sourceListeners.add(cb)
             return {

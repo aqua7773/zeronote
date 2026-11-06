@@ -36,6 +36,7 @@ import type {
   NoteDoc,
   NoteMeta,
   NoteSourceEntry,
+  NoteSourceSearch,
   PluginLogEntry,
   PluginManifest,
   ShellMountCtx,
@@ -257,6 +258,12 @@ export default function App() {
    * 只在**文件树**这一处合并 —— 搜索与时间流按方案进第二批。
    */
   const [sourceNotes, setSourceNotes] = useState<NoteSourceEntry[]>([])
+  /**
+   * **可搜索的额外源**（rev173.394 · 私密笔记第二批）：源的 `search()` 由它自己实现
+   * （明文只在插件内存里，不进内核索引 —— 默认分区所有插件都能查）。这里只存
+   * 稳定引用，转手给 `SearchPanel` 的 `sources` props。
+   */
+  const [sourceSearches, setSourceSearches] = useState<NoteSourceSearch[]>([])
   /** 目录清单（含**空目录**）—— 文件树显示空文件夹的依据，与 notes 同一趟刷新 */
   const [dirs, setDirs] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
@@ -1510,7 +1517,11 @@ export default function App() {
    */
   useEffect(() => {
     if (!kernel) return
-    const sync = () => setSourceNotes(kernel.notes.snapshot())
+    const sync = () => {
+      setSourceNotes(kernel.notes.snapshot())
+      // 与条目一并取：源的「我变了」通知可能同时改了条目和可搜索性（解锁 / 锁定）
+      setSourceSearches(kernel.notes.searchables())
+    }
     sync()
     const d = kernel.notes.subscribe(sync)
     return () => d.dispose()
@@ -5621,6 +5632,7 @@ export default function App() {
               onOpenNote={(p) => void openNote(p)}
               index={kernel?.index ?? null}
               notes={notes}
+              sources={sourceSearches}
             />
           ) : (
             /* 侧栏时间流视图（B1）：原「侧栏与主区之间常驻一栏」收进侧栏，卡片同一套组件 */
@@ -5985,6 +5997,7 @@ export default function App() {
                 onOpenNote={(p) => void openNote(p)}
                 index={kernel?.index ?? null}
                 notes={notes}
+                sources={sourceSearches}
               />
             </div>
           ) : (
@@ -6311,6 +6324,7 @@ export default function App() {
         onOpenNote={(p) => void openNote(p)}
         index={kernel?.index ?? null}
         notes={notes}
+        sources={sourceSearches}
       />
 
       <ReplacePanel

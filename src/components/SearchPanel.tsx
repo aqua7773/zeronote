@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { IndexApi, SearchHit } from '@/kernel/contract'
+import type { IndexApi, NoteSourceSearch, SearchHit } from '@/kernel/contract'
 import { splitExcerpt, tokenizeQuery } from '@/kernel/index-api'
 import { dirPrefixesOf } from '@/lib/note-dirs'
 import { Button } from '@/components/ui'
@@ -41,10 +41,20 @@ export type SearchPanelProps = {
    * 软键盘顶上来，盖掉半个结果区；手机上点输入框再弹才符合预期。
    */
   autoFocus?: boolean
+  /**
+   * 额外笔记源的搜索入口（rev173.394 · 私密笔记第二批）—— 通常是
+   * `kernel.notes.searchables()` 的结果。命中单独成组排在公开结果之后。
+   *
+   * 为什么由源自己搜：私密明文不能进内核索引（默认分区所有插件都能查）。
+   * 面板只做「并发调用 + 分组展示」，匹配语义留在源里。
+   */
+  sources?: NoteSourceSearch[]
 }
 
 /** 面板一次最多显示多少条（内核那边的硬上限是 200） */
 const RESULT_LIMIT = 50
+/** 默认的「没有额外源」引用（见函数里 `sources = sourcesProp ?? EMPTY_SOURCES`） */
+const EMPTY_SOURCES: NoteSourceSearch[] = []
 /** 输入防抖 —— 千篇量级查询 ~10-30ms，180ms 足够避免每键一查 */
 const DEBOUNCE_MS = 180
 /** 最近搜索词（持久化，上限 8 条）—— 空查询时列出来，点一下即可复用 */
@@ -71,11 +81,21 @@ export function SearchPanel({
   notes = [],
   inline = false,
   autoFocus = true,
+  sources: sourcesProp,
 }: SearchPanelProps) {
+  /**
+   * 稳定引用的默认值 —— 不能写 `sources = []`：每次 render 都是一个新数组，
+   * 会让下面依赖它的查询 effect 每帧重跑（setHits 再触发 render 就成了死循环）。
+   */
+  const sources = sourcesProp ?? EMPTY_SOURCES
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('relevance')
   const [recent, setRecent] = useState<string[]>(loadRecentSearch)
   const [hits, setHits] = useState<SearchHit[]>([])
+  /** 额外源的命中，按源分组（rev173.394）；空数组时面板与旧行为完全一致 */
+  const [sourceGroups, setSourceGroups] = useState<
+    { id: string; label: string; icon?: string; hits: SearchHit[] }[]
+  >([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cursor, setCursor] = useState(0)
@@ -179,24 +199,54 @@ export function SearchPanel({
     if (!text && !tag && !dir) return
     const timer = window.setTimeout(() => {
       setBusy(true)
-      index
+      /**
+       * 额外源只参与「纯关键词」搜索：标签 / 目录 / 正则是内核索引的过滤语义，
+       * 源的条目没有这些元数据（见 `contract.ts` 的 `NoteSource.search` 注释）。
+       */
+      const useSources = Boolean(text) && !tag && !dir && !regexOn && sources.length > 0
+      const sourceJobs = useSources
+        ? sources.map((s) =>
+            s.search(text, { limit: RESULT_LIMIT }).then(
+              (r) => (Array.isArray(r) ? r : []),
+              // 一个源坏了不能拖垮整次搜索（与 note-sources 的安全边界同一口径）
+              () => [] as SearchHit[],
+            ),
+          )
+        : []
+      // 内核算子是主结果：它失败才算「索引出错」，源失败只是少一组
+      const plainJob = index
         .query(text, { limit: RESULT_LIMIT, tag, dir, regex: regexOn })
-        .then((r) => {
-          if (seqRef.current !== seq) return
-          setHits(r)
-          setError(null)
-          setBusy(false)
-          setCursor(0)
-        })
-        .catch((e: unknown) => {
-          if (seqRef.current !== seq) return
+        .then(
+          (r) => ({ ok: true as const, hits: r }),
+          (e: unknown) => ({ ok: false as const, error: String(e) }),
+        )
+      void Promise.all([plainJob, ...sourceJobs]).then(([first, ...rest]) => {
+        if (seqRef.current !== seq) return
+        if (!first.ok) {
           setHits([])
-          setError(String(e))
+          setSourceGroups([])
+          setError(first.error)
           setBusy(false)
-        })
+          return
+        }
+        setHits(first.hits)
+        setSourceGroups(
+          useSources
+            ? sources.map((s, i) => ({
+                id: s.id,
+                label: s.group.label,
+                icon: s.group.icon,
+                hits: rest[i] ?? [],
+              }))
+            : [],
+        )
+        setError(null)
+        setBusy(false)
+        setCursor(0)
+      })
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [active, index, q, rebuildTick, tagFilter, dirFilter, regexOn])
+  }, [active, index, q, rebuildTick, tagFilter, dirFilter, regexOn, sources])
 
   /** 记一条最近搜索词（去重 + 封顶）；存不下也不影响搜索本身 */
   const rememberQuery = useCallback((text: string) => {
@@ -236,6 +286,19 @@ export function SearchPanel({
     return [...hits].sort((a, b) => (mtimeOf.get(b.path) ?? 0) - (mtimeOf.get(a.path) ?? 0))
   }, [hits, sortBy, notes])
 
+  /**
+   * 公开命中 + 各源命中拍平成「一行一个」（rev173.394）—— 光标与 Enter 都在这条线上移动，
+   * 分组的标题行不占光标位（它们不是可选中的结果）。
+   */
+  const rows = useMemo(() => {
+    const out: { key: string; hit: SearchHit; groupId: string | null }[] = []
+    for (const hit of sorted) out.push({ key: hit.path, hit, groupId: null })
+    for (const g of sourceGroups) {
+      for (const hit of g.hits) out.push({ key: `src:${g.id}:${hit.path}`, hit, groupId: g.id })
+    }
+    return out
+  }, [sorted, sourceGroups])
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       // 侧栏内联形态：Esc 不关（视图由图标栏切换）；停下来别让外层当成"关侧栏"
@@ -249,12 +312,12 @@ export function SearchPanel({
       onClose()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setCursor((c) => Math.min(c + 1, Math.max(sorted.length - 1, 0)))
+      setCursor((c) => Math.min(c + 1, Math.max(rows.length - 1, 0)))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setCursor((c) => Math.max(c - 1, 0))
     } else if (e.key === 'Enter') {
-      const hit = sorted[cursor]
+      const hit = rows[cursor]?.hit
       if (hit) {
         e.preventDefault()
         pick(hit)
@@ -299,7 +362,7 @@ export function SearchPanel({
           ))}
         </div>
       )
-  } else if (sorted.length === 0) {
+  } else if (rows.length === 0) {
     const kw = q.trim()
     body = (
       <Empty>
@@ -307,33 +370,64 @@ export function SearchPanel({
       </Empty>
     )
   } else {
-    body = sorted.map((hit, i) => (
-      <button
-        key={hit.path}
-        type="button"
-        className={cn(
-          'block w-full rounded-ui-sm px-2 py-1.5 text-left transition-colors duration-100',
-          i === cursor ? 'bg-accent' : 'hover:bg-accent',
-        )}
-        onMouseEnter={() => setCursor(i)}
-        onClick={() => pick(hit)}
-      >
-        <div className="truncate text-xs font-medium text-foreground">
-          <TitleText text={hit.title} terms={tokenizeQuery(q)} />
-        </div>
-        <div
+    /**
+     * 结果列表（rev173.394）：公开命中在上；额外源的命中按源分组排在后面，
+     * 每组前插一行「🔒 私密笔记」标题。**不混排打分** —— 两套评分口径不可比，
+     * 而且一眼看得出哪些是私密（用户 2026-11-06 拍板）。
+     */
+    const nodes: ReactNode[] = []
+    let rowIndex = -1
+    let shownGroup: string | null = null
+    for (const r of rows) {
+      let groupSub: string | null = null
+      if (r.groupId) {
+        const g = sourceGroups.find((x) => x.id === r.groupId)
+        if (r.groupId !== shownGroup) {
+          shownGroup = r.groupId
+          nodes.push(
+            <div
+              key={`grp:${r.groupId}`}
+              className="mt-1 flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground"
+            >
+              <span>{g?.icon ?? '🔒'}</span>
+              <span className="truncate">{g?.label ?? '私密笔记'}</span>
+            </div>,
+          )
+        }
+        groupSub = `${g?.icon ?? ''} ${g?.label ?? '私密笔记'}`.trim()
+      }
+      rowIndex += 1
+      const idx = rowIndex
+      const hit = r.hit
+      nodes.push(
+        <button
+          key={r.key}
+          type="button"
           className={cn(
-            'mt-0.5 line-clamp-2 text-xs',
-            i === cursor ? 'text-foreground' : 'text-muted-foreground',
+            'block w-full rounded-ui-sm px-2 py-1.5 text-left transition-colors duration-100',
+            idx === cursor ? 'bg-accent' : 'hover:bg-accent',
           )}
+          onMouseEnter={() => setCursor(idx)}
+          onClick={() => pick(hit)}
         >
-          <Excerpt text={hit.excerpt} />
-        </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {hit.path} · {hit.score}
-        </div>
-      </button>
-    ))
+          <div className="truncate text-xs font-medium text-foreground">
+            <TitleText text={hit.title} terms={tokenizeQuery(q)} />
+          </div>
+          <div
+            className={cn(
+              'mt-0.5 line-clamp-2 text-xs',
+              idx === cursor ? 'text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            <Excerpt text={hit.excerpt} />
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {groupSub ?? `${hit.path} · ${hit.score}`}
+          </div>
+        </button>,
+      )
+    }
+    body = nodes
   }
 
   const foot = !index
@@ -348,7 +442,7 @@ export function SearchPanel({
              * `stat` 只是上次 rebuild 的快照 —— 删/建几篇后数字就过时，显示出来是错的。
              * 空态仍显示它（那时它刚 rebuild 过，语义正确）。
              */
-            `${sorted.length} 条结果`
+            `${rows.length} 条结果`
           : stat
             ? `已索引 ${stat.count} 篇 · ${stat.ms} ms`
             : '索引未建立'
@@ -374,6 +468,7 @@ export function SearchPanel({
               // 清空关键词且**没有筛选条件**时立刻回空态；有筛选就让查询自己跑
               if (!next.trim() && !tagFilter && !dirFilter) {
                 setHits([])
+                setSourceGroups([])
                 setError(null)
                 setBusy(false)
               }
