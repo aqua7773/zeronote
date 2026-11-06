@@ -578,6 +578,11 @@ function needSvc() {
  * 不能在里面 await IPC。
  */
 let biometric = { available: false, bound: false }
+/**
+ * rev173.406：指纹绑定提示只在**本会话**提示一次（面板删了，绑定入口只剩命令面板，
+ * 不提示的话普通用户根本发现不了；每次解锁都弹又太吵）。
+ */
+let bioHintShown = false
 
 /**
  * **同步**读指纹状态（render 里用）。
@@ -664,6 +669,11 @@ async function afterUnlock(api) {
   lastActive = nowMs()
   await refreshBiometric()
   api.host.notify(`私密笔记已解锁 · ${index.notes.length} 篇`, 'info')
+  // rev173.406：未绑定指纹时提示一次 —— 面板删掉后绑定入口只剩命令面板
+  if (!bioHintShown && biometric.available && !biometric.bound) {
+    bioHintShown = true
+    api.host.notify('提示：命令面板可执行「私密文件夹：绑定本机指纹」，之后点锁即可刷指纹解锁', 'info')
+  }
   // 解锁 ⇒ 文件树里出现「🔒 私密笔记」分组（rev173.376）
   notifySourceChange()
 }
@@ -982,9 +992,31 @@ export default {
             api.host.notify('「私密笔记」密钥环还没建立 —— 先去安全插件建一个', 'warn')
             return
           }
+          /**
+           * rev173.406：**指纹解锁**（原来在面板锁屏上的「用指纹解锁」按钮，面板删掉不能连功能一起丢）。
+           * 已绑定 ⇒ 先弹系统指纹；成功即解锁；取消 / 失败则**回落到主密码输入框**（不阻断）。
+           */
+          const bio = syncBiometricNow()
+          if (bio.available && bio.bound && svc.biometric) {
+            try {
+              await svc.biometric.unlock(RING)
+              busy = 'unlock'
+              try {
+                await afterUnlock(api)
+              } finally {
+                busy = ''
+              }
+              return
+            } catch (e) {
+              const msg = String(e?.message ?? e)
+              if (!/cancel|取消/i.test(msg)) {
+                api.host.notify(`指纹解锁失败：${msg}，请输主密码`, 'warn')
+              }
+            }
+          }
           const pw = await api.host.prompt({
             title: '解锁私密笔记',
-            message: '输入「私密笔记」密钥环的主密码',
+            message: bio.available && bio.bound ? '指纹已取消 —— 也可以输入主密码' : '输入「私密笔记」密钥环的主密码',
             placeholder: '主密码',
             secret: true,
             okText: '解锁',

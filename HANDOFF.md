@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.405
-更新时间: 2026-11-06 · 最新 rev173.405（**私密笔记：删独立面板 + 回收站「公开/私密」切换**）
+revision: 173.406
+更新时间: 2026-11-06 · 最新 rev173.406（**指纹解锁补回**）· rev173.405（删独立面板 + 回收站切换）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.405
 
 | rev | 内容 |
 |---|---|
+| rev173.406 | 2026-11-06 · **指纹解锁补回**（用户：「指纹解锁没做吗」）：rev173.405 删独立面板时，把面板锁屏上的「用指纹解锁 / 绑定本机指纹」UI 入口一起删了 —— 命令还在但用户找不到。① `private.open` 未解锁且**已绑定指纹** ⇒ **先弹系统指纹**（`svc.biometric.unlock(RING)`），成功即解锁；取消 / 失败 ⇒ **回落**到主密码输入框（message 改成「指纹已取消 —— 也可以输入主密码」）；未绑定 ⇒ 仍直接弹密码框（不回归）。② **本会话一次性提示**：第一次解锁且未绑定时 toast 指路「命令面板 → 私密文件夹：绑定本机指纹」（面板删了，绑定入口只剩命令面板，不提示用户发现不了；每次弹又太吵）。插件 **0.3.4**（已签名入市 + `gen-market --write` 16 条）。**G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）；手机插件已同步 0.3.4。**待验**：指纹路径需真人绑一次 Windows Hello 后复验（AI 无法代按系统指纹）。 |
 | rev173.405 | 2026-11-06 · **私密笔记第二批收官：删独立面板与列表视图**（方案 §4.4 最后一项；用户：「内核新增，然后点解锁弹输入弹窗，私密模式下，回收站加个切换，点了切到私密回收站」）：① **内核新增 `host.prompt`**（契约 `PromptOptions` + `HostApi.prompt`；`KernelHooks.onPrompt` 由宿主 `App.tsx` 的 Dialog 浮层兑现；`secret: true` 走新抽出的共用组件 `ui/SecretField`，`UIRenderer` 的 `input.secret` 也改用它 —— 👁 **只留一份实现**）。宿主没接 hook 时**抛错**而不是返回空串（否则插件会把「没输入」当成「空密码」去调解锁）。② **private-notes 0.3.3**：删 `main` 位置独立面板 + 列表视图 + 面板内搜索 / 改名 / 回收站视图（`manifest` 去掉 `panels` 与 `view:main` 能力）；`private.open` 未解锁 ⇒ 先校验密钥环，再 `host.prompt({ secret: true })` 收主密码（**取消 = `null`**）；删掉面板专用命令 `private.unlock` / `recheck` / `goto-list` / `goto-trash` / `search-*` / `rename*`；状态提示从面板内 message 改为 `host.notify`。③ **回收站加「公开 / 私密」切换**：`AppTrashView` 新增 `scope` / `privateAvailable` / `onScopeChange` / `loading`；`App` 新增 `trashScope` + `privateTrash` + `loadPrivateTrash`（`effectiveTrashScope` 渲染期派生 —— 锁定自动回落公开，不用 effect setState）；插件新增 `private.trash-data`，恢复 / 彻底删除 / 清空分别走 `private.restore` / `private.purge` / `private.empty-trash`（旧面板的「上膛」随面板一起删，二次确认由宿主按钮负责）；文件树菜单「私密回收站」不再开面板，改为切到回收站页的私密范围。**测试**：新增 `tests/host-prompt.test.ts` 3 条 · `tests/app-trash-view.test.tsx` +4（解锁才显示切换 / 范围回调 / 私密文案 / 加载态）。**G1**：tsc 0 · oxlint 4 · cargo 105 · vitest 1979 · 质量门 9/9。**插件**：`private-notes 0.3.3` 已签名入市 + `gen-market --write`（16 条）。**G2**：见下方正文（桌面 dev 验收面板 / 回收站切换；手机 dev 包同流程）。|
 | rev173.404 | 2026-11-06 · **rev173.402/403 边界补验 + 撤销条并存修正**：① **向下自动滚**（同一函数的对称分支）——桌面 dev 拖到树底 `scrollTop 0 → 192`（到底）· 手机 dev 包 `0 → 1725`（到底），两条链滚完都保持拖拽态；② **拖私密条目出组时贴边滚** `262 → 0`，ghost 与拖拽态保持，松手在栏外 = 取消（私密条目仍在，没被误移出）；③ **撤销条互相顶掉**（实测发现的真 bug）：渲染原为 `undoDelete ? A : sourceUndo ? B : draft ? C`（三元二选一）—— 连着删公开 + 私密时私密那条被顶掉，5 秒后 `sourceUndo` 过期 ⇒ 5 秒内没有私密恢复入口。改为**两条并存**（`undoDelete || sourceUndo` 时渲染两个 `.zn-undo`，私密那条加 `is-stacked` 上移 48px）。实测：连删两种 → 两个按钮同显 → 依次点「撤销」→ 公开笔记与私密条目都回来、撤销条清空 |
 | rev173.403 | 2026-11-06 · **拖拽贴边自动滚动**（用户 2026-11-06：「长按拖动，从底部拖到顶部，不会自动上滑，导致文件树长或者根目录文件多的时候无法往上移」）：文件树是 `overflow:auto` 的滚动容器，拖拽期间指针**贴边不动**时不产生 pointermove / touchmove ⇒ 容器不滚，没露出来的行永远拖不到。① 新纯函数 `src/lib/drag-autoscroll.ts` 的 `edgeScrollStep()`：贴顶负值 / 贴底正值、越贴边越快（最贴边 12px/帧 ≈ 720px/s）、感应带 48px、**指针在容器外不滚**（拖出侧栏 = 取消）。② 鼠标 `pointer` 链：拖起来后起一条 rAF 循环，用最近一次指针坐标每帧算滚动量，滚完**立刻**用同一份 `resolveDropTarget` 重算落点（不重算会落到滚动前的行上）。③ 手机 `touch` 链：同一份函数 + 自己的 rAF 循环（手指贴边不动时没有 touchmove），滚完把 `pending` 设回手指位置并排一次 `applyMove`。④ `up` / `reset` 里取消 rAF。**测试** `tests/drag-autoscroll.test.ts` 7 条。**G2 双端已验**：桌面 dev（树可滚 48px）从底拖到顶 `scrollTop 48 → 0`；手机 dev 包（可滚 1725px）长按拖到顶 `1725 → 0`；两条链滚完都保持拖拽态、松手在栏外 = 取消（无文件被移动） |
@@ -343,6 +344,19 @@ revision: 173.405
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.406（2026-11-06 · 指纹解锁补回）
+
+> **背景**：用户「指纹解锁没做吗」—— rev173.405 删独立面板时，把面板锁屏上的「用指纹解锁 / 绑定本机指纹」
+> 两个入口一起删了；命令（`private.biometric-*`）还在，但用户不可能从命令面板摸到。
+
+> 1. `private.open` 未解锁且**已绑定指纹** ⇒ **先弹系统指纹**（`svc.biometric.unlock(RING)`），成功即解锁；
+>    取消 / 失败 ⇒ **回落**到主密码输入框（message 改成「指纹已取消 —— 也可以输入主密码」）；未绑定 ⇒ 仍直接弹密码框。
+> 2. 未绑定时**本会话一次性提示**：第一次解锁后 toast 指路「命令面板 → 私密文件夹：绑定本机指纹」。
+> 3. 插件 **0.3.4**（已签名入市 + `gen-market --write` 16 条）；dev 全局目录与手机 dev 包均已同步。
+
+> **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
+> **待验**：指纹路径需真人绑一次 Windows Hello 后复验 —— 系统指纹窗口 AI 无法代按。
 
 > ## 📌 rev173.405（2026-11-06 · 私密笔记：删独立面板 + 回收站「公开/私密」切换）
 
