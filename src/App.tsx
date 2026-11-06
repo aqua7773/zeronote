@@ -239,6 +239,16 @@ const AUTOSAVE_MS = 800
  */
 const DOC_CHANGE_DEBOUNCE_MS = 200
 
+/**
+ * 额外笔记源分组 → 拖拽移入 / 移出该走哪条插件命令（rev173.400）。
+ *
+ * 内核不认识「私密」这个业务：它只把分组 key 交回来，命令名由宿主对着这里映射。
+ * 没登记的分组 ⇒ 拖到它不是落点（`FileTree` 那边也会判成 no-op）。
+ */
+const SOURCE_DROP_COMMANDS: Record<string, { into: string; out: string }> = {
+  private: { into: 'private.move-in', out: 'private.move-out' },
+}
+
 /* rev173.332：删掉 `DRAWER_MS`（原 340ms 的"到点卸载"计时）—— 右抽屉已改常驻挂载，
    进出场时长完全交给 CSS 的 `--zn-dur-drawer`（同值 340ms），JS 不再需要知道它。 */
 
@@ -2424,6 +2434,45 @@ export default function App() {
         await refresh()
         setError(null)
         // 不再弹「已重命名：<路径>」—— 列表里那一行已经变了，路径又长又挡视线（用户 2026-10-17 要求）
+      } catch (e) {
+        setError(failMsg('rename', e))
+      }
+    },
+    [kernel, refresh],
+  )
+
+  /**
+   * 额外笔记源的**拖拽移入 / 移出**（rev173.400 · 私密笔记改造施工图 §8 最后一项）。
+   *
+   * 内核只负责「落点 + 被拖的路径」；真正搬家的语义（加密 / 解密、索引更新、
+   * 明文能不能留全局回收站）由源所在插件负责 —— 这是 `NoteSource` 的设计边界。
+   * 串行执行：并发写同一份索引文件会互相覆盖。
+   */
+  const dropIntoSource = useCallback(
+    async (group: string, paths: string[]) => {
+      const k = kernel
+      const cmd = SOURCE_DROP_COMMANDS[group]?.into
+      if (!k || !cmd || !paths.length) return
+      try {
+        for (const p of paths) await k.commands.api.execute(cmd, { path: p, silent: true })
+        await refresh()
+        setError(null)
+      } catch (e) {
+        setError(failMsg('rename', e))
+      }
+    },
+    [kernel, refresh],
+  )
+
+  const dropOutOfSource = useCallback(
+    async (group: string, paths: string[], dir: string) => {
+      const k = kernel
+      const cmd = SOURCE_DROP_COMMANDS[group]?.out
+      if (!k || !cmd || !paths.length) return
+      try {
+        for (const p of paths) await k.commands.api.execute(cmd, { path: p, dir, silent: true })
+        await refresh()
+        setError(null)
       } catch (e) {
         setError(failMsg('rename', e))
       }
@@ -5643,6 +5692,9 @@ export default function App() {
               onNewDir={newDirIn}
               onRename={(from, to, isDir) => void renameNote(from, to, isDir)}
               onRenameSource={renameSourceEntry}
+              /* rev173.400：拖公开笔记进「🔒 私密笔记」= 移入；组内拖出 = 移出 */
+              onDropToSource={(group, paths) => void dropIntoSource(group, paths)}
+              onDropFromSource={(group, paths, dir) => void dropOutOfSource(group, paths, dir)}
               onDeleteMany={(paths) => void deleteNotes(paths)}
               onPurgeMany={(paths) => void purgeNotes(paths)}
               onCut={cutPaths}
@@ -6538,3 +6590,4 @@ export default function App() {
     </div>
   )
 }
+

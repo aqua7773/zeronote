@@ -341,6 +341,20 @@ export function publicPathFor(title, taken = [], ext = '.md') {
 }
 
 /**
+ * 移出的**落点路径**（rev173.400）：标题 → 文件名 → 拼目标目录。
+ *
+ * 单拎成导出函数是为了可单测（清洗 + 重名避让 + 目录拼接一起测），
+ * 也让「拖到某个目录」与「面板里移出到库根」共用同一条命名规则。
+ */
+export function publicTargetPath(title, taken = [], dir = '') {
+  const name = publicPathFor(title, taken)
+  const d = String(dir ?? '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+  return d ? `${d}/${name}` : name
+}
+
+/**
  * 是否已建立 `notes` 环（只看 vault.json 的公开结构 —— 里面没有密码，只有 KDF 参数与密文块）。
  */
 export function hasNotesRing(vaultText) {
@@ -805,20 +819,28 @@ async function emptyPrivateTrash(api) {
  * 移入私密却把明文留在 `.zn/trash/` 里，等于没加密。所以 `fs.delete`（进回收站）后
  * 按 `originalPath` 找到那条再 `purgeTrash`。顺序铁律：密文写成功之后才动原文件。
  */
-async function moveCurrentIntoPrivate(api) {
+async function moveCurrentIntoPrivate(api, path) {
   if (!index) throw new Error('先解锁私密文件夹')
-  const d = api.doc.active?.()
-  if (!d?.path) throw new Error('先打开一篇公开笔记')
-  if (d.path.startsWith('.zn/')) throw new Error('这篇已经在私有目录里了（只有普通笔记能移入）')
-  if (d.dirty) await api.doc.save(d.path)
-  const plain = await api.fs.readText(d.path)
+  /**
+   * rev173.400：支持**按路径**移入（文件树拖拽），不再只认「当前打开的笔记」。
+   * 不传 path 时行为不变（面板按钮 / 命令面板仍用当前笔记）。
+   */
+  const target = String(path ?? '').trim()
+  const active = api.doc.active?.() ?? null
+  const sourcePath = target || active?.path || ''
+  if (!sourcePath) throw new Error('先打开一篇公开笔记')
+  if (sourcePath.startsWith('.zn/')) throw new Error('这篇已经在私有目录里了（只有普通笔记能移入）')
+  // 只有「移入的正是当前打开那篇」才需要先落盘未保存内容
+  if (active && active.path === sourcePath && active.dirty) await api.doc.save(sourcePath)
+  const plain = await api.fs.readText(sourcePath)
   const id = newNoteId()
   const at = nowMs()
   await writePlain(api, id, plain)
   index = upsertNote(index, { id, title: titleFromText(plain), createdAt: at, updatedAt: at })
   await saveIndex(api)
-  const originalPath = d.path
-  await api.doc.close()
+  const originalPath = sourcePath
+  // 打开的正是这篇才关标签；否则关掉的是别的笔记（会丢用户正在看的那篇）
+  if (active && active.path === originalPath) await api.doc.close()
   await api.fs.delete(originalPath)
   try {
     const list = await api.fs.listTrash()
@@ -834,13 +856,14 @@ async function moveCurrentIntoPrivate(api) {
  * 移出：解开一篇私密笔记，写成库内普通 `.md`；明文落盘后**立刻**删密文
  * （不保留双份 —— 用户要的是"变成公开笔记"，留一份密文只会让它下次又出现在私密列表里）。
  */
-async function moveOutToPublic(api, id) {
+async function moveOutToPublic(api, id, dir = '') {
   if (!index) throw new Error('先解锁私密文件夹')
   const note = findNote(index, id)
   if (!note) throw new Error('没有这篇私密笔记')
   const plain = await readPlain(api, id)
   const taken = (await api.fs.listNotes()).map((n) => n.path)
-  const target = publicPathFor(note.title || titleFromText(plain), taken)
+  // rev173.400：拖到某个目录就落那个目录（`''` = 库根，与面板按钮行为一致）
+  const target = publicTargetPath(note.title || titleFromText(plain), taken, dir)
   await api.fs.writeText(target, plain)
   await api.fs.purgePrivate(notePath(id)).catch(() => {})
   plainCache.delete(id)
@@ -1635,12 +1658,16 @@ export default {
       {
         id: 'private.move-in',
         title: '私密文件夹：把当前笔记移入私密',
-        run: async () => {
+        run: async (payload) => {
+          /** rev173.400：多一个 `{ path }`（文件树拖拽用）与 `{ silent }`（拖拽后别抢焦点） */
+          const silent = payload?.silent === true
           try {
-            const r = await moveCurrentIntoPrivate(api)
+            const r = await moveCurrentIntoPrivate(api, payload?.path)
             setMessage(`「${r.title}」已移入私密文件夹（原文件已从库中移除）`, 'success')
-            api.view.refresh(PANEL_ID)
-            await api.command.execute('core.openNote', { path: notePath(r.id) })
+            if (!silent) {
+              api.view.refresh(PANEL_ID)
+              await api.command.execute('core.openNote', { path: notePath(r.id) })
+            }
           } catch (e) {
             api.host.notify(`移入失败：${String(e?.message ?? e)}`, 'warn')
           }
@@ -1654,11 +1681,20 @@ export default {
             api.host.notify('先在面板里解锁', 'warn')
             return
           }
+          /** rev173.400：`{ path, dir, silent }` —— 文件树把条目拖到某个目录时用 */
+          const silent = payload?.silent === true
           try {
-            const target = await moveOutToPublic(api, String(payload?.id ?? ''))
+            const id = payload?.path ? idOfNotePath(payload.path) : String(payload?.id ?? '')
+            const target = await moveOutToPublic(api, id, payload?.dir)
             setMessage(`已移出为公开笔记：${target}`, 'success')
-            api.view.refresh(PANEL_ID)
-            await api.command.execute('core.openNote', { path: target })
+            const stillOpen = api.doc.active?.()?.path === notePath(id)
+            if (!silent) {
+              api.view.refresh(PANEL_ID)
+              await api.command.execute('core.openNote', { path: target })
+            } else if (stillOpen) {
+              // 拖出的正是打开着的那篇：切到新落点，别让编辑器还指着已删掉的密文路径
+              await api.command.execute('core.openNote', { path: target })
+            }
           } catch (e) {
             setMessage(`移出失败：${String(e?.message ?? e)}`, 'danger')
             api.view.refresh(PANEL_ID)

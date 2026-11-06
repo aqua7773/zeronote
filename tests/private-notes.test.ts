@@ -28,6 +28,7 @@ import {
   notePath,
   parseIndex,
   publicPathFor,
+  publicTargetPath,
   purgeTrashEntry,
   removeNote,
   restoreFromTrash,
@@ -332,6 +333,29 @@ describe('private-notes 移出时的文件名', () => {
 
   it('标题过长会截断（别造出超过文件系统限制的名字）', () => {
     expect(publicPathFor('长'.repeat(200)).length).toBeLessThanOrEqual(63)
+  })
+})
+
+/* ───────────────────────── 移出落点（rev173.400 · 拖到某个目录） ───────────────────────── */
+
+describe('private-notes 移出的落点目录', () => {
+  it('不传目录 ⇒ 库根（与面板「移出」按钮行为一致）', () => {
+    expect(publicTargetPath('标题', [])).toBe('标题.md')
+    expect(publicTargetPath('标题', [], '')).toBe('标题.md')
+  })
+
+  it('拖到目录 ⇒ 落在那个目录下', () => {
+    expect(publicTargetPath('标题', [], '归档')).toBe('归档/标题.md')
+    expect(publicTargetPath('标题', [], '归档/子目录')).toBe('归档/子目录/标题.md')
+  })
+
+  it('目录前后多余的 / 被吃掉（拖拽落点不会带，但命令 payload 可能带）', () => {
+    expect(publicTargetPath('标题', [], '/归档/')).toBe('归档/标题.md')
+    expect(publicTargetPath('标题', [], '  ')).toBe('标题.md')
+  })
+
+  it('重名避让在目标目录内同样生效', () => {
+    expect(publicTargetPath('标题', ['标题.md', '归档/标题.md'], '归档')).toBe('归档/标题-2.md')
   })
 })
 

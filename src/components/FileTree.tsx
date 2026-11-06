@@ -17,6 +17,15 @@ import type {
 import { ContextMenu, type MenuItem } from '@/components/ui'
 import { LONG_PRESS_MS, hapticTick, spawnRipple } from '../lib/long-press-feedback'
 import { bootMark } from '../lib/boot-marks'
+import {
+  GROUP_NODE_PREFIX,
+  baseName,
+  dropTargetPath,
+  parentDir,
+  parseDropTarget,
+  planTreeDrop,
+  resolveTreeDrop,
+} from '../lib/tree-drop'
 
 type TreeNode = {
   name: string
@@ -54,11 +63,8 @@ type TreeNode = {
 
 /**
  * 额外笔记源分组的哨兵前缀（rev173.376 · 私密笔记改造 §4.2）。
- *
- * 分组 key 来自插件（如 `private`），拼成 `__zn_group_private`。与上面两个哨兵一样：
- * **只在文件树内部用**，从不发给内核（源条目的 path 是真实路径）。
+ * 定义已收进 `src/lib/tree-drop.ts`（拖拽落点判定也要用同一份，rev173.400）。
  */
-const GROUP_NODE_PREFIX = '__zn_group_'
 
 /**
  * 文件树展开状态持久化（2026-10-18 用户要求：「文件树现在是每次进入都会展开，
@@ -194,11 +200,7 @@ function buildTree(notes: NoteMeta[], dirs: string[]): TreeNode[] {
   return root
 }
 
-/** 路径最后一段（文件名或目录名） */
-const baseName = (p: string) => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p)
-
-/** 所在目录（库内相对路径，库根 = 空串） */
-const parentDir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+/** 路径工具 `baseName` / `parentDir` 已收进 `src/lib/tree-drop.ts`（rev173.400，拖拽判定共用） */
 
 /**
  * 框选命中：选择框与树节点**相交**即算。
@@ -551,6 +553,8 @@ function Node({
         style={pad}
         data-zn-path={node.path}
         data-zn-group={node.group ? '1' : undefined}
+        /* 源分组 key（rev173.400）：拖出时要靠它把动作路由给对应插件命令 */
+        data-zn-group-key={node.group}
         onClick={(e) =>
           /**
            * 额外笔记源条目（rev173.376）：**强制单选 + 打开**。
@@ -615,6 +619,8 @@ export function FileTree({
   onDuplicate,
   onRename,
   onRenameSource,
+  onDropToSource,
+  onDropFromSource,
   onDeleteMany,
   onPurgeMany,
   layers,
@@ -648,6 +654,16 @@ export function FileTree({
    * 不传 ⇒ 源条目右键仍然没有菜单（只有插件自己负责改名 UI）。
    */
   onRenameSource?: (path: string) => void
+  /**
+   * 拖**公开笔记**到额外源分组行（rev173.400 · 私密笔记：移入）。
+   * 宿主转给插件（`private.move-in`）；不传 ⇒ 分组行不是落点。
+   */
+  onDropToSource?: (group: string, paths: string[]) => void
+  /**
+   * 把额外源分组的条目**拖出**到公开目录（rev173.400 · 私密笔记：移出）。
+   * `group` = 源分组 key；`dir` = `''` 表示库根。不传 ⇒ 源条目不能拖动。
+   */
+  onDropFromSource?: (group: string, paths: string[], dir: string) => void
   /** 删除（单条也走这条，传长度 1 的数组）—— 多选时一次删多篇 */
   onDeleteMany: (paths: string[]) => void
   /**
@@ -995,13 +1011,16 @@ export function FileTree({
     if (!root || !el) return null
     // 拖出文件树栏外 ⇒ 不动作（松手就是取消）
     if (!root.contains(el)) return null
-    const over = el.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
-    // 栏内空白 ⇒ 库根
-    if (!over) return ''
-    // 拖进自己 / 自己的子目录没有意义
-    if (over === fromPath || over.startsWith(`${fromPath}/`)) return null
-    // 文件行不能当落点
-    return dirPathSet.has(over) ? over : null
+    const row = el.closest<HTMLElement>('[data-zn-path]')
+    // 判定规则收在 `lib/tree-drop.ts`：鼠标与触摸两条拖拽链共用（rev173.400）
+    const target = resolveTreeDrop({
+      over: row?.dataset.znPath ?? null,
+      overVirtual: row?.dataset.znVirtual === '1',
+      overSourceEntry: row?.dataset.znGroup === '1',
+      fromPath,
+      dirs: dirPathSet,
+    })
+    return dropTargetPath(target)
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -1015,8 +1034,16 @@ export function FileTree({
     const start = { x: e.clientX, y: e.clientY }
     /** 按下点落在哪个条目上（null = 空白 ⇒ 框选模式） */
     const hitEl = (e.target as HTMLElement).closest<HTMLElement>('[data-zn-path]') ?? null
-    // 额外笔记源条目不在磁盘目录体系里 ⇒ 不能拖出去（拖 = 改路径，会把密文搬进公开目录）
-    if (hitEl?.dataset.znGroup === '1') return
+    /**
+     * 额外笔记源条目（rev173.400）：**可以拖**，但只走「移出到公开目录」这一条
+     * （`planTreeDrop` 会把它记成 `out-of-source`，不会调磁盘 `rename` ——
+     * 直接 rename 会把密文搬进公开目录，rev173.376 刻意禁掉的正是这条）。
+     */
+    const fromSource = hitEl?.dataset.znGroup === '1'
+    /** 源分组 key（rev173.400）：拖出时用它选命令 */
+    const sourceGroup = hitEl?.dataset.znGroupKey ?? undefined
+    // 虚拟分组行自身不参与拖动（它没有磁盘路径；拖动只会让 planTreeDrop 拼出无效 rename）
+    if (hitEl?.dataset.znVirtual === '1') return
     const fromPath = hitEl?.dataset.znPath ?? null
     let dragging = false
     /** 拖拽移动的落点（只在 fromPath 非空时有意义） */
@@ -1079,15 +1106,23 @@ export function FileTree({
 
       // `''` = 库根，是有效落点；只有 `null` 才是不动作
       if (target === null) return
-      // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项
-      const paths =
-        selectedSet.has(fromPath) && selectedSet.size > 1 ? dedupe([...selectedSet]) : [fromPath]
-      // 已经在目标目录里的跳过（搬进原地 = 白跑一趟，Rust 那边还会报「目标已存在」）
-      const moved = paths.filter((p) => parentDir(p) !== target)
-      if (!moved.length) return
-      for (const p of moved) {
-        onRename(p, target ? `${target}/${baseName(p)}` : baseName(p), dirPathSet.has(p))
-      }
+      // 拖的项在选中集合里 ⇒ 整批搬；否则只手拖那一项（源条目恒为单条）
+      const paths = fromSource
+        ? [fromPath]
+        : selectedSet.has(fromPath) && selectedSet.size > 1
+          ? dedupe([...selectedSet])
+          : [fromPath]
+      const plan = planTreeDrop({
+        fromSource,
+        sourceGroup,
+        paths,
+        target: parseDropTarget(target),
+        dirs: dirPathSet,
+      })
+      if (!plan) return
+      if (plan.kind === 'into-source') onDropToSource?.(plan.group, plan.paths)
+      else if (plan.kind === 'out-of-source') onDropFromSource?.(plan.group, plan.paths, plan.dir)
+      else for (const en of plan.entries) onRename(en.from, en.to, en.isDir)
       setSelected([])
       setSelectionCleared(true)
     }
@@ -1112,10 +1147,10 @@ export function FileTree({
    * 会变的回调（`onRename` 常常是内联箭头），effect 会每帧卸载重挂 = 拖拽被自己 reset 掉。
    * 所以最新值走 ref，监听器生命周期与渲染无关。
    */
-  const dragRefs = useRef({ selectedSet, dirPathSet, onRename })
+  const dragRefs = useRef({ selectedSet, dirPathSet, onRename, onDropToSource, onDropFromSource })
   // 每次渲染后同步最新值（渲染期写 ref 会被 React 19 的 lint 拦）
   useEffect(() => {
-    dragRefs.current = { selectedSet, dirPathSet, onRename }
+    dragRefs.current = { selectedSet, dirPathSet, onRename, onDropToSource, onDropFromSource }
   })
   useEffect(() => {
     const root = rootEl
@@ -1144,6 +1179,10 @@ export function FileTree({
     /** 按下那一行是不是目录 / 虚拟分组（弹菜单时要用） */
     let pressIsDir = false
     let pressVirtual = false
+    /** 按下那一行是不是额外源条目（rev173.400：可拖出，但不弹磁盘操作菜单） */
+    let pressSource = false
+    /** 源分组 key（拖出时用来选命令） */
+    let pressSourceGroup: string | undefined
     /**
      * 一帧最多判一次落点（rev173.331 · 真人测试7 #3「拖拽会有很明显的卡顿感」）。
      *
@@ -1177,9 +1216,18 @@ export function FileTree({
         setMenu(null)
         next = null
       } else if (rootEl && under && rootEl.contains(under)) {
-        const over = under.closest<HTMLElement>('[data-zn-path]')?.dataset.znPath ?? null
-        if (!over) next = ''
-        else if (over !== fromPath && !over.startsWith(`${fromPath}/`) && dirsNow.has(over)) next = over
+        // 判定规则与鼠标链**共用** `lib/tree-drop.ts`（rev173.400）——
+        // 以前这里内联一份，加私密分组落点时最容易只改一条链
+        const row = under.closest<HTMLElement>('[data-zn-path]')
+        next = dropTargetPath(
+          resolveTreeDrop({
+            over: row?.dataset.znPath ?? null,
+            overVirtual: row?.dataset.znVirtual === '1',
+            overSourceEntry: row?.dataset.znGroup === '1',
+            fromPath,
+            dirs: dirsNow,
+          }),
+        )
       }
       // 值没变就不 setState —— 手指在一个目录里滑动时不应重渲染任何一行
       if (next !== target) {
@@ -1234,6 +1282,8 @@ export function FileTree({
       pressAt = 0
       pressIsDir = false
       pressVirtual = false
+      pressSource = false
+      pressSourceGroup = undefined
       detach()
       setDropTarget(null)
       setDraggingPath(null)
@@ -1257,6 +1307,8 @@ export function FileTree({
       const didMove = moved
       const isDir = pressIsDir
       const isVirtual = pressVirtual
+      const isSource = pressSource
+      const sourceGroup = pressSourceGroup
       const at = { x: start.x, y: start.y }
       reset()
 
@@ -1268,13 +1320,26 @@ export function FileTree({
           suppressClickRef.current = false
         }, 0)
         if (!src || tgt === null) return
-        const { selectedSet: sel, dirPathSet: dirsNow, onRename: rename } = dragRefs.current
-        const paths = sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
-        const movedPaths = paths.filter((p) => parentDir(p) !== tgt)
-        if (!movedPaths.length) return
-        for (const p of movedPaths) {
-          rename(p, tgt ? `${tgt}/${baseName(p)}` : baseName(p), dirsNow.has(p))
-        }
+        const {
+          selectedSet: sel,
+          dirPathSet: dirsNow,
+          onRename: rename,
+          onDropToSource: intoSource,
+          onDropFromSource: outOfSource,
+        } = dragRefs.current
+        // 源条目恒为单条（它在树里强制单选，见 Node 的 onClick）
+        const paths = isSource ? [src] : sel.has(src) && sel.size > 1 ? dedupe([...sel]) : [src]
+        const plan = planTreeDrop({
+          fromSource: isSource,
+          sourceGroup,
+          paths,
+          target: parseDropTarget(tgt),
+          dirs: dirsNow,
+        })
+        if (!plan) return
+        if (plan.kind === 'into-source') intoSource?.(plan.group, plan.paths)
+        else if (plan.kind === 'out-of-source') outOfSource?.(plan.group, plan.paths, plan.dir)
+        else for (const en of plan.entries) rename(en.from, en.to, en.isDir)
         setSelected([])
         setSelectionCleared(true)
         return
@@ -1285,10 +1350,13 @@ export function FileTree({
        *
        * 条件：按住 ≥ `MENU_LONG_PRESS_MS`、期间没移动超过门槛、不是虚拟分组。
        * 弹完要把紧随其后的那次 click 拦掉，否则松手会顺手把笔记打开。
+       *
+       * 额外源条目（rev173.400）：允许拖（上面那条分支），但长按**不弹磁盘操作菜单** ——
+       * 路径与增删都由插件管，改名走右键（`Node` 的 onContextMenu）。
        */
       if (!src || didMove) return
       if (held < MENU_LONG_PRESS_MS) return
-      if (isVirtual) return
+      if (isVirtual || isSource) return
       suppressClickRef.current = true
       window.setTimeout(() => {
         suppressClickRef.current = false
@@ -1346,8 +1414,14 @@ export function FileTree({
       const p = row?.dataset.znPath ?? null
       // 只从**条目**上起手；空白处的触摸留给滚动
       if (!p) return
-      // 额外笔记源条目（rev173.376）：不参与拖拽 / 长按菜单 —— 路径与增删都由插件管
-      if (row?.dataset.znGroup === '1') return
+      /**
+       * 额外笔记源条目（rev173.400）：**允许起手** —— 拖出到公开目录 = 移出。
+       * 但不弹长按菜单（见 `onEnd`）；拖到别的落点由 `planTreeDrop` 判 no-op
+       * （不会走磁盘 rename，密文不会被搬进公开目录）。
+       */
+      const fromSourceRow = row?.dataset.znGroup === '1'
+      // 虚拟分组行自身不参与拖动（没有磁盘路径）
+      if (row?.dataset.znVirtual === '1') return
       reset()
       fromPath = p
       start = { x: t.clientX, y: t.clientY }
@@ -1355,6 +1429,8 @@ export function FileTree({
       moved = false
       pressIsDir = row?.dataset.znDir === '1'
       pressVirtual = row?.dataset.znVirtual === '1'
+      pressSource = fromSourceRow
+      pressSourceGroup = row?.dataset.znGroupKey ?? undefined
       timer = window.setTimeout(() => {
         timer = null
         armed = true

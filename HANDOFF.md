@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.399
-更新时间: 2026-11-06 · 最新 rev173.399（**修对话框每敲一个字就失焦**：私密笔记右键重命名输入被截断）· rev173.398（文件树右键改私密笔记标题）
+revision: 173.400
+更新时间: 2026-11-06 · 最新 rev173.400（**私密笔记拖入移出**：施工图 §8 最后一项）· rev173.399（对话框每敲一个字就失焦）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.399
 
 | rev | 内容 |
 |---|---|
+| rev173.400 | 2026-11-06 · **私密笔记拖入移出**（施工图 §8 最后一项）：① 新 `src/lib/tree-drop.ts` —— 落点判定 `resolveTreeDrop` + 松手动作 `planTreeDrop` 收成纯函数，**鼠标 pointer 链与手机 touch 链共用**（以前各写一份内联）；② `FileTree` 加 `onDropToSource` / `onDropFromSource`：源条目允许拖动（拖出 = 移出，**不走磁盘 rename** —— 那会把密文搬进公开目录）、虚拟分组行可当落点、源条目长按不弹磁盘菜单；③ `App` 的 `SOURCE_DROP_COMMANDS` 映射分组 → 插件命令，`dropIntoSource` / `dropOutOfSource` 串行执行（并发写同一份索引会互相覆盖）；④ 插件命令支持 `{ path, dir, silent }`：`move-in` 按路径移入（不再只认当前打开的笔记）、`move-out` 落指定目录（新导出纯函数 `publicTargetPath`）；插件 **0.3.0**（已签名入市 + `gen-market --write`）。**测试**：`tests/tree-drop.test.ts` 14 条 + `private-notes` 4 条。**G2**：**移出已实测**（桌面 dev 真实鼠标拖拽 → 「已移出为公开笔记：测试文件/右键直接重命名好了.md」）；**移入的拖拽手势未实测**（长树 2110px / 视口 681px，源与落点不同屏，自动化模拟滚动时 `elementFromPoint` 在视口外返回 null —— 见「已知坑」）。**已知坑**：dev 加载的是**全局插件目录**里的插件，改 `examples/` 后必须同步到 `%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\<id>\` 并更新 manifest 的 `sha256`，否则验的是旧代码（本轮先踩了一遍） |
 | rev173.399 | 2026-11-06 · **修「重命名对话框每敲一个字就失焦」**（用户实测：私密笔记右键重命名，输入会被截断，输入一次就会断一次）：根因在 `ui/dialog.tsx` 的 ESC effect —— 依赖 `[open, onOpenChange]`，而调用方一律传内联箭头（每次渲染新引用）⇒ 受控输入框每变一次（自身重渲染）就重跑一次 cleanup，cleanup 里「把焦点还给打开前的元素」把焦点抢走，后面的字符全打到对话框外。修法：`onOpenChange` 走 ref 取最新值，effect 依赖只留 `[open]`。**同类扫描**：焦点管理只有 `ui/dialog.tsx` 一处（12 个 Dialog 使用方全部受益）；`FileTree` 的内联重命名自己管 input、不走 Dialog，无此问题。**测试**：新增 `tests/dialog-focus.test.tsx` 2 条（逐字输入不失焦、关闭仍还焦点）；旧实现下第 1 条红（stash 实测），新实现绿。**G1**：19:22:10 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest 1936 · 质量门 9/9）。**G2 双端**：桌面 dev（`_tmp-vault-rt12`）私密条目右键 → 逐字输入 7 字符，焦点始终在输入框、值完整累积（`_shots/rev399-rename-dialog-typing.png`）；Redmi `33b676f6` dev 包同样（`_shots/rev399-phone-rename-dialog-typing.png`） |
 | rev173.398 | 2026-11-06 · **文件树右键也能改私密笔记标题**（用户：「文件树栏右键能改吗」→ 选 A = 内核加钩子）：① 契约 `NoteSource.rename?(path, title)`；注册表新增 `rename(path, title): Promise<boolean>`，用新抽出的 `ownerOf(path)` 找归属源（`readText` 也改用它 —— 同一解析收成一份）。② `FileTree` 加 prop `onRenameSource`：源条目右键**直接**弹 `RenameDialog`（不走磁盘菜单；删除 / 新建仍不提供）。③ `App` 用 `RenameDialog` 预填当前标题，确认后 `kernel.notes.rename()`，源不支持就 toast。④ 插件实现 `sourceRename`：更新索引 title + `titleEdited: true` + `saveIndex`（文件名仍是随机 id）；`idOfNotePath` 抽出来与 `sourceReadText` 共用。**测试**：`tests/note-sources.test.ts` +1（rename 只认本源条目 / 没实现 ⇒ false），13 条过。**G2 双端**：桌面右键树里「我的私密标题」→ 对话框预填 → 改为「树右键改名OK」→ 树条目即时更新（`_shots/rev398-tree-rename.png`）；Redmi dev 包同样弹出重命名对话框。插件 `private-notes 0.2.9` |
 | rev173.397 | 2026-11-06 · **私密笔记：标题显示 + 改名**（用户要求「修标题，还有私密笔记无法重命名」）：① **标题**：标签条与标题条原来只取 `basename(path)`，私密笔记是随机 id（`mw3ml6hgpfg2.zn`）⇒ 现在都以 `NoteMeta.title` 优先（`metaByPath` 从 `treeNotes` 建映射，标签条 + `titleText` 共用 —— 同一逻辑收成一份）。② **改名**：面板列表每行新增「改名」→ 行内输入框 + 保存 / 取消；手改的标题在索引里带 `titleEdited: true`，**保存正文时不再被正文首行覆盖**（`onDocSaved` 尊重该标记）。密文文件名仍是随机 id（它只是存放位置，不与标题绑定）—— 所以「改名」= 改显示标题，不碰文件。③ 单测 `tests/private-notes.test.ts` +1（`serializeIndex`/`parseIndex` 往返保留 `titleEdited`）；vitest **1933**。插件 `private-notes 0.2.8`（市场包重打 + 签名）。**G2 双端**：桌面 dev 改名「我的私密标题」→ 面板 / 文件树 / 标签条 / 标题条全部更新，打开后输入正文并等自动保存，标题保持不变（`_shots/rev397-rename-title.png`）；Redmi dev 包标题条显示「私密测试内容」而非随机 id（`_shots/rev394-*` 同名系列） |
@@ -337,6 +338,46 @@ revision: 173.399
 
 > **未做**：桌面 `sync` 0.1.10 的更新与重同步（等用户点插件中心更新）；手机 dev 包验收附件分类 /
 > 其它文件进树（要重编 Rust 才生效）；密钥环面板自动刷新（先按已知行为记录，未改代码）。
+
+> ## 📌 rev173.400（2026-11-06 · 私密笔记拖入移出 · 施工图 §8 最后一项）
+
+> **需求**（用户「继续开发」→ 选「拖入移出」）：拖公开笔记到「🔒 私密笔记」组行 = 移入；
+> 组内条目拖出到公开目录 = 移出。方案稿 `docs/私密笔记-改造方案-2026-11-05.md` §3.3 / §4.2。
+
+> **改法**：
+> - **新纯函数 `src/lib/tree-drop.ts`**：`resolveTreeDrop`（落点：库根 / 真实目录 / 源分组 /
+>   不动作）+ `planTreeDrop`（动作：`move` / `into-source` / `out-of-source`）。
+>   以前鼠标 `resolveDropTarget` 与触摸 `applyMove` 各写一份内联判定（注释里就写着「内联一份」）——
+>   加私密分组落点时只改一条链是必然踩的坑（AGENTS §8.8）。
+> - **`FileTree`**：新 props `onDropToSource(group, paths)` / `onDropFromSource(group, paths, dir)`；
+>   源条目从「禁止拖动」改为「允许拖动但只走移出」（拖进公开目录不会调磁盘 `rename`——
+>   那会把密文搬进公开目录，正是 rev173.376 禁掉的那条）；虚拟分组行可作落点；源条目长按**不弹**磁盘菜单；
+>   条目行加 `data-zn-group-key`（拖出时用它选命令）。
+> - **`App`**：`SOURCE_DROP_COMMANDS`（分组 key → 插件命令，内核不认识「私密」这个业务）
+>   + `dropIntoSource` / `dropOutOfSource`，**串行**执行（并发写同一份索引文件会互相覆盖）。
+> - **插件 `private-notes`**：`private.move-in` / `private.move-out` 支持 `{ path, dir, silent }`
+>   （拖拽后不抢焦点、不打开新笔记）；`moveCurrentIntoPrivate(api, path)` 支持按路径移入；
+>   新增导出纯函数 `publicTargetPath(title, taken, dir)` 管落点拼接；版本 **0.3.0** 已签名入市。
+>
+> **测试**：`tests/tree-drop.test.ts` 14 条（哨兵 / 落点 / 动作，含反向：源→同组 no-op、
+> 源拖出但无 group key → no-op、`.zn/` 路径不被移入）+ `private-notes` 4 条（落点目录 / 前后斜杠 /
+> 目录内重名避让）。
+>
+> **G1**：见下方 verify 输出（tsc / oxlint / cargo / vitest / 质量门）。
+>
+> **G2（桌面 dev `_tmp-vault-rt12`）**：
+> - ✅ **移出已实测**：真实鼠标拖拽组内条目 → 目录行（落点高亮「测试文件」）→ toast
+>   「已移出为公开笔记：测试文件/右键直接重命名好了.md」，私密 0 篇、密文已删。
+> - ❌ **移入的拖拽手势未实测**：树高 2110px / 视口 681px，源（根目录 md）与落点（树末分组行）
+>   **不同屏**；用 CDP 模拟「拖拽中滚动」时，`document.elementFromPoint` 在视口外坐标返回 `null`，
+>   落点永远判不出来（`_tmp/rev400-g2-drag*.mjs` 的历次尝试记录）。**留作 G3 待验**：请用户拖一次确认。
+>
+> **已知坑（本轮踩了）**：桌面 dev 加载的是**全局插件目录**里的插件
+> （`%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\private-notes\`），改 `examples/` 不会热更 ——
+> 必须把 `index.js` 复制过去、同步 manifest 的 `sha256`、reload 页面，否则验的是旧代码
+> （第一轮「移出失败：没有这篇私密笔记」就是这个原因：旧版 move-out 不认 `path`）。
+>
+> **未做**：移入的真实拖拽 G3；手机端拖拽（触摸链已改但未真机验）；发版。
 
 > ## 📌 rev173.399（2026-11-06 · 修「重命名对话框每敲一个字就失焦」）
 
