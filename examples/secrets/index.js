@@ -1378,6 +1378,11 @@ export default {
         id: PANEL_ID,
         title: '密码库',
         location: 'main',
+        /**
+         * rev173.410：从 ＋ / 更多菜单点「打开 · 密码库」时先执行 `secrets.open`
+         * （它会弹解锁框、成功才进面板）；否则菜单入口会直接进面板、绕过解锁弹窗。
+         */
+        openCommand: 'secrets.open',
         render: (ctx) => {
           ui = { ...(ctx?.state ?? {}) }
           return panelNode()

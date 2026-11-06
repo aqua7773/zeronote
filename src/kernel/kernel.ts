@@ -91,6 +91,11 @@ export type PanelRegistration = {
    * 主题令牌靠 postMessage 送达 —— CSS 自定义属性不跨文档边界（见 WebViewFrame）。
    */
   webview?: { url: string }
+  /**
+   * 从菜单打开时先执行的命令（rev173.410）：密码库这类「先解锁再进面板」的插件用它，
+   * 详见契约 `ViewApi.registerPanel` 的同名字段（宿主菜单入口执行，`core.panel.*` 不受影响）。
+   */
+  openCommand?: string
 }
 
 export type KernelHooks = {

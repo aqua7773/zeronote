@@ -1315,6 +1315,7 @@ export default function App() {
     setMainView(panelId)
   }, [])
 
+
   /* ── 宿主输入对话框（rev173.405 · `host.prompt`）── */
   const [promptState, setPromptState] = useState<{ opts: PromptOptions; value: string } | null>(null)
   /**
@@ -1386,6 +1387,36 @@ export default function App() {
     setKernelSlot({ vault, kernel: makeKernel(vault) })
   }
   const kernel = kernelSlot.vault === vault ? kernelSlot.kernel : null
+
+  /**
+   * 插件面板的**菜单入口**（rev173.410 · 用户「弹窗在哪」发现的缺口）：
+   * 面板注册时可选声明 `openCommand`（密码库声明 `secrets.open`）—— 从 ＋ / 更多菜单点开时
+   * 先执行那条命令，由插件决定「先弹解锁框、成功再进面板」；没声明就还是直接开面板。
+   * ⚠️ 只在菜单入口加这层：`core.panel.<id>` 命令与标签切换仍走 `openPanelInTab`，
+   * 否则命令 → 打开面板 → 又执行命令，会死循环。
+   */
+  /**
+   * 插件面板的**菜单入口**（rev173.410 · 用户「弹窗在哪」发现的缺口）：
+   * 面板注册时可选声明 `openCommand`（密码库声明 `secrets.open`）—— 从 ＋ / 更多菜单点开时
+   * 先执行那条命令，由插件决定「先弹解锁框、成功再进面板」；没声明就还是直接开面板。
+   * ⚠️ 只在菜单入口加这层：`core.panel.<id>` 命令与标签切换仍走 `openPanelInTab`，
+   * 否则命令 → 打开面板 → 又执行命令，会死循环。
+   * ⚠️ 必须定义在 `kernel` 之后 —— 写在前面会 TDZ 崩整页（白屏，2026-11-07 实踩）。
+   */
+  const openPanelEntry = useCallback(
+    (panelId: string) => {
+      const cmd = panels.find((p) => p.id === panelId)?.openCommand
+      const k = kernel
+      if (cmd && k) {
+        void k.commands.api
+          .execute(cmd)
+          .catch((e) => setToast(`打不开：${e instanceof Error ? e.message : String(e)}`))
+        return
+      }
+      openPanelInTab(panelId)
+    },
+    [panels, kernel, openPanelInTab, setToast],
+  )
 
   /**
    * 侧栏「智能分区 · 未打标签」的数据源（目标态 ①）：只在打开该分区时才碰索引 ——
@@ -6068,7 +6099,7 @@ export default function App() {
                用户没法从标签条切回来（也不符合方案 §3.1「工具页进标签条」）。 */
             onNewNote={() => runCore('core.newNote')}
             panelItems={openablePanels}
-            onOpenPanel={openPanelInTab}
+            onOpenPanel={openPanelEntry}
           />
         )}
         {/* 主区换页（方案 §4 转场语义）：key 按层级变 ⇒ 子树重挂载 ⇒ CSS 入场动画。
@@ -6164,7 +6195,7 @@ export default function App() {
                    rev173.270：必须走 openPanelInTab —— 裸 setMainView 只切主区、不进标签条，
                    面板就没有 × 可关（用户反馈 #19 / #3） */
                 panels={panels}
-                onOpenPanel={openPanelInTab}
+                onOpenPanel={openPanelEntry}
                 pinnedPlugins={railPins}
                 onTogglePin={togglePin}
                 /* rev173.315：启动检查开关从「设置 → 插件」搬来这里（插件的事只在一处管） */

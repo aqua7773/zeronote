@@ -19,6 +19,7 @@ revision: 173.406
 
 | rev | 内容 |
 |---|---|
+| rev173.410 | 2026-11-07 · **面板菜单入口先执行 openCommand**（用户「弹窗在哪」→「修」）：密码库的「打开就先弹解锁框」只在 `secrets.open` 命令里；从标签条 ＋ / 更多菜单点「打开 · 密码库」是宿主直接开面板 ⇒ 看到的是面板内锁定视图，**绕过了弹窗**。① 契约 `registerPanel({ openCommand? })` + `PanelRegistration.openCommand`（内核如实保存透传）；② App 新增 `openPanelEntry`（菜单入口）：面板声明了 openCommand 就执行它、由插件决定进不进面板；`core.panel.<id>` 与标签切换仍直接开（否则命令→打开→命令死循环）；③ `secrets` 注册面板时声明 `openCommand: "secrets.open"`，插件 **0.1.6**（已签名入市，dev/手机已同步）。**测试** `tests/panel-open-command.test.ts` 2 条。**G2 桌面**：＋ 菜单 → 「打开 · 密码库」→ **弹「解锁密码库」**（`_shots/rev410-menu-prompt2.png`）→ 输密码 → **直接进库**（`_shots/rev410-menu-unlocked.png`）。**踩坑**：`openPanelEntry` 一开始写在 `const kernel = ...` 之前 ⇒ `Cannot access 'kernel' before initialization`，整页白屏（已移到 kernel 之后；CDP 抓异常脚本 `_tmp/cdp-errors.mjs`）。 |
 | rev173.409 | 2026-11-07 · **测试库重建（桌面 + 手机）**：旧测试库清空并备份 —— 桌面 `_tmp-vault-rt12` → `_tmp/backup-vault-rt12-2026-11-07/`；手机 `/storage/emulated/0/Documents/ZeroNote` → `_tmp/backup-phone-vault-2026-11-07/zn-backup-2026-11-07.tar`（19.9 MB）。新库：桌面 `_tmp-vault-rt13`、手机删库后由应用自动重建；两个密钥环（私密笔记 / 账号密码）主密码统一 `test-pass-1234`（**只记在本地凭据文件，不入库**）。**已验证**：手机 `secrets.open` → 弹「解锁密码库」→ 输密码 → **直接进密码库**（`_shots/rev409-phone-secrets-unlocked.png`）；手机 `private.open` → 解锁成功（出现指纹提示 toast）；桌面两环已建、密码库弹窗同款已见（`_shots/rev409-secrets-prompt-rt13.png`、`rev409-built-*-ring.png`）。 |
 | rev173.408 | 2026-11-06 · **密码库解锁也用 `host.prompt` 输入弹窗**（用户：「密码库解锁也用这个样式」「解锁后直接进密码库」）：`secrets.open` 未解锁 ⇒ ① `refreshRingIfChanged` → `checkRingReady`；② 已绑定指纹先弹系统指纹（取消/失败回落）；③ `host.prompt({ title:'解锁密码库', secret:true })` 收主密码；④ **解锁成功直接 `openCorePanel` 进密码库**；老应用没有 `host.prompt` ⇒ 直接开面板（面板锁定视图仍是兜底）。面板里的锁定视图保留（解锁失败后可在面板重试）。插件 **secrets 0.1.5**（已签名入市 16 条；dev/手机已同步）。**G2**：桌面 dev 弹窗样式已验（`_shots/rev408-secrets-prompt.png`）；**解锁成功路径未验** —— dev 测试库的「账号密码」环主密码与 `notes` 环不同，`test-pass-1234` 报「主密码不对」（`_shots/rev408-secrets-opened2.png`）。 |
 | rev173.407 | 2026-11-06 · **老应用兼容兜底（`host.prompt` 缺失）**：`host.prompt` 是内核 rev173.405 才加的能力，而 release 机装的是 0.10.0 —— 市场更新到 0.3.4 后点锁会 `api.host.prompt is not a function`（用户看到「没反应 / 报错」）。① `private.open` 加 `typeof api.host.prompt === 'function'` 判断，旧应用上提示「当前应用版本过旧：私密笔记需要『输入弹窗』能力 —— 请把 ZeroNote 更新到最新版」；② 判断放在**指纹分支之后**（指纹解锁不需要 prompt，旧应用上已绑定指纹的仍可用）。插件 **0.3.5**（已签名入市 16 条）；dev 全局与手机 dev 包均已同步。 |
@@ -360,6 +361,18 @@ revision: 173.406
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.410（2026-11-07 · 面板菜单入口先执行 openCommand）
+
+> **背景**：密码库的解锁弹窗只在 `secrets.open` 命令里；用户点 ＋ 菜单「打开 · 密码库」看到的是面板内锁定视图 —— 入口不一致。
+
+> 1. 契约：`registerPanel({ openCommand?: string })`；内核 `PanelRegistration` 加同名字段，注册时原样保存并透给宿主。
+> 2. App：新增 `openPanelEntry`，只在**菜单入口**（＋ / 更多）查 `openCommand` 并执行；`core.panel.<id>` 与标签切换仍走 `openPanelInTab`（避免死循环）。
+> 3. `secrets` 面板声明 `openCommand: "secrets.open"`；插件 0.1.6 已入市，dev/手机已同步。
+
+> **测试**：`tests/panel-open-command.test.ts` 2 条（带 openCommand 透传 / 不声明保持 undefined）。
+> **G2 桌面**：＋ 菜单 → 打开 · 密码库 → 弹「解锁密码库」（`_shots/rev410-menu-prompt2.png`）→ 输 `test-pass-1234` → 直接进库（`_shots/rev410-menu-unlocked.png`，标签条出现「密码库」+「🔓 密码库 · 0 个平台 / 0 个账号」）。
+> **踩坑**：`openPanelEntry` 写在 `const kernel` 之前 ⇒ TDZ `ReferenceError` 整页白屏；用 `_tmp/cdp-errors.mjs`（CDP 订阅 `Runtime.exceptionThrown`）抓到的。移动后正常。
 
 > ## 📌 rev173.409（2026-11-07 · 测试库重建）
 
