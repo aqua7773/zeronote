@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.418
-更新时间: 2026-11-07 · 最新 rev173.418（**自定义密钥环跨设备同步**）· rev173.417（分配冲突拒绝）
+revision: 173.419
+更新时间: 2026-11-07 · 最新 rev173.419（**自定义环拉取方向已验**）· rev173.418（自定义密钥环跨设备同步）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.418
 
 | rev | 内容 |
 |---|---|
+| rev173.419 | 2026-11-07 · **验「自定义密钥环拉取方向」+ 修手机 sync 插件一直没加载**：① **前置发现**：手机 `.zn/plugins/sync/index.cjs` 实际 sha256 `07b051ea…` 与 manifest 记的 `1a844854…` 不符 ⇒ 插件中心报「⚠ 插件 sync 加载失败：插件签名无效（keyId=aqua-2026）：signature error: Verification equation was not satisfied」，**同步面板根本没注册**（手机「更多 → 插件」里没有同步）—— 也就是说手机端同步此前从未真正跑起来（以前「手机同步」的结论都建立在桌面端）。修法：`examples/sync` 全量推手机（`index.cjs` + `lib/*` + `styles.css`）→ manifest 重算 `sha256` → `signature.json` 改名 `.bak`。**坑**：备份目录 `cp -r sync sync.bak-rev419` 留在 `.zn/plugins/` 下会被当第 7 个插件（同 id）扫到、同样报签名无效 ⇒ 必须移到插件目录外（本轮移到 appDataDir 的 `backup-rev419/`）。② **拉取验收（通过）**：手机删本地 `.zn/security/vault.todo.json`（320 B，sha `f188fdb2…` —— 手机自建的同名环，与远端不是同一个），`baseline.v1` 里**本来就没有**该 key ⇒ 等价「新设备本地没有这个环」；点「立即同步」→ **下载 2 / 上传 27 / 冲突 2 · 29 秒** → 文件重新出现 **320 B**，sha256 **`4679e4e5…` 与远端逐字节一致**，远端同时仍 200（没被当成本地删除而删掉）。远端 manifest `private` 段 = `vault.notes.json` / `vault.secrets.json` / `vault.todo.json` / `secrets.zn`。证据 `_shots/rev419-phone-06-sync-done.png`。③ **遗留**：手机 `security` 仍是 0.3.3（0.3.4 只改文案，未推）；冲突列表 3 条旧噪声 + 本轮新增 2 条（`vault.secrets.json` / `vault.notes.json` 双端修改，未处理）；本轮上传 27 把手机测试库内容推进 `zeronote_test_418`（测试目录，可接受）|
 | rev173.418 | 2026-11-07 · **自定义密钥环跨设备同步**（清掉 rev173.414 起的「自定义环暂不同步」遗留）：`sync/lib/core.cjs` 新增纯函数 `privateFilesFor({ local, remote })` —— 内置 4 条私密文件 + 本地扫到的 `.zn/security/vault.<id>.json` + **远端 manifest 里已有的**（新设备靠它拉下来）；白名单正则 `^\.zn/security/vault\.[a-z0-9-]+\.json$`，**`grants.json` 永远匹配不上**（授权表是本机信任关系，用户 2026-11-07 拍板不上云）。`syncPrivate` 每轮用 `api.fs.listFiles('.zn/security')` 现扫，巡检轮转按动态列表算（请求预算不变）。测试新增 `tests/sync-private-files.test.ts` 5 条。`sync 0.1.11` 已签名入市。**G2 桌面端到端**：dev 配 WebDAV（坚果云 · 新目录 `zeronote_test_418` · MKCOL 建目录）→ 手动同步 **上传 4 · 下载 0 · 1.6 秒** → 远端 `GET .zn/security/vault.todo.json` = **200 / 320 B**，远端 `_zn/manifest.json` 的 `private` 段含 `vault.notes.json` / `vault.secrets.json` / **`vault.todo.json`**。顺带把安全面板那句「⚠️ 自定义环暂不同步到其它设备」改成「自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步」（`security 0.3.4`）。**未验**：手机端拉取（同一通路、代码同一份；要验得让手机本地没有该环才行）|
 | rev173.417 | 2026-11-07 · **分配冲突拒绝**（用户：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」）：rev173.416 的 `withAssign` 在冲突时**静默让位/顶替**，用户要的是**拒绝 + 提示**。新增纯函数 `assignConflict(grants, ringId, pluginId)` → 返回理由或 null（插件已有环 → 「插件「X」已经有密钥环「Y」—— 先在那一行选「未分配」再分配」；环已有主人 → 「密钥环「Y」已经分配给「X」—— …」；解除分配永远允许）；`doAssignRing` 先检查，冲突时 `setStatus(warn)` **不落盘** + `view.refresh` 让下拉弹回真实值。`withAssign` 保留让位/顶替作为脏数据不变量。`security 0.3.3` 已签名入市。测试 +1（12 条）。**G2 双端**：桌面（环已有主人 / 插件已有环 两条都拒绝且文件不变；解除后可正常分配，`_shots/rev417-conflict.png`）；手机同流程（`_shots/rev417-phone-conflict.png`）|
 | rev173.416 | 2026-11-07 · **密钥环分配方向反转**（用户：「方向反了，现在是请求的插件勾选密钥，应该是创建的密钥分配给插件」+「一个密钥环只允许分配给一个请求者，分配做成一个下拉菜单的样式」+「插件不是申请某个具体的环，只是提出自己需要密钥环这个需求」）：① 授权表 v1 → **v2** `{ v:2, rings:{环:插件}, demand:{插件:true} }`，**双向 1:1**（一环一插件、一插件一环），环允许未分配；**v1 不迁移**（用户拍板，当空表重新分配）。② `crypto` 服务 2.0.0：新增 `demand()`（插件只声明需要密钥环，幂等）与 `ring()`（返回分配给我的环）；`unlock/encrypt/decryptText/decryptBytes/sign/verify/biometric.*` 的 `ring` 入参**一律忽略**、以分配表为准（不能借别人的环）；未分配抛「插件「X」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」。③ 面板授权区从「插件为行」改成「**环为行 + `<select>` 下拉**」（选项 = 声明过需求的插件 + 当前主人；首项「未分配」），`security.assign-ring` 命令、值编码 `<环>::<插件>`；render 时用 `view.setState` 播种下拉（值一致不写，避免自激）。④ `secrets` / `private-notes` 不再硬编码环：`adoptRing()` 调 `svc.demand()` 跟随分配（解锁前 / 面板打开 / 服务晚到各一次），`RING` 改为 `export let`（默认值不变）。⑤ 文档：契约 §service 调用方身份、方案 §13.3 原文标 ⚠️ 作废并写新模型。**测试** `tests/security-grants.test.ts` 重写 11 条（v1 当空表 / 双向 1:1 让位与顶替 / demand 幂等 / assignRows / 报错文案）。**G1** 12:25:15 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest **2010** · 质量门 9/9）。**插件**：`security 0.3.2` / `secrets 0.1.7` / `private-notes 0.3.6`（已签名入市，市场 16 条；手机 debug 包已同步推入）。**G2 双端**：桌面 dev —— 两个环各一行下拉 → 分配 notes→private-notes、secrets→secrets（`_shots/rev416-assign-final.png`）→ 输主密码解锁账号密码环（`1 把已解锁`）；撤销分配后打开密码库 → 面板文案「解锁失败：插件「secrets」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」（`_shots/rev416-unassigned-error2.png`）；把 notes 环改分给 secrets ⇒ `grants.json` 只剩 `{ notes: "secrets" }`（1:1 让位生效）。手机 Redmi dev 包 —— 三个环（含 Todo）各一行下拉、分配落盘（`_shots/rev416-phone-assigned.png`）→ 密码库解锁成功（`_shots/rev416-phone-unlocked.png`） |
@@ -369,6 +370,18 @@ revision: 173.418
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.419（2026-11-07 · 验「自定义环拉取」+ 修手机 sync 插件一直没加载）
+
+> **起因**：rev173.418 只验了推送方向（桌面 → 远端）；拉取方向（新设备从云端拿到自定义环）需要「本地没有该环 + baseline 也没有该 key」。开工前先查手机，发现同步根本跑不起来 —— 插件中心报「⚠ 插件 sync 加载失败：插件签名无效（keyId=aqua-2026）：signature error: Verification equation was not satisfied」。
+
+> **根因**：手机 `.zn/plugins/sync/index.cjs` 的实际 sha256 `07b051ea…` 与 manifest 记的 `1a844854…`（0.1.11）不符 ⇒ 内核按签名校验拒载 ⇒ 面板没注册、`sync.run` 不存在。也就是说 **手机端同步此前从未真正跑过**（历史「手机同步」结论实际来自桌面端）。修法 = 01 分册 §2 的标准流程：`examples/sync` 全量推入（`index.cjs` + `lib/core.cjs` + `lib/backends/*` + `styles.css`）、manifest 重算 sha256、`signature.json` 改名 `.bak`。
+
+> **坑**：备份用 `cp -r .zn/plugins/sync .zn/plugins/sync.bak-rev419` 会被内核当成**第二个同 id 插件**扫描（插件中心显示两条「同步 0.1.11」并报同样的签名错误）—— 备份目录必须放在 `.zn/plugins/` 之外（本轮移到 appDataDir 的 `backup-rev419/`）。另外 `adb shell run-as ... sh -c 'ls -la …'` 的引号会被 adb 吃掉，分多条命令更稳。
+
+> **拉取验收（通过）**：① 手机本地 `.zn/security/vault.todo.json`（320 B，sha `f188fdb2…`，手机自建的同名环，与远端不是同一把）删除；② 确认 `.zn/plugins/sync/store.json` 的 `baseline.v1` **本来就没有** `.zn/security/vault.todo.json` 这个 key ⇒ 等价「新设备从没见过该环」；③ 面板点「立即同步」→ **下载 2 / 上传 27 / 冲突 2 · 29 秒**；④ 文件重新出现 **320 B**，sha256 **`4679e4e5…`** 与远端 `GET` 逐字节一致；远端同时仍 **200**（没有被当成「本地删除」删掉）。远端 manifest `private` 段 = `vault.notes.json` / `vault.secrets.json` / `vault.todo.json` / `secrets.zn`。⑤ 同步后手机 `baseline.v1` 已记下 `.zn/security/vault.todo.json` = `8w:1hhcab1`（与远端 manifest 同一指纹）⇒ 下一轮不会重复下载。证据 `_shots/rev419-phone-06-sync-done.png`。
+
+> **遗留**：手机 `security` 仍是 0.3.3（0.3.4 只改文案，未推）；冲突列表 3 条旧噪声 + 本轮新增 2 条（`vault.secrets.json` / `vault.notes.json` 双端修改，暂不处理）；本轮上传 27 把手机测试库内容推进了 `zeronote_test_418`（测试目录，可接受）。
 
 > ## 📌 rev173.418（2026-11-07 · 自定义密钥环跨设备同步）
 

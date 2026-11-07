@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-07 · rev173.418 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-07 · rev173.419 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.418 · 0.10.1 · 2026-11-07 |
+| rev / 版本 | rev173.419 · 0.10.1 · 2026-11-07 |
 | 测试基线 | vitest 2016 · cargo 105 · oxlint 4 warnings（2026-11-07） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-07 · CHANGELOG 0.10.1 |
@@ -25,7 +25,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.1** · rev173.415 |
+| 版本 / rev | **0.10.1** · rev173.419 |
 | 测试基线 | vitest 2007 · cargo 105 · oxlint 4 warnings · 质量门 9/9（2026-11-07） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
@@ -38,7 +38,9 @@
 
 > **✅ 自定义环已能跨设备同步（rev173.418）**：`sync` 的私有文件清单改成动态（内置 4 条 + 本地扫 `vault.<id>.json` + 远端 manifest 已有的），白名单只认 `vault.[a-z0-9-]+.json`，**`grants.json` 永不上云**。`sync 0.1.11` / `security 0.3.4` 已入市。桌面端到端已验（坚果云 `zeronote_test_418`：上传 4、远端 `vault.todo.json` 200/320B）。
 
-> **🔜 下个会话第一件事：验「拉取」方向（新设备从云端拿到自定义环）** —— 目前只验了推送。步骤与坑见 `03-当前状态.md` §4.1。**已知坑**：① 手机 reload 后可能「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）。
+> **✅ 拉取方向已验（rev173.419）**：手机删本地 `.zn/security/vault.todo.json`、`baseline.v1` 也没有该 key（= 新设备状态）⇒ 点「立即同步」后文件重新拉回 **320 B**，sha256 `4679e4e5…` **与远端逐字节一致**，远端仍 200 没被删（下载 2 / 上传 27 / 冲突 2 · 29 秒，证据 `_shots/rev419-phone-06-sync-done.png`）。**顺带修掉一个静默故障**：手机 `sync` 插件 `index.cjs` 是旧代码、manifest 却记着 0.1.11 的 sha256 ⇒ 签名校验失败、插件一直没加载（面板都没注册，手机端同步此前从未真跑过）；已全量推入 `examples/sync` + 重算 sha256 + 签名改 `.bak`。教训见 `03-当前状态.md` §4.1「坑」。
+>
+> **🔜 下个会话第一件事（待定，等用户挑）**：① 清掉手机上 0.3.3 的 `security`（0.3.4 只改文案，未推）；② 冲突列表 5 条（3 条旧噪声 + 2 条 `vault.*.json` 双端修改）怎么处理；③ G3：真机指纹绑定 / release 机装 0.10.1。**已知坑**（仍有效）：① 手机 reload 后可能「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）。
 
 > **下一步（等 G3 用户验收）**：① 桌面 / 手机**真机指纹绑定**（要真人按 Windows Hello / 系统指纹，AI 无法代按）；② 未分配时的报错是否够醒目（现在显示在密码库面板里）；③ 自定义密钥环：新建 → 下拉分配 → 已随笔记同步。
 
