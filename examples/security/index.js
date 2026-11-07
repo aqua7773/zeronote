@@ -734,8 +734,10 @@ export function pluginRing(grants, pluginId) {
 /**
  * 分配 / 解除（纯函数）。`pluginId` 为空 = 解除分配。
  *
- * **双向 1:1**（用户 2026-11-07 拍板）：一个环只给一个插件、一个插件只拿一个环
- * ⇒ 分配新环时先让出这个插件原先的环，同一环的上一任插件被顶掉。
+ * **双向 1:1**（用户 2026-11-07 拍板）：一个环只给一个插件、一个插件只拿一个环。
+ * 本函数保持这条不变量（脏数据 / 绕过检查时**让位与顶替**），但正常路径**不会走到让位**
+ * —— 面板命令先用 `assignConflict` 拦下冲突并提示（用户 2026-11-07：「新密钥无法分配给
+ * 已分配密钥的插件，直接提示已有密钥」）。
  */
 export function withAssign(grants, ringId, pluginId) {
   const base = grants ?? emptyGrants()
@@ -753,6 +755,27 @@ export function withAssign(grants, ringId, pluginId) {
   // 主动分配给一个还没声明过需求的插件 ⇒ 也记进 demand，下次下拉里还找得到它
   demand[pid] = true
   return { v: 2, rings, demand }
+}
+
+/**
+ * 分配前的冲突检查（纯函数）：**已占位的分配不自动替换**，直接给理由。
+ *
+ * 用户 2026-11-07：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」
+ * ⇒ 一个插件已有环时，新环分不下去；一个环已有主人时，也换不了人。
+ * 返回 `null` 表示可以分配；返回字符串 = 给用户看的拒绝理由（命令层只提示、不落盘）。
+ */
+export function assignConflict(grants, ringId, pluginId) {
+  const pid = String(pluginId ?? '').trim()
+  if (!pid) return null // 解除分配永远允许
+  const holder = ringOwner(grants, ringId)
+  if (holder && holder !== pid) {
+    return `密钥环「${ringLabel(ringId)}」已经分配给「${holder}」—— 先在那一行选「未分配」再分配`
+  }
+  const mine = pluginRing(grants, pid)
+  if (mine && mine !== ringId) {
+    return `插件「${pid}」已经有密钥环「${ringLabel(mine)}」—— 先在那一行选「未分配」再分配`
+  }
+  return null
 }
 
 /**
@@ -1797,11 +1820,14 @@ function panelView() {
 /* ───────────────────────── 命令 ───────────────────────── */
 
 /**
- * 把某个密钥环分配给一个插件 / 解除分配（rev173.416）。
+ * 把某个密钥环分配给一个插件 / 解除分配（rev173.416 · 冲突拒绝见 rev173.417）。
  *
  * 下拉的 `value` 编成 `<ringId>::<pluginId>`（空 pluginId = 未分配）—— 契约的 select
  * 只回传 `{ value }`，环 id 只能编码进值里。改动立即落盘：provider 闭包每次调用
  * 都读 `store.grants`，不需要重跑工厂、也不需要重载插件。
+ *
+ * **冲突不替换**（用户 2026-11-07）：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」
+ * ⇒ 插件已有环 / 环已有主人时只提示、不落盘，并 refresh 让下拉弹回真实值。
  */
 async function doAssignRing(api, payload) {
   const raw = String(payload?.value ?? '')
@@ -1812,6 +1838,13 @@ async function doAssignRing(api, payload) {
   if (!isRingId(ringId)) return
   const before = ringOwner(store.grants, ringId)
   if ((before ?? '') === pluginId) return
+  const why = assignConflict(store.grants, ringId, pluginId)
+  if (why) {
+    // 宿主已经把下拉的新值写进 state ⇒ 重渲染时 render 的播种会把它改回真实值
+    setStatus(api, why, 'warn')
+    api.view.refresh(PANEL_ID)
+    return
+  }
   store.grants = withAssign(store.grants, ringId, pluginId)
   const label = ringLabel(ringId)
   try {

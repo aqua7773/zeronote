@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   allRingIds,
+  assignConflict,
   assignRows,
   emptyGrants,
   newRingId,
@@ -58,7 +59,7 @@ describe('security · 密钥环分配表（v2）', () => {
     expect(pluginRing(off, 'secrets')).toBe(null)
   })
 
-  it('双向 1:1：插件换环时让出旧环；环换主人时顶掉旧插件', () => {
+  it('双向 1:1：插件换环时让出旧环；环换主人时顶掉旧插件（withAssign 的不变量）', () => {
     let g = withAssign(emptyGrants(), 'secrets', 'p')
     g = withAssign(g, 'notes', 'p')
     expect(pluginRing(g, 'p')).toBe('notes')
@@ -67,6 +68,20 @@ describe('security · 密钥环分配表（v2）', () => {
     g = withAssign(g, 'notes', 'q')
     expect(ringOwner(g, 'notes')).toBe('q')
     expect(pluginRing(g, 'p')).toBe(null)
+  })
+
+  it('分配冲突：插件已有环 / 环已有主人 ⇒ 给理由（命令层据此拒绝、不落盘）', () => {
+    let g = withAssign(emptyGrants(), 'notes', 'private-notes')
+    g = withAssign(g, 'secrets', 'secrets')
+
+    // 1) 插件已有环：新环分不下去（用户 2026-11-07 要求的行为）
+    expect(assignConflict(g, 'todo', 'private-notes')).toContain('已经有密钥环')
+    // 2) 环已有主人：换不了人
+    expect(assignConflict(g, 'notes', 'secrets')).toContain('已经分配给')
+    // 3) 同插件同环 / 解除分配 / 全新插件 ⇒ 无冲突
+    expect(assignConflict(g, 'notes', 'private-notes')).toBe(null)
+    expect(assignConflict(g, 'notes', '')).toBe(null)
+    expect(assignConflict(g, 'todo', 'newbie')).toBe(null)
   })
 
   it('withDemand 幂等且不带环 id', () => {

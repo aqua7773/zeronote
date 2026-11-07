@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.416
-更新时间: 2026-11-07 · 最新 rev173.416（**密钥环分配方向反转**）· rev173.415（桌面 dev 插件根）
+revision: 173.417
+更新时间: 2026-11-07 · 最新 rev173.417（**分配冲突拒绝**）· rev173.416（密钥环分配方向反转）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.416
 
 | rev | 内容 |
 |---|---|
+| rev173.417 | 2026-11-07 · **分配冲突拒绝**（用户：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」）：rev173.416 的 `withAssign` 在冲突时**静默让位/顶替**，用户要的是**拒绝 + 提示**。新增纯函数 `assignConflict(grants, ringId, pluginId)` → 返回理由或 null（插件已有环 → 「插件「X」已经有密钥环「Y」—— 先在那一行选「未分配」再分配」；环已有主人 → 「密钥环「Y」已经分配给「X」—— …」；解除分配永远允许）；`doAssignRing` 先检查，冲突时 `setStatus(warn)` **不落盘** + `view.refresh` 让下拉弹回真实值。`withAssign` 保留让位/顶替作为脏数据不变量。`security 0.3.3` 已签名入市。测试 +1（12 条）。**G2 双端**：桌面（环已有主人 / 插件已有环 两条都拒绝且文件不变；解除后可正常分配，`_shots/rev417-conflict.png`）；手机同流程（`_shots/rev417-phone-conflict.png`）|
 | rev173.416 | 2026-11-07 · **密钥环分配方向反转**（用户：「方向反了，现在是请求的插件勾选密钥，应该是创建的密钥分配给插件」+「一个密钥环只允许分配给一个请求者，分配做成一个下拉菜单的样式」+「插件不是申请某个具体的环，只是提出自己需要密钥环这个需求」）：① 授权表 v1 → **v2** `{ v:2, rings:{环:插件}, demand:{插件:true} }`，**双向 1:1**（一环一插件、一插件一环），环允许未分配；**v1 不迁移**（用户拍板，当空表重新分配）。② `crypto` 服务 2.0.0：新增 `demand()`（插件只声明需要密钥环，幂等）与 `ring()`（返回分配给我的环）；`unlock/encrypt/decryptText/decryptBytes/sign/verify/biometric.*` 的 `ring` 入参**一律忽略**、以分配表为准（不能借别人的环）；未分配抛「插件「X」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」。③ 面板授权区从「插件为行」改成「**环为行 + `<select>` 下拉**」（选项 = 声明过需求的插件 + 当前主人；首项「未分配」），`security.assign-ring` 命令、值编码 `<环>::<插件>`；render 时用 `view.setState` 播种下拉（值一致不写，避免自激）。④ `secrets` / `private-notes` 不再硬编码环：`adoptRing()` 调 `svc.demand()` 跟随分配（解锁前 / 面板打开 / 服务晚到各一次），`RING` 改为 `export let`（默认值不变）。⑤ 文档：契约 §service 调用方身份、方案 §13.3 原文标 ⚠️ 作废并写新模型。**测试** `tests/security-grants.test.ts` 重写 11 条（v1 当空表 / 双向 1:1 让位与顶替 / demand 幂等 / assignRows / 报错文案）。**G1** 12:25:15 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest **2010** · 质量门 9/9）。**插件**：`security 0.3.2` / `secrets 0.1.7` / `private-notes 0.3.6`（已签名入市，市场 16 条；手机 debug 包已同步推入）。**G2 双端**：桌面 dev —— 两个环各一行下拉 → 分配 notes→private-notes、secrets→secrets（`_shots/rev416-assign-final.png`）→ 输主密码解锁账号密码环（`1 把已解锁`）；撤销分配后打开密码库 → 面板文案「解锁失败：插件「secrets」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」（`_shots/rev416-unassigned-error2.png`）；把 notes 环改分给 secrets ⇒ `grants.json` 只剩 `{ notes: "secrets" }`（1:1 让位生效）。手机 Redmi dev 包 —— 三个环（含 Todo）各一行下拉、分配落盘（`_shots/rev416-phone-assigned.png`）→ 密码库解锁成功（`_shots/rev416-phone-unlocked.png`） |
 | rev173.415 | 2026-11-07 · **桌面 dev 插件根迁到项目内**：`globalPluginRoot()` 支持 `VITE_ZN_PLUGIN_ROOT`（仅桌面 dev；Android 忽略），值放 `.env.development.local`（不入库）⇒ `<仓库>\_tmp\dev-root/.zn/plugins/<id>` 是 junction → `examples/<id>`。**改插件源码 reload 即生效**，不再复制 / 改 sha256 / 删签名。`tests/plugin-roots.test.ts` +2。**要重启 dev 生效** |
 | rev173.414 | 2026-11-07 · **自定义密钥环（新建 + 分配）**：`allRingIds(vault)` 动态环列表（扫 `vault.*.json`）；`newRingId(name)` 生成安全 id；`loadVault` 扫目录；面板新增「新建密钥环」区 + `security.create-ring`；授权区按动态环渲染，未建立的请求提示「用同名新建」；新建环若 DK 在内存自动继承指纹。`security 0.3.1` 已入市。G2 手机已验（新建 Todo → 解锁 → 授权区出现第三列）；桌面因写 `%APPDATA%` 命令被拒未验 |
@@ -367,6 +368,18 @@ revision: 173.416
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.417（2026-11-07 · 分配冲突拒绝：新密钥不能顶掉已有密钥）
+
+> **起因**（用户 2026-11-07）：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」—— 这不是 bug 报告，是**要求的行为**：rev173.416 的实现里 `withAssign` 遇到冲突会**静默让位/顶替**（插件换环、环换主人），用户要的是**直接拒绝并提示**。
+
+> **实现**：① 新纯函数 `assignConflict(grants, ringId, pluginId)` —— 返回 `null`（可以分配）或给用户看的理由：插件已有环 ⇒「插件「X」已经有密钥环「Y」—— 先在那一行选「未分配」再分配」；环已有主人 ⇒「密钥环「Y」已经分配给「X」—— 先在那一行选「未分配」再分配」；**解除分配（空 pluginId）永远允许**。② `doAssignRing` 先调它，冲突时只 `setStatus(warn)`、**不写盘**，再 `api.view.refresh` —— render 的播种把下拉改回真实值（`ui[bind] !== want` ⇒ `setState`）。③ `withAssign` 的让位/顶替逻辑保留，作为「脏数据不违反 1:1」的不变量。
+
+> **测试**：`tests/security-grants.test.ts` 11 → **12**（新增「分配冲突给理由」：插件已有环 / 环已有主人 / 同插件同环 / 解除 / 全新插件五种输入）。
+
+> **G2 桌面**（dev，`_tmp-vault-rt13`）：把「私密笔记」改分给 `secrets` ⇒ 提示「密钥环「私密笔记」已经分配给「private-notes」—— 先在那一行选「未分配」再分配」、下拉弹回、`grants.json` 未变；新建 Todo 环 → 分给 `private-notes` ⇒ 提示「插件「private-notes」已经有密钥环「私密笔记」—— …」、Todo 弹回未分配（`_shots/rev417-conflict.png`）；先解除再分配 ⇒ 成功落盘（验证拦的是「冲突」不是「分配」）。
+
+> **G2 手机**（Redmi dev 包，安全插件 0.3.3 经 adb 推入）：同样的 Todo → private-notes 冲突被拒、下拉弹回、手机 `grants.json` 未变（`_shots/rev417-phone-conflict.png`）。
 
 > ## 📌 rev173.416（2026-11-07 · 密钥环分配方向反转：密钥分给插件）
 
