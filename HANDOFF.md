@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.414
-更新时间: 2026-11-07 · 最新 rev173.414（**自定义密钥环：新建 + 分配**）· rev173.413（安全插件期 3）
+revision: 173.415
+更新时间: 2026-11-07 · 最新 rev173.415（**桌面 dev 插件根迁到项目内**）· rev173.414（自定义密钥环）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.414
 
 | rev | 内容 |
 |---|---|
+| rev173.415 | 2026-11-07 · **桌面 dev 插件根迁到项目内**：`globalPluginRoot()` 支持 `VITE_ZN_PLUGIN_ROOT`（仅桌面 dev；Android 忽略），值放 `.env.development.local`（不入库）⇒ `<仓库>\_tmp\dev-root/.zn/plugins/<id>` 是 junction → `examples/<id>`。**改插件源码 reload 即生效**，不再复制 / 改 sha256 / 删签名。`tests/plugin-roots.test.ts` +2。**要重启 dev 生效** |
 | rev173.414 | 2026-11-07 · **自定义密钥环（新建 + 分配）**：`allRingIds(vault)` 动态环列表（扫 `vault.*.json`）；`newRingId(name)` 生成安全 id；`loadVault` 扫目录；面板新增「新建密钥环」区 + `security.create-ring`；授权区按动态环渲染，未建立的请求提示「用同名新建」；新建环若 DK 在内存自动继承指纹。`security 0.3.1` 已入市。G2 手机已验（新建 Todo → 解锁 → 授权区出现第三列）；桌面因写 `%APPDATA%` 命令被拒未验 |
 | rev173.413 | 2026-11-07 · **安全插件升级为「被依赖的底层插件」（期 3）**：① 内核 `service` 带调用方身份（`provide(factory: ({caller}) => T, { perCaller })`，`consume` 签名不变）；② `security` 按「插件 ↔ 密钥环」授权表校验（`.zn/security/grants.json` 本机、默认拒绝、无白名单；面板「插件授权」区 + `security.toggle-grant`）；③ 统一指纹：设备级 DK 让一次绑定覆盖多环 + 新环自动继承（**不重建 DK**）。vitest 2007（+24）· 质量门 9/9；`security 0.3.0` 已签名入市。G2 双端截图见正文 |
 | rev173.412 | 2026-11-07 · **0.10.1 发版**（G3 = 用户「目前双端真人验收没什么问题，提交发版」）：把 rev173.405–411 的「解锁输入弹窗 / 私密笔记删独立面板 / 插件入口统一」发给 release 用户 —— 关键是 `host.prompt` 是内核能力，0.10.0 用户更新插件后点锁只能看到「请更新 ZeroNote」。**产物**：桌面 `ZeroNote_0.10.1_x64-setup.exe` 15,911,327 B + `.sig` 440 B；Android `ZeroNote_0.10.1_arm64.apk` 34,977,387 B（33.36 MiB · 只打 aarch64，不是 121 MB 的 4-ABI universal · Gradle 原名 `app-universal-release.apk` 复制改名）。二进制放 `_build/release-0.10.1/`（不入库）。**清单**：`update/latest.json` + `update/android.json`（url 手动指向 `ZeroNote_0.10.1_arm64.apk`，sha256 `3e23351d…`）。**发布**：GitHub `v0.10.1` 三资产 · Gitee release `1281675` 三资产（size 全对：440 / 15,911,327 / 34,977,387）；main + tag 已推两个远端。构建 10 分 56 秒 |
@@ -365,6 +366,16 @@ revision: 173.414
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.415（2026-11-07 · 桌面 dev 插件根迁到项目内）
+
+> **起因**：AI 写 `%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\` 的命令连续被审核层拒绝 ⇒ 桌面 G2 走不通。用户问「能不能把 dev 插件改到项目内」→ 实施。
+
+> **实现**：`src/kernel/plugin-roots.ts` 的 `globalPluginRoot()` 新增 `VITE_ZN_PLUGIN_ROOT` 覆盖（条件 = `import.meta.env.DEV` + 非 Android WebView）。值写 `.env.development.local`（`.gitignore` 的 `*.local` 已覆盖）：`<仓库>\_tmp\dev-root`。目录 `<仓库>\_tmp\dev-root\.zn\plugins\<id>` 建了 **junction → `examples\<id>`**（history / import-export / private-notes / secrets / security / sync 六个）。`examples/*/manifest.json` 无 `sha256`、无 `signature.json` ⇒ 内核按 unsigned 加载，**改源码 reload 即生效**。
+
+> **测试**：`tests/plugin-roots.test.ts` +2（桌面 dev 用项目内根且不读 appDataDir；Android UA 忽略覆盖）。tsc 0。
+
+> **生效条件**：**重启 dev**（Vite env 只在启动时读）。重启后 dev 插件的 `store.json` 会写进 `examples/<id>/`（junction 穿透），提交前注意别带进去。回退：注释 `.env.development.local` 那行。
 
 > ## 📌 rev173.414（2026-11-07 · 自定义密钥环：新建 + 分配）
 

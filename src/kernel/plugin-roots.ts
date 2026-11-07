@@ -17,9 +17,34 @@ import { listPluginDirs, type PluginDirEntry } from './plugin-host'
 
 let cachedGlobalRoot: string | null = null
 
-/** 全局插件根（`appDataDir()`）。拿不到就抛，由调用方决定降级方式。 */
+/** 手机 WebView（dev 包也连同一个 dev server，必须排除项目内路径） */
+function isAndroidWebView(): boolean {
+  return /android/i.test(globalThis.navigator?.userAgent ?? '')
+}
+
+/**
+ * dev 覆盖：桌面 dev 可以把插件根指向**项目内目录**（`.env.development.local` 的
+ * `VITE_ZN_PLUGIN_ROOT`）。好处是改 `examples/` 后 reload 即生效（插件目录 junction
+ * 到源码），不必往 `appDataDir()` 铺文件、也不必改 manifest 的 sha256。
+ *
+ * 只认 `import.meta.env.DEV` + 非 Android：手机 dev 包也连同一个 Vite dev server，
+ * 拿到 Windows 路径会全部加载失败。
+ */
+function devPluginRootOverride(): string | null {
+  const raw = (import.meta.env as unknown as Record<string, string | undefined>).VITE_ZN_PLUGIN_ROOT
+  if (!import.meta.env.DEV || !raw || isAndroidWebView()) return null
+  const trimmed = raw.trim().replace(/[\\/]+$/, '')
+  return trimmed || null
+}
+
+/** 全局插件根（dev 可被 `VITE_ZN_PLUGIN_ROOT` 覆盖，否则 `appDataDir()`）。拿不到就抛。 */
 export async function globalPluginRoot(): Promise<string> {
   if (!cachedGlobalRoot) {
+    const dev = devPluginRootOverride()
+    if (dev) {
+      cachedGlobalRoot = dev
+      return cachedGlobalRoot
+    }
     const dir = await appDataDir()
     // 去掉尾部斜杠：后面还要 join，避免出现 `C:\x\\.zn` 这种重复分隔
     cachedGlobalRoot = dir.replace(/[\\/]+$/, '')

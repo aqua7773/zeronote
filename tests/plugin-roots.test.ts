@@ -61,3 +61,26 @@ describe('collectPluginDirs', () => {
     expect(errors[0]).toContain('no appdata')
   })
 })
+
+describe('dev 插件根覆盖（VITE_ZN_PLUGIN_ROOT）', () => {
+  it('桌面 dev + 有值 ⇒ 用项目内根，不读 appDataDir', async () => {
+    vi.stubEnv('VITE_ZN_PLUGIN_ROOT', 'D:/repo/_tmp/dev-root/')
+    const { globalPluginRoot } = await import('../src/kernel/plugin-roots')
+
+    await expect(globalPluginRoot()).resolves.toBe('D:/repo/_tmp/dev-root')
+    expect(mocks.appDataDir).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('Android WebView ⇒ 忽略覆盖，仍用 appDataDir（手机 dev 包也连同一 dev server）', async () => {
+    vi.stubEnv('VITE_ZN_PLUGIN_ROOT', 'D:/repo/_tmp/dev-root')
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; 24069RA21C)',
+      configurable: true,
+    })
+    const { globalPluginRoot } = await import('../src/kernel/plugin-roots')
+
+    await expect(globalPluginRoot()).resolves.toBe('C:/appdata')
+    vi.unstubAllEnvs()
+  })
+})
