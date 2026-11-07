@@ -7,12 +7,15 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  allRingIds,
   authError,
   emptyGrants,
   granted,
   grantsRows,
+  newRingId,
   parseGrants,
   recordRequest,
+  slugifyRingName,
   withGrant,
 } from '../examples/security/index.js'
 
@@ -30,11 +33,11 @@ describe('security · 授权表', () => {
     expect(parseGrants('{"grants":{"x":"secrets"}}')).toEqual(emptyGrants())
   })
 
-  it('只认已知环名，并去重', () => {
+  it('只认合法环 id（内置名与用户环的 [a-z0-9-] 都行），并去重', () => {
     const g = parseGrants(
-      JSON.stringify({ grants: { p: ['notes', 'notes', 'bogus'], q: ['secrets'] } }),
+      JSON.stringify({ grants: { p: ['notes', 'notes', 'my-ring'], q: ['secrets', 'Bad ID!'] } }),
     )
-    expect(g.grants).toEqual({ p: ['notes'], q: ['secrets'] })
+    expect(g.grants).toEqual({ p: ['notes', 'my-ring'], q: ['secrets'] })
   })
 
   it('授权后可读，撤销后立即拒绝', () => {
@@ -86,5 +89,34 @@ describe('security · 授权表', () => {
     expect(msg).toContain('evil-plugin')
     expect(msg).toContain('账号密码')
     expect(msg).toContain('插件授权')
+  })
+})
+
+describe('security · 动态密钥环（期 3 追加）', () => {
+  it('slugify：英文转小写连字符，纯中文归空（由 newRingId 兜底 ring）', () => {
+    expect(slugifyRingName('Todo')).toBe('todo')
+    expect(slugifyRingName('My Notes!')).toBe('my-notes')
+    expect(slugifyRingName('工作')).toBe('')
+  })
+
+  it('newRingId：合法且去重递增', () => {
+    expect(newRingId('Todo', [])).toBe('todo')
+    expect(newRingId('Todo', ['todo'])).toBe('todo-2')
+    expect(newRingId('工作', [])).toBe('ring')
+    expect(newRingId('工作', ['ring', 'ring-2'])).toBe('ring-3')
+  })
+
+  it('allRingIds：内置两个在前，自定义环按 id 排序', () => {
+    const vault = { rings: { secrets: {}, notes: {}, zeta: {}, alpha: {} } }
+    expect(allRingIds(vault)).toEqual(['notes', 'secrets', 'alpha', 'zeta'])
+  })
+
+  it('grantsRows 按传入的环列表生成；请求了还不存在的环进 missing', () => {
+    let g = recordRequest(emptyGrants(), 'p', 'todo')
+    g = withGrant(g, 'p', 'notes', true)
+    const rows = grantsRows(g, ['notes', 'secrets'])
+    expect(rows[0].rings).toEqual({ notes: true, secrets: false })
+    expect(rows[0].missing).toEqual(['todo'])
+    expect(rows[0].pending).toBe(true)
   })
 })

@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.413
-更新时间: 2026-11-07 · 最新 rev173.413（**安全插件期 3：依赖 / 环分配 / 统一指纹**）· rev173.412（0.10.1 发版）
+revision: 173.414
+更新时间: 2026-11-07 · 最新 rev173.414（**自定义密钥环：新建 + 分配**）· rev173.413（安全插件期 3）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.413
 
 | rev | 内容 |
 |---|---|
+| rev173.414 | 2026-11-07 · **自定义密钥环（新建 + 分配）**：`allRingIds(vault)` 动态环列表（扫 `vault.*.json`）；`newRingId(name)` 生成安全 id；`loadVault` 扫目录；面板新增「新建密钥环」区 + `security.create-ring`；授权区按动态环渲染，未建立的请求提示「用同名新建」；新建环若 DK 在内存自动继承指纹。`security 0.3.1` 已入市。G2 手机已验（新建 Todo → 解锁 → 授权区出现第三列）；桌面因写 `%APPDATA%` 命令被拒未验 |
 | rev173.413 | 2026-11-07 · **安全插件升级为「被依赖的底层插件」（期 3）**：① 内核 `service` 带调用方身份（`provide(factory: ({caller}) => T, { perCaller })`，`consume` 签名不变）；② `security` 按「插件 ↔ 密钥环」授权表校验（`.zn/security/grants.json` 本机、默认拒绝、无白名单；面板「插件授权」区 + `security.toggle-grant`）；③ 统一指纹：设备级 DK 让一次绑定覆盖多环 + 新环自动继承（**不重建 DK**）。vitest 2007（+24）· 质量门 9/9；`security 0.3.0` 已签名入市。G2 双端截图见正文 |
 | rev173.412 | 2026-11-07 · **0.10.1 发版**（G3 = 用户「目前双端真人验收没什么问题，提交发版」）：把 rev173.405–411 的「解锁输入弹窗 / 私密笔记删独立面板 / 插件入口统一」发给 release 用户 —— 关键是 `host.prompt` 是内核能力，0.10.0 用户更新插件后点锁只能看到「请更新 ZeroNote」。**产物**：桌面 `ZeroNote_0.10.1_x64-setup.exe` 15,911,327 B + `.sig` 440 B；Android `ZeroNote_0.10.1_arm64.apk` 34,977,387 B（33.36 MiB · 只打 aarch64，不是 121 MB 的 4-ABI universal · Gradle 原名 `app-universal-release.apk` 复制改名）。二进制放 `_build/release-0.10.1/`（不入库）。**清单**：`update/latest.json` + `update/android.json`（url 手动指向 `ZeroNote_0.10.1_arm64.apk`，sha256 `3e23351d…`）。**发布**：GitHub `v0.10.1` 三资产 · Gitee release `1281675` 三资产（size 全对：440 / 15,911,327 / 34,977,387）；main + tag 已推两个远端。构建 10 分 56 秒 |
 | rev173.411 | 2026-11-07 · **插件入口全部接 openCommand**（用户：「插件入口直接进入是不是没改」+「都做成和隐私文件夹一样的弹窗入口」）：上一 rev 只接了标签条 ＋ / 更多菜单，还有 3 处**用户可见入口**直接 `openPanelInTab` —— ① `pinPlugin`（图标栏固定图标点击）；② `morePluginEntries`（手机「更多 → 插件」组）；③ `resolveQuickEntry`（起始页长按 ＋ 环形入口）。三处改走 `openPanelEntry`；`core.panel.<id>` 命令与 `onOpenPanelInMain`（插件 `view.openWindow` 降级）**保持直接开**（命令→面板→命令会死循环）。测试 `tests/panel-open-wiring.test.ts` 重写 5 条（用户入口全走 entry / 三处新入口锁死 / 命令入口仍直接开 / `openPanelEntry` 必须在 `const kernel` 之后防 TDZ）。**G2 双端**：手机「更多 → 插件 → 密码库」→ 弹「解锁密码库」→ 输密码 → 直接进库；桌面图标栏固定「密码库」→ 点图标 → 弹解锁框 → 解锁后进「密码库」标签。**不做**：「安全」入口不接弹窗（用户要求把它改成被依赖的底层插件，另立需求） |
@@ -364,6 +365,20 @@ revision: 173.413
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.414（2026-11-07 · 自定义密钥环：新建 + 分配）
+
+> **需求**（用户 2026-11-07）：「应该可以新建一个密钥环，然后把这个密钥环分配给请求密钥的一个插件」。三个点已确认：入口在**安全面板**（名称 + 主密码）；建完**手动勾选**、不自动授权；id 由**用户名称自动生成**。
+
+> **实现**：① `allRingIds(vault)` = 内置 `notes`/`secrets` + vault 里的自定义环；② `loadVault` 改成扫 `.zn/security/vault.*.json`（不再只读两个固定文件）；③ `newRingId(name)` → `[a-z0-9-]` 安全 id（`Todo`→`todo`，冲突递增；纯中文 → `ring`/`ring-2`）；④ 面板新增「新建密钥环」区（名称 + 独立 pw1/pw2）+ 命令 `security.create-ring`；⑤ 授权区按**动态环列表**渲染（每环一个勾选按钮），插件请求了还没建的环显示「↳ 它还请求了未建立的环：xxx —— 用同名在下面新建」；⑥ 新建环时若已绑定指纹且 DK 在内存，自动继承；⑦ `parseGrants` 接受任意合法环 id。
+
+> **测试**：`tests/security-grants.test.ts` 10 → 14（动态环 4 条：slugify / newRingId 去重 / allRingIds 排序 / grantsRows missing）。`security 0.3.1` 已签名入市（`market/packs/security-0.3.1.znp`）。
+
+> **G2 手机**（Redmi `33b676f6` · debug 包，adb 推入插件）：「新建密钥环」区可见 → 填 Todo + `test-pass-1234` → 新建 → 环切换出现「Todo 🔒」、授权区出现第三列「Todo ⬜」、提示「已新建密钥环「Todo」（id: todo）」→ 输主密码解锁成功。截图 `_shots/rev414-phone-{01,02-created,03-unlocked}.png`。
+
+> **桌面未验**：写 `%APPDATA%\com.aqua.zeronote.dev\.zn\plugins\security\` 的 pwsh 命令连续被拒（疑似审核层拦截，非本轮代码），dev 端需用户手动同步插件后再自查。
+
+> **未做**：自定义环**不同步到其它设备** —— sync 的 `PRIVATE_FILES` 是固定两环白名单，要改成扫描 `.zn/security/vault.*.json`；本轮 UI 已标「⚠️ 自定义环暂不同步到其它设备」，列下一 rev。
 
 > ## 📌 rev173.413（2026-11-07 · 安全插件期 3：依赖 / 环分配 / 统一指纹）
 

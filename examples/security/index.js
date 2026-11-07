@@ -245,6 +245,8 @@ export function createRing(libs, ringId, password, opts = {}) {
   const dek = libs.randomBytes(32)
   const ring = {
     id: ringId,
+    // 自定义环的显示名（内置两环用固定中文名，不写这个字段）
+    ...(opts.label ? { label: String(opts.label) } : {}),
     kdf: { ...kdf, salt },
     idleLockMs: opts.idleLockMs ?? preset.idleLockMs ?? 3 * 60 * 1000,
     wrapped: { [opts.containerId ?? ringId]: wrapDek(libs, masterKey, ringId, dek) },
@@ -697,7 +699,7 @@ export function parseGrants(text) {
     const out = {}
     for (const [pluginId, rings] of Object.entries(src ?? {})) {
       if (!Array.isArray(rings)) continue
-      const list = [...new Set(rings.filter((r) => RING_IDS.includes(r)))]
+      const list = [...new Set(rings.filter((r) => isRingId(r)))]
       if (list.length) out[String(pluginId)] = list
     }
     return out
@@ -738,30 +740,87 @@ export function recordRequest(grants, pluginId, ringId) {
 
 /** 未授权时的报错文案（消费者把它原样显示给用户） */
 export function authError(pluginId, ringId) {
-  return `插件「${pluginId}」未获授权使用密钥环「${RING_LABEL[ringId] ?? ringId}」—— ${AUTH_HINT}`
+  return `插件「${pluginId}」未获授权使用密钥环「${ringLabel(ringId)}」—— ${AUTH_HINT}`
 }
 
-/** 面板用的授权行：`[{ pluginId, rings: { notes, secrets }, pending }]`（纯函数） */
-export function grantsRows(grants) {
+/**
+ * 面板用的授权行：`[{ pluginId, rings, missing, pending }]`（纯函数）。
+ *
+ * `rings` 只覆盖 `ringIds`（当前所有环）；插件请求了但库里还没有的环进 `missing`
+ * —— 面板据此提示「去下面新建再勾」。
+ */
+export function grantsRows(grants, ringIds = BUILTIN_RINGS) {
   const ids = [
     ...new Set([...Object.keys(grants?.grants ?? {}), ...Object.keys(grants?.requested ?? {})]),
   ].sort()
-  return ids.map((pluginId) => ({
-    pluginId,
-    rings: Object.fromEntries(RING_IDS.map((id) => [id, granted(grants, pluginId, id)])),
-    pending: Boolean(grants?.requested?.[pluginId]?.length),
-  }))
+  return ids.map((pluginId) => {
+    const requested = grants?.requested?.[pluginId] ?? []
+    return {
+      pluginId,
+      rings: Object.fromEntries(ringIds.map((id) => [id, granted(grants, pluginId, id)])),
+      missing: requested.filter((r) => !ringIds.includes(r)),
+      pending: Boolean(requested.length),
+    }
+  })
 }
 
 const PANEL_ID = 'security.panel'
 const STATUS_ID = 'security.status'
-const RING_IDS = ['notes', 'secrets']
+/** 内置环 id：消费者（私密笔记 / 密码库）硬编码这两个名字，**永远存在** */
+const BUILTIN_RINGS = ['notes', 'secrets']
+/** 兼容旧引用（内置两环） */
+const RING_IDS = BUILTIN_RINGS
 const RING_LABEL = { notes: '私密笔记', secrets: '账号密码' }
+
+/**
+ * **当前所有环 id**（内置两个在前，用户新建的按 id 排序在后）。
+ *
+ * 环 id 是 `.zn/security/vault.<id>.json` 的文件名片段，也是 AAD 的一部分 ⇒
+ * 只允许 `[a-z0-9-]`（用户输入的中文名称只做显示用，id 由 `newRingId` 生成）。
+ */
+export function allRingIds(vault) {
+  const extra = Object.keys(vault?.rings ?? {}).filter((id) => !BUILTIN_RINGS.includes(id))
+  return [...BUILTIN_RINGS, ...extra.sort()]
+}
+
+/** 环 id 合法性（文件名 + AAD 共用这一条） */
+export const RING_ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/
+export function isRingId(id) {
+  return typeof id === 'string' && RING_ID_RE.test(id)
+}
+
+/** 用户输入的名称 → 安全 id（中文等非 ASCII 字符归到 `ring` / `ring-2` …） */
+export function slugifyRingName(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+}
+
+/** 生成不冲突的环 id（纯函数，单测覆盖） */
+export function newRingId(name, taken = []) {
+  const base = slugifyRingName(name) || 'ring'
+  let id = base
+  let n = 2
+  while (taken.includes(id)) id = `${base}-${n++}`
+  return id
+}
+
 /** 环名（给用户看的）—— `device` 是期 3 的设备级指纹伪环，不参与授权 */
-const ringLabel = (id) => RING_LABEL[id] ?? (id === 'device' ? '本机设备' : id)
+function ringLabel(id, vault) {
+  if (id === 'device') return '本机设备'
+  if (RING_LABEL[id]) return RING_LABEL[id]
+  return getRing(vault ?? store.vault, id)?.label || id
+}
+
 const RING_HINT = {
   notes: '私密笔记用这把密码。与账号密码分开 —— 这把泄露不影响密码库。',
   secrets: '账号密码库用这把密码。与私密笔记分开，60 秒无操作自动锁。',
+}
+/** 面板提示：自定义环没有专属文案 */
+function ringHint(id) {
+  return RING_HINT[id] ?? '这把密码只用来解开这个环；与别的环互不派生。'
 }
 /** 空闲检查间隔（不是锁定时间；锁定时间按环的 idleLockMs 判） */
 const IDLE_CHECK_MS = 3000
@@ -781,6 +840,10 @@ const B = {
   question: 'security.question',
   answer: 'security.answer',
   code: 'security.code',
+  /** 新建自定义密钥环（期 3 · 动态环）：名称 + 独立的两只密码框 */
+  ringName: 'security.ringName',
+  ringPw1: 'security.ringPw1',
+  ringPw2: 'security.ringPw2',
 }
 
 /* ───────────────────────── vendor（本地副本） ───────────────────────── */
@@ -1008,10 +1071,22 @@ function clearInputs(api, ...binds) {
  * 旧单文件只在"还没迁移过"的库上出现；读到时内存里拼成 `{ rings }`，**下一次保存顺手迁移**。
  */
 async function loadVault(api) {
-  // ① 新结构：按环读
+  // ① 新结构：扫 `.zn/security/vault.*.json` —— 内置两个 + 用户新建的环都靠文件名发现
   const rings = {}
   let found = false
-  for (const id of RING_IDS) {
+  let files = []
+  try {
+    files = await api.fs.listFiles(VAULT_DIR)
+  } catch {
+    files = [] // 目录还没建（首次使用，正常态）
+  }
+  const ids = new Set(BUILTIN_RINGS)
+  for (const rel of files) {
+    const name = String(rel).split('/').pop() ?? ''
+    const m = /^vault\.([a-z0-9-]+)\.json$/.exec(name)
+    if (m) ids.add(m[1])
+  }
+  for (const id of ids) {
     const file = vaultFileOf(id)
     let text
     try {
@@ -1365,7 +1440,7 @@ function checkIdle(api) {
 
 async function unlockWithPassword(api, ringId, password) {
   const ring = getRing(store.vault, ringId)
-  if (!ring) throw new Error(`「${RING_LABEL[ringId] ?? ringId}」还没建立`)
+  if (!ring) throw new Error(`「${ringLabel(ringId)}」还没建立`)
   if (!password) throw new Error('请输入主密码')
   const L = await loadLibs()
   const { dek } = unlockRing(L, ring, password)
@@ -1378,7 +1453,7 @@ async function unlockWithPassword(api, ringId, password) {
 
 /** 环的状态行 */
 function ringRow(ringId, { selected, unlocked, busy }) {
-  const label = `${RING_LABEL[ringId] ?? ringId} ${unlocked ? '🔓' : '🔒'}`
+  const label = `${ringLabel(ringId)} ${unlocked ? '🔓' : '🔒'}`
   return {
     type: 'button',
     label: busy === ringId ? `${label} · 正在计算…` : label,
@@ -1410,11 +1485,12 @@ export function panelNode(view) {
     deviceBound = false,
     ringInherited = false,
     grants = emptyGrants(),
+    ringIds = BUILTIN_RINGS,
   } = view ?? {}
 
   const ring = getRing(vault, selected)
   const isUnlocked = Boolean(unlocked[selected])
-  const label = RING_LABEL[selected] ?? selected
+  const label = ringLabel(selected, vault)
   const kids = []
 
   kids.push({
@@ -1434,12 +1510,12 @@ export function panelNode(view) {
     align: 'center',
     wrap: true,
     gap: 'sm',
-    children: RING_IDS.map((id) =>
+    children: allRingIds(vault).map((id) =>
       ringRow(id, { selected: id === selected, unlocked: Boolean(unlocked[id]), busy }),
     ),
   })
 
-  kids.push({ type: 'text', value: RING_HINT[selected] ?? '', variant: 'caption', tone: 'muted' })
+  kids.push({ type: 'text', value: ringHint(selected), variant: 'caption', tone: 'muted' })
 
   if (corrupt) {
     kids.push({
@@ -1582,9 +1658,31 @@ export function panelNode(view) {
     })
   }
 
+  /* 新建自定义密钥环（期 3 · 动态环）：名称只做显示，id 由 slug 生成；建完去下面授权区勾给插件 */
+  kids.push({ type: 'divider' })
+  kids.push({
+    type: 'text',
+    value: '新建密钥环（给插件用；名称只做显示，内部 id 自动生成）',
+    variant: 'caption',
+    tone: 'muted',
+  })
+  kids.push({ type: 'input', bind: B.ringName, placeholder: '密钥环名称（如 Todo）' })
+  kids.push({ type: 'input', bind: B.ringPw1, secret: true, placeholder: '主密码（至少 8 位）' })
+  kids.push({ type: 'input', bind: B.ringPw2, secret: true, placeholder: '再输一次' })
+  kids.push({
+    type: 'row',
+    align: 'center',
+    wrap: true,
+    gap: 'sm',
+    children: [
+      { type: 'button', label: '新建密钥环', onClick: 'security.create-ring', variant: 'ghost' },
+      { type: 'text', value: '⚠️ 自定义环暂不同步到其它设备', variant: 'caption', tone: 'muted' },
+    ],
+  })
+
   /* 插件授权（期 3）：哪些插件可以用哪个环。**始终显示** —— 没授权时这里的提示
      就是用户唯一能看到「有个插件正被拒绝」的地方。 */
-  const authRows = grantsRows(grants)
+  const authRows = grantsRows(grants, ringIds)
   if (authRows.length) {
     const pendingCount = authRows.filter((r) => r.pending).length
     kids.push({ type: 'divider' })
@@ -1604,15 +1702,23 @@ export function panelNode(view) {
         gap: 'sm',
         children: [
           { type: 'text', value: row.pluginId, variant: 'caption' },
-          ...RING_IDS.map((id) => ({
+          ...ringIds.map((id) => ({
             type: 'button',
-            label: `${RING_LABEL[id]} ${row.rings[id] ? '✅' : '⬜'}`,
+            label: `${ringLabel(id, vault)} ${row.rings[id] ? '✅' : '⬜'}`,
             onClick: 'security.toggle-grant',
             payload: { pluginId: row.pluginId, ringId: id },
             variant: 'ghost',
           })),
         ],
       })
+      if (row.missing.length) {
+        kids.push({
+          type: 'text',
+          value: `↳ 它还请求了未建立的环：${row.missing.join('、')} —— 用同名在下面新建，再回来勾上`,
+          variant: 'caption',
+          tone: 'muted',
+        })
+      }
     }
   }
 
@@ -1623,10 +1729,12 @@ export function panelNode(view) {
 
 /** 面板数据快照（render 与单测都走这里，避免两份判断） */
 function panelView() {
+  const ringIds = allRingIds(store.vault)
   const unlocked = {}
-  for (const id of RING_IDS) unlocked[id] = live.has(id)
+  for (const id of ringIds) unlocked[id] = live.has(id)
   const ring = getRing(store.vault, store.selected)
   return {
+    ringIds,
     vault: store.vault,
     selected: store.selected,
     unlocked,
@@ -1660,15 +1768,58 @@ function panelView() {
 async function doToggleGrant(api, payload) {
   const pluginId = String(payload?.pluginId ?? '')
   const ringId = String(payload?.ringId ?? '')
-  if (!pluginId || !RING_IDS.includes(ringId)) return
+  if (!pluginId || !isRingId(ringId)) return
   const allow = !granted(store.grants, pluginId, ringId)
   store.grants = withGrant(store.grants, pluginId, ringId, allow)
-  const label = RING_LABEL[ringId] ?? ringId
+  const label = ringLabel(ringId)
   try {
     await saveGrants(api, store.grants)
     setStatus(api, `${allow ? '已允许' : '已撤销'}「${pluginId}」使用「${label}」`, allow ? 'success' : 'info')
   } catch (e) {
     setStatus(api, `授权没保存：${String(e?.message ?? e)}`, 'error')
+  }
+}
+
+/**
+ * 新建一把**自定义密钥环**（期 3 · 动态环）：名称 + 主密码两次 → slug 生成 id → 建环。
+ *
+ * 建完**不自动授权**给任何插件（用户 2026-11-07 拍板：建完在授权区手动勾）。
+ * 插件请求的 `ring` 就是它自己传的 id —— 用同名建环即可对上。
+ */
+async function doCreateRing(api) {
+  const name = String(ui[B.ringName] ?? '').trim()
+  const pw1 = String(ui[B.ringPw1] ?? '')
+  const pw2 = String(ui[B.ringPw2] ?? '')
+  if (!name) return setStatus(api, '先给这个密钥环起个名字', 'warn')
+  if (pw1.length < 8) {
+    return setStatus(api, '主密码至少 8 位 —— 慢哈希只提高每次猜测的成本，挡不住 123456', 'warn')
+  }
+  if (pw1 !== pw2) return setStatus(api, '两次输入的主密码不一致', 'warn')
+
+  const id = newRingId(name, allRingIds(store.vault))
+  try {
+    const ring = await withBusy(api, id, async () => {
+      const L = await loadLibs()
+      const created = createRing(L, id, pw1, { containerId: id, label: name })
+      // 本机已绑定指纹且 DK 在内存 ⇒ 新环直接继承（与内置环建环一致）
+      if (deviceKey) {
+        try {
+          created.ring.deviceWrapped = wrapDeviceDek(L, deviceKey, id, created.dek)
+        } catch {
+          /* 继承失败不影响建环本身 */
+        }
+      }
+      wipe(created.dek)
+      return created.ring
+    })
+    store.vault = putRing(store.vault, ring)
+    await saveVault(api, store.vault, ring.id)
+    store.selected = ring.id
+    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 去下面「插件授权」把它勾给要用的插件`, 'success')
+  } catch (e) {
+    setStatus(api, `新建失败：${String(e?.message ?? e)}`, 'error')
+  } finally {
+    clearInputs(api, B.ringName, B.ringPw1, B.ringPw2)
   }
 }
 
@@ -1707,7 +1858,7 @@ async function doSetup(api) {
     store.vault = putRing(store.vault, ring)
     await saveVault(api, store.vault, ring.id)
     store.recoveryCodeShown = code
-    setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已建立。请抄下上面的恢复码。`, 'success')
+    setStatus(api, `「${ringLabel(ringId)}」已建立。请抄下上面的恢复码。`, 'success')
     api.host.notify('密钥环已建立 —— 恢复码只显示一次，请抄下来', 'info')
   } catch (e) {
     setStatus(api, `建立失败：${String(e?.message ?? e)}`, 'error')
@@ -1724,7 +1875,7 @@ async function doUnlock(api) {
     await withBusy(api, ringId, () => unlockWithPassword(api, ringId, pw))
     // 解锁后恢复码提示可以收了（已抄过的用户不希望它一直挂在屏幕上）
     store.recoveryCodeShown = ''
-    setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已解锁`, 'success')
+    setStatus(api, `「${ringLabel(ringId)}」已解锁`, 'success')
   } catch (e) {
     // 密码错时 **不说是"密码错"以外的信息**（不给 oracle）；AEAD 失败的原文也没用
     setStatus(api, `解不开：主密码不对，或 vault 被改过`, 'error')
@@ -1939,7 +2090,7 @@ async function doBiometricUnlock(api, opts = {}) {
       : await unlockWithBiometric(ring, adapter, store.deviceId)
     live.set(ringId, { dek, lastActive: Date.now() })
     api.event.emit('security:unlocked', { ringId })
-    setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已用指纹解锁`, 'success')
+    setStatus(api, `「${ringLabel(ringId)}」已用指纹解锁`, 'success')
   } catch (e) {
     const msg = biometricErrorMessage(e)
     if (auto && msg === '已取消') {
@@ -2174,7 +2325,7 @@ export default {
         title: '安全：切换密钥环',
         run: async (payload) => {
           const ringId = String(payload?.ringId ?? '')
-          if (!RING_IDS.includes(ringId)) return
+          if (!allRingIds(store.vault).includes(ringId)) return
           store.selected = ringId
           store.message = ''
           store.recoveryCodeShown = ''
@@ -2189,7 +2340,7 @@ export default {
         run: async () => {
           const ringId = store.selected
           lockRing(api, ringId, 'manual')
-          setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已锁定`, 'info')
+          setStatus(api, `「${ringLabel(ringId)}」已锁定`, 'info')
         },
       },
       { id: 'security.change-password', title: '安全：换主密码', run: () => doChangePassword(api) },
@@ -2203,6 +2354,7 @@ export default {
       { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },
       { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
       { id: 'security.toggle-grant', title: '安全：允许 / 撤销插件使用密钥环', run: (payload) => doToggleGrant(api, payload) },
+      { id: 'security.create-ring', title: '安全：新建密钥环', run: () => doCreateRing(api) },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))
@@ -2217,7 +2369,7 @@ export default {
             needGrant(api, caller, ringId)
             return live.has(ringId)
           },
-          ids: () => RING_IDS.filter((id) => granted(store.grants, caller, id) && live.has(id)),
+          ids: () => allRingIds(store.vault).filter((id) => granted(store.grants, caller, id) && live.has(id)),
           unlock: async (ringId, password) => {
             needGrant(api, caller, ringId)
             return unlockWithPassword(api, ringId, password)
