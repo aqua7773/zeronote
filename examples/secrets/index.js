@@ -25,8 +25,13 @@
 
 /* ───────────────────────── 常量 ───────────────────────── */
 
-/** 消费的密钥环 id —— 与 `security` 插件的 RING_IDS 对齐（账号密码环） */
-export const RING = 'secrets'
+/**
+ * 消费的密钥环 id。
+ *
+ * rev173.416 起**由安全插件分配**：本插件只声明「我需要一个密钥环」，实际是哪个环
+ * 由用户在「安全 → 密钥环分配」里定。默认 `secrets`（管理员没分配时读不到环）。
+ */
+export let RING = 'secrets'
 /** 加密容器 id —— 独立于 `private`（私密笔记），AAD 因此不会串 */
 export const CONTAINER = 'secrets'
 /** 整库密文（单文件；**不是一条一文件** —— 方案 §4.5 已定） */
@@ -603,6 +608,22 @@ function setMessage(text, tone = 'muted') {
 }
 
 /**
+ * rev173.416：向 security 声明「我需要一个密钥环」，并跟上它分配给我的那个环。
+ *
+ * 插件不再挑环（用户 2026-11-07 拍板：密钥由安全插件分配）；`svc.demand()` 幂等
+ * 登记需求并返回当前分配（没分配 ⇒ null）。拿不到服务 / 安全插件版本旧 ⇒
+ * 保持默认 `secrets`，行为与之前一致。
+ */
+function adoptRing() {
+  try {
+    const got = svc?.demand?.()
+    if (typeof got === 'string' && got) RING = got
+  } catch {
+    /* 没装安全插件 / 版本旧：保持默认，等 service:available 再来 */
+  }
+}
+
+/**
  * 读 security 的 vault 看 secrets 环建了没有（只读，不写别人的文件）。
  *
  * 两种布局都要认（rev173.335）：
@@ -664,6 +685,7 @@ async function refreshRingIfChanged(api, reason) {
  */
 async function unlockAndLoad(api, password) {
   if (!svc) throw new Error('没拿到 crypto 服务（安全插件没装？）')
+  adoptRing() // rev173.416：解锁前跟上最新的环分配（用户可能刚在安全面板改过）
   const pw = String(password ?? '')
   if (!pw) throw new Error('请输入主密码')
   await svc.unlock(RING, pw) // Argon2id 约 1 s（桌面）：调用方先渲染"正在派生…"
@@ -1356,6 +1378,7 @@ export default {
   async apply(api) {
     /* ① 拿 crypto 服务（软依赖：拿不到就降级，不阻塞加载） */
     svc = await api.service.consume('crypto')
+    adoptRing()
     api.subscriptions.push(
       api.event.on('service:available', (payload) => {
         const name = payload && typeof payload === 'object' ? payload.name : null
@@ -1363,6 +1386,7 @@ export default {
         void api.service.consume('crypto').then(async (got) => {
           if (!got) return
           svc = got
+          adoptRing()
           await checkRingReady(api)
           await refreshBiometric()
           api.view.refresh(PANEL_ID)
@@ -1385,6 +1409,7 @@ export default {
         openCommand: 'secrets.open',
         render: (ctx) => {
           ui = { ...(ctx?.state ?? {}) }
+          adoptRing() // 打开面板时跟上最新分配（幂等）
           return panelNode()
         },
       }),

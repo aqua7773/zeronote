@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.415
-更新时间: 2026-11-07 · 最新 rev173.415（**桌面 dev 插件根迁到项目内**）· rev173.414（自定义密钥环）
+revision: 173.416
+更新时间: 2026-11-07 · 最新 rev173.416（**密钥环分配方向反转**）· rev173.415（桌面 dev 插件根）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.415
 
 | rev | 内容 |
 |---|---|
+| rev173.416 | 2026-11-07 · **密钥环分配方向反转**（用户：「方向反了，现在是请求的插件勾选密钥，应该是创建的密钥分配给插件」+「一个密钥环只允许分配给一个请求者，分配做成一个下拉菜单的样式」+「插件不是申请某个具体的环，只是提出自己需要密钥环这个需求」）：① 授权表 v1 → **v2** `{ v:2, rings:{环:插件}, demand:{插件:true} }`，**双向 1:1**（一环一插件、一插件一环），环允许未分配；**v1 不迁移**（用户拍板，当空表重新分配）。② `crypto` 服务 2.0.0：新增 `demand()`（插件只声明需要密钥环，幂等）与 `ring()`（返回分配给我的环）；`unlock/encrypt/decryptText/decryptBytes/sign/verify/biometric.*` 的 `ring` 入参**一律忽略**、以分配表为准（不能借别人的环）；未分配抛「插件「X」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」。③ 面板授权区从「插件为行」改成「**环为行 + `<select>` 下拉**」（选项 = 声明过需求的插件 + 当前主人；首项「未分配」），`security.assign-ring` 命令、值编码 `<环>::<插件>`；render 时用 `view.setState` 播种下拉（值一致不写，避免自激）。④ `secrets` / `private-notes` 不再硬编码环：`adoptRing()` 调 `svc.demand()` 跟随分配（解锁前 / 面板打开 / 服务晚到各一次），`RING` 改为 `export let`（默认值不变）。⑤ 文档：契约 §service 调用方身份、方案 §13.3 原文标 ⚠️ 作废并写新模型。**测试** `tests/security-grants.test.ts` 重写 11 条（v1 当空表 / 双向 1:1 让位与顶替 / demand 幂等 / assignRows / 报错文案）。**G1** 12:25:15 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest **2010** · 质量门 9/9）。**插件**：`security 0.3.2` / `secrets 0.1.7` / `private-notes 0.3.6`（已签名入市，市场 16 条；手机 debug 包已同步推入）。**G2 双端**：桌面 dev —— 两个环各一行下拉 → 分配 notes→private-notes、secrets→secrets（`_shots/rev416-assign-final.png`）→ 输主密码解锁账号密码环（`1 把已解锁`）；撤销分配后打开密码库 → 面板文案「解锁失败：插件「secrets」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」（`_shots/rev416-unassigned-error2.png`）；把 notes 环改分给 secrets ⇒ `grants.json` 只剩 `{ notes: "secrets" }`（1:1 让位生效）。手机 Redmi dev 包 —— 三个环（含 Todo）各一行下拉、分配落盘（`_shots/rev416-phone-assigned.png`）→ 密码库解锁成功（`_shots/rev416-phone-unlocked.png`） |
 | rev173.415 | 2026-11-07 · **桌面 dev 插件根迁到项目内**：`globalPluginRoot()` 支持 `VITE_ZN_PLUGIN_ROOT`（仅桌面 dev；Android 忽略），值放 `.env.development.local`（不入库）⇒ `<仓库>\_tmp\dev-root/.zn/plugins/<id>` 是 junction → `examples/<id>`。**改插件源码 reload 即生效**，不再复制 / 改 sha256 / 删签名。`tests/plugin-roots.test.ts` +2。**要重启 dev 生效** |
 | rev173.414 | 2026-11-07 · **自定义密钥环（新建 + 分配）**：`allRingIds(vault)` 动态环列表（扫 `vault.*.json`）；`newRingId(name)` 生成安全 id；`loadVault` 扫目录；面板新增「新建密钥环」区 + `security.create-ring`；授权区按动态环渲染，未建立的请求提示「用同名新建」；新建环若 DK 在内存自动继承指纹。`security 0.3.1` 已入市。G2 手机已验（新建 Todo → 解锁 → 授权区出现第三列）；桌面因写 `%APPDATA%` 命令被拒未验 |
 | rev173.413 | 2026-11-07 · **安全插件升级为「被依赖的底层插件」（期 3）**：① 内核 `service` 带调用方身份（`provide(factory: ({caller}) => T, { perCaller })`，`consume` 签名不变）；② `security` 按「插件 ↔ 密钥环」授权表校验（`.zn/security/grants.json` 本机、默认拒绝、无白名单；面板「插件授权」区 + `security.toggle-grant`）；③ 统一指纹：设备级 DK 让一次绑定覆盖多环 + 新环自动继承（**不重建 DK**）。vitest 2007（+24）· 质量门 9/9；`security 0.3.0` 已签名入市。G2 双端截图见正文 |
@@ -366,6 +367,32 @@ revision: 173.415
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.416（2026-11-07 · 密钥环分配方向反转：密钥分给插件）
+
+> **起因**（用户 2026-11-07）：「方向反了，现在是请求的插件勾选密钥，应该是创建的密钥分配给插件」；追问后确认三点：① **一个密钥环只允许分配给一个请求者**，分配做成**下拉菜单**；② **数据也反转**成 `{环:[插件]}`；③ **插件不申请某个具体的环**，只是提出「我需要一个密钥环」的需求，实际给哪个由人在安全插件里定；**允许环有未分配状态**。
+
+> **数据模型**：`grants.json` v1 → **v2** `{ "v": 2, "rings": { "<环id>": "<插件id>" }, "demand": { "<插件id>": true } }`。纯函数：`ringOwner` / `pluginRing` / `withAssign`（空 pluginId = 解除；双向 1:1 自动让位与顶替）/ `withDemand`（幂等）/ `assignRows`（每环一行 + options）/ `noRingError`。**v1 旧表不迁移**（用户拍板：当空表，重新分配一次）。
+
+> **服务契约**：`crypto` **2.0.0** —— 新增 `demand()`（声明需要密钥环，返回当前分配或 null）与 `ring()`（分配给我的环）；`unlock / encrypt / decryptText / decryptBytes / sign / verify / biometric.*` 的 `ring` 入参**一律忽略**，以分配表为准（插件不能借别人的环）；未分配抛「插件「X」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」。
+
+> **面板**：授权区从「插件为行、每环一个 ✅/⬜」改成「**每个环一行 + `<select>` 下拉**」；选项 = 声明过需求的插件 ∪ 当前主人，首项「未分配」；命令 `security.assign-ring`，值编码 `<环id>::<插件id>`（契约 select 只回传 `{ value }`）。render 时用 `api.view.setState` 播种下拉（值一致就不写，避免重渲染自激）。
+
+> **消费者**：`secrets`（0.1.7）/ `private-notes`（0.3.6）不再把环写死 —— 新增 `adoptRing()`：`svc.demand()` 幂等登记需求并跟随分配，调用点 = `apply` / `service:available` / 解锁前 / （secrets）面板 render；`RING` 改成 `export let`（默认值不变，老安全插件仍能跑）。
+
+> **文档**：契约 §service「调用方身份」改写；`docs/安全插件-方案-2026-10-25.md` §13.3 原文**标 ⚠️ 作废**并写新模型（AGENTS §1.5：更正在原文处标）。
+
+> **测试**：`tests/security-grants.test.ts` **重写 11 条**（空表 / 坏 JSON / v1 当空表 / v2 解析去重 / 分配与解除 / 双向 1:1 / demand 幂等 / assignRows / 报错文案 / 动态环 3 条）。
+
+> **G1**：12:25:15 全绿 —— tsc 0 · oxlint 4 warnings · cargo 105 · vitest **2010** · 质量门 9/9。
+
+> **插件入市**：`security 0.3.2`（106.1 KB）· `secrets 0.1.7`（76.6 KB）· `private-notes 0.3.6`（56.3 KB），签名 keyId `aqua-2026`，`gen-market --write` 16 条。
+
+> **G2 桌面**（dev，库 `_tmp-vault-rt13`）：安全面板底部「🔐 密钥环分配」每环一行下拉（`_shots/rev416-security-01.png`）→ 分配 私密笔记→`private-notes`、账号密码→`secrets`，`grants.json` 落盘正确、提示变「已把「账号密码」分配给「secrets」」（`_shots/rev416-assign-final.png`）→ 输 `test-pass-1234` 解锁成功（「1 把已解锁」）。**未分配路径**：撤销 secrets 分配 + reload → 打开密码库 → 面板显示「解锁失败：插件「secrets」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」（`_shots/rev416-unassigned-error2.png`）。**1:1 让位**：把 notes 环改分给 secrets ⇒ 文件变成 `{ "notes": "secrets" }`，`private-notes` 与 `secrets` 原先持有的环都被让出。
+
+> **G2 手机**（Redmi `33b676f6` dev 包，adb 推三个插件 + 改 manifest sha256，`signature.json.bak` 保持）：三个环（私密笔记 / 账号密码 / Todo）各一行下拉（`_shots/rev416-phone-security.png`）→ 分配落盘 `{ notes: "private-notes", secrets: "secrets" }`（`_shots/rev416-phone-assigned.png`）→ `secrets.open` 弹解锁框 → 输密码 → 「1 把已解锁 / 账号密码 🔓」（`_shots/rev416-phone-unlocked.png`）。
+
+> **未做 / 待 G3**：① 真机指纹绑定仍要真人按；② 未分配报错目前显示在密码库面板里（不是 toast），是否够醒目等用户判断；③ 自定义环跨设备同步仍未做（同 rev173.414 遗留）。
 
 > ## 📌 rev173.415（2026-11-07 · 桌面 dev 插件根迁到项目内）
 

@@ -679,14 +679,19 @@ export function dropRing(vault, ringId) {
  */
 export const GRANTS_FILE = `${VAULT_DIR}/grants.json`
 
-/** 未授权时给的行动指引（消费者原样显示给用户） */
-const AUTH_HINT = '去「安全 → 插件授权」允许它'
+/** 未分配时给的行动指引（消费者原样显示给用户） */
+const AUTH_HINT = '去「安全 → 密钥环分配」给它分配一个'
 
 export function emptyGrants() {
-  return { v: 1, grants: {}, requested: {} }
+  return { v: 2, rings: {}, demand: {} }
 }
 
-/** 把磁盘内容读成授权表 —— 坏 JSON / 怪形状一律当空表（不崩、不误授权） */
+/**
+ * 把磁盘内容读成分配表 —— **只认 v2**。
+ *
+ * v1（`{ grants: { 插件: [环] } }`）按用户 2026-11-07 拍板**不迁移**：当空表，
+ * 用户重新分配一次（旧表结构是「插件挑环」，与现在的方向正好相反）。
+ */
 export function parseGrants(text) {
   let raw
   try {
@@ -694,73 +699,92 @@ export function parseGrants(text) {
   } catch {
     return emptyGrants()
   }
-  if (!raw || typeof raw !== 'object') return emptyGrants()
-  const clean = (src) => {
-    const out = {}
-    for (const [pluginId, rings] of Object.entries(src ?? {})) {
-      if (!Array.isArray(rings)) continue
-      const list = [...new Set(rings.filter((r) => isRingId(r)))]
-      if (list.length) out[String(pluginId)] = list
-    }
-    return out
+  if (!raw || typeof raw !== 'object' || raw.v !== 2) return emptyGrants()
+  const taken = new Set()
+  const rings = {}
+  for (const [ringId, pluginId] of Object.entries(raw.rings ?? {})) {
+    if (!isRingId(ringId)) continue
+    const pid = typeof pluginId === 'string' ? pluginId.trim() : ''
+    // 双向 1:1：同一个插件只留第一个环（坏数据不让它同时占两个）
+    if (!pid || taken.has(pid)) continue
+    taken.add(pid)
+    rings[ringId] = pid
   }
-  return { v: 1, grants: clean(raw.grants), requested: clean(raw.requested) }
-}
-
-/** 这个插件能用这个环吗（**默认拒绝**：没登记就是没有） */
-export function granted(grants, pluginId, ringId) {
-  return Boolean(grants?.grants?.[pluginId]?.includes(ringId))
-}
-
-/** 改一个授权（纯函数，返回新表） */
-export function withGrant(grants, pluginId, ringId, allow) {
-  const next = { v: 1, grants: { ...(grants?.grants ?? {}) }, requested: { ...(grants?.requested ?? {}) } }
-  const list = new Set(next.grants[pluginId] ?? [])
-  if (allow) list.add(ringId)
-  else list.delete(ringId)
-  if (list.size) next.grants[pluginId] = [...list]
-  else delete next.grants[pluginId]
-  // 已经授权 ⇒ 这个环不再算「在申请」
-  if (allow && next.requested[pluginId]) {
-    const rest = next.requested[pluginId].filter((r) => r !== ringId)
-    if (rest.length) next.requested[pluginId] = rest
-    else delete next.requested[pluginId]
+  const demand = {}
+  for (const [pluginId, on] of Object.entries(raw.demand ?? {})) {
+    const pid = String(pluginId ?? '').trim()
+    if (pid && on === true) demand[pid] = true
   }
-  return next
+  return { v: 2, rings, demand }
 }
 
-/** 记一次「被拒的申请」（纯函数）：面板据此置顶提示「有插件在申请密钥环」 */
-export function recordRequest(grants, pluginId, ringId) {
-  const next = { v: 1, grants: { ...(grants?.grants ?? {}) }, requested: { ...(grants?.requested ?? {}) } }
-  const list = new Set(next.requested[pluginId] ?? [])
-  list.add(ringId)
-  next.requested[pluginId] = [...list]
-  return next
+/** 这个环分配给了谁（没分配 ⇒ null） */
+export function ringOwner(grants, ringId) {
+  return grants?.rings?.[ringId] ?? null
 }
 
-/** 未授权时的报错文案（消费者把它原样显示给用户） */
-export function authError(pluginId, ringId) {
-  return `插件「${pluginId}」未获授权使用密钥环「${ringLabel(ringId)}」—— ${AUTH_HINT}`
+/** 这个插件拿到了哪个环（没分配 ⇒ null） */
+export function pluginRing(grants, pluginId) {
+  for (const [ringId, owner] of Object.entries(grants?.rings ?? {})) {
+    if (owner === pluginId) return ringId
+  }
+  return null
 }
 
 /**
- * 面板用的授权行：`[{ pluginId, rings, missing, pending }]`（纯函数）。
+ * 分配 / 解除（纯函数）。`pluginId` 为空 = 解除分配。
  *
- * `rings` 只覆盖 `ringIds`（当前所有环）；插件请求了但库里还没有的环进 `missing`
- * —— 面板据此提示「去下面新建再勾」。
+ * **双向 1:1**（用户 2026-11-07 拍板）：一个环只给一个插件、一个插件只拿一个环
+ * ⇒ 分配新环时先让出这个插件原先的环，同一环的上一任插件被顶掉。
  */
-export function grantsRows(grants, ringIds = BUILTIN_RINGS) {
-  const ids = [
-    ...new Set([...Object.keys(grants?.grants ?? {}), ...Object.keys(grants?.requested ?? {})]),
-  ].sort()
-  return ids.map((pluginId) => {
-    const requested = grants?.requested?.[pluginId] ?? []
-    return {
-      pluginId,
-      rings: Object.fromEntries(ringIds.map((id) => [id, granted(grants, pluginId, id)])),
-      missing: requested.filter((r) => !ringIds.includes(r)),
-      pending: Boolean(requested.length),
-    }
+export function withAssign(grants, ringId, pluginId) {
+  const base = grants ?? emptyGrants()
+  const rings = { ...(base.rings ?? {}) }
+  const demand = { ...(base.demand ?? {}) }
+  const pid = String(pluginId ?? '').trim()
+  if (!pid) {
+    delete rings[ringId]
+    return { v: 2, rings, demand }
+  }
+  for (const [id, owner] of Object.entries(rings)) {
+    if (owner === pid) delete rings[id]
+  }
+  rings[ringId] = pid
+  // 主动分配给一个还没声明过需求的插件 ⇒ 也记进 demand，下次下拉里还找得到它
+  demand[pid] = true
+  return { v: 2, rings, demand }
+}
+
+/**
+ * 登记「这个插件需要一个密钥环」（纯函数、幂等）。
+ *
+ * **不带环 id** —— 插件只声明需求，具体给哪个环由用户在面板下拉里决定。
+ */
+export function withDemand(grants, pluginId) {
+  const base = grants ?? emptyGrants()
+  const pid = String(pluginId ?? '').trim()
+  if (!pid) return base
+  if (base.demand?.[pid]) return base
+  return { v: 2, rings: { ...(base.rings ?? {}) }, demand: { ...(base.demand ?? {}), [pid]: true } }
+}
+
+/** 没分配到环时的报错文案（消费者原样显示给用户） */
+export function noRingError(pluginId) {
+  return `插件「${pluginId}」还没分配到密钥环 —— ${AUTH_HINT}`
+}
+
+/**
+ * 面板用的分配行（纯函数）：**每个环一行**。
+ *
+ * `options` = 声明过需求的插件 ∪ 当前分到它的插件（排序后给下拉用；
+ * 「未分配」由渲染层自己加在最前面）。
+ */
+export function assignRows(grants, ringIds = BUILTIN_RINGS) {
+  const demanded = Object.keys(grants?.demand ?? {}).sort()
+  return ringIds.map((ringId) => {
+    const owner = ringOwner(grants, ringId)
+    const options = [...new Set([...demanded, ...(owner ? [owner] : [])])].sort()
+    return { ringId, owner, options }
   })
 }
 
@@ -844,6 +868,8 @@ const B = {
   ringName: 'security.ringName',
   ringPw1: 'security.ringPw1',
   ringPw2: 'security.ringPw2',
+  /** 密钥环分配下拉的 bind 前缀：每个环一个 `security.assign.<ringId>` */
+  assignPrefix: 'security.assign.',
 }
 
 /* ───────────────────────── vendor（本地副本） ───────────────────────── */
@@ -1033,7 +1059,7 @@ const store = {
   biometric: null,
   /** 本机设备 id（rev173.173：`biometrics` 按设备存；resolved 在 apply 里 —— 见 resolveDeviceId） */
   deviceId: 'local',
-  /** 插件授权表（期 3）：`{ grants, requested }`，本机文件、不同步 */
+  /** 密钥环分配表（期 3 · rev173.416）：`{ rings: { 环: 插件 }, demand: { 插件: true } }`，本机文件、不同步 */
   grants: emptyGrants(),
   /** 本机设备级指纹绑定（期 3）：`{ platform, wrapped, at }`；没有 = 这台没绑过 */
   deviceFile: null,
@@ -1242,34 +1268,37 @@ async function saveGrants(api, grants) {
   await api.fs.writeText(GRANTS_FILE, JSON.stringify(grants, null, 2))
 }
 
-/** 串行写：多个插件同时被拒、同时登记申请时别互相覆盖 */
+/** 串行写：多个插件同时声明需求时别互相覆盖 */
 let grantsWrite = Promise.resolve()
 
 /**
- * 登记一次「被拒的申请」（面板置顶提示 + 落盘）。
- * 同一个 (插件, 环) 只登记一次 —— 不重复写盘、不重复刷新。
+ * 登记一次「这个插件需要一个密钥环」（面板下拉 + 落盘）。
+ * 同一个插件只登记一次 —— 不重复写盘、不重复刷新。
  */
-function noteRequest(api, pluginId, ringId) {
-  if (granted(store.grants, pluginId, ringId)) return Promise.resolve()
-  if ((store.grants.requested?.[pluginId] ?? []).includes(ringId)) return grantsWrite
-  store.grants = recordRequest(store.grants, pluginId, ringId)
+function noteDemand(api, pluginId) {
+  if (store.grants.demand?.[pluginId]) return Promise.resolve()
+  store.grants = withDemand(store.grants, pluginId)
   api.view.refresh(PANEL_ID)
   grantsWrite = grantsWrite
     .then(() => saveGrants(api, store.grants))
-    .catch((e) => api.host.log('warn', `[security] 授权申请没落盘：${String(e?.message ?? e)}`))
+    .catch((e) => api.host.log('warn', `[security] 密钥需求没落盘：${String(e?.message ?? e)}`))
   return grantsWrite
 }
 
 /**
- * 授权闸门（crypto 服务的每个动作都过它）：没授权 ⇒ 登记申请 + 抛**可操作**的错误。
+ * 解析调用方拿到的环（crypto 服务的每个动作都过它）。
  *
- * 抛错而不是返回空：`crypto` 是硬返回服务，静默给空会让消费者把「未授权」
+ * - 没分配 ⇒ 登记需求 + 抛**可操作**的错误（「请先分配一个密钥环」）
+ * - 分配了但调用方还传了别的环 id ⇒ 一律以**分配表**为准（插件不能借别人的环）
+ *
+ * 抛错而不是返回空：`crypto` 是硬返回服务，静默给空会让消费者把「没分配」
  * 当成「数据坏了 / 密码不对」，排查成本远高于一条明确报错（2026-11-07 用户拍板）。
  */
-function needGrant(api, caller, ringId) {
-  if (granted(store.grants, caller, ringId)) return
-  void noteRequest(api, caller, ringId)
-  throw new Error(authError(caller, ringId))
+function needRing(api, caller) {
+  const ringId = pluginRing(store.grants, caller)
+  if (ringId) return ringId
+  void noteDemand(api, caller)
+  throw new Error(noRingError(caller))
 }
 
 /* ───────────────────────── 解锁 / 锁定 ───────────────────────── */
@@ -1680,45 +1709,51 @@ export function panelNode(view) {
     ],
   })
 
-  /* 插件授权（期 3）：哪些插件可以用哪个环。**始终显示** —— 没授权时这里的提示
-     就是用户唯一能看到「有个插件正被拒绝」的地方。 */
-  const authRows = grantsRows(grants, ringIds)
-  if (authRows.length) {
-    const pendingCount = authRows.filter((r) => r.pending).length
-    kids.push({ type: 'divider' })
+  /* 密钥环分配（期 3 · rev173.416 方向反转）：**每个环一行 + 下拉**。
+     环是主角、插件是选项；一个环只给一个插件、一个插件只拿一个环。
+     **始终显示** —— 这是用户唯一能看到「有插件在等密钥」的地方。 */
+  const assign = assignRows(grants, ringIds)
+  kids.push({ type: 'divider' })
+  kids.push({
+    type: 'text',
+    value: '🔐 密钥环分配（每个环只能分配给一个插件；插件只提出「需要密钥环」，具体给哪个由你定）',
+    variant: 'caption',
+    tone: 'muted',
+  })
+  for (const row of assign) {
+    const options = [
+      { value: `${row.ringId}::`, label: '未分配' },
+      ...row.options.map((pid) => ({ value: `${row.ringId}::${pid}`, label: pid })),
+    ]
     kids.push({
-      type: 'text',
-      value: pendingCount
-        ? `🔐 有 ${pendingCount} 个插件在申请密钥环 —— 勾选允许它使用`
-        : '🔐 插件授权（哪些插件可以用哪个密钥环）',
-      variant: 'caption',
-      tone: pendingCount ? 'warn' : 'muted',
+      type: 'row',
+      align: 'center',
+      wrap: true,
+      gap: 'sm',
+      children: [
+        { type: 'text', value: ringLabel(row.ringId, vault), variant: 'caption' },
+        {
+          type: 'select',
+          bind: `${B.assignPrefix}${row.ringId}`,
+          options,
+          onSubmit: 'security.assign-ring',
+        },
+      ],
     })
-    for (const row of authRows) {
+    if (!row.options.length) {
       kids.push({
-        type: 'row',
-        align: 'center',
-        wrap: true,
-        gap: 'sm',
-        children: [
-          { type: 'text', value: row.pluginId, variant: 'caption' },
-          ...ringIds.map((id) => ({
-            type: 'button',
-            label: `${ringLabel(id, vault)} ${row.rings[id] ? '✅' : '⬜'}`,
-            onClick: 'security.toggle-grant',
-            payload: { pluginId: row.pluginId, ringId: id },
-            variant: 'ghost',
-          })),
-        ],
+        type: 'text',
+        value: '↳ 还没有插件声明需要密钥环',
+        variant: 'caption',
+        tone: 'muted',
       })
-      if (row.missing.length) {
-        kids.push({
-          type: 'text',
-          value: `↳ 它还请求了未建立的环：${row.missing.join('、')} —— 用同名在下面新建，再回来勾上`,
-          variant: 'caption',
-          tone: 'muted',
-        })
-      }
+    } else if (!row.owner) {
+      kids.push({
+        type: 'text',
+        value: `↳ 在等：${row.options.join('、')}`,
+        variant: 'caption',
+        tone: 'warn',
+      })
     }
   }
 
@@ -1754,7 +1789,7 @@ function panelView() {
     ringInherited: Boolean(ring?.deviceWrapped),
     /** 别的设备绑过几份（本机没有时提示「别的设备已绑定」） */
     otherBiometrics: otherDeviceCount(ring, store.deviceId),
-    /** 插件授权表（期 3）：面板底部始终显示，可在这里勾选 / 撤销 */
+    /** 密钥环分配表（期 3）：面板底部始终显示，值 `{ rings, demand }` */
     grants: store.grants,
   }
 }
@@ -1762,21 +1797,32 @@ function panelView() {
 /* ───────────────────────── 命令 ───────────────────────── */
 
 /**
- * 允许 / 撤销某个插件用某个密钥环（期 3）。改动立即落盘 —— provider 的闭包每次
- * 调用都读 `store.grants`，所以不需要重跑工厂、也不需要重载插件。
+ * 把某个密钥环分配给一个插件 / 解除分配（rev173.416）。
+ *
+ * 下拉的 `value` 编成 `<ringId>::<pluginId>`（空 pluginId = 未分配）—— 契约的 select
+ * 只回传 `{ value }`，环 id 只能编码进值里。改动立即落盘：provider 闭包每次调用
+ * 都读 `store.grants`，不需要重跑工厂、也不需要重载插件。
  */
-async function doToggleGrant(api, payload) {
-  const pluginId = String(payload?.pluginId ?? '')
-  const ringId = String(payload?.ringId ?? '')
-  if (!pluginId || !isRingId(ringId)) return
-  const allow = !granted(store.grants, pluginId, ringId)
-  store.grants = withGrant(store.grants, pluginId, ringId, allow)
+async function doAssignRing(api, payload) {
+  const raw = String(payload?.value ?? '')
+  const cut = raw.indexOf('::')
+  if (cut < 0) return
+  const ringId = raw.slice(0, cut)
+  const pluginId = raw.slice(cut + 2).trim()
+  if (!isRingId(ringId)) return
+  const before = ringOwner(store.grants, ringId)
+  if ((before ?? '') === pluginId) return
+  store.grants = withAssign(store.grants, ringId, pluginId)
   const label = ringLabel(ringId)
   try {
     await saveGrants(api, store.grants)
-    setStatus(api, `${allow ? '已允许' : '已撤销'}「${pluginId}」使用「${label}」`, allow ? 'success' : 'info')
+    setStatus(
+      api,
+      pluginId ? `已把「${label}」分配给「${pluginId}」` : `已解除「${label}」的分配`,
+      pluginId ? 'success' : 'info',
+    )
   } catch (e) {
-    setStatus(api, `授权没保存：${String(e?.message ?? e)}`, 'error')
+    setStatus(api, `分配没保存：${String(e?.message ?? e)}`, 'error')
   }
 }
 
@@ -1815,7 +1861,7 @@ async function doCreateRing(api) {
     store.vault = putRing(store.vault, ring)
     await saveVault(api, store.vault, ring.id)
     store.selected = ring.id
-    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 去下面「插件授权」把它勾给要用的插件`, 'success')
+    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 到下面「密钥环分配」选一个插件给它`, 'success')
   } catch (e) {
     setStatus(api, `新建失败：${String(e?.message ?? e)}`, 'error')
   } finally {
@@ -2217,7 +2263,7 @@ export default {
     }
     // 生物识别探测（Android 官方插件 / Windows hello_*）：失败静默，面板只是不显示入口
     store.biometric = await detectBiometric()
-    // 插件授权表（期 3）：本机文件，默认空 ⇒ 所有消费者都要在面板里手动允许
+    // 密钥环分配表（期 3 · rev173.416）：本机文件，默认空 ⇒ 所有消费者都要先在下拉里分配
     store.grants = await loadGrants(api)
     // 设备级指纹（期 3）：本机绑定文件，没有 = 这台没绑过
     store.deviceFile = await loadDeviceFile(api)
@@ -2231,6 +2277,16 @@ export default {
         render: (ctx) => {
           // ViewApi 没有 getState：把本次 ctx.state 存快照，命令里读它（tag-panel 同款做法）
           ui = { ...(ctx?.state ?? {}) }
+          // 播种分配下拉（rev173.416）：宿主的 select 值只取 `ctx.state[bind]`，
+          // 不写就永远显示第一项（「未分配」）—— 值一致时不写，避免重渲染自激。
+          for (const row of assignRows(store.grants, allRingIds(store.vault))) {
+            const bind = `${B.assignPrefix}${row.ringId}`
+            const want = `${row.ringId}::${row.owner ?? ''}`
+            if (ui[bind] !== want) {
+              api.view.setState(bind, want)
+              ui[bind] = want
+            }
+          }
           return panelNode(panelView())
         },
       }),
@@ -2353,71 +2409,79 @@ export default {
       { id: 'security.biometric-unlock', title: '安全：用生物识别解锁', run: () => doBiometricUnlock(api) },
       { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },
       { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
-      { id: 'security.toggle-grant', title: '安全：允许 / 撤销插件使用密钥环', run: (payload) => doToggleGrant(api, payload) },
+      { id: 'security.assign-ring', title: '安全：把密钥环分配给插件 / 解除分配', run: (payload) => doAssignRing(api, payload) },
       { id: 'security.create-ring', title: '安全：新建密钥环', run: () => doCreateRing(api) },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))
 
-    /* 对外服务（需求 §9.4）：只给"操作"，不给密钥。期 3：按**调用方**授权（perCaller） */
+    /* 对外服务（需求 §9.4）：只给"操作"，不给密钥。
+       rev173.416：**环由分配表决定** —— 插件只声明「我需要密钥环」，具体是哪个环由
+       用户在下拉里分配；消费者传进来的旧 `ring` 参数一律忽略，不能借别人的环。 */
     api.subscriptions.push(
       api.service.provide(
         'crypto',
-        ({ caller }) => ({
-          version: '1.1.0',
-          isUnlocked: (ringId = 'secrets') => {
-            needGrant(api, caller, ringId)
-            return live.has(ringId)
-          },
-          ids: () => allRingIds(store.vault).filter((id) => granted(store.grants, caller, id) && live.has(id)),
-          unlock: async (ringId, password) => {
-            needGrant(api, caller, ringId)
-            return unlockWithPassword(api, ringId, password)
-          },
-          lock: (ringId = 'secrets') => {
-            if (granted(store.grants, caller, ringId)) lockRing(api, ringId, 'service')
-          },
-          /** 加密：`{ ring, container, data }`，data 可以是字符串或 Uint8Array */
-          encrypt: async ({ ring = 'secrets', container, data } = {}) => {
-            needGrant(api, caller, ring)
-            const s = live.get(ring)
-            if (!s) throw new Error(`密钥环「${ring}」未解锁`)
-            const L = await loadLibs()
-            touch(ring)
-            return encryptData(L, s.dek, ring, container ?? ring, data)
-          },
-          /** 解密成文本（密码库这类 JSON 数据用它） */
-          decryptText: async ({ ring = 'secrets', container, payload } = {}) => {
-            needGrant(api, caller, ring)
-            const s = live.get(ring)
-            if (!s) throw new Error(`密钥环「${ring}」未解锁`)
-            const L = await loadLibs()
-            touch(ring)
-            return fromBytes(decryptData(L, s.dek, ring, container ?? ring, payload))
-          },
-          decryptBytes: async ({ ring = 'secrets', container, payload } = {}) => {
-            needGrant(api, caller, ring)
-            const s = live.get(ring)
-            if (!s) throw new Error(`密钥环「${ring}」未解锁`)
-            const L = await loadLibs()
-            touch(ring)
-            return decryptData(L, s.dek, ring, container ?? ring, payload)
-          },
-          sign: async ({ ring = 'secrets', container, data } = {}) => {
-            needGrant(api, caller, ring)
-            const s = live.get(ring)
-            if (!s) throw new Error(`密钥环「${ring}」未解锁`)
-            const L = await loadLibs()
-            touch(ring)
-            return signData(L, s.dek, ring, container ?? ring, data)
-          },
-          verify: async ({ ring = 'secrets', container, data, sig } = {}) => {
-            needGrant(api, caller, ring)
-            const s = live.get(ring)
-            if (!s) return false
-            const L = await loadLibs()
-            return verifyData(L, s.dek, ring, container ?? ring, data, sig)
-          },
+        ({ caller }) => {
+          /** 我这个插件分到的环（每次调用现查：面板改分配后立刻生效） */
+          const mine = () => needRing(api, caller)
+          return {
+            version: '2.0.0',
+            /** 声明「我需要一个密钥环」（幂等；返回当前分到的环 id，可能 null） */
+            demand: () => {
+              const got = pluginRing(store.grants, caller)
+              if (!got) void noteDemand(api, caller)
+              return pluginRing(store.grants, caller)
+            },
+            /** 分配给我的环 id（没有 ⇒ 抛可操作错误） */
+            ring: () => mine(),
+            isUnlocked: () => live.has(mine()),
+            ids: () => [mine()].filter((id) => live.has(id)),
+            unlock: async (_ringId, password) => unlockWithPassword(api, mine(), password),
+            lock: () => {
+              const rid = pluginRing(store.grants, caller)
+              if (rid) lockRing(api, rid, 'service')
+            },
+            /** 加密：`{ container, data }`，data 可以是字符串或 Uint8Array */
+            encrypt: async ({ container, data } = {}) => {
+              const ring = mine()
+              const s = live.get(ring)
+              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+              const L = await loadLibs()
+              touch(ring)
+              return encryptData(L, s.dek, ring, container ?? ring, data)
+            },
+            /** 解密成文本（密码库这类 JSON 数据用它） */
+            decryptText: async ({ container, payload } = {}) => {
+              const ring = mine()
+              const s = live.get(ring)
+              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+              const L = await loadLibs()
+              touch(ring)
+              return fromBytes(decryptData(L, s.dek, ring, container ?? ring, payload))
+            },
+            decryptBytes: async ({ container, payload } = {}) => {
+              const ring = mine()
+              const s = live.get(ring)
+              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+              const L = await loadLibs()
+              touch(ring)
+              return decryptData(L, s.dek, ring, container ?? ring, payload)
+            },
+            sign: async ({ container, data } = {}) => {
+              const ring = mine()
+              const s = live.get(ring)
+              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+              const L = await loadLibs()
+              touch(ring)
+              return signData(L, s.dek, ring, container ?? ring, data)
+            },
+            verify: async ({ container, data, sig } = {}) => {
+              const ring = mine()
+              const s = live.get(ring)
+              if (!s) return false
+              const L = await loadLibs()
+              return verifyData(L, s.dek, ring, container ?? ring, data, sig)
+            },
           /**
            * **生物识别（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）**。
            *
@@ -2431,15 +2495,14 @@ export default {
             /** 这台设备有没有可用的适配器（Windows Hello / Android 指纹） */
             available: () => Boolean(store.biometric),
             /** 这个环在这台设备上能用指纹解锁吗（新格式 `deviceWrapped` / 旧格式本机包裹） */
-            bound: (ringId = 'secrets') => {
-              needGrant(api, caller, ringId)
-              const ring = getRing(store.vault, ringId)
+            bound: () => {
+              const ring = getRing(store.vault, mine())
               if (!ring) return false
               return Boolean(ring.deviceWrapped || deviceBinding(ring, store.deviceId))
             },
             /** 用指纹解出 DEK 并解锁该环；失败原样抛给调用方（它负责翻人话） */
-            unlock: async (ringId = 'secrets') => {
-              needGrant(api, caller, ringId)
+            unlock: async () => {
+              const ringId = mine()
               const ring = getRing(store.vault, ringId)
               if (!ring) throw new Error('这个密钥环还没建立')
               if (!store.biometric) throw new Error('这台设备没有可用的生物识别')
@@ -2460,15 +2523,14 @@ export default {
               }
             },
             /** 绑定 / 补绑本机指纹（设备级；要求该环已解锁） */
-            bind: async (ringId = 'secrets') => {
-              needGrant(api, caller, ringId)
-              if (!live.has(ringId)) throw new Error('先解锁，再绑定指纹')
+            bind: async () => {
+              if (!live.has(mine())) throw new Error('先解锁，再绑定指纹')
               await bindDevice(api)
               return true
             },
             /** 解除本机绑定（设备级；不影响主密码与别的设备） */
-            unbind: async (ringId = 'secrets') => {
-              needGrant(api, caller, ringId)
+            unbind: async () => {
+              mine()
               if (!store.deviceFile) throw new Error('这台设备没有绑定生物识别')
               await api.fs.purgePrivate(deviceFileOf(store.deviceId)).catch(() => {})
               store.deviceFile = null
@@ -2494,8 +2556,9 @@ export default {
               return true
             },
           },
-        }),
-        { version: '1.1.0', perCaller: true },
+          }
+        },
+        { version: '2.0.0', perCaller: true },
       ),
     )
 

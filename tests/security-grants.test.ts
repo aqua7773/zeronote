@@ -1,98 +1,102 @@
 /**
- * 安全插件 · 插件授权表（期 3 · 环分配）的单测 —— rev173.413
+ * 安全插件 · 密钥环分配表（rev173.416 · 方向反转）的单测
  *
- * 只测 `examples/security/index.js` 里导出的纯函数；面板点击 / 落盘走桌面 CDP 实测。
- * 关键语义：**默认拒绝**（2026-11-07 用户拍板，不写内置白名单）。
+ * **旧模型（v1，rev173.413–414）**：插件申请具体某个环，面板按插件勾选 —— 已废。
+ * **新模型（v2，2026-11-07 用户拍板）**：插件只声明「我需要一个密钥环」，
+ * 具体给哪个环由用户在面板下拉里分配；**双向 1:1**（一环一插件、一插件一环）。
+ *
+ * 只测 `examples/security/index.js` 里导出的纯函数；面板点击 / 落盘走 CDP 实测。
  */
 import { describe, expect, it } from 'vitest'
 
 import {
   allRingIds,
-  authError,
+  assignRows,
   emptyGrants,
-  granted,
-  grantsRows,
   newRingId,
+  noRingError,
   parseGrants,
-  recordRequest,
+  pluginRing,
+  ringOwner,
   slugifyRingName,
-  withGrant,
+  withAssign,
+  withDemand,
 } from '../examples/security/index.js'
 
-describe('security · 授权表', () => {
-  it('空表默认拒绝一切', () => {
+describe('security · 密钥环分配表（v2）', () => {
+  it('空表：谁都没分配到环', () => {
     const g = emptyGrants()
-    expect(granted(g, 'secrets', 'secrets')).toBe(false)
-    expect(granted(g, 'private-notes', 'notes')).toBe(false)
+    expect(ringOwner(g, 'secrets')).toBe(null)
+    expect(pluginRing(g, 'secrets')).toBe(null)
   })
 
-  it('坏 JSON / 怪形状 ⇒ 空表（不崩、不误授权）', () => {
+  it('坏 JSON / 非 v2 ⇒ 空表（v1 旧表按拍板不迁移）', () => {
     expect(parseGrants('{not json')).toEqual(emptyGrants())
     expect(parseGrants('null')).toEqual(emptyGrants())
-    expect(parseGrants('"str"')).toEqual(emptyGrants())
-    expect(parseGrants('{"grants":{"x":"secrets"}}')).toEqual(emptyGrants())
+    expect(parseGrants(JSON.stringify({ v: 1, grants: { secrets: ['secrets'] } }))).toEqual(emptyGrants())
   })
 
-  it('只认合法环 id（内置名与用户环的 [a-z0-9-] 都行），并去重', () => {
+  it('读 v2：只认合法环 id；同一插件只留一个环；demand 只认 true', () => {
     const g = parseGrants(
-      JSON.stringify({ grants: { p: ['notes', 'notes', 'my-ring'], q: ['secrets', 'Bad ID!'] } }),
+      JSON.stringify({
+        v: 2,
+        rings: { secrets: 'secrets', notes: 'secrets', 'Bad ID!': 'x', todo: 'todo' },
+        demand: { secrets: true, ghost: false },
+      }),
     )
-    expect(g.grants).toEqual({ p: ['notes', 'my-ring'], q: ['secrets'] })
+    // notes 也分给 secrets ⇒ 被丢掉（双向 1:1）
+    expect(g.rings).toEqual({ secrets: 'secrets', todo: 'todo' })
+    expect(g.demand).toEqual({ secrets: true })
   })
 
-  it('授权后可读，撤销后立即拒绝', () => {
-    const allowed = withGrant(emptyGrants(), 'secrets', 'secrets', true)
-    expect(granted(allowed, 'secrets', 'secrets')).toBe(true)
-    const revoked = withGrant(allowed, 'secrets', 'secrets', false)
-    expect(granted(revoked, 'secrets', 'secrets')).toBe(false)
-    // 撤销后不留空数组键
-    expect(revoked.grants).toEqual({})
+  it('分配后可双向查；解除后回到未分配', () => {
+    const g = withAssign(emptyGrants(), 'secrets', 'secrets')
+    expect(ringOwner(g, 'secrets')).toBe('secrets')
+    expect(pluginRing(g, 'secrets')).toBe('secrets')
+    const off = withAssign(g, 'secrets', '')
+    expect(ringOwner(off, 'secrets')).toBe(null)
+    expect(pluginRing(off, 'secrets')).toBe(null)
   })
 
-  it('两个环互不串：授权 notes 不等于能进 secrets', () => {
-    const g = withGrant(emptyGrants(), 'private-notes', 'notes', true)
-    expect(granted(g, 'private-notes', 'notes')).toBe(true)
-    expect(granted(g, 'private-notes', 'secrets')).toBe(false)
+  it('双向 1:1：插件换环时让出旧环；环换主人时顶掉旧插件', () => {
+    let g = withAssign(emptyGrants(), 'secrets', 'p')
+    g = withAssign(g, 'notes', 'p')
+    expect(pluginRing(g, 'p')).toBe('notes')
+    expect(ringOwner(g, 'secrets')).toBe(null)
+
+    g = withAssign(g, 'notes', 'q')
+    expect(ringOwner(g, 'notes')).toBe('q')
+    expect(pluginRing(g, 'p')).toBe(null)
   })
 
-  it('同一插件的两个环各自独立', () => {
-    const g = withGrant(emptyGrants(), 'p', 'notes', true)
-    const g2 = withGrant(g, 'p', 'secrets', true)
-    expect(g2.grants.p.sort()).toEqual(['notes', 'secrets'])
+  it('withDemand 幂等且不带环 id', () => {
+    const a = withDemand(emptyGrants(), 'p')
+    const b = withDemand(a, 'p')
+    expect(b).toBe(a)
+    expect(b.demand).toEqual({ p: true })
+    expect(b.rings).toEqual({})
   })
 
-  it('recordRequest 幂等：同一 (插件, 环) 只登记一次', () => {
-    const a = recordRequest(emptyGrants(), 'p', 'secrets')
-    const b = recordRequest(a, 'p', 'secrets')
-    expect(b.requested).toEqual({ p: ['secrets'] })
+  it('assignRows：每个环一行；options = 声明需求的 ∪ 当前主人', () => {
+    let g = withDemand(emptyGrants(), 'waiting')
+    g = withAssign(g, 'notes', 'private-notes')
+    const rows = assignRows(g, ['notes', 'secrets'])
+    expect(rows.map((r) => r.ringId)).toEqual(['notes', 'secrets'])
+    expect(rows[0].owner).toBe('private-notes')
+    expect(rows[0].options).toEqual(['private-notes', 'waiting'])
+    expect(rows[1].owner).toBe(null)
+    // 每个下拉都列出「所有声明过需求的插件」—— 用户在任一个环里都能把它们分进去
+    expect(rows[1].options).toEqual(['private-notes', 'waiting'])
   })
 
-  it('授权后该环从请求列表移除（不再提示「在申请」）', () => {
-    const pending = recordRequest(emptyGrants(), 'p', 'notes')
-    expect(grantsRows(pending)[0].pending).toBe(true)
-    const ok = withGrant(pending, 'p', 'notes', true)
-    expect(ok.requested).toEqual({})
-    expect(grantsRows(ok)[0].pending).toBe(false)
-  })
-
-  it('grantsRows 合并「已授权」与「在申请」两类来源并按 id 排序', () => {
-    let g = withGrant(emptyGrants(), 'secrets', 'secrets', true)
-    g = recordRequest(g, 'private-notes', 'notes')
-    const rows = grantsRows(g)
-    expect(rows.map((r) => r.pluginId)).toEqual(['private-notes', 'secrets'])
-    expect(rows[0]).toMatchObject({ pending: true, rings: { notes: false, secrets: false } })
-    expect(rows[1]).toMatchObject({ pending: false, rings: { notes: false, secrets: true } })
-  })
-
-  it('未授权报错文案给出可操作指引（消费者原样显示）', () => {
-    const msg = authError('evil-plugin', 'secrets')
+  it('没分配时的报错文案指向「密钥环分配」（消费者原样显示）', () => {
+    const msg = noRingError('evil-plugin')
     expect(msg).toContain('evil-plugin')
-    expect(msg).toContain('账号密码')
-    expect(msg).toContain('插件授权')
+    expect(msg).toContain('密钥环分配')
   })
 })
 
-describe('security · 动态密钥环（期 3 追加）', () => {
+describe('security · 动态密钥环', () => {
   it('slugify：英文转小写连字符，纯中文归空（由 newRingId 兜底 ring）', () => {
     expect(slugifyRingName('Todo')).toBe('todo')
     expect(slugifyRingName('My Notes!')).toBe('my-notes')
@@ -109,14 +113,5 @@ describe('security · 动态密钥环（期 3 追加）', () => {
   it('allRingIds：内置两个在前，自定义环按 id 排序', () => {
     const vault = { rings: { secrets: {}, notes: {}, zeta: {}, alpha: {} } }
     expect(allRingIds(vault)).toEqual(['notes', 'secrets', 'alpha', 'zeta'])
-  })
-
-  it('grantsRows 按传入的环列表生成；请求了还不存在的环进 missing', () => {
-    let g = recordRequest(emptyGrants(), 'p', 'todo')
-    g = withGrant(g, 'p', 'notes', true)
-    const rows = grantsRows(g, ['notes', 'secrets'])
-    expect(rows[0].rings).toEqual({ notes: true, secrets: false })
-    expect(rows[0].missing).toEqual(['todo'])
-    expect(rows[0].pending).toBe(true)
   })
 })

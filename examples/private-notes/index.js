@@ -29,8 +29,13 @@
 
 /* ───────────────────────── 常量 ───────────────────────── */
 
-/** 消费的密钥环 id —— `security` 里「私密笔记」那一档 */
-export const RING = 'notes'
+/**
+ * 消费的密钥环 id。
+ *
+ * rev173.416 起**由安全插件分配**：本插件只声明「我需要一个密钥环」，实际是哪个环
+ * 由用户在「安全 → 密钥环分配」里定。默认 `notes`。
+ */
+export let RING = 'notes'
 /** 加密容器 id —— 与 `security` 建环时的 `containerId: ringId` 一致（方案 §7-2 已统一成环 id） */
 export const CONTAINER = 'notes'
 /** 私密文件夹根（整棵树在 `.zn/` 下 ⇒ 内核天然看不见） */
@@ -680,6 +685,7 @@ async function afterUnlock(api) {
 
 async function unlockAndLoad(api, password) {
   const s = needSvc()
+  adoptRing() // rev173.416：解锁前跟上最新的环分配（用户可能刚在安全面板改过）
   const pw = String(password ?? '')
   if (!pw) throw new Error('请输入主密码')
   await s.unlock(RING, pw)
@@ -869,10 +875,24 @@ async function onDocSaved(api, d) {
 
 /* ───────────────────────── 插件入口 ───────────────────────── */
 
+/**
+ * rev173.416：向 security 声明「我需要一个密钥环」，并跟上它分配给我的那个环。
+ * 拿不到服务 / 安全插件版本旧 ⇒ 保持默认 `notes`，行为与之前一致。
+ */
+function adoptRing() {
+  try {
+    const got = svc?.demand?.()
+    if (typeof got === 'string' && got) RING = got
+  } catch {
+    /* 没装安全插件 / 版本旧：保持默认，等 service:available 再来 */
+  }
+}
+
 export default {
   async apply(api) {
     /* ① 拿 crypto 服务（软依赖：拿不到就降级，不阻塞加载） */
     svc = await api.service.consume('crypto')
+    adoptRing()
     api.subscriptions.push(
       api.event.on('service:available', (payload) => {
         const name = payload && typeof payload === 'object' ? payload.name : null
@@ -880,6 +900,7 @@ export default {
         void api.service.consume('crypto').then(async (got) => {
           if (!got) return
           svc = got
+          adoptRing()
           await checkRingReady(api)
           // rev173.361：服务晚到 ⇒ 指纹状态也要重读（否则锁屏一直按「没绑定」渲染）
           await refreshBiometric()

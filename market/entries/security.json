@@ -2,17 +2,17 @@
   "id": "security",
   "name": "安全",
   "author": "aqua7773",
-  "description": "主密码与密钥环（私密笔记 / 账号密码 + 可新建自定义环），按插件授权密钥环使用；指纹一次绑定、多环继承",
+  "description": "主密码与密钥环（私密笔记 / 账号密码 + 可新建自定义环）；密钥环由面板下拉分配给插件（一环一插件）；指纹一次绑定、多环继承",
   "category": "tool",
   "platforms": [
     "desktop",
     "android"
   ],
   "apiVersion": "^0.2.0",
-  "version": "0.3.1",
-  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.3.1.znp",
-  "sha256": "8ec9c710d83a2845b9cb6d5b60054ae53ef7fb8cfb12e03ae14eceb58a0530a5",
-  "size": 106495,
+  "version": "0.3.2",
+  "url": "https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/security-0.3.2.znp",
+  "sha256": "c2ea4d620641d1c69969ce9e5930c9173c56d6c6424cd8df070c439d6bc10000",
+  "size": 108678,
   "files": [
     "index.js",
     "signature.json"
