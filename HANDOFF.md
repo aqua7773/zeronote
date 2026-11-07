@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.417
-更新时间: 2026-11-07 · 最新 rev173.417（**分配冲突拒绝**）· rev173.416（密钥环分配方向反转）
+revision: 173.418
+更新时间: 2026-11-07 · 最新 rev173.418（**自定义密钥环跨设备同步**）· rev173.417（分配冲突拒绝）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.417
 
 | rev | 内容 |
 |---|---|
+| rev173.418 | 2026-11-07 · **自定义密钥环跨设备同步**（清掉 rev173.414 起的「自定义环暂不同步」遗留）：`sync/lib/core.cjs` 新增纯函数 `privateFilesFor({ local, remote })` —— 内置 4 条私密文件 + 本地扫到的 `.zn/security/vault.<id>.json` + **远端 manifest 里已有的**（新设备靠它拉下来）；白名单正则 `^\.zn/security/vault\.[a-z0-9-]+\.json$`，**`grants.json` 永远匹配不上**（授权表是本机信任关系，用户 2026-11-07 拍板不上云）。`syncPrivate` 每轮用 `api.fs.listFiles('.zn/security')` 现扫，巡检轮转按动态列表算（请求预算不变）。测试新增 `tests/sync-private-files.test.ts` 5 条。`sync 0.1.11` 已签名入市。**G2 桌面端到端**：dev 配 WebDAV（坚果云 · 新目录 `zeronote_test_418` · MKCOL 建目录）→ 手动同步 **上传 4 · 下载 0 · 1.6 秒** → 远端 `GET .zn/security/vault.todo.json` = **200 / 320 B**，远端 `_zn/manifest.json` 的 `private` 段含 `vault.notes.json` / `vault.secrets.json` / **`vault.todo.json`**。顺带把安全面板那句「⚠️ 自定义环暂不同步到其它设备」改成「自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步」（`security 0.3.4`）。**未验**：手机端拉取（同一通路、代码同一份；要验得让手机本地没有该环才行）|
 | rev173.417 | 2026-11-07 · **分配冲突拒绝**（用户：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」）：rev173.416 的 `withAssign` 在冲突时**静默让位/顶替**，用户要的是**拒绝 + 提示**。新增纯函数 `assignConflict(grants, ringId, pluginId)` → 返回理由或 null（插件已有环 → 「插件「X」已经有密钥环「Y」—— 先在那一行选「未分配」再分配」；环已有主人 → 「密钥环「Y」已经分配给「X」—— …」；解除分配永远允许）；`doAssignRing` 先检查，冲突时 `setStatus(warn)` **不落盘** + `view.refresh` 让下拉弹回真实值。`withAssign` 保留让位/顶替作为脏数据不变量。`security 0.3.3` 已签名入市。测试 +1（12 条）。**G2 双端**：桌面（环已有主人 / 插件已有环 两条都拒绝且文件不变；解除后可正常分配，`_shots/rev417-conflict.png`）；手机同流程（`_shots/rev417-phone-conflict.png`）|
 | rev173.416 | 2026-11-07 · **密钥环分配方向反转**（用户：「方向反了，现在是请求的插件勾选密钥，应该是创建的密钥分配给插件」+「一个密钥环只允许分配给一个请求者，分配做成一个下拉菜单的样式」+「插件不是申请某个具体的环，只是提出自己需要密钥环这个需求」）：① 授权表 v1 → **v2** `{ v:2, rings:{环:插件}, demand:{插件:true} }`，**双向 1:1**（一环一插件、一插件一环），环允许未分配；**v1 不迁移**（用户拍板，当空表重新分配）。② `crypto` 服务 2.0.0：新增 `demand()`（插件只声明需要密钥环，幂等）与 `ring()`（返回分配给我的环）；`unlock/encrypt/decryptText/decryptBytes/sign/verify/biometric.*` 的 `ring` 入参**一律忽略**、以分配表为准（不能借别人的环）；未分配抛「插件「X」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」。③ 面板授权区从「插件为行」改成「**环为行 + `<select>` 下拉**」（选项 = 声明过需求的插件 + 当前主人；首项「未分配」），`security.assign-ring` 命令、值编码 `<环>::<插件>`；render 时用 `view.setState` 播种下拉（值一致不写，避免自激）。④ `secrets` / `private-notes` 不再硬编码环：`adoptRing()` 调 `svc.demand()` 跟随分配（解锁前 / 面板打开 / 服务晚到各一次），`RING` 改为 `export let`（默认值不变）。⑤ 文档：契约 §service 调用方身份、方案 §13.3 原文标 ⚠️ 作废并写新模型。**测试** `tests/security-grants.test.ts` 重写 11 条（v1 当空表 / 双向 1:1 让位与顶替 / demand 幂等 / assignRows / 报错文案）。**G1** 12:25:15 全绿（tsc 0 · oxlint 4 · cargo 105 · vitest **2010** · 质量门 9/9）。**插件**：`security 0.3.2` / `secrets 0.1.7` / `private-notes 0.3.6`（已签名入市，市场 16 条；手机 debug 包已同步推入）。**G2 双端**：桌面 dev —— 两个环各一行下拉 → 分配 notes→private-notes、secrets→secrets（`_shots/rev416-assign-final.png`）→ 输主密码解锁账号密码环（`1 把已解锁`）；撤销分配后打开密码库 → 面板文案「解锁失败：插件「secrets」还没分配到密钥环 —— 去「安全 → 密钥环分配」给它分配一个」（`_shots/rev416-unassigned-error2.png`）；把 notes 环改分给 secrets ⇒ `grants.json` 只剩 `{ notes: "secrets" }`（1:1 让位生效）。手机 Redmi dev 包 —— 三个环（含 Todo）各一行下拉、分配落盘（`_shots/rev416-phone-assigned.png`）→ 密码库解锁成功（`_shots/rev416-phone-unlocked.png`） |
 | rev173.415 | 2026-11-07 · **桌面 dev 插件根迁到项目内**：`globalPluginRoot()` 支持 `VITE_ZN_PLUGIN_ROOT`（仅桌面 dev；Android 忽略），值放 `.env.development.local`（不入库）⇒ `<仓库>\_tmp\dev-root/.zn/plugins/<id>` 是 junction → `examples/<id>`。**改插件源码 reload 即生效**，不再复制 / 改 sha256 / 删签名。`tests/plugin-roots.test.ts` +2。**要重启 dev 生效** |
@@ -368,6 +369,18 @@ revision: 173.417
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.418（2026-11-07 · 自定义密钥环跨设备同步）
+
+> **起因**：rev173.414 起面板一直挂着「⚠️ 自定义环暂不同步到其它设备」—— 根因是 `sync/lib/core.cjs` 的 `PRIVATE_FILES` 只硬编码了两个内置环的 `vault.<环>.json`，自定义环的文件根本不在搬运清单里。
+
+> **实现**：① 新增纯函数 `privateFilesFor({ local, remote })` —— 内置 4 条 + 本地 `.zn/security/` 扫到的 + **远端 manifest `private` 段已有的**；远端也要算，否则新设备本地没有这个文件就永远拉不下来。② 白名单 `^\.zn/security/vault\.[a-z0-9-]+\.json$`，**`grants.json` 匹配不上**（授权表是本机信任关系，换设备重新分配 —— 用户 2026-11-07 拍板；这也是本 rev 的安全边界）。③ `syncPrivate` 每轮 `api.fs.listFiles('.zn/security')` 现扫（不缓存，环新建后下一轮就进清单），巡检轮转 `probeRel` 按动态列表长度算 —— 请求预算不变（每 3 轮 1 条）。
+
+> **测试**：新增 `tests/sync-private-files.test.ts` 5 条（内置不变 / 本地追加排序 / 远端独有纳入 / 白名单挡掉 grants.json 与非法名 / 本地远端去重）。
+
+> **G2 桌面端到端**：dev 测试库 `_tmp-vault-rt13`（含自定义环 Todo）配 WebDAV（坚果云，**新目录 `zeronote_test_418`**，先 curl MKCOL 建目录 —— 不建会 409「上传失败」）→ 手动同步 **上传 4 / 下载 0 / 1.6 秒** → 远端 `GET .zn/security/vault.todo.json` **200 / 320 B**；远端 `_zn/manifest.json` 的 `private` 段 = `vault.notes.json` · `vault.secrets.json` · **`vault.todo.json`**。
+
+> **未验 / 坑**：① 手机端拉取没单独验（同一份代码；要验需让手机本地没有该环）。② 桌面 dev 的 `sync` 设置存在**插件目录**里（`examples/sync/store.json`，`.gitignore` 的 `examples/*/store.json` 已覆盖）—— rev173.415 把插件根挪到项目内后，原来 appData 的那份配置不再被读取，本轮是手工写 `settings.v1` 重新配的；下次验同步先看这个文件在不在。③ 坚果云 WebDAV **根不可写**，`root` 目录必须先存在（MKCOL），否则首轮上传 409。
 
 > ## 📌 rev173.417（2026-11-07 · 分配冲突拒绝：新密钥不能顶掉已有密钥）
 

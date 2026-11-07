@@ -58,7 +58,7 @@ const {
   MAX_CONFLICTS,
   MAX_TIMING,
   SPARK,
-  PRIVATE_FILES,
+  privateFilesFor,
   PRIVATE_ROOT_FILES,
   PRIVATE_DIRS,
   decideTreeAction,
@@ -1435,10 +1435,22 @@ const plugin = {
       const firstPass = !privateProbeFirstDone
       privateProbeFirstDone = true
       const verifyAll = opts.verifyAll === true || firstPass
-      const probeRel = verifyAll ? null : PRIVATE_FILES[Math.floor(privateProbeTick / 3) % PRIVATE_FILES.length]
+      /**
+       * 动态清单（rev173.418）：内置两条环 + 本机扫到的自定义环 vault + 远端 manifest
+       * 记着的（`.zn/security/vault.<id>.json`）。`grants.json` 被白名单挡掉 —— 授权表
+       * 是本机信任关系，绝不上云（2026-11-07 用户拍板）。
+       */
+      let localVaultNames = []
+      try {
+        localVaultNames = await api.fs.listFiles('.zn/security')
+      } catch {
+        localVaultNames = []
+      }
+      const privFiles = privateFilesFor({ local: localVaultNames, remote: Object.keys(remotePriv) })
+      const probeRel = verifyAll ? null : privFiles[Math.floor(privateProbeTick / 3) % privFiles.length]
       privateProbeTick += 1
 
-      for (const rel of PRIVATE_FILES) {
+      for (const rel of privFiles) {
         /**
          * 读本地：**不用 `fs.exists`**，直接读 + 把空串当"没有"。
          * 两个理由：① 少一次 IPC（每 5 秒一轮）② 测试台的 memoryFs 没有 `exists`，

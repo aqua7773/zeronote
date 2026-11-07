@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-07 · rev173.417 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-07 · rev173.418 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.417 · 0.10.1 · 2026-11-07 |
-| 测试基线 | vitest 2011 · cargo 105 · oxlint 4 warnings（2026-11-07） |
+| rev / 版本 | rev173.418 · 0.10.1 · 2026-11-07 |
+| 测试基线 | vitest 2016 · cargo 105 · oxlint 4 warnings（2026-11-07） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-07 · CHANGELOG 0.10.1 |
 <!-- FACTS:END -->

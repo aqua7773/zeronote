@@ -89,6 +89,39 @@ const PRIVATE_FILES = [
   '.zn/security/vault.secrets.json',
   '.zn/security/vault.json',
 ]
+
+/**
+ * 自定义密钥环的 vault 文件白名单（rev173.418）：只认 `.zn/security/vault.<环id>.json`，
+ * 环 id 与 `security` 插件同一套字符集 `[a-z0-9-]`。
+ *
+ * **`grants.json` 必须永远匹配不上** —— 授权表是**本机信任关系**（2026-11-07 用户拍板：
+ * 换设备重新分配），绝不能跟着笔记上云。
+ */
+const VAULT_FILE_RE = /^\.zn\/security\/vault\.[a-z0-9-]+\.json$/
+/** 内置清单里已列出的（动态补充时跳过，免得重复） */
+const BUILTIN_VAULT_FILES = new Set(PRIVATE_FILES.filter((rel) => rel.startsWith('.zn/security/')))
+
+/**
+ * 合并「内置 + 本地扫到的 + 远端 manifest 已有的」私有文件清单（**纯函数**，单测覆盖）。
+ *
+ * 为什么远端也要算：新设备本地根本没有自定义环的 vault 文件，只看本地就永远拉不下来
+ * （manifest 是远端权威，它的 `private` 段记着上次推上去的文件）。
+ *
+ * `local` / `remote` 可以传全路径（`.zn/security/vault.todo.json`）或只传文件名
+ * （`vault.todo.json`），两种都归一到全路径；白名单外的（含 `grants.json`）一律丢弃。
+ */
+function privateFilesFor({ local = [], remote = [] } = {}) {
+  const extra = new Set()
+  for (const raw of [...local, ...remote]) {
+    const name = String(raw ?? '').replace(/^.*[\\/]/, '')
+    const rel = `.zn/security/${name}`
+    if (!VAULT_FILE_RE.test(rel)) continue
+    if (BUILTIN_VAULT_FILES.has(rel)) continue
+    extra.add(rel)
+  }
+  return [...PRIVATE_FILES, ...[...extra].sort()]
+}
+
 /** 私密文件夹的**根文件**（不在 notes/ 或 trash/ 里，单独列出） */
 const PRIVATE_ROOT_FILES = ['.zn/private/index.zn']
 /** 私密文件夹的**目录树**（数量可变 ⇒ 逐个文件走同一套方向判定，见 `syncPrivateTree`） */
@@ -725,6 +758,7 @@ function relayName(fp, ext) {
 
 module.exports = {
   PRIVATE_FILES,
+  privateFilesFor,
   PRIVATE_ROOT_FILES,
   PRIVATE_DIRS,
   PANEL_ID,

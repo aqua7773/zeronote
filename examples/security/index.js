@@ -1728,7 +1728,7 @@ export function panelNode(view) {
     gap: 'sm',
     children: [
       { type: 'button', label: '新建密钥环', onClick: 'security.create-ring', variant: 'ghost' },
-      { type: 'text', value: '⚠️ 自定义环暂不同步到其它设备', variant: 'caption', tone: 'muted' },
+      { type: 'text', value: '自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步', variant: 'caption', tone: 'muted' },
     ],
   })
 
