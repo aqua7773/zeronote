@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.412
-更新时间: 2026-11-07 · 最新 rev173.412（**0.10.1 发版**）· rev173.411（插件入口全接 openCommand）
+revision: 173.413
+更新时间: 2026-11-07 · 最新 rev173.413（**安全插件期 3：依赖 / 环分配 / 统一指纹**）· rev173.412（0.10.1 发版）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.412
 
 | rev | 内容 |
 |---|---|
+| rev173.413 | 2026-11-07 · **安全插件升级为「被依赖的底层插件」（期 3）**：① 内核 `service` 带调用方身份（`provide(factory: ({caller}) => T, { perCaller })`，`consume` 签名不变）；② `security` 按「插件 ↔ 密钥环」授权表校验（`.zn/security/grants.json` 本机、默认拒绝、无白名单；面板「插件授权」区 + `security.toggle-grant`）；③ 统一指纹：设备级 DK 让一次绑定覆盖多环 + 新环自动继承（**不重建 DK**）。vitest 2007（+24）· 质量门 9/9；`security 0.3.0` 已签名入市。G2 双端截图见正文 |
 | rev173.412 | 2026-11-07 · **0.10.1 发版**（G3 = 用户「目前双端真人验收没什么问题，提交发版」）：把 rev173.405–411 的「解锁输入弹窗 / 私密笔记删独立面板 / 插件入口统一」发给 release 用户 —— 关键是 `host.prompt` 是内核能力，0.10.0 用户更新插件后点锁只能看到「请更新 ZeroNote」。**产物**：桌面 `ZeroNote_0.10.1_x64-setup.exe` 15,911,327 B + `.sig` 440 B；Android `ZeroNote_0.10.1_arm64.apk` 34,977,387 B（33.36 MiB · 只打 aarch64，不是 121 MB 的 4-ABI universal · Gradle 原名 `app-universal-release.apk` 复制改名）。二进制放 `_build/release-0.10.1/`（不入库）。**清单**：`update/latest.json` + `update/android.json`（url 手动指向 `ZeroNote_0.10.1_arm64.apk`，sha256 `3e23351d…`）。**发布**：GitHub `v0.10.1` 三资产 · Gitee release `1281675` 三资产（size 全对：440 / 15,911,327 / 34,977,387）；main + tag 已推两个远端。构建 10 分 56 秒 |
 | rev173.411 | 2026-11-07 · **插件入口全部接 openCommand**（用户：「插件入口直接进入是不是没改」+「都做成和隐私文件夹一样的弹窗入口」）：上一 rev 只接了标签条 ＋ / 更多菜单，还有 3 处**用户可见入口**直接 `openPanelInTab` —— ① `pinPlugin`（图标栏固定图标点击）；② `morePluginEntries`（手机「更多 → 插件」组）；③ `resolveQuickEntry`（起始页长按 ＋ 环形入口）。三处改走 `openPanelEntry`；`core.panel.<id>` 命令与 `onOpenPanelInMain`（插件 `view.openWindow` 降级）**保持直接开**（命令→面板→命令会死循环）。测试 `tests/panel-open-wiring.test.ts` 重写 5 条（用户入口全走 entry / 三处新入口锁死 / 命令入口仍直接开 / `openPanelEntry` 必须在 `const kernel` 之后防 TDZ）。**G2 双端**：手机「更多 → 插件 → 密码库」→ 弹「解锁密码库」→ 输密码 → 直接进库；桌面图标栏固定「密码库」→ 点图标 → 弹解锁框 → 解锁后进「密码库」标签。**不做**：「安全」入口不接弹窗（用户要求把它改成被依赖的底层插件，另立需求） |
 | rev173.410 | 2026-11-07 · **面板菜单入口先执行 openCommand**（用户「弹窗在哪」→「修」）：密码库的「打开就先弹解锁框」只在 `secrets.open` 命令里；从标签条 ＋ / 更多菜单点「打开 · 密码库」是宿主直接开面板 ⇒ 看到的是面板内锁定视图，**绕过了弹窗**。① 契约 `registerPanel({ openCommand? })` + `PanelRegistration.openCommand`（内核如实保存透传）；② App 新增 `openPanelEntry`（菜单入口）：面板声明了 openCommand 就执行它、由插件决定进不进面板；`core.panel.<id>` 与标签切换仍直接开（否则命令→打开→命令死循环）；③ `secrets` 注册面板时声明 `openCommand: "secrets.open"`，插件 **0.1.6**（已签名入市，dev/手机已同步）。**测试** `tests/panel-open-command.test.ts` 2 条。**G2 桌面**：＋ 菜单 → 「打开 · 密码库」→ **弹「解锁密码库」**（`_shots/rev410-menu-prompt2.png`）→ 输密码 → **直接进库**（`_shots/rev410-menu-unlocked.png`）。**踩坑**：`openPanelEntry` 一开始写在 `const kernel = ...` 之前 ⇒ `Cannot access 'kernel' before initialization`，整页白屏（已移到 kernel 之后；CDP 抓异常脚本 `_tmp/cdp-errors.mjs`）。 |
@@ -363,6 +364,22 @@ revision: 173.412
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.413（2026-11-07 · 安全插件期 3：依赖 / 环分配 / 统一指纹）
+
+> **需求**（用户 2026-11-07）：「安全插件应该作为一个依赖插件，拥有建立密钥环、管理指纹（现在每个密钥指纹还需要独立绑定）、分配密钥环到申请的插件上的功能」。三条已拍板：① 环分配走 A 方案（内核带调用方）② 指纹一次绑定多环继承 ③ 每环独立主密码不变。开工前 4 个接口点用户已确认（授权表**本机** / **一律从零授权** / 设备级 DK / 未授权**抛错**）。方案补在 `docs/安全插件-方案-2026-10-25.md` §13。
+
+> **块 1 · 内核 `service` 带调用方身份**：契约改成 `provide(name, factory: ({ caller }) => T, { version?, perCaller? })`；`consume` 签名不变，内核按 scoped 的 pluginId 自动填 `caller`（内核自身 `'kernel'`，插件无法伪造）。默认语义**一个字节不变**（全局一份、懒工厂、错误不外抛、并发只跑一次；老 provider 忽略入参即可）；`perCaller: true` 才按调用方各跑一次工厂、各自缓存（含错误，坏的调用方不污染别人）。`release(pluginId)` 顺手清掉该插件作为调用方的 perCaller 缓存。单测 `tests/kernel-service.test.ts` 9 条。
+
+> **块 2 · 环分配**：`security` 的 `crypto` 服务改 `perCaller`，每个动作先过 `needGrant` —— 未授权**抛错**（文案直接指路「安全 → 插件授权」）并记一次申请。授权表 `.zn/security/grants.json`（本机文件、**不进 `PRIVATE_FILES` ⇒ 不同步**、**默认拒绝**、**无内置白名单**）。安全面板新增「插件授权」区：`grants ∪ requested` 每插件一行、每环一个 ✅/⬜ 按钮；有申请时置顶「🔐 有 N 个插件在申请密钥环」。命令 `security.toggle-grant`。纯函数 + 单测 `tests/security-grants.test.ts` 10 条。
+
+> **块 3 · 统一指纹（设备级 DK）**：首次绑定生成 `DK(32B)` → 适配器包一次 → `.zn/security/device.<本机>.json`（本机、不同步）；每个环 `rings.<环>.deviceWrapped = wrap(DK, "<环>|device", DEK)`。解锁：一次认证解出 DK → 解该环 DEK；同一解锁期内再解别的环**不再弹认证**。建环时若 DK 在内存 ⇒ 新环自动继承（零额外认证）；已绑定但当前环未继承 ⇒ 面板给「让这个环继承指纹」。**绝不重建 DK**（重建会让旧环包裹全失效）。最后一个环锁定时清空 DK。旧 `biometrics[<本机>]` 仍可读（双读一个版本），解除时一并清。单测 `tests/security-device-key.test.ts` 5 条。
+
+> **测试 / 插件**：vitest 2007（+24）· cargo 105 · oxlint 4 warnings · 质量门 9/9。`security 0.3.0` 已签名打包入市（`market/packs/security-0.3.0.znp`，98.0 KB）+ `gen-market --write`。dev 全局插件目录与手机 dev 包已同步（`signature.json` → `.bak`）。
+
+> **G2 双端**：桌面 dev（`_tmp-vault-rt13`）—— 安全面板出现「2 个插件在申请密钥环」→ 勾选 private-notes/私密笔记、secrets/账号密码 → 状态「已允许」→ `secrets.open` 弹解锁框 → 输 `test-pass-1234` → **进密码库**。手机 Redmi `33b676f6`（debug 包，adb 推插件）同流程：授权区显示 2 插件申请 → 勾选 → 已允许。截图 `_shots/rev413-{02-security,03-security-panel,04-granted,10-secrets-in,phone-01,phone-02}.png`。
+
+> **未验 / 待补**：① **设备级指纹绑定**要真人按 Windows Hello / 系统指纹（AI 无法代按）⇒ 留 G3；② 未授权时错误走 `host.notify` toast（3 秒消失），**面板本身不常驻错误**——反向用例截图没抓到提示，G3 时观察是否够醒目；③ 手机端密码库解锁本轮未走完（只验到授权）。
 
 > ## 📌 rev173.412（2026-11-07 · 0.10.1 发版）
 

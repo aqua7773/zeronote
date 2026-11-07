@@ -494,6 +494,53 @@ export function unbindBiometric(ring, deviceId = 'local') {
   return next
 }
 
+/* ───────────────────────── 设备级解锁密钥 DK（期 3 · 统一指纹） ───────────────────────── */
+
+/**
+ * **一次绑定、多环继承**（2026-11-07 用户拍板）。
+ *
+ * 旧做法是每个环各自用 Keystore 包一份 DEK ⇒ 每建一个环都要再绑一次指纹。
+ * 现在引入设备级 `DK`（32 字节随机）：
+ *
+ * ```
+ * 指纹认证一次 → adapter.open(device.<本机>.json) → DK
+ * 每个环：rings.<id>.deviceWrapped = XChaCha(DK, "<环id>|device", DEK)
+ * 解锁：DK → unwrap(deviceWrapped) → DEK（同一会话再解别的环不用再认证）
+ * ```
+ *
+ * `DK` 只在本机文件里（`.zn/security/device.<本机>.json`，**不进 PRIVATE_FILES 不同步**）；
+ * 别的设备解不了、也没必要搬。
+ */
+export function deviceFileOf(deviceId) {
+  return `${VAULT_DIR}/device.${deviceId}.json`
+}
+
+const deviceAad = (ringId) => `${ringId}|device`
+
+export function wrapDeviceDek(libs, dk, ringId, dek) {
+  return seal(libs, dk, deviceAad(ringId), dek)
+}
+
+export function unwrapDeviceDek(libs, dk, ringId, wrapped) {
+  return open(libs, dk, deviceAad(ringId), wrapped)
+}
+
+/** 设备绑定文件的明文内容（纯函数） */
+export function deviceFileContent(platform, wrapped, at = Date.now()) {
+  return JSON.stringify({ v: 1, platform, wrapped, at }, null, 2)
+}
+
+/** 解析设备绑定文件；坏内容返回 `null`（面板只是不显示指纹入口） */
+export function parseDeviceFile(text) {
+  try {
+    const p = JSON.parse(text)
+    if (!p || typeof p !== 'object' || !p.wrapped) return null
+    return { platform: String(p.platform ?? ''), wrapped: String(p.wrapped), at: Number(p.at ?? 0) }
+  } catch {
+    return null
+  }
+}
+
 /* ───────────────────────── 数据加解密 ───────────────────────── */
 
 /** DEK + 容器 → 数据密文 */
@@ -620,10 +667,98 @@ export function dropRing(vault, ringId) {
 }
 
 
+/* ───────────────────────── 插件授权（期 3 · 环分配） ───────────────────────── */
+
+/**
+ * 授权表：**哪个插件可以用哪个密钥环**。
+ *
+ * 落 `.zn/security/grants.json` —— **本机文件、不进 `PRIVATE_FILES`**（不同步：
+ * 换设备是另一套信任关系，要重新授权）。默认拒绝：没登记的插件一律不许碰环。
+ */
+export const GRANTS_FILE = `${VAULT_DIR}/grants.json`
+
+/** 未授权时给的行动指引（消费者原样显示给用户） */
+const AUTH_HINT = '去「安全 → 插件授权」允许它'
+
+export function emptyGrants() {
+  return { v: 1, grants: {}, requested: {} }
+}
+
+/** 把磁盘内容读成授权表 —— 坏 JSON / 怪形状一律当空表（不崩、不误授权） */
+export function parseGrants(text) {
+  let raw
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return emptyGrants()
+  }
+  if (!raw || typeof raw !== 'object') return emptyGrants()
+  const clean = (src) => {
+    const out = {}
+    for (const [pluginId, rings] of Object.entries(src ?? {})) {
+      if (!Array.isArray(rings)) continue
+      const list = [...new Set(rings.filter((r) => RING_IDS.includes(r)))]
+      if (list.length) out[String(pluginId)] = list
+    }
+    return out
+  }
+  return { v: 1, grants: clean(raw.grants), requested: clean(raw.requested) }
+}
+
+/** 这个插件能用这个环吗（**默认拒绝**：没登记就是没有） */
+export function granted(grants, pluginId, ringId) {
+  return Boolean(grants?.grants?.[pluginId]?.includes(ringId))
+}
+
+/** 改一个授权（纯函数，返回新表） */
+export function withGrant(grants, pluginId, ringId, allow) {
+  const next = { v: 1, grants: { ...(grants?.grants ?? {}) }, requested: { ...(grants?.requested ?? {}) } }
+  const list = new Set(next.grants[pluginId] ?? [])
+  if (allow) list.add(ringId)
+  else list.delete(ringId)
+  if (list.size) next.grants[pluginId] = [...list]
+  else delete next.grants[pluginId]
+  // 已经授权 ⇒ 这个环不再算「在申请」
+  if (allow && next.requested[pluginId]) {
+    const rest = next.requested[pluginId].filter((r) => r !== ringId)
+    if (rest.length) next.requested[pluginId] = rest
+    else delete next.requested[pluginId]
+  }
+  return next
+}
+
+/** 记一次「被拒的申请」（纯函数）：面板据此置顶提示「有插件在申请密钥环」 */
+export function recordRequest(grants, pluginId, ringId) {
+  const next = { v: 1, grants: { ...(grants?.grants ?? {}) }, requested: { ...(grants?.requested ?? {}) } }
+  const list = new Set(next.requested[pluginId] ?? [])
+  list.add(ringId)
+  next.requested[pluginId] = [...list]
+  return next
+}
+
+/** 未授权时的报错文案（消费者把它原样显示给用户） */
+export function authError(pluginId, ringId) {
+  return `插件「${pluginId}」未获授权使用密钥环「${RING_LABEL[ringId] ?? ringId}」—— ${AUTH_HINT}`
+}
+
+/** 面板用的授权行：`[{ pluginId, rings: { notes, secrets }, pending }]`（纯函数） */
+export function grantsRows(grants) {
+  const ids = [
+    ...new Set([...Object.keys(grants?.grants ?? {}), ...Object.keys(grants?.requested ?? {})]),
+  ].sort()
+  return ids.map((pluginId) => ({
+    pluginId,
+    rings: Object.fromEntries(RING_IDS.map((id) => [id, granted(grants, pluginId, id)])),
+    pending: Boolean(grants?.requested?.[pluginId]?.length),
+  }))
+}
+
 const PANEL_ID = 'security.panel'
 const STATUS_ID = 'security.status'
 const RING_IDS = ['notes', 'secrets']
 const RING_LABEL = { notes: '私密笔记', secrets: '账号密码' }
+/** 环名（给用户看的）—— `device` 是期 3 的设备级指纹伪环，不参与授权 */
+const ringLabel = (id) => RING_LABEL[id] ?? (id === 'device' ? '本机设备' : id)
 const RING_HINT = {
   notes: '私密笔记用这把密码。与账号密码分开 —— 这把泄露不影响密码库。',
   secrets: '账号密码库用这把密码。与私密笔记分开，60 秒无操作自动锁。',
@@ -704,7 +839,7 @@ export function androidBiometricAdapter(invoke) {
     async seal(dek, ringId) {
       const r = await invoke('plugin:biometric|biometric_cipher', {
         reason: '绑定指纹，之后免输主密码解锁 ZeroNote',
-        title: `绑定指纹 · ${RING_LABEL[ringId] ?? ringId}`,
+        title: `绑定指纹 · ${ringLabel(ringId)}`,
         dataToEncrypt: toB64url(dek),
       })
       return r?.data
@@ -712,7 +847,7 @@ export function androidBiometricAdapter(invoke) {
     async open(wrapped, ringId) {
       const r = await invoke('plugin:biometric|biometric_cipher', {
         reason: '用指纹解锁 ZeroNote',
-        title: `指纹解锁 · ${RING_LABEL[ringId] ?? ringId}`,
+        title: `指纹解锁 · ${ringLabel(ringId)}`,
         dataToDecrypt: wrapped,
       })
       return fromB64url(r?.data ?? '')
@@ -835,6 +970,10 @@ const store = {
   biometric: null,
   /** 本机设备 id（rev173.173：`biometrics` 按设备存；resolved 在 apply 里 —— 见 resolveDeviceId） */
   deviceId: 'local',
+  /** 插件授权表（期 3）：`{ grants, requested }`，本机文件、不同步 */
+  grants: emptyGrants(),
+  /** 本机设备级指纹绑定（期 3）：`{ platform, wrapped, at }`；没有 = 这台没绑过 */
+  deviceFile: null,
 }
 
 /** 已解锁的环：ringId → { dek, lastActive }。DEK 只在这里和 crypto.js 之间流动 */
@@ -1009,6 +1148,55 @@ async function saveVault(api, vault, onlyRing = null) {
   if (legacyExists) await purgeLegacy(api)
 }
 
+/* ───────────────────────── 授权表落盘（本机 · 不同步） ───────────────────────── */
+
+async function loadGrants(api) {
+  try {
+    return parseGrants(await api.fs.readText(GRANTS_FILE))
+  } catch {
+    return emptyGrants() // 第一次用（正常态）：默认谁都没授权
+  }
+}
+
+async function saveGrants(api, grants) {
+  try {
+    await api.fs.mkdir(VAULT_DIR)
+  } catch {
+    /* 目录已存在 */
+  }
+  await api.fs.writeText(GRANTS_FILE, JSON.stringify(grants, null, 2))
+}
+
+/** 串行写：多个插件同时被拒、同时登记申请时别互相覆盖 */
+let grantsWrite = Promise.resolve()
+
+/**
+ * 登记一次「被拒的申请」（面板置顶提示 + 落盘）。
+ * 同一个 (插件, 环) 只登记一次 —— 不重复写盘、不重复刷新。
+ */
+function noteRequest(api, pluginId, ringId) {
+  if (granted(store.grants, pluginId, ringId)) return Promise.resolve()
+  if ((store.grants.requested?.[pluginId] ?? []).includes(ringId)) return grantsWrite
+  store.grants = recordRequest(store.grants, pluginId, ringId)
+  api.view.refresh(PANEL_ID)
+  grantsWrite = grantsWrite
+    .then(() => saveGrants(api, store.grants))
+    .catch((e) => api.host.log('warn', `[security] 授权申请没落盘：${String(e?.message ?? e)}`))
+  return grantsWrite
+}
+
+/**
+ * 授权闸门（crypto 服务的每个动作都过它）：没授权 ⇒ 登记申请 + 抛**可操作**的错误。
+ *
+ * 抛错而不是返回空：`crypto` 是硬返回服务，静默给空会让消费者把「未授权」
+ * 当成「数据坏了 / 密码不对」，排查成本远高于一条明确报错（2026-11-07 用户拍板）。
+ */
+function needGrant(api, caller, ringId) {
+  if (granted(store.grants, caller, ringId)) return
+  void noteRequest(api, caller, ringId)
+  throw new Error(authError(caller, ringId))
+}
+
 /* ───────────────────────── 解锁 / 锁定 ───────────────────────── */
 
 /**
@@ -1079,6 +1267,11 @@ function lockRing(api, ringId, reason = 'manual') {
   if (!s) return false
   wipe(s.dek)
   live.delete(ringId)
+  // 最后一个环锁了 ⇒ 设备级 DK 也清掉（期 3：一次认证只在这一段解锁期内有效）
+  if (live.size === 0 && deviceKey) {
+    wipe(deviceKey)
+    deviceKey = null
+  }
   // 锁定时不把主密码留在输入框里（自动弹的「用户正在输入」判据也靠它）
   clearInputs(api, B.pw1)
   api.event.emit('security:locked', { ringId, reason })
@@ -1094,6 +1287,8 @@ let autoUnlockTimer = null
 let autoUnlockPending = null
 /** 生物识别请求进行中（自动 / 手动都算），防重入 */
 let biometricInFlight = false
+/** 设备级解锁密钥 DK（期 3）：解出后只在内存，最后一个环锁定时清空 */
+let deviceKey = null
 
 function cancelAutoUnlock() {
   if (autoUnlockTimer) clearTimeout(autoUnlockTimer)
@@ -1212,6 +1407,9 @@ export function panelNode(view) {
     hasBiometric = false,
     biometricReady = false,
     otherBiometrics = 0,
+    deviceBound = false,
+    ringInherited = false,
+    grants = emptyGrants(),
   } = view ?? {}
 
   const ring = getRing(vault, selected)
@@ -1283,14 +1481,22 @@ export function panelNode(view) {
         { type: 'text', value: `「${label}」已建立，输入主密码解锁`, variant: 'body' },
         ...(hasRecoveryCode ? [{ type: 'badge', text: '有恢复码' }] : []),
         ...(hasRecoveryQuestion ? [{ type: 'badge', text: '有恢复问题' }] : []),
-        ...(hasBiometric ? [{ type: 'badge', text: '本机已绑定' }] : []),
-        ...(!hasBiometric && otherBiometrics > 0
+        ...(deviceBound ? [{ type: 'badge', text: '本机已绑定' }] : []),
+        ...(ringInherited ? [{ type: 'badge', text: '已继承指纹' }] : []),
+        ...(!deviceBound && otherBiometrics > 0
           ? [{ type: 'badge', text: `别的 ${otherBiometrics} 台已绑定` }]
           : []),
       ],
     })
     kids.push({ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' })
-    if (!hasBiometric && otherBiometrics > 0) {
+    if (deviceBound && !ringInherited && !hasBiometric) {
+      kids.push({
+        type: 'text',
+        value: '这台设备绑过指纹，但这个环还没继承 —— 用主密码解锁后点「让这个环继承指纹」。',
+        variant: 'caption',
+        tone: 'muted',
+      })
+    } else if (!deviceBound && otherBiometrics > 0) {
       kids.push({
         type: 'text',
         value: `这台设备还没绑定生物识别（其他 ${otherBiometrics} 台设备已绑定，互不影响）—— 用主密码解锁后可在这里绑定。`,
@@ -1304,7 +1510,7 @@ export function panelNode(view) {
       wrap: true,
       gap: 'sm',
       children: [
-        ...(hasBiometric && biometricReady
+        ...((hasBiometric || ringInherited) && biometricReady
           ? [{ type: 'button', label: '用指纹解锁', onClick: 'security.biometric-unlock' }]
           : []),
         {
@@ -1341,9 +1547,11 @@ export function panelNode(view) {
         { type: 'button', label: '立即锁定', onClick: 'security.lock', variant: 'danger' },
         ...(biometricReady
           ? [
-              hasBiometric
-                ? { type: 'button', label: '解除本机指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
-                : { type: 'button', label: '绑定本机指纹', onClick: 'security.biometric-bind', variant: 'ghost' },
+              !deviceBound
+                ? { type: 'button', label: '绑定本机指纹', onClick: 'security.biometric-bind', variant: 'ghost' }
+                : ringInherited || hasBiometric
+                  ? { type: 'button', label: '解除本机指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
+                  : { type: 'button', label: '让这个环继承指纹', onClick: 'security.biometric-bind', variant: 'ghost' },
             ]
           : []),
         ...(hasBiometric && otherBiometrics > 0
@@ -1374,6 +1582,40 @@ export function panelNode(view) {
     })
   }
 
+  /* 插件授权（期 3）：哪些插件可以用哪个环。**始终显示** —— 没授权时这里的提示
+     就是用户唯一能看到「有个插件正被拒绝」的地方。 */
+  const authRows = grantsRows(grants)
+  if (authRows.length) {
+    const pendingCount = authRows.filter((r) => r.pending).length
+    kids.push({ type: 'divider' })
+    kids.push({
+      type: 'text',
+      value: pendingCount
+        ? `🔐 有 ${pendingCount} 个插件在申请密钥环 —— 勾选允许它使用`
+        : '🔐 插件授权（哪些插件可以用哪个密钥环）',
+      variant: 'caption',
+      tone: pendingCount ? 'warn' : 'muted',
+    })
+    for (const row of authRows) {
+      kids.push({
+        type: 'row',
+        align: 'center',
+        wrap: true,
+        gap: 'sm',
+        children: [
+          { type: 'text', value: row.pluginId, variant: 'caption' },
+          ...RING_IDS.map((id) => ({
+            type: 'button',
+            label: `${RING_LABEL[id]} ${row.rings[id] ? '✅' : '⬜'}`,
+            onClick: 'security.toggle-grant',
+            payload: { pluginId: row.pluginId, ringId: id },
+            variant: 'ghost',
+          })),
+        ],
+      })
+    }
+  }
+
   if (message) kids.push({ type: 'text', value: message, variant: 'caption', tone })
 
   return { type: 'stack', gap: 'sm', children: kids }
@@ -1398,12 +1640,37 @@ function panelView() {
     recoveredPending: recovered.has(store.selected),
     hasBiometric: Boolean(deviceBinding(ring, store.deviceId)),
     biometricReady: Boolean(store.biometric),
+    /** 期 3：这台设备绑过指纹（设备级 DK 文件在） */
+    deviceBound: Boolean(store.deviceFile),
+    /** 期 3：当前这个环继承了本机指纹（`deviceWrapped` 在） */
+    ringInherited: Boolean(ring?.deviceWrapped),
     /** 别的设备绑过几份（本机没有时提示「别的设备已绑定」） */
     otherBiometrics: otherDeviceCount(ring, store.deviceId),
+    /** 插件授权表（期 3）：面板底部始终显示，可在这里勾选 / 撤销 */
+    grants: store.grants,
   }
 }
 
 /* ───────────────────────── 命令 ───────────────────────── */
+
+/**
+ * 允许 / 撤销某个插件用某个密钥环（期 3）。改动立即落盘 —— provider 的闭包每次
+ * 调用都读 `store.grants`，所以不需要重跑工厂、也不需要重载插件。
+ */
+async function doToggleGrant(api, payload) {
+  const pluginId = String(payload?.pluginId ?? '')
+  const ringId = String(payload?.ringId ?? '')
+  if (!pluginId || !RING_IDS.includes(ringId)) return
+  const allow = !granted(store.grants, pluginId, ringId)
+  store.grants = withGrant(store.grants, pluginId, ringId, allow)
+  const label = RING_LABEL[ringId] ?? ringId
+  try {
+    await saveGrants(api, store.grants)
+    setStatus(api, `${allow ? '已允许' : '已撤销'}「${pluginId}」使用「${label}」`, allow ? 'success' : 'info')
+  } catch (e) {
+    setStatus(api, `授权没保存：${String(e?.message ?? e)}`, 'error')
+  }
+}
 
 /**
  * 建立一把环。
@@ -1424,11 +1691,15 @@ async function doSetup(api) {
       const L = await loadLibs()
       const created = createRing(L, ringId, pw1, { containerId: ringId })
       const recoveryCode = generateRecoveryCode(L)
-      const withRecovery = setupRecovery(L, created.ring, created.dek, {
+      let withRecovery = setupRecovery(L, created.ring, created.dek, {
         question,
         answer,
         code: recoveryCode,
       })
+      // 期 3：本机已绑定且有 DK 在内存 ⇒ 新环**立刻继承**指纹（不额外弹一次认证）
+      if (deviceKey) {
+        withRecovery = { ...withRecovery, deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, created.dek) }
+      }
       wipe(created.dek) // 建立后就用不到了（下次解锁时再解出来）
       return { ring: withRecovery, code: recoveryCode }
     })
@@ -1555,6 +1826,94 @@ export function biometricErrorMessage(error) {
   return `生物识别失败：${raw}`
 }
 
+/* ───────────────────────── 设备级指纹（期 3 · 一次绑定多环继承） ───────────────────────── */
+
+async function loadDeviceFile(api) {
+  try {
+    return parseDeviceFile(await api.fs.readText(deviceFileOf(store.deviceId)))
+  } catch {
+    return null // 没绑过（正常态）
+  }
+}
+
+async function saveDeviceFile(api, content) {
+  try {
+    await api.fs.mkdir(VAULT_DIR)
+  } catch {
+    /* 目录已存在 */
+  }
+  await api.fs.writeText(deviceFileOf(store.deviceId), content)
+}
+
+/** 给一把已解锁的环补上 `deviceWrapped`（要求 DK 在内存） */
+async function inheritRing(api, ringId, dek) {
+  if (!deviceKey) return false
+  const ring = getRing(store.vault, ringId)
+  if (!ring || ring.deviceWrapped) return false
+  const L = await loadLibs()
+  const next = { ...ring, deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, dek) }
+  store.vault = putRing(store.vault, next)
+  await saveVault(api, store.vault, null)
+  return true
+}
+
+/** 把所有已解锁的环都补上 `deviceWrapped`（绑定后 / 新环建立后） */
+async function inheritAllUnlocked(api) {
+  if (!deviceKey) return 0
+  let n = 0
+  for (const [ringId, s] of [...live]) {
+    try {
+      if (await inheritRing(api, ringId, s.dek)) n += 1
+    } catch (e) {
+      api.host.log('warn', `[security] 环 ${ringId} 继承指纹失败：${String(e?.message ?? e)}`)
+    }
+  }
+  return n
+}
+
+/**
+ * 绑定 / 补绑本机指纹。
+ *
+ * - **没绑过**：生成 DK → 一次认证包起来 → 已解锁的环全部继承。
+ * - **已绑过**：**绝不重建 DK**（重建会让旧环的 `deviceWrapped` 全失效）——
+ *   解出现有 DK（一次认证），把还没继承的环补上。
+ */
+async function bindDevice(api) {
+  const adapter = store.biometric
+  if (!adapter) throw new Error('这台设备没有可用的生物识别')
+  if (store.deviceFile) {
+    await unlockDeviceKey()
+    return inheritAllUnlocked(api)
+  }
+  const L = await loadLibs()
+  const dk = L.randomBytes(32)
+  const wrapped = await adapter.seal(dk, 'device')
+  await saveDeviceFile(api, deviceFileContent(adapter.platform, wrapped))
+  store.deviceFile = { platform: adapter.platform, wrapped, at: Date.now() }
+  deviceKey = dk
+  return inheritAllUnlocked(api)
+}
+
+/** 解出设备 DK（一次 fresh 认证；本会话内复用） */
+async function unlockDeviceKey() {
+  const adapter = store.biometric
+  if (!adapter) throw new Error('这台设备没有可用的生物识别')
+  if (!store.deviceFile) throw new Error('这台设备还没绑定生物识别')
+  if (deviceKey) return deviceKey
+  deviceKey = await adapter.open(store.deviceFile.wrapped, 'device')
+  return deviceKey
+}
+
+/** 用指纹解某个环的 DEK（设备级 DK → 解该环 deviceWrapped） */
+async function unlockRingByDevice(ringId) {
+  const ring = getRing(store.vault, ringId)
+  if (!ring) throw new Error('这个密钥环还没建立')
+  if (!ring.deviceWrapped) throw new Error('这个环还没继承本机指纹 —— 先用主密码解锁一次，再绑定')
+  const dk = await unlockDeviceKey()
+  const L = await loadLibs()
+  return unwrapDeviceDek(L, dk, ringId, ring.deviceWrapped)
+}
+
 /**
  * 用生物识别解锁。
  *
@@ -1574,7 +1933,10 @@ async function doBiometricUnlock(api, opts = {}) {
   biometricInFlight = true
   if (auto) setStatus(api, '正在请求指纹…', 'info')
   try {
-    const dek = await unlockWithBiometric(ring, adapter, store.deviceId)
+    // 期 3：新格式优先（一次认证解 DK，多环共用）；旧格式兜底
+    const dek = ring.deviceWrapped
+      ? await unlockRingByDevice(ringId)
+      : await unlockWithBiometric(ring, adapter, store.deviceId)
     live.set(ringId, { dek, lastActive: Date.now() })
     api.event.emit('security:unlocked', { ringId })
     setStatus(api, `「${RING_LABEL[ringId] ?? ringId}」已用指纹解锁`, 'success')
@@ -1591,30 +1953,45 @@ async function doBiometricUnlock(api, opts = {}) {
 }
 
 async function doBiometricBind(api) {
-  const ringId = store.selected
-  const ring = getRing(store.vault, ringId)
-  const s = live.get(ringId)
-  const adapter = store.biometric
-  if (!ring) return setStatus(api, '这个环还没建立', 'warn')
-  if (!s) return setStatus(api, '先解锁，再绑定指纹', 'warn')
-  if (!adapter) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
+  if (!store.biometric) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
   try {
-    const next = await bindBiometric(ring, s.dek, adapter, store.deviceId)
-    store.vault = putRing(store.vault, next)
-    await saveVault(api, store.vault, next.id)
-    setStatus(api, '已绑定这台设备 —— 之后锁定可直接用指纹解锁（主密码仍然有效，别的设备不受影响）', 'success')
+    // 期 3：绑**设备**（一次认证），已解锁的环立刻继承；以后新建的环自动继承
+    const n = await bindDevice(api)
+    setStatus(
+      api,
+      `已绑定这台设备${n ? ` —— ${n} 把已解锁的环已继承` : ''}；之后锁定可直接用指纹解锁（新建的环会自动继承）`,
+      'success',
+    )
   } catch (e) {
     setStatus(api, `绑定失败：${biometricErrorMessage(e)}`, 'error')
   }
 }
 
 async function doBiometricUnbind(api) {
-  const ringId = store.selected
-  const ring = getRing(store.vault, ringId)
-  if (!deviceBinding(ring, store.deviceId)) return setStatus(api, '这台设备没有绑定指纹', 'warn')
+  if (!store.deviceFile) return setStatus(api, '这台设备没有绑定指纹', 'warn')
   try {
-    store.vault = putRing(store.vault, unbindBiometric(ring, store.deviceId))
-    await saveVault(api, store.vault, ring.id)
+    // 期 3：解除是**设备级**的 —— 删本机 DK 文件 + 清掉所有环的本机包裹（别的设备不动）
+    await api.fs.purgePrivate(deviceFileOf(store.deviceId)).catch(() => {})
+    store.deviceFile = null
+    if (deviceKey) {
+      wipe(deviceKey)
+      deviceKey = null
+    }
+    let changed = false
+    for (const [id, ring] of Object.entries(store.vault.rings)) {
+      let next = ring
+      if (next.deviceWrapped) {
+        next = { ...next }
+        delete next.deviceWrapped
+        changed = true
+      }
+      if (deviceBinding(next, store.deviceId)) {
+        next = unbindBiometric(next, store.deviceId)
+        changed = true
+      }
+      if (next !== ring) store.vault = putRing(store.vault, next)
+    }
+    if (changed) await saveVault(api, store.vault, null)
     setStatus(api, '已解除这台设备的指纹绑定（主密码与别的设备不受影响）', 'success')
   } catch (e) {
     setStatus(api, `解除失败：${String(e?.message ?? e)}`, 'error')
@@ -1689,6 +2066,10 @@ export default {
     }
     // 生物识别探测（Android 官方插件 / Windows hello_*）：失败静默，面板只是不显示入口
     store.biometric = await detectBiometric()
+    // 插件授权表（期 3）：本机文件，默认空 ⇒ 所有消费者都要在面板里手动允许
+    store.grants = await loadGrants(api)
+    // 设备级指纹（期 3）：本机绑定文件，没有 = 这台没绑过
+    store.deviceFile = await loadDeviceFile(api)
 
     /* 面板 */
     api.subscriptions.push(
@@ -1821,22 +2202,32 @@ export default {
       { id: 'security.biometric-unlock', title: '安全：用生物识别解锁', run: () => doBiometricUnlock(api) },
       { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },
       { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
+      { id: 'security.toggle-grant', title: '安全：允许 / 撤销插件使用密钥环', run: (payload) => doToggleGrant(api, payload) },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))
 
-    /* 对外服务（需求 §9.4）：只给"操作"，不给密钥 */
+    /* 对外服务（需求 §9.4）：只给"操作"，不给密钥。期 3：按**调用方**授权（perCaller） */
     api.subscriptions.push(
       api.service.provide(
         'crypto',
-        () => ({
-          version: '1.0.0',
-          isUnlocked: (ringId = 'secrets') => live.has(ringId),
-          ids: () => [...live.keys()],
-          unlock: async (ringId, password) => unlockWithPassword(api, ringId, password),
-          lock: (ringId = 'secrets') => lockRing(api, ringId, 'service'),
+        ({ caller }) => ({
+          version: '1.1.0',
+          isUnlocked: (ringId = 'secrets') => {
+            needGrant(api, caller, ringId)
+            return live.has(ringId)
+          },
+          ids: () => RING_IDS.filter((id) => granted(store.grants, caller, id) && live.has(id)),
+          unlock: async (ringId, password) => {
+            needGrant(api, caller, ringId)
+            return unlockWithPassword(api, ringId, password)
+          },
+          lock: (ringId = 'secrets') => {
+            if (granted(store.grants, caller, ringId)) lockRing(api, ringId, 'service')
+          },
           /** 加密：`{ ring, container, data }`，data 可以是字符串或 Uint8Array */
           encrypt: async ({ ring = 'secrets', container, data } = {}) => {
+            needGrant(api, caller, ring)
             const s = live.get(ring)
             if (!s) throw new Error(`密钥环「${ring}」未解锁`)
             const L = await loadLibs()
@@ -1845,6 +2236,7 @@ export default {
           },
           /** 解密成文本（密码库这类 JSON 数据用它） */
           decryptText: async ({ ring = 'secrets', container, payload } = {}) => {
+            needGrant(api, caller, ring)
             const s = live.get(ring)
             if (!s) throw new Error(`密钥环「${ring}」未解锁`)
             const L = await loadLibs()
@@ -1852,6 +2244,7 @@ export default {
             return fromBytes(decryptData(L, s.dek, ring, container ?? ring, payload))
           },
           decryptBytes: async ({ ring = 'secrets', container, payload } = {}) => {
+            needGrant(api, caller, ring)
             const s = live.get(ring)
             if (!s) throw new Error(`密钥环「${ring}」未解锁`)
             const L = await loadLibs()
@@ -1859,6 +2252,7 @@ export default {
             return decryptData(L, s.dek, ring, container ?? ring, payload)
           },
           sign: async ({ ring = 'secrets', container, data } = {}) => {
+            needGrant(api, caller, ring)
             const s = live.get(ring)
             if (!s) throw new Error(`密钥环「${ring}」未解锁`)
             const L = await loadLibs()
@@ -1866,6 +2260,7 @@ export default {
             return signData(L, s.dek, ring, container ?? ring, data)
           },
           verify: async ({ ring = 'secrets', container, data, sig } = {}) => {
+            needGrant(api, caller, ring)
             const s = live.get(ring)
             if (!s) return false
             const L = await loadLibs()
@@ -1883,21 +2278,28 @@ export default {
           biometric: {
             /** 这台设备有没有可用的适配器（Windows Hello / Android 指纹） */
             available: () => Boolean(store.biometric),
-            /** 这个环在这台设备上绑过没有 */
+            /** 这个环在这台设备上能用指纹解锁吗（新格式 `deviceWrapped` / 旧格式本机包裹） */
             bound: (ringId = 'secrets') => {
+              needGrant(api, caller, ringId)
               const ring = getRing(store.vault, ringId)
-              return Boolean(ring && deviceBinding(ring, store.deviceId))
+              if (!ring) return false
+              return Boolean(ring.deviceWrapped || deviceBinding(ring, store.deviceId))
             },
             /** 用指纹解出 DEK 并解锁该环；失败原样抛给调用方（它负责翻人话） */
             unlock: async (ringId = 'secrets') => {
+              needGrant(api, caller, ringId)
               const ring = getRing(store.vault, ringId)
               if (!ring) throw new Error('这个密钥环还没建立')
               if (!store.biometric) throw new Error('这台设备没有可用的生物识别')
-              if (!deviceBinding(ring, store.deviceId)) throw new Error('这台设备还没绑定生物识别')
+              if (!ring.deviceWrapped && !deviceBinding(ring, store.deviceId)) {
+                throw new Error('这个环还没绑定本机指纹 —— 先用主密码解锁，再在安全面板里让它继承')
+              }
               if (biometricInFlight) throw new Error('指纹请求正在进行，请稍候')
               biometricInFlight = true
               try {
-                const dek = await unlockWithBiometric(ring, store.biometric, store.deviceId)
+                const dek = ring.deviceWrapped
+                  ? await unlockRingByDevice(ringId)
+                  : await unlockWithBiometric(ring, store.biometric, store.deviceId)
                 live.set(ringId, { dek, lastActive: Date.now() })
                 api.event.emit('security:unlocked', { ringId })
                 return true
@@ -1905,30 +2307,43 @@ export default {
                 biometricInFlight = false
               }
             },
-            /** 绑定本机指纹（要求该环已解锁，DEK 在 live 里） */
+            /** 绑定 / 补绑本机指纹（设备级；要求该环已解锁） */
             bind: async (ringId = 'secrets') => {
-              const ring = getRing(store.vault, ringId)
-              const s = live.get(ringId)
-              if (!ring) throw new Error('这个密钥环还没建立')
-              if (!s) throw new Error('先解锁，再绑定指纹')
-              if (!store.biometric) throw new Error('这台设备没有可用的生物识别')
-              const next = await bindBiometric(ring, s.dek, store.biometric, store.deviceId)
-              store.vault = putRing(store.vault, next)
-              await saveVault(api, store.vault, next.id)
+              needGrant(api, caller, ringId)
+              if (!live.has(ringId)) throw new Error('先解锁，再绑定指纹')
+              await bindDevice(api)
               return true
             },
-            /** 解除本机绑定（不影响主密码与别的设备） */
+            /** 解除本机绑定（设备级；不影响主密码与别的设备） */
             unbind: async (ringId = 'secrets') => {
-              const ring = getRing(store.vault, ringId)
-              if (!ring) throw new Error('这个密钥环还没建立')
-              if (!deviceBinding(ring, store.deviceId)) throw new Error('这台设备没有绑定生物识别')
-              store.vault = putRing(store.vault, unbindBiometric(ring, store.deviceId))
-              await saveVault(api, store.vault, ring.id)
+              needGrant(api, caller, ringId)
+              if (!store.deviceFile) throw new Error('这台设备没有绑定生物识别')
+              await api.fs.purgePrivate(deviceFileOf(store.deviceId)).catch(() => {})
+              store.deviceFile = null
+              if (deviceKey) {
+                wipe(deviceKey)
+                deviceKey = null
+              }
+              let changed = false
+              for (const [id, r] of Object.entries(store.vault.rings)) {
+                let next = r
+                if (next.deviceWrapped) {
+                  next = { ...next }
+                  delete next.deviceWrapped
+                  changed = true
+                }
+                if (deviceBinding(next, store.deviceId)) {
+                  next = unbindBiometric(next, store.deviceId)
+                  changed = true
+                }
+                if (next !== r) store.vault = putRing(store.vault, next)
+              }
+              if (changed) await saveVault(api, store.vault, null)
               return true
             },
           },
         }),
-        { version: '1.0.0' },
+        { version: '1.1.0', perCaller: true },
       ),
     )
 

@@ -1427,8 +1427,17 @@ export interface ServiceApi {
    *
    * factory 抛错 ⇒ `consume` 返回 `null`（**不把异常抛给消费者** ——
    * 一个前置插件坏了不该拖垮依赖它的插件），错误会写进插件日志。
+   *
+   * **`factory` 会收到 `{ caller }`**（rev173.413 · 期 3 环分配）：这是 `consume` 那一方的
+   * pluginId，由内核的 scoped 视图填写，插件**无法伪造**。现有 provider 忽略这个入参即可。
+   * `perCaller: true` ⇒ 每个调用方各跑一次工厂、各自缓存结果 —— 用于「必须知道是谁在调用」
+   * 的服务（安全插件的 `crypto` 按「插件 ↔ 密钥环」授权表校验）。
    */
-  provide<T>(name: string, factory: () => T | Promise<T>, opts?: { version?: string }): Disposable
+  provide<T>(
+    name: string,
+    factory: (ctx: { caller: string }) => T | Promise<T>,
+    opts?: { version?: string; perCaller?: boolean },
+  ): Disposable
   /** 取服务（异步：要等 factory 跑完）。**没有就返回 `null`**。 */
   consume<T = unknown>(name: string): Promise<T | null>
   /** 当前已登记的服务（含提供者、是否已实例化）—— 给诊断面板/调试用 */
