@@ -1640,8 +1640,21 @@ export function panelNode(view) {
   kids.push({ type: 'divider' })
 
   /* 每个环一行（rev173.424 按示意图）：左「🔒 环名 | 已绑定 X / 未分配」，右「修改 · 解锁 · 删除」。
-     「测试」和 ✓ 不再占行（rev173.424 用户：「按截图去掉」）—— 测试命令仍留在命令面板。 */
-  const assign = assignRows(grants, allRingIds(vault), plugins)
+     「测试」和 ✓ 不再占行（rev173.424 用户：「按截图去掉」）—— 测试命令仍留在命令面板。
+
+     rev173.442（2026-11-08 用户：「安全插件不需要预留位置」）：只列**已建立**的环。
+     未建立的占位（插件 demand 带来、vault 里没有的那几条）不再显示 —— 新建走右上「新建密钥环」。 */
+  const assign = assignRows(grants, allRingIds(vault), plugins).filter((row) =>
+    Boolean(getRing(vault, row.ringId)),
+  )
+  if (!assign.length) {
+    kids.push({
+      type: 'text',
+      value: '还没有密钥环 —— 点右上「新建密钥环」建立第一个',
+      variant: 'caption',
+      tone: 'muted',
+    })
+  }
   for (const row of assign) {
     const ring = getRing(vault, row.ringId)
     const isUnlocked = Boolean(unlocked[row.ringId])

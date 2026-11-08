@@ -98,13 +98,15 @@ describe('security · 面板结构（rev173.424）', () => {
     expect(bound.filter((n) => n.kind === 'button').map((n) => String(n.label))).toContain('指纹（已绑定）')
   })
 
-  it('未建立的环：行内是「建立」而不是三按钮；点环名仍走 open-ring', () => {
+  it('未建立的环不再占位（rev173.442 用户：「安全插件不需要预留位置」）', () => {
     const nodes = render({ vault: { v: 1, rings: {} }, unlocked: {}, grants: emptyGrants(), plugins: [] })
     const buttons = nodes.filter((n) => n.kind === 'button')
-    expect(buttons.filter((n) => n.label === '建立')).toHaveLength(2) // notes + secrets
-    const openRing = buttons.filter((n) => n.onClick === 'security.open-ring')
-    expect(openRing.length).toBeGreaterThanOrEqual(2)
-    // 解锁按钮用的是新命令（rev173.424：与密码库同一套流程）
+    expect(buttons.filter((n) => n.label === '建立')).toHaveLength(0) // notes + secrets 的占位不再出现
+    expect(buttons.filter((n) => n.onClick === 'security.open-ring')).toHaveLength(0)
+    // 空列表有引导文案（否则整页只剩顶部三个按钮）
+    const texts = nodes.filter((n) => n.kind === 'text').map((n) => String(n.value))
+    expect(texts.some((t) => t.includes('新建密钥环'))).toBe(true)
+    // 已建立的环照常
     const v2 = ringVault(['notes'])
     const withRing = render({ vault: v2, unlocked: {}, grants: emptyGrants(), plugins: [] })
     expect(withRing.filter((n) => n.kind === 'button' && n.onClick === 'security.unlock-ring')).toHaveLength(1)
