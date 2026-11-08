@@ -6,10 +6,10 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.432 · 0.10.1 · 2026-11-08 |
+| rev / 版本 | rev173.433 · 0.10.2 · 2026-11-08 |
 | 测试基线 | vitest 2031 · cargo 105 · oxlint 4 warnings（2026-11-08） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-08 · CHANGELOG 0.10.1 |
+| 文档 | README 现状 2026-11-08 · CHANGELOG 0.10.2 |
 <!-- FACTS:END -->
 
 ## 1 是什么（30 秒）
@@ -25,7 +25,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.1** · rev173.432 |
+| 版本 / rev | **0.10.2** · rev173.433 |
 | 测试基线 | vitest 2030 · cargo 105 · oxlint 4 warnings · 质量门 9/9（2026-11-08） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
@@ -52,7 +52,7 @@
 
 > **✅ 密钥环可删除 + 分配列表不再空（rev173.420，2026-11-08）**：`security 0.3.5` —— ① 分配下拉的候选并入**所有已装插件**（内核新 `host.installedPlugins()`）；手机 release 上旧版消费者插件不调 `crypto.demand()` 也能在列表里选到，不再显示「↳ 还没有插件声明需要密钥环」。② 每个**已建立**的环有「删除」按钮，**必须输入该环主密码**才删（取消 / 密码错都不删；删完清分配行 + 删 `vault.<id>.json` + 内存解锁态）。已打包入市；**桌面 G2 已验**（`_shots/rev420-0{4,7,8}*.png`），手机 dev 包插件已推、待解屏后验。
 
-> **🔜 下个会话第一件事（2026-11-08 rev173.432 交接）**：手机 dev 包已恢复可连；两个体验点已修（`security 0.4.8`：建环 busy 提示 + 解锁后显示「已解锁」），**双端 G2 已过**。剩下两件：① **G3 真人验指纹**（AI 不能代按）：绑定指纹 / 一次认证全局生效 / 「指纹验证修改」—— 桌面 dev → 手机 dev 包。② **发版 0.10.2**（把新面板 / 恢复码 / 恢复问题 / 指纹一次认证全局生效带给 release 用户；市场已到 `security 0.4.8`），按 01/02 分册逐条；用户已说「修完再发」。**已知坑**（详见 `docs/开发环境坑位.md`）：devUrl 是**编译时**写死的局域网 IP（IP 变了就重跑 `android-dev.cmd`，**别用** `gradlew assembleDebug`，会缺 `.tauri/cli-options-server.json`）；reload 后「网页无法打开」⇒ `am force-stop` + `monkey` 重开；`adb forward 9333` 要用**当前** pid；PowerShell 别用 `$pid`（用 `$appPid`）；手机 sync 根 `zeronote_test_418`（`examples/sync/store.json`，gitignore）；指纹验证必须真人按。**手机插件推送不用改 sha256** —— 手机 `security/manifest.json` 无 `files`/签名（`signature.json.bak`），推 `index.js` + `manifest.json` 即可。
+> **🔜 下个会话第一件事（2026-11-08 rev173.433 交接）**：安全面板已按用户示意图重排（手机两行：环名+状态 / 三按钮铺满；`security 0.4.9`），双端 G2 已过。剩下两件：① **发版 0.10.2** —— 版本号已改、CHANGELOG 已写、`security 0.4.9` 已入市；还差 `node scripts/build-release.mjs`（约 8–10 分钟）→ `gen-update-manifest.mjs --write` → GitHub/Gitee Release → 提交 + push + tag，按 01/02 分册逐条。② **G3 真人验指纹**（AI 不能代按）：绑定指纹 / 一次认证全局生效 / 「指纹验证修改」。**已知坑**（详见 `docs/开发环境坑位.md`）：devUrl 是**编译时**写死的局域网 IP（IP 变了就重跑 `android-dev.cmd`，**别用** `gradlew assembleDebug`）；手机截图用 `cdp.mjs shot`（`adb screencap` 抓不到 Chromium 合成层，会看到假白屏）；`adb forward 9333` 要用**当前** pid；PowerShell 别用 `$pid`（用 `$appPid`）；改 `tauri.conf.json` 会让在跑的 `tauri android dev` 重装包并把 WebView 切回 `tauri.localhost`；手机插件推送不用改 sha256（手机 `security/manifest.json` 无 `files`、签名已 `.bak`），推 `index.js` / `styles.css` / `manifest.json` 即可。
 
 1. ✅ **0.10.1 已发版（rev173.412）**：`host.prompt` 进 release 包。**release 机动作顺序 = 先更新应用**（关于 → 更新到 0.10.1，装完重开），**再更新插件** `安全 0.2.4` / `密码库 0.1.6` / `私密文件夹 0.3.5`。
 2. ✅ **私密笔记第二批已全部完成**（rev173.394–407）：搜索 / 时间流卡片 / 拖入移出 / 删旧面板与列表视图（解锁改 `host.prompt` 输入弹窗、回收站「公开/私密」切换、指纹优先）—— `private-notes 0.3.5` 已入市；0.10.1 后真机可用。

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "styles": ["styles.css"],

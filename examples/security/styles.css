@@ -79,14 +79,25 @@
   font-size: var(--zn-text);
 }
 
-/* 窄屏（手机）：三列挤不下 ⇒ 左「环名」与右「动作」一行，状态掉到第二行居中 */
+/* 窄屏（手机，用户 2026-11-08 示意图）：**两行撑满** ——
+ *   第一行：🔒 环名（左）·…· 绑定状态（右）
+ *   第二行：修改 · 解锁 · 删除 三个均匀分布铺满整行
+ * 之前是「名 / 状态 / 按钮」三行堆叠；只挪位置不够，整张卡要按图重排。 */
 @media (max-width: 820px) {
   .zn-ui-row.zn-sec-ring-card {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 2px;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 6px;
   }
   .zn-sec-ring-state {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .zn-sec-ring-actions {
     grid-column: 1 / -1;
-    justify-self: center;
+    grid-row: 2;
+    justify-self: stretch;
+    width: 100%;
+    justify-content: space-between;
   }
 }
