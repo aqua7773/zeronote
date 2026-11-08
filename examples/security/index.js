@@ -3404,6 +3404,10 @@ export default {
                   : await unlockWithBiometric(ring, store.biometric, store.deviceId)
                 live.set(ringId, { dek, lastActive: Date.now() })
                 api.event.emit('security:unlocked', { ringId })
+                /* rev173.435：消费者（密码库 / 私密笔记）弹的指纹同样是「一次设备认证」——
+                   之前只有安全面板那条路径调 inheritRings，从这两个入口解锁时其它环不会被补，
+                   用户得一个个再解。这里对齐。 */
+                await inheritRings(api)
                 return true
               } finally {
                 biometricInFlight = false

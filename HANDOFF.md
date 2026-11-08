@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.434
-更新时间: 2026-11-08 · 最新 rev173.434（**0.10.2 已发版**：安全面板重做 / 密钥环分配 / 恢复码 / 指纹全局生效）
+revision: 173.435
+更新时间: 2026-11-08 · 最新 rev173.435（**指纹一次认证补上密码库/私密笔记两个入口 · security 0.5.0**）· rev173.434（0.10.2 已发版）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.434
 
 | rev | 内容 |
 |---|---|
+| rev173.435 | 2026-11-08 · **指纹「一次认证全局生效」补上两个漏掉的入口**（用户问「私密笔记和密码库的指纹解锁呢」）：`inheritRings()` 原来只在安全面板的 `biometricUnlockRing()` 里调，消费者（`secrets` 的 `secrets.open`、`private-notes` 的 `private.open`）走 `crypto.biometric.unlock()` 服务时**不补**其它环 —— 同一个「一次设备认证」在三个入口行为不一致。修法：`biometric.unlock()` 解锁成功后同样 `await inheritRings(api)`（服务在 `provide` 内、`api` 可达；`inheritRings` 是模块级函数声明，已提升）。`security 0.5.0` 已签名打包入市；与 `secrets 0.1.7` / `private-notes 0.3.6` 的调用签名完全不变（消费者不用更新）。**验收**：security 四个测试文件 **82 passed**；**未做**：真机指纹路径必须真人按，留 G3（手机未绑指纹，桌面已绑定可验）。 |
 | rev173.434 | 2026-11-08 · **0.10.2 发版**：把 rev173.413–433 的「安全插件面板重做 / 密钥环分配给插件 / 恢复码 + 恢复问题 / 指纹一次认证全局生效 / 手机两行布局」发给 release 用户 —— 关键是 **`host.dialog` / `host.installedPlugins` 是内核能力**，0.10.1 用户更新插件后只会降级成 prompt 链。**产物**：桌面 `ZeroNote_0.10.2_x64-setup.exe` 15,916,328 B + `.sig` 440 B；Android `ZeroNote_0.10.2_arm64.apk` 34,830,795 B（33.22 MiB · 只发 arm64，不发布 universal）。二进制在 `_build/release-0.10.2/`（不入库）。**清单**：`update/latest.json` 由脚本生成；`update/android.json` 手动指向改名后的 arm64 包（sha256 `4ee3b519…`）。**发布**：GitHub `v0.10.2` 三资产（https://github.com/aqua7773/zeronote/releases/tag/v0.10.2）；Gitee release `1287293` 三资产（size 全对：15916328 / 440 / 34830795）。构建 9 分 40 秒（桌面 4:05 + Android 5:35）。**未做**：手机 release 机装 0.10.2 验收；指纹真人 G3。 |
 | rev173.433 | 2026-11-08 · **手机端密钥环卡片改成两行布局**（用户发示意图：「不要只改位置啊，重新布局一下」）：窄屏（≤820px）从「名 / 状态 / 按钮」三行堆叠改成 **两行撑满** —— 第一行 `🔒 环名`（左）+ 绑定状态（右）；第二行三个按钮 `space-between` 均匀铺满。桌面宽屏仍是三列（1fr auto 1fr）。只改 `examples/security/styles.css` 的 `@media (max-width: 820px)` 块。`security 0.4.9` 已签名打包入市（`market/packs/security-0.4.9.znp`）。**G2 手机已验**（Redmi dev 包推 styles.css 后 CDP 截图 `_shots/rev432-phone-11-layout3.png`）。**踩坑**：手机「白屏」是 `adb screencap` 抓不到 Chromium 合成层（老坑），用 `cdp.mjs shot` 才准；期间 vite 进程真挂过一次（根路径 404）→ 重启 `pnpm dev` 恢复。 |
 | rev173.432 | 2026-11-08 · **安全面板两个体验点**（rev173.431 手机实测发现、用户「修完再发」）：① **建环 2.6 秒空窗** → `panelNode` 新增 busy 行「⏳ 正在处理「<环名>」…（派生密钥需要 1–4 秒，别重复点）」—— `withBusy()` 本来就会 `refresh`，但之前面板只有按钮变灰，看不出来。② **解锁后没有「已解锁」字样** → 解锁按钮文案随 `isUnlocked` 变「已解锁」（禁用态保留）；环名前的锁图标原来已随状态变 🔓，现在加文字双保险。`tests/security-panel.test.ts` 更新 1 条 + 新增 1 条（busy 提示只在 busy 时出现且带环名）。`security 0.4.8` 已签名打包入市（`market/packs/security-0.4.8.znp`，整包 sha256 `7d6a142a…`，入口 sha256 `d93b890e…`）。**G2 双端**：桌面 dev（junction → `examples/security`）解锁「私密笔记」→ 该行变「已解锁」（`_shots/rev432-desktop-02-unlocked.png`）；建 `g2busy` 环时用 rAF 采样到 `正在处理` 出现过（`window.__s.includes(1) === true`，1178 帧采样）；手机 Redmi dev 包推 0.4.8 后解锁 `g2ring4` → 按钮变「已解锁」（`_shots/rev432-phone-02-unlocked.png`）。**未做**：指纹真人验收（仍待 G3）；两个测试环 `g2busy`（桌面）/ `g2ring*`（手机）留在测试库未删。 |
@@ -385,6 +386,18 @@ revision: 173.434
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.435（2026-11-08 · 指纹一次认证：补上密码库 / 私密笔记两个入口）
+
+> **怎么发现的**：用户问「私密笔记和密码库的指纹解锁呢」。核实后两处都在（`secrets/index.js:1473`、`private-notes/index.js:1030/1096` 都走 `svc.biometric.unlock(RING)`），但 `inheritRings()` 只在安全面板的 `biometricUnlockRing()` 里调 —— 从这两个消费者弹指纹解锁时，其它「已解锁但没继承指纹」的环不会被补，用户得一个个再解。
+
+> **同一个「一次设备认证」在三处行为不一致**，正是项目反复吃过亏的「同一逻辑多处实现」（`docs/共享逻辑.md`）。修法：在 `biometric.unlock()` 服务的 `live.set(...)` 之后补 `await inheritRings(api)`，与面板路径对齐。
+
+> **插件**：`security 0.5.0` 已签名打包入市（`market/packs/security-0.5.0.znp`）；消费者 `secrets` / `private-notes` 的调用签名没变，**不用跟着更新**。
+
+> **验收**：`vitest` 四个 security 文件 **82 passed**（panel 7 / test 56 / device-key 5 / grants 14）。**未做**：指纹要真人按 —— 手机测试库没绑指纹，桌面 dev 已绑定可验（点密码库 / 私密笔记入口应弹 Windows Hello，按下去后其它环应一起变成可指纹）。
+
+> **未补单测**：`biometric.unlock` 在 `provide` 闭包里，单测需要 mock 整个 kernel `api`（`event.emit` / `fs` / `view`），成本高于收益；靠 G3 真人路径验证。
 
 > ## 📌 rev173.434（2026-11-08 · 0.10.2 发版）
 
