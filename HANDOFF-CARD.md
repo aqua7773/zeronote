@@ -1,13 +1,13 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-08（rev173.440）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-08（rev173.446）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.440 · 0.10.2 · 2026-11-08 |
-| 测试基线 | vitest 2037 · cargo 103 · oxlint 4 warnings（2026-11-08） |
+| rev / 版本 | rev173.446 · 0.10.2 · 2026-11-08 |
+| 测试基线 | vitest 2039 · cargo 103 · oxlint 4 warnings（2026-11-08） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-08 · CHANGELOG 0.10.2 |
 <!-- FACTS:END -->
@@ -25,7 +25,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.2** · rev173.440 |
+| 版本 / rev | **0.10.2** · rev173.446 |
 | 测试基线 | vitest 2037 · cargo 103 · oxlint 4 warnings · 质量门 9/9（2026-11-08） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
@@ -52,7 +52,7 @@
 
 > **✅ 密钥环可删除 + 分配列表不再空（rev173.420，2026-11-08）**：`security 0.3.5` —— ① 分配下拉的候选并入**所有已装插件**（内核新 `host.installedPlugins()`）；手机 release 上旧版消费者插件不调 `crypto.demand()` 也能在列表里选到，不再显示「↳ 还没有插件声明需要密钥环」。② 每个**已建立**的环有「删除」按钮，**必须输入该环主密码**才删（取消 / 密码错都不删；删完清分配行 + 删 `vault.<id>.json` + 内存解锁态）。已打包入市；**桌面 G2 已验**（`_shots/rev420-0{4,7,8}*.png`），手机 dev 包插件已推、待解屏后验。
 
-> **🔜 下个会话第一件事（2026-11-08 rev173.440 交接）**：**更新渠道已改成「一个渠道 = 一个完整源」**（rev173.440，jsDelivr 全删；测速改为实测下载速度；「下载通道」下拉删掉）。**已在手机 Rust 侧验过**（Redmi `33b676f6`：gitee `v0.10.2 · 下载 345 KB/s`；ghproxy 清单通但包下不动 ⇒ 判不可用）。**还欠**：① 桌面 dev 重启后验 Rust 侧（当前 dev 进程是旧二进制）；② 手机前端 UI（这次装的是嵌入 dist 的页面，非 dev server，看不到新下拉）。**仍然卡真人的两件**：① 手机 release 机装 0.10.2 验收（努比亚 `324652868237`）；② G3 指纹。**另外**：02 分册 §3「从 `apk/<abi>/release/` 取包」仍会重演发错包（那目录里现在是 0.9.16 的旧包）。**已知坑**（详见 `docs/开发环境坑位.md`）：devUrl 是**编译时**写死的局域网 IP（IP 变了就重跑 `android-dev.cmd`，**别用** `gradlew assembleDebug`）；手机截图用 `cdp.mjs shot`（`adb screencap` 抓不到 Chromium 合成层，会看到假白屏）；`adb forward 9333` 要用**当前** pid；PowerShell 别用 `$pid`（用 `$appPid`）；改 `tauri.conf.json` 会让在跑的 `tauri android dev` 重装包并把 WebView 切回 `tauri.localhost`；手机插件推送不用改 sha256（手机 `security/manifest.json` 无 `files`、签名已 `.bak`），推 `index.js` / `styles.css` / `manifest.json` 即可。
+> **🔜 下个会话第一件事（2026-11-08 rev173.446 交接）**：**安全面板已改成「只验证主密码、不解锁」**（rev173.446：按钮「验证密码」，解出 DEK 校验后立刻 wipe、指纹路径锁回，面板不再有 🔒；插件只能在各自入口解锁），插件解锁框是「指纹优先 + 改用密码」（rev173.445）。**还欠**：① `verify.ps1` 复跑（上次 7/9，`pack-sync` 差 3 个包：`private-notes` / `secrets` / `security`）；② 三个插件升版本 + 重打包 + `gen-market.mjs --write`（私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`）；③ 手机 dev 包推这 3 个插件 + 真机 G2；④ 提交（本会话改动未提交）。**已知小问题**：私密笔记锁定后编辑器标签仍在（内容已清空）。**已知坑**（详见 `docs/开发环境坑位.md`）：devUrl 是**编译时**写死的局域网 IP（IP 变了就重跑 `android-dev.cmd`，**别用** `gradlew assembleDebug`）；手机截图用 `cdp.mjs shot`（`adb screencap` 抓不到 Chromium 合成层，会看到假白屏）；`adb forward 9333` 要用**当前** pid；PowerShell 别用 `$pid`（用 `$appPid`）。
 
 1. ✅ **0.10.1 已发版（rev173.412）**：`host.prompt` 进 release 包。**release 机动作顺序 = 先更新应用**（关于 → 更新到 0.10.1，装完重开），**再更新插件** `安全 0.2.4` / `密码库 0.1.6` / `私密文件夹 0.3.5`。
 2. ✅ **私密笔记第二批已全部完成**（rev173.394–407）：搜索 / 时间流卡片 / 拖入移出 / 删旧面板与列表视图（解锁改 `host.prompt` 输入弹窗、回收站「公开/私密」切换、指纹优先）—— `private-notes 0.3.5` 已入市；0.10.1 后真机可用。

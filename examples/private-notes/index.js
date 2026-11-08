@@ -359,28 +359,41 @@ export function publicTargetPath(title, taken = [], dir = '') {
 }
 
 /**
- * 是否已建立 `notes` 环（只看 vault.json 的公开结构 —— 里面没有密码，只有 KDF 参数与密文块）。
+ * 旧单文件 vault.json 里有没有指定环（只看公开结构 —— 没有密码，只有 KDF 参数与密文块）。
+ *
+ * rev173.443：环 id **不能写死** —— rev173.416 起环由安全面板分配给插件（`notes` 只是默认值），
+ * 用户完全可能把自定义环分给私密笔记。写死会把「已分配 + 已建立」误判成「还没建立」。
  */
-export function hasNotesRing(vaultText) {
+export function hasRing(vaultText, ringId = 'notes') {
   try {
     const v = JSON.parse(vaultText)
-    return Boolean(v?.rings?.notes)
+    return Boolean(v?.rings?.[ringId])
   } catch {
     return false
   }
 }
 
+/** 兼容旧口径（`notes` 环） */
+export function hasNotesRing(vaultText) {
+  return hasRing(vaultText, 'notes')
+}
+
 /**
- * 单环 vault 文件（security rev173.182 拆出来的新格式）里是不是 `notes` 环。
- * 结构：`{ v: 2, ring: { id: 'notes', ... } }`（见 security 的 `vaultPartPayload`）。
+ * 单环 vault 文件（security rev173.182 拆出来的新格式）里是不是指定环。
+ * 结构：`{ v: 2, ring: { id: <环id>, ... } }`（见 security 的 `vaultPartPayload`）。
  */
-export function hasNotesRingPart(vaultText) {
+export function hasRingPart(vaultText, ringId = 'notes') {
   try {
     const v = JSON.parse(vaultText)
-    return v?.ring?.id === 'notes'
+    return v?.ring?.id === ringId
   } catch {
     return false
   }
+}
+
+/** 兼容旧口径（`notes` 环） */
+export function hasNotesRingPart(vaultText) {
+  return hasRingPart(vaultText, 'notes')
 }
 
 /* ───────────────────────── 状态 ───────────────────────── */
@@ -651,15 +664,19 @@ async function saveIndex(api) {
  * 检查 notes 环建了没有（rev173.335：新拆分文件优先，旧单文件兜底；缺失 / 坏 JSON 都按"没建"处理）
  */
 async function checkRingReady(api) {
+  /* rev173.443：分配表是「环 → 插件」可改的（rev173.416），而 RING 只在 apply / 解锁前更新。
+     用户刚在安全面板把新环分配给我时，这里还用旧环名查文件 ⇒ 误报「密钥环还没建立」。
+     幂等（没分配 / 没服务时保持默认），所以放在每次检查前。 */
+  adoptRing()
   try {
     const text = await api.fs.readText(securityVaultFileOf(RING))
-    ringReady = hasNotesRingPart(text)
+    ringReady = hasRingPart(text, RING)
     if (ringReady) return
   } catch {
     // 没有拆分文件是正常态（还没建过 / 还没迁移）—— 继续看旧单文件
   }
   try {
-    ringReady = hasNotesRing(await api.fs.readText(SECURITY_VAULT))
+    ringReady = hasRing(await api.fs.readText(SECURITY_VAULT), RING)
   } catch {
     ringReady = false
   }
@@ -1025,7 +1042,9 @@ export default {
            * 放在指纹分支**之后**：指纹不需要 prompt，老应用上已绑定指纹的仍能解锁。
            */
           const canPrompt = typeof api.host.prompt === 'function'
-          if (bio.available && bio.bound && svc.biometric) {
+          const canBio = Boolean(bio.available && bio.bound && svc.biometric)
+          const UNLOCK_PW = 'private-notes.unlock-pw'
+          const tryBio = async () => {
             try {
               await svc.biometric.unlock(RING)
               busy = 'unlock'
@@ -1034,26 +1053,83 @@ export default {
               } finally {
                 busy = ''
               }
-              return
+              return true
             } catch (e) {
               const msg = String(e?.message ?? e)
               if (!/cancel|取消/i.test(msg)) {
                 api.host.notify(`指纹解锁失败：${msg}，请输主密码`, 'warn')
               }
+              return false
             }
           }
-          if (!canPrompt) {
-            api.host.notify('当前应用版本过旧：私密笔记需要「输入弹窗」能力 —— 请把 ZeroNote 更新到最新版', 'error')
-            return
+          let pw = null
+          const askPw = async () => {
+            let r = null
+            try {
+              r = await api.host.dialog({
+                title: '解锁私密笔记',
+                body: {
+                  type: 'stack',
+                  gap: 'sm',
+                  children: [{ type: 'input', bind: UNLOCK_PW, secret: true, placeholder: '主密码' }],
+                },
+                actions: [
+                  { id: 'cancel', label: '取消', variant: 'ghost' },
+                  { id: 'unlock', label: '解锁' },
+                ],
+                width: 420,
+              })
+            } catch (e) {
+              api.host.notify(`没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+              return null
+            }
+            return r?.action === 'unlock' ? String(r.state?.[UNLOCK_PW] ?? '') : null
           }
-          const pw = await api.host.prompt({
-            title: '解锁私密笔记',
-            message: bio.available && bio.bound ? '指纹已取消 —— 也可以输入主密码' : '输入「私密笔记」密钥环的主密码',
-            placeholder: '主密码',
-            secret: true,
-            okText: '解锁',
-          })
-          if (pw === null) return // 用户取消：什么都不做（不当作"密码为空"）
+          if (typeof api.host.dialog === 'function') {
+            /**
+             * rev173.445（用户 2026-11-08：「类似 Windows Hello 和 PIN 的选择，指纹优先，但可以切换密码输入」）：
+             * 第一步只给指纹（主按钮 = 指纹解锁，旁边「改用密码」），别一上来就让人输密码。
+             */
+            if (canBio) {
+              let first = null
+              try {
+                first = await api.host.dialog({
+                  title: '解锁私密笔记',
+                  message: '请验证指纹解锁；也可以改用主密码。',
+                  actions: [
+                    { id: 'biometric', label: '指纹解锁' },
+                    { id: 'password', label: '改用密码', variant: 'ghost' },
+                    { id: 'cancel', label: '取消', variant: 'ghost' },
+                  ],
+                  width: 420,
+                })
+              } catch (e) {
+                api.host.notify(`没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+                return
+              }
+              if (first?.action === 'biometric') {
+                if (await tryBio()) return
+              } else if (first?.action === 'password') {
+                pw = await askPw()
+              }
+            } else {
+              pw = await askPw()
+            }
+          } else {
+            if (canBio && (await tryBio())) return
+            if (!canPrompt) {
+              api.host.notify('当前应用版本过旧：私密笔记需要「输入弹窗」能力 —— 请把 ZeroNote 更新到最新版', 'error')
+              return
+            }
+            pw = await api.host.prompt({
+              title: '解锁私密笔记',
+              message: canBio ? '指纹已取消 —— 也可以输入主密码' : '输入「私密笔记」密钥环的主密码',
+              placeholder: '主密码',
+              secret: true,
+              okText: '解锁',
+            })
+          }
+          if (pw === null || pw === '') return // 用户取消：什么都不做（不当作"密码为空"）
           busy = 'unlock'
           try {
             await unlockAndLoad(api, pw)

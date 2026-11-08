@@ -38,13 +38,14 @@ function ringVault(ids: string[], labels: Record<string, string> = {}) {
 const render = (view: Record<string, unknown>) => flatten(panelNode(view))
 
 describe('security · 面板结构（rev173.424）', () => {
-  it('每环一行：修改 / 解锁 / 删除，不再有「测试」和 ✓', () => {
+  it('每环一行：修改 / 验证密码 / 删除，不再有「测试」和 ✓', () => {
     const v = ringVault(['notes', 'secrets'], { notes: '私密笔记', secrets: '账号密码' })
     const nodes = render({ vault: v, unlocked: {}, grants: emptyGrants(), plugins: [] })
     const buttons = nodes.filter((n) => n.kind === 'button').map((n) => String(n.label))
 
     expect(buttons.filter((l) => l === '修改')).toHaveLength(2)
-    expect(buttons.filter((l) => l === '解锁')).toHaveLength(2)
+    /* rev173.446：面板不再真解锁，按钮改「验证密码」 */
+    expect(buttons.filter((l) => l === '验证密码')).toHaveLength(2)
     expect(buttons.filter((l) => l === '删除')).toHaveLength(2)
     expect(buttons).not.toContain('测试')
     // ✓ 是状态标记、不是按钮 —— 整页文本里也不该再出现
@@ -109,20 +110,19 @@ describe('security · 面板结构（rev173.424）', () => {
     // 已建立的环照常
     const v2 = ringVault(['notes'])
     const withRing = render({ vault: v2, unlocked: {}, grants: emptyGrants(), plugins: [] })
-    expect(withRing.filter((n) => n.kind === 'button' && n.onClick === 'security.unlock-ring')).toHaveLength(1)
+    expect(withRing.filter((n) => n.kind === 'button' && n.onClick === 'security.verify-ring')).toHaveLength(1)
   })
 
-  it('解锁按钮：已解锁时文案变「已解锁」且禁用（避免重复派生）；「修改」始终可点', () => {
+  it('验证密码按钮不再随解锁态变化（rev173.446：面板不承载解锁态）；「修改」始终可点', () => {
     const v = ringVault(['notes'])
     const nodes = flatten(panelNode({ vault: v, unlocked: { notes: true }, grants: emptyGrants(), plugins: [] }))
     // flatten 不保留 disabled，这里直接查原始树
     const tree = panelNode({ vault: v, unlocked: { notes: true }, grants: emptyGrants(), plugins: [] }) as AnyNode
     const walk = (n: AnyNode): AnyNode[] => [n, ...(Array.isArray(n.children) ? (n.children as AnyNode[]).flatMap(walk) : [])]
     const all = walk(tree)
-    // rev173.432：文案随解锁态变化 —— 用户看不出「解没解开」只有变灰不够
-    const unlock = all.find((n) => n.type === 'button' && n.label === '已解锁')
+    const verify = all.find((n) => n.type === 'button' && n.label === '验证密码')
     const modify = all.find((n) => n.type === 'button' && n.label === '修改')
-    expect(unlock?.disabled).toBe(true)
+    expect(verify?.disabled).toBe(false) // 不再因为「已解锁」变灰
     expect(modify?.disabled).toBe(false)
     expect(nodes.length).toBeGreaterThan(0)
   })

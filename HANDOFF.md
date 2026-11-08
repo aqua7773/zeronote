@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.441
-更新时间: 2026-11-08 · 最新 rev173.441（**接入极狐 GitLab 分发渠道**）· rev173.440（更新渠道改为「一个渠道 = 一个完整源」，jsDelivr 全删）
+revision: 173.446
+更新时间: 2026-11-08 · 最新 rev173.446（**安全面板只验证主密码、不再真解锁**）· rev173.445（指纹优先解锁 + 改密码切换）· rev173.443–444（测试库新环绑定 + 分配后插件不认新环的 bug）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,10 @@ revision: 173.441
 
 | rev | 内容 |
 |---|---|
+| rev173.446 | 2026-11-08 · **安全面板只验证主密码，不再真解锁**（用户拍板：「安全面板不应该能够真正解锁插件功能，只提供验证密码是否正确；只有插件入口能解锁自己」）：① 列表行「解锁」→「**验证密码**」（`security.verify-ring` → 新 `doVerifyRing`）：密码路径解出 DEK 校验后**立刻 wipe**、不写 `live`；指纹路径走 `biometricUnlockRing` 后立刻 `lockRing(reason='verify')` 锁回，且该 reason **不再触发**「锁后自动弹指纹」（`lockRing` 加了判断）。② 面板去掉 🔒/🔓 图标，不再承载解锁态。③ 点环名**不再先解锁**，直接进管理弹窗（改名 / 换主密码由弹窗自己校验旧密码，不需要 live）。④ 命令 `security.unlock` / `security.unlock-ring` 都改成验证语义，新增 `security.verify-ring`。测试 `security-panel.test.ts` 改 3 条断言。**G2 桌面已验**：`_shots/rev443-45-panel-verify.png`（无锁图标 + 验证密码按钮）、`rev443-46-verify-dialog.png`（验证框：指纹验证 / 改用密码 / 取消）、`rev443-47-verify-ok.png`（「主密码正确（仅验证，未解锁）」）、`rev443-48-still-locked.png`（验证过之后打开密码库仍弹「解锁密码库」）。 |
+| rev173.445 | 2026-11-08 · **指纹优先的解锁框 + 可切换密码**（用户：「类似 Windows Hello 和 PIN 的选择，指纹优先，但可以切换密码输入」）：`security` / `secrets` / `private-notes` 三个解锁入口统一两段式 —— 第一步「请验证指纹解锁；也可以改用主密码」+ 按钮 `[指纹解锁] [改用密码] [取消]`，点「改用密码」才弹密码框（`_shots/rev443-42-bio-first-dialog.png` → `rev443-43-password-dialog.png` → `rev443-44-entered-after-switch.png`）。老宿主没有 `host.dialog` 时保留旧流程（先系统指纹 → 取消/失败回落 prompt）。单测 86 条（private-notes 40 / secrets 39 / security-panel 7）。 |
+| rev173.444 | 2026-11-08 · **指纹解锁加「改用密码」入口（第一版）**：三个入口改为「弹窗里密码框 + 指纹按钮」——**方向反了**（第一眼看到输密码），被用户当场纠正为「指纹优先」（见 rev173.445）。只留作沿革记录。 |
+| rev173.443 | 2026-11-08 · **测试库 `_tmp-vault-rt13` 新建两把环并分配 + 修「分配后插件不认新环」**：用户要求「从安全插件建两个新密钥，分别给私密文件和密码库绑上，然后测试」→ 删光 8 把旧环 → 新建「私密文件」（id `ring`，恢复码见 `_tmp/凭据-测试同步.md`，不入库）→ `private-notes`；「密码库」（id `ring-2`）→ `secrets`。**发现并修 2 个 bug**：① `private-notes` / `secrets` 的 `checkRingReady()` 用旧 RING 查文件（`adoptRing()` 只在 apply / 解锁前调），面板刚分配的新环看不到 ⇒ 误报「密钥环还没建立」——统一在 `checkRingReady()` 开头 `adoptRing()`；② `private-notes` 的 `hasNotesRingPart()` / `hasNotesRing()` 把环 id 写死成 `notes`，自定义环永远为 false —— 参数化成 `hasRingPart(text, ringId)` / `hasRing(text, ringId)`（旧函数保留为兼容包装），`tests/private-notes.test.ts` +1 条。**G2 桌面已验**：私密笔记解锁→新建→写内容→「已保存」，磁盘 `.zn/private/notes/mw7ygybzzrfm.zn` 120 B 密文、明文扫描 0 命中；密码库解锁→新建平台+账号，`.zn/secrets/secrets.zn` 579 B 密文、明文扫描 0 命中；锁定后文件树分组消失。**未做**：插件版本 / 市场包 / 手机同步（见 HANDOFF-CARD §3）。 |
 | rev173.441 | 2026-11-08 · **接入极狐 GitLab 作为第四个更新渠道（分发仓库，不含源码）**：用户拍板「代码不用同步，只同步插件和 release 安装包，拓宽更新渠道」。实测两站国内直连（gitlab.com 523 KB/s / 极狐 14 MB/s），选极狐。建分发仓库 `aqua7773/zeronote-dist`（只放 `market/` 135 文件 + `update/` 3 文件，11 MB）。`updates.rs`：`MIRRORS` 加 `gitlab`（清单走 `/-/raw/main/`；安装包走新变体 `AssetRoute::GitLabPackage` —— GitLab 的 generic package 路径与 GitHub release 不同构，不能复用 `Replace`），`canonical_asset_url` 加极狐前缀剥离（保证换渠道回退不断链）；`market.ts` 加同源镜像；`app-update.ts` 加渠道；两个测试文件断言同步。新脚本 `scripts/sync-dist.mjs`（同步 market/update + `--assets` 传安装包）。**关键实测**：generic package **匿名可下**（`https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/0.10.2/<文件名>` → 200 / Range 206），APK 33.4 MB 下 2.9 秒 = **11.7 MB/s**，sha256 `650a927b…` 与 `update/android.json` 逐字节一致；网页式 `/-/packages/…` 是 401，**不可用**。配置在 `~/.dsh/zn-gitlab.json`（不进仓库）。**G1**：tsc 0 · oxlint 4 warnings · cargo 103 · vitest 2038 · check-docs 通过。**未做**：桌面/手机 G2（渠道下拉外观 + 手机真机走极狐渠道更新）、`build-release.mjs` 自动调 `sync-dist`。 |
 | rev173.440 | 2026-11-08 · **更新渠道改为「一个渠道 = 一个完整源」**（用户拍板：多渠道保留，但校验与下载必须同源；测速测的是下载速度；jsDelivr 全去掉；手动测速保留）。`updates.rs`：`MIRRORS` 只剩 raw / gitee / ghproxy，删掉「三条安装包路径」（`ASSET_ROUTES` / `asset_routes` / `asset_candidates` / `pick_routes`），新增 `probe_mirror_asset()` 只测命中渠道那一条；`check_app_update` 的 `routes` 只含本源一条；安装/下载只用本源地址，`mirrors` 恒空。前端删「下载通道」下拉、只显示「安装包 · 走 X · 实测速度」；`market.ts` 镜像也只留三条，`probeMirror` 改为「拉索引 + 实下第一个插件包 256 KB 测速」。**证据**：cargo `updates::` 6 passed（新增 `mirrors_are_all_complete_sources`）· vitest app-update 16 / market-mirror 23 / market-pane 11 全过。**未做**：桌面 dev 的 G2 外观实测、手机 dev 包重编。 |
 | rev173.439 | 2026-11-08 · **发版校验门支持「Gradle 未重打但已有正确产物」**（rev173.438 的待办）：旧实现只按 `mtimeMs >= t0` 认「本次新写出」，Gradle 判定无需重打时 mtime 不变 ⇒ 空集 ⇒ 误报「没有产出新的 APK」，把「无需重打」和「构建失败」混成一种结果。修法：挑选逻辑收成纯函数 `pickReleaseApks()`（`scripts/apk-version.mjs`）—— 有新产物只认新的；没有就回退到已有产物，但每份都要 aapt2 版本对得上，否则照旧退出 1。新增 `tests/apk-release-pick.test.ts` 6 条。**G2 真实产物自验**：6 份 APK 里只有 universal 的两份是 0.10.2/10002，arm/arm64/x86/x86_64 全是 0.9.15/0.9.16；回退模式挑出那两份、逐条拒绝其余（`_shots/rev173439-apk-picker.log`）。**未做**：02 分册 §3「从 `apk/<abi>/release/` 取包」的文档修订（按本次自验那目录里就是旧包）。 |
@@ -392,6 +396,31 @@ revision: 173.441
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.446（2026-11-08 · 安全面板只验证主密码，不再真解锁）
+
+> **用户拍板**（安全问题，安全模型变更）：「安全面板不应该能够真正解锁插件功能，只提供一个验证密码是否正确的解锁功能，只有插件入口能解锁自己」。
+> 执行：列表行「解锁」→「验证密码」；`doVerifyRing()` 密码路径解出 DEK 校验后**立刻 wipe**、不写 `live`；指纹路径 `biometricUnlockRing()` 解开后立刻 `lockRing(reason='verify')` 锁回，且 `lockRing` 对 `reason='verify'` **不触发**「锁后自动弹指纹」。
+> 面板去掉 🔒/🔓；点环名不再先解锁，直接进管理弹窗（改名 / 换主密码由弹窗自己校验旧密码）；`security.unlock` / `security.unlock-ring` 命令都改成验证语义，新增 `security.verify-ring`。
+> **G2 桌面已验**：`_shots/rev443-45-panel-verify.png`（无锁图标 + 验证密码）· `rev443-46-verify-dialog.png`（验证框：指纹验证 / 改用密码 / 取消）· `rev443-47-verify-ok.png`（「主密码正确（仅验证，未解锁）」）· `rev443-48-still-locked.png`（验证后打开密码库仍弹「解锁密码库」）。
+> **测试**：`security-panel` / `private-notes` / `secrets` 共 86 条通过。
+
+> ## 📌 rev173.445（2026-11-08 · 指纹优先解锁框 + 改用密码）
+
+> **用户**：「类似 Windows Hello 和 PIN 的选择，指纹优先，但可以切换密码输入」。
+> `security` / `secrets` / `private-notes` 三个解锁入口统一两段式：第一步「请验证指纹解锁；也可以改用主密码」+ `[指纹解锁] [改用密码] [取消]`；点「改用密码」才弹密码框。老宿主无 `host.dialog` 时保留旧流程（系统指纹 → 取消/失败回落 prompt）。
+> **G2**：`_shots/rev443-42-bio-first-dialog.png` → `rev443-43-password-dialog.png` → `rev443-44-entered-after-switch.png`（切密码后成功进库）。
+
+> ## 📌 rev173.444（2026-11-08 · 指纹解锁加「改用密码」第一版，方向反了）
+
+> 三个入口改成「弹窗里密码框 + 指纹按钮」——第一眼看到的是输密码，被用户纠正为「指纹优先」。已被 rev173.445 覆盖，只留沿革。
+
+> ## 📌 rev173.443（2026-11-08 · 测试库新环绑定 + 修「分配后插件不认新环」）
+
+> **用户要求**：从安全插件建两个新密钥，分别给私密文件和密码库绑上，然后测试功能。
+> 在测试库 `_tmp-vault-rt13` 删光 8 把旧环 → 新建「私密文件」（id `ring`）→ `private-notes`、「密码库」（id `ring-2`）→ `secrets`（恢复码只记本机 `_tmp/凭据-测试同步.md`，不入库）。
+> **发现并修 2 个 bug**：① `private-notes` / `secrets` 的 `checkRingReady()` 用旧 RING 查文件（`adoptRing()` 只在 apply / 解锁前调）⇒ 面板刚分配的新环看不到、误报「密钥环还没建立」——统一在 `checkRingReady()` 开头 `adoptRing()`；② `private-notes` 的 `hasNotesRingPart()` / `hasNotesRing()` 把环 id 写死成 `notes` —— 参数化为 `hasRingPart(text, ringId)` / `hasRing(text, ringId)`，旧函数保留为兼容包装，+1 条单测。
+> **G2 桌面已验**：私密笔记解锁 → 新建 → 写内容 →「已保存」，磁盘 `.zn/private/notes/mw7ygybzzrfm.zn` 120 B 密文、明文扫描 0 命中；密码库解锁 → 新建平台 + 账号，`.zn/secrets/secrets.zn` 579 B 密文、明文扫描 0 命中；锁定后文件树分组消失。
 
 > ## 📌 rev173.441（2026-11-08 · 接入极狐 GitLab 分发渠道）
 

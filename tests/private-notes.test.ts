@@ -23,6 +23,8 @@ import {
   findTrash,
   hasNotesRing,
   hasNotesRingPart,
+  hasRing,
+  hasRingPart,
   moveToTrash,
   newNoteId,
   notePath,
@@ -168,6 +170,17 @@ describe('private-notes 纯函数', () => {
     expect(hasNotesRingPart(JSON.stringify({ rings: { notes: {} } }))).toBe(false)
     expect(hasNotesRingPart('坏 JSON')).toBe(false)
     expect(hasNotesRingPart('')).toBe(false)
+  })
+
+  // rev173.443 · 环由安全面板的分配表决定（rev173.416），插件拿到的可能是自定义环。
+  // 探测写死 `notes` ⇒ 用户把新环分给私密笔记后永远显示「密钥环还没建立」。
+  it('hasRingPart / hasRing 认自定义环 id（分配给我的不一定是 notes）', () => {
+    expect(hasRingPart(JSON.stringify({ v: 2, ring: { id: 'ring-2', kdf: {} } }), 'ring-2')).toBe(true)
+    expect(hasRingPart(JSON.stringify({ v: 2, ring: { id: 'notes', kdf: {} } }), 'ring-2')).toBe(false)
+    expect(hasRing(JSON.stringify({ rings: { 'ring-2': { kdf: {} } } }), 'ring-2')).toBe(true)
+    expect(hasRing(JSON.stringify({ rings: { notes: { kdf: {} } } }), 'ring-2')).toBe(false)
+    // 不传 id 时保持旧口径（notes）
+    expect(hasRing(JSON.stringify({ rings: { notes: {} } }))).toBe(true)
   })
 
   it('securityVaultFileOf 指向按环拆的路径（与 security 的 vaultFileOf 对齐）', () => {

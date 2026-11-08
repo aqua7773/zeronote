@@ -632,6 +632,9 @@ function adoptRing() {
  * 先新后旧；两个都不存在 = 安全插件没建过这个环（正常首次态）。
  */
 async function checkRingReady(api) {
+  /* rev173.443：同 private-notes —— 分配表可在面板里改，RING 必须每次现查，
+     否则刚分配的新环看不到，误报「密钥环还没建立」。 */
+  adoptRing()
   try {
     const text = await api.fs.readText(securityVaultFileOf(RING))
     if (hasRingPart(text, RING)) {
@@ -1470,31 +1473,89 @@ export default {
               api.host.notify('「账号密码」密钥环还没建立 —— 先去安全插件建一个', 'warn')
             } else {
               await refreshBiometric()
-              if (biometric.available && biometric.bound && svc?.biometric) {
+              const canBio = biometric.available && biometric.bound && svc?.biometric
+              const tryBio = async () => {
                 try {
                   await svc.biometric.unlock(RING)
                   await afterUnlocked(api)
                   api.host.notify('密码库已解锁', 'info')
                   await openCorePanel(api, PANEL_ID, '密码库面板')
-                  return
+                  return true
                 } catch (e) {
                   const msg = String(e?.message ?? e)
                   // 取消是正常操作；其它失败给一句提示再回落密码框
                   if (!/cancel|取消/i.test(msg)) {
                     api.host.notify(`指纹解锁失败：${msg}，请输主密码`, 'warn')
                   }
+                  return false
                 }
               }
-              const pw = await api.host.prompt({
-                title: '解锁密码库',
-                message:
-                  biometric.available && biometric.bound
-                    ? '指纹已取消 —— 也可以输入主密码'
-                    : '输入「账号密码」密钥环的主密码',
-                placeholder: '主密码',
-                secret: true,
-                okText: '解锁',
-              })
+              let pw = null
+              const askPw = async () => {
+                let r = null
+                try {
+                  r = await api.host.dialog({
+                    title: '解锁密码库',
+                    body: {
+                      type: 'stack',
+                      gap: 'sm',
+                      children: [{ type: 'input', bind: BINDS.pw, secret: true, placeholder: '主密码' }],
+                    },
+                    actions: [
+                      { id: 'cancel', label: '取消', variant: 'ghost' },
+                      { id: 'unlock', label: '解锁' },
+                    ],
+                    width: 420,
+                  })
+                } catch (e) {
+                  api.host.notify(`没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+                  return null
+                }
+                return r?.action === 'unlock' ? String(r.state?.[BINDS.pw] ?? '') : null
+              }
+              if (typeof api.host.dialog === 'function') {
+                /**
+                 * rev173.445（用户 2026-11-08：「类似 Windows Hello 和 PIN 的选择，指纹优先，
+                 * 但可以切换密码输入」）：第一步只给指纹（主按钮 = 指纹解锁，旁边「改用密码」），
+                 * 点了「改用密码」才弹密码框 —— 不再第一眼就看到密码输入。
+                 */
+                if (canBio) {
+                  let first = null
+                  try {
+                    first = await api.host.dialog({
+                      title: '解锁密码库',
+                      message: '请验证指纹解锁；也可以改用主密码。',
+                      actions: [
+                        { id: 'biometric', label: '指纹解锁' },
+                        { id: 'password', label: '改用密码', variant: 'ghost' },
+                        { id: 'cancel', label: '取消', variant: 'ghost' },
+                      ],
+                      width: 420,
+                    })
+                  } catch (e) {
+                    return api.host.notify(`没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+                  }
+                  if (first?.action === 'biometric') {
+                    if (await tryBio()) return
+                  } else if (first?.action === 'password') {
+                    pw = await askPw()
+                  }
+                } else {
+                  pw = await askPw()
+                }
+              } else if (canBio) {
+                /* 老宿主（没有 host.dialog）：保持旧流程 —— 先系统指纹，取消/失败回落 prompt */
+                if (await tryBio()) return
+              }
+              if (pw === null && typeof api.host.dialog !== 'function') {
+                pw = await api.host.prompt({
+                  title: '解锁密码库',
+                  message: canBio ? '指纹已取消 —— 也可以输入主密码' : '输入「账号密码」密钥环的主密码',
+                  placeholder: '主密码',
+                  secret: true,
+                  okText: '解锁',
+                })
+              }
               if (pw !== null) {
                 try {
                   await unlockAndLoad(api, pw)

@@ -1425,7 +1425,9 @@ function lockRing(api, ringId, reason = 'manual') {
   clearInputs(api, B.pw1)
   api.event.emit('security:locked', { ringId, reason })
   api.view.refresh(PANEL_ID)
-  scheduleAutoUnlock(api, ringId, reason)
+  /* rev173.446：「验证」触发的瞬时锁回（解锁→立刻锁）不要再自动弹指纹 ——
+     否则用户点「指纹验证」后系统会马上又弹一次，看着像卡在验证里。 */
+  if (reason !== 'verify') scheduleAutoUnlock(api, ringId, reason)
   return true
 }
 
@@ -1657,7 +1659,6 @@ export function panelNode(view) {
   }
   for (const row of assign) {
     const ring = getRing(vault, row.ringId)
-    const isUnlocked = Boolean(unlocked[row.ringId])
     const owner = row.owner
     kids.push({
       type: 'row',
@@ -1673,7 +1674,8 @@ export function panelNode(view) {
           children: [
             {
               type: 'button',
-              label: `${ring ? (isUnlocked ? '🔓' : '🔒') : '＋'} ${ringLabel(row.ringId, vault)}`,
+              /* rev173.446：去掉 🔒/🔓 —— 面板不再承载「解锁态」（解锁只在插件入口发生） */
+              label: `${ring ? '' : '＋'} ${ringLabel(row.ringId, vault)}`.trim(),
               onClick: 'security.open-ring',
               payload: { ringId: row.ringId },
               variant: 'ghost',
@@ -1714,12 +1716,13 @@ export function panelNode(view) {
                 },
                 {
                   type: 'button',
-                  /* rev173.432：解锁后按钮直接写「已解锁」（原来只有变灰，用户看不出解没解开） */
-                  label: isUnlocked ? '已解锁' : '解锁',
-                  onClick: 'security.unlock-ring',
+                  /* rev173.446（用户 2026-11-08 拍板）：面板只验证主密码，不真解锁；
+                     解锁只能发生在插件自己的入口（密码库 / 私密文件夹）。 */
+                  label: '验证密码',
+                  onClick: 'security.verify-ring',
                   payload: { ringId: row.ringId },
                   variant: 'ghost',
-                  disabled: busy === row.ringId || isUnlocked,
+                  disabled: busy === row.ringId,
                 },
                 {
                   type: 'button',
@@ -2034,8 +2037,12 @@ async function doOpenRing(api, payload) {
   store.recoveryCodeShown = ''
   const ring = getRing(store.vault, ringId)
   if (!ring) return doSetupDialog(api, ringId)
-  if (live.has(ringId)) return doManageDialog(api, ringId)
-  return doUnlockDialog(api, ringId)
+  /**
+   * rev173.446（用户 2026-11-08 拍板）：点环名**不再先解锁**，直接进管理弹窗 ——
+   * 管理里的改名 / 换主密码由弹窗自己校验旧密码，不需要 live 里的 DEK；
+   * 这样安全面板的任何操作都不会留下「插件可直接用」的解锁态。
+   */
+  return doManageDialog(api, ringId)
 }
 
 /** 建立密钥环的弹窗（恢复问题可选，与旧面板一致） */
@@ -2111,8 +2118,32 @@ async function doUnlockDialog(api, ringId) {
     if (pw === null) return setStatus(api, '已取消解锁', 'info')
     return doUnlock(api, ringId, pw)
   }
+  /**
+   * rev173.445（用户 2026-11-08：「类似 Windows Hello 和 PIN 的选择，指纹优先，但可以切换密码输入」）：
+   * 第一步**只给指纹**（主按钮 = 指纹解锁，旁边一条「改用密码」），第二步才弹密码框。
+   * 改成「密码框里塞个指纹按钮」会让用户第一眼看到的是输密码，方向反了。
+   */
+  if (canBio) {
+    let first
+    try {
+      first = await api.host.dialog({
+        title: `解锁「${label}」`,
+        message: '请验证指纹解锁；也可以改用主密码。',
+        actions: [
+          { id: 'biometric', label: '指纹解锁' },
+          { id: 'password', label: '改用密码', variant: 'ghost' },
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+        ],
+        width: 420,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!first) return setStatus(api, '已取消解锁', 'info')
+    if (first.action === 'biometric') return doBiometricUnlock(api)
+    if (first.action !== 'password') return setStatus(api, '已取消解锁', 'info')
+  }
   const actions = [
-    ...(canBio ? [{ id: 'biometric', label: '指纹解锁', variant: 'ghost' }] : []),
     { id: 'cancel', label: '取消', variant: 'ghost' },
     { id: 'unlock', label: '解锁' },
   ]
@@ -2151,7 +2182,6 @@ async function doUnlockDialog(api, ringId) {
     return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
   }
   if (!res) return setStatus(api, '已取消解锁', 'info')
-  if (res.action === 'biometric') return doBiometricUnlock(api)
   if (res.action !== 'unlock') return setStatus(api, '已取消解锁', 'info')
   return doUnlock(api, ringId, String(res.state[B.pw1] ?? ''))
 }
@@ -2956,48 +2986,99 @@ async function inheritOneRing(api, ringId, dek) {
 }
 
 /**
- * 列表行的「解锁」按钮（rev173.424 · 用户 2026-11-08）：
- * **与密码库 / 私密笔记同一套流程** —— 这把环绑过本机指纹就先弹系统指纹；
- * 取消 / 失败回落主密码输入框（`host.prompt`）；解锁成功**不跳转**（只标记已解锁）。
+ * 列表行的「验证密码」按钮（rev173.446 · 用户 2026-11-08 拍板）：
+ * **只验证主密码对不对，不真正解锁** —— 解出 DEK 校验后立刻 wipe；
+ * 指纹验证那条路解开后立刻 `lockRing(reason='verify')` 锁回。
+ * 安全面板不再是「解锁插件」的旁路：插件必须在自己的入口解锁。
  */
-async function doUnlockRing(api, payload) {
+async function doVerifyRing(api, payload) {
   const ringId = String(payload?.ringId ?? '')
   if (!isRingId(ringId)) return
   const ring = getRing(store.vault, ringId)
   if (!ring) return doSetupDialog(api, ringId)
   const label = ringLabel(ringId, store.vault)
   store.selected = ringId
-  if (live.has(ringId)) return setStatus(api, `「${label}」已经解锁`, 'info')
-
   const canBio = Boolean(
     (deviceBinding(ring, store.deviceId) || ring?.deviceWrapped) && store.biometric,
   )
-  if (canBio && !biometricInFlight) {
-    cancelAutoUnlock()
-    biometricInFlight = true
-    try {
-      await biometricUnlockRing(api, ringId)
-      setStatus(api, `「${label}」已用指纹解锁`, 'success')
-      return
-    } catch (e) {
-      /* 取消 / 失败都不算错误路径 —— 回落到主密码框（与密码库一致） */
-      const msg = biometricErrorMessage(e)
-      if (msg !== '已取消' && typeof api.host?.notify === 'function') api.host.notify(msg, 'warn')
-    } finally {
-      biometricInFlight = false
+
+  let pw = null
+  if (typeof api.host?.dialog === 'function') {
+    if (canBio) {
+      let first
+      try {
+        first = await api.host.dialog({
+          title: `验证「${label}」主密码`,
+          message: '只验证密码是否正确，不会解锁插件 —— 插件要在自己的入口解锁。',
+          actions: [
+            { id: 'biometric', label: '指纹验证' },
+            { id: 'password', label: '改用密码', variant: 'ghost' },
+            { id: 'cancel', label: '取消', variant: 'ghost' },
+          ],
+          width: 440,
+        })
+      } catch (e) {
+        return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+      }
+      if (!first || first.action === 'cancel') return setStatus(api, '已取消验证', 'info')
+      if (first.action === 'biometric') {
+        if (biometricInFlight) return
+        biometricInFlight = true
+        try {
+          await biometricUnlockRing(api, ringId) // 解出 DEK
+          lockRing(api, ringId, 'verify') // 立刻锁回（wipe）
+          setStatus(api, `「${label}」指纹验证通过（未解锁插件）`, 'success')
+        } catch (e) {
+          const msg = biometricErrorMessage(e)
+          setStatus(api, msg === '已取消' ? '已取消验证' : `指纹验证失败：${msg}`, 'warn')
+        } finally {
+          biometricInFlight = false
+        }
+        return
+      }
     }
+    let res = null
+    try {
+      res = await api.host.dialog({
+        title: `验证「${label}」主密码`,
+        body: {
+          type: 'stack',
+          gap: 'sm',
+          children: [{ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' }],
+        },
+        actions: [
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+          { id: 'verify', label: '验证' },
+        ],
+        width: 420,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!res || res.action !== 'verify') return setStatus(api, '已取消验证', 'info')
+    pw = String(res.state[B.pw1] ?? '')
+  } else if (typeof api.host?.prompt === 'function') {
+    pw = await api.host.prompt({
+      title: `验证「${label}」主密码`,
+      message: '只验证密码是否正确，不会解锁插件。',
+      placeholder: '主密码',
+      secret: true,
+      okText: '验证',
+    })
+    if (pw === null) return setStatus(api, '已取消验证', 'info')
+  } else {
+    return setStatus(api, '当前应用版本过旧，无法验证（没有输入对话框）', 'warn')
   }
 
-  if (typeof api.host?.prompt !== 'function') return doUnlockDialog(api, ringId)
-  const pw = await api.host.prompt({
-    title: `解锁「${label}」`,
-    message: canBio ? '指纹已取消 —— 也可以输入主密码' : `输入「${label}」的主密码`,
-    placeholder: '主密码',
-    secret: true,
-    okText: '解锁',
-  })
-  if (pw === null) return setStatus(api, '已取消解锁', 'info')
-  return doUnlock(api, ringId, pw)
+  if (!pw) return setStatus(api, '没有输入主密码', 'warn')
+  try {
+    const L = await loadLibs()
+    const { dek } = unlockRing(L, ring, pw)
+    wipe(dek) // 验证完立刻丢弃，不写 live
+    setStatus(api, `「${label}」主密码正确（仅验证，未解锁）`, 'success')
+  } catch (e) {
+    setStatus(api, `主密码不对：${String(e?.message ?? e)}`, 'error')
+  }
 }
 
 /**
@@ -3287,15 +3368,24 @@ export default {
       },
       /* rev173.421：列表页只留一个入口（点环名）；下面这些都变成弹窗命令，
          保留命令 id 是为了命令面板 / 快捷键仍然可用 */
-      { id: 'security.open-ring', title: '安全：打开密钥环（解锁 / 管理）', run: (p) => doOpenRing(api, p) },
+      { id: 'security.open-ring', title: '安全：打开密钥环（管理）', run: (p) => doOpenRing(api, p) },
       { id: 'security.test-ring', title: '安全：测试密钥环主密码', run: (p) => doTestRing(api, p) },
       { id: 'security.setup', title: '安全：建立密钥环', run: (p) => doSetupDialog(api, String(p?.ringId ?? store.selected)) },
-      { id: 'security.unlock', title: '安全：解锁', run: (p) => doUnlockDialog(api, String(p?.ringId ?? store.selected)) },
       {
-        /* rev173.424：列表行的「解锁」—— 与密码库 / 私密笔记同一套（指纹优先，回落主密码），不跳转 */
+        /* rev173.446：安全插件里的三个「解锁」入口都改成**验证** —— 面板不再是解锁旁路 */
+        id: 'security.unlock',
+        title: '安全：验证主密码（不解锁插件）',
+        run: (p) => doVerifyRing(api, p),
+      },
+      {
         id: 'security.unlock-ring',
-        title: '安全：解锁密钥环（指纹优先，回落主密码）',
-        run: (p) => doUnlockRing(api, p),
+        title: '安全：验证密钥环主密码（不解锁插件）',
+        run: (p) => doVerifyRing(api, p),
+      },
+      {
+        id: 'security.verify-ring',
+        title: '安全：验证主密码（不解锁插件）',
+        run: (p) => doVerifyRing(api, p),
       },
       {
         id: 'security.lock',
