@@ -2422,6 +2422,16 @@ async function doCreateRing(api) {
   if (pw1 !== pw2) return setStatus(api, '两次输入的主密码不一致', 'warn')
 
   const id = newRingId(name, allRingIds(store.vault))
+  /* rev173.429（用户：「新建的环不是默认继承指纹的吗」）：设备**绑过**指纹、但本次会话还没解过
+     任何环（DK 不在内存）时，先弹一次系统指纹解出 DK —— 这样新环建好就带着 `deviceWrapped`，
+     点「指纹验证修改」不会再说「还没继承本机指纹」。取消 / 失败照常建环，只是不继承。 */
+  if (!deviceKey && store.deviceFile && store.biometric) {
+    try {
+      await withBusy(api, id, () => unlockDeviceKey())
+    } catch {
+      /* 用户取消了指纹：不继承，不影响建环 */
+    }
+  }
   let code = ''
   try {
     const made = await withBusy(api, id, async () => {
