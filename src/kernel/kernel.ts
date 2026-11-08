@@ -20,6 +20,7 @@ import type {
   FsApi,
   HostApi,
   IndexApi,
+  InstalledPluginInfo,
   ItemMenuRegistration,
   NetApi,
   NoteMeta,
@@ -108,6 +109,14 @@ export type KernelHooks = {
    * 插件会把"没输密码"当成"密码为空"去调解锁，错误信息会指向错误的方向。
    */
   onPrompt?: (opts: PromptOptions) => Promise<string | null>
+  /**
+   * **已装插件清单**（rev173.420）：`host.installedPlugins()` 的唯一数据源。
+   *
+   * 宿主必须用 ref / 现取快照提供 —— 内核只在换库时重建，闭包捕获的 React state
+   * 会永久停在创建那一刻（之后装卸的插件全都看不到）。
+   * 没接 ⇒ `host.installedPlugins()` 返回空数组（功能降级，不抛错）。
+   */
+  listPlugins?: () => InstalledPluginInfo[]
   /**
    * 日志钩子（rev173.229 起带归属）：`pluginId` 空 = 内核自身；
    * `stack` 只在 error 时由 `scopedHost` 捕获（需求 §2.13「错误堆栈」）。
@@ -646,6 +655,17 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     },
     notify(msg, level) {
       hooks.onNotify(msg, level)
+    },
+    /**
+     * 已装插件清单（rev173.420）：宿主经 `listPlugins` 给现取快照。
+     * 没接 ⇒ 空数组；插件自己拿它做「分给哪个插件」这类 UI 时降级为只列运行时声明。
+     */
+    installedPlugins() {
+      try {
+        return hooks.listPlugins?.() ?? []
+      } catch {
+        return []
+      }
     },
     /**
      * 输入对话框（rev173.405）：宿主实现见 `App.tsx` 的 `promptState`。

@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-07 · rev173.419 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-08 · rev173.420 · 0.10.1** ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.419 · 0.10.1 · 2026-11-07 |
-| 测试基线 | vitest 2016 · cargo 105 · oxlint 4 warnings（2026-11-07） |
+| rev / 版本 | rev173.420 · 0.10.1 · 2026-11-08 |
+| 测试基线 | vitest 2021 · cargo 105 · oxlint 4 warnings（2026-11-08） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-07 · CHANGELOG 0.10.1 |
+| 文档 | README 现状 2026-11-08 · CHANGELOG 0.10.1 |
 <!-- FACTS:END -->
 
 ## 1 是什么（30 秒）
@@ -25,8 +25,8 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.1** · rev173.419 |
-| 测试基线 | vitest 2007 · cargo 105 · oxlint 4 warnings · 质量门 9/9（2026-11-07） |
+| 版本 / rev | **0.10.1** · rev173.420 |
+| 测试基线 | vitest 2021 · cargo 105 · oxlint 4 warnings · 质量门 9/9（2026-11-08） |
 | 插件 | 市场 16 条 · 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
 
@@ -40,7 +40,9 @@
 
 > **✅ 拉取方向已验（rev173.419）**：手机删本地 `.zn/security/vault.todo.json`、`baseline.v1` 也没有该 key（= 新设备状态）⇒ 点「立即同步」后文件重新拉回 **320 B**，sha256 `4679e4e5…` **与远端逐字节一致**，远端仍 200 没被删（下载 2 / 上传 27 / 冲突 2 · 29 秒，证据 `_shots/rev419-phone-06-sync-done.png`）。**顺带修掉一个静默故障**：手机 `sync` 插件 `index.cjs` 是旧代码、manifest 却记着 0.1.11 的 sha256 ⇒ 签名校验失败、插件一直没加载（面板都没注册，手机端同步此前从未真跑过）；已全量推入 `examples/sync` + 重算 sha256 + 签名改 `.bak`。教训见 `03-当前状态.md` §4.1「坑」。
 >
-> **🔜 下个会话第一件事（待定，等用户挑）**：① 清掉手机上 0.3.3 的 `security`（0.3.4 只改文案，未推）；② 冲突列表 5 条（3 条旧噪声 + 2 条 `vault.*.json` 双端修改）怎么处理；③ G3：真机指纹绑定 / release 机装 0.10.1。**已知坑**（仍有效）：① 手机 reload 后可能「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）。
+> **✅ 密钥环可删除 + 分配列表不再空（rev173.420，2026-11-08）**：`security 0.3.5` —— ① 分配下拉的候选并入**所有已装插件**（内核新 `host.installedPlugins()`）；手机 release 上旧版消费者插件不调 `crypto.demand()` 也能在列表里选到，不再显示「↳ 还没有插件声明需要密钥环」。② 每个**已建立**的环有「删除」按钮，**必须输入该环主密码**才删（取消 / 密码错都不删；删完清分配行 + 删 `vault.<id>.json` + 内存解锁态）。已打包入市；**桌面 G2 已验**（`_shots/rev420-0{4,7,8}*.png`），手机 dev 包插件已推、待解屏后验。
+
+> **🔜 下个会话第一件事（待定，等用户挑）**：① 清掉手机上 0.3.3 的 `security`（dev 包已推 0.3.5；release 机走市场更新）；② 冲突列表 5 条（3 条旧噪声 + 2 条 `vault.*.json` 双端修改）怎么处理；③ G3：真机指纹绑定 / release 机装 0.10.1。**已知坑**（仍有效）：① 手机 reload 后可能「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）。
 
 > **下一步（等 G3 用户验收）**：① 桌面 / 手机**真机指纹绑定**（要真人按 Windows Hello / 系统指纹，AI 无法代按）；② 未分配时的报错是否够醒目（现在显示在密码库面板里）；③ 自定义密钥环：新建 → 下拉分配 → 已随笔记同步。
 

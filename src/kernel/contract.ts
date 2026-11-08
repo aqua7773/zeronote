@@ -976,6 +976,19 @@ export type PromptOptions = {
   cancelText?: string
 }
 
+/**
+ * 已安装插件的一条只读摘要（`host.installedPlugins()` 的返回值 · rev173.420）。
+ *
+ * ⚠️ **不是运行态**：拿着它不代表那个插件的 `apply()` 已经跑过、更不代表它
+ * 声明了任何服务依赖 —— 只说明「这个 id 在插件目录里装着」。
+ */
+export type InstalledPluginInfo = {
+  /** manifest.id —— 同时也是 `.zn/plugins/<id>/` 目录名与 `service` 调用方身份 */
+  id: string
+  name?: string
+  version?: string
+}
+
 /** 8. host —— 宿主信息与生命周期 */
 export interface HostApi {
   apiVersion: string
@@ -983,6 +996,18 @@ export interface HostApi {
   platform: 'windows' | 'android' | 'other'
   log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void
   notify(msg: string, level?: 'info' | 'warn' | 'error'): void
+  /**
+   * **已安装插件清单**（rev173.420）—— 只读快照，每次调用现取。
+   *
+   * 为什么需要：插件宿主只给 10 个原语，里面没有"列插件"这一项；但有些插件要画
+   * **面向已装插件**的界面 —— 安全插件的「密钥环分配」下拉就是第一个使用者
+   * （拿不到清单时，旧版消费者插件即使装着也不出现在下拉里，用户看到的是一张空列表）。
+   *
+   * 返回当前**扫描到**的插件（含暂时未加载 / 被禁用的）。不保证 `apply()` 已跑过，
+   * 也不保证它声明了任何服务依赖 —— 调用方自己判断。
+   * 老宿主没有这个方法 ⇒ 插件侧用 `host.installedPlugins?.()` 兜底。
+   */
+  installedPlugins(): InstalledPluginInfo[]
   /**
    * **输入对话框**（rev173.405）—— 插件需要一个短文本输入（典型：主密码）时用它，
    * 不要为了一句输入注册一个整页面板。

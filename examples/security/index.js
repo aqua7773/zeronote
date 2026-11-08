@@ -799,16 +799,35 @@ export function noRingError(pluginId) {
 /**
  * 面板用的分配行（纯函数）：**每个环一行**。
  *
- * `options` = 声明过需求的插件 ∪ 当前分到它的插件（排序后给下拉用；
- * 「未分配」由渲染层自己加在最前面）。
+ * `options` = 声明过需求的插件 ∪ 当前分到它的插件 ∪ **已安装插件**（rev173.420）。
+ * 排序后给下拉用；「未分配」由渲染层自己加在最前面。
+ *
+ * 为什么要并入「已安装插件」：部分消费者插件（手机上没更新的旧版）只硬编码自己的环、
+ * 不调 `crypto.demand()` ⇒ 只按 demand 渲染时用户看到的是一张空列表，
+ * 明明装着插件却没法分配。宿主经 `host.installedPlugins()` 给出真实清单，下拉里就能选。
  */
-export function assignRows(grants, ringIds = BUILTIN_RINGS) {
-  const demanded = Object.keys(grants?.demand ?? {}).sort()
+export function assignRows(grants, ringIds = BUILTIN_RINGS, installed = []) {
+  const demanded = Object.keys(grants?.demand ?? {})
+  const known = (Array.isArray(installed) ? installed : [])
+    .map((p) => (typeof p === 'string' ? p : p?.id))
+    .filter((id) => typeof id === 'string' && id)
   return ringIds.map((ringId) => {
     const owner = ringOwner(grants, ringId)
-    const options = [...new Set([...demanded, ...(owner ? [owner] : [])])].sort()
+    const options = [...new Set([...demanded, ...(owner ? [owner] : []), ...known])].sort()
     return { ringId, owner, options }
   })
+}
+
+/**
+ * 删除一把环时，把分配表里「这个环」那一行也清掉（纯函数 · rev173.420）。
+ *
+ * 环没了，分配就是幽灵 —— 留着会让面板的播种 / 冲突检查指向一个不存在的环。
+ * `demand` 不动：插件仍然需要「某个」环，需求不因删环而消失。
+ */
+export function dropRingGrants(grants, ringId) {
+  const rings = { ...(grants?.rings ?? {}) }
+  delete rings[ringId]
+  return { v: 2, rings, demand: { ...(grants?.demand ?? {}) } }
 }
 
 const PANEL_ID = 'security.panel'
@@ -1538,6 +1557,8 @@ export function panelNode(view) {
     ringInherited = false,
     grants = emptyGrants(),
     ringIds = BUILTIN_RINGS,
+    /** 已安装插件 id（rev173.420 · 宿主 `host.installedPlugins()`；老宿主没有就是空数组） */
+    plugins = [],
   } = view ?? {}
 
   const ring = getRing(vault, selected)
@@ -1735,7 +1756,7 @@ export function panelNode(view) {
   /* 密钥环分配（期 3 · rev173.416 方向反转）：**每个环一行 + 下拉**。
      环是主角、插件是选项；一个环只给一个插件、一个插件只拿一个环。
      **始终显示** —— 这是用户唯一能看到「有插件在等密钥」的地方。 */
-  const assign = assignRows(grants, ringIds)
+  const assign = assignRows(grants, ringIds, plugins)
   kids.push({ type: 'divider' })
   kids.push({
     type: 'text',
@@ -1748,6 +1769,7 @@ export function panelNode(view) {
       { value: `${row.ringId}::`, label: '未分配' },
       ...row.options.map((pid) => ({ value: `${row.ringId}::${pid}`, label: pid })),
     ]
+    const exists = Boolean(getRing(vault, row.ringId))
     kids.push({
       type: 'row',
       align: 'center',
@@ -1761,6 +1783,18 @@ export function panelNode(view) {
           options,
           onSubmit: 'security.assign-ring',
         },
+        /* 删除（rev173.420）：只有已建立的环才有东西可删；点它 → 输入该环主密码确认 */
+        ...(exists
+          ? [
+              {
+                type: 'button',
+                label: '删除',
+                onClick: 'security.delete-ring',
+                payload: { ringId: row.ringId },
+                variant: 'ghost',
+              },
+            ]
+          : []),
       ],
     })
     if (!row.options.length) {
@@ -1771,11 +1805,16 @@ export function panelNode(view) {
         tone: 'muted',
       })
     } else if (!row.owner) {
+      /* rev173.420：候选现在包含「已安装但没声明需求」的插件（旧版消费者不调 demand），
+         所以不能再说「在等」—— 把声明过需求的单独点出来。 */
+      const waiting = row.options.filter((pid) => grants?.demand?.[pid])
       kids.push({
         type: 'text',
-        value: `↳ 在等：${row.options.join('、')}`,
+        value: waiting.length
+          ? `↳ 可以分配给：${row.options.join('、')}（${waiting.join('、')} 声明了需要密钥环）`
+          : `↳ 可以分配给：${row.options.join('、')}`,
         variant: 'caption',
-        tone: 'warn',
+        tone: waiting.length ? 'warn' : 'muted',
       })
     }
   }
@@ -1786,7 +1825,7 @@ export function panelNode(view) {
 }
 
 /** 面板数据快照（render 与单测都走这里，避免两份判断） */
-function panelView() {
+function panelView(plugins = []) {
   const ringIds = allRingIds(store.vault)
   const unlocked = {}
   for (const id of ringIds) unlocked[id] = live.has(id)
@@ -1814,6 +1853,27 @@ function panelView() {
     otherBiometrics: otherDeviceCount(ring, store.deviceId),
     /** 密钥环分配表（期 3）：面板底部始终显示，值 `{ rings, demand }` */
     grants: store.grants,
+    /** 已安装插件 id（rev173.420）：分配下拉的候选来源之一 */
+    plugins,
+  }
+}
+
+/**
+ * 已安装插件 id（rev173.420）。
+ *
+ * - 宿主新版本才有 `host.installedPlugins()` ⇒ 老宿主用可选链兜底成空数组
+ *   （面板退回「只列声明过需求的插件」，不会因为方法缺失整页崩掉）
+ * - **排除自己**：安全插件不是密钥环的消费者，列出来只会让下拉多一个永远无效的选项
+ */
+function installedPluginIds(api) {
+  try {
+    const list = api?.host?.installedPlugins?.()
+    if (!Array.isArray(list)) return []
+    return list
+      .map((p) => (typeof p === 'string' ? p : p?.id))
+      .filter((id) => typeof id === 'string' && id && id !== 'security')
+  } catch {
+    return []
   }
 }
 
@@ -1857,6 +1917,81 @@ async function doAssignRing(api, payload) {
   } catch (e) {
     setStatus(api, `分配没保存：${String(e?.message ?? e)}`, 'error')
   }
+}
+
+/**
+ * 删除一把密钥环（rev173.420）。用户 2026-11-08 拍板：「密钥环无法删除」⇒ 加删除入口，
+ * **删除前必须输入该环主密码**（二次确认就是这把密码 —— 空点一下就删太容易误删，
+ * 而环里的数据删掉不可恢复）。
+ *
+ * 顺序刻意如此：
+ *  ① 先校验密码（解包裹成功 = 密码对；DEK 立刻 wipe，不进 `live`、不触发自动锁定计时）
+ *  ② 再删磁盘文件，并**确认真的删掉了**（Android 上 `purgePrivate` 可能静默失败）
+ *  ③ 最后才动内存（vault / live / 分配表）—— 文件删不掉时内存与磁盘必须保持一致，
+ *     否则 next `loadVault()` 会把「删过」的环重新扫回来（用户看到环复活却不知道为什么）
+ */
+async function doDeleteRing(api, payload) {
+  const ringId = String(payload?.ringId ?? '')
+  if (!isRingId(ringId)) return
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return setStatus(api, `密钥环「${ringLabel(ringId)}」还没建立，没有可删的东西`, 'warn')
+  const label = ringLabel(ringId, store.vault)
+
+  if (typeof api.host?.prompt !== 'function') {
+    return setStatus(api, '当前应用版本过旧（没有输入对话框），无法删除密钥环 —— 请更新 ZeroNote', 'warn')
+  }
+
+  let password
+  try {
+    password = await api.host.prompt({
+      title: `删除密钥环「${label}」`,
+      message: '输入这把环的主密码确认删除。删除后这个环里的数据（用它加密的笔记 / 账号）无法恢复。',
+      placeholder: '主密码',
+      secret: true,
+      okText: '删除',
+      cancelText: '取消',
+    })
+  } catch (e) {
+    return setStatus(api, `没法弹出输入框：${String(e?.message ?? e)}`, 'error')
+  }
+  if (password === null) return setStatus(api, '已取消删除', 'info')
+  if (!password) return setStatus(api, '没有输入主密码，已取消删除', 'warn')
+
+  /* ① 密码校验：能解包裹 = 密码对；DEK 不进内存 */
+  try {
+    const L = await loadLibs()
+    const { dek } = unlockRing(L, ring, password)
+    wipe(dek)
+  } catch (e) {
+    return setStatus(api, `主密码不对，没有删除：${String(e?.message ?? e)}`, 'error')
+  }
+
+  /* ② 删文件 + 复核（静默失败必须说出来 —— 项目规矩「静默失效比报错危险」） */
+  const file = vaultFileOf(ringId)
+  try {
+    await api.fs.purgePrivate(file)
+  } catch (e) {
+    return setStatus(api, `删除失败（文件没删掉）：${String(e?.message ?? e)}`, 'error')
+  }
+  if (await api.fs.exists(file).catch(() => false)) {
+    return setStatus(api, `删除失败：${file} 还在（可能被同步 / 备份写了回来）—— 再试一次`, 'error')
+  }
+
+  /* ③ 内存：环 / 解锁态 / 分配表 */
+  store.vault = dropRing(store.vault, ringId)
+  live.delete(ringId)
+  if (store.selected === ringId) {
+    store.selected = allRingIds(store.vault).find((id) => getRing(store.vault, id)) ?? 'notes'
+  }
+  if (ringOwner(store.grants, ringId)) {
+    store.grants = dropRingGrants(store.grants, ringId)
+    try {
+      await saveGrants(api, store.grants)
+    } catch (e) {
+      api.host.log?.('warn', `[security] 删环后分配表没落盘：${String(e?.message ?? e)}`)
+    }
+  }
+  setStatus(api, `已删除密钥环「${label}」—— 这个环里的数据已无法恢复`, 'success')
 }
 
 /**
@@ -2320,7 +2455,7 @@ export default {
               ui[bind] = want
             }
           }
-          return panelNode(panelView())
+          return panelNode(panelView(installedPluginIds(api)))
         },
       }),
     )
@@ -2444,6 +2579,7 @@ export default {
       { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
       { id: 'security.assign-ring', title: '安全：把密钥环分配给插件 / 解除分配', run: (payload) => doAssignRing(api, payload) },
       { id: 'security.create-ring', title: '安全：新建密钥环', run: () => doCreateRing(api) },
+      { id: 'security.delete-ring', title: '安全：删除密钥环（需输入主密码）', run: (payload) => doDeleteRing(api, payload) },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))

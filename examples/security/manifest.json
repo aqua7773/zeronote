@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -21,6 +21,7 @@
       { "id": "security.recover-answer", "title": "安全：用恢复问题解锁" },
       { "id": "security.recover-code", "title": "安全：用恢复码解锁" },
       { "id": "security.reset-after-recovery", "title": "安全：恢复后重设主密码" },
+      { "id": "security.delete-ring", "title": "安全：删除密钥环（需输入主密码）" },
       { "id": "security.self-test", "title": "安全：自检" }
     ],
     "panels": [

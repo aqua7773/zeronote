@@ -443,6 +443,13 @@ export default function App() {
   /* ── 插件 ── */
   const [manifests, setManifests] = useState<PluginManifest[]>([])
   /**
+   * 内核的 `host.installedPlugins()` 读它（rev173.420）。
+   * kernel 只在换库时重建 ⇒ hooks 闭包里的 `manifests` 会永久停在创建那一刻；
+   * 用 ref 每次渲染覆盖，装卸插件后插件侧现取就能看到最新清单。
+   */
+  const manifestsRef = useRef<PluginManifest[]>(manifests)
+  manifestsRef.current = manifests
+  /**
    * 每个插件的**来源**（manifest id → 条目）—— 2026-10-17 rev94 加。
    * 同一份插件可能来自全局根，也可能来自当前库；删除 / 懒激活必须按来源找对的根，
    * 插件页也靠它显示「全局 / 本库」徽标。
@@ -1376,6 +1383,9 @@ export default function App() {
           onOpenPanelInMain: (id) => openPanelInTab(id),
           // rev173.405：插件的 `host.prompt` 由宿主 Dialog 浮层兑现（见 askPrompt）
           onPrompt: askPrompt,
+          // rev173.420：`host.installedPlugins()` 的数据源（ref ⇒ 装卸插件后现取是最新）
+          listPlugins: () =>
+            manifestsRef.current.map((m) => ({ id: m.id, name: m.name, version: m.version })),
         })
       : null
 

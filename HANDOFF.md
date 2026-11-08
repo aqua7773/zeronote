@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.419
-更新时间: 2026-11-07 · 最新 rev173.419（**自定义环拉取方向已验**）· rev173.418（自定义密钥环跨设备同步）
+revision: 173.420
+更新时间: 2026-11-08 · 最新 rev173.420（**密钥环删除（需主密码）+ 分配列表列出已装插件**）· rev173.419（自定义环拉取方向已验）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.419
 
 | rev | 内容 |
 |---|---|
+| rev173.420 | 2026-11-08 · **密钥环删除（需主密码）+ 分配列表列出所有已装插件**（用户：「继续zeronote，插件不出现在密钥环分配列表」/「密钥环无法删除」/「删环需要输主密码」）：① **内核新 `host.installedPlugins()`**（契约 `InstalledPluginInfo` + `KernelHooks.listPlugins`；App 用 `manifestsRef` 现取，kernel 只建一次也不会停在旧清单）—— 根因：分配列表的候选原来只有 `demand`（插件调 `crypto.demand()` 才登记），**手机 release 上的旧版 `secrets` / `private-notes` 不调 demand ⇒ 列表一个插件都没有**。② `security` 的 `assignRows()` 加第三参 `installed`（已装插件并入候选，**排除 security 自己**）；未分配行文案从「↳ 在等：…」改成「↳ 可以分配给：…（X 声明了需要密钥环）」（候选不再全是"在等"）。③ **删除密钥环**：每环一行加「删除」按钮（仅已建立），命令 `security.delete-ring` —— `host.prompt({ secret: true })` 收该环主密码 → `unlockRing()` 校验（DEK 立即 `wipe`，不进 live）→ `purgePrivate(vault.<id>.json)` + `exists` 复核（Android 静默失败必须报出来）→ 内存 `dropRing` / `live.delete` / `dropRingGrants` 清分配 / selected 回落；**取消或密码错都不删**。④ 纯函数 `dropRingGrants`；测试 `security-grants` +2（已装插件并入 / 删环清分配）、新增 `tests/host-plugins.test.ts` 3 条（无钩子空数组 / 抛错空数组 / 每次现取）。`security 0.3.5` 已签名打包入市（market 16 条）。**G1** tsc 0 · oxlint 4 · cargo 105 · vitest 2021（13:0x）。**G2 桌面**：下拉列出 `history / import-export / private-notes / secrets / sync`（`_shots/rev420-04-panel.png`）；新建 `Temp420` → 删除 → 错误密码被拒「主密码不对」且文件仍在（`_shots/rev420-07-wrong-pw.png`）→ 正确密码 `test-pass-1234` 删除 → Tab / 分配行 / `vault.temp420.json` 全部消失（`_shots/rev420-08-deleted.png`）。**G2 手机**：插件已推 Redmi dev 包（`security 0.3.5`），验证被锁屏挡住 —— 待用户解屏后补。**未发版** |
 | rev173.419 | 2026-11-07 · **验「自定义密钥环拉取方向」+ 修手机 sync 插件一直没加载**：① **前置发现**：手机 `.zn/plugins/sync/index.cjs` 实际 sha256 `07b051ea…` 与 manifest 记的 `1a844854…` 不符 ⇒ 插件中心报「⚠ 插件 sync 加载失败：插件签名无效（keyId=aqua-2026）：signature error: Verification equation was not satisfied」，**同步面板根本没注册**（手机「更多 → 插件」里没有同步）—— 也就是说手机端同步此前从未真正跑起来（以前「手机同步」的结论都建立在桌面端）。修法：`examples/sync` 全量推手机（`index.cjs` + `lib/*` + `styles.css`）→ manifest 重算 `sha256` → `signature.json` 改名 `.bak`。**坑**：备份目录 `cp -r sync sync.bak-rev419` 留在 `.zn/plugins/` 下会被当第 7 个插件（同 id）扫到、同样报签名无效 ⇒ 必须移到插件目录外（本轮移到 appDataDir 的 `backup-rev419/`）。② **拉取验收（通过）**：手机删本地 `.zn/security/vault.todo.json`（320 B，sha `f188fdb2…` —— 手机自建的同名环，与远端不是同一个），`baseline.v1` 里**本来就没有**该 key ⇒ 等价「新设备本地没有这个环」；点「立即同步」→ **下载 2 / 上传 27 / 冲突 2 · 29 秒** → 文件重新出现 **320 B**，sha256 **`4679e4e5…` 与远端逐字节一致**，远端同时仍 200（没被当成本地删除而删掉）。远端 manifest `private` 段 = `vault.notes.json` / `vault.secrets.json` / `vault.todo.json` / `secrets.zn`。证据 `_shots/rev419-phone-06-sync-done.png`。③ **遗留**：手机 `security` 仍是 0.3.3（0.3.4 只改文案，未推）；冲突列表 3 条旧噪声 + 本轮新增 2 条（`vault.secrets.json` / `vault.notes.json` 双端修改，未处理）；本轮上传 27 把手机测试库内容推进 `zeronote_test_418`（测试目录，可接受）|
 | rev173.418 | 2026-11-07 · **自定义密钥环跨设备同步**（清掉 rev173.414 起的「自定义环暂不同步」遗留）：`sync/lib/core.cjs` 新增纯函数 `privateFilesFor({ local, remote })` —— 内置 4 条私密文件 + 本地扫到的 `.zn/security/vault.<id>.json` + **远端 manifest 里已有的**（新设备靠它拉下来）；白名单正则 `^\.zn/security/vault\.[a-z0-9-]+\.json$`，**`grants.json` 永远匹配不上**（授权表是本机信任关系，用户 2026-11-07 拍板不上云）。`syncPrivate` 每轮用 `api.fs.listFiles('.zn/security')` 现扫，巡检轮转按动态列表算（请求预算不变）。测试新增 `tests/sync-private-files.test.ts` 5 条。`sync 0.1.11` 已签名入市。**G2 桌面端到端**：dev 配 WebDAV（坚果云 · 新目录 `zeronote_test_418` · MKCOL 建目录）→ 手动同步 **上传 4 · 下载 0 · 1.6 秒** → 远端 `GET .zn/security/vault.todo.json` = **200 / 320 B**，远端 `_zn/manifest.json` 的 `private` 段含 `vault.notes.json` / `vault.secrets.json` / **`vault.todo.json`**。顺带把安全面板那句「⚠️ 自定义环暂不同步到其它设备」改成「自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步」（`security 0.3.4`）。**未验**：手机端拉取（同一通路、代码同一份；要验得让手机本地没有该环才行）|
 | rev173.417 | 2026-11-07 · **分配冲突拒绝**（用户：「新密钥无法分配给已分配密钥的插件，直接提示已有密钥」）：rev173.416 的 `withAssign` 在冲突时**静默让位/顶替**，用户要的是**拒绝 + 提示**。新增纯函数 `assignConflict(grants, ringId, pluginId)` → 返回理由或 null（插件已有环 → 「插件「X」已经有密钥环「Y」—— 先在那一行选「未分配」再分配」；环已有主人 → 「密钥环「Y」已经分配给「X」—— …」；解除分配永远允许）；`doAssignRing` 先检查，冲突时 `setStatus(warn)` **不落盘** + `view.refresh` 让下拉弹回真实值。`withAssign` 保留让位/顶替作为脏数据不变量。`security 0.3.3` 已签名入市。测试 +1（12 条）。**G2 双端**：桌面（环已有主人 / 插件已有环 两条都拒绝且文件不变；解除后可正常分配，`_shots/rev417-conflict.png`）；手机同流程（`_shots/rev417-phone-conflict.png`）|
@@ -370,6 +371,28 @@ revision: 173.419
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.420（2026-11-08 · 密钥环删除（需主密码）+ 分配列表列出所有已装插件）
+
+> **起因**（用户 2026-11-08，手机 release 包上看到）：「插件不出现在密钥环分配列表」—— 安全面板底部只剩「↳ 还没有插件声明需要密钥环」，一个插件都没有；同时「密钥环无法删除」；追问后拍板「删环需要输主密码」。
+
+> **根因**：分配下拉的候选只有一个来源 —— 运行时 `demand`（插件调 `crypto.demand()` 才登记，见 `withDemand` / `noteDemand`）。手机 release 上装的 `secrets` / `private-notes` 是旧版（低于 0.1.7 / 0.3.6），**从不调用 demand** ⇒ 列表恒空。这不是数据坏了，是候选来源太窄：插件「装着」和「声明了需求」是两件事。
+
+> **实现 ①：内核新 `host.installedPlugins()`**（`HostApi` 契约 + `InstalledPluginInfo`；`KernelHooks.listPlugins` 由 `App.tsx` 提供）。为什么加在内核而不是插件自己扫目录：插件全局根（`appDataDir()/.zn/plugins/`）在库外，插件的 `api.fs` 只认库内相对路径，扫不到；宿主本来就持有 `manifests`。`App` 用 `manifestsRef`（每渲染覆盖）而不是闭包里的 state —— kernel 只在换库时重建，闭包会永久停在创建那一刻。没接钩子 ⇒ 返回空数组（不抛错：清单缺失只该降级）。
+
+> **实现 ②：候选并入已装插件**。`assignRows(grants, ringIds, installed)` 的 options = `demand ∪ 当前主人 ∪ 已装插件`（security 自己在 `installedPluginIds()` 里排除——它不是消费者）；未分配行文案从「↳ 在等：…」改成「↳ 可以分配给：…（X 声明了需要密钥环）」，因为候选里已不全是"在等"。
+
+> **实现 ③：删环**。`security 0.3.5`：每个**已建立**的环多一个「删除」按钮（`payload: { ringId }`）→ `security.delete-ring` → `host.prompt({ secret: true })` 收该环主密码 → `unlockRing()` 解包裹校验（**DEK 立即 `wipe`，不进 `live`**，不碰自动锁定计时）→ `api.fs.purgePrivate(vault.<id>.json)` → **`exists` 复核**（Android 上 purgePrivate 有静默失败的先例，删不掉必须报出来，不能假装成功）→ 内存 `dropRing` + `live.delete` + `dropRingGrants` 清分配（demand 保留）+ `selected` 回落到另一把存在的环。取消（`null`）或密码错 ⇒ 不删、文件不动。纯函数 `dropRingGrants` 单独测（删环不动 demand、幂等）。
+
+> **测试**：`tests/security-grants.test.ts` +2（空表 + 已装插件仍能出候选；`dropRingGrants`）；新增 `tests/host-plugins.test.ts` 3 条（无钩子空数组 / 钩子抛错空数组 / 每次现取最新）。
+
+> **G1**（2026-11-08 13:10）tsc 0 · oxlint 4 warnings · cargo 105 passed · vitest **2021** passed · 质量门 **9/9** · 文档一致性通过。
+
+> **G2 桌面**（dev · `_tmp-vault-rt13`）：下拉实测列出 `history / import-export / private-notes / secrets / sync`（security 已排除），`_shots/rev420-04-panel.png`；新建 `Temp420` 环 → 点删除 → 弹「删除密钥环「Temp420」」主密码框（`_shots/rev420-06-delete-prompt.png`）；输入 `wrong-pass-1` ⇒ 面板提示「主密码不对，没有删除」、环与 `vault.temp420.json` 都还在（`_shots/rev420-07-wrong-pw.png`）；再输 `test-pass-1234` ⇒ Tab / 分配行 / 文件全部消失、提示「已删除密钥环「Temp420」—— 这个环里的数据已无法恢复」、选中回落到「私密笔记」（`_shots/rev420-08-deleted.png`）。
+
+> **G2 手机（待补）**：`security 0.3.5` 已按 01 分册流程推入 Redmi `33b676f6` dev 包（`run-as cp`；manifest 无 sha256、`signature.json.bak` 已就位 ⇒ unsigned 加载）；手机锁屏挡住界面操作，待用户解屏后验下拉候选与删除。
+
+> **未发版**：`security 0.3.5` 已签名打包入市（`market/packs/security-0.3.5.znp` · 114.5 KB · keyId `aqua-2026` · 市场 16 条）；应用本体需下次发版才带 `host.installedPlugins()` —— **手机 release 用户先更新插件只能拿到「删除」，候选并入要等应用更新**。
 
 > ## 📌 rev173.419（2026-11-07 · 验「自定义环拉取」+ 修手机 sync 插件一直没加载）
 

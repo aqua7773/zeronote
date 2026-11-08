@@ -13,6 +13,7 @@ import {
   allRingIds,
   assignConflict,
   assignRows,
+  dropRingGrants,
   emptyGrants,
   newRingId,
   noRingError,
@@ -102,6 +103,31 @@ describe('security · 密钥环分配表（v2）', () => {
     expect(rows[1].owner).toBe(null)
     // 每个下拉都列出「所有声明过需求的插件」—— 用户在任一个环里都能把它们分进去
     expect(rows[1].options).toEqual(['private-notes', 'waiting'])
+  })
+
+  it('assignRows：并入「已安装插件」（rev173.420）—— 旧版消费者不调 demand 也能选', () => {
+    // 空表 + 没有任何 demand：正是手机 release 上「列表一个插件都没有」的形状
+    const rows = assignRows(emptyGrants(), ['notes', 'secrets'], [
+      { id: 'secrets', name: '密码库' },
+      { id: 'private-notes', name: '私密笔记' },
+      { id: 'security', name: '安全' },
+    ])
+    expect(rows[0].options).toEqual(['private-notes', 'secrets', 'security'])
+    expect(rows[1].options).toEqual(['private-notes', 'secrets', 'security'])
+    // 老宿主没有清单 ⇒ 传空数组 = 退回旧行为（不会凭空造选项）
+    expect(assignRows(emptyGrants(), ['notes'], [])[0].options).toEqual([])
+    // 兼容字符串形态（宿主实现可能只回 id）
+    expect(assignRows(emptyGrants(), ['notes'], ['a', 'b'])[0].options).toEqual(['a', 'b'])
+  })
+
+  it('dropRingGrants：删环时清掉该环的分配，但保留 demand（rev173.420）', () => {
+    let g = withDemand(emptyGrants(), 'private-notes')
+    g = withAssign(g, 'notes', 'private-notes')
+    const next = dropRingGrants(g, 'notes')
+    expect(next.rings).toEqual({})
+    expect(next.demand).toEqual({ 'private-notes': true })
+    // 删不存在的环是幂等的
+    expect(dropRingGrants(next, 'notes')).toEqual(next)
   })
 
   it('没分配时的报错文案指向「密钥环分配」（消费者原样显示）', () => {
