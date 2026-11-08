@@ -2289,6 +2289,15 @@ async function doModifyByBiometric(api, ringId, state) {
       const L = await loadLibs()
       let out = resetPasswordWithDek(L, ring, dek, newPw)
       if (name && name !== oldLabel) out = { ...out, label: name }
+      /* 刚才认证过设备指纹（DK 在内存）⇒ 顺手把本环的指纹包裹补上（rev173.430）。
+         本环不在 `live` 里，`inheritRings` 覆盖不到它 */
+      if (deviceKey && !out.deviceWrapped) {
+        try {
+          out = { ...out, deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, dek) }
+        } catch {
+          /* 补不上不影响改密码 */
+        }
+      }
       return out
     })
     store.vault = putRing(store.vault, next)
@@ -2422,16 +2431,6 @@ async function doCreateRing(api) {
   if (pw1 !== pw2) return setStatus(api, '两次输入的主密码不一致', 'warn')
 
   const id = newRingId(name, allRingIds(store.vault))
-  /* rev173.429（用户：「新建的环不是默认继承指纹的吗」）：设备**绑过**指纹、但本次会话还没解过
-     任何环（DK 不在内存）时，先弹一次系统指纹解出 DK —— 这样新环建好就带着 `deviceWrapped`，
-     点「指纹验证修改」不会再说「还没继承本机指纹」。取消 / 失败照常建环，只是不继承。 */
-  if (!deviceKey && store.deviceFile && store.biometric) {
-    try {
-      await withBusy(api, id, () => unlockDeviceKey())
-    } catch {
-      /* 用户取消了指纹：不继承，不影响建环 */
-    }
-  }
   let code = ''
   try {
     const made = await withBusy(api, id, async () => {
@@ -2864,7 +2863,46 @@ async function biometricUnlockRing(api, ringId) {
     ? await unlockRingByDevice(ringId)
     : await unlockWithBiometric(ring, store.biometric, store.deviceId)
   live.set(ringId, { dek, lastActive: Date.now() })
+  /* 这一次认证刚拿到 DK ⇒ 顺手把「所有已解锁但还没继承指纹」的环一次性补齐（rev173.430）——
+     用户一次指纹 = 整个会话全局生效，不用每个环单独绑 */
+  await inheritRings(api)
   api.event.emit('security:unlocked', { ringId })
+}
+
+/**
+ * 一次设备指纹认证之后，把「已解锁但还没继承本机指纹」的环**全部**补上 `deviceWrapped`
+ * （rev173.430，用户：「只能每次建立都验证一次吗，不能做到指纹设置之后就是全局生效的吗」）。
+ *
+ * 为什么必须等一次认证：DK 只在内存里，程序不能把它常驻磁盘（那等于任何本机程序都能取走
+ * 所有环的钥匙）。所以策略是「一次认证、全局补齐」—— 用户在本次会话里认证过一次之后，
+ * 之前 / 之后已解锁的环都会带上指纹包裹，此后再不用单独绑。
+ */
+async function inheritRings(api) {
+  if (!deviceKey) return 0
+  let changed = 0
+  for (const [id, s] of live.entries()) {
+    if (await inheritOneRing(api, id, s.dek)) changed++
+  }
+  if (changed) api.view.refresh(PANEL_ID)
+  return changed
+}
+
+/** 给某一把环补 `deviceWrapped`（要求 DK 与这把环的 DEK 都在手上）。返回是否写入。 */
+async function inheritOneRing(api, ringId, dek) {
+  if (!deviceKey || !dek) return false
+  const ring = getRing(store.vault, ringId)
+  if (!ring || ring.deviceWrapped) return false
+  try {
+    const L = await loadLibs()
+    store.vault = putRing(store.vault, {
+      ...ring,
+      deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, dek),
+    })
+    await saveVault(api, store.vault, ringId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
