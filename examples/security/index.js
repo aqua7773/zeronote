@@ -171,15 +171,136 @@ function unpack(version, payload) {
  * 把包裹的 DEK 当数据密文用也会失败 —— 不是靠"我们保证不混用"，是靠密码学。
  */
 export function seal(libs, key, aad, plaintext) {
+  return sealV(libs, key, aad, plaintext, PAYLOAD_VERSION)
+}
+
+/** 同上，但版本标记由调用方给（`wk1` = 包裹 itemKey，`zn2` = 带中间层的数据密文） */
+export function sealV(libs, key, aad, plaintext, version) {
   const nonce = libs.randomBytes(24)
   const ct = libs.xchacha20poly1305(key, nonce, utf8.encode(aad)).encrypt(toBytes(plaintext))
-  return pack(PAYLOAD_VERSION, nonce, ct)
+  return pack(version, nonce, ct)
 }
 
 /** 解密；AEAD 认证失败会抛错（改一个字节、AAD 不符、密钥不对都抛） */
 export function open(libs, key, aad, payload) {
-  const { nonce, ct } = unpack(PAYLOAD_VERSION, payload)
+  return openV(libs, key, aad, payload, PAYLOAD_VERSION)
+}
+
+export function openV(libs, key, aad, payload, version) {
+  const { nonce, ct } = unpack(version, payload)
   return libs.xchacha20poly1305(key, nonce, utf8.encode(aad)).decrypt(ct)
+}
+
+/* ─────────────── 中间层：每份数据一把 itemKey（rev173.447） ───────────────
+ *
+ * 为什么加这一层（调研结论见 docs/加密笔记-密钥轮换调研-2026-11-09.md）：
+ * Standard Notes 用 `masterKey → itemsKey → item_key → 数据`，Cryptomator 用
+ * `masterKey → contentKey → 内容`。两者换主密码时都只重写**那一层小 key**，
+ * 数据一个字节不动。我们原来只有 `主密码 → DEK → 数据`，换环就必须解密全部明文
+ * 再重新加密 —— 慢、且明文要在内存里停留。
+ *
+ * 加一层后：
+ *   `wk1.<nonce>.<ct>`  = 用环 DEK 包裹的 itemKey（换环时只重写这一段）
+ *   `zn2.<n>.<ct>`      = 用 itemKey 加密的数据（换环时原样搬运）
+ *   `zn2.<wn>.<wc>.<dn>.<dc>` = 自包含（包裹段 + 数据段在一个文件里，单文件插件用）
+ *
+ * ⚠️ 两条 AAD 的分工是这一层的全部要点：
+ *   · 包裹段 AAD 含环 id（`<环>|key`）⇒ 换环必须重包，旧包裹块挂到新环下解不开。
+ *   · 数据段 AAD **不含环 id**（`<容器>|<作用域>`）⇒ 换环后正文照样能解，
+ *     这正是「只重包、不动正文」成立的前提。环的隔离由包裹段承担。
+ */
+
+/** 包裹 itemKey 的版本标记 —— 与 `zn1`/`zn2` 分开，混用必然解不开 */
+export const WRAP_VERSION = 'wk1'
+/** 带中间层的数据密文版本 */
+export const DATA_VERSION_V2 = 'zn2'
+
+/** 包裹段 AAD：绑定到环 */
+export const keyAad = (ringId) => `${ringId}|key`
+/** 数据段 AAD：**故意不含环 id**（见上面那段注释） */
+export const dataAad = (containerId, scope) => `${containerId}|${scope}`
+
+/** 用环 DEK 包一把 itemKey → `wk1.<nonce>.<ct>` */
+export function sealItemKey(libs, dek, ringId, itemKey) {
+  return sealV(libs, dek, keyAad(ringId), itemKey, WRAP_VERSION)
+}
+
+/** 解开 itemKey（换环时用旧环；读数据时用当前环） */
+export function openItemKey(libs, dek, ringId, wrapped) {
+  return openV(libs, dek, keyAad(ringId), wrapped, WRAP_VERSION)
+}
+
+/**
+ * 自包含加密：`zn2.<包裹 nonce>.<包裹 ct>.<数据 nonce>.<数据 ct>`
+ *
+ * 单文件插件（密码库）用它 —— itemKey 就在文件头里，不需要外部索引。
+ * 换环时只需要重写前两段（见 `rewrapSelfContained`）。
+ */
+export function sealSelfContained(libs, dek, ringId, containerId, scope, plaintext) {
+  const itemKey = libs.randomBytes(32)
+  try {
+    const wrapped = unpack(WRAP_VERSION, sealItemKey(libs, dek, ringId, itemKey))
+    const nonce = libs.randomBytes(24)
+    const aad = utf8.encode(dataAad(containerId, scope))
+    const ct = libs.xchacha20poly1305(itemKey, nonce, aad).encrypt(toBytes(plaintext))
+    return [
+      DATA_VERSION_V2,
+      toB64url(wrapped.nonce),
+      toB64url(wrapped.ct),
+      toB64url(nonce),
+      toB64url(ct),
+    ].join('.')
+  } finally {
+    wipe(itemKey)
+  }
+}
+
+/** 解开自包含密文 → 明文数据（itemKey 从文件头解出，解完立刻 wipe） */
+export function openSelfContained(libs, dek, ringId, containerId, scope, payload) {
+  const { itemKey, dataNonce, dataCt } = splitSelfContained(libs, dek, ringId, payload)
+  try {
+    const aad = utf8.encode(dataAad(containerId, scope))
+    return libs.xchacha20poly1305(itemKey, dataNonce, aad).decrypt(dataCt)
+  } finally {
+    wipe(itemKey)
+  }
+}
+
+/**
+ * 只重包：`旧环 DEK` 解出 itemKey → `新环 DEK` 重包 → **数据段原样搬回来**。
+ *
+ * 全程不解密正文、不产生明文 —— 这是换环不暴露数据的关键一步。
+ */
+export function rewrapSelfContained(libs, oldDek, oldRingId, newDek, newRingId, payload) {
+  const { itemKey, dataNonce, dataCt } = splitSelfContained(libs, oldDek, oldRingId, payload)
+  try {
+    const wrapped = unpack(WRAP_VERSION, sealItemKey(libs, newDek, newRingId, itemKey))
+    return [
+      DATA_VERSION_V2,
+      toB64url(wrapped.nonce),
+      toB64url(wrapped.ct),
+      toB64url(dataNonce),
+      toB64url(dataCt),
+    ].join('.')
+  } finally {
+    wipe(itemKey)
+  }
+}
+
+/** 拆自包含密文 → `{ itemKey(已用给定环解开), dataNonce, dataCt }`（不碰数据段） */
+function splitSelfContained(libs, dek, ringId, payload) {
+  const parts = String(payload ?? '').split('.')
+  if (parts.length !== 5 || parts[0] !== DATA_VERSION_V2) {
+    throw new Error(
+      `密文格式不认识（期望 ${DATA_VERSION_V2}.<包裹nonce>.<包裹ct>.<数据nonce>.<数据ct>）`,
+    )
+  }
+  const wrapped = pack(WRAP_VERSION, fromB64url(parts[1]), fromB64url(parts[2]))
+  return {
+    itemKey: openItemKey(libs, dek, ringId, wrapped),
+    dataNonce: fromB64url(parts[3]),
+    dataCt: fromB64url(parts[4]),
+  }
 }
 
 /* ───────────────────────── KDF ───────────────────────── */

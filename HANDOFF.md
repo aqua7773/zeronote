@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.446
-更新时间: 2026-11-08 · 最新 rev173.446（**安全面板只验证主密码、不再真解锁**）· rev173.445（指纹优先解锁 + 改密码切换）· rev173.443–444（测试库新环绑定 + 分配后插件不认新环的 bug）
+revision: 173.447
+更新时间: 2026-11-09 · 最新 rev173.447（**密钥轮换格式层 + 弹窗 X 去焦点圈**）· rev173.446（安全面板只验证主密码）· rev173.445（指纹优先解锁 + 改密码切换）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.446
 
 | rev | 内容 |
 |---|---|
+| rev173.447 | 2026-11-09 · **密钥轮换格式层（中间层 itemKey）+ 弹窗 X 去焦点圈 + 手机 dev G2**：① 用户报「分配新环给私密笔记 / 密码库后完全无法解锁」——实测定性：分配**确实生效**（`grants.json` `b→secrets`）、环B 密码能解出 32 B DEK，卡在 `secrets.zn` 仍是**旧环密文**，而 `examples/secrets/index.js:1568` 把 `/invalid tag/` 一律翻译成「主密码不对」（误导排查方向）。根因 = 只有两层密钥（主密码→DEK→数据）且数据段 AAD 绑死环 id ⇒ 换环 = 全部密文失效。② 调研：[Standard Notes](https://standardnotes.com/help/security/encryption)（rootKey→itemsKey→item_key，换密码只重写几 KB）、[Cryptomator](https://docs.cryptomator.org/security/vault/)（masterKey→contentKey 存文件头 68 B，换密码只重写 header），结论是缺一层 per-item key。③ 用户拍板 **B（itemKey 表放索引）+ 密码库也加中间层 + 一次操作轮换**，方案 `docs/密钥轮换-方案-2026-11-09.md`。④ **格式层已实现**：`sealV`/`openV` 参数化版本 + `wk1`（包裹段，AAD=`<环>\|key`，换环必须重包）+ `zn2`（数据段，AAD=`<容器>\|<作用域>`，**不含环 id** ⇒ 换环后正文照样能解）+ 自包含 5 段（`sealSelfContained`/`openSelfContained`）+ `rewrapSelfContained`（只重包、数据段原样搬回、不产生明文）；`tests/crypto-itemkey.test.ts` **6 passed**（含「换环后数据段逐字节不变」「旧环必解不开」「包裹块跨环必失败」反向断言）。**未接入任何调用方**，对现有行为零影响。⑤ `src/components/ui/dialog.tsx` 关闭按钮加 `focus-visible:outline-none`（用户：「弹窗X的边框去掉」）—— 根因：Dialog 打开时自动聚焦面板内第一个可聚焦元素（就是 X），触发 `src/styles.css:52` 的全局 `:focus-visible`（2px `--zn-fg`）；只去 X 自己的圈，其它控件焦点环不动。**G2 双端已验**（手机 `_shots/rev450-phone/09-verify-dialog.png`、桌面 `_shots/rev450-desktop/02-about-dialog.png`；CDP 读 `outlineStyle: none`）。⑥ **手机 dev 包推 3 插件 + G2**：`security 0.5.1` / `secrets` / `private-notes` 推到 Redmi `33b676f6`（备份在 `appDataDir/.zn/backup-rev450/`），reload 后 `plugins-ready` 无异常；验到安全面板行内「验证密码」（无 🔒）、两段式指纹框 `[指纹解锁][改用密码][取消]`（`_shots/rev450-phone/18`）、点「改用密码」才弹密码框（`19`）、私密笔记解锁后 🔒 分组出现（`12`–`14`）。⑦ `verify.ps1` **8/9**（23:56）：tsc 0 · oxlint 0 error/4 warnings · cargo 103 · vitest 2039 · 文档一致性全过 · 质量门唯一红是 `pack-sync`（3 个插件包与源码不一致，属交接卡 §3 ② 欠账，与本次改动无关）。**未做**：crypto 服务 4 方法（`keygen`/`encryptWith`/`decryptWith`/`rewrapKey`）、`private-notes` 索引 keys 表与双格式、`secrets` 切自包含、轮换 UI、契约文档补方法表。**遗留（需用户知悉）**：手机测试库的环被用户删除后，`secrets.zn`（965 B，11-07 01:29）成孤儿 —— 试过 7 份候选环文件（手机 3 份 + 备份 tar 2 份 + 云端 1 份 + 冲突副本）全部「密码对但 DEK 不匹配」，该密文目前无已知钥匙；另有一条未验：用每份环自己的环 id 拼 AAD 再解一次（防当年是自定义环）。 |
 | rev173.446 | 2026-11-08 · **安全面板只验证主密码，不再真解锁**（用户拍板：「安全面板不应该能够真正解锁插件功能，只提供验证密码是否正确；只有插件入口能解锁自己」）：① 列表行「解锁」→「**验证密码**」（`security.verify-ring` → 新 `doVerifyRing`）：密码路径解出 DEK 校验后**立刻 wipe**、不写 `live`；指纹路径走 `biometricUnlockRing` 后立刻 `lockRing(reason='verify')` 锁回，且该 reason **不再触发**「锁后自动弹指纹」（`lockRing` 加了判断）。② 面板去掉 🔒/🔓 图标，不再承载解锁态。③ 点环名**不再先解锁**，直接进管理弹窗（改名 / 换主密码由弹窗自己校验旧密码，不需要 live）。④ 命令 `security.unlock` / `security.unlock-ring` 都改成验证语义，新增 `security.verify-ring`。测试 `security-panel.test.ts` 改 3 条断言。**G2 桌面已验**：`_shots/rev443-45-panel-verify.png`（无锁图标 + 验证密码按钮）、`rev443-46-verify-dialog.png`（验证框：指纹验证 / 改用密码 / 取消）、`rev443-47-verify-ok.png`（「主密码正确（仅验证，未解锁）」）、`rev443-48-still-locked.png`（验证过之后打开密码库仍弹「解锁密码库」）。 |
 | rev173.445 | 2026-11-08 · **指纹优先的解锁框 + 可切换密码**（用户：「类似 Windows Hello 和 PIN 的选择，指纹优先，但可以切换密码输入」）：`security` / `secrets` / `private-notes` 三个解锁入口统一两段式 —— 第一步「请验证指纹解锁；也可以改用主密码」+ 按钮 `[指纹解锁] [改用密码] [取消]`，点「改用密码」才弹密码框（`_shots/rev443-42-bio-first-dialog.png` → `rev443-43-password-dialog.png` → `rev443-44-entered-after-switch.png`）。老宿主没有 `host.dialog` 时保留旧流程（先系统指纹 → 取消/失败回落 prompt）。单测 86 条（private-notes 40 / secrets 39 / security-panel 7）。 |
 | rev173.444 | 2026-11-08 · **指纹解锁加「改用密码」入口（第一版）**：三个入口改为「弹窗里密码框 + 指纹按钮」——**方向反了**（第一眼看到输密码），被用户当场纠正为「指纹优先」（见 rev173.445）。只留作沿革记录。 |
@@ -396,6 +397,19 @@ revision: 173.446
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.447（2026-11-09 · 密钥轮换格式层 + 弹窗 X 去焦点圈 + 手机 dev G2）
+
+> **用户报的问题**：「分配一个新的环给私密笔记或者密码库，完全无法解锁了」。
+> **实测定性 —— 不是分配失效**：`grants.json` 里 `b → secrets` 已写入；`vault.b.json` 用主密码能解出 32 B DEK；点「解锁」后进面板显示锁定。真因是 `secrets.zn` 仍是**旧环**密文，而 `examples/secrets/index.js:1568` 把 `/invalid tag/` 一律翻译成「主密码不对」，把「密文属于另一把环」报成了「密码错」。
+> **根因**：只有两层密钥（主密码 → DEK → 数据），且数据段 AAD 绑死环 id ⇒ 换环 = 全部密文失效；`private-notes` 还是一篇一个文件、没有整树重加密 ⇒ 换环后索引换新环、正文留旧环，一半迁一半死（`fillPlainCache` 还把解不开的正文当空，界面看起来像数据没了）。
+> **调研**：[Standard Notes](https://standardnotes.com/help/security/encryption)（rootKey → itemsKey → item_key，换密码只重写几 KB，旧数据渐进重加密）、[Cryptomator](https://docs.cryptomator.org/security/vault/)（masterKey → contentKey 存文件头 68 B，换密码只重写 header）。两者都有一层 per-item key，ZeroNote 缺的正是这层。
+> **用户拍板**：B 方案（itemKey 表放索引）+ 密码库也加中间层 + 一次操作轮换。方案 [`docs/密钥轮换-方案-2026-11-09.md`](docs/密钥轮换-方案-2026-11-09.md)。
+> **已完成（格式层 · 尚未接入任何调用方）**：`sealV`/`openV` 参数化版本；`wk1` 包裹段（AAD = `<环>|key`）；`zn2` 数据段（AAD = `<容器>|<作用域>`，**不含环 id** ⇒ 换环后正文照样能解）；自包含 5 段（`sealSelfContained`/`openSelfContained`）与 `rewrapSelfContained`（只重包、数据段原样搬回、不产生明文）。`tests/crypto-itemkey.test.ts` **6 passed**，含「换环后数据段逐字节不变」「旧环必解不开」「包裹块跨环必失败」三条反向断言。
+> **弹窗 X**：用户「弹窗X的边框去掉」—— 根因是 Dialog 打开时自动聚焦面板内第一个可聚焦元素（就是 X），触发 `src/styles.css:52` 的全局 `:focus-visible`（2px `--zn-fg`）。给关闭按钮加 `focus-visible:outline-none`，其它控件焦点环保持不动。**G2 双端已验**：手机 `_shots/rev450-phone/09-verify-dialog.png`、桌面 `_shots/rev450-desktop/02-about-dialog.png`，CDP 读 `outlineStyle: none`。
+> **手机 dev G2**：`security 0.5.1` / `secrets` / `private-notes` 推到 Redmi `33b676f6`（备份在 `appDataDir/.zn/backup-rev450/`），reload 后 `plugins-ready` 无异常；验到安全面板行内「验证密码」（无 🔒）、两段式指纹框 `[指纹解锁][改用密码][取消]`（`_shots/rev450-phone/18`）、点「改用密码」才弹密码框（`19`）、私密笔记解锁后 🔒 分组出现（`12`–`14`）。
+> **verify 8/9**：唯一红是 `pack-sync`（`private-notes` / `secrets` / `security` 三个包与源码不一致，属上轮欠账，与本次改动无关）。
+> **遗留（需用户知悉）**：手机测试库的环被用户删除后，`.zn/secrets/secrets.zn`（965 B，11-07 01:29）成孤儿 —— 试过 7 份候选环文件（手机 3 份 + 备份 tar 2 份 + 云端 1 份 + 冲突副本）全部「密码对但 DEK 不匹配」，该密文目前无已知钥匙；一条未验 —— 用每份环自己的环 id 拼 AAD 再解一次（防当年是自定义环）。
 
 > ## 📌 rev173.446（2026-11-08 · 安全面板只验证主密码，不再真解锁）
 

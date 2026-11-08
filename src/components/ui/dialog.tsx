@@ -98,11 +98,16 @@ export function Dialog({
         )}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* 关闭钮不带焦点圈（用户 2026-11-08：「弹窗X的边框去掉」）：
+            弹窗打开时下面的 effect 聚焦面板内**第一个**可聚焦元素，也就是这个 X
+            ⇒ 一出现就带 `:focus-visible` 的黑框（2px outline + 1px offset），照片上看像给 X 套了个方框。
+            X 是次要操作（ESC / 点遮罩同样能关），去掉它自己的圈不影响键盘可达性；
+            其余控件（输入框 / 按钮）的焦点圈保持不动。 */}
         <button
           type="button"
           onClick={() => onOpenChange(false)}
           aria-label="关闭"
-          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-ui-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-ui-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
         >
           <X size={14} />
         </button>
