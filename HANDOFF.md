@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.433
-更新时间: 2026-11-08 · 最新 rev173.433（**手机端密钥环卡片两行布局 · security 0.4.9**）· rev173.432（建环 busy 提示 + 已解锁文案）
+revision: 173.434
+更新时间: 2026-11-08 · 最新 rev173.434（**0.10.2 已发版**：安全面板重做 / 密钥环分配 / 恢复码 / 指纹全局生效）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.433
 
 | rev | 内容 |
 |---|---|
+| rev173.434 | 2026-11-08 · **0.10.2 发版**：把 rev173.413–433 的「安全插件面板重做 / 密钥环分配给插件 / 恢复码 + 恢复问题 / 指纹一次认证全局生效 / 手机两行布局」发给 release 用户 —— 关键是 **`host.dialog` / `host.installedPlugins` 是内核能力**，0.10.1 用户更新插件后只会降级成 prompt 链。**产物**：桌面 `ZeroNote_0.10.2_x64-setup.exe` 15,916,328 B + `.sig` 440 B；Android `ZeroNote_0.10.2_arm64.apk` 34,830,795 B（33.22 MiB · 只发 arm64，不发布 universal）。二进制在 `_build/release-0.10.2/`（不入库）。**清单**：`update/latest.json` 由脚本生成；`update/android.json` 手动指向改名后的 arm64 包（sha256 `4ee3b519…`）。**发布**：GitHub `v0.10.2` 三资产（https://github.com/aqua7773/zeronote/releases/tag/v0.10.2）；Gitee release `1287293` 三资产（size 全对：15916328 / 440 / 34830795）。构建 9 分 40 秒（桌面 4:05 + Android 5:35）。**未做**：手机 release 机装 0.10.2 验收；指纹真人 G3。 |
 | rev173.433 | 2026-11-08 · **手机端密钥环卡片改成两行布局**（用户发示意图：「不要只改位置啊，重新布局一下」）：窄屏（≤820px）从「名 / 状态 / 按钮」三行堆叠改成 **两行撑满** —— 第一行 `🔒 环名`（左）+ 绑定状态（右）；第二行三个按钮 `space-between` 均匀铺满。桌面宽屏仍是三列（1fr auto 1fr）。只改 `examples/security/styles.css` 的 `@media (max-width: 820px)` 块。`security 0.4.9` 已签名打包入市（`market/packs/security-0.4.9.znp`）。**G2 手机已验**（Redmi dev 包推 styles.css 后 CDP 截图 `_shots/rev432-phone-11-layout3.png`）。**踩坑**：手机「白屏」是 `adb screencap` 抓不到 Chromium 合成层（老坑），用 `cdp.mjs shot` 才准；期间 vite 进程真挂过一次（根路径 404）→ 重启 `pnpm dev` 恢复。 |
 | rev173.432 | 2026-11-08 · **安全面板两个体验点**（rev173.431 手机实测发现、用户「修完再发」）：① **建环 2.6 秒空窗** → `panelNode` 新增 busy 行「⏳ 正在处理「<环名>」…（派生密钥需要 1–4 秒，别重复点）」—— `withBusy()` 本来就会 `refresh`，但之前面板只有按钮变灰，看不出来。② **解锁后没有「已解锁」字样** → 解锁按钮文案随 `isUnlocked` 变「已解锁」（禁用态保留）；环名前的锁图标原来已随状态变 🔓，现在加文字双保险。`tests/security-panel.test.ts` 更新 1 条 + 新增 1 条（busy 提示只在 busy 时出现且带环名）。`security 0.4.8` 已签名打包入市（`market/packs/security-0.4.8.znp`，整包 sha256 `7d6a142a…`，入口 sha256 `d93b890e…`）。**G2 双端**：桌面 dev（junction → `examples/security`）解锁「私密笔记」→ 该行变「已解锁」（`_shots/rev432-desktop-02-unlocked.png`）；建 `g2busy` 环时用 rAF 采样到 `正在处理` 出现过（`window.__s.includes(1) === true`，1178 帧采样）；手机 Redmi dev 包推 0.4.8 后解锁 `g2ring4` → 按钮变「已解锁」（`_shots/rev432-phone-02-unlocked.png`）。**未做**：指纹真人验收（仍待 G3）；两个测试环 `g2busy`（桌面）/ `g2ring*`（手机）留在测试库未删。 |
 | rev173.431 | 2026-11-08 · **手机 dev 包恢复可连 + 手机端 G2 验收 security 0.4.7**（交接卡「下个会话第一件事」①）：① **根因**：手机 dev 包内 `assets/tauri.conf.json` 的 `devUrl` 被 `tauri android dev` 编译时替换成**当时**的局域网 IP `192.168.1.3`，本机 WLAN 现在是 `192.168.1.11` ⇒ 页面 `Failed to request http://192.168.1.3:1420/`；`adb reverse tcp:1420` 救不了（它只映射 localhost）。② **修法**：跑 `android-dev.cmd`（= `tauri android dev --config tauri.android-dev.json`）重编 dev 包 —— CLI 自己检测并打印 `Using 192.168.1.11 to access the development server`、把 devUrl 换掉（构建≈5 分钟：cargo 增量 + gradle，装完自动拉起）。**别试**直接 `gradlew app:assembleDebug`：`:app:rustBuildArm64Debug` 要读 `src-tauri/gen/android/.tauri/cli-options-server.json`，那文件只由 tauri CLI 写 ⇒ 必失败（本轮实测）。③ **手机 G2（Redmi `33b676f6` dev 包）**：面板三张卡片（私密笔记 / 账号密码 / Todo）·字号一致·无下划线（`_shots/rev430-phone-03-security.png`）；新建 `g2ring4` → 恢复码弹窗 `73FB-KGXT-R662-HWSV-Y8ER-3F7T`（`rev430-phone-13-recovery-code.png`）→ 恢复问题「可跳过」（`rev430-phone-14`）；点「未分配」就地展开候选（只列 `private-notes` / `secrets`，`rev430-phone-17`）；解锁弹窗收主密码 → 成功后该行「解锁」变灰（`rev430-phone-16`）。④ **已知体验点（未改，待拍板）**：建环保存 ⇒ 恢复码弹窗之间有 **≈2.6 秒空窗**（慢哈希耗时，期间没有 loading 反馈，容易被当成「点了没反应」）；解锁成功后状态列仍是「未分配」，只有按钮变灰，没有「已解锁」字样。⑤ **指纹相关未验**：绑定 / 一次认证全局生效必须真人按系统指纹，AI 不能代按。⑥ 两端 main 已推（GitHub `b9ecc40..d8fee0b`；Gitee 已是同一提交）。测试库新增测试环 `g2ring` / `g2ring2` / `g2ring4`（主密码 `test-pass-1234`），**未删**（删除要用户确认）。 |
@@ -384,6 +385,20 @@ revision: 173.433
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.434（2026-11-08 · 0.10.2 发版）
+
+> **为什么发**：rev173.413–433 这一批全靠内核新能力 —— `host.dialog()`（真弹窗）、`host.installedPlugins()`（分配候选）、`service` 带调用方身份。0.10.1 的 release 用户更新插件后只会降级成 `host.prompt` 链（多弹几次、分配列表靠 demand），必须发应用本体才生效。
+
+> **产物与核对**：桌面 `ZeroNote_0.10.2_x64-setup.exe` **15,916,328 B** + `.sig` **440 B**；Android **`ZeroNote_0.10.2_arm64.apk` 34,830,795 B（33.22 MiB）** —— 只发 arm64，universal 121 MB 那个不发布。二进制在 `_build/release-0.10.2/`（不入库）。
+
+> **清单**：`node scripts/gen-update-manifest.mjs --write` 生成了 `latest.json`；`android.json` 按 02 分册**手动改成改名后的 arm64 包**（url `…/v0.10.2/ZeroNote_0.10.2_arm64.apk`、sha256 `4ee3b519…`、size 34830795）。
+
+> **发布**：GitHub `v0.10.2` 三资产（https://github.com/aqua7773/zeronote/releases/tag/v0.10.2）；Gitee release **`1287293`** 三资产，size 与本地逐字节一致（15916328 / 440 / 34830795）。
+
+> **耗时**：构建 9 分 40 秒（桌面 4:05 · Android aarch64 5:35）。
+
+> **未做**：① 手机 release 机（努比亚）装 0.10.2 并验收；② 指纹相关真人 G3（绑定 / 一次认证全局生效 / 指纹验证修改）；③ 测试库里的测试环未清（桌面 `g2busy`、手机 `g2ring*`，主密码 `test-pass-1234`）。
 
 > ## 📌 rev173.433（2026-11-08 · 手机端密钥环卡片两行布局）
 

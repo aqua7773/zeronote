@@ -1,10 +1,10 @@
 {
-  "version": "0.10.1",
-  "notes": "ZeroNote 0.10.1",
-  "pub_date": "2026-11-06T17:47:12.089Z",
+  "version": "0.10.2",
+  "notes": "ZeroNote 0.10.2 · 安全面板重做（密钥环分配 / 恢复码 / 恢复问题 / 指纹一次认证全局生效）",
+  "pub_date": "2026-11-08T11:45:56.600Z",
   "apk": {
-    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.10.1/ZeroNote_0.10.1_arm64.apk",
-    "sha256": "3e23351db3e10f9f0a8f6997df38f0d0c824d6cafd7d1a2df9d9373effa8aadc",
-    "size": 34977387
+    "url": "https://github.com/aqua7773/zeronote/releases/download/v0.10.2/ZeroNote_0.10.2_arm64.apk",
+    "sha256": "4ee3b519df57463d739e48e5e56ed917561744a1fe3687a998ab8c6bd188f3e0",
+    "size": 34830795
   }
 }
