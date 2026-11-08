@@ -11,9 +11,13 @@
  *
  * 安装包（exe / apk）不进 git，走 generic package registry（匿名可下，已实测 200/206）。
  *
- * 配置来源（**不读仓库文件，避免令牌进版本库**）：
- *   ~/.dsh/zn-gitlab.json  （面板写的）或用户级环境变量
- *   GITLAB_SITE / GITLAB_USER / GITLAB_REPO / GITLAB_TOKEN
+ * 配置来源：**用户级环境变量**（推荐，2026-11-08 用户拍板；不落盘明文文件）
+ *   GITLAB_SITE / GITLAB_USER / GITLAB_REPO / GITLAB_PROJECT_ID / GITLAB_TOKEN
+ *
+ * ⚠️ PowerShell / Node 进程在启动时快照环境变量，刚用 `setx` 或
+ * `[Environment]::SetEnvironmentVariable(...,'User')` 写入的值**当前进程读不到**。
+ * 所以这里的读取顺序是：`process.env` → **Windows 注册表 `HKCU\Environment`**。
+ * 这样本会话里直接跑也能用，不用重开会话。
  *
  * 用法：
  *   node scripts/sync-dist.mjs                     # 同步清单与插件包并推送
@@ -22,7 +26,6 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { copyFileSync, mkdirSync } from 'node:fs'
@@ -36,27 +39,32 @@ const args = process.argv.slice(2)
 const dry = args.includes('--dry')
 const assetsIdx = args.indexOf('--assets')
 
-function loadConfig() {
-  const fromEnv = (k) => process.env[k] ?? ''
-  const env = {
-    site: fromEnv('GITLAB_SITE'),
-    user: fromEnv('GITLAB_USER'),
-    repo: fromEnv('GITLAB_REPO'),
-    token: fromEnv('GITLAB_TOKEN'),
+/**
+ * 读一个用户级环境变量：先看当前进程，再读 Windows 注册表 HKCU\Environment。
+ * 后者是为了「刚写进去、当前进程还没看到」的情况（进程启动时才快照一次）。
+ */
+function userEnv(name) {
+  if (process.env[name]) return process.env[name]
+  if (process.platform !== 'win32') return ''
+  try {
+    const out = execFileSync('reg', ['query', 'HKCU\\Environment', '/v', name], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const m = out.match(new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, 'i'))
+    return m ? m[1].trim() : ''
+  } catch {
+    return ''
   }
-  if (env.site && env.user && env.token) return { ...env, repo: env.repo || 'zeronote-dist' }
+}
 
-  const f = join(homedir(), '.dsh', 'zn-gitlab.json')
-  if (existsSync(f)) {
-    const j = JSON.parse(readFileSync(f, 'utf8'))
-    return {
-      site: j.site || '',
-      user: j.user || '',
-      repo: j.repo || 'zeronote-dist',
-      token: j.token || '',
-    }
+function loadConfig() {
+  return {
+    site: userEnv('GITLAB_SITE'),
+    user: userEnv('GITLAB_USER'),
+    repo: userEnv('GITLAB_REPO') || 'zeronote-dist',
+    token: userEnv('GITLAB_TOKEN'),
   }
-  return env
 }
 
 function die(msg) {
@@ -120,7 +128,7 @@ async function uploadAsset(version, file) {
 }
 
 function projectId() {
-  return process.env.GITLAB_PROJECT_ID || '384964'
+  return userEnv('GITLAB_PROJECT_ID') || '384964'
 }
 
 const cfg = loadConfig()

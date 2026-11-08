@@ -76,7 +76,8 @@ https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.
 
 > **极狐分发仓库**（rev173.441）：`aqua7773/zeronote-dist`，**只放 `market/` 与 `update/`，不含源码**。
 > 同步：`node scripts/sync-dist.mjs`；传安装包：`node scripts/sync-dist.mjs --assets <版本> <exe> [apk]`。
-> 配置放 `~/.dsh/zn-gitlab.json`（面板「GitLab 分发」或环境变量 `GITLAB_SITE/GITLAB_USER/GITLAB_TOKEN`），**不进仓库**。
+> 配置放**用户级环境变量** `GITLAB_SITE` / `GITLAB_USER` / `GITLAB_REPO` / `GITLAB_PROJECT_ID` / `GITLAB_TOKEN`
+> （2026-11-08 用户拍板：存环境变量，不落盘明文；脚本会回读 `HKCU\Environment`，当前会话刚写入也能用），**不进仓库**。
 
 **同源规则（2026-11-08 用户拍板）**：校验更新和实际下载必须走**同一个渠道**；
 测速测的是**这个源下载安装包的速度**，不再是「能不能拉到清单」。

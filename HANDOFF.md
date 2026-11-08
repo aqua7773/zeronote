@@ -393,6 +393,24 @@ revision: 173.441
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
 
+> ## 📌 rev173.441（2026-11-08 · 接入极狐 GitLab 分发渠道）
+
+> **用户拍板**：「代码不用同步，只同步插件和 release 安装包，拓宽更新渠道」+「存到环境变量去」。
+> 所以 GitLab 侧建的是**分发仓库**（`aqua7773/zeronote-dist`，只放 `market/` 135 文件 / 11 MB + `update/`），不含源码，也就不需要处理两个仓库的分支一致性。
+
+> **为什么选极狐而不是 gitlab.com**（2026-11-08 本机实测）：两站都直连可用，但极狐下载 **14 MB/s**（121 MB 归档 8.6 秒），gitlab.com 只有 **523 KB/s**。
+
+> **改动**：
+> - `src-tauri/src/updates.rs`：`MIRRORS` 加 `gitlab`（清单 `/-/raw/main/`）；**新增 `AssetRoute::GitLabPackage`** —— GitLab 的 generic package 路径（`/api/v4/projects/<id>/packages/generic/<pkg>/<版本>/<文件>`）与 GitHub release 路径不同构，不能复用 Gitee 的 `Replace`（那只换域名）；`canonical_asset_url` 加极狐前缀剥离（保证换渠道能回退）。
+> - `src/kernel/market.ts` / `app-update.ts`：各加一条同源镜像/渠道；两个测试文件断言同步。
+> - 新脚本 `scripts/sync-dist.mjs`：同步 `market/` + `update/` 并推送；`--assets <版本> <exe> [apk]` 顺带传安装包到 generic package。
+
+> **关键实测（G2 证据）**：`/api/v4/projects/384964/packages/generic/zeronote/0.10.2/ZeroNote_0.10.2_arm64.apk` 匿名 GET **200**、`Range: bytes=0-0` → **206**；整包 33.4 MB 下 2.9 秒 = **11.7 MB/s**；sha256 `650a927b…` 与 `update/android.json` **逐字节一致**。⚠️ 网页式 `/-/packages/generic/…` 是 **401**（要登录），客户端必须用 `/api/v4` 那条。
+
+> **配置**：用户级环境变量 `GITLAB_SITE` / `GITLAB_USER` / `GITLAB_REPO` / `GITLAB_PROJECT_ID` / `GITLAB_TOKEN`（不落盘明文文件）；脚本读不到 `process.env` 时回读 `HKCU\Environment`，所以当前会话刚写入也能用。
+
+> **G1**：tsc 0 · oxlint 4 warnings · cargo 103 · vitest 2038 · check-docs 通过。**未做**：桌面/手机界面上走一遍极狐渠道（`git push` 被双端验收门拦）、`build-release.mjs` 自动调 `sync-dist`。
+
 > ## 📌 rev173.440（2026-11-08 · 更新渠道改为「一个渠道 = 一个完整源」）
 
 > **用户拍板（2026-11-08）**：多渠道保留，但**校验更新和实际下载必须是同一个源**；**测速测的是下载速度**；**jsDelivr 渠道全去掉**；**手动测速按钮保留**。
