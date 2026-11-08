@@ -106,6 +106,8 @@ export type UpdateMirror = { id: string; label: string }
 export const UPDATE_MIRRORS: UpdateMirror[] = [
   { id: 'raw', label: 'GitHub raw' },
   { id: 'gitee', label: 'Gitee（国内直连）' },
+  // rev173.441：极狐分发仓库（清单 + generic package 安装包，同一仓库）
+  { id: 'gitlab', label: '极狐 GitLab（国内直连）' },
   { id: 'ghproxy', label: 'ghproxy.net（第三方）' },
 ]
 

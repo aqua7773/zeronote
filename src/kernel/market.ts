@@ -108,6 +108,13 @@ export const MARKET_MIRRORS: MarketMirror[] = [
     packBase: 'https://gitee.com/legendary-bird-lin/zeronote/raw/main/',
   },
   {
+    id: 'gitlab',
+    label: '极狐 GitLab（国内直连）',
+    // 极狐 raw 路径：/<namespace>/<repo>/-/raw/<branch>/<path>
+    indexUrl: 'https://jihulab.com/aqua7773/zeronote-dist/-/raw/main/market/index.json',
+    packBase: 'https://jihulab.com/aqua7773/zeronote-dist/-/raw/main/',
+  },
+  {
     id: 'ghproxy',
     label: 'ghproxy.net（第三方）',
     indexUrl:

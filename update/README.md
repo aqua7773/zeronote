@@ -71,7 +71,12 @@ https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.
 |---|---|---|
 | `raw`（GitHub raw） | ✅ | GitHub Release 直连（同一家） |
 | `gitee`（国内直连） | ✅ | Gitee 同名 Release 附件（前缀替换） |
+| `gitlab`（极狐，国内直连） | ✅ | 极狐分发仓库的 generic package：`https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/<版本>/<文件>`（**匿名可下，实测 11.7 MB/s、支持 Range**；网页式 `/-/packages/…` 需登录，别用） |
 | `ghproxy`（第三方反代） | ✅ | `https://ghproxy.net/<Release 地址>` |
+
+> **极狐分发仓库**（rev173.441）：`aqua7773/zeronote-dist`，**只放 `market/` 与 `update/`，不含源码**。
+> 同步：`node scripts/sync-dist.mjs`；传安装包：`node scripts/sync-dist.mjs --assets <版本> <exe> [apk]`。
+> 配置放 `~/.dsh/zn-gitlab.json`（面板「GitLab 分发」或环境变量 `GITLAB_SITE/GITLAB_USER/GITLAB_TOKEN`），**不进仓库**。
 
 **同源规则（2026-11-08 用户拍板）**：校验更新和实际下载必须走**同一个渠道**；
 测速测的是**这个源下载安装包的速度**，不再是「能不能拉到清单」。

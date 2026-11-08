@@ -59,6 +59,20 @@ enum AssetRoute {
   /// Gitee 的导入仓库有同名 Release 和附件，路径结构完全一致
   /// （`/<owner>/<repo>/releases/download/<tag>/<file>`），只换域名与 owner/repo。
   Replace(&'static str, &'static str),
+  /// **GitLab generic package registry**（rev173.441 · 极狐分发仓库）。
+  ///
+  /// 路径结构**完全不同**，所以不能复用 `Replace`（那只换域名）：
+  ///   GitHub  `…/releases/download/<tag>/<file>`
+  ///   GitLab  `…/api/v4/projects/<id>/packages/generic/<pkg>/<版本，无 v 前缀>/<file>`
+  ///
+  /// 2026-11-08 实测：公开项目的 generic package 允许**匿名 GET**（200）与 `Range`（206）；
+  /// 但网页式 `/-/packages/generic/…` 需要登录（401）—— 必须用 `/api/v4` 那条。
+  GitLabPackage {
+    /// 分发仓库的 project id（极狐 `aqua7773/zeronote-dist` = 384964）
+    project_id: u32,
+    /// package 名（发版脚本固定用 `zeronote`）
+    package: &'static str,
+  },
 }
 
 impl AssetRoute {
@@ -71,6 +85,28 @@ impl AssetRoute {
         Some(rest) => format!("{to}{rest}"),
         None => canonical.to_string(),
       },
+      AssetRoute::GitLabPackage {
+        project_id,
+        package,
+      } => {
+        const MARKER: &str = "/releases/download/";
+        match canonical.find(MARKER) {
+          Some(pos) => {
+            let rest = &canonical[pos + MARKER.len()..];
+            match rest.split_once('/') {
+              Some((tag, file)) => {
+                // GitHub tag 带 `v`，GitLab package_version 不带
+                let ver = tag.strip_prefix('v').unwrap_or(tag);
+                format!(
+                  "https://jihulab.com/api/v4/projects/{project_id}/packages/generic/{package}/{ver}/{file}"
+                )
+              }
+              None => canonical.to_string(),
+            }
+          }
+          None => canonical.to_string(),
+        }
+      }
     }
   }
 }
@@ -98,6 +134,17 @@ const MIRRORS: &[Mirror] = &[
       "https://github.com/aqua7773/zeronote/",
       "https://gitee.com/legendary-bird-lin/zeronote/",
     ),
+  },
+  Mirror {
+    id: "gitlab",
+    label: "极狐 GitLab（国内直连）",
+    // raw 路径：/<namespace>/<repo>/-/raw/<branch>/<path>
+    base: "https://jihulab.com/aqua7773/zeronote-dist/-/raw/main/",
+    // 安装包走 generic package registry（同仓库、匿名可下）
+    asset: AssetRoute::GitLabPackage {
+      project_id: 384964,
+      package: "zeronote",
+    },
   },
   Mirror {
     id: "ghproxy",
@@ -196,11 +243,25 @@ fn mirror(id: &str) -> Option<&'static Mirror> {
 const ASSET_PROXY_PREFIXES: &[&str] = &["https://ghproxy.net/", "https://gh-proxy.com/"];
 
 
+/// 极狐分发仓库的安装包前缀（rev173.441）。
+///
+/// 与 `MIRRORS` 里 gitlab 那条、以及 `AssetRoute::GitLabPackage` 的拼法**必须一致** ——
+/// 这里负责把 GitLab 地址剥回 GitHub 直链（否则「选极狐渠道」时候选表只剩它一条，
+/// 极狐抽风就没有任何回退路线）。
+const GITLAB_ASSET_PREFIX: &str =
+  "https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/";
+
 /// 把安装包地址规范化成 **GitHub 直链**（剥掉已知反代前缀）
 fn canonical_asset_url(url: &str) -> String {
   for p in ASSET_PROXY_PREFIXES {
     if let Some(rest) = url.strip_prefix(p) {
       return rest.to_string();
+    }
+  }
+  // 极狐分发仓库的安装包（rev173.441）：generic package 路径 → GitHub release 路径
+  if let Some(rest) = url.strip_prefix(GITLAB_ASSET_PREFIX) {
+    if let Some((ver, file)) = rest.split_once('/') {
+      return format!("https://github.com/aqua7773/zeronote/releases/download/v{ver}/{file}");
     }
   }
   // Gitee 镜像的安装包也换回 GitHub 仓库前缀（rev173.350）：
@@ -1238,6 +1299,19 @@ mod tests {
       "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/ZeroNote_0.9.3_x64-setup.exe";
     assert_eq!(rewrite_asset_url("raw", gitee), gh);
     assert_eq!(rewrite_asset_url("gitee", gitee), gitee);
+    // 极狐分发仓库（rev173.441）：路径结构不同 —— GitHub release 路径 → generic package
+    assert_eq!(
+      rewrite_asset_url("gitlab", gh),
+      "https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/0.9.3/ZeroNote_0.9.3_x64-setup.exe"
+    );
+    // 反过来：清单里若已经是 generic package 地址，任何渠道都先剥回 GitHub 直链
+    let gl = "https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/0.9.3/ZeroNote_0.9.3_x64-setup.exe";
+    assert_eq!(rewrite_asset_url("raw", gl), gh);
+    assert_eq!(rewrite_asset_url("gitlab", gl), gl);
+    assert_eq!(
+      rewrite_asset_url("gitee", gl),
+      "https://gitee.com/legendary-bird-lin/zeronote/releases/download/v0.9.3/ZeroNote_0.9.3_x64-setup.exe"
+    );
     // rev173.440 同源：渠道表里每个渠道都必须能给清单与安装包
     for m in MIRRORS {
       assert_ne!(m.id, "jsdelivr", "jsDelivr 拿不到 Release 附件，不能作为完整源");
@@ -1254,7 +1328,7 @@ mod tests {
   #[test]
   fn mirrors_are_all_complete_sources() {
     let ids: Vec<&str> = MIRRORS.iter().map(|m| m.id).collect();
-    assert_eq!(ids, ["raw", "gitee", "ghproxy"], "实际 {ids:?}");
+    assert_eq!(ids, ["raw", "gitee", "gitlab", "ghproxy"], "实际 {ids:?}");
     for m in MIRRORS {
       assert!(!m.base.contains("jsdelivr"), "{} 不能是 jsDelivr", m.id);
     }

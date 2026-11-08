@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.440
-更新时间: 2026-11-08 · 最新 rev173.440（**更新渠道改为「一个渠道 = 一个完整源」，jsDelivr 全删**）· rev173.439（发版校验门支持 Gradle 未重打）
+revision: 173.441
+更新时间: 2026-11-08 · 最新 rev173.441（**接入极狐 GitLab 分发渠道**）· rev173.440（更新渠道改为「一个渠道 = 一个完整源」，jsDelivr 全删）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.440
 
 | rev | 内容 |
 |---|---|
+| rev173.441 | 2026-11-08 · **接入极狐 GitLab 作为第四个更新渠道（分发仓库，不含源码）**：用户拍板「代码不用同步，只同步插件和 release 安装包，拓宽更新渠道」。实测两站国内直连（gitlab.com 523 KB/s / 极狐 14 MB/s），选极狐。建分发仓库 `aqua7773/zeronote-dist`（只放 `market/` 135 文件 + `update/` 3 文件，11 MB）。`updates.rs`：`MIRRORS` 加 `gitlab`（清单走 `/-/raw/main/`；安装包走新变体 `AssetRoute::GitLabPackage` —— GitLab 的 generic package 路径与 GitHub release 不同构，不能复用 `Replace`），`canonical_asset_url` 加极狐前缀剥离（保证换渠道回退不断链）；`market.ts` 加同源镜像；`app-update.ts` 加渠道；两个测试文件断言同步。新脚本 `scripts/sync-dist.mjs`（同步 market/update + `--assets` 传安装包）。**关键实测**：generic package **匿名可下**（`https://jihulab.com/api/v4/projects/384964/packages/generic/zeronote/0.10.2/<文件名>` → 200 / Range 206），APK 33.4 MB 下 2.9 秒 = **11.7 MB/s**，sha256 `650a927b…` 与 `update/android.json` 逐字节一致；网页式 `/-/packages/…` 是 401，**不可用**。配置在 `~/.dsh/zn-gitlab.json`（不进仓库）。**G1**：tsc 0 · oxlint 4 warnings · cargo 103 · vitest 2038 · check-docs 通过。**未做**：桌面/手机 G2（渠道下拉外观 + 手机真机走极狐渠道更新）、`build-release.mjs` 自动调 `sync-dist`。 |
 | rev173.440 | 2026-11-08 · **更新渠道改为「一个渠道 = 一个完整源」**（用户拍板：多渠道保留，但校验与下载必须同源；测速测的是下载速度；jsDelivr 全去掉；手动测速保留）。`updates.rs`：`MIRRORS` 只剩 raw / gitee / ghproxy，删掉「三条安装包路径」（`ASSET_ROUTES` / `asset_routes` / `asset_candidates` / `pick_routes`），新增 `probe_mirror_asset()` 只测命中渠道那一条；`check_app_update` 的 `routes` 只含本源一条；安装/下载只用本源地址，`mirrors` 恒空。前端删「下载通道」下拉、只显示「安装包 · 走 X · 实测速度」；`market.ts` 镜像也只留三条，`probeMirror` 改为「拉索引 + 实下第一个插件包 256 KB 测速」。**证据**：cargo `updates::` 6 passed（新增 `mirrors_are_all_complete_sources`）· vitest app-update 16 / market-mirror 23 / market-pane 11 全过。**未做**：桌面 dev 的 G2 外观实测、手机 dev 包重编。 |
 | rev173.439 | 2026-11-08 · **发版校验门支持「Gradle 未重打但已有正确产物」**（rev173.438 的待办）：旧实现只按 `mtimeMs >= t0` 认「本次新写出」，Gradle 判定无需重打时 mtime 不变 ⇒ 空集 ⇒ 误报「没有产出新的 APK」，把「无需重打」和「构建失败」混成一种结果。修法：挑选逻辑收成纯函数 `pickReleaseApks()`（`scripts/apk-version.mjs`）—— 有新产物只认新的；没有就回退到已有产物，但每份都要 aapt2 版本对得上，否则照旧退出 1。新增 `tests/apk-release-pick.test.ts` 6 条。**G2 真实产物自验**：6 份 APK 里只有 universal 的两份是 0.10.2/10002，arm/arm64/x86/x86_64 全是 0.9.15/0.9.16；回退模式挑出那两份、逐条拒绝其余（`_shots/rev173439-apk-picker.log`）。**未做**：02 分册 §3「从 `apk/<abi>/release/` 取包」的文档修订（按本次自验那目录里就是旧包）。 |
 | rev173.438 | 2026-11-08 · **用正确的 0.10.2 包替换 Android 附件**（修 rev173.437 的事故）：重跑 `build-release.mjs --android` 后 Gradle 判定**无需重打**（app 本体自 11-08 19:45 未变，这轮只动了插件 / 脚本 / 文档）⇒ 产物 mtime 不变，新加的校验门报「没有产出新的 APK」（这是**门在起作用**，不是构建失败）。改用现成的 `apk/universal/release/app-universal-release.apk`：`aapt2` 验 `versionName=0.10.2 versionCode=10002`，签名证书 SHA-256 `351adf8c…` 与 0.10.1 相同（同证书才能覆盖安装）。新包 34,981,231 B · sha256 `650a927b…`。**发布**：GitHub `gh release upload --clobber`（digest 已核对）；Gitee 删旧附件 `3633457` 后重传（新 id `3633970`，size 34981231）；`update/android.json` 按新包重写。**待办**：`build-release.mjs` 的校验门要支持「Gradle 未重写但已有正确产物」的情形（现在会误报无新产物）；手机端安装验收待用户做。 |

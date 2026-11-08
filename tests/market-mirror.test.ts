@@ -66,6 +66,12 @@ describe('mirrorPackUrl', () => {
     )
   })
 
+  it('极狐 GitLab 换前缀（rev173.441：分发仓库 raw 路径 /-/raw/main/）', () => {
+    expect(mirrorPackUrl(mirrorById('gitlab'), RAW_PACK_URL)).toBe(
+      'https://jihulab.com/aqua7773/zeronote-dist/-/raw/main/market/packs/backup-0.3.1.znp',
+    )
+  })
+
   it('ghproxy 保留整条 raw 地址（它本身就是个前缀代理）', () => {
     expect(mirrorPackUrl(mirrorById('ghproxy'), RAW_PACK_URL)).toBe(
       'https://ghproxy.net/https://raw.githubusercontent.com/aqua7773/zeronote/main/market/packs/backup-0.3.1.znp',

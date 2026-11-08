@@ -86,7 +86,7 @@ describe('平台判据', () => {
 describe('更新渠道（rev173.300 / rev173.440 同源）', () => {
   it('缺省 = 第一条（raw），只保留完整源（jsDelivr 拿不到 Release 附件，已移除）', () => {
     expect(loadUpdateMirror().id).toBe('raw')
-    expect(UPDATE_MIRRORS.map((m) => m.id)).toEqual(['raw', 'gitee', 'ghproxy'])
+    expect(UPDATE_MIRRORS.map((m) => m.id)).toEqual(['raw', 'gitee', 'gitlab', 'ghproxy'])
   })
 
   it('存过且认识 ⇒ 用它；存了个不认识的 ⇒ 回默认（不报错）', () => {
