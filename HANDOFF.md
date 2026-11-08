@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.421
-更新时间: 2026-11-08 · 最新 rev173.421（**安全插件界面重做：密钥环列表 + 真弹窗 `host.dialog`**）· rev173.420（删环 + 分配列表列已装插件）
+revision: 173.422
+更新时间: 2026-11-08 · 最新 rev173.422（**分配改回原生下拉**）· rev173.421（安全面板列表 + 真弹窗）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.421
 
 | rev | 内容 |
 |---|---|
+| rev173.422 | 2026-11-08 · **分配改回原生下拉**（用户：「这个界面用之前的方案」，指分配弹窗）：rev173.421 把「未分配 / 已分配 X」做成了点开选插件的弹窗，用户要回**之前的 `select` 下拉**。改法：`panelNode` 每环两行 —— 第一行 `环名 / ✓ / 测试 / 删除`，第二行全宽 `<select>`（选项 = 未分配 + demand ∪ 已分配 ∪ 已装插件）；恢复 render 的 `setState` 播种（select 值只取 `ctx.state[bind]`，不播种会永远显示第一项）；删掉 `security.assign-ui` 命令与 `doAssignUi()` 弹窗（`security.assign-ring` 保留，select 的 `onSubmit` 仍走它）。`security 0.3.7` 已签名打包入市。**G2 桌面**：三个环的下拉分别显示 `private-notes` / `secrets` / `未分配`（`_shots/rev422-01-list.png`）。**未发版** |
 | rev173.421 | 2026-11-08 · **安全插件界面重做：密钥环列表 + 宿主真弹窗**（用户给示意图：「修改一下安全插件的界面，参考给的示意图」→ 追问后选「真弹窗」）：① **内核新 `host.dialog()`**（契约 `DialogOptions` / `DialogResult` / `DialogAction`；`KernelHooks.onDialog`；`App.tsx` 的 `askDialog` 用现成 `<Dialog>` + `UIRenderer` 渲染 `body`，正文控件状态由宿主持有、点按钮时随 `{ action, state }` 回传；没接钩子**抛错**而不是返回 null，与 `prompt` 同约定；footer 加 `flex-wrap` 让多按钮不挤）。为什么不给 UINode 加 dialog 节点：显隐 / ESC / 焦点 / 遮罩归宿主，插件各写一遍必然漂。② **`security 0.3.6` 面板改成列表**：每环一行 —— 环名按钮（点开解锁 / 管理弹窗）、分配按钮（「未分配 / 已分配 X」→ 弹插件选择）、`✓` 状态标记、`测试`、`删除`；底部「＋ 新建密钥环」；恢复码仍在列表页一次性展示。③ **六个弹窗**：建立（主密码 ×2 + 可选恢复问题）、解锁（主密码 + 指纹（可用时）+ 恢复码/恢复问题链接）、管理（换主密码 + 立即锁定 + 绑定/解除指纹）、新建（名称 + 两次密码）、分配（★ = 声明了需要密钥环）、测试（只验密码、不改锁定态）。④ **老宿主降级**：`host.dialog` 不存在时全部退回 `host.prompt` 逐个问（多弹几次但不崩、不丢功能）。⑤ 命令：新增 `security.open-ring` / `test-ring` / `assign-ui`；manifest 补齐之前漏声明的 5 条（biometric-* / assign-ring / create-ring）。⑥ 纯函数删除 `ringRow`、render 去掉 select 播种（不再有常驻下拉）。测试：新增 `tests/host-dialog.test.ts` 3 条。**G1** tsc 0 · oxlint 4 · cargo 105 · vitest **2024** · 质量门 9/9。**G2 桌面**：列表（`_shots/rev421-04-list.png`）→ 解锁弹窗（`rev421-05-unlock-dialog.png`）→ 输入 `test-pass-1234` 解锁成功、行变 🔓（`rev421-06-unlocked.png`）→ 管理弹窗（`rev421-07-manage.png`）→ 新建弹窗（`rev421-08-create.png`）→ 分配弹窗（`rev421-10-assign.png`，★ 标记）→ 测试弹窗 + 正确密码提示「主密码正确」且仍 0 把已解锁（`rev421-12-test-ok.png`）。**G2 手机**：待用户解屏后验（插件已推 dev 包）。**未发版**：`host.dialog` 是内核能力，release 用户需应用更新才看到真弹窗（插件先更新会降级成 prompt 链）|
 | rev173.420 | 2026-11-08 · **密钥环删除（需主密码）+ 分配列表列出所有已装插件**（用户：「继续zeronote，插件不出现在密钥环分配列表」/「密钥环无法删除」/「删环需要输主密码」）：① **内核新 `host.installedPlugins()`**（契约 `InstalledPluginInfo` + `KernelHooks.listPlugins`；App 用 `manifestsRef` 现取，kernel 只建一次也不会停在旧清单）—— 根因：分配列表的候选原来只有 `demand`（插件调 `crypto.demand()` 才登记），**手机 release 上的旧版 `secrets` / `private-notes` 不调 demand ⇒ 列表一个插件都没有**。② `security` 的 `assignRows()` 加第三参 `installed`（已装插件并入候选，**排除 security 自己**）；未分配行文案从「↳ 在等：…」改成「↳ 可以分配给：…（X 声明了需要密钥环）」（候选不再全是"在等"）。③ **删除密钥环**：每环一行加「删除」按钮（仅已建立），命令 `security.delete-ring` —— `host.prompt({ secret: true })` 收该环主密码 → `unlockRing()` 校验（DEK 立即 `wipe`，不进 live）→ `purgePrivate(vault.<id>.json)` + `exists` 复核（Android 静默失败必须报出来）→ 内存 `dropRing` / `live.delete` / `dropRingGrants` 清分配 / selected 回落；**取消或密码错都不删**。④ 纯函数 `dropRingGrants`；测试 `security-grants` +2（已装插件并入 / 删环清分配）、新增 `tests/host-plugins.test.ts` 3 条（无钩子空数组 / 抛错空数组 / 每次现取）。`security 0.3.5` 已签名打包入市（market 16 条）。**G1** tsc 0 · oxlint 4 · cargo 105 · vitest 2021（13:0x）。**G2 桌面**：下拉列出 `history / import-export / private-notes / secrets / sync`（`_shots/rev420-04-panel.png`）；新建 `Temp420` → 删除 → 错误密码被拒「主密码不对」且文件仍在（`_shots/rev420-07-wrong-pw.png`）→ 正确密码 `test-pass-1234` 删除 → Tab / 分配行 / `vault.temp420.json` 全部消失（`_shots/rev420-08-deleted.png`）。**G2 手机**：插件已推 Redmi dev 包（`security 0.3.5`），验证被锁屏挡住 —— 待用户解屏后补。**未发版** |
 | rev173.419 | 2026-11-07 · **验「自定义密钥环拉取方向」+ 修手机 sync 插件一直没加载**：① **前置发现**：手机 `.zn/plugins/sync/index.cjs` 实际 sha256 `07b051ea…` 与 manifest 记的 `1a844854…` 不符 ⇒ 插件中心报「⚠ 插件 sync 加载失败：插件签名无效（keyId=aqua-2026）：signature error: Verification equation was not satisfied」，**同步面板根本没注册**（手机「更多 → 插件」里没有同步）—— 也就是说手机端同步此前从未真正跑起来（以前「手机同步」的结论都建立在桌面端）。修法：`examples/sync` 全量推手机（`index.cjs` + `lib/*` + `styles.css`）→ manifest 重算 `sha256` → `signature.json` 改名 `.bak`。**坑**：备份目录 `cp -r sync sync.bak-rev419` 留在 `.zn/plugins/` 下会被当第 7 个插件（同 id）扫到、同样报签名无效 ⇒ 必须移到插件目录外（本轮移到 appDataDir 的 `backup-rev419/`）。② **拉取验收（通过）**：手机删本地 `.zn/security/vault.todo.json`（320 B，sha `f188fdb2…` —— 手机自建的同名环，与远端不是同一个），`baseline.v1` 里**本来就没有**该 key ⇒ 等价「新设备本地没有这个环」；点「立即同步」→ **下载 2 / 上传 27 / 冲突 2 · 29 秒** → 文件重新出现 **320 B**，sha256 **`4679e4e5…` 与远端逐字节一致**，远端同时仍 200（没被当成本地删除而删掉）。远端 manifest `private` 段 = `vault.notes.json` / `vault.secrets.json` / `vault.todo.json` / `secrets.zn`。证据 `_shots/rev419-phone-06-sync-done.png`。③ **遗留**：手机 `security` 仍是 0.3.3（0.3.4 只改文案，未推）；冲突列表 3 条旧噪声 + 本轮新增 2 条（`vault.secrets.json` / `vault.notes.json` 双端修改，未处理）；本轮上传 27 把手机测试库内容推进 `zeronote_test_418`（测试目录，可接受）|
@@ -372,6 +373,16 @@ revision: 173.421
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.422（2026-11-08 · 分配改回原生下拉）
+
+> **起因**：rev173.421 做完后用户发来分配弹窗截图：「这个界面用之前的方案」—— 即分配不要浮层，回到 `rev173.416–420` 的**原生 `<select>` 下拉**。
+
+> **改法**：`panelNode` 每个环两行 —— 第一行 `🔒/🔓 环名 / ✓ / 测试 / 删除`，第二行全宽 `<select>`（选项 = 未分配 + demand ∪ 已分配 ∪ 已装插件）。恢复 render 的 `view.setState` 播种（宿主 select 只读 `ctx.state[bind]`，不播种永远显示第一项）。删掉 `security.assign-ui` 命令、`doAssignUi()` 与 manifest 条目；`security.assign-ring` 保留（select 的 `onSubmit` 仍走它）。`security 0.3.7` 已签名打包入市。
+
+> **为什么 select 单独一行**：UINode 的 select 是块级、会占满整行；塞进 action 行会把「✓ / 测试 / 删除」挤下去（rev173.421 改用弹窗的原因）。现在把动作行与下拉分成两行，既用回下拉、动作也不被挤。
+
+> **G2 桌面**（dev · `_tmp-vault-rt13`）：三个环的下拉分别显示 `private-notes` / `secrets` / `未分配`（`_shots/rev422-01-list.png`）；分配命令与播种沿用 rev173.416 的既有逻辑，未重复造。
 
 > ## 📌 rev173.421（2026-11-08 · 安全插件界面重做：密钥环列表 + 宿主真弹窗 `host.dialog`）
 

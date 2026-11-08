@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -27,7 +27,6 @@
       { "id": "security.biometric-bind", "title": "安全：绑定生物识别" },
       { "id": "security.biometric-unbind", "title": "安全：解除生物识别" },
       { "id": "security.assign-ring", "title": "安全：把密钥环分配给插件 / 解除分配" },
-      { "id": "security.assign-ui", "title": "安全：选择把密钥环分配给哪个插件" },
       { "id": "security.create-ring", "title": "安全：新建密钥环" },
       { "id": "security.delete-ring", "title": "安全：删除密钥环（需输入主密码）" },
       { "id": "security.self-test", "title": "安全：自检" }

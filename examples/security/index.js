@@ -1621,16 +1621,6 @@ export function panelNode(view) {
         },
         ...(ring
           ? [
-              /* rev173.421：分配从「常驻 select」改成「一行文字按钮点开弹窗」——
-                 UINode 的 select 是块级、会占满整行，把「✓ / 测试 / 删除」挤到第二行；
-                 示意图要的是一行里放得下。 */
-              {
-                type: 'button',
-                label: row.owner ? `已分配 ${row.owner}` : '未分配',
-                onClick: 'security.assign-ui',
-                payload: { ringId: row.ringId },
-                variant: 'ghost',
-              },
               /* ✓ = 状态标记（已建立、可解锁），不是按钮 */
               { type: 'text', value: '✓', variant: 'caption', tone: 'success' },
               {
@@ -1662,6 +1652,19 @@ export function panelNode(view) {
             ]),
       ],
     })
+    /* 分配用宿主原生下拉（用户 2026-11-08：「这个界面用之前的方案」）——
+       select 是块级、会独占一行，所以放在动作行下面，别塞进 row 里 */
+    if (ring) {
+      kids.push({
+        type: 'select',
+        bind: `${B.assignPrefix}${row.ringId}`,
+        options: [
+          { value: `${row.ringId}::`, label: '未分配' },
+          ...row.options.map((pid) => ({ value: `${row.ringId}::${pid}`, label: pid })),
+        ],
+        onSubmit: 'security.assign-ring',
+      })
+    }
     if (ring && !row.options.length) {
       kids.push({
         type: 'text',
@@ -1812,53 +1815,6 @@ async function doAssignRing(api, payload) {
  *  ③ 最后才动内存（vault / live / 分配表）—— 文件删不掉时内存与磁盘必须保持一致，
  *     否则 next `loadVault()` 会把「删过」的环重新扫回来（用户看到环复活却不知道为什么）
  */
-/**
- * 分配弹窗（rev173.421）：点行里的「未分配 / 已分配 X」→ 弹一个插件列表。
- *
- * 为什么不用面板里的 `<select>`：UINode 的 select 是块级、会占满整行，
- * 把同一行的「✓ / 测试 / 删除」挤到下一行；示意图要的是一行放得下。
- */
-async function doAssignUi(api, payload) {
-  const ringId = String(payload?.ringId ?? '')
-  if (!isRingId(ringId)) return
-  const ring = getRing(store.vault, ringId)
-  if (!ring) return
-  if (!hostDialog(api)) {
-    return setStatus(api, '当前应用版本过旧（没有对话框），没法选插件 —— 请更新 ZeroNote', 'warn')
-  }
-  const label = ringLabel(ringId, store.vault)
-  const owner = ringOwner(store.grants, ringId)
-  const demand = store.grants?.demand ?? {}
-  const ids = [
-    ...new Set([...Object.keys(demand), ...(owner ? [owner] : []), ...installedPluginIds(api)]),
-  ].sort()
-  if (!ids.length && !owner) {
-    return setStatus(api, '还没有可分配的插件（装一个消费者插件后再看）', 'warn')
-  }
-  const actions = [
-    ...(owner ? [{ id: 'assign::', label: '解除分配', variant: 'ghost' }] : []),
-    ...ids.map((pid) => ({
-      id: `assign::${pid}`,
-      /* ★ = 这个插件声明过「需要密钥环」（候选里也可能有只是装着、没声明需求的插件） */
-      label: demand[pid] ? `★ ${pid}` : pid,
-    })),
-    { id: 'cancel', label: '取消', variant: 'ghost' },
-  ]
-  let res
-  try {
-    res = await api.host.dialog({
-      title: `把「${label}」分配给…`,
-      message: '一个环只给一个插件；一个插件只拿一个环。★ = 声明了需要密钥环。',
-      actions,
-      width: 460,
-    })
-  } catch (e) {
-    return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
-  }
-  if (!res || res.action === 'cancel' || !res.action.startsWith('assign::')) return
-  return doAssignRing(api, { value: `${ringId}::${res.action.slice('assign::'.length)}` })
-}
-
 async function doDeleteRing(api, payload) {
   const ringId = String(payload?.ringId ?? '')
   if (!isRingId(ringId)) return
@@ -2766,6 +2722,16 @@ export default {
         render: (ctx) => {
           // ViewApi 没有 getState：把本次 ctx.state 存快照，命令里读它（tag-panel 同款做法）
           ui = { ...(ctx?.state ?? {}) }
+          // 播种分配下拉（rev173.416）：宿主的 select 值只取 `ctx.state[bind]`，
+          // 不写就永远显示第一项（「未分配」）—— 值一致时不写，避免重渲染自激。
+          for (const row of assignRows(store.grants, allRingIds(store.vault))) {
+            const bind = `${B.assignPrefix}${row.ringId}`
+            const want = `${row.ringId}::${row.owner ?? ''}`
+            if (ui[bind] !== want) {
+              api.view.setState(bind, want)
+              ui[bind] = want
+            }
+          }
           return panelNode(panelView(installedPluginIds(api)))
         },
       }),
@@ -2871,7 +2837,6 @@ export default {
          保留命令 id 是为了命令面板 / 快捷键仍然可用 */
       { id: 'security.open-ring', title: '安全：打开密钥环（解锁 / 管理）', run: (p) => doOpenRing(api, p) },
       { id: 'security.test-ring', title: '安全：测试密钥环主密码', run: (p) => doTestRing(api, p) },
-      { id: 'security.assign-ui', title: '安全：选择把密钥环分配给哪个插件', run: (p) => doAssignUi(api, p) },
       { id: 'security.setup', title: '安全：建立密钥环', run: (p) => doSetupDialog(api, String(p?.ringId ?? store.selected)) },
       { id: 'security.unlock', title: '安全：解锁', run: (p) => doUnlockDialog(api, String(p?.ringId ?? store.selected)) },
       {
