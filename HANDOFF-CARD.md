@@ -1,12 +1,12 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-09（rev173.448）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-09（rev173.449）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.448 · 0.10.2 · 2026-11-09 |
+| rev / 版本 | rev173.449 · 0.10.2 · 2026-11-09 |
 | 测试基线 | vitest 2051 · cargo 103 · oxlint 4 warnings（2026-11-09） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-09 · CHANGELOG 0.10.2 |
@@ -25,7 +25,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.2** · rev173.448 |
+| 版本 / rev | **0.10.2** · rev173.449 |
 | 测试基线 | vitest 2051 · cargo 103 · oxlint 4 warnings · 质量门 9/9（2026-11-09） |
 | 插件 | 市场 16 条（security 0.5.2 / secrets 0.1.8 / private-notes 0.3.7）· 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
@@ -54,7 +54,7 @@
 
 > **✅ 密钥轮换已接入（rev173.448，2026-11-09）**：`crypto` 2.1.0 补 8 个方法（`keygen`/`encryptWith`/`decryptWith`/`decryptTextWith`/`rewrapKey`/`sealFile`/`openFile`/`rewrapFile`，均可显式指定环）+ `private-notes 0.3.7`（索引 `keys` 表 + zn1→zn2 渐进升级 + `private.rotate-ring`）+ `secrets 0.1.8`（整库自包含 zn2 + `secrets.rotate-ring`）+ 面板「轮换」弹窗（`security 0.5.2`）。**G2 双端已验**：桌面 ring→rotate-target→ring（第二次「重包 1 项」，正文 sha256 前后一致，解锁内容正确）；手机 Redmi dev 包 测试环A→g2ring 成功（面板只在已分配的环上显示「轮换」）。
 
-> **🔜 下个会话第一件事（2026-11-09 rev173.448 交接）**：① **补一次有数据的轮换**：手机测试库私密笔记目录是空的，这轮只验到 UI + 分配 + 索引格式；下次在手机建 1–2 篇私密笔记，再轮换一次，确认正文从 zn1 升 zn2 且解锁后内容正确。② 若还要更贴近方案 §4：把「12 / 37」进度视图做出来（现在只有面板 busy 行 + 结束提示）。③ 发版前 `node scripts/pack-plugin.mjs` + `gen-market.mjs --write`（本次已打；改了插件要重打）。**遗留（已告知用户）**：手机测试库的环被删除后 `.zn/secrets/secrets.zn`（965 B）成孤儿，7 份候选环全部「密码对但 DEK 不匹配」，暂无钥匙；一条未验 —— 用每份环自己的环 id 拼 AAD 再解一次。
+> **🔜 下个会话第一件事（2026-11-09 rev173.449 交接）**：① **桌面端补验换环后的指纹**（`_tmp-vault-rt13`，需真人按 Windows Hello）—— 手机已验证两条路径：DK 不在内存时轮换跳过继承不弹窗、DK 在内存时新环立刻有 `deviceWrapped` 且点锁回来是三按钮框；桌面同代码，只差人工认证。② 「12 / 37」轮换进度视图（方案 §4）仍未做（现在只有面板 busy 行 + 结束提示）。③ 发版前 `node scripts/pack-plugin.mjs security --key … --key-id aqua-2026` + `gen-market.mjs --write`（`security 0.5.3` 已打）。**遗留（已告知用户）**：手机测试库的环被删除后 `.zn/secrets/secrets.zn`（965 B）成孤儿，7 份候选环全部「密码对但 DEK 不匹配」，暂无钥匙；一条未验 —— 用每份环自己的环 id 拼 AAD 再解一次。
 
 1. ✅ **0.10.1 已发版（rev173.412）**：`host.prompt` 进 release 包。**release 机动作顺序 = 先更新应用**（关于 → 更新到 0.10.1，装完重开），**再更新插件** `安全 0.2.4` / `密码库 0.1.6` / `私密文件夹 0.3.5`。
 2. ✅ **私密笔记第二批已全部完成**（rev173.394–407）：搜索 / 时间流卡片 / 拖入移出 / 删旧面板与列表视图（解锁改 `host.prompt` 输入弹窗、回收站「公开/私密」切换、指纹优先）—— `private-notes 0.3.5` 已入市；0.10.1 后真机可用。

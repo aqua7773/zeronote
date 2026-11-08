@@ -2220,6 +2220,18 @@ async function doRotateRing(api, payload) {
       `已换到「${ringLabel(target, store.vault)}」：重包 ${rotated} 项${upgraded ? ` · 升级旧格式 ${upgraded} 篇` : ''} —— 旧环现在可以删了（需单独确认）`,
       'success',
     )
+    /**
+     * ⑥ rev173.449：换环不应该让指纹**退化**。
+     *
+     * ③ 之前的新环是「未继承本机指纹」的（`deviceWrapped` 只在旧环里），换完若不补，
+     * 用户下次点锁就从「指纹优先」掉成「直接输密码」—— 2026-11-09 手机实测踩到。
+     *
+     * 这里**只在 DK 已在内存时补**（`inheritRings` 自己判 `deviceKey`）：
+     * 本次会话认证过指纹 ⇒ 静默补齐，不打扰；
+     * 没认证过 ⇒ 跳过，由 `maybeInheritAfterPassword` 在用户下次用密码解锁时补一次
+     * （那次会弹系统指纹，属于用户主动解锁的时刻，可以接受）。
+     */
+    await inheritRings(api)
   } catch (e) {
     const msg = String(e?.message ?? e)
     setStatus(
