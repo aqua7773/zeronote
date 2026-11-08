@@ -6,7 +6,7 @@
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.433 · 0.10.2 · 2026-11-08 |
+| rev / 版本 | rev173.437 · 0.10.2 · 2026-11-08 |
 | 测试基线 | vitest 2031 · cargo 105 · oxlint 4 warnings（2026-11-08） |
 | 插件 | 市场 16 · 示例 40 |
 | 文档 | README 现状 2026-11-08 · CHANGELOG 0.10.2 |
