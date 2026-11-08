@@ -1557,6 +1557,8 @@ export function panelNode(view) {
     corrupt = false,
     grants = emptyGrants(),
     plugins = [],
+    /** 这台设备绑过指纹没有（`store.deviceFile`）—— 决定顶部按钮是「绑定」还是「解除」 */
+    deviceBound = false,
   } = view ?? {}
 
   const unlockedCount = Object.values(unlocked).filter(Boolean).length
@@ -1572,12 +1574,11 @@ export function panelNode(view) {
       { type: 'badge', text: `${unlockedCount} 把已解锁` },
       { type: 'button', label: '自检', onClick: 'security.self-test', variant: 'ghost' },
       {
+        /* 不 disabled：绑定是**设备级**的（不需要先解锁某把环），点了要能看到结果 / 提示 */
         type: 'button',
-        label: '绑定指纹',
-        onClick: 'security.biometric-bind',
+        label: deviceBound ? '已绑定指纹（解除）' : '绑定指纹',
+        onClick: 'security.biometric-toggle',
         variant: 'ghost',
-        // 指纹是设备级 DK：第一次绑定必须先把某把环用主密码解开
-        disabled: unlockedCount === 0,
       },
     ],
   })
@@ -2594,8 +2595,20 @@ async function doBiometricUnlock(api, opts = {}) {
   }
 }
 
-async function doBiometricBind(api) {
-  if (!store.biometric) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
+/**
+ * 顶部「绑定指纹」按钮（rev173.423）：一个按钮两种含义 —— 没绑就绑、已绑就解。
+ *
+ * 用户 2026-11-08：「绑定指纹点了没用」。两个原因都改了：
+ * ① 旧按钮在 0 把已解锁时 **disabled** —— 点了完全没反应，也没有任何提示；
+ *    但绑定本身是**设备级**的（`bindDevice` 只创建 DK，不要求先解锁某把环）。
+ * ② 按钮永远写「绑定指纹」，绑过之后看不出状态、也找不到解除入口。
+ */
+async function doBiometricToggle(api) {
+  if (store.deviceFile) return doBiometricUnbind(api)
+  return doBiometricBind(api)
+}
+
+async function doBiometricBind(api) {  if (!store.biometric) return setStatus(api, '这台设备没有可用的生物识别', 'warn')
   try {
     // 期 3：绑**设备**（一次认证），已解锁的环立刻继承；以后新建的环自动继承
     const n = await bindDevice(api)
@@ -2868,6 +2881,11 @@ export default {
         run: (p) => doResetDialog(api, String(p?.ringId ?? store.selected)),
       },
       { id: 'security.biometric-unlock', title: '安全：用生物识别解锁', run: () => doBiometricUnlock(api) },
+      {
+        id: 'security.biometric-toggle',
+        title: '安全：绑定 / 解除这台设备的指纹',
+        run: () => doBiometricToggle(api),
+      },
       { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },
       { id: 'security.biometric-unbind', title: '安全：解除生物识别', run: () => doBiometricUnbind(api) },
       { id: 'security.assign-ring', title: '安全：把密钥环分配给插件 / 解除分配', run: (payload) => doAssignRing(api, payload) },
