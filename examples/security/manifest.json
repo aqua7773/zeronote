@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -13,6 +13,8 @@
   "contributes": {
     "commands": [
       { "id": "security.open", "title": "安全：打开面板" },
+      { "id": "security.open-ring", "title": "安全：打开密钥环（解锁 / 管理）" },
+      { "id": "security.test-ring", "title": "安全：测试密钥环主密码" },
       { "id": "security.select", "title": "安全：切换密钥环" },
       { "id": "security.setup", "title": "安全：建立密钥环" },
       { "id": "security.unlock", "title": "安全：解锁" },
@@ -21,6 +23,12 @@
       { "id": "security.recover-answer", "title": "安全：用恢复问题解锁" },
       { "id": "security.recover-code", "title": "安全：用恢复码解锁" },
       { "id": "security.reset-after-recovery", "title": "安全：恢复后重设主密码" },
+      { "id": "security.biometric-unlock", "title": "安全：用生物识别解锁" },
+      { "id": "security.biometric-bind", "title": "安全：绑定生物识别" },
+      { "id": "security.biometric-unbind", "title": "安全：解除生物识别" },
+      { "id": "security.assign-ring", "title": "安全：把密钥环分配给插件 / 解除分配" },
+      { "id": "security.assign-ui", "title": "安全：选择把密钥环分配给哪个插件" },
+      { "id": "security.create-ring", "title": "安全：新建密钥环" },
       { "id": "security.delete-ring", "title": "安全：删除密钥环（需输入主密码）" },
       { "id": "security.self-test", "title": "安全：自检" }
     ],

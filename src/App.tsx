@@ -31,6 +31,8 @@ import {
 } from './kernel/market'
 import type {
   DocEvent,
+  DialogOptions,
+  DialogResult,
   ItemMenuContext,
   ItemMenuRegistration,
   NoteDoc,
@@ -1350,6 +1352,30 @@ export default function App() {
     })
   }, [])
 
+  /* ── 宿主通用对话框（rev173.421 · `host.dialog`）──
+     与 prompt 同一套结算规则：ESC / 遮罩 / ✕ ⇒ null（除非 dismissible: false）；
+     同一时刻只允许一个，连弹第二个时把上一个按取消结算（否则那个 await 永远挂着）。 */
+  const [dialogState, setDialogState] = useState<{
+    opts: DialogOptions
+    /** 正文控件的当前值（bind → 值）；关闭时随结果一起回传插件 */
+    state: Record<string, unknown>
+  } | null>(null)
+  const dialogResolveRef = useRef<((r: DialogResult | null) => void) | null>(null)
+  const finishDialog = useCallback((result: DialogResult | null) => {
+    const resolve = dialogResolveRef.current
+    dialogResolveRef.current = null
+    setDialogState(null)
+    resolve?.(result)
+  }, [])
+  const askDialog = useCallback((opts: DialogOptions) => {
+    return new Promise<DialogResult | null>((resolve) => {
+      const prev = dialogResolveRef.current
+      dialogResolveRef.current = resolve
+      setDialogState({ opts, state: { ...(opts.value ?? {}) } })
+      prev?.(null)
+    })
+  }, [])
+
   /* ── 内核（库变了才重建）── */
   /**
    * 内核实例用 **state 懒初始化 + 换库时调整**，而不是 `useMemo`（rev136–137 排查结论）。
@@ -1383,6 +1409,8 @@ export default function App() {
           onOpenPanelInMain: (id) => openPanelInTab(id),
           // rev173.405：插件的 `host.prompt` 由宿主 Dialog 浮层兑现（见 askPrompt）
           onPrompt: askPrompt,
+          // rev173.421：`host.dialog`（多字段 / 多按钮的浮层）由同一套 Dialog 兑现
+          onDialog: askDialog,
           // rev173.420：`host.installedPlugins()` 的数据源（ref ⇒ 装卸插件后现取是最新）
           listPlugins: () =>
             manifestsRef.current.map((m) => ({ id: m.id, name: m.name, version: m.version })),
@@ -6744,6 +6772,54 @@ export default function App() {
           <Button onClick={() => finishPrompt(promptState?.value ?? '')}>
             {promptState?.opts.okText ?? '确定'}
           </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* 宿主通用对话框（rev173.421 · `host.dialog`）：
+          正文是任意 UINode（可带输入框），底部按钮由插件声明 —— 安全插件的新建 / 解锁用它。
+          正文里的普通按钮仍走命令总线（不会关掉对话框）；只有 footer 的 actions 才结算。 */}
+      <Dialog
+        open={dialogState !== null}
+        onOpenChange={(next) => {
+          if (!next && (dialogState?.opts.dismissible ?? true)) finishDialog(null)
+        }}
+        width={dialogState?.opts.width ?? 480}
+        dismissOnBackdropClick={dialogState?.opts.dismissible ?? true}
+      >
+        <DialogHeader
+          title={dialogState?.opts.title ?? '请选择'}
+          description={dialogState?.opts.message ?? undefined}
+        />
+        <DialogBody>
+          {dialogState?.opts.body ? (
+            <UIRenderer
+              node={dialogState.opts.body}
+              state={dialogState.state}
+              onStateChange={(bind, value) =>
+                setDialogState((s) => (s ? { ...s, state: { ...s.state, [bind]: value } } : s))
+              }
+              onAction={(command, payload) => {
+                const k = kernel
+                if (!k) return
+                void k.commands.api
+                  .execute(command, payload)
+                  .catch((e) => setToast(`执行失败：${e instanceof Error ? e.message : String(e)}`))
+              }}
+            />
+          ) : null}
+        </DialogBody>
+        <DialogFooter className="flex-wrap">
+          {(dialogState?.opts.actions ?? []).map((a) => (
+            <Button
+              key={a.id}
+              variant={a.variant === 'danger' ? 'danger' : a.variant === 'ghost' ? 'ghost' : 'primary'}
+              onClick={() =>
+                finishDialog({ action: a.id, state: { ...(dialogState?.state ?? {}) } })
+              }
+            >
+              {a.label}
+            </Button>
+          ))}
         </DialogFooter>
       </Dialog>
 

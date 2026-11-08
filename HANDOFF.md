@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.420
-更新时间: 2026-11-08 · 最新 rev173.420（**密钥环删除（需主密码）+ 分配列表列出已装插件**）· rev173.419（自定义环拉取方向已验）
+revision: 173.421
+更新时间: 2026-11-08 · 最新 rev173.421（**安全插件界面重做：密钥环列表 + 真弹窗 `host.dialog`**）· rev173.420（删环 + 分配列表列已装插件）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.420
 
 | rev | 内容 |
 |---|---|
+| rev173.421 | 2026-11-08 · **安全插件界面重做：密钥环列表 + 宿主真弹窗**（用户给示意图：「修改一下安全插件的界面，参考给的示意图」→ 追问后选「真弹窗」）：① **内核新 `host.dialog()`**（契约 `DialogOptions` / `DialogResult` / `DialogAction`；`KernelHooks.onDialog`；`App.tsx` 的 `askDialog` 用现成 `<Dialog>` + `UIRenderer` 渲染 `body`，正文控件状态由宿主持有、点按钮时随 `{ action, state }` 回传；没接钩子**抛错**而不是返回 null，与 `prompt` 同约定；footer 加 `flex-wrap` 让多按钮不挤）。为什么不给 UINode 加 dialog 节点：显隐 / ESC / 焦点 / 遮罩归宿主，插件各写一遍必然漂。② **`security 0.3.6` 面板改成列表**：每环一行 —— 环名按钮（点开解锁 / 管理弹窗）、分配按钮（「未分配 / 已分配 X」→ 弹插件选择）、`✓` 状态标记、`测试`、`删除`；底部「＋ 新建密钥环」；恢复码仍在列表页一次性展示。③ **六个弹窗**：建立（主密码 ×2 + 可选恢复问题）、解锁（主密码 + 指纹（可用时）+ 恢复码/恢复问题链接）、管理（换主密码 + 立即锁定 + 绑定/解除指纹）、新建（名称 + 两次密码）、分配（★ = 声明了需要密钥环）、测试（只验密码、不改锁定态）。④ **老宿主降级**：`host.dialog` 不存在时全部退回 `host.prompt` 逐个问（多弹几次但不崩、不丢功能）。⑤ 命令：新增 `security.open-ring` / `test-ring` / `assign-ui`；manifest 补齐之前漏声明的 5 条（biometric-* / assign-ring / create-ring）。⑥ 纯函数删除 `ringRow`、render 去掉 select 播种（不再有常驻下拉）。测试：新增 `tests/host-dialog.test.ts` 3 条。**G1** tsc 0 · oxlint 4 · cargo 105 · vitest **2024** · 质量门 9/9。**G2 桌面**：列表（`_shots/rev421-04-list.png`）→ 解锁弹窗（`rev421-05-unlock-dialog.png`）→ 输入 `test-pass-1234` 解锁成功、行变 🔓（`rev421-06-unlocked.png`）→ 管理弹窗（`rev421-07-manage.png`）→ 新建弹窗（`rev421-08-create.png`）→ 分配弹窗（`rev421-10-assign.png`，★ 标记）→ 测试弹窗 + 正确密码提示「主密码正确」且仍 0 把已解锁（`rev421-12-test-ok.png`）。**G2 手机**：待用户解屏后验（插件已推 dev 包）。**未发版**：`host.dialog` 是内核能力，release 用户需应用更新才看到真弹窗（插件先更新会降级成 prompt 链）|
 | rev173.420 | 2026-11-08 · **密钥环删除（需主密码）+ 分配列表列出所有已装插件**（用户：「继续zeronote，插件不出现在密钥环分配列表」/「密钥环无法删除」/「删环需要输主密码」）：① **内核新 `host.installedPlugins()`**（契约 `InstalledPluginInfo` + `KernelHooks.listPlugins`；App 用 `manifestsRef` 现取，kernel 只建一次也不会停在旧清单）—— 根因：分配列表的候选原来只有 `demand`（插件调 `crypto.demand()` 才登记），**手机 release 上的旧版 `secrets` / `private-notes` 不调 demand ⇒ 列表一个插件都没有**。② `security` 的 `assignRows()` 加第三参 `installed`（已装插件并入候选，**排除 security 自己**）；未分配行文案从「↳ 在等：…」改成「↳ 可以分配给：…（X 声明了需要密钥环）」（候选不再全是"在等"）。③ **删除密钥环**：每环一行加「删除」按钮（仅已建立），命令 `security.delete-ring` —— `host.prompt({ secret: true })` 收该环主密码 → `unlockRing()` 校验（DEK 立即 `wipe`，不进 live）→ `purgePrivate(vault.<id>.json)` + `exists` 复核（Android 静默失败必须报出来）→ 内存 `dropRing` / `live.delete` / `dropRingGrants` 清分配 / selected 回落；**取消或密码错都不删**。④ 纯函数 `dropRingGrants`；测试 `security-grants` +2（已装插件并入 / 删环清分配）、新增 `tests/host-plugins.test.ts` 3 条（无钩子空数组 / 抛错空数组 / 每次现取）。`security 0.3.5` 已签名打包入市（market 16 条）。**G1** tsc 0 · oxlint 4 · cargo 105 · vitest 2021（13:0x）。**G2 桌面**：下拉列出 `history / import-export / private-notes / secrets / sync`（`_shots/rev420-04-panel.png`）；新建 `Temp420` → 删除 → 错误密码被拒「主密码不对」且文件仍在（`_shots/rev420-07-wrong-pw.png`）→ 正确密码 `test-pass-1234` 删除 → Tab / 分配行 / `vault.temp420.json` 全部消失（`_shots/rev420-08-deleted.png`）。**G2 手机**：插件已推 Redmi dev 包（`security 0.3.5`），验证被锁屏挡住 —— 待用户解屏后补。**未发版** |
 | rev173.419 | 2026-11-07 · **验「自定义密钥环拉取方向」+ 修手机 sync 插件一直没加载**：① **前置发现**：手机 `.zn/plugins/sync/index.cjs` 实际 sha256 `07b051ea…` 与 manifest 记的 `1a844854…` 不符 ⇒ 插件中心报「⚠ 插件 sync 加载失败：插件签名无效（keyId=aqua-2026）：signature error: Verification equation was not satisfied」，**同步面板根本没注册**（手机「更多 → 插件」里没有同步）—— 也就是说手机端同步此前从未真正跑起来（以前「手机同步」的结论都建立在桌面端）。修法：`examples/sync` 全量推手机（`index.cjs` + `lib/*` + `styles.css`）→ manifest 重算 `sha256` → `signature.json` 改名 `.bak`。**坑**：备份目录 `cp -r sync sync.bak-rev419` 留在 `.zn/plugins/` 下会被当第 7 个插件（同 id）扫到、同样报签名无效 ⇒ 必须移到插件目录外（本轮移到 appDataDir 的 `backup-rev419/`）。② **拉取验收（通过）**：手机删本地 `.zn/security/vault.todo.json`（320 B，sha `f188fdb2…` —— 手机自建的同名环，与远端不是同一个），`baseline.v1` 里**本来就没有**该 key ⇒ 等价「新设备本地没有这个环」；点「立即同步」→ **下载 2 / 上传 27 / 冲突 2 · 29 秒** → 文件重新出现 **320 B**，sha256 **`4679e4e5…` 与远端逐字节一致**，远端同时仍 200（没被当成本地删除而删掉）。远端 manifest `private` 段 = `vault.notes.json` / `vault.secrets.json` / `vault.todo.json` / `secrets.zn`。证据 `_shots/rev419-phone-06-sync-done.png`。③ **遗留**：手机 `security` 仍是 0.3.3（0.3.4 只改文案，未推）；冲突列表 3 条旧噪声 + 本轮新增 2 条（`vault.secrets.json` / `vault.notes.json` 双端修改，未处理）；本轮上传 27 把手机测试库内容推进 `zeronote_test_418`（测试目录，可接受）|
 | rev173.418 | 2026-11-07 · **自定义密钥环跨设备同步**（清掉 rev173.414 起的「自定义环暂不同步」遗留）：`sync/lib/core.cjs` 新增纯函数 `privateFilesFor({ local, remote })` —— 内置 4 条私密文件 + 本地扫到的 `.zn/security/vault.<id>.json` + **远端 manifest 里已有的**（新设备靠它拉下来）；白名单正则 `^\.zn/security/vault\.[a-z0-9-]+\.json$`，**`grants.json` 永远匹配不上**（授权表是本机信任关系，用户 2026-11-07 拍板不上云）。`syncPrivate` 每轮用 `api.fs.listFiles('.zn/security')` 现扫，巡检轮转按动态列表算（请求预算不变）。测试新增 `tests/sync-private-files.test.ts` 5 条。`sync 0.1.11` 已签名入市。**G2 桌面端到端**：dev 配 WebDAV（坚果云 · 新目录 `zeronote_test_418` · MKCOL 建目录）→ 手动同步 **上传 4 · 下载 0 · 1.6 秒** → 远端 `GET .zn/security/vault.todo.json` = **200 / 320 B**，远端 `_zn/manifest.json` 的 `private` 段含 `vault.notes.json` / `vault.secrets.json` / **`vault.todo.json`**。顺带把安全面板那句「⚠️ 自定义环暂不同步到其它设备」改成「自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步」（`security 0.3.4`）。**未验**：手机端拉取（同一通路、代码同一份；要验得让手机本地没有该环才行）|
@@ -371,6 +372,24 @@ revision: 173.420
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.421（2026-11-08 · 安全插件界面重做：密钥环列表 + 宿主真弹窗 `host.dialog`）
+
+> **起因**：用户给了一张示意图（顶部「安全 / 自检 / 绑定指纹」；中间一串密钥环行，每行「名称 + 未分配/已绑定 X + ✓ + 测试 + 删除」；「新建」与「输入主密码」都是浮层弹窗），要求「修改一下安全插件的界面」。追问后确认：**要真弹窗**（不是面板内视图切换）。
+
+> **约束**：插件只能声明 21 种 UINode，没有 dialog/modal；宿主 `<Dialog>` 只服务内核自己的 UI（`host.prompt` 走它）。给 UINode 加节点 = 显隐 / ESC / 焦点 / 遮罩全交给插件，各写一遍必然漂 ⇒ 走 `host.dialog()`：宿主持有全部浮层行为，插件只描述正文与按钮。
+
+> **内核改动**：`contract.ts` 加 `DialogOptions`（title / message / body: UINode / actions: DialogAction[] / dismissible / width / value）与 `DialogResult`（`{ action, state }`）；`HostApi.dialog()`；`KernelHooks.onDialog`；`kernel.ts` 转发（没接钩子 ⇒ 抛错，与 prompt 同约定）；`App.tsx` `askDialog`（同一时刻只允许一个，连弹第二个时把上一个按取消结算）+ 渲染 `<Dialog><DialogHeader/><DialogBody><UIRenderer/></DialogBody><DialogFooter className="flex-wrap">`。正文里的普通按钮走命令总线、不关弹窗；footer 的 actions 才结算。新测试 `tests/host-dialog.test.ts`（无钩子抛错 / 原样转发 / 取消返回 null）。
+
+> **插件改动（`security 0.3.6`）**：面板从「环切换 + 内嵌建立/解锁/恢复/换密码/新建/分配」六区一屏，改成**列表**：每行环名按钮（点开解锁 / 管理弹窗）+ 分配按钮（点开插件选择弹窗）+ `✓`（纯状态）+ `测试` + `删除`；底部「＋ 新建密钥环」。弹窗六个：建立 / 解锁 / 管理 / 新建 / 分配 / 测试。分配从常驻 `<select>` 改成按钮 —— UINode 的 select 是块级会占满整行，把同一行的动作挤到第二行（示意图要一行放下）。**老宿主降级**：`api.host.dialog` 不存在时全部退回 `host.prompt` 逐个问（多弹几次、不崩、不丢功能）。manifest 补齐之前漏声明的 5 条命令。
+
+> **G1**（2026-11-08 17:0x）tsc 0 · oxlint 4 warnings · cargo 105 · vitest **2024** · 质量门 **9/9**。
+
+> **G2 桌面**（dev · `_tmp-vault-rt13`）：列表（`_shots/rev421-04-list.png`）→ 点「私人笔记」弹出真浮层「解锁「私密笔记」」（`rev421-05-unlock-dialog.png`）→ 输 `test-pass-1234` ⇒ 行变 🔓、顶部「1 把已解锁」、状态栏变 `🔓 安全（1）`（`rev421-06-unlocked.png`）→ 点已解锁的行 ⇒ 管理弹窗（换主密码 / 立即锁定 / 绑定本机指纹，`rev421-07-manage.png`）→ 「＋ 新建密钥环」⇒ 三字段弹窗（`rev421-08-create.png`）→ 点「未分配」⇒ 插件选择弹窗（`rev421-10-assign.png`）→ 点「测试」⇒ 验证弹窗，输对提示「主密码正确」且仍 0 把已解锁（`rev421-12-test-ok.png`，证明测试不改锁定态）。
+
+> **G2 手机（待补）**：`security 0.3.6` 需推入 Redmi dev 包后同流程验证；另需在**手机端**确认 `host.dialog` 的浮层尺寸（480/460 宽在 390pt 屏上应按 `max-w-[calc(100vw-2rem)]` 收缩，`Dialog` 已带）。
+
+> **未发版**：`host.dialog` 是内核能力 —— 插件先更新只能走 prompt 降级；真浮层要等应用本体更新。
 
 > ## 📌 rev173.420（2026-11-08 · 密钥环删除（需主密码）+ 分配列表列出所有已装插件）
 

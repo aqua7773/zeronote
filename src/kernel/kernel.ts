@@ -14,6 +14,8 @@ import type {
   CapabilityApi,
   CapabilityName,
   CapabilityStatus,
+  DialogOptions,
+  DialogResult,
   Disposable,
   DocApi,
   EditorApi,
@@ -109,6 +111,14 @@ export type KernelHooks = {
    * 插件会把"没输密码"当成"密码为空"去调解锁，错误信息会指向错误的方向。
    */
   onPrompt?: (opts: PromptOptions) => Promise<string | null>
+  /**
+   * **通用对话框**（rev173.421）：宿主用 `<Dialog>` + `UIRenderer` 渲染 `opts.body`，
+   * 底部按 `opts.actions` 画按钮；取消（ESC / 遮罩 / ✕）⇒ `null`。
+   *
+   * 没接的宿主（单测 / 非 App 环境）由 `host.dialog` 抛错 —— 与 `onPrompt` 同理：
+   * 静默返回 `null` 会让插件把"弹不出来"当成"用户取消"。
+   */
+  onDialog?: (opts: DialogOptions) => Promise<DialogResult | null>
   /**
    * **已装插件清单**（rev173.420）：`host.installedPlugins()` 的唯一数据源。
    *
@@ -674,6 +684,14 @@ export function createKernel(vault: string, doc: DocApi, hooks: KernelHooks): Ke
     async prompt(opts) {
       if (!hooks.onPrompt) throw new Error('当前宿主不支持输入对话框')
       return await hooks.onPrompt(opts)
+    },
+    /**
+     * 通用对话框（rev173.421）：宿主实现见 `App.tsx` 的 `askDialog`。
+     * 没接 ⇒ 抛错（不返回 null：那会让插件把"弹不出来"当成"用户取消"）。
+     */
+    async dialog(opts) {
+      if (!hooks.onDialog) throw new Error('当前宿主不支持对话框')
+      return await hooks.onDialog(opts)
     },
     assetUrl(relPath) {
       // 库内相对路径 → asset://（需 tauri.conf.json 的 assetProtocol.enable + scope）

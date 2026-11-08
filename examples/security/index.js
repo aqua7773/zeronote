@@ -1537,33 +1537,29 @@ function ringRow(ringId, { selected, unlocked, busy }) {
 /**
  * 面板结构（导出给单测断言：空库必须出现"建立密钥环"，建立后必须出现"解锁"）。
  */
+/**
+ * 面板结构（导出给单测断言）—— **rev173.421：列表页**。
+ *
+ * 每个环一行：环名（点开解锁 / 管理弹窗）/ 分配下拉 / ✓ / 测试 / 删除。
+ * 建立、解锁、换密码、新建全部走**宿主真弹窗**（`host.dialog`），不再嵌在面板里。
+ *
+ * 为什么改：旧面板把「环切换 + 建立 + 解锁 + 恢复 + 换密码 + 新建 + 分配」全堆一屏，
+ * 手机上一屏根本放不下；用户 2026-11-08 给的示意图就是「列表 + 弹窗」。
+ */
 export function panelNode(view) {
   const {
     vault,
-    selected = 'secrets',
     unlocked = {},
     busy = '',
     message = '',
     tone = 'info',
     recoveryCodeShown = '',
     corrupt = false,
-    hasRecoveryQuestion = false,
-    hasRecoveryCode = false,
-    recoveredPending = false,
-    hasBiometric = false,
-    biometricReady = false,
-    otherBiometrics = 0,
-    deviceBound = false,
-    ringInherited = false,
     grants = emptyGrants(),
-    ringIds = BUILTIN_RINGS,
-    /** 已安装插件 id（rev173.420 · 宿主 `host.installedPlugins()`；老宿主没有就是空数组） */
     plugins = [],
   } = view ?? {}
 
-  const ring = getRing(vault, selected)
-  const isUnlocked = Boolean(unlocked[selected])
-  const label = ringLabel(selected, vault)
+  const unlockedCount = Object.values(unlocked).filter(Boolean).length
   const kids = []
 
   kids.push({
@@ -1573,39 +1569,42 @@ export function panelNode(view) {
     gap: 'sm',
     children: [
       { type: 'text', value: '安全', variant: 'title' },
-      { type: 'badge', text: `${Object.values(unlocked).filter(Boolean).length} 把已解锁` },
+      { type: 'badge', text: `${unlockedCount} 把已解锁` },
       { type: 'button', label: '自检', onClick: 'security.self-test', variant: 'ghost' },
+      {
+        type: 'button',
+        label: '绑定指纹',
+        onClick: 'security.biometric-bind',
+        variant: 'ghost',
+        // 指纹是设备级 DK：第一次绑定必须先把某把环用主密码解开
+        disabled: unlockedCount === 0,
+      },
     ],
   })
 
   kids.push({
-    type: 'row',
-    align: 'center',
-    wrap: true,
-    gap: 'sm',
-    children: allRingIds(vault).map((id) =>
-      ringRow(id, { selected: id === selected, unlocked: Boolean(unlocked[id]), busy }),
-    ),
+    type: 'text',
+    value: '每行一把密钥环：点环名解锁 / 管理；下拉决定它归哪个插件用。',
+    variant: 'caption',
+    tone: 'muted',
   })
-
-  kids.push({ type: 'text', value: ringHint(selected), variant: 'caption', tone: 'muted' })
 
   if (corrupt) {
     kids.push({
       type: 'text',
-      value: '⚠️ vault.json 读不懂：已按空库启动，但**不会写入**（避免覆盖原文件）。请先备份 .zn/security/。',
+      value: '⚠️ vault 读不懂：已按空库启动，但**不会写入**（避免覆盖原文件）。请先备份 .zn/security/。',
       variant: 'caption',
       tone: 'error',
     })
   }
 
-  if (!ring) {
-    kids.push({ type: 'divider' })
-    kids.push({ type: 'text', value: `第一次使用「${label}」：设一把主密码`, variant: 'body' })
-    kids.push({ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码（至少 8 位）' })
-    kids.push({ type: 'input', bind: B.pw2, secret: true, placeholder: '再输一次' })
-    kids.push({ type: 'input', bind: B.question, placeholder: '恢复问题（可留空，只用恢复码）' })
-    kids.push({ type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案（留空则不设问题）' })
+  kids.push({ type: 'divider' })
+
+  /* 每个环一行（rev173.420 的候选来源保持不变：demand ∪ 已分配 ∪ 已装插件） */
+  const assign = assignRows(grants, allRingIds(vault), plugins)
+  for (const row of assign) {
+    const ring = getRing(vault, row.ringId)
+    const isUnlocked = Boolean(unlocked[row.ringId])
     kids.push({
       type: 'row',
       align: 'center',
@@ -1614,114 +1613,85 @@ export function panelNode(view) {
       children: [
         {
           type: 'button',
-          label: busy === selected ? '正在派生密钥…' : '建立密钥环',
-          onClick: 'security.setup',
+          label: `${ring ? (isUnlocked ? '🔓' : '🔒') : '＋'} ${ringLabel(row.ringId, vault)}`,
+          onClick: 'security.open-ring',
+          payload: { ringId: row.ringId },
+          variant: 'ghost',
+          disabled: busy === row.ringId,
         },
-      ],
-    })
-  } else if (!isUnlocked) {
-    kids.push({ type: 'divider' })
-    kids.push({
-      type: 'row',
-      align: 'center',
-      wrap: true,
-      gap: 'sm',
-      children: [
-        { type: 'text', value: `「${label}」已建立，输入主密码解锁`, variant: 'body' },
-        ...(hasRecoveryCode ? [{ type: 'badge', text: '有恢复码' }] : []),
-        ...(hasRecoveryQuestion ? [{ type: 'badge', text: '有恢复问题' }] : []),
-        ...(deviceBound ? [{ type: 'badge', text: '本机已绑定' }] : []),
-        ...(ringInherited ? [{ type: 'badge', text: '已继承指纹' }] : []),
-        ...(!deviceBound && otherBiometrics > 0
-          ? [{ type: 'badge', text: `别的 ${otherBiometrics} 台已绑定` }]
-          : []),
-      ],
-    })
-    kids.push({ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' })
-    if (deviceBound && !ringInherited && !hasBiometric) {
-      kids.push({
-        type: 'text',
-        value: '这台设备绑过指纹，但这个环还没继承 —— 用主密码解锁后点「让这个环继承指纹」。',
-        variant: 'caption',
-        tone: 'muted',
-      })
-    } else if (!deviceBound && otherBiometrics > 0) {
-      kids.push({
-        type: 'text',
-        value: `这台设备还没绑定生物识别（其他 ${otherBiometrics} 台设备已绑定，互不影响）—— 用主密码解锁后可在这里绑定。`,
-        variant: 'caption',
-        tone: 'muted',
-      })
-    }
-    kids.push({
-      type: 'row',
-      align: 'center',
-      wrap: true,
-      gap: 'sm',
-      children: [
-        ...((hasBiometric || ringInherited) && biometricReady
-          ? [{ type: 'button', label: '用指纹解锁', onClick: 'security.biometric-unlock' }]
-          : []),
-        {
-          type: 'button',
-          label: busy === selected ? '正在派生密钥…' : '解锁',
-          onClick: 'security.unlock',
-        },
-        ...(hasRecoveryQuestion
-          ? [{ type: 'button', label: '用恢复问题', onClick: 'security.recover-answer', variant: 'ghost' }]
-          : []),
-        ...(hasRecoveryCode
-          ? [{ type: 'button', label: '用恢复码', onClick: 'security.recover-code', variant: 'ghost' }]
-          : []),
-      ],
-    })
-    kids.push({ type: 'divider' })
-    kids.push({ type: 'text', value: '忘记主密码时：', variant: 'caption', tone: 'muted' })
-    if (hasRecoveryQuestion) kids.push({ type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案' })
-    if (hasRecoveryCode) kids.push({ type: 'input', bind: B.code, secret: true, placeholder: '恢复码（形如 ABCD-EFGH-…）' })
-    if (recoveredPending) {
-      kids.push({ type: 'text', value: '✅ 恢复验证通过 —— 设一把新主密码', variant: 'caption', tone: 'success' })
-      kids.push({ type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' })
-      kids.push({ type: 'button', label: '重设主密码', onClick: 'security.reset-after-recovery' })
-    }
-  } else {
-    kids.push({ type: 'divider' })
-    kids.push({
-      type: 'row',
-      align: 'center',
-      wrap: true,
-      gap: 'sm',
-      children: [
-        { type: 'text', value: `「${label}」已解锁`, variant: 'body' },
-        { type: 'button', label: '立即锁定', onClick: 'security.lock', variant: 'danger' },
-        ...(biometricReady
+        ...(ring
           ? [
-              !deviceBound
-                ? { type: 'button', label: '绑定本机指纹', onClick: 'security.biometric-bind', variant: 'ghost' }
-                : ringInherited || hasBiometric
-                  ? { type: 'button', label: '解除本机指纹', onClick: 'security.biometric-unbind', variant: 'ghost' }
-                  : { type: 'button', label: '让这个环继承指纹', onClick: 'security.biometric-bind', variant: 'ghost' },
+              /* rev173.421：分配从「常驻 select」改成「一行文字按钮点开弹窗」——
+                 UINode 的 select 是块级、会占满整行，把「✓ / 测试 / 删除」挤到第二行；
+                 示意图要的是一行里放得下。 */
+              {
+                type: 'button',
+                label: row.owner ? `已分配 ${row.owner}` : '未分配',
+                onClick: 'security.assign-ui',
+                payload: { ringId: row.ringId },
+                variant: 'ghost',
+              },
+              /* ✓ = 状态标记（已建立、可解锁），不是按钮 */
+              { type: 'text', value: '✓', variant: 'caption', tone: 'success' },
+              {
+                type: 'button',
+                label: '测试',
+                onClick: 'security.test-ring',
+                payload: { ringId: row.ringId },
+                variant: 'ghost',
+                disabled: busy === row.ringId,
+              },
+              {
+                type: 'button',
+                label: '删除',
+                onClick: 'security.delete-ring',
+                payload: { ringId: row.ringId },
+                variant: 'ghost',
+                disabled: busy === row.ringId,
+              },
             ]
-          : []),
-        ...(hasBiometric && otherBiometrics > 0
-          ? [{ type: 'text', value: `另有 ${otherBiometrics} 台设备绑过（解除只影响这台）`, variant: 'caption', tone: 'muted' }]
-          : []),
+          : [
+              { type: 'text', value: '未建立', variant: 'caption', tone: 'muted' },
+              {
+                type: 'button',
+                label: '建立',
+                onClick: 'security.open-ring',
+                payload: { ringId: row.ringId },
+                variant: 'ghost',
+              },
+            ]),
       ],
     })
-    kids.push({ type: 'divider' })
-    kids.push({ type: 'text', value: '换主密码（数据密文一个字节都不会动）：', variant: 'caption', tone: 'muted' })
-    kids.push({ type: 'input', bind: B.oldPw, secret: true, placeholder: '当前主密码' })
-    kids.push({ type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' })
-    kids.push({ type: 'button', label: '换主密码', onClick: 'security.change-password', variant: 'ghost' })
+    if (ring && !row.options.length) {
+      kids.push({
+        type: 'text',
+        value: '↳ 还没有可分配的插件（装一个消费者插件后再来看）',
+        variant: 'caption',
+        tone: 'muted',
+      })
+    }
   }
+
+  kids.push({ type: 'divider' })
+  kids.push({
+    type: 'row',
+    align: 'center',
+    wrap: true,
+    gap: 'sm',
+    children: [
+      { type: 'button', label: '＋ 新建密钥环', onClick: 'security.create-ring', variant: 'ghost' },
+      {
+        type: 'text',
+        value: '自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步',
+        variant: 'caption',
+        tone: 'muted',
+      },
+    ],
+  })
 
   if (recoveryCodeShown) {
     kids.push({ type: 'divider' })
-    kids.push({
-      type: 'text',
-      value: '📋 恢复码（只显示这一次，抄下来存好）：',
-      variant: 'body',
-    })
+    kids.push({ type: 'text', value: '📋 恢复码（只显示这一次，抄下来存好）：', variant: 'body' })
     kids.push({ type: 'text', value: recoveryCodeShown, variant: 'title' })
     kids.push({
       type: 'text',
@@ -1729,94 +1699,6 @@ export function panelNode(view) {
       variant: 'caption',
       tone: 'warn',
     })
-  }
-
-  /* 新建自定义密钥环（期 3 · 动态环）：名称只做显示，id 由 slug 生成；建完去下面授权区勾给插件 */
-  kids.push({ type: 'divider' })
-  kids.push({
-    type: 'text',
-    value: '新建密钥环（给插件用；名称只做显示，内部 id 自动生成）',
-    variant: 'caption',
-    tone: 'muted',
-  })
-  kids.push({ type: 'input', bind: B.ringName, placeholder: '密钥环名称（如 Todo）' })
-  kids.push({ type: 'input', bind: B.ringPw1, secret: true, placeholder: '主密码（至少 8 位）' })
-  kids.push({ type: 'input', bind: B.ringPw2, secret: true, placeholder: '再输一次' })
-  kids.push({
-    type: 'row',
-    align: 'center',
-    wrap: true,
-    gap: 'sm',
-    children: [
-      { type: 'button', label: '新建密钥环', onClick: 'security.create-ring', variant: 'ghost' },
-      { type: 'text', value: '自定义环随笔记本同步（rev173.418）；「密钥环分配」是本机信任关系，不同步', variant: 'caption', tone: 'muted' },
-    ],
-  })
-
-  /* 密钥环分配（期 3 · rev173.416 方向反转）：**每个环一行 + 下拉**。
-     环是主角、插件是选项；一个环只给一个插件、一个插件只拿一个环。
-     **始终显示** —— 这是用户唯一能看到「有插件在等密钥」的地方。 */
-  const assign = assignRows(grants, ringIds, plugins)
-  kids.push({ type: 'divider' })
-  kids.push({
-    type: 'text',
-    value: '🔐 密钥环分配（每个环只能分配给一个插件；插件只提出「需要密钥环」，具体给哪个由你定）',
-    variant: 'caption',
-    tone: 'muted',
-  })
-  for (const row of assign) {
-    const options = [
-      { value: `${row.ringId}::`, label: '未分配' },
-      ...row.options.map((pid) => ({ value: `${row.ringId}::${pid}`, label: pid })),
-    ]
-    const exists = Boolean(getRing(vault, row.ringId))
-    kids.push({
-      type: 'row',
-      align: 'center',
-      wrap: true,
-      gap: 'sm',
-      children: [
-        { type: 'text', value: ringLabel(row.ringId, vault), variant: 'caption' },
-        {
-          type: 'select',
-          bind: `${B.assignPrefix}${row.ringId}`,
-          options,
-          onSubmit: 'security.assign-ring',
-        },
-        /* 删除（rev173.420）：只有已建立的环才有东西可删；点它 → 输入该环主密码确认 */
-        ...(exists
-          ? [
-              {
-                type: 'button',
-                label: '删除',
-                onClick: 'security.delete-ring',
-                payload: { ringId: row.ringId },
-                variant: 'ghost',
-              },
-            ]
-          : []),
-      ],
-    })
-    if (!row.options.length) {
-      kids.push({
-        type: 'text',
-        value: '↳ 还没有插件声明需要密钥环',
-        variant: 'caption',
-        tone: 'muted',
-      })
-    } else if (!row.owner) {
-      /* rev173.420：候选现在包含「已安装但没声明需求」的插件（旧版消费者不调 demand），
-         所以不能再说「在等」—— 把声明过需求的单独点出来。 */
-      const waiting = row.options.filter((pid) => grants?.demand?.[pid])
-      kids.push({
-        type: 'text',
-        value: waiting.length
-          ? `↳ 可以分配给：${row.options.join('、')}（${waiting.join('、')} 声明了需要密钥环）`
-          : `↳ 可以分配给：${row.options.join('、')}`,
-        variant: 'caption',
-        tone: waiting.length ? 'warn' : 'muted',
-      })
-    }
   }
 
   if (message) kids.push({ type: 'text', value: message, variant: 'caption', tone })
@@ -1930,6 +1812,53 @@ async function doAssignRing(api, payload) {
  *  ③ 最后才动内存（vault / live / 分配表）—— 文件删不掉时内存与磁盘必须保持一致，
  *     否则 next `loadVault()` 会把「删过」的环重新扫回来（用户看到环复活却不知道为什么）
  */
+/**
+ * 分配弹窗（rev173.421）：点行里的「未分配 / 已分配 X」→ 弹一个插件列表。
+ *
+ * 为什么不用面板里的 `<select>`：UINode 的 select 是块级、会占满整行，
+ * 把同一行的「✓ / 测试 / 删除」挤到下一行；示意图要的是一行放得下。
+ */
+async function doAssignUi(api, payload) {
+  const ringId = String(payload?.ringId ?? '')
+  if (!isRingId(ringId)) return
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return
+  if (!hostDialog(api)) {
+    return setStatus(api, '当前应用版本过旧（没有对话框），没法选插件 —— 请更新 ZeroNote', 'warn')
+  }
+  const label = ringLabel(ringId, store.vault)
+  const owner = ringOwner(store.grants, ringId)
+  const demand = store.grants?.demand ?? {}
+  const ids = [
+    ...new Set([...Object.keys(demand), ...(owner ? [owner] : []), ...installedPluginIds(api)]),
+  ].sort()
+  if (!ids.length && !owner) {
+    return setStatus(api, '还没有可分配的插件（装一个消费者插件后再看）', 'warn')
+  }
+  const actions = [
+    ...(owner ? [{ id: 'assign::', label: '解除分配', variant: 'ghost' }] : []),
+    ...ids.map((pid) => ({
+      id: `assign::${pid}`,
+      /* ★ = 这个插件声明过「需要密钥环」（候选里也可能有只是装着、没声明需求的插件） */
+      label: demand[pid] ? `★ ${pid}` : pid,
+    })),
+    { id: 'cancel', label: '取消', variant: 'ghost' },
+  ]
+  let res
+  try {
+    res = await api.host.dialog({
+      title: `把「${label}」分配给…`,
+      message: '一个环只给一个插件；一个插件只拿一个环。★ = 声明了需要密钥环。',
+      actions,
+      width: 460,
+    })
+  } catch (e) {
+    return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+  }
+  if (!res || res.action === 'cancel' || !res.action.startsWith('assign::')) return
+  return doAssignRing(api, { value: `${ringId}::${res.action.slice('assign::'.length)}` })
+}
+
 async function doDeleteRing(api, payload) {
   const ringId = String(payload?.ringId ?? '')
   if (!isRingId(ringId)) return
@@ -2000,10 +1929,328 @@ async function doDeleteRing(api, payload) {
  * 建完**不自动授权**给任何插件（用户 2026-11-07 拍板：建完在授权区手动勾）。
  * 插件请求的 `ring` 就是它自己传的 id —— 用同名建环即可对上。
  */
+/* ───────────────────────── 弹窗（rev173.421 · 列表 + host.dialog） ───────────────────────── */
+
+/** 当前宿主有没有真弹窗（老应用只有 `host.prompt`） */
+function hostDialog(api) {
+  return typeof api.host?.dialog === 'function'
+}
+
+/** 老宿主降级：一次只问一个值（`host.prompt`）；取消 ⇒ null */
+async function askOne(api, opts) {
+  return api.host.prompt(opts)
+}
+
+/**
+ * 打开某把环的弹窗：未建立 ⇒ 建立；未解锁 ⇒ 解锁；已解锁 ⇒ 管理。
+ * 这是列表页「点环名」的唯一入口 —— 面板里不再内嵌任何表单。
+ */
+async function doOpenRing(api, payload) {
+  const ringId = String(payload?.ringId ?? '')
+  if (!isRingId(ringId)) return
+  store.selected = ringId
+  store.message = ''
+  store.recoveryCodeShown = ''
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return doSetupDialog(api, ringId)
+  if (live.has(ringId)) return doManageDialog(api, ringId)
+  return doUnlockDialog(api, ringId)
+}
+
+/** 建立密钥环的弹窗（恢复问题可选，与旧面板一致） */
+async function doSetupDialog(api, ringId) {
+  const label = ringLabel(ringId, store.vault)
+  if (!hostDialog(api)) {
+    const pw1 = await askOne(api, {
+      title: `建立「${label}」`,
+      message: '主密码至少 8 位',
+      placeholder: '主密码',
+      secret: true,
+      okText: '下一步',
+    })
+    if (pw1 === null) return setStatus(api, '已取消建立', 'info')
+    const pw2 = await askOne(api, {
+      title: '再输一次主密码',
+      placeholder: '主密码',
+      secret: true,
+      okText: '建立',
+    })
+    if (pw2 === null) return setStatus(api, '已取消建立', 'info')
+    return doSetup(api, ringId, { pw1, pw2 })
+  }
+  let res
+  try {
+    res = await api.host.dialog({
+      title: `建立密钥环「${label}」`,
+      message: '主密码只用来解这一把环；至少 8 位。',
+      body: {
+        type: 'stack',
+        gap: 'sm',
+        children: [
+          { type: 'input', bind: B.pw1, secret: true, placeholder: '主密码（至少 8 位）' },
+          { type: 'input', bind: B.pw2, secret: true, placeholder: '再输一次' },
+          { type: 'input', bind: B.question, placeholder: '恢复问题（可留空，只用恢复码）' },
+          { type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案（留空则不设问题）' },
+        ],
+      },
+      actions: [
+        { id: 'cancel', label: '取消', variant: 'ghost' },
+        { id: 'save', label: '建立密钥环' },
+      ],
+      width: 460,
+    })
+  } catch (e) {
+    return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+  }
+  if (!res || res.action !== 'save') return setStatus(api, '已取消建立', 'info')
+  return doSetup(api, ringId, {
+    pw1: String(res.state[B.pw1] ?? ''),
+    pw2: String(res.state[B.pw2] ?? ''),
+    question: String(res.state[B.question] ?? ''),
+    answer: String(res.state[B.answer] ?? ''),
+  })
+}
+
+/** 解锁弹窗：主密码 + 指纹（可用时）+ 恢复入口（设过才显示） */
+async function doUnlockDialog(api, ringId) {
+  const label = ringLabel(ringId, store.vault)
+  const ring = getRing(store.vault, ringId)
+  const canBio = Boolean(
+    (deviceBinding(ring, store.deviceId) || ring?.deviceWrapped) && store.biometric,
+  )
+  const canAnswer = Boolean(ring?.recovery?.answerWrap)
+  const canCode = Boolean(ring?.recovery?.codeWrap)
+  if (!hostDialog(api)) {
+    const pw = await askOne(api, {
+      title: `解锁「${label}」`,
+      placeholder: '主密码',
+      secret: true,
+      okText: '解锁',
+    })
+    if (pw === null) return setStatus(api, '已取消解锁', 'info')
+    return doUnlock(api, ringId, pw)
+  }
+  const actions = [
+    ...(canBio ? [{ id: 'biometric', label: '指纹解锁', variant: 'ghost' }] : []),
+    { id: 'cancel', label: '取消', variant: 'ghost' },
+    { id: 'unlock', label: '解锁' },
+  ]
+  const body = {
+    type: 'stack',
+    gap: 'sm',
+    children: [
+      { type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' },
+      ...(canCode || canAnswer ? [{ type: 'divider' }] : []),
+      ...(canCode
+        ? [
+            {
+              type: 'link',
+              label: '用恢复码解锁',
+              onClick: 'security.recover-code',
+              payload: { ringId },
+            },
+          ]
+        : []),
+      ...(canAnswer
+        ? [
+            {
+              type: 'link',
+              label: '用恢复问题解锁',
+              onClick: 'security.recover-answer',
+              payload: { ringId },
+            },
+          ]
+        : []),
+    ],
+  }
+  let res
+  try {
+    res = await api.host.dialog({ title: `解锁「${label}」`, body, actions, width: 420 })
+  } catch (e) {
+    return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+  }
+  if (!res) return setStatus(api, '已取消解锁', 'info')
+  if (res.action === 'biometric') return doBiometricUnlock(api)
+  if (res.action !== 'unlock') return setStatus(api, '已取消解锁', 'info')
+  return doUnlock(api, ringId, String(res.state[B.pw1] ?? ''))
+}
+
+/** 管理弹窗（已解锁）：换主密码 + 立即锁定 + 指纹 */
+async function doManageDialog(api, ringId) {
+  const label = ringLabel(ringId, store.vault)
+  const ring = getRing(store.vault, ringId)
+  const bound = Boolean(deviceBinding(ring, store.deviceId) || ring?.deviceWrapped)
+  if (!hostDialog(api)) {
+    const oldPw = await askOne(api, {
+      title: `换「${label}」的主密码`,
+      placeholder: '当前主密码',
+      secret: true,
+      okText: '下一步',
+    })
+    if (oldPw === null) return setStatus(api, '已取消', 'info')
+    const newPw = await askOne(api, {
+      title: '新主密码',
+      placeholder: '新主密码（至少 8 位）',
+      secret: true,
+      okText: '换主密码',
+    })
+    if (newPw === null) return setStatus(api, '已取消', 'info')
+    return doChangePassword(api, ringId, oldPw, newPw)
+  }
+  const body = {
+    type: 'stack',
+    gap: 'sm',
+    children: [
+      { type: 'text', value: '换主密码：数据密文一个字节都不会动', variant: 'caption', tone: 'muted' },
+      { type: 'input', bind: B.oldPw, secret: true, placeholder: '当前主密码' },
+      { type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' },
+      {
+        type: 'row',
+        align: 'center',
+        wrap: true,
+        gap: 'sm',
+        children: [
+          { type: 'button', label: '立即锁定', onClick: 'security.lock', variant: 'danger' },
+          {
+            type: 'button',
+            label: bound ? '解除本机指纹' : '绑定本机指纹',
+            onClick: bound ? 'security.biometric-unbind' : 'security.biometric-bind',
+            variant: 'ghost',
+          },
+        ],
+      },
+    ],
+  }
+  let res
+  try {
+    res = await api.host.dialog({
+      title: `「${label}」已解锁`,
+      body,
+      actions: [
+        { id: 'close', label: '关闭', variant: 'ghost' },
+        { id: 'change', label: '换主密码' },
+      ],
+      width: 440,
+    })
+  } catch (e) {
+    return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+  }
+  if (!res || res.action !== 'change') return
+  return doChangePassword(api, ringId, String(res.state[B.oldPw] ?? ''), String(res.state[B.newPw] ?? ''))
+}
+
+/** 「测试」按钮：只验主密码对不对，**不改锁定状态**（示意图里的「测试」） */
+async function doTestRing(api, payload) {
+  const ringId = String(payload?.ringId ?? '')
+  if (!isRingId(ringId)) return
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return setStatus(api, `密钥环「${ringLabel(ringId)}」还没建立`, 'warn')
+  const label = ringLabel(ringId, store.vault)
+  let pw
+  if (hostDialog(api)) {
+    let res
+    try {
+      res = await api.host.dialog({
+        title: `测试「${label}」`,
+        message: '输入主密码验证这个环能不能解开。不会改变锁定状态。',
+        body: {
+          type: 'stack',
+          children: [{ type: 'input', bind: B.pw1, secret: true, placeholder: '主密码' }],
+        },
+        actions: [
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+          { id: 'test', label: '验证' },
+        ],
+        width: 420,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!res || res.action !== 'test') return setStatus(api, '已取消', 'info')
+    pw = String(res.state[B.pw1] ?? '')
+  } else {
+    pw = await askOne(api, {
+      title: `测试「${label}」`,
+      placeholder: '主密码',
+      secret: true,
+      okText: '验证',
+    })
+    if (pw === null) return setStatus(api, '已取消', 'info')
+  }
+  try {
+    const L = await loadLibs()
+    const { dek } = unlockRing(L, ring, pw)
+    wipe(dek)
+    setStatus(api, `「${label}」主密码正确 —— 这个环能解开`, 'success')
+  } catch {
+    setStatus(api, `「${label}」主密码不对（或这个环被改过）`, 'error')
+  }
+}
+
+/* ───────────── 环的建立 / 解锁 / 换密码 / 恢复（内部实现，只吃参数） ───────────── */
+
+/**
+ * 新建一把**自定义密钥环**（弹窗版 · rev173.421）：名称 + 主密码两次。
+ * 建完**不自动授权**给任何插件（用户 2026-11-07 拍板：去列表行的下拉里手动分配）。
+ */
 async function doCreateRing(api) {
-  const name = String(ui[B.ringName] ?? '').trim()
-  const pw1 = String(ui[B.ringPw1] ?? '')
-  const pw2 = String(ui[B.ringPw2] ?? '')
+  let name = ''
+  let pw1 = ''
+  let pw2 = ''
+  if (hostDialog(api)) {
+    let res
+    try {
+      res = await api.host.dialog({
+        title: '新建密钥环',
+        message: '名称只做显示，内部 id 自动生成；建完在列表行的下拉里分配给插件。',
+        body: {
+          type: 'stack',
+          gap: 'sm',
+          children: [
+            { type: 'input', bind: B.ringName, placeholder: '密钥环名称（如 Todo）' },
+            { type: 'input', bind: B.ringPw1, secret: true, placeholder: '主密码（至少 8 位）' },
+            { type: 'input', bind: B.ringPw2, secret: true, placeholder: '再输一次' },
+          ],
+        },
+        actions: [
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+          { id: 'save', label: '保存密钥环' },
+        ],
+        width: 440,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!res || res.action !== 'save') return setStatus(api, '已取消新建', 'info')
+    name = String(res.state[B.ringName] ?? '').trim()
+    pw1 = String(res.state[B.ringPw1] ?? '')
+    pw2 = String(res.state[B.ringPw2] ?? '')
+  } else {
+    const n = await askOne(api, {
+      title: '新建密钥环',
+      placeholder: '密钥环名称（如 Todo）',
+      okText: '下一步',
+    })
+    if (n === null) return setStatus(api, '已取消新建', 'info')
+    const a = await askOne(api, {
+      title: '主密码',
+      placeholder: '主密码（至少 8 位）',
+      secret: true,
+      okText: '下一步',
+    })
+    if (a === null) return setStatus(api, '已取消新建', 'info')
+    const b = await askOne(api, {
+      title: '再输一次主密码',
+      placeholder: '再输一次',
+      secret: true,
+      okText: '保存密钥环',
+    })
+    if (b === null) return setStatus(api, '已取消新建', 'info')
+    name = n.trim()
+    pw1 = a
+    pw2 = b
+  }
+
   if (!name) return setStatus(api, '先给这个密钥环起个名字', 'warn')
   if (pw1.length < 8) {
     return setStatus(api, '主密码至少 8 位 —— 慢哈希只提高每次猜测的成本，挡不住 123456', 'warn')
@@ -2029,26 +2276,16 @@ async function doCreateRing(api) {
     store.vault = putRing(store.vault, ring)
     await saveVault(api, store.vault, ring.id)
     store.selected = ring.id
-    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 到下面「密钥环分配」选一个插件给它`, 'success')
+    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 在那一行的下拉里选一个插件给它`, 'success')
   } catch (e) {
     setStatus(api, `新建失败：${String(e?.message ?? e)}`, 'error')
-  } finally {
-    clearInputs(api, B.ringName, B.ringPw1, B.ringPw2)
   }
 }
 
-/**
- * 建立一把环。
- * 输入：pw1/pw2（必填）+ question/answer（可选，留空则只有恢复码）。
- */
-async function doSetup(api) {
-  const ringId = store.selected
-  const pw1 = String(ui[B.pw1] ?? '')
-  const pw2 = String(ui[B.pw2] ?? '')
-  const question = String(ui[B.question] ?? '')
-  const answer = String(ui[B.answer] ?? '')
-
-  if (pw1.length < 8) return setStatus(api, '主密码至少 8 位 —— 慢哈希只提高每次猜测的成本，挡不住 123456', 'warn')
+async function doSetup(api, ringId, { pw1 = '', pw2 = '', question = '', answer = '' } = {}) {
+  if (pw1.length < 8) {
+    return setStatus(api, '主密码至少 8 位 —— 慢哈希只提高每次猜测的成本，挡不住 123456', 'warn')
+  }
   if (pw1 !== pw2) return setStatus(api, '两次输入的主密码不一致', 'warn')
 
   try {
@@ -2063,7 +2300,10 @@ async function doSetup(api) {
       })
       // 期 3：本机已绑定且有 DK 在内存 ⇒ 新环**立刻继承**指纹（不额外弹一次认证）
       if (deviceKey) {
-        withRecovery = { ...withRecovery, deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, created.dek) }
+        withRecovery = {
+          ...withRecovery,
+          deviceWrapped: wrapDeviceDek(L, deviceKey, ringId, created.dek),
+        }
       }
       wipe(created.dek) // 建立后就用不到了（下次解锁时再解出来）
       return { ring: withRecovery, code: recoveryCode }
@@ -2072,44 +2312,35 @@ async function doSetup(api) {
     store.vault = putRing(store.vault, ring)
     await saveVault(api, store.vault, ring.id)
     store.recoveryCodeShown = code
-    setStatus(api, `「${ringLabel(ringId)}」已建立。请抄下上面的恢复码。`, 'success')
+    setStatus(api, `「${ringLabel(ringId)}」已建立。请抄下恢复码。`, 'success')
     api.host.notify('密钥环已建立 —— 恢复码只显示一次，请抄下来', 'info')
   } catch (e) {
     setStatus(api, `建立失败：${String(e?.message ?? e)}`, 'error')
-  } finally {
-    clearInputs(api, B.pw1, B.pw2, B.question, B.answer)
   }
 }
 
-async function doUnlock(api) {
-  const ringId = store.selected
-  const pw = String(ui[B.pw1] ?? '')
+async function doUnlock(api, ringId, pw) {
   cancelAutoUnlock() // 用户已经在走主密码这条路，别再弹指纹
   try {
-    await withBusy(api, ringId, () => unlockWithPassword(api, ringId, pw))
+    await withBusy(api, ringId, () => unlockWithPassword(api, ringId, String(pw ?? '')))
     // 解锁后恢复码提示可以收了（已抄过的用户不希望它一直挂在屏幕上）
     store.recoveryCodeShown = ''
     setStatus(api, `「${ringLabel(ringId)}」已解锁`, 'success')
-  } catch (e) {
-    // 密码错时 **不说是"密码错"以外的信息**（不给 oracle）；AEAD 失败的原文也没用
-    setStatus(api, `解不开：主密码不对，或 vault 被改过`, 'error')
-  } finally {
-    clearInputs(api, B.pw1)
+  } catch {
+    // 密码错时不说是"密码错"以外的信息（不给 oracle）；AEAD 失败的原文也没用
+    setStatus(api, '解不开：主密码不对，或 vault 被改过', 'error')
   }
 }
 
-async function doChangePassword(api) {
-  const ringId = store.selected
-  const oldPw = String(ui[B.oldPw] ?? '')
-  const newPw = String(ui[B.newPw] ?? '')
-  if (newPw.length < 8) return setStatus(api, '新主密码至少 8 位', 'warn')
+async function doChangePassword(api, ringId, oldPw, newPw) {
+  if (String(newPw ?? '').length < 8) return setStatus(api, '新主密码至少 8 位', 'warn')
   const ring = getRing(store.vault, ringId)
   if (!ring) return setStatus(api, '这个环还没建立', 'warn')
 
   try {
     const next = await withBusy(api, ringId, async () => {
       const L = await loadLibs()
-      return changePassword(L, ring, oldPw, newPw)
+      return changePassword(L, ring, String(oldPw ?? ''), String(newPw ?? ''))
     })
     store.vault = putRing(store.vault, next)
     await saveVault(api, store.vault, next.id)
@@ -2117,18 +2348,21 @@ async function doChangePassword(api) {
     setStatus(api, '主密码已换。数据密文没动，旧密码从此失效。', 'success')
   } catch (e) {
     setStatus(api, `换密码失败：${String(e?.message ?? e)}`, 'error')
-  } finally {
-    clearInputs(api, B.oldPw, B.newPw)
   }
 }
 
-/** 恢复：解出 DEK 暂存，等用户设新密码（不在这里改盘） */
-async function doRecover(api, how) {
-  const ringId = store.selected
+/**
+ * 恢复：解出 DEK 暂存 → 弹窗让用户设新密码（不在这里改盘）。
+ *
+ * 返回 true = 恢复验证通过（调用方据此决定是否继续弹「设新主密码」）。
+ */
+async function doRecover(api, ringId, how, input) {
   const ring = getRing(store.vault, ringId)
-  if (!ring) return setStatus(api, '这个环还没建立', 'warn')
-  const input = how === 'answer' ? String(ui[B.answer] ?? '') : String(ui[B.code] ?? '')
-  if (!input) return setStatus(api, how === 'answer' ? '请输入恢复答案' : '请输入恢复码', 'warn')
+  if (!ring) return false
+  if (!input) {
+    setStatus(api, how === 'answer' ? '请输入恢复答案' : '请输入恢复码', 'warn')
+    return false
+  }
 
   try {
     const dek = await withBusy(api, ringId, async () => {
@@ -2137,25 +2371,114 @@ async function doRecover(api, how) {
     })
     recovered.set(ringId, dek)
     setStatus(api, '恢复验证通过 —— 请设一把新主密码', 'success')
+    return true
   } catch {
     setStatus(api, '恢复失败：答案 / 恢复码不对', 'error')
-  } finally {
-    clearInputs(api, B.answer, B.code)
+    return false
   }
 }
 
-async function doResetAfterRecovery(api) {
-  const ringId = store.selected
-  const newPw = String(ui[B.newPw] ?? '')
+/** 恢复入口（弹窗）：收码 / 答案 → 验过再收新主密码 */
+async function doRecoverFlow(api, payload, how) {
+  const ringId = String(payload?.ringId ?? store.selected)
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return setStatus(api, '这个环还没建立', 'warn')
+  const label = ringLabel(ringId, store.vault)
+  const isCode = how === 'code'
+
+  let input = ''
+  if (hostDialog(api)) {
+    let res
+    try {
+      res = await api.host.dialog({
+        title: `恢复「${label}」`,
+        message: isCode ? '输入建环时抄下的恢复码。' : '回答建环时设的恢复问题。',
+        body: {
+          type: 'stack',
+          children: [
+            {
+              type: 'input',
+              bind: isCode ? B.code : B.answer,
+              secret: true,
+              placeholder: isCode ? '恢复码（形如 ABCD-EFGH-…）' : '恢复答案',
+            },
+          ],
+        },
+        actions: [
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+          { id: 'ok', label: '验证' },
+        ],
+        width: 420,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!res || res.action !== 'ok') return setStatus(api, '已取消', 'info')
+    input = String(res.state[isCode ? B.code : B.answer] ?? '')
+  } else {
+    const v = await askOne(api, {
+      title: `恢复「${label}」`,
+      placeholder: isCode ? '恢复码' : '恢复答案',
+      secret: true,
+      okText: '验证',
+    })
+    if (v === null) return setStatus(api, '已取消', 'info')
+    input = v
+  }
+
+  const ok = await doRecover(api, ringId, how, input)
+  if (ok) await doResetDialog(api, ringId)
+}
+
+/** 恢复后设新主密码（弹窗） */
+async function doResetDialog(api, ringId) {
+  const label = ringLabel(ringId, store.vault)
+  let newPw = ''
+  if (hostDialog(api)) {
+    let res
+    try {
+      res = await api.host.dialog({
+        title: `给「${label}」设新主密码`,
+        body: {
+          type: 'stack',
+          children: [
+            { type: 'input', bind: B.newPw, secret: true, placeholder: '新主密码（至少 8 位）' },
+          ],
+        },
+        actions: [
+          { id: 'cancel', label: '取消', variant: 'ghost' },
+          { id: 'ok', label: '重设主密码' },
+        ],
+        width: 420,
+      })
+    } catch (e) {
+      return setStatus(api, `没法弹出对话框：${String(e?.message ?? e)}`, 'error')
+    }
+    if (!res || res.action !== 'ok') return setStatus(api, '已取消重设', 'info')
+    newPw = String(res.state[B.newPw] ?? '')
+  } else {
+    const v = await askOne(api, {
+      title: '新主密码',
+      placeholder: '新主密码（至少 8 位）',
+      secret: true,
+      okText: '重设主密码',
+    })
+    if (v === null) return setStatus(api, '已取消重设', 'info')
+    newPw = v
+  }
+  return doResetAfterRecovery(api, ringId, newPw)
+}
+
+async function doResetAfterRecovery(api, ringId, newPw) {
   const dek = recovered.get(ringId)
   const ring = getRing(store.vault, ringId)
   if (!dek || !ring) return setStatus(api, '先完成恢复验证', 'warn')
-  if (newPw.length < 8) return setStatus(api, '新主密码至少 8 位', 'warn')
+  if (String(newPw ?? '').length < 8) return setStatus(api, '新主密码至少 8 位', 'warn')
 
   try {
     const next = await withBusy(api, ringId, async () => {
       const L = await loadLibs()
-      return resetPasswordWithDek(L, ring, dek, newPw)
+      return resetPasswordWithDek(L, ring, dek, String(newPw))
     })
     store.vault = putRing(store.vault, next)
     await saveVault(api, store.vault)
@@ -2171,8 +2494,6 @@ async function doResetAfterRecovery(api) {
     setStatus(api, '主密码已重设 —— 数据密文一个字节都没动', 'success')
   } catch (e) {
     setStatus(api, `重设失败：${String(e?.message ?? e)}`, 'error')
-  } finally {
-    clearInputs(api, B.newPw)
   }
 }
 
@@ -2445,16 +2766,6 @@ export default {
         render: (ctx) => {
           // ViewApi 没有 getState：把本次 ctx.state 存快照，命令里读它（tag-panel 同款做法）
           ui = { ...(ctx?.state ?? {}) }
-          // 播种分配下拉（rev173.416）：宿主的 select 值只取 `ctx.state[bind]`，
-          // 不写就永远显示第一项（「未分配」）—— 值一致时不写，避免重渲染自激。
-          for (const row of assignRows(store.grants, allRingIds(store.vault))) {
-            const bind = `${B.assignPrefix}${row.ringId}`
-            const want = `${row.ringId}::${row.owner ?? ''}`
-            if (ui[bind] !== want) {
-              api.view.setState(bind, want)
-              ui[bind] = want
-            }
-          }
           return panelNode(panelView(installedPluginIds(api)))
         },
       }),
@@ -2556,8 +2867,13 @@ export default {
           api.view.refresh(PANEL_ID)
         },
       },
-      { id: 'security.setup', title: '安全：建立密钥环', run: (p) => doSetup(api) },
-      { id: 'security.unlock', title: '安全：解锁', run: () => doUnlock(api) },
+      /* rev173.421：列表页只留一个入口（点环名）；下面这些都变成弹窗命令，
+         保留命令 id 是为了命令面板 / 快捷键仍然可用 */
+      { id: 'security.open-ring', title: '安全：打开密钥环（解锁 / 管理）', run: (p) => doOpenRing(api, p) },
+      { id: 'security.test-ring', title: '安全：测试密钥环主密码', run: (p) => doTestRing(api, p) },
+      { id: 'security.assign-ui', title: '安全：选择把密钥环分配给哪个插件', run: (p) => doAssignUi(api, p) },
+      { id: 'security.setup', title: '安全：建立密钥环', run: (p) => doSetupDialog(api, String(p?.ringId ?? store.selected)) },
+      { id: 'security.unlock', title: '安全：解锁', run: (p) => doUnlockDialog(api, String(p?.ringId ?? store.selected)) },
       {
         id: 'security.lock',
         title: '安全：立即锁定',
@@ -2567,12 +2883,24 @@ export default {
           setStatus(api, `「${ringLabel(ringId)}」已锁定`, 'info')
         },
       },
-      { id: 'security.change-password', title: '安全：换主密码', run: () => doChangePassword(api) },
-      { id: 'security.recover-answer', title: '安全：用恢复问题解锁', run: () => doRecover(api, 'answer') },
-      { id: 'security.recover-code', title: '安全：用恢复码解锁', run: () => doRecover(api, 'code') },
+      {
+        id: 'security.change-password',
+        title: '安全：换主密码',
+        run: (p) => doManageDialog(api, String(p?.ringId ?? store.selected)),
+      },
+      {
+        id: 'security.recover-answer',
+        title: '安全：用恢复问题解锁',
+        run: (p) => doRecoverFlow(api, p, 'answer'),
+      },
+      {
+        id: 'security.recover-code',
+        title: '安全：用恢复码解锁',
+        run: (p) => doRecoverFlow(api, p, 'code'),
+      },
       { id: 'security.reset-after-recovery',
         title: '安全：恢复后重设主密码',
-        run: () => doResetAfterRecovery(api),
+        run: (p) => doResetDialog(api, String(p?.ringId ?? store.selected)),
       },
       { id: 'security.biometric-unlock', title: '安全：用生物识别解锁', run: () => doBiometricUnlock(api) },
       { id: 'security.biometric-bind', title: '安全：绑定生物识别', run: () => doBiometricBind(api) },

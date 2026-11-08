@@ -977,6 +977,44 @@ export type PromptOptions = {
 }
 
 /**
+ * **通用对话框**（rev173.421 · `host.dialog`）—— 比 `PromptOptions` 多两件事：
+ * 正文可以是任意 UINode（一组输入框 / 说明 / 列表），底部可以是多个按钮。
+ *
+ * 为什么需要：插件能声明的 UINode 里没有"弹浮层"这个原语；而「新建密钥环」这种
+ * 一次要填三个字段的交互，用 `host.prompt` 得连弹三次。遮罩 / ESC / 焦点归还属于
+ * 宿主职责 —— 每个插件各写一遍必然漂（私密笔记的解锁弹窗已踩过焦点丢失，rev173.399）。
+ */
+export type DialogOptions = {
+  /** 标题（缺省「请选择」） */
+  title?: string
+  /** 标题下的一句说明 */
+  message?: string
+  /** 正文：任意 UINode。其中 input/select 的 bind 值由宿主持有，点按钮时随 `state` 回传 */
+  body?: UINode
+  /** 底部按钮（至少给一个）；返回被点的 `id` */
+  actions?: DialogAction[]
+  /** 点遮罩 / ESC / ✕ 是否等于取消（默认 true ⇒ 返回 `null`） */
+  dismissible?: boolean
+  /** 面板宽度（px，默认 480） */
+  width?: number
+  /** 正文控件的初始值（`bind` → 值） */
+  value?: Record<string, unknown>
+}
+
+export type DialogAction = {
+  /** 回传给插件的 id（插件自己约定，如 `save` / `cancel`） */
+  id: string
+  label: string
+  variant?: 'default' | 'ghost' | 'danger'
+}
+
+/** `host.dialog` 的结果：点了哪个按钮 + 正文控件的最终值；取消 ⇒ `null` */
+export type DialogResult = {
+  action: string
+  state: Record<string, unknown>
+}
+
+/**
  * 已安装插件的一条只读摘要（`host.installedPlugins()` 的返回值 · rev173.420）。
  *
  * ⚠️ **不是运行态**：拿着它不代表那个插件的 `apply()` 已经跑过、更不代表它
@@ -1019,6 +1057,16 @@ export interface HostApi {
    * 手机软键盘 / 焦点 / ESC 关闭这些细节，每个插件各写一份必然漂。
    */
   prompt(opts: PromptOptions): Promise<string | null>
+  /**
+   * **通用对话框**（rev173.421）—— 一次问多个字段 / 多个按钮（正文是任意 UINode）。
+   *
+   * 取消（ESC / 点遮罩 / ✕，且 `dismissible !== false`）⇒ 返回 `null`；
+   * 否则返回 `{ action, state }`（正文控件的最终值在 `state` 里）。
+   *
+   * 与 `prompt` 同一约定：宿主没接钩子 ⇒ **抛错**而不是返回 `null` ——
+   * 插件把"没弹出来"当成"用户取消"会静默吞掉一次真实操作。
+   */
+  dialog(opts: DialogOptions): Promise<DialogResult | null>
   /**
    * 把**库内相对路径**转成 WebView 能直接用的 URL（Tauri asset 协议）。
    *
