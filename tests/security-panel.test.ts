@@ -110,17 +110,28 @@ describe('security · 面板结构（rev173.424）', () => {
     expect(withRing.filter((n) => n.kind === 'button' && n.onClick === 'security.unlock-ring')).toHaveLength(1)
   })
 
-  it('解锁按钮在已解锁时禁用（避免重复派生）；「修改」始终可点', () => {
+  it('解锁按钮：已解锁时文案变「已解锁」且禁用（避免重复派生）；「修改」始终可点', () => {
     const v = ringVault(['notes'])
     const nodes = flatten(panelNode({ vault: v, unlocked: { notes: true }, grants: emptyGrants(), plugins: [] }))
     // flatten 不保留 disabled，这里直接查原始树
     const tree = panelNode({ vault: v, unlocked: { notes: true }, grants: emptyGrants(), plugins: [] }) as AnyNode
     const walk = (n: AnyNode): AnyNode[] => [n, ...(Array.isArray(n.children) ? (n.children as AnyNode[]).flatMap(walk) : [])]
     const all = walk(tree)
-    const unlock = all.find((n) => n.type === 'button' && n.label === '解锁')
+    // rev173.432：文案随解锁态变化 —— 用户看不出「解没解开」只有变灰不够
+    const unlock = all.find((n) => n.type === 'button' && n.label === '已解锁')
     const modify = all.find((n) => n.type === 'button' && n.label === '修改')
     expect(unlock?.disabled).toBe(true)
     expect(modify?.disabled).toBe(false)
     expect(nodes.length).toBeGreaterThan(0)
+  })
+
+  it('busy 时面板出现「正在处理…」提示（rev173.432：建环 2.6 秒空窗要有反馈）', () => {
+    const v = ringVault(['notes'], { notes: '待建环' })
+    const idle = render({ vault: v, unlocked: {}, grants: emptyGrants(), plugins: [] })
+    expect(idle.filter((n) => n.kind === 'text').map((n) => String(n.value)).some((t) => t.includes('正在处理'))).toBe(false)
+    const busy = render({ vault: v, unlocked: {}, grants: emptyGrants(), plugins: [], busy: 'notes' })
+    const line = busy.filter((n) => n.kind === 'text').map((n) => String(n.value)).find((t) => t.includes('正在处理'))
+    expect(line).toBeTruthy()
+    expect(String(line)).toContain('待建环')
   })
 })

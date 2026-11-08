@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.431
-更新时间: 2026-11-08 · 最新 rev173.431（**手机 dev 包恢复可连 + security 0.4.7 手机 G2**）· rev173.430（指纹一次认证、全局生效）
+revision: 173.432
+更新时间: 2026-11-08 · 最新 rev173.432（**安全面板两个体验点：建环 busy 提示 + 已解锁文案 · security 0.4.8**）· rev173.431（手机 dev 包恢复可连）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.431
 
 | rev | 内容 |
 |---|---|
+| rev173.432 | 2026-11-08 · **安全面板两个体验点**（rev173.431 手机实测发现、用户「修完再发」）：① **建环 2.6 秒空窗** → `panelNode` 新增 busy 行「⏳ 正在处理「<环名>」…（派生密钥需要 1–4 秒，别重复点）」—— `withBusy()` 本来就会 `refresh`，但之前面板只有按钮变灰，看不出来。② **解锁后没有「已解锁」字样** → 解锁按钮文案随 `isUnlocked` 变「已解锁」（禁用态保留）；环名前的锁图标原来已随状态变 🔓，现在加文字双保险。`tests/security-panel.test.ts` 更新 1 条 + 新增 1 条（busy 提示只在 busy 时出现且带环名）。`security 0.4.8` 已签名打包入市（`market/packs/security-0.4.8.znp`，整包 sha256 `7d6a142a…`，入口 sha256 `d93b890e…`）。**G2 双端**：桌面 dev（junction → `examples/security`）解锁「私密笔记」→ 该行变「已解锁」（`_shots/rev432-desktop-02-unlocked.png`）；建 `g2busy` 环时用 rAF 采样到 `正在处理` 出现过（`window.__s.includes(1) === true`，1178 帧采样）；手机 Redmi dev 包推 0.4.8 后解锁 `g2ring4` → 按钮变「已解锁」（`_shots/rev432-phone-02-unlocked.png`）。**未做**：指纹真人验收（仍待 G3）；两个测试环 `g2busy`（桌面）/ `g2ring*`（手机）留在测试库未删。 |
 | rev173.431 | 2026-11-08 · **手机 dev 包恢复可连 + 手机端 G2 验收 security 0.4.7**（交接卡「下个会话第一件事」①）：① **根因**：手机 dev 包内 `assets/tauri.conf.json` 的 `devUrl` 被 `tauri android dev` 编译时替换成**当时**的局域网 IP `192.168.1.3`，本机 WLAN 现在是 `192.168.1.11` ⇒ 页面 `Failed to request http://192.168.1.3:1420/`；`adb reverse tcp:1420` 救不了（它只映射 localhost）。② **修法**：跑 `android-dev.cmd`（= `tauri android dev --config tauri.android-dev.json`）重编 dev 包 —— CLI 自己检测并打印 `Using 192.168.1.11 to access the development server`、把 devUrl 换掉（构建≈5 分钟：cargo 增量 + gradle，装完自动拉起）。**别试**直接 `gradlew app:assembleDebug`：`:app:rustBuildArm64Debug` 要读 `src-tauri/gen/android/.tauri/cli-options-server.json`，那文件只由 tauri CLI 写 ⇒ 必失败（本轮实测）。③ **手机 G2（Redmi `33b676f6` dev 包）**：面板三张卡片（私密笔记 / 账号密码 / Todo）·字号一致·无下划线（`_shots/rev430-phone-03-security.png`）；新建 `g2ring4` → 恢复码弹窗 `73FB-KGXT-R662-HWSV-Y8ER-3F7T`（`rev430-phone-13-recovery-code.png`）→ 恢复问题「可跳过」（`rev430-phone-14`）；点「未分配」就地展开候选（只列 `private-notes` / `secrets`，`rev430-phone-17`）；解锁弹窗收主密码 → 成功后该行「解锁」变灰（`rev430-phone-16`）。④ **已知体验点（未改，待拍板）**：建环保存 ⇒ 恢复码弹窗之间有 **≈2.6 秒空窗**（慢哈希耗时，期间没有 loading 反馈，容易被当成「点了没反应」）；解锁成功后状态列仍是「未分配」，只有按钮变灰，没有「已解锁」字样。⑤ **指纹相关未验**：绑定 / 一次认证全局生效必须真人按系统指纹，AI 不能代按。⑥ 两端 main 已推（GitHub `b9ecc40..d8fee0b`；Gitee 已是同一提交）。测试库新增测试环 `g2ring` / `g2ring2` / `g2ring4`（主密码 `test-pass-1234`），**未删**（删除要用户确认）。 |
 | rev173.430 | 2026-11-08 · **指纹「一次认证、全局生效」**（用户：「只能每次建立都验证一次吗，不能做到指纹设置之后就是全局生效的吗」）：① **撤销 rev173.429 的「建环前弹指纹」** —— 建环不再打断用户。② 新增 `inheritRings(api)` / `inheritOneRing(api, ringId, dek)`：**任何一次设备指纹认证成功后**，把所有「已解锁但还没 `deviceWrapped`」的环一次性补上指纹包裹（`biometricUnlockRing` 成功后、`doModifyByBiometric` 成功后各调一次）。③ 于是体验变成：**每个会话第一次用指纹认证一次 ⇒ 之后所有环（含之后新建的）都自动可指纹**；新环若当时 DK 不在内存，先用主密码用，下次任意指纹操作自动补齐，不再出现「还没继承」的报错循环。`security 0.4.7` 已签名入市；质量门 9/9 · vitest 62（security 两个文件）。**说明**：DK 每次会话都要重新认证一次是 Windows Hello 的模型（不能把 DK 常驻磁盘，否则本机任何程序都能取走所有环的钥匙），这一点无法绕过。 |
 | rev173.429 | 2026-11-08 · **新建的环默认继承本机指纹**（用户：「新建的环不是默认继承指纹的吗」—— 截图里点「指纹验证修改」报「这个环还没继承本机指纹」）：根因 = `doCreateRing` 只在 **`deviceKey` 已在内存**时才给新环包 `deviceWrapped`；而 DK 只在「本次会话解过某个环」后才有 —— 设备绑过指纹但刚启动 / 一直没解锁时，新环就继承不到。改法：建环前若 `store.deviceFile`（设备绑过）且 `deviceKey` 为空 ⇒ 先 `withBusy(api, id, () => unlockDeviceKey())` 弹一次系统指纹解出 DK；成功则新环带 `deviceWrapped`，取消 / 失败照常建环（只是不继承，行为与旧版一致）。`security 0.4.6` 已签名入市；质量门 9/9。**G2 桌面（部分）**：新建环点保存后**确实弹出 Windows Hello「确保那是你 / 在指纹读取器上进行手指扫描」**（`_shots/rev429-01-hello.png`，全屏截图）—— 证明继承分支被触发；**「按指纹后新环真的带上 deviceWrapped」要真人按一次才能验**（AI 无法代按系统指纹，弹窗只能由用户按键 / 取消）。 |
@@ -382,6 +383,22 @@ revision: 173.431
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.432（2026-11-08 · 安全面板两个体验点：建环 busy 提示 + 已解锁文案）
+
+> **来源**：rev173.431 手机 G2 时发现，用户拍板「修完再发」。
+
+> **① 建环 2.6 秒空窗**：点「保存密钥环」到恢复码弹窗之间有 1–4 秒（Argon2 慢哈希），面板原本只有按钮变灰 —— 容易被当成「点了没反应」。`panelNode` 新增一行 `⏳ 正在处理「<环名>」…（派生密钥需要 1–4 秒，别重复点）`，`withBusy()` 已有的 `refresh` 会把它渲染出来。
+
+> **② 解锁后看不到「已解锁」**：解锁按钮文案改成随 `isUnlocked` 变「已解锁」（仍禁用）。环名前的锁图标本来就随状态变 🔓，现在文字也算双保险。
+
+> **测试**：`tests/security-panel.test.ts` —— 原「解锁按钮在已解锁时禁用」改成断言文案 `已解锁`；新增「busy 时出现正在处理提示（带环名）且 idle 时不出现」。
+
+> **插件**：`security 0.4.8` 已签名入市（`market/packs/security-0.4.8.znp`；整包 sha256 `7d6a142a…`、入口 `d93b890e…`，`market/index.json` 已重建）。
+
+> **证据（双端 G2）**：桌面 dev 解锁「私密笔记」→ 该行 `已解锁`（`_shots/rev432-desktop-02-unlocked.png`）；桌面建 `g2busy` 环时 rAF 采样到 `正在处理`（1178 帧里出现过 1）；手机 Redmi dev 包推 0.4.8 后解锁 `g2ring4` → 按钮 `已解锁`（`_shots/rev432-phone-02-unlocked.png`）。
+
+> **未做**：指纹相关仍待真人 G3；测试环（桌面 `g2busy`、手机 `g2ring` / `g2ring2` / `g2ring4`）留在测试库未删。
 
 > ## 📌 rev173.431（2026-11-08 · 手机 dev 包恢复可连 + security 0.4.7 手机 G2）
 

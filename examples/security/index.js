@@ -1592,6 +1592,16 @@ export function panelNode(view) {
     ],
   })
 
+  /* rev173.432：busy 时给一条**看得见**的反馈 —— 建环点保存后到恢复码弹窗之间有 1–4 秒
+     （Argon2 慢哈希），以前只有按钮变灰，用户以为「点了没反应」（rev173.431 手机实测 2.6 秒空窗）。 */
+  if (busy) {
+    kids.push({
+      type: 'text',
+      value: `⏳ 正在处理「${ringLabel(busy, vault)}」…（派生密钥需要 1–4 秒，别重复点）`,
+      variant: 'caption',
+    })
+  }
+
   if (corrupt) {
     kids.push({
       type: 'text',
@@ -1665,7 +1675,8 @@ export function panelNode(view) {
                 },
                 {
                   type: 'button',
-                  label: '解锁',
+                  /* rev173.432：解锁后按钮直接写「已解锁」（原来只有变灰，用户看不出解没解开） */
+                  label: isUnlocked ? '已解锁' : '解锁',
                   onClick: 'security.unlock-ring',
                   payload: { ringId: row.ringId },
                   variant: 'ghost',
