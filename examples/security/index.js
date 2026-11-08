@@ -2144,7 +2144,17 @@ async function doManageDialog(api, ringId) {
       { type: 'input', bind: B.ringName, placeholder: '修改密钥环名称' },
       { type: 'input', bind: B.oldPw, secret: true, placeholder: '使用原主密码修改' },
       ...(canCode ? [{ type: 'input', bind: B.code, secret: true, placeholder: '使用恢复码修改' }] : []),
-      ...(canAnswer ? [{ type: 'input', bind: B.answer, secret: true, placeholder: '使用恢复问题修改' }] : []),
+      ...(canAnswer
+        ? [
+            {
+              /* 用户 2026-11-08：不显示「使用恢复问题修改」，直接把当时设的问题读出来当提示词 */
+              type: 'input',
+              bind: B.answer,
+              secret: true,
+              placeholder: `请输入《${String(ring?.recovery?.question ?? '恢复问题').trim() || '恢复问题'}》的答案`,
+            },
+          ]
+        : []),
       { type: 'input', bind: B.newPw, secret: true, placeholder: '输入新主密码' },
       { type: 'input', bind: B.newPw2, secret: true, placeholder: '再次输入新主密码' },
     ],

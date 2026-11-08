@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.427
-更新时间: 2026-11-08 · 最新 rev173.427（**新建密钥环先弹恢复码再弹恢复问题**）· rev173.426（卡片三列布局）
+revision: 173.428
+更新时间: 2026-11-08 · 最新 rev173.428（**恢复问题框读出当时的问题**）· rev173.427（新建先弹恢复码）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.427
 
 | rev | 内容 |
 |---|---|
+| rev173.428 | 2026-11-08 · **「使用恢复问题修改」输入框改成读出当时设的问题**（用户给截图：「恢复问题修改，不显示问题，框内提示词改成：请输入《恢复问题（读当时设置的问题）》的答案」）：`doManageDialog` 里那个 input 的 placeholder 从固定的「使用恢复问题修改」改成模板 `请输入《${ring.recovery.question}》的答案`（没设问题才退回「恢复问题」）。只改一行文案，不动校验逻辑（校验仍走 `recoverWithAnswer`）。`security 0.4.5` 已签名入市；质量门 9/9。**G2 桌面**：Rev427环 的修改弹窗里，该框显示「请输入《第一只宠物叫什么》的答案」（`_shots/rev428-01-question-placeholder.png`，CDP 读 placeholder 逐字核对）。 |
 | rev173.427 | 2026-11-08 · **新建密钥环：先弹恢复码，再弹恢复问题（可跳过）**（用户：「新建密钥环点保存之后，没有弹出恢复码和设置恢复问题」→「先弹恢复码，然后弹恢复问题（可以跳过）」）：`doCreateRing` 建环时**总是生成恢复码**并 `setupRecovery({ code })`；保存成功后 ① 弹「恢复码（只显示这一次）」（`dismissible: false`，必须点「我抄好了，下一步」）；② 再弹「设置恢复问题（可跳过）」—— 填问题+答案点保存 ⇒ 新函数 `attachRecovery()` 用刚输入的主密码重新解出 DEK、连同**同一个恢复码**重包（加 `answerWrap`）；点「跳过」则只保留恢复码路径。`security 0.4.4` 已签名入市；质量门 9/9。**G2 桌面**：新建弹窗（`_shots/rev427-01-create-dialog.png`）→ 恢复码弹窗 `453G-TYIU-…`（`rev427-02-recovery-code.png`）→ 恢复问题弹窗（`rev427-03-recovery-question.png`）→ 保存后 `vault.rev427.json` 里 `recovery.question` + `answerWrap` + `codeWrap` 三者齐全，再打开「修改」能看到「使用恢复码修改 / 使用恢复问题修改」两项（`rev427-05-modify-with-recovery.png`）。 |
 | rev173.426 | 2026-11-08 · **密钥环卡片改成三列布局（状态居中）+ 字号放大到 14px + 去下划线**（用户三次修正：「字体一高一低，而且不要都缩小，统一放大一点」「不用下划线」「绑定状态居中」→「按照给的示意图布局」）：① 卡片改用 **CSS grid 三列** `minmax(0,1fr) auto minmax(0,1fr)` —— 左「🔒 环名」· 中「已绑定 X / 未分配」· 右「修改 · 解锁 · 删除」，中间列 `justify-self: center`；窄屏（≤820px）退回两列 + 状态掉第二行居中。② 字号统一从 12px **放大到 `var(--zn-text)` = 14px**（环名 / 状态 / 三个动作按钮）。③ 「一高一低」根因 = `.zn-ui-link` 自带 `align-self: flex-start`，改成 `center`（实测三者垂直中心都是 149.5px）。④ 去掉状态链接的下划线。⑤ 卡片改细边框 + 小圆角 + 白底（`var(--zn-radius-sm)`）。`security 0.4.2` 已签名入市；质量门 9/9。**G2 桌面**：`_shots/rev426-02-grid.png`；CDP 量得卡片中心 1154 / 状态文字中心 1154.5、字号全 14px、`text-decoration: none`。 |
 | rev173.425 | 2026-11-08 · **密钥环改成卡片样式 + 字号统一**（用户发截图：「每个密钥做成卡片的样式，字体大小统一」）：每环一行换成一张卡片 —— `border: 1px solid var(--zn-border)` / `border-radius: var(--zn-radius-lg)` / `background: var(--zn-bg-subtle)` / `padding: 10px 12px` / `margin-bottom: 8px`；卡片内 `.zn-btn`、`.zn-ui-link`、`.zn-ui-text` 统一 `font-size: var(--zn-text-sm)`（实测 12px / weight 400 一致）；顶栏不再用卡片样式，只留一条下边框。只改 `examples/security/styles.css` + 行节点 `cssClass`（`zn-sec-ring-row` → `zn-sec-ring-card`）。`security 0.4.0` 已签名打包入市；质量门 9/9。**G2 桌面**：`_shots/rev425-01-cards.png`；CDP 读 computed style 三处都是 `12px`。 |
@@ -378,6 +379,14 @@ revision: 173.427
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.428（2026-11-08 · 恢复问题输入框读出当时的问题）
+
+> **报告**：用户 2026-11-08 发修改弹窗截图：「恢复问题修改，不显示问题，框内提示词改成：请输入《恢复问题（读当时设置的问题）》的答案」。
+
+> **改法**：`doManageDialog` 里那个 `input` 的 `placeholder` 由固定文案「使用恢复问题修改」改成 `` `请输入《${ring.recovery.question}》的答案` ``（没设问题兜底「恢复问题」）。用户据此知道自己该答哪一题。`security 0.4.5` 入市。
+
+> **验证**：Rev427环（问题 = 「第一只宠物叫什么」）的修改弹窗，CDP 读到的 placeholder 数组：`["修改密钥环名称","使用原主密码修改","使用恢复码修改","请输入《第一只宠物叫什么》的答案","输入新主密码","再次输入新主密码"]`。截图 `_shots/rev428-01-question-placeholder.png`。
 
 > ## 📌 rev173.427（2026-11-08 · 新建密钥环：恢复码 → 恢复问题（可跳过））
 
