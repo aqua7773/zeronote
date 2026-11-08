@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.426
-更新时间: 2026-11-08 · 最新 rev173.426（**密钥环卡片三列布局 + 字号 14px**）· rev173.425（改卡片）
+revision: 173.427
+更新时间: 2026-11-08 · 最新 rev173.427（**新建密钥环先弹恢复码再弹恢复问题**）· rev173.426（卡片三列布局）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.426
 
 | rev | 内容 |
 |---|---|
+| rev173.427 | 2026-11-08 · **新建密钥环：先弹恢复码，再弹恢复问题（可跳过）**（用户：「新建密钥环点保存之后，没有弹出恢复码和设置恢复问题」→「先弹恢复码，然后弹恢复问题（可以跳过）」）：`doCreateRing` 建环时**总是生成恢复码**并 `setupRecovery({ code })`；保存成功后 ① 弹「恢复码（只显示这一次）」（`dismissible: false`，必须点「我抄好了，下一步」）；② 再弹「设置恢复问题（可跳过）」—— 填问题+答案点保存 ⇒ 新函数 `attachRecovery()` 用刚输入的主密码重新解出 DEK、连同**同一个恢复码**重包（加 `answerWrap`）；点「跳过」则只保留恢复码路径。`security 0.4.4` 已签名入市；质量门 9/9。**G2 桌面**：新建弹窗（`_shots/rev427-01-create-dialog.png`）→ 恢复码弹窗 `453G-TYIU-…`（`rev427-02-recovery-code.png`）→ 恢复问题弹窗（`rev427-03-recovery-question.png`）→ 保存后 `vault.rev427.json` 里 `recovery.question` + `answerWrap` + `codeWrap` 三者齐全，再打开「修改」能看到「使用恢复码修改 / 使用恢复问题修改」两项（`rev427-05-modify-with-recovery.png`）。 |
 | rev173.426 | 2026-11-08 · **密钥环卡片改成三列布局（状态居中）+ 字号放大到 14px + 去下划线**（用户三次修正：「字体一高一低，而且不要都缩小，统一放大一点」「不用下划线」「绑定状态居中」→「按照给的示意图布局」）：① 卡片改用 **CSS grid 三列** `minmax(0,1fr) auto minmax(0,1fr)` —— 左「🔒 环名」· 中「已绑定 X / 未分配」· 右「修改 · 解锁 · 删除」，中间列 `justify-self: center`；窄屏（≤820px）退回两列 + 状态掉第二行居中。② 字号统一从 12px **放大到 `var(--zn-text)` = 14px**（环名 / 状态 / 三个动作按钮）。③ 「一高一低」根因 = `.zn-ui-link` 自带 `align-self: flex-start`，改成 `center`（实测三者垂直中心都是 149.5px）。④ 去掉状态链接的下划线。⑤ 卡片改细边框 + 小圆角 + 白底（`var(--zn-radius-sm)`）。`security 0.4.2` 已签名入市；质量门 9/9。**G2 桌面**：`_shots/rev426-02-grid.png`；CDP 量得卡片中心 1154 / 状态文字中心 1154.5、字号全 14px、`text-decoration: none`。 |
 | rev173.425 | 2026-11-08 · **密钥环改成卡片样式 + 字号统一**（用户发截图：「每个密钥做成卡片的样式，字体大小统一」）：每环一行换成一张卡片 —— `border: 1px solid var(--zn-border)` / `border-radius: var(--zn-radius-lg)` / `background: var(--zn-bg-subtle)` / `padding: 10px 12px` / `margin-bottom: 8px`；卡片内 `.zn-btn`、`.zn-ui-link`、`.zn-ui-text` 统一 `font-size: var(--zn-text-sm)`（实测 12px / weight 400 一致）；顶栏不再用卡片样式，只留一条下边框。只改 `examples/security/styles.css` + 行节点 `cssClass`（`zn-sec-ring-row` → `zn-sec-ring-card`）。`security 0.4.0` 已签名打包入市；质量门 9/9。**G2 桌面**：`_shots/rev425-01-cards.png`；CDP 读 computed style 三处都是 `12px`。 |
 | rev173.424 | 2026-11-08 · **安全面板按示意图重做（列表 / 修改 / 新建）+ 解锁按钮复用密码库流程**（用户三张截图 + 两条澄清：「解锁按钮点了直接按现有密码库和私密笔记的解锁方式」「分配不是胶囊，是点击字体后弹出选择菜单」「菜单里只显示进行密钥申请的插件」）：① **列表页**：每行 `🔒 环名` + 可点链接「未分配 / 已绑定 X」（点开就地展开选择菜单，**只列调过 `crypto.demand()` 的插件**，每项带「已绑定/未绑定」）+ 右侧「修改 · 解锁 · 删除」；顶部「安全 · 自检 · 指纹（已绑定）」+ 右上「新建密钥环」；去掉「测试」按钮与 ✓、去掉常驻 `<select>`（rev173.422 的下拉方案被本轮推翻）。② **解锁按钮**（新命令 `security.unlock-ring`）：与密码库 / 私密笔记同一套 —— 该环绑过本机指纹先弹系统指纹，取消 / 失败回落 `host.prompt` 主密码框；成功**不跳转**（用户拍板只标记已解锁）。③ **修改弹窗**：名称（`value` 播种当前名）+ 原主密码 / 恢复码 / 恢复问题三选一 + 新主密码 ×2 + 「指纹验证修改」（设备绑过指纹就显示；环未继承时给明确提示）。改名对**内置环也生效**（`ringLabel` 改为环自带 `label` 优先）。④ **新建弹窗**：按图改成「输入密钥环名称 / 输入主密码 / 再次输入主密码」+「保存密钥环」。⑤ 插件加 `styles.css`（行右对齐、菜单样式），manifest 声明 styles + 两条新命令。测试新增 `tests/security-panel.test.ts` 6 条（三按钮/无测试无 ✓/链接/菜单只列 demand 插件/未建立行/解锁禁用）。`security 0.3.9` 已签名打包入市。**G2 桌面 dev**：列表（`_shots/rev424-06-panel.png`）、点「未分配」展开菜单（`rev424-07-assign-menu.png`）、修改弹窗（`rev424-10-modify-dialog.png`）、新建弹窗（`rev424-09-create-dialog.png`）、改名保存生效「Todo-改名测」（`rev424-11-renamed.png`）。**未验**：手机 dev 包（插件未推）。**未发版** |
@@ -377,6 +378,17 @@ revision: 173.426
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.427（2026-11-08 · 新建密钥环：恢复码 → 恢复问题（可跳过））
+
+> **报告**：用户 2026-11-08：「新建密钥环点保存之后，没有弹出恢复码和设置恢复问题」；追问后明确顺序：「先弹恢复码，然后弹恢复问题（可以跳过）」。
+
+> **改法**：`doCreateRing` 建环时就 `generateRecoveryCode` + `setupRecovery({ code })`（恢复码那条路总是有）；保存成功后依次弹两个宿主对话框 ——
+> ① 「恢复码（只显示这一次）」：正文是码本身，`dismissible: false`（点背景 / ESC 关不掉，必须点「我抄好了，下一步」）；
+> ② 「设置恢复问题（可跳过）」：两个输入 + 「跳过 / 保存」。
+> 保存时调新函数 `attachRecovery(api, ringId, password, code, question, answer)` —— 建环时 DEK 已 wipe，所以用刚输入的主密码 `unlockRing` 重新解出 DEK，再连同**同一个恢复码** `setupRecovery` 重包（加 `answerWrap`）。出错只提示「恢复码仍然有效」，不破坏已建好的环。
+
+> **验证**：桌面 dev 建「Rev427环」→ 恢复码弹窗 `453G-TYIU-D2PS-PEW7-PYAL-3RSA` → 恢复问题弹窗 → 保存；`_tmp-vault-rt13/.zn/security/vault.rev427.json` 里 `recovery = { question: "第一只宠物叫什么", answerSalt, answerWrap, codeSalt, codeWrap }` 全在；再打开「修改」弹窗可见「使用恢复码修改 / 使用恢复问题修改」两栏。截图 `rev427-01` / `-02` / `-03` / `-05`。`security 0.4.4` 入市。
 
 > ## 📌 rev173.426（2026-11-08 · 密钥环卡片三列布局 + 字号 14px + 去下划线）
 

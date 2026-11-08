@@ -2342,8 +2342,11 @@ async function doTestRing(api, payload) {
 /* ───────────── 环的建立 / 解锁 / 换密码 / 恢复（内部实现，只吃参数） ───────────── */
 
 /**
- * 新建一把**自定义密钥环**（弹窗版 · rev173.421）：名称 + 主密码两次。
- * 建完**不自动授权**给任何插件（用户 2026-11-07 拍板：去列表行的下拉里手动分配）。
+ * 新建一把**自定义密钥环**（rev173.427）：
+ * ① 弹窗收 名称 + 主密码两次；② 建环（内含恢复码）；③ **先弹恢复码**（只显示一次，必须确认）；
+ * ④ **再弹恢复问题**（可跳过，跳过就只靠恢复码）。
+ * 用户 2026-11-08：「新建密钥环点保存之后，没有弹出恢复码和设置恢复问题」→「先弹恢复码，然后弹恢复问题（可以跳过）」。
+ * 建完**不自动授权**给任何插件：回列表点「未分配」分配。
  */
 async function doCreateRing(api) {
   let name = ''
@@ -2409,27 +2412,106 @@ async function doCreateRing(api) {
   if (pw1 !== pw2) return setStatus(api, '两次输入的主密码不一致', 'warn')
 
   const id = newRingId(name, allRingIds(store.vault))
+  let code = ''
   try {
-    const ring = await withBusy(api, id, async () => {
+    const made = await withBusy(api, id, async () => {
       const L = await loadLibs()
       const created = createRing(L, id, pw1, { containerId: id, label: name })
+      /* 恢复码**总是生成**（建环当场就要显示给用户）；恢复问题随后单独问 */
+      const recoveryCode = generateRecoveryCode(L)
+      let withRecovery = setupRecovery(L, created.ring, created.dek, { code: recoveryCode })
       // 本机已绑定指纹且 DK 在内存 ⇒ 新环直接继承（与内置环建环一致）
       if (deviceKey) {
         try {
-          created.ring.deviceWrapped = wrapDeviceDek(L, deviceKey, id, created.dek)
+          withRecovery = { ...withRecovery, deviceWrapped: wrapDeviceDek(L, deviceKey, id, created.dek) }
         } catch {
           /* 继承失败不影响建环本身 */
         }
       }
       wipe(created.dek)
-      return created.ring
+      return { ring: withRecovery, code: recoveryCode }
     })
-    store.vault = putRing(store.vault, ring)
-    await saveVault(api, store.vault, ring.id)
-    store.selected = ring.id
-    setStatus(api, `已新建密钥环「${name}」（id: ${id}）—— 在那一行的下拉里选一个插件给它`, 'success')
+    store.vault = putRing(store.vault, made.ring)
+    await saveVault(api, store.vault, made.ring.id)
+    store.selected = made.ring.id
+    code = made.code
+    setStatus(api, `已新建密钥环「${name}」—— 请抄下恢复码（只显示这一次）`, 'success')
   } catch (e) {
-    setStatus(api, `新建失败：${String(e?.message ?? e)}`, 'error')
+    return setStatus(api, `新建失败：${String(e?.message ?? e)}`, 'error')
+  }
+
+  if (!hostDialog(api)) return
+
+  /* ① 先弹恢复码：必须确认抄下（不可点背景 / ESC 关掉） */
+  try {
+    await api.host.dialog({
+      title: '恢复码（只显示这一次）',
+      message: '抄下来存好。忘记主密码时，用它可以重设密码；丢了它 + 忘了密码 = 数据打不开。',
+      body: { type: 'stack', gap: 'sm', children: [{ type: 'text', value: code, variant: 'title' }] },
+      actions: [{ id: 'ok', label: '我抄好了，下一步' }],
+      dismissible: false,
+      width: 420,
+    })
+  } catch {
+    /* 弹不出就算了：恢复码已写在 vault 里，用户也能从建环流程再来一次 */
+  }
+
+  /* ② 再弹恢复问题：可跳过（跳过 = 只用恢复码） */
+  let r2
+  try {
+    r2 = await api.host.dialog({
+      title: '设置恢复问题（可跳过）',
+      message: '忘记主密码时还可以答对问题来重设。不填也行 —— 恢复码那条路仍然有效。',
+      body: {
+        type: 'stack',
+        gap: 'sm',
+        children: [
+          { type: 'input', bind: B.question, placeholder: '恢复问题（如：第一只宠物的名字）' },
+          { type: 'input', bind: B.answer, secret: true, placeholder: '恢复答案（至少 2 个字）' },
+        ],
+      },
+      actions: [
+        { id: 'skip', label: '跳过', variant: 'ghost' },
+        { id: 'save', label: '保存' },
+      ],
+      width: 420,
+    })
+  } catch {
+    return
+  }
+  if (!r2 || r2.action !== 'save') {
+    return setStatus(api, `「${name}」已建立（恢复问题跳过，仍可用恢复码）—— 点「未分配」分配插件`, 'info')
+  }
+  const q = String(r2.state[B.question] ?? '').trim()
+  const a2 = String(r2.state[B.answer] ?? '').trim()
+  if (!q || a2.length < 2) {
+    return setStatus(api, '恢复问题 / 答案没填全 —— 这次没设问题，恢复码仍然有效', 'warn')
+  }
+  await attachRecovery(api, id, pw1, code, q, a2)
+}
+
+/**
+ * 给已建立的环补上恢复问题（rev173.427）：用刚输入的主密码重新解出 DEK，
+ * 再连同**同一个恢复码**一起重包。数据密文一个字节都不动。
+ */
+async function attachRecovery(api, ringId, password, code, question, answer) {
+  const ring = getRing(store.vault, ringId)
+  if (!ring) return
+  try {
+    const next = await withBusy(api, ringId, async () => {
+      const L = await loadLibs()
+      const { dek } = unlockRing(L, ring, password)
+      try {
+        return setupRecovery(L, ring, dek, { question, answer, code })
+      } finally {
+        wipe(dek)
+      }
+    })
+    store.vault = putRing(store.vault, next)
+    await saveVault(api, store.vault, next.id)
+    setStatus(api, `「${ringLabel(ringId, store.vault)}」已建立，恢复问题也设好了`, 'success')
+  } catch (e) {
+    setStatus(api, `恢复问题没保存：${String(e?.message ?? e)}（恢复码仍然有效）`, 'error')
   }
 }
 
