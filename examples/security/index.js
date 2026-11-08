@@ -1520,7 +1520,33 @@ async function unlockWithPassword(api, ringId, password) {
   const { dek } = unlockRing(L, ring, password)
   live.set(ringId, { dek, lastActive: Date.now() })
   api.event.emit('security:unlocked', { ringId })
+  await maybeInheritAfterPassword(api, ringId)
   return true
+}
+
+/**
+ * rev173.436：设备绑过指纹、这把环却还没继承 ⇒ 用密码解锁后补一次设备认证，
+ * 把 DEK 用 DK 再包一份（`deviceWrapped`）。之后从密码库 / 私密笔记点锁就能直接弹指纹。
+ *
+ * 用户 2026-11-08 报「点私密笔记直接弹输入框，没有弹指纹」—— 根因不是代码分支丢了，
+ * 而是这把环**从未继承过指纹**：继承需要「已解锁的 DEK」+「一次设备认证」两个条件同时成立，
+ * 以前只有安全面板手动凑得出，消费者（密码库 / 私密笔记）永远凑不出 ⇒ 环永远是「设备绑了、环没绑」。
+ * 取消 / 失败都不影响本次解锁，下次解锁还能再补。
+ */
+async function maybeInheritAfterPassword(api, ringId) {
+  try {
+    if (!store.deviceFile) return 0
+    const ring = getRing(store.vault, ringId)
+    if (!ring) return 0
+    if (ring.deviceWrapped || deviceBinding(ring, store.deviceId)) return 0
+    if (deviceKey) return await inheritAllUnlocked(api)
+    await unlockDeviceKey() // 会弹一次系统指纹（仅这一次）
+    const n = await inheritAllUnlocked(api)
+    if (n > 0) api.host.notify('已给这个密钥环绑定本机指纹 —— 下次解锁直接按指纹', 'info')
+    return n
+  } catch {
+    return 0
+  }
 }
 
 /* ───────────────────────── 面板 ───────────────────────── */

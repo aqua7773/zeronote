@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.435
-更新时间: 2026-11-08 · 最新 rev173.435（**指纹一次认证补上密码库/私密笔记两个入口 · security 0.5.0**）· rev173.434（0.10.2 已发版）
+revision: 173.436
+更新时间: 2026-11-08 · 最新 rev173.436（**修「点私密笔记不弹指纹」= 环从未继承 · security 0.5.1**）· rev173.435（指纹补两个入口）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.435
 
 | rev | 内容 |
 |---|---|
+| rev173.436 | 2026-11-08 · **修「点私密笔记直接弹输入框、没有弹指纹」**（用户实测）：根因不是分支丢了（`private-notes` L1030/1096 仍在调 `svc.biometric.unlock`），而是这把环**从未继承过指纹** —— `bound()` 要求 `deviceWrapped`（或旧 `deviceBinding`），而**继承需要「已解锁的 DEK」+「一次设备认证」同时成立**，以前只有安全面板手动凑得出，密码库 / 私密笔记永远凑不出 ⇒ 永远显示「设备绑了、环没绑」。修法：`unlockWithPassword()` 成功后调 `maybeInheritAfterPassword()` —— 设备绑过指纹且本环未继承 ⇒ `unlockDeviceKey()`（弹一次系统指纹）→ `inheritAllUnlocked()` 批量补 `deviceWrapped`，并 toast「已给这个密钥环绑定本机指纹 —— 下次解锁直接按指纹」；取消 / 失败不影响本次解锁。`security 0.5.1` 已签名打包入市。**G2 桌面已验**（`_shots/rev436-desktop-hello.png`：输完主密码后 Windows Hello「确保那是你 / 在指纹读取器上进行手指扫描」如期弹出，同屏还能看到 busy 提示行）。**未验**：按住指纹后的继承结果（AI 不能代按）+ 手机（未绑指纹）。 |
 | rev173.435 | 2026-11-08 · **指纹「一次认证全局生效」补上两个漏掉的入口**（用户问「私密笔记和密码库的指纹解锁呢」）：`inheritRings()` 原来只在安全面板的 `biometricUnlockRing()` 里调，消费者（`secrets` 的 `secrets.open`、`private-notes` 的 `private.open`）走 `crypto.biometric.unlock()` 服务时**不补**其它环 —— 同一个「一次设备认证」在三个入口行为不一致。修法：`biometric.unlock()` 解锁成功后同样 `await inheritRings(api)`（服务在 `provide` 内、`api` 可达；`inheritRings` 是模块级函数声明，已提升）。`security 0.5.0` 已签名打包入市；与 `secrets 0.1.7` / `private-notes 0.3.6` 的调用签名完全不变（消费者不用更新）。**验收**：security 四个测试文件 **82 passed**；**未做**：真机指纹路径必须真人按，留 G3（手机未绑指纹，桌面已绑定可验）。 |
 | rev173.434 | 2026-11-08 · **0.10.2 发版**：把 rev173.413–433 的「安全插件面板重做 / 密钥环分配给插件 / 恢复码 + 恢复问题 / 指纹一次认证全局生效 / 手机两行布局」发给 release 用户 —— 关键是 **`host.dialog` / `host.installedPlugins` 是内核能力**，0.10.1 用户更新插件后只会降级成 prompt 链。**产物**：桌面 `ZeroNote_0.10.2_x64-setup.exe` 15,916,328 B + `.sig` 440 B；Android `ZeroNote_0.10.2_arm64.apk` 34,830,795 B（33.22 MiB · 只发 arm64，不发布 universal）。二进制在 `_build/release-0.10.2/`（不入库）。**清单**：`update/latest.json` 由脚本生成；`update/android.json` 手动指向改名后的 arm64 包（sha256 `4ee3b519…`）。**发布**：GitHub `v0.10.2` 三资产（https://github.com/aqua7773/zeronote/releases/tag/v0.10.2）；Gitee release `1287293` 三资产（size 全对：15916328 / 440 / 34830795）。构建 9 分 40 秒（桌面 4:05 + Android 5:35）。**未做**：手机 release 机装 0.10.2 验收；指纹真人 G3。 |
 | rev173.433 | 2026-11-08 · **手机端密钥环卡片改成两行布局**（用户发示意图：「不要只改位置啊，重新布局一下」）：窄屏（≤820px）从「名 / 状态 / 按钮」三行堆叠改成 **两行撑满** —— 第一行 `🔒 环名`（左）+ 绑定状态（右）；第二行三个按钮 `space-between` 均匀铺满。桌面宽屏仍是三列（1fr auto 1fr）。只改 `examples/security/styles.css` 的 `@media (max-width: 820px)` 块。`security 0.4.9` 已签名打包入市（`market/packs/security-0.4.9.znp`）。**G2 手机已验**（Redmi dev 包推 styles.css 后 CDP 截图 `_shots/rev432-phone-11-layout3.png`）。**踩坑**：手机「白屏」是 `adb screencap` 抓不到 Chromium 合成层（老坑），用 `cdp.mjs shot` 才准；期间 vite 进程真挂过一次（根路径 404）→ 重启 `pnpm dev` 恢复。 |
@@ -386,6 +387,20 @@ revision: 173.435
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.436（2026-11-08 · 修「点私密笔记不弹指纹」：环从未继承）
+
+> **现象**：用户「私密笔记点了直接弹输入框，没有弹指纹」。安全面板明明显示「指纹（已绑定）」。
+
+> **根因（数据层，不是分支丢了）**：`security.biometric.bound()` 判的是**这个环**有没有指纹包裹 —— `ring.deviceWrapped` 或旧格式 `deviceBinding(ring, deviceId)`。查桌面测试库 `_tmp-vault-rt13/.zn/security/vault.notes.json`：**没有 `deviceWrapped`、`biometrics` 为 null**。而继承（把 DEK 用设备 DK 再包一份）需要「已解锁的 DEK」+「一次设备认证」**同时成立** —— 消费者（密码库 / 私密笔记）只会弹主密码，永远凑不出第二个条件，于是环永远停在「设备绑了、环没绑」。
+
+> **修法**：`unlockWithPassword()`（服务与面板共用）成功后调用新函数 `maybeInheritAfterPassword(api, ringId)`：设备绑过指纹、本环未继承、且当前有 `deviceKey` ⇒ 直接 `inheritAllUnlocked()`；没有 `deviceKey` ⇒ `unlockDeviceKey()` 弹一次系统指纹，再批量补 `deviceWrapped` 并 toast「已给这个密钥环绑定本机指纹 —— 下次解锁直接按指纹」。取消 / 失败都不影响本次解锁，下次还能再补。
+
+> **插件**：`security 0.5.1` 已签名入市（`market/packs/security-0.5.1.znp`）；`secrets` / `private-notes` 不用改。
+
+> **证据（G2 桌面）**：`_shots/rev436-desktop-hello.png` —— 在安全面板输完 `test-pass-1234` 解锁「私密笔记」后，**Windows Hello「确保那是你 / 在指纹读取器上进行手指扫描」如期弹出**；同屏可见顶部 busy 提示行（rev173.432 那条）。弹窗已由 AI 取消，未代按。
+
+> **未做**：① 按住指纹后的继承结果（`deviceWrapped` 落盘）必须真人按，AI 不能代按；② 手机测试库没绑指纹，Android 路径未验。
 
 > ## 📌 rev173.435（2026-11-08 · 指纹一次认证：补上密码库 / 私密笔记两个入口）
 
