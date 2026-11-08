@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.425
-更新时间: 2026-11-08 · 最新 rev173.425（**密钥环改卡片 + 字号统一**）· rev173.424（安全面板按示意图重做）
+revision: 173.426
+更新时间: 2026-11-08 · 最新 rev173.426（**密钥环卡片三列布局 + 字号 14px**）· rev173.425（改卡片）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.425
 
 | rev | 内容 |
 |---|---|
+| rev173.426 | 2026-11-08 · **密钥环卡片改成三列布局（状态居中）+ 字号放大到 14px + 去下划线**（用户三次修正：「字体一高一低，而且不要都缩小，统一放大一点」「不用下划线」「绑定状态居中」→「按照给的示意图布局」）：① 卡片改用 **CSS grid 三列** `minmax(0,1fr) auto minmax(0,1fr)` —— 左「🔒 环名」· 中「已绑定 X / 未分配」· 右「修改 · 解锁 · 删除」，中间列 `justify-self: center`；窄屏（≤820px）退回两列 + 状态掉第二行居中。② 字号统一从 12px **放大到 `var(--zn-text)` = 14px**（环名 / 状态 / 三个动作按钮）。③ 「一高一低」根因 = `.zn-ui-link` 自带 `align-self: flex-start`，改成 `center`（实测三者垂直中心都是 149.5px）。④ 去掉状态链接的下划线。⑤ 卡片改细边框 + 小圆角 + 白底（`var(--zn-radius-sm)`）。`security 0.4.2` 已签名入市；质量门 9/9。**G2 桌面**：`_shots/rev426-02-grid.png`；CDP 量得卡片中心 1154 / 状态文字中心 1154.5、字号全 14px、`text-decoration: none`。 |
 | rev173.425 | 2026-11-08 · **密钥环改成卡片样式 + 字号统一**（用户发截图：「每个密钥做成卡片的样式，字体大小统一」）：每环一行换成一张卡片 —— `border: 1px solid var(--zn-border)` / `border-radius: var(--zn-radius-lg)` / `background: var(--zn-bg-subtle)` / `padding: 10px 12px` / `margin-bottom: 8px`；卡片内 `.zn-btn`、`.zn-ui-link`、`.zn-ui-text` 统一 `font-size: var(--zn-text-sm)`（实测 12px / weight 400 一致）；顶栏不再用卡片样式，只留一条下边框。只改 `examples/security/styles.css` + 行节点 `cssClass`（`zn-sec-ring-row` → `zn-sec-ring-card`）。`security 0.4.0` 已签名打包入市；质量门 9/9。**G2 桌面**：`_shots/rev425-01-cards.png`；CDP 读 computed style 三处都是 `12px`。 |
 | rev173.424 | 2026-11-08 · **安全面板按示意图重做（列表 / 修改 / 新建）+ 解锁按钮复用密码库流程**（用户三张截图 + 两条澄清：「解锁按钮点了直接按现有密码库和私密笔记的解锁方式」「分配不是胶囊，是点击字体后弹出选择菜单」「菜单里只显示进行密钥申请的插件」）：① **列表页**：每行 `🔒 环名` + 可点链接「未分配 / 已绑定 X」（点开就地展开选择菜单，**只列调过 `crypto.demand()` 的插件**，每项带「已绑定/未绑定」）+ 右侧「修改 · 解锁 · 删除」；顶部「安全 · 自检 · 指纹（已绑定）」+ 右上「新建密钥环」；去掉「测试」按钮与 ✓、去掉常驻 `<select>`（rev173.422 的下拉方案被本轮推翻）。② **解锁按钮**（新命令 `security.unlock-ring`）：与密码库 / 私密笔记同一套 —— 该环绑过本机指纹先弹系统指纹，取消 / 失败回落 `host.prompt` 主密码框；成功**不跳转**（用户拍板只标记已解锁）。③ **修改弹窗**：名称（`value` 播种当前名）+ 原主密码 / 恢复码 / 恢复问题三选一 + 新主密码 ×2 + 「指纹验证修改」（设备绑过指纹就显示；环未继承时给明确提示）。改名对**内置环也生效**（`ringLabel` 改为环自带 `label` 优先）。④ **新建弹窗**：按图改成「输入密钥环名称 / 输入主密码 / 再次输入主密码」+「保存密钥环」。⑤ 插件加 `styles.css`（行右对齐、菜单样式），manifest 声明 styles + 两条新命令。测试新增 `tests/security-panel.test.ts` 6 条（三按钮/无测试无 ✓/链接/菜单只列 demand 插件/未建立行/解锁禁用）。`security 0.3.9` 已签名打包入市。**G2 桌面 dev**：列表（`_shots/rev424-06-panel.png`）、点「未分配」展开菜单（`rev424-07-assign-menu.png`）、修改弹窗（`rev424-10-modify-dialog.png`）、新建弹窗（`rev424-09-create-dialog.png`）、改名保存生效「Todo-改名测」（`rev424-11-renamed.png`）。**未验**：手机 dev 包（插件未推）。**未发版** |
 | rev173.423 | 2026-11-08 · **修「绑定指纹点了没用」**（用户报）：两个原因 —— ① 顶部按钮在 `0 把已解锁` 时 **disabled**，点了完全没反应也没有提示；但绑定是**设备级**的（`bindDevice` 只创建 DK，不要求先解锁某把环）。② 按钮永远写「绑定指纹」，绑过也看不出来、找不到解除入口。改法：按钮不 disabled；label 依 `deviceBound` 变「已绑定指纹（解除）」；新命令 `security.biometric-toggle`（未绑定 ⇒ 绑、已绑定 ⇒ 解）。`security 0.3.8` 已签名打包入市。**G2 桌面**：0 把已解锁时点「绑定指纹」⇒ 面板消息「已绑定这台设备；之后锁定可直接用指纹解锁（新建的环会自动继承）」、按钮变「已绑定指纹（解除）」（`_shots/rev423-01-bind.png` / `rev423-02-bound.png`）|
@@ -376,6 +377,18 @@ revision: 173.425
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.426（2026-11-08 · 密钥环卡片三列布局 + 字号 14px + 去下划线）
+
+> **报告**（连续三条修正）：①「字体一高一低，而且不要都缩小，统一放大一点」；②「不用下划线」；③「绑定状态居中」→「按照给的示意图布局啊」。
+
+> **改法**：
+> - 卡片节点本来是 `row`（flex），左右分布做不出「状态居中」⇒ 用 `.zn-ui-row.zn-sec-ring-card { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) }`，三块分别 `justify-self: start / center / end`。窄屏（≤820px）改两列，状态 `grid-column: 1 / -1` 掉到第二行居中。
+> - 字号从 `--zn-text-sm`（12px）改成 `--zn-text`（14px）—— 用户明确「不要都缩小」。
+> - 「一高一低」的真因：`.zn-ui-link` 全局规则里有 `align-self: flex-start`，在 `align-items: center` 的 flex 行里贴着行顶；覆盖成 `center` 后三者垂直中心一致。
+> - `text-decoration: none` 去掉下划线；卡片改 `var(--zn-radius-sm)`（小圆角）+ `padding: 6px 12px` + 透明底。
+
+> **验证**（CDP 实测，不是目测）：卡片 `x=404 w=1500` ⇒ 中心 1154；状态文字中心 1154.5（真正居中）；五个元素 `fontSize` 全 14px；三个按钮垂直中心 149.5 = 状态文字中心 149.5。截图 `_shots/rev426-02-grid.png`。`security 0.4.2` 入市。
 
 > ## 📌 rev173.425（2026-11-08 · 密钥环改卡片 + 字号统一）
 

@@ -1620,7 +1620,7 @@ export function panelNode(view) {
           type: 'row',
           align: 'center',
           gap: 'sm',
-          cssClass: 'zn-sec-ring-left',
+          cssClass: 'zn-sec-ring-name',
           children: [
             {
               type: 'button',
@@ -1630,6 +1630,15 @@ export function panelNode(view) {
               variant: 'ghost',
               disabled: busy === row.ringId,
             },
+          ],
+        },
+        {
+          /* 绑定状态：卡片正中一列（用户 2026-11-08：「绑定状态居中」） */
+          type: 'row',
+          align: 'center',
+          gap: 'sm',
+          cssClass: 'zn-sec-ring-state',
+          children: [
             {
               /* rev173.424：点这几个字展开选择菜单（用户：「点击字体后弹出选择菜单」） */
               type: 'link',
