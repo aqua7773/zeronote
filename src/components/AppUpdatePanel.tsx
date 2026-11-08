@@ -20,7 +20,6 @@ import {
   checkAppUpdate,
   downloadAndroidUpdate,
   findApkCache,
-  fmtSpeed,
   installApk,
   installDesktopUpdate,
   isAndroidApp,
@@ -99,17 +98,10 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const [probes, setProbes] = useState<PathProbe[] | null>(null)
   const [probing, setProbing] = useState(false)
 
-  /* ── 安装包路径（rev173.311）──
-   * 「检查更新」时就把直连 / 两条反代都实测一遍，结果存在 `check.routes` 里。
-   * 这里只负责显示与「用户想手动指定走哪条」；默认跟最快的走。 */
+  /* ── 安装包路径（rev173.440 · 同源）──
+   * 用户拍板：渠道 = 完整源，检查走哪个渠道、下载就走哪个渠道。
+   * 所以只剩一条路径（`check.routes[0]`），不再有「下载通道」下拉。 */
   const [routes, setRoutes] = useState<RouteProbe[]>(() => loadLastCheck()?.routes ?? [])
-  const [routeId, setRouteId] = useState<string>(() => {
-    try {
-      return window.localStorage.getItem('zn-app-update-route') ?? ''
-    } catch {
-      return ''
-    }
-  })
   /** 断点续传：上次下到一半的字节数（0 = 没有） */
   const [partial, setPartial] = useState(0)
 
@@ -127,13 +119,8 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
   const effectivePartial = latestIsNew ? partial : 0
   const effectiveApkPath = latestIsNew ? apkPath : ''
 
-  /** 实际要走的下载路径：用户手选优先，否则用实测最快的那条 */
-  const chosenRoute = useMemo(() => {
-    const usable = routes.filter((r) => r.ok)
-    if (usable.length === 0) return null
-    if (routeId) return usable.find((r) => r.id === routeId) ?? usable[0]
-    return usable[0]
-  }, [routes, routeId])
+  /** 同源（rev173.440）：检查命中的渠道给了唯一一条安装包路径；不可用就没有可下的路 */
+  const chosenRoute = useMemo(() => routes.find((r) => r.ok) ?? null, [routes])
 
   const runCheck = useCallback(async () => {
     setPhase('checking')
@@ -439,7 +426,8 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         </div>
       ) : null}
 
-      {/* 更新渠道（rev173.300）：与插件市场的镜像下拉同款 —— 清单与安装包都从这条渠道走 */}
+      {/* 更新渠道（rev173.440 · 同源）：清单与安装包都走这一个源；
+          测速测的是这个源下载安装包的实际速度，不是「能不能拉到清单」 */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         <label htmlFor="zn-app-update-mirror" className="shrink-0">
           更新渠道
@@ -449,7 +437,7 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
           className="rounded-ui-sm border border-border-strong bg-background px-1 py-0.5 text-[11px] text-foreground"
           value={mirror.id}
           onChange={(e) => switchMirror(e.target.value)}
-          title="清单与安装包都从这条渠道走 —— jsDelivr 只能镜像清单，安装包在 Release 附件里它拿不到"
+          title="清单与安装包都走这个源 —— 不会再出现「清单是新的、安装包下不来」"
         >
           {UPDATE_MIRRORS.map((m) => (
             <option key={m.id} value={m.id}>
@@ -468,40 +456,19 @@ export function AppUpdatePanel({ appVersion }: { appVersion?: string }) {
         </button>
       </div>
 
-      {/* 安装包路径（rev173.311）：检查更新时就实测好了，这里让人看得见、也能手选。
-          清单渠道管「从哪拉清单」，下载通道管「从哪拉安装包」—— 两件事分开。 */}
+      {/* 同源（rev173.440）：不再让用户选「下载通道」——
+          只显示这次检查命中的渠道能不能下安装包、实测多快；下不动就提示换渠道 */}
       {latest && routes.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-          <label htmlFor="zn-app-update-route" className="shrink-0">
-            下载通道
-          </label>
-          <select
-            id="zn-app-update-route"
-            className="rounded-ui-sm border border-border-strong bg-background px-1 py-0.5 text-[11px] text-foreground"
-            value={routeId}
-            onChange={(e) => {
-              const next = e.target.value
-              setRouteId(next)
-              try {
-                window.localStorage.setItem('zn-app-update-route', next)
-              } catch {
-                /* 存不下就只在本次会话生效 */
-              }
-            }}
-            title="检查更新时已经实测过各条路径的速度；默认用最快的那条"
-          >
-            <option value="">自动（最快）</option>
-            {routes.map((r) => (
-              <option key={r.id} value={r.id} disabled={!r.ok}>
-                {r.label}
-                {r.ok ? ` · ${fmtSpeed(r.bps)}` : ' · 不可用'}
-              </option>
-            ))}
-          </select>
+          <span className="shrink-0">安装包</span>
           {chosenRoute ? (
-            <span className="text-[10px] text-emerald-600">走 {chosenRoute.label}</span>
+            <span className="text-[10px] text-emerald-600">
+              走 {chosenRoute.label} · {chosenRoute.detail}
+            </span>
           ) : (
-            <span className="text-[10px] text-red-500">三条都测不通，下载时会逐条试</span>
+            <span className="text-[10px] text-red-500">
+              这个源下不动安装包 —— 换一个渠道再检查
+            </span>
           )}
         </div>
       ) : null}

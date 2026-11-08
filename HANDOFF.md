@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.439
-更新时间: 2026-11-08 · 最新 rev173.439（**发版校验门支持「Gradle 未重打但已有正确产物」**）· rev173.438（用正确的 0.10.2 包替换 Android 附件）
+revision: 173.440
+更新时间: 2026-11-08 · 最新 rev173.440（**更新渠道改为「一个渠道 = 一个完整源」，jsDelivr 全删**）· rev173.439（发版校验门支持 Gradle 未重打）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.439
 
 | rev | 内容 |
 |---|---|
+| rev173.440 | 2026-11-08 · **更新渠道改为「一个渠道 = 一个完整源」**（用户拍板：多渠道保留，但校验与下载必须同源；测速测的是下载速度；jsDelivr 全去掉；手动测速保留）。`updates.rs`：`MIRRORS` 只剩 raw / gitee / ghproxy，删掉「三条安装包路径」（`ASSET_ROUTES` / `asset_routes` / `asset_candidates` / `pick_routes`），新增 `probe_mirror_asset()` 只测命中渠道那一条；`check_app_update` 的 `routes` 只含本源一条；安装/下载只用本源地址，`mirrors` 恒空。前端删「下载通道」下拉、只显示「安装包 · 走 X · 实测速度」；`market.ts` 镜像也只留三条，`probeMirror` 改为「拉索引 + 实下第一个插件包 256 KB 测速」。**证据**：cargo `updates::` 6 passed（新增 `mirrors_are_all_complete_sources`）· vitest app-update 16 / market-mirror 23 / market-pane 11 全过。**未做**：桌面 dev 的 G2 外观实测、手机 dev 包重编。 |
 | rev173.439 | 2026-11-08 · **发版校验门支持「Gradle 未重打但已有正确产物」**（rev173.438 的待办）：旧实现只按 `mtimeMs >= t0` 认「本次新写出」，Gradle 判定无需重打时 mtime 不变 ⇒ 空集 ⇒ 误报「没有产出新的 APK」，把「无需重打」和「构建失败」混成一种结果。修法：挑选逻辑收成纯函数 `pickReleaseApks()`（`scripts/apk-version.mjs`）—— 有新产物只认新的；没有就回退到已有产物，但每份都要 aapt2 版本对得上，否则照旧退出 1。新增 `tests/apk-release-pick.test.ts` 6 条。**G2 真实产物自验**：6 份 APK 里只有 universal 的两份是 0.10.2/10002，arm/arm64/x86/x86_64 全是 0.9.15/0.9.16；回退模式挑出那两份、逐条拒绝其余（`_shots/rev173439-apk-picker.log`）。**未做**：02 分册 §3「从 `apk/<abi>/release/` 取包」的文档修订（按本次自验那目录里就是旧包）。 |
 | rev173.438 | 2026-11-08 · **用正确的 0.10.2 包替换 Android 附件**（修 rev173.437 的事故）：重跑 `build-release.mjs --android` 后 Gradle 判定**无需重打**（app 本体自 11-08 19:45 未变，这轮只动了插件 / 脚本 / 文档）⇒ 产物 mtime 不变，新加的校验门报「没有产出新的 APK」（这是**门在起作用**，不是构建失败）。改用现成的 `apk/universal/release/app-universal-release.apk`：`aapt2` 验 `versionName=0.10.2 versionCode=10002`，签名证书 SHA-256 `351adf8c…` 与 0.10.1 相同（同证书才能覆盖安装）。新包 34,981,231 B · sha256 `650a927b…`。**发布**：GitHub `gh release upload --clobber`（digest 已核对）；Gitee 删旧附件 `3633457` 后重传（新 id `3633970`，size 34981231）；`update/android.json` 按新包重写。**待办**：`build-release.mjs` 的校验门要支持「Gradle 未重写但已有正确产物」的情形（现在会误报无新产物）；手机端安装验收待用户做。 |
 | rev173.437 | 2026-11-08 · **发版事故（0.10.2 的 Android 包其实是 0.9.16）+ 补 APK 版本校验门**：用户实测「更新信息显示 0.10.2，下载完安装却显示 0.9.16、无法安装」。根因链：① `tauri android build --apk` 不带 `--split-per-abi` ⇒ 新包只落在 `apk/universal/release/app-universal-release.apk`（34.98 MB，`aapt2` 读 0.10.2/10002）；`apk/arm64/release/app-arm64-release.apk` 停在 **11-02 19:03**（那次 `--split-per-abi` 的旧产物，Gradle 输出名不含版本号）；② 发版按「目录名 + 33 MB」取文件，把旧包改名成 `ZeroNote_0.10.2_arm64.apk` 上传 —— sha256 `4ee3b519…` **与 GitHub v0.9.16 的 arm64 附件逐字节相同**；③ `gen-update-manifest.mjs` 只算 sha256 / size，对旧包同样自洽。`aapt2 dump badging` 实测该包 `versionCode=9016 versionName=0.9.16`（0.10.1 是 `10001 / 0.10.1`）⇒ 系统按降级拒绝安装。**修法**：新增 `scripts/apk-version.mjs`（aapt2 读 versionName / versionCode；找不到 aapt2 也算失败，不许静默放行）；`build-release.mjs` 构建后只认「本次新写出的」APK 并逐个比对 `package.json`，不符 exit 1；`gen-update-manifest.mjs` 写清单前先验版本。**验证**：旧包 → `✗ APK 里的版本是 0.9.16（versionCode 9016）` exit 1；真产物 → `versionName=0.10.2 versionCode=10002` exit 0；verify 全绿（20:31:46，vitest 2031 · 质量门 9/9）。**未做**：重编 Android 包、覆盖 v0.10.2 附件、重生成 `update/android.json`。 |
@@ -390,6 +391,23 @@ revision: 173.439
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.440（2026-11-08 · 更新渠道改为「一个渠道 = 一个完整源」）
+
+> **用户拍板（2026-11-08）**：多渠道保留，但**校验更新和实际下载必须是同一个源**；**测速测的是下载速度**；**jsDelivr 渠道全去掉**；**手动测速按钮保留**。
+
+> **为什么去掉 jsDelivr**：它只镜像仓库文件、拿不到 GitHub Release 附件；`@main` 索引还有缓存滞后（用户实测 jsDelivr 显示 `v0.10.1`、raw / Gitee 显示 `v0.10.2`）—— 既看不到新版、又下不了包。
+
+> **改动**：
+> - `src-tauri/src/updates.rs`：`MIRRORS` 只剩 `raw / gitee / ghproxy`（每个渠道自带 `asset` 路由）；删除 `ASSET_ROUTES` / `asset_routes()` / `asset_candidates()` / `pick_routes()`（原来并发的「三条安装包路径」）；新增 `probe_mirror_asset()` —— 只测命中渠道那一条；`check_app_update` 的 `routes` 只含本源一条；`install_desktop_update` / `download_android_update` 只用本源地址（前端传来的地址与本源不同则忽略并记日志）；`parse_manifest` 的 `mirrors` 恒空。
+> - `src/components/AppUpdatePanel.tsx`：**删「下载通道」下拉**（`zn-app-update-route` 废弃），只显示「安装包 · 走 X · 实测速度」；渠道下拉的 title 改成与行为一致（不再写「清单与安装包都从这条渠道走」这种自相矛盾的旧文案）。
+> - `src/kernel/app-update.ts`：渠道表三条。
+> - `src/kernel/market.ts`：镜像表三条（jsDelivr 全删）；`probeMirror` 改为「拉索引 + **实下第一个插件包前 256 KB** 测速度」。
+> - 手动「测速」按钮保留：依次测三个渠道，显示 `v<x.y.z> · 下载 xxx KB/s`。
+
+> **证据**：cargo `updates::` 6 passed（新增 `mirrors_are_all_complete_sources`，断言渠道表只剩完整源）；`vitest` app-update 16 · market-mirror 23 · market-pane 11 全过。
+
+> **未做**：① 桌面 dev 的 G2 外观实测（三渠道测速 + 面板）；② 手机 dev 包未重编（Rust 改动，需重装才生效）。
 
 > ## 📌 rev173.439（2026-11-08 · 发版校验门支持「Gradle 未重打但已有正确产物」）
 

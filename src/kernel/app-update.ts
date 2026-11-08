@@ -98,15 +98,14 @@ export type UpdateMirror = { id: string; label: string }
  * 内置渠道。**id / label 与 `src-tauri/src/updates.rs` 的 `MIRRORS` 逐字一致**，
  * 也与插件市场 `MARKET_MIRRORS` 同序（raw 第一）。
  *
- * 两处各有一份，改要一起改 —— 没有跨语言测试能兜住；但用户看到的名字混了，
- * 至少比「后端不认这个 id」好查（后者会直接报「不认识的更新渠道」）。
+ * rev173.440（2026-11-08 用户拍板）：**渠道 = 完整源** —— 清单与安装包必须同源。
+ * jsDelivr 三条已移除：它只镜像仓库文件，拿不到 GitHub Release 附件，还会缓存旧清单
+ * （用户实测：jsDelivr 显示 v0.10.1、raw / Gitee 显示 v0.10.2）。
+ * 剩下的每个渠道都能同时给出清单与安装包。
  */
 export const UPDATE_MIRRORS: UpdateMirror[] = [
   { id: 'raw', label: 'GitHub raw' },
   { id: 'gitee', label: 'Gitee（国内直连）' },
-  { id: 'jsdelivr-gcore', label: 'jsDelivr · GCore' },
-  { id: 'jsdelivr-testingcf', label: 'jsDelivr · Cloudflare' },
-  { id: 'jsdelivr', label: 'jsDelivr（cdn，国内常断）' },
   { id: 'ghproxy', label: 'ghproxy.net（第三方）' },
 ]
 

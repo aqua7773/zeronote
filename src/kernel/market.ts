@@ -85,12 +85,13 @@ export const CUSTOM_MIRROR_ID = 'custom'
 /**
  * 内置镜像。**第一条是默认**。
  *
- * 2026-10-27 手机真机实测（Android · rustls，与装插件同一条 Rust 链路）：
- *  · `raw.githubusercontent.com` **6/6 失败**（`Connection reset by peer`，TLS 阶段被 RST）
- *  · jsDelivr 的 `gcore` / `testingcf` 节点 **4/4 通**，索引与包都与 raw 逐字节一致
- *    （真装过一次 `backup-0.3.1`，sha256 校验通过）
- *  · `ghproxy.net` 也通，但它是第三方反代（随时可能挂 / 限速），排最后
- *  · 桌面同一份代码连 raw = 200 ⇒ raw 仍留在列表里（局域网 / 海外直连最快）
+ * rev173.440（2026-11-08 用户拍板）：**镜像 = 完整源**（索引与插件包同源），
+ * 且 jsDelivr 三条全部移除 —— 用户实测它的索引缓存滞后（显示旧版本，例如仍停在
+ * `ai 0.8.0`），「拿不到新版的索引」与「装不上新包」是同一种失效。
+ *
+ * 2026-10-27 手机真机实测（Android · rustls）：`raw.githubusercontent.com` 6/6 失败
+ * （TLS 阶段 RST）；`ghproxy.net` 通但随时可能挂 / 限速，排最后。
+ * raw 仍排第一（桌面 / 海外直连最快），手机自动探测会落到 Gitee。
  */
 export const MARKET_MIRRORS: MarketMirror[] = [
   {
@@ -105,24 +106,6 @@ export const MARKET_MIRRORS: MarketMirror[] = [
     // Gitee 的 raw 路径：/<owner>/<repo>/raw/<branch>/<path>（不是 raw.githubusercontent 那套）
     indexUrl: 'https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/index.json',
     packBase: 'https://gitee.com/legendary-bird-lin/zeronote/raw/main/',
-  },
-  {
-    id: 'jsdelivr-gcore',
-    label: 'jsDelivr · GCore',
-    indexUrl: 'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
-    packBase: 'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/',
-  },
-  {
-    id: 'jsdelivr-testingcf',
-    label: 'jsDelivr · Cloudflare',
-    indexUrl: 'https://testingcf.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
-    packBase: 'https://testingcf.jsdelivr.net/gh/aqua7773/zeronote@main/',
-  },
-  {
-    id: 'jsdelivr',
-    label: 'jsDelivr（cdn，国内常断）',
-    indexUrl: 'https://cdn.jsdelivr.net/gh/aqua7773/zeronote@main/market/index.json',
-    packBase: 'https://cdn.jsdelivr.net/gh/aqua7773/zeronote@main/',
   },
   {
     id: 'ghproxy',
@@ -230,7 +213,19 @@ function shortError(e: unknown): string {
   return last.slice(0, 60)
 }
 
-/** 测一条镜像：拉索引 + 解析（与真正装插件走同一条 Rust 链路，不是浏览器的 fetch） */
+/** 字节/秒 → 人读速度（测速详情用） */
+function formatSpeed(bps: number): string {
+  if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`
+  return `${Math.max(1, Math.round(bps / 1024))} KB/s`
+}
+
+/**
+ * 测一条镜像（rev173.440 · 用户规则「测速测的是下载的速度」）：
+ * ① 拉索引、解析出条目（判可达 —— 只看 200 会被错误页骗）；
+ * ② **用这个源实下第一个插件包的前 256 KB**，算真实下载速度。
+ *
+ * 与真正装插件走同一条 Rust 链路（不是浏览器 fetch）。
+ */
 export async function probeMirror(m: MarketMirror): Promise<MirrorProbe> {
   const t0 = Date.now()
   try {
@@ -238,15 +233,35 @@ export async function probeMirror(m: MarketMirror): Promise<MirrorProbe> {
       req: { url: m.indexUrl, method: 'GET', timeoutMs: 8_000 },
     })
     const ms = Date.now() - t0
-    let count = 0
+    let entries: MarketEntry[] = []
     if (resp.status === 200) {
       try {
-        count = parseMarketIndex(decodeBase64Utf8(resp.body_b64)).entries.length
+        entries = parseMarketIndex(decodeBase64Utf8(resp.body_b64)).entries
       } catch {
-        count = 0
+        entries = []
       }
     }
-    return judgeMirrorProbe(m.id, resp.status, count, ms)
+    const base = judgeMirrorProbe(m.id, resp.status, entries.length, ms)
+    if (!base.ok || entries.length === 0) return base
+
+    const pack = mirrorPackUrl(m, entries[0].url)
+    const t1 = Date.now()
+    const dl = await invoke<NetResponse>('net_request', {
+      req: {
+        url: pack,
+        method: 'GET',
+        timeoutMs: 8_000,
+        headers: { Range: 'bytes=0-262143' },
+      },
+    })
+    const dlMs = Math.max(1, Date.now() - t1)
+    // base64 长度 ≈ 4/3 原始字节；插件包最大 ~276 KB，整包也就这点
+    const bytes = Math.floor((dl.body_b64?.length ?? 0) * 0.75)
+    if (dl.status !== 200 && dl.status !== 206) {
+      return { id: m.id, ok: false, ms, detail: `${base.detail} · 下载 HTTP ${dl.status}` }
+    }
+    const bps = Math.round((bytes / dlMs) * 1000)
+    return { ...base, detail: `${base.detail} · 下载 ${formatSpeed(bps)}` }
   } catch (e) {
     return { id: m.id, ok: false, ms: Date.now() - t0, detail: shortError(e) }
   }

@@ -38,7 +38,7 @@ Release 上那份只是给人下载用的备份。
 `plugins.updater.endpoints` 的语义是「非 2xx 才试下一个」，连接被 RST 属于网络错误 ——
 它会直接失败、不会换镜像（详见 `src-tauri/src/updates.rs` 头部注释）。
 所以镜像选择必须在我们自己的代码里做，清单也就必须能在**任意一个可达的静态地址**上取到。
-仓库 raw 镜像列表（raw / jsDelivr ×3 / ghproxy）已经覆盖国内网络；用户还能在「关于 → 更新」
+仓库 raw 镜像列表（raw / Gitee / ghproxy）已经覆盖国内网络；用户还能在「关于 → 更新」
 里选渠道或跑一次测速。
 
 ## 安装包地址为什么是 `ghproxy.net/...`
@@ -61,56 +61,42 @@ https://ghproxy.net/https://github.com/aqua7773/zeronote/releases/download/v0.9.
 * 想在海外 / 自建反代环境用原始地址：`$env:NO_GH_MIRROR=1; node scripts/gen-update-manifest.mjs`
 * ghproxy 挂了怎么办：应用内更新会报错，用户到 Release 页面手动下（浏览器可配代理）。
 
-## 渠道（rev173.300）：和插件市场同一套
+## 渠道（rev173.440）：一个渠道 = 一个完整源
 
-「关于 → 更新」里有 **更新渠道下拉 + 测速**，渠道表与插件市场 `MARKET_MIRRORS` 同一套
-id 与顺序（前端 `src/kernel/app-update.ts` 的 `UPDATE_MIRRORS` / Rust `updates.rs` 的 `MIRRORS`）：
+「关于 → 更新」只有一个**更新渠道**下拉（**手动「测速」按钮保留**）。
+渠道表与插件市场 `MARKET_MIRRORS` 同一套 id 与顺序（前端 `src/kernel/app-update.ts` 的
+`UPDATE_MIRRORS` / Rust `updates.rs` 的 `MIRRORS`）：
 
 | 渠道 | 清单 | 安装包 |
 |---|---|---|
-| `raw`（GitHub raw） | ✅ | 走**下载通道**（见下节），与渠道无关 |
-| `jsdelivr-gcore` · `jsdelivr-testingcf` · `jsdelivr` | ✅ | 同上（**jsDelivr 只服务仓库文件，拿不到 Release 附件**） |
-| `ghproxy`（第三方反代） | ✅ | 同上 |
+| `raw`（GitHub raw） | ✅ | GitHub Release 直连（同一家） |
+| `gitee`（国内直连） | ✅ | Gitee 同名 Release 附件（前缀替换） |
+| `ghproxy`（第三方反代） | ✅ | `https://ghproxy.net/<Release 地址>` |
 
-> **rev173.311 起渠道只决定「清单从哪拉」**，安装包不再绑死在某条渠道上（见下节）。
-> 上表「安装包」列的旧口径已不成立。
+**同源规则（2026-11-08 用户拍板）**：校验更新和实际下载必须走**同一个渠道**；
+测速测的是**这个源下载安装包的速度**，不再是「能不能拉到清单」。
 
-* 选中的渠道存 `localStorage['zn-app-update-mirror']`；
-  启动时的静默检查**不指定渠道**（按表顺序自动探测，谁先 200 用谁）。
-* 清单里的 `url` 仍写成 ghproxy 前缀 —— 客户端先 `canonical_asset_url()` 剥回 GitHub
-  直链，再按**下载通道**路由。这样 ≤0.9.3 的旧客户端（只会原样用清单 url）不会被改坏；
+* 旧设计（rev173.300–311）里有「渠道」+「下载通道」两个下拉：渠道只管清单，安装包在
+  `direct / ghproxy / gh-proxy` 三条里并发测速。**已废弃** —— 它让用户看到「清单是新的、包下不来」，
+  而且 jsDelivr 这类只能镜像仓库文件的源在应用更新里没有意义（拿不到 Release 附件，还会缓存旧清单）。
+* **jsDelivr 三条已全部移除**（应用更新 + 插件市场）。别再加回来：它不满足「完整源」。
+* 选中的渠道存 `localStorage['zn-app-update-mirror']`；启动静默检查不指定渠道，按表顺序自动探测。
+* 清单里的 `url` 仍写成 ghproxy 前缀 —— 客户端先 `canonical_asset_url()` 剥回 GitHub 直链，
+  再按**当前渠道**改写（`rewrite_asset_url`）。这样 ≤0.9.3 的旧客户端（只会原样用清单 url）不会被改坏；
   **别把脚本改成直链**。
-* 测速命令 `probe_update_mirror`：只验**清单**（拉下来并解析出版本 —— 只看状态码会被
-  错误页骗）。桌面**不再 HEAD 安装包**：jsDelivr 拿不到 Release 附件，那条 HEAD 必然红，
-  会把好好的清单渠道显示成「安装包不可达」（2026-11-01 那张截图的误导就来自这里）。
+* 测速命令 `probe_update_mirror`：拉清单拿版本 **+ 用这个源实下安装包前 256 KB 算速度**。
+  「可用」= 清单能解析 **且** 包下得动（只看状态码会被错误页骗）。
 
-## 下载通道（rev173.311）：三路并发实测，谁快走谁
+## 安装包下载（rev173.440）：只用当前渠道那一条
 
-安装包有**三条独立路径**（`updates.rs` 的 `ASSET_ROUTES`），与清单渠道解耦：
-
-| id | 路径 | 2026-11-01 本机无代理实测 |
-|---|---|---|
-| `direct` | GitHub 直连 → `release-assets.githubusercontent.com` | ✅ **1.16 MB/s**（最快） |
-| `ghproxy` | `https://ghproxy.net/<Release 地址>` | ✅ 270 KB/s |
-| `gh-proxy-com` | `https://gh-proxy.com/<Release 地址>` | ✅ 144 KB/s |
-
-* **点「检查更新」就测**（`Range: bytes=0-262143` 拉 256 KB 算速度，三条并发；**全灭**才换
-  直连再测一轮 —— 系统代理「开着但不可用」时第一轮会全灭）。结果在 `UpdateCheck.routes`
-  里按速度降序，前端「下载通道」一行显示。
-* ⚠️ **只有「有新版本」时才测路、才显示「下载通道」**（`check_app_update` 里
-  `match (has_update, latest)`）。已是最新时 `routes` 为空，那一行整块不渲染。
-  2026-11-01 用户验证 0.9.9 时把这条当成「功能没生效」，实为有意取舍 —— 不为一个
-  不会下载的场景多花几秒。**想随时看到三路速度就放开这个条件**（代价：每次检查多 1–3 秒）。
-* **点「安装」直接用** `routes[0]`（或用户在「下载通道」下拉里手选的那条），不再等测速。
-  Rust 侧仍做白名单校验（只认候选三条），桌面另加 minisign、Android 另加 sha256。
-* 直连不是「有墙才用反代」：`release-assets` 的 DNS 是**间歇性**被污染 —— 直连优先、
-  断了自动降级，这才是这套设计的重点。只配一条路（无论哪条）都会在某个时刻整段不可用。
-* ⚠️ 2026-11-01 试过的 16 条反代里只有上表 2 条活着。腾讯云那篇「2026 最新收集」里的 7 条
-  （`ghproxy.homeboyc` / `github.akams` / `gh.xxooo` / `gh-proxy.net` / `cf.ghproxy.cc` /
-  `gh.nodeku` / `gh.072103`）**全部不可用**，`github.akams` 还要先选节点子域（直接拼是 404）。
-  要加新反代先按上表口径实测，别照抄合集。
-* **未做的第四条路**：把安装包当**仓库文件**发（`raw.githubusercontent.com` 实测 941 KB/s，
-  与 `release-assets` 是不同域名 = 独立故障域），代价是每版仓库 +50 MB（APK 34.6 + exe 15.1）。
+* 检查更新时：命中渠道 + 有新版 ⇒ `probe_mirror_asset()` 只测**这一个源**那一条路径
+  （`Range: bytes=0-262143`，256 KB 算速度；先跟随系统代理，失败再直连重测一次）。
+  已是最新时不测 —— 不为不会发生的下载多花几秒。
+* 点「安装」直接用检查阶段测好的地址；Rust 侧再核一次「这个地址是否等于本源改写结果」，
+  不等于就忽略并记日志 —— **校验走哪个源，下载就走哪个源**。
+* 桌面另加 minisign、Android 另加 sha256；Android 断点续传不变（**换源 = 用户自己换渠道重来**）。
+* 直连不是「有墙才用反代」：`release-assets` 的 DNS 间歇性被污染 —— raw 渠道优先直连，
+  但失败时它**不会**偷偷换到别的渠道（那会变成「清单是新源、包是旧源」）。
 
 ## 断点续传与状态（rev173.311）
 
@@ -127,10 +113,10 @@ id 与顺序（前端 `src/kernel/app-update.ts` 的 `UPDATE_MIRRORS` / Rust `up
 |---|---|
 | `raw.githubusercontent.com` | ✅ 几乎实时（偶发限流，会返回非 JSON） |
 | `ghproxy.net` | ⏱ 缓存几分钟 |
-| jsDelivr `@main` | ⏱ 缓存较长（小时级） |
+| ~~jsDelivr `@main`~~ | ❌ 已移除（rev173.440）：缓存小时级，常显示旧版本 |
 
 所以镜像顺序把 **raw 放第一**（应用内探测也是这个顺序）：内容一更新，桌面端立刻就能拿到新清单；
-ghproxy / jsDelivr 只在前两个都不通时才用，滞后可接受。
+ghproxy 只在前两个都不通时才用，滞后可接受。
 急的时候别反复请求 raw（触发限流），等一两分钟再验。
 
 ## 私钥在哪

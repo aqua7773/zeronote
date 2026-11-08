@@ -60,9 +60,9 @@ describe('mirrorPackUrl', () => {
     expect(mirrorPackUrl(mirrorById('raw'), RAW_PACK_URL)).toBe(RAW_PACK_URL)
   })
 
-  it('jsDelivr 换前缀（路径形态完全不同：gh/user/repo@ref）', () => {
-    expect(mirrorPackUrl(mirrorById('jsdelivr-gcore'), RAW_PACK_URL)).toBe(
-      'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/market/packs/backup-0.3.1.znp',
+  it('Gitee 换前缀（raw 路径形态不同：/<owner>/<repo>/raw/<branch>/）', () => {
+    expect(mirrorPackUrl(mirrorById('gitee'), RAW_PACK_URL)).toBe(
+      'https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/packs/backup-0.3.1.znp',
     )
   })
 
@@ -73,13 +73,13 @@ describe('mirrorPackUrl', () => {
   })
 
   it('带 query 的地址只取文件名，query 丢掉', () => {
-    const out = mirrorPackUrl(mirrorById('jsdelivr'), `${RAW_PACK_URL}?v=2`)
+    const out = mirrorPackUrl(mirrorById('ghproxy'), `${RAW_PACK_URL}?v=2`)
     expect(out).toContain('/market/packs/backup-0.3.1.znp')
     expect(out).not.toContain('?v=2')
   })
 
   it('不是 .znp 的地址原样返回（不瞎猜）', () => {
-    expect(mirrorPackUrl(mirrorById('jsdelivr'), 'https://example.com/x.json')).toBe(
+    expect(mirrorPackUrl(mirrorById('ghproxy'), 'https://example.com/x.json')).toBe(
       'https://example.com/x.json',
     )
   })
@@ -91,7 +91,7 @@ describe('mirrorPackUrl', () => {
     }
     // 第三方 Release 同理
     const release = 'https://github.com/someone/repo/releases/download/v1/x-1.0.0.znp'
-    expect(mirrorPackUrl(mirrorById('jsdelivr'), release)).toBe(release)
+    expect(mirrorPackUrl(mirrorById('ghproxy'), release)).toBe(release)
   })
 })
 
@@ -117,10 +117,10 @@ describe('loadMirror / saveMirror', () => {
   })
 
   it('存了内置 id 就取它（索引与包前缀都来自同一条）', () => {
-    saveMirror(mirrorById('jsdelivr-gcore'))
+    saveMirror(mirrorById('gitee'))
     const m = loadMirror()
-    expect(m.id).toBe('jsdelivr-gcore')
-    expect(m.packBase).toContain('gcore.jsdelivr.net')
+    expect(m.id).toBe('gitee')
+    expect(m.packBase).toContain('gitee.com')
   })
 
   it('未知 id 回退默认', () => {
@@ -153,8 +153,8 @@ describe('loadMirror / saveMirror', () => {
       indexUrl: 'https://my.host/market/index.json',
       packBase: 'https://my.host/',
     })
-    saveMirror(mirrorById('jsdelivr'))
-    expect(loadMirror().id).toBe('jsdelivr')
+    saveMirror(mirrorById('ghproxy'))
+    expect(loadMirror().id).toBe('ghproxy')
     expect(localStorage.getItem('zn-market-index-url')).toBe('https://my.host/market/index.json')
   })
 })
@@ -181,7 +181,7 @@ describe('judgeMirrorProbe', () => {
 })
 
 describe('probeMirror', () => {
-  it('成功时用「解析出的条目数」当证据，不只看状态码', async () => {
+  it('成功时用「解析出的条目数」当证据，并实测下载速度', async () => {
     mocks.invoke.mockResolvedValueOnce({
       status: 200,
       headers: {},
@@ -200,10 +200,17 @@ describe('probeMirror', () => {
         }),
       ),
     })
-    const r = await probeMirror(mirrorById('jsdelivr'))
+    // rev173.440：测速会再发一次请求，实下插件包的前 256 KB
+    mocks.invoke.mockResolvedValueOnce({
+      status: 206,
+      headers: {},
+      body_b64: btoa('x'.repeat(4096)),
+    })
+    const r = await probeMirror(mirrorById('ghproxy'))
     expect(r.ok).toBe(true)
-    expect(r.detail).toBe('1 条')
-    expect(mocks.invoke).toHaveBeenCalledTimes(1)
+    expect(r.detail).toContain('1 条')
+    expect(r.detail).toContain('下载')
+    expect(mocks.invoke).toHaveBeenCalledTimes(2)
   })
 
   it('返回 200 但内容不是索引 → 不许判可用', async () => {
@@ -212,7 +219,7 @@ describe('probeMirror', () => {
       headers: {},
       body_b64: btoa('<html>blocked</html>'),
     })
-    const r = await probeMirror(mirrorById('jsdelivr'))
+    const r = await probeMirror(mirrorById('ghproxy'))
     expect(r.ok).toBe(false)
   })
 
@@ -239,13 +246,13 @@ describe('installFromMarket 走当前镜像', () => {
     })
   })
 
-  it('选 jsDelivr 后包地址跟着换（这正是「能看不能装」的修法）', async () => {
-    saveMirror(mirrorById('jsdelivr-gcore'))
+  it('选 Gitee 后包地址跟着换（这正是「能看不能装」的修法）', async () => {
+    saveMirror(mirrorById('gitee'))
     mocks.invoke.mockResolvedValueOnce('backup')
     await installFromMarket('C:/vault', entry())
     const arg = mocks.invoke.mock.calls[0][1] as { url: string }
     expect(arg.url).toBe(
-      'https://gcore.jsdelivr.net/gh/aqua7773/zeronote@main/market/packs/backup-0.3.1.znp',
+      'https://gitee.com/legendary-bird-lin/zeronote/raw/main/market/packs/backup-0.3.1.znp',
     )
   })
 })
