@@ -24,11 +24,14 @@
  *   · 4 个 ABI 一起时       桌面 + Android ≈ 18 分钟（所以砍 ABI 的收益被 aarch64 全量吃掉了）
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { checkApkVersion, listReleaseApks } from './apk-version.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+/** 发出去的包必须与这个版本号一致（rev173.437 加的产物校验用） */
+const appVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')).version
 
 const argv = process.argv.slice(2)
 const wantAndroid = argv.includes('--android')
@@ -134,6 +137,36 @@ if (wantAndroid || both) {
     '--target',
     target,
   ])
+}
+
+/* rev173.437（2026-11-08 事故）：**构建完就地验版本号**。
+ *
+ * 事故：`--apk` 不带 `--split-per-abi` ⇒ 新包只落在 `apk/universal/release/`，
+ * 而 `apk/arm64/release/` 里躺的是上一次 `--split-per-abi` 的旧产物。发版时按目录名 +
+ * 体积取文件 ⇒ 把 0.9.16 改名成 0.10.2 发了出去（sha256 / size 对旧包同样自洽）。
+ * 这里改成：**只认本次构建新写出的文件**，再逐个用 aapt2 读 versionName 比对 package.json。 */
+if (wantAndroid || both) {
+  const fresh = listReleaseApks().filter(({ apk }) => {
+    try {
+      return statSync(apk).mtimeMs >= t0
+    } catch {
+      return false
+    }
+  })
+  if (fresh.length === 0) {
+    console.error('\n✗ Android 构建没有产出新的 APK —— 目录里只有历史产物，绝不能拿去发')
+    process.exit(1)
+  }
+  console.log('\n▶ 产物版本校验（aapt2 dump badging）')
+  for (const { variant, apk } of fresh) {
+    const rel = apk.replace(root, '').replace(/\\/g, '/')
+    const v = checkApkVersion(apk, appVersion)
+    if (!v.ok) {
+      console.error(`\n✗ ${rel}\n   ${v.error}`)
+      process.exit(1)
+    }
+    console.log(`  ✓ ${variant} · versionName=${v.versionName} versionCode=${v.versionCode} · ${rel}`)
+  }
 }
 
 const total = Math.round((Date.now() - t0) / 1000)

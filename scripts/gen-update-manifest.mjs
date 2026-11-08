@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { checkApkVersion } from './apk-version.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const argv = process.argv.slice(2)
@@ -175,6 +176,16 @@ for (const rel of apkDirs) {
     )
   }
   const full = join(dir, apk)
+  /* rev173.437（2026-11-08 事故）：**先验 APK 里的版本，再算 sha256**。
+   * 0.10.2 那次就是把 0.9.16 的旧产物改名发了出去 —— sha256 / size 对旧包同样「自洽」，
+   * 三道校验全放行，只有 aapt2 读出来的 versionName 能看见问题。 */
+  const apkVer = checkApkVersion(full, version)
+  if (!apkVer.ok) {
+    console.error(`✗ ${apkVer.error}`)
+    console.error(`   文件：${full}`)
+    console.error('   拒发：清单里的 sha256 对旧包同样成立，写进去就等于把旧包装成新版本发出去。')
+    process.exit(1)
+  }
   const sha256 = sha256Of(full)
   const size = readFileSync(full).length
   const mtime = new Date(statSync(full).mtimeMs).toISOString().slice(0, 19).replace('T', ' ')
@@ -189,7 +200,7 @@ for (const rel of apkDirs) {
     },
   })
   console.log(
-    `   · APK ${apk} · ${(size / 1024 / 1024).toFixed(1)} MiB · 构建于 ${mtime} · sha256 ${sha256.slice(0, 16)}…`,
+    `   · APK ${apk} · v${apkVer.versionName}（${apkVer.versionCode}）· ${(size / 1024 / 1024).toFixed(1)} MiB · 构建于 ${mtime} · sha256 ${sha256.slice(0, 16)}…`,
   )
   androidOk = true
   break
