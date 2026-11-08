@@ -406,8 +406,15 @@ revision: 173.440
 > - 手动「测速」按钮保留：依次测三个渠道，显示 `v<x.y.z> · 下载 xxx KB/s`。
 
 > **证据**：cargo `updates::` 6 passed（新增 `mirrors_are_all_complete_sources`，断言渠道表只剩完整源）；`vitest` app-update 16 · market-mirror 23 · market-pane 11 全过。
-
-> **未做**：① 桌面 dev 的 G2 外观实测（三渠道测速 + 面板）；② 手机 dev 包未重编（Rust 改动，需重装才生效）。
+>
+> **G2 桌面（CDP）**：关于 → 更新 的渠道下拉只剩 `GitHub raw / Gitee（国内直连） / ghproxy.net（第三方）` 三项，「下载通道」已不存在（`_shots/rev173440-about-update.png`）。
+>
+> **G2 手机（Redmi `33b676f6` · debug 包 21:50:35 重装，含新 Rust）**：直接调 `probe_update_mirror` 验三个渠道 ——
+> · `gitee` → `v0.10.2 · 下载 345 KB/s · 首包 1397ms`（**同源 + 测下载速度都成立**）
+> · `raw` → 失败（手机直连 `raw.githubusercontent.com` RST，如预期）
+> · `ghproxy` → 清单拉到 `v0.10.2`，但安装包**下不动** ⇒ `ok=false`（旧实现会把这种「只通清单」判成可用，正是本次要修的）
+>
+> **未做**：手机端前端 UI 未换（这次装出来的页面是 `tauri.localhost` 嵌入资源、不是 dev server 的 `1420`，所以看不到新下拉；Rust 侧已按上面的真机结果验过）。
 
 > ## 📌 rev173.439（2026-11-08 · 发版校验门支持「Gradle 未重打但已有正确产物」）
 
