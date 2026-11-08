@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.438
-更新时间: 2026-11-08 · 最新 rev173.438（**用正确的 0.10.2 包替换 Android 附件**）· rev173.437（发版事故 + APK 版本校验门）
+revision: 173.439
+更新时间: 2026-11-08 · 最新 rev173.439（**发版校验门支持「Gradle 未重打但已有正确产物」**）· rev173.438（用正确的 0.10.2 包替换 Android 附件）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.438
 
 | rev | 内容 |
 |---|---|
+| rev173.439 | 2026-11-08 · **发版校验门支持「Gradle 未重打但已有正确产物」**（rev173.438 的待办）：旧实现只按 `mtimeMs >= t0` 认「本次新写出」，Gradle 判定无需重打时 mtime 不变 ⇒ 空集 ⇒ 误报「没有产出新的 APK」，把「无需重打」和「构建失败」混成一种结果。修法：挑选逻辑收成纯函数 `pickReleaseApks()`（`scripts/apk-version.mjs`）—— 有新产物只认新的；没有就回退到已有产物，但每份都要 aapt2 版本对得上，否则照旧退出 1。新增 `tests/apk-release-pick.test.ts` 6 条。**G2 真实产物自验**：6 份 APK 里只有 universal 的两份是 0.10.2/10002，arm/arm64/x86/x86_64 全是 0.9.15/0.9.16；回退模式挑出那两份、逐条拒绝其余（`_shots/rev173439-apk-picker.log`）。**未做**：02 分册 §3「从 `apk/<abi>/release/` 取包」的文档修订（按本次自验那目录里就是旧包）。 |
 | rev173.438 | 2026-11-08 · **用正确的 0.10.2 包替换 Android 附件**（修 rev173.437 的事故）：重跑 `build-release.mjs --android` 后 Gradle 判定**无需重打**（app 本体自 11-08 19:45 未变，这轮只动了插件 / 脚本 / 文档）⇒ 产物 mtime 不变，新加的校验门报「没有产出新的 APK」（这是**门在起作用**，不是构建失败）。改用现成的 `apk/universal/release/app-universal-release.apk`：`aapt2` 验 `versionName=0.10.2 versionCode=10002`，签名证书 SHA-256 `351adf8c…` 与 0.10.1 相同（同证书才能覆盖安装）。新包 34,981,231 B · sha256 `650a927b…`。**发布**：GitHub `gh release upload --clobber`（digest 已核对）；Gitee 删旧附件 `3633457` 后重传（新 id `3633970`，size 34981231）；`update/android.json` 按新包重写。**待办**：`build-release.mjs` 的校验门要支持「Gradle 未重写但已有正确产物」的情形（现在会误报无新产物）；手机端安装验收待用户做。 |
 | rev173.437 | 2026-11-08 · **发版事故（0.10.2 的 Android 包其实是 0.9.16）+ 补 APK 版本校验门**：用户实测「更新信息显示 0.10.2，下载完安装却显示 0.9.16、无法安装」。根因链：① `tauri android build --apk` 不带 `--split-per-abi` ⇒ 新包只落在 `apk/universal/release/app-universal-release.apk`（34.98 MB，`aapt2` 读 0.10.2/10002）；`apk/arm64/release/app-arm64-release.apk` 停在 **11-02 19:03**（那次 `--split-per-abi` 的旧产物，Gradle 输出名不含版本号）；② 发版按「目录名 + 33 MB」取文件，把旧包改名成 `ZeroNote_0.10.2_arm64.apk` 上传 —— sha256 `4ee3b519…` **与 GitHub v0.9.16 的 arm64 附件逐字节相同**；③ `gen-update-manifest.mjs` 只算 sha256 / size，对旧包同样自洽。`aapt2 dump badging` 实测该包 `versionCode=9016 versionName=0.9.16`（0.10.1 是 `10001 / 0.10.1`）⇒ 系统按降级拒绝安装。**修法**：新增 `scripts/apk-version.mjs`（aapt2 读 versionName / versionCode；找不到 aapt2 也算失败，不许静默放行）；`build-release.mjs` 构建后只认「本次新写出的」APK 并逐个比对 `package.json`，不符 exit 1；`gen-update-manifest.mjs` 写清单前先验版本。**验证**：旧包 → `✗ APK 里的版本是 0.9.16（versionCode 9016）` exit 1；真产物 → `versionName=0.10.2 versionCode=10002` exit 0；verify 全绿（20:31:46，vitest 2031 · 质量门 9/9）。**未做**：重编 Android 包、覆盖 v0.10.2 附件、重生成 `update/android.json`。 |
 | rev173.436 | 2026-11-08 · **修「点私密笔记直接弹输入框、没有弹指纹」**（用户实测）：根因不是分支丢了（`private-notes` L1030/1096 仍在调 `svc.biometric.unlock`），而是这把环**从未继承过指纹** —— `bound()` 要求 `deviceWrapped`（或旧 `deviceBinding`），而**继承需要「已解锁的 DEK」+「一次设备认证」同时成立**，以前只有安全面板手动凑得出，密码库 / 私密笔记永远凑不出 ⇒ 永远显示「设备绑了、环没绑」。修法：`unlockWithPassword()` 成功后调 `maybeInheritAfterPassword()` —— 设备绑过指纹且本环未继承 ⇒ `unlockDeviceKey()`（弹一次系统指纹）→ `inheritAllUnlocked()` 批量补 `deviceWrapped`，并 toast「已给这个密钥环绑定本机指纹 —— 下次解锁直接按指纹」；取消 / 失败不影响本次解锁。`security 0.5.1` 已签名打包入市。**G2 桌面已验**（`_shots/rev436-desktop-hello.png`：输完主密码后 Windows Hello「确保那是你 / 在指纹读取器上进行手指扫描」如期弹出，同屏还能看到 busy 提示行）。**未验**：按住指纹后的继承结果（AI 不能代按）+ 手机（未绑指纹）。 |
@@ -389,6 +390,20 @@ revision: 173.438
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.439（2026-11-08 · 发版校验门支持「Gradle 未重打但已有正确产物」）
+
+> **问题**（rev173.438 的待办）：`build-release.mjs` 的产物校验只按 `mtimeMs >= t0` 认「本次新写出」。Gradle 判定**无需重打**时（只改了插件 / 脚本 / 文档，app 本体未变）所有 APK 的 mtime 都不变 ⇒ 空集 ⇒ 直接报「Android 构建没有产出新的 APK」退出。**门没坏，但它把「无需重打」和「构建失败」混成了同一个结果。**
+>
+> **修法**：挑选逻辑收成可测纯函数 `pickReleaseApks()`（`scripts/apk-version.mjs`）：① 有本次新产物 ⇒ 只认新的（旧目录里即使版本对也不混进来）；② 一个都没有 ⇒ 回退到已有产物，但**每一份都要 aapt2 读出与 `package.json` 相同的版本**，否则原样报错退出 1；③ 目录里一个 APK 都没有 ⇒ 仍是失败。`build-release.mjs` 只留打印与退出码（回退时多打一行「Gradle 判定无需重打」）。
+>
+> **校验强度没降**：rev173.438 那次「universal 里是新的 0.10.2、arm64 目录里是 0.9.16」正是回退要处理的情形 —— 回退按版本挑，不按目录名挑。
+>
+> **证据（G1）**：`scripts\verify.ps1` 全绿（tsc 0 · oxlint 4 warnings · cargo 105 · vitest **2037** · 质量门 9/9）。新增 `tests/apk-release-pick.test.ts` 6 条，含两条反例：「有新产物时不许回退拿旧的」「新产物版本错时不回退」。
+>
+> **证据（G2 · 真实产物自验）**：当前构建目录 6 份 APK，`aapt2` 逐份读 —— 只有 `universal/release/` 的两份是 `0.10.2 / 10002`，`arm`(0.9.15) / `arm64`(0.9.16) / `x86`(0.9.15) / `x86_64`(0.9.15) 全是旧版；回退模式挑出那两份并逐条拒绝其余 4 份（输出 `_shots/rev173439-apk-picker.log`）。
+>
+> **未做**：① **发版手册 02 分册 §3 仍写「产物在 `apk/<abi>/release/`」** —— 按本次自验，`arm64/release/` 里就是 0.9.16 的旧包，照手册取包仍会重演 rev173.437；正确口径是「取 aapt2 验过版本的那份（当前落在 universal 变体）」。修订要连带确认「不发布 universal（121 MB）」的说法是否只指体积，留给下一轮；② 没跑真实 `--android` 构建（只跑挑选逻辑，避免 5–6 分钟重编 Rust）。
 
 > ## 📌 rev173.438（2026-11-08 · 用正确的 0.10.2 包替换 Android 附件）
 >

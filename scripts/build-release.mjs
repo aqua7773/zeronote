@@ -27,7 +27,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkApkVersion, listReleaseApks } from './apk-version.mjs'
+import { listReleaseApks, pickReleaseApks } from './apk-version.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 /** 发出去的包必须与这个版本号一致（rev173.437 加的产物校验用） */
@@ -144,28 +144,39 @@ if (wantAndroid || both) {
  * 事故：`--apk` 不带 `--split-per-abi` ⇒ 新包只落在 `apk/universal/release/`，
  * 而 `apk/arm64/release/` 里躺的是上一次 `--split-per-abi` 的旧产物。发版时按目录名 +
  * 体积取文件 ⇒ 把 0.9.16 改名成 0.10.2 发了出去（sha256 / size 对旧包同样自洽）。
- * 这里改成：**只认本次构建新写出的文件**，再逐个用 aapt2 读 versionName 比对 package.json。 */
+ * 这里改成：**只认本次构建新写出的文件**，再逐个用 aapt2 读 versionName 比对 package.json。
+ *
+ * rev173.439（2026-11-08）：旧实现只认 mtime ⇒ Gradle 判定「无需重打」时（只改了插件 / 脚本 /
+ * 文档）产物 mtime 不变 ⇒ 空集 ⇒ 误报「没有产出新的 APK」。现在交给 `pickReleaseApks`：
+ * 有新产物就只认新的；没有就回退校验已有产物（版本必须对得上）。校验强度不降。 */
 if (wantAndroid || both) {
-  const fresh = listReleaseApks().filter(({ apk }) => {
-    try {
-      return statSync(apk).mtimeMs >= t0
-    } catch {
-      return false
-    }
+  const { mode, picks, rejected } = pickReleaseApks(listReleaseApks(), {
+    isFresh: ({ apk }) => statSync(apk).mtimeMs >= t0,
+    expectVersion: appVersion,
   })
-  if (fresh.length === 0) {
-    console.error('\n✗ Android 构建没有产出新的 APK —— 目录里只有历史产物，绝不能拿去发')
-    process.exit(1)
+  if (mode === 'existing') {
+    console.log(
+      '\n· Gradle 判定无需重打（app 本体未变）—— 回退校验已有产物：只接受 aapt2 读出同版本的包',
+    )
   }
   console.log('\n▶ 产物版本校验（aapt2 dump badging）')
-  for (const { variant, apk } of fresh) {
-    const rel = apk.replace(root, '').replace(/\\/g, '/')
-    const v = checkApkVersion(apk, appVersion)
-    if (!v.ok) {
-      console.error(`\n✗ ${rel}\n   ${v.error}`)
-      process.exit(1)
+  for (const p of picks) {
+    const rel = p.apk.replace(root, '').replace(/\\/g, '/')
+    console.log(`  ✓ ${p.variant} · versionName=${p.versionName} versionCode=${p.versionCode} · ${rel}`)
+  }
+  if (picks.length === 0) {
+    for (const r of rejected) {
+      const rel = r.apk.replace(root, '').replace(/\\/g, '/')
+      console.error(`  ✗ ${r.variant} · ${rel}\n     ${r.error}`)
     }
-    console.log(`  ✓ ${variant} · versionName=${v.versionName} versionCode=${v.versionCode} · ${rel}`)
+    if (mode === 'fresh') {
+      console.error('\n✗ 本次构建产出的 APK 版本对不上 —— 不能发')
+    } else {
+      console.error(
+        '\n✗ Android 目录里没有任何版本正确的 APK —— 先重编；绝不能把历史产物改名发出去',
+      )
+    }
+    process.exit(1)
   }
 }
 

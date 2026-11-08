@@ -109,6 +109,53 @@ export function checkApkVersion(apkPath, expectVersion) {
   return { ok: true, versionName: v.versionName, versionCode: v.versionCode }
 }
 
+/**
+ * 从构建产物里挑出「可以发布」的那几份（rev173.439）。
+ *
+ * 规则（rev173.437 事故 + rev173.438 误报之后定）：
+ *   ① 有**本次新写出**的 APK ⇒ 只认这些（Gradle 这次确实重新打了包，旧产物一律不看）；
+ *   ② 一个都没有 ⇒ Gradle 判定「无需重打」（app 本体没变；只改了插件 / 脚本 / 文档时常见）
+ *      —— 回退到已有产物，但**每一份都必须 aapt2 读出的版本正确**，否则不算；
+ *   ③ 两份都为空 ⇒ 调用方报错退出（绝不能把历史产物改名发出去）。
+ *
+ * 回退不是放松校验：rev173.438 那次误报正是「Gradle 没重写，但 universal 里的包是新的 0.10.2」，
+ * 旧实现只按 mtime 过滤 ⇒ 空集 ⇒ 直接失败。校验强度不变，只是多了「版本对就用」这条呼吸口。
+ *
+ * @param {Array<{ variant: string, apk: string }>} apks
+ * @param {{ isFresh: (a: { variant: string, apk: string }) => boolean, expectVersion: string,
+ *           check?: (apk: string, expect: string) => any }} opts
+ * @returns {{ mode: 'fresh' | 'existing',
+ *             picks: Array<{ variant: string, apk: string, versionName: string, versionCode: number }>,
+ *             rejected: Array<{ variant: string, apk: string, error: string }> }}
+ */
+export function pickReleaseApks(apks, { isFresh, expectVersion, check = checkApkVersion }) {
+  const fresh = apks.filter((a) => {
+    try {
+      return isFresh(a)
+    } catch {
+      return false
+    }
+  })
+  const mode = fresh.length > 0 ? 'fresh' : 'existing'
+  const pool = mode === 'fresh' ? fresh : apks
+  const picks = []
+  const rejected = []
+  for (const a of pool) {
+    const v = check(a.apk, expectVersion)
+    if (v.ok) {
+      picks.push({
+        variant: a.variant,
+        apk: a.apk,
+        versionName: v.versionName,
+        versionCode: v.versionCode,
+      })
+    } else {
+      rejected.push({ variant: a.variant, apk: a.apk, error: v.error })
+    }
+  }
+  return { mode, picks, rejected }
+}
+
 /** 列出 Gradle 各变体 release 目录里的 APK（供构建脚本统一校验） */
 export function listReleaseApks() {
   const base = join(root, 'src-tauri/gen/android/app/build/outputs/apk')
