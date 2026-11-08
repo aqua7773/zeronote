@@ -1,0 +1,43 @@
+/* 安全插件 · 密钥环列表（rev173.424）
+ *
+ * 用户 2026-11-08 的示意图：一行里左侧「🔒 环名 | 已绑定 X / 未分配」，
+ * 右侧「修改 · 解锁 · 删除」。`row` 节点本身没有 space-between，用外层 cssClass 补。
+ */
+
+.zn-sec-ring-row {
+  width: 100%;
+  justify-content: space-between;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--zn-border);
+}
+
+.zn-sec-ring-row:last-child {
+  border-bottom: 0;
+}
+
+/* 左侧：锁标 + 环名 + 分配状态；窄屏也先保住环名，别把按钮挤到看不见 */
+.zn-sec-ring-left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 右侧动作组：三个按钮贴右，手机上不换行（换行会掉到下一行显得像两行） */
+.zn-sec-ring-actions {
+  flex: 0 0 auto;
+}
+
+/* 分配选择菜单（点「未分配 / 已绑定 X」展开）：一列行，像下拉菜单但没有原生 select 框 */
+.zn-sec-assign-menu {
+  margin: 2px 0 6px 12px;
+  padding: 4px 0;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-sm);
+  background: var(--zn-bg-subtle);
+}
+
+.zn-sec-assign-menu .zn-btn {
+  justify-content: flex-start;
+  width: 100%;
+  border-radius: 0;
+  text-align: left;
+}
