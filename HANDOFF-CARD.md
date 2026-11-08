@@ -52,9 +52,7 @@
 
 > **✅ 密钥环可删除 + 分配列表不再空（rev173.420，2026-11-08）**：`security 0.3.5` —— ① 分配下拉的候选并入**所有已装插件**（内核新 `host.installedPlugins()`）；手机 release 上旧版消费者插件不调 `crypto.demand()` 也能在列表里选到，不再显示「↳ 还没有插件声明需要密钥环」。② 每个**已建立**的环有「删除」按钮，**必须输入该环主密码**才删（取消 / 密码错都不删；删完清分配行 + 删 `vault.<id>.json` + 内存解锁态）。已打包入市；**桌面 G2 已验**（`_shots/rev420-0{4,7,8}*.png`），手机 dev 包插件已推、待解屏后验。
 
-> **🔜 下个会话第一件事（待定，等用户挑）**：① 清掉手机上 0.3.3 的 `security`（dev 包已推 0.3.5；release 机走市场更新）；② 冲突列表 5 条（3 条旧噪声 + 2 条 `vault.*.json` 双端修改）怎么处理；③ G3：真机指纹绑定 / release 机装 0.10.1。**已知坑**（仍有效）：① 手机 reload 后可能「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）。
-
-> **下一步（等 G3 用户验收）**：① 桌面 / 手机**真机指纹绑定**（要真人按 Windows Hello / 系统指纹，AI 无法代按）；② 未分配时的报错是否够醒目（现在显示在密码库面板里）；③ 自定义密钥环：新建 → 下拉分配 → 已随笔记同步。
+> **🔜 下个会话第一件事（2026-11-08 交接）**：① **手机验 `security 0.4.7` 后一起 push 11 个提交**（rev173.424–430）。插件**已推**到 Redmi dev 包，但手机 devUrl 编译成 `192.168.1.3`、本机 WLAN 现在是 **`192.168.1.11`** ⇒ 页面报 `Failed to request …:1420`；两条路：给本机网卡加 `192.168.1.3` 别名（`netsh`，要管理员）或改 `tauri.conf.json` 的 devUrl 重编 dev 包。② 验完 `git push` 两端（GitHub 走代理 `http://127.0.0.1:26561`）。③ **发版 0.10.2**（把新面板 / 恢复码 / 恢复问题 / 指纹一次认证全局生效带给 release 用户；插件市场已到 0.4.7）。**已知坑**（仍有效）：① 手机 reload 后「网页无法打开」⇒ `am force-stop` + `monkey -p com.aqua.zeronote.debug 1` 重开；② `adb forward tcp:9333` 必须指向**当前** pid（旧 pid ⇒ CDP `fetch failed`）；③ PowerShell 里 `$pid` 是只读变量，用 `$appPid`；④ 手机 sync 根已改 `zeronote_test_418`，配置在 `examples/sync/store.json`（gitignore）；⑤ 指纹相关验证必须真人按（AI 不能代按）。
 
 1. ✅ **0.10.1 已发版（rev173.412）**：`host.prompt` 进 release 包。**release 机动作顺序 = 先更新应用**（关于 → 更新到 0.10.1，装完重开），**再更新插件** `安全 0.2.4` / `密码库 0.1.6` / `私密文件夹 0.3.5`。
 2. ✅ **私密笔记第二批已全部完成**（rev173.394–407）：搜索 / 时间流卡片 / 拖入移出 / 删旧面板与列表视图（解锁改 `host.prompt` 输入弹窗、回收站「公开/私密」切换、指纹优先）—— `private-notes 0.3.5` 已入市；0.10.1 后真机可用。
