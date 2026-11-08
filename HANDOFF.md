@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.430
-更新时间: 2026-11-08 · 最新 rev173.430（**指纹一次认证、全局生效**）· rev173.429（建环继承指纹，已被 430 修订）
+revision: 173.431
+更新时间: 2026-11-08 · 最新 rev173.431（**手机 dev 包恢复可连 + security 0.4.7 手机 G2**）· rev173.430（指纹一次认证、全局生效）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.430
 
 | rev | 内容 |
 |---|---|
+| rev173.431 | 2026-11-08 · **手机 dev 包恢复可连 + 手机端 G2 验收 security 0.4.7**（交接卡「下个会话第一件事」①）：① **根因**：手机 dev 包内 `assets/tauri.conf.json` 的 `devUrl` 被 `tauri android dev` 编译时替换成**当时**的局域网 IP `192.168.1.3`，本机 WLAN 现在是 `192.168.1.11` ⇒ 页面 `Failed to request http://192.168.1.3:1420/`；`adb reverse tcp:1420` 救不了（它只映射 localhost）。② **修法**：跑 `android-dev.cmd`（= `tauri android dev --config tauri.android-dev.json`）重编 dev 包 —— CLI 自己检测并打印 `Using 192.168.1.11 to access the development server`、把 devUrl 换掉（构建≈5 分钟：cargo 增量 + gradle，装完自动拉起）。**别试**直接 `gradlew app:assembleDebug`：`:app:rustBuildArm64Debug` 要读 `src-tauri/gen/android/.tauri/cli-options-server.json`，那文件只由 tauri CLI 写 ⇒ 必失败（本轮实测）。③ **手机 G2（Redmi `33b676f6` dev 包）**：面板三张卡片（私密笔记 / 账号密码 / Todo）·字号一致·无下划线（`_shots/rev430-phone-03-security.png`）；新建 `g2ring4` → 恢复码弹窗 `73FB-KGXT-R662-HWSV-Y8ER-3F7T`（`rev430-phone-13-recovery-code.png`）→ 恢复问题「可跳过」（`rev430-phone-14`）；点「未分配」就地展开候选（只列 `private-notes` / `secrets`，`rev430-phone-17`）；解锁弹窗收主密码 → 成功后该行「解锁」变灰（`rev430-phone-16`）。④ **已知体验点（未改，待拍板）**：建环保存 ⇒ 恢复码弹窗之间有 **≈2.6 秒空窗**（慢哈希耗时，期间没有 loading 反馈，容易被当成「点了没反应」）；解锁成功后状态列仍是「未分配」，只有按钮变灰，没有「已解锁」字样。⑤ **指纹相关未验**：绑定 / 一次认证全局生效必须真人按系统指纹，AI 不能代按。⑥ 两端 main 已推（GitHub `b9ecc40..d8fee0b`；Gitee 已是同一提交）。测试库新增测试环 `g2ring` / `g2ring2` / `g2ring4`（主密码 `test-pass-1234`），**未删**（删除要用户确认）。 |
 | rev173.430 | 2026-11-08 · **指纹「一次认证、全局生效」**（用户：「只能每次建立都验证一次吗，不能做到指纹设置之后就是全局生效的吗」）：① **撤销 rev173.429 的「建环前弹指纹」** —— 建环不再打断用户。② 新增 `inheritRings(api)` / `inheritOneRing(api, ringId, dek)`：**任何一次设备指纹认证成功后**，把所有「已解锁但还没 `deviceWrapped`」的环一次性补上指纹包裹（`biometricUnlockRing` 成功后、`doModifyByBiometric` 成功后各调一次）。③ 于是体验变成：**每个会话第一次用指纹认证一次 ⇒ 之后所有环（含之后新建的）都自动可指纹**；新环若当时 DK 不在内存，先用主密码用，下次任意指纹操作自动补齐，不再出现「还没继承」的报错循环。`security 0.4.7` 已签名入市；质量门 9/9 · vitest 62（security 两个文件）。**说明**：DK 每次会话都要重新认证一次是 Windows Hello 的模型（不能把 DK 常驻磁盘，否则本机任何程序都能取走所有环的钥匙），这一点无法绕过。 |
 | rev173.429 | 2026-11-08 · **新建的环默认继承本机指纹**（用户：「新建的环不是默认继承指纹的吗」—— 截图里点「指纹验证修改」报「这个环还没继承本机指纹」）：根因 = `doCreateRing` 只在 **`deviceKey` 已在内存**时才给新环包 `deviceWrapped`；而 DK 只在「本次会话解过某个环」后才有 —— 设备绑过指纹但刚启动 / 一直没解锁时，新环就继承不到。改法：建环前若 `store.deviceFile`（设备绑过）且 `deviceKey` 为空 ⇒ 先 `withBusy(api, id, () => unlockDeviceKey())` 弹一次系统指纹解出 DK；成功则新环带 `deviceWrapped`，取消 / 失败照常建环（只是不继承，行为与旧版一致）。`security 0.4.6` 已签名入市；质量门 9/9。**G2 桌面（部分）**：新建环点保存后**确实弹出 Windows Hello「确保那是你 / 在指纹读取器上进行手指扫描」**（`_shots/rev429-01-hello.png`，全屏截图）—— 证明继承分支被触发；**「按指纹后新环真的带上 deviceWrapped」要真人按一次才能验**（AI 无法代按系统指纹，弹窗只能由用户按键 / 取消）。 |
 | rev173.428 | 2026-11-08 · **「使用恢复问题修改」输入框改成读出当时设的问题**（用户给截图：「恢复问题修改，不显示问题，框内提示词改成：请输入《恢复问题（读当时设置的问题）》的答案」）：`doManageDialog` 里那个 input 的 placeholder 从固定的「使用恢复问题修改」改成模板 `请输入《${ring.recovery.question}》的答案`（没设问题才退回「恢复问题」）。只改一行文案，不动校验逻辑（校验仍走 `recoverWithAnswer`）。`security 0.4.5` 已签名入市；质量门 9/9。**G2 桌面**：Rev427环 的修改弹窗里，该框显示「请输入《第一只宠物叫什么》的答案」（`_shots/rev428-01-question-placeholder.png`，CDP 读 placeholder 逐字核对）。 |
@@ -381,6 +382,22 @@ revision: 173.430
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.431（2026-11-08 · 手机 dev 包恢复可连 + security 0.4.7 手机 G2）
+
+> **问题**：交接卡「下个会话第一件事」① —— 手机 dev 包打开就报 `Failed to request http://192.168.1.3:1420/`。
+
+> **根因**：`devUrl` 在 APK 里是**编译时**写死的局域网 IP（`tauri android dev` 把 `localhost` 换成当时检测到的网卡 IP）。本机 WLAN 已从 `192.168.1.3` 变成 `192.168.1.11`。`adb reverse tcp:1420` 只映射 localhost，救不了这一条。
+
+> **修法**：跑 `android-dev.cmd` 重编 dev 包 —— CLI 打印 `Using 192.168.1.11 to access the development server`，约 5 分钟（cargo 增量 + gradle），装完自动启动。**试错记录（别再走）**：① `netsh interface ip add address` 加 IP 别名需要管理员，本会话非管理员；② 直接 `gradlew app:assembleDebug` 失败 —— `:app:rustBuildArm64Debug` 要读 `src-tauri/gen/android/.tauri/cli-options-server.json`，该文件只由 tauri CLI 写。
+
+> **手机 G2（`security 0.4.7`，Redmi `33b676f6` dev 包）**：卡片三列 / 字号一致 / 无下划线（`_shots/rev430-phone-03-security.png`）；新建 `g2ring4` → 恢复码 `73FB-KGXT-R662-HWSV-Y8ER-3F7T`（`rev430-phone-13-recovery-code.png`）→ 恢复问题可跳过（`rev430-phone-14`）；点「未分配」就地展开候选、只列申请过的插件（`rev430-phone-17`）；解锁弹窗收主密码 → 成功后该行「解锁」变灰（`rev430-phone-16`）。
+
+> **发现（未改，待拍板）**：① 建环保存 ⇒ 恢复码弹窗之间有 **≈2.6 秒空窗**（慢哈希耗时、无 loading 反馈，容易被当成「点了没反应」；MutationObserver 实测 57911ms 点击 → 60646ms 弹窗）；② 解锁成功后状态列仍显示「未分配」，只有按钮变灰，没有「已解锁」字样。
+
+> **未做**：指纹相关（绑定 / 一次认证全局生效 / 指纹验证修改）必须真人按系统指纹，AI 不能代按，留 G3。测试库新增 `g2ring` / `g2ring2` / `g2ring4`（主密码 `test-pass-1234`），未删（删除要用户确认）。
+
+> **状态**：两端已推（GitHub `b9ecc40..d8fee0b`；Gitee 已是同一提交）。
 
 > ## 📌 rev173.430（2026-11-08 · 指纹「一次认证、全局生效」）
 
