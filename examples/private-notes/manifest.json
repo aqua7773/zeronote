@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "private-notes",
   "name": "私密文件夹",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "platforms": ["desktop", "android"],
@@ -15,6 +15,7 @@
     "commands": [
       { "id": "private.open", "title": "私密文件夹：解锁 / 锁定" },
       { "id": "private.lock", "title": "私密文件夹：立即锁定" },
+      { "id": "private.rotate-ring", "title": "私密文件夹：换密钥环（只重包索引）" },
       { "id": "private.new", "title": "私密文件夹：新建私密笔记" },
       { "id": "private.biometric-unlock", "title": "私密文件夹：用指纹解锁" },
       { "id": "private.biometric-bind", "title": "私密文件夹：绑定本机指纹" },

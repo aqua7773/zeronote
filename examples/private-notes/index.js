@@ -38,6 +38,12 @@
 export let RING = 'notes'
 /** 加密容器 id —— 与 `security` 建环时的 `containerId: ringId` 一致（方案 §7-2 已统一成环 id） */
 export const CONTAINER = 'notes'
+/**
+ * 数据段作用域（rev173.448 中间层）：索引与每篇正文各一个，AAD = `<容器>|<作用域>`。
+ * **不含环 id** —— 换环时正文不用重写，只重包索引里的 `keys` 表。
+ */
+export const INDEX_SCOPE = 'index'
+export const noteScope = (id) => `note:${id}`
 /** 私密文件夹根（整棵树在 `.zn/` 下 ⇒ 内核天然看不见） */
 export const PRIVATE_DIR = '.zn/private'
 export const NOTES_DIR = '.zn/private/notes'
@@ -82,7 +88,24 @@ export function notePath(id) {
 
 /** 空索引 */
 export function emptyIndex() {
-  return { v: INDEX_VERSION, notes: [], trash: [] }
+  return { v: INDEX_VERSION, notes: [], trash: [], keys: {} }
+}
+
+/**
+ * 索引对象更新（**一处保证 `keys` / `trash` 不丢**）。
+ *
+ * rev173.448 加 `keys`（每篇一把包裹后的 itemKey）时，原来有 6 个地方各自手写
+ * `{ v, notes, trash }` —— 漏一个就会把密钥表丢掉、正文再也解不开（§8 同一逻辑多处实现）。
+ * 所有构造点一律走这里。
+ */
+function nextIndex(index, patch) {
+  return {
+    v: INDEX_VERSION,
+    notes: index.notes,
+    trash: index.trash ?? [],
+    keys: index.keys ?? {},
+    ...patch,
+  }
 }
 
 /**
@@ -128,15 +151,21 @@ export function parseIndex(text) {
       deletedAt: Number(t.deletedAt) || 0,
     })
   }
-  return { v: INDEX_VERSION, notes, trash }
+  const keys = {}
+  for (const [id, wrapped] of Object.entries(raw.keys ?? {})) {
+    if (typeof id === 'string' && id && typeof wrapped === 'string' && wrapped) keys[id] = wrapped
+  }
+  return { v: INDEX_VERSION, notes, trash, keys }
 }
 
 /** 索引 → 明文（写盘前由 crypto 服务加密） */
 export function serializeIndex(index) {
+  const keys = index.keys ?? {}
   return JSON.stringify({
     v: INDEX_VERSION,
     notes: index.notes.map(stripNote),
     trash: (index.trash ?? []).map(stripTrash),
+    keys,
   })
 }
 
@@ -195,16 +224,12 @@ export function titleFromText(text, fallback = '未命名') {
 export function upsertNote(index, note) {
   const notes = index.notes.filter((n) => n.id !== note.id)
   notes.push(stripNote(note))
-  return { v: INDEX_VERSION, notes, trash: index.trash ?? [] }
+  return nextIndex(index, { notes })
 }
 
 /** 索引里删掉一篇（同样要保留 `trash` —— 理由见 `upsertNote`） */
 export function removeNote(index, id) {
-  return {
-    v: INDEX_VERSION,
-    notes: index.notes.filter((n) => n.id !== id),
-    trash: index.trash ?? [],
-  }
+  return nextIndex(index, { notes: index.notes.filter((n) => n.id !== id) })
 }
 
 /** 索引里找一篇 */
@@ -223,31 +248,25 @@ export function trashPath(id) {
 export function moveToTrash(index, id, deletedAt = Date.now()) {
   const note = findNote(index, id)
   if (!note) return index
-  return {
-    v: INDEX_VERSION,
+  return nextIndex(index, {
     notes: index.notes.filter((n) => n.id !== id),
     trash: [...(index.trash ?? []), { ...note, deletedAt }],
-  }
+  })
 }
 
 /** 从回收站恢复：trash 里挪回 notes */
 export function restoreFromTrash(index, id) {
   const entry = findTrash(index, id)
   if (!entry) return index
-  return {
-    v: INDEX_VERSION,
+  return nextIndex(index, {
     notes: [...index.notes, stripNote(entry)],
     trash: (index.trash ?? []).filter((t) => t.id !== id),
-  }
+  })
 }
 
 /** 从回收站彻底删掉一条（只改索引；磁盘文件由调用方 purge） */
 export function purgeTrashEntry(index, id) {
-  return {
-    v: INDEX_VERSION,
-    notes: index.notes,
-    trash: (index.trash ?? []).filter((t) => t.id !== id),
-  }
+  return nextIndex(index, { trash: (index.trash ?? []).filter((t) => t.id !== id) })
 }
 
 /** 回收站里的某条 */
@@ -641,19 +660,30 @@ async function loadIndex(api) {
     cipher = null // 文件不存在
   }
   if (!cipher) return emptyIndex()
-  const plain = await needSvc().decryptText({ ring: RING, container: CONTAINER, payload: cipher })
+  const text = cipher.trim()
+  const svc = needSvc()
+  /* rev173.448：索引也切自包含 zn2（换环只重包一个文件）；旧 zn1 照旧能读 */
+  const plain =
+    text.startsWith('zn2.') && typeof svc.openFile === 'function'
+      ? await svc.openFile({ container: CONTAINER, scope: INDEX_SCOPE, payload: text })
+      : await svc.decryptText({ container: CONTAINER, payload: text })
   return parseIndex(plain)
 }
 
-/** 写索引（解锁后调用）—— 坏状态拒写 */
-async function saveIndex(api) {
+/**
+ * 写索引（解锁后调用）—— 坏状态拒写。
+ *
+ * `opts.ring`：轮换时索引要直接落到**新环**（此时分配表还是旧环，不能靠 `RING`）。
+ */
+async function saveIndex(api, opts = {}) {
   if (!index) throw new Error('私密文件夹没解锁，拒绝写入')
   await ensureDirs(api)
-  const payload = await needSvc().encrypt({
-    ring: RING,
-    container: CONTAINER,
-    data: serializeIndex(index),
-  })
+  const data = serializeIndex(index)
+  const svc = needSvc()
+  const payload =
+    typeof svc.sealFile === 'function'
+      ? await svc.sealFile({ container: CONTAINER, scope: INDEX_SCOPE, data, ring: opts.ring })
+      : await svc.encrypt({ container: CONTAINER, data })
   await api.fs.writeText(INDEX_FILE, payload)
   lastActive = nowMs()
   // 索引变了 ⇒ 文件树里的条目（标题 / 增删）跟着变
@@ -711,14 +741,120 @@ async function unlockAndLoad(api, password) {
 
 /* ───────────────────────── 正文读写 ───────────────────────── */
 
+/**
+ * 路径 → 密文/明文（codec 与 readPlain / writePlain **共用**这一处逻辑）。
+ *
+ * ⚠️ 曾经有第二份：`doc.registerCodec` 的 decode/encode 自己写了一遍 `decryptText/encrypt`
+ * —— 结果换环后「列表能显示、点开报『密文格式不认识』」（2026-11-09 实测踩到）。
+ * 同一逻辑只放一处（AGENTS §8）。
+ */
+async function decodeNote(path, raw) {
+  const id = idOfNotePath(path)
+  const text = String(raw ?? '').trim()
+  const svc = needSvc()
+  if (text.startsWith('zn2.')) {
+    const wrappedKey = index?.keys?.[id]
+    if (!wrappedKey) {
+      throw new Error('这篇私密笔记缺少密钥记录（索引里的 keys 表没有它）—— 索引可能被换过')
+    }
+    return svc.decryptTextWith({
+      container: CONTAINER,
+      scope: noteScope(id),
+      wrappedKey,
+      payload: text,
+    })
+  }
+  return svc.decryptText({ container: CONTAINER, payload: text })
+}
+
+/** 明文 → 密文（新 key 先落索引，正文由调用方写；`saveIndex` 在内部完成） */
+async function encodeNote(api, path, plain) {
+  const id = idOfNotePath(path)
+  const svc = needSvc()
+  if (typeof svc.keygen === 'function' && typeof svc.encryptWith === 'function' && index) {
+    const wrappedKey = index.keys?.[id] ?? (await svc.keygen())
+    const payload = await svc.encryptWith({
+      container: CONTAINER,
+      scope: noteScope(id),
+      wrappedKey,
+      data: plain,
+    })
+    index = { ...index, keys: { ...(index.keys ?? {}), [id]: wrappedKey } }
+    // 立刻落盘：正文马上要变成 zn2，索引里缺这把 key 就再也解不开
+    await saveIndex(api)
+    return payload
+  }
+  return svc.encrypt({ container: CONTAINER, data: plain })
+}
+
 async function readPlain(api, id) {
   const cipher = await api.fs.readText(notePath(id))
-  return needSvc().decryptText({ ring: RING, container: CONTAINER, payload: cipher })
+  return decodeNote(notePath(id), cipher)
 }
 
 async function writePlain(api, id, plain) {
-  const payload = await needSvc().encrypt({ ring: RING, container: CONTAINER, data: plain })
+  const payload = await encodeNote(api, notePath(id), plain)
   await api.fs.writeText(notePath(id), payload)
+}
+
+/**
+ * 换环（rev173.448 · 方案 `docs/密钥轮换-方案-2026-11-09.md` §5）。
+ *
+ * 前置：旧环 `fromRing` 与新环（= 分配表现值 `RING`）**都要已解锁**。
+ *
+ * 顺序按「先重包索引、再升级旧正文」，且每一步都先落索引再动正文 ——
+ * 任何一步失败，磁盘上索引与正文仍然彼此一致，重跑即可续。
+ * 正文全程不解密（zn2 篇只搬数据段），只有尚未升级的 zn1 篇需要解一次。
+ */
+async function rotateRing(api, fromRing, toRing) {
+  const svc = needSvc()
+  if (typeof svc.rewrapKey !== 'function') {
+    throw new Error('安全插件版本过旧：不支持换环（需要 security 0.5.2+）')
+  }
+  const oldId = String(fromRing ?? '')
+  const newId = String(toRing ?? '')
+  if (!oldId) throw new Error('缺少旧密钥环 id')
+  if (!newId) throw new Error('缺少新密钥环 id')
+  if (oldId === newId) return { rotated: 0, upgraded: 0, from: oldId, to: newId }
+  /* 未解锁就先按**旧环**读索引（此刻分配表还是旧环，`RING` 就是它） */
+  adoptRing()
+  if (!index) index = await loadIndex(api)
+
+  // 阶段 A：把索引里所有包裹 itemKey 重包到新环（不碰正文）
+  const keys = {}
+  for (const [id, wrapped] of Object.entries(index.keys ?? {})) {
+    keys[id] = await svc.rewrapKey({ wrappedKey: wrapped, fromRing: oldId, toRing: newId })
+  }
+  index = { ...index, keys }
+
+  // 阶段 B：还没升级的 zn1 正文 —— 解一次、换成 zn2（key 用新环包裹）
+  let upgraded = 0
+  for (const note of index.notes) {
+    let text = ''
+    try {
+      text = String(await api.fs.readText(notePath(note.id))).trim()
+    } catch {
+      continue // 正文文件缺失：跳过，不影响其余篇
+    }
+    if (!text.startsWith('zn1.')) continue
+    const wrappedKey = await svc.keygen({ ring: newId })
+    index = { ...index, keys: { ...index.keys, [note.id]: wrappedKey } }
+    // 先落索引（用新环封包）：之后即使正文写失败，索引里也有 key
+    await saveIndex(api, { ring: newId })
+    const plain = await svc.decryptText({ ring: oldId, container: CONTAINER, payload: text })
+    const payload = await svc.encryptWith({
+      container: CONTAINER,
+      scope: noteScope(note.id),
+      wrappedKey,
+      data: plain,
+      ring: newId,
+    })
+    await api.fs.writeText(notePath(note.id), payload)
+    upgraded += 1
+  }
+
+  await saveIndex(api, { ring: newId })
+  return { rotated: Object.keys(keys).length, upgraded, from: oldId, to: newId }
 }
 
 /** 新建一篇：落一份密文空正文 + 索引一条 */
@@ -935,17 +1071,17 @@ export default {
         match: (p) => p.startsWith(`${NOTES_DIR}/`),
         // 内容敏感：会话恢复草稿落在 localStorage 里是明文，私密笔记一律不写
         transient: true,
-        decode: async (raw) => {
+        decode: async (raw, path) => {
           if (!svc) throw new Error('私密文件夹还没连上加密服务')
           if (!index) throw new Error('私密文件夹已锁定 —— 先解锁私密笔记')
           touch()
-          return svc.decryptText({ ring: RING, container: CONTAINER, payload: raw })
+          return decodeNote(path, raw)
         },
-        encode: async (plain) => {
+        encode: async (plain, path) => {
           if (!svc) throw new Error('私密文件夹还没连上加密服务')
           if (!index) throw new Error('私密文件夹已锁定 —— 拒绝写盘（先解锁再保存）')
           touch()
-          return svc.encrypt({ ring: RING, container: CONTAINER, data: plain })
+          return encodeNote(api, path, plain)
         },
       }),
     )
@@ -1156,6 +1292,23 @@ export default {
           api.command.execute('security.open').catch(() => api.host.notify('安全插件没装或没启用', 'warn')),
       },
       { id: 'private.lock', title: '私密文件夹：立即锁定', run: () => lockNow(api, 'manual') },
+      {
+        /** rev173.448：换环入口（安全面板「一次操作轮换」调它）。参数 `{ fromRing }` */
+        id: 'private.rotate-ring',
+        title: '私密文件夹：换密钥环（只重包索引）',
+        run: async (payload) => {
+          const fromRing = String(payload?.fromRing ?? '')
+          const toRing = String(payload?.toRing ?? '')
+          try {
+            const res = await rotateRing(api, fromRing, toRing)
+            say(`已换到密钥环「${res.to}」：重包 ${res.rotated} 篇 · 升级 ${res.upgraded} 篇`, 'success')
+            return res
+          } catch (e) {
+            say(`换环失败：${String(e?.message ?? e)}`, 'danger')
+            throw e
+          }
+        },
+      },
       {
         id: 'private.biometric-unlock',
         title: '私密文件夹：用指纹解锁',

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "security",
   "name": "安全",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": "^0.2.0",
   "entry": "index.js",
   "styles": ["styles.css"],
@@ -33,6 +33,7 @@
       { "id": "security.assign-menu", "title": "安全：展开密钥环分配菜单" },
       { "id": "security.create-ring", "title": "安全：新建密钥环" },
       { "id": "security.delete-ring", "title": "安全：删除密钥环（需输入主密码）" },
+      { "id": "security.rotate-ring", "title": "安全：把某个插件的数据换到另一把密钥环" },
       { "id": "security.self-test", "title": "安全：自检" }
     ],
     "panels": [

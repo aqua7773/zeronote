@@ -303,6 +303,25 @@ function splitSelfContained(libs, dek, ringId, payload) {
   }
 }
 
+/**
+ * 用一把 itemKey 加密数据段 → `zn2.<nonce>.<ct>`（**不带包裹段**）。
+ *
+ * 多文件插件（私密笔记：一篇一个文件）用这个 —— itemKey 自己那份包裹存在索引里
+ * （`keys` 表），正文文件只放数据段。换环时索引改一条包裹记录即可，正文零改动。
+ */
+export function sealDataWithKey(libs, itemKey, containerId, scope, plaintext) {
+  const nonce = libs.randomBytes(24)
+  const aad = utf8.encode(dataAad(containerId, scope))
+  const ct = libs.xchacha20poly1305(itemKey, nonce, aad).encrypt(toBytes(plaintext))
+  return pack(DATA_VERSION_V2, nonce, ct)
+}
+
+/** 解开 `zn2.<nonce>.<ct>` 数据段（itemKey 由调用方从索引的包裹记录解出） */
+export function openDataWithKey(libs, itemKey, containerId, scope, payload) {
+  const { nonce, ct } = unpack(DATA_VERSION_V2, payload)
+  return libs.xchacha20poly1305(itemKey, nonce, utf8.encode(dataAad(containerId, scope))).decrypt(ct)
+}
+
 /* ───────────────────────── KDF ───────────────────────── */
 
 /**
@@ -1034,6 +1053,10 @@ const B = {
   ringName: 'security.ringName',
   ringPw1: 'security.ringPw1',
   ringPw2: 'security.ringPw2',
+  /** 轮换弹窗（rev173.448）：目标环 + 两只密码 */
+  targetRing: 'security.targetRing',
+  rotPwOld: 'security.rotPwOld',
+  rotPwNew: 'security.rotPwNew',
 }
 
 /* ───────────────────────── vendor（本地副本） ───────────────────────── */
@@ -1635,7 +1658,7 @@ function checkIdle(api) {
   }
 }
 
-async function unlockWithPassword(api, ringId, password) {
+async function unlockWithPassword(api, ringId, password, { inherit = true } = {}) {
   const ring = getRing(store.vault, ringId)
   if (!ring) throw new Error(`「${ringLabel(ringId)}」还没建立`)
   if (!password) throw new Error('请输入主密码')
@@ -1643,7 +1666,8 @@ async function unlockWithPassword(api, ringId, password) {
   const { dek } = unlockRing(L, ring, password)
   live.set(ringId, { dek, lastActive: Date.now() })
   api.event.emit('security:unlocked', { ringId })
-  await maybeInheritAfterPassword(api, ringId)
+  /* 轮换：只借 DEK 用完就锁，不在这里弹指纹继承（会把人卡在系统对话框上） */
+  if (inherit) await maybeInheritAfterPassword(api, ringId)
   return true
 }
 
@@ -1837,14 +1861,25 @@ export function panelNode(view) {
                 },
                 {
                   type: 'button',
-                  /* rev173.446（用户 2026-11-08 拍板）：面板只验证主密码，不真解锁；
-                     解锁只能发生在插件自己的入口（密码库 / 私密文件夹）。 */
                   label: '验证密码',
                   onClick: 'security.verify-ring',
                   payload: { ringId: row.ringId },
                   variant: 'ghost',
                   disabled: busy === row.ringId,
                 },
+                /* rev173.448：只有「已分配给支持换环的插件」的环才显示轮换入口 */
+                ...(owner && ROTATE_COMMANDS[owner]
+                  ? [
+                      {
+                        type: 'button',
+                        label: '轮换',
+                        onClick: 'security.rotate-ring',
+                        payload: { ringId: row.ringId },
+                        variant: 'ghost',
+                        disabled: busy === row.ringId,
+                      },
+                    ]
+                  : []),
                 {
                   type: 'button',
                   label: '删除',
@@ -2064,6 +2099,142 @@ async function doAssignRing(api, payload) {
  *  ③ 最后才动内存（vault / live / 分配表）—— 文件删不掉时内存与磁盘必须保持一致，
  *     否则 next `loadVault()` 会把「删过」的环重新扫回来（用户看到环复活却不知道为什么）
  */
+/**
+ * 支持「换环」的插件 → 它自己的重包命令（rev173.448 · 方案 §4/§5）。
+ *
+ * 安全插件只做三件事：解锁两把环、改分配表、调插件的命令。
+ * **不碰别的插件的文件格式** —— 每个插件最清楚自己数据怎么排布。
+ */
+const ROTATE_COMMANDS = {
+  'private-notes': 'private.rotate-ring',
+  secrets: 'secrets.rotate-ring',
+}
+
+/**
+ * 一次操作轮换（用户 2026-11-09 拍板「一次操作」）。
+ *
+ * 顺序固定：解锁旧环 → 解锁新环 → 改分配表（插件据此 adoptRing 到新环）→ 调插件重包 → 锁两把环。
+ * 中途失败**不回滚分配表**：数据可能已经部分换到新环（插件内部是先落索引再动正文），
+ * 回滚会让它读不了；两把环都锁掉，用户再点一次轮换即可续跑（重包是幂等的）。
+ */
+async function doRotateRing(api, payload) {
+  const ringId = String(payload?.ringId ?? '')
+  if (!isRingId(ringId)) return
+  const owner = ringOwner(store.grants, ringId)
+  if (!owner) return setStatus(api, '这把环没分配给任何插件 —— 先分配，再轮换', 'warn')
+  const cmd = ROTATE_COMMANDS[owner]
+  if (!cmd) {
+    return setStatus(api, `「${owner}」暂不支持换环（它的数据不经 crypto 服务存）`, 'warn')
+  }
+  if (!hostDialog(api)) {
+    return setStatus(api, '当前应用版本过旧（没有弹窗），无法换环 —— 请更新 ZeroNote', 'warn')
+  }
+  const targets = allRingIds(store.vault).filter((id) => id !== ringId && getRing(store.vault, id))
+  if (!targets.length) return setStatus(api, '至少要再建一把密钥环才能轮换', 'warn')
+
+  let res
+  try {
+    res = await api.host.dialog({
+      title: '轮换密钥环',
+      message: `把「${owner}」的数据从「${ringLabel(ringId, store.vault)}」换到另一把环。正文不会解密 —— 只重写密钥包裹段。`,
+      body: {
+        type: 'stack',
+        gap: 'sm',
+        children: [
+          { type: 'text', value: '新密钥环', variant: 'caption' },
+          {
+            type: 'select',
+            bind: B.targetRing,
+            options: targets.map((id) => ({ value: id, label: ringLabel(id, store.vault) })),
+          },
+          { type: 'input', bind: B.rotPwOld, secret: true, placeholder: '当前环（旧）的主密码' },
+          { type: 'input', bind: B.rotPwNew, secret: true, placeholder: '新环的主密码' },
+          {
+            type: 'text',
+            value: '成功后两把环都会自动锁定；旧环不会自动删除。',
+            variant: 'caption',
+            tone: 'muted',
+          },
+        ],
+      },
+      actions: [
+        { id: 'cancel', label: '取消', variant: 'ghost' },
+        { id: 'go', label: '开始轮换' },
+      ],
+      width: 460,
+    })
+  } catch {
+    return
+  }
+  if (!res || res.action !== 'go') return
+
+  const target = String(res.state[B.targetRing] ?? targets[0]).trim()
+  const pwOld = String(res.state[B.rotPwOld] ?? '')
+  const pwNew = String(res.state[B.rotPwNew] ?? '')
+  if (!isRingId(target) || target === ringId) return setStatus(api, '新环没选对', 'warn')
+  if (!pwOld) return setStatus(api, '请输入当前环的主密码', 'warn')
+  if (!pwNew) return setStatus(api, '请输入新环的主密码', 'warn')
+  /* 轮换本身就是「把插件从旧环换到新环」⇒ 不能走「插件已有环」的冲突检查；
+     只拦一种：新环已经属于**别的**插件。 */
+  const newOwner = ringOwner(store.grants, target)
+  if (newOwner && newOwner !== owner) {
+    return setStatus(api, `新环「${ringLabel(target, store.vault)}」已经分配给「${newOwner}」—— 换一把没被占用的`, 'warn')
+  }
+
+  /* ① 解锁旧环（不触发指纹继承：轮换只是借 DEK） */
+  try {
+    await withBusy(api, ringId, () =>
+      unlockWithPassword(api, ringId, pwOld, { inherit: false }),
+    )
+  } catch (e) {
+    return setStatus(api, `当前环解不开：${String(e?.message ?? e)}`, 'error')
+  }
+  /* ② 解锁新环（失败就把旧环锁回去，不动任何数据） */
+  try {
+    await withBusy(api, target, () => unlockWithPassword(api, target, pwNew, { inherit: false }))
+  } catch (e) {
+    lockRing(api, ringId, 'rotate')
+    return setStatus(api, `新环解不开：${String(e?.message ?? e)}`, 'error')
+  }
+
+  /* ③ 插件自己重包（正文不解密；幂等，可重复点）。
+     此刻分配表**还是旧环** —— 插件要按旧环读自己的索引，所以顺序必须是这样；
+     数据换好之后才改分配表（④），否则插件会先用新环去解旧环的索引。 */
+  try {
+    const out = await api.command.execute(cmd, { fromRing: ringId, toRing: target })
+    const rotated = Number(out?.rotated ?? 0)
+    const upgraded = Number(out?.upgraded ?? 0)
+    /* ④ 数据已换到新环 ⇒ 分配表：先解除旧环、再分给新环（避开 1:1 冲突检查） */
+    const before = store.grants
+    store.grants = withAssign(withAssign(store.grants, ringId, ''), target, owner)
+    try {
+      await saveGrants(api, store.grants)
+    } catch (e) {
+      store.grants = before
+      throw new Error(
+        `数据已换到「${ringLabel(target, store.vault)}」，但分配表没保存：${String(e?.message ?? e)} —— 请手动把「${owner}」分配给这把环`,
+      )
+    }
+    setStatus(
+      api,
+      `已换到「${ringLabel(target, store.vault)}」：重包 ${rotated} 项${upgraded ? ` · 升级旧格式 ${upgraded} 篇` : ''} —— 旧环现在可以删了（需单独确认）`,
+      'success',
+    )
+  } catch (e) {
+    const msg = String(e?.message ?? e)
+    setStatus(
+      api,
+      `换环没完成：${msg}${/版本过旧|不支持/.test(msg) ? '' : ' —— 数据没动过，修好后再点一次即可'}`,
+      'error',
+    )
+  } finally {
+    /* ⑤ 无论成败都锁两把环（方案 §4 约定 1） */
+    lockRing(api, ringId, 'rotate')
+    lockRing(api, target, 'rotate')
+    api.view.refresh(PANEL_ID)
+  }
+}
+
 async function doDeleteRing(api, payload) {
   const ringId = String(payload?.ringId ?? '')
   if (!isRingId(ringId)) return
@@ -3548,6 +3719,12 @@ export default {
       { id: 'security.assign-menu', title: '安全：展开密钥环分配菜单', run: (payload) => doAssignMenu(api, payload) },
       { id: 'security.create-ring', title: '安全：新建密钥环', run: () => doCreateRing(api) },
       { id: 'security.delete-ring', title: '安全：删除密钥环（需输入主密码）', run: (payload) => doDeleteRing(api, payload) },
+      {
+        /** rev173.448：一次操作轮换（解锁两把环 → 改分配 → 插件重包）。 */
+        id: 'security.rotate-ring',
+        title: '安全：把某个插件的数据换到另一把密钥环',
+        run: (payload) => doRotateRing(api, payload),
+      },
       { id: 'security.self-test', title: '安全：自检', run: () => doSelfTest(api) },
     ]
     for (const cmd of commands) api.subscriptions.push(api.command.register(cmd))
@@ -3561,8 +3738,21 @@ export default {
         ({ caller }) => {
           /** 我这个插件分到的环（每次调用现查：面板改分配后立刻生效） */
           const mine = () => needRing(api, caller)
+          /**
+           * 取一把**已解锁**的环（默认 = 分配给我的那把）。
+           *
+           * 轮换必须同时用旧环与新环：用户已经在面板里依次输入过两把环的主密码，
+           * 这里才取得到两把 DEK。约束：环必须已解锁，否则报错 —— 不静默降级。
+           */
+          const pickRing = (asked) => {
+            const rid = String(asked ?? '').trim() || mine()
+            const s = live.get(rid)
+            if (!s) throw new Error(`密钥环「${rid}」未解锁`)
+            touch(rid)
+            return { ringId: rid, dek: s.dek }
+          }
           return {
-            version: '2.0.0',
+            version: '2.1.0',
             /** 声明「我需要一个密钥环」（幂等；返回当前分到的环 id，可能 null） */
             demand: () => {
               const got = pluginRing(store.grants, caller)
@@ -3578,46 +3768,148 @@ export default {
               const rid = pluginRing(store.grants, caller)
               if (rid) lockRing(api, rid, 'service')
             },
-            /** 加密：`{ container, data }`，data 可以是字符串或 Uint8Array */
-            encrypt: async ({ container, data } = {}) => {
-              const ring = mine()
-              const s = live.get(ring)
-              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+            /** 加密：`{ container, data, ring? }`，data 可以是字符串或 Uint8Array */
+            encrypt: async ({ container, data, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
               const L = await loadLibs()
-              touch(ring)
-              return encryptData(L, s.dek, ring, container ?? ring, data)
+              return encryptData(L, dek, ringId, container ?? ringId, data)
             },
             /** 解密成文本（密码库这类 JSON 数据用它） */
-            decryptText: async ({ container, payload } = {}) => {
-              const ring = mine()
-              const s = live.get(ring)
-              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+            decryptText: async ({ container, payload, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
               const L = await loadLibs()
-              touch(ring)
-              return fromBytes(decryptData(L, s.dek, ring, container ?? ring, payload))
+              return fromBytes(decryptData(L, dek, ringId, container ?? ringId, payload))
             },
-            decryptBytes: async ({ container, payload } = {}) => {
-              const ring = mine()
-              const s = live.get(ring)
-              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+            decryptBytes: async ({ container, payload, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
               const L = await loadLibs()
-              touch(ring)
-              return decryptData(L, s.dek, ring, container ?? ring, payload)
+              return decryptData(L, dek, ringId, container ?? ringId, payload)
             },
-            sign: async ({ container, data } = {}) => {
-              const ring = mine()
-              const s = live.get(ring)
-              if (!s) throw new Error(`密钥环「${ring}」未解锁`)
+            /* ── 中间层 itemKey（rev173.448 · 方案 docs/密钥轮换-方案-2026-11-09.md §5）──
+             *
+             * 消费者插件自己保管「包裹后的 itemKey」，数据用它加密；换环只重包。
+             * **明文 itemKey 不进消费者**（与"拿不到 DEK"同一条规矩）。
+             */
+            /** 生成一把 itemKey 并用当前环包裹 → `wk1.…`（存进消费者自己的索引） */
+            keygen: async ({ ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
               const L = await loadLibs()
-              touch(ring)
-              return signData(L, s.dek, ring, container ?? ring, data)
+              const itemKey = L.randomBytes(32)
+              try {
+                return sealItemKey(L, dek, ringId, itemKey)
+              } finally {
+                wipe(itemKey)
+              }
             },
-            verify: async ({ container, data, sig } = {}) => {
-              const ring = mine()
-              const s = live.get(ring)
-              if (!s) return false
+            /** 用包裹的 itemKey 加密数据 → `zn2.<n>.<ct>`（数据段 AAD 不含环 id） */
+            encryptWith: async ({ container, scope, wrappedKey, data, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
               const L = await loadLibs()
-              return verifyData(L, s.dek, ring, container ?? ring, data, sig)
+              const itemKey = openItemKey(L, dek, ringId, wrappedKey)
+              try {
+                return sealDataWithKey(L, itemKey, container ?? ringId, scope ?? 'data', data)
+              } finally {
+                wipe(itemKey)
+              }
+            },
+            /** 用包裹的 itemKey 解数据（返回 Uint8Array；文本用 decryptTextWith） */
+            decryptWith: async ({ container, scope, wrappedKey, payload, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              const itemKey = openItemKey(L, dek, ringId, wrappedKey)
+              try {
+                return openDataWithKey(L, itemKey, container ?? ringId, scope ?? 'data', payload)
+              } finally {
+                wipe(itemKey)
+              }
+            },
+            /** 同上但返回文本（密码库 / 索引这类 JSON 用它） */
+            decryptTextWith: async ({ container, scope, wrappedKey, payload, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              const itemKey = openItemKey(L, dek, ringId, wrappedKey)
+              try {
+                return fromBytes(
+                  openDataWithKey(L, itemKey, container ?? ringId, scope ?? 'data', payload),
+                )
+              } finally {
+                wipe(itemKey)
+              }
+            },
+            /**
+             * 换环：`fromRing` 的 DEK 解出 itemKey → `toRing` 的 DEK 重包。
+             *
+             * **不碰数据段、不产生明文**（方案 §3.4）。两把环都要已解锁；
+             * 默认都等于分配给我的环。幂等：已经是 toRing 的包裹就原样返回（可重跑）。
+             */
+            rewrapKey: async ({ wrappedKey, fromRing, toRing } = {}) => {
+              const from = pickRing(fromRing)
+              const to = pickRing(toRing ?? from.ringId)
+              if (from.ringId === to.ringId) return wrappedKey
+              const L = await loadLibs()
+              let itemKey
+              try {
+                itemKey = openItemKey(L, from.dek, from.ringId, wrappedKey)
+              } catch {
+                /* 已经是目标环的包裹（上一轮跑到一半 / 重复点）→ 原样返回，轮换可重跑 */
+                openItemKey(L, to.dek, to.ringId, wrappedKey)
+                return wrappedKey
+              }
+              try {
+                return sealItemKey(L, to.dek, to.ringId, itemKey)
+              } finally {
+                wipe(itemKey)
+              }
+            },
+            /* ── 自包含单文件（密码库 `secrets.zn` 一个文件装库）──
+             *
+             * `zn2.<包裹nonce>.<包裹ct>.<数据nonce>.<数据ct>`：itemKey 就在文件头里，
+             * 不需要外部索引；换环只重写前两段（`rewrapFile`）。
+             */
+            /** 加密整个文件 → 自包含 `zn2` 五段 */
+            sealFile: async ({ container, scope, data, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              return sealSelfContained(L, dek, ringId, container ?? ringId, scope ?? 'data', data)
+            },
+            /** 解开自包含 `zn2` 文件 → 文本 */
+            openFile: async ({ container, scope, payload, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              return fromBytes(
+                openSelfContained(L, dek, ringId, container ?? ringId, scope ?? 'data', payload),
+              )
+            },
+            /**
+             * 换环（单文件）：只重写包裹段，数据段原样搬回。
+             * `fromRing` = 文件当前被哪把环包裹；`toRing` = 换到哪把环（默认分配给我的）。
+             */
+            rewrapFile: async ({ container, scope, payload, fromRing, toRing } = {}) => {
+              const from = pickRing(fromRing)
+              const to = pickRing(toRing ?? from.ringId)
+              if (from.ringId === to.ringId) return payload
+              const L = await loadLibs()
+              try {
+                return rewrapSelfContained(L, from.dek, from.ringId, to.dek, to.ringId, payload)
+              } catch {
+                /* 已经是目标环的包裹（上一轮跑到一半 / 重复点）→ 原样返回，轮换可重跑 */
+                try {
+                  openSelfContained(L, to.dek, to.ringId, container ?? to.ringId, scope ?? 'data', payload)
+                  return payload
+                } catch {
+                  throw new Error(`旧密钥环「${from.ringId}」解不开这个文件 —— 它可能已经换过环了`)
+                }
+              }
+            },
+            sign: async ({ container, data, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              return signData(L, dek, ringId, container ?? ringId, data)
+            },
+            verify: async ({ container, data, sig, ring } = {}) => {
+              const { ringId, dek } = pickRing(ring)
+              const L = await loadLibs()
+              return verifyData(L, dek, ringId, container ?? ringId, data, sig)
             },
           /**
            * **生物识别（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）**。

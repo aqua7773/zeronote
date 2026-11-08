@@ -1,15 +1,15 @@
 # ZeroNote 交接卡（入口）
 
 > 一屏读完：**是什么 / 到哪了 / 下一步 / 规矩 / 细节去哪**。
-> 最后更新 **2026-11-09（rev173.447）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
+> 最后更新 **2026-11-09（rev173.448）** · 0.10.2 ｜ 上限 120 行 ｜ 过程与证据在 `HANDOFF.md`，操作知识在 `docs/handoff/`。
 
 <!-- FACTS:BEGIN（由 scripts/facts.mjs 生成，勿手改；跑 node scripts/facts.mjs --write 刷新） -->
 | 事实 | 当前值 |
 |---|---|
-| rev / 版本 | rev173.447 · 0.10.2 · 2026-11-09 |
-| 测试基线 | vitest 2045 · cargo 103 · oxlint 4 warnings（2026-11-09） |
+| rev / 版本 | rev173.448 · 0.10.2 · 2026-11-09 |
+| 测试基线 | vitest 2051 · cargo 103 · oxlint 4 warnings（2026-11-09） |
 | 插件 | 市场 16 · 示例 40 |
-| 文档 | README 现状 2026-11-08（落后） · CHANGELOG 0.10.2 |
+| 文档 | README 现状 2026-11-09 · CHANGELOG 0.10.2 |
 <!-- FACTS:END -->
 
 ## 1 是什么（30 秒）
@@ -25,9 +25,9 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 / rev | **0.10.2** · rev173.446 |
-| 测试基线 | vitest 2037 · cargo 103 · oxlint 4 warnings · 质量门 9/9（2026-11-08） |
-| 插件 | 市场 16 条 · 示例 40 个 |
+| 版本 / rev | **0.10.2** · rev173.448 |
+| 测试基线 | vitest 2051 · cargo 103 · oxlint 4 warnings · 质量门 9/9（2026-11-09） |
+| 插件 | 市场 16 条（security 0.5.2 / secrets 0.1.8 / private-notes 0.3.7）· 示例 40 个 |
 | 远端 | GitHub / Gitee main + tag **v0.10.1** 同步（Release 三资产已传） |
 
 ## 3 下个会话第一件事
@@ -52,7 +52,9 @@
 
 > **✅ 密钥环可删除 + 分配列表不再空（rev173.420，2026-11-08）**：`security 0.3.5` —— ① 分配下拉的候选并入**所有已装插件**（内核新 `host.installedPlugins()`）；手机 release 上旧版消费者插件不调 `crypto.demand()` 也能在列表里选到，不再显示「↳ 还没有插件声明需要密钥环」。② 每个**已建立**的环有「删除」按钮，**必须输入该环主密码**才删（取消 / 密码错都不删；删完清分配行 + 删 `vault.<id>.json` + 内存解锁态）。已打包入市；**桌面 G2 已验**（`_shots/rev420-0{4,7,8}*.png`），手机 dev 包插件已推、待解屏后验。
 
-> **🔜 下个会话第一件事（2026-11-09 rev173.447 交接）**：**把密钥轮换做完（格式层已完成、尚未接入）** —— `examples/security/index.js` 已有 `sealV`/`openV`/`wk1`/`zn2`/自包含 5 段/`rewrapSelfContained`，`tests/crypto-itemkey.test.ts` 6 条全过，但**没有任何调用方**，对现有行为零影响。按 [`docs/密钥轮换-方案-2026-11-09.md`](docs/密钥轮换-方案-2026-11-09.md) 的顺序做：① crypto 服务补 4 个方法（`keygen` / `encryptWith` / `decryptWith` / `rewrapKey`）；② `private-notes` 索引加 `keys` 表 + 双格式读写（zn1 渐进升级 zn2）+ `private.rotate-ring`；③ `secrets` 切自包含格式，换环只重包；④ 安全面板加「一次操作轮换」弹窗 + 进度视图（方案 §4）；⑤ `docs/内核契约-v0.2.md` 补方法表。**另欠**：`verify.ps1` 现在 **8/9**，唯一红是 `pack-sync`（`private-notes` / `secrets` / `security` 三个包与源码不一致）⇒ 重打包 + `gen-market.mjs --write`（私钥 `%USERPROFILE%\.zeronote-keys\aqua-2026.key.pem`）。**会话遗留（已告知用户）**：手机测试库的环被用户删除后，`.zn/secrets/secrets.zn`（965 B）成孤儿，7 份候选环全部「密码对但 DEK 不匹配」，暂无钥匙；一条未验 —— 用每份环自己的环 id 拼 AAD 再解一次。**已知坑**（详见 `docs/开发环境坑位.md`）：devUrl 是**编译时**写死的局域网 IP（IP 变了就重跑 `android-dev.cmd`，**别用** `gradlew assembleDebug`）；手机截图用 `cdp.mjs shot`（`adb screencap` 抓不到 Chromium 合成层，会看到假白屏）；`adb forward 9333` 要用**当前** pid；PowerShell 别用 `$pid`（用 `$appPid`）。
+> **✅ 密钥轮换已接入（rev173.448，2026-11-09）**：`crypto` 2.1.0 补 8 个方法（`keygen`/`encryptWith`/`decryptWith`/`decryptTextWith`/`rewrapKey`/`sealFile`/`openFile`/`rewrapFile`，均可显式指定环）+ `private-notes 0.3.7`（索引 `keys` 表 + zn1→zn2 渐进升级 + `private.rotate-ring`）+ `secrets 0.1.8`（整库自包含 zn2 + `secrets.rotate-ring`）+ 面板「轮换」弹窗（`security 0.5.2`）。**G2 桌面双轮换已验**：ring→rotate-target（升级 1 篇）、→ring（重包 1 项，正文 sha256 前后一致），解锁后内容正确。**未做**：手机 G2（三插件未推 Redmi 包）、方案 §4 的进度计数视图。
+
+> **🔜 下个会话第一件事（2026-11-09 rev173.448 交接）**：① **手机端验轮换**（Redmi `33b676f6` dev 包）：推 `security` / `secrets` / `private-notes` 三个插件 → 新建一把环 → 对私密笔记或密码库做一次轮换 → 确认解锁后数据在（注意：`secrets.zn` 若还是 zn1，轮换会拒绝并提示「先解锁并保存一次」）。② **重新编译 dev 包前先看 IP**：`devUrl` 是编译时写死的局域网 IP，IP 变了要重跑 `android-dev.cmd`。③ 若还要更贴近方案 §4：把「12 / 37」进度视图做出来（现在只有面板 busy 行 + 结束提示）。④ 发版前记得 `node scripts/pack-plugin.mjs` + `gen-market.mjs --write`（本次已打；改动后要重打）。**遗留（已告知用户）**：手机测试库的环被删除后 `.zn/secrets/secrets.zn`（965 B）成孤儿，7 份候选环全部「密码对但 DEK 不匹配」，暂无钥匙；一条未验 —— 用每份环自己的环 id 拼 AAD 再解一次。
 
 1. ✅ **0.10.1 已发版（rev173.412）**：`host.prompt` 进 release 包。**release 机动作顺序 = 先更新应用**（关于 → 更新到 0.10.1，装完重开），**再更新插件** `安全 0.2.4` / `密码库 0.1.6` / `私密文件夹 0.3.5`。
 2. ✅ **私密笔记第二批已全部完成**（rev173.394–407）：搜索 / 时间流卡片 / 拖入移出 / 删旧面板与列表视图（解锁改 `host.prompt` 输入弹窗、回收站「公开/私密」切换、指纹优先）—— `private-notes 0.3.5` 已入市；0.10.1 后真机可用。

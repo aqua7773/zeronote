@@ -88,13 +88,28 @@ describe('private-notes 纯函数', () => {
     expect(() => parseIndex(JSON.stringify(null))).toThrow(/格式不认识/)
   })
 
-  it('serializeIndex / parseIndex 往返一致（含 trash 段）', () => {
+  it('serializeIndex / parseIndex 往返一致（含 trash 与 keys 段）', () => {
     const idx = {
       v: INDEX_VERSION,
       notes: [{ id: 'x', title: '标题', createdAt: 10, updatedAt: 20 }],
       trash: [{ id: 'y', title: '删掉的', createdAt: 1, updatedAt: 2, deletedAt: 3 }],
+      // rev173.448：每篇一把包裹后的 itemKey
+      keys: { x: 'wk1.AAAA.BBBB' },
     }
     expect(parseIndex(serializeIndex(idx))).toEqual(idx)
+  })
+
+  it('upsertNote / removeNote 不会丢掉 keys 表（漏一处 = 正文再也解不开）', () => {
+    const idx = {
+      v: INDEX_VERSION,
+      notes: [],
+      trash: [],
+      keys: { x: 'wk1.AAAA.BBBB' },
+    }
+    expect(upsertNote(idx, { id: 'x', title: '改', createdAt: 1, updatedAt: 2 }).keys).toEqual({
+      x: 'wk1.AAAA.BBBB',
+    })
+    expect(removeNote(idx, 'x').keys).toEqual({ x: 'wk1.AAAA.BBBB' })
   })
 
   it('老索引（期 1 写的、没有 trash 段）照旧能读，trash = []', () => {

@@ -34,6 +34,8 @@
 export let RING = 'secrets'
 /** 加密容器 id —— 独立于 `private`（私密笔记），AAD 因此不会串 */
 export const CONTAINER = 'secrets'
+/** 整库数据段的作用域（rev173.448：中间层 itemKey 的数据段 AAD = `<容器>|<作用域>`，不含环 id） */
+export const DB_SCOPE = 'db'
 /** 整库密文（单文件；**不是一条一文件** —— 方案 §4.5 已定） */
 export const VAULT_FILE = '.zn/secrets/secrets.zn'
 /**
@@ -734,7 +736,12 @@ function fingerprintErrorText(e) {
   return raw
 }
 
-/** 读整库密文 → 明文对象。文件不存在 = 首次（空库） */
+/**
+ * 读整库密文 → 明文对象。文件不存在 = 首次（空库）
+ *
+ * rev173.448：新格式是**自包含 `zn2`**（包裹段 + 数据段在一个文件里，itemKey 在文件头），
+ * 换环只重写包裹段、正文零改动。旧 `zn1` 仍能读，并在下次保存时**渐进升级**。
+ */
 async function loadDb(api) {
   let text = ''
   try {
@@ -743,7 +750,12 @@ async function loadDb(api) {
     text = ''
   }
   if (!text.trim()) return emptyDb()
-  const plain = await svc.decryptText({ ring: RING, container: CONTAINER, payload: text.trim() })
+  const payload = text.trim()
+  if (payload.startsWith('zn2.') && typeof svc.openFile === 'function') {
+    const plain = await svc.openFile({ container: CONTAINER, scope: DB_SCOPE, payload })
+    return normalizeDb(JSON.parse(plain))
+  }
+  const plain = await svc.decryptText({ container: CONTAINER, payload })
   return normalizeDb(JSON.parse(plain))
 }
 
@@ -755,11 +767,12 @@ async function loadDb(api) {
  */
 async function saveDb(api) {
   if (!db) throw new Error('密码库没解锁，拒绝写入')
-  const payload = await svc.encrypt({
-    ring: RING,
-    container: CONTAINER,
-    data: JSON.stringify(db),
-  })
+  const data = JSON.stringify(db)
+  /* 新 security 用自包含 zn2；老版本没有 sealFile ⇒ 退回旧 zn1（不崩、下次再升） */
+  const payload =
+    typeof svc.sealFile === 'function'
+      ? await svc.sealFile({ container: CONTAINER, scope: DB_SCOPE, data })
+      : await svc.encrypt({ container: CONTAINER, data })
   try {
     await api.fs.mkdir('.zn/secrets')
   } catch {
@@ -1632,6 +1645,54 @@ export default {
         id: 'secrets.lock',
         title: '密码库：立即锁定',
         run: () => lockNow(api, 'manual'),
+      },
+      {
+        /**
+         * rev173.448：换环（安全面板「一次操作轮换」调它）。
+         *
+         * 整库是**自包含 zn2**（包裹段在文件头），换环 = 只重写前两段、正文零改动。
+         * 参数 `{ fromRing }` = 文件当前被哪把环包裹（旧环，必须已解锁）。
+         */
+        id: 'secrets.rotate-ring',
+        title: '密码库：换密钥环（只重包文件头）',
+        run: async (payload) => {
+          const fromRing = String(payload?.fromRing ?? '')
+          const toRing = String(payload?.toRing ?? '')
+          adoptRing()
+          try {
+            if (typeof svc?.rewrapFile !== 'function') {
+              throw new Error('安全插件版本过旧：不支持换环（需要 security 0.5.2+）')
+            }
+            if (!fromRing) throw new Error('缺少旧密钥环 id')
+            if (!toRing) throw new Error('缺少新密钥环 id')
+            if (fromRing === toRing) return { from: fromRing, to: toRing }
+            let text = ''
+            try {
+              text = String(await api.fs.readText(VAULT_FILE)).trim()
+            } catch {
+              throw new Error('还没有密码库文件（secrets.zn）')
+            }
+            if (!text) throw new Error('密码库文件是空的')
+            if (!text.startsWith('zn2.')) {
+              throw new Error('密码库还是旧格式（zn1）—— 先解锁并随便保存一次，再换环')
+            }
+            const next = await svc.rewrapFile({
+              container: CONTAINER,
+              scope: DB_SCOPE,
+              payload: text,
+              fromRing,
+              toRing,
+            })
+            await api.fs.writeText(VAULT_FILE, next)
+            setMessage(`已换到密钥环「${toRing}」`, 'success')
+            api.view.refresh(PANEL_ID)
+            return { from: fromRing, to: toRing }
+          } catch (e) {
+            setMessage(`换环失败：${String(e?.message ?? e)}`, 'danger')
+            api.view.refresh(PANEL_ID)
+            throw e
+          }
+        },
       },
       /**
        * 指纹解锁（rev173.336 · 真人测试10 #1「密码库解锁界面无法调用指纹」）。

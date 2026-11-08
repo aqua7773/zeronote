@@ -13,9 +13,11 @@ import { argon2id } from '@noble/hashes/argon2.js'
 
 import {
   open,
+  openDataWithKey,
   openSelfContained,
   rewrapSelfContained,
   seal,
+  sealDataWithKey,
   sealSelfContained,
   sealItemKey,
   openItemKey,
@@ -77,5 +79,31 @@ describe('security · 中间层 itemKey', () => {
   it('坏格式直接抛错，不猜', () => {
     expect(() => openSelfContained(libs, dekOld, 'old', 'secrets', 'db', 'zn1.a.b')).toThrow()
     expect(() => openSelfContained(libs, dekOld, 'old', 'secrets', 'db', 'zn2.x.y.z')).toThrow()
+  })
+
+  /* ── 多文件插件形态：itemKey 存索引、正文只放数据段（私密笔记用） ── */
+
+  it('数据段（zn2）往返：itemKey 与数据分开存', () => {
+    const itemKey = randomBytes(32)
+    const wrapped = sealItemKey(libs, dekOld, 'old', itemKey)
+    const payload = sealDataWithKey(libs, itemKey, 'private', 'note-1', '正文')
+    expect(payload.startsWith('zn2.')).toBe(true)
+    expect(payload.split('.')).toHaveLength(3)
+    // 数据段自己解不开 —— itemKey 必须来自索引里的包裹记录
+    expect(() => openDataWithKey(libs, randomBytes(32), 'private', 'note-1', payload)).toThrow()
+    expect(decode(openDataWithKey(libs, openItemKey(libs, dekOld, 'old', wrapped), 'private', 'note-1', payload))).toBe('正文')
+  })
+
+  it('换环只重包 itemKey：正文密文逐字节不变，新环能解旧数据', () => {
+    const itemKey = randomBytes(32)
+    const wrappedOld = sealItemKey(libs, dekOld, 'old', itemKey)
+    const data = sealDataWithKey(libs, itemKey, 'private', 'note-1', '换环不动我')
+
+    // 换环 = 用旧环解出 itemKey、用新环重包；数据段一个字节不碰
+    const wrappedNew = sealItemKey(libs, dekNew, 'new', openItemKey(libs, dekOld, 'old', wrappedOld))
+
+    expect(decode(openDataWithKey(libs, openItemKey(libs, dekNew, 'new', wrappedNew), 'private', 'note-1', data))).toBe('换环不动我')
+    // 旧包裹挂到新环下解不开（AAD 含环 id）
+    expect(() => openItemKey(libs, dekNew, 'new', wrappedOld)).toThrow()
   })
 })
