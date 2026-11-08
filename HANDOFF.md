@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.424
-更新时间: 2026-11-08 · 最新 rev173.424（**安全面板按示意图重做 + 解锁复用密码库流程**）· rev173.423（修「绑定指纹点了没用」）
+revision: 173.425
+更新时间: 2026-11-08 · 最新 rev173.425（**密钥环改卡片 + 字号统一**）· rev173.424（安全面板按示意图重做）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.424
 
 | rev | 内容 |
 |---|---|
+| rev173.425 | 2026-11-08 · **密钥环改成卡片样式 + 字号统一**（用户发截图：「每个密钥做成卡片的样式，字体大小统一」）：每环一行换成一张卡片 —— `border: 1px solid var(--zn-border)` / `border-radius: var(--zn-radius-lg)` / `background: var(--zn-bg-subtle)` / `padding: 10px 12px` / `margin-bottom: 8px`；卡片内 `.zn-btn`、`.zn-ui-link`、`.zn-ui-text` 统一 `font-size: var(--zn-text-sm)`（实测 12px / weight 400 一致）；顶栏不再用卡片样式，只留一条下边框。只改 `examples/security/styles.css` + 行节点 `cssClass`（`zn-sec-ring-row` → `zn-sec-ring-card`）。`security 0.4.0` 已签名打包入市；质量门 9/9。**G2 桌面**：`_shots/rev425-01-cards.png`；CDP 读 computed style 三处都是 `12px`。 |
 | rev173.424 | 2026-11-08 · **安全面板按示意图重做（列表 / 修改 / 新建）+ 解锁按钮复用密码库流程**（用户三张截图 + 两条澄清：「解锁按钮点了直接按现有密码库和私密笔记的解锁方式」「分配不是胶囊，是点击字体后弹出选择菜单」「菜单里只显示进行密钥申请的插件」）：① **列表页**：每行 `🔒 环名` + 可点链接「未分配 / 已绑定 X」（点开就地展开选择菜单，**只列调过 `crypto.demand()` 的插件**，每项带「已绑定/未绑定」）+ 右侧「修改 · 解锁 · 删除」；顶部「安全 · 自检 · 指纹（已绑定）」+ 右上「新建密钥环」；去掉「测试」按钮与 ✓、去掉常驻 `<select>`（rev173.422 的下拉方案被本轮推翻）。② **解锁按钮**（新命令 `security.unlock-ring`）：与密码库 / 私密笔记同一套 —— 该环绑过本机指纹先弹系统指纹，取消 / 失败回落 `host.prompt` 主密码框；成功**不跳转**（用户拍板只标记已解锁）。③ **修改弹窗**：名称（`value` 播种当前名）+ 原主密码 / 恢复码 / 恢复问题三选一 + 新主密码 ×2 + 「指纹验证修改」（设备绑过指纹就显示；环未继承时给明确提示）。改名对**内置环也生效**（`ringLabel` 改为环自带 `label` 优先）。④ **新建弹窗**：按图改成「输入密钥环名称 / 输入主密码 / 再次输入主密码」+「保存密钥环」。⑤ 插件加 `styles.css`（行右对齐、菜单样式），manifest 声明 styles + 两条新命令。测试新增 `tests/security-panel.test.ts` 6 条（三按钮/无测试无 ✓/链接/菜单只列 demand 插件/未建立行/解锁禁用）。`security 0.3.9` 已签名打包入市。**G2 桌面 dev**：列表（`_shots/rev424-06-panel.png`）、点「未分配」展开菜单（`rev424-07-assign-menu.png`）、修改弹窗（`rev424-10-modify-dialog.png`）、新建弹窗（`rev424-09-create-dialog.png`）、改名保存生效「Todo-改名测」（`rev424-11-renamed.png`）。**未验**：手机 dev 包（插件未推）。**未发版** |
 | rev173.423 | 2026-11-08 · **修「绑定指纹点了没用」**（用户报）：两个原因 —— ① 顶部按钮在 `0 把已解锁` 时 **disabled**，点了完全没反应也没有提示；但绑定是**设备级**的（`bindDevice` 只创建 DK，不要求先解锁某把环）。② 按钮永远写「绑定指纹」，绑过也看不出来、找不到解除入口。改法：按钮不 disabled；label 依 `deviceBound` 变「已绑定指纹（解除）」；新命令 `security.biometric-toggle`（未绑定 ⇒ 绑、已绑定 ⇒ 解）。`security 0.3.8` 已签名打包入市。**G2 桌面**：0 把已解锁时点「绑定指纹」⇒ 面板消息「已绑定这台设备；之后锁定可直接用指纹解锁（新建的环会自动继承）」、按钮变「已绑定指纹（解除）」（`_shots/rev423-01-bind.png` / `rev423-02-bound.png`）|
 | rev173.422 | 2026-11-08 · **分配改回原生下拉**（用户：「这个界面用之前的方案」，指分配弹窗）：rev173.421 把「未分配 / 已分配 X」做成了点开选插件的弹窗，用户要回**之前的 `select` 下拉**。改法：`panelNode` 每环两行 —— 第一行 `环名 / ✓ / 测试 / 删除`，第二行全宽 `<select>`（选项 = 未分配 + demand ∪ 已分配 ∪ 已装插件）；恢复 render 的 `setState` 播种（select 值只取 `ctx.state[bind]`，不播种会永远显示第一项）；删掉 `security.assign-ui` 命令与 `doAssignUi()` 弹窗（`security.assign-ring` 保留，select 的 `onSubmit` 仍走它）。`security 0.3.7` 已签名打包入市。**G2 桌面**：三个环的下拉分别显示 `private-notes` / `secrets` / `未分配`（`_shots/rev422-01-list.png`）。**未发版** |
@@ -375,6 +376,14 @@ revision: 173.424
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.425（2026-11-08 · 密钥环改卡片 + 字号统一）
+
+> **报告**：用户 2026-11-08 发截图：「每个密钥做成卡片的样式，字体大小统一」。
+
+> **改法**：`examples/security/styles.css` 新增 `.zn-sec-ring-card`（边框 + 大圆角 + 浅底 + 内边距 + 卡片间距），每环行节点的 `cssClass` 从 `zn-sec-ring-row` 改成它；卡片内 `.zn-btn` / `.zn-ui-link` / `.zn-ui-text` 字号统一到 `var(--zn-text-sm)`。顶栏保留 `zn-sec-ring-row`，只留一条下边框，不再带卡片背景。
+
+> **验证**：CDP 读 computed style —— 环名按钮 / 分配 link / 三个动作按钮全部 `12px` + `400`。截图 `_shots/rev425-01-cards.png`。`security 0.4.0` 入市；质量门 9/9。
 
 > ## 📌 rev173.424（2026-11-08 · 安全面板按示意图重做 + 解锁复用密码库流程）
 

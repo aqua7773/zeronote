@@ -1,18 +1,36 @@
-/* 安全插件 · 密钥环列表（rev173.424）
+/* 安全插件 · 密钥环列表（rev173.425）
  *
  * 用户 2026-11-08 的示意图：一行里左侧「🔒 环名 | 已绑定 X / 未分配」，
- * 右侧「修改 · 解锁 · 删除」。`row` 节点本身没有 space-between，用外层 cssClass 补。
+ * 右侧「修改 · 解锁 · 删除」；之后又要求「每个密钥做成卡片的样式，字体大小统一」。
+ *
+ * `row` 节点本身没有 space-between，用外层 cssClass 补。
  */
 
+/* 顶栏（安全 · 自检 · 指纹 / 新建密钥环）：只做左右分布，不是卡片 */
 .zn-sec-ring-row {
   width: 100%;
   justify-content: space-between;
-  padding: 6px 2px;
+  padding-bottom: var(--zn-space-2);
   border-bottom: 1px solid var(--zn-border);
 }
 
-.zn-sec-ring-row:last-child {
-  border-bottom: 0;
+/* 每个密钥环一张卡片 */
+.zn-sec-ring-card {
+  width: 100%;
+  justify-content: space-between;
+  gap: var(--zn-space-2);
+  margin-bottom: var(--zn-space-2);
+  padding: 10px 12px;
+  border: 1px solid var(--zn-border);
+  border-radius: var(--zn-radius-lg);
+  background: var(--zn-bg-subtle);
+}
+
+/* 卡片内字号统一：环名 / 分配状态 / 三个动作按钮同一档 */
+.zn-sec-ring-card .zn-btn,
+.zn-sec-ring-card .zn-ui-link,
+.zn-sec-ring-card .zn-ui-text {
+  font-size: var(--zn-text-sm);
 }
 
 /* 左侧：锁标 + 环名 + 分配状态；窄屏也先保住环名，别把按钮挤到看不见 */
@@ -28,7 +46,7 @@
 
 /* 分配选择菜单（点「未分配 / 已绑定 X」展开）：一列行，像下拉菜单但没有原生 select 框 */
 .zn-sec-assign-menu {
-  margin: 2px 0 6px 12px;
+  margin: 2px 0 8px 12px;
   padding: 4px 0;
   border: 1px solid var(--zn-border);
   border-radius: var(--zn-radius-sm);
@@ -40,4 +58,5 @@
   width: 100%;
   border-radius: 0;
   text-align: left;
+  font-size: var(--zn-text-sm);
 }

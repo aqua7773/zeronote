@@ -1614,7 +1614,7 @@ export function panelNode(view) {
       type: 'row',
       align: 'center',
       gap: 'sm',
-      cssClass: 'zn-sec-ring-row',
+      cssClass: 'zn-sec-ring-card',
       children: [
         {
           type: 'row',
