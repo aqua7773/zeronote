@@ -1683,6 +1683,8 @@ export default {
               fromRing,
               toRing,
             })
+            /* rev173.450：整库只有一个文件 ⇒ 进度只有 0/1 → 1/1（面板「重新打包 X / Y」） */
+            api.event.emit('secrets:rotate-progress', { phase: 'rewrap', done: 1, total: 1 })
             await api.fs.writeText(VAULT_FILE, next)
             setMessage(`已换到密钥环「${toRing}」`, 'success')
             api.view.refresh(PANEL_ID)

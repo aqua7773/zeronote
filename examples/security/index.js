@@ -1715,6 +1715,8 @@ export function panelNode(view) {
     vault,
     unlocked = {},
     busy = '',
+    /** 轮换进度（rev173.450）；null = 没有进行中的轮换 */
+    rotate = null,
     message = '',
     tone = 'info',
     recoveryCodeShown = '',
@@ -1772,6 +1774,31 @@ export function panelNode(view) {
       type: 'text',
       value: `⏳ 正在处理「${ringLabel(busy, vault)}」…（派生密钥需要 1–4 秒，别重复点）`,
       variant: 'caption',
+    })
+  }
+
+  /* rev173.450：轮换进度（方案 §4「12 / 37」）—— 逐条重包时 X / Y 在面板上递增。
+     为什么放面板而不是弹窗：`host.dialog` 是一次性交互（Promise），拿到结果前弹窗已关闭，
+     做成可更新弹窗要改内核；面板刷新走 `api.view.refresh` 即可。 */
+  if (rotate && rotate.phase) {
+    const mark = (done, label) => (done ? `✓ ${label}` : `${label}…`)
+    const oldDone = rotate.phase !== 'unlock-old'
+    const newDone = rotate.phase === 'rewrap' || rotate.phase === 'done'
+    const packText =
+      rotate.phase === 'done'
+        ? `✓ 重新打包 ${rotate.total} / ${rotate.total}`
+        : rotate.phase === 'rewrap'
+          ? `重新打包 ${rotate.done} / ${rotate.total}`
+          : '重新打包 — / —'
+    kids.push({
+      type: 'stack',
+      gap: 'sm',
+      children: [
+        { type: 'text', value: mark(oldDone, '解锁旧环'), variant: 'caption' },
+        { type: 'text', value: mark(newDone, '解锁新环'), variant: 'caption' },
+        { type: 'text', value: packText, variant: 'caption' },
+        { type: 'text', value: '完成后自动锁定两把环', variant: 'caption', tone: 'muted' },
+      ],
     })
   }
 
@@ -1979,6 +2006,8 @@ function panelView(plugins = []) {
     selected: store.selected,
     unlocked,
     busy: store.busy,
+    /** 轮换进度（rev173.450）：`{ phase, done, total, from, to }`，没有轮换时为 null */
+    rotate: store.rotate,
     message: store.message,
     tone: store.tone,
     recoveryCodeShown: store.recoveryCodeShown,
@@ -2181,21 +2210,33 @@ async function doRotateRing(api, payload) {
     return setStatus(api, `新环「${ringLabel(target, store.vault)}」已经分配给「${newOwner}」—— 换一把没被占用的`, 'warn')
   }
 
+  /* rev173.450：轮换进度（方案 §4「12 / 37」）—— 阶段 + 逐条重包数写进 `store.rotate`，
+     每次变化 refresh 面板；插件侧每重包一条 emit `<插件>:rotate-progress`（见 apply 的订阅）。 */
+  const setRotate = (patch) => {
+    store.rotate = patch ? { ...store.rotate, ...patch } : null
+    api.view.refresh(PANEL_ID)
+  }
+  setRotate({ phase: 'unlock-old', done: 0, total: 0, from: ringId, to: target })
+
   /* ① 解锁旧环（不触发指纹继承：轮换只是借 DEK） */
   try {
     await withBusy(api, ringId, () =>
       unlockWithPassword(api, ringId, pwOld, { inherit: false }),
     )
   } catch (e) {
+    setRotate(null)
     return setStatus(api, `当前环解不开：${String(e?.message ?? e)}`, 'error')
   }
   /* ② 解锁新环（失败就把旧环锁回去，不动任何数据） */
+  setRotate({ phase: 'unlock-new' })
   try {
     await withBusy(api, target, () => unlockWithPassword(api, target, pwNew, { inherit: false }))
   } catch (e) {
     lockRing(api, ringId, 'rotate')
+    setRotate(null)
     return setStatus(api, `新环解不开：${String(e?.message ?? e)}`, 'error')
   }
+  setRotate({ phase: 'rewrap', done: 0, total: 0 })
 
   /* ③ 插件自己重包（正文不解密；幂等，可重复点）。
      此刻分配表**还是旧环** —— 插件要按旧环读自己的索引，所以顺序必须是这样；
@@ -2220,6 +2261,7 @@ async function doRotateRing(api, payload) {
       `已换到「${ringLabel(target, store.vault)}」：重包 ${rotated} 项${upgraded ? ` · 升级旧格式 ${upgraded} 篇` : ''} —— 旧环现在可以删了（需单独确认）`,
       'success',
     )
+    setRotate({ phase: 'done' })
     /**
      * ⑥ rev173.449：换环不应该让指纹**退化**。
      *
@@ -2239,6 +2281,7 @@ async function doRotateRing(api, payload) {
       `换环没完成：${msg}${/版本过旧|不支持/.test(msg) ? '' : ' —— 数据没动过，修好后再点一次即可'}`,
       'error',
     )
+    setRotate(null)
   } finally {
     /* ⑤ 无论成败都锁两把环（方案 §4 约定 1） */
     lockRing(api, ringId, 'rotate')
@@ -3549,6 +3592,22 @@ export default {
     store.grants = await loadGrants(api)
     // 设备级指纹（期 3）：本机绑定文件，没有 = 这台没绑过
     store.deviceFile = await loadDeviceFile(api)
+
+    /* rev173.450：订阅插件侧的逐条重包进度 ⇒ 面板「重新打包 X / Y」实时递增。
+       只在 `rewrap` 阶段接受（解锁阶段的事件不关心），total=0 视为「没有可重包的东西」，不刷。
+       为什么由插件 emit 而不是 security 自己算：一条命令是请求-响应，拿不到中间状态。 */
+    const onRotateProgress = (payload) => {
+      if (!store.rotate || store.rotate.phase !== 'rewrap') return
+      const done = Number(payload?.done ?? 0)
+      const total = Number(payload?.total ?? 0)
+      if (!total) return
+      store.rotate = { ...store.rotate, done: Math.min(done, total), total }
+      api.view.refresh(PANEL_ID)
+    }
+    api.subscriptions.push(
+      api.event.on('private:rotate-progress', onRotateProgress),
+      api.event.on('secrets:rotate-progress', onRotateProgress),
+    )
 
     /* 面板 */
     api.subscriptions.push(

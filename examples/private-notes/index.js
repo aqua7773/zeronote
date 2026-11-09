@@ -822,21 +822,29 @@ async function rotateRing(api, fromRing, toRing) {
 
   // 阶段 A：把索引里所有包裹 itemKey 重包到新环（不碰正文）
   const keys = {}
+  const keyIds = Object.keys(index.keys ?? {})
+  let rewrapped = 0
+  /* rev173.450：逐条报进度（面板「重新打包 X / Y」，方案 §4） */
   for (const [id, wrapped] of Object.entries(index.keys ?? {})) {
     keys[id] = await svc.rewrapKey({ wrappedKey: wrapped, fromRing: oldId, toRing: newId })
+    rewrapped += 1
+    api.event.emit('private:rotate-progress', { phase: 'rewrap', done: rewrapped, total: keyIds.length })
   }
   index = { ...index, keys }
 
   // 阶段 B：还没升级的 zn1 正文 —— 解一次、换成 zn2（key 用新环包裹）
-  let upgraded = 0
+  // rev173.450：先扫出待升级清单再处理 —— 这样 total 在开始前就准确，进度 X / Y 不会跳
+  const pending = []
   for (const note of index.notes) {
-    let text = ''
     try {
-      text = String(await api.fs.readText(notePath(note.id))).trim()
+      const text = String(await api.fs.readText(notePath(note.id))).trim()
+      if (text.startsWith('zn1.')) pending.push({ note, text })
     } catch {
-      continue // 正文文件缺失：跳过，不影响其余篇
+      /* 正文文件缺失：跳过，不影响其余篇 */
     }
-    if (!text.startsWith('zn1.')) continue
+  }
+  let upgraded = 0
+  for (const { note, text } of pending) {
     const wrappedKey = await svc.keygen({ ring: newId })
     index = { ...index, keys: { ...index.keys, [note.id]: wrappedKey } }
     // 先落索引（用新环封包）：之后即使正文写失败，索引里也有 key
@@ -851,6 +859,7 @@ async function rotateRing(api, fromRing, toRing) {
     })
     await api.fs.writeText(notePath(note.id), payload)
     upgraded += 1
+    api.event.emit('private:rotate-progress', { phase: 'upgrade', done: upgraded, total: pending.length })
   }
 
   await saveIndex(api, { ring: newId })

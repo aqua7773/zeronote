@@ -1,7 +1,7 @@
 # 项目交接
 
-revision: 173.449
-更新时间: 2026-11-09 · 最新 rev173.449（**换环不再让指纹退化**）· rev173.448（密钥轮换接入）· rev173.447（密钥轮换格式层）· rev173.446（安全面板只验证主密码）
+revision: 173.450
+更新时间: 2026-11-09 · 最新 rev173.450（**轮换进度视图「X / Y」**）· rev173.449（换环不再让指纹退化）· rev173.448（密钥轮换接入）· rev173.447（密钥轮换格式层）
 项目: ZeroNote
 
 > **只保留当前版本周期（rev173.125 起）。更早的按版本归档：**
@@ -19,6 +19,7 @@ revision: 173.449
 
 | rev | 内容 |
 |---|---|
+| rev173.450 | 2026-11-09 · **轮换进度视图「X / Y」**（方案 §4 最后一项）：面板上常驻一块进度 ——「解锁旧环 / 解锁新环 / 重新打包 X / Y / 完成后自动锁定两把环」。为什么不放弹窗：`host.dialog` 是一次性交互（Promise 拿到结果前弹窗已关闭），做成可更新弹窗要改内核 ⇒ 违反「内核保持薄」；面板刷新走 `api.view.refresh` 就够。① `private-notes`：重包循环逐条 `api.event.emit('private:rotate-progress',{phase,done,total})`；阶段 B 改成**先扫出 zn1 清单再处理**（total 开始前就准，X / Y 不跳）。② `secrets`：整库单文件 ⇒ emit `1 / 1`（`secrets:rotate-progress`）。③ `security`：`store.rotate` 阶段机（`unlock-old` → `unlock-new` → `rewrap` → `done`）+ 订阅两个事件（`api.subscriptions` 挂 Dispose）；`panelView` 暴露 `rotate`，`panelNode` 渲染进度块。版本：`security 0.5.4` / `private-notes 0.3.8` / `secrets 0.1.9` 已签名入市（整包 sha256 `2fe6ac75…` / `b778feea…` / `2bc47866…`）。**G2 双端已验**：桌面 `_tmp-vault-rt13`（`✓ 重新打包 1 / 1`，`_shots/rev450-desktop-rotate-progress.png`）；手机 Redmi `33b676f6` dev 包（三个插件按 sha256 推入后 `✓ 重新打包 2 / 2`，`_shots/rev450-phone-rotate-progress.png`）。**未做**：没有可复现的「12 / 37」多项素材（测试库只有 1–2 篇，所以显示 1/1、2/2）。 |
 | rev173.449 | 2026-11-09 · **换环不再让指纹退化**（用户：「不是所有环都统一继承指纹吗」）：根因 —— 轮换时两把环都以 `inherit:false` 解锁（避免把人卡在系统指纹框上），换完新环没有 `deviceWrapped` ⇒ `canBio=false` ⇒ 私密笔记 / 密码库下次点锁从「指纹优先（`[指纹解锁][改用密码][取消]`）」退化成**直接弹密码框**。修法：`doRotateRing` 在**数据换完、分配表改好之后**调 `inheritRings(api)` —— 它自己判 `deviceKey`：本次会话认证过指纹 ⇒ 静默补齐新环（不弹窗）；没认证过 ⇒ 跳过，交给 `maybeInheritAfterPassword` 在用户下次密码解锁时补（那次弹指纹，是用户主动解锁的时刻）。`security 0.5.3` 已签名入市（入口 sha256 `f74c8bd4…` / 整包 `b519361d…`）。**G1**：verify **02:04:25 全绿**（tsc 0 · oxlint 0 error/4 warnings · cargo 103 · vitest 2051 · 质量门 9/9 含 pack-sync）。**G2 手机**（Redmi `33b676f6` dev 包）三连：① DK **不在内存**（app 重启后 pid 7517）轮换 g2ring4→g2ring2：重包 2 篇、目标环 `grep -c deviceWrapped` = **0**（按设计跳过，全程不弹指纹）；② 用户在私密笔记解锁时按指纹 ⇒ g2ring2 补上 `deviceWrapped`；③ DK **在内存**时轮换 g2ring2→g2ring4：重包 2 篇、**目标环立刻有 `deviceWrapped`**（=1），点私密笔记弹出三按钮框「请验证指纹解锁；也可以改用主密码。」`[指纹解锁][改用密码][取消]`（`_shots/rev449-phone-16-fingerprint-dialog.png`）。**顺带完成交接卡 §3 ①「有数据的轮换」**：手机建 2 篇私密笔记（145 / 167 B，正文 `zn2.`）→ g2ring→g2ring2「重包 2 篇 · 升级 0 篇」→ 两篇正文 sha256 **前后完全一致**（`ed5546…` / `46cdc7…`，证明只重打包裹段）→ 解锁后文件树 🔒 组两篇、正文原样读出（`_shots/rev449-phone-13-tree-unlocked.png`）。**另核**：手机上 `security/index.js` 与桌面源码 sha256 **逐字节一致**（「桌面改了没同步」的怀疑不成立；手机弹密码框的真实原因是那把环没继承指纹）。**未做**：桌面端 G2（同代码，需 Windows Hello 人工按）；「12 / 37」轮换进度视图。 |
 | rev173.448 | 2026-11-09 · **密钥轮换接入（一次操作）** —— 把 447 的格式层接到调用方：① `crypto` 服务 2.1.0 补 7 个方法 `keygen` / `encryptWith` / `decryptWith` / `decryptTextWith` / `rewrapKey` / `sealFile` / `openFile` / `rewrapFile`，全部收可选 `ring` / `toRing`（默认 = 分配表那把），`pickRing()` 统一校验「必须已解锁」—— 轮换要同时用旧环与新环的 DEK，但插件仍拿不到 DEK。② `private-notes 0.3.7`：索引加 `keys` 表（每篇一把包裹 itemKey）+ `nextIndex()` 收敛原来 6 处手写 `{v,notes,trash}`（漏一处就丢钥匙、正文再也解不开）；正文与索引 zn1→zn2 **渐进升级**；`private.rotate-ring`（先重包索引、再升级旧正文，每步先落索引再动正文 ⇒ 任何一步失败磁盘仍自洽）。③ `secrets 0.1.8` 整库切**自包含 zn2**（包裹段在文件头），`secrets.rotate-ring` 只重写前两段；旧 zn1 仍能读、下次保存升级。④ 安全面板：已分配且支持轮换的环保留「轮换」按钮 → 弹窗（选目标环 + 当前/新环主密码）→ 解锁两环（`inherit:false`，**不弹指纹继承**）→ 调插件重包 → 成功后才改分配表（先解除旧分配再给新环，避开 1:1 冲突检查）→ 锁两把环。⑤ 契约文档 §2.5 补服务方法一段（为守 1500 行上限收成单段）。**修掉三个实现层面的坑**：ⓐ `doc.registerCodec` 的 decode/encode 与 `readPlain/writePlain` 是**两份实现** ⇒ 换环后「列表能显示、点开报『密文格式不认识（期望 zn1…）』」；收成 `decodeNote`/`encodeNote` 一处（真实踩到，见 03 分册 §5）。ⓑ 插件里 `decryptText({ ring: RING })` 用内存里可能过期的 RING ⇒ 换环后报「密钥环 X 未解锁」；改成不传 ring、让服务按分配表取（rev173.416 的既有约定）。ⓒ `assignConflict()` 会以「插件已有环」为由拦掉轮换本身 ⇒ 轮换只拦「新环已属别的插件」。**G1**：tsc 0 · oxlint 0 error/4 warnings · cargo 103 · vitest **2051** · 文档一致性 · 质量门 **9/9**（含 pack-sync，三个包已重打）。**G2 桌面实测**（`_tmp-vault-rt13`，两把测试环 `ring` / `ring-2` + 新建 `rotate-target`）：① ring→rotate-target：状态「重包 0 项 · 升级旧格式 1 篇」，正文 `mw7ygybzzrfm.zn` 由 zn1 升 zn2；② rotate-target→ring：「重包 1 项」，正文 sha256 **`C899D71A…` 前后逐字节一致**（证明只改包裹段）；③ 解锁私密笔记**内容正确读出**（`_shots/rev448-23/24/25`）。**手机 G2 也验了**（Redmi `33b676f6` · dev 包 · `_shots/rev448-phone-01..04`）：推 `security 0.5.2` / `secrets 0.1.8` / `private-notes 0.3.7` 三个插件（manifest + index.js，`signature.json` 已是 `.bak` 状态）→ reload → 安全面板出现「轮换」按钮（只出现在已分配的环上，未分配的环没有）→ 测试环A → g2ring 轮换成功，`grants.json` 变成 `g2ring → private-notes`、索引 `index.zn` 已是 `zn2.`（手机测试库的私密正文目录为空，所以这轮「重包 0 项 / 升级 0 篇」，验到的是 UI + 分配切换 + 索引自包含格式）。**未做**：方案 §4 的「12 / 37」进度视图（现在用面板 busy 行 + 结束提示代替）。 |
 | rev173.447 | 2026-11-09 · **密钥轮换格式层（中间层 itemKey）+ 弹窗 X 去焦点圈 + 手机 dev G2**：① 用户报「分配新环给私密笔记 / 密码库后完全无法解锁」——实测定性：分配**确实生效**（`grants.json` `b→secrets`）、环B 密码能解出 32 B DEK，卡在 `secrets.zn` 仍是**旧环密文**，而 `examples/secrets/index.js:1568` 把 `/invalid tag/` 一律翻译成「主密码不对」（误导排查方向）。根因 = 只有两层密钥（主密码→DEK→数据）且数据段 AAD 绑死环 id ⇒ 换环 = 全部密文失效。② 调研：[Standard Notes](https://standardnotes.com/help/security/encryption)（rootKey→itemsKey→item_key，换密码只重写几 KB）、[Cryptomator](https://docs.cryptomator.org/security/vault/)（masterKey→contentKey 存文件头 68 B，换密码只重写 header），结论是缺一层 per-item key。③ 用户拍板 **B（itemKey 表放索引）+ 密码库也加中间层 + 一次操作轮换**，方案 `docs/密钥轮换-方案-2026-11-09.md`。④ **格式层已实现**：`sealV`/`openV` 参数化版本 + `wk1`（包裹段，AAD=`<环>\|key`，换环必须重包）+ `zn2`（数据段，AAD=`<容器>\|<作用域>`，**不含环 id** ⇒ 换环后正文照样能解）+ 自包含 5 段（`sealSelfContained`/`openSelfContained`）+ `rewrapSelfContained`（只重包、数据段原样搬回、不产生明文）；`tests/crypto-itemkey.test.ts` **6 passed**（含「换环后数据段逐字节不变」「旧环必解不开」「包裹块跨环必失败」反向断言）。**未接入任何调用方**，对现有行为零影响。⑤ `src/components/ui/dialog.tsx` 关闭按钮加 `focus-visible:outline-none`（用户：「弹窗X的边框去掉」）—— 根因：Dialog 打开时自动聚焦面板内第一个可聚焦元素（就是 X），触发 `src/styles.css:52` 的全局 `:focus-visible`（2px `--zn-fg`）；只去 X 自己的圈，其它控件焦点环不动。**G2 双端已验**（手机 `_shots/rev450-phone/09-verify-dialog.png`、桌面 `_shots/rev450-desktop/02-about-dialog.png`；CDP 读 `outlineStyle: none`）。⑥ **手机 dev 包推 3 插件 + G2**：`security 0.5.1` / `secrets` / `private-notes` 推到 Redmi `33b676f6`（备份在 `appDataDir/.zn/backup-rev450/`），reload 后 `plugins-ready` 无异常；验到安全面板行内「验证密码」（无 🔒）、两段式指纹框 `[指纹解锁][改用密码][取消]`（`_shots/rev450-phone/18`）、点「改用密码」才弹密码框（`19`）、私密笔记解锁后 🔒 分组出现（`12`–`14`）。⑦ `verify.ps1` **8/9**（23:56）：tsc 0 · oxlint 0 error/4 warnings · cargo 103 · vitest 2039 · 文档一致性全过 · 质量门唯一红是 `pack-sync`（3 个插件包与源码不一致，属交接卡 §3 ② 欠账，与本次改动无关）。**未做**：crypto 服务 4 方法（`keygen`/`encryptWith`/`decryptWith`/`rewrapKey`）、`private-notes` 索引 keys 表与双格式、`secrets` 切自包含、轮换 UI、契约文档补方法表。**遗留（需用户知悉）**：手机测试库的环被用户删除后，`secrets.zn`（965 B，11-07 01:29）成孤儿 —— 试过 7 份候选环文件（手机 3 份 + 备份 tar 2 份 + 云端 1 份 + 冲突副本）全部「密码对但 DEK 不匹配」，该密文目前无已知钥匙；另有一条未验：用每份环自己的环 id 拼 AAD 再解一次（防当年是自定义环）。 |
@@ -399,6 +400,38 @@ revision: 173.449
 
 > **G2**：桌面未绑定时点锁仍弹密码框（`_shots/rev406-unbound-prompt.png`）。
 > **✅ 指纹路径已在真机验过（2026-11-07 用户）**：绑定 Windows Hello 后点锁直接弹系统指纹并解锁成功。
+
+> ## 📌 rev173.450（2026-11-09 · 轮换进度视图「X / Y」）
+
+方案 §4 的最后一项。点「开始轮换」后，面板上出现：
+
+```
+✓ 解锁旧环
+✓ 解锁新环
+重新打包 12 / 37        ← 逐条递增
+完成后自动锁定两把环
+```
+
+**为什么做在面板而不是弹窗**：`host.dialog` 是一次性交互 —— 它返回结果前弹窗就关了，弹窗里做实时进度要新增「可更新 dialog」内核能力。方案里写的是「弹窗切成进度视图」，实现时改成面板进度块：`api.view.refresh` 本来就是插件刷面板的正规通道，内核零改动。三条阶段行对应用户真正在等的三件事，信息量一致。
+
+**数据从哪来**：一条命令是请求-响应，security 拿不到插件内部的中间状态 ⇒ 由插件 emit 事件：
+
+| 插件 | 事件 | 粒度 |
+|---|---|---|
+| `private-notes` | `private:rotate-progress` `{phase:'rewrap'\|'upgrade', done, total}` | 每重包 / 每升级一条 |
+| `secrets` | `secrets:rotate-progress` `{phase:'rewrap', done:1, total:1}` | 整库单文件 |
+
+**两个实现细节**
+
+- **阶段 B 先扫再处理**（`private-notes`）：原来边读边判 zn1，total 会随进度变 ⇒ 改成先扫出待升级清单，total 一开始就准。
+- **`security` 不自己算 total**：`rewrap` 阶段的 total 只来自插件事件；事件里 `total=0` 时视为没有可重包的东西，不刷（避免把 `— / —` 覆盖成 `0 / 0`）。
+
+**G2 双端**
+
+- 桌面 `_tmp-vault-rt13`：ring → rotate-target，`✓ 重新打包 1 / 1`（`_shots/rev450-desktop-rotate-progress.png`）
+- 手机 Redmi `33b676f6` dev 包（三个插件按 sha256 推入，`d6c366…` / `485b23…` / `9b7da2…`）：g2ring4 → g2ring2，`✓ 重新打包 2 / 2`（`_shots/rev450-phone-rotate-progress.png`）
+
+**版本**：`security 0.5.4` / `private-notes 0.3.8` / `secrets 0.1.9`（整包 sha256 `2fe6ac75…` / `b778feea…` / `2bc47866…`），已入 `market/index.json`（16 条不变）。
 
 > ## 📌 rev173.449（2026-11-09 · 换环不再让指纹退化）
 
