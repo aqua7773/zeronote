@@ -430,7 +430,16 @@ revision: 173.449
 - 两篇正文 sha256 **前后完全一致**（`ed5546…` / `46cdc7…`）—— 证明「重包」只改索引里的包裹段，正文不动（与 rev173.448 桌面结论一致）；
 - 解锁后文件树 🔒 组两篇、正文原样读出（`_shots/rev449-phone-13-tree-unlocked.png`）。
 
-**未做**：桌面端 G2（同代码，需真人按 Windows Hello）；「12 / 37」轮换进度视图。
+**G2 桌面证据**（`_tmp-vault-rt13` · 真人按 Windows Hello）
+
+| 场景 | 结果 |
+|---|---|
+| DK 不在内存时轮换 ring→rotate-target | 「重包 1 篇」；`vault.rotate-target.json` 无 `deviceWrapped`（跳过，无指纹框） |
+| 用户在「私密笔记」解锁时按 Hello | rotate-target 补上 `deviceWrapped`（`Select-String -Quiet` = True） |
+| DK 在内存时轮换 rotate-target→ring | 「重包 1 篇」；`vault.ring.json` **立刻有 `deviceWrapped`** = True |
+| 面板刷新 | 「私密文件 · 已绑定 private-notes」「rotate-target · 未分配」 |
+
+**未做**：「12 / 37」轮换进度视图。
 
 > ## 📌 rev173.448（2026-11-09 · 密钥轮换接入：一次操作换环）
 
